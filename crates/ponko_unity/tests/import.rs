@@ -469,7 +469,7 @@ fn groups_are_on_by_default() {
 #[test]
 fn drawn_meshes_become_models_placed_in_ponkos_space() {
     let (_f, scene, report) = import("place");
-    assert_eq!(scene["format"], "crabby-world");
+    assert_eq!(scene["format"], "ponko-world");
     let entities = scene["entities"].as_array().unwrap();
     assert_eq!(entities.len(), 2, "the far LOD and the inactive child are left out");
     assert_eq!(report.skipped["a far level of detail (LOD 1+)"], 1);

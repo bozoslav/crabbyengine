@@ -10,11 +10,20 @@ below for inherited APIs, Cargo features, C/C++ layouts and symbols, saved
 worlds, or MCP tools. The existing 1.x policy remains the reference for
 compatible evolution. Any proposal that conflicts with it needs an explicit
 migration and major-version decision; a 0.x number is not permission for an
-undocumented break. Source directories now use `ponko_*`. The `ponko.h` / `ponko.hpp` headers
-provide source aliases over the existing C symbols and C++ namespace. Binary
-symbols and saved-format identifiers remain unchanged. See the
-[naming migration](book/src/naming.md) for environment precedence and retained
-external identifiers.
+undocumented break. Source directories use `ponko_*`. Primary native declarations, headers and
+exports now use `Ponko*`, `PONKO_*`, `ponko_*` and `ponko::`. This is an
+**additive ABI-2 migration**, not an ABI-3 break: layouts, numeric values,
+calling conventions and ownership stay unchanged. Default builds retain old
+binary exports through the optional, enabled-by-default `ponko_ffi/legacy-names`
+feature; legacy headers are thin shims and Rust low-level aliases are deprecated.
+Disabling that feature deliberately excludes old binary exports.
+
+Legacy names were deprecated on **2026-11-10**. They remain supported through
+at least one minor release and **2027-11-10**; removal requires a future major
+release on or after that date and an explicit changelog notice. This includes
+native exports/headers, Rust aliases, old environment/cache settings, persisted
+format IDs, registry/canvas fallbacks and protocol metadata aliases. No removal
+happens automatically on that date. See the [migration guide](book/src/naming.md).
 
 ## Semantic versioning
 
@@ -24,7 +33,7 @@ From 1.0.0, the public API of these crates follows [semver](https://semver.org):
 |---|---|
 | `ponko` | Every public item that is not `#[doc(hidden)]`, and the cargo features |
 | `ponko_ecs` | Every public item that is not `#[doc(hidden)]` |
-| `ponko_ffi` | The C ABI in `include/crabby.h` and the C++ wrapper `include/crabby.hpp` (see [C ABI](#c-abi)) |
+| `ponko_ffi` | The C ABI in `include/ponko.h` and the C++ wrapper `include/ponko.hpp` (with deprecated compatibility shims) (see [C ABI](#c-abi)) |
 | `ponko_mcp` | The MCP tool names and their parameters |
 
 - **Patch** releases (1.0.x) fix bugs. They change no public signatures.
@@ -80,7 +89,8 @@ patch release, and the CHANGELOG says so. It follows the dependencies
 
 ## C ABI
 
-The C ABI has its own version, `crabby_abi_version()` (currently 2), which
+The C ABI has its own version, `ponko_abi_version()` (currently 2). The
+deprecated `crabby_abi_version()` returns the same value. This version
 only changes when existing functions or structs change incompatibly. That
 happens only in a major release of the engine. Minor releases add new
 functions and enum values; existing struct layouts never change within an
@@ -88,13 +98,13 @@ ABI version. Programs check the version at startup if they load the
 library dynamically:
 
 ```c
-if (crabby_abi_version() != 2) { /* built against another version */ }
+if (ponko_abi_version() != 2) { /* built against another version */ }
 ```
 
 ## Saved worlds
 
-`World::save` writes JSON tagged `"format": "crabby-world"` and a save
-version (currently 1). Every 1.x release loads saves from every earlier 1.x
+`World::save` writes JSON tagged `"format": "ponko-world"` and a save version
+(currently 1). Readers also accept the deprecated `"crabby-world"` tag. Every 1.x release loads saves from every earlier 1.x
 release. Your own components are yours to migrate: give a component
 `#[serde(default)]` and saves written before you added a field still load.
 

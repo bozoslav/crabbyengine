@@ -91,7 +91,7 @@ fn rect_helpers() {
 
 #[test]
 fn loading_a_font_file_twice_gives_the_same_font() {
-    let path = std::env::temp_dir().join(format!("crabby-font-{}.ttf", std::process::id()));
+    let path = std::env::temp_dir().join(format!("ponko-font-{}.ttf", std::process::id()));
     std::fs::write(&path, epaint_default_fonts::UBUNTU_LIGHT).unwrap();
     let name = path.to_str().unwrap().to_string();
     Game::new("fonts", 1, 1).run_headless(0, |ctx| {

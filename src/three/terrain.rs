@@ -146,7 +146,7 @@ pub const TERRAIN_LODS: usize = 4;
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(C)] // shared with C/C++ (`CrabbyTerrainTile`)
+#[repr(C)] // shared with C/C++ (`PonkoTerrainTile`)
 pub struct TerrainTile {
     /// The meshes, finest first.
     pub lods: [Mesh; TERRAIN_LODS],

@@ -1,1163 +1,317 @@
 {
   "description": "Reviewed legacy references; see book/src/naming.md. Decreases are allowed; increases require review.",
   "files": {
-    ".github/workflows/ci.yml": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
     ".github/workflows/release.yml": {
       "occurrences": 2,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
     },
     "AGENTS.md": {
       "occurrences": 7,
       "path_occurrences": 0,
       "category": "intentional history",
-      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
-    },
-    "ARCHITECTURE.md": {
-      "occurrences": 4,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "CHANGELOG.md": {
       "occurrences": 92,
       "path_occurrences": 0,
       "category": "intentional history",
-      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
-    },
-    "CONTRIBUTING.md": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public migration",
-      "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "LICENSE-MIT": {
       "occurrences": 1,
       "path_occurrences": 0,
       "category": "intentional history",
-      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "NOTICE": {
       "occurrences": 2,
       "path_occurrences": 0,
       "category": "intentional history",
-      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "README.md": {
       "occurrences": 8,
       "path_occurrences": 0,
       "category": "intentional history",
-      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
-    },
-    "SECURITY.md": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public migration",
-      "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "STABILITY.md": {
-      "occurrences": 6,
+      "occurrences": 3,
       "path_occurrences": 0,
-      "category": "public migration",
-      "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
-    },
-    "assets/levels/beach.json": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "assets/prefabs/crab.json": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "assets/prefabs/palm.json": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "bench/unity/Assets/Bench/Editor/BenchBuild.cs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Migration instructions and deprecation schedule for legacy names."
     },
     "bench/unity/README.md": {
       "occurrences": 6,
       "path_occurrences": 0,
       "category": "intentional history",
-      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
-    },
-    "book/src/3d.md": {
-      "occurrences": 2,
-      "path_occurrences": 0,
-      "category": "public migration",
-      "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
-    },
-    "book/src/agents.md": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public migration",
-      "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
-    },
-    "book/src/control.md": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "public migration",
-      "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "book/src/naming.md": {
-      "occurrences": 14,
+      "occurrences": 15,
       "path_occurrences": 0,
-      "category": "public migration",
-      "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
-    },
-    "book/src/unity.md": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public migration",
-      "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
-    },
-    "book/src/web.md": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public migration",
-      "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
-    },
-    "changelog.d/195-ctx-services.md": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Migration instructions and deprecation schedule for legacy names."
     },
     "crates/ponko_bench/README.md": {
       "occurrences": 2,
       "path_occurrences": 0,
       "category": "intentional history",
-      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
-    "crates/ponko_ffi/Cargo.toml": {
-      "occurrences": 6,
+    "crates/ponko_ffi/src/legacy.rs": {
+      "occurrences": 1580,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+      "category": "deprecated compatibility",
+      "reason": "Optional legacy native exports and source shims; removal requires a major release no earlier than 2027-11-10."
     },
-    "crates/ponko_ffi/cbindgen.toml": {
-      "occurrences": 89,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/examples/generate_header.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/access.rs": {
-      "occurrences": 97,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/actions.rs": {
-      "occurrences": 89,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/animator.rs": {
-      "occurrences": 216,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/attach.rs": {
-      "occurrences": 30,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/audio3d.rs": {
-      "occurrences": 126,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/changes.rs": {
-      "occurrences": 130,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/contacts3d.rs": {
-      "occurrences": 182,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/ctx.rs": {
-      "occurrences": 327,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/flow.rs": {
-      "occurrences": 94,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/game.rs": {
-      "occurrences": 231,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/gpu.rs": {
-      "occurrences": 84,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/grid.rs": {
-      "occurrences": 59,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/handles.rs": {
-      "occurrences": 54,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/keys.rs": {
-      "occurrences": 271,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/lib.rs": {
-      "occurrences": 225,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/media.rs": {
-      "occurrences": 177,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/messages.rs": {
-      "occurrences": 124,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/morph.rs": {
+    "crates/ponko_ffi/tests/abi_compat.rs": {
       "occurrences": 74,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
-    "crates/ponko_ffi/src/nav3d.rs": {
-      "occurrences": 110,
+    "crates/ponko_ffi/tests/fixtures/abi/README.md": {
+      "occurrences": 10,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
-    "crates/ponko_ffi/src/net.rs": {
-      "occurrences": 52,
+    "crates/ponko_ffi/tests/fixtures/abi/abi_v2.provenance.json": {
+      "occurrences": 3,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+      "category": "intentional history",
+      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
     },
-    "crates/ponko_ffi/src/particles.rs": {
-      "occurrences": 78,
+    "crates/ponko_ffi/tests/fixtures/abi/abi_v2_layout.json": {
+      "occurrences": 428,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+      "category": "intentional history",
+      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
     },
-    "crates/ponko_ffi/src/perf.rs": {
-      "occurrences": 87,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    "crates/ponko_ffi/tests/fixtures/abi/crabby_abi2.h": {
+      "occurrences": 3028,
+      "path_occurrences": 1,
+      "category": "intentional history",
+      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
     },
-    "crates/ponko_ffi/src/physics.rs": {
-      "occurrences": 296,
+    "crates/ponko_ffi/tests/fixtures/abi/generate_baseline.py": {
+      "occurrences": 3,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+      "category": "intentional history",
+      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
     },
-    "crates/ponko_ffi/src/physics3d.rs": {
-      "occurrences": 517,
+    "crates/ponko_ffi/tests/fixtures/abi/layout_table.rs": {
+      "occurrences": 428,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+      "category": "intentional history",
+      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
     },
-    "crates/ponko_ffi/src/physics3d_stream.rs": {
-      "occurrences": 138,
+    "crates/ponko_ffi/tests/naming.rs": {
+      "occurrences": 9,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/ragdoll.rs": {
-      "occurrences": 53,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/reflect.rs": {
-      "occurrences": 75,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/replicate.rs": {
-      "occurrences": 277,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/residency.rs": {
-      "occurrences": 119,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/resources.rs": {
-      "occurrences": 54,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/scene.rs": {
-      "occurrences": 26,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/shader_status.rs": {
-      "occurrences": 64,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/skin.rs": {
-      "occurrences": 121,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/steam.rs": {
-      "occurrences": 29,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/steam_lobby.rs": {
-      "occurrences": 71,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/stream.rs": {
-      "occurrences": 175,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/strips.rs": {
-      "occurrences": 105,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/text3d.rs": {
-      "occurrences": 46,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/three.rs": {
-      "occurrences": 894,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/tiles.rs": {
-      "occurrences": 92,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/types.rs": {
-      "occurrences": 74,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/ui_panel3d.rs": {
-      "occurrences": 45,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/ui_retained.rs": {
-      "occurrences": 749,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/src/vehicle3d.rs": {
-      "occurrences": 132,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/abi.rs": {
-      "occurrences": 183,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/actions.rs": {
-      "occurrences": 114,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/attach.rs": {
-      "occurrences": 50,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/changes.rs": {
-      "occurrences": 176,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/contacts3d.rs": {
-      "occurrences": 127,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/control_endpoint.rs": {
-      "occurrences": 14,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/events.rs": {
-      "occurrences": 54,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/flow.rs": {
-      "occurrences": 71,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/game.rs": {
-      "occurrences": 358,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/gpu.rs": {
-      "occurrences": 66,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/game_setup.rs": {
-      "occurrences": 107,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/handles.rs": {
-      "occurrences": 58,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/headless_ctx.rs": {
-      "occurrences": 265,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/media.rs": {
-      "occurrences": 194,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/morph.rs": {
-      "occurrences": 85,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/net.rs": {
-      "occurrences": 42,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/physics.rs": {
-      "occurrences": 140,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/physics3d.rs": {
-      "occurrences": 168,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/physics3d_streaming.rs": {
-      "occurrences": 96,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/profiling.rs": {
-      "occurrences": 28,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/reflect.rs": {
-      "occurrences": 80,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/resources.rs": {
-      "occurrences": 78,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/scenes.rs": {
-      "occurrences": 95,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/shader_files_and_probes.rs": {
-      "occurrences": 114,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/steam_messages.rs": {
-      "occurrences": 25,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/stream.rs": {
-      "occurrences": 124,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/strips.rs": {
-      "occurrences": 78,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/text3d.rs": {
-      "occurrences": 66,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/three.rs": {
-      "occurrences": 666,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/three_helpers.rs": {
-      "occurrences": 160,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/tiles.rs": {
-      "occurrences": 73,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/ui_panel3d.rs": {
-      "occurrences": 136,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/ui_retained.rs": {
-      "occurrences": 650,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/vehicle3d.rs": {
-      "occurrences": 97,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "crates/ponko_mcp/src/lib.rs": {
-      "occurrences": 22,
+      "occurrences": 18,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
+    },
+    "crates/ponko_mcp/tests/naming.rs": {
+      "occurrences": 6,
+      "path_occurrences": 0,
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "crates/ponko_mcp/tests/server.rs": {
       "occurrences": 1,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "crates/ponko_unity/examples/import.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "crates/ponko_unity/src/animation.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "crates/ponko_unity/src/glb.rs": {
-      "occurrences": 2,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "crates/ponko_unity/src/import.rs": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "crates/ponko_unity/tests/import.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "crates/ponko_unity/tests/models.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "examples/3d.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "examples/coin_dash/CONTENT-NOTICES.txt": {
       "occurrences": 2,
       "path_occurrences": 0,
       "category": "intentional history",
-      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "examples/cpp/CMakeLists.txt": {
       "occurrences": 4,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+      "category": "deprecated compatibility",
+      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
+    },
+    "examples/cpp/abi_baseline.c": {
+      "occurrences": 62,
+      "path_occurrences": 0,
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "examples/cpp/compatibility.c": {
       "occurrences": 6,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "examples/cpp/compatibility.cpp": {
       "occurrences": 5,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "examples/scene_viewer.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "include/crabby.h": {
-      "occurrences": 3391,
+      "occurrences": 1264,
       "path_occurrences": 1,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+      "category": "deprecated compatibility",
+      "reason": "Optional legacy native exports and source shims; removal requires a major release no earlier than 2027-11-10."
     },
     "include/crabby.hpp": {
-      "occurrences": 1487,
+      "occurrences": 6,
       "path_occurrences": 1,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "include/ponko.h": {
-      "occurrences": 1262,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "include/ponko.hpp": {
-      "occurrences": 4,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+      "category": "deprecated compatibility",
+      "reason": "Optional legacy native exports and source shims; removal requires a major release no earlier than 2027-11-10."
     },
     "scripts/check-ffi-coverage.py": {
-      "occurrences": 2,
+      "occurrences": 3,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+      "category": "deprecated compatibility",
+      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
     },
     "scripts/check-naming.py": {
-      "occurrences": 1,
+      "occurrences": 2,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
-    },
-    "scripts/ffi-coverage-allowlist.txt": {
-      "occurrences": 14,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+      "category": "deprecated compatibility",
+      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
     },
     "scripts/generate-ponko-header.py": {
-      "occurrences": 9,
+      "occurrences": 7,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+      "category": "deprecated compatibility",
+      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
     },
     "scripts/leak-check.sh": {
       "occurrences": 3,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+      "category": "deprecated compatibility",
+      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
     },
     "scripts/package-coin-dash.py": {
       "occurrences": 1,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+      "category": "deprecated compatibility",
+      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
     },
-    "src/alloc_count.rs": {
-      "occurrences": 2,
+    "scripts/test-native-symbols.py": {
+      "occurrences": 4,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/attach.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/camera.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/collision.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
     },
     "src/color.rs": {
       "occurrences": 2,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
     },
     "src/control.rs": {
-      "occurrences": 4,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/ecs.rs": {
       "occurrences": 1,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
     },
     "src/environment.rs": {
       "occurrences": 3,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/game.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
     },
     "src/net/steam_messages.rs": {
-      "occurrences": 4,
+      "occurrences": 5,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/physics.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/physics3d/mod.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/physics3d/streaming.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/physics3d/vehicle.rs": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/random.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
     },
     "src/reflect.rs": {
       "occurrences": 1,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
     },
     "src/scene.rs": {
       "occurrences": 1,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/texture.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/three/compute.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/three/effect.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
     },
     "src/three/gltf.rs": {
-      "occurrences": 3,
+      "occurrences": 6,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/three/mod.rs": {
-      "occurrences": 5,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/three/terrain.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "src/three/texture_array.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "category": "deprecated compatibility",
+      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
     },
     "src/web.rs": {
-      "occurrences": 2,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "tests/asset_sources.rs": {
       "occurrences": 1,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+      "category": "deprecated compatibility",
+      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
     },
     "tests/control.rs": {
-      "occurrences": 3,
+      "occurrences": 1,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "tests/fixtures/saves/README.md": {
       "occurrences": 2,
       "path_occurrences": 0,
       "category": "intentional history",
-      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
-    },
-    "tests/fixtures/saves/world_v1.json": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "tests/fixtures/saves/world_v1.provenance.json": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "tests/headless.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "tests/hot_reload.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "tests/naming.rs": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "tests/physics3d.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "tests/save_compat.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "tests/scene_lifecycle.rs": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "tests/scenes.rs": {
-      "occurrences": 2,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "tests/ui.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
-    },
-    "web/index.html": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
-    },
-    "web/smoke/smoke.mjs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Selects the engine's retained web canvas id."
-    },
-    "crates/ponko_ffi/tests/clock.rs": {
-      "occurrences": 91,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/joints.rs": {
-      "occurrences": 172,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/particles.rs": {
-      "occurrences": 77,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/perf.rs": {
-      "occurrences": 52,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/ragdoll.rs": {
-      "occurrences": 80,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/shader_status.rs": {
-      "occurrences": 42,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/skin.rs": {
-      "occurrences": 190,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/animator.rs": {
-      "occurrences": 320,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/audio3d.rs": {
-      "occurrences": 109,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/messages.rs": {
-      "occurrences": 111,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/nav3d.rs": {
-      "occurrences": 89,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/abi_compat.rs": {
-      "occurrences": 72,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/access.rs": {
-      "occurrences": 130,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/fixtures/abi/README.md": {
-      "occurrences": 10,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/fixtures/abi/abi_v2.provenance.json": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/fixtures/abi/abi_v2_layout.json": {
-      "occurrences": 428,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/fixtures/abi/crabby_abi2.h": {
-      "occurrences": 3028,
-      "path_occurrences": 1,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/fixtures/abi/generate_baseline.py": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/fixtures/abi/layout_table.rs": {
-      "occurrences": 428,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "crates/ponko_ffi/tests/residency.rs": {
-      "occurrences": 89,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
-    },
-    "examples/cpp/abi_baseline.c": {
-      "occurrences": 62,
-      "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "tests/fixtures/saves/prefab_v1.json": {
       "occurrences": 1,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+      "category": "intentional history",
+      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
     },
     "tests/fixtures/saves/prefab_v1.provenance.json": {
       "occurrences": 1,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+      "category": "intentional history",
+      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
+    },
+    "tests/fixtures/saves/world_v1.json": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
+    },
+    "tests/fixtures/saves/world_v1.provenance.json": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
+    },
+    "tests/naming.rs": {
+      "occurrences": 3,
+      "path_occurrences": 0,
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "tests/prefab_compat.rs": {
       "occurrences": 2,
       "path_occurrences": 0,
-      "category": "public compatibility",
-      "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
+    },
+    "tests/save_compat.rs": {
+      "occurrences": 2,
+      "path_occurrences": 0,
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     }
   }
 }

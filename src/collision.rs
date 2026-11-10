@@ -21,7 +21,7 @@ pub enum BodyKind {
 /// Event: two colliders started touching (or overlapping, for sensors).
 /// Read with `ctx.events.read::<CollisionStarted>()`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(C)] // C reads these in place as CrabbyCollision.
+#[repr(C)] // C reads these in place as PonkoCollision.
 pub struct CollisionStarted {
     /// One of the two entities.
     pub a: Entity,

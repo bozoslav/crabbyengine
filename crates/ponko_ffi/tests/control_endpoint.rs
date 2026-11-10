@@ -1,4 +1,4 @@
-//! `crabby_game_control_endpoint`: the game opens a token-protected localhost
+//! `ponko_game_control_endpoint`: the game opens a token-protected localhost
 //! endpoint, registers itself in the instances directory, answers a tool and
 //! removes the registration when it ends. Runs headless; the only socket is on
 //! the loopback interface.
@@ -11,7 +11,7 @@ use std::ptr::null_mut;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use CrabbyStatus::*;
+use PonkoStatus::*;
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
@@ -21,10 +21,10 @@ const GAME_LIMIT: Duration = Duration::from_secs(60);
 
 /// Ends the game when the client is done (or has failed: see `StopOnDrop`),
 /// or when it has run for `GAME_LIMIT`.
-unsafe extern "C" fn quit_when_told(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn quit_when_told(ctx: *mut PonkoCtx, user: *mut c_void) {
     let started = unsafe { *user.cast::<Instant>() };
     if STOP.load(Ordering::SeqCst) || started.elapsed() > GAME_LIMIT {
-        unsafe { crabby_ctx_quit(ctx) };
+        unsafe { ponko_ctx_quit(ctx) };
     }
 }
 
@@ -53,24 +53,24 @@ fn ask(stream: &mut TcpStream, reader: &mut BufReader<TcpStream>, request: serde
 fn run_game(endpoint: bool) {
     let mut started = Instant::now();
     unsafe {
-        let game = crabby_game_new(c"c-control".as_ptr(), 1, 1);
-        assert_eq!(crabby_game_control_endpoint(game, endpoint), CRABBY_OK);
+        let game = ponko_game_new(c"c-control".as_ptr(), 1, 1);
+        assert_eq!(ponko_game_control_endpoint(game, endpoint), PONKO_OK);
         assert_eq!(
-            crabby_game_sim_system(
+            ponko_game_sim_system(
                 game,
                 c"quit".as_ptr(),
                 1,
                 Some(quit_when_told),
                 (&raw mut started).cast()
             ),
-            CRABBY_OK
+            PONKO_OK
         );
         let mut world = null_mut();
         assert_eq!(
-            crabby_game_run_headless(game, u64::MAX, None, null_mut(), &mut world),
-            CRABBY_OK
+            ponko_game_run_headless(game, u64::MAX, None, null_mut(), &mut world),
+            PONKO_OK
         );
-        crabby_world_free(world);
+        ponko_world_free(world);
     }
 }
 
@@ -81,8 +81,8 @@ fn the_control_endpoint_opens_registers_answers_and_closes() {
     // SAFETY: this test binary has one test, and no other thread reads the environment yet.
     unsafe { std::env::set_var("PONKO_INSTANCES_DIR", &dir) };
     assert_eq!(
-        unsafe { crabby_game_control_endpoint(null_mut(), true) },
-        CRABBY_INVALID_ARGUMENT
+        unsafe { ponko_game_control_endpoint(null_mut(), true) },
+        PONKO_INVALID_ARGUMENT
     );
 
     // Off (the default): the game registers nowhere.

@@ -220,7 +220,7 @@ fn update_texture_checks_the_size() {
 
 #[test]
 fn headless_runs_have_no_render_stats_or_screenshots() {
-    let path = std::env::temp_dir().join(format!("crabby-headless-shot-{}.png", std::process::id()));
+    let path = std::env::temp_dir().join(format!("ponko-headless-shot-{}.png", std::process::id()));
     let p = path.clone();
     let ran = std::rc::Rc::new(std::cell::Cell::new(0));
     let r = ran.clone();

@@ -9,18 +9,18 @@
     html, body { margin: 0; height: 100%; background: #14161b; color: #d6d9e0;
                  font: 15px/1.4 system-ui, sans-serif; overflow: hidden; }
     /* The game fills the page; winit reports the size to the game. */
-    canvas#crabby { display: block; width: 100vw !important; height: 100vh !important; outline: none; }
+    canvas#ponko { display: block; width: 100vw !important; height: 100vh !important; outline: none; }
     #status { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
     #status.error { color: #ff8a80; padding: 2em; text-align: center; }
   </style>
 </head>
 <body>
-  <canvas id="crabby" tabindex="0"></canvas>
+  <canvas id="ponko" tabindex="0"></canvas>
   <div id="status">Loading…</div>
   <script type="module">
     import init from "./game.js";
     const status = document.getElementById("status");
-    const canvas = document.getElementById("crabby");
+    const canvas = document.getElementById("ponko");
     window.addEventListener("error", (e) => {
       status.className = "error";
       status.textContent = "The game stopped: " + e.message + " (see the browser console)";

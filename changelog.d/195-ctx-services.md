@@ -56,6 +56,6 @@
 - **Breaking:** the `Ctx` fields `ui_retained` and `ui_style`.
   `ctx.ui_retained` is now `ctx.ui`, and `ctx.ui_style` is
   `ctx.ui.immediate.style`. These two fields are the only old spellings
-  that no longer compile. In the C API, `crabby_ctx_ui_wants_pointer` now
+  that no longer compile. In the C API, `ponko_ctx_ui_wants_pointer` now
   also covers world panels and the immediate widgets (it follows
   `Ui::wants_pointer()`), not only the retained UI.

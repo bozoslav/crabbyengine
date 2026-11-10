@@ -1,56 +1,56 @@
-//! One handle lifecycle through the C API: `crabby_ctx_handle_is_live`,
-//! `crabby_ctx_handle_free` and `crabby_ctx_live_counts` for every kind.
+//! One handle lifecycle through the C API: `ponko_ctx_handle_is_live`,
+//! `ponko_ctx_handle_free` and `ponko_ctx_live_counts` for every kind.
 use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::null_mut;
 
-use CrabbyHandleKind::*;
-use CrabbyStatus::*;
+use PonkoHandleKind::*;
+use PonkoStatus::*;
 
-unsafe fn is_live(ctx: *mut CrabbyCtx, kind: CrabbyHandleKind, id: u32) -> bool {
+unsafe fn is_live(ctx: *mut PonkoCtx, kind: PonkoHandleKind, id: u32) -> bool {
     let mut live = false;
     assert_eq!(
-        unsafe { crabby_ctx_handle_is_live(ctx, kind as u32, id, &mut live) },
-        CRABBY_OK
+        unsafe { ponko_ctx_handle_is_live(ctx, kind as u32, id, &mut live) },
+        PONKO_OK
     );
     live
 }
 
-unsafe fn counts(ctx: *mut CrabbyCtx) -> CrabbyLiveCounts {
-    let mut c = CrabbyLiveCounts::default();
-    assert_eq!(unsafe { crabby_ctx_live_counts(ctx, &mut c) }, CRABBY_OK);
+unsafe fn counts(ctx: *mut PonkoCtx) -> PonkoLiveCounts {
+    let mut c = PonkoLiveCounts::default();
+    assert_eq!(unsafe { ponko_ctx_live_counts(ctx, &mut c) }, PONKO_OK);
     c
 }
 
-unsafe extern "C" fn lifecycle(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn lifecycle(ctx: *mut PonkoCtx, user: *mut c_void) {
     unsafe {
-        let errors = &mut *user.cast::<Vec<CrabbyStatus>>();
+        let errors = &mut *user.cast::<Vec<PonkoStatus>>();
         let before = counts(ctx);
-        let white = CrabbyColor {
+        let white = PonkoColor {
             r: 1.0,
             g: 1.0,
             b: 1.0,
             a: 1.0,
         };
-        let mut texture = std::mem::zeroed::<CrabbyTexture>();
+        let mut texture = std::mem::zeroed::<PonkoTexture>();
         assert_eq!(
-            crabby_ctx_create_texture(ctx, 1, 1, [255u8; 4].as_ptr(), 4, &mut texture),
-            CRABBY_OK
+            ponko_ctx_create_texture(ctx, 1, 1, [255u8; 4].as_ptr(), 4, &mut texture),
+            PONKO_OK
         );
-        let mut material = CrabbyMaterial::default();
+        let mut material = PonkoMaterial::default();
         assert_eq!(
-            crabby_ctx_create_material(ctx, &crabby_material_desc(white), &mut material),
-            CRABBY_OK
+            ponko_ctx_create_material(ctx, &ponko_material_desc(white), &mut material),
+            PONKO_OK
         );
-        let mut sound = std::mem::zeroed::<CrabbySound>();
+        let mut sound = std::mem::zeroed::<PonkoSound>();
         assert_eq!(
-            crabby_ctx_create_sound(ctx, 8000, [0.0f32; 8].as_ptr(), 8, &mut sound),
-            CRABBY_OK
+            ponko_ctx_create_sound(ctx, 8000, [0.0f32; 8].as_ptr(), 8, &mut sound),
+            PONKO_OK
         );
         let made = [
-            (CRABBY_HANDLE_TEXTURE, texture.id),
-            (CRABBY_HANDLE_MATERIAL, material.id),
-            (CRABBY_HANDLE_SOUND, sound.id),
+            (PONKO_HANDLE_TEXTURE, texture.id),
+            (PONKO_HANDLE_MATERIAL, material.id),
+            (PONKO_HANDLE_SOUND, sound.id),
         ];
         let now = counts(ctx);
         assert_eq!(now.textures, before.textures + 1);
@@ -58,53 +58,49 @@ unsafe extern "C" fn lifecycle(ctx: *mut CrabbyCtx, user: *mut c_void) {
         assert_eq!(now.sounds, before.sounds + 1);
         for (kind, id) in made {
             assert!(is_live(ctx, kind, id), "{kind:?} live");
-            assert_eq!(crabby_ctx_handle_free(ctx, kind as u32, id), CRABBY_OK);
-            assert_eq!(
-                crabby_ctx_handle_free(ctx, kind as u32, id),
-                CRABBY_OK,
-                "again: nothing"
-            );
+            assert_eq!(ponko_ctx_handle_free(ctx, kind as u32, id), PONKO_OK);
+            assert_eq!(ponko_ctx_handle_free(ctx, kind as u32, id), PONKO_OK, "again: nothing");
             assert!(!is_live(ctx, kind, id), "{kind:?} dead");
         }
         assert_eq!(counts(ctx), before);
         // The C API's own checks see a freed material as gone.
-        let data = crabby_mesh_data_cube(1.0);
-        let mut mesh = CrabbyMesh::default();
-        errors.push(crabby_ctx_create_mesh(ctx, data, material, &mut mesh));
-        crabby_mesh_data_free(data);
+        let data = ponko_mesh_data_cube(1.0);
+        let mut mesh = PonkoMesh::default();
+        errors.push(ponko_ctx_create_mesh(ctx, data, material, &mut mesh));
+        ponko_mesh_data_free(data);
         // No handle of any kind has the NONE id.
         for kind in 0..=10 {
             let mut live = true;
             assert_eq!(
-                crabby_ctx_handle_is_live(ctx, kind, CRABBY_HANDLE_NONE, &mut live),
-                CRABBY_OK
+                ponko_ctx_handle_is_live(ctx, kind, PONKO_HANDLE_NONE, &mut live),
+                PONKO_OK
             );
             assert!(!live);
-            assert_eq!(crabby_ctx_handle_free(ctx, kind, CRABBY_HANDLE_NONE), CRABBY_OK);
+            assert_eq!(ponko_ctx_handle_free(ctx, kind, PONKO_HANDLE_NONE), PONKO_OK);
         }
         // The built-in font is live and is never freed.
-        assert!(is_live(ctx, CRABBY_HANDLE_FONT, 0));
-        assert_eq!(crabby_ctx_handle_free(ctx, CRABBY_HANDLE_FONT as u32, 0), CRABBY_OK);
-        assert!(is_live(ctx, CRABBY_HANDLE_FONT, 0));
+        assert!(is_live(ctx, PONKO_HANDLE_FONT, 0));
+        assert_eq!(ponko_ctx_handle_free(ctx, PONKO_HANDLE_FONT as u32, 0), PONKO_OK);
+        assert!(is_live(ctx, PONKO_HANDLE_FONT, 0));
         // Errors.
-        errors.push(crabby_ctx_handle_free(ctx, 11, 0));
-        errors.push(crabby_ctx_handle_is_live(ctx, 0, 0, null_mut()));
-        errors.push(crabby_ctx_live_counts(ctx, null_mut()));
+        errors.push(ponko_ctx_handle_free(ctx, 11, 0));
+        errors.push(ponko_ctx_handle_is_live(ctx, 0, 0, null_mut()));
+        errors.push(ponko_ctx_live_counts(ctx, null_mut()));
     }
 }
 
 #[test]
 fn every_kind_frees_through_one_pair_of_calls() {
-    let mut errors: Vec<CrabbyStatus> = Vec::new();
+    let mut errors: Vec<PonkoStatus> = Vec::new();
     unsafe {
-        let g = crabby_game_new(c"handles".as_ptr(), 64, 64);
+        let g = ponko_game_new(c"handles".as_ptr(), 64, 64);
         let mut world = null_mut();
         let user = (&raw mut errors).cast();
         assert_eq!(
-            crabby_game_run_headless(g, 1, Some(lifecycle), user, &mut world),
-            CRABBY_OK
+            ponko_game_run_headless(g, 1, Some(lifecycle), user, &mut world),
+            PONKO_OK
         );
-        crabby_world_free(world);
+        ponko_world_free(world);
     }
-    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 4]);
+    assert_eq!(errors, vec![PONKO_INVALID_ARGUMENT; 4]);
 }

@@ -1,4 +1,4 @@
-//! `CrabbyCtx`: what a C system gets, the C side of Rust's `Ctx`.
+//! `PonkoCtx`: what a C system gets, the C side of Rust's `Ctx`.
 //!
 //! One busy flag (the lent world's) guards the world and every context call,
 //! so nothing can reach the `Ctx` while a query borrows its world. Commands
@@ -13,15 +13,13 @@ use ponko_ecs::{Commands, Entity};
 
 use crate::keys::{button_from_c, gamepad_axis_from_c, gamepad_button_from_c, key_from_c};
 use crate::types::*;
-use crate::{
-    CrabbyStatus, CrabbyValue, CrabbyWorld, Failure, Kind, boundary, error, insert_value, invalid, spawn_values,
-};
+use crate::{Failure, Kind, PonkoStatus, PonkoValue, PonkoWorld, boundary, error, insert_value, invalid, spawn_values};
 
 /// What a system gets: the world, the clock, input, drawing and commands.
 /// Valid only during the callback it was passed to.
-pub struct CrabbyCtx {
+pub struct PonkoCtx {
     /// The context's world, lent for this callback. Its busy flag guards `ctx` too.
-    pub(crate) world: CrabbyWorld,
+    pub(crate) world: PonkoWorld,
     ctx: *mut Ctx,
     commands_busy: AtomicBool,
     events_busy: AtomicBool,
@@ -32,11 +30,11 @@ pub struct CrabbyCtx {
     frame: u64,
     fps: f32,
     random_bits: u64,
-    window: CrabbyVec2,
+    window: PonkoVec2,
 }
 
 /// Lends `ctx` to C for one callback.
-pub(crate) fn with_ctx<R>(ctx: &mut Ctx, f: impl FnOnce(*mut CrabbyCtx) -> R) -> R {
+pub(crate) fn with_ctx<R>(ctx: &mut Ctx, f: impl FnOnce(*mut PonkoCtx) -> R) -> R {
     let snapshot = (
         ctx.dt(),
         ctx.time.sim_tick(),
@@ -51,8 +49,8 @@ pub(crate) fn with_ctx<R>(ctx: &mut Ctx, f: impl FnOnce(*mut CrabbyCtx) -> R) ->
     // SAFETY: `raw` comes from a live `&mut Ctx`; from here on it is only used
     // through raw pointers, and the busy flags keep accesses from overlapping.
     let world = unsafe { &raw mut (*raw).world };
-    let mut handle = CrabbyCtx {
-        world: CrabbyWorld::new(world, false),
+    let mut handle = PonkoCtx {
+        world: PonkoWorld::new(world, false),
         ctx: raw,
         commands_busy: AtomicBool::new(false),
         events_busy: AtomicBool::new(false),
@@ -69,7 +67,7 @@ pub(crate) fn with_ctx<R>(ctx: &mut Ctx, f: impl FnOnce(*mut CrabbyCtx) -> R) ->
 }
 
 pub(crate) unsafe fn ctx_access<R>(
-    handle: *const CrabbyCtx,
+    handle: *const PonkoCtx,
     f: impl FnOnce(&mut Ctx) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
     if handle.is_null() {
@@ -78,17 +76,14 @@ pub(crate) unsafe fn ctx_access<R>(
     // SAFETY: caller supplies a live ctx from a running callback.
     let handle = unsafe { &*handle };
     let Some(_guard) = handle.world.lock() else {
-        return Err(error(
-            CrabbyStatus::CRABBY_BUSY,
-            "ctx is borrowed (a query is running?)",
-        ));
+        return Err(error(PonkoStatus::PONKO_BUSY, "ctx is borrowed (a query is running?)"));
     };
     // SAFETY: the busy flag grants exclusive access to the whole Ctx.
     f(unsafe { &mut *handle.ctx })
 }
 
 unsafe fn commands<R>(
-    handle: *const CrabbyCtx,
+    handle: *const PonkoCtx,
     f: impl FnOnce(&mut Commands) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
     if handle.is_null() {
@@ -98,12 +93,12 @@ unsafe fn commands<R>(
     let handle = unsafe { &*handle };
     if handle.world.parallel.load(Ordering::Acquire) {
         return Err(error(
-            CrabbyStatus::CRABBY_BUSY,
-            "commands are off during crabby_query_par",
+            PonkoStatus::PONKO_BUSY,
+            "commands are off during ponko_query_par",
         ));
     }
     if handle.commands_busy.swap(true, Ordering::Acquire) {
-        return Err(error(CrabbyStatus::CRABBY_BUSY, "commands are in use"));
+        return Err(error(PonkoStatus::PONKO_BUSY, "commands are in use"));
     }
     struct Reset<'a>(&'a AtomicBool);
     impl Drop for Reset<'_> {
@@ -118,9 +113,9 @@ unsafe fn commands<R>(
     f(unsafe { &mut (*handle.ctx).commands })
 }
 
-/// Events, usable inside `crabby_query` callbacks like commands.
+/// Events, usable inside `ponko_query` callbacks like commands.
 pub(crate) unsafe fn events<R>(
-    handle: *const CrabbyCtx,
+    handle: *const PonkoCtx,
     f: impl FnOnce(&mut ponko::Events) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
     if handle.is_null() {
@@ -129,13 +124,10 @@ pub(crate) unsafe fn events<R>(
     // SAFETY: caller supplies a live ctx from a running callback.
     let handle = unsafe { &*handle };
     if handle.world.parallel.load(Ordering::Acquire) {
-        return Err(error(
-            CrabbyStatus::CRABBY_BUSY,
-            "events are off during crabby_query_par",
-        ));
+        return Err(error(PonkoStatus::PONKO_BUSY, "events are off during ponko_query_par"));
     }
     if handle.events_busy.swap(true, Ordering::Acquire) {
-        return Err(error(CrabbyStatus::CRABBY_BUSY, "events are in use"));
+        return Err(error(PonkoStatus::PONKO_BUSY, "events are in use"));
     }
     struct Reset<'a>(&'a AtomicBool);
     impl Drop for Reset<'_> {
@@ -150,7 +142,7 @@ pub(crate) unsafe fn events<R>(
 }
 
 /// The built-in grid, read-only. Usable from any thread during a callback.
-unsafe fn spatial<'a>(handle: *const CrabbyCtx) -> Result<&'a SpatialGrid, Failure> {
+unsafe fn spatial<'a>(handle: *const PonkoCtx) -> Result<&'a SpatialGrid, Failure> {
     if handle.is_null() {
         return Err(invalid("ctx is null"));
     }
@@ -179,13 +171,13 @@ pub(crate) unsafe fn text<'a>(ptr: *const c_char) -> Result<&'a str, Failure> {
 
 /// Seconds this system covers: the fixed step in sim systems, the frame time otherwise.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_dt(std::ptr::null()) }, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_dt(std::ptr::null()) }, 0.0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
 /// `ctx` must be null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_dt(ctx: *const CrabbyCtx) -> f32 {
+pub unsafe extern "C" fn ponko_ctx_dt(ctx: *const PonkoCtx) -> f32 {
     if ctx.is_null() {
         return Default::default();
     }
@@ -194,13 +186,13 @@ pub unsafe extern "C" fn crabby_ctx_dt(ctx: *const CrabbyCtx) -> f32 {
 }
 /// Simulation ticks completed so far.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_sim_tick(std::ptr::null()) }, 0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_sim_tick(std::ptr::null()) }, 0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
 /// `ctx` must be null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_sim_tick(ctx: *const CrabbyCtx) -> u64 {
+pub unsafe extern "C" fn ponko_ctx_sim_tick(ctx: *const PonkoCtx) -> u64 {
     if ctx.is_null() {
         return Default::default();
     }
@@ -209,13 +201,13 @@ pub unsafe extern "C" fn crabby_ctx_sim_tick(ctx: *const CrabbyCtx) -> u64 {
 }
 /// Simulated seconds so far (exact: ticks × fixed step).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_sim_time(std::ptr::null()) }, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_sim_time(std::ptr::null()) }, 0.0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
 /// `ctx` must be null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_sim_time(ctx: *const CrabbyCtx) -> f64 {
+pub unsafe extern "C" fn ponko_ctx_sim_time(ctx: *const PonkoCtx) -> f64 {
     if ctx.is_null() {
         return Default::default();
     }
@@ -224,13 +216,13 @@ pub unsafe extern "C" fn crabby_ctx_sim_time(ctx: *const CrabbyCtx) -> f64 {
 }
 /// Wall-clock seconds since the game started.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_time(std::ptr::null()) }, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_time(std::ptr::null()) }, 0.0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
 /// `ctx` must be null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_time(ctx: *const CrabbyCtx) -> f64 {
+pub unsafe extern "C" fn ponko_ctx_time(ctx: *const PonkoCtx) -> f64 {
     if ctx.is_null() {
         return Default::default();
     }
@@ -239,13 +231,13 @@ pub unsafe extern "C" fn crabby_ctx_time(ctx: *const CrabbyCtx) -> f64 {
 }
 /// Frames drawn so far.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_frame(std::ptr::null()) }, 0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_frame(std::ptr::null()) }, 0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
 /// `ctx` must be null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_frame(ctx: *const CrabbyCtx) -> u64 {
+pub unsafe extern "C" fn ponko_ctx_frame(ctx: *const PonkoCtx) -> u64 {
     if ctx.is_null() {
         return Default::default();
     }
@@ -254,13 +246,13 @@ pub unsafe extern "C" fn crabby_ctx_frame(ctx: *const CrabbyCtx) -> u64 {
 }
 /// Frames per second, averaged.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_fps(std::ptr::null()) }, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_fps(std::ptr::null()) }, 0.0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
 /// `ctx` must be null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_fps(ctx: *const CrabbyCtx) -> f32 {
+pub unsafe extern "C" fn ponko_ctx_fps(ctx: *const PonkoCtx) -> f32 {
     if ctx.is_null() {
         return Default::default();
     }
@@ -268,15 +260,15 @@ pub unsafe extern "C" fn crabby_ctx_fps(ctx: *const CrabbyCtx) -> f32 {
     unsafe { (*ctx).fps }
 }
 /// Base of this tick and system's random streams (Rust `ctx.random().to_bits()`).
-/// The C++ header's `crabby::rng` derives the same numbers as Rust from it.
+/// The C++ header's `ponko::rng` derives the same numbers as Rust from it.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_random_bits(std::ptr::null()) }, 0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_random_bits(std::ptr::null()) }, 0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
 /// `ctx` must be null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_random_bits(ctx: *const CrabbyCtx) -> u64 {
+pub unsafe extern "C" fn ponko_ctx_random_bits(ctx: *const PonkoCtx) -> u64 {
     if ctx.is_null() {
         return Default::default();
     }
@@ -285,13 +277,13 @@ pub unsafe extern "C" fn crabby_ctx_random_bits(ctx: *const CrabbyCtx) -> u64 {
 }
 /// Window size in pixels.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_window_size(std::ptr::null()) }.x, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_window_size(std::ptr::null()) }.x, 0.0);
 /// ```
 /// Returns 0 for a null ctx. Safe to call from any thread during the callback.
 /// # Safety
 /// `ctx` must be null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_window_size(ctx: *const CrabbyCtx) -> CrabbyVec2 {
+pub unsafe extern "C" fn ponko_ctx_window_size(ctx: *const PonkoCtx) -> PonkoVec2 {
     if ctx.is_null() {
         return Default::default();
     }
@@ -303,10 +295,10 @@ pub unsafe extern "C" fn crabby_ctx_window_size(ctx: *const CrabbyCtx) -> Crabby
 /// # Safety
 /// `ctx` must be null or live.
 /// ```
-/// assert!(unsafe { ponko_ffi::crabby_ctx_world(std::ptr::null_mut()) }.is_null());
+/// assert!(unsafe { ponko_ffi::ponko_ctx_world(std::ptr::null_mut()) }.is_null());
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_world(ctx: *mut CrabbyCtx) -> *mut CrabbyWorld {
+pub unsafe extern "C" fn ponko_ctx_world(ctx: *mut PonkoCtx) -> *mut PonkoWorld {
     if ctx.is_null() {
         return std::ptr::null_mut();
     }
@@ -317,12 +309,12 @@ pub unsafe extern "C" fn crabby_ctx_world(ctx: *mut CrabbyCtx) -> *mut CrabbyWor
 /// Ends the game after this frame (or the headless run after this tick).
 /// ```
 /// use ponko_ffi::*;
-/// assert_eq!(unsafe { crabby_ctx_quit(std::ptr::null_mut()) }, CrabbyStatus::CRABBY_INVALID_ARGUMENT);
+/// assert_eq!(unsafe { ponko_ctx_quit(std::ptr::null_mut()) }, PonkoStatus::PONKO_INVALID_ARGUMENT);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_quit(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_quit(ctx: *mut PonkoCtx) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -333,12 +325,12 @@ pub unsafe extern "C" fn crabby_ctx_quit(ctx: *mut CrabbyCtx) -> CrabbyStatus {
 }
 /// Pauses the simulation (frame systems keep running).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_pause(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_pause(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_pause(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_pause(ctx: *mut PonkoCtx) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -349,12 +341,12 @@ pub unsafe extern "C" fn crabby_ctx_pause(ctx: *mut CrabbyCtx) -> CrabbyStatus {
 }
 /// Resumes a paused simulation.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_resume(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_resume(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_resume(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_resume(ctx: *mut PonkoCtx) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -365,12 +357,12 @@ pub unsafe extern "C" fn crabby_ctx_resume(ctx: *mut CrabbyCtx) -> CrabbyStatus 
 }
 /// Runs one simulation tick while paused.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_step(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_step(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_step(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_step(ctx: *mut PonkoCtx) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -381,12 +373,12 @@ pub unsafe extern "C" fn crabby_ctx_step(ctx: *mut CrabbyCtx) -> CrabbyStatus {
 }
 /// Simulation speed multiplier (1..64); results don't depend on it.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_sim_speed(std::ptr::null_mut(), 2.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_sim_speed(std::ptr::null_mut(), 2.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_sim_speed(ctx: *mut CrabbyCtx, speed: f32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_set_sim_speed(ctx: *mut PonkoCtx, speed: f32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -400,35 +392,35 @@ pub unsafe extern "C" fn crabby_ctx_set_sim_speed(ctx: *mut CrabbyCtx, speed: f3
 }
 /// Current simulation speed.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_sim_speed(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_sim_speed(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_sim_speed(ctx: *mut CrabbyCtx, out_speed: *mut f32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_sim_speed(ctx: *mut PonkoCtx, out_speed: *mut f32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_speed, c.time.speed())) })
 }
 /// Whether the simulation is paused.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_is_paused(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_is_paused(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_is_paused(ctx: *mut CrabbyCtx, out_paused: *mut bool) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_is_paused(ctx: *mut PonkoCtx, out_paused: *mut bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_paused, c.time.is_paused())) })
 }
 
-/// Whether a key (`CrabbyKey`) is held.
+/// Whether a key (`PonkoKey`) is held.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_key_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_key_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_key_down(ctx: *mut CrabbyCtx, input: u32, out_state: *mut bool) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_key_down(ctx: *mut PonkoCtx, input: u32, out_state: *mut bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -439,12 +431,12 @@ pub unsafe extern "C" fn crabby_ctx_key_down(ctx: *mut CrabbyCtx, input: u32, ou
 }
 /// Whether a key went down this frame.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_key_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_key_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_key_pressed(ctx: *mut CrabbyCtx, input: u32, out_state: *mut bool) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_key_pressed(ctx: *mut PonkoCtx, input: u32, out_state: *mut bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -455,16 +447,12 @@ pub unsafe extern "C" fn crabby_ctx_key_pressed(ctx: *mut CrabbyCtx, input: u32,
 }
 /// Whether a key went up this frame.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_key_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_key_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_key_released(
-    ctx: *mut CrabbyCtx,
-    input: u32,
-    out_state: *mut bool,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_key_released(ctx: *mut PonkoCtx, input: u32, out_state: *mut bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -473,14 +461,14 @@ pub unsafe extern "C" fn crabby_ctx_key_released(
         })
     })
 }
-/// Whether a mouse button (`CrabbyMouseButton`) is held.
+/// Whether a mouse button (`PonkoMouseButton`) is held.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_mouse_down(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_mouse_down(ctx: *mut CrabbyCtx, input: u32, out_state: *mut bool) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_mouse_down(ctx: *mut PonkoCtx, input: u32, out_state: *mut bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -491,16 +479,12 @@ pub unsafe extern "C" fn crabby_ctx_mouse_down(ctx: *mut CrabbyCtx, input: u32, 
 }
 /// Whether a mouse button went down this frame.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_mouse_pressed(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_mouse_pressed(
-    ctx: *mut CrabbyCtx,
-    input: u32,
-    out_state: *mut bool,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_mouse_pressed(ctx: *mut PonkoCtx, input: u32, out_state: *mut bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -511,16 +495,12 @@ pub unsafe extern "C" fn crabby_ctx_mouse_pressed(
 }
 /// Whether a mouse button went up this frame.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_mouse_released(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_mouse_released(
-    ctx: *mut CrabbyCtx,
-    input: u32,
-    out_state: *mut bool,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_mouse_released(ctx: *mut PonkoCtx, input: u32, out_state: *mut bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -529,26 +509,26 @@ pub unsafe extern "C" fn crabby_ctx_mouse_released(
         })
     })
 }
-/// How many gamepads are connected; read each with `crabby_ctx_gamepad_at`.
+/// How many gamepads are connected; read each with `ponko_ctx_gamepad_at`.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_count(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_gamepad_count(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_count` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_gamepad_count(ctx: *mut CrabbyCtx, out_count: *mut u32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_gamepad_count(ctx: *mut PonkoCtx, out_count: *mut u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, c.input.gamepads().len() as u32)) })
 }
 /// The slot of the `index`th connected gamepad (`0..count`), by slot order:
 /// the number every other gamepad call takes as `pad`.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_at(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_gamepad_at(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_pad` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_gamepad_at(ctx: *mut CrabbyCtx, index: u32, out_pad: *mut u32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_gamepad_at(ctx: *mut PonkoCtx, index: u32, out_pad: *mut u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -568,19 +548,19 @@ fn gamepad_args(pad: u32, button: u32) -> Result<(Gamepad, GamepadButton), Failu
     Ok((pad, button))
 }
 
-/// Whether `button` (`CrabbyGamepadButton`) is held on gamepad `pad` (a slot).
+/// Whether `button` (`PonkoGamepadButton`) is held on gamepad `pad` (a slot).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_down(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_gamepad_down(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_gamepad_down(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_gamepad_down(
+    ctx: *mut PonkoCtx,
     pad: u32,
     button: u32,
     out_state: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -591,17 +571,17 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_down(
 }
 /// Whether `button` went down on `pad` this frame.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_pressed(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_gamepad_pressed(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_gamepad_pressed(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_gamepad_pressed(
+    ctx: *mut PonkoCtx,
     pad: u32,
     button: u32,
     out_state: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -612,17 +592,17 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_pressed(
 }
 /// Whether `button` went up on `pad` this frame.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_released(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_gamepad_released(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_state` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_gamepad_released(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_gamepad_released(
+    ctx: *mut PonkoCtx,
     pad: u32,
     button: u32,
     out_state: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -631,20 +611,20 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_released(
         })
     })
 }
-/// One axis (`CrabbyGamepadAxis`) of gamepad `pad`: sticks `-1..1` (y down),
+/// One axis (`PonkoGamepadAxis`) of gamepad `pad`: sticks `-1..1` (y down),
 /// triggers `0..1`.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gamepad_axis(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_gamepad_axis(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; `out_value` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_gamepad_axis(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_gamepad_axis(
+    ctx: *mut PonkoCtx,
     pad: u32,
     axis: u32,
     out_value: *mut f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -656,58 +636,58 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_axis(
 }
 /// Mouse position in window pixels.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_pos(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_mouse_pos(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_mouse_pos(ctx: *mut CrabbyCtx, out_pos: *mut CrabbyVec2) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_mouse_pos(ctx: *mut PonkoCtx, out_pos: *mut PonkoVec2) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_pos, to_c(c.mouse_pos()))) })
 }
 /// Mouse position in world units (through the camera).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_world(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_mouse_world(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_mouse_world(ctx: *mut CrabbyCtx, out_pos: *mut CrabbyVec2) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_mouse_world(ctx: *mut PonkoCtx, out_pos: *mut PonkoVec2) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_pos, to_c(c.mouse_world()))) })
 }
 /// Scroll this frame (lines; positive y = away from the user).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_wheel(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_mouse_wheel(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_mouse_wheel(ctx: *mut CrabbyCtx, out_wheel: *mut CrabbyVec2) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_mouse_wheel(ctx: *mut PonkoCtx, out_wheel: *mut PonkoVec2) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_wheel, to_c(c.input.mouse_wheel()))) })
 }
 /// How far the mouse moved this frame, in raw device units (+y = down),
 /// even while the cursor is locked: for mouse look.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_mouse_motion(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_mouse_motion(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_mouse_motion(ctx: *mut CrabbyCtx, out_motion: *mut CrabbyVec2) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_mouse_motion(ctx: *mut PonkoCtx, out_motion: *mut PonkoVec2) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_motion, to_c(c.input.mouse_motion()))) })
 }
 /// Locks (hides and holds) the cursor in the window, or lets it go. Takes
 /// effect after this frame.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_cursor_locked(std::ptr::null_mut(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_cursor_locked(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_cursor_locked(ctx: *mut CrabbyCtx, locked: bool) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_set_cursor_locked(ctx: *mut PonkoCtx, locked: bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -718,12 +698,12 @@ pub unsafe extern "C" fn crabby_ctx_set_cursor_locked(ctx: *mut CrabbyCtx, locke
 }
 /// Whether the game asked for the cursor to be locked.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_cursor_locked(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_cursor_locked(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_cursor_locked(ctx: *mut CrabbyCtx, out_locked: *mut bool) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_cursor_locked(ctx: *mut PonkoCtx, out_locked: *mut bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_locked, c.input.cursor_locked())) })
 }
@@ -731,16 +711,16 @@ pub unsafe extern "C" fn crabby_ctx_cursor_locked(ctx: *mut CrabbyCtx, out_locke
 /// Loads a PNG/JPEG texture (cached by path). Headless runs return a
 /// size-only handle. Errors (missing file) come back as a failed status.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_texture(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_load_texture(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_load_texture(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_load_texture(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
-    out_texture: *mut CrabbyTexture,
-) -> CrabbyStatus {
+    out_texture: *mut PonkoTexture,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -753,22 +733,22 @@ pub unsafe extern "C" fn crabby_ctx_load_texture(
     })
 }
 /// Loads a JSON file from `assets/` into reflected component `component` of
-/// `entity` (object fields merge; reflect it with `crabby_component_reflect`
+/// `entity` (object fields merge; reflect it with `ponko_component_reflect`
 /// first). With hot reload on, editing the file updates the component while
 /// the game runs; a file that doesn't parse keeps the old values. C's way to
 /// keep tunable game data (speeds, costs, waves) in a file.
 /// # Safety
 /// `ctx` must be null or live; `path` a NUL-terminated string.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_json(std::ptr::null_mut(), std::ptr::null(), 0, 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_load_json(std::ptr::null_mut(), std::ptr::null(), 0, 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_load_json(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_load_json(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
     entity: u64,
     component: u32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -792,21 +772,21 @@ pub unsafe extern "C" fn crabby_ctx_load_json(
     })
 }
 /// Loads a JSON file from `assets/` into the resource called `name`, which
-/// `crabby_resource_reflect` described (object fields merge; it's added if
+/// `ponko_resource_reflect` described (object fields merge; it's added if
 /// missing). With hot reload on, editing the file updates the resource while
 /// the game runs; a file that doesn't parse keeps the old values.
 /// # Safety
 /// `ctx` must be null or live; `path` and `name` NUL-terminated strings.
 /// ```
-/// let status = unsafe { ponko_ffi::crabby_ctx_load_resource_json(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) };
-/// assert_eq!(status, ponko_ffi::CrabbyStatus::CRABBY_INVALID_ARGUMENT);
+/// let status = unsafe { ponko_ffi::ponko_ctx_load_resource_json(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) };
+/// assert_eq!(status, ponko_ffi::PonkoStatus::PONKO_INVALID_ARGUMENT);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_load_resource_json(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_load_resource_json(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
     name: *const c_char,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -819,19 +799,19 @@ pub unsafe extern "C" fn crabby_ctx_load_resource_json(
     })
 }
 /// Whether the file `path` (as it was loaded) changed and was reloaded at the
-/// start of this frame: a texture or a `crabby_ctx_load_json` file. Use it
+/// start of this frame: a texture or a `ponko_ctx_load_json` file. Use it
 /// to redo work that depends on the file.
 /// # Safety
 /// `ctx` must be null or live; `path` a NUL-terminated string; `out` writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_was_reloaded(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_was_reloaded(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_was_reloaded(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_was_reloaded(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
     out_reloaded: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -842,19 +822,19 @@ pub unsafe extern "C" fn crabby_ctx_was_reloaded(
 }
 /// Makes a texture from `width * height * 4` RGBA bytes.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_texture(std::ptr::null_mut(), 1, 1, std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_create_texture(std::ptr::null_mut(), 1, 1, std::ptr::null(), 4, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_create_texture(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_create_texture(
+    ctx: *mut PonkoCtx,
     width: u32,
     height: u32,
     rgba: *const u8,
     len: usize,
-    out_texture: *mut CrabbyTexture,
-) -> CrabbyStatus {
+    out_texture: *mut PonkoTexture,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -869,18 +849,18 @@ pub unsafe extern "C" fn crabby_ctx_create_texture(
 /// Replaces a texture's pixels (same size, `width * height * 4` bytes).
 /// ```
 /// use ponko_ffi::*;
-/// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
-/// assert_eq!(unsafe { crabby_ctx_update_texture(std::ptr::null_mut(), t, std::ptr::null(), 4) } as u32, 1);
+/// let t = PonkoTexture { id: 0, width: 1, height: 1 };
+/// assert_eq!(unsafe { ponko_ctx_update_texture(std::ptr::null_mut(), t, std::ptr::null(), 4) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_update_texture(
-    ctx: *mut CrabbyCtx,
-    texture: CrabbyTexture,
+pub unsafe extern "C" fn ponko_ctx_update_texture(
+    ctx: *mut PonkoCtx,
+    texture: PonkoTexture,
     rgba: *const u8,
     len: usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -905,13 +885,13 @@ fn pixels<'a>(width: u32, height: u32, rgba: *const u8, len: usize) -> Result<&'
 /// Background color for this frame.
 /// ```
 /// use ponko_ffi::*;
-/// let black = CrabbyColor { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
-/// assert_eq!(unsafe { crabby_ctx_clear(std::ptr::null_mut(), black) } as u32, 1);
+/// let black = PonkoColor { r: 0.0, g: 0.0, b: 0.0, a: 1.0 };
+/// assert_eq!(unsafe { ponko_ctx_clear(std::ptr::null_mut(), black) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_clear(ctx: *mut CrabbyCtx, color: CrabbyColor) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_clear(ctx: *mut PonkoCtx, color: PonkoColor) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -923,13 +903,13 @@ pub unsafe extern "C" fn crabby_ctx_clear(ctx: *mut CrabbyCtx, color: CrabbyColo
 /// Draws a texture centered at `pos` (world units) this frame.
 /// ```
 /// use ponko_ffi::*;
-/// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
-/// assert_eq!(unsafe { crabby_ctx_draw(std::ptr::null_mut(), t, CrabbyVec2::default()) } as u32, 1);
+/// let t = PonkoTexture { id: 0, width: 1, height: 1 };
+/// assert_eq!(unsafe { ponko_ctx_draw(std::ptr::null_mut(), t, PonkoVec2::default()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_draw(ctx: *mut CrabbyCtx, texture: CrabbyTexture, pos: CrabbyVec2) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_draw(ctx: *mut PonkoCtx, texture: PonkoTexture, pos: PonkoVec2) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -938,21 +918,21 @@ pub unsafe extern "C" fn crabby_ctx_draw(ctx: *mut CrabbyCtx, texture: CrabbyTex
         })
     })
 }
-/// Draws a texture with options (start from `crabby_draw_params_default()`).
+/// Draws a texture with options (start from `ponko_draw_params_default()`).
 /// ```
 /// use ponko_ffi::*;
-/// let t = CrabbyTexture { id: 0, width: 1, height: 1 };
-/// assert_eq!(unsafe { crabby_ctx_draw_ex(std::ptr::null_mut(), t, CrabbyVec2::default(), std::ptr::null()) } as u32, 1);
+/// let t = PonkoTexture { id: 0, width: 1, height: 1 };
+/// assert_eq!(unsafe { ponko_ctx_draw_ex(std::ptr::null_mut(), t, PonkoVec2::default(), std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_draw_ex(
-    ctx: *mut CrabbyCtx,
-    texture: CrabbyTexture,
-    pos: CrabbyVec2,
-    params: *const CrabbyDrawParams,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_draw_ex(
+    ctx: *mut PonkoCtx,
+    texture: PonkoTexture,
+    pos: PonkoVec2,
+    params: *const PonkoDrawParams,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -968,19 +948,19 @@ pub unsafe extern "C" fn crabby_ctx_draw_ex(
 /// Draws UTF-8 text with its top-left at `pos`, `size` pixels tall, in window pixels.
 /// ```
 /// use ponko_ffi::*;
-/// let white = CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-/// assert_eq!(unsafe { crabby_ctx_draw_text(std::ptr::null_mut(), c"hi".as_ptr(), CrabbyVec2::default(), 16.0, white) } as u32, 1);
+/// let white = PonkoColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+/// assert_eq!(unsafe { ponko_ctx_draw_text(std::ptr::null_mut(), c"hi".as_ptr(), PonkoVec2::default(), 16.0, white) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_draw_text(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_draw_text(
+    ctx: *mut PonkoCtx,
     string: *const c_char,
-    pos: CrabbyVec2,
+    pos: PonkoVec2,
     size: f32,
-    color: CrabbyColor,
-) -> CrabbyStatus {
+    color: PonkoColor,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -989,19 +969,19 @@ pub unsafe extern "C" fn crabby_ctx_draw_text(
         })
     })
 }
-/// Size in pixels that `crabby_ctx_draw_text` would cover.
+/// Size in pixels that `ponko_ctx_draw_text` would cover.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_measure_text(std::ptr::null_mut(), c"hi".as_ptr(), 16.0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_measure_text(std::ptr::null_mut(), c"hi".as_ptr(), 16.0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_measure_text(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_measure_text(
+    ctx: *mut PonkoCtx,
     string: *const c_char,
     size: f32,
-    out_size: *mut CrabbyVec2,
-) -> CrabbyStatus {
+    out_size: *mut PonkoVec2,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -1017,32 +997,32 @@ pub unsafe extern "C" fn crabby_ctx_measure_text(
 /// The camera: which world point is at the window's top-left, and the zoom
 /// (window pixels per world unit).
 /// ```
-/// let cam = ponko_ffi::CrabbyCamera { position: Default::default(), zoom: 1.0 };
+/// let cam = ponko_ffi::PonkoCamera { position: Default::default(), zoom: 1.0 };
 /// assert_eq!(cam.zoom, 1.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyCamera {
+pub struct PonkoCamera {
     /// World point at the top-left corner.
-    pub position: CrabbyVec2,
+    pub position: PonkoVec2,
     /// Window pixels per world unit.
     pub zoom: f32,
 }
 
 /// Reads the camera.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_camera(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_camera(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_camera(ctx: *mut CrabbyCtx, out_camera: *mut CrabbyCamera) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_camera(ctx: *mut PonkoCtx, out_camera: *mut PonkoCamera) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             out(
                 out_camera,
-                CrabbyCamera {
+                PonkoCamera {
                     position: to_c(c.camera.position),
                     zoom: c.camera.zoom,
                 },
@@ -1052,12 +1032,12 @@ pub unsafe extern "C" fn crabby_ctx_camera(ctx: *mut CrabbyCtx, out_camera: *mut
 }
 /// Moves or zooms the camera. Zoom must be positive.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_camera(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_camera(std::ptr::null_mut(), std::ptr::null()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_camera(ctx: *mut CrabbyCtx, camera: *const CrabbyCamera) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_set_camera(ctx: *mut PonkoCtx, camera: *const PonkoCamera) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -1084,7 +1064,7 @@ struct Owned {
     parts: Vec<(u32, usize, usize)>,
 }
 impl Owned {
-    unsafe fn copy(values: &[CrabbyValue]) -> Result<Self, Failure> {
+    unsafe fn copy(values: &[PonkoValue]) -> Result<Self, Failure> {
         let mut owned = Owned {
             bytes: Vec::new(),
             parts: Vec::with_capacity(values.len()),
@@ -1102,10 +1082,10 @@ impl Owned {
         }
         Ok(owned)
     }
-    fn values(&self) -> Vec<CrabbyValue> {
+    fn values(&self) -> Vec<PonkoValue> {
         self.parts
             .iter()
-            .map(|&(component, at, size)| CrabbyValue {
+            .map(|&(component, at, size)| PonkoValue {
                 component,
                 // Non-null even for zero-sized values.
                 data: self.bytes.as_ptr().wrapping_add(at).cast(),
@@ -1116,19 +1096,19 @@ impl Owned {
 }
 
 fn report(what: &str, failure: Failure) {
-    eprintln!("crabby: {what} skipped: {}", failure.1);
+    eprintln!("ponko: {what} skipped: {}", failure.1);
 }
 
 /// Despawns `entity` after this system (stale entities are ignored).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_despawn_later(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_despawn_later(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
-/// Works inside `crabby_query` callbacks (not `crabby_query_par`).
+/// Works inside `ponko_query` callbacks (not `ponko_query_par`).
 /// Applied after the system returns.
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_despawn_later(ctx: *mut CrabbyCtx, entity: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_despawn_later(ctx: *mut PonkoCtx, entity: u64) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         commands(ctx, |c| {
@@ -1140,18 +1120,18 @@ pub unsafe extern "C" fn crabby_ctx_despawn_later(ctx: *mut CrabbyCtx, entity: u
 /// Spawns an entity with copies of `values` after this system. Values
 /// are checked when applied; bad ones skip the spawn with a message on stderr.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_spawn_later(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_spawn_later(std::ptr::null_mut(), std::ptr::null(), 0) } as u32, 1);
 /// ```
-/// Works inside `crabby_query` callbacks (not `crabby_query_par`).
+/// Works inside `ponko_query` callbacks (not `ponko_query_par`).
 /// Applied after the system returns.
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_spawn_later(
-    ctx: *mut CrabbyCtx,
-    values: *const CrabbyValue,
+pub unsafe extern "C" fn ponko_ctx_spawn_later(
+    ctx: *mut PonkoCtx,
+    values: *const PonkoValue,
     count: usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         commands(ctx, |c| {
@@ -1175,18 +1155,14 @@ pub unsafe extern "C" fn crabby_ctx_spawn_later(
 }
 /// Adds or replaces a component of `entity` after this system.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_later(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_later(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
 /// ```
-/// Works inside `crabby_query` callbacks (not `crabby_query_par`).
+/// Works inside `ponko_query` callbacks (not `ponko_query_par`).
 /// Applied after the system returns.
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_later(
-    ctx: *mut CrabbyCtx,
-    entity: u64,
-    value: *const CrabbyValue,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_set_later(ctx: *mut PonkoCtx, entity: u64, value: *const PonkoValue) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         commands(ctx, |c| {
@@ -1209,14 +1185,14 @@ pub unsafe extern "C" fn crabby_ctx_set_later(
 }
 /// Removes a component of `entity` after this system.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_later(std::ptr::null_mut(), 0, 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_remove_later(std::ptr::null_mut(), 0, 0) } as u32, 1);
 /// ```
-/// Works inside `crabby_query` callbacks (not `crabby_query_par`).
+/// Works inside `ponko_query` callbacks (not `ponko_query_par`).
 /// Applied after the system returns.
 /// # Safety
 /// `ctx` must be null or live; pointer arguments must be valid.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_remove_later(ctx: *mut CrabbyCtx, entity: u64, component: u32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_remove_later(ctx: *mut PonkoCtx, entity: u64, component: u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         commands(ctx, |c| {
@@ -1236,20 +1212,20 @@ pub unsafe extern "C" fn crabby_ctx_remove_later(ctx: *mut CrabbyCtx, entity: u6
 /// Sends one event of type `type_id` (use the event struct's component id,
 /// so every system agrees on the type): `size` bytes copied from `data`, at
 /// most 16-byte aligned. The first send of a type fixes its size. Systems
-/// read it with `crabby_ctx_read_events`. Works inside `crabby_query`
-/// callbacks (not `crabby_query_par`).
+/// read it with `ponko_ctx_read_events`. Works inside `ponko_query`
+/// callbacks (not `ponko_query_par`).
 /// # Safety
 /// Live ctx; `data` readable for `size` bytes.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_send_event(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_send_event(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_send_event(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_send_event(
+    ctx: *mut PonkoCtx,
     type_id: u32,
     data: *const c_void,
     size: usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         events(ctx, |ev| {
@@ -1274,16 +1250,16 @@ pub unsafe extern "C" fn crabby_ctx_send_event(
 /// # Safety
 /// Live ctx; writable outputs.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_read_events(std::ptr::null_mut(), 0, 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_read_events(std::ptr::null_mut(), 0, 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_read_events(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_read_events(
+    ctx: *mut PonkoCtx,
     type_id: u32,
     size: usize,
     out_data: *mut *const c_void,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         if out_data.is_null() || out_count.is_null() {
@@ -1297,24 +1273,24 @@ pub unsafe extern "C" fn crabby_ctx_read_events(
 
 // ---- spatial ------------------------------------------------------------------
 
-/// Entities of the built-in grid (`crabby_game_spatial_grid`) within `radius`
+/// Entities of the built-in grid (`ponko_game_spatial_grid`) within `radius`
 /// of `center`. Writes up to `capacity` hits and sets `*out_count` to how many
 /// there are in total, so a too-small buffer can be grown and the call repeated.
-/// Safe inside query callbacks, also from `crabby_query_par` threads.
+/// Safe inside query callbacks, also from `ponko_query_par` threads.
 /// # Safety
 /// Live ctx; `out_hits` writable for `capacity` hits (may be null if 0); writable count.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_spatial_radius(std::ptr::null(), Default::default(), 1.0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_spatial_radius(std::ptr::null(), Default::default(), 1.0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_spatial_radius(
-    ctx: *const CrabbyCtx,
-    center: CrabbyVec2,
+pub unsafe extern "C" fn ponko_ctx_spatial_radius(
+    ctx: *const PonkoCtx,
+    center: PonkoVec2,
     radius: f32,
-    out_hits: *mut CrabbyGridHit,
+    out_hits: *mut PonkoGridHit,
     capacity: usize,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: forwarded caller contract.
         let grid = unsafe { spatial(ctx)? };
@@ -1328,21 +1304,21 @@ pub unsafe extern "C" fn crabby_ctx_spatial_radius(
     })
 }
 
-/// Like `crabby_ctx_spatial_radius`, for the rectangle from `min` to `max`.
+/// Like `ponko_ctx_spatial_radius`, for the rectangle from `min` to `max`.
 /// # Safety
-/// As `crabby_ctx_spatial_radius`.
+/// As `ponko_ctx_spatial_radius`.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_spatial_rect(std::ptr::null(), Default::default(), Default::default(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_spatial_rect(std::ptr::null(), Default::default(), Default::default(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_spatial_rect(
-    ctx: *const CrabbyCtx,
-    min: CrabbyVec2,
-    max: CrabbyVec2,
-    out_hits: *mut CrabbyGridHit,
+pub unsafe extern "C" fn ponko_ctx_spatial_rect(
+    ctx: *const PonkoCtx,
+    min: PonkoVec2,
+    max: PonkoVec2,
+    out_hits: *mut PonkoGridHit,
     capacity: usize,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: forwarded caller contract.
         let grid = unsafe { spatial(ctx)? };
@@ -1358,20 +1334,20 @@ pub unsafe extern "C" fn crabby_ctx_spatial_rect(
 
 /// The nearest entity of the built-in grid within `max_radius`, other than
 /// `exclude` (pass an entity's own id, or `UINT64_MAX` for none). Returns
-/// `CRABBY_NOT_FOUND` if there is none.
+/// `PONKO_NOT_FOUND` if there is none.
 /// # Safety
 /// Live ctx and writable output.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_spatial_nearest(std::ptr::null(), Default::default(), 1.0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_spatial_nearest(std::ptr::null(), Default::default(), 1.0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_spatial_nearest(
-    ctx: *const CrabbyCtx,
-    center: CrabbyVec2,
+pub unsafe extern "C" fn ponko_ctx_spatial_nearest(
+    ctx: *const PonkoCtx,
+    center: PonkoVec2,
     max_radius: f32,
     exclude: u64,
-    out_hit: *mut CrabbyGridHit,
-) -> CrabbyStatus {
+    out_hit: *mut PonkoGridHit,
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: forwarded caller contract.
         let grid = unsafe { spatial(ctx)? };
@@ -1380,24 +1356,24 @@ pub unsafe extern "C" fn crabby_ctx_spatial_nearest(
         }
         let hit = grid
             .nearest(to_c(center), max_radius, |e| e.entity.to_bits() != exclude)
-            .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "nothing in range"))?;
+            .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "nothing in range"))?;
         // SAFETY: checked non-null.
         unsafe { out(out_hit, to_c(hit)) }
     })
 }
 
-/// A view of the built-in grid (entries are `CrabbyGridHit`), valid during
-/// this callback. Safe from `crabby_query_par` threads.
+/// A view of the built-in grid (entries are `PonkoGridHit`), valid during
+/// this callback. Safe from `ponko_query_par` threads.
 /// # Safety
 /// Live ctx; writable output.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_spatial_view(std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_spatial_view(std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_spatial_view(
-    ctx: *const CrabbyCtx,
-    out_view: *mut crate::CrabbyGridView,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_spatial_view(
+    ctx: *const PonkoCtx,
+    out_view: *mut crate::PonkoGridView,
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: forwarded caller contract.
         let grid = unsafe { spatial(ctx)? };

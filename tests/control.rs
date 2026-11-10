@@ -14,10 +14,10 @@ use common::TempAsset;
 use ponko::*;
 
 fn registry_file(addr: SocketAddr) -> PathBuf {
-    let dir = match std::env::var_os("CRABBY_INSTANCES_DIR") {
+    let dir = match std::env::var_os("PONKO_INSTANCES_DIR").or_else(|| std::env::var_os("CRABBY_INSTANCES_DIR")) {
         Some(d) => PathBuf::from(d),
-        None if cfg!(windows) => PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap()).join("crabby/instances"),
-        None => PathBuf::from(std::env::var_os("HOME").unwrap()).join(".crabby/instances"),
+        None if cfg!(windows) => PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap()).join("ponko/instances"),
+        None => PathBuf::from(std::env::var_os("HOME").unwrap()).join(".ponko/instances"),
     };
     dir.join(format!("{}-{}.json", std::process::id(), addr.port()))
 }

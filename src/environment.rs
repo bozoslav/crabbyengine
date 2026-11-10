@@ -1,10 +1,19 @@
 //! Environment settings: the Ponko spelling wins, including empty or invalid values.
 use std::ffi::OsString;
 
+fn warn_legacy(name: &str) {
+    static WARNING: std::sync::Once = std::sync::Once::new();
+    WARNING.call_once(|| eprintln!("ponko: deprecated environment fallback for {name}; use PONKO_* settings. Removal requires a major release, no earlier than 2027-11-10."));
+}
+
 fn lookup(name: &str, mut get: impl FnMut(&str) -> Option<OsString>) -> Option<OsString> {
     get(name).or_else(|| {
-        name.strip_prefix("PONKO_")
-            .and_then(|suffix| get(&format!("CRABBY_{suffix}")))
+        name.strip_prefix("PONKO_").and_then(|suffix| {
+            let legacy = format!("CRABBY_{suffix}");
+            let value = get(&legacy)?;
+            warn_legacy(&legacy);
+            Some(value)
+        })
     })
 }
 

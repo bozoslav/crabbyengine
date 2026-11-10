@@ -79,7 +79,7 @@ uses `include/ponko.h`, `include/ponko.hpp`, and `PONKO_*` settings. See
 |---|---|
 | `src/` | The engine (`ponko` crate) |
 | `crates/ponko_ecs` | The `ponko_ecs` ECS, usable on its own |
-| `crates/ponko_ffi` | The C API; `include/crabby.h` is generated from it |
+| `crates/ponko_ffi` | The C API; `include/ponko.h` is generated from it |
 | `include/ponko.hpp` | The header-only C++ wrapper |
 | `crates/ponko_mcp` | The MCP server for AI agents |
 | `crates/ponko_bench` | Benchmarks (`cargo run --release -p ponko_bench [-- filter]`) |

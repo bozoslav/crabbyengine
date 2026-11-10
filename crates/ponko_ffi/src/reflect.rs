@@ -5,44 +5,44 @@ use std::ffi::{CStr, c_char};
 use crate::ctx::{ctx_access, text};
 use ponko::{Field, FieldType, WorldReflect};
 
-use crate::{CrabbyStatus, CrabbyWorld, Failure, access, boundary, component, invalid, invalid_owned};
+use crate::{Failure, PonkoStatus, PonkoWorld, access, boundary, component, invalid, invalid_owned};
 
-/// Field types for `CrabbyField::kind`, and how they look in JSON.
+/// Field types for `PonkoField::kind`, and how they look in JSON.
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyFieldType::CRABBY_FIELD_COLOR as u32, 12);
+/// assert_eq!(ponko_ffi::PonkoFieldType::PONKO_FIELD_COLOR as u32, 12);
 /// ```
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
-pub enum CrabbyFieldType {
+pub enum PonkoFieldType {
     /// `float`, a JSON number.
-    CRABBY_FIELD_F32 = 0,
+    PONKO_FIELD_F32 = 0,
     /// `double`.
-    CRABBY_FIELD_F64 = 1,
+    PONKO_FIELD_F64 = 1,
     /// `int8_t`.
-    CRABBY_FIELD_I8 = 2,
+    PONKO_FIELD_I8 = 2,
     /// `int16_t`.
-    CRABBY_FIELD_I16 = 3,
+    PONKO_FIELD_I16 = 3,
     /// `int32_t`.
-    CRABBY_FIELD_I32 = 4,
+    PONKO_FIELD_I32 = 4,
     /// `int64_t`.
-    CRABBY_FIELD_I64 = 5,
+    PONKO_FIELD_I64 = 5,
     /// `uint8_t`.
-    CRABBY_FIELD_U8 = 6,
+    PONKO_FIELD_U8 = 6,
     /// `uint16_t`.
-    CRABBY_FIELD_U16 = 7,
+    PONKO_FIELD_U16 = 7,
     /// `uint32_t`.
-    CRABBY_FIELD_U32 = 8,
+    PONKO_FIELD_U32 = 8,
     /// `uint64_t`.
-    CRABBY_FIELD_U64 = 9,
+    PONKO_FIELD_U64 = 9,
     /// `bool`, `true`/`false`.
-    CRABBY_FIELD_BOOL = 10,
-    /// `CrabbyVec2`, `[x, y]`.
-    CRABBY_FIELD_VEC2 = 11,
-    /// `CrabbyColor`, `{"r", "g", "b", "a"}`.
-    CRABBY_FIELD_COLOR = 12,
+    PONKO_FIELD_BOOL = 10,
+    /// `PonkoVec2`, `[x, y]`.
+    PONKO_FIELD_VEC2 = 11,
+    /// `PonkoColor`, `{"r", "g", "b", "a"}`.
+    PONKO_FIELD_COLOR = 12,
     /// An entity id (`uint64_t`), a JSON number.
-    CRABBY_FIELD_ENTITY = 13,
+    PONKO_FIELD_ENTITY = 13,
 }
 
 const TYPES: [FieldType; 14] = [
@@ -62,18 +62,18 @@ const TYPES: [FieldType; 14] = [
     FieldType::Entity,
 ];
 
-/// One field of a C component: its JSON name, a `CrabbyFieldType`, and its
+/// One field of a C component: its JSON name, a `PonkoFieldType`, and its
 /// byte offset (`offsetof`).
 /// ```
-/// let f = ponko_ffi::CrabbyField { name: c"hp".as_ptr(), kind: 0, offset: 0 };
+/// let f = ponko_ffi::PonkoField { name: c"hp".as_ptr(), kind: 0, offset: 0 };
 /// assert_eq!(f.offset, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct CrabbyField {
+pub struct PonkoField {
     /// NUL-terminated UTF-8; copied.
     pub name: *const c_char,
-    /// A `CrabbyFieldType`.
+    /// A `PonkoFieldType`.
     pub kind: u32,
     /// Byte offset in the component.
     pub offset: usize,
@@ -84,7 +84,7 @@ pub struct CrabbyField {
 /// # Safety
 /// `fields` holds `len` readable fields with NUL-terminated names (or is
 /// null with `len` 0).
-pub(crate) unsafe fn fields_from_c(fields: *const CrabbyField, len: usize) -> Result<Vec<Field>, Failure> {
+pub(crate) unsafe fn fields_from_c(fields: *const PonkoField, len: usize) -> Result<Vec<Field>, Failure> {
     if fields.is_null() && len > 0 {
         return Err(invalid("fields is null"));
     }
@@ -105,7 +105,7 @@ pub(crate) unsafe fn fields_from_c(fields: *const CrabbyField, len: usize) -> Re
             .map_err(|_| invalid("a field name is not UTF-8"))?;
         let ty = *TYPES
             .get(f.kind as usize)
-            .ok_or_else(|| invalid("unknown CrabbyFieldType"))?;
+            .ok_or_else(|| invalid("unknown PonkoFieldType"))?;
         if f.offset.checked_add(ty.size()).is_none() {
             return Err(invalid("field offset overflows"));
         }
@@ -129,18 +129,18 @@ pub(crate) fn check_fields(list: &[Field], size: usize, what: &str) -> Result<()
 }
 
 /// Makes a C component readable and writable as JSON by tools and agents
-/// (the control endpoint and `ponko-mcp`) and saved by `crabby_world_save`,
+/// (the control endpoint and `ponko-mcp`) and saved by `ponko_world_save`,
 /// by describing its fields. Bytes no field covers are zero in values made
 /// from JSON. Describing it again replaces the fields.
 /// ```
 /// use ponko_ffi::*;
-/// let w = crabby_world_new();
+/// let w = ponko_world_new();
 /// unsafe {
 ///     let mut id = 0;
-///     crabby_component_register(w, c"Health".as_ptr(), 4, 4, &mut id);
-///     let field = CrabbyField { name: c"current".as_ptr(), kind: CrabbyFieldType::CRABBY_FIELD_F32 as u32, offset: 0 };
-///     assert_eq!(crabby_component_reflect(w, id, &field, 1), CrabbyStatus::CRABBY_OK);
-///     crabby_world_free(w);
+///     ponko_component_register(w, c"Health".as_ptr(), 4, 4, &mut id);
+///     let field = PonkoField { name: c"current".as_ptr(), kind: PonkoFieldType::PONKO_FIELD_F32 as u32, offset: 0 };
+///     assert_eq!(ponko_component_reflect(w, id, &field, 1), PonkoStatus::PONKO_OK);
+///     ponko_world_free(w);
 /// }
 /// ```
 /// # Safety
@@ -148,12 +148,12 @@ pub(crate) fn check_fields(list: &[Field], size: usize, what: &str) -> Result<()
 /// names. Any field values must make a valid value of the component (true
 /// for plain C structs of these types).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_component_reflect(
-    world: *mut CrabbyWorld,
+pub unsafe extern "C" fn ponko_component_reflect(
+    world: *mut PonkoWorld,
     component_id: u32,
-    fields: *const CrabbyField,
+    fields: *const PonkoField,
     len: usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: forwarded from the caller.
         let list = unsafe { fields_from_c(fields, len)? };
@@ -180,26 +180,26 @@ pub unsafe extern "C" fn crabby_component_reflect(
 /// `*out_len + 1` and call again.
 /// ```
 /// use ponko_ffi::*;
-/// let w = crabby_world_new();
+/// let w = ponko_world_new();
 /// let mut len = 0;
 /// unsafe {
-///     assert_eq!(crabby_world_save(w, std::ptr::null_mut(), 0, &mut len), CrabbyStatus::CRABBY_OK);
+///     assert_eq!(ponko_world_save(w, std::ptr::null_mut(), 0, &mut len), PonkoStatus::PONKO_OK);
 ///     let mut buf = vec![1u8; len + 1];
-///     assert_eq!(crabby_world_save(w, buf.as_mut_ptr().cast(), buf.len(), &mut len), CrabbyStatus::CRABBY_OK);
+///     assert_eq!(ponko_world_save(w, buf.as_mut_ptr().cast(), buf.len(), &mut len), PonkoStatus::PONKO_OK);
 ///     assert_eq!(buf[len], 0);
-///     crabby_world_free(w);
+///     ponko_world_free(w);
 /// }
 /// ```
 /// # Safety
 /// `world` must be null or live; `buffer` must hold `capacity` bytes (or be
 /// null with capacity 0); `out_len` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_world_save(
-    world: *mut CrabbyWorld,
+pub unsafe extern "C" fn ponko_world_save(
+    world: *mut PonkoWorld,
     buffer: *mut c_char,
     capacity: usize,
     out_len: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         if out_len.is_null() {
             return Err(invalid("output is null"));
@@ -223,21 +223,21 @@ pub unsafe extern "C" fn crabby_world_save(
     })
 }
 
-/// Replaces every entity with those in a save from `crabby_world_save`,
+/// Replaces every entity with those in a save from `ponko_world_save`,
 /// with the same ids. Everything is checked first: on error the world is
-/// unchanged and `crabby_last_error()` says what was wrong.
+/// unchanged and `ponko_last_error()` says what was wrong.
 /// ```
 /// use ponko_ffi::*;
-/// let w = crabby_world_new();
+/// let w = ponko_world_new();
 /// unsafe {
-///     assert_eq!(crabby_world_load(w, c"{}".as_ptr()), CrabbyStatus::CRABBY_INVALID_ARGUMENT);
-///     crabby_world_free(w);
+///     assert_eq!(ponko_world_load(w, c"{}".as_ptr()), PonkoStatus::PONKO_INVALID_ARGUMENT);
+///     ponko_world_free(w);
 /// }
 /// ```
 /// # Safety
 /// `world` must be null or live; `json` NUL-terminated.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_world_load(world: *mut CrabbyWorld, json: *const c_char) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_world_load(world: *mut PonkoWorld, json: *const c_char) -> PonkoStatus {
     boundary(|| {
         if json.is_null() {
             return Err(invalid("json is null"));
@@ -266,11 +266,11 @@ pub unsafe extern "C" fn crabby_world_load(world: *mut CrabbyWorld, json: *const
 /// `world` must be null or live. `name` and `schema` must be null or valid
 /// NUL-terminated UTF-8 strings for the duration of this call.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_world_describe_component(
-    world: *mut CrabbyWorld,
+pub unsafe extern "C" fn ponko_world_describe_component(
+    world: *mut PonkoWorld,
     name: *const c_char,
     schema: *const c_char,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: caller promises live strings; text checks null and UTF-8.
         let (name, schema) = unsafe { (text(name)?, text(schema)?) };
@@ -286,15 +286,15 @@ pub unsafe extern "C" fn crabby_world_describe_component(
 }
 
 /// Attach opt-in schema metadata to an already reflected resource.
-/// Uses the same schema encoding as `crabby_world_describe_component`.
+/// Uses the same schema encoding as `ponko_world_describe_component`.
 /// # Safety
 /// `world` must be null or live; strings must be null or valid NUL-terminated UTF-8.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_world_describe_resource(
-    world: *mut CrabbyWorld,
+pub unsafe extern "C" fn ponko_world_describe_resource(
+    world: *mut PonkoWorld,
     name: *const c_char,
     schema: *const c_char,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: caller promises live strings; text checks null and UTF-8.
         let (name, schema) = unsafe { (text(name)?, text(schema)?) };
@@ -312,22 +312,22 @@ pub unsafe extern "C" fn crabby_world_describe_resource(
 /// What this running game can do, as JSON: the control endpoint's
 /// `capabilities` answer (Rust `Ctx::capabilities_json`), including every
 /// reflected component and resource with the schema described for it.
-/// Writes into `buffer` as `crabby_ctx_perf_report` does: the length goes
+/// Writes into `buffer` as `ponko_ctx_perf_report` does: the length goes
 /// to `out_len`, and the text (NUL-terminated) only if it fits.
 /// # Safety
 /// `ctx` null or live; `buffer` holds `capacity` bytes (or is null with
 /// capacity 0); `out_len` writable.
 /// ```
 /// let mut len = 0usize;
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_capabilities_json(std::ptr::null(), std::ptr::null_mut(), 0, &mut len) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_capabilities_json(std::ptr::null(), std::ptr::null_mut(), 0, &mut len) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_capabilities_json(
-    ctx: *const crate::CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_capabilities_json(
+    ctx: *const crate::PonkoCtx,
     buffer: *mut c_char,
     capacity: usize,
     out_len: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         crate::shader_status::text_output(buffer, capacity, out_len)?;

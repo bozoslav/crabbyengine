@@ -8,57 +8,57 @@ use ponko::{
 };
 
 use crate::ctx::{ctx_access, out};
-use crate::{CrabbyCtx, CrabbyStatus, boundary, invalid};
+use crate::{PonkoCtx, PonkoStatus, boundary, invalid};
 
 /// The id no handle of any kind ever has (Rust `Handle::NONE`): never
-/// live, and freeing it does nothing. `CRABBY_MESH_NONE` is the same value.
+/// live, and freeing it does nothing. `PONKO_MESH_NONE` is the same value.
 /// ```
-/// assert_eq!(ponko_ffi::CRABBY_HANDLE_NONE, u32::MAX);
+/// assert_eq!(ponko_ffi::PONKO_HANDLE_NONE, u32::MAX);
 /// ```
-pub const CRABBY_HANDLE_NONE: u32 = u32::MAX;
+pub const PONKO_HANDLE_NONE: u32 = u32::MAX;
 
-/// Which kind of handle `crabby_ctx_handle_is_live` and
-/// `crabby_ctx_handle_free` take (pass it as a `uint32_t`). Render targets
+/// Which kind of handle `ponko_ctx_handle_is_live` and
+/// `ponko_ctx_handle_free` take (pass it as a `uint32_t`). Render targets
 /// are textures.
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyHandleKind::CRABBY_HANDLE_TEXTURE_ARRAY as u32, 10);
+/// assert_eq!(ponko_ffi::PonkoHandleKind::PONKO_HANDLE_TEXTURE_ARRAY as u32, 10);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbyHandleKind {
-    /// `CrabbyTexture`, render targets included.
-    CRABBY_HANDLE_TEXTURE = 0,
-    /// `CrabbySound`.
-    CRABBY_HANDLE_SOUND = 1,
-    /// `CrabbyFont` (the built-in font is never freed).
-    CRABBY_HANDLE_FONT = 2,
-    /// `CrabbyMesh`.
-    CRABBY_HANDLE_MESH = 3,
-    /// `CrabbyMaterial`.
-    CRABBY_HANDLE_MATERIAL = 4,
-    /// `CrabbyShader`.
-    CRABBY_HANDLE_SHADER = 5,
-    /// `CrabbyCompute`.
-    CRABBY_HANDLE_COMPUTE = 6,
-    /// `CrabbyEffect`.
-    CRABBY_HANDLE_EFFECT = 7,
-    /// `CrabbyGpuBuffer`.
-    CRABBY_HANDLE_GPU_BUFFER = 8,
-    /// `CrabbyInstanceBatch`.
-    CRABBY_HANDLE_INSTANCE_BATCH = 9,
-    /// `CrabbyTextureArray`.
-    CRABBY_HANDLE_TEXTURE_ARRAY = 10,
+pub enum PonkoHandleKind {
+    /// `PonkoTexture`, render targets included.
+    PONKO_HANDLE_TEXTURE = 0,
+    /// `PonkoSound`.
+    PONKO_HANDLE_SOUND = 1,
+    /// `PonkoFont` (the built-in font is never freed).
+    PONKO_HANDLE_FONT = 2,
+    /// `PonkoMesh`.
+    PONKO_HANDLE_MESH = 3,
+    /// `PonkoMaterial`.
+    PONKO_HANDLE_MATERIAL = 4,
+    /// `PonkoShader`.
+    PONKO_HANDLE_SHADER = 5,
+    /// `PonkoCompute`.
+    PONKO_HANDLE_COMPUTE = 6,
+    /// `PonkoEffect`.
+    PONKO_HANDLE_EFFECT = 7,
+    /// `PonkoGpuBuffer`.
+    PONKO_HANDLE_GPU_BUFFER = 8,
+    /// `PonkoInstanceBatch`.
+    PONKO_HANDLE_INSTANCE_BATCH = 9,
+    /// `PonkoTextureArray`.
+    PONKO_HANDLE_TEXTURE_ARRAY = 10,
 }
 
 /// How many handles of each kind are live (Rust `LiveCounts`), from
-/// `crabby_ctx_live_counts`.
+/// `ponko_ctx_live_counts`.
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyLiveCounts::default().textures, 0);
+/// assert_eq!(ponko_ffi::PonkoLiveCounts::default().textures, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CrabbyLiveCounts {
+pub struct PonkoLiveCounts {
     /// Textures the game made or loaded, render targets included.
     pub textures: usize,
     /// Of `textures`, the render targets.
@@ -85,7 +85,7 @@ pub struct CrabbyLiveCounts {
     pub fonts: usize,
 }
 
-impl From<LiveCounts> for CrabbyLiveCounts {
+impl From<LiveCounts> for PonkoLiveCounts {
     fn from(c: LiveCounts) -> Self {
         Self {
             textures: c.textures,
@@ -157,22 +157,22 @@ macro_rules! with_handle {
     };
 }
 
-/// Whether the handle of `kind` (a `CrabbyHandleKind`) with `id` names
+/// Whether the handle of `kind` (a `PonkoHandleKind`) with `id` names
 /// something this game made and hasn't freed (Rust `Ctx::is_live`). False
-/// for `CRABBY_HANDLE_NONE`.
+/// for `PONKO_HANDLE_NONE`.
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
 /// let mut live = true;
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_handle_is_live(std::ptr::null_mut(), 0, 0, &mut live) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_handle_is_live(std::ptr::null_mut(), 0, 0, &mut live) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_handle_is_live(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_handle_is_live(
+    ctx: *mut PonkoCtx,
     kind: u32,
     id: u32,
     out_live: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -182,19 +182,19 @@ pub unsafe extern "C" fn crabby_ctx_handle_is_live(
     })
 }
 
-/// Frees the handle of `kind` (a `CrabbyHandleKind`) with `id` (Rust
+/// Frees the handle of `kind` (a `PonkoHandleKind`) with `id` (Rust
 /// `Ctx::free`): its memory goes, and its id is never reused (except for
 /// meshes and GPU buffers, whose next one made takes it). Whatever still uses it draws the default: nothing for a
 /// mesh, white for a texture, the default material, the built-in shader or
 /// font; effects and compute passes are skipped and sounds stop. Freeing it
-/// again, or `CRABBY_HANDLE_NONE`, does nothing.
+/// again, or `PONKO_HANDLE_NONE`, does nothing.
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_handle_free(std::ptr::null_mut(), 0, 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_handle_free(std::ptr::null_mut(), 0, 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_handle_free(ctx: *mut CrabbyCtx, kind: u32, id: u32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_handle_free(ctx: *mut PonkoCtx, kind: u32, id: u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| with_handle!(kind, id, |h| c.free(h))) })
 }
@@ -203,14 +203,11 @@ pub unsafe extern "C" fn crabby_ctx_handle_free(ctx: *mut CrabbyCtx, kind: u32, 
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// let mut counts = ponko_ffi::CrabbyLiveCounts::default();
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_live_counts(std::ptr::null_mut(), &mut counts) } as u32, 1);
+/// let mut counts = ponko_ffi::PonkoLiveCounts::default();
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_live_counts(std::ptr::null_mut(), &mut counts) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_live_counts(
-    ctx: *mut CrabbyCtx,
-    out_counts: *mut CrabbyLiveCounts,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_live_counts(ctx: *mut PonkoCtx, out_counts: *mut PonkoLiveCounts) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_counts, c.live_counts().into())) })
 }

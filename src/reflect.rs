@@ -85,7 +85,7 @@ type CheckFn = Arc<dyn Fn(&Value) -> Result<(), String> + Send + Sync>;
 type SpawnAtFn = Arc<dyn Fn(&mut World, Entity, Value) -> Result<bool, String> + Send + Sync>;
 
 /// `format` field of world saves.
-const SAVE_FORMAT: &str = "crabby-world";
+const SAVE_FORMAT: &str = "ponko-world";
 /// Version of the save layout; bumped when it changes incompatibly.
 const SAVE_VERSION: u64 = 1;
 /// Entity slots a save may use beyond its own entities, for the gaps that
@@ -1221,7 +1221,8 @@ impl WorldReflect for World {
             component: "<save>".into(),
             message,
         };
-        if save["format"] != SAVE_FORMAT {
+        // Deprecated identifier remains readable throughout the migration cycle.
+        if save["format"] != SAVE_FORMAT && save["format"] != "crabby-world" {
             return Err(bad(format!(
                 "not a world save (expected \"format\": \"{SAVE_FORMAT}\")"
             )));

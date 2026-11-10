@@ -22,6 +22,9 @@
 //!
 //! Never regenerate the baseline to make a test pass.
 
+#![cfg(feature = "legacy-names")]
+#![allow(deprecated)]
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -407,7 +410,12 @@ fn baseline_header() -> String {
 }
 
 fn current_header() -> String {
-    read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../include/crabby.h"))
+    // Compare the primary declaration with the unchanged historical names.
+    // Actual old exports are checked through dynamic lookup and the baseline C client.
+    read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../include/ponko.h"))
+        .replace("Ponko", "Crabby")
+        .replace("PONKO", "CRABBY")
+        .replace("ponko", "crabby")
 }
 
 #[test]

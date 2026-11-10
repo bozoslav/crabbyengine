@@ -3,27 +3,27 @@ use ponko_ffi::*;
 use std::ffi::{CStr, c_void};
 use std::ptr::{null, null_mut};
 
-use CrabbyStatus::*;
+use PonkoStatus::*;
 
 /// Runs `system` as a sim system for `ticks` headless ticks.
-fn run(ticks: u64, system: CrabbySystemFn, user: *mut c_void) {
+fn run(ticks: u64, system: PonkoSystemFn, user: *mut c_void) {
     unsafe {
-        let game = crabby_game_new(c"media".as_ptr(), 1, 1);
-        assert_eq!(crabby_game_sim_system(game, c"s".as_ptr(), 1, system, user), CRABBY_OK);
+        let game = ponko_game_new(c"media".as_ptr(), 1, 1);
+        assert_eq!(ponko_game_sim_system(game, c"s".as_ptr(), 1, system, user), PONKO_OK);
         let mut world = null_mut();
         assert_eq!(
-            crabby_game_run_headless(game, ticks, None, null_mut(), &mut world),
-            CRABBY_OK
+            ponko_game_run_headless(game, ticks, None, null_mut(), &mut world),
+            PONKO_OK
         );
-        crabby_world_free(world);
+        ponko_world_free(world);
     }
 }
 fn last_error() -> String {
-    unsafe { CStr::from_ptr(crabby_last_error()) }
+    unsafe { CStr::from_ptr(ponko_last_error()) }
         .to_string_lossy()
         .into_owned()
 }
-const WHITE: CrabbyColor = CrabbyColor {
+const WHITE: PonkoColor = PonkoColor {
     r: 1.0,
     g: 1.0,
     b: 1.0,
@@ -32,77 +32,71 @@ const WHITE: CrabbyColor = CrabbyColor {
 
 #[derive(Default)]
 struct Drawn {
-    label: CrabbyVec2,
-    measured: CrabbyVec2,
-    measured_ex: CrabbyVec2,
+    label: PonkoVec2,
+    measured: PonkoVec2,
+    measured_ex: PonkoVec2,
     clicked: bool,
     over_ui: bool,
-    style: Option<CrabbyUiStyle>,
+    style: Option<PonkoUiStyle>,
 }
 
-unsafe extern "C" fn draw_everything(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn draw_everything(ctx: *mut PonkoCtx, user: *mut c_void) {
     let d = unsafe { &mut *user.cast::<Drawn>() };
-    let rect = CrabbyRect {
-        min: CrabbyVec2 { x: 0.0, y: 0.0 },
-        max: CrabbyVec2 { x: 100.0, y: 40.0 },
+    let rect = PonkoRect {
+        min: PonkoVec2 { x: 0.0, y: 0.0 },
+        max: PonkoVec2 { x: 100.0, y: 40.0 },
     };
-    let v = CrabbyVec2 { x: 5.0, y: 5.0 };
+    let v = PonkoVec2 { x: 5.0, y: 5.0 };
     unsafe {
-        assert_eq!(crabby_ctx_draw_rect(ctx, rect, WHITE), CRABBY_OK);
-        assert_eq!(crabby_ctx_draw_line(ctx, v, rect.max, 2.0, WHITE), CRABBY_OK);
-        assert_eq!(crabby_ctx_draw_circle(ctx, v, 3.0, WHITE), CRABBY_OK);
-        assert_eq!(crabby_ctx_ui_panel(ctx, rect), CRABBY_OK);
+        assert_eq!(ponko_ctx_draw_rect(ctx, rect, WHITE), PONKO_OK);
+        assert_eq!(ponko_ctx_draw_line(ctx, v, rect.max, 2.0, WHITE), PONKO_OK);
+        assert_eq!(ponko_ctx_draw_circle(ctx, v, 3.0, WHITE), PONKO_OK);
+        assert_eq!(ponko_ctx_ui_panel(ctx, rect), PONKO_OK);
         assert_eq!(
-            crabby_ctx_ui_label(ctx, v, c"Crabs: 12".as_ptr(), &mut d.label),
-            CRABBY_OK
+            ponko_ctx_ui_label(ctx, v, c"Crabs: 12".as_ptr(), &mut d.label),
+            PONKO_OK
         );
         assert_eq!(
-            crabby_ctx_ui_label(ctx, v, c"no size wanted".as_ptr(), null_mut()),
-            CRABBY_OK
+            ponko_ctx_ui_label(ctx, v, c"no size wanted".as_ptr(), null_mut()),
+            PONKO_OK
+        );
+        assert_eq!(ponko_ctx_ui_button(ctx, rect, c"Go".as_ptr(), &mut d.clicked), PONKO_OK);
+        assert_eq!(ponko_ctx_mouse_over_ui(ctx, &mut d.over_ui), PONKO_OK);
+        assert_eq!(
+            ponko_ctx_measure_text(ctx, c"Crabs: 12".as_ptr(), 16.0, &mut d.measured),
+            PONKO_OK
         );
         assert_eq!(
-            crabby_ctx_ui_button(ctx, rect, c"Go".as_ptr(), &mut d.clicked),
-            CRABBY_OK
-        );
-        assert_eq!(crabby_ctx_mouse_over_ui(ctx, &mut d.over_ui), CRABBY_OK);
-        assert_eq!(
-            crabby_ctx_measure_text(ctx, c"Crabs: 12".as_ptr(), 16.0, &mut d.measured),
-            CRABBY_OK
-        );
-        assert_eq!(
-            crabby_ctx_measure_text_ex(
+            ponko_ctx_measure_text_ex(
                 ctx,
                 c"Crabs: 12".as_ptr(),
-                CrabbyFont::default(),
+                PonkoFont::default(),
                 16.0,
                 &mut d.measured_ex
             ),
-            CRABBY_OK
+            PONKO_OK
         );
-        let mut params = crabby_text_params_default();
+        let mut params = ponko_text_params_default();
         params.size = 32.0;
-        assert_eq!(crabby_ctx_draw_text_ex(ctx, c"big".as_ptr(), v, &params), CRABBY_OK);
-        assert_eq!(
-            crabby_ctx_save_screenshot(ctx, c"never-written.png".as_ptr()),
-            CRABBY_OK
-        );
+        assert_eq!(ponko_ctx_draw_text_ex(ctx, c"big".as_ptr(), v, &params), PONKO_OK);
+        assert_eq!(ponko_ctx_save_screenshot(ctx, c"never-written.png".as_ptr()), PONKO_OK);
 
-        let mut style = crabby_ui_style_default();
+        let mut style = ponko_ui_style_default();
         style.text_size = 24.0;
         style.accent = WHITE;
-        assert_eq!(crabby_ctx_set_ui_style(ctx, &style), CRABBY_OK);
-        let mut read = crabby_ui_style_default();
-        assert_eq!(crabby_ctx_ui_style(ctx, &mut read), CRABBY_OK);
+        assert_eq!(ponko_ctx_set_ui_style(ctx, &style), PONKO_OK);
+        let mut read = ponko_ui_style_default();
+        assert_eq!(ponko_ctx_ui_style(ctx, &mut read), PONKO_OK);
         d.style = Some(read);
 
-        assert_eq!(crabby_ctx_set_ui_style(ctx, null()), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(ponko_ctx_set_ui_style(ctx, null()), PONKO_INVALID_ARGUMENT);
         assert_eq!(
-            crabby_ctx_ui_button(ctx, rect, c"Go".as_ptr(), null_mut()),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_button(ctx, rect, c"Go".as_ptr(), null_mut()),
+            PONKO_INVALID_ARGUMENT
         );
         assert_eq!(
-            crabby_ctx_draw_text_ex(ctx, c"x".as_ptr(), v, null()),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_draw_text_ex(ctx, c"x".as_ptr(), v, null()),
+            PONKO_INVALID_ARGUMENT
         );
     }
 }
@@ -123,33 +117,33 @@ fn shapes_text_and_widgets_work_headless() {
     assert_eq!(style.accent, WHITE);
 }
 
-unsafe extern "C" fn unknown_font(ctx: *mut CrabbyCtx, user: *mut c_void) {
-    let mut size = CrabbyVec2::default();
-    let status = unsafe { crabby_ctx_measure_text_ex(ctx, c"x".as_ptr(), CrabbyFont { id: 99 }, 16.0, &mut size) };
-    unsafe { *user.cast::<Option<CrabbyStatus>>() = Some(status) };
+unsafe extern "C" fn unknown_font(ctx: *mut PonkoCtx, user: *mut c_void) {
+    let mut size = PonkoVec2::default();
+    let status = unsafe { ponko_ctx_measure_text_ex(ctx, c"x".as_ptr(), PonkoFont { id: 99 }, 16.0, &mut size) };
+    unsafe { *user.cast::<Option<PonkoStatus>>() = Some(status) };
 }
 
 #[test]
 fn made_up_fonts_fail_instead_of_crashing() {
-    let mut status: Option<CrabbyStatus> = None;
-    run(1, Some(unknown_font), (&mut status as *mut Option<CrabbyStatus>).cast());
-    assert_ne!(status, Some(CRABBY_OK));
+    let mut status: Option<PonkoStatus> = None;
+    run(1, Some(unknown_font), (&mut status as *mut Option<PonkoStatus>).cast());
+    assert_ne!(status, Some(PONKO_OK));
     assert!(status.is_some());
 }
 
-unsafe extern "C" fn missing_files(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn missing_files(ctx: *mut PonkoCtx, user: *mut c_void) {
     let errors = unsafe { &mut *user.cast::<Vec<String>>() };
     unsafe {
-        let mut font = CrabbyFont::default();
+        let mut font = PonkoFont::default();
         assert_ne!(
-            crabby_ctx_load_font(ctx, c"no-such-font.ttf".as_ptr(), &mut font),
-            CRABBY_OK
+            ponko_ctx_load_font(ctx, c"no-such-font.ttf".as_ptr(), &mut font),
+            PONKO_OK
         );
         errors.push(last_error());
-        let mut sound = CrabbySound { id: 0, seconds: 0.0 };
+        let mut sound = PonkoSound { id: 0, seconds: 0.0 };
         assert_ne!(
-            crabby_ctx_load_sound(ctx, c"no-such-sound.ogg".as_ptr(), &mut sound),
-            CRABBY_OK
+            ponko_ctx_load_sound(ctx, c"no-such-sound.ogg".as_ptr(), &mut sound),
+            PONKO_OK
         );
         errors.push(last_error());
     }
@@ -167,45 +161,45 @@ fn missing_fonts_and_sounds_fail_with_the_engine_message() {
 
 #[derive(Default)]
 struct Sounds {
-    beep: Option<CrabbySound>,
-    playing: Vec<CrabbyPlaying>,
-    errors: Vec<CrabbyStatus>,
+    beep: Option<PonkoSound>,
+    playing: Vec<PonkoPlaying>,
+    errors: Vec<PonkoStatus>,
 }
 
-unsafe extern "C" fn make_sounds(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn make_sounds(ctx: *mut PonkoCtx, user: *mut c_void) {
     let s = unsafe { &mut *user.cast::<Sounds>() };
     let samples: Vec<f32> = (0..22050).map(|i| (i as f32 * 0.06).sin() * 0.3).collect();
     unsafe {
-        let mut beep = CrabbySound { id: 0, seconds: 0.0 };
+        let mut beep = PonkoSound { id: 0, seconds: 0.0 };
         assert_eq!(
-            crabby_ctx_create_sound(ctx, 44100, samples.as_ptr(), samples.len(), &mut beep),
-            CRABBY_OK
+            ponko_ctx_create_sound(ctx, 44100, samples.as_ptr(), samples.len(), &mut beep),
+            PONKO_OK
         );
         s.beep = Some(beep);
-        let mut p = CrabbyPlaying { id: 7 };
-        assert_eq!(crabby_ctx_play_sound(ctx, beep, null(), &mut p), CRABBY_OK);
+        let mut p = PonkoPlaying { id: 7 };
+        assert_eq!(ponko_ctx_play_sound(ctx, beep, null(), &mut p), PONKO_OK);
         s.playing.push(p);
-        let mut params = crabby_sound_params_default();
+        let mut params = ponko_sound_params_default();
         params.looping = true;
         params.volume = 0.5;
-        assert_eq!(crabby_ctx_play_sound(ctx, beep, &params, &mut p), CRABBY_OK);
+        assert_eq!(ponko_ctx_play_sound(ctx, beep, &params, &mut p), PONKO_OK);
         s.playing.push(p);
-        assert_eq!(crabby_ctx_play_sound(ctx, beep, null(), null_mut()), CRABBY_OK);
-        assert_eq!(crabby_ctx_stop_sound(ctx, p), CRABBY_OK);
+        assert_eq!(ponko_ctx_play_sound(ctx, beep, null(), null_mut()), PONKO_OK);
+        assert_eq!(ponko_ctx_stop_sound(ctx, p), PONKO_OK);
 
         let mut out = beep;
-        s.errors.push(crabby_ctx_create_sound(
+        s.errors.push(ponko_ctx_create_sound(
             ctx,
             0,
             samples.as_ptr(),
             samples.len(),
             &mut out,
         ));
-        s.errors.push(crabby_ctx_create_sound(ctx, 44100, null(), 4, &mut out));
+        s.errors.push(ponko_ctx_create_sound(ctx, 44100, null(), 4, &mut out));
         s.errors
-            .push(crabby_ctx_create_sound(ctx, 44100, samples.as_ptr(), 4, null_mut()));
+            .push(ponko_ctx_create_sound(ctx, 44100, samples.as_ptr(), 4, null_mut()));
         // An empty sound is fine.
-        assert_eq!(crabby_ctx_create_sound(ctx, 44100, null(), 0, &mut out), CRABBY_OK);
+        assert_eq!(ponko_ctx_create_sound(ctx, 44100, null(), 0, &mut out), PONKO_OK);
         assert_eq!(out.seconds, 0.0);
     }
 }
@@ -218,25 +212,25 @@ fn sounds_are_made_from_samples_and_silent_headless() {
     assert!((beep.seconds - 0.5).abs() < 1e-3, "{}", beep.seconds);
     // Headless runs play nothing, and say so with id 0.
     assert!(s.playing.iter().all(|p| p.id == 0));
-    assert_eq!(s.errors, [CRABBY_INVALID_ARGUMENT; 3]);
+    assert_eq!(s.errors, [PONKO_INVALID_ARGUMENT; 3]);
 }
 
 #[derive(Default)]
 struct TurnLog {
-    seen: Vec<CrabbyTurns>,
-    zero: Option<CrabbyStatus>,
+    seen: Vec<PonkoTurns>,
+    zero: Option<PonkoStatus>,
 }
 
-unsafe extern "C" fn log_turns(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn log_turns(ctx: *mut PonkoCtx, user: *mut c_void) {
     let log = unsafe { &mut *user.cast::<TurnLog>() };
-    let mut t = CrabbyTurns {
+    let mut t = PonkoTurns {
         every: 0,
         now: 0,
         dt: 0.0,
     };
     unsafe {
-        assert_eq!(crabby_ctx_turns(ctx, 4, &mut t), CRABBY_OK);
-        log.zero = Some(crabby_ctx_turns(ctx, 0, &mut t));
+        assert_eq!(ponko_ctx_turns(ctx, 4, &mut t), PONKO_OK);
+        log.zero = Some(ponko_ctx_turns(ctx, 0, &mut t));
     }
     log.seen.push(t);
 }
@@ -254,29 +248,29 @@ fn turns_cycle_through_the_round_with_its_whole_dt() {
             .iter()
             .all(|t| t.every == 4 && (t.dt - 4.0 / 60.0).abs() < 1e-6)
     );
-    assert_eq!(log.zero, Some(CRABBY_INVALID_ARGUMENT));
+    assert_eq!(log.zero, Some(PONKO_INVALID_ARGUMENT));
 }
 
 #[derive(Default)]
 struct HotReload {
     path: std::ffi::CString,
     file: std::path::PathBuf,
-    texture: Option<CrabbyTexture>,
+    texture: Option<PonkoTexture>,
     /// (tick, reloaded texture ids)
     seen: Vec<(u64, Vec<u32>)>,
 }
 
-unsafe extern "C" fn edit_and_watch(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn edit_and_watch(ctx: *mut PonkoCtx, user: *mut c_void) {
     let h = unsafe { &mut *user.cast::<HotReload>() };
     unsafe {
-        let tick = crabby_ctx_sim_tick(ctx);
+        let tick = ponko_ctx_sim_tick(ctx);
         if h.texture.is_none() {
             let mut t = std::mem::zeroed();
-            assert_eq!(crabby_ctx_load_texture(ctx, h.path.as_ptr(), &mut t), CRABBY_OK);
+            assert_eq!(ponko_ctx_load_texture(ctx, h.path.as_ptr(), &mut t), PONKO_OK);
             h.texture = Some(t);
         }
         let (mut list, mut n) = (null(), 0);
-        assert_eq!(crabby_ctx_reloaded_textures(ctx, &mut list, &mut n), CRABBY_OK);
+        assert_eq!(ponko_ctx_reloaded_textures(ctx, &mut list, &mut n), PONKO_OK);
         if n > 0 {
             let ids = std::slice::from_raw_parts(list, n).iter().map(|t| t.id).collect();
             h.seen.push((tick, ids));
@@ -295,7 +289,7 @@ unsafe extern "C" fn edit_and_watch(ctx: *mut CrabbyCtx, user: *mut c_void) {
 
 #[test]
 fn edited_textures_are_reported_after_reloading() {
-    let dir = std::env::temp_dir().join(format!("crabby-ffi-hot-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ponko-ffi-hot-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("crab.png");
     std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/crab.png"), &file).unwrap();
@@ -305,26 +299,23 @@ fn edited_textures_are_reported_after_reloading() {
         ..Default::default()
     };
     unsafe {
-        let game = crabby_game_new(c"hot".as_ptr(), 1, 1);
-        assert_eq!(crabby_game_hot_reload(game, true), CRABBY_OK);
+        let game = ponko_game_new(c"hot".as_ptr(), 1, 1);
+        assert_eq!(ponko_game_hot_reload(game, true), PONKO_OK);
         let user = (&mut h as *mut HotReload).cast();
         assert_eq!(
-            crabby_game_sim_system(game, c"s".as_ptr(), 1, Some(edit_and_watch), user),
-            CRABBY_OK
+            ponko_game_sim_system(game, c"s".as_ptr(), 1, Some(edit_and_watch), user),
+            PONKO_OK
         );
         let mut world = null_mut();
-        assert_eq!(
-            crabby_game_run_headless(game, 5, None, null_mut(), &mut world),
-            CRABBY_OK
-        );
-        crabby_world_free(world);
+        assert_eq!(ponko_game_run_headless(game, 5, None, null_mut(), &mut world), PONKO_OK);
+        ponko_world_free(world);
     }
     let id = h.texture.unwrap().id;
     assert_eq!(h.seen, vec![(3, vec![id])]);
     let (mut list, mut n) = (null(), 0);
     assert_eq!(
-        unsafe { crabby_ctx_reloaded_textures(null(), &mut list, &mut n) },
-        CRABBY_INVALID_ARGUMENT
+        unsafe { ponko_ctx_reloaded_textures(null(), &mut list, &mut n) },
+        PONKO_INVALID_ARGUMENT
     );
 }
 
@@ -339,59 +330,59 @@ struct Rules {
 struct DataTest {
     path: std::ffi::CString,
     rules: Rules,
-    statuses: Vec<CrabbyStatus>,
+    statuses: Vec<PonkoStatus>,
     errors: Vec<String>,
 }
 
-unsafe extern "C" fn load_rules(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn load_rules(ctx: *mut PonkoCtx, user: *mut c_void) {
     unsafe {
         let t = &mut *user.cast::<DataTest>();
-        if crabby_ctx_sim_tick(ctx) > 0 {
+        if ponko_ctx_sim_tick(ctx) > 0 {
             return;
         }
-        let w = crabby_ctx_world(ctx);
+        let w = ponko_ctx_world(ctx);
         let mut id = 0;
         assert_eq!(
             // Namespaced, as C++ names its types.
-            crabby_component_register(w, c"game::Rules".as_ptr(), 8, 4, &mut id),
-            CRABBY_OK
+            ponko_component_register(w, c"game::Rules".as_ptr(), 8, 4, &mut id),
+            PONKO_OK
         );
         let mut e = 0;
-        let v = CrabbyValue {
+        let v = PonkoValue {
             component: id,
             data: (&raw const t.rules).cast(),
             size: 8,
         };
-        assert_eq!(crabby_spawn(w, &v, 1, &mut e), CRABBY_OK);
+        assert_eq!(ponko_spawn(w, &v, 1, &mut e), PONKO_OK);
         // Not reflected yet: refused with a reason.
-        t.statuses.push(crabby_ctx_load_json(ctx, t.path.as_ptr(), e, id));
+        t.statuses.push(ponko_ctx_load_json(ctx, t.path.as_ptr(), e, id));
         t.errors.push(last_error());
         let fields = [
-            CrabbyField {
+            PonkoField {
                 name: c"speed".as_ptr(),
-                kind: CrabbyFieldType::CRABBY_FIELD_F32 as u32,
+                kind: PonkoFieldType::PONKO_FIELD_F32 as u32,
                 offset: 0,
             },
-            CrabbyField {
+            PonkoField {
                 name: c"waves".as_ptr(),
-                kind: CrabbyFieldType::CRABBY_FIELD_U32 as u32,
+                kind: PonkoFieldType::PONKO_FIELD_U32 as u32,
                 offset: 4,
             },
         ];
-        assert_eq!(crabby_component_reflect(w, id, fields.as_ptr(), 2), CRABBY_OK);
-        t.statuses.push(crabby_ctx_load_json(ctx, t.path.as_ptr(), e, id));
+        assert_eq!(ponko_component_reflect(w, id, fields.as_ptr(), 2), PONKO_OK);
+        t.statuses.push(ponko_ctx_load_json(ctx, t.path.as_ptr(), e, id));
         t.statuses
-            .push(crabby_ctx_load_json(ctx, c"no-such-rules.json".as_ptr(), e, id));
+            .push(ponko_ctx_load_json(ctx, c"no-such-rules.json".as_ptr(), e, id));
         t.errors.push(last_error());
         let mut out = Rules::default();
-        assert_eq!(crabby_get(w, e, id, (&raw mut out).cast(), 8), CRABBY_OK);
+        assert_eq!(ponko_get(w, e, id, (&raw mut out).cast(), 8), PONKO_OK);
         t.rules = out;
     }
 }
 
 #[test]
 fn json_files_load_into_reflected_c_components() {
-    let dir = std::env::temp_dir().join(format!("crabby-ffi-data-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ponko-ffi-data-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("rules.json");
     std::fs::write(&file, r#"{"speed": 2.5, "waves": 7}"#).unwrap();
@@ -400,53 +391,50 @@ fn json_files_load_into_reflected_c_components() {
         ..Default::default()
     };
     run(1, Some(load_rules), (&raw mut t).cast());
-    assert_eq!(
-        t.statuses,
-        [CRABBY_INVALID_ARGUMENT, CRABBY_OK, CRABBY_INVALID_ARGUMENT]
-    );
+    assert_eq!(t.statuses, [PONKO_INVALID_ARGUMENT, PONKO_OK, PONKO_INVALID_ARGUMENT]);
     assert!(t.errors[0].contains("Rules"), "{}", t.errors[0]);
     assert!(t.errors[1].contains("not found in assets/"), "{}", t.errors[1]);
     assert_eq!((t.rules.speed, t.rules.waves), (2.5, 7));
 }
 
-unsafe extern "C" fn load_rules_resource(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn load_rules_resource(ctx: *mut PonkoCtx, user: *mut c_void) {
     unsafe {
         let t = &mut *user.cast::<DataTest>();
-        if crabby_ctx_sim_tick(ctx) > 0 {
+        if ponko_ctx_sim_tick(ctx) > 0 {
             return;
         }
-        let w = crabby_ctx_world(ctx);
+        let w = ponko_ctx_world(ctx);
         // Not described yet: refused with a reason.
-        t.statuses.push(crabby_ctx_load_resource_json(
+        t.statuses.push(ponko_ctx_load_resource_json(
             ctx,
             t.path.as_ptr(),
             c"game::Rules".as_ptr(),
         ));
         t.errors.push(last_error());
         let fields = [
-            CrabbyField {
+            PonkoField {
                 name: c"speed".as_ptr(),
-                kind: CrabbyFieldType::CRABBY_FIELD_F32 as u32,
+                kind: PonkoFieldType::PONKO_FIELD_F32 as u32,
                 offset: 0,
             },
-            CrabbyField {
+            PonkoField {
                 name: c"waves".as_ptr(),
-                kind: CrabbyFieldType::CRABBY_FIELD_U32 as u32,
+                kind: PonkoFieldType::PONKO_FIELD_U32 as u32,
                 offset: 4,
             },
         ];
-        let status = crabby_resource_reflect(w, c"game::Rules".as_ptr(), 8, 4, fields.as_ptr(), 2);
-        assert_eq!(status, CRABBY_OK);
+        let status = ponko_resource_reflect(w, c"game::Rules".as_ptr(), 8, 4, fields.as_ptr(), 2);
+        assert_eq!(status, PONKO_OK);
         // Added by the load, since the world has no Rules yet.
-        t.statuses.push(crabby_ctx_load_resource_json(
+        t.statuses.push(ponko_ctx_load_resource_json(
             ctx,
             t.path.as_ptr(),
             c"game::Rules".as_ptr(),
         ));
         let mut out = Rules::default();
         assert_eq!(
-            crabby_resource_get(w, c"game::Rules".as_ptr(), (&raw mut out).cast(), 8),
-            CRABBY_OK
+            ponko_resource_get(w, c"game::Rules".as_ptr(), (&raw mut out).cast(), 8),
+            PONKO_OK
         );
         t.rules = out;
     }
@@ -454,7 +442,7 @@ unsafe extern "C" fn load_rules_resource(ctx: *mut CrabbyCtx, user: *mut c_void)
 
 #[test]
 fn json_files_load_into_described_c_resources() {
-    let dir = std::env::temp_dir().join(format!("crabby-ffi-resource-data-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ponko-ffi-resource-data-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("rules.json");
     std::fs::write(&file, r#"{"speed": 1.5, "waves": 4}"#).unwrap();
@@ -463,7 +451,7 @@ fn json_files_load_into_described_c_resources() {
         ..Default::default()
     };
     run(1, Some(load_rules_resource), (&raw mut t).cast());
-    assert_eq!(t.statuses, [CRABBY_INVALID_ARGUMENT, CRABBY_OK]);
+    assert_eq!(t.statuses, [PONKO_INVALID_ARGUMENT, PONKO_OK]);
     assert!(t.errors[0].contains("game::Rules"), "{}", t.errors[0]);
     assert_eq!((t.rules.speed, t.rules.waves), (1.5, 4));
     std::fs::remove_dir_all(dir).ok();
@@ -478,35 +466,35 @@ struct Reload {
     seen: Vec<(u64, bool, u32)>,
 }
 
-unsafe extern "C" fn reload_rules(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn reload_rules(ctx: *mut PonkoCtx, user: *mut c_void) {
     unsafe {
         let t = &mut *user.cast::<Reload>();
-        let w = crabby_ctx_world(ctx);
-        let tick = crabby_ctx_sim_tick(ctx);
+        let w = ponko_ctx_world(ctx);
+        let tick = ponko_ctx_sim_tick(ctx);
         if tick == 0 {
             assert_eq!(
-                crabby_component_register(w, c"Waves".as_ptr(), 4, 4, &mut t.id),
-                CRABBY_OK
+                ponko_component_register(w, c"Waves".as_ptr(), 4, 4, &mut t.id),
+                PONKO_OK
             );
-            let f = [CrabbyField {
+            let f = [PonkoField {
                 name: c"waves".as_ptr(),
-                kind: CrabbyFieldType::CRABBY_FIELD_U32 as u32,
+                kind: PonkoFieldType::PONKO_FIELD_U32 as u32,
                 offset: 0,
             }];
-            assert_eq!(crabby_component_reflect(w, t.id, f.as_ptr(), 1), CRABBY_OK);
+            assert_eq!(ponko_component_reflect(w, t.id, f.as_ptr(), 1), PONKO_OK);
             let zero = 0u32;
-            let v = CrabbyValue {
+            let v = PonkoValue {
                 component: t.id,
                 data: (&raw const zero).cast(),
                 size: 4,
             };
-            assert_eq!(crabby_spawn(w, &v, 1, &mut t.entity), CRABBY_OK);
-            assert_eq!(crabby_ctx_load_json(ctx, t.path.as_ptr(), t.entity, t.id), CRABBY_OK);
+            assert_eq!(ponko_spawn(w, &v, 1, &mut t.entity), PONKO_OK);
+            assert_eq!(ponko_ctx_load_json(ctx, t.path.as_ptr(), t.entity, t.id), PONKO_OK);
         }
         let mut reloaded = true;
-        assert_eq!(crabby_ctx_was_reloaded(ctx, t.path.as_ptr(), &mut reloaded), CRABBY_OK);
+        assert_eq!(ponko_ctx_was_reloaded(ctx, t.path.as_ptr(), &mut reloaded), PONKO_OK);
         let mut waves = 0u32;
-        assert_eq!(crabby_get(w, t.entity, t.id, (&raw mut waves).cast(), 4), CRABBY_OK);
+        assert_eq!(ponko_get(w, t.entity, t.id, (&raw mut waves).cast(), 4), PONKO_OK);
         t.seen.push((tick, reloaded, waves));
         if tick == 1 {
             std::thread::sleep(std::time::Duration::from_millis(50)); // see above
@@ -518,7 +506,7 @@ unsafe extern "C" fn reload_rules(ctx: *mut CrabbyCtx, user: *mut c_void) {
 
 #[test]
 fn edited_json_files_update_c_components_while_running() {
-    let dir = std::env::temp_dir().join(format!("crabby-ffi-reload-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ponko-ffi-reload-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("waves.json");
     std::fs::write(&file, r#"{"waves": 3}"#).unwrap();
@@ -528,18 +516,15 @@ fn edited_json_files_update_c_components_while_running() {
         ..Default::default()
     };
     unsafe {
-        let game = crabby_game_new(c"reload".as_ptr(), 1, 1);
-        assert_eq!(crabby_game_hot_reload(game, true), CRABBY_OK);
+        let game = ponko_game_new(c"reload".as_ptr(), 1, 1);
+        assert_eq!(ponko_game_hot_reload(game, true), PONKO_OK);
         assert_eq!(
-            crabby_game_sim_system(game, c"s".as_ptr(), 1, Some(reload_rules), (&raw mut t).cast()),
-            CRABBY_OK
+            ponko_game_sim_system(game, c"s".as_ptr(), 1, Some(reload_rules), (&raw mut t).cast()),
+            PONKO_OK
         );
         let mut world = null_mut();
-        assert_eq!(
-            crabby_game_run_headless(game, 4, None, null_mut(), &mut world),
-            CRABBY_OK
-        );
-        crabby_world_free(world);
+        assert_eq!(ponko_game_run_headless(game, 4, None, null_mut(), &mut world), PONKO_OK);
+        ponko_world_free(world);
     }
     assert_eq!(t.seen, [(0, false, 3), (1, false, 3), (2, true, 9), (3, false, 9)]);
 }

@@ -5,9 +5,9 @@
 use ponko::{Ctx, Entity, MorphTarget, MorphWeights};
 
 use crate::ctx::{ctx_access, out, text};
-use crate::three::{CrabbyMesh, CrabbyMeshData, CrabbyVec3};
+use crate::three::{PonkoMesh, PonkoMeshData, PonkoVec3};
 use crate::types::to_c;
-use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, error, invalid, invalid_owned};
+use crate::{Failure, PonkoCtx, PonkoStatus, boundary, error, invalid, invalid_owned};
 
 /// The most targets one model can have weights for.
 const MAX_TARGETS: usize = 1 << 16;
@@ -30,21 +30,21 @@ fn entity(c: &Ctx, bits: u64) -> Result<Entity, Failure> {
 /// `data` null or live; `name` a C string; `positions` and `normals` hold
 /// `count` values (`normals` may be null).
 /// ```
-/// use ponko_ffi::{CrabbyStatus::*, *};
-/// let d = crabby_mesh_data_plane(1.0);
-/// let up = [CrabbyVec3 { x: 0.0, y: 0.1, z: 0.0 }; 4];
-/// assert_eq!(unsafe { crabby_mesh_data_add_morph_target(d, c"lift".as_ptr(), up.as_ptr(), std::ptr::null(), 4) }, CRABBY_OK);
-/// assert_eq!(unsafe { crabby_mesh_data_add_morph_target(d, c"short".as_ptr(), up.as_ptr(), std::ptr::null(), 3) }, CRABBY_INVALID_ARGUMENT);
-/// unsafe { crabby_mesh_data_free(d) };
+/// use ponko_ffi::{PonkoStatus::*, *};
+/// let d = ponko_mesh_data_plane(1.0);
+/// let up = [PonkoVec3 { x: 0.0, y: 0.1, z: 0.0 }; 4];
+/// assert_eq!(unsafe { ponko_mesh_data_add_morph_target(d, c"lift".as_ptr(), up.as_ptr(), std::ptr::null(), 4) }, PONKO_OK);
+/// assert_eq!(unsafe { ponko_mesh_data_add_morph_target(d, c"short".as_ptr(), up.as_ptr(), std::ptr::null(), 3) }, PONKO_INVALID_ARGUMENT);
+/// unsafe { ponko_mesh_data_free(d) };
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_mesh_data_add_morph_target(
-    data: *mut CrabbyMeshData,
+pub unsafe extern "C" fn ponko_mesh_data_add_morph_target(
+    data: *mut PonkoMeshData,
     name: *const std::ffi::c_char,
-    positions: *const CrabbyVec3,
-    normals: *const CrabbyVec3,
+    positions: *const PonkoVec3,
+    normals: *const PonkoVec3,
     count: usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let Some(data) = data.as_mut() else {
@@ -58,9 +58,8 @@ pub unsafe extern "C" fn crabby_mesh_data_add_morph_target(
         if count != corners {
             return Err(invalid_owned(format!("{count} offsets for {corners} corners")));
         }
-        let read = |p: *const CrabbyVec3| -> Vec<_> {
-            std::slice::from_raw_parts(p, count).iter().map(|&v| to_c(v)).collect()
-        };
+        let read =
+            |p: *const PonkoVec3| -> Vec<_> { std::slice::from_raw_parts(p, count).iter().map(|&v| to_c(v)).collect() };
         let target = MorphTarget {
             name: name.to_string(),
             positions: read(positions),
@@ -78,14 +77,14 @@ pub unsafe extern "C" fn crabby_mesh_data_add_morph_target(
 /// # Safety
 /// `data` null or live.
 /// ```
-/// use ponko_ffi::{CrabbyStatus::*, *};
-/// let d = crabby_mesh_data_plane(1.0);
-/// assert_eq!(unsafe { crabby_mesh_data_clear_morph_targets(d) }, CRABBY_OK);
-/// assert_eq!(unsafe { crabby_mesh_data_clear_morph_targets(std::ptr::null_mut()) }, CRABBY_INVALID_ARGUMENT);
-/// unsafe { crabby_mesh_data_free(d) };
+/// use ponko_ffi::{PonkoStatus::*, *};
+/// let d = ponko_mesh_data_plane(1.0);
+/// assert_eq!(unsafe { ponko_mesh_data_clear_morph_targets(d) }, PONKO_OK);
+/// assert_eq!(unsafe { ponko_mesh_data_clear_morph_targets(std::ptr::null_mut()) }, PONKO_INVALID_ARGUMENT);
+/// unsafe { ponko_mesh_data_free(d) };
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_mesh_data_clear_morph_targets(data: *mut CrabbyMeshData) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_mesh_data_clear_morph_targets(data: *mut PonkoMeshData) -> PonkoStatus {
     boundary(|| {
         // SAFETY: caller contract: null or live.
         let Some(data) = (unsafe { data.as_mut() }) else {
@@ -101,31 +100,31 @@ pub unsafe extern "C" fn crabby_mesh_data_clear_morph_targets(data: *mut CrabbyM
 /// # Safety
 /// `data` null or live.
 /// ```
-/// let d = ponko_ffi::crabby_mesh_data_plane(1.0);
-/// assert_eq!(unsafe { ponko_ffi::crabby_mesh_data_morph_target_count(d) }, 0);
-/// unsafe { ponko_ffi::crabby_mesh_data_free(d) };
+/// let d = ponko_ffi::ponko_mesh_data_plane(1.0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_mesh_data_morph_target_count(d) }, 0);
+/// unsafe { ponko_ffi::ponko_mesh_data_free(d) };
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_mesh_data_morph_target_count(data: *const CrabbyMeshData) -> usize {
+pub unsafe extern "C" fn ponko_mesh_data_morph_target_count(data: *const PonkoMeshData) -> usize {
     // SAFETY: caller contract: null or live.
     unsafe { data.as_ref() }.map_or(0, |d| d.0.morph_targets.len())
 }
 
 /// The index of `mesh`'s morph target called `name`, for the weight calls
-/// (Rust `Graphics::morph_target`). `CRABBY_NOT_FOUND` when the mesh has no such
+/// (Rust `Graphics::morph_target`). `PONKO_NOT_FOUND` when the mesh has no such
 /// target or was freed.
 /// # Safety
 /// `ctx` null or live; `name` a C string; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_morph_target(std::ptr::null_mut(), Default::default(), c"lift".as_ptr(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_morph_target(std::ptr::null_mut(), Default::default(), c"lift".as_ptr(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_morph_target(
-    ctx: *mut CrabbyCtx,
-    mesh: CrabbyMesh,
+pub unsafe extern "C" fn ponko_ctx_morph_target(
+    ctx: *mut PonkoCtx,
+    mesh: PonkoMesh,
     name: *const std::ffi::c_char,
     out_target: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -135,7 +134,7 @@ pub unsafe extern "C" fn crabby_ctx_morph_target(
             }
             let target = c.gfx.morph_target(to_c(mesh), name).ok_or_else(|| {
                 error(
-                    CrabbyStatus::CRABBY_NOT_FOUND,
+                    PonkoStatus::PONKO_NOT_FOUND,
                     "that mesh has no morph target of that name",
                 )
             })?;
@@ -151,15 +150,15 @@ pub unsafe extern "C" fn crabby_ctx_morph_target(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_morph_weight(std::ptr::null_mut(), 0, 0, 1.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_morph_weight(std::ptr::null_mut(), 0, 0, 1.0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_morph_weight(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_morph_weight(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     target: usize,
     weight: f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -181,21 +180,21 @@ pub unsafe extern "C" fn crabby_ctx_set_morph_weight(
 }
 
 /// How much of morph target `target` `entity`'s model shows (Rust
-/// `MorphWeights::get`; 0 for targets never set). `CRABBY_NOT_FOUND` when the
+/// `MorphWeights::get`; 0 for targets never set). `PONKO_NOT_FOUND` when the
 /// entity has no weights, in which case its model shows its mesh's default
 /// weights.
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_morph_weight(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_morph_weight(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_morph_weight(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_morph_weight(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     target: usize,
     out_weight: *mut f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -203,7 +202,7 @@ pub unsafe extern "C" fn crabby_ctx_morph_weight(
             let w = c
                 .world
                 .get::<MorphWeights>(e)
-                .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "that entity has no morph weights"))?;
+                .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "that entity has no morph weights"))?;
             out(out_weight, w.get(target))
         })
     })
@@ -214,10 +213,10 @@ pub unsafe extern "C" fn crabby_ctx_morph_weight(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_clear_morph_weights(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_clear_morph_weights(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_clear_morph_weights(ctx: *mut CrabbyCtx, entity_bits: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_clear_morph_weights(ctx: *mut PonkoCtx, entity_bits: u64) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -233,15 +232,15 @@ pub unsafe extern "C" fn crabby_ctx_clear_morph_weights(ctx: *mut CrabbyCtx, ent
 /// # Safety
 /// `data` null or live.
 /// ```
-/// assert_ne!(unsafe { ponko_ffi::crabby_mesh_data_add_morph_frame(std::ptr::null_mut(), 0, 0, 0.5) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::ponko_mesh_data_add_morph_frame(std::ptr::null_mut(), 0, 0, 0.5) } as u32, 0);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_mesh_data_add_morph_frame(
-    data: *mut CrabbyMeshData,
+pub unsafe extern "C" fn ponko_mesh_data_add_morph_frame(
+    data: *mut PonkoMeshData,
     channel: usize,
     target: usize,
     weight: f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let data = data.as_mut().ok_or_else(|| invalid("mesh data is null"))?;
@@ -262,13 +261,13 @@ pub unsafe extern "C" fn crabby_mesh_data_add_morph_frame(
 /// # Safety
 /// `name` is a C string; `output` writable.
 /// ```
-/// assert_ne!(unsafe { ponko_ffi::crabby_clip_new(c"face".as_ptr(), std::ptr::null_mut()) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::ponko_clip_new(c"face".as_ptr(), std::ptr::null_mut()) } as u32, 0);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_clip_new(
+pub unsafe extern "C" fn ponko_clip_new(
     name: *const std::ffi::c_char,
-    output: *mut *mut crate::CrabbyClip,
-) -> CrabbyStatus {
+    output: *mut *mut crate::PonkoClip,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let name = text(name)?;
@@ -277,7 +276,7 @@ pub unsafe extern "C" fn crabby_clip_new(
         }
         out(
             output,
-            Box::into_raw(Box::new(crate::CrabbyClip(ponko::AnimationClip::new(
+            Box::into_raw(Box::new(crate::PonkoClip(ponko::AnimationClip::new(
                 name,
                 &ponko::Skeleton::new(vec![]),
                 vec![],
@@ -294,17 +293,17 @@ pub unsafe extern "C" fn crabby_clip_new(
 /// `clip` null or live; `name` C string; `times` holds `count` floats;
 /// `values` holds `count` floats (three times as many for cubic).
 /// ```
-/// assert_ne!(unsafe { ponko_ffi::crabby_clip_set_morph_track(std::ptr::null_mut(), c"smile".as_ptr(), std::ptr::null(), std::ptr::null(), 0, 1) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::ponko_clip_set_morph_track(std::ptr::null_mut(), c"smile".as_ptr(), std::ptr::null(), std::ptr::null(), 0, 1) } as u32, 0);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_clip_set_morph_track(
-    clip: *mut crate::CrabbyClip,
+pub unsafe extern "C" fn ponko_clip_set_morph_track(
+    clip: *mut crate::PonkoClip,
     name: *const std::ffi::c_char,
     times: *const f32,
     values: *const f32,
     count: usize,
     interpolation: u32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let clip = clip.as_mut().ok_or_else(|| invalid("clip is null"))?;
@@ -352,10 +351,10 @@ pub unsafe extern "C" fn crabby_clip_set_morph_track(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_ne!(unsafe { ponko_ffi::crabby_ctx_write_animated_morphs(std::ptr::null_mut()) } as u32, 0);
+/// assert_ne!(unsafe { ponko_ffi::ponko_ctx_write_animated_morphs(std::ptr::null_mut()) } as u32, 0);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_write_animated_morphs(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_write_animated_morphs(ctx: *mut PonkoCtx) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {

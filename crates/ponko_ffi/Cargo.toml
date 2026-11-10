@@ -1,7 +1,7 @@
 [package]
 name = "ponko_ffi"
 version = "0.0.1"
-description = "C API for Ponko; include/crabby.hpp wraps it for C++17."
+description = "C API for Ponko; include/ponko.hpp wraps it for C++17."
 keywords = ["gamedev", "ffi", "c", "cpp"]
 categories = ["game-engines", "api-bindings"]
 edition.workspace = true
@@ -15,20 +15,23 @@ homepage.workspace = true
 crate-type = ["rlib", "staticlib", "cdylib"]
 
 [features]
-default = ["audio", "window", "inspector", "gamepad", "physics", "physics3d"]
-# A window and GPU rendering. Off: crabby_game_run fails with an error and
+# Deprecated source aliases and ABI-2 forwarding exports. Removal requires a major
+# release, no earlier than 2027-11-10. Disable only for new-only distributions.
+legacy-names = []
+default = ["legacy-names", "audio", "window", "inspector", "gamepad", "physics", "physics3d"]
+# A window and GPU rendering. Off: ponko_game_run fails with an error and
 # only headless runs work, from a build half the size.
 window = ["ponko/window"]
 # Sound through the engine's audio feature. Off: sound calls succeed silently.
 audio = ["ponko/audio"]
-# The runtime inspector overlay (backquote key); see crabby_game_inspector.
+# The runtime inspector overlay (backquote key); see ponko_game_inspector.
 inspector = ["ponko/inspector"]
-# Gamepads (crabby_ctx_gamepad_*). Off: no pads are ever connected.
+# Gamepads (ponko_ctx_gamepad_*). Off: no pads are ever connected.
 gamepad = ["ponko/gamepad"]
-# 2D physics with rapier (crabby_game_physics, rigid bodies, colliders, rays).
+# 2D physics with rapier (ponko_game_physics, rigid bodies, colliders, rays).
 # Off: those calls fail with an error.
 physics = ["ponko/physics"]
-# 3D physics with rapier (crabby_game_physics3d, 3D bodies, colliders, a
+# 3D physics with rapier (ponko_game_physics3d, 3D bodies, colliders, a
 # character controller, ray and shape queries). Off: those calls fail with an
 # error.
 physics3d = ["ponko/physics3d"]

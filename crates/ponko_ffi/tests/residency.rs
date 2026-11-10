@@ -6,18 +6,18 @@ use std::ptr::null_mut;
 
 use ponko_ffi::*;
 
-use CrabbyAssetState::*;
-use CrabbyResidencyKind::*;
-use CrabbyStatus::*;
+use PonkoAssetState::*;
+use PonkoResidencyKind::*;
+use PonkoStatus::*;
 
 const HOUSE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/models/house.glb");
 const CRAB: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/crab.png");
 
-unsafe fn state(ctx: *mut CrabbyCtx, kind: CrabbyResidencyKind, name: &CString) -> u32 {
+unsafe fn state(ctx: *mut PonkoCtx, kind: PonkoResidencyKind, name: &CString) -> u32 {
     let mut s = 99;
     assert_eq!(
-        unsafe { crabby_ctx_asset_state(ctx, kind as u32, name.as_ptr(), &mut s) },
-        CRABBY_OK
+        unsafe { ponko_ctx_asset_state(ctx, kind as u32, name.as_ptr(), &mut s) },
+        PONKO_OK
     );
     s
 }
@@ -29,111 +29,105 @@ struct Seen {
     house_resident_at: Option<u32>,
 }
 
-unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn setup(ctx: *mut PonkoCtx, user: *mut c_void) {
     unsafe {
         let seen = &mut *user.cast::<Seen>();
         let (house, crab) = (CString::new(HOUSE).unwrap(), CString::new(CRAB).unwrap());
-        assert_eq!(crabby_ctx_set_deterministic_uploads(ctx, true), CRABBY_OK);
-        assert_eq!(crabby_ctx_set_upload_budget(ctx, true, 1 << 20), CRABBY_OK);
+        assert_eq!(ponko_ctx_set_deterministic_uploads(ctx, true), PONKO_OK);
+        assert_eq!(ponko_ctx_set_upload_budget(ctx, true, 1 << 20), PONKO_OK);
 
         // A texture: not ready at once, then resident under one handle.
-        let mut texture = std::mem::zeroed::<CrabbyTexture>();
+        let mut texture = std::mem::zeroed::<PonkoTexture>();
         let mut ready = true;
         assert_eq!(
-            crabby_ctx_stream_texture(ctx, crab.as_ptr(), &mut texture, &mut ready),
-            CRABBY_OK
+            ponko_ctx_stream_texture(ctx, crab.as_ptr(), &mut texture, &mut ready),
+            PONKO_OK
         );
         assert!(!ready);
-        assert_eq!(state(ctx, CRABBY_RESIDENCY_TEXTURE, &crab), CRABBY_ASSET_LOADING as u32);
-        assert_eq!(crabby_ctx_finish_uploads(ctx), CRABBY_OK);
+        assert_eq!(state(ctx, PONKO_RESIDENCY_TEXTURE, &crab), PONKO_ASSET_LOADING as u32);
+        assert_eq!(ponko_ctx_finish_uploads(ctx), PONKO_OK);
         assert_eq!(
-            crabby_ctx_stream_texture(ctx, crab.as_ptr(), &mut texture, &mut ready),
-            CRABBY_OK
+            ponko_ctx_stream_texture(ctx, crab.as_ptr(), &mut texture, &mut ready),
+            PONKO_OK
         );
         assert!(ready && texture.width == 32);
+        assert_eq!(state(ctx, PONKO_RESIDENCY_TEXTURE, &crab), PONKO_ASSET_RESIDENT as u32);
+        let mut again = std::mem::zeroed::<PonkoTexture>();
         assert_eq!(
-            state(ctx, CRABBY_RESIDENCY_TEXTURE, &crab),
-            CRABBY_ASSET_RESIDENT as u32
-        );
-        let mut again = std::mem::zeroed::<CrabbyTexture>();
-        assert_eq!(
-            crabby_ctx_resident_texture(ctx, crab.as_ptr(), true, &mut again),
-            CRABBY_OK
+            ponko_ctx_resident_texture(ctx, crab.as_ptr(), true, &mut again),
+            PONKO_OK
         );
         assert_eq!(again.id, texture.id);
-        let mut stats = CrabbyResidencyStats::default();
+        let mut stats = PonkoResidencyStats::default();
         assert_eq!(
-            crabby_ctx_residency(ctx, CRABBY_RESIDENCY_TEXTURE as u32, &mut stats),
-            CRABBY_OK
+            ponko_ctx_residency(ctx, PONKO_RESIDENCY_TEXTURE as u32, &mut stats),
+            PONKO_OK
         );
         assert_eq!(
             (stats.resident, stats.pinned, stats.resident_bytes),
             (1, 1, 32 * 32 * 4)
         );
         assert_eq!(
-            crabby_ctx_unpin_resident(ctx, CRABBY_RESIDENCY_TEXTURE as u32, crab.as_ptr()),
-            CRABBY_OK
+            ponko_ctx_unpin_resident(ctx, PONKO_RESIDENCY_TEXTURE as u32, crab.as_ptr()),
+            PONKO_OK
         );
 
         // Budgets.
         assert_eq!(
-            crabby_ctx_set_residency_budget(ctx, CRABBY_RESIDENCY_MESH as u32, true, 1 << 30),
-            CRABBY_OK
+            ponko_ctx_set_residency_budget(ctx, PONKO_RESIDENCY_MESH as u32, true, 1 << 30),
+            PONKO_OK
         );
         assert_eq!(
-            crabby_ctx_residency(ctx, CRABBY_RESIDENCY_MESH as u32, &mut stats),
-            CRABBY_OK
+            ponko_ctx_residency(ctx, PONKO_RESIDENCY_MESH as u32, &mut stats),
+            PONKO_OK
         );
         assert!(stats.has_budget && stats.budget == 1 << 30 && stats.resident == 0);
-        assert_eq!(
-            crabby_ctx_set_residency_budget(ctx, 9, true, 0),
-            CRABBY_INVALID_ARGUMENT
-        );
+        assert_eq!(ponko_ctx_set_residency_budget(ctx, 9, true, 0), PONKO_INVALID_ARGUMENT);
 
         // A missing file: failed, with its message.
         let nope = c"nope.png";
         assert_eq!(
-            crabby_ctx_stream_texture(ctx, nope.as_ptr(), &mut texture, &mut ready),
-            CRABBY_OK
+            ponko_ctx_stream_texture(ctx, nope.as_ptr(), &mut texture, &mut ready),
+            PONKO_OK
         );
-        assert_eq!(crabby_ctx_finish_uploads(ctx), CRABBY_OK);
+        assert_eq!(ponko_ctx_finish_uploads(ctx), PONKO_OK);
         assert_eq!(
-            state(ctx, CRABBY_RESIDENCY_TEXTURE, &CString::from(nope)),
-            CRABBY_ASSET_FAILED as u32
+            state(ctx, PONKO_RESIDENCY_TEXTURE, &CString::from(nope)),
+            PONKO_ASSET_FAILED as u32
         );
         let mut buffer = [0 as std::ffi::c_char; 8];
         let mut len = 0;
         assert_eq!(
-            crabby_ctx_asset_error(
+            ponko_ctx_asset_error(
                 ctx,
-                CRABBY_RESIDENCY_TEXTURE as u32,
+                PONKO_RESIDENCY_TEXTURE as u32,
                 nope.as_ptr(),
                 buffer.as_mut_ptr(),
                 buffer.len(),
                 &mut len
             ),
-            CRABBY_OK
+            PONKO_OK
         );
         assert!(len > buffer.len(), "the full length, cut short in the buffer");
         assert_eq!(buffer[7], 0);
-        let mut uploads = CrabbyUploadStats::default();
-        assert_eq!(crabby_ctx_upload_stats(ctx, &mut uploads), CRABBY_OK);
+        let mut uploads = PonkoUploadStats::default();
+        assert_eq!(ponko_ctx_upload_stats(ctx, &mut uploads), PONKO_OK);
         assert_eq!((uploads.failures, uploads.pending), (1, 0));
         assert!(uploads.has_budget && uploads.budget == 1 << 20);
 
         // A LOD group whose one level streams in from a file.
-        let world = crabby_ctx_world(ctx);
+        let world = ponko_ctx_world(ctx);
         let mut transform = 0;
-        assert_eq!(crabby_transform3d_component(world, &mut transform), CRABBY_OK);
-        let at = crabby_transform3d_at(CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 });
-        let value = CrabbyValue {
+        assert_eq!(ponko_transform3d_component(world, &mut transform), PONKO_OK);
+        let at = ponko_transform3d_at(PonkoVec3 { x: 0.0, y: 0.0, z: 0.0 });
+        let value = PonkoValue {
             component: transform,
             data: (&raw const at).cast(),
-            size: size_of::<CrabbyTransform3D>(),
+            size: size_of::<PonkoTransform3D>(),
         };
-        assert_eq!(crabby_spawn(world, &value, 1, &mut seen.entity), CRABBY_OK);
-        let renderer = crabby_lod_renderer(CrabbyMesh { id: CRABBY_MESH_NONE });
-        let level = CrabbyLodLevel {
+        assert_eq!(ponko_spawn(world, &value, 1, &mut seen.entity), PONKO_OK);
+        let renderer = ponko_lod_renderer(PonkoMesh { id: PONKO_MESH_NONE });
+        let level = PonkoLodLevel {
             screen_height: 0.0,
             fade_width: 0.0,
             renderers: &renderer,
@@ -143,40 +137,39 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             shadow_caster_count: 0,
         };
         assert_eq!(
-            crabby_ctx_set_lod_group(ctx, seen.entity, 4.0, CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 }, &level, 1),
-            CRABBY_OK
+            ponko_ctx_set_lod_group(ctx, seen.entity, 4.0, PonkoVec3 { x: 0.0, y: 0.0, z: 0.0 }, &level, 1),
+            PONKO_OK
         );
         let files = [house.as_ptr()];
         assert_eq!(
-            crabby_ctx_set_streamed_lod(ctx, seen.entity, files.as_ptr(), 1),
-            CRABBY_OK
+            ponko_ctx_set_streamed_lod(ctx, seen.entity, files.as_ptr(), 1),
+            PONKO_OK
         );
         assert_eq!(
-            crabby_ctx_set_streamed_lod(ctx, seen.entity, std::ptr::null(), 1),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_set_streamed_lod(ctx, seen.entity, std::ptr::null(), 1),
+            PONKO_INVALID_ARGUMENT
         );
     }
 }
 
-unsafe extern "C" fn watch(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn watch(ctx: *mut PonkoCtx, user: *mut c_void) {
     unsafe {
         let seen = &mut *user.cast::<Seen>();
         seen.tick += 1;
         let house = CString::new(HOUSE).unwrap();
-        if seen.house_resident_at.is_none() && state(ctx, CRABBY_RESIDENCY_MESH, &house) == CRABBY_ASSET_RESIDENT as u32
-        {
+        if seen.house_resident_at.is_none() && state(ctx, PONKO_RESIDENCY_MESH, &house) == PONKO_ASSET_RESIDENT as u32 {
             seen.house_resident_at = Some(seen.tick);
-            let mut mesh = CrabbyMesh::default();
+            let mut mesh = PonkoMesh::default();
             let mut ready = false;
             assert_eq!(
-                crabby_ctx_stream_mesh(ctx, house.as_ptr(), &mut mesh, &mut ready),
-                CRABBY_OK
+                ponko_ctx_stream_mesh(ctx, house.as_ptr(), &mut mesh, &mut ready),
+                PONKO_OK
             );
             assert!(ready);
             let mut resident = false;
             assert_eq!(
-                crabby_ctx_is_resident(ctx, CRABBY_RESIDENCY_MESH as u32, house.as_ptr(), &mut resident),
-                CRABBY_OK
+                ponko_ctx_is_resident(ctx, PONKO_RESIDENCY_MESH as u32, house.as_ptr(), &mut resident),
+                PONKO_OK
             );
             assert!(resident);
         }
@@ -188,14 +181,14 @@ fn games_stream_assets_and_lod_levels_through_the_c_api() {
     let mut seen = Seen::default();
     let user = (&raw mut seen).cast();
     unsafe {
-        let g = crabby_game_new(c"streaming".as_ptr(), 64, 64);
+        let g = ponko_game_new(c"streaming".as_ptr(), 64, 64);
         assert_eq!(
-            crabby_game_sim_system(g, c"watch".as_ptr(), 1, Some(watch), user),
-            CRABBY_OK
+            ponko_game_sim_system(g, c"watch".as_ptr(), 1, Some(watch), user),
+            PONKO_OK
         );
         let mut world = null_mut();
-        assert_eq!(crabby_game_run_headless(g, 4, Some(setup), user, &mut world), CRABBY_OK);
-        assert_eq!(crabby_world_free(world), CRABBY_OK);
+        assert_eq!(ponko_game_run_headless(g, 4, Some(setup), user, &mut world), PONKO_OK);
+        assert_eq!(ponko_world_free(world), PONKO_OK);
     }
     // Asked for by the group in the first frame's streaming step and, with
     // deterministic uploads, uploaded in the same step.

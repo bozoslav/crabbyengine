@@ -453,7 +453,7 @@ fn fbx_inbetween_frames_survive_glb_export() {
     let glb = import_glb("inbetween", source.as_bytes(), "    bakeAxisConversion: 1\n");
     let len = u32::from_le_bytes(glb[12..16].try_into().unwrap()) as usize;
     let doc: Json = serde_json::from_slice(&glb[20..20 + len]).unwrap();
-    let frames = doc["meshes"][0]["extras"]["crabbyMorphFrames"].as_array().unwrap();
+    let frames = doc["meshes"][0]["extras"]["ponkoMorphFrames"].as_array().unwrap();
     assert_eq!(frames.len(), 2);
     assert_eq!(frames[0]["weight"], 0.5);
     assert_eq!(frames[1]["weight"], 1.0);

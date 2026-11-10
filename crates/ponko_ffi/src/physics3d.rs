@@ -1,42 +1,42 @@
 //! 3D physics from C (the `physics3d` feature, on by default): bodies,
 //! colliders and characters as components, collision meshes, a game
 //! setting, ray and shape casts, overlaps and impulses. Collision events are
-//! read with `crabby_ctx_collisions`, as in 2D. Without the feature every
+//! read with `ponko_ctx_collisions`, as in 2D. Without the feature every
 //! call here fails with an error naming it.
 #![cfg_attr(not(feature = "physics3d"), allow(unused_variables))]
 
-use crate::three::CrabbyVec3;
-use crate::three::{CrabbyQuat, CrabbyTransform3D};
-use crate::types::CrabbyEntity;
-use crate::{CrabbyCtx, CrabbyGame, CrabbyStatus, CrabbyWorld};
+use crate::three::PonkoVec3;
+use crate::three::{PonkoQuat, PonkoTransform3D};
+use crate::types::PonkoEntity;
+use crate::{PonkoCtx, PonkoGame, PonkoStatus, PonkoWorld};
 
-/// A 3D collider's shape (`CrabbyCollider3D::shape`).
+/// A 3D collider's shape (`PonkoCollider3D::shape`).
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyShape3DKind::CRABBY_SHAPE3D_BOX as u32, 1);
+/// assert_eq!(ponko_ffi::PonkoShape3DKind::PONKO_SHAPE3D_BOX as u32, 1);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbyShape3DKind {
+pub enum PonkoShape3DKind {
     /// A ball: uses `radius`.
-    CRABBY_SHAPE3D_SPHERE,
+    PONKO_SHAPE3D_SPHERE,
     /// A box: uses `size` (full width, height, depth).
-    CRABBY_SHAPE3D_BOX,
+    PONKO_SHAPE3D_BOX,
     /// An upright capsule: `height` between the centers of its ends, and `radius`.
-    CRABBY_SHAPE3D_CAPSULE,
+    PONKO_SHAPE3D_CAPSULE,
     /// A convex hull, triangle mesh or heightfield: uses `mesh`.
-    CRABBY_SHAPE3D_MESH,
+    PONKO_SHAPE3D_MESH,
 }
 
 /// A convex hull, triangle mesh or heightfield for colliders
-/// (`crabby_ctx_physics3d_heightfield` and friends). A handle.
+/// (`ponko_ctx_physics3d_heightfield` and friends). A handle.
 /// ```
-/// let m = ponko_ffi::CrabbyCollisionMesh { id: 0 };
+/// let m = ponko_ffi::PonkoCollisionMesh { id: 0 };
 /// assert_eq!(m.id, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CrabbyCollisionMesh {
+pub struct PonkoCollisionMesh {
     /// Opaque.
     pub id: u64,
 }
@@ -45,12 +45,12 @@ pub struct CrabbyCollisionMesh {
 /// `memberships` (a bit each) and touches colliders whose memberships share
 /// a bit with its `filter`; both sides must agree.
 /// ```
-/// let all = ponko_ffi::crabby_collision_groups_all();
+/// let all = ponko_ffi::ponko_collision_groups_all();
 /// assert_eq!(all.filter, u32::MAX);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CrabbyCollisionGroups {
+pub struct PonkoCollisionGroups {
     /// The groups it's in.
     pub memberships: u32,
     /// The groups it touches.
@@ -58,16 +58,16 @@ pub struct CrabbyCollisionGroups {
 }
 
 /// The built-in `RigidBody3D` component: makes an entity a 3D physics body
-/// (it also needs a `CrabbyCollider3D` and a `CrabbyTransform3D`). Start from
-/// `crabby_rigid_body3d(kind)`; `kind` is a `CrabbyBodyKind`. Not a query column.
+/// (it also needs a `PonkoCollider3D` and a `PonkoTransform3D`). Start from
+/// `ponko_rigid_body3d(kind)`; `kind` is a `PonkoBodyKind`. Not a query column.
 /// ```
-/// let b = ponko_ffi::crabby_rigid_body3d(ponko_ffi::CrabbyBodyKind::CRABBY_BODY_FIXED as u32);
+/// let b = ponko_ffi::ponko_rigid_body3d(ponko_ffi::PonkoBodyKind::PONKO_BODY_FIXED as u32);
 /// assert_eq!(b.kind, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyRigidBody3D {
-    /// A `CrabbyBodyKind`.
+pub struct PonkoRigidBody3D {
+    /// A `PonkoBodyKind`.
     pub kind: u32,
     /// 1 normal, 0 floats, negative falls up.
     pub gravity_scale: f32,
@@ -86,7 +86,7 @@ pub struct CrabbyRigidBody3D {
     pub has_center_of_mass: bool,
     /// Its center of mass in its own frame, when `has_center_of_mass` (cars
     /// want it low).
-    pub center_of_mass: CrabbyVec3,
+    pub center_of_mass: PonkoVec3,
     /// Contact dominance, -128 to 127 (default 0): in a contact, the body
     /// with the higher value pushes the other without being pushed back.
     pub dominance: i8,
@@ -94,28 +94,28 @@ pub struct CrabbyRigidBody3D {
 
 /// The built-in `Collider3D` component: a body's shape in meters, centered
 /// on the entity plus `offset`, its surface and its groups. Start from
-/// `crabby_collider3d_sphere`, `_box`, `_capsule` or `_mesh`. Checked on
+/// `ponko_collider3d_sphere`, `_box`, `_capsule` or `_mesh`. Checked on
 /// spawn/set: sizes must be positive, density, friction and restitution
 /// not negative. Not a query column.
 /// ```
-/// let c = ponko_ffi::crabby_collider3d_sphere(0.5);
+/// let c = ponko_ffi::ponko_collider3d_sphere(0.5);
 /// assert_eq!((c.radius, c.density, c.friction), (0.5, 1000.0, 0.5));
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyCollider3D {
-    /// A `CrabbyShape3DKind`.
+pub struct PonkoCollider3D {
+    /// A `PonkoShape3DKind`.
     pub shape: u32,
     /// Sphere and capsule radius.
     pub radius: f32,
     /// Capsule height between the centers of its ends.
     pub height: f32,
     /// Box width, height and depth.
-    pub size: CrabbyVec3,
+    pub size: PonkoVec3,
     /// The mesh of a mesh collider.
-    pub mesh: CrabbyCollisionMesh,
+    pub mesh: PonkoCollisionMesh,
     /// Where the shape sits relative to the entity's position.
-    pub offset: CrabbyVec3,
+    pub offset: PonkoVec3,
     /// Mass per cubic meter (default 1000, water).
     pub density: f32,
     /// 0 ice, 1 rubber.
@@ -125,49 +125,49 @@ pub struct CrabbyCollider3D {
     /// Detects overlaps (collision events) but doesn't push.
     pub sensor: bool,
     /// Which colliders it touches.
-    pub groups: CrabbyCollisionGroups,
+    pub groups: PonkoCollisionGroups,
 }
 
 /// The built-in `Velocity3D` component, meters and radians per second: a
 /// plain value (same layout as Rust's), so it works as a query column.
 /// ```
-/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyVelocity3D>(), 24);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::PonkoVelocity3D>(), 24);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CrabbyVelocity3D {
+pub struct PonkoVelocity3D {
     /// Meters per second.
-    pub linear: CrabbyVec3,
+    pub linear: PonkoVec3,
     /// Radians per second around X, Y and Z.
-    pub angular: CrabbyVec3,
+    pub angular: PonkoVec3,
 }
 
-/// How one axis of a `CrabbyJoint3D` may move.
+/// How one axis of a `PonkoJoint3D` may move.
 /// ```
-/// let _ = ponko_ffi::CrabbyJointMotionKind::CRABBY_JOINT_LIMITED;
+/// let _ = ponko_ffi::PonkoJointMotionKind::PONKO_JOINT_LIMITED;
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbyJointMotionKind {
+pub enum PonkoJointMotionKind {
     /// Moves freely.
-    CRABBY_JOINT_FREE = 0,
+    PONKO_JOINT_FREE = 0,
     /// Doesn't move.
-    CRABBY_JOINT_LOCKED = 1,
+    PONKO_JOINT_LOCKED = 1,
     /// Moves between `min` and `max` (meters, or radians for turning axes).
-    CRABBY_JOINT_LIMITED = 2,
+    PONKO_JOINT_LIMITED = 2,
 }
 
 /// One axis of a joint (Rust `JointMotion3D`).
 /// ```
-/// let m = ponko_ffi::crabby_joint3d_fixed(0, 0).axes[0];
-/// assert_eq!(m.kind, ponko_ffi::CrabbyJointMotionKind::CRABBY_JOINT_LOCKED);
+/// let m = ponko_ffi::ponko_joint3d_fixed(0, 0).axes[0];
+/// assert_eq!(m.kind, ponko_ffi::PonkoJointMotionKind::PONKO_JOINT_LOCKED);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyJointMotion3D {
+pub struct PonkoJointMotion3D {
     /// Free, locked or limited.
-    pub kind: CrabbyJointMotionKind,
+    pub kind: PonkoJointMotionKind,
     /// The lower limit, when limited.
     pub min: f32,
     /// The upper limit, when limited.
@@ -177,11 +177,11 @@ pub struct CrabbyJointMotion3D {
 /// A motor on one axis of a joint (Rust `JointDrive3D`): a spring toward
 /// `target_position` (`stiffness`), and toward `target_velocity` (`damping`).
 /// ```
-/// assert!(!ponko_ffi::crabby_joint3d_fixed(0, 0).drives[0].enabled);
+/// assert!(!ponko_ffi::ponko_joint3d_fixed(0, 0).drives[0].enabled);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyJointDrive3D {
+pub struct PonkoJointDrive3D {
     /// Whether this axis has a motor.
     pub enabled: bool,
     /// Where the spring pulls to (meters or radians).
@@ -199,28 +199,28 @@ pub struct CrabbyJointDrive3D {
 /// The built-in `Joint3D` component: put it on its own entity (or either
 /// body's) to join two bodies. Axes and drives are in the order linear X,
 /// Y, Z, then angular X, Y, Z of the joint frame; local X is the hinge,
-/// slider and twist axis. Start from `crabby_joint3d_fixed`, `_spherical`,
+/// slider and twist axis. Start from `ponko_joint3d_fixed`, `_spherical`,
 /// `_revolute`, `_prismatic` or `_generic`. Despawning it or either body
 /// removes the joint. Not a query column.
 /// ```
-/// let j = ponko_ffi::crabby_joint3d_revolute(1, 2);
-/// assert_eq!(j.axes[3].kind, ponko_ffi::CrabbyJointMotionKind::CRABBY_JOINT_FREE);
+/// let j = ponko_ffi::ponko_joint3d_revolute(1, 2);
+/// assert_eq!(j.axes[3].kind, ponko_ffi::PonkoJointMotionKind::PONKO_JOINT_FREE);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyJoint3D {
+pub struct PonkoJoint3D {
     /// The first body's entity.
     pub body_a: u64,
     /// The second body's entity.
     pub body_b: u64,
     /// The joint's frame in body A's space.
-    pub frame_a: CrabbyTransform3D,
+    pub frame_a: PonkoTransform3D,
     /// The joint's frame in body B's space.
-    pub frame_b: CrabbyTransform3D,
+    pub frame_b: PonkoTransform3D,
     /// How each axis may move.
-    pub axes: [CrabbyJointMotion3D; 6],
+    pub axes: [PonkoJointMotion3D; 6],
     /// Motors, per axis.
-    pub drives: [CrabbyJointDrive3D; 6],
+    pub drives: [PonkoJointDrive3D; 6],
     /// Whether the two joined bodies still collide with each other. Default false.
     pub contacts_enabled: bool,
     /// A cone limit on swinging (angular Y and Z together), in radians;
@@ -228,33 +228,33 @@ pub struct CrabbyJoint3D {
     pub swing_cone: f32,
 }
 
-fn joint3d(a: u64, b: u64, locked: [bool; 6]) -> CrabbyJoint3D {
-    let identity = CrabbyTransform3D {
-        rotation: CrabbyQuat {
+fn joint3d(a: u64, b: u64, locked: [bool; 6]) -> PonkoJoint3D {
+    let identity = PonkoTransform3D {
+        rotation: PonkoQuat {
             x: 0.0,
             y: 0.0,
             z: 0.0,
             w: 1.0,
         },
-        position: CrabbyVec3::default(),
-        scale: CrabbyVec3 { x: 1.0, y: 1.0, z: 1.0 },
+        position: PonkoVec3::default(),
+        scale: PonkoVec3 { x: 1.0, y: 1.0, z: 1.0 },
         reserved: [0.0; 2],
     };
-    CrabbyJoint3D {
+    PonkoJoint3D {
         body_a: a,
         body_b: b,
         frame_a: identity,
         frame_b: identity,
-        axes: locked.map(|l| CrabbyJointMotion3D {
+        axes: locked.map(|l| PonkoJointMotion3D {
             kind: if l {
-                CrabbyJointMotionKind::CRABBY_JOINT_LOCKED
+                PonkoJointMotionKind::PONKO_JOINT_LOCKED
             } else {
-                CrabbyJointMotionKind::CRABBY_JOINT_FREE
+                PonkoJointMotionKind::PONKO_JOINT_FREE
             },
             min: 0.0,
             max: 0.0,
         }),
-        drives: [CrabbyJointDrive3D {
+        drives: [PonkoJointDrive3D {
             enabled: false,
             target_position: 0.0,
             target_velocity: 0.0,
@@ -269,64 +269,64 @@ fn joint3d(a: u64, b: u64, locked: [bool; 6]) -> CrabbyJoint3D {
 
 /// A joint that leaves every axis free: set the axes yourself.
 /// ```
-/// assert_eq!(ponko_ffi::crabby_joint3d_generic(1, 2).swing_cone, -1.0);
+/// assert_eq!(ponko_ffi::ponko_joint3d_generic(1, 2).swing_cone, -1.0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_joint3d_generic(body_a: u64, body_b: u64) -> CrabbyJoint3D {
+pub extern "C" fn ponko_joint3d_generic(body_a: u64, body_b: u64) -> PonkoJoint3D {
     joint3d(body_a, body_b, [false; 6])
 }
 
 /// A joint that welds two bodies together.
 /// ```
-/// let j = ponko_ffi::crabby_joint3d_fixed(1, 2);
+/// let j = ponko_ffi::ponko_joint3d_fixed(1, 2);
 /// assert_eq!(j.body_b, 2);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_joint3d_fixed(body_a: u64, body_b: u64) -> CrabbyJoint3D {
+pub extern "C" fn ponko_joint3d_fixed(body_a: u64, body_b: u64) -> PonkoJoint3D {
     joint3d(body_a, body_b, [true; 6])
 }
 
 /// A ball joint: the frames stay together, turning freely (shoulders, ragdolls).
 /// ```
-/// let j = ponko_ffi::crabby_joint3d_spherical(1, 2);
-/// assert_eq!(j.axes[5].kind, ponko_ffi::CrabbyJointMotionKind::CRABBY_JOINT_FREE);
+/// let j = ponko_ffi::ponko_joint3d_spherical(1, 2);
+/// assert_eq!(j.axes[5].kind, ponko_ffi::PonkoJointMotionKind::PONKO_JOINT_FREE);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_joint3d_spherical(body_a: u64, body_b: u64) -> CrabbyJoint3D {
+pub extern "C" fn ponko_joint3d_spherical(body_a: u64, body_b: u64) -> PonkoJoint3D {
     joint3d(body_a, body_b, [true, true, true, false, false, false])
 }
 
 /// A hinge turning about the frames' X axis (doors, wheels, elbows).
 /// ```
-/// let j = ponko_ffi::crabby_joint3d_revolute(1, 2);
-/// assert_eq!(j.axes[4].kind, ponko_ffi::CrabbyJointMotionKind::CRABBY_JOINT_LOCKED);
+/// let j = ponko_ffi::ponko_joint3d_revolute(1, 2);
+/// assert_eq!(j.axes[4].kind, ponko_ffi::PonkoJointMotionKind::PONKO_JOINT_LOCKED);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_joint3d_revolute(body_a: u64, body_b: u64) -> CrabbyJoint3D {
+pub extern "C" fn ponko_joint3d_revolute(body_a: u64, body_b: u64) -> PonkoJoint3D {
     joint3d(body_a, body_b, [true, true, true, false, true, true])
 }
 
 /// A slider along the frames' X axis (pistons, drawers).
 /// ```
-/// let j = ponko_ffi::crabby_joint3d_prismatic(1, 2);
-/// assert_eq!(j.axes[0].kind, ponko_ffi::CrabbyJointMotionKind::CRABBY_JOINT_FREE);
+/// let j = ponko_ffi::ponko_joint3d_prismatic(1, 2);
+/// assert_eq!(j.axes[0].kind, ponko_ffi::PonkoJointMotionKind::PONKO_JOINT_FREE);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_joint3d_prismatic(body_a: u64, body_b: u64) -> CrabbyJoint3D {
+pub extern "C" fn ponko_joint3d_prismatic(body_a: u64, body_b: u64) -> PonkoJoint3D {
     joint3d(body_a, body_b, [false, true, true, true, true, true])
 }
 
 /// The built-in `Character3D` component: a walking capsule whose
-/// `CrabbyTransform3D` position is at its feet. Set `velocity` (x and z to
+/// `PonkoTransform3D` position is at its feet. Set `velocity` (x and z to
 /// walk, y to jump); read `grounded` after the step. Start from
-/// `crabby_character3d(height, radius)`. Not a query column.
+/// `ponko_character3d(height, radius)`. Not a query column.
 /// ```
-/// let c = ponko_ffi::crabby_character3d(1.8, 0.3);
+/// let c = ponko_ffi::ponko_character3d(1.8, 0.3);
 /// assert_eq!(c.step_height, 0.35);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyCharacter3D {
+pub struct PonkoCharacter3D {
     /// Feet to head, meters.
     pub height: f32,
     /// The capsule's radius.
@@ -342,56 +342,56 @@ pub struct CrabbyCharacter3D {
     /// 1 falls by gravity, 0 floats.
     pub gravity_scale: f32,
     /// Which colliders it touches.
-    pub groups: CrabbyCollisionGroups,
+    pub groups: PonkoCollisionGroups,
     /// Meters per second: yours to set; the step adds gravity.
-    pub velocity: CrabbyVec3,
+    pub velocity: PonkoVec3,
     /// Stands on something, as of the last step.
     pub grounded: bool,
 }
 
 /// What a 3D ray or shape cast hit.
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyHit3D::default().distance, 0.0);
+/// assert_eq!(ponko_ffi::PonkoHit3D::default().distance, 0.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CrabbyHit3D {
+pub struct PonkoHit3D {
     /// Whose collider.
-    pub entity: CrabbyEntity,
+    pub entity: PonkoEntity,
     /// Where (a shape cast: the first point touched).
-    pub point: CrabbyVec3,
+    pub point: PonkoVec3,
     /// The surface's outward direction there.
-    pub normal: CrabbyVec3,
+    pub normal: PonkoVec3,
     /// How far the ray or shape went.
     pub distance: f32,
 }
 
-/// Which colliders a 3D query sees. `crabby_query_filter3d()` sees every
+/// Which colliders a 3D query sees. `ponko_query_filter3d()` sees every
 /// solid collider and no sensors.
 /// ```
-/// let f = ponko_ffi::crabby_query_filter3d();
+/// let f = ponko_ffi::ponko_query_filter3d();
 /// assert!(!f.exclude && !f.sensors);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CrabbyQueryFilter3D {
+pub struct PonkoQueryFilter3D {
     /// Look through `exclude_entity`.
     pub exclude: bool,
     /// The entity to look through, when `exclude`.
     pub exclude_entity: u64,
     /// The query touches colliders as a collider with these groups would.
-    pub groups: CrabbyCollisionGroups,
+    pub groups: PonkoCollisionGroups,
     /// Sees sensors as well.
     pub sensors: bool,
 }
 
 /// In every group, touching every group (the default).
 /// ```
-/// assert_eq!(ponko_ffi::crabby_collision_groups_all().memberships, u32::MAX);
+/// assert_eq!(ponko_ffi::ponko_collision_groups_all().memberships, u32::MAX);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_collision_groups_all() -> CrabbyCollisionGroups {
-    CrabbyCollisionGroups {
+pub extern "C" fn ponko_collision_groups_all() -> PonkoCollisionGroups {
+    PonkoCollisionGroups {
         memberships: u32::MAX,
         filter: u32::MAX,
     }
@@ -399,26 +399,26 @@ pub extern "C" fn crabby_collision_groups_all() -> CrabbyCollisionGroups {
 
 /// The default query filter: every solid collider, no sensors.
 /// ```
-/// assert_eq!(ponko_ffi::crabby_query_filter3d().groups.filter, u32::MAX);
+/// assert_eq!(ponko_ffi::ponko_query_filter3d().groups.filter, u32::MAX);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_query_filter3d() -> CrabbyQueryFilter3D {
-    CrabbyQueryFilter3D {
+pub extern "C" fn ponko_query_filter3d() -> PonkoQueryFilter3D {
+    PonkoQueryFilter3D {
         exclude: false,
         exclude_entity: 0,
-        groups: crabby_collision_groups_all(),
+        groups: ponko_collision_groups_all(),
         sensors: false,
     }
 }
 
-/// A 3D body of this kind (a `CrabbyBodyKind`) with default settings.
+/// A 3D body of this kind (a `PonkoBodyKind`) with default settings.
 /// Unknown kinds give a dynamic body.
 /// ```
-/// assert_eq!(ponko_ffi::crabby_rigid_body3d(9).kind, 0);
+/// assert_eq!(ponko_ffi::ponko_rigid_body3d(9).kind, 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_rigid_body3d(kind: u32) -> CrabbyRigidBody3D {
-    CrabbyRigidBody3D {
+pub extern "C" fn ponko_rigid_body3d(kind: u32) -> PonkoRigidBody3D {
+    PonkoRigidBody3D {
         kind: if kind <= 2 { kind } else { 0 },
         gravity_scale: 1.0,
         linear_damping: 0.0,
@@ -427,75 +427,75 @@ pub extern "C" fn crabby_rigid_body3d(kind: u32) -> CrabbyRigidBody3D {
         ccd: false,
         mass: 0.0,
         has_center_of_mass: false,
-        center_of_mass: CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 },
+        center_of_mass: PonkoVec3 { x: 0.0, y: 0.0, z: 0.0 },
         dominance: 0,
     }
 }
 
-fn collider3d(shape: CrabbyShape3DKind) -> CrabbyCollider3D {
-    CrabbyCollider3D {
+fn collider3d(shape: PonkoShape3DKind) -> PonkoCollider3D {
+    PonkoCollider3D {
         shape: shape as u32,
         radius: 0.0,
         height: 0.0,
-        size: CrabbyVec3::default(),
-        mesh: CrabbyCollisionMesh::default(),
-        offset: CrabbyVec3::default(),
+        size: PonkoVec3::default(),
+        mesh: PonkoCollisionMesh::default(),
+        offset: PonkoVec3::default(),
         density: 1000.0,
         friction: 0.5,
         restitution: 0.0,
         sensor: false,
-        groups: crabby_collision_groups_all(),
+        groups: ponko_collision_groups_all(),
     }
 }
 
 /// A ball collider (density 1000, friction 0.5, no bounce).
 /// ```
-/// assert_eq!(ponko_ffi::crabby_collider3d_sphere(1.0).shape, 0);
+/// assert_eq!(ponko_ffi::ponko_collider3d_sphere(1.0).shape, 0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_collider3d_sphere(radius: f32) -> CrabbyCollider3D {
-    CrabbyCollider3D {
+pub extern "C" fn ponko_collider3d_sphere(radius: f32) -> PonkoCollider3D {
+    PonkoCollider3D {
         radius,
-        ..collider3d(CrabbyShape3DKind::CRABBY_SHAPE3D_SPHERE)
+        ..collider3d(PonkoShape3DKind::PONKO_SHAPE3D_SPHERE)
     }
 }
 
 /// A box collider `size` wide, high and deep.
 /// ```
-/// let c = ponko_ffi::crabby_collider3d_box(ponko_ffi::CrabbyVec3 { x: 1.0, y: 2.0, z: 3.0 });
+/// let c = ponko_ffi::ponko_collider3d_box(ponko_ffi::PonkoVec3 { x: 1.0, y: 2.0, z: 3.0 });
 /// assert_eq!(c.size.z, 3.0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_collider3d_box(size: CrabbyVec3) -> CrabbyCollider3D {
-    CrabbyCollider3D {
+pub extern "C" fn ponko_collider3d_box(size: PonkoVec3) -> PonkoCollider3D {
+    PonkoCollider3D {
         size,
-        ..collider3d(CrabbyShape3DKind::CRABBY_SHAPE3D_BOX)
+        ..collider3d(PonkoShape3DKind::PONKO_SHAPE3D_BOX)
     }
 }
 
 /// An upright capsule collider: `height` between the centers of its ends.
 /// ```
-/// assert_eq!(ponko_ffi::crabby_collider3d_capsule(1.2, 0.3).height, 1.2);
+/// assert_eq!(ponko_ffi::ponko_collider3d_capsule(1.2, 0.3).height, 1.2);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_collider3d_capsule(height: f32, radius: f32) -> CrabbyCollider3D {
-    CrabbyCollider3D {
+pub extern "C" fn ponko_collider3d_capsule(height: f32, radius: f32) -> PonkoCollider3D {
+    PonkoCollider3D {
         height,
         radius,
-        ..collider3d(CrabbyShape3DKind::CRABBY_SHAPE3D_CAPSULE)
+        ..collider3d(PonkoShape3DKind::PONKO_SHAPE3D_CAPSULE)
     }
 }
 
 /// A collider of a convex hull, triangle mesh or heightfield.
 /// ```
-/// let c = ponko_ffi::crabby_collider3d_mesh(ponko_ffi::CrabbyCollisionMesh { id: 7 });
+/// let c = ponko_ffi::ponko_collider3d_mesh(ponko_ffi::PonkoCollisionMesh { id: 7 });
 /// assert_eq!(c.mesh.id, 7);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_collider3d_mesh(mesh: CrabbyCollisionMesh) -> CrabbyCollider3D {
-    CrabbyCollider3D {
+pub extern "C" fn ponko_collider3d_mesh(mesh: PonkoCollisionMesh) -> PonkoCollider3D {
+    PonkoCollider3D {
         mesh,
-        ..collider3d(CrabbyShape3DKind::CRABBY_SHAPE3D_MESH)
+        ..collider3d(PonkoShape3DKind::PONKO_SHAPE3D_MESH)
     }
 }
 
@@ -503,12 +503,12 @@ pub extern "C" fn crabby_collider3d_mesh(mesh: CrabbyCollisionMesh) -> CrabbyCol
 /// default limits: 45° slopes, 0.35 m steps, 0.3 m ground snapping, pushes
 /// like 80 kg.
 /// ```
-/// let c = ponko_ffi::crabby_character3d(1.8, 0.3);
+/// let c = ponko_ffi::ponko_character3d(1.8, 0.3);
 /// assert!((c.max_slope - 45f32.to_radians()).abs() < 1e-6);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_character3d(height: f32, radius: f32) -> CrabbyCharacter3D {
-    CrabbyCharacter3D {
+pub extern "C" fn ponko_character3d(height: f32, radius: f32) -> PonkoCharacter3D {
+    PonkoCharacter3D {
         height,
         radius,
         max_slope: 45f32.to_radians(),
@@ -516,83 +516,83 @@ pub extern "C" fn crabby_character3d(height: f32, radius: f32) -> CrabbyCharacte
         snap_distance: 0.3,
         push_mass: 80.0,
         gravity_scale: 1.0,
-        groups: crabby_collision_groups_all(),
-        velocity: CrabbyVec3::default(),
+        groups: ponko_collision_groups_all(),
+        velocity: PonkoVec3::default(),
         grounded: false,
     }
 }
 
-/// The id of the built-in `RigidBody3D` component (`CrabbyRigidBody3D`),
+/// The id of the built-in `RigidBody3D` component (`PonkoRigidBody3D`),
 /// registering it if needed.
 /// # Safety
 /// Live handle and writable output.
 /// ```
 /// use ponko_ffi::*;
-/// let w = crabby_world_new();
-/// unsafe { let mut id = 99; assert_eq!(crabby_rigid_body3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// let w = ponko_world_new();
+/// unsafe { let mut id = 99; assert_eq!(ponko_rigid_body3d_component(w, &mut id), PonkoStatus::PONKO_OK); ponko_world_free(w); }
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_rigid_body3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_rigid_body3d_component(world: *mut PonkoWorld, out_id: *mut u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::component(world, out_id, 0) }
 }
 
-/// The id of the built-in `Collider3D` component (`CrabbyCollider3D`),
+/// The id of the built-in `Collider3D` component (`PonkoCollider3D`),
 /// registering it if needed.
 /// # Safety
 /// Live handle and writable output.
 /// ```
 /// use ponko_ffi::*;
-/// let w = crabby_world_new();
-/// unsafe { let mut id = 99; assert_eq!(crabby_collider3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// let w = ponko_world_new();
+/// unsafe { let mut id = 99; assert_eq!(ponko_collider3d_component(w, &mut id), PonkoStatus::PONKO_OK); ponko_world_free(w); }
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_collider3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_collider3d_component(world: *mut PonkoWorld, out_id: *mut u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::component(world, out_id, 1) }
 }
 
-/// The id of the built-in `Velocity3D` component (`CrabbyVelocity3D`, also a
+/// The id of the built-in `Velocity3D` component (`PonkoVelocity3D`, also a
 /// query column), registering it if needed.
 /// # Safety
 /// Live handle and writable output.
 /// ```
 /// use ponko_ffi::*;
-/// let w = crabby_world_new();
-/// unsafe { let mut id = 99; assert_eq!(crabby_velocity3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// let w = ponko_world_new();
+/// unsafe { let mut id = 99; assert_eq!(ponko_velocity3d_component(w, &mut id), PonkoStatus::PONKO_OK); ponko_world_free(w); }
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_velocity3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_velocity3d_component(world: *mut PonkoWorld, out_id: *mut u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::component(world, out_id, 2) }
 }
 
-/// The id of the built-in `Character3D` component (`CrabbyCharacter3D`),
+/// The id of the built-in `Character3D` component (`PonkoCharacter3D`),
 /// registering it if needed.
 /// # Safety
 /// Live handle and writable output.
 /// ```
 /// use ponko_ffi::*;
-/// let w = crabby_world_new();
-/// unsafe { let mut id = 99; assert_eq!(crabby_character3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// let w = ponko_world_new();
+/// unsafe { let mut id = 99; assert_eq!(ponko_character3d_component(w, &mut id), PonkoStatus::PONKO_OK); ponko_world_free(w); }
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_character3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_character3d_component(world: *mut PonkoWorld, out_id: *mut u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::component(world, out_id, 3) }
 }
 
-/// The id of the built-in `Joint3D` component (`CrabbyJoint3D`),
+/// The id of the built-in `Joint3D` component (`PonkoJoint3D`),
 /// registering it if needed.
 /// # Safety
 /// Live handle and writable output.
 /// ```
 /// use ponko_ffi::*;
-/// let w = crabby_world_new();
-/// unsafe { let mut id = 99; assert_eq!(crabby_joint3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// let w = ponko_world_new();
+/// unsafe { let mut id = 99; assert_eq!(ponko_joint3d_component(w, &mut id), PonkoStatus::PONKO_OK); ponko_world_free(w); }
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_joint3d_component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_joint3d_component(world: *mut PonkoWorld, out_id: *mut u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::component(world, out_id, 4) }
 }
@@ -601,10 +601,10 @@ pub unsafe extern "C" fn crabby_joint3d_component(world: *mut CrabbyWorld, out_i
 /// # Safety
 /// `ctx` null or live; `out_count` writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_physics3d_joint_count(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_physics3d_joint_count(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_physics3d_joint_count(ctx: *mut CrabbyCtx, out_count: *mut usize) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_physics3d_joint_count(ctx: *mut PonkoCtx, out_count: *mut usize) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::joint_count(ctx, out_count) }
 }
@@ -612,14 +612,14 @@ pub unsafe extern "C" fn crabby_ctx_physics3d_joint_count(ctx: *mut CrabbyCtx, o
 /// Turns on 3D physics, pulling dynamic bodies and characters by `gravity`
 /// (m/s², +Y up). Adds the physics step as a simulation system at this
 /// point in the order, and sets the simulation to 50 steps per second
-/// unless `crabby_game_fixed_hz` chose a rate.
+/// unless `ponko_game_fixed_hz` chose a rate.
 /// # Safety
 /// `game` must be null or a live game.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_game_physics3d(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_game_physics3d(std::ptr::null_mut(), Default::default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_game_physics3d(game: *mut CrabbyGame, gravity: CrabbyVec3) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_game_physics3d(game: *mut PonkoGame, gravity: PonkoVec3) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::game_physics3d(game, gravity) }
 }
@@ -628,69 +628,69 @@ pub unsafe extern "C" fn crabby_game_physics3d(game: *mut CrabbyGame, gravity: C
 /// # Safety
 /// Live ctx, outside query callbacks.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_gravity3d(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_gravity3d(std::ptr::null_mut(), Default::default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_gravity3d(ctx: *mut crate::CrabbyCtx, gravity: CrabbyVec3) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_set_gravity3d(ctx: *mut crate::PonkoCtx, gravity: PonkoVec3) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::set_gravity(ctx, gravity) }
 }
 
 /// A heightfield collision mesh from the same `count` (n × n) heights and
-/// `size` as `crabby_ctx_create_terrain_tile` (NaN for holes): give it to a
+/// `size` as `ponko_ctx_create_terrain_tile` (NaN for holes): give it to a
 /// fixed body at the tile's transform (its corner).
 /// # Safety
 /// Live ctx; `heights` readable for `count` floats; writable output.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_physics3d_heightfield(std::ptr::null_mut(), std::ptr::null(), 0, 1.0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_physics3d_heightfield(std::ptr::null_mut(), std::ptr::null(), 0, 1.0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_physics3d_heightfield(
-    ctx: *mut crate::CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_physics3d_heightfield(
+    ctx: *mut crate::PonkoCtx,
     heights: *const f32,
     count: usize,
     size: f32,
-    out_mesh: *mut CrabbyCollisionMesh,
-) -> CrabbyStatus {
+    out_mesh: *mut PonkoCollisionMesh,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::heightfield(ctx, heights, count, size, out_mesh) }
 }
 
 /// A convex hull collision mesh around `count` points.
-/// `CRABBY_INVALID_ARGUMENT` if they're flat or not finite.
+/// `PONKO_INVALID_ARGUMENT` if they're flat or not finite.
 /// # Safety
 /// Live ctx; `points` readable for `count` values; writable output.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_physics3d_convex_hull(std::ptr::null_mut(), std::ptr::null(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_physics3d_convex_hull(std::ptr::null_mut(), std::ptr::null(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_physics3d_convex_hull(
-    ctx: *mut crate::CrabbyCtx,
-    points: *const CrabbyVec3,
+pub unsafe extern "C" fn ponko_ctx_physics3d_convex_hull(
+    ctx: *mut crate::PonkoCtx,
+    points: *const PonkoVec3,
     count: usize,
-    out_mesh: *mut CrabbyCollisionMesh,
-) -> CrabbyStatus {
+    out_mesh: *mut PonkoCollisionMesh,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::convex_hull(ctx, points, count, out_mesh) }
 }
 
 /// A triangle collision mesh: `index_count` indices (three per triangle)
-/// into `vertex_count` vertices. `CRABBY_INVALID_ARGUMENT` for no
+/// into `vertex_count` vertices. `PONKO_INVALID_ARGUMENT` for no
 /// triangles, an index out of range or a vertex that isn't finite.
 /// # Safety
 /// Live ctx; readable arrays of the given lengths; writable output.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_physics3d_trimesh(std::ptr::null_mut(), std::ptr::null(), 0, std::ptr::null(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_physics3d_trimesh(std::ptr::null_mut(), std::ptr::null(), 0, std::ptr::null(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_physics3d_trimesh(
-    ctx: *mut crate::CrabbyCtx,
-    vertices: *const CrabbyVec3,
+pub unsafe extern "C" fn ponko_ctx_physics3d_trimesh(
+    ctx: *mut crate::PonkoCtx,
+    vertices: *const PonkoVec3,
     vertex_count: usize,
     indices: *const u32,
     index_count: usize,
-    out_mesh: *mut CrabbyCollisionMesh,
-) -> CrabbyStatus {
+    out_mesh: *mut PonkoCollisionMesh,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::trimesh(ctx, vertices, vertex_count, indices, index_count, out_mesh) }
 }
@@ -699,13 +699,13 @@ pub unsafe extern "C" fn crabby_ctx_physics3d_trimesh(
 /// # Safety
 /// Live ctx.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_physics3d_free_mesh(std::ptr::null_mut(), Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_physics3d_free_mesh(std::ptr::null_mut(), Default::default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_physics3d_free_mesh(
-    ctx: *mut crate::CrabbyCtx,
-    mesh: CrabbyCollisionMesh,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_physics3d_free_mesh(
+    ctx: *mut crate::PonkoCtx,
+    mesh: PonkoCollisionMesh,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::free_mesh(ctx, mesh) }
 }
@@ -717,20 +717,20 @@ pub unsafe extern "C" fn crabby_ctx_physics3d_free_mesh(
 /// Live ctx, outside query callbacks; writable outputs.
 /// ```
 /// use ponko_ffi::*;
-/// let (mut found, mut hit) = (false, CrabbyHit3D::default());
-/// let s = unsafe { crabby_ctx_cast_ray3d(std::ptr::null_mut(), Default::default(), Default::default(), 1.0, crabby_query_filter3d(), &mut found, &mut hit) };
-/// assert_eq!(s, CrabbyStatus::CRABBY_INVALID_ARGUMENT);
+/// let (mut found, mut hit) = (false, PonkoHit3D::default());
+/// let s = unsafe { ponko_ctx_cast_ray3d(std::ptr::null_mut(), Default::default(), Default::default(), 1.0, ponko_query_filter3d(), &mut found, &mut hit) };
+/// assert_eq!(s, PonkoStatus::PONKO_INVALID_ARGUMENT);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_cast_ray3d(
-    ctx: *mut crate::CrabbyCtx,
-    origin: CrabbyVec3,
-    direction: CrabbyVec3,
+pub unsafe extern "C" fn ponko_ctx_cast_ray3d(
+    ctx: *mut crate::PonkoCtx,
+    origin: PonkoVec3,
+    direction: PonkoVec3,
     max_distance: f32,
-    filter: CrabbyQueryFilter3D,
+    filter: PonkoQueryFilter3D,
     out_found: *mut bool,
-    out_hit: *mut CrabbyHit3D,
-) -> CrabbyStatus {
+    out_hit: *mut PonkoHit3D,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe {
         imp::cast(
@@ -753,19 +753,19 @@ pub unsafe extern "C" fn crabby_ctx_cast_ray3d(
 /// Live ctx, outside query callbacks; `out_hits` writable for `capacity`
 /// (may be null if 0); writable count.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_cast_ray3d_all(std::ptr::null_mut(), Default::default(), Default::default(), 1.0, ponko_ffi::crabby_query_filter3d(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_cast_ray3d_all(std::ptr::null_mut(), Default::default(), Default::default(), 1.0, ponko_ffi::ponko_query_filter3d(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_cast_ray3d_all(
-    ctx: *mut crate::CrabbyCtx,
-    origin: CrabbyVec3,
-    direction: CrabbyVec3,
+pub unsafe extern "C" fn ponko_ctx_cast_ray3d_all(
+    ctx: *mut crate::PonkoCtx,
+    origin: PonkoVec3,
+    direction: PonkoVec3,
     max_distance: f32,
-    filter: CrabbyQueryFilter3D,
-    out_hits: *mut CrabbyHit3D,
+    filter: PonkoQueryFilter3D,
+    out_hits: *mut PonkoHit3D,
     capacity: usize,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe {
         imp::cast_all(
@@ -782,26 +782,26 @@ pub unsafe extern "C" fn crabby_ctx_cast_ray3d_all(
 }
 
 /// Sweeps a ball from `origin` towards `direction`: the first collider it
-/// touches within `max_distance`. Outputs as `crabby_ctx_cast_ray3d`.
+/// touches within `max_distance`. Outputs as `ponko_ctx_cast_ray3d`.
 /// # Safety
-/// As `crabby_ctx_cast_ray3d`.
+/// As `ponko_ctx_cast_ray3d`.
 /// ```
 /// use ponko_ffi::*;
-/// let (mut found, mut hit) = (false, CrabbyHit3D::default());
-/// let s = unsafe { crabby_ctx_cast_sphere3d(std::ptr::null_mut(), Default::default(), 0.5, Default::default(), 1.0, crabby_query_filter3d(), &mut found, &mut hit) };
-/// assert_eq!(s, CrabbyStatus::CRABBY_INVALID_ARGUMENT);
+/// let (mut found, mut hit) = (false, PonkoHit3D::default());
+/// let s = unsafe { ponko_ctx_cast_sphere3d(std::ptr::null_mut(), Default::default(), 0.5, Default::default(), 1.0, ponko_query_filter3d(), &mut found, &mut hit) };
+/// assert_eq!(s, PonkoStatus::PONKO_INVALID_ARGUMENT);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_cast_sphere3d(
-    ctx: *mut crate::CrabbyCtx,
-    origin: CrabbyVec3,
+pub unsafe extern "C" fn ponko_ctx_cast_sphere3d(
+    ctx: *mut crate::PonkoCtx,
+    origin: PonkoVec3,
     radius: f32,
-    direction: CrabbyVec3,
+    direction: PonkoVec3,
     max_distance: f32,
-    filter: CrabbyQueryFilter3D,
+    filter: PonkoQueryFilter3D,
     out_found: *mut bool,
-    out_hit: *mut CrabbyHit3D,
-) -> CrabbyStatus {
+    out_hit: *mut PonkoHit3D,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe {
         imp::cast(
@@ -818,27 +818,27 @@ pub unsafe extern "C" fn crabby_ctx_cast_sphere3d(
 }
 
 /// Sweeps an upright capsule centered on `origin` (`height` between the
-/// centers of its ends). Outputs as `crabby_ctx_cast_ray3d`.
+/// centers of its ends). Outputs as `ponko_ctx_cast_ray3d`.
 /// # Safety
-/// As `crabby_ctx_cast_ray3d`.
+/// As `ponko_ctx_cast_ray3d`.
 /// ```
 /// use ponko_ffi::*;
-/// let (mut found, mut hit) = (false, CrabbyHit3D::default());
-/// let s = unsafe { crabby_ctx_cast_capsule3d(std::ptr::null_mut(), Default::default(), 1.0, 0.3, Default::default(), 1.0, crabby_query_filter3d(), &mut found, &mut hit) };
-/// assert_eq!(s, CrabbyStatus::CRABBY_INVALID_ARGUMENT);
+/// let (mut found, mut hit) = (false, PonkoHit3D::default());
+/// let s = unsafe { ponko_ctx_cast_capsule3d(std::ptr::null_mut(), Default::default(), 1.0, 0.3, Default::default(), 1.0, ponko_query_filter3d(), &mut found, &mut hit) };
+/// assert_eq!(s, PonkoStatus::PONKO_INVALID_ARGUMENT);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_cast_capsule3d(
-    ctx: *mut crate::CrabbyCtx,
-    origin: CrabbyVec3,
+pub unsafe extern "C" fn ponko_ctx_cast_capsule3d(
+    ctx: *mut crate::PonkoCtx,
+    origin: PonkoVec3,
     height: f32,
     radius: f32,
-    direction: CrabbyVec3,
+    direction: PonkoVec3,
     max_distance: f32,
-    filter: CrabbyQueryFilter3D,
+    filter: PonkoQueryFilter3D,
     out_found: *mut bool,
-    out_hit: *mut CrabbyHit3D,
-) -> CrabbyStatus {
+    out_hit: *mut PonkoHit3D,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe {
         imp::cast(
@@ -860,18 +860,18 @@ pub unsafe extern "C" fn crabby_ctx_cast_capsule3d(
 /// Live ctx, outside query callbacks; `out_entities` writable for
 /// `capacity` (may be null if 0); writable count.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_overlap_sphere3d(std::ptr::null_mut(), Default::default(), 1.0, ponko_ffi::crabby_query_filter3d(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_overlap_sphere3d(std::ptr::null_mut(), Default::default(), 1.0, ponko_ffi::ponko_query_filter3d(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_overlap_sphere3d(
-    ctx: *mut crate::CrabbyCtx,
-    center: CrabbyVec3,
+pub unsafe extern "C" fn ponko_ctx_overlap_sphere3d(
+    ctx: *mut crate::PonkoCtx,
+    center: PonkoVec3,
     radius: f32,
-    filter: CrabbyQueryFilter3D,
-    out_entities: *mut CrabbyEntity,
+    filter: PonkoQueryFilter3D,
+    out_entities: *mut PonkoEntity,
     capacity: usize,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe {
         imp::overlap(
@@ -886,24 +886,24 @@ pub unsafe extern "C" fn crabby_ctx_overlap_sphere3d(
     }
 }
 
-/// Like `crabby_ctx_overlap_sphere3d`, for a box of `size` turned by `rotation`.
+/// Like `ponko_ctx_overlap_sphere3d`, for a box of `size` turned by `rotation`.
 /// # Safety
-/// As `crabby_ctx_overlap_sphere3d`.
+/// As `ponko_ctx_overlap_sphere3d`.
 /// ```
-/// let q = ponko_ffi::crabby_quat_identity();
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_overlap_box3d(std::ptr::null_mut(), Default::default(), Default::default(), q, ponko_ffi::crabby_query_filter3d(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// let q = ponko_ffi::ponko_quat_identity();
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_overlap_box3d(std::ptr::null_mut(), Default::default(), Default::default(), q, ponko_ffi::ponko_query_filter3d(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_overlap_box3d(
-    ctx: *mut crate::CrabbyCtx,
-    center: CrabbyVec3,
-    size: CrabbyVec3,
-    rotation: CrabbyQuat,
-    filter: CrabbyQueryFilter3D,
-    out_entities: *mut CrabbyEntity,
+pub unsafe extern "C" fn ponko_ctx_overlap_box3d(
+    ctx: *mut crate::PonkoCtx,
+    center: PonkoVec3,
+    size: PonkoVec3,
+    rotation: PonkoQuat,
+    filter: PonkoQueryFilter3D,
+    out_entities: *mut PonkoEntity,
     capacity: usize,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe {
         imp::overlap(
@@ -918,23 +918,23 @@ pub unsafe extern "C" fn crabby_ctx_overlap_box3d(
     }
 }
 
-/// Like `crabby_ctx_overlap_sphere3d`, for an upright capsule.
+/// Like `ponko_ctx_overlap_sphere3d`, for an upright capsule.
 /// # Safety
-/// As `crabby_ctx_overlap_sphere3d`.
+/// As `ponko_ctx_overlap_sphere3d`.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_overlap_capsule3d(std::ptr::null_mut(), Default::default(), 1.0, 0.3, ponko_ffi::crabby_query_filter3d(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_overlap_capsule3d(std::ptr::null_mut(), Default::default(), 1.0, 0.3, ponko_ffi::ponko_query_filter3d(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_overlap_capsule3d(
-    ctx: *mut crate::CrabbyCtx,
-    center: CrabbyVec3,
+pub unsafe extern "C" fn ponko_ctx_overlap_capsule3d(
+    ctx: *mut crate::PonkoCtx,
+    center: PonkoVec3,
     height: f32,
     radius: f32,
-    filter: CrabbyQueryFilter3D,
-    out_entities: *mut CrabbyEntity,
+    filter: PonkoQueryFilter3D,
+    out_entities: *mut PonkoEntity,
     capacity: usize,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe {
         imp::overlap(
@@ -949,52 +949,52 @@ pub unsafe extern "C" fn crabby_ctx_overlap_capsule3d(
     }
 }
 
-/// Pushes a dynamic 3D body once (kg × m/s). `CRABBY_NOT_FOUND` if
+/// Pushes a dynamic 3D body once (kg × m/s). `PONKO_NOT_FOUND` if
 /// `entity` isn't a 3D body (yet: bodies join at the next physics step).
 /// # Safety
 /// Live ctx, outside query callbacks.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_apply_impulse3d(std::ptr::null_mut(), 0, Default::default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_apply_impulse3d(std::ptr::null_mut(), 0, Default::default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_apply_impulse3d(
-    ctx: *mut crate::CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_apply_impulse3d(
+    ctx: *mut crate::PonkoCtx,
     entity: u64,
-    impulse: CrabbyVec3,
-) -> CrabbyStatus {
+    impulse: PonkoVec3,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::apply_impulse(ctx, entity, impulse) }
 }
 
-/// The mass of a 3D body in kg. `CRABBY_NOT_FOUND` if `entity` isn't one.
+/// The mass of a 3D body in kg. `PONKO_NOT_FOUND` if `entity` isn't one.
 /// # Safety
 /// Live ctx, outside query callbacks; writable output.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_body_mass3d(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_body_mass3d(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_body_mass3d(
-    ctx: *mut crate::CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_body_mass3d(
+    ctx: *mut crate::PonkoCtx,
     entity: u64,
     out_mass: *mut f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::mass(ctx, entity, out_mass) }
 }
 
 /// A 3D body's center of mass in the world, as of the last physics step.
-/// `CRABBY_NOT_FOUND` if `entity` isn't a 3D body.
+/// `PONKO_NOT_FOUND` if `entity` isn't a 3D body.
 /// # Safety
 /// Live ctx, outside query callbacks; writable output.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_body_center_of_mass3d(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_body_center_of_mass3d(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_body_center_of_mass3d(
-    ctx: *mut crate::CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_body_center_of_mass3d(
+    ctx: *mut crate::PonkoCtx,
     entity: u64,
-    out_center: *mut CrabbyVec3,
-) -> CrabbyStatus {
+    out_center: *mut PonkoVec3,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::center_of_mass(ctx, entity, out_center) }
 }
@@ -1013,13 +1013,13 @@ mod imp {
     use crate::ctx::{collect, ctx_access, out};
     use crate::game::{build, ok};
     use crate::types::to_c;
-    use crate::{CMirror, CrabbyCtx, Failure, Kind, Mirror, boundary, builtin, error, invalid, mirror};
+    use crate::{CMirror, Failure, Kind, Mirror, PonkoCtx, boundary, builtin, error, invalid, mirror};
 
     const _: () = {
-        assert!(size_of::<CrabbyVelocity3D>() == size_of::<Velocity3D>());
-        assert!(align_of::<CrabbyVelocity3D>() == align_of::<Velocity3D>());
-        assert!(std::mem::offset_of!(CrabbyVelocity3D, linear) == std::mem::offset_of!(Velocity3D, linear));
-        assert!(std::mem::offset_of!(CrabbyVelocity3D, angular) == std::mem::offset_of!(Velocity3D, angular));
+        assert!(size_of::<PonkoVelocity3D>() == size_of::<Velocity3D>());
+        assert!(align_of::<PonkoVelocity3D>() == align_of::<Velocity3D>());
+        assert!(std::mem::offset_of!(PonkoVelocity3D, linear) == std::mem::offset_of!(Velocity3D, linear));
+        assert!(std::mem::offset_of!(PonkoVelocity3D, angular) == std::mem::offset_of!(Velocity3D, angular));
     };
 
     fn non_negative(x: f32, what: &'static str) -> Result<f32, Failure> {
@@ -1036,15 +1036,15 @@ mod imp {
             Err(invalid(what))
         }
     }
-    fn finite(v: CrabbyVec3, what: &'static str) -> Result<Vec3, Failure> {
+    fn finite(v: PonkoVec3, what: &'static str) -> Result<Vec3, Failure> {
         let v: Vec3 = to_c(v);
         if v.is_finite() { Ok(v) } else { Err(invalid(what)) }
     }
-    fn groups(g: CrabbyCollisionGroups) -> CollisionGroups {
+    fn groups(g: PonkoCollisionGroups) -> CollisionGroups {
         CollisionGroups::new(g.memberships, g.filter)
     }
-    fn groups_to_c(g: CollisionGroups) -> CrabbyCollisionGroups {
-        CrabbyCollisionGroups {
+    fn groups_to_c(g: CollisionGroups) -> PonkoCollisionGroups {
+        PonkoCollisionGroups {
             memberships: g.memberships,
             filter: g.filter,
         }
@@ -1059,8 +1059,8 @@ mod imp {
     }
 
     impl CMirror for RigidBody3D {
-        type C = CrabbyRigidBody3D;
-        fn from_c(c: &CrabbyRigidBody3D) -> Result<Self, Failure> {
+        type C = PonkoRigidBody3D;
+        fn from_c(c: &PonkoRigidBody3D) -> Result<Self, Failure> {
             if !c.gravity_scale.is_finite() {
                 return Err(invalid("gravity scale must be finite"));
             }
@@ -1079,13 +1079,13 @@ mod imp {
             b.dominance = c.dominance;
             Ok(b)
         }
-        fn to_c(&self) -> CrabbyRigidBody3D {
-            CrabbyRigidBody3D {
+        fn to_c(&self) -> PonkoRigidBody3D {
+            PonkoRigidBody3D {
                 kind: match self.kind {
                     BodyKind::Dynamic => 0,
                     BodyKind::Fixed => 1,
                     BodyKind::Kinematic => 2,
-                    _ => unreachable!("a new BodyKind needs a CrabbyBodyKind"),
+                    _ => unreachable!("a new BodyKind needs a PonkoBodyKind"),
                 },
                 gravity_scale: self.gravity_scale,
                 linear_damping: self.linear_damping,
@@ -1101,8 +1101,8 @@ mod imp {
     }
 
     impl CMirror for Collider3D {
-        type C = CrabbyCollider3D;
-        fn from_c(c: &CrabbyCollider3D) -> Result<Self, Failure> {
+        type C = PonkoCollider3D;
+        fn from_c(c: &PonkoCollider3D) -> Result<Self, Failure> {
             const SIZE: &str = "collider sizes must be positive";
             let base = match c.shape {
                 0 => Collider3D::sphere(positive(c.radius, SIZE)?),
@@ -1126,15 +1126,15 @@ mod imp {
                 .groups(groups(c.groups)))
             .map(|b| if c.sensor { b.sensor() } else { b })
         }
-        fn to_c(&self) -> CrabbyCollider3D {
+        fn to_c(&self) -> PonkoCollider3D {
             let base = match self.shape {
-                Shape3D::Sphere { radius } => crabby_collider3d_sphere(radius),
-                Shape3D::Cuboid { size } => crabby_collider3d_box(to_c(size)),
-                Shape3D::Capsule { height, radius } => crabby_collider3d_capsule(height, radius),
-                Shape3D::Mesh(m) => crabby_collider3d_mesh(CrabbyCollisionMesh { id: m.to_bits() }),
-                _ => unreachable!("a new Shape3D needs a CrabbyShape3DKind"),
+                Shape3D::Sphere { radius } => ponko_collider3d_sphere(radius),
+                Shape3D::Cuboid { size } => ponko_collider3d_box(to_c(size)),
+                Shape3D::Capsule { height, radius } => ponko_collider3d_capsule(height, radius),
+                Shape3D::Mesh(m) => ponko_collider3d_mesh(PonkoCollisionMesh { id: m.to_bits() }),
+                _ => unreachable!("a new Shape3D needs a PonkoShape3DKind"),
             };
-            CrabbyCollider3D {
+            PonkoCollider3D {
                 density: self.density,
                 friction: self.friction,
                 restitution: self.restitution,
@@ -1147,8 +1147,8 @@ mod imp {
     }
 
     impl CMirror for Character3D {
-        type C = CrabbyCharacter3D;
-        fn from_c(c: &CrabbyCharacter3D) -> Result<Self, Failure> {
+        type C = PonkoCharacter3D;
+        fn from_c(c: &PonkoCharacter3D) -> Result<Self, Failure> {
             const SIZE: &str = "character height and radius must be positive";
             const LIMIT: &str = "character limits must not be negative";
             let mut ch = Character3D::new(positive(c.height, SIZE)?, positive(c.radius, SIZE)?);
@@ -1165,8 +1165,8 @@ mod imp {
             ch.grounded = c.grounded;
             Ok(ch)
         }
-        fn to_c(&self) -> CrabbyCharacter3D {
-            CrabbyCharacter3D {
+        fn to_c(&self) -> PonkoCharacter3D {
+            PonkoCharacter3D {
                 height: self.height,
                 radius: self.radius,
                 max_slope: self.max_slope,
@@ -1182,17 +1182,17 @@ mod imp {
     }
 
     impl CMirror for Joint3D {
-        type C = CrabbyJoint3D;
-        fn from_c(c: &CrabbyJoint3D) -> Result<Self, Failure> {
+        type C = PonkoJoint3D;
+        fn from_c(c: &PonkoJoint3D) -> Result<Self, Failure> {
             let mut j = Joint3D::generic(Entity::from_bits(c.body_a), Entity::from_bits(c.body_b));
             j.frame_a = crate::three::transform_from_c(c.frame_a);
             j.frame_b = crate::three::transform_from_c(c.frame_b);
             for i in 0..6 {
                 let m = c.axes[i];
                 j.axes[i] = match m.kind {
-                    CrabbyJointMotionKind::CRABBY_JOINT_FREE => JointMotion3D::Free,
-                    CrabbyJointMotionKind::CRABBY_JOINT_LOCKED => JointMotion3D::Locked,
-                    CrabbyJointMotionKind::CRABBY_JOINT_LIMITED => {
+                    PonkoJointMotionKind::PONKO_JOINT_FREE => JointMotion3D::Free,
+                    PonkoJointMotionKind::PONKO_JOINT_LOCKED => JointMotion3D::Locked,
+                    PonkoJointMotionKind::PONKO_JOINT_LIMITED => {
                         if !(m.min.is_finite() && m.max.is_finite() && m.min <= m.max) {
                             return Err(invalid("joint limits must be finite, min <= max"));
                         }
@@ -1221,30 +1221,30 @@ mod imp {
             j.swing_cone = (c.swing_cone >= 0.0).then_some(c.swing_cone);
             Ok(j)
         }
-        fn to_c(&self) -> CrabbyJoint3D {
-            let mut c = crabby_joint3d_generic(self.body_a.to_bits(), self.body_b.to_bits());
+        fn to_c(&self) -> PonkoJoint3D {
+            let mut c = ponko_joint3d_generic(self.body_a.to_bits(), self.body_b.to_bits());
             c.frame_a = crate::three::transform_to_c(self.frame_a);
             c.frame_b = crate::three::transform_to_c(self.frame_b);
             for i in 0..6 {
                 c.axes[i] = match self.axes[i] {
-                    JointMotion3D::Free => CrabbyJointMotion3D {
-                        kind: CrabbyJointMotionKind::CRABBY_JOINT_FREE,
+                    JointMotion3D::Free => PonkoJointMotion3D {
+                        kind: PonkoJointMotionKind::PONKO_JOINT_FREE,
                         min: 0.0,
                         max: 0.0,
                     },
-                    JointMotion3D::Locked => CrabbyJointMotion3D {
-                        kind: CrabbyJointMotionKind::CRABBY_JOINT_LOCKED,
+                    JointMotion3D::Locked => PonkoJointMotion3D {
+                        kind: PonkoJointMotionKind::PONKO_JOINT_LOCKED,
                         min: 0.0,
                         max: 0.0,
                     },
-                    JointMotion3D::Limited(min, max) => CrabbyJointMotion3D {
-                        kind: CrabbyJointMotionKind::CRABBY_JOINT_LIMITED,
+                    JointMotion3D::Limited(min, max) => PonkoJointMotion3D {
+                        kind: PonkoJointMotionKind::PONKO_JOINT_LIMITED,
                         min,
                         max,
                     },
                 };
                 if let Some(d) = self.drives[i] {
-                    c.drives[i] = CrabbyJointDrive3D {
+                    c.drives[i] = PonkoJointDrive3D {
                         enabled: true,
                         target_position: d.target_position,
                         target_velocity: d.target_velocity,
@@ -1276,10 +1276,10 @@ mod imp {
         } else if t == TypeId::of::<Joint3D>() {
             Some(Kind::Mirror(&JOINT))
         } else if t == TypeId::of::<Velocity3D>() {
-            // repr(C), layout checked against CrabbyVelocity3D; any bits are valid.
+            // repr(C), layout checked against PonkoVelocity3D; any bits are valid.
             Some(Kind::Plain)
         } else if t == TypeId::of::<ponko::Vehicle3D>() {
-            // repr(C), layout checked against CrabbyVehicle3D; floats, counts
+            // repr(C), layout checked against PonkoVehicle3D; floats, counts
             // (clamped to 8) and bools a C `bool` keeps 0 or 1.
             Some(Kind::Plain)
         } else {
@@ -1287,7 +1287,7 @@ mod imp {
         }
     }
 
-    pub(super) unsafe fn component(world: *mut CrabbyWorld, out_id: *mut u32, which: u8) -> CrabbyStatus {
+    pub(super) unsafe fn component(world: *mut PonkoWorld, out_id: *mut u32, which: u8) -> PonkoStatus {
         // SAFETY: forwarded caller contract.
         unsafe {
             match which {
@@ -1300,12 +1300,12 @@ mod imp {
         }
     }
 
-    pub(super) unsafe fn joint_count(ctx: *mut CrabbyCtx, out_count: *mut usize) -> CrabbyStatus {
+    pub(super) unsafe fn joint_count(ctx: *mut PonkoCtx, out_count: *mut usize) -> PonkoStatus {
         // SAFETY: forwarded caller contract.
         boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, c.physics3d.joint_count())) })
     }
 
-    pub(super) unsafe fn game_physics3d(game: *mut CrabbyGame, gravity: CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn game_physics3d(game: *mut PonkoGame, gravity: PonkoVec3) -> PonkoStatus {
         // SAFETY: forwarded caller contract.
         unsafe {
             build(game, |g| match finite(gravity, "gravity must be finite") {
@@ -1315,7 +1315,7 @@ mod imp {
         }
     }
 
-    pub(super) unsafe fn set_gravity(ctx: *mut CrabbyCtx, gravity: CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn set_gravity(ctx: *mut PonkoCtx, gravity: PonkoVec3) -> PonkoStatus {
         boundary(|| {
             let gravity = finite(gravity, "gravity must be finite")?;
             // SAFETY: forwarded caller contract.
@@ -1340,17 +1340,17 @@ mod imp {
         Ok(unsafe { std::slice::from_raw_parts(ptr, count) })
     }
 
-    fn mesh_to_c(m: CollisionMesh) -> CrabbyCollisionMesh {
-        CrabbyCollisionMesh { id: m.to_bits() }
+    fn mesh_to_c(m: CollisionMesh) -> PonkoCollisionMesh {
+        PonkoCollisionMesh { id: m.to_bits() }
     }
 
     pub(super) unsafe fn heightfield(
-        ctx: *mut CrabbyCtx,
+        ctx: *mut PonkoCtx,
         heights: *const f32,
         count: usize,
         size: f32,
-        out_mesh: *mut CrabbyCollisionMesh,
-    ) -> CrabbyStatus {
+        out_mesh: *mut PonkoCollisionMesh,
+    ) -> PonkoStatus {
         boundary(|| {
             if out_mesh.is_null() {
                 return Err(invalid("output is null"));
@@ -1370,11 +1370,11 @@ mod imp {
     }
 
     pub(super) unsafe fn convex_hull(
-        ctx: *mut CrabbyCtx,
-        points: *const CrabbyVec3,
+        ctx: *mut PonkoCtx,
+        points: *const PonkoVec3,
         count: usize,
-        out_mesh: *mut CrabbyCollisionMesh,
-    ) -> CrabbyStatus {
+        out_mesh: *mut PonkoCollisionMesh,
+    ) -> PonkoStatus {
         boundary(|| {
             if out_mesh.is_null() {
                 return Err(invalid("output is null"));
@@ -1390,13 +1390,13 @@ mod imp {
     }
 
     pub(super) unsafe fn trimesh(
-        ctx: *mut CrabbyCtx,
-        vertices: *const CrabbyVec3,
+        ctx: *mut PonkoCtx,
+        vertices: *const PonkoVec3,
         vertex_count: usize,
         indices: *const u32,
         index_count: usize,
-        out_mesh: *mut CrabbyCollisionMesh,
-    ) -> CrabbyStatus {
+        out_mesh: *mut PonkoCollisionMesh,
+    ) -> PonkoStatus {
         boundary(|| {
             if out_mesh.is_null() {
                 return Err(invalid("output is null"));
@@ -1416,7 +1416,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn free_mesh(ctx: *mut CrabbyCtx, mesh: CrabbyCollisionMesh) -> CrabbyStatus {
+    pub(super) unsafe fn free_mesh(ctx: *mut PonkoCtx, mesh: PonkoCollisionMesh) -> PonkoStatus {
         // SAFETY: forwarded caller contract.
         boundary(|| unsafe {
             ctx_access(ctx, |c| {
@@ -1426,7 +1426,7 @@ mod imp {
         })
     }
 
-    fn filter_from_c(f: CrabbyQueryFilter3D) -> QueryFilter3D {
+    fn filter_from_c(f: PonkoQueryFilter3D) -> QueryFilter3D {
         let mut q = QueryFilter3D::default().groups(groups(f.groups));
         if f.exclude {
             q = q.exclude(Entity::from_bits(f.exclude_entity));
@@ -1437,8 +1437,8 @@ mod imp {
         q
     }
 
-    fn hit_to_c(h: Hit3D) -> CrabbyHit3D {
-        CrabbyHit3D {
+    fn hit_to_c(h: Hit3D) -> PonkoHit3D {
+        PonkoHit3D {
             entity: to_c(h.entity),
             point: to_c(h.point),
             normal: to_c(h.normal),
@@ -1454,15 +1454,15 @@ mod imp {
 
     #[allow(clippy::too_many_arguments)]
     pub(super) unsafe fn cast(
-        ctx: *mut CrabbyCtx,
+        ctx: *mut PonkoCtx,
         shape: Cast,
-        origin: CrabbyVec3,
-        direction: CrabbyVec3,
+        origin: PonkoVec3,
+        direction: PonkoVec3,
         max_distance: f32,
-        filter: CrabbyQueryFilter3D,
+        filter: PonkoQueryFilter3D,
         out_found: *mut bool,
-        out_hit: *mut CrabbyHit3D,
-    ) -> CrabbyStatus {
+        out_hit: *mut PonkoHit3D,
+    ) -> PonkoStatus {
         boundary(|| {
             if out_found.is_null() || out_hit.is_null() {
                 return Err(invalid("output is null"));
@@ -1498,15 +1498,15 @@ mod imp {
 
     #[allow(clippy::too_many_arguments)]
     pub(super) unsafe fn cast_all(
-        ctx: *mut CrabbyCtx,
-        origin: CrabbyVec3,
-        direction: CrabbyVec3,
+        ctx: *mut PonkoCtx,
+        origin: PonkoVec3,
+        direction: PonkoVec3,
         max_distance: f32,
-        filter: CrabbyQueryFilter3D,
-        out_hits: *mut CrabbyHit3D,
+        filter: PonkoQueryFilter3D,
+        out_hits: *mut PonkoHit3D,
         capacity: usize,
         out_count: *mut usize,
-    ) -> CrabbyStatus {
+    ) -> PonkoStatus {
         boundary(|| {
             HITS.with_borrow_mut(|hits| {
                 let filter = filter_from_c(filter);
@@ -1530,19 +1530,19 @@ mod imp {
 
     pub(super) enum Overlap {
         Sphere(f32),
-        Box(CrabbyVec3, CrabbyQuat),
+        Box(PonkoVec3, PonkoQuat),
         Capsule(f32, f32),
     }
 
     pub(super) unsafe fn overlap(
-        ctx: *mut CrabbyCtx,
+        ctx: *mut PonkoCtx,
         shape: Overlap,
-        center: CrabbyVec3,
-        filter: CrabbyQueryFilter3D,
-        out_entities: *mut CrabbyEntity,
+        center: PonkoVec3,
+        filter: PonkoQueryFilter3D,
+        out_entities: *mut PonkoEntity,
         capacity: usize,
         out_count: *mut usize,
-    ) -> CrabbyStatus {
+    ) -> PonkoStatus {
         boundary(|| {
             FOUND.with_borrow_mut(|found| {
                 let (center, filter) = (to_c(center), filter_from_c(filter));
@@ -1571,7 +1571,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn apply_impulse(ctx: *mut CrabbyCtx, entity: u64, impulse: CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn apply_impulse(ctx: *mut PonkoCtx, entity: u64, impulse: PonkoVec3) -> PonkoStatus {
         boundary(|| {
             let impulse = finite(impulse, "impulse must be finite")?;
             // SAFETY: forwarded caller contract.
@@ -1583,26 +1583,26 @@ mod imp {
             if applied {
                 Ok(())
             } else {
-                Err(error(CrabbyStatus::CRABBY_NOT_FOUND, "entity is not a 3D physics body"))
+                Err(error(PonkoStatus::PONKO_NOT_FOUND, "entity is not a 3D physics body"))
             }
         })
     }
 
-    pub(super) unsafe fn center_of_mass(ctx: *mut CrabbyCtx, entity: u64, out_center: *mut CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn center_of_mass(ctx: *mut PonkoCtx, entity: u64, out_center: *mut PonkoVec3) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             let c = unsafe { ctx_access(ctx, |c| Ok(c.physics3d.center_of_mass(Entity::from_bits(entity))))? }
-                .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "entity is not a 3D physics body"))?;
+                .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "entity is not a 3D physics body"))?;
             // SAFETY: forwarded caller contract.
             unsafe { out(out_center, to_c(c)) }
         })
     }
 
-    pub(super) unsafe fn mass(ctx: *mut CrabbyCtx, entity: u64, out_mass: *mut f32) -> CrabbyStatus {
+    pub(super) unsafe fn mass(ctx: *mut PonkoCtx, entity: u64, out_mass: *mut f32) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             let mass = unsafe { ctx_access(ctx, |c| Ok(c.physics3d.mass(Entity::from_bits(entity))))? }
-                .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "entity is not a 3D physics body"))?;
+                .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "entity is not a 3D physics body"))?;
             // SAFETY: forwarded caller contract.
             unsafe { out(out_mass, mass) }
         })
@@ -1613,7 +1613,7 @@ mod imp {
 mod imp {
     //! Without the feature: every call fails, saying why.
     use super::*;
-    use crate::{CrabbyCtx, Failure, Kind, boundary, invalid};
+    use crate::{Failure, Kind, PonkoCtx, boundary, invalid};
 
     fn off() -> Result<(), Failure> {
         Err(invalid("ponko_ffi was built without the `physics3d` feature"))
@@ -1630,95 +1630,95 @@ mod imp {
     #[allow(dead_code)]
     pub(super) enum Overlap {
         Sphere(f32),
-        Box(CrabbyVec3, CrabbyQuat),
+        Box(PonkoVec3, PonkoQuat),
         Capsule(f32, f32),
     }
-    pub(super) unsafe fn component(_: *mut CrabbyWorld, _: *mut u32, _: u8) -> CrabbyStatus {
+    pub(super) unsafe fn component(_: *mut PonkoWorld, _: *mut u32, _: u8) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn joint_count(_: *mut CrabbyCtx, _: *mut usize) -> CrabbyStatus {
+    pub(super) unsafe fn joint_count(_: *mut PonkoCtx, _: *mut usize) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn game_physics3d(_: *mut CrabbyGame, _: CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn game_physics3d(_: *mut PonkoGame, _: PonkoVec3) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn set_gravity(_: *mut CrabbyCtx, _: CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn set_gravity(_: *mut PonkoCtx, _: PonkoVec3) -> PonkoStatus {
         boundary(off)
     }
     pub(super) unsafe fn heightfield(
-        _: *mut CrabbyCtx,
+        _: *mut PonkoCtx,
         _: *const f32,
         _: usize,
         _: f32,
-        _: *mut CrabbyCollisionMesh,
-    ) -> CrabbyStatus {
+        _: *mut PonkoCollisionMesh,
+    ) -> PonkoStatus {
         boundary(off)
     }
     pub(super) unsafe fn convex_hull(
-        _: *mut CrabbyCtx,
-        _: *const CrabbyVec3,
+        _: *mut PonkoCtx,
+        _: *const PonkoVec3,
         _: usize,
-        _: *mut CrabbyCollisionMesh,
-    ) -> CrabbyStatus {
+        _: *mut PonkoCollisionMesh,
+    ) -> PonkoStatus {
         boundary(off)
     }
     pub(super) unsafe fn trimesh(
-        _: *mut CrabbyCtx,
-        _: *const CrabbyVec3,
+        _: *mut PonkoCtx,
+        _: *const PonkoVec3,
         _: usize,
         _: *const u32,
         _: usize,
-        _: *mut CrabbyCollisionMesh,
-    ) -> CrabbyStatus {
+        _: *mut PonkoCollisionMesh,
+    ) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn free_mesh(_: *mut CrabbyCtx, _: CrabbyCollisionMesh) -> CrabbyStatus {
+    pub(super) unsafe fn free_mesh(_: *mut PonkoCtx, _: PonkoCollisionMesh) -> PonkoStatus {
         boundary(off)
     }
     #[allow(clippy::too_many_arguments)]
     pub(super) unsafe fn cast(
-        _: *mut CrabbyCtx,
+        _: *mut PonkoCtx,
         _: Cast,
-        _: CrabbyVec3,
-        _: CrabbyVec3,
+        _: PonkoVec3,
+        _: PonkoVec3,
         _: f32,
-        _: CrabbyQueryFilter3D,
+        _: PonkoQueryFilter3D,
         _: *mut bool,
-        _: *mut CrabbyHit3D,
-    ) -> CrabbyStatus {
+        _: *mut PonkoHit3D,
+    ) -> PonkoStatus {
         boundary(off)
     }
     #[allow(clippy::too_many_arguments)]
     pub(super) unsafe fn cast_all(
-        _: *mut CrabbyCtx,
-        _: CrabbyVec3,
-        _: CrabbyVec3,
+        _: *mut PonkoCtx,
+        _: PonkoVec3,
+        _: PonkoVec3,
         _: f32,
-        _: CrabbyQueryFilter3D,
-        _: *mut CrabbyHit3D,
+        _: PonkoQueryFilter3D,
+        _: *mut PonkoHit3D,
         _: usize,
         _: *mut usize,
-    ) -> CrabbyStatus {
+    ) -> PonkoStatus {
         boundary(off)
     }
     pub(super) unsafe fn overlap(
-        _: *mut CrabbyCtx,
+        _: *mut PonkoCtx,
         _: Overlap,
-        _: CrabbyVec3,
-        _: CrabbyQueryFilter3D,
-        _: *mut CrabbyEntity,
+        _: PonkoVec3,
+        _: PonkoQueryFilter3D,
+        _: *mut PonkoEntity,
         _: usize,
         _: *mut usize,
-    ) -> CrabbyStatus {
+    ) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn apply_impulse(_: *mut CrabbyCtx, _: u64, _: CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn apply_impulse(_: *mut PonkoCtx, _: u64, _: PonkoVec3) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn mass(_: *mut CrabbyCtx, _: u64, _: *mut f32) -> CrabbyStatus {
+    pub(super) unsafe fn mass(_: *mut PonkoCtx, _: u64, _: *mut f32) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn center_of_mass(_: *mut CrabbyCtx, _: u64, _: *mut CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn center_of_mass(_: *mut PonkoCtx, _: u64, _: *mut PonkoVec3) -> PonkoStatus {
         boundary(off)
     }
 }

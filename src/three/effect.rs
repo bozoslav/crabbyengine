@@ -17,7 +17,7 @@ use crate::gfx::Graphics;
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)] // shared with C/C++ (`CrabbyEffect`)
+#[repr(C)] // shared with C/C++ (`PonkoEffect`)
 pub struct Effect {
     pub(crate) id: u32,
 }

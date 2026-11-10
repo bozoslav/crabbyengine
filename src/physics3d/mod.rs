@@ -387,7 +387,7 @@ impl Collider3D {
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[repr(C)] // C sees it as CrabbyVelocity3D.
+#[repr(C)] // C sees it as PonkoVelocity3D.
 pub struct Velocity3D {
     /// Meters per second.
     pub linear: Vec3,

@@ -1,5 +1,5 @@
 //! Prints the C header generated from this crate. Regenerate it with
-//! `cargo run -p ponko_ffi --example generate_header > include/crabby.h`;
+//! `cargo run -p ponko_ffi --example generate_header > include/ponko.h`;
 //! CI checks the committed header matches.
 fn main() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));

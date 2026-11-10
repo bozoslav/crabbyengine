@@ -31,7 +31,7 @@ use crate::{Ctx, Entity, Transform2D, World};
 /// assert_eq!(at, vec2(10.0, -4.0));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-#[repr(C)] // shared with C/C++ (`CrabbyAttached`)
+#[repr(C)] // shared with C/C++ (`PonkoAttached`)
 pub struct Attached {
     /// The entity to follow.
     pub to: Entity,

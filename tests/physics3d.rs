@@ -815,7 +815,7 @@ fn scenes_make_mesh_colliders_from_mesh_files_and_save_them_by_file() {
         })
     };
     let scene = serde_json::json!({
-        "format": "crabby-world",
+        "format": "ponko-world",
         "version": 1,
         "entities": [
             { "entity": 0, "components": collider(false, 0.0) },

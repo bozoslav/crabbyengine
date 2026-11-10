@@ -12,7 +12,7 @@ use glam::{Mat4, Vec2, vec4};
 /// assert!(r.contains(vec2(50.0, 40.0)));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
-#[repr(C)] // shared with C/C++ (`CrabbyRect`)
+#[repr(C)] // shared with C/C++ (`PonkoRect`)
 pub struct Rect {
     /// Top-left corner (smallest x and y).
     pub min: Vec2,

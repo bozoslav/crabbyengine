@@ -5,12 +5,12 @@ use ponko_ecs::Entity;
 
 /// A 2D vector.
 /// ```
-/// let v = ponko_ffi::CrabbyVec2 { x: 1.0, y: 2.0 };
+/// let v = ponko_ffi::PonkoVec2 { x: 1.0, y: 2.0 };
 /// assert_eq!(v.x + v.y, 3.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CrabbyVec2 {
+pub struct PonkoVec2 {
     /// Horizontal, right is positive.
     pub x: f32,
     /// Vertical, down is positive.
@@ -19,12 +19,12 @@ pub struct CrabbyVec2 {
 
 /// RGBA color, each channel 0..1 (same layout as Rust `Color`).
 /// ```
-/// let white = ponko_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+/// let white = ponko_ffi::PonkoColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
 /// assert_eq!(white.a, 1.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyColor {
+pub struct PonkoColor {
     /// Red.
     pub r: f32,
     /// Green.
@@ -35,14 +35,14 @@ pub struct CrabbyColor {
     pub a: f32,
 }
 
-/// A texture handle from `crabby_ctx_load_texture` (same layout as Rust `Texture`).
+/// A texture handle from `ponko_ctx_load_texture` (same layout as Rust `Texture`).
 /// Never make one up: only use values the engine gave you.
 /// ```
-/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyTexture>(), 12);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::PonkoTexture>(), 12);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CrabbyTexture {
+pub struct PonkoTexture {
     /// Engine-internal id.
     pub id: u32,
     /// Width in pixels.
@@ -54,35 +54,35 @@ pub struct CrabbyTexture {
 /// Position, rotation (radians, clockwise) and scale; the built-in
 /// `Transform2D` component, same layout as in Rust.
 /// ```
-/// let t = ponko_ffi::CrabbyTransform2D::default();
+/// let t = ponko_ffi::PonkoTransform2D::default();
 /// assert_eq!(t.scale.x, 1.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyTransform2D {
+pub struct PonkoTransform2D {
     /// Where the entity is.
-    pub position: CrabbyVec2,
+    pub position: PonkoVec2,
     /// Radians, clockwise on screen.
     pub rotation: f32,
     /// Size multiplier; negative flips.
-    pub scale: CrabbyVec2,
+    pub scale: PonkoVec2,
 }
 
-impl Default for CrabbyTransform2D {
+impl Default for PonkoTransform2D {
     fn default() -> Self {
         to_c(Transform2D::default())
     }
 }
 
-/// An entity as stored in query chunks. `crabby_entity_bits` (or
+/// An entity as stored in query chunks. `ponko_entity_bits` (or
 /// `(uint64_t)generation << 32 | index`) gives the id other calls take.
 /// ```
-/// let e = ponko_ffi::CrabbyEntity { index: 3, generation: 1 };
-/// assert_eq!(ponko_ffi::crabby_entity_bits(e), (1u64 << 32) | 3);
+/// let e = ponko_ffi::PonkoEntity { index: 3, generation: 1 };
+/// assert_eq!(ponko_ffi::ponko_entity_bits(e), (1u64 << 32) | 3);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CrabbyEntity {
+pub struct PonkoEntity {
     /// Slot number.
     pub index: u32,
     /// Bumped when the slot is reused, so old ids stay dead.
@@ -91,55 +91,55 @@ pub struct CrabbyEntity {
 
 /// The id of `entity` that other calls take.
 /// ```
-/// let e = ponko_ffi::CrabbyEntity { index: 7, generation: 0 };
-/// assert_eq!(ponko_ffi::crabby_entity_bits(e), 7);
+/// let e = ponko_ffi::PonkoEntity { index: 7, generation: 0 };
+/// assert_eq!(ponko_ffi::ponko_entity_bits(e), 7);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_entity_bits(entity: CrabbyEntity) -> u64 {
+pub extern "C" fn ponko_entity_bits(entity: PonkoEntity) -> u64 {
     (entity.generation as u64) << 32 | entity.index as u64
 }
 
 /// An axis-aligned rectangle from `min` (top-left) to `max`.
 /// ```
-/// let r = ponko_ffi::CrabbyRect { min: Default::default(), max: ponko_ffi::CrabbyVec2 { x: 16.0, y: 16.0 } };
+/// let r = ponko_ffi::PonkoRect { min: Default::default(), max: ponko_ffi::PonkoVec2 { x: 16.0, y: 16.0 } };
 /// assert_eq!(r.max.x, 16.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CrabbyRect {
+pub struct PonkoRect {
     /// Top-left corner.
-    pub min: CrabbyVec2,
+    pub min: PonkoVec2,
     /// Bottom-right corner.
-    pub max: CrabbyVec2,
+    pub max: PonkoVec2,
 }
 
 /// The built-in `Sprite` component as a C value. Get and set it with the
 /// sprite component id like any component; it can't be a query column,
 /// because the engine stores it in a Rust layout.
 /// ```
-/// let s = ponko_ffi::CrabbySprite::default();
+/// let s = ponko_ffi::PonkoSprite::default();
 /// assert_eq!(s.pivot.x, 0.5);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbySprite {
+pub struct PonkoSprite {
     /// What to draw.
-    pub texture: CrabbyTexture,
+    pub texture: PonkoTexture,
     /// Tint. Default white.
-    pub color: CrabbyColor,
+    pub color: PonkoColor,
     /// Draw order, higher on top. Default 0.
     pub z: f32,
     /// Point placed at the position: (0.5, 0.5) = center (default).
-    pub pivot: CrabbyVec2,
+    pub pivot: PonkoVec2,
     /// Show only `region` of the texture (texture pixels).
     pub has_region: bool,
     /// Used when `has_region` is true.
-    pub region: CrabbyRect,
+    pub region: PonkoRect,
 }
 
-impl Default for CrabbySprite {
+impl Default for PonkoSprite {
     fn default() -> Self {
-        sprite_to_c(&Sprite::new(texture_from_c(CrabbyTexture {
+        sprite_to_c(&Sprite::new(texture_from_c(PonkoTexture {
             id: 0,
             width: 0,
             height: 0,
@@ -147,41 +147,41 @@ impl Default for CrabbySprite {
     }
 }
 
-/// Options for `crabby_ctx_draw_ex`. Start from `crabby_draw_params_default()`.
+/// Options for `ponko_ctx_draw_ex`. Start from `ponko_draw_params_default()`.
 /// ```
-/// let p = ponko_ffi::crabby_draw_params_default();
+/// let p = ponko_ffi::ponko_draw_params_default();
 /// assert_eq!(p.scale.x, 1.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyDrawParams {
+pub struct PonkoDrawParams {
     /// Size multiplier; negative flips. Default (1, 1).
-    pub scale: CrabbyVec2,
+    pub scale: PonkoVec2,
     /// Radians, clockwise. Default 0.
     pub rotation: f32,
     /// Tint. Default white.
-    pub color: CrabbyColor,
+    pub color: PonkoColor,
     /// Draw order, higher on top. Default 0.
     pub z: f32,
     /// Point placed at the position. Default (0.5, 0.5).
-    pub pivot: CrabbyVec2,
+    pub pivot: PonkoVec2,
     /// Window pixels, ignoring the camera (UI). Default false.
     pub screen: bool,
     /// Draw only `region` of the texture.
     pub has_region: bool,
     /// Used when `has_region` is true.
-    pub region: CrabbyRect,
+    pub region: PonkoRect,
 }
 
 /// Default draw options: no scale, rotation or tint, centered.
 /// ```
-/// assert!(!ponko_ffi::crabby_draw_params_default().screen);
+/// assert!(!ponko_ffi::ponko_draw_params_default().screen);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_draw_params_default() -> CrabbyDrawParams {
+pub extern "C" fn ponko_draw_params_default() -> PonkoDrawParams {
     let d = DrawParams::default();
     let (has_region, region) = rect_to_c(d.region);
-    CrabbyDrawParams {
+    PonkoDrawParams {
         scale: to_c(d.scale),
         rotation: d.rotation,
         color: to_c(d.color),
@@ -195,29 +195,29 @@ pub extern "C" fn crabby_draw_params_default() -> CrabbyDrawParams {
 
 /// A spatial-grid hit: an entity and its position.
 /// ```
-/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyGridHit>(), 16);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::PonkoGridHit>(), 16);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyGridHit {
+pub struct PonkoGridHit {
     /// Who.
-    pub entity: CrabbyEntity,
+    pub entity: PonkoEntity,
     /// Where it was when the grid was built.
-    pub position: CrabbyVec2,
+    pub position: PonkoVec2,
 }
 
-/// An item of a `CrabbyGrid`: entity, position and a number of your own
+/// An item of a `PonkoGrid`: entity, position and a number of your own
 /// (an index into your own arrays, for example).
 /// ```
-/// assert_eq!(std::mem::size_of::<ponko_ffi::CrabbyGridItem>(), 20);
+/// assert_eq!(std::mem::size_of::<ponko_ffi::PonkoGridItem>(), 20);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyGridItem {
+pub struct PonkoGridItem {
     /// Who.
-    pub entity: CrabbyEntity,
+    pub entity: PonkoEntity,
     /// Where.
-    pub position: CrabbyVec2,
+    pub position: PonkoVec2,
     /// Yours.
     pub data: u32,
 }
@@ -240,27 +240,27 @@ macro_rules! same_layout {
     };
 }
 pub(crate) use same_layout;
-same_layout!(CrabbyVec2, Vec2, x = x, y = y);
-same_layout!(CrabbyColor, Color, r = r, g = g, b = b, a = a);
+same_layout!(PonkoVec2, Vec2, x = x, y = y);
+same_layout!(PonkoColor, Color, r = r, g = g, b = b, a = a);
 same_layout!(
-    CrabbyTransform2D,
+    PonkoTransform2D,
     Transform2D,
     position = position,
     rotation = rotation,
     scale = scale
 );
-same_layout!(CrabbyRect, Rect, min = min, max = max);
-same_layout!(CrabbyGridHit, GridEntry<()>, entity = entity, position = position);
+same_layout!(PonkoRect, Rect, min = min, max = max);
+same_layout!(PonkoGridHit, GridEntry<()>, entity = entity, position = position);
 same_layout!(
-    CrabbyGridItem,
+    PonkoGridItem,
     GridEntry<u32>,
     entity = entity,
     position = position,
     data = data
 );
 // Entity is repr(C) { index, generation }; its fields are private to ponko_ecs.
-same_layout!(CrabbyEntity, Entity);
-const _: () = assert!(size_of::<CrabbyTexture>() == size_of::<Texture>());
+same_layout!(PonkoEntity, Entity);
+const _: () = assert!(size_of::<PonkoTexture>() == size_of::<Texture>());
 
 /// Converts between two types with the same layout.
 #[inline(always)]
@@ -269,28 +269,28 @@ pub(crate) fn to_c<A: SameLayout<B>, B>(a: A) -> B {
     unsafe { std::mem::transmute_copy(&a) }
 }
 
-pub(crate) fn texture_to_c(t: Texture) -> CrabbyTexture {
+pub(crate) fn texture_to_c(t: Texture) -> PonkoTexture {
     // SAFETY: both are repr(C) { u32 id, u32 width, u32 height } (sizes asserted above).
     unsafe { std::mem::transmute(t) }
 }
-pub(crate) fn texture_from_c(t: CrabbyTexture) -> Texture {
+pub(crate) fn texture_from_c(t: PonkoTexture) -> Texture {
     // SAFETY: as above. Ids the engine doesn't know draw nothing or the wrong texture; they are not UB.
     unsafe { std::mem::transmute(t) }
 }
 
-fn rect_to_c(r: Option<Rect>) -> (bool, CrabbyRect) {
+fn rect_to_c(r: Option<Rect>) -> (bool, PonkoRect) {
     match r {
         Some(r) => (true, to_c(r)),
-        None => (false, CrabbyRect::default()),
+        None => (false, PonkoRect::default()),
     }
 }
-fn rect_from_c(has: bool, r: CrabbyRect) -> Option<Rect> {
+fn rect_from_c(has: bool, r: PonkoRect) -> Option<Rect> {
     has.then(|| to_c(r))
 }
 
-pub(crate) fn sprite_to_c(s: &Sprite) -> CrabbySprite {
+pub(crate) fn sprite_to_c(s: &Sprite) -> PonkoSprite {
     let (has_region, region) = rect_to_c(s.region);
-    CrabbySprite {
+    PonkoSprite {
         texture: texture_to_c(s.texture),
         color: to_c(s.color),
         z: s.z,
@@ -299,7 +299,7 @@ pub(crate) fn sprite_to_c(s: &Sprite) -> CrabbySprite {
         region,
     }
 }
-pub(crate) fn sprite_from_c(s: &CrabbySprite) -> Sprite {
+pub(crate) fn sprite_from_c(s: &PonkoSprite) -> Sprite {
     let mut sprite = Sprite::new(texture_from_c(s.texture));
     sprite.color = to_c(s.color);
     sprite.z = s.z;
@@ -308,15 +308,15 @@ pub(crate) fn sprite_from_c(s: &CrabbySprite) -> Sprite {
     sprite
 }
 impl crate::CMirror for Sprite {
-    type C = CrabbySprite;
-    fn from_c(c: &CrabbySprite) -> Result<Self, crate::Failure> {
+    type C = PonkoSprite;
+    fn from_c(c: &PonkoSprite) -> Result<Self, crate::Failure> {
         Ok(sprite_from_c(c))
     }
-    fn to_c(&self) -> CrabbySprite {
+    fn to_c(&self) -> PonkoSprite {
         sprite_to_c(self)
     }
 }
-pub(crate) fn draw_params_from_c(p: &CrabbyDrawParams) -> DrawParams {
+pub(crate) fn draw_params_from_c(p: &PonkoDrawParams) -> DrawParams {
     DrawParams {
         scale: to_c(p.scale),
         rotation: p.rotation,

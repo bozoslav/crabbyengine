@@ -20,7 +20,7 @@ use crate::texture::Texture;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
-#[repr(C)] // shared with C/C++ (`CrabbyTransform2D`)
+#[repr(C)] // shared with C/C++ (`PonkoTransform2D`)
 pub struct Transform2D {
     /// Where the entity is, in world pixels.
     pub position: Vec2,

@@ -234,7 +234,7 @@ impl TerrainCollider {
 /// assert_eq!(player.keep_radius, 200.0);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[repr(C)] // shared with C/C++ (`CrabbyColliderFocus`)
+#[repr(C)] // shared with C/C++ (`PonkoColliderFocus`)
 pub struct ColliderFocus {
     /// Colliders nearer than this come in.
     pub radius: f32,

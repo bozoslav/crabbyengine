@@ -220,7 +220,7 @@ fn the_guide_data_file_example_runs() {
 /// Loads `name` (written as `before`) with `load`, rewrites it as `after`
 /// on tick 1, and returns the ticks on which it was listed as reloaded.
 fn reload_ticks(name: &str, before: &[u8], after: Vec<u8>, load: fn(&mut Ctx, &str)) -> Vec<u64> {
-    let dir = std::env::temp_dir().join(format!("crabby-media-reload-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("ponko-media-reload-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(name);
     std::fs::write(&path, before).unwrap();

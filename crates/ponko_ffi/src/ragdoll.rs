@@ -1,23 +1,23 @@
 //! Ragdolls from C (the `physics3d` feature): a skeleton handed over to
 //! physics and back (Rust `RagdollBone`, `Ragdoll3D`, `Ctx::start_ragdoll`,
 //! `Ctx::stop_ragdoll`). Without the feature the ctx calls fail with an
-//! error naming it; `crabby_ragdoll_bone` still works.
+//! error naming it; `ponko_ragdoll_bone` still works.
 #![cfg_attr(not(feature = "physics3d"), allow(unused_variables))]
 
 use std::ffi::c_char;
 
-use crate::{CrabbyCtx, CrabbyStatus};
+use crate::{PonkoCtx, PonkoStatus};
 
 /// One bone of a ragdoll (Rust `RagdollBone`): the joint it starts at, and
 /// the capsule that stands in for it, running to the joint's first child.
-/// Start from `crabby_ragdoll_bone` and change what you need.
+/// Start from `ponko_ragdoll_bone` and change what you need.
 /// ```
-/// let b = ponko_ffi::crabby_ragdoll_bone(c"spine".as_ptr(), 0.1);
+/// let b = ponko_ffi::ponko_ragdoll_bone(c"spine".as_ptr(), 0.1);
 /// assert_eq!((b.radius, b.swing, b.twist, b.density), (0.1, 0.7, 0.3, 1000.0));
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyRagdollBone {
+pub struct PonkoRagdollBone {
     /// The joint's name on the skeleton (a C string, read during the call).
     pub joint: *const c_char,
     /// The capsule's radius in meters.
@@ -33,12 +33,12 @@ pub struct CrabbyRagdollBone {
 /// A ragdoll bone at `joint` with the given capsule radius and the default
 /// limits and density.
 /// ```
-/// let b = ponko_ffi::crabby_ragdoll_bone(c"hips".as_ptr(), 0.12);
+/// let b = ponko_ffi::ponko_ragdoll_bone(c"hips".as_ptr(), 0.12);
 /// assert_eq!(b.radius, 0.12);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_ragdoll_bone(joint: *const c_char, radius: f32) -> CrabbyRagdollBone {
-    CrabbyRagdollBone {
+pub extern "C" fn ponko_ragdoll_bone(joint: *const c_char, radius: f32) -> PonkoRagdollBone {
+    PonkoRagdollBone {
         joint,
         radius,
         swing: 0.7,
@@ -51,23 +51,23 @@ pub extern "C" fn crabby_ragdoll_bone(joint: *const c_char, radius: f32) -> Crab
 /// one dynamic body per bone, jointed to the nearest chosen ancestor, posed
 /// where the skeleton is now. From then on the bodies pose the skeleton and
 /// its animator pauses. The bodies are linked at once, so you can push them
-/// straight away (`crabby_ctx_ragdoll_body`, then
-/// `crabby_ctx_apply_impulse3d`). Starting again replaces the old ragdoll.
-/// `CRABBY_INVALID_ARGUMENT` if the entity has no skeleton and transform, a
+/// straight away (`ponko_ctx_ragdoll_body`, then
+/// `ponko_ctx_apply_impulse3d`). Starting again replaces the old ragdoll.
+/// `PONKO_INVALID_ARGUMENT` if the entity has no skeleton and transform, a
 /// joint name is unknown or repeated, or a radius isn't positive.
 /// # Safety
 /// `ctx` null or live, outside query callbacks; `bones` points to `count`
 /// bones whose `joint` are C strings.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_start_ragdoll(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_start_ragdoll(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_start_ragdoll(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_start_ragdoll(
+    ctx: *mut PonkoCtx,
     entity: u64,
-    bones: *const CrabbyRagdollBone,
+    bones: *const PonkoRagdollBone,
     count: usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::start(ctx, entity, bones, count) }
 }
@@ -79,49 +79,49 @@ pub unsafe extern "C" fn crabby_ctx_start_ragdoll(
 /// # Safety
 /// `ctx` null or live, outside query callbacks.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_stop_ragdoll(std::ptr::null_mut(), 0, 0.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_stop_ragdoll(std::ptr::null_mut(), 0, 0.0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_stop_ragdoll(ctx: *mut CrabbyCtx, entity: u64, seconds: f32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_stop_ragdoll(ctx: *mut PonkoCtx, entity: u64, seconds: f32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::stop(ctx, entity, seconds) }
 }
 
 /// The body entity standing in for skeleton joint `joint` (an index, from
-/// `crabby_ctx_find_joint`) of a ragdolled `entity` (Rust
-/// `Ragdoll3D::body`). `CRABBY_NOT_FOUND` if `entity` isn't ragdolled or
+/// `ponko_ctx_find_joint`) of a ragdolled `entity` (Rust
+/// `Ragdoll3D::body`). `PONKO_NOT_FOUND` if `entity` isn't ragdolled or
 /// that joint has no body.
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ragdoll_body(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_ragdoll_body(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ragdoll_body(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_ragdoll_body(
+    ctx: *mut PonkoCtx,
     entity: u64,
     joint: usize,
     out_body: *mut u64,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::body(ctx, entity, joint, out_body) }
 }
 
 /// Whether `entity` is ragdolled (`out_ragdolled`) and, if so, whether it is
-/// blending back to its animation after `crabby_ctx_stop_ragdoll`
+/// blending back to its animation after `ponko_ctx_stop_ragdoll`
 /// (`out_blending`, Rust `Ragdoll3D::is_blending`).
 /// # Safety
 /// `ctx` null or live; outputs writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ragdoll_state(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_ragdoll_state(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ragdoll_state(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_ragdoll_state(
+    ctx: *mut PonkoCtx,
     entity: u64,
     out_ragdolled: *mut bool,
     out_blending: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::state(ctx, entity, out_ragdolled, out_blending) }
 }
@@ -134,11 +134,11 @@ mod imp {
     use ponko::{Entity, Ragdoll3D, RagdollBone};
 
     pub(super) unsafe fn start(
-        ctx: *mut CrabbyCtx,
+        ctx: *mut PonkoCtx,
         entity: u64,
-        bones: *const CrabbyRagdollBone,
+        bones: *const PonkoRagdollBone,
         count: usize,
-    ) -> CrabbyStatus {
+    ) -> PonkoStatus {
         boundary(|| {
             if bones.is_null() && count > 0 {
                 return Err(invalid("bones is null"));
@@ -170,7 +170,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn stop(ctx: *mut CrabbyCtx, entity: u64, seconds: f32) -> CrabbyStatus {
+    pub(super) unsafe fn stop(ctx: *mut PonkoCtx, entity: u64, seconds: f32) -> PonkoStatus {
         boundary(|| {
             if seconds.is_nan() || seconds < 0.0 {
                 return Err(invalid("seconds must be 0 or more"));
@@ -185,7 +185,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn body(ctx: *mut CrabbyCtx, entity: u64, joint: usize, out_body: *mut u64) -> CrabbyStatus {
+    pub(super) unsafe fn body(ctx: *mut PonkoCtx, entity: u64, joint: usize, out_body: *mut u64) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             let body = unsafe {
@@ -195,18 +195,18 @@ mod imp {
                         .and_then(|r| r.body(joint)))
                 })?
             }
-            .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "no ragdoll body for that joint"))?;
+            .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "no ragdoll body for that joint"))?;
             // SAFETY: forwarded caller contract.
             unsafe { out(out_body, body.to_bits()) }
         })
     }
 
     pub(super) unsafe fn state(
-        ctx: *mut CrabbyCtx,
+        ctx: *mut PonkoCtx,
         entity: u64,
         out_ragdolled: *mut bool,
         out_blending: *mut bool,
-    ) -> CrabbyStatus {
+    ) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             let state = unsafe {
@@ -234,16 +234,16 @@ mod imp {
     fn off() -> Result<(), Failure> {
         Err(invalid("ponko_ffi was built without the `physics3d` feature"))
     }
-    pub(super) unsafe fn start(_: *mut CrabbyCtx, _: u64, _: *const CrabbyRagdollBone, _: usize) -> CrabbyStatus {
+    pub(super) unsafe fn start(_: *mut PonkoCtx, _: u64, _: *const PonkoRagdollBone, _: usize) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn stop(_: *mut CrabbyCtx, _: u64, _: f32) -> CrabbyStatus {
+    pub(super) unsafe fn stop(_: *mut PonkoCtx, _: u64, _: f32) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn body(_: *mut CrabbyCtx, _: u64, _: usize, _: *mut u64) -> CrabbyStatus {
+    pub(super) unsafe fn body(_: *mut PonkoCtx, _: u64, _: usize, _: *mut u64) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn state(_: *mut CrabbyCtx, _: u64, _: *mut bool, _: *mut bool) -> CrabbyStatus {
+    pub(super) unsafe fn state(_: *mut PonkoCtx, _: u64, _: *mut bool, _: *mut bool) -> PonkoStatus {
         boundary(off)
     }
 }

@@ -1,16 +1,16 @@
 //! General Steam lobbies and message endpoint lobby access.
 #[cfg(feature = "steam")]
 use crate::ctx::{out, text};
-use crate::{CrabbyStatus, boundary, invalid};
+use crate::{PonkoStatus, boundary, invalid};
 use std::ffi::c_char;
 
-/// Owned lobby handle. Free once with `crabby_steam_lobby_free`.
-pub struct CrabbySteamLobby {
+/// Owned lobby handle. Free once with `ponko_steam_lobby_free`.
+pub struct PonkoSteamLobby {
     #[cfg(feature = "steam")]
     lobby: ponko::SteamLobby,
 }
 #[cfg(feature = "steam")]
-fn live<'a>(p: *mut CrabbySteamLobby) -> Result<&'a mut ponko::SteamLobby, crate::Failure> {
+fn live<'a>(p: *mut PonkoSteamLobby) -> Result<&'a mut ponko::SteamLobby, crate::Failure> {
     // SAFETY: callers supply null or a live lobby handle.
     unsafe { p.as_mut() }
         .map(|p| &mut p.lobby)
@@ -21,15 +21,15 @@ fn live<'a>(p: *mut CrabbySteamLobby) -> Result<&'a mut ponko::SteamLobby, crate
 /// # Safety
 /// Writable output; set to null on failure.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_create(480, 0, 2, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_steam_lobby_create(480, 0, 2, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_create(
+pub unsafe extern "C" fn ponko_steam_lobby_create(
     app_id: u32,
     visibility: u32,
     max_members: u32,
-    output: *mut *mut CrabbySteamLobby,
-) -> CrabbyStatus {
+    output: *mut *mut PonkoSteamLobby,
+) -> PonkoStatus {
     boundary(|| {
         if output.is_null() {
             return Err(invalid("output is null"));
@@ -54,7 +54,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_create(
                 max_members,
             )?;
             // SAFETY: forwarded caller contract.
-            unsafe { out(output, Box::into_raw(Box::new(CrabbySteamLobby { lobby }))) }
+            unsafe { out(output, Box::into_raw(Box::new(PonkoSteamLobby { lobby }))) }
         }
         #[cfg(not(feature = "steam"))]
         {
@@ -68,14 +68,14 @@ pub unsafe extern "C" fn crabby_steam_lobby_create(
 /// # Safety
 /// Writable output; set to null on failure.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_join(480, 1, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_steam_lobby_join(480, 1, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_join(
+pub unsafe extern "C" fn ponko_steam_lobby_join(
     app_id: u32,
     id: u64,
-    output: *mut *mut CrabbySteamLobby,
-) -> CrabbyStatus {
+    output: *mut *mut PonkoSteamLobby,
+) -> PonkoStatus {
     boundary(|| {
         if output.is_null() {
             return Err(invalid("output is null"));
@@ -92,7 +92,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_join(
             let client = crate::steam::client::get(app_id)?;
             let lobby = ponko::SteamLobby::join(&client, ponko::steamworks::LobbyId::from_raw(id))?;
             // SAFETY: forwarded caller contract.
-            unsafe { out(output, Box::into_raw(Box::new(CrabbySteamLobby { lobby }))) }
+            unsafe { out(output, Box::into_raw(Box::new(PonkoSteamLobby { lobby }))) }
         }
         #[cfg(not(feature = "steam"))]
         {
@@ -106,10 +106,10 @@ pub unsafe extern "C" fn crabby_steam_lobby_join(
 /// # Safety
 /// Null or a live owned lobby, never used again.
 /// ```
-/// unsafe { ponko_ffi::crabby_steam_lobby_free(std::ptr::null_mut()); }
+/// unsafe { ponko_ffi::ponko_steam_lobby_free(std::ptr::null_mut()); }
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_free(lobby: *mut CrabbySteamLobby) {
+pub unsafe extern "C" fn ponko_steam_lobby_free(lobby: *mut PonkoSteamLobby) {
     if !lobby.is_null() {
         // SAFETY: forwarded caller contract.
         drop(unsafe { Box::from_raw(lobby) });
@@ -123,10 +123,10 @@ pub unsafe extern "C" fn crabby_steam_lobby_free(lobby: *mut CrabbySteamLobby) {
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_poll(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_steam_lobby_poll(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_poll(lobby: *mut CrabbySteamLobby) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_steam_lobby_poll(lobby: *mut PonkoSteamLobby) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -149,10 +149,10 @@ pub unsafe extern "C" fn crabby_steam_lobby_poll(lobby: *mut CrabbySteamLobby) -
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_leave(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_steam_lobby_leave(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_leave(lobby: *mut CrabbySteamLobby) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_steam_lobby_leave(lobby: *mut PonkoSteamLobby) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -175,10 +175,10 @@ pub unsafe extern "C" fn crabby_steam_lobby_leave(lobby: *mut CrabbySteamLobby) 
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_id(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_steam_lobby_id(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_id(lobby: *mut CrabbySteamLobby, output: *mut u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_steam_lobby_id(lobby: *mut PonkoSteamLobby, output: *mut u64) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -200,10 +200,10 @@ pub unsafe extern "C" fn crabby_steam_lobby_id(lobby: *mut CrabbySteamLobby, out
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_invite(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_steam_lobby_invite(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_invite(lobby: *mut CrabbySteamLobby) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_steam_lobby_invite(lobby: *mut PonkoSteamLobby) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -226,14 +226,14 @@ pub unsafe extern "C" fn crabby_steam_lobby_invite(lobby: *mut CrabbySteamLobby)
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_set_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_steam_lobby_set_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_set_metadata(
-    lobby: *mut CrabbySteamLobby,
+pub unsafe extern "C" fn ponko_steam_lobby_set_metadata(
+    lobby: *mut PonkoSteamLobby,
     key: *const c_char,
     value: *const c_char,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -256,16 +256,16 @@ pub unsafe extern "C" fn crabby_steam_lobby_set_metadata(
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_steam_lobby_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_metadata(
-    lobby: *mut CrabbySteamLobby,
+pub unsafe extern "C" fn ponko_steam_lobby_metadata(
+    lobby: *mut PonkoSteamLobby,
     key: *const c_char,
     buffer: *mut c_char,
     capacity: usize,
     needed: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -287,15 +287,15 @@ pub unsafe extern "C" fn crabby_steam_lobby_metadata(
 /// # Safety
 /// Live/null lobby, readable NUL-terminated strings, writable outputs and buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_steam_lobby_members(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_steam_lobby_members(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_members(
-    lobby: *mut CrabbySteamLobby,
+pub unsafe extern "C" fn ponko_steam_lobby_members(
+    lobby: *mut PonkoSteamLobby,
     members: *mut u64,
     capacity: usize,
     needed: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -362,17 +362,17 @@ unsafe fn copy_text(
 }
 
 /// Steam message endpoint lobby id; errors for non-Steam endpoints.
-/// Buffer semantics match `crabby_steam_lobby_id`.
+/// Buffer semantics match `ponko_steam_lobby_id`.
 /// # Safety
 /// Live/null endpoint, readable NUL strings and writable outputs/buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_lobby_id(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_net_messages_steam_lobby_id(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_net_messages_steam_lobby_id(
-    endpoint: *mut crate::CrabbyNetMessages,
+pub unsafe extern "C" fn ponko_net_messages_steam_lobby_id(
+    endpoint: *mut crate::PonkoNetMessages,
     output: *mut u64,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -388,16 +388,14 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_id(
 }
 
 /// Steam message endpoint lobby invite; errors for non-Steam endpoints.
-/// Buffer semantics match `crabby_steam_lobby_invite`.
+/// Buffer semantics match `ponko_steam_lobby_invite`.
 /// # Safety
 /// Live/null endpoint, readable NUL strings and writable outputs/buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_lobby_invite(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_net_messages_steam_lobby_invite(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_net_messages_steam_lobby_invite(
-    endpoint: *mut crate::CrabbyNetMessages,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_net_messages_steam_lobby_invite(endpoint: *mut crate::PonkoNetMessages) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -414,18 +412,18 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_invite(
 }
 
 /// Steam message endpoint lobby set metadata; errors for non-Steam endpoints.
-/// Buffer semantics match `crabby_steam_lobby_set_metadata`.
+/// Buffer semantics match `ponko_steam_lobby_set_metadata`.
 /// # Safety
 /// Live/null endpoint, readable NUL strings and writable outputs/buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_lobby_set_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_net_messages_steam_lobby_set_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_net_messages_steam_lobby_set_metadata(
-    endpoint: *mut crate::CrabbyNetMessages,
+pub unsafe extern "C" fn ponko_net_messages_steam_lobby_set_metadata(
+    endpoint: *mut crate::PonkoNetMessages,
     key: *const c_char,
     value: *const c_char,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -442,20 +440,20 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_set_metadata(
 }
 
 /// Steam message endpoint lobby metadata; errors for non-Steam endpoints.
-/// Buffer semantics match `crabby_steam_lobby_metadata`.
+/// Buffer semantics match `ponko_steam_lobby_metadata`.
 /// # Safety
 /// Live/null endpoint, readable NUL strings and writable outputs/buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_lobby_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_net_messages_steam_lobby_metadata(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_net_messages_steam_lobby_metadata(
-    endpoint: *mut crate::CrabbyNetMessages,
+pub unsafe extern "C" fn ponko_net_messages_steam_lobby_metadata(
+    endpoint: *mut crate::PonkoNetMessages,
     key: *const c_char,
     buffer: *mut c_char,
     capacity: usize,
     needed: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -471,19 +469,19 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_metadata(
 }
 
 /// Steam message endpoint lobby members; errors for non-Steam endpoints.
-/// Buffer semantics match `crabby_steam_lobby_members`.
+/// Buffer semantics match `ponko_steam_lobby_members`.
 /// # Safety
 /// Live/null endpoint, readable NUL strings and writable outputs/buffers of `capacity` elements.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_net_messages_steam_lobby_members(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_net_messages_steam_lobby_members(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_net_messages_steam_lobby_members(
-    endpoint: *mut crate::CrabbyNetMessages,
+pub unsafe extern "C" fn ponko_net_messages_steam_lobby_members(
+    endpoint: *mut crate::PonkoNetMessages,
     members: *mut u64,
     capacity: usize,
     needed: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.
@@ -499,7 +497,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_members(
 }
 
 #[cfg(feature = "steam")]
-fn endpoint_lobby<'a>(endpoint: *mut crate::CrabbyNetMessages) -> Result<&'a ponko::SteamLobby, crate::Failure> {
+fn endpoint_lobby<'a>(endpoint: *mut crate::PonkoNetMessages) -> Result<&'a ponko::SteamLobby, crate::Failure> {
     // SAFETY: caller supplies null or live endpoint.
     let endpoint = unsafe { endpoint.as_ref() }.ok_or_else(|| invalid("endpoint is null"))?;
     endpoint

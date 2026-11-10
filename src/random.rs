@@ -227,7 +227,7 @@ impl Random {
 mod tests {
     use super::*;
 
-    /// Pins the generator: saved runs and the C++ header (`crabby::rng`,
+    /// Pins the generator: saved runs and the C++ header (`ponko::rng`,
     /// checked against the same numbers in examples/cpp/tests.cpp) rely on it.
     #[test]
     fn the_generator_never_changes() {

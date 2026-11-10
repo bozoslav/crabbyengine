@@ -356,7 +356,7 @@ pub(crate) fn load(
             .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok());
         if let Some(frames) = extras
             .as_ref()
-            .and_then(|v| v.get("crabbyMorphFrames"))
+            .and_then(|v| v.get("ponkoMorphFrames").or_else(|| v.get("crabbyMorphFrames")))
             .and_then(|v| v.as_array())
         {
             for f in frames {
@@ -478,7 +478,7 @@ fn read_clips(
                 .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok());
             let animated = extras
                 .as_ref()
-                .and_then(|e| e.get("crabbyAnimatedTargets"))
+                .and_then(|e| e.get("ponkoAnimatedTargets").or_else(|| e.get("crabbyAnimatedTargets")))
                 .and_then(|v| v.as_array());
             for channel in animation.channels() {
                 let joint = rig.of_node[channel.target().node().index()];
@@ -1140,47 +1140,57 @@ mod tests {
     #[test]
     fn morph_only_gltf_channels_sample_all_interpolations_and_frame_metadata() {
         use crate::{MorphWeights, Skeleton};
-        for (mode, values, expected) in [
-            ("LINEAR", vec![0., 0.2, 1., 0.6], [0.5, 0.4]),
-            ("STEP", vec![0., 0.2, 1., 0.6], [0., 0.2]),
-            // key-major in/value/out triples, with each tuple's target values interleaved.
-            (
-                "CUBICSPLINE",
-                vec![0., 0., 0., 0.2, 4., 0., 0., 0., 0., 0.6, 0., 0.],
-                [1., 0.4],
-            ),
+        for (frames_key, targets_key) in [
+            ("crabbyMorphFrames", "crabbyAnimatedTargets"),
+            ("ponkoMorphFrames", "ponkoAnimatedTargets"),
         ] {
-            let mut doc: serde_json::Value = serde_json::from_str(&morph_gltf()).unwrap();
-            let mut bytes = Vec::new();
-            for v in [0f32, 2.].into_iter().chain(values) {
-                bytes.extend(v.to_le_bytes());
-            }
-            doc["buffers"].as_array_mut().unwrap().push(serde_json::json!({"byteLength":bytes.len(),"uri":format!("data:application/octet-stream;base64,{}",to_base64(&bytes))}));
-            doc["bufferViews"]
-                .as_array_mut()
-                .unwrap()
-                .push(serde_json::json!({"buffer":1,"byteLength":bytes.len()}));
-            doc["accessors"].as_array_mut().unwrap().extend([
+            for (mode, values, expected) in [
+                ("LINEAR", vec![0., 0.2, 1., 0.6], [0.5, 0.4]),
+                ("STEP", vec![0., 0.2, 1., 0.6], [0., 0.2]),
+                // key-major in/value/out triples, with each tuple's target values interleaved.
+                (
+                    "CUBICSPLINE",
+                    vec![0., 0., 0., 0.2, 4., 0., 0., 0., 0., 0.6, 0., 0.],
+                    [1., 0.4],
+                ),
+            ] {
+                let mut doc: serde_json::Value = serde_json::from_str(&morph_gltf()).unwrap();
+                let mut bytes = Vec::new();
+                for v in [0f32, 2.].into_iter().chain(values) {
+                    bytes.extend(v.to_le_bytes());
+                }
+                doc["buffers"].as_array_mut().unwrap().push(serde_json::json!({"byteLength":bytes.len(),"uri":format!("data:application/octet-stream;base64,{}",to_base64(&bytes))}));
+                doc["bufferViews"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"buffer":1,"byteLength":bytes.len()}));
+                doc["accessors"].as_array_mut().unwrap().extend([
                 serde_json::json!({"bufferView":1,"componentType":5126,"count":2,"type":"SCALAR","min":[0.],"max":[2.]}),
                 serde_json::json!({"bufferView":1,"byteOffset":8,"componentType":5126,"count":(bytes.len()-8)/4,"type":"SCALAR"})]);
-            doc["animations"] = serde_json::json!([{"name":"face","samplers":[{"input":3,"output":4,"interpolation":mode}],"channels":[{"sampler":0,"target":{"node":0,"path":"weights"}}]}]);
-            doc["meshes"][0]["extras"]["crabbyMorphFrames"] = serde_json::json!([
+                doc["animations"] = serde_json::json!([{"name":"face","samplers":[{"input":3,"output":4,"interpolation":mode}],"channels":[{"sampler":0,"target":{"node":0,"path":"weights"}}]}]);
+                doc["meshes"][0]["extras"][frames_key] = serde_json::json!([
                 {"channel":0,"target":1,"weight":0.5},{"channel":0,"target":0,"weight":1.}]);
-            let loaded = load("face.gltf", doc.to_string().as_bytes(), &mut |f| Err(f.into()), &|_| {
-                false
-            })
-            .unwrap();
-            assert_eq!(loaded.data.morph_frames.len(), 2);
-            let mut skeleton = Skeleton::from_shared(loaded.skin.unwrap().joints);
-            loaded.clips[0].sample(1., &mut skeleton);
-            let mut weights = MorphWeights(vec![0., 0.]);
-            let names: Vec<_> = loaded.data.morph_targets.iter().map(|t| t.name.clone()).collect();
-            skeleton.write_morph_weights(&names, &mut weights);
-            for (name, value) in [("smile", expected[0]), ("blink", expected[1])] {
-                assert!(
-                    (weights.get(names.iter().position(|n| n == name).unwrap()) - value).abs() < 1e-6,
-                    "{mode} {name}"
-                );
+                doc["animations"][0]["extras"][targets_key] = serde_json::json!(["smile"]);
+                if frames_key == "ponkoMorphFrames" {
+                    doc["meshes"][0]["extras"]["crabbyMorphFrames"] = serde_json::json!([]);
+                    doc["animations"][0]["extras"]["crabbyAnimatedTargets"] = serde_json::json!(["blink"]);
+                }
+                let loaded = load("face.gltf", doc.to_string().as_bytes(), &mut |f| Err(f.into()), &|_| {
+                    false
+                })
+                .unwrap();
+                assert_eq!(loaded.data.morph_frames.len(), 2);
+                let mut skeleton = Skeleton::from_shared(loaded.skin.unwrap().joints);
+                loaded.clips[0].sample(1., &mut skeleton);
+                let mut weights = MorphWeights(vec![0., 0.]);
+                let names: Vec<_> = loaded.data.morph_targets.iter().map(|t| t.name.clone()).collect();
+                skeleton.write_morph_weights(&names, &mut weights);
+                for (name, value) in [("smile", expected[0]), ("blink", 0.)] {
+                    assert!(
+                        (weights.get(names.iter().position(|n| n == name).unwrap()) - value).abs() < 1e-6,
+                        "{mode} {name}"
+                    );
+                }
             }
         }
     }

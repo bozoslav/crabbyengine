@@ -73,7 +73,7 @@ fn a_prefab_without_a_transform_gets_one() {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("assets")
             .join(file.name()),
-        r#"{ "format": "crabby-prefab", "version": 1, "components": { "Palm": { "height": 2 } } }"#,
+        r#"{ "format": "ponko-prefab", "version": 1, "components": { "Palm": { "height": 2 } } }"#,
     )
     .unwrap();
     let mut spawned = None;
@@ -90,7 +90,7 @@ fn a_prefab_without_a_transform_gets_one() {
 #[test]
 fn bad_files_are_errors_that_change_nothing() {
     let file = TempAsset::new("test-not-a-prefab.json");
-    file.write(r#"{ "format": "crabby-world", "version": 1, "entities": [] }"#);
+    file.write(r#"{ "format": "ponko-world", "version": 1, "entities": [] }"#);
     game().run_headless(0, |ctx| {
         let missing = ctx.load_scene("test-no-such-scene.json").unwrap_err();
         assert!(missing.contains("not found in assets/"), "{missing}");
@@ -197,4 +197,33 @@ fn a_sprite_needs_an_image_that_exists() {
             .unwrap_err();
         assert!(unloaded.to_string().contains("isn't loaded"), "{unloaded}");
     });
+}
+
+#[test]
+fn both_prefab_spellings_load_and_resave_with_primary_identifier() {
+    for format in ["ponko-prefab", "ponko-prefab"] {
+        let file = TempAsset::new(&format!("test-naming-{format}.json"));
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join(file.name());
+        std::fs::write(
+            &path,
+            serde_json::json!({
+                "format": format, "version": 1, "components": {"Palm": {"height": 7.0}}
+            })
+            .to_string(),
+        )
+        .unwrap();
+        game().run_headless(0, |ctx| {
+            ctx.world.reflect::<Palm>();
+            let entity = ctx.spawn_prefab(file.name(), Vec2::ZERO).unwrap();
+            assert_eq!(ctx.world.get::<Palm>(entity).unwrap().height, 7.0);
+            ctx.assets.save_prefab(&ctx.world, entity, file.name()).unwrap();
+            let output: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(output["format"], "ponko-prefab");
+            assert_eq!(output["version"], 1);
+            let again = ctx.spawn_prefab(file.name(), Vec2::ZERO).unwrap();
+            assert_eq!(ctx.world.get::<Palm>(again).unwrap().height, 7.0);
+        });
+    }
 }

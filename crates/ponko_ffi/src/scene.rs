@@ -4,9 +4,9 @@ use std::ffi::c_char;
 
 use ponko_ecs::Entity;
 
-use crate::ctx::{CrabbyCtx, ctx_access, out, text};
-use crate::types::CrabbyVec2;
-use crate::{CrabbyStatus, boundary, invalid_owned};
+use crate::ctx::{PonkoCtx, ctx_access, out, text};
+use crate::types::PonkoVec2;
+use crate::{PonkoStatus, boundary, invalid_owned};
 
 /// Replaces the world with the scene in `assets/<path>`; entities keep their
 /// ids. Components must be reflected. On an error the world is unchanged.
@@ -16,24 +16,24 @@ use crate::{CrabbyStatus, boundary, invalid_owned};
 /// # Safety
 /// Live ctx; `path` NUL-terminated.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_scene(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_load_scene(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_load_scene(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_load_scene(ctx: *mut PonkoCtx, path: *const c_char) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| c.load_scene(text(path)?).map_err(invalid_owned)) })
 }
 
-/// `crabby_ctx_load_scene`, named for a lockstep game: the same load on
+/// `ponko_ctx_load_scene`, named for a lockstep game: the same load on
 /// every peer at the same tick (`Ctx::load_scene_lockstep`), with the same
 /// rules (a sim system or setup in a session, anywhere offline).
 /// # Safety
 /// Live ctx; `path` NUL-terminated.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_scene_lockstep(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_load_scene_lockstep(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_load_scene_lockstep(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_load_scene_lockstep(ctx: *mut PonkoCtx, path: *const c_char) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| c.load_scene_lockstep(text(path)?).map_err(invalid_owned)) })
 }
@@ -43,10 +43,10 @@ pub unsafe extern "C" fn crabby_ctx_load_scene_lockstep(ctx: *mut CrabbyCtx, pat
 /// # Safety
 /// Live ctx; `path` NUL-terminated.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_save_scene(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_save_scene(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_save_scene(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_save_scene(ctx: *mut PonkoCtx, path: *const c_char) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -61,16 +61,16 @@ pub unsafe extern "C" fn crabby_ctx_save_scene(ctx: *mut CrabbyCtx, path: *const
 /// Live ctx; `path` NUL-terminated; `out_entity` writable.
 /// ```
 /// let mut e = 0;
-/// let status = unsafe { ponko_ffi::crabby_ctx_spawn_prefab(std::ptr::null_mut(), c"a.json".as_ptr(), ponko_ffi::CrabbyVec2 { x: 0.0, y: 0.0 }, &mut e) };
+/// let status = unsafe { ponko_ffi::ponko_ctx_spawn_prefab(std::ptr::null_mut(), c"a.json".as_ptr(), ponko_ffi::PonkoVec2 { x: 0.0, y: 0.0 }, &mut e) };
 /// assert_eq!(status as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_spawn_prefab(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_spawn_prefab(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
-    at: CrabbyVec2,
+    at: PonkoVec2,
     out_entity: *mut u64,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let e = ctx_access(ctx, |c| {
@@ -86,10 +86,10 @@ pub unsafe extern "C" fn crabby_ctx_spawn_prefab(
 /// # Safety
 /// Live ctx; `path` NUL-terminated.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_save_prefab(std::ptr::null_mut(), 0, c"a.json".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_save_prefab(std::ptr::null_mut(), 0, c"a.json".as_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_save_prefab(ctx: *mut CrabbyCtx, entity: u64, path: *const c_char) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_save_prefab(ctx: *mut PonkoCtx, entity: u64, path: *const c_char) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {

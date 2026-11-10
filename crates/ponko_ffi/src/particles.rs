@@ -1,7 +1,7 @@
 //! 3D particles from C (Rust `ParticleEmitter3D`, `ParticleSettings3D`).
-//! Fill a `CrabbyParticleSettings3D` (start from
-//! `crabby_particle_settings3d_default()`), then give an entity with a 3D
-//! transform an emitter with `crabby_ctx_set_particle_emitter3d`.
+//! Fill a `PonkoParticleSettings3D` (start from
+//! `ponko_particle_settings3d_default()`), then give an entity with a 3D
+//! transform an emitter with `ponko_ctx_set_particle_emitter3d`.
 
 use ponko::{
     Color, Ctx, Entity, ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D,
@@ -9,64 +9,64 @@ use ponko::{
 };
 
 use crate::ctx::{ctx_access, out};
-use crate::three::CrabbyVec3;
-use crate::types::{CrabbyColor, CrabbyTexture, texture_from_c, to_c};
-use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, invalid, invalid_owned};
+use crate::three::PonkoVec3;
+use crate::types::{PonkoColor, PonkoTexture, texture_from_c, to_c};
+use crate::{Failure, PonkoCtx, PonkoStatus, boundary, invalid, invalid_owned};
 
-/// Where particles start (`CrabbyParticleSettings3D::shape`).
+/// Where particles start (`PonkoParticleSettings3D::shape`).
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyParticleShape3D::CRABBY_PARTICLES_CONE as u32, 2);
+/// assert_eq!(ponko_ffi::PonkoParticleShape3D::PONKO_PARTICLES_CONE as u32, 2);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbyParticleShape3D {
+pub enum PonkoParticleShape3D {
     /// The emitter's origin, moving along +Y.
-    CRABBY_PARTICLES_POINT,
+    PONKO_PARTICLES_POINT,
     /// Inside a ball of `shape_size.x` radius, moving outward.
-    CRABBY_PARTICLES_SPHERE,
+    PONKO_PARTICLES_SPHERE,
     /// The origin, moving inside a cone around +Y with half angle `shape_size.x` (radians).
-    CRABBY_PARTICLES_CONE,
+    PONKO_PARTICLES_CONE,
     /// Inside a box with half extents `shape_size`, moving along +Y.
-    CRABBY_PARTICLES_BOX,
+    PONKO_PARTICLES_BOX,
 }
 
-/// How particles combine with the scene (`CrabbyParticleSettings3D::blend`).
+/// How particles combine with the scene (`PonkoParticleSettings3D::blend`).
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyParticleBlend3D::CRABBY_PARTICLES_ADDITIVE as u32, 1);
+/// assert_eq!(ponko_ffi::PonkoParticleBlend3D::PONKO_PARTICLES_ADDITIVE as u32, 1);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbyParticleBlend3D {
+pub enum PonkoParticleBlend3D {
     /// Ordinary transparency, sorted back to front.
-    CRABBY_PARTICLES_ALPHA,
+    PONKO_PARTICLES_ALPHA,
     /// Adds light to the scene (fire, sparks, magic).
-    CRABBY_PARTICLES_ADDITIVE,
+    PONKO_PARTICLES_ADDITIVE,
 }
 
-/// Whether living particles follow the emitter (`CrabbyParticleSettings3D::space`).
+/// Whether living particles follow the emitter (`PonkoParticleSettings3D::space`).
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyParticleSpace3D::CRABBY_PARTICLES_LOCAL as u32, 1);
+/// assert_eq!(ponko_ffi::PonkoParticleSpace3D::PONKO_PARTICLES_LOCAL as u32, 1);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbyParticleSpace3D {
+pub enum PonkoParticleSpace3D {
     /// Particles stay where they were born; gravity is world down.
-    CRABBY_PARTICLES_WORLD,
+    PONKO_PARTICLES_WORLD,
     /// Particles move with the entity.
-    CRABBY_PARTICLES_LOCAL,
+    PONKO_PARTICLES_LOCAL,
 }
 
 /// One key of a size curve: `value` at normalized lifetime `t` (0..1).
 /// ```
-/// let k = ponko_ffi::CrabbyParticleKey { t: 1.0, value: 0.0 };
+/// let k = ponko_ffi::PonkoParticleKey { t: 1.0, value: 0.0 };
 /// assert_eq!(k.t, 1.0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CrabbyParticleKey {
+pub struct PonkoParticleKey {
     /// Normalized lifetime, 0 at birth and 1 at death.
     pub t: f32,
     /// Size multiplier at `t`.
@@ -75,28 +75,28 @@ pub struct CrabbyParticleKey {
 
 /// One key of a color gradient: `color` at normalized lifetime `t` (0..1).
 /// ```
-/// let k = ponko_ffi::CrabbyParticleColorKey { t: 0.0, color: ponko_ffi::CrabbyColor { r: 1.0, g: 0.5, b: 0.0, a: 1.0 } };
+/// let k = ponko_ffi::PonkoParticleColorKey { t: 0.0, color: ponko_ffi::PonkoColor { r: 1.0, g: 0.5, b: 0.0, a: 1.0 } };
 /// assert_eq!(k.color.g, 0.5);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyParticleColorKey {
+pub struct PonkoParticleColorKey {
     /// Normalized lifetime, 0 at birth and 1 at death.
     pub t: f32,
     /// Tint at `t`.
-    pub color: CrabbyColor,
+    pub color: PonkoColor,
 }
 
 /// An emitter's settings (Rust `ParticleSettings3D`). Ranges are `_min`/`_max`
 /// pairs. The key pointers are only read during the call that takes the
 /// settings; null with a count of 0 keeps the default curve.
 /// ```
-/// let s = ponko_ffi::crabby_particle_settings3d_default();
+/// let s = ponko_ffi::ponko_particle_settings3d_default();
 /// assert_eq!(s.max_particles, 1024);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct CrabbyParticleSettings3D {
+pub struct PonkoParticleSettings3D {
     /// Particles per second. 0 emits only bursts. Default 10.
     pub rate: f32,
     /// Particles emitted at once on the first frame. Default 0.
@@ -113,12 +113,12 @@ pub struct CrabbyParticleSettings3D {
     pub speed_min: f32,
     /// See `speed_min`.
     pub speed_max: f32,
-    /// A `CrabbyParticleShape3D`. Default point.
+    /// A `PonkoParticleShape3D`. Default point.
     pub shape: u32,
     /// Sphere radius (x), cone half angle (x) or box half extents.
-    pub shape_size: CrabbyVec3,
+    pub shape_size: PonkoVec3,
     /// Acceleration. Default (0, -9.81, 0).
-    pub gravity: CrabbyVec3,
+    pub gravity: PonkoVec3,
     /// Velocity damping per second. Default 0.
     pub drag: f32,
     /// Start size range in world units. Default 0.1..0.2.
@@ -130,26 +130,26 @@ pub struct CrabbyParticleSettings3D {
     /// See `rotation_min`.
     pub rotation_max: f32,
     /// Size multiplier over lifetime; null for a constant 1.
-    pub size_keys: *const CrabbyParticleKey,
+    pub size_keys: *const PonkoParticleKey,
     /// Number of `size_keys`.
     pub size_key_count: usize,
     /// Tint over lifetime; null for white.
-    pub color_keys: *const CrabbyParticleColorKey,
+    pub color_keys: *const PonkoParticleColorKey,
     /// Number of `color_keys`.
     pub color_key_count: usize,
     /// Use `texture`; otherwise particles are plain squares. Default false.
     pub has_texture: bool,
     /// The particle image (or a sprite sheet).
-    pub texture: CrabbyTexture,
+    pub texture: PonkoTexture,
     /// Sprite sheet columns and rows; frames play over lifetime. Default 1, 1.
     pub sheet_columns: u32,
     /// See `sheet_columns`.
     pub sheet_rows: u32,
-    /// A `CrabbyParticleBlend3D`. Default alpha.
+    /// A `PonkoParticleBlend3D`. Default alpha.
     pub blend: u32,
     /// Most living particles; storage is made up front. Default 1024.
     pub max_particles: u32,
-    /// A `CrabbyParticleSpace3D`. Default world.
+    /// A `PonkoParticleSpace3D`. Default world.
     pub space: u32,
     /// Random seed: equal seeds give equal particles. Default 1.
     pub seed: u64,
@@ -157,13 +157,13 @@ pub struct CrabbyParticleSettings3D {
 
 /// Default particle settings (same as Rust's `ParticleSettings3D::default()`).
 /// ```
-/// let s = ponko_ffi::crabby_particle_settings3d_default();
+/// let s = ponko_ffi::ponko_particle_settings3d_default();
 /// assert_eq!(s.gravity.y, -9.81);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_particle_settings3d_default() -> CrabbyParticleSettings3D {
+pub extern "C" fn ponko_particle_settings3d_default() -> PonkoParticleSettings3D {
     let d = ParticleSettings3D::default();
-    CrabbyParticleSettings3D {
+    PonkoParticleSettings3D {
         rate: d.rate,
         burst: d.burst as u32,
         duration: d.duration,
@@ -172,8 +172,8 @@ pub extern "C" fn crabby_particle_settings3d_default() -> CrabbyParticleSettings
         lifetime_max: d.lifetime.1,
         speed_min: d.speed.0,
         speed_max: d.speed.1,
-        shape: CrabbyParticleShape3D::CRABBY_PARTICLES_POINT as u32,
-        shape_size: CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 },
+        shape: PonkoParticleShape3D::PONKO_PARTICLES_POINT as u32,
+        shape_size: PonkoVec3 { x: 0.0, y: 0.0, z: 0.0 },
         gravity: to_c(d.gravity),
         drag: d.drag,
         size_min: d.size.0,
@@ -185,21 +185,21 @@ pub extern "C" fn crabby_particle_settings3d_default() -> CrabbyParticleSettings
         color_keys: std::ptr::null(),
         color_key_count: 0,
         has_texture: false,
-        texture: CrabbyTexture {
+        texture: PonkoTexture {
             id: 0,
             width: 0,
             height: 0,
         },
         sheet_columns: d.sheet.0,
         sheet_rows: d.sheet.1,
-        blend: CrabbyParticleBlend3D::CRABBY_PARTICLES_ALPHA as u32,
+        blend: PonkoParticleBlend3D::PONKO_PARTICLES_ALPHA as u32,
         max_particles: d.max_particles as u32,
-        space: CrabbyParticleSpace3D::CRABBY_PARTICLES_WORLD as u32,
+        space: PonkoParticleSpace3D::PONKO_PARTICLES_WORLD as u32,
         seed: d.seed,
     }
 }
 
-/// A `CrabbyParticleBlend3D` value.
+/// A `PonkoParticleBlend3D` value.
 pub(crate) fn blend_from_c(blend: u32) -> Result<ParticleBlend3D, Failure> {
     match blend {
         0 => Ok(ParticleBlend3D::Alpha),
@@ -209,7 +209,7 @@ pub(crate) fn blend_from_c(blend: u32) -> Result<ParticleBlend3D, Failure> {
 }
 
 /// A curve from C keys, or `None` for no keys (keep the default).
-pub(crate) fn curve_from_c(keys: &[CrabbyParticleKey]) -> Result<Option<ParticleCurve>, Failure> {
+pub(crate) fn curve_from_c(keys: &[PonkoParticleKey]) -> Result<Option<ParticleCurve>, Failure> {
     if !keys.iter().all(|k| finite(&[k.t, k.value])) {
         return Err(invalid("particle curve keys must be finite"));
     }
@@ -218,7 +218,7 @@ pub(crate) fn curve_from_c(keys: &[CrabbyParticleKey]) -> Result<Option<Particle
 }
 
 /// A gradient from C keys, or `None` for no keys (keep the default).
-pub(crate) fn gradient_from_c(keys: &[CrabbyParticleColorKey]) -> Result<Option<ParticleGradient>, Failure> {
+pub(crate) fn gradient_from_c(keys: &[PonkoParticleColorKey]) -> Result<Option<ParticleGradient>, Failure> {
     if !keys
         .iter()
         .all(|k| finite(&[k.t, k.color.r, k.color.g, k.color.b, k.color.a]))
@@ -248,7 +248,7 @@ pub(crate) fn finite(values: &[f32]) -> bool {
 ///
 /// # Safety
 /// The key pointers are null or point to their counts of keys.
-unsafe fn settings_from_c(s: &CrabbyParticleSettings3D) -> Result<ParticleSettings3D, Failure> {
+unsafe fn settings_from_c(s: &PonkoParticleSettings3D) -> Result<ParticleSettings3D, Failure> {
     let ranges = [
         ("lifetime", s.lifetime_min, s.lifetime_max),
         ("speed", s.speed_min, s.speed_max),
@@ -357,17 +357,17 @@ fn emitter(c: &mut Ctx, bits: u64) -> Result<&mut ParticleEmitter3D, Failure> {
 /// Gives `entity` (which needs a 3D transform to draw) a new particle
 /// emitter, replacing any it had along with its living particles.
 /// ```
-/// let s = ponko_ffi::crabby_particle_settings3d_default();
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_particle_emitter3d(std::ptr::null_mut(), 0, &s) } as u32, 1);
+/// let s = ponko_ffi::ponko_particle_settings3d_default();
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_particle_emitter3d(std::ptr::null_mut(), 0, &s) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `settings` null or valid, its key pointers as documented.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_particle_emitter3d(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_particle_emitter3d(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
-    settings: *const CrabbyParticleSettings3D,
-) -> CrabbyStatus {
+    settings: *const PonkoParticleSettings3D,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -383,12 +383,12 @@ pub unsafe extern "C" fn crabby_ctx_set_particle_emitter3d(
 /// Emits `count` particles from `entity`'s emitter on the next frame (capped
 /// by its `max_particles`).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_particle_burst(std::ptr::null_mut(), 0, 10) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_particle_burst(std::ptr::null_mut(), 0, 10) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_particle_burst(ctx: *mut CrabbyCtx, entity_bits: u64, count: u32) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_particle_burst(ctx: *mut PonkoCtx, entity_bits: u64, count: u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -401,16 +401,16 @@ pub unsafe extern "C" fn crabby_ctx_particle_burst(ctx: *mut CrabbyCtx, entity_b
 /// How many of `entity`'s particles are alive.
 /// ```
 /// let mut n = 0;
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_particle_live_count(std::ptr::null_mut(), 0, &mut n) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_particle_live_count(std::ptr::null_mut(), 0, &mut n) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_count` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_particle_live_count(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_particle_live_count(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     out_count: *mut u32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -422,12 +422,12 @@ pub unsafe extern "C" fn crabby_ctx_particle_live_count(
 
 /// Removes `entity`'s particle emitter and its particles.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_particle_emitter3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_remove_particle_emitter3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_remove_particle_emitter3d(ctx: *mut CrabbyCtx, entity_bits: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_remove_particle_emitter3d(ctx: *mut PonkoCtx, entity_bits: u64) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {

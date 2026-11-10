@@ -2,7 +2,7 @@
 
 `ponko_unity` reads a Unity project and turns its scenes and prefabs into
 Ponko [scenes](scenes.md): every drawn mesh becomes a `.glb` with its
-materials, its textures become PNGs, and the scene is a `crabby-world`
+materials, its textures become PNGs, and the scene is a `ponko-world`
 file of `Transform3D` and `Model` entities that `load_scene` loads. It
 runs once, as a tool, and writes into your game's `assets/`.
 

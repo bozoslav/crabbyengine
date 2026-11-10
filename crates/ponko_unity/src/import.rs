@@ -1,6 +1,6 @@
 //! Turning Unity scenes and prefabs into Ponko scenes: every drawn mesh
 //! becomes a `.glb` with its materials, its textures become PNGs, and the
-//! scene a `crabby-world` save of `Transform3D` and `Model` entities that
+//! scene a `ponko-world` save of `Transform3D` and `Model` entities that
 //! `Ctx::load_scene` loads.
 //!
 //! Unity is left-handed (+Z forward) and Ponko right-handed (-Z forward):
@@ -270,7 +270,7 @@ impl<'p> Importer<'p> {
         &self.report
     }
 
-    /// The `crabby-world` save of `scene`: an entity per drawn mesh, placed
+    /// The `ponko-world` save of `scene`: an entity per drawn mesh, placed
     /// in the world (the hierarchy is baked in). Writes the meshes it
     /// needs; their textures are written by [`finish`](Self::finish).
     ///
@@ -425,7 +425,7 @@ impl<'p> Importer<'p> {
         }
         self.report.entities += entities.len();
         Ok(json!({
-            "format": "crabby-world",
+            "format": "ponko-world",
             "version": 1,
             "entities": entities,
             "resources": {},
