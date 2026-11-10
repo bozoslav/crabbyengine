@@ -266,3 +266,15 @@ export function summaryMarkdown(rows) {
   ];
   return lines.join("\n") + "\n";
 }
+
+/**
+ * What a browser that won't launch means. One that isn't installed is
+ * "unsupported" on a developer's machine, where nobody installed it. Under CI
+ * the job installs every browser it runs, so a missing one is a broken install
+ * and a failure: otherwise every step for it would pass as unsupported.
+ */
+export function launchFailureKind(message, env = {}) {
+  const notInstalled = /Executable doesn't exist/.test(message);
+  const ci = env.CI !== undefined && env.CI !== "" && env.CI !== "false" && env.CI !== "0";
+  return notInstalled && !ci ? "unsupported" : "launch";
+}

@@ -58,6 +58,21 @@ fn main() {
                 ));
             }
 
+            // A sphere with a normal map and an ORM map, made in memory: data
+            // textures, which a browser with only WebGL2 must read as stored
+            // (not sRGB-decoded) to light the bumps.
+            let (bumps, orm) = data_maps();
+            let normal_map = ctx.gfx.create_texture(16, 16, &bumps);
+            let orm_map = ctx.gfx.create_texture(16, 16, &orm);
+            let bumpy = ctx.gfx.create_material(MaterialDesc {
+                normal_map: Some(normal_map),
+                orm_map: Some(orm_map),
+                ..MaterialDesc::color(Color::hex(0xD8D8D8))
+            });
+            let bumpy_ball = ctx.gfx.create_mesh(&MeshData::sphere(0.9, 32), bumpy);
+            ctx.world
+                .spawn((Transform3D::at(vec3(3.0, 0.9, -1.0)), Model::new(bumpy_ball)));
+
             move |ctx: &mut Ctx| {
                 // The camera orbits on the simulation clock, so a stalled
                 // simulation also freezes the picture.
@@ -71,4 +86,26 @@ fn main() {
                 );
             }
         });
+}
+
+/// A 16x16 tangent-space normal map of a grid of round bumps, and an ORM map
+/// (occlusion, roughness, metallic) that varies across it.
+fn data_maps() -> (Vec<u8>, Vec<u8>) {
+    let mut normals = Vec::with_capacity(16 * 16 * 4);
+    let mut orm = Vec::with_capacity(16 * 16 * 4);
+    for y in 0..16 {
+        for x in 0..16 {
+            // The slope of a bump 8 texels wide, as a unit normal in 0..255.
+            let (u, v) = ((x % 8) as f32 - 3.5, (y % 8) as f32 - 3.5);
+            let n = vec3(-u * 0.12, -v * 0.12, 1.0).normalize();
+            normals.extend([
+                (n.x * 127.5 + 127.5) as u8,
+                (n.y * 127.5 + 127.5) as u8,
+                (n.z * 127.5 + 127.5) as u8,
+                255,
+            ]);
+            orm.extend([255, (60 + x * 12) as u8, if y < 8 { 0 } else { 255 }, 255]);
+        }
+    }
+    (normals, orm)
 }
