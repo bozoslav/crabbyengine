@@ -101,3 +101,24 @@ Light updates are memory-bandwidth-bound, so extra cores help less. Heavy update
 - A plain `Vec` allocated in one go measured *slower* (0.23 ms median) than one grown by `push`. The difference is memory placement, not code: the minimums match. Only compare steady-state numbers.
 - `hecs` iteration was ~0.8 ms when timed on a freshly built world and ~1.75 ms in steady state. It's slowest either way, and it has no runtime-defined components, so it was out because of D12 anyway.
 - The unsafe code passes its tests under Miri.
+
+## Character controller threshold
+
+`cargo run --release -p ponko_bench --bin characters [-- 8 16 32]` prints
+`step_physics3d`'s time per tick with N `Character3D`s walking on a flat
+floor (best of 7 runs of 300 ticks). It places `PARALLEL_FROM` in
+`src/physics3d/character.rs`; to compare the paths, change that constant and
+run it twice. Apple M4 Pro (12 cores, load average about 9), release:
+
+| characters | one thread (ms) | rayon pool (ms) |
+|---|---|---|
+| 4 | 0.014 | 0.031 |
+| 8 | 0.036 | 0.044 |
+| 12 | 0.040 | 0.039–0.044 |
+| 16 | 0.053 | 0.041–0.047 |
+| 24 | 0.079 | 0.051–0.056 |
+| 32 | 0.107 | 0.059–0.061 |
+| 64 | 0.52–0.54 | 0.226–0.228 |
+| 256 | 1.82 | 0.44 |
+
+So characters move on the pool from 16.
