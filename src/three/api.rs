@@ -313,6 +313,9 @@ impl Ctx {
     /// # Panics
     ///
     /// If the file can't be read or doesn't compile (the message says where).
+    /// With hot reload on, a file that doesn't compile doesn't panic: it
+    /// gets a stand-in and stays watched until a saved fix compiles
+    /// ([`ShaderOutcome::Failed`](crate::ShaderOutcome::Failed), [`Ctx::shader_status`]).
     pub fn load_shader(&mut self, path: &str) -> Shader {
         self.try_load_shader(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
@@ -329,7 +332,20 @@ impl Ctx {
         };
         let origin = found.origin.clone();
         let source = found.into_text(path)?;
-        let shader = self.try_create_shader(path, &source)?;
+        let shader = match self.try_create_shader(path, &source) {
+            Ok(shader) => shader,
+            // With hot reload on, it draws with the built-in look until a
+            // saved fix compiles; its status says what's wrong.
+            Err(e) if self.keeps_failed_load(&origin) => {
+                Self::report_stand_in(path, &e);
+                let id = self.assets3d.shaders;
+                self.compile_shader(path, "", None).map_err(|_| e)?;
+                self.assets3d.shaders += 1;
+                self.assets3d.shaders_live.insert(id);
+                Shader { id }
+            }
+            Err(e) => return Err(e),
+        };
         self.assets3d.loaded_shaders.insert(origin.clone(), shader);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher

@@ -183,6 +183,19 @@ using compute_pass = CrabbyComputePass;
 using effect = CrabbyEffect;
 /// One screen effect run over the lit 3D frame (Rust `ScreenEffect`); see screen_effect_of.
 using screen_effect = CrabbyScreenEffect;
+/// The latest compile or hot reload of one of the game's shaders (Rust
+/// `ShaderStatus`; ctx::shader_status). `info.kind` is CRABBY_SHADER_MATERIAL,
+/// _EFFECT or _COMPUTE; `info.outcome` CRABBY_SHADER_COMPILED, _RELOADED,
+/// _FAILED or _RELOAD_FAILED; `info.line` and `info.column` place the first
+/// error in the game's own WGSL (0: no place).
+struct shader_status {
+    /// The path it was loaded from, or the name given to create_*.
+    std::string shader;
+    CrabbyShaderStatus info;
+    /// Its errors as a compiler prints them (`water.wgsl:4:12: error: ...`); empty when it worked.
+    std::string errors;
+    bool ok() const noexcept { return info.ok; }
+};
 /// How a material covers what's behind it (`material_desc::blend`).
 enum class blend : uint32_t { opaque = 0, transparent = 1, cutout = 2 };
 using camera3d = CrabbyCamera3D;
@@ -2812,6 +2825,24 @@ public:
     /// Loads a material shader (WGSL) from assets/: it may define
     /// `fn vertex(v: Vertex) -> Vertex` and `fn surface(s: Surface) -> Surface`.
     /// Hot reloaded; throws if it doesn't compile (the message says where).
+    /// What happened to each of the game's shaders the last time it was
+    /// compiled (oldest first): whether an edit took effect, and where an
+    /// error is in its own WGSL.
+    std::vector<crabby::shader_status> shader_status() const {
+        std::size_t count = 0;
+        detail::check(crabby_ctx_shader_status_count(raw_, &count));
+        std::vector<crabby::shader_status> list(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            detail::check(crabby_ctx_shader_status(raw_, i, &list[i].info));
+            list[i].shader = detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_name(raw_, i, b, c, n); });
+            list[i].errors = detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_text(raw_, i, b, c, n); });
+        }
+        return list;
+    }
+    /// shader_status() as JSON, as the `shaders.status` control method returns it.
+    std::string shader_status_json() const {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_json(raw_, b, c, n); });
+    }
     crabby::shader load_shader(const char* path) { crabby::shader x{}; detail::check(crabby_ctx_load_shader(raw_, path, &x)); return x; }
     /// Makes a material shader from WGSL source; `name` is for error messages.
     crabby::shader create_shader(const char* name, const char* source) {

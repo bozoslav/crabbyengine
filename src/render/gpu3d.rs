@@ -29,12 +29,15 @@ use crate::render::traffic::{Counted, NewBuffer, Upload};
 mod instances;
 mod passes;
 mod pipeline_cache;
+mod shader_checks;
 mod shadow_cache;
 mod variants;
 use super::capabilities::GpuLimits;
 pub(crate) use draw_order::StateChanges;
 use instances::{Culling, StaticBatch};
 use pipeline_cache::{Features, MaterialCache, ModuleKey, TargetKey};
+pub(crate) use shader_checks::LateShaderError;
+use shader_checks::{Swap, end_scope, rejected};
 use shadow_cache::ShadowCache;
 use std::ops::Range;
 use std::sync::Arc;
@@ -578,6 +581,7 @@ pub(crate) fn compose_compute(user: &str) -> String {
 
 /// Checks a composed shader, with an error message that points at the
 /// line, as WGSL compilers print them.
+#[cfg(test)]
 pub(crate) fn check_shader(name: &str, source: &str) -> Result<(), String> {
     use wgpu::naga;
     let module = naga::front::wgsl::parse_str(source).map_err(|e| e.emit_to_string_with_path(source, name))?;
@@ -984,6 +988,12 @@ pub(crate) struct Renderer3D {
     white: u32,
     /// Screen effect pipelines, by effect id.
     effect_pipelines: Vec<wgpu::RenderPipeline>,
+    /// The game's shader pipelines in use before the GPU checked them (a
+    /// browser's WebGPU answers later; see `shader_checks.rs`).
+    shader_checks: Vec<shader_checks::PendingCheck>,
+    /// Tests: treat every GPU check as one that answers later.
+    #[cfg(test)]
+    pub(crate) defer_checks: bool,
     /// This frame's effects, in order: (effect, material).
     effects: Vec<(u32, u32)>,
     /// Each effect's compiled shader, for building its target pipeline.
@@ -1811,6 +1821,9 @@ impl Renderer3D {
             targets: None,
             white,
             effect_pipelines: Vec::new(),
+            shader_checks: Vec::new(),
+            #[cfg(test)]
+            defer_checks: false,
             effects: Vec::new(),
             effect_modules: Vec::new(),
             effect_target_pipelines: Vec::new(),
@@ -1834,40 +1847,90 @@ impl Renderer3D {
     }
 
     /// Compiles a screen effect from the game's WGSL; returns its id.
-    pub fn create_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
+    pub fn create_effect(
+        &mut self,
+        device: &wgpu::Device,
+        name: &str,
+        user: &str,
+    ) -> Result<u32, Box<ShaderDiagnostic>> {
         let start = crate::Instant::now();
         let made = self.compile_effect(device, name, user);
         self.cache.counters.compiled(start.elapsed());
         made
     }
 
-    fn compile_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
-        let source = compose_effect(user);
-        check_shader(name, &source)?;
-        let (module, pipeline) = build_effect(device, &self.layout, name, &for_samples(&source, self.samples));
+    fn compile_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, Box<ShaderDiagnostic>> {
+        let (module, pipeline, verdict) = self.checked_effect(device, name, user)?;
+        let id = self.effect_pipelines.len() as u32;
+        if let Some(verdict) = verdict {
+            let swap = Swap::Effect {
+                new: pipeline.clone(),
+                old: None,
+            };
+            self.wait_for_verdict(id, name, EFFECT_VARIANT, swap, verdict);
+        }
         self.effect_pipelines.push(pipeline);
         self.effect_modules.push(module);
         self.effect_target_pipelines.push(None);
-        Ok(self.effect_pipelines.len() as u32 - 1)
+        Ok(id)
+    }
+
+    /// Checks an effect's WGSL (with its place in the game's code) and
+    /// builds its pipeline in a GPU error scope; the verdict comes with it
+    /// if the GPU answers later.
+    fn checked_effect(
+        &self,
+        device: &wgpu::Device,
+        name: &str,
+        user: &str,
+    ) -> Result<(wgpu::ShaderModule, wgpu::RenderPipeline, Option<shader_checks::Verdict>), Box<ShaderDiagnostic>> {
+        let source = compose_effect(user);
+        super::diagnose(name, ShaderKind::Effect, EFFECT_VARIANT, &source)?;
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let (module, pipeline) = build_effect(device, &self.layout, name, &for_samples(&source, self.samples));
+        match end_scope(scope, self.defer_checks()) {
+            Ok(None) => Ok((module, pipeline, None)),
+            Ok(Some(error)) => Err(rejected(name, ShaderKind::Effect, EFFECT_VARIANT, &error)),
+            Err(verdict) => Ok((module, pipeline, Some(verdict))),
+        }
     }
 
     /// Recompiles effect `id` (hot reload). On an error the old one stays.
-    pub fn replace_effect(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
+    pub fn replace_effect(
+        &mut self,
+        device: &wgpu::Device,
+        id: u32,
+        name: &str,
+        user: &str,
+    ) -> Result<(), Box<ShaderDiagnostic>> {
         let start = crate::Instant::now();
         let made = self.recompile_effect(device, id, name, user);
         self.cache.counters.compiled(start.elapsed());
         made
     }
 
-    fn recompile_effect(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
-        let source = compose_effect(user);
-        check_shader(name, &source)?;
-        if let Some(pipeline) = self.effect_pipelines.get_mut(id as usize) {
-            let (module, new) = build_effect(device, &self.layout, name, &for_samples(&source, self.samples));
-            *pipeline = new;
-            self.effect_modules[id as usize] = module;
-            // Rebuilt from the new shader when next used.
-            self.effect_target_pipelines[id as usize] = None;
+    fn recompile_effect(
+        &mut self,
+        device: &wgpu::Device,
+        id: u32,
+        name: &str,
+        user: &str,
+    ) -> Result<(), Box<ShaderDiagnostic>> {
+        let (module, new, verdict) = self.checked_effect(device, name, user)?;
+        let i = id as usize;
+        if i >= self.effect_pipelines.len() {
+            return Ok(());
+        }
+        let old_pipeline = std::mem::replace(&mut self.effect_pipelines[i], new.clone());
+        let old_module = std::mem::replace(&mut self.effect_modules[i], module);
+        // Rebuilt from the new shader when next used.
+        self.effect_target_pipelines[i] = None;
+        if let Some(verdict) = verdict {
+            let swap = Swap::Effect {
+                new,
+                old: Some((old_module, old_pipeline)),
+            };
+            self.wait_for_verdict(id, name, EFFECT_VARIANT, swap, verdict);
         }
         Ok(())
     }
@@ -2105,16 +2168,21 @@ impl Renderer3D {
         }
     }
     /// Compiles a compute pass from the game's WGSL; returns its id.
-    pub fn create_compute(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
+    pub fn create_compute(
+        &mut self,
+        device: &wgpu::Device,
+        name: &str,
+        user: &str,
+    ) -> Result<u32, Box<ShaderDiagnostic>> {
         let start = crate::Instant::now();
         let made = self.compile_compute(device, name, user);
         self.cache.counters.compiled(start.elapsed());
         made
     }
 
-    fn compile_compute(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
+    fn compile_compute(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, Box<ShaderDiagnostic>> {
         let source = compose_compute(user);
-        check_shader(name, &source)?;
+        super::diagnose(name, ShaderKind::Compute, COMPUTE_VARIANT, &source)?;
         let layouts = if defines(user, "update") {
             &self.storage_write
         } else {
@@ -2126,27 +2194,68 @@ impl Renderer3D {
             return Ok(self.compute_pipelines.len() as u32 - 1);
         }
         let Some((_, layout)) = layouts else {
-            return Err(format!(
-                "{name}: this GPU can't run compute passes (WebGL2 has no compute shaders)"
+            return Err(super::without_location(
+                name,
+                ShaderKind::Compute,
+                COMPUTE_VARIANT,
+                "this GPU can't run compute passes (WebGL2 has no compute shaders)".to_string(),
             ));
         };
-        let pipeline = build_compute(device, layout, name, &source);
+        let (pipeline, verdict) = self.checked_compute(device, layout, name, &source)?;
+        let id = self.compute_pipelines.len() as u32;
+        if let Some(verdict) = verdict {
+            let swap = Swap::Compute {
+                new: pipeline.clone(),
+                old: None,
+            };
+            self.wait_for_verdict(id, name, COMPUTE_VARIANT, swap, verdict);
+        }
         self.buffer_computes.push(defines(user, "update"));
         self.compute_pipelines.push(Some(pipeline));
-        Ok(self.compute_pipelines.len() as u32 - 1)
+        Ok(id)
+    }
+
+    /// Builds a compute pass's pipeline from its checked `source` in a GPU
+    /// error scope; the verdict comes with it if the GPU answers later.
+    fn checked_compute(
+        &self,
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        name: &str,
+        source: &str,
+    ) -> Result<(wgpu::ComputePipeline, Option<shader_checks::Verdict>), Box<ShaderDiagnostic>> {
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let pipeline = build_compute(device, layout, name, source);
+        match end_scope(scope, self.defer_checks()) {
+            Ok(None) => Ok((pipeline, None)),
+            Ok(Some(error)) => Err(rejected(name, ShaderKind::Compute, COMPUTE_VARIANT, &error)),
+            Err(verdict) => Ok((pipeline, Some(verdict))),
+        }
     }
 
     /// Recompiles compute pass `id` (hot reload). On an error the old one stays.
-    pub fn replace_compute(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
+    pub fn replace_compute(
+        &mut self,
+        device: &wgpu::Device,
+        id: u32,
+        name: &str,
+        user: &str,
+    ) -> Result<(), Box<ShaderDiagnostic>> {
         let start = crate::Instant::now();
         let made = self.recompile_compute(device, id, name, user);
         self.cache.counters.compiled(start.elapsed());
         made
     }
 
-    fn recompile_compute(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
+    fn recompile_compute(
+        &mut self,
+        device: &wgpu::Device,
+        id: u32,
+        name: &str,
+        user: &str,
+    ) -> Result<(), Box<ShaderDiagnostic>> {
         let source = compose_compute(user);
-        check_shader(name, &source)?;
+        super::diagnose(name, ShaderKind::Compute, COMPUTE_VARIANT, &source)?;
         let layouts = if defines(user, "update") {
             &self.storage_write
         } else {
@@ -2155,10 +2264,19 @@ impl Renderer3D {
         let Some((_, layout)) = layouts else {
             return Ok(());
         };
-        let pipeline = build_compute(device, layout, name, &source);
-        if let Some(old) = self.compute_pipelines.get_mut(id as usize) {
-            *old = Some(pipeline);
-            self.buffer_computes[id as usize] = defines(user, "update");
+        let (pipeline, verdict) = self.checked_compute(device, layout, name, &source)?;
+        let i = id as usize;
+        if i >= self.compute_pipelines.len() {
+            return Ok(());
+        }
+        let old = self.compute_pipelines[i].replace(pipeline.clone());
+        let old_buffer = std::mem::replace(&mut self.buffer_computes[i], defines(user, "update"));
+        if let Some(verdict) = verdict {
+            let swap = Swap::Compute {
+                new: pipeline,
+                old: Some((old, old_buffer)),
+            };
+            self.wait_for_verdict(id, name, COMPUTE_VARIANT, swap, verdict);
         }
         Ok(())
     }
@@ -2194,10 +2312,18 @@ impl Renderer3D {
         name: &str,
         user: &str,
     ) -> Result<u32, Box<ShaderDiagnostic>> {
-        let pipelines = self.material_pipelines(device, name, user, None)?;
+        let (pipelines, verdict) = self.material_pipelines(device, name, user, None)?;
+        let id = self.shaders.len() as u32;
+        if let Some((variant, verdict)) = verdict {
+            let swap = Swap::Material {
+                new: pipelines.clone(),
+                old: None,
+            };
+            self.wait_for_verdict(id, name, &variant, swap, verdict);
+        }
         self.shaders.push(pipelines);
         self.shadow_cache.shaders.push(ShadowCache::shader_traits(user));
-        Ok(self.shaders.len() as u32 - 1)
+        Ok(id)
     }
 
     /// Recompiles shader `id` (hot reload). On an error the old one stays.
@@ -2210,10 +2336,20 @@ impl Renderer3D {
         name: &str,
         user: &str,
     ) -> Result<(), Box<ShaderDiagnostic>> {
-        let pipelines = self.material_pipelines(device, name, user, Some(id))?;
-        self.shaders[id as usize] = pipelines;
-        self.shadow_cache.shaders[id as usize] = ShadowCache::shader_traits(user);
+        let (pipelines, verdict) = self.material_pipelines(device, name, user, Some(id))?;
+        let old = std::mem::replace(&mut self.shaders[id as usize], pipelines.clone());
+        let old_traits = std::mem::replace(
+            &mut self.shadow_cache.shaders[id as usize],
+            ShadowCache::shader_traits(user),
+        );
         self.shadow_cache.invalidate();
+        if let Some((variant, verdict)) = verdict {
+            let swap = Swap::Material {
+                new: pipelines,
+                old: Some((old, old_traits)),
+            };
+            self.wait_for_verdict(id, name, &variant, swap, verdict);
+        }
         Ok(())
     }
 
@@ -2228,7 +2364,7 @@ impl Renderer3D {
         name: &str,
         user: &str,
         replacing: Option<u32>,
-    ) -> Result<Arc<ShaderPipelines>, Box<ShaderDiagnostic>> {
+    ) -> Result<(Arc<ShaderPipelines>, shader_checks::LaterVerdict), Box<ShaderDiagnostic>> {
         let storage = self.storage_read.is_some();
         let (decals, gi) = (self.frame_sources.decals, self.frame_sources.gi);
         let key = self.cache.key(ModuleKey {
@@ -2246,12 +2382,12 @@ impl Renderer3D {
             if self.warm_variants {
                 shared.warm();
             }
-            return Ok(shared);
+            return Ok((shared, None));
         }
         let start = crate::Instant::now();
         let built = self.compile_material(device, name, user);
         self.cache.counters.compiled(start.elapsed());
-        let mut built = built?;
+        let (mut built, verdict) = built?;
         // Its builds count once the GPU accepted it; rejected code's don't.
         self.cache.counters.add_builds(&built.counters);
         built.counters = self.cache.counters.clone();
@@ -2260,7 +2396,7 @@ impl Renderer3D {
         #[allow(clippy::arc_with_non_send_sync)]
         let built = Arc::new(built);
         self.cache.insert(key, &built);
-        Ok(built)
+        Ok((built, verdict))
     }
 
     /// Compiles a material shader that no other shader shares.
@@ -2269,7 +2405,7 @@ impl Renderer3D {
         device: &wgpu::Device,
         name: &str,
         user: &str,
-    ) -> Result<ShaderPipelines, Box<ShaderDiagnostic>> {
+    ) -> Result<(ShaderPipelines, shader_checks::LaterVerdict), Box<ShaderDiagnostic>> {
         let storage = self.storage_read.is_some();
         let (decals, gi) = (self.frame_sources.decals, self.frame_sources.gi);
         let variant = material_variant(decals, gi, storage);
@@ -2279,7 +2415,6 @@ impl Renderer3D {
             compose_shader_storage(user, decals, gi, storage)
         };
         super::diagnose(name, ShaderKind::Material, &variant, &source)?;
-        #[cfg(not(target_arch = "wasm32"))]
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pipelines = build_pipelines(
             device,
@@ -2295,16 +2430,11 @@ impl Renderer3D {
         if self.warm_variants {
             pipelines.warm();
         }
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(error) = pollster::block_on(scope.pop()) {
-            return Err(super::without_location(
-                name,
-                ShaderKind::Material,
-                &variant,
-                format!("the GPU rejected its pipelines: {error}"),
-            ));
+        match end_scope(scope, self.defer_checks()) {
+            Ok(None) => Ok((pipelines, None)),
+            Ok(Some(error)) => Err(rejected(name, ShaderKind::Material, &variant, &error)),
+            Err(verdict) => Ok((pipelines, Some((variant, verdict)))),
         }
-        Ok(pipelines)
     }
 
     fn material_texture<'a>(&self, map: Option<u32>, textures: &'a [GpuTexture]) -> &'a wgpu::Texture {

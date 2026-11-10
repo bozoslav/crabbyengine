@@ -205,6 +205,8 @@ where
         }
         self.ctx.reload_changed_assets();
         self.ctx.pump_streaming();
+        #[cfg(feature = "3d")]
+        self.ctx.apply_shader_checks();
         let systems_start = Instant::now();
         self.config.run_systems(&mut self.ctx, timing.fixed_steps);
         let systems_ms = systems_start.elapsed().as_secs_f32() * 1000.0;

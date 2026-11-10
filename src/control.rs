@@ -639,7 +639,7 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
 
 /// `Ctx::shader_status` as JSON.
 #[cfg(feature = "3d")]
-fn shader_status_json(ctx: &Ctx) -> Value {
+pub(crate) fn shader_status_json(ctx: &Ctx) -> Value {
     use crate::{ShaderKind, ShaderOutcome};
     let shaders: Vec<Value> = ctx
         .shader_status()

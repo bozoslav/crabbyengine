@@ -231,6 +231,13 @@
 #define PONKO_ROOT_MOTION_APPLY CRABBY_ROOT_MOTION_APPLY
 #define PONKO_ROOT_MOTION_EXTRACT CRABBY_ROOT_MOTION_EXTRACT
 #define PONKO_ROOT_MOTION_OFF CRABBY_ROOT_MOTION_OFF
+#define PONKO_SHADER_COMPILED CRABBY_SHADER_COMPILED
+#define PONKO_SHADER_COMPUTE CRABBY_SHADER_COMPUTE
+#define PONKO_SHADER_EFFECT CRABBY_SHADER_EFFECT
+#define PONKO_SHADER_FAILED CRABBY_SHADER_FAILED
+#define PONKO_SHADER_MATERIAL CRABBY_SHADER_MATERIAL
+#define PONKO_SHADER_RELOADED CRABBY_SHADER_RELOADED
+#define PONKO_SHADER_RELOAD_FAILED CRABBY_SHADER_RELOAD_FAILED
 #define PONKO_SHAPE3D_BOX CRABBY_SHAPE3D_BOX
 #define PONKO_SHAPE3D_CAPSULE CRABBY_SHAPE3D_CAPSULE
 #define PONKO_SHAPE3D_MESH CRABBY_SHAPE3D_MESH
@@ -439,6 +446,7 @@
 #define PonkoRootMotion CrabbyRootMotion
 #define PonkoScreenEffect CrabbyScreenEffect
 #define PonkoShader CrabbyShader
+#define PonkoShaderStatus CrabbyShaderStatus
 #define PonkoShape3DKind CrabbyShape3DKind
 #define PonkoShapeKind CrabbyShapeKind
 #define PonkoSky CrabbySky
@@ -831,6 +839,11 @@
 #define ponko_ctx_set_ui_pointer_ray crabby_ctx_set_ui_pointer_ray
 #define ponko_ctx_set_ui_style crabby_ctx_set_ui_style
 #define ponko_ctx_set_upload_budget crabby_ctx_set_upload_budget
+#define ponko_ctx_shader_status crabby_ctx_shader_status
+#define ponko_ctx_shader_status_count crabby_ctx_shader_status_count
+#define ponko_ctx_shader_status_json crabby_ctx_shader_status_json
+#define ponko_ctx_shader_status_name crabby_ctx_shader_status_name
+#define ponko_ctx_shader_status_text crabby_ctx_shader_status_text
 #define ponko_ctx_sim_speed crabby_ctx_sim_speed
 #define ponko_ctx_sim_tick crabby_ctx_sim_tick
 #define ponko_ctx_sim_time crabby_ctx_sim_time

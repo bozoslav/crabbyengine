@@ -241,6 +241,17 @@ static void three_d() {
         ctx.set_effects({ponko::screen_effect_of(grey), ponko::screen_effect_of(grey, stone)});
         CHECK(ctx.effects().size() == 2 && ctx.effects()[1].material.id == stone.id);
         throws([&] { ctx.create_effect("bad", "fn effect(p: Pixel) -> f32 { return 1.0; }"); });
+        {
+            auto shaders = ctx.shader_status();
+            CHECK(shaders.size() >= 2);
+            auto& grey_status = shaders[shaders.size() - 2];
+            CHECK(grey_status.shader == "grey" && grey_status.ok() && grey_status.errors.empty());
+            CHECK(grey_status.info.kind == PONKO_SHADER_EFFECT && grey_status.info.outcome == PONKO_SHADER_COMPILED);
+            auto& bad = shaders.back();
+            CHECK(bad.shader == "bad" && !bad.ok() && bad.info.outcome == PONKO_SHADER_FAILED);
+            CHECK(bad.info.diagnostics == 1 && bad.info.line > 0 && bad.errors.rfind("bad", 0) == 0);
+            CHECK(ctx.shader_status_json().find("\"outcome\":\"failed\"") != std::string::npos);
+        }
         throws([&] { ctx.set_effects({ponko::screen_effect_of(ponko::effect{99})}); });
         ctx.set_effects({});
         CHECK(ctx.effects().empty());

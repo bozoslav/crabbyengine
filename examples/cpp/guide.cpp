@@ -2355,6 +2355,20 @@ void draw_crab(ponko::ctx& ctx) {
 }
 // ANCHOR_END: streaming
 
+// ANCHOR: shader_errors
+/// Prints every shader whose last compile or edit didn't take effect, with
+/// where in its WGSL the error is; returns how many there are.
+static std::size_t report_shader_errors(ponko::ctx& ctx) {
+    std::size_t broken = 0;
+    for (const auto& s : ctx.shader_status()) {
+        if (s.ok()) continue;
+        ++broken;
+        std::fprintf(stderr, "%s\n", s.errors.c_str());   // water.wgsl:3:12: error: ...
+    }
+    return broken;
+}
+// ANCHOR_END: shader_errors
+
 int main() {
     steering_stays_within_budget();
     navigation_guide();
@@ -2368,6 +2382,12 @@ int main() {
         sound3d(ctx);
         float silence[16] = {};
         buses_and_effects(ctx, ctx.create_sound(44100, silence, 16));
+    });
+    ponko::game("shader guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        try {
+            ctx.create_shader("water.wgsl", "// still\nfn surface(s: Surface) -> Surface {\n    return 1.0;\n}");
+        } catch (const std::exception&) {}
+        if (report_shader_errors(ctx) != 1 || ctx.shader_status()[0].info.line != 3) std::abort();
     });
     ponko::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
     ponko::game("morph guide", 1, 1).run_headless(0, morphed_sheet);
