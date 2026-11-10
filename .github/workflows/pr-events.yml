@@ -18,13 +18,21 @@ jobs:
   # ci.yml checks the title and description when the pull request opens or
   # gets new commits; this re-checks them after an edit. Same secret, same
   # script; pull requests from forks don't get secrets, and skip it.
+  # This check isn't required, and the pull request's "CI passed" stays green
+  # after an edit, so a leak turns the pull request back into a draft (which
+  # can't merge), cancels auto-merge and labels it `text-leak`. Once an edit
+  # takes the leak out, the label goes and the pull request is ready again.
   text-leaks:
     name: PR text leak check
     if: github.event.action == 'edited' && (github.event.changes.title || github.event.changes.body)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v7
       - name: Pull request title and description
+        id: text
         env:
           LEAK_WORDS: ${{ secrets.LEAK_WORDS }}
           TITLE: ${{ github.event.pull_request.title }}
@@ -32,6 +40,26 @@ jobs:
         run: |
           printf '%s\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/pr.txt"
           scripts/leak-check.sh text "$RUNNER_TEMP/pr.txt"
+      - name: Hold the pull request
+        if: failure() && steps.text.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr merge "$PR" --repo "$REPO" --disable-auto || true
+          gh pr ready "$PR" --repo "$REPO" --undo || true
+          gh pr edit "$PR" --repo "$REPO" --add-label text-leak
+          echo "::error::The title or description has a leak: the pull request is a draft until an edit takes it out."
+      - name: Release a held pull request
+        if: success() && contains(github.event.pull_request.labels.*.name, 'text-leak')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr edit "$PR" --repo "$REPO" --remove-label text-leak
+          gh pr ready "$PR" --repo "$REPO"
 
   # Adding `full-ci` runs the full matrix on the pull request's branch. A
   # workflow_dispatch run is ci.yml's full tier, and its "CI passed" lands on

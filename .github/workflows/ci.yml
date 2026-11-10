@@ -3,9 +3,10 @@
 #
 # Two tiers keep pull requests fast and runners free:
 # - pull_request: only quick, high-signal Linux jobs (leaks, format, clippy,
-#   Linux tests, feature contracts, docs, book).
-# - merge_group (the merge queue), push to main and workflow_dispatch: the
-#   full matrix (macOS, Windows, feature tests, Miri, MSRV, C/C++, web).
+#   Linux tests, feature contracts, docs, book). Authors run the tests on
+#   their own machine before opening the pull request.
+# - push to main and workflow_dispatch: the full matrix (macOS, Windows,
+#   feature tests, Miri, MSRV, C/C++, web), after the merge.
 # A pull request labelled `full-ci` runs the full matrix too (for risky
 # platform changes). Full-tier-only jobs carry
 # `if: github.event_name != 'pull_request' || <full-ci label>`.
@@ -15,15 +16,14 @@
 # `labeled` by label name, so here every area label would start (and, via
 # the concurrency group, cancel) a whole run, and a lighter run publishing
 # its own "CI passed" on the same commit could stand in for a failed one.
-# pr-events.yml re-checks edited PR text for leaks and, when `full-ci` is
-# added, starts this workflow on the branch with workflow_dispatch. That
-# check isn't required, so the leaks job here re-reads the current PR text
-# in the merge queue: an edited-in leak still blocks the merge.
+# pr-events.yml re-checks edited PR text for leaks (a leak turns the pull
+# request back into a draft, which can't merge) and, when `full-ci` is
+# added, starts this workflow on the branch with workflow_dispatch.
 #
 # Build caches are saved only by runs on main (`save-if`). Every other run
-# can restore those, and nothing can restore a cache saved from a merge
-# queue ref. Saving elsewhere fills the repository's 10 GB cache quota, and
-# GitHub then evicts main's caches: the next runs rebuild every dependency.
+# can restore those. Saving elsewhere fills the repository's 10 GB cache
+# quota, and GitHub then evicts main's caches: the next runs rebuild every
+# dependency.
 
 name: CI
 
@@ -33,12 +33,10 @@ on:
   pull_request:
     # Not `edited` or `labeled`: see the header and pr-events.yml.
     types: [opened, synchronize, reopened]
-  merge_group:
   workflow_dispatch:
 
-# A new push to a pull request cancels its older run. Merge queue refs are
-# unique per queue entry (GitHub cancels those itself when the queue changes),
-# and every commit on main keeps its own full run.
+# A new push to a pull request cancels its older run; every commit on main
+# keeps its own full run.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -60,8 +58,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Reads the title and description of each pull request in a merge group.
-      pull-requests: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -73,7 +69,7 @@ jobs:
       - name: Commit messages
         env:
           LEAK_WORDS: ${{ secrets.LEAK_WORDS }}
-          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || github.event_name == 'merge_group' && format('{0}..{1}', github.event.merge_group.base_sha, github.event.merge_group.head_sha) || format('{0}~1..{0}', github.sha) }}
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}~1..{0}', github.sha) }}
         run: scripts/leak-check.sh messages "$RANGE"
       - name: Pull request title and description
         if: github.event_name == 'pull_request'
@@ -84,35 +80,6 @@ jobs:
         run: |
           printf '%s\n%s\n' "$TITLE" "$BODY" > "$RUNNER_TEMP/pr.txt"
           scripts/leak-check.sh text "$RUNNER_TEMP/pr.txt"
-      # The title and description can change after the pull request's CI ran
-      # (edits only re-run pr-events.yml, which isn't required). The merge
-      # queue re-reads the current text of every pull request in the group,
-      # so an edited-in leak blocks the merge. It fails closed: if it can't
-      # name the pull requests or read one of them, the job fails.
-      - name: Merge group pull request titles and descriptions
-        if: github.event_name == 'merge_group'
-        env:
-          LEAK_WORDS: ${{ secrets.LEAK_WORDS }}
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          HEAD_REF: ${{ github.event.merge_group.head_ref }}
-          RANGE: ${{ format('{0}..{1}', github.event.merge_group.base_sha, github.event.merge_group.head_sha) }}
-        run: |
-          set -eu
-          # The group's ref is [refs/heads/]gh-readonly-queue/<base>/pr-<number>-<sha>,
-          # naming its newest pull request.
-          newest=$(printf '%s\n' "$HEAD_REF" | sed -n 's|^\(refs/heads/\)\{0,1\}gh-readonly-queue/.*/pr-\([0-9][0-9]*\)-[0-9a-f]*$|\2|p')
-          if [ -z "$newest" ]; then
-            echo "::error::No pull request number in merge group ref $HEAD_REF"
-            exit 1
-          fi
-          # Pull requests batched ahead of it: their squash commits end in (#<number>).
-          earlier=$(git log --format=%s "$RANGE" | sed -n 's/.*(#\([0-9][0-9]*\))$/\1/p')
-          for pr in $(printf '%s\n' "$newest" $earlier | sort -un); do
-            echo "Pull request #$pr"
-            gh api "repos/$REPO/pulls/$pr" --jq '.title, (.body // "")' > "$RUNNER_TEMP/pr-$pr.txt"
-            scripts/leak-check.sh text "$RUNNER_TEMP/pr-$pr.txt"
-          done
 
   fmt:
     name: Format
@@ -766,7 +733,7 @@ jobs:
             python scripts/package-coin-dash.py smoke --package target/package --mode window
           fi
 
-  # Single check for branch protection and the merge queue: passes only if
+  # Single check for branch protection: passes only if
   # every job above passed. Requiring one job keeps the rule valid when jobs
   # are added or renamed. Jobs a plain pull request skips (fast tier) are
   # fine; in the full tier a skipped job is a failure. Keep the name
