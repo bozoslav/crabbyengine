@@ -31,7 +31,9 @@ impl Rig {
             return None;
         };
         eprintln!("handle test adapter: {:?}", adapter.get_info());
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
             eprintln!("no GPU device: skipped");
             return None;
         };
@@ -357,4 +359,62 @@ fn freed_effects_compute_passes_and_targets_are_left_out_of_the_frame() {
     ctx.free(target);
     ctx.collect_passes(Some(material));
     assert!(ctx.frame3d.computes.is_empty());
+}
+
+/// A texture streamed to another resolution keeps its id (as
+/// `Renderer::replace_texture` does): materials that read it are bound to
+/// the new pixels at once, whatever their size.
+#[test]
+fn a_texture_replaced_at_another_resolution_shows_in_the_materials_that_use_it() {
+    let Some(mut rig) = Rig::new() else {
+        return;
+    };
+    let streamed = rig.texture([255, 0, 0, 255]);
+    let material = rig.material(MaterialDesc {
+        color: Color::rgb(0.0, 0.0, 0.0),
+        emissive: Color::WHITE,
+        emissive_map: Some(streamed),
+        roughness: 1.0,
+        ..Default::default()
+    });
+    let mesh = rig.mesh(material);
+    rig.ctx.camera3d.position = vec3(0.0, 0.0, 6.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
+    let view_proj = rig.ctx.camera3d.view_proj();
+    let before = around(&rig.draw(), view_proj, Vec3::ZERO);
+    assert!(before[0] > 150 && before[2] < 60, "red first: {before:?}");
+
+    // The next resolution: 4 x 4 blue, under the same id.
+    let blue = rig.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+    });
+    rig.queue.write_texture(
+        blue.as_image_copy(),
+        &[0, 0, 255, 255].repeat(16),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(16),
+            rows_per_image: None,
+        },
+        blue.size(),
+    );
+    let id = streamed.id() as usize;
+    rig.push_texture(blue);
+    let replaced = rig.textures.pop().expect("just pushed");
+    rig.textures[id] = replaced;
+    rig.renderer.texture_replaced(&rig.device, &rig.textures, streamed.id());
+    let after = around(&rig.draw(), view_proj, Vec3::ZERO);
+    assert!(after[2] > 150 && after[0] < 60, "blue after: {after:?}");
 }

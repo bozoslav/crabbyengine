@@ -32,19 +32,33 @@ fn batches_can_disable_local_light_shadows() {
 }
 
 fn local_shadow(batch: bool, point: bool, compute: bool, casts: bool) {
+    local_shadow_levels(batch, point, compute, casts, None);
+}
+#[test]
+fn instance_levels_separate_camera_and_local_shadow_geometry() {
+    for compute in [true, false] {
+        for point in [true, false] {
+            local_shadow_levels(true, point, compute, true, Some(false));
+            local_shadow_levels(true, point, compute, false, Some(true));
+        }
+    }
+}
+fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, camera: Option<bool>) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
         eprintln!("no GPU adapter: skipped");
         return;
     };
-    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_limits: if compute {
-            wgpu::Limits::default()
-        } else {
-            wgpu::Limits::downlevel_webgl2_defaults()
+    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(
+        &wgpu::DeviceDescriptor {
+            required_limits: if compute {
+                wgpu::Limits::default()
+            } else {
+                wgpu::Limits::downlevel_webgl2_defaults()
+            },
+            ..Default::default()
         },
-        ..Default::default()
-    })) else {
+    ))) else {
         eprintln!("no GPU device: skipped");
         return;
     };
@@ -184,15 +198,30 @@ fn local_shadow(batch: bool, point: bool, compute: bool, casts: bool) {
     renderer.create_mesh(&device, &cube, &[(0..cube.indices.len() as u32, material)], true);
 
     if batch {
-        let handle = ctx.create_instance_batch(
-            cube_mesh,
-            &[Mat4::from_translation(vec3(0.0, 3.0, 0.0))],
-            InstanceBatchOptions {
-                max_distance: 4.0,
-                cast_shadows: casts,
-                ..Default::default()
-            },
-        );
+        let handle = if let Some(camera) = camera {
+            ctx.create_instance_batch_levels(
+                &[InstanceLevel {
+                    mesh: cube_mesh,
+                    min_distance: 0.0,
+                    max_distance: 20.0,
+                    camera,
+                    shadows: casts,
+                }],
+                &[Mat4::from_translation(vec3(0.0, 3.0, 0.0))],
+                &[],
+                Default::default(),
+            )
+        } else {
+            ctx.create_instance_batch(
+                cube_mesh,
+                &[Mat4::from_translation(vec3(0.0, 3.0, 0.0))],
+                InstanceBatchOptions {
+                    max_distance: 4.0,
+                    cast_shadows: casts,
+                    ..Default::default()
+                },
+            )
+        };
         renderer.set_instance_batch(
             &device,
             handle.id(),

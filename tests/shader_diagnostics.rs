@@ -129,3 +129,122 @@ fn a_failed_reload_keeps_the_old_shader_and_a_fix_reloads() {
     assert_eq!(seen[4].reloads, 1, "the fix took effect");
     assert!(seen[4].frame > failed.frame);
 }
+
+const FX_BROKEN: &str = "fn effect(p: Pixel) -> vec3<f32> {\n    return p.color * nope;\n}\n";
+const FX_GOOD: &str = "fn effect(p: Pixel) -> vec3<f32> {\n    return p.color * 0.5;\n}\n";
+const CS_BROKEN: &str = "\nfn compute(c: Cell) -> vec4<f32> {\n    return 1.0;\n}\n";
+const CS_GOOD: &str = "fn compute(c: Cell) -> vec4<f32> {\n    return c.value * 0.5;\n}\n";
+
+/// With hot reload on, shader files that don't compile at first load get
+/// a handle and stay watched: they stay `Failed` while still broken and
+/// load when a fix is saved.
+#[test]
+fn shader_files_that_fail_at_first_load_are_watched_and_a_fix_loads_them() {
+    let dir = std::env::temp_dir().join(format!("ponko-shader-first-load-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let files = [
+        (dir.join("m.wgsl"), BROKEN, GOOD),
+        (dir.join("fx.wgsl"), FX_BROKEN, FX_GOOD),
+        (dir.join("cs.wgsl"), CS_BROKEN, CS_GOOD),
+    ];
+    for (path, broken, _) in &files {
+        std::fs::write(path, broken).unwrap();
+    }
+    let names: Vec<String> = files.iter().map(|f| f.0.to_str().unwrap().to_string()).collect();
+    let seen: Arc<Mutex<Vec<Vec<ShaderStatus>>>> = Arc::default();
+    let log = seen.clone();
+    let edits = files.clone();
+    Game::new("shader", 1, 1)
+        .hot_reload(true)
+        .sim_system(move |ctx: &mut Ctx| {
+            log.lock().unwrap().push(ctx.shader_status().to_vec());
+            let fix = match ctx.sim_tick() {
+                // Still broken, differently: no good version yet.
+                1 => false,
+                3 => true,
+                _ => return,
+            };
+            std::thread::sleep(Duration::from_millis(50)); // a new modified time
+            for (path, broken, good) in &edits {
+                let text = if fix {
+                    good.to_string()
+                } else {
+                    format!("// still\n{broken}")
+                };
+                std::fs::write(path, text).unwrap();
+            }
+            std::thread::sleep(Duration::from_millis(400)); // past the next check
+        })
+        .run_headless(6, move |ctx| {
+            let shader = ctx.load_shader(&names[0]);
+            assert_eq!(ctx.load_shader(&names[0]), shader, "loading again: the same handle");
+            ctx.create_material(MaterialDesc {
+                shader: Some(shader),
+                ..Default::default()
+            });
+            let effect = ctx.load_effect(&names[1]);
+            ctx.effects.push(ScreenEffect::new(effect));
+            let compute = ctx.load_compute(&names[2]);
+            let target = ctx.create_render_target(8, 8);
+            ctx.compute_passes.push(ComputePass::new(compute, target));
+        });
+    let seen = seen.lock().unwrap();
+    use ShaderOutcome::*;
+    for kind in [ShaderKind::Material, ShaderKind::Effect, ShaderKind::Compute] {
+        let of_kind: Vec<&ShaderStatus> = seen
+            .iter()
+            .map(|tick| tick.iter().find(|s| s.kind == kind).unwrap())
+            .collect();
+        let outcomes: Vec<ShaderOutcome> = of_kind.iter().map(|s| s.outcome).collect();
+        assert_eq!(
+            outcomes,
+            [Failed, Failed, Failed, Failed, Reloaded, Reloaded],
+            "{kind:?}"
+        );
+        let first = &of_kind[0].diagnostics[0];
+        assert!(first.line.is_some() && !first.in_engine_code, "{first}");
+        // The still-broken edit's error is one line further down.
+        assert_eq!(of_kind[2].diagnostics[0].line, first.line.map(|l| l + 1), "{kind:?}");
+        assert!(of_kind[4].diagnostics.is_empty());
+        assert_eq!(of_kind[4].reloads, 1, "{kind:?}: the fix took effect");
+    }
+}
+
+#[test]
+fn without_hot_reload_a_shader_file_that_fails_is_an_error() {
+    let dir = std::env::temp_dir().join(format!("ponko-shader-no-reload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("m.wgsl");
+    std::fs::write(&path, BROKEN).unwrap();
+    let name = path.to_str().unwrap().to_string();
+    Game::new("shader", 1, 1).hot_reload(false).run_headless(0, move |ctx| {
+        let err = ctx.try_load_shader(&name).unwrap_err();
+        assert!(err.contains(":3:12: error: "), "{err}");
+        assert_eq!(ctx.shader_status()[0].outcome, ShaderOutcome::Failed);
+        assert_eq!(ctx.live_counts().shaders, 0, "no handle was made");
+    });
+}
+
+// ANCHOR: shader_errors
+/// Prints every shader whose last compile or edit didn't take effect, with
+/// where in its WGSL the error is; returns how many there are.
+fn report_shader_errors(ctx: &Ctx) -> usize {
+    let mut broken = 0;
+    for status in ctx.shader_status().iter().filter(|s| !s.is_ok()) {
+        broken += 1;
+        for error in &status.diagnostics {
+            eprintln!("{error}"); // water.wgsl:3:12: error: ...
+        }
+    }
+    broken
+}
+// ANCHOR_END: shader_errors
+
+#[test]
+fn the_guide_reports_the_shader_that_failed() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.create_shader("tint.wgsl", GOOD);
+        assert!(ctx.try_create_shader("water.wgsl", BROKEN).is_err());
+        assert_eq!(report_shader_errors(ctx), 1);
+    });
+}

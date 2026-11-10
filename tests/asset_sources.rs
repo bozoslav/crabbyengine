@@ -13,6 +13,9 @@ fn png(w: u32, h: u32) -> Vec<u8> {
     bytes
 }
 
+/// The start of a prefab file, up to its components.
+const PREFAB_HEADER: &str = r#"{ "format": "crabby-prefab", "version": 1, "#;
+
 fn game() -> Game {
     Game::new("asset sources", 1, 1).hot_reload(false)
 }
@@ -67,7 +70,8 @@ fn prefabs_and_resources_load_from_a_memory_source() {
     struct Rules {
         speed: f32,
     }
-    let prefab = r#"{ "format": "crabby-prefab", "version": 1, "components": {
+    let prefab = PREFAB_HEADER.to_string()
+        + r#""components": {
         "Transform2D": { "position": [0.0, 0.0], "rotation": 0.0, "scale": [1.0, 1.0] },
         "Sprite": { "texture": "red.png", "z": 0.0 }
     } }"#;
@@ -415,5 +419,246 @@ fn a_custom_asset_can_come_from_the_assets_folder_too() {
     game().run_headless(0, |ctx| {
         let bytes = ctx.load_asset_with("crab.png", |bytes| Ok(bytes.len())).unwrap();
         assert!(bytes > 0);
+    });
+}
+
+#[test]
+fn music_streams_by_name_from_a_memory_source() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(MemorySource::new("mem").with("music/theme.wav", wav(8000, 8000)));
+        let theme = ctx.load_stream("music/theme.wav");
+        if cfg!(feature = "audio") {
+            assert!((theme.seconds() - 1.0).abs() < 0.01, "{}", theme.seconds());
+        }
+        assert_eq!(
+            ctx.load_stream("music/theme.wav"),
+            theme,
+            "loading again returns the same handle"
+        );
+        assert_ne!(
+            ctx.load_sound("music/theme.wav"),
+            theme,
+            "the same name decoded whole is another sound"
+        );
+        ctx.play_sound_ex(
+            &theme,
+            SoundParams {
+                looping: true,
+                ..Default::default()
+            },
+        );
+    });
+}
+
+#[test]
+fn repeated_stream_loads_read_a_source_once() {
+    struct CountingMusic(Rc<Cell<u32>>);
+    impl AssetSource for CountingMusic {
+        fn id(&self) -> &str {
+            "counting"
+        }
+        fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
+            if name != "theme.wav" {
+                return Err(std::io::ErrorKind::NotFound.into());
+            }
+            self.0.set(self.0.get() + 1);
+            Ok(wav(8000, 800))
+        }
+    }
+    let reads = Rc::new(Cell::new(0));
+    let counted = reads.clone();
+    game().run_headless(0, move |ctx| {
+        ctx.add_asset_source(CountingMusic(counted.clone()));
+        let first = ctx.load_stream("theme.wav");
+        for _ in 0..3 {
+            assert_eq!(ctx.load_stream("theme.wav"), first);
+        }
+    });
+    assert_eq!(reads.get(), 1);
+}
+
+#[test]
+fn the_same_stream_name_in_two_sources_is_two_sounds_and_the_first_wins() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(MemorySource::new("first").with("theme.wav", wav(8000, 800)));
+        ctx.add_asset_source(MemorySource::new("second").with("theme.wav", wav(8000, 8000)));
+        let theme = ctx.load_stream("theme.wav");
+        if cfg!(feature = "audio") {
+            assert!((theme.seconds() - 0.1).abs() < 0.01, "the first source wins");
+        }
+    });
+    // The folder's copy and a source's copy are separate sounds.
+    let dir = std::env::temp_dir().join(format!("ponko-stream-sources-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("theme.wav");
+    std::fs::write(&file, wav(8000, 800)).unwrap();
+    let name = file.to_str().unwrap().to_string();
+    game().run_headless(0, |ctx| {
+        let from_folder = ctx.load_stream(&name);
+        ctx.add_asset_source(MemorySource::new("pack").with(name.clone(), wav(8000, 800)));
+        let from_source = ctx.load_stream(&name);
+        assert_ne!(from_source, from_folder, "same name, other source: another sound");
+        assert_eq!(ctx.load_stream(&name), from_source);
+    });
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn stream_errors_are_values_naming_the_asset_and_its_source() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(MemorySource::new("mem").with("broken.ogg", b"not audio".to_vec()));
+        let err = ctx.try_load_stream("nowhere.ogg").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+        assert!(err.message().contains("Asset sources searched first: \"mem\""), "{err}");
+        if cfg!(feature = "audio") {
+            let err = ctx.try_load_stream("broken.ogg").unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Decode);
+            assert!(
+                err.message().contains("\"broken.ogg\" (from asset source \"mem\")"),
+                "{err}"
+            );
+        }
+    });
+}
+
+/// A reflected component of a game that names a texture by its asset name.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct ShopItem {
+    icon: String,
+    #[serde(default)]
+    variants: Vec<String>,
+}
+
+fn load_icon(ctx: &mut Ctx, name: &str) -> Result<(), String> {
+    ctx.try_load_texture(name).map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// A scene with one shop item, saved by the engine.
+fn shop_scene(item: ShopItem) -> String {
+    let mut saved = String::new();
+    game().run_headless(0, |ctx| {
+        ctx.world.reflect::<ShopItem>();
+        ctx.world.spawn((item.clone(),));
+        saved = serde_json::to_string(&ctx.world.save()).unwrap();
+    });
+    saved
+}
+
+#[test]
+fn a_scene_loads_the_assets_custom_component_fields_name() {
+    let scene = shop_scene(ShopItem {
+        icon: "icons/apple.png".into(),
+        variants: vec!["icons/green.png".into(), "icons/red.png".into()],
+    });
+    let reads = Rc::new(Cell::new(Vec::<String>::new()));
+    let seen = reads.clone();
+    game().run_headless(0, move |ctx| {
+        ctx.world.reflect::<ShopItem>();
+        ctx.scene_asset_field::<ShopItem>("icon", load_icon);
+        ctx.scene_asset_field::<ShopItem>("variants", move |ctx, name| {
+            let mut names = seen.take();
+            names.push(name.to_string());
+            seen.set(names);
+            load_icon(ctx, name)
+        });
+        ctx.add_asset_source(
+            MemorySource::new("shop")
+                .with("shop.json", scene)
+                .with("icons/apple.png", png(3, 3))
+                .with("icons/green.png", png(1, 1))
+                .with("icons/red.png", png(2, 2)),
+        );
+        ctx.load_scene("shop.json").unwrap();
+        let item = ctx.world.query::<&ShopItem>().iter().next().unwrap().clone();
+        assert_eq!(item.icon, "icons/apple.png", "the component keeps the name");
+        // Loaded before the entities: the inventory has all three already.
+        assert_eq!(ctx.asset_inventory().get(AssetClass::Texture).live, 3);
+        assert_eq!(ctx.load_texture(&item.icon).width(), 3);
+    });
+    assert_eq!(
+        reads.take(),
+        ["icons/green.png", "icons/red.png"],
+        "every name in a list"
+    );
+}
+
+#[test]
+fn a_custom_asset_field_that_fails_to_load_fails_the_scene_with_its_name() {
+    let scene = shop_scene(ShopItem {
+        icon: "icons/missing.png".into(),
+        variants: Vec::new(),
+    });
+    game().run_headless(0, |ctx| {
+        ctx.world.reflect::<ShopItem>();
+        ctx.scene_asset_field::<ShopItem>("icon", load_icon);
+        ctx.add_asset_source(MemorySource::new("shop").with("shop.json", scene));
+        let before = ctx.world.spawn((Transform2D::default(),));
+        let err = ctx.load_scene("shop.json").unwrap_err();
+        assert!(
+            err.starts_with("shop.json: ShopItem.icon \"icons/missing.png\": "),
+            "{err}"
+        );
+        assert!(err.contains("not found in assets/"), "{err}");
+        assert!(ctx.world.is_alive(before), "the world is unchanged");
+    });
+}
+
+// ANCHOR: portal
+/// Levels of a custom format, decoded by the game and kept in a resource.
+#[derive(Default)]
+struct Levels(std::collections::HashMap<String, Tiles>);
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct Portal {
+    level: String,
+}
+// ANCHOR_END: portal
+
+#[test]
+fn a_custom_asset_field_can_load_a_custom_decoded_asset() {
+    let mut scene = String::new();
+    game().run_headless(0, |ctx| {
+        ctx.world.reflect::<Portal>();
+        ctx.world.spawn((Portal {
+            level: "levels/two.tiles".into(),
+        },));
+        scene = serde_json::to_string(&ctx.world.save()).unwrap();
+    });
+    game().run_headless(0, |ctx| {
+        // ANCHOR: scene_asset_field
+        ctx.world.reflect::<Portal>();
+        ctx.world.insert_resource(Levels::default());
+        ctx.scene_asset_field::<Portal>("level", |ctx, name| {
+            let tiles = ctx.load_asset_with(name, decode_tiles)?;
+            ctx.world.resource_mut::<Levels>().0.insert(name.to_string(), tiles);
+            Ok(())
+        });
+        // ANCHOR_END: scene_asset_field
+        ctx.add_asset_source(
+            MemorySource::new("mem")
+                .with("world.json", scene.clone())
+                .with("levels/two.tiles", "##\n"),
+        );
+        ctx.load_scene("world.json").unwrap();
+        assert_eq!(
+            ctx.world.resource::<Levels>().0["levels/two.tiles"].0,
+            vec![vec![true, true]]
+        );
+    });
+}
+
+#[test]
+fn prefabs_load_the_assets_custom_component_fields_name() {
+    let prefab = PREFAB_HEADER.to_string() + r#""components": { "ShopItem": { "icon": "icons/pear.png" } } }"#;
+    game().run_headless(0, |ctx| {
+        ctx.world.reflect::<ShopItem>();
+        ctx.scene_asset_field::<ShopItem>("icon", load_icon);
+        ctx.add_asset_source(
+            MemorySource::new("mem")
+                .with("prefabs/pear.json", prefab)
+                .with("icons/pear.png", png(2, 1)),
+        );
+        ctx.spawn_prefab("prefabs/pear.json", Vec2::ZERO).unwrap();
+        assert_eq!(ctx.asset_inventory().get(AssetClass::Texture).live, 1);
     });
 }

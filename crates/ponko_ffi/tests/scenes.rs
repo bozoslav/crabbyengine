@@ -216,3 +216,94 @@ fn scenes_with_huge_entity_ids_are_refused_from_c() {
         crabby_world_free(world);
     }
 }
+
+#[derive(Default)]
+struct Lockstep {
+    file: Option<&'static CStr>,
+    /// What the load in setup, then the plain and the lockstep load at
+    /// tick 3, returned.
+    statuses: Vec<CrabbyStatus>,
+}
+
+unsafe extern "C" fn load_in_setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let run = &mut *user.cast::<Lockstep>();
+        run.statuses
+            .push(crabby_ctx_load_scene(ctx, run.file.unwrap().as_ptr()));
+    }
+}
+
+unsafe extern "C" fn load_in_session(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let run = &mut *user.cast::<Lockstep>();
+        if crabby_ctx_sim_tick(ctx) == 3 {
+            let file = run.file.unwrap().as_ptr();
+            run.statuses.push(crabby_ctx_load_scene(ctx, file));
+            run.statuses.push(crabby_ctx_load_scene_lockstep(ctx, file));
+        }
+    }
+}
+
+fn play_lockstep(game: *mut CrabbyGame, file: &'static CStr) -> Vec<CrabbyStatus> {
+    let mut run = Lockstep {
+        file: Some(file),
+        ..Default::default()
+    };
+    unsafe {
+        let user = (&raw mut run).cast::<c_void>();
+        assert_eq!(
+            crabby_game_sim_system(game, c"load".as_ptr(), 1, Some(load_in_session), user),
+            CRABBY_OK
+        );
+        let mut world = null_mut();
+        assert_eq!(
+            crabby_game_run_headless(game, 10, Some(load_in_setup), user, &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    run.statuses
+}
+
+#[test]
+fn loads_in_setup_and_sim_systems_work_in_a_lockstep_session_from_c() {
+    let file = TempAsset::new(c"test-ffi-lockstep.json");
+    let mut run = Run {
+        file: Some(file.0),
+        ..Default::default()
+    };
+    unsafe {
+        let game = crabby_game_new(c"scenes".as_ptr(), 1, 1);
+        let mut world = null_mut();
+        let user = (&raw mut run).cast();
+        assert_eq!(
+            crabby_game_run_headless(game, 0, Some(save_setup), user, &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    let mut port = 0;
+    let host = unsafe {
+        let g = crabby_game_new(c"host".as_ptr(), 1, 1);
+        assert_eq!(
+            crabby_game_lockstep_host(g, c"127.0.0.1:0".as_ptr(), 2, 2, 30, &mut port),
+            CRABBY_OK
+        );
+        g as usize
+    };
+    let name = file.0;
+    let host = std::thread::spawn(move || play_lockstep(host as *mut CrabbyGame, name));
+    let addr = std::ffi::CString::new(format!("127.0.0.1:{port}")).unwrap();
+    let guest = unsafe {
+        let g = crabby_game_new(c"guest".as_ptr(), 1, 1);
+        assert_eq!(crabby_game_lockstep_join(g, addr.as_ptr()), CRABBY_OK);
+        play_lockstep(g, name)
+    };
+    for statuses in [host.join().unwrap(), guest] {
+        assert_eq!(
+            statuses,
+            [CRABBY_OK, CRABBY_OK, CRABBY_OK],
+            "every peer runs setup and sim systems: both loads are taken"
+        );
+    }
+}

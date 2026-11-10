@@ -30,7 +30,9 @@ impl Fixture {
             eprintln!("no GPU adapter: skipped");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
             eprintln!("no GPU device: skipped");
             return None;
         };
@@ -371,15 +373,17 @@ fn a_scaled_scene_is_the_same_picture_at_the_windows_size() {
 fn shadow_maps_are_made_again_at_the_new_resolution_and_count() {
     let Some(mut f) = Fixture::new() else { return };
     f.draw();
+    // The default 4096² atlas, or the largest texture the device allows.
+    let atlas = Some(4096.min(f.device.limits().max_texture_dimension_2d));
     assert_eq!(f.renderer.shadow_map(), (2048, 4), "the engine's defaults");
-    assert_eq!(f.renderer.light_shadow_map(), Some(4096), "one 4096² atlas");
+    assert_eq!(f.renderer.light_shadow_map(), atlas, "one 4096² atlas");
 
     f.ctx.lighting.shadow_resolution = 512;
     f.draw();
     assert_eq!(f.renderer.shadow_map(), (512, 4));
     assert_eq!(
         f.renderer.light_shadow_map(),
-        Some(4096),
+        atlas,
         "the light shadow map is left alone"
     );
 
@@ -391,7 +395,7 @@ fn shadow_maps_are_made_again_at_the_new_resolution_and_count() {
     f.ctx.lighting.light_shadow_resolution = 256;
     f.ctx.lighting.light_shadow_views = 4;
     f.draw();
-    assert_eq!(f.renderer.light_shadow_map(), Some(4096));
+    assert_eq!(f.renderer.light_shadow_map(), atlas);
     f.ctx.lighting.light_shadow_atlas = 2048;
     f.draw();
     assert_eq!(f.renderer.light_shadow_map(), Some(2048));

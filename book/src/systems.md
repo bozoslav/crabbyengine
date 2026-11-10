@@ -145,16 +145,15 @@ in may get coarser barriers, documented there. To be ready:
 
 ## Parallel queries and future scheduling
 
-Systems currently execute sequentially, taking exclusive `&mut Ctx` access.
-A system can use the ECS's parallel query methods to divide its entity work
-across threads; this is not automatic parallel execution of different systems.
-Optional declared-access scheduling is planned in
-[#137](https://github.com/ponkoengine/ponko/issues/137) and
-[#138](https://github.com/ponkoengine/ponko/issues/138), after safety and
-performance baselines. The sequential barriers above are the baseline any
-such scheduler must keep or document
-([#146](https://github.com/ponkoengine/ponko/issues/146)). Existing
-unannotated `sim_system` callbacks must remain usable and exclusive.
+Systems currently execute sequentially. A system can use the ECS's parallel
+query methods to divide its entity work across threads; this is not
+automatic parallel execution of different systems. Systems may declare what
+they read and write, and view systems (`Game::add_view`) get only what they
+declared; see [Declared system access](system-access.md). The parallel
+scheduler that will use those declarations is planned in
+[#138](https://github.com/ponkoengine/ponko/issues/138); the batch barrier it
+must keep is documented in that chapter. Existing unannotated `sim_system`
+callbacks remain usable and exclusive.
 See [the architecture](https://github.com/ponkoengine/ponko/blob/main/ARCHITECTURE.md)
 for current subsystem boundaries.
 

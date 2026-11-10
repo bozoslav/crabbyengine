@@ -17,7 +17,9 @@ impl Rig {
             return None;
         };
         eprintln!("material test adapter: {:?}", adapter.get_info());
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&Default::default())) else {
+        let Ok((device, queue)) = pollster::block_on(
+            adapter.request_device(&crate::render::render_test_support::forced(&Default::default())),
+        ) else {
             eprintln!("no GPU device: skipped");
             return None;
         };

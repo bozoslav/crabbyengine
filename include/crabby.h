@@ -34,7 +34,7 @@
  * for that panel's UI.
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyHandleKind, and the
+ * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyService, CrabbyHandleKind, CrabbyResidencyKind, CrabbyAssetState, CrabbyGpuTier, CrabbyGpuFeature, and the
  * CrabbyUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
@@ -59,6 +59,20 @@
 #define CRABBY_HANDLE_NONE UINT32_MAX
 
 #define CRABBY_MAX_GAMEPADS 8
+
+#define CRABBY_SHADER_MATERIAL 0
+
+#define CRABBY_SHADER_EFFECT 1
+
+#define CRABBY_SHADER_COMPUTE 2
+
+#define CRABBY_SHADER_COMPILED 0
+
+#define CRABBY_SHADER_RELOADED 1
+
+#define CRABBY_SHADER_FAILED 2
+
+#define CRABBY_SHADER_RELOAD_FAILED 3
 
 #define CRABBY_MESH_NONE UINT32_MAX
 
@@ -191,6 +205,21 @@ typedef enum CrabbyHandleKind {
   CRABBY_HANDLE_INSTANCE_BATCH = 9,
   CRABBY_HANDLE_TEXTURE_ARRAY = 10,
 } CrabbyHandleKind;
+
+typedef enum CrabbyResidencyKind {
+  CRABBY_RESIDENCY_MESH = 0,
+  CRABBY_RESIDENCY_TEXTURE = 1,
+} CrabbyResidencyKind;
+
+typedef enum CrabbyAssetState {
+  CRABBY_ASSET_UNKNOWN = 0,
+  CRABBY_ASSET_LOADING = 1,
+  CRABBY_ASSET_UPLOADING = 2,
+  CRABBY_ASSET_STREAMING = 3,
+  CRABBY_ASSET_RESIDENT = 4,
+  CRABBY_ASSET_EVICTED = 5,
+  CRABBY_ASSET_FAILED = 6,
+} CrabbyAssetState;
 
 typedef enum CrabbyKey {
   CRABBY_KEY_A,
@@ -372,6 +401,29 @@ typedef enum CrabbyPhase {
   CRABBY_PHASE_DRAW,
 } CrabbyPhase;
 
+enum CrabbyService
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  CRABBY_SERVICE_INPUT = 0,
+  CRABBY_SERVICE_TIME = 1,
+  CRABBY_SERVICE_RANDOM = 2,
+  CRABBY_SERVICE_GFX = 3,
+  CRABBY_SERVICE_AUDIO = 4,
+  CRABBY_SERVICE_ASSETS = 5,
+  CRABBY_SERVICE_UI = 6,
+  CRABBY_SERVICE_PERF = 7,
+  CRABBY_SERVICE_CAMERA = 8,
+  CRABBY_SERVICE_SPATIAL = 9,
+  CRABBY_SERVICE_PHYSICS = 10,
+  CRABBY_SERVICE_PHYSICS3D = 11,
+  CRABBY_SERVICE_NET = 12,
+};
+#ifndef __cplusplus
+typedef uint32_t CrabbyService;
+#endif // __cplusplus
+
 typedef enum CrabbyShapeKind {
   CRABBY_SHAPE_CIRCLE,
   CRABBY_SHAPE_RECT,
@@ -498,6 +550,30 @@ typedef enum CrabbyUiTextAlign {
   CRABBY_UI_TEXT_ALIGN_END,
 } CrabbyUiTextAlign;
 
+typedef enum CrabbyGpuTier {
+  CRABBY_GPU_TIER_WEBGL2 = 0,
+  CRABBY_GPU_TIER_BASELINE = 1,
+  CRABBY_GPU_TIER_DESKTOP = 2,
+} CrabbyGpuTier;
+
+typedef enum CrabbyGpuFeature {
+  CRABBY_GPU_FEATURE_TIMESTAMPS = 0,
+  CRABBY_GPU_FEATURE_COMPUTE = 1,
+  CRABBY_GPU_FEATURE_STORAGE_BUFFERS = 2,
+  CRABBY_GPU_FEATURE_COMPUTE_CULLING = 3,
+  CRABBY_GPU_FEATURE_GPU_SKINNING = 4,
+  CRABBY_GPU_FEATURE_OCCLUSION_CULLING = 5,
+  CRABBY_GPU_FEATURE_TEMPORAL_ANTIALIASING = 6,
+  CRABBY_GPU_FEATURE_AMBIENT_OCCLUSION = 7,
+  CRABBY_GPU_FEATURE_CONTACT_SHADOWS = 8,
+  CRABBY_GPU_FEATURE_SCREEN_SPACE_REFLECTIONS = 9,
+  CRABBY_GPU_FEATURE_GLOBAL_ILLUMINATION = 10,
+  CRABBY_GPU_FEATURE_DECALS = 11,
+  CRABBY_GPU_FEATURE_MULTISAMPLING = 12,
+} CrabbyGpuFeature;
+
+typedef struct CrabbyAccess CrabbyAccess;
+
 typedef struct CrabbyActionMap CrabbyActionMap;
 
 typedef struct CrabbyAnimationGraph CrabbyAnimationGraph;
@@ -568,6 +644,8 @@ typedef struct CrabbyChunk {
 } CrabbyChunk;
 
 typedef void (*CrabbyQueryFn)(const struct CrabbyChunk*, void*);
+
+typedef void (*CrabbySystemFn)(struct CrabbyCtx *ctx, void *user);
 
 typedef struct CrabbyActionBinding {
   uint32_t kind;
@@ -716,8 +794,6 @@ typedef struct CrabbyFlowView {
   struct CrabbyVec2 origin;
   float cell_size;
 } CrabbyFlowView;
-
-typedef void (*CrabbySystemFn)(struct CrabbyCtx *ctx, void *user);
 
 typedef struct CrabbyGridItem {
   struct CrabbyEntity entity;
@@ -1068,6 +1144,48 @@ typedef struct CrabbyInterestChange {
   enum CrabbyInterestChangeKind kind;
 } CrabbyInterestChange;
 
+typedef struct CrabbyResidencyStats {
+  bool has_budget;
+  uint64_t budget;
+  size_t resident;
+  uint64_t resident_bytes;
+  uint64_t over_budget_bytes;
+  size_t pinned;
+  uint64_t pinned_bytes;
+  uint64_t loads;
+  uint64_t reloads;
+  uint64_t evictions;
+  uint64_t evicted_bytes;
+} CrabbyResidencyStats;
+
+typedef struct CrabbyUploadStats {
+  bool has_budget;
+  uint64_t budget;
+  size_t pending;
+  uint64_t frame_bytes;
+  uint32_t frame_uploads;
+  uint64_t total_bytes;
+  uint64_t total_uploads;
+  uint64_t oversized;
+  uint64_t decode_waits;
+  uint64_t held_by_budget;
+  uint64_t failures;
+  float step_ms;
+  float max_step_ms;
+} CrabbyUploadStats;
+
+typedef struct CrabbyShaderStatus {
+  uint32_t kind;
+  uint32_t outcome;
+  bool ok;
+  uint32_t reloads;
+  uint64_t frame;
+  uint32_t diagnostics;
+  uint32_t line;
+  uint32_t column;
+  bool in_engine_code;
+} CrabbyShaderStatus;
+
 typedef struct CrabbyJoint {
   const char *name;
   int32_t parent;
@@ -1390,6 +1508,14 @@ typedef struct CrabbyInstanceBatch {
   uint32_t id;
 } CrabbyInstanceBatch;
 
+typedef struct CrabbyInstanceLevel {
+  struct CrabbyMesh mesh;
+  float min_distance;
+  float max_distance;
+  bool camera;
+  bool shadows;
+} CrabbyInstanceLevel;
+
 typedef struct CrabbySpriteSheet {
   struct CrabbyTexture texture;
   struct CrabbyVec2 frame_size;
@@ -1703,6 +1829,44 @@ enum CrabbyStatus crabby_query_par(struct CrabbyWorld *world,
                                    size_t count,
                                    CrabbyQueryFn callback,
                                    void *user);
+
+struct CrabbyAccess *crabby_access_new(void);
+
+void crabby_access_free(struct CrabbyAccess *access);
+
+enum CrabbyStatus crabby_access_read_component(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_write_component(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_read_resource(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_write_resource(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_read_events(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_send_events(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_commands(struct CrabbyAccess *access);
+
+enum CrabbyStatus crabby_access_service(struct CrabbyAccess *access, uint32_t service, bool write);
+
+enum CrabbyStatus crabby_access_conflicts(const struct CrabbyAccess *earlier,
+                                          const struct CrabbyAccess *later,
+                                          bool ordered,
+                                          size_t *out_count);
+
+enum CrabbyStatus crabby_game_add_system_with_access(struct CrabbyGame *game,
+                                                     uint32_t phase_raw,
+                                                     const char *name,
+                                                     uint32_t every,
+                                                     const struct CrabbyAccess *access,
+                                                     CrabbySystemFn system_fn,
+                                                     void *user);
+
+enum CrabbyStatus crabby_game_access_report(struct CrabbyGame *game,
+                                            char *buffer,
+                                            size_t capacity,
+                                            size_t *out_len);
 
 struct CrabbyActionMap *crabby_action_map_new(void);
 
@@ -3015,6 +3179,70 @@ enum CrabbyStatus crabby_interest_changes(const struct CrabbyInterest *i,
 
 enum CrabbyStatus crabby_interest_remove_peer(struct CrabbyInterest *i, uint64_t peer);
 
+enum CrabbyStatus crabby_ctx_set_residency_budget(struct CrabbyCtx *ctx,
+                                                  uint32_t kind,
+                                                  bool has_budget,
+                                                  uint64_t bytes);
+
+enum CrabbyStatus crabby_ctx_residency(struct CrabbyCtx *ctx,
+                                       uint32_t kind,
+                                       struct CrabbyResidencyStats *out_stats);
+
+enum CrabbyStatus crabby_ctx_is_resident(struct CrabbyCtx *ctx,
+                                         uint32_t kind,
+                                         const char *name,
+                                         bool *out_resident);
+
+enum CrabbyStatus crabby_ctx_asset_state(struct CrabbyCtx *ctx,
+                                         uint32_t kind,
+                                         const char *name,
+                                         uint32_t *out_state);
+
+enum CrabbyStatus crabby_ctx_asset_error(struct CrabbyCtx *ctx,
+                                         uint32_t kind,
+                                         const char *name,
+                                         char *buffer,
+                                         size_t capacity,
+                                         size_t *out_len);
+
+enum CrabbyStatus crabby_ctx_resident_texture(struct CrabbyCtx *ctx,
+                                              const char *path,
+                                              bool pin,
+                                              struct CrabbyTexture *out_texture);
+
+enum CrabbyStatus crabby_ctx_resident_mesh(struct CrabbyCtx *ctx,
+                                           const char *path,
+                                           bool pin,
+                                           struct CrabbyMesh *out_mesh);
+
+enum CrabbyStatus crabby_ctx_unpin_resident(struct CrabbyCtx *ctx, uint32_t kind, const char *path);
+
+enum CrabbyStatus crabby_ctx_stream_texture(struct CrabbyCtx *ctx,
+                                            const char *path,
+                                            struct CrabbyTexture *out_texture,
+                                            bool *out_ready);
+
+enum CrabbyStatus crabby_ctx_stream_mesh(struct CrabbyCtx *ctx,
+                                         const char *path,
+                                         struct CrabbyMesh *out_mesh,
+                                         bool *out_ready);
+
+enum CrabbyStatus crabby_ctx_set_upload_budget(struct CrabbyCtx *ctx,
+                                               bool has_budget,
+                                               uint64_t bytes);
+
+enum CrabbyStatus crabby_ctx_set_deterministic_uploads(struct CrabbyCtx *ctx, bool on);
+
+enum CrabbyStatus crabby_ctx_upload_stats(struct CrabbyCtx *ctx,
+                                          struct CrabbyUploadStats *out_stats);
+
+enum CrabbyStatus crabby_ctx_finish_uploads(struct CrabbyCtx *ctx);
+
+enum CrabbyStatus crabby_ctx_set_streamed_lod(struct CrabbyCtx *ctx,
+                                              uint64_t entity,
+                                              const char *const *files,
+                                              size_t count);
+
 enum CrabbyStatus crabby_resource_set(struct CrabbyWorld *world,
                                       const char *name,
                                       const void *data,
@@ -3037,6 +3265,8 @@ enum CrabbyStatus crabby_resource_reflect(struct CrabbyWorld *world,
 
 enum CrabbyStatus crabby_ctx_load_scene(struct CrabbyCtx *ctx, const char *path);
 
+enum CrabbyStatus crabby_ctx_load_scene_lockstep(struct CrabbyCtx *ctx, const char *path);
+
 enum CrabbyStatus crabby_ctx_save_scene(struct CrabbyCtx *ctx, const char *path);
 
 enum CrabbyStatus crabby_ctx_spawn_prefab(struct CrabbyCtx *ctx,
@@ -3045,6 +3275,29 @@ enum CrabbyStatus crabby_ctx_spawn_prefab(struct CrabbyCtx *ctx,
                                           uint64_t *out_entity);
 
 enum CrabbyStatus crabby_ctx_save_prefab(struct CrabbyCtx *ctx, uint64_t entity, const char *path);
+
+enum CrabbyStatus crabby_ctx_shader_status_count(const struct CrabbyCtx *ctx, size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_shader_status(const struct CrabbyCtx *ctx,
+                                           size_t index,
+                                           struct CrabbyShaderStatus *out_status);
+
+enum CrabbyStatus crabby_ctx_shader_status_name(const struct CrabbyCtx *ctx,
+                                                size_t index,
+                                                char *buffer,
+                                                size_t capacity,
+                                                size_t *out_len);
+
+enum CrabbyStatus crabby_ctx_shader_status_text(const struct CrabbyCtx *ctx,
+                                                size_t index,
+                                                char *buffer,
+                                                size_t capacity,
+                                                size_t *out_len);
+
+enum CrabbyStatus crabby_ctx_shader_status_json(const struct CrabbyCtx *ctx,
+                                                char *buffer,
+                                                size_t capacity,
+                                                size_t *out_len);
 
 enum CrabbyStatus crabby_mesh_data_set_skin(struct CrabbyMeshData *data,
                                             const uint16_t *joints,
@@ -3667,6 +3920,49 @@ enum CrabbyStatus crabby_ctx_update_instance_batch(struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_free_instance_batch(struct CrabbyCtx *ctx,
                                                  struct CrabbyInstanceBatch batch);
+
+enum CrabbyStatus crabby_ctx_create_instance_batch_levels(struct CrabbyCtx *ctx,
+                                                          const struct CrabbyInstanceLevel *levels,
+                                                          size_t level_count,
+                                                          const float (*matrices)[16],
+                                                          size_t count,
+                                                          const struct CrabbyColor *colors,
+                                                          size_t color_count,
+                                                          struct CrabbyInstanceBatchOptions options,
+                                                          struct CrabbyInstanceBatch *output);
+
+enum CrabbyStatus crabby_ctx_update_instance_batch_colors(struct CrabbyCtx *ctx,
+                                                          struct CrabbyInstanceBatch batch,
+                                                          const float (*matrices)[16],
+                                                          size_t count,
+                                                          const struct CrabbyColor *colors,
+                                                          size_t color_count);
+
+enum CrabbyStatus crabby_ctx_gpu_capabilities(const struct CrabbyCtx *ctx,
+                                              char *buffer,
+                                              size_t capacity,
+                                              size_t *out_len);
+
+enum CrabbyStatus crabby_ctx_gpu_tier(const struct CrabbyCtx *ctx, uint32_t *out_tier);
+
+enum CrabbyStatus crabby_ctx_gpu_feature(const struct CrabbyCtx *ctx,
+                                         uint32_t feature_id,
+                                         bool *out_available);
+
+enum CrabbyStatus crabby_gpu_tier_report(uint32_t tier_id,
+                                         char *buffer,
+                                         size_t capacity,
+                                         size_t *out_len);
+
+enum CrabbyStatus crabby_gpu_tier_feature(uint32_t tier_id,
+                                          uint32_t feature_id,
+                                          bool *out_available);
+
+enum CrabbyStatus crabby_graphics_quality_for_tier(uint32_t tier_id,
+                                                   struct CrabbyGraphicsQuality *out_quality);
+
+enum CrabbyStatus crabby_ctx_recommended_graphics_quality(const struct CrabbyCtx *ctx,
+                                                          struct CrabbyGraphicsQuality *out_quality);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,

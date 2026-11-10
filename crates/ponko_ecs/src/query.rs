@@ -25,6 +25,14 @@ pub unsafe trait QueryData {
     type State: Copy;
     #[doc(hidden)]
     fn ids(world: &mut World) -> Self::Ids;
+    /// The ids without registering anything: `None` if a component isn't
+    /// registered yet, or if this query data doesn't support shared lookup
+    /// (what [`WorldView`](crate::WorldView) queries need).
+    #[doc(hidden)]
+    fn ids_in(world: &World) -> Option<Self::Ids> {
+        let _ = world;
+        None
+    }
     /// Reports `(component, mutable, required)` for each component touched.
     #[doc(hidden)]
     fn access(ids: &Self::Ids, f: &mut impl FnMut(ComponentId, bool, bool));
@@ -40,6 +48,9 @@ unsafe impl<T: Component> QueryData for &T {
     type State = *const T;
     fn ids(world: &mut World) -> ComponentId {
         world.register::<T>()
+    }
+    fn ids_in(world: &World) -> Option<ComponentId> {
+        world.component_id::<T>()
     }
     fn access(id: &ComponentId, f: &mut impl FnMut(ComponentId, bool, bool)) {
         f(*id, false, true)
@@ -61,6 +72,9 @@ unsafe impl<T: Component> QueryData for &mut T {
     fn ids(world: &mut World) -> ComponentId {
         world.register::<T>()
     }
+    fn ids_in(world: &World) -> Option<ComponentId> {
+        world.component_id::<T>()
+    }
     fn access(id: &ComponentId, f: &mut impl FnMut(ComponentId, bool, bool)) {
         f(*id, true, true)
     }
@@ -80,6 +94,9 @@ unsafe impl<T: Component> QueryData for Option<&T> {
     type State = Option<*const T>;
     fn ids(world: &mut World) -> ComponentId {
         world.register::<T>()
+    }
+    fn ids_in(world: &World) -> Option<ComponentId> {
+        world.component_id::<T>()
     }
     fn access(id: &ComponentId, f: &mut impl FnMut(ComponentId, bool, bool)) {
         f(*id, false, false)
@@ -101,6 +118,9 @@ unsafe impl<T: Component> QueryData for Option<&mut T> {
     fn ids(world: &mut World) -> ComponentId {
         world.register::<T>()
     }
+    fn ids_in(world: &World) -> Option<ComponentId> {
+        world.component_id::<T>()
+    }
     fn access(id: &ComponentId, f: &mut impl FnMut(ComponentId, bool, bool)) {
         f(*id, true, false)
     }
@@ -119,6 +139,9 @@ unsafe impl QueryData for Entity {
     type Ids = ();
     type State = *const Entity;
     fn ids(_: &mut World) {}
+    fn ids_in(_: &World) -> Option<()> {
+        Some(())
+    }
     fn access(_: &(), _: &mut impl FnMut(ComponentId, bool, bool)) {}
     #[inline]
     fn state(arch: &Archetype, _: &()) -> Option<*const Entity> {
@@ -138,6 +161,9 @@ macro_rules! query_tuple {
             type State = ($($t::State,)*);
             fn ids(world: &mut World) -> Self::Ids {
                 ($($t::ids(world),)*)
+            }
+            fn ids_in(world: &World) -> Option<Self::Ids> {
+                Some(($($t::ids_in(world)?,)*))
             }
             fn access(ids: &Self::Ids, f: &mut impl FnMut(ComponentId, bool, bool)) {
                 $($t::access(&ids.$i, f);)*
@@ -235,7 +261,7 @@ impl Filters {
     /// Always inlined: the query loops rely on it to specialize their
     /// archetype loop for the filters in use.
     #[inline(always)]
-    fn matches(&self, arch: &Archetype) -> bool {
+    pub(crate) fn matches(&self, arch: &Archetype) -> bool {
         if !(self.with[..self.n_with as usize].iter().all(|&id| arch.has(id))
             && !self.without[..self.n_without as usize].iter().any(|&id| arch.has(id)))
         {
@@ -261,7 +287,7 @@ impl Filters {
         self.matches(arch)
     }
 
-    fn add_with(&mut self, id: ComponentId) {
+    pub(crate) fn add_with(&mut self, id: ComponentId) {
         if self.with[..self.n_with as usize].contains(&id) {
             return;
         }
@@ -273,7 +299,7 @@ impl Filters {
         self.n_with += 1;
     }
 
-    fn add_without(&mut self, id: ComponentId) {
+    pub(crate) fn add_without(&mut self, id: ComponentId) {
         if self.without[..self.n_without as usize].contains(&id) {
             return;
         }
@@ -406,10 +432,10 @@ struct MatchEntry {
     indices: Vec<usize>,
 }
 
-struct Archetypes<'a> {
-    all: &'a [Archetype],
-    indices: Option<std::slice::Iter<'a, usize>>,
-    next: usize,
+pub(crate) struct Archetypes<'a> {
+    pub(crate) all: &'a [Archetype],
+    pub(crate) indices: Option<std::slice::Iter<'a, usize>>,
+    pub(crate) next: usize,
 }
 
 impl<'a> Iterator for Archetypes<'a> {
@@ -1183,19 +1209,19 @@ impl<'w, Q: QueryData> Query<'w, Q> {
 
 /// Iterator returned by [`Query::iter`].
 pub struct QueryIter<'a, Q: QueryData> {
-    archetypes: Archetypes<'a>,
-    ids: Q::Ids,
-    filters: Filters,
-    state: Option<Q::State>,
-    row: usize,
-    len: usize,
-    clock: Clock,
+    pub(crate) archetypes: Archetypes<'a>,
+    pub(crate) ids: Q::Ids,
+    pub(crate) filters: Filters,
+    pub(crate) state: Option<Q::State>,
+    pub(crate) row: usize,
+    pub(crate) len: usize,
+    pub(crate) clock: Clock,
     /// Whether the world tracks any component at all.
-    tracking: bool,
+    pub(crate) tracking: bool,
     /// The current archetype, when an `Added`/`Changed` filter picks its
     /// rows: they then come in runs, and `len` is the current run's end.
-    filtered: Option<&'a Archetype>,
-    _q: PhantomData<&'a mut Q>,
+    pub(crate) filtered: Option<&'a Archetype>,
+    pub(crate) _q: PhantomData<&'a mut Q>,
 }
 
 impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {

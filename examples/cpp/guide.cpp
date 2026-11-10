@@ -1211,6 +1211,23 @@ static void options_menu(ponko::ctx& ctx) {
 }
 // ANCHOR_END: quality
 
+// ANCHOR: gpu_tiers
+/// At startup: the preset for this GPU's tier, fitted to what it has.
+static void quality_for_this_gpu(ponko::ctx& ctx) {
+    auto quality = ctx.recommended_graphics_quality() // empty before a GPU opens
+        .value_or(ponko::graphics_quality_for_tier(ponko::gpu_tier::desktop));
+    ctx.set_graphics_quality(quality);
+    if (auto tier = ctx.gpu_tier(); tier && *tier == ponko::gpu_tier::webgl2) {
+        // No compute shaders: TAA draws FXAA, AO and reflections are off.
+    }
+    // What a weaker GPU lacks, with no such GPU at hand: a JSON report of the
+    // tier's floor, each missing feature with its fallback and the reason.
+    std::string baseline = ponko::gpu_tier_report(ponko::gpu_tier::baseline);
+    bool decals = ponko::gpu_tier_has(ponko::gpu_tier::baseline, ponko::gpu_feature::decals); // false
+    (void)baseline; (void)decals;
+}
+// ANCHOR_END: gpu_tiers
+
 // ANCHOR: taa
 /// Temporal antialiasing, and a camera cut.
 static void temporal_antialiasing(ponko::ctx& ctx) {
@@ -1487,6 +1504,8 @@ static void the_village_has_five_spinning_houses() {
         village(ctx);
         golden_hour(ctx);
         speed_lens(ctx, 40.0f);
+        quality_for_this_gpu(ctx);
+        if (ponko::graphics_quality_level(ctx.graphics_quality()) != ponko::quality_level::high) { std::fprintf(stderr, "tier preset\n"); std::abort(); }
         options_menu(ctx);
         temporal_antialiasing(ctx);
         screen_reflections(ctx);
@@ -2320,6 +2339,22 @@ void persistent_instances(ponko::ctx& ctx, ponko::mesh mesh) {
 }
 // ANCHOR_END: gpu_instances
 
+// ANCHOR: instance_levels
+void leveled_instances(ponko::ctx& ctx, ponko::mesh near_mesh, ponko::mesh far_mesh) {
+    std::vector<ponko::instance_level> levels = {
+        {near_mesh, 0, 25, true, false},
+        {far_mesh, 25, 100, true, true},
+        {far_mesh, 0, 25, false, true},
+    };
+    std::vector<std::array<float,16>> transforms = {{
+        1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+    }};
+    auto batch = ctx.create_instance_batch_levels(levels, transforms, {ponko::colors::red});
+    ctx.update_instance_batch_colors(batch, transforms, {ponko::colors::blue});
+    ctx.free_instance_batch(batch);
+}
+// ANCHOR_END: instance_levels
+
 // ANCHOR: handles
 void stream_out(ponko::ctx& ctx) {
     auto before = ctx.live_counts();
@@ -2342,7 +2377,57 @@ void stream_out(ponko::ctx& ctx) {
 }
 // ANCHOR_END: handles
 
+// ANCHOR: streaming
+void streaming_setup(ponko::ctx& ctx) {
+    // Memory caps for what loads by name, and bytes sent to the GPU per frame.
+    ctx.set_residency_budget(ponko::residency_kind::texture, 256u << 20);
+    ctx.set_residency_budget(ponko::residency_kind::mesh, 512u << 20);
+    ctx.set_upload_budget(8u << 20);
+}
+
+void draw_crab(ponko::ctx& ctx) {
+    // Ask every frame you need it: never waits. Empty until a small
+    // stand-in is up, then the same texture, sharper each frame.
+    if (auto crab = ctx.stream_texture("crab.png")) ctx.draw(*crab, {0, 0});
+    if (ctx.asset_state(ponko::residency_kind::texture, "crab.png") == ponko::asset_state::failed) {
+        std::fprintf(stderr, "no crab: %s\n", ctx.asset_error(ponko::residency_kind::texture, "crab.png").c_str());
+    }
+}
+// ANCHOR_END: streaming
+
+// ANCHOR: shader_errors
+/// Prints every shader whose last compile or edit didn't take effect, with
+/// where in its WGSL the error is; returns how many there are.
+static std::size_t report_shader_errors(ponko::ctx& ctx) {
+    std::size_t broken = 0;
+    for (const auto& s : ctx.shader_status()) {
+        if (s.ok()) continue;
+        ++broken;
+        std::fprintf(stderr, "%s\n", s.errors.c_str());   // water.wgsl:3:12: error: ...
+    }
+    return broken;
+}
+// ANCHOR_END: shader_errors
+
+// ANCHOR: declared_access
+struct Speed { float value; };
+static void move_forward(ponko::ctx& ctx) {
+    const float dt = ctx.dt();
+    ctx.world().each([&](Pos& p, const Speed& s) { p.y += s.value * dt; });
+}
+
+static void declared_access_guide() {
+    auto world = ponko::game("declared", 320, 240)
+        .add(ponko::phase::after_physics,
+             ponko::access().write<Pos>().read<Speed>().read_service(ponko::service::time),
+             move_forward, "move_forward")
+        .run_headless(2, [](ponko::ctx& ctx) { ctx.world().spawn(Pos{0}, Speed{60}); });
+    if (world.size() != 1) { std::fprintf(stderr, "declared access guide failed\n"); std::abort(); }
+}
+// ANCHOR_END: declared_access
+
 int main() {
+    declared_access_guide();
     steering_stays_within_budget();
     navigation_guide();
     ponko::game("shop guide", 900, 700).run_headless(0, shop_guide);
@@ -2355,6 +2440,12 @@ int main() {
         sound3d(ctx);
         float silence[16] = {};
         buses_and_effects(ctx, ctx.create_sound(44100, silence, 16));
+    });
+    ponko::game("shader guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        try {
+            ctx.create_shader("water.wgsl", "// still\nfn surface(s: Surface) -> Surface {\n    return 1.0;\n}");
+        } catch (const std::exception&) {}
+        if (report_shader_errors(ctx) != 1 || ctx.shader_status()[0].info.line != 3) std::abort();
     });
     ponko::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
     ponko::game("morph guide", 1, 1).run_headless(0, morphed_sheet);
@@ -2487,6 +2578,13 @@ int main() {
     (void)&controls;
     ponko::game("gpu buffers", 1, 1).run_headless(0, gpu_particles);
     ponko::game("handles", 1, 1).run_headless(0, stream_out);
+    ponko::game("streaming", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        streaming_setup(ctx);
+        draw_crab(ctx);
+        ctx.finish_uploads();
+        draw_crab(ctx);
+        if (ctx.asset_state(ponko::residency_kind::texture, "crab.png") != ponko::asset_state::resident) std::abort();
+    });
     world_text_snippet();
     action_map_snippet();
     ponko::game("static instances",1,1).run_headless(0,[](ponko::ctx& ctx) {

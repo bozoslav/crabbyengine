@@ -119,6 +119,9 @@ pub(crate) struct Panels {
     prefab_path: String,
     /// What the last scene or prefab action did.
     status: Option<String>,
+    /// `Ctx::scene_loads` when the panels last ran: a load since then
+    /// replaced the entities, so the selection may name another one.
+    scene_loads: u64,
 }
 
 /// An entity being moved with the mouse.
@@ -144,6 +147,11 @@ impl Panels {
             if let Some(e) = pick(ctx, at) {
                 self.selected = Some(e);
             }
+        }
+        if self.scene_loads != ctx.scene_loads {
+            self.scene_loads = ctx.scene_loads;
+            self.selected = None;
+            self.drag = None;
         }
         if self.selected.is_some_and(|e| !ctx.world.is_alive(e)) {
             self.selected = None;
@@ -1124,6 +1132,23 @@ mod tests {
         assert_eq!(panels.selected, None);
         assert!(!panels.editing);
         let _ = e;
+    }
+
+    #[test]
+    fn a_scene_load_clears_the_selection() {
+        let (egui, mut panels, mut ctx, e) = edit_scene();
+        panels.selected = Some(e);
+        frame(&egui, &mut panels, &mut ctx, vec![]);
+        assert_eq!(panels.selected, Some(e));
+        // The same ids again, from a load: `e` may be another entity now.
+        let save = WorldReflect::save(&ctx.world);
+        ctx.replace_world(&save).unwrap();
+        assert!(ctx.world.is_alive(e));
+        frame(&egui, &mut panels, &mut ctx, vec![]);
+        assert_eq!(panels.selected, None, "the selection named the old world's entity");
+        panels.selected = Some(e);
+        frame(&egui, &mut panels, &mut ctx, vec![]);
+        assert_eq!(panels.selected, Some(e), "a new selection stays");
     }
 
     #[test]

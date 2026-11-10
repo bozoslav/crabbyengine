@@ -236,7 +236,7 @@ pub unsafe extern "C" fn crabby_game_inspector(game: *mut CrabbyGame, on: bool) 
 
 /// Systems are named by `&'static str`, so C names are interned: each
 /// distinct name is stored once for the life of the program.
-unsafe fn system_name(ptr: *const c_char, fallback: &'static str) -> Result<&'static str, Failure> {
+pub(crate) unsafe fn system_name(ptr: *const c_char, fallback: &'static str) -> Result<&'static str, Failure> {
     static NAMES: std::sync::Mutex<Vec<&'static str>> = std::sync::Mutex::new(Vec::new());
     if ptr.is_null() {
         return Ok(fallback);
@@ -252,7 +252,10 @@ unsafe fn system_name(ptr: *const c_char, fallback: &'static str) -> Result<&'st
     Ok(interned)
 }
 
-fn system(f: unsafe extern "C" fn(*mut CrabbyCtx, *mut c_void), user: *mut c_void) -> impl FnMut(&mut Ctx) + 'static {
+pub(crate) fn system(
+    f: unsafe extern "C" fn(*mut CrabbyCtx, *mut c_void),
+    user: *mut c_void,
+) -> impl FnMut(&mut Ctx) + 'static {
     move |ctx: &mut Ctx| {
         // SAFETY: the caller of crabby_game_*_system promised `f` and `user` stay valid while the game runs.
         with_ctx(ctx, |c| unsafe { f(c, user) })
@@ -325,7 +328,7 @@ pub enum CrabbyPhase {
     CRABBY_PHASE_DRAW,
 }
 
-fn phase(raw: u32) -> Result<Phase, Failure> {
+pub(crate) fn phase(raw: u32) -> Result<Phase, Failure> {
     Ok(match raw {
         0 => Phase::Input,
         1 => Phase::BeforePhysics,

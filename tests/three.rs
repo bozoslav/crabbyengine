@@ -1244,6 +1244,44 @@ fn quality_presets_switch_at_run_time() {
     });
 }
 
+/// The guide's GPU tier example: the preset for the GPU, and what a tier
+/// lacks without such a GPU.
+#[test]
+fn quality_follows_the_gpu_tier() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        // ANCHOR: gpu_tiers
+        // At startup: the preset for this GPU's tier, fitted to what it has.
+        let quality = match ctx.gpu_capabilities() {
+            Some(caps) => GraphicsQuality::recommended(caps),
+            None => GraphicsQuality::for_tier(GpuTier::Desktop), // no GPU opened (headless)
+        };
+        ctx.set_graphics_quality(quality);
+        // What a weaker GPU lacks, with no such GPU at hand: the report of
+        // the tier's floor, each missing feature with its fallback and reason.
+        let baseline = GpuTier::Baseline.report();
+        for f in baseline.features.iter().filter(|f| !f.available) {
+            println!(
+                "{:?}: {} ({})",
+                f.feature,
+                f.fallback.as_deref().unwrap_or("-"),
+                f.reason.as_deref().unwrap_or("-")
+            );
+        }
+        // ANCHOR_END: gpu_tiers
+        assert_eq!(ctx.graphics_quality().level(), QualityLevel::High);
+        assert!(!baseline.available(GpuFeature::Decals));
+        assert_eq!(
+            GpuTier::Baseline.unavailable_features(),
+            [
+                GpuFeature::Timestamps,
+                GpuFeature::GpuSkinning,
+                GpuFeature::GlobalIllumination,
+                GpuFeature::Decals
+            ]
+        );
+    });
+}
+
 /// The scene format the Unity importer writes for a LOD group loads.
 #[test]
 fn lod_groups_in_the_importers_json_shape_load() {
@@ -1398,4 +1436,74 @@ fn target_effects_run_headless_and_keep_their_settings() {
     });
     assert_eq!(kept.len(), 2);
     assert!(kept.iter().all(|e| e.material.is_none()));
+}
+
+// ANCHOR: instance_levels
+fn leveled_instances(ctx: &mut Ctx, near: Mesh, far: Mesh) {
+    let levels = [
+        InstanceLevel {
+            mesh: near,
+            min_distance: 0.0,
+            max_distance: 25.0,
+            camera: true,
+            shadows: false,
+        },
+        InstanceLevel {
+            mesh: far,
+            min_distance: 25.0,
+            max_distance: 100.0,
+            camera: true,
+            shadows: true,
+        },
+        InstanceLevel {
+            mesh: far,
+            min_distance: 0.0,
+            max_distance: 25.0,
+            camera: false,
+            shadows: true,
+        },
+    ];
+    let batch = ctx.create_instance_batch_levels(&levels, &[Mat4::IDENTITY], &[Color::RED], Default::default());
+    assert_eq!(ctx.instance_batch_len(batch), Some(1));
+    assert!(ctx.is_live(batch));
+    assert!(ctx.update_instance_batch_colors(batch, &[Mat4::IDENTITY; 2], &[Color::BLUE; 2]));
+    assert_eq!(ctx.instance_batch_len(batch), Some(2));
+    assert!(ctx.update_instance_batch(batch, &[Mat4::IDENTITY]));
+    ctx.free_instance_batch(batch);
+    assert!(!ctx.is_live(batch));
+    assert!(!ctx.update_instance_batch_colors(batch, &[], &[]));
+    assert_eq!(ctx.instance_batch_len(batch), None);
+    ctx.free_instance_batch(batch);
+}
+// ANCHOR_END: instance_levels
+
+#[test]
+fn multilevel_batches_keep_handle_lifecycle_without_entities() {
+    Game::new("levels", 1, 1).run_headless(0, |ctx| {
+        let material = ctx.create_material(MaterialDesc::default());
+        let mesh = ctx.create_mesh(&MeshData::cube(1.0), material);
+        leveled_instances(ctx, mesh, mesh);
+        assert_eq!(ctx.world.len(), 0);
+    });
+}
+
+#[test]
+#[should_panic(expected = "instance colors must be empty or match transform count")]
+fn instance_colors_reject_mismatched_lengths() {
+    Game::new("levels", 1, 1).run_headless(0, |ctx| {
+        let material = ctx.create_material(MaterialDesc::default());
+        let mesh = ctx.create_mesh(&MeshData::cube(1.0), material);
+        ctx.create_instance_batch_levels(
+            &[InstanceLevel {
+                mesh,
+                min_distance: 0.0,
+                max_distance: 10.0,
+                camera: true,
+                shadows: true,
+            }],
+            &[Mat4::IDENTITY],
+            &[Color::WHITE; 2],
+            Default::default(),
+        );
+    });
 }

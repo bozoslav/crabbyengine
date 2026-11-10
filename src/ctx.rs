@@ -72,6 +72,9 @@ pub(crate) enum AssetKind {
     Texture,
     Font,
     Sound,
+    /// A sound loaded with `load_stream`: the same name can also be a
+    /// `load_sound`, decoded whole, and the two are different sounds.
+    Stream,
 }
 
 /// Applies a data file's text to the world.
@@ -178,6 +181,11 @@ pub struct Ctx {
     pub events: Events,
     /// `true` while simulation systems run: `dt()` then returns the fixed step.
     in_sim: bool,
+    /// `true` while the game's setup (and plugins' setups) run.
+    in_setup: bool,
+    /// Scene loads so far, so tools holding entity ids (the inspector's
+    /// selection) can tell the world was replaced.
+    pub(crate) scene_loads: u64,
     /// Fixed steps the running sim system covers (`sim_system_every`).
     sim_steps: u32,
     /// Seed for `random()`.
@@ -189,6 +197,8 @@ pub struct Ctx {
     pub(crate) headless: bool,
     /// Where the control endpoint listens, if it's on.
     pub(crate) control_addr: Option<std::net::SocketAddr>,
+    /// Running input scenario and whether tools may start one.
+    pub(crate) scenarios: crate::scenario::Scenarios,
     pub(crate) headless_textures: u32,
     /// The game's textures (not the engine's own), by id, live or freed.
     pub(crate) textures_live: crate::handle::LiveSet,
@@ -202,10 +212,15 @@ pub struct Ctx {
     data_loaders: Vec<DataLoader>,
     /// Parsed prefab files, by name (`spawn_prefab`).
     pub(crate) prefabs: HashMap<String, serde_json::Value>,
+    /// Fields of reflected components that name assets, and how to load
+    /// them before a scene or prefab is spawned (`scene_asset_field`).
+    pub(crate) scene_asset_fields: Vec<crate::scene::SceneAssetField>,
     /// Asset sources added with `add_asset_source`, asked before `assets/`.
     pub(crate) asset_sources: assets::Sources,
     /// Assets loaded under residency budgets (`resident_mesh`), by kind.
     pub(crate) residency: crate::residency::Residency,
+    /// The upload queue and streamed assets (`stream_texture`, `stream_mesh`).
+    pub(crate) streaming: crate::streaming::Streaming,
     /// Assets already loaded, by origin (resolved path, or source and
     /// name): loading one again returns the same handle.
     pub(crate) loaded: HashMap<(assets::Origin, AssetKind), u64>,
@@ -434,6 +449,8 @@ impl Ctx {
             net: crate::Net::default(),
             events: Events::default(),
             in_sim: false,
+            in_setup: false,
+            scene_loads: 0,
             sim_steps: 1,
             seed: crate::random::DEFAULT_SEED,
             system_index: 0,
@@ -446,6 +463,7 @@ impl Ctx {
             },
             headless: false,
             control_addr: None,
+            scenarios: Default::default(),
             headless_textures: 0,
             textures_live: Default::default(),
             sounds_live: Default::default(),
@@ -453,8 +471,10 @@ impl Ctx {
             watcher: Default::default(),
             data_loaders: Vec::new(),
             prefabs: HashMap::new(),
+            scene_asset_fields: Vec::new(),
             asset_sources: assets::Sources::default(),
             residency: Default::default(),
+            streaming: Default::default(),
             loaded: HashMap::new(),
             cached_textures: Vec::new(),
             cached_sounds: Vec::new(),
@@ -931,6 +951,18 @@ impl Ctx {
         self.control_addr
     }
 
+    /// Queues `n` single steps for a paused game.
+    pub(crate) fn queue_steps(&mut self, n: u64) {
+        let n = u32::try_from(n).unwrap_or(u32::MAX);
+        self.sim.pending_steps = self.sim.pending_steps.saturating_add(n);
+    }
+
+    /// Takes back up to `n` queued steps.
+    pub(crate) fn drop_pending_steps(&mut self, n: u64) {
+        let n = u32::try_from(n).unwrap_or(u32::MAX);
+        self.sim.pending_steps = self.sim.pending_steps.saturating_sub(n);
+    }
+
     pub(crate) fn take_pending_steps(&mut self) -> u32 {
         std::mem::take(&mut self.sim.pending_steps)
     }
@@ -1016,6 +1048,20 @@ impl Ctx {
 
     pub(crate) fn set_in_sim(&mut self, in_sim: bool) {
         self.in_sim = in_sim;
+    }
+
+    /// Whether a simulation system is running now.
+    pub(crate) fn in_sim(&self) -> bool {
+        self.in_sim
+    }
+
+    pub(crate) fn set_in_setup(&mut self, in_setup: bool) {
+        self.in_setup = in_setup;
+    }
+
+    /// Whether the game's setup is running now (before the first tick).
+    pub(crate) fn in_setup(&self) -> bool {
+        self.in_setup
     }
 
     /// Engine side: apply commands recorded by the system that just ran.
@@ -1314,14 +1360,13 @@ impl Ctx {
     /// Every load by name goes through it: [`load_texture`](Self::load_texture),
     /// [`load_font`](Self::load_font), [`load_resource`](Self::load_resource),
     /// [`load_scene`](Self::load_scene), [`spawn_prefab`](Self::spawn_prefab)
-    /// (and the textures their scenes name), [`load_sound`](Self::load_sound),
+    /// (and the assets their scenes name, including fields registered with
+    /// [`scene_asset_field`](Self::scene_asset_field)),
+    /// [`load_sound`](Self::load_sound), [`load_stream`](Self::load_stream),
     /// [`load_asset_with`](Self::load_asset_with) and, with the `3d` feature,
-    /// meshes, skeletons and animation clips (and the files a glTF refers to),
-    /// shaders, screen effects and compute passes.
-    ///
-    /// Not covered yet: [`load_stream`](Self::load_stream) (music streamed
-    /// from a file), texture arrays and reflection probe images still come
-    /// only from `assets/`.
+    /// meshes, skeletons and animation clips (and the files a glTF refers
+    /// to), texture arrays, reflection probe images, shaders, screen effects
+    /// and compute passes.
     ///
     /// Assets from sources are never hot reloaded: only files found in
     /// `assets/` are watched. See [`AssetSource`](crate::AssetSource) for
@@ -1510,7 +1555,7 @@ impl Ctx {
         }
         #[cfg(feature = "physics3d")]
         self.load_collider_files(json)?;
-        Ok(())
+        self.load_scene_asset_fields(json)
     }
 
     /// Loads resource `R` from a JSON file in `assets/`. With [hot
@@ -1866,7 +1911,21 @@ impl Ctx {
             "ponko: a render target is drawn by its target camera, not updated with pixels"
         );
         // A freed texture (or `Texture::NONE`) has no pixels of its own.
-        if self.headless || !self.textures_live.contains(texture.id) {
+        if !self.textures_live.contains(texture.id) {
+            return;
+        }
+        // A streamed texture at less than full resolution: back to full.
+        if self.streaming.reduced_size(texture.id).is_some() {
+            self.asset_ledger
+                .textures
+                .insert(texture.id, crate::inventory::rgba8_bytes(w, h));
+            if !self.headless {
+                self.renderer().replace_texture(texture.id, w, h, rgba);
+            }
+            self.streamed_texture_restored(texture.id);
+            return;
+        }
+        if self.headless {
             return;
         }
         self.renderer().update_texture(texture.id, w, h, rgba);
@@ -2804,6 +2863,28 @@ mod tests {
         assert_eq!(ctx.watcher.watched(), 1, "source sounds are not watched");
         assert_eq!(ctx.load_sound(&name), from_source, "the source's copy stays cached");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn streams_are_never_watched_and_cached_apart_from_sounds() {
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
+        ctx.headless = true;
+        ctx.watcher.on = true;
+        ctx.add_asset_source(crate::MemorySource::new("mem").with("theme.wav", wav()));
+        let stream = ctx.load_stream("theme.wav");
+        assert_eq!(ctx.watcher.watched(), 0, "streams are not watched");
+        let sound = ctx.load_sound("theme.wav");
+        assert_ne!(stream, sound);
+        let origin = assets::Origin::Source {
+            source: "mem".into(),
+            name: "theme.wav".into(),
+        };
+        assert!(ctx.loaded.contains_key(&(origin.clone(), AssetKind::Stream)));
+        assert!(ctx.loaded.contains_key(&(origin, AssetKind::Sound)));
+        // Freeing the stream forgets it: loading again makes a new one.
+        ctx.free(stream);
+        assert_ne!(ctx.load_stream("theme.wav"), stream);
+        assert_eq!(ctx.load_sound("theme.wav"), sound);
     }
 
     #[cfg(feature = "3d")]

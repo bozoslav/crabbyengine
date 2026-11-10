@@ -19,6 +19,7 @@
 
 #![warn(missing_docs)]
 
+mod access;
 mod actions;
 mod animator;
 mod attach;
@@ -44,8 +45,10 @@ mod physics3d_stream;
 mod ragdoll;
 mod reflect;
 mod replicate;
+mod residency;
 mod resources;
 mod scene;
+mod shader_status;
 mod skin;
 mod steam;
 mod steam_lobby;
@@ -53,11 +56,14 @@ mod stream;
 mod strips;
 mod text3d;
 mod three;
+// After `three`: it uses the quality struct, which the header defines there.
+mod gpu;
 mod tiles;
 mod types;
 mod ui_panel3d;
 mod ui_retained;
 mod vehicle3d;
+pub use access::*;
 pub use actions::*;
 pub use animator::*;
 /// Counts the library's heap allocations while profiling is on (one atomic
@@ -74,6 +80,7 @@ pub use contacts3d::*;
 pub use ctx::*;
 pub use flow::*;
 pub use game::*;
+pub use gpu::*;
 pub use grid::*;
 pub use handles::*;
 pub use keys::*;
@@ -90,8 +97,10 @@ pub use physics3d_stream::*;
 pub use ragdoll::*;
 pub use reflect::*;
 pub use replicate::*;
+pub use residency::*;
 pub use resources::*;
 pub use scene::*;
+pub use shader_status::*;
 pub use skin::*;
 pub use steam::*;
 pub use steam_lobby::*;

@@ -35,7 +35,7 @@ mod timer;
 #[cfg(feature = "window")]
 pub(crate) mod traffic;
 
-pub use capabilities::{GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits};
+pub use capabilities::{GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuTier};
 #[cfg(feature = "window")]
 pub(crate) use gpu::Renderer;
 #[cfg(all(feature = "window", feature = "3d"))]
@@ -250,6 +250,8 @@ mod render_test_support;
 mod shadow_cache_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod shafts_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod single_sample_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod skin_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
