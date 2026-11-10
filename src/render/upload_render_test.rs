@@ -501,9 +501,14 @@ fn slide(rig: &mut Rig, cubes: &[Entity], count: usize, step: usize) {
 fn moving_models_upload_only_the_changed_parts_of_their_motion() {
     // The same scene and moves, with temporal antialiasing (which draws
     // the moved models' motion) and without: the difference is the motion.
+    // Motion records exist only for temporal antialiasing: a tier without
+    // it (webgl2) draws no motion, so there is nothing to measure.
     let uploads = |taa: bool| -> Option<GpuUploads> {
         let (mut rig, cubes) = scene(16)?;
         if taa {
+            if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+                return None;
+            }
             rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
         }
         let c = steady(&mut rig, 4, 6, |rig, i| slide(rig, &cubes, 8, i));
@@ -512,9 +517,8 @@ fn moving_models_upload_only_the_changed_parts_of_their_motion() {
         }
         Some(c)
     };
-    let (Some(with), Some(without)) = (uploads(true), uploads(false)) else {
-        return;
-    };
+    let Some(with) = uploads(true) else { return };
+    let Some(without) = uploads(false) else { return };
     let motion = with.instances - without.instances;
     eprintln!("8 of 256 models sliding: {motion} bytes of motion records ({with:?})");
     // A record is 144 bytes: the instance and last frame's matrix. A model

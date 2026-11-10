@@ -284,15 +284,19 @@ mod tests {
 
     /// The method names `handle` matches on, read from its source.
     fn handled_methods() -> Vec<&'static str> {
-        let source = include_str!("../control.rs");
-        let body = &source[source.find("pub(crate) fn handle(").expect("handle in control.rs")..];
-        let body = &body[..body.find("\n}\n").expect("end of handle")];
-        body.lines()
+        // Line by line, so a checkout with CRLF endings (Windows) reads the
+        // same: from the `handle` line to the first line that is just `}`.
+        let methods: Vec<_> = include_str!("../control.rs")
+            .lines()
+            .skip_while(|line| !line.starts_with("pub(crate) fn handle("))
+            .take_while(|line| line.trim_end() != "}")
             .filter_map(|line| {
                 let (name, rest) = line.trim_start().strip_prefix('"')?.split_once('"')?;
                 rest.trim_start().starts_with("=>").then_some(name)
             })
-            .collect()
+            .collect();
+        assert!(!methods.is_empty(), "no methods found in control.rs's handle");
+        methods
     }
 
     #[test]

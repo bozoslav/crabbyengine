@@ -29,7 +29,16 @@ pub(super) struct GpuSkin {
     /// Without compute shaders: the rest pose, influences and offsets, on
     /// the CPU.
     cpu: Option<(Vec<Vertex>, Vec<Influence>, Vec<Delta>)>,
+    /// How many skin matrices its corners use (one past the highest joint
+    /// any corner weighs): the CPU path compares only those between frames.
+    joints: u32,
+    /// Tells it apart from every other skin made (also one made again under
+    /// the same mesh id), for the CPU path's comparison.
+    id: u64,
 }
+
+/// The next `GpuSkin::id`.
+static NEXT_SKIN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// One corner's offset in one morph target (6 words in skin.wgsl).
 #[repr(C)]
@@ -54,6 +63,11 @@ struct Slot {
     /// Its bind group, with the mesh and the `joints`/`weights` generation
     /// it was made for.
     group: Option<(u32, u64, wgpu::BindGroup)>,
+    /// CPU path: what `buffer` was last posed from (the skin's id, the skin
+    /// matrices its corners use, its morph weights). Posed from the same
+    /// again, it already holds the corners: nothing is uploaded, so a held
+    /// pose costs nothing on this path either.
+    posed: Option<(u64, Vec<glam::Mat4>, Vec<f32>)>,
 }
 
 #[repr(C)]
@@ -228,6 +242,17 @@ impl Skinning {
                 usage: wgpu::BufferUsages::STORAGE,
             });
         let targets = deltas.len().checked_div(vertices.len()).unwrap_or(0) as u32;
+        // As `blend_skin` reads them: a joint counts where its weight is
+        // above 0.
+        let joints = influences
+            .iter()
+            .flat_map(|i| {
+                (0..4)
+                    .filter(|&k| i.weights[k] > 0.0)
+                    .map(|k| u32::from(i.joints[k]) + 1)
+            })
+            .max()
+            .unwrap_or(0);
         let dummy = [Delta::default()];
         let delta_buffer = device
             .uploading(Upload::Skins)
@@ -241,6 +266,8 @@ impl Skinning {
             deltas: delta_buffer,
             count: vertices.len() as u32,
             targets,
+            joints,
+            id: NEXT_SKIN.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             cpu: self.pipeline.is_none().then(|| (vertices.to_vec(), influences, deltas)),
         }
     }
@@ -264,10 +291,12 @@ impl Skinning {
         }
         // Bind groups name the joints and weights: new ones need new groups.
         let matrices = skins.matrices.len().max(1);
-        if self.joints.reserve(device, matrices * 64) {
+        // Only the compute shader reads them (the CPU path poses from
+        // `skins`), and without it storage buffers may hold nothing at all.
+        if self.pipeline.is_some() && self.joints.reserve(device, matrices * 64) {
             self.generation += 1;
         }
-        if self.weights.reserve(device, skins.weights.len() * 4) {
+        if self.pipeline.is_some() && self.weights.reserve(device, skins.weights.len() * 4) {
             self.generation += 1;
         }
         if self.pipeline.is_some() && !skins.matrices.is_empty() {
@@ -312,12 +341,14 @@ impl Skinning {
                 buffer: slot_buffer(device, count.max(1), usage),
                 capacity: count.max(1),
                 group: None,
+                posed: None,
             });
             if slot.capacity < count {
                 slot.capacity = count.next_power_of_two();
                 traffic::reallocated();
                 slot.buffer = slot_buffer(device, slot.capacity, usage);
                 slot.group = None;
+                slot.posed = None;
             }
             let Some((rest, skin)) = mesh(d.mesh) else {
                 continue;
@@ -355,6 +386,12 @@ impl Skinning {
                         .weights
                         .get(d.morph_first as usize..(d.morph_first + p.morph_count) as usize)
                         .unwrap_or(&[]);
+                    // The posed corners depend only on these (joints past
+                    // the slice's end fall back to identity either way).
+                    let used = &skin_matrices[..(skin.joints as usize).min(skin_matrices.len())];
+                    if matches!(&slot.posed, Some((id, m, w)) if *id == skin.id && m[..] == *used && w[..] == *morph) {
+                        continue;
+                    }
                     let corners = vertices.len();
                     self.scratch.clear();
                     self.scratch
@@ -379,6 +416,12 @@ impl Skinning {
                     queue
                         .uploading(Upload::Skins)
                         .write_buffer(&slot.buffer, 0, bytemuck::cast_slice(&self.scratch));
+                    let (id, m, w) = slot.posed.get_or_insert_with(Default::default);
+                    *id = skin.id;
+                    m.clear();
+                    m.extend_from_slice(used);
+                    w.clear();
+                    w.extend_from_slice(morph);
                 }
                 (None, None) => {}
             }
@@ -577,6 +620,101 @@ mod tests {
                 (rest[i].uv, rest[i].color, rest[i].uv1)
             );
         }
+    }
+
+    /// Without compute shaders the CPU poses the corners: it uploads them
+    /// again only when what they're posed from changed (the skin, the skin
+    /// matrices its corners weigh, its morph weights), not every frame.
+    #[test]
+    fn the_cpu_fallback_uploads_a_pose_only_when_what_it_reads_changed() {
+        use glam::{Mat4, Vec3};
+        use wgpu::util::DeviceExt;
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
+            crate::render::render_test_support::no_gpu("no GPU adapter");
+            return;
+        };
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
+            return;
+        };
+        let skinning = &mut super::Skinning::new(&device, false);
+        let vertex = |p: [f32; 3]| super::Vertex {
+            position: p,
+            normal: [0.0, 0.0, 1.0],
+            uv: [0.0; 2],
+            color: [0; 4],
+            uv1: [0.0; 2],
+        };
+        let rest = [vertex([0.0; 3]), vertex([1.0, 0.0, 0.0]), vertex([0.0, 1.0, 0.0])];
+        // Joints 0 and 1 weigh; joint 2 is named with weight 0.
+        let joints = [[0u16, 2, 0, 0], [0, 1, 0, 0], [1, 0, 0, 0]];
+        let weights = [[1.0f32, 0.0, 0.0, 0.0], [0.5, 0.5, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]];
+        let one = |p: [f32; 3]| super::Delta {
+            position: p,
+            normal: [0.0; 3],
+        };
+        let deltas = vec![one([0.0; 3]), one([0.0, 2.0, 0.0]), one([0.0; 3])];
+        let made = |s: &super::Skinning| s.create(&device, &rest, &joints, &weights, deltas.clone());
+        let mut skin = made(skinning);
+        assert_eq!(skin.joints, 2);
+        let rest_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&rest),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let mut frame = crate::three::SkinFrame::default();
+        // Another model's matrix first, then this one's two and a third
+        // its corners don't weigh.
+        frame.matrices = vec![
+            Mat4::IDENTITY,
+            Mat4::IDENTITY,
+            Mat4::from_translation(Vec3::X),
+            Mat4::IDENTITY,
+        ];
+        frame.draws.push(crate::three::SkinDraw {
+            mesh: 0,
+            instance: Default::default(),
+            entity: 0,
+            matrix: Mat4::IDENTITY,
+            scale: 1.0,
+            bounds: (Vec3::ZERO, 1.0),
+            first: 1,
+            morph_first: 1,
+            morph_count: 1,
+            material: u32::MAX,
+            parts: (0, 0),
+        });
+        frame.weights = vec![9.0, 0.5];
+        let corners = (rest.len() * size_of::<super::Vertex>()) as u64;
+        let uploaded = |skinning: &mut super::Skinning, frame: &crate::three::SkinFrame, skin: &super::GpuSkin| {
+            crate::render::traffic::take();
+            skinning.prepare(&device, &queue, frame, |_| Some((&rest_buffer, skin)), |_| true);
+            crate::render::traffic::take().skins
+        };
+        assert_eq!(uploaded(skinning, &frame, &skin), corners, "first posed");
+        assert_eq!(uploaded(skinning, &frame, &skin), 0, "held");
+        frame.matrices[0] = Mat4::from_scale(Vec3::splat(9.0));
+        frame.matrices[3] = Mat4::from_scale(Vec3::splat(9.0));
+        frame.weights[0] = 1.0;
+        assert_eq!(
+            uploaded(skinning, &frame, &skin),
+            0,
+            "only matrices and weights it doesn't read changed"
+        );
+        frame.matrices[2] = Mat4::from_translation(Vec3::Y);
+        assert_eq!(uploaded(skinning, &frame, &skin), corners, "a joint it weighs moved");
+        frame.weights[1] = 0.25;
+        assert_eq!(uploaded(skinning, &frame, &skin), corners, "its morph weight changed");
+        assert_eq!(uploaded(skinning, &frame, &skin), 0, "held again");
+        skin = made(skinning);
+        assert_eq!(
+            uploaded(skinning, &frame, &skin),
+            corners,
+            "a skin made anew under the same mesh"
+        );
     }
 
     #[test]

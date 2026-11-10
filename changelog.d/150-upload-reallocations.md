@@ -20,6 +20,9 @@
   20,640 to 4,331, a panning camera from 17,498 to 4,994, and 2,000 still
   particles with 8 lines from 113,440 to 80. See the guide's "What a
   frame sends the GPU".
+- On GPUs without compute shaders (WebGL2), where skinned and morphed
+  meshes are posed on the CPU, a model whose pose and morph weights didn't
+  change is no longer posed and uploaded again every frame.
 - A buffer whose changes can be scattered (models, sprites, particles,
   skeletons) takes at most 16 writes a frame, since every write costs a
   staging buffer of its own: with every 17th of 1,024 models and every

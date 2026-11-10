@@ -321,14 +321,13 @@ fn draw_bent(morph: bool, mixed: bool, downlevel: bool, grow: bool) {
     assert!(!lit(&bent, &ctx, above), "bent, nothing stands above");
     assert!(lit(&bent, &ctx, beside), "bent, the top half points left");
 
-    // Held, the pose isn't uploaded again (on the GPU path: the CPU
-    // fallback poses the corners itself, every frame).
+    // Held, the pose isn't uploaded again: on the compute path nothing
+    // changed in the matrices or weights, and the CPU fallback (no compute
+    // shaders: `downlevel`, or a forced tier) keeps the corners it posed.
     crate::render::traffic::take();
     assert_eq!(draw(&mut ctx), bent);
     let held = crate::render::traffic::take();
-    if !downlevel {
-        assert_eq!(held.skins, 0, "a held pose: {held:?}");
-    }
+    assert_eq!(held.skins, 0, "a held pose: {held:?}");
     // Back at rest: what changed is uploaded, and draws as at first.
     if morph {
         ctx.world.get_mut::<MorphWeights>(entity).unwrap().set(0, 0.0);
