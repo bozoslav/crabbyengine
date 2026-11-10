@@ -26,6 +26,11 @@ use crate::reflect::{Field, FieldType};
 /// `{"Optional":"String"}`, or `{"Object":[["hp","Number"]]}`.
 /// This metadata encoding is distinct from the JSON Schema returned by discovery.
 ///
+/// Each variant has a constructor of the same name: [`object`](Self::object),
+/// [`strict_object`](Self::strict_object), [`enum_of`](Self::enum_of),
+/// [`any_of`](Self::any_of), [`array`](Self::array) and
+/// [`optional`](Self::optional).
+///
 /// ```
 /// use ponko::*;
 ///
@@ -44,8 +49,9 @@ pub enum ValueSchema {
     Null,
     /// A fixed-length sequence of possibly different shapes.
     Tuple(Vec<ValueSchema>),
-    /// Any one of these shapes.
-    OneOf(Vec<ValueSchema>),
+    /// Any one of these shapes (JSON Schema's `anyOf`), like the variants
+    /// of an enum that carry data.
+    AnyOf(Vec<ValueSchema>),
     /// `true` or `false`.
     Bool,
     /// A whole number.
@@ -64,14 +70,20 @@ pub enum ValueSchema {
     Vec3,
     /// `{ "r", "g", "b", "a" }`, like [`Color`](crate::Color).
     Color,
-    /// One of these strings (a fieldless enum).
+    /// One of these strings (a fieldless enum, or the fieldless variants of
+    /// one).
     Enum(Vec<String>),
     /// A list of values of one shape.
     Array(Box<ValueSchema>),
     /// The value, or `null`.
     Optional(Box<ValueSchema>),
-    /// An object with these fields, in order.
+    /// An object with these fields, in order. Every field that isn't
+    /// [`Optional`](Self::Optional) is `required` in the JSON Schema.
     Object(Vec<(String, ValueSchema)>),
+    /// An [`Object`](Self::Object) whose type refuses fields it doesn't
+    /// have (`#[serde(deny_unknown_fields)]`, or the one-key object of an
+    /// enum variant): its JSON Schema has `"additionalProperties": false`.
+    StrictObject(Vec<(String, ValueSchema)>),
 }
 
 impl ValueSchema {
@@ -80,9 +92,20 @@ impl ValueSchema {
         Self::Object(fields.into_iter().map(|(n, s)| (n.into(), s)).collect())
     }
 
-    /// One of these strings.
-    pub fn one_of<N: Into<String>>(names: impl IntoIterator<Item = N>) -> Self {
+    /// A [`StrictObject`](Self::StrictObject) with these fields.
+    pub fn strict_object<N: Into<String>>(fields: impl IntoIterator<Item = (N, ValueSchema)>) -> Self {
+        Self::StrictObject(fields.into_iter().map(|(n, s)| (n.into(), s)).collect())
+    }
+
+    /// One of these strings: an [`Enum`](Self::Enum).
+    pub fn enum_of<N: Into<String>>(names: impl IntoIterator<Item = N>) -> Self {
         Self::Enum(names.into_iter().map(Into::into).collect())
+    }
+
+    /// Any one of these shapes: an [`AnyOf`](Self::AnyOf).
+    #[must_use]
+    pub fn any_of(schemas: impl IntoIterator<Item = ValueSchema>) -> Self {
+        Self::AnyOf(schemas.into_iter().collect())
     }
 
     /// A list of `item`.
@@ -108,7 +131,7 @@ impl ValueSchema {
             Self::Tuple(items) => {
                 json!({"type": "array", "prefixItems": items.iter().map(Self::to_json_schema).collect::<Vec<_>>(), "minItems": items.len(), "maxItems": items.len()})
             }
-            Self::OneOf(items) => json!({"anyOf": items.iter().map(Self::to_json_schema).collect::<Vec<_>>()}),
+            Self::AnyOf(items) => json!({"anyOf": items.iter().map(Self::to_json_schema).collect::<Vec<_>>()}),
             Self::Opaque => json!({ "x-ponko-opaque": true }),
             Self::Bool => json!({ "type": "boolean" }),
             Self::Integer => json!({ "type": "integer" }),
@@ -122,12 +145,27 @@ impl ValueSchema {
             Self::Enum(names) => json!({ "type": "string", "enum": names }),
             Self::Array(item) => json!({ "type": "array", "items": item.to_json_schema() }),
             Self::Optional(inner) => json!({ "anyOf": [inner.to_json_schema(), { "type": "null" }] }),
-            Self::Object(fields) => {
-                let props: serde_json::Map<String, Value> =
-                    fields.iter().map(|(n, s)| (n.clone(), s.to_json_schema())).collect();
-                json!({ "type": "object", "properties": props })
+            Self::Object(fields) => Self::object_schema(fields),
+            Self::StrictObject(fields) => {
+                let mut schema = Self::object_schema(fields);
+                schema["additionalProperties"] = json!(false);
+                schema
             }
         }
+    }
+
+    /// An object's JSON Schema: its properties, and the ones that aren't
+    /// optional as `required` (which also tells the one-key objects of
+    /// enum variants apart).
+    fn object_schema(fields: &[(String, ValueSchema)]) -> Value {
+        let props: serde_json::Map<String, Value> =
+            fields.iter().map(|(n, s)| (n.clone(), s.to_json_schema())).collect();
+        let required: Vec<&str> = fields
+            .iter()
+            .filter(|(_, s)| !matches!(s, Self::Optional(_)))
+            .map(|(n, _)| n.as_str())
+            .collect();
+        json!({ "type": "object", "properties": props, "required": required })
     }
 
     /// The schema of a component or resource described by `fields`.
@@ -189,7 +227,7 @@ mod tests {
         let s = ValueSchema::object([
             ("tags", ValueSchema::array(ValueSchema::String)),
             ("target", ValueSchema::optional(ValueSchema::Entity)),
-            ("team", ValueSchema::one_of(["Red", "Blue"])),
+            ("team", ValueSchema::enum_of(["Red", "Blue"])),
             ("extra", ValueSchema::Opaque),
         ]);
         let j = s.to_json_schema();
@@ -197,6 +235,55 @@ mod tests {
         assert_eq!(j["properties"]["target"]["anyOf"][1]["type"], "null");
         assert_eq!(j["properties"]["team"]["enum"], json!(["Red", "Blue"]));
         assert_eq!(j["properties"]["extra"]["x-ponko-opaque"], true);
+    }
+
+    #[test]
+    fn objects_list_their_required_fields_and_strict_ones_refuse_others() {
+        let open = ValueSchema::object([
+            ("hp", ValueSchema::Number),
+            ("label", ValueSchema::optional(ValueSchema::String)),
+        ]);
+        let j = open.to_json_schema();
+        assert_eq!(j["required"], json!(["hp"]), "optional fields may be left out");
+        assert!(j.get("additionalProperties").is_none(), "{j}");
+        let strict = ValueSchema::strict_object([("hp", ValueSchema::Number)]).to_json_schema();
+        assert_eq!(strict["required"], json!(["hp"]));
+        assert_eq!(strict["additionalProperties"], false);
+    }
+
+    #[test]
+    fn variants_of_an_enum_with_data_are_told_apart_by_their_required_key() {
+        let shape = ValueSchema::any_of([
+            ValueSchema::strict_object([("Circle", ValueSchema::object([("radius", ValueSchema::Number)]))]),
+            ValueSchema::strict_object([("Rect", ValueSchema::object([("size", ValueSchema::Vec2)]))]),
+        ]);
+        let j = shape.to_json_schema();
+        let options = j["anyOf"].as_array().unwrap();
+        assert_eq!(options[0]["required"], json!(["Circle"]));
+        assert_eq!(options[1]["required"], json!(["Rect"]));
+        assert!(options.iter().all(|o| o["additionalProperties"] == false));
+    }
+
+    #[test]
+    fn constructors_build_the_variant_of_their_name() {
+        assert_eq!(
+            ValueSchema::enum_of(["A", "B"]),
+            ValueSchema::Enum(vec!["A".into(), "B".into()])
+        );
+        assert_eq!(
+            ValueSchema::any_of([ValueSchema::Null, ValueSchema::Bool]),
+            ValueSchema::AnyOf(vec![ValueSchema::Null, ValueSchema::Bool])
+        );
+        assert_eq!(
+            ValueSchema::strict_object([("a", ValueSchema::Bool)]),
+            ValueSchema::StrictObject(vec![("a".into(), ValueSchema::Bool)])
+        );
+        // The encoding C and C++ describe types with uses the variant names.
+        let encoded: ValueSchema = serde_json::from_str(r#"{"AnyOf":["Null",{"Enum":["A"]}]}"#).unwrap();
+        assert_eq!(
+            encoded,
+            ValueSchema::any_of([ValueSchema::Null, ValueSchema::enum_of(["A"])])
+        );
     }
 
     #[test]

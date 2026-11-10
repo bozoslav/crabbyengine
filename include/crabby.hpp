@@ -1345,15 +1345,6 @@ public:
     std::uint64_t changes_since() const { valid(); std::uint64_t tick = 0; detail::check(crabby_world_changes_since(raw_, &tick)); return tick; }
     void set_changes_since(std::uint64_t tick) { valid(); detail::check(crabby_world_set_changes_since(raw_, tick)); }
 
-    /// Opt-in discovery metadata, encoded as Rust ValueSchema JSON.
-    void describe_component(const char* name, const char* schema) {
-        valid();
-        detail::check(crabby_world_describe_component(raw_, name, schema));
-    }
-    void describe_resource(const char* name, const char* schema) {
-        valid();
-        detail::check(crabby_world_describe_resource(raw_, name, schema));
-    }
     // ---- reflection and saves ----
     /// Describes `T`'s fields, so tools and agents can read and write it as
     /// JSON (`ponko-mcp`) and `save()` includes it. It's saved under its
@@ -1389,6 +1380,20 @@ public:
     /// Replaces every entity with those in `json` (from save()), with the
     /// same ids. On error (an exception) the world is unchanged.
     void load(const std::string& json) { valid(); detail::check(crabby_world_load(raw_, json.c_str())); }
+
+    /// Describes reflected component `name`'s JSON shape for discovery (the
+    /// `capabilities` answer, see ctx::capabilities_json), encoded as Rust's
+    /// ValueSchema: `{"Object":[["hp","Number"]]}`. Throws for invalid JSON or
+    /// a name that isn't reflected; saving and loading don't change.
+    void describe_component(const char* name, const char* schema) {
+        valid();
+        detail::check(crabby_world_describe_component(raw_, name, schema));
+    }
+    /// describe_component() for reflected resource `name`.
+    void describe_resource(const char* name, const char* schema) {
+        valid();
+        detail::check(crabby_world_describe_resource(raw_, name, schema));
+    }
 
     // ---- the rest ----
     /// Gives `e` an empty `width` x `height` tilemap (its Transform2D is the top-left).
@@ -3197,6 +3202,12 @@ public:
     /// shader_status() as JSON, as the `shaders.status` control method returns it.
     std::string shader_status_json() const {
         return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_json(raw_, b, c, n); });
+    }
+    /// What this running game can do, as JSON: the control endpoint's
+    /// `capabilities` answer (features, mode, subsystems, methods, and every
+    /// reflected type with its described schema). Reading it changes nothing.
+    std::string capabilities_json() const {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_capabilities_json(raw_, b, c, n); });
     }
     crabby::shader load_shader(const char* path) { crabby::shader x{}; detail::check(crabby_ctx_load_shader(raw_, path, &x)); return x; }
     /// Makes a material shader from WGSL source; `name` is for error messages.

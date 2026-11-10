@@ -242,8 +242,12 @@ Names must already be reflected. The schema string encodes Rust's `ValueSchema`,
 for example `{"Object":[["hp","Number"],["label",{"Optional":"String"}]]}`.
 Scalar names include `Bool`, `Integer`, `Unsigned`, `Number`, `String`, `Entity`,
 `Vec2`, `Vec3`, `Color`, `Null`, and `Opaque`. Containers are `Object` (ordered
-name/schema pairs), `Array`, `Optional`, `Tuple` (an array of schemas), `OneOf`
-(alternative schemas), and `Enum` (string values). Invalid JSON or an unknown
+name/schema pairs), `StrictObject` (an object that refuses other fields),
+`Array`, `Optional`, `Tuple` (an array of schemas), `AnyOf` (alternative
+schemas), and `Enum` (string values). Invalid JSON or an unknown
 reflected name returns an error without replacing existing metadata. Describing
 again replaces metadata only: serialization and field registration are unchanged.
-The native `capability_schema.c` and `.cpp` tests compile and exercise both APIs.
+A running game reads its own `capabilities` answer with
+`ponko_ctx_capabilities_json(ctx, buffer, capacity, &len)` in C and
+`ctx.capabilities_json()` in C++; the native tests check that a description
+made from C and from C++ shows up there.

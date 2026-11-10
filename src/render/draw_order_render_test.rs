@@ -11,6 +11,25 @@ use crate::*;
 
 const SIZE: u32 = 256;
 
+/// The most pixels, and the most levels in any channel, by which two
+/// frames drawn from the same work may differ (see `Rig::assert_same_frame`).
+const NOISE_PIXELS: usize = 16;
+const NOISE_LEVELS: u8 = 8;
+
+/// A settled frame's pixels (RGBA), and what the renderer handed the GPU
+/// for it (see `Renderer3D::frame_inputs`).
+struct Settled {
+    pixels: Vec<u8>,
+    inputs: Vec<(&'static str, Vec<u8>)>,
+}
+
+impl std::ops::Deref for Settled {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        &self.pixels
+    }
+}
+
 /// An offscreen renderer with a 1x1 white texture, and a `Ctx` to fill.
 struct Rig {
     device: wgpu::Device,
@@ -155,28 +174,23 @@ impl Rig {
         assert!(errors.is_empty(), "{what}: the GPU failed: {errors:?}");
     }
 
-    /// Asserts that two frames are identical; on a mismatch, says how many
-    /// pixels differ and how many of each are black (a lost or failed
-    /// frame), instead of printing every byte.
-    fn assert_same_frame(&self, a: &[u8], b: &[u8], what: &str) {
+    /// Asserts that two settled frames draw the same picture.
+    ///
+    /// `repeat`: nothing changed between them, so the renderer handed the GPU
+    /// byte for byte the same work (runs, instances, uniforms, kept shadow
+    /// views and the shadow map it holds); that is checked exactly. The
+    /// pixels must then match too, except for GPU noise: drawing the same
+    /// work twice, this GPU has been seen to return a frame a few levels off
+    /// in a few pixels (at most 9 pixels by at most 5 levels, in about one of
+    /// fifty runs, only with other GPU tests running at once), with every
+    /// input above identical. An order mistake changes whole surfaces
+    /// (hundreds of pixels by tens of levels), so up to [`NOISE_PIXELS`]
+    /// pixels within [`NOISE_LEVELS`] are let through, and logged. On a
+    /// failure it says how many pixels differ, where, how many of each are
+    /// black (a lost or failed frame), and which inputs differed.
+    fn assert_same_frame(&self, a: &Settled, b: &Settled, what: &str, repeat: bool) {
         self.assert_healthy(what);
-        if a == b {
-            return;
-        }
-        let black = |p: &[u8]| p.as_chunks::<4>().0.iter().filter(|p| p[..3] == [0, 0, 0]).count();
-        let differ = a
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .zip(b.as_chunks::<4>().0)
-            .filter(|(p, q)| p != q)
-            .count();
-        panic!(
-            "{what}: {differ} of {} pixels differ; black pixels: {} in the first frame, {} in the second",
-            a.len() / 4,
-            black(a),
-            black(b)
-        );
+        assert_same_frame(a, b, what, repeat);
     }
 
     /// A material on the CPU and the GPU.
@@ -258,7 +272,7 @@ impl Rig {
 
     /// A frame once the scene has settled (cached shadow cascades, temporal
     /// effects), with the state changes it took.
-    fn settled(&mut self, group_draws: bool) -> (Vec<u8>, StateChanges) {
+    fn settled(&mut self, group_draws: bool) -> (Settled, StateChanges) {
         self.renderer.group_draws = group_draws;
         for _ in 0..3 {
             self.render();
@@ -268,7 +282,10 @@ impl Rig {
         // A differing frame is not a skipped upload: the buffers hold what
         // their mirrors say.
         self.renderer.check_mirrors(&self.device, &self.queue);
-        (pixels, self.renderer.take_state_changes())
+        let mut inputs = self.renderer.frame_inputs();
+        let shadows = self.renderer.shadow_map_bytes(&self.device, &self.queue);
+        inputs.push(("shadow map (as the GPU holds it)", shadows));
+        (Settled { pixels, inputs }, self.renderer.take_state_changes())
     }
 
     fn read(&self) -> Vec<u8> {
@@ -296,6 +313,58 @@ impl Rig {
         self.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         readback.get_mapped_range(..).unwrap().to_vec()
     }
+}
+
+/// See `Rig::assert_same_frame`.
+fn assert_same_frame(a: &Settled, b: &Settled, what: &str, repeat: bool) {
+    let inputs: Vec<&str> = a
+        .inputs
+        .iter()
+        .zip(&b.inputs)
+        .filter(|(x, y)| x.1 != y.1)
+        .map(|(x, _)| x.0)
+        .collect();
+    assert!(
+        !repeat || inputs.is_empty(),
+        "{what}: the renderer handed the GPU different work for the same scene: {inputs:?}"
+    );
+    let (a, b) = (&a.pixels, &b.pixels);
+    if a == b {
+        return;
+    }
+    let black = |p: &[u8]| p.as_chunks::<4>().0.iter().filter(|p| p[..3] == [0, 0, 0]).count();
+    let changed: Vec<(usize, [u8; 4], [u8; 4])> = a
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(b.as_chunks::<4>().0)
+        .enumerate()
+        .filter(|(_, (p, q))| p != q)
+        .map(|(i, (p, q))| (i, *p, *q))
+        .collect();
+    let most = changed
+        .iter()
+        .flat_map(|(_, p, q)| p.iter().zip(q).map(|(x, y)| x.abs_diff(*y)))
+        .max()
+        .unwrap_or(0);
+    // Where and by how much, for the first few: a stray edge sample, a
+    // shadow edge or a whole object tell different stories.
+    let first: Vec<String> = changed
+        .iter()
+        .take(8)
+        .map(|(i, p, q)| format!("({}, {}): {p:?} -> {q:?}", *i as u32 % SIZE, *i as u32 / SIZE))
+        .collect();
+    let report = format!(
+        "{what}: {} of {} pixels differ, by up to {most} levels ({}); black pixels: {} in the first frame, \
+         {} in the second; renderer inputs that differ: {inputs:?}",
+        changed.len(),
+        a.len() / 4,
+        first.join(", "),
+        black(a),
+        black(b)
+    );
+    assert!(changed.len() <= NOISE_PIXELS && most <= NOISE_LEVELS, "{report}");
+    eprintln!("GPU noise, let through: {report}");
 }
 
 /// Built-in and custom shaders, solid, cut-out, double-sided and
@@ -399,6 +468,7 @@ fn sorted_runs_draw_the_same_pixels_with_fewer_state_changes() {
             &before,
             &again,
             &format!("a settled frame repeats (prepass {solid_prepass})"),
+            true,
         );
         let (after, sorted) = rig.settled(true);
         eprintln!("prepass {solid_prepass}: mesh order {unsorted:?}, sorted {sorted:?}");
@@ -409,9 +479,12 @@ fn sorted_runs_draw_the_same_pixels_with_fewer_state_changes() {
             .filter(|p| p[0] > 20 || p[1] > 20)
             .count();
         assert!(lit > (SIZE * SIZE / 2) as usize, "the scene fills the view ({lit} lit)");
-        let differ = before.iter().zip(&after).filter(|(a, b)| a != b).count();
-        rig.assert_healthy("sorted runs");
-        assert_eq!(differ, 0, "the same pixels (prepass {solid_prepass})");
+        rig.assert_same_frame(
+            &before,
+            &after,
+            &format!("the same pixels (prepass {solid_prepass})"),
+            false,
+        );
         assert_eq!(sorted.draws, unsorted.draws, "the same draws");
         assert!(
             sorted.pipelines * 2 < unsorted.pipelines,
@@ -439,7 +512,7 @@ fn a_one_material_scene_draws_as_before() {
     rig.ctx.camera3d.look_at(Vec3::ZERO);
     let (before, unsorted) = rig.settled(false);
     let (after, sorted) = rig.settled(true);
-    rig.assert_same_frame(&before, &after, "sorted and unsorted runs");
+    rig.assert_same_frame(&before, &after, "sorted and unsorted runs", false);
     assert_eq!(sorted, unsorted);
 }
 
@@ -566,9 +639,12 @@ fn sorted_runs_draw_model_material_overrides_the_same() {
         let (before, unsorted) = rig.settled(false);
         let (after, sorted) = rig.settled(true);
         eprintln!("prepass {solid_prepass}: mesh order {unsorted:?}, sorted {sorted:?}");
-        let differ = before.iter().zip(&after).filter(|(a, b)| a != b).count();
-        rig.assert_healthy("sorted runs");
-        assert_eq!(differ, 0, "the same pixels (prepass {solid_prepass})");
+        rig.assert_same_frame(
+            &before,
+            &after,
+            &format!("the same pixels (prepass {solid_prepass})"),
+            false,
+        );
         assert_eq!(sorted.draws, unsorted.draws, "the same draws");
         // Overridden runs sort by the material they draw with, not the
         // mesh's own.
@@ -582,7 +658,44 @@ fn sorted_runs_draw_model_material_overrides_the_same() {
             rig.ctx.world.remove::<ModelMaterial>(e);
         }
         let (plain, _) = rig.settled(true);
-        let changed = plain.iter().zip(&after).filter(|(a, b)| a != b).count();
+        let changed = plain.iter().zip(after.iter()).filter(|(a, b)| a != b).count();
         assert!(changed > 1000, "the overrides are drawn ({changed} bytes differ)");
     }
+}
+
+/// A frame of `SIZE` pixels, all `rgba`, with the same inputs as any other.
+fn flat(rgba: [u8; 4]) -> Settled {
+    Settled {
+        pixels: rgba.repeat((SIZE * SIZE) as usize),
+        inputs: vec![("runs", vec![1, 2, 3])],
+    }
+}
+
+#[test]
+fn frames_differing_by_gpu_noise_pass_and_by_more_fail() {
+    let base = flat([100, 50, 25, 255]);
+    let mut noise = flat([100, 50, 25, 255]);
+    for i in 0..NOISE_PIXELS {
+        noise.pixels[i * 4 * 97] += NOISE_LEVELS;
+    }
+    assert_same_frame(&base, &noise, "noise", true);
+    // Negative controls: one pixel too many, one level too far, or other work.
+    let mut spread = flat([100, 50, 25, 255]);
+    for i in 0..=NOISE_PIXELS {
+        spread.pixels[i * 4 * 97] += 1;
+    }
+    let mut far = flat([100, 50, 25, 255]);
+    far.pixels[0] += NOISE_LEVELS + 1;
+    let mut other = flat([100, 50, 25, 255]);
+    other.inputs[0].1.push(4);
+    for (frame, repeat, what) in [
+        (&spread, false, "spread"),
+        (&far, false, "far"),
+        (&other, true, "other work"),
+    ] {
+        let failed = std::panic::catch_unwind(|| assert_same_frame(&base, frame, what, repeat)).is_err();
+        assert!(failed, "{what} passed");
+    }
+    // Sorted and unsorted runs differ in their inputs; only a repeat must not.
+    assert_same_frame(&base, &other, "sorted", false);
 }

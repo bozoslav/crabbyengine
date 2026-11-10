@@ -513,6 +513,11 @@ impl Synced {
 
 #[cfg(all(test, feature = "3d"))]
 impl Mirror {
+    /// What the buffer holds, as far as this mirror knows.
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
     /// Panics unless `buffer` holds, from `at`, what this mirror says it
     /// does: no write was skipped against contents it doesn't have.
     pub fn check(&self, device: &wgpu::Device, queue: &wgpu::Queue, buffer: &wgpu::Buffer, at: u64, what: &str) {

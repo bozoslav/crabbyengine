@@ -258,7 +258,7 @@ mod model_material_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod occlusion_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
-mod render_test_support;
+pub(crate) mod render_test_support;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod shadow_cache_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]

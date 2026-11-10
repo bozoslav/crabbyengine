@@ -2,7 +2,7 @@
 //! and world save/load.
 use std::ffi::{CStr, c_char};
 
-use crate::ctx::text;
+use crate::ctx::{ctx_access, text};
 use ponko::{Field, FieldType, WorldReflect};
 
 use crate::{CrabbyStatus, CrabbyWorld, Failure, access, boundary, component, invalid, invalid_owned};
@@ -306,5 +306,33 @@ pub unsafe extern "C" fn crabby_world_describe_resource(
                     .map_err(|e| invalid_owned(e.to_string()))
             })
         }
+    })
+}
+
+/// What this running game can do, as JSON: the control endpoint's
+/// `capabilities` answer (Rust `Ctx::capabilities_json`), including every
+/// reflected component and resource with the schema described for it.
+/// Writes into `buffer` as `crabby_ctx_perf_report` does: the length goes
+/// to `out_len`, and the text (NUL-terminated) only if it fits.
+/// # Safety
+/// `ctx` null or live; `buffer` holds `capacity` bytes (or is null with
+/// capacity 0); `out_len` writable.
+/// ```
+/// let mut len = 0usize;
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_capabilities_json(std::ptr::null(), std::ptr::null_mut(), 0, &mut len) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_capabilities_json(
+    ctx: *const crate::CrabbyCtx,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        crate::shader_status::text_output(buffer, capacity, out_len)?;
+        let json = ctx_access(ctx, |c| Ok(c.capabilities_json()))?;
+        crate::perf::write_text(buffer, capacity, out_len, &json);
+        Ok(())
     })
 }

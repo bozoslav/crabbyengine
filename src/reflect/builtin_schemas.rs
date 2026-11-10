@@ -1,5 +1,7 @@
 //! Explicit schemas for built-in serialization contracts. Never infer from sampled values.
-#![allow(dead_code)]
+//!
+//! Each one is checked against the type's real serialized JSON by
+//! `builtin_shapes_match_serialized_fields_and_value_types`.
 use crate::ValueSchema::{self, *};
 fn transform2d() -> ValueSchema {
     ValueSchema::object([("position", Vec2), ("rotation", Number), ("scale", Vec2)])
@@ -7,6 +9,7 @@ fn transform2d() -> ValueSchema {
 fn attached() -> ValueSchema {
     ValueSchema::object([("to", Entity), ("offset", Vec2), ("rotation", Number)])
 }
+#[cfg(feature = "3d")]
 fn transform3d() -> ValueSchema {
     ValueSchema::object([
         ("rotation", Tuple(vec![Number; 4])),
@@ -14,6 +17,7 @@ fn transform3d() -> ValueSchema {
         ("scale", Vec3),
     ])
 }
+#[cfg(feature = "3d")]
 fn pointlight3d() -> ValueSchema {
     ValueSchema::object([
         ("color", Color),
@@ -23,6 +27,7 @@ fn pointlight3d() -> ValueSchema {
         ("shadow_resolution", Unsigned),
     ])
 }
+#[cfg(feature = "3d")]
 fn spotlight3d() -> ValueSchema {
     ValueSchema::object([
         ("color", Color),
@@ -34,6 +39,7 @@ fn spotlight3d() -> ValueSchema {
         ("shadow_resolution", Unsigned),
     ])
 }
+#[cfg(feature = "3d")]
 fn decal3d() -> ValueSchema {
     ValueSchema::object([
         ("size", Vec3),
@@ -54,15 +60,22 @@ fn decal3d() -> ValueSchema {
         ("layers", Unsigned),
     ])
 }
+#[cfg(feature = "3d")]
 fn lodhysteresis() -> ValueSchema {
     Number
 }
+#[cfg(feature = "3d")]
 fn receivesdecals() -> ValueSchema {
     Unsigned
 }
+#[cfg(any(feature = "physics", feature = "physics3d"))]
+fn body_kind() -> ValueSchema {
+    ValueSchema::enum_of(["Dynamic", "Fixed", "Kinematic"])
+}
+#[cfg(feature = "physics")]
 fn rigidbody() -> ValueSchema {
     ValueSchema::object([
-        ("kind", ValueSchema::one_of(["Dynamic", "Fixed", "Kinematic"])),
+        ("kind", body_kind()),
         ("gravity_scale", Number),
         ("linear_damping", Number),
         ("angular_damping", Number),
@@ -70,6 +83,7 @@ fn rigidbody() -> ValueSchema {
         ("ccd", Bool),
     ])
 }
+#[cfg(feature = "physics")]
 fn collider() -> ValueSchema {
     ValueSchema::object([
         ("shape", shape2d()),
@@ -80,12 +94,14 @@ fn collider() -> ValueSchema {
         ("offset", Vec2),
     ])
 }
+#[cfg(feature = "physics")]
 fn velocity() -> ValueSchema {
     ValueSchema::object([("linear", Vec2), ("angular", Number)])
 }
+#[cfg(feature = "physics3d")]
 fn rigidbody3d() -> ValueSchema {
     ValueSchema::object([
-        ("kind", ValueSchema::one_of(["Dynamic", "Fixed", "Kinematic"])),
+        ("kind", body_kind()),
         ("dominance", Integer),
         ("gravity_scale", Number),
         ("linear_damping", Number),
@@ -96,6 +112,7 @@ fn rigidbody3d() -> ValueSchema {
         ("center_of_mass", ValueSchema::optional(Vec3)),
     ])
 }
+#[cfg(feature = "physics3d")]
 fn collider3d() -> ValueSchema {
     ValueSchema::object([
         ("shape", shape3d()),
@@ -107,9 +124,11 @@ fn collider3d() -> ValueSchema {
         ("groups", collisiongroups()),
     ])
 }
+#[cfg(feature = "physics3d")]
 fn velocity3d() -> ValueSchema {
     ValueSchema::object([("linear", Vec3), ("angular", Vec3)])
 }
+#[cfg(feature = "physics3d")]
 fn character3d() -> ValueSchema {
     ValueSchema::object([
         ("height", Number),
@@ -124,22 +143,26 @@ fn character3d() -> ValueSchema {
         ("grounded", Bool),
     ])
 }
+#[cfg(feature = "physics3d")]
 fn vehicle3d() -> ValueSchema {
     ValueSchema::object([
-        ("wheels", Tuple(vec![wheel3d(); 8])),
+        ("wheels", Tuple(vec![wheel3d(); crate::Vehicle3D::MAX_WHEELS])),
         ("wheel_count", Unsigned),
         ("groups", collisiongroups()),
     ])
 }
+#[cfg(feature = "physics3d")]
 fn colliderfocus() -> ValueSchema {
     ValueSchema::object([("radius", Number), ("keep_radius", Number)])
 }
 fn rect() -> ValueSchema {
     ValueSchema::object([("min", Vec2), ("max", Vec2)])
 }
+#[cfg(feature = "physics3d")]
 fn collisiongroups() -> ValueSchema {
     ValueSchema::object([("memberships", Unsigned), ("filter", Unsigned)])
 }
+#[cfg(feature = "physics3d")]
 fn wheel3d() -> ValueSchema {
     ValueSchema::object([
         ("position", Vec3),
@@ -170,6 +193,7 @@ fn wheel3d() -> ValueSchema {
         ("local_position", Vec3),
     ])
 }
+#[cfg(feature = "physics3d")]
 fn frictioncurve() -> ValueSchema {
     ValueSchema::object([
         ("extremum_slip", Number),
@@ -251,7 +275,7 @@ pub(super) fn builtin<T: 'static>() -> Option<ValueSchema> {
 }
 
 pub(super) fn sprite() -> ValueSchema {
-    ValueSchema::object([
+    ValueSchema::strict_object([
         ("texture", ValueSchema::optional(String)),
         ("color", Color),
         ("z", Number),
@@ -259,41 +283,57 @@ pub(super) fn sprite() -> ValueSchema {
         ("region", ValueSchema::optional(rect())),
     ])
 }
+#[cfg(feature = "3d")]
 pub(super) fn model() -> ValueSchema {
-    ValueSchema::object([("mesh", ValueSchema::optional(String)), ("color", Color)])
+    ValueSchema::strict_object([("mesh", ValueSchema::optional(String)), ("color", Color)])
 }
+#[cfg(feature = "3d")]
 pub(super) fn shadow() -> ValueSchema {
-    ValueSchema::object([("mesh", ValueSchema::optional(String))])
+    ValueSchema::strict_object([("mesh", ValueSchema::optional(String))])
 }
+/// A material of a loaded mesh file, by its name in the file or its number.
+#[cfg(feature = "3d")]
+fn file_material() -> ValueSchema {
+    ValueSchema::any_of([String, Unsigned])
+}
+#[cfg(feature = "3d")]
+pub(super) fn model_material() -> ValueSchema {
+    ValueSchema::strict_object([("mesh", String), ("material", file_material())])
+}
+#[cfg(feature = "3d")]
+pub(super) fn model_materials() -> ValueSchema {
+    ValueSchema::strict_object([(
+        "parts",
+        ValueSchema::array(ValueSchema::strict_object([
+            ("part", Unsigned),
+            ("mesh", String),
+            ("material", file_material()),
+        ])),
+    )])
+}
+#[cfg(feature = "3d")]
 pub(super) fn lod() -> ValueSchema {
-    ValueSchema::object([
+    let renderers = || {
+        ValueSchema::array(ValueSchema::strict_object([
+            ("mesh", ValueSchema::optional(String)),
+            ("offset", transform3d()),
+            ("color", Color),
+        ]))
+    };
+    ValueSchema::strict_object([
         ("size", Number),
         ("center", Vec3),
         (
             "levels",
-            ValueSchema::array(ValueSchema::object([
+            ValueSchema::array(ValueSchema::strict_object([
                 ("screen_height", Number),
                 ("fade_width", Number),
-                (
-                    "renderers",
-                    ValueSchema::array(ValueSchema::object([
-                        ("mesh", ValueSchema::optional(String)),
-                        ("offset", transform3d()),
-                        ("color", Color),
-                    ])),
-                ),
+                ("renderers", renderers()),
                 (
                     "shadow",
-                    OneOf(vec![
-                        ValueSchema::one_of(["Same"]),
-                        ValueSchema::object([(
-                            "Casters",
-                            ValueSchema::array(ValueSchema::object([
-                                ("mesh", ValueSchema::optional(String)),
-                                ("offset", transform3d()),
-                                ("color", Color),
-                            ])),
-                        )]),
+                    ValueSchema::any_of([
+                        ValueSchema::enum_of(["Same"]),
+                        ValueSchema::strict_object([("Casters", renderers())]),
                     ]),
                 ),
             ])),
@@ -301,27 +341,39 @@ pub(super) fn lod() -> ValueSchema {
     ])
 }
 
+#[cfg(feature = "physics")]
 fn shape2d() -> ValueSchema {
-    OneOf(vec![
-        ValueSchema::object([("Circle", ValueSchema::object([("radius", Number)]))]),
-        ValueSchema::object([("Rect", ValueSchema::object([("size", Vec2)]))]),
-        ValueSchema::object([("Capsule", ValueSchema::object([("height", Number), ("radius", Number)]))]),
-        ValueSchema::object([(
+    ValueSchema::any_of([
+        ValueSchema::strict_object([("Circle", ValueSchema::object([("radius", Number)]))]),
+        ValueSchema::strict_object([("Rect", ValueSchema::object([("size", Vec2)]))]),
+        ValueSchema::strict_object([("Capsule", ValueSchema::object([("height", Number), ("radius", Number)]))]),
+        ValueSchema::strict_object([(
             "Polygon",
-            ValueSchema::object([("points", Tuple(vec![Vec2; 8])), ("count", Unsigned)]),
+            ValueSchema::object([
+                ("points", Tuple(vec![Vec2; crate::MAX_POLYGON_POINTS])),
+                ("count", Unsigned),
+            ]),
         )]),
     ])
 }
+#[cfg(feature = "physics3d")]
 fn shape3d() -> ValueSchema {
-    OneOf(vec![
-        ValueSchema::object([("Sphere", ValueSchema::object([("radius", Number)]))]),
-        ValueSchema::object([("Cuboid", ValueSchema::object([("size", Vec3)]))]),
-        ValueSchema::object([("Capsule", ValueSchema::object([("height", Number), ("radius", Number)]))]),
-        ValueSchema::object([(
+    ValueSchema::any_of([
+        ValueSchema::strict_object([("Sphere", ValueSchema::object([("radius", Number)]))]),
+        ValueSchema::strict_object([("Cuboid", ValueSchema::object([("size", Vec3)]))]),
+        ValueSchema::strict_object([("Capsule", ValueSchema::object([("height", Number), ("radius", Number)]))]),
+        ValueSchema::strict_object([(
             "Mesh",
-            OneOf(vec![
+            ValueSchema::any_of([
+                // A handle made in code.
                 ValueSchema::object([("index", Unsigned), ("generation", Unsigned)]),
-                ValueSchema::object([("file", String), ("scale", Vec3), ("convex", Bool)]),
+                // A mesh file, as a scene names it (see `physics3d::files`):
+                // scale and convex may be left out.
+                ValueSchema::object([
+                    ("file", String),
+                    ("scale", ValueSchema::optional(Vec3)),
+                    ("convex", ValueSchema::optional(Bool)),
+                ]),
             ]),
         )]),
     ])
@@ -330,18 +382,23 @@ fn shape3d() -> ValueSchema {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn validate(schema: &ValueSchema, value: &serde_json::Value) {
+    use serde_json::{Value, json};
+
+    /// Panics unless `value` has exactly the shape `schema` describes: every
+    /// field present and of its type, no field more.
+    fn validate(schema: &ValueSchema, value: &Value) {
         match schema {
-            Object(fields) => {
-                let object = value.as_object().expect("object");
+            Object(fields) | StrictObject(fields) => {
+                let object = value.as_object().unwrap_or_else(|| panic!("object: {value}"));
                 assert_eq!(fields.len(), object.len(), "field drift: {value}");
                 for (name, shape) in fields {
-                    validate(shape, &object[name]);
+                    let field = object.get(name).unwrap_or_else(|| panic!("no `{name}` in {value}"));
+                    validate(shape, field);
                 }
             }
             Tuple(items) => {
                 let values = value.as_array().expect("tuple");
-                assert_eq!(items.len(), values.len());
+                assert_eq!(items.len(), values.len(), "tuple length: {value}");
                 for (s, v) in items.iter().zip(values) {
                     validate(s, v);
                 }
@@ -356,12 +413,12 @@ mod tests {
                     validate(item, value);
                 }
             }
-            Number => assert!(value.is_number()),
-            Integer => assert!(value.is_i64()),
-            Unsigned | Entity => assert!(value.is_u64()),
-            Bool => assert!(value.is_boolean()),
-            String => assert!(value.is_string()),
-            Enum(names) => assert!(names.iter().any(|s| value == s)),
+            Number => assert!(value.is_number(), "number: {value}"),
+            Integer => assert!(value.is_i64(), "integer: {value}"),
+            Unsigned | Entity => assert!(value.is_u64(), "unsigned: {value}"),
+            Bool => assert!(value.is_boolean(), "bool: {value}"),
+            String => assert!(value.is_string(), "string: {value}"),
+            Enum(names) => assert!(names.iter().any(|s| value == s), "{value} not in {names:?}"),
             Vec2 => validate(&Tuple(vec![Number; 2]), value),
             Vec3 => validate(&Tuple(vec![Number; 3]), value),
             Color => validate(
@@ -369,43 +426,131 @@ mod tests {
                 value,
             ),
             Null => assert!(value.is_null()),
-            OneOf(options) => {
+            AnyOf(options) => {
                 let selected = options
                     .iter()
                     .find(|s| match s {
-                        Object(fields) => value
-                            .as_object()
-                            .is_some_and(|o| fields.iter().all(|(n, _)| o.contains_key(n))),
+                        Object(fields) | StrictObject(fields) => value.as_object().is_some_and(|o| {
+                            fields
+                                .iter()
+                                .all(|(n, s)| o.contains_key(n) || matches!(s, Optional(_)))
+                        }),
                         Enum(names) => names.iter().any(|n| value == n),
+                        String => value.is_string(),
+                        Unsigned => value.is_u64(),
                         _ => false,
                     })
-                    .expect("known tagged variant");
+                    .unwrap_or_else(|| panic!("{value} matches none of {options:?}"));
                 validate(selected, value);
             }
             Opaque => panic!("built-in schema must describe every field"),
         }
     }
+
+    /// Whether `schema` has an `Optional` (anywhere inside it) that `value`
+    /// fills in, so both sides of every optional field get checked.
+    fn fills_an_optional(schema: &ValueSchema, value: &Value) -> bool {
+        match (schema, value) {
+            (Optional(_), v) => !v.is_null(),
+            (Object(fields) | StrictObject(fields), Value::Object(o)) => fields
+                .iter()
+                .any(|(n, s)| o.get(n).is_some_and(|v| fills_an_optional(s, v))),
+            (Array(item), Value::Array(values)) => values.iter().any(|v| fills_an_optional(item, v)),
+            (AnyOf(options), v) => options.iter().any(|s| fills_an_optional(s, v)),
+            _ => false,
+        }
+    }
+
+    fn json_of(value: impl serde::Serialize) -> Value {
+        serde_json::to_value(value).unwrap()
+    }
+
     #[test]
     fn builtin_shapes_match_serialized_fields_and_value_types() {
         macro_rules! check {
             ($t:ty, $value:expr) => {
-                validate(&builtin::<$t>().unwrap(), &serde_json::to_value($value).unwrap());
+                validate(&builtin::<$t>().unwrap(), &json_of($value));
             };
         }
-        validate(
-            &sprite(),
-            &serde_json::to_value(super::super::SpriteJson::default()).unwrap(),
-        );
+        use super::super::SpriteJson;
+        validate(&sprite(), &json_of(SpriteJson::default()));
+        let filled = SpriteJson {
+            texture: Some("hero.png".into()),
+            region: Some(crate::Rect {
+                min: glam::Vec2::ZERO,
+                max: glam::Vec2::ONE,
+            }),
+            ..SpriteJson::default()
+        };
+        assert!(fills_an_optional(&sprite(), &json_of(&filled)));
+        validate(&sprite(), &json_of(filled));
         #[cfg(feature = "3d")]
         {
-            validate(
-                &model(),
-                &serde_json::to_value(super::super::ModelJson::default()).unwrap(),
-            );
-            validate(
-                &shadow(),
-                &serde_json::to_value(super::super::ShadowMeshJson::default()).unwrap(),
-            );
+            use super::super::{
+                LodGroupJson, LodLevelJson, LodRendererJson, LodShadowJson, MaterialJson, MaterialRef, ModelJson,
+                ModelMaterialsJson, PartMaterialJson, ShadowMeshJson,
+            };
+            validate(&model(), &json_of(ModelJson::default()));
+            let model_with_mesh = ModelJson {
+                mesh: Some("rock.glb".into()),
+                ..ModelJson::default()
+            };
+            validate(&model(), &json_of(model_with_mesh));
+            validate(&shadow(), &json_of(ShadowMeshJson::default()));
+            let shadow_with_mesh = ShadowMeshJson {
+                mesh: Some("rock_low.glb".into()),
+            };
+            validate(&shadow(), &json_of(shadow_with_mesh));
+
+            let renderer = |mesh: Option<&str>| LodRendererJson {
+                mesh: mesh.map(Into::into),
+                ..LodRendererJson::default()
+            };
+            validate(&lod(), &json_of(LodGroupJson::default()));
+            let group = LodGroupJson {
+                levels: vec![
+                    LodLevelJson {
+                        screen_height: 0.5,
+                        renderers: vec![renderer(Some("tree.glb")), renderer(None)],
+                        ..LodLevelJson::default()
+                    },
+                    LodLevelJson {
+                        screen_height: 0.1,
+                        fade_width: 0.05,
+                        renderers: vec![renderer(Some("tree_low.glb"))],
+                        shadow: LodShadowJson::Casters(vec![renderer(Some("tree_card.glb"))]),
+                    },
+                ],
+                ..LodGroupJson::default()
+            };
+            let group = json_of(group);
+            assert_eq!(group["levels"][0]["shadow"], "Same");
+            assert!(group["levels"][1]["shadow"]["Casters"].is_array());
+            validate(&lod(), &group);
+
+            let by_name = || MaterialRef::Name("Wet".into());
+            for material in [by_name(), MaterialRef::Index(2)] {
+                let json = MaterialJson {
+                    mesh: "rocks.glb".into(),
+                    material,
+                };
+                validate(&model_material(), &json_of(json));
+            }
+            let parts = ModelMaterialsJson {
+                parts: vec![
+                    PartMaterialJson {
+                        part: 0,
+                        mesh: "door.glb".into(),
+                        material: by_name(),
+                    },
+                    PartMaterialJson {
+                        part: 1,
+                        mesh: "door.glb".into(),
+                        material: MaterialRef::Index(0),
+                    },
+                ],
+            };
+            validate(&model_materials(), &json_of(parts));
         }
         check!(crate::Transform2D, crate::Transform2D::default());
         check!(crate::Attached, crate::Attached::to(crate::Entity::from_bits(0)));
@@ -418,20 +563,106 @@ mod tests {
             check!(crate::ReceivesDecals, crate::ReceivesDecals::default());
             check!(crate::LodHysteresis, crate::LodHysteresis::default());
         }
+        #[cfg(any(feature = "physics", feature = "physics3d"))]
+        let kinds = [
+            crate::BodyKind::Dynamic,
+            crate::BodyKind::Fixed,
+            crate::BodyKind::Kinematic,
+        ];
         #[cfg(feature = "physics")]
         {
-            check!(crate::RigidBody, crate::RigidBody::default());
-            check!(crate::Collider, crate::Collider::circle(1.0));
+            for kind in kinds {
+                check!(
+                    crate::RigidBody,
+                    crate::RigidBody {
+                        kind,
+                        ..Default::default()
+                    }
+                );
+            }
+            use crate::{Collider, MAX_POLYGON_POINTS};
+            let v = glam::Vec2::new;
+            let most: Vec<_> = (0..MAX_POLYGON_POINTS)
+                .map(|i| v((i as f32).cos(), (i as f32).sin()))
+                .collect();
+            for collider in [
+                Collider::circle(1.0),
+                Collider::rect(v(2.0, 1.0)),
+                Collider::capsule(2.0, 0.5),
+                Collider::polygon(&[v(0.0, 0.0), v(1.0, 0.0), v(0.0, 1.0)]),
+                Collider::polygon(&most),
+            ] {
+                check!(Collider, collider);
+            }
+            let polygon = json_of(Collider::polygon(&most));
+            assert_eq!(
+                polygon["shape"]["Polygon"]["points"].as_array().unwrap().len(),
+                MAX_POLYGON_POINTS
+            );
             check!(crate::Velocity, crate::Velocity::default());
         }
         #[cfg(feature = "physics3d")]
         {
-            check!(crate::RigidBody3D, crate::RigidBody3D::default());
-            check!(crate::Collider3D, crate::Collider3D::sphere(1.0));
+            for kind in kinds {
+                check!(
+                    crate::RigidBody3D,
+                    crate::RigidBody3D {
+                        kind,
+                        ..Default::default()
+                    }
+                );
+            }
+            let body = crate::RigidBody3D {
+                mass: Some(2.0),
+                center_of_mass: Some(glam::Vec3::Y),
+                ..Default::default()
+            };
+            assert!(fills_an_optional(&rigidbody3d(), &json_of(body)));
+            check!(crate::RigidBody3D, body);
+            use crate::{Collider3D, CollisionMesh};
+            for collider in [
+                Collider3D::sphere(1.0),
+                Collider3D::cuboid(glam::Vec3::ONE),
+                Collider3D::capsule(2.0, 0.5),
+                Collider3D::mesh(CollisionMesh::default()),
+            ] {
+                check!(Collider3D, collider);
+            }
+            // A mesh made from a file is saved as that file's description.
+            let mut world = crate::World::new();
+            let mut files = super::super::ColliderFiles::default();
+            let file = json!({ "file": "rock.glb", "scale": [1.0, 2.0, 1.0], "convex": true });
+            files.by_mesh.insert(CollisionMesh::default(), file.clone());
+            world.insert_resource(files);
+            let saved = super::super::collider_json(&world, &Collider3D::mesh(CollisionMesh::default()))
+                .unwrap()
+                .unwrap();
+            assert_eq!(saved["shape"]["Mesh"], file);
+            validate(&collider3d(), &saved);
+            // A scene may leave scale and convex out: only the file is required.
+            let mesh = &collider3d().to_json_schema()["properties"]["shape"]["anyOf"][3];
+            let forms = &mesh["properties"]["Mesh"]["anyOf"];
+            assert_eq!(forms[1]["required"], json!(["file"]), "{forms}");
             check!(crate::Velocity3D, crate::Velocity3D::default());
             check!(crate::Character3D, crate::Character3D::default());
+            let vehicle = json_of(crate::Vehicle3D::default());
+            assert_eq!(
+                vehicle["wheels"].as_array().unwrap().len(),
+                crate::Vehicle3D::MAX_WHEELS
+            );
             check!(crate::Vehicle3D, crate::Vehicle3D::default());
             check!(crate::ColliderFocus, crate::ColliderFocus::default());
         }
+    }
+
+    #[test]
+    fn the_checker_rejects_drift() {
+        let schema = ValueSchema::object([("a", Number)]);
+        assert!(std::panic::catch_unwind(|| validate(&schema, &json!({ "a": 1, "b": 2 }))).is_err());
+        assert!(std::panic::catch_unwind(|| validate(&schema, &json!({ "a": "1" }))).is_err());
+        let polygon = Tuple(vec![Vec2; 2]);
+        assert!(std::panic::catch_unwind(|| validate(&polygon, &json!([[0, 0], [1, 1], [2, 2]]))).is_err());
+        let choice = ValueSchema::any_of([ValueSchema::strict_object([("Circle", Number)])]);
+        assert!(std::panic::catch_unwind(|| validate(&choice, &json!({ "Square": 1 }))).is_err());
     }
 }

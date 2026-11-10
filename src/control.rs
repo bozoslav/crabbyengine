@@ -822,6 +822,11 @@ fn usize_param(params: &Value, name: &str, default: usize) -> Result<usize, Stri
     }
 }
 
+/// The `capabilities` answer as JSON text (see `Ctx::capabilities_json`).
+pub(crate) fn capabilities_json(ctx: &Ctx) -> String {
+    capabilities::report(ctx).to_string()
+}
+
 pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Value, String> {
     let err = |e: crate::ReflectError| e.to_string();
     if let Some(reason) = capabilities::unavailable(ctx, method) {

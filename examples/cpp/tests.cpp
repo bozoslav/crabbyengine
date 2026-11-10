@@ -136,6 +136,21 @@ static void data_files() {
     std::filesystem::remove(file);
 }
 
+namespace game { struct Armor { float rating; }; }
+// A schema described from C++ is what the capabilities answer reports.
+static void described_schemas_reach_capabilities() {
+    ponko::game("described", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto world = ctx.world();
+        world.reflect<game::Armor>("DescribedInCpp", {ponko::field("rating", &game::Armor::rating)});
+        const auto before = ctx.capabilities_json();
+        CHECK(before.find("\"DescribedInCpp\"") != std::string::npos);
+        CHECK(before.find("\"MadeInCpp\"") == std::string::npos);
+        world.describe_component("DescribedInCpp", R"({"Object":[["rating","Number"],["kind",{"Enum":["MadeInCpp"]}]]})");
+        CHECK(ctx.capabilities_json().find("\"MadeInCpp\"") != std::string::npos);
+        throws([&] { world.describe_component("NotReflected", R"("Number")"); });
+    });
+}
+
 // Saved under the executable's assets/ copy (build output), so nothing to clean.
 static void scenes_and_prefabs() {
     ponko::entity first = 0;
@@ -2406,6 +2421,7 @@ int main() {
     names_and_reflection();
     resources();
     data_files();
+    described_schemas_reach_capabilities();
     scenes_and_prefabs();
     world_text();
     three_d();

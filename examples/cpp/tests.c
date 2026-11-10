@@ -90,6 +90,22 @@ static void setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_shader_status_text(ctx, shaders - 1, shader_text, sizeof shader_text, &shader_len) == PONKO_OK);
     CHECK(strncmp(shader_text, "broken.wgsl:3:12: error: ", 25) == 0);
     CHECK(ponko_ctx_shader_status_json(ctx, NULL, 0, &shader_len) == PONKO_OK && shader_len > 0);
+    /* A schema described from C is what the capabilities answer reports. */
+    PonkoWorld* described_world = ponko_ctx_world(ctx);
+    uint32_t described = 0;
+    CHECK(ponko_component_register(described_world, "DescribedInC", sizeof(float), _Alignof(float), &described) == PONKO_OK);
+    PonkoField described_hp = {"hp", PONKO_FIELD_F32, 0};
+    CHECK(ponko_component_reflect(described_world, described, &described_hp, 1) == PONKO_OK);
+    CHECK(ponko_world_describe_component(described_world, "DescribedInC",
+        "{\"Object\":[[\"hp\",\"Number\"],[\"team\",{\"Enum\":[\"MadeInC\"]}]]}") == PONKO_OK);
+    size_t caps_len = 0;
+    CHECK(ponko_ctx_capabilities_json(ctx, NULL, 0, &caps_len) == PONKO_OK && caps_len > 0);
+    char* caps = malloc(caps_len + 1);
+    CHECK(caps != NULL);
+    CHECK(ponko_ctx_capabilities_json(ctx, caps, caps_len + 1, &caps_len) == PONKO_OK);
+    CHECK(strstr(caps, "\"DescribedInC\"") != NULL && strstr(caps, "\"MadeInC\"") != NULL);
+    free(caps);
+    CHECK(ponko_ctx_capabilities_json(NULL, NULL, 0, &caps_len) == PONKO_INVALID_ARGUMENT);
     CHECK(ponko_ctx_shader_status(ctx, shaders, &shader_status) == PONKO_INVALID_ARGUMENT);
     /* Global illumination: off by default, its settings checked when on. */
     CHECK(!light.gi_enabled && light.gi_spacing == 2 && light.gi_probes_per_frame == 4);

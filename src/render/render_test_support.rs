@@ -59,7 +59,7 @@ use super::gpu::GpuTexture;
 use std::path::PathBuf;
 
 /// A device for one test, and what it runs on.
-pub(super) struct TestGpu {
+pub(crate) struct TestGpu {
     pub info: wgpu::AdapterInfo,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -129,7 +129,7 @@ pub(super) fn needs(device: &wgpu::Device, feature: crate::GpuFeature) -> bool {
 
 /// A device with default limits and no optional features, or `None` (the
 /// test returns early; see the module docs).
-pub(super) fn gpu() -> Option<TestGpu> {
+pub(crate) fn gpu() -> Option<TestGpu> {
     gpu_with(|_| Ok(wgpu::DeviceDescriptor::default()))
 }
 

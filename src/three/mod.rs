@@ -545,7 +545,8 @@ pub struct ModelMaterial(pub Material);
 /// Draws some parts of the entity's [`Model`] with other materials: the
 /// glass of one door, the paint of one car. A mesh's parts are numbered
 /// from 0 in the order it was made with: a loaded file's materials in the
-/// order they first appear, one part for [`Ctx::create_mesh`].
+/// order they first appear, one part for
+/// [`Graphics::create_mesh`](crate::Graphics::create_mesh).
 ///
 /// Parts that aren't listed keep the [`ModelMaterial`] if the entity has
 /// one, else the mesh's own material. A part number the mesh doesn't have

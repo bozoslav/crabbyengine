@@ -282,6 +282,58 @@ mod tests {
         }
     }
 
+    /// The method names `handle` matches on, read from its source.
+    fn handled_methods() -> Vec<&'static str> {
+        let source = include_str!("../control.rs");
+        let body = &source[source.find("pub(crate) fn handle(").expect("handle in control.rs")..];
+        let body = &body[..body.find("\n}\n").expect("end of handle")];
+        body.lines()
+            .filter_map(|line| {
+                let (name, rest) = line.trim_start().strip_prefix('"')?.split_once('"')?;
+                rest.trim_start().starts_with("=>").then_some(name)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_handled_method_is_listed_and_every_listed_one_handled() {
+        let handled = handled_methods();
+        assert!(handled.len() > 30, "the source scan found too few arms: {handled:?}");
+        for name in &handled {
+            assert!(
+                METHODS.iter().any(|(m, _)| m == name),
+                "`{name}` is handled but not in METHODS, so `methods` and `capabilities` don't list it"
+            );
+        }
+        for (name, _) in METHODS {
+            assert!(handled.contains(name), "`{name}` is listed but has no arm in handle");
+        }
+    }
+
+    #[test]
+    fn every_method_reported_available_answers_in_both_modes() {
+        for headless in [true, false] {
+            let mut ctx = ctx(headless);
+            let report = report(&ctx);
+            // In METHODS order: events.subscribe comes before events.take.
+            for m in report["methods"].as_array().unwrap() {
+                let name = m["name"].as_str().unwrap();
+                if m["available"] == false {
+                    continue;
+                }
+                let Err(e) = super::super::handle(&mut ctx, name, &json!({})) else {
+                    continue;
+                };
+                // A windowed screenshot is answered after the next frame.
+                let deferred = name == "screenshot" && !headless;
+                assert!(
+                    e.starts_with("missing param") || deferred,
+                    "{name} is reported available (headless: {headless}) but refused an empty call: {e}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn feature_list_matches_cargo_toml() {
         let toml = include_str!("../../Cargo.toml");

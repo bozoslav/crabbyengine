@@ -140,6 +140,13 @@ use crate::three::{Frame3D, MaterialOverride, Scene3D};
 use crate::three::{ShaderDiagnostic, ShaderKind};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+/// The usage the sun's shadow map adds in tests, so they can read it back
+/// (`Renderer3D::shadow_map_bytes`); otherwise none.
+const SHADOW_READBACK: wgpu::TextureUsages = if cfg!(test) {
+    wgpu::TextureUsages::COPY_SRC
+} else {
+    wgpu::TextureUsages::empty()
+};
 /// The lit frame before tone mapping: light brighter than white survives.
 pub(super) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// Samples per pixel: smooth edges.
@@ -975,6 +982,9 @@ pub(crate) struct Renderer3D {
     /// The sun's shadow map as made: its width and its layers (a 1x1 one
     /// without shadows).
     shadow_dims: (u32, u32),
+    /// The sun's shadow map, one layer per cascade (tests read it back).
+    #[cfg(test)]
+    shadow_map: wgpu::Texture,
     /// The width of the point and spot lights' shadow atlas, once made.
     light_shadow_dims: Option<u32>,
     /// The atlas, drawn into (each view into its tile); `None` until a
@@ -1461,7 +1471,7 @@ impl Renderer3D {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | SHADOW_READBACK,
             view_formats: &[],
         });
         let shadow_view = shadow_map.create_view(&wgpu::TextureViewDescriptor {
@@ -1848,6 +1858,8 @@ impl Renderer3D {
             cascades: 0,
             redrawn: 0,
             shadow_dims: (1, 1),
+            #[cfg(test)]
+            shadow_map: shadow_map.clone(),
             light_shadow_dims: None,
             light_atlas: None,
             light_tiles: Vec::new(),
@@ -2801,6 +2813,68 @@ impl Renderer3D {
             gi.check_mirrors(device, queue);
         }
         self.check_batch_mirrors(device, queue);
+    }
+
+    /// What the last prepared frame hands the GPU, by name: its runs, the
+    /// instances and uniforms as uploaded, and the shadow views it keeps.
+    /// Two frames that should draw the same picture have the same inputs,
+    /// so a test can tell a CPU-side difference from the GPU's.
+    #[cfg(test)]
+    pub(crate) fn frame_inputs(&self) -> Vec<(&'static str, Vec<u8>)> {
+        let shadow_frames: Vec<u8> = self.shadow_mirrors.iter().flat_map(|m| m.bytes().to_vec()).collect();
+        vec![
+            ("runs", format!("{:?}", self.runs).into_bytes()),
+            ("shadow runs", format!("{:?}", self.shadow_runs).into_bytes()),
+            ("solid runs", format!("{:?}", self.solid_runs).into_bytes()),
+            ("blended runs", format!("{:?}", self.blended_runs).into_bytes()),
+            ("blended instances", bytemuck::cast_slice(&self.blended).to_vec()),
+            ("instances", self.instance_mirror.bytes().to_vec()),
+            ("frame uniform", self.frame_mirror.bytes().to_vec()),
+            ("shadow view uniforms", shadow_frames),
+            ("post uniform", self.post_mirror.bytes().to_vec()),
+            (
+                "kept shadow views",
+                format!("{:#b}", self.shadow_cache.kept).into_bytes(),
+            ),
+        ]
+    }
+
+    /// The sun's shadow map as the GPU holds it now: every cascade's depth,
+    /// layer after layer (tests: what a kept shadow view still shows).
+    #[cfg(test)]
+    pub(crate) fn shadow_map_bytes(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u8> {
+        let map = &self.shadow_map;
+        let (width, height, layers) = (map.width(), map.height(), map.depth_or_array_layers());
+        let row = width * 4;
+        let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: u64::from(padded * height * layers),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: map,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::DepthOnly,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded),
+                    rows_per_image: Some(height),
+                },
+            },
+            map.size(),
+        );
+        queue.submit([encoder.finish()]);
+        readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        readback.get_mapped_range(..).unwrap().to_vec()
     }
 
     /// Every material pipeline key built so far (tests).
@@ -3867,13 +3941,17 @@ impl Renderer3D {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | SHADOW_READBACK,
             view_formats: &[],
         });
         self.frame_sources.shadow_view = map.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
+        #[cfg(test)]
+        {
+            self.shadow_map = map.clone();
+        }
         self.shadow_layers = (0..wanted.1)
             .map(|layer| {
                 map.create_view(&wgpu::TextureViewDescriptor {

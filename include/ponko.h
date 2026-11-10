@@ -683,6 +683,7 @@
 #define ponko_ctx_camera crabby_ctx_camera
 #define ponko_ctx_camera3d crabby_ctx_camera3d
 #define ponko_ctx_camera3d_look_at crabby_ctx_camera3d_look_at
+#define ponko_ctx_capabilities_json crabby_ctx_capabilities_json
 #define ponko_ctx_cast_capsule3d crabby_ctx_cast_capsule3d
 #define ponko_ctx_cast_ray crabby_ctx_cast_ray
 #define ponko_ctx_cast_ray3d crabby_ctx_cast_ray3d

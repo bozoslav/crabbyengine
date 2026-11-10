@@ -625,6 +625,24 @@ impl Ctx {
         self.control_addr
     }
 
+    /// What this running game can do, as JSON text: the control endpoint's
+    /// `capabilities` answer (engine version, headless or windowed, compiled
+    /// features, subsystems with why one is off, which control methods it
+    /// accepts with why not, and the reflected components and resources with
+    /// their schemas). Reading it changes nothing. Tools ask the endpoint;
+    /// this is for tests, logs and native code.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let report: serde_json::Value = serde_json::from_str(&ctx.capabilities_json()).unwrap();
+    ///     assert_eq!(report["mode"], "headless");
+    /// });
+    /// ```
+    pub fn capabilities_json(&self) -> String {
+        crate::control::capabilities_json(self)
+    }
+
     /// Engine side: speed to feed the clock this frame (0 while paused).
     pub(crate) fn effective_sim_speed(&self) -> f64 {
         self.time.effective_sim_speed()
