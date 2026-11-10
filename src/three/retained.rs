@@ -675,11 +675,10 @@ fn derive(source: Source<'_>, assets: &Assets3D, overrides: &Overrides<'_>) -> D
 struct Hot {
     /// Its [`Source::digest`]; 0 (no source's) until it is worked out.
     digest: AtomicU64,
-    /// The frame (see `Tracked::frame`) that last found its entity among
-    /// the models: the ones a frame doesn't find are gone.
-    stamp: AtomicU32,
     /// The views that draw it in the lists.
     applied: AtomicU32,
+    /// Its id in the lists.
+    id: u32,
 }
 
 /// What is kept of a model to draw it in other views when only they change.
@@ -749,16 +748,15 @@ pub(crate) struct Tracked {
     /// Its [`Derived`] spheres: own, then caster's.
     spheres: Vec<[AtomicU32; 8]>,
     cold: Vec<Cold>,
-    /// Its id in the lists.
-    ids: Vec<u32>,
+    /// Whether its entity is still among the models: worked out only in a
+    /// frame that finds fewer models than are tracked (see `sweep`).
+    seen: Vec<bool>,
     /// On several cores only (empty on one): what its instance is made
     /// from, written by the compare when the lists need the instance
     /// (stale otherwise).
     kept: Vec<[AtomicU32; KEPT]>,
     free: Vec<u32>,
     live: usize,
-    /// Counts the frames.
-    frame: u32,
     /// On several cores: the objects a frame added, with their entities,
     /// when they are few.
     fresh: Vec<(u32, crate::Entity)>,
@@ -796,7 +794,6 @@ struct Pass<'a> {
     spheres: &'a [[AtomicU32; 8]],
     cold: &'a [Cold],
     kept: &'a [[AtomicU32; KEPT]],
-    frame: u32,
     assets: &'a Assets3D,
     culler: &'a Culler<'a>,
     overrides: &'a Overrides<'a>,
@@ -814,7 +811,6 @@ impl Pass<'_> {
             _ => return NEW,
         };
         let hot = &self.hot[k];
-        hot.stamp.store(self.frame, Ordering::Relaxed);
         let source = Source::of(t, m, shadow, skeleton, receives, material);
         let digest = source.digest();
         let (cold, was) = (&self.cold[k], hot.applied.load(Ordering::Relaxed));
@@ -898,7 +894,6 @@ impl Tracked {
         }
         // Everything is culled again when the views changed.
         let cull = culler.changed_since(&mut self.view);
-        self.frame = self.frame.wrapping_add(1);
         let stale = std::mem::take(&mut self.stale);
         let how = How {
             force: std::mem::take(&mut self.renew),
@@ -918,7 +913,7 @@ impl Tracked {
         };
         self.stale = stale;
         if found != self.live {
-            self.sweep(lists, arena);
+            self.sweep(world, lists, arena);
         }
         self.live = found + new;
     }
@@ -938,7 +933,6 @@ impl Tracked {
         arena: &mut Vec<Instance3D>,
         motion: &mut Motion,
     ) -> (usize, usize) {
-        let frame = self.frame;
         let rush = self.rush && !how.force;
         self.rush = rush;
         let reworks = how.force || how.stale.is_some() || how.renumbered;
@@ -965,8 +959,7 @@ impl Tracked {
             };
             let source = Source::of(t, m, shadow, skeleton, receives, material);
             let hot = &mut self.hot[k];
-            *hot.stamp.get_mut() = frame;
-            let was = *hot.applied.get_mut();
+            let (was, id) = (*hot.applied.get_mut(), hot.id);
             // In a rush, only the sampled models are compared and kept.
             let exact = !rush || k % SAMPLE == 0;
             // With ECS change ticks, this compare is what a tick test
@@ -1005,7 +998,6 @@ impl Tracked {
             } else {
                 return;
             }
-            let id = self.ids[k];
             if flags == 0 {
                 if was != 0 {
                     lists.clear(arena, id);
@@ -1150,7 +1142,6 @@ impl Tracked {
             spheres: &self.spheres,
             cold: &self.cold,
             kept: &self.kept,
-            frame: self.frame,
             assets,
             culler,
             overrides,
@@ -1171,7 +1162,6 @@ impl Tracked {
             self.hot.reserve_exact(room);
             self.spheres.reserve_exact(room);
             self.cold.reserve_exact(room);
-            self.ids.reserve_exact(room);
             if kept {
                 self.kept.reserve_exact(room);
             }
@@ -1188,7 +1178,6 @@ impl Tracked {
                 let k = k as usize;
                 self.entities[k] = bits;
                 let hot = &mut self.hot[k];
-                *hot.stamp.get_mut() = self.frame;
                 *hot.digest.get_mut() = 0; // no source's
                 *hot.applied.get_mut() = 0;
                 *self.cold[k].pending.get_mut() = 0;
@@ -1211,12 +1200,14 @@ impl Tracked {
     /// kept of them, all at once. `kept`: with what several cores stage
     /// instances in.
     fn grow(&mut self, lists: &mut Lists, kept: bool) {
-        let (n, frame) = (self.entities.len(), self.frame);
-        self.hot.resize_with(n, || Hot {
-            digest: AtomicU64::new(0),
-            stamp: AtomicU32::new(frame),
-            applied: AtomicU32::new(0),
-        });
+        let n = self.entities.len();
+        while self.hot.len() < n {
+            self.hot.push(Hot {
+                digest: AtomicU64::new(0),
+                applied: AtomicU32::new(0),
+                id: lists.alloc(),
+            });
+        }
         self.spheres.resize_with(n, zeroes);
         self.cold.resize_with(n, || Cold {
             mesh: AtomicU32::new(0),
@@ -1225,9 +1216,6 @@ impl Tracked {
         });
         if kept {
             self.kept.resize_with(n, zeroes);
-        }
-        while self.ids.len() < n {
-            self.ids.push(lists.alloc());
         }
     }
 
@@ -1246,7 +1234,7 @@ impl Tracked {
     fn apply(&mut self, k: usize, lists: &mut Lists, arena: &mut Vec<Instance3D>, motion: &mut Motion) {
         let cold = &self.cold[k];
         let flags = cold.pending.load(Ordering::Relaxed);
-        let (was, id) = (*self.hot[k].applied.get_mut(), self.ids[k]);
+        let (was, id) = (*self.hot[k].applied.get_mut(), self.hot[k].id);
         if flags == 0 {
             if was != 0 {
                 lists.clear(arena, id);
@@ -1266,22 +1254,42 @@ impl Tracked {
     }
 
     /// Some tracked models are gone from the world (despawned, or without
-    /// the components now): the ones this frame didn't find. Takes them
-    /// out of the lists.
-    fn sweep(&mut self, lists: &mut Lists, arena: &mut Vec<Instance3D>) {
-        for k in 0..self.entities.len() {
-            let hot = &mut self.hot[k];
-            if *hot.stamp.get_mut() != self.frame && self.entities[k] != DEAD {
-                *hot.applied.get_mut() = 0;
-                lists.clear(arena, self.ids[k]);
-                let index = self.entities[k] as u32 as usize;
-                if self.slot_of[index] == self.entities[k] & !0xFFFF_FFFF | k as u64 {
-                    self.slot_of[index] = DEAD;
+    /// the components now): this frame found fewer than are tracked. Finds
+    /// which, by going through the models once more, and takes them out of
+    /// the lists.
+    fn sweep(&mut self, world: &mut World, lists: &mut Lists, arena: &mut Vec<Instance3D>) {
+        let mut seen = std::mem::take(&mut self.seen);
+        seen.clear();
+        seen.resize(self.entities.len(), false);
+        world
+            .query::<crate::Entity>()
+            .with::<Transform3D>()
+            .with::<Model>()
+            .without::<SkinOf>()
+            .for_each(|entity| {
+                let bits = entity.to_bits();
+                if let Some(&slot) = self.slot_of.get(entity.index() as usize)
+                    && slot >> 32 == bits >> 32
+                    && let Some(seen) = seen.get_mut(slot as u32 as usize)
+                {
+                    *seen = true;
                 }
-                self.entities[k] = DEAD;
-                self.free.push(k as u32);
+            });
+        for (k, _) in seen.iter().enumerate().filter(|&(_, &seen)| !seen) {
+            if self.entities[k] == DEAD {
+                continue;
             }
+            let hot = &mut self.hot[k];
+            *hot.applied.get_mut() = 0;
+            lists.clear(arena, hot.id);
+            let index = self.entities[k] as u32 as usize;
+            if self.slot_of[index] == self.entities[k] & !0xFFFF_FFFF | k as u64 {
+                self.slot_of[index] = DEAD;
+            }
+            self.entities[k] = DEAD;
+            self.free.push(k as u32);
         }
+        self.seen = seen;
     }
 
     /// Whether most models change every frame, so none is compared (on
@@ -1298,7 +1306,7 @@ impl Tracked {
             + self.spheres.capacity() * size_of::<[AtomicU32; 8]>()
             + self.cold.capacity() * size_of::<Cold>()
             + self.kept.capacity() * size_of::<[AtomicU32; KEPT]>()
-            + self.ids.capacity() * size_of::<u32>()
+            + self.seen.capacity()
             + self.slot_of.capacity() * size_of::<u64>()
             + (self.free.capacity() + self.results.capacity()) * size_of::<u32>()
             + self.facts.capacity() * size_of::<Fact>()
