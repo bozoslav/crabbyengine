@@ -848,7 +848,69 @@ static void animation_graphs(void) {
     remove(run.path);
 }
 
+/* Declared access: a C system says what it reads and writes. */
+typedef struct { uint32_t pos; uint64_t entity; size_t hits; } Declared;
+static void declared_mover(PonkoCtx* ctx, void* user) {
+    Declared* d = user;
+    Position at;
+    CHECK(ponko_get(ponko_ctx_world(ctx), d->entity, d->pos, &at, sizeof(at)) == PONKO_OK);
+    at.x += 1;
+    CHECK(ponko_set(ponko_ctx_world(ctx), d->entity, d->pos, &at, sizeof(at)) == PONKO_OK);
+    CHECK(ponko_ctx_send_event(ctx, d->pos, &at, sizeof(at)) == PONKO_OK);
+}
+static void declared_reader(PonkoCtx* ctx, void* user) {
+    Declared* d = user;
+    const void* data; size_t count;
+    CHECK(ponko_ctx_read_events(ctx, d->pos, sizeof(Position), &data, &count) == PONKO_OK);
+    d->hits += count;
+}
+static void declared_setup(PonkoCtx* ctx, void* user) {
+    Declared* d = user;
+    PonkoWorld* w = ponko_ctx_world(ctx);
+    CHECK(ponko_component_register(w, "DeclPos", sizeof(Position), _Alignof(Position), &d->pos) == PONKO_OK);
+    Position start = {0}; PonkoValue v = {d->pos, &start, sizeof(start)};
+    CHECK(ponko_spawn(w, &v, 1, &d->entity) == PONKO_OK);
+}
+static void declared_access(void) {
+    PonkoAccess* mover = ponko_access_new(); CHECK(mover);
+    CHECK(ponko_access_write_component(mover, "DeclPos") == PONKO_OK);
+    CHECK(ponko_access_send_events(mover, "DeclPos") == PONKO_OK);
+    CHECK(ponko_access_service(mover, PONKO_SERVICE_TIME, false) == PONKO_OK);
+    CHECK(ponko_access_service(mover, 99, false) == PONKO_INVALID_ARGUMENT);
+    PonkoAccess* reader = ponko_access_new(); CHECK(reader);
+    CHECK(ponko_access_read_events(reader, "DeclPos") == PONKO_OK);
+    size_t n = 9;
+    CHECK(ponko_access_conflicts(reader, mover, true, &n) == PONKO_OK && n == 0);
+    CHECK(ponko_access_conflicts(mover, reader, true, &n) == PONKO_OK && n == 1);
+    CHECK(ponko_access_conflicts(reader, mover, false, &n) == PONKO_OK && n == 1);
+    PonkoAccess* spawner = ponko_access_new(); CHECK(spawner);
+    CHECK(ponko_access_commands(spawner) == PONKO_OK);
+    CHECK(ponko_access_conflicts(spawner, mover, true, &n) == PONKO_OK && n == 1);
+    CHECK(ponko_access_conflicts(mover, spawner, true, &n) == PONKO_OK && n == 0);
+    ponko_access_free(spawner);
+    Declared d = {0, 0, 0};
+    PonkoGame* g = ponko_game_new("declared", 1, 1); CHECK(g);
+    CHECK(ponko_game_add_system_with_access(g, PONKO_PHASE_AFTER_PHYSICS, "mover", 1, mover, declared_mover, &d) == PONKO_OK);
+    CHECK(ponko_game_add_system_with_access(g, PONKO_PHASE_AFTER_PHYSICS, "reader", 1, reader, declared_reader, &d) == PONKO_OK);
+    CHECK(ponko_game_add_system_with_access(g, PONKO_PHASE_AFTER_PHYSICS, "bad", 0, reader, declared_reader, &d) == PONKO_INVALID_ARGUMENT);
+    ponko_access_free(mover);
+    ponko_access_free(reader);
+    size_t len = 0;
+    CHECK(ponko_game_access_report(g, NULL, 0, &len) == PONKO_OK && len > 0);
+    char* text = malloc(len + 1);
+    CHECK(ponko_game_access_report(g, text, len + 1, &len) == PONKO_OK);
+    CHECK(strcmp(text, "mover + reader: conflict on events `DeclPos`\n") == 0);
+    free(text);
+    PonkoWorld* w = NULL;
+    CHECK(ponko_game_run_headless(g, 3, declared_setup, &d, &w) == PONKO_OK && w);
+    Position at;
+    CHECK(ponko_get(w, d.entity, d.pos, &at, sizeof(at)) == PONKO_OK && at.x == 3);
+    CHECK(d.hits == 3);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+}
+
 int main(void) {
+    declared_access();
     steam_messages_validation();
     morph_clip_api();
     replication();
