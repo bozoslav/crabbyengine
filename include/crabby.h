@@ -34,7 +34,7 @@
  * for that panel's UI.
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyHandleKind, CrabbyResidencyKind, CrabbyAssetState, and the
+ * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyService, CrabbyHandleKind, CrabbyResidencyKind, CrabbyAssetState, CrabbyGpuTier, CrabbyGpuFeature, and the
  * CrabbyUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
@@ -399,6 +399,29 @@ typedef enum CrabbyPhase {
   CRABBY_PHASE_DRAW,
 } CrabbyPhase;
 
+enum CrabbyService
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  CRABBY_SERVICE_INPUT = 0,
+  CRABBY_SERVICE_TIME = 1,
+  CRABBY_SERVICE_RANDOM = 2,
+  CRABBY_SERVICE_GFX = 3,
+  CRABBY_SERVICE_AUDIO = 4,
+  CRABBY_SERVICE_ASSETS = 5,
+  CRABBY_SERVICE_UI = 6,
+  CRABBY_SERVICE_PERF = 7,
+  CRABBY_SERVICE_CAMERA = 8,
+  CRABBY_SERVICE_SPATIAL = 9,
+  CRABBY_SERVICE_PHYSICS = 10,
+  CRABBY_SERVICE_PHYSICS3D = 11,
+  CRABBY_SERVICE_NET = 12,
+};
+#ifndef __cplusplus
+typedef uint32_t CrabbyService;
+#endif // __cplusplus
+
 typedef enum CrabbyShapeKind {
   CRABBY_SHAPE_CIRCLE,
   CRABBY_SHAPE_RECT,
@@ -525,6 +548,30 @@ typedef enum CrabbyUiTextAlign {
   CRABBY_UI_TEXT_ALIGN_END,
 } CrabbyUiTextAlign;
 
+typedef enum CrabbyGpuTier {
+  CRABBY_GPU_TIER_WEBGL2 = 0,
+  CRABBY_GPU_TIER_BASELINE = 1,
+  CRABBY_GPU_TIER_DESKTOP = 2,
+} CrabbyGpuTier;
+
+typedef enum CrabbyGpuFeature {
+  CRABBY_GPU_FEATURE_TIMESTAMPS = 0,
+  CRABBY_GPU_FEATURE_COMPUTE = 1,
+  CRABBY_GPU_FEATURE_STORAGE_BUFFERS = 2,
+  CRABBY_GPU_FEATURE_COMPUTE_CULLING = 3,
+  CRABBY_GPU_FEATURE_GPU_SKINNING = 4,
+  CRABBY_GPU_FEATURE_OCCLUSION_CULLING = 5,
+  CRABBY_GPU_FEATURE_TEMPORAL_ANTIALIASING = 6,
+  CRABBY_GPU_FEATURE_AMBIENT_OCCLUSION = 7,
+  CRABBY_GPU_FEATURE_CONTACT_SHADOWS = 8,
+  CRABBY_GPU_FEATURE_SCREEN_SPACE_REFLECTIONS = 9,
+  CRABBY_GPU_FEATURE_GLOBAL_ILLUMINATION = 10,
+  CRABBY_GPU_FEATURE_DECALS = 11,
+  CRABBY_GPU_FEATURE_MULTISAMPLING = 12,
+} CrabbyGpuFeature;
+
+typedef struct CrabbyAccess CrabbyAccess;
+
 typedef struct CrabbyActionMap CrabbyActionMap;
 
 typedef struct CrabbyAnimationGraph CrabbyAnimationGraph;
@@ -595,6 +642,8 @@ typedef struct CrabbyChunk {
 } CrabbyChunk;
 
 typedef void (*CrabbyQueryFn)(const struct CrabbyChunk*, void*);
+
+typedef void (*CrabbySystemFn)(struct CrabbyCtx *ctx, void *user);
 
 typedef struct CrabbyActionBinding {
   uint32_t kind;
@@ -734,8 +783,6 @@ typedef struct CrabbyFlowView {
   struct CrabbyVec2 origin;
   float cell_size;
 } CrabbyFlowView;
-
-typedef void (*CrabbySystemFn)(struct CrabbyCtx *ctx, void *user);
 
 typedef struct CrabbyGridItem {
   struct CrabbyEntity entity;
@@ -1771,6 +1818,44 @@ enum CrabbyStatus crabby_query_par(struct CrabbyWorld *world,
                                    size_t count,
                                    CrabbyQueryFn callback,
                                    void *user);
+
+struct CrabbyAccess *crabby_access_new(void);
+
+void crabby_access_free(struct CrabbyAccess *access);
+
+enum CrabbyStatus crabby_access_read_component(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_write_component(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_read_resource(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_write_resource(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_read_events(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_send_events(struct CrabbyAccess *access, const char *name);
+
+enum CrabbyStatus crabby_access_commands(struct CrabbyAccess *access);
+
+enum CrabbyStatus crabby_access_service(struct CrabbyAccess *access, uint32_t service, bool write);
+
+enum CrabbyStatus crabby_access_conflicts(const struct CrabbyAccess *earlier,
+                                          const struct CrabbyAccess *later,
+                                          bool ordered,
+                                          size_t *out_count);
+
+enum CrabbyStatus crabby_game_add_system_with_access(struct CrabbyGame *game,
+                                                     uint32_t phase_raw,
+                                                     const char *name,
+                                                     uint32_t every,
+                                                     const struct CrabbyAccess *access,
+                                                     CrabbySystemFn system_fn,
+                                                     void *user);
+
+enum CrabbyStatus crabby_game_access_report(struct CrabbyGame *game,
+                                            char *buffer,
+                                            size_t capacity,
+                                            size_t *out_len);
 
 struct CrabbyActionMap *crabby_action_map_new(void);
 
@@ -3813,6 +3898,32 @@ enum CrabbyStatus crabby_ctx_update_instance_batch_colors(struct CrabbyCtx *ctx,
                                                           size_t count,
                                                           const struct CrabbyColor *colors,
                                                           size_t color_count);
+
+enum CrabbyStatus crabby_ctx_gpu_capabilities(const struct CrabbyCtx *ctx,
+                                              char *buffer,
+                                              size_t capacity,
+                                              size_t *out_len);
+
+enum CrabbyStatus crabby_ctx_gpu_tier(const struct CrabbyCtx *ctx, uint32_t *out_tier);
+
+enum CrabbyStatus crabby_ctx_gpu_feature(const struct CrabbyCtx *ctx,
+                                         uint32_t feature_id,
+                                         bool *out_available);
+
+enum CrabbyStatus crabby_gpu_tier_report(uint32_t tier_id,
+                                         char *buffer,
+                                         size_t capacity,
+                                         size_t *out_len);
+
+enum CrabbyStatus crabby_gpu_tier_feature(uint32_t tier_id,
+                                          uint32_t feature_id,
+                                          bool *out_available);
+
+enum CrabbyStatus crabby_graphics_quality_for_tier(uint32_t tier_id,
+                                                   struct CrabbyGraphicsQuality *out_quality);
+
+enum CrabbyStatus crabby_ctx_recommended_graphics_quality(const struct CrabbyCtx *ctx,
+                                                          struct CrabbyGraphicsQuality *out_quality);
 
 enum CrabbyStatus crabby_sprite_sheet(struct CrabbyTexture texture,
                                       uint32_t frame_width,

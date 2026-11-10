@@ -483,12 +483,14 @@ mod tests {
             eprintln!("no GPU adapter: skipped");
             return;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
             eprintln!("no GPU device: skipped");
             return;
         };
-        if compute && !super::super::can_compute(&device) {
-            eprintln!("no compute shaders: skipped");
+        // The compute pass binds six storage buffers (the renderer's own check).
+        if compute && !crate::render::render_test_support::needs(&device, crate::GpuFeature::GpuSkinning) {
             return;
         }
         let skinning = &mut super::Skinning::new(&device, compute);
