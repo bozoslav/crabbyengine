@@ -167,7 +167,10 @@ pub(crate) fn browser_gl_has_no_multisampled_textures(backend: wgpu::Backend) ->
 /// The shader source for a frame of `samples` per pixel. Sources are written
 /// for the multisampled frame; with one sample the scene depth the mesh
 /// prelude declares is an ordinary depth texture (`textureLoad` takes a mip
-/// level there instead of a sample index, and the shaders pass 0 for both).
+/// level there instead of a sample index, and the engine's shaders pass 0 for
+/// both). A game's own shader must read the scene depth at index 0 (or through
+/// `scene_position`), the only value that means the same in both: the book's
+/// shader section says so.
 fn for_samples(source: &str, samples: u32) -> std::borrow::Cow<'_, str> {
     if samples > 1 {
         std::borrow::Cow::Borrowed(source)
@@ -3680,11 +3683,13 @@ impl Renderer3D {
         self.occlusion.submitted();
     }
 
-    /// Records the occlusion depth grid's reduction, timed as a compute pass.
-    /// For a device without view formats (WebGL2): textures made for
-    /// sprites are read as they are, in their own (sRGB) format, in the
-    /// material slots that otherwise read them linearly. Only the default
-    /// white image is ever bound there, which reads the same either way.
+    /// For a device without view formats (WebGL2): a sprite texture is read
+    /// as it is, in its own (sRGB) format, in the material slots that
+    /// otherwise read it linearly. Data textures (normal, ORM maps) aren't
+    /// affected: they are remade as linear textures when a material first
+    /// uses them (`Gpu::ensure_mips`). What is still read decoded there is the
+    /// default white image (the same either way) and a texture that was first
+    /// used as a color and then as data.
     pub(super) fn without_linear_views(mut self) -> Self {
         self.linear_views = false;
         self
@@ -3702,6 +3707,7 @@ impl Renderer3D {
         }
     }
 
+    /// Records the occlusion depth grid's reduction, timed as a compute pass.
     fn record_occlusion(&self, encoder: &mut wgpu::CommandEncoder, frame: &FrameParts<'_, '_>) {
         let timestamps = (frame.time)("occlusion depth").map(|t| wgpu::ComputePassTimestampWrites {
             query_set: t.query_set,

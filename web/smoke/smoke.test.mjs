@@ -23,7 +23,8 @@ function run(script, args, env = {}) {
   return spawnSync(process.execPath, [script, ...args], {
     encoding: "utf8",
     // No browsers installed under this path: every launch fails the same way.
-    env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: join(work, "no-browsers"), ...env },
+    // CI is cleared: these runs check the not-installed case a laptop sees.
+    env: { ...process.env, CI: "", PLAYWRIGHT_BROWSERS_PATH: join(work, "no-browsers"), ...env },
   });
 }
 
@@ -76,4 +77,12 @@ test("summary.mjs fails when the folder holds no report", () => {
   const ok = run(SUMMARY, [out]);
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stdout, /UNSUPPORTED/);
+});
+
+test("under CI a browser that isn't installed fails instead of passing as unsupported", () => {
+  const out = join(work, "out-ci");
+  const result = run(SMOKE, ["--dir", site, "--browser", "webkit", "--backend", "webgpu", "--allow-unsupported", "--out", out], { CI: "true" });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  const report = JSON.parse(readFileSync(join(out, "report.json"), "utf8"));
+  assert.equal(report.outcome.kind, "launch");
 });

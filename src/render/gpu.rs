@@ -1139,7 +1139,10 @@ impl Renderer {
         }
         let (width, height) = (tex.texture.width(), tex.texture.height());
         let levels = super::mips::levels(width, height);
-        if levels == 1 {
+        // Without view formats (WebGL2) a data texture can't be read through
+        // a linear view of its sRGB texture: it is remade as a linear one.
+        let remake_as_data = linear && self.image_view_formats.is_empty();
+        if levels == 1 && !remake_as_data {
             self.textures[id as usize].mips = Some(linear);
             return;
         }
@@ -1148,29 +1151,34 @@ impl Renderer {
             height,
             depth_or_array_layers: 1,
         };
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("material texture"),
-            size,
-            mip_level_count: levels,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: self.image_view_formats,
-        });
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        encoder.copy_texture_to_texture(
-            self.textures[id as usize].texture.as_image_copy(),
-            texture.as_image_copy(),
-            size,
-        );
         let mips = self
             .mips
             .get_or_insert_with(|| super::mips::MipMaker::new(&self.device));
-        mips.generate(&self.device, &mut encoder, &texture, linear);
+        let texture = if remake_as_data {
+            mips.data_texture(&self.device, &mut encoder, &self.textures[id as usize].texture, levels)
+        } else {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("material texture"),
+                size,
+                mip_level_count: levels,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: self.image_view_formats,
+            });
+            encoder.copy_texture_to_texture(
+                self.textures[id as usize].texture.as_image_copy(),
+                texture.as_image_copy(),
+                size,
+            );
+            mips.generate(&self.device, &mut encoder, &texture, linear);
+            texture
+        };
         self.queue.submit([encoder.finish()]);
         let bind_group = self.sprite_bind_group(&texture, self.textures[id as usize].nearest);
         let tex = &mut self.textures[id as usize];
