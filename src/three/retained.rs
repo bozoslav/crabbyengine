@@ -17,24 +17,56 @@
 //! - [`Tracked`]: every plain [`Model`] in the world, by entity: a digest
 //!   of what it was collected from (transform, mesh, tint, shadow mesh,
 //!   material override, decal layers), its bounding spheres in the world,
-//!   and which views draw it. A frame compares each model with its digest
-//!   on all cores; only models that differ are worked out again, and models
-//!   are culled again only when they or the views changed. A still scene
-//!   under a still camera costs one digest per model.
+//!   and which views draw it. A frame compares each model with its digest;
+//!   only models that differ are worked out again, and models are culled
+//!   again only when they or the views changed. A still scene under a
+//!   still camera costs one digest per model.
 //! - [`Transients`]: things whose drawing depends on the camera or is posed
 //!   each frame (level-of-detail renderers, terrain tiles, skinned models,
 //!   shadow-only casters). They are worked out every frame as before, and
 //!   matched by a key to the id (and so the slots) they had.
 //!
+//! `Tracked` collects in one of two ways, and a collection can change
+//! between them from frame to frame:
+//!
+//! - **One thread** (a browser, a single core, `RAYON_NUM_THREADS=1`): one
+//!   pass compares, works out, culls and writes each model's instance
+//!   straight to its slots. Nothing is staged.
+//! - **Several threads**: the compare runs on all cores. A task writes the
+//!   instance of a changed model that keeps its places straight to its
+//!   slots; for a model that enters or leaves a view, or changes mesh, it
+//!   stages what the lists need, and they take it in afterwards on one
+//!   thread, in the models' order (so a frame's lists don't depend on how
+//!   the work was split).
+//!
+//! While more than half the models change every frame, comparing costs
+//! more than it saves, so a frame **rushes**: it works every model out
+//! and culls it from its components alone, as a frame that keeps nothing
+//! would, and looks up only the models some view draws, to write them
+//! where they were. One model in 64 is still compared; when fewer than a
+//! quarter of those differ the rush ends, and the next frame works
+//! everything out again and keeps it.
+//!
 //! Change detection compares values, so it needs nothing from the ECS and
-//! holds for any way a component is written. The digest compare in
-//! `Pass::check` is the one place a change tick would replace: with ticks,
-//! whole archetypes whose tick is old can skip the compare too.
+//! holds for any way a component is written. The digest compare (in
+//! `Tracked::settle` and `Pass::check`) is the one place a change tick
+//! would replace: with ticks, whole archetypes whose tick is old can skip
+//! the compare too. Two things rely on every model being visited every
+//! frame, and need another source once archetypes are skipped: a model
+//! that left the world (despawned, or without its components now) is
+//! noticed because a frame finds fewer models than are tracked, so removal
+//! then needs the ECS's removal events or a count per archetype; and a
+//! rush samples the models it visits.
+//!
+//! The digest is 64 bits of the model's components. Two different states
+//! of one model with the same digest are possible in principle (about one
+//! change in 2^63); the model would then stay drawn as it was until it
+//! changes again.
 //!
 //! Costs to know about:
 //! - The first frame, and any frame after the views empty, build everything
-//!   (as every frame did before), and pack the array by view and mesh
-//!   without room to grow, as a sorted frame is.
+//!   (as every frame did before) and what later frames keep, and pack the
+//!   array by view and mesh without room to grow, as a sorted frame is.
 //! - A change to a mesh's bounds, or to whether it casts shadows, is
 //!   skinned or has morph targets, works the models of that mesh out again;
 //!   a change to the numbering of material overrides, the models with one.
@@ -43,11 +75,16 @@
 //!   need (space left behind, or kept by blocks that shrank) it is packed
 //!   again with room for half as many more in each block, which uploads
 //!   it whole once.
-//! - Instances of one mesh are drawn in no particular order: it changes as
-//!   models enter and leave the view.
-//! - About 170 bytes are kept per model in the world (`Tracked` and the
-//!   lists' ids), 4 more per view that draws any model, and the instances
-//!   with their room to grow.
+//! - Instances of one mesh are kept in no particular order: it changes as
+//!   models enter and leave the view. The renderer draws the instances of
+//!   blended meshes from a copy it sorts far to near each frame, so what
+//!   is blended over what doesn't depend on it.
+//! - Per model in the world, in view or not: about 80 bytes of `Tracked`
+//!   on one thread and 150 on several (which also stage instances), 24 for
+//!   its id in the lists and 4 more per view that draws any model; and the
+//!   drawn instances with their room to grow. Every `Frame3D` keeps its
+//!   own: a target camera and the global illumination capture each pay
+//!   this again for every model in the world.
 
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;

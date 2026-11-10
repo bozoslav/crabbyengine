@@ -334,10 +334,12 @@ fn a_flight_with_edits_draws_the_same_as_the_scene_drawn_once() {
 #[test]
 fn models_drawn_in_another_order_differ_by_no_more_than_edge_samples() {
     // A view that keeps its models' places draws the models of one mesh in
-    // another order than a first frame does. The picture is the same but
-    // for what the GPU's rasterizer makes of the order: with balls a few
-    // pixels wide, some edge pixels differ by a sample. (A first frame of
-    // the same balls spawned in another order differs as much.)
+    // another order than a first frame does. With opaque balls a few
+    // pixels wide, some pixels then differ, by little. Why hasn't been
+    // established. (Measured when this test was written, and not asserted
+    // here: a first frame of the same balls spawned in another order
+    // differed as much, so it comes with the order, not with what is
+    // kept.) This bounds how many pixels do.
     let Some(differ) = flown_against_drawn_once(true) else {
         return;
     };
