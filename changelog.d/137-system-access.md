@@ -8,9 +8,11 @@
   `write_service`; services conflict like data.
 - `SystemAccess::conflicts_before(later)`: finer, ordered command and event
   rules under a documented batch barrier contract (readers before senders,
-  two senders, and earlier world users before command recorders don't
-  conflict). The access report uses them, marks enforced (view) systems and
-  lists `parallel_pairs()`.
+  two senders, and systems before a command recorder don't conflict; a
+  recorder conflicts with every later system). The access report uses them,
+  reports a system registered between two others that must stay between
+  them (`AccessConflict::Between`), marks enforced (view) systems and lists
+  `parallel_pairs()`.
 - Declarations by registered name for C and C++ systems:
   `SystemAccess::read_named` / `write_named` / `read_resource_named` /
   `write_resource_named` / `read_events_named` / `send_events_named`.
@@ -24,6 +26,6 @@
 
 ### Changed
 - `AccessConflict` and `Service` are `#[non_exhaustive]`; `AccessConflict`
-  has a `Service` variant. `ReportedSystem` has an `enforced` field.
+  has `Service` and `Between` variants. `ReportedSystem` has an `enforced` field.
 - The debug access recorder counts replacing a component in place with
   `World::insert_dynamic` as a write, not a structural change.

@@ -218,13 +218,13 @@ fn look_rotation(direction: Vec3) -> Quat {
 }
 
 /// A mesh on the GPU: triangles, split into parts that each have a
-/// [`Material`]. Made with [`Ctx::create_mesh`](crate::Ctx::create_mesh) or
-/// loaded with [`Ctx::load_mesh`](crate::Ctx::load_mesh); a cheap handle.
+/// [`Material`]. Made with [`Graphics::create_mesh`](crate::Graphics::create_mesh) or
+/// loaded with [`Graphics::load_mesh`](crate::Graphics::load_mesh); a cheap handle.
 ///
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let tree: Mesh = ctx.load_mesh("tree.glb");
+/// let tree: Mesh = ctx.gfx.load_mesh("tree.glb");
 /// ctx.world.spawn((Transform3D::default(), Model::new(tree)));
 /// # }
 /// ```
@@ -243,10 +243,10 @@ impl Mesh {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let material = ctx.default_material();
-    ///     let bush = ctx.create_mesh(&MeshData::cube(1.0), material);
+    ///     let material = ctx.gfx.default_material();
+    ///     let bush = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
     ///     ctx.world.spawn((Transform3D::default(), Model::new(Mesh::NONE)));
-    ///     assert!(!ctx.is_mesh_live(Mesh::NONE));
+    ///     assert!(!ctx.gfx.is_mesh_live(Mesh::NONE));
     ///     assert_ne!(bush, Mesh::NONE);
     /// });
     /// ```
@@ -254,7 +254,7 @@ impl Mesh {
 }
 
 /// What one mesh cost to draw in the last frame, from
-/// [`Ctx::mesh_costs`](crate::Ctx::mesh_costs).
+/// [`Graphics::mesh_costs`](crate::Graphics::mesh_costs).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MeshCost {
     /// The mesh.
@@ -274,12 +274,12 @@ pub struct MeshCost {
 
 /// How a surface looks: its color (and texture), how rough and how metallic
 /// it is, and light it gives off. Made with
-/// [`Ctx::create_material`](crate::Ctx::create_material); a cheap handle.
+/// [`Graphics::create_material`](crate::Graphics::create_material); a cheap handle.
 ///
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let gold = ctx.create_material(MaterialDesc { metallic: 1.0, roughness: 0.3, ..MaterialDesc::color(Color::hex(0xFFC83D)) });
+/// let gold = ctx.gfx.create_material(MaterialDesc { metallic: 1.0, roughness: 0.3, ..MaterialDesc::color(Color::hex(0xFFC83D)) });
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -289,8 +289,8 @@ pub struct Material {
 }
 
 /// A material shader written in WGSL: made with
-/// [`Ctx::load_shader`](crate::Ctx::load_shader) or
-/// [`Ctx::create_shader`](crate::Ctx::create_shader); a cheap handle. See
+/// [`Graphics::load_shader`](crate::Graphics::load_shader) or
+/// [`Graphics::create_shader`](crate::Graphics::create_shader); a cheap handle. See
 /// the 3D chapter of the guide for what a shader can do ("Custom shaders"
 /// and "The shader contract").
 ///
@@ -311,14 +311,14 @@ pub struct Material {
 ///   detail) or shared-instance (GPU buffer) draws. There are no defines;
 ///   skinned meshes use the same pipelines.
 /// - Culling uses the mesh's bounds before `vertex` moves anything: grow
-///   them with [`Ctx::set_mesh_gpu_bounds`](crate::Ctx::set_mesh_gpu_bounds)
+///   them with [`Graphics::set_mesh_gpu_bounds`](crate::Graphics::set_mesh_gpu_bounds)
 ///   for shaders that move vertices far.
 ///
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let water = ctx.load_shader("shaders/water.wgsl");
-/// let lake = ctx.create_material(MaterialDesc { shader: Some(water), ..Default::default() });
+/// let water = ctx.gfx.load_shader("shaders/water.wgsl");
+/// let lake = ctx.gfx.create_material(MaterialDesc { shader: Some(water), ..Default::default() });
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -335,7 +335,7 @@ impl Shader {
         self.id
     }
 
-    /// A shader handle from an id (for the C API; check it with `Ctx::has_shader`).
+    /// A shader handle from an id (for the C API; check it with `Graphics::has_shader`).
     #[doc(hidden)]
     #[must_use]
     pub fn from_id(id: u32) -> Self {
@@ -451,8 +451,8 @@ impl MaterialDesc {
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let white = ctx.default_material();
-/// let cube = ctx.create_mesh(&MeshData::cube(1.0), white);
+/// let white = ctx.gfx.default_material();
+/// let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
 /// for i in 0..10 {
 ///     let tint = Color::rgb(i as f32 / 10.0, 0.5, 1.0);
 ///     ctx.world.spawn((Transform3D::at(vec3(i as f32 * 2.0, 0.0, 0.0)), Model::new(cube).with_color(tint)));
@@ -473,7 +473,7 @@ pub struct Model {
 /// shows: a cheap stand-in for a detailed model's shadow (a simplified copy,
 /// a billboard), or `None` for no shadow from this entity. Without it, the
 /// model's own mesh casts the shadow (unless
-/// [`Ctx::set_mesh_shadows`](crate::Ctx::set_mesh_shadows) turned that
+/// [`Graphics::set_mesh_shadows`](crate::Graphics::set_mesh_shadows) turned that
 /// mesh's shadows off).
 ///
 /// Far from the camera, a shadow is a few texels of the shadow map, so a
@@ -490,8 +490,8 @@ pub struct Model {
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let tree = ctx.load_mesh("tree.glb");
-/// let blob = ctx.load_mesh("tree_shadow.glb"); // a few dozen triangles
+/// let tree = ctx.gfx.load_mesh("tree.glb");
+/// let blob = ctx.gfx.load_mesh("tree_shadow.glb"); // a few dozen triangles
 /// ctx.world.spawn((Transform3D::default(), Model::new(tree), ShadowMesh(Some(blob))));
 /// # }
 /// ```
@@ -515,8 +515,8 @@ pub struct ShadowMesh(pub Option<Mesh>);
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let rock = ctx.load_mesh("rock.glb");
-/// let wet = ctx.create_material(MaterialDesc { roughness: 0.1, ..MaterialDesc::color(Color::hex(0x404850)) });
+/// let rock = ctx.gfx.load_mesh("rock.glb");
+/// let wet = ctx.gfx.create_material(MaterialDesc { roughness: 0.1, ..MaterialDesc::color(Color::hex(0x404850)) });
 /// ctx.world.spawn((Transform3D::default(), Model::new(rock)));                    // as the file has it
 /// ctx.world.spawn((Transform3D::at(vec3(3.0, 0.0, 0.0)), Model::new(rock), ModelMaterial(wet))); // wet
 /// # }
@@ -531,7 +531,7 @@ impl Model {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let rock = ctx.load_mesh("rock.glb");
+    /// let rock = ctx.gfx.load_mesh("rock.glb");
     /// ctx.world.spawn((Transform3D::default(), Model::new(rock)));
     /// # }
     /// ```
@@ -845,7 +845,7 @@ pub(crate) fn mesh_gpu_bytes(data: &MeshData) -> u64 {
 /// culling, and for headless runs, which have no GPU.
 #[derive(Default)]
 pub(crate) struct Assets3D {
-    /// The latest compile of each of the game's shaders (`Ctx::shader_status`).
+    /// The latest compile of each of the game's shaders (`Graphics::shader_status`).
     pub shader_status: Vec<ShaderStatus>,
     pub morph_entities: Vec<crate::Entity>,
     pub morph_bases: std::collections::HashMap<crate::Entity, (u32, MorphWeights, MorphWeights)>,
@@ -869,7 +869,7 @@ pub(crate) struct Assets3D {
     pub loaded_clips: std::collections::HashMap<crate::assets::Origin, Vec<AnimationClip>>,
     /// The joints of skinned glTF files, by where they were found (file or asset source).
     pub loaded_skeletons: std::collections::HashMap<crate::assets::Origin, Skeleton>,
-    /// Meshes set to cast no shadow (`Ctx::set_mesh_shadows`), by id;
+    /// Meshes set to cast no shadow (`Graphics::set_mesh_shadows`), by id;
     /// shorter than `bounds` when the last ones cast.
     pub shadowless: Vec<bool>,
     pub materials: u32,
@@ -928,7 +928,7 @@ pub(crate) struct Assets3D {
     /// share them, and the same name in two asset sources is two images.
     pub shared_images: std::collections::HashMap<SharedImage, crate::Texture>,
     /// Materials loaded from glTF files, by their name in the file, with
-    /// what they were made from (`Ctx::loaded_materials`).
+    /// what they were made from (`Graphics::loaded_materials`).
     pub loaded_materials: std::collections::HashMap<String, Vec<(Material, MaterialDesc)>>,
 }
 
@@ -1061,7 +1061,7 @@ impl SharedImage {
     /// image. Each name is keyed by the source that has it, so a model from
     /// one source shares images only with models whose images came from
     /// the same place. `None` if a name is in no source.
-    pub(crate) fn of(sources: &crate::assets::Sources, image_source: &str) -> Option<Self> {
+    pub(crate) fn of(sources: &crate::assets::SharedSources, image_source: &str) -> Option<Self> {
         let locate = |name: &str| sources.locate(name);
         match image_source.strip_prefix("orm:").and_then(|rest| rest.split_once('|')) {
             Some((m, o)) => {

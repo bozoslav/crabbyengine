@@ -59,7 +59,7 @@ fn main() {
         .inspector(true)
         .sim_system(walk)
         .run(|ctx| {
-            ctx.clear(Color::hex(0x24323F));
+            ctx.gfx.clear(Color::hex(0x24323F));
             ctx.world.reflect::<Walker>();
             if ctx.load_scene(LEVEL).is_ok() {
                 println!("loaded assets/{LEVEL}");

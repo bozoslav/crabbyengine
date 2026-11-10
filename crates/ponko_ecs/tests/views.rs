@@ -131,6 +131,26 @@ fn a_view_query_that_aliases_panics() {
     state.run(&mut w, |mut view| view.query::<(&mut Pos, &Pos)>().for_each(|_| {}));
 }
 
+#[test]
+#[should_panic(expected = "doesn't declare that it may read component")]
+fn an_undeclared_optional_read_panics() {
+    let mut w = world();
+    let mut state = ViewState::new(ViewAccess::new().read::<Pos>());
+    state.run(&mut w, |mut view| {
+        view.query::<(&Pos, Option<&Health>)>().for_each(|_| {})
+    });
+}
+
+#[test]
+#[should_panic(expected = "doesn't declare that it may write component")]
+fn an_optional_write_of_a_read_only_component_panics() {
+    let mut w = world();
+    let mut state = ViewState::new(ViewAccess::new().read::<Pos>().read::<Health>());
+    state.run(&mut w, |mut view| {
+        view.query::<(&Pos, Option<&mut Health>)>().for_each(|_| {})
+    });
+}
+
 // ---- resources ----------------------------------------------------------------------
 
 #[test]
@@ -310,4 +330,14 @@ fn non_overlapping_views_share_one_world_across_threads() {
         .filter(|(x, _)| *x != e)
         .all(|(_, v)| v.0 == -2.0);
     assert!(others);
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "ViewState dropped while prepared")]
+fn dropping_a_prepared_state_panics_in_debug_builds() {
+    let mut w = world();
+    let mut state = ViewState::new(ViewAccess::new().write_resource::<Score>()).labeled("scorer");
+    state.prepare(&mut w);
+    drop(state);
 }

@@ -30,7 +30,7 @@ fn wander(ctx: &mut Ctx) {
 }
 
 fn eat(ctx: &mut Ctx) {
-    let turn = ctx.turns(3);
+    let turn = ctx.time.turns(3);
     let grid = &ctx.spatial;
     let food: Vec<(Entity, Vec2)> = ctx
         .world

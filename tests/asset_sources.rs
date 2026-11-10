@@ -23,7 +23,8 @@ fn game() -> Game {
 #[test]
 fn a_texture_loads_by_name_from_a_memory_source() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("tiles/red.png", png(3, 2)));
+        ctx.assets
+            .add_source(MemorySource::new("mem").with("tiles/red.png", png(3, 2)));
         let red = ctx.load_texture("tiles/red.png");
         assert_eq!((red.width(), red.height()), (3, 2));
         assert_eq!(
@@ -39,7 +40,8 @@ fn a_scene_and_the_texture_it_names_load_from_a_memory_source() {
     // A scene saved by the engine, kept only in memory.
     let mut saved = String::new();
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("red.png", png(2, 2)));
+        ctx.assets
+            .add_source(MemorySource::new("mem").with("red.png", png(2, 2)));
         let red = ctx.load_texture("red.png");
         let mut sprite = Sprite::new(red);
         sprite.z = 2.0;
@@ -50,7 +52,7 @@ fn a_scene_and_the_texture_it_names_load_from_a_memory_source() {
         .with("red.png", png(2, 2))
         .with("levels/one.json", saved);
     let world = game().run_headless(0, |ctx| {
-        ctx.add_asset_source(source);
+        ctx.assets.add_source(source);
         ctx.load_scene("levels/one.json").unwrap();
         let sprite = *ctx.world.query::<&Sprite>().iter().next().unwrap();
         assert_eq!(sprite.z, 2.0);
@@ -76,7 +78,7 @@ fn prefabs_and_resources_load_from_a_memory_source() {
         "Sprite": { "texture": "red.png", "z": 0.0 }
     } }"#;
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(
+        ctx.assets.add_source(
             MemorySource::new("mem")
                 .with("red.png", png(1, 1))
                 .with("prefabs/crab.json", prefab)
@@ -84,7 +86,7 @@ fn prefabs_and_resources_load_from_a_memory_source() {
         );
         let e = ctx.spawn_prefab("prefabs/crab.json", vec2(1.0, 2.0)).unwrap();
         assert_eq!(ctx.world.get::<Transform2D>(e).unwrap().position, vec2(1.0, 2.0));
-        ctx.load_resource::<Rules>("rules.json");
+        ctx.assets.load_resource::<Rules>(&mut ctx.world, "rules.json");
         assert_eq!(ctx.world.resource::<Rules>().speed, 7.0);
     });
 }
@@ -92,7 +94,7 @@ fn prefabs_and_resources_load_from_a_memory_source() {
 #[test]
 fn a_missing_name_reports_the_sources_and_folders_searched() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem"));
+        ctx.assets.add_source(MemorySource::new("mem"));
         let err = ctx.load_scene("levels/nowhere.json").unwrap_err();
         assert!(err.contains("\"levels/nowhere.json\" not found in assets/"), "{err}");
         assert!(err.contains("Asset sources searched first: \"mem\""), "{err}");
@@ -103,7 +105,8 @@ fn a_missing_name_reports_the_sources_and_folders_searched() {
 #[should_panic(expected = "\"broken.png\" (from asset source \"mem\") is not a valid image")]
 fn corrupt_bytes_name_the_asset_and_its_source() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("broken.png", b"not a png".to_vec()));
+        ctx.assets
+            .add_source(MemorySource::new("mem").with("broken.png", b"not a png".to_vec()));
         ctx.load_texture("broken.png");
     });
 }
@@ -111,7 +114,7 @@ fn corrupt_bytes_name_the_asset_and_its_source() {
 #[test]
 fn a_bad_scene_from_a_source_is_an_error_not_a_panic() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(
+        ctx.assets.add_source(
             MemorySource::new("mem")
                 .with("bad.json", "{ not json")
                 .with("binary.json", vec![0xff, 0xfe]),
@@ -148,7 +151,7 @@ fn repeated_loads_read_a_source_once() {
     let reads = Rc::new(Cell::new(0));
     let counted = reads.clone();
     game().run_headless(0, move |ctx| {
-        ctx.add_asset_source(Counting {
+        ctx.assets.add_source(Counting {
             id: "counting",
             reads: counted.clone(),
             bytes: png(1, 1),
@@ -164,13 +167,17 @@ fn repeated_loads_read_a_source_once() {
 #[test]
 fn the_same_name_in_two_sources_is_two_assets_and_the_first_wins() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("first").with("shared.png", png(1, 1)));
-        ctx.add_asset_source(MemorySource::new("second").with("shared.png", png(2, 2)));
+        ctx.assets
+            .add_source(MemorySource::new("first").with("shared.png", png(1, 1)));
+        ctx.assets
+            .add_source(MemorySource::new("second").with("shared.png", png(2, 2)));
         assert_eq!(ctx.load_texture("shared.png").width(), 1, "the first source added wins");
     });
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("second").with("shared.png", png(2, 2)));
-        ctx.add_asset_source(MemorySource::new("first").with("shared.png", png(1, 1)));
+        ctx.assets
+            .add_source(MemorySource::new("second").with("shared.png", png(2, 2)));
+        ctx.assets
+            .add_source(MemorySource::new("first").with("shared.png", png(1, 1)));
         assert_eq!(
             ctx.load_texture("shared.png").width(),
             2,
@@ -182,8 +189,9 @@ fn the_same_name_in_two_sources_is_two_assets_and_the_first_wins() {
 #[test]
 fn a_name_only_in_a_later_source_falls_through_to_it() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("a"));
-        ctx.add_asset_source(MemorySource::new("b").with("only-b.png", png(5, 1)));
+        ctx.assets.add_source(MemorySource::new("a"));
+        ctx.assets
+            .add_source(MemorySource::new("b").with("only-b.png", png(5, 1)));
         assert_eq!(ctx.load_texture("only-b.png").width(), 5);
     });
 }
@@ -196,7 +204,8 @@ fn sources_are_asked_before_the_assets_folder() {
         assert_ne!((from_folder.width(), from_folder.height()), (7, 7));
     });
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("crab.png", png(7, 7)));
+        ctx.assets
+            .add_source(MemorySource::new("mem").with("crab.png", png(7, 7)));
         let crab = ctx.load_texture("crab.png");
         assert_eq!((crab.width(), crab.height()), (7, 7));
     });
@@ -214,7 +223,7 @@ fn a_read_error_other_than_not_found_stops_the_search() {
         }
     }
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(Broken);
+        ctx.assets.add_source(Broken);
         let err = ctx.load_scene("crab.png").unwrap_err();
         assert_eq!(err, "asset source \"broken\" could not read \"crab.png\": disk on fire");
     });
@@ -224,8 +233,8 @@ fn a_read_error_other_than_not_found_stops_the_search() {
 #[should_panic(expected = "an asset source called \"mem\" was already added")]
 fn source_ids_must_be_unique() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem"));
-        ctx.add_asset_source(MemorySource::new("mem"));
+        ctx.assets.add_source(MemorySource::new("mem"));
+        ctx.assets.add_source(MemorySource::new("mem"));
     });
 }
 
@@ -236,9 +245,10 @@ fn hot_reload_skips_assets_from_added_sources() {
     let mut tex = None;
     Game::new("asset sources", 1, 1)
         .hot_reload(true)
-        .sim_system(|ctx: &mut Ctx| assert!(ctx.reloaded_files().is_empty()))
+        .sim_system(|ctx: &mut Ctx| assert!(ctx.assets.reloaded_files().is_empty()))
         .run_headless(5, |ctx| {
-            ctx.add_asset_source(MemorySource::new("mem").with("red.png", png(1, 1)));
+            ctx.assets
+                .add_source(MemorySource::new("mem").with("red.png", png(1, 1)));
             tex = Some(ctx.load_texture("red.png"));
         });
     assert_eq!(tex.unwrap().width(), 1);
@@ -254,7 +264,7 @@ struct Tuning {
 fn embedded_files_load_by_name_like_files_in_assets() {
     game().run_headless(0, |ctx| {
         // Compiled into the executable: nothing to ship next to it.
-        ctx.add_asset_source(
+        ctx.assets.add_source(
             MemorySource::new("embedded")
                 .with("sprites/crab.png", include_bytes!("../assets/crab.png"))
                 .with("tuning.json", r#"{"speed": 30}"#),
@@ -262,7 +272,7 @@ fn embedded_files_load_by_name_like_files_in_assets() {
 
         // From here on, loads by name look there first.
         let crab = ctx.load_texture("sprites/crab.png");
-        ctx.load_resource::<Tuning>("tuning.json");
+        ctx.assets.load_resource::<Tuning>(&mut ctx.world, "tuning.json");
         // ANCHOR_END: embedded
         assert!(crab.width() > 0);
         assert_eq!(ctx.world.resource::<Tuning>().speed, 30.0);
@@ -292,7 +302,8 @@ fn wav(sample_rate: u32, samples: usize) -> Vec<u8> {
 #[test]
 fn a_sound_loads_by_name_from_a_memory_source() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("sfx/tone.wav", wav(8000, 4000)));
+        ctx.assets
+            .add_source(MemorySource::new("mem").with("sfx/tone.wav", wav(8000, 4000)));
         let tone = ctx.load_sound("sfx/tone.wav");
         // Without the `audio` feature nothing is decoded and sounds last 0 s.
         if cfg!(feature = "audio") {
@@ -325,7 +336,7 @@ fn repeated_sound_loads_read_a_source_once() {
     let reads = Rc::new(Cell::new(0));
     let counted = reads.clone();
     game().run_headless(0, move |ctx| {
-        ctx.add_asset_source(CountingSounds(counted.clone()));
+        ctx.assets.add_source(CountingSounds(counted.clone()));
         let first = ctx.load_sound("tone.wav");
         for _ in 0..3 {
             assert_eq!(ctx.load_sound("tone.wav"), first);
@@ -337,8 +348,10 @@ fn repeated_sound_loads_read_a_source_once() {
 #[test]
 fn the_same_sound_name_in_two_sources_is_two_sounds_and_the_first_wins() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("first").with("tone.wav", wav(8000, 800)));
-        ctx.add_asset_source(MemorySource::new("second").with("tone.wav", wav(8000, 8000)));
+        ctx.assets
+            .add_source(MemorySource::new("first").with("tone.wav", wav(8000, 800)));
+        ctx.assets
+            .add_source(MemorySource::new("second").with("tone.wav", wav(8000, 8000)));
         let tone = ctx.load_sound("tone.wav");
         if cfg!(feature = "audio") {
             assert!((tone.seconds() - 0.1).abs() < 0.01, "the first source wins");
@@ -350,7 +363,7 @@ fn the_same_sound_name_in_two_sources_is_two_sounds_and_the_first_wins() {
 fn a_missing_sound_reports_the_sources_and_folders_searched() {
     let caught = std::panic::catch_unwind(|| {
         game().run_headless(0, |ctx| {
-            ctx.add_asset_source(MemorySource::new("mem"));
+            ctx.assets.add_source(MemorySource::new("mem"));
             ctx.load_sound("nowhere.wav");
         });
     })
@@ -369,7 +382,8 @@ fn a_missing_sound_reports_the_sources_and_folders_searched() {
 #[should_panic(expected = "\"broken.wav\" (from asset source \"mem\")")]
 fn corrupt_sound_bytes_name_the_asset_and_its_source() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("broken.wav", b"not audio".to_vec()));
+        ctx.assets
+            .add_source(MemorySource::new("mem").with("broken.wav", b"not audio".to_vec()));
         ctx.load_sound("broken.wav");
     });
 }
@@ -392,8 +406,9 @@ fn decode_tiles(bytes: &[u8]) -> Result<Tiles, String> {
 #[test]
 fn a_custom_asset_decodes_from_a_source_with_a_callback() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("levels/one.tiles", "#.\n##\n"));
-        let level = ctx.load_asset_with("levels/one.tiles", decode_tiles).unwrap();
+        ctx.assets
+            .add_source(MemorySource::new("mem").with("levels/one.tiles", "#.\n##\n"));
+        let level = ctx.assets.load_with("levels/one.tiles", decode_tiles).unwrap();
         assert_eq!(level.0, vec![vec![true, false], vec![true, true]]);
     });
 }
@@ -401,13 +416,14 @@ fn a_custom_asset_decodes_from_a_source_with_a_callback() {
 #[test]
 fn a_custom_asset_decode_error_names_the_asset_and_its_source() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("levels/bad.tiles", "#?\n"));
-        let err = ctx.load_asset_with("levels/bad.tiles", decode_tiles).err().unwrap();
+        ctx.assets
+            .add_source(MemorySource::new("mem").with("levels/bad.tiles", "#?\n"));
+        let err = ctx.assets.load_with("levels/bad.tiles", decode_tiles).err().unwrap();
         assert_eq!(
             err,
             "\"levels/bad.tiles\" (from asset source \"mem\") could not be decoded: unknown tile '?'"
         );
-        let err = ctx.load_asset_with("levels/none.tiles", decode_tiles).err().unwrap();
+        let err = ctx.assets.load_with("levels/none.tiles", decode_tiles).err().unwrap();
         assert!(err.contains("\"levels/none.tiles\" not found in assets/"), "{err}");
         assert!(err.contains("Asset sources searched first: \"mem\""), "{err}");
     });
@@ -417,7 +433,7 @@ fn a_custom_asset_decode_error_names_the_asset_and_its_source() {
 fn a_custom_asset_can_come_from_the_assets_folder_too() {
     // Without a source named for it, `assets/` is searched as for any load.
     game().run_headless(0, |ctx| {
-        let bytes = ctx.load_asset_with("crab.png", |bytes| Ok(bytes.len())).unwrap();
+        let bytes = ctx.assets.load_with("crab.png", |bytes| Ok(bytes.len())).unwrap();
         assert!(bytes > 0);
     });
 }
@@ -425,13 +441,14 @@ fn a_custom_asset_can_come_from_the_assets_folder_too() {
 #[test]
 fn music_streams_by_name_from_a_memory_source() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("music/theme.wav", wav(8000, 8000)));
-        let theme = ctx.load_stream("music/theme.wav");
+        ctx.assets
+            .add_source(MemorySource::new("mem").with("music/theme.wav", wav(8000, 8000)));
+        let theme = ctx.audio.load_stream("music/theme.wav");
         if cfg!(feature = "audio") {
             assert!((theme.seconds() - 1.0).abs() < 0.01, "{}", theme.seconds());
         }
         assert_eq!(
-            ctx.load_stream("music/theme.wav"),
+            ctx.audio.load_stream("music/theme.wav"),
             theme,
             "loading again returns the same handle"
         );
@@ -440,7 +457,7 @@ fn music_streams_by_name_from_a_memory_source() {
             theme,
             "the same name decoded whole is another sound"
         );
-        ctx.play_sound_ex(
+        ctx.audio.play_ex(
             &theme,
             SoundParams {
                 looping: true,
@@ -468,10 +485,10 @@ fn repeated_stream_loads_read_a_source_once() {
     let reads = Rc::new(Cell::new(0));
     let counted = reads.clone();
     game().run_headless(0, move |ctx| {
-        ctx.add_asset_source(CountingMusic(counted.clone()));
-        let first = ctx.load_stream("theme.wav");
+        ctx.assets.add_source(CountingMusic(counted.clone()));
+        let first = ctx.audio.load_stream("theme.wav");
         for _ in 0..3 {
-            assert_eq!(ctx.load_stream("theme.wav"), first);
+            assert_eq!(ctx.audio.load_stream("theme.wav"), first);
         }
     });
     assert_eq!(reads.get(), 1);
@@ -480,9 +497,11 @@ fn repeated_stream_loads_read_a_source_once() {
 #[test]
 fn the_same_stream_name_in_two_sources_is_two_sounds_and_the_first_wins() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("first").with("theme.wav", wav(8000, 800)));
-        ctx.add_asset_source(MemorySource::new("second").with("theme.wav", wav(8000, 8000)));
-        let theme = ctx.load_stream("theme.wav");
+        ctx.assets
+            .add_source(MemorySource::new("first").with("theme.wav", wav(8000, 800)));
+        ctx.assets
+            .add_source(MemorySource::new("second").with("theme.wav", wav(8000, 8000)));
+        let theme = ctx.audio.load_stream("theme.wav");
         if cfg!(feature = "audio") {
             assert!((theme.seconds() - 0.1).abs() < 0.01, "the first source wins");
         }
@@ -494,11 +513,12 @@ fn the_same_stream_name_in_two_sources_is_two_sounds_and_the_first_wins() {
     std::fs::write(&file, wav(8000, 800)).unwrap();
     let name = file.to_str().unwrap().to_string();
     game().run_headless(0, |ctx| {
-        let from_folder = ctx.load_stream(&name);
-        ctx.add_asset_source(MemorySource::new("pack").with(name.clone(), wav(8000, 800)));
-        let from_source = ctx.load_stream(&name);
+        let from_folder = ctx.audio.load_stream(&name);
+        ctx.assets
+            .add_source(MemorySource::new("pack").with(name.clone(), wav(8000, 800)));
+        let from_source = ctx.audio.load_stream(&name);
         assert_ne!(from_source, from_folder, "same name, other source: another sound");
-        assert_eq!(ctx.load_stream(&name), from_source);
+        assert_eq!(ctx.audio.load_stream(&name), from_source);
     });
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -506,12 +526,13 @@ fn the_same_stream_name_in_two_sources_is_two_sounds_and_the_first_wins() {
 #[test]
 fn stream_errors_are_values_naming_the_asset_and_its_source() {
     game().run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("mem").with("broken.ogg", b"not audio".to_vec()));
-        let err = ctx.try_load_stream("nowhere.ogg").unwrap_err();
+        ctx.assets
+            .add_source(MemorySource::new("mem").with("broken.ogg", b"not audio".to_vec()));
+        let err = ctx.audio.try_load_stream("nowhere.ogg").unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NotFound);
         assert!(err.message().contains("Asset sources searched first: \"mem\""), "{err}");
         if cfg!(feature = "audio") {
-            let err = ctx.try_load_stream("broken.ogg").unwrap_err();
+            let err = ctx.audio.try_load_stream("broken.ogg").unwrap_err();
             assert_eq!(err.kind(), ErrorKind::Decode);
             assert!(
                 err.message().contains("\"broken.ogg\" (from asset source \"mem\")"),
@@ -530,7 +551,7 @@ struct ShopItem {
 }
 
 fn load_icon(ctx: &mut Ctx, name: &str) -> Result<(), String> {
-    ctx.try_load_texture(name).map(|_| ()).map_err(|e| e.to_string())
+    ctx.gfx.try_load_texture(name).map(|_| ()).map_err(|e| e.to_string())
 }
 
 /// A scene with one shop item, saved by the engine.
@@ -554,14 +575,14 @@ fn a_scene_loads_the_assets_custom_component_fields_name() {
     let seen = reads.clone();
     game().run_headless(0, move |ctx| {
         ctx.world.reflect::<ShopItem>();
-        ctx.scene_asset_field::<ShopItem>("icon", load_icon);
-        ctx.scene_asset_field::<ShopItem>("variants", move |ctx, name| {
+        ctx.assets.scene_asset_field::<ShopItem>("icon", load_icon);
+        ctx.assets.scene_asset_field::<ShopItem>("variants", move |ctx, name| {
             let mut names = seen.take();
             names.push(name.to_string());
             seen.set(names);
             load_icon(ctx, name)
         });
-        ctx.add_asset_source(
+        ctx.assets.add_source(
             MemorySource::new("shop")
                 .with("shop.json", scene)
                 .with("icons/apple.png", png(3, 3))
@@ -590,8 +611,9 @@ fn a_custom_asset_field_that_fails_to_load_fails_the_scene_with_its_name() {
     });
     game().run_headless(0, |ctx| {
         ctx.world.reflect::<ShopItem>();
-        ctx.scene_asset_field::<ShopItem>("icon", load_icon);
-        ctx.add_asset_source(MemorySource::new("shop").with("shop.json", scene));
+        ctx.assets.scene_asset_field::<ShopItem>("icon", load_icon);
+        ctx.assets
+            .add_source(MemorySource::new("shop").with("shop.json", scene));
         let before = ctx.world.spawn((Transform2D::default(),));
         let err = ctx.load_scene("shop.json").unwrap_err();
         assert!(
@@ -628,13 +650,13 @@ fn a_custom_asset_field_can_load_a_custom_decoded_asset() {
         // ANCHOR: scene_asset_field
         ctx.world.reflect::<Portal>();
         ctx.world.insert_resource(Levels::default());
-        ctx.scene_asset_field::<Portal>("level", |ctx, name| {
-            let tiles = ctx.load_asset_with(name, decode_tiles)?;
+        ctx.assets.scene_asset_field::<Portal>("level", |ctx, name| {
+            let tiles = ctx.assets.load_with(name, decode_tiles)?;
             ctx.world.resource_mut::<Levels>().0.insert(name.to_string(), tiles);
             Ok(())
         });
         // ANCHOR_END: scene_asset_field
-        ctx.add_asset_source(
+        ctx.assets.add_source(
             MemorySource::new("mem")
                 .with("world.json", scene.clone())
                 .with("levels/two.tiles", "##\n"),
@@ -652,8 +674,8 @@ fn prefabs_load_the_assets_custom_component_fields_name() {
     let prefab = PREFAB_HEADER.to_string() + r#""components": { "ShopItem": { "icon": "icons/pear.png" } } }"#;
     game().run_headless(0, |ctx| {
         ctx.world.reflect::<ShopItem>();
-        ctx.scene_asset_field::<ShopItem>("icon", load_icon);
-        ctx.add_asset_source(
+        ctx.assets.scene_asset_field::<ShopItem>("icon", load_icon);
+        ctx.assets.add_source(
             MemorySource::new("mem")
                 .with("prefabs/pear.json", prefab)
                 .with("icons/pear.png", png(2, 1)),

@@ -133,6 +133,12 @@
       "category": "public migration",
       "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
     },
+    "changelog.d/195-ctx-services.md": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+    },
     "crates/ponko_bench/README.md": {
       "occurrences": 2,
       "path_occurrences": 0,
@@ -218,7 +224,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/src/gpu.rs": {
-      "occurrences": 72,
+      "occurrences": 84,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -560,7 +566,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/tests/shader_files_and_probes.rs": {
-      "occurrences": 101,
+      "occurrences": 114,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -1052,7 +1058,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/tests/animator.rs": {
-      "occurrences": 314,
+      "occurrences": 320,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."

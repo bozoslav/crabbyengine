@@ -28,7 +28,7 @@ impl Rig {
     fn new(samples: u32) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
         if !multisamples(&adapter, samples) {
@@ -52,7 +52,7 @@ impl Rig {
         let Ok((device, queue)) =
             pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&descriptor)))
         else {
-            eprintln!("no GPU device: skipped");
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -153,15 +153,15 @@ impl Rig {
 
     /// A shader made from `source`, on the CPU and the GPU.
     fn shader(&mut self, source: &str) -> Shader {
-        let shader = self.ctx.create_shader("test", source);
+        let shader = self.ctx.gfx.create_shader("test", source);
         self.renderer.create_shader(&self.device, "test", source).unwrap();
         shader
     }
 
     /// A mesh of `data` with `desc`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
-        let material = self.ctx.create_material(desc);
-        let mesh = self.ctx.create_mesh(data, material);
+        let material = self.ctx.gfx.create_material(desc);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         self.renderer
@@ -176,7 +176,7 @@ impl Rig {
         frame.lod = ctx.lod;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -407,7 +407,7 @@ fn displaced_cube(x: f32, shift: f32, grow: bool) -> Option<usize> {
     desc.custom[0] = vec4(shift, 0.0, 0.0, 0.0);
     let cube = rig.mesh(&MeshData::cube(2.0), desc);
     if grow {
-        rig.ctx.set_mesh_gpu_bounds(cube, vec3(shift, 0.0, 0.0), 2.0);
+        rig.ctx.gfx.set_mesh_gpu_bounds(cube, vec3(shift, 0.0, 0.0), 2.0);
     }
     rig.ctx.world.spawn((
         Transform3D {

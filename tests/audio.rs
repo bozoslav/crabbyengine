@@ -42,10 +42,10 @@ fn temp_file(name: &str, bytes: &[u8]) -> String {
 #[test]
 fn generated_sounds_know_their_length() {
     in_tick(|ctx| {
-        let beep = ctx.create_sound(8000, &vec![0.0; 4000]);
+        let beep = ctx.audio.create(8000, &vec![0.0; 4000]);
         assert!((beep.seconds() - 0.5).abs() < 1e-3, "{}", beep.seconds());
         let playing = ctx.play_sound(&beep);
-        ctx.stop_sound(playing); // silent headless, but fine to call
+        ctx.audio.stop(playing); // silent headless, but fine to call
     });
 }
 
@@ -56,7 +56,7 @@ fn wav_files_load() {
     in_tick(move |ctx| {
         let tone = ctx.load_sound(&path);
         assert!((tone.seconds() - 0.25).abs() < 0.01, "{}", tone.seconds());
-        ctx.play_sound_ex(
+        ctx.audio.play_ex(
             &tone,
             SoundParams {
                 volume: 0.5,
@@ -93,6 +93,6 @@ fn loading_a_sound_file_twice_gives_the_same_sound() {
         let a = ctx.load_sound(&path);
         let b = ctx.load_sound(&path);
         assert_eq!(a, b);
-        assert_ne!(a, ctx.create_sound(8000, &[0.0; 80]));
+        assert_ne!(a, ctx.audio.create(8000, &[0.0; 80]));
     });
 }

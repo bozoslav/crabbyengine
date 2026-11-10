@@ -306,14 +306,16 @@ jobs:
           --test-threads 2 --no-fail-fast
 
   windows-gpu-tiers:
-    name: Render tests on the ${{ matrix.tier }} GPU tier (windows-latest)
+    name: Render tests on the ${{ matrix.tier }} GPU tier (windows-latest, ${{ matrix.shard }}/2)
     needs: windows-unit-build
     runs-on: windows-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         # `desktop` is the plain run in windows-unit.
         tier: [webgl2, baseline]
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/nextest
@@ -323,14 +325,27 @@ jobs:
           path: target/ci-unit
       # The offscreen render suites again, every device opened with the
       # tier's limits (render_test_support::forced); tests needing a
-      # feature the tier lacks skip with a logged reason.
+      # feature the tier lacks skip with a logged reason. The capability
+      # suite forces its own tiers and runs once, in windows-unit.
       - name: Run the render tests on the forced tier
+        shell: bash
         env:
           PONKO_GPU_TIER: ${{ matrix.tier }}
-        run: >-
-          cargo nextest run --archive-file target/ci-unit/windows-unit.tar.zst
-          --workspace-remap . --test-threads 2 --no-fail-fast
-          -E 'test(render_test) | test(capabilities) | test(skinning::tests) | test(particles::tests)'
+          PONKO_REQUIRE_GPU: 1
+        run: |
+          set +e
+          cargo nextest run --archive-file target/ci-unit/windows-unit.tar.zst \
+            --workspace-remap . --partition slice:${{ matrix.shard }}/2 \
+            --test-threads 2 --no-fail-fast --success-output final \
+            -E '(test(render_test) & !test(capabilities_render_test)) | test(skinning::tests) | test(particles::tests)' \
+            2>&1 | tee tier.log
+          status=${PIPESTATUS[0]}
+          opened=$(grep -c "as the $PONKO_GPU_TIER tier" tier.log)
+          echo "devices opened on the forced $PONKO_GPU_TIER tier: $opened"
+          if [ "$opened" -eq 0 ]; then
+            echo "no render test opened a device on the forced tier" && exit 1
+          fi
+          exit $status
 
   windows-examples:
     name: Examples and library tests (windows-latest)
@@ -585,6 +600,12 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
+      # The browsers are about 500 MB: Playwright downloads only what this
+      # cache lacks (the version is pinned by the lockfile).
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('web/smoke/package-lock.json') }}
       - name: Install the runner and the browsers (Chromium with its headless shell, Firefox, WebKit)
         run: |
           node --version

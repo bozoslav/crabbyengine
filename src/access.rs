@@ -269,8 +269,8 @@ fn add_event(items: &mut Vec<Item>, it: Item) {
 /// Two declared systems in the same [`Phase`](crate::Phase) conflict (and
 /// keep their order) when either is exclusive, both touch the same
 /// component, resource or [`Service`] and one writes it, one sends an event
-/// type the other reads or both send it, or either records commands while
-/// the other touches anything. [`conflicts_before`](Self::conflicts_before)
+/// type the other reads or both send it, or either records commands (any
+/// system can see the world's structure the commands change). [`conflicts_before`](Self::conflicts_before)
 /// has the finer rules for a known order. In builds with debug assertions,
 /// each declared `Ctx` system runs with access recording on and panics on
 /// any component, resource, event or command it used without declaring
@@ -404,6 +404,9 @@ impl SystemAccess {
     /// from writes, so the debug check accepts any use of a component
     /// declared by name; declare [`write_named`](Self::write_named) if the
     /// system changes it, so conflicts are reported.
+    ///
+    /// Every `*_named` call keeps a copy of `name` for the rest of the
+    /// program: declare at registration, not per frame.
     #[must_use]
     pub fn read_named(mut self, name: &str) -> Self {
         add(&mut self.components, named(name, false));
@@ -536,9 +539,10 @@ impl SystemAccess {
     /// - a reader before a sender doesn't conflict (sequentially it only
     ///   sees those events on its next run anyway); a sender before a
     ///   reader does;
-    /// - a system that records commands conflicts only with a **later**
-    ///   system that touches components or resources (which would see the
-    ///   applied commands sequentially); two recorders don't conflict.
+    /// - a system that records commands conflicts with every **later**
+    ///   system, which would see the applied commands sequentially (any
+    ///   system can see the world's structure, declared or not); a system
+    ///   before a recorder doesn't conflict with it.
     ///
     /// Components, resources and services conflict as in `conflicts_with`.
     ///
@@ -586,12 +590,13 @@ impl SystemAccess {
                 out.push(name);
             }
         }
-        let touches_world = |s: &SystemAccess| !s.components.is_empty() || !s.resources.is_empty();
+        // Every system can see the world's structure (`len`, `is_alive`,
+        // `has`, query filters) without declaring anything, so applied
+        // commands are visible to any system that runs after them.
         let commands = if ordered {
-            self.commands && touches_world(other)
+            self.commands
         } else {
-            let uses = |s: &SystemAccess| s.commands || touches_world(s);
-            (self.commands && uses(other)) || (other.commands && uses(self))
+            self.commands || other.commands
         };
         if commands {
             out.push(AccessConflict::Commands);
@@ -680,10 +685,14 @@ pub enum AccessConflict {
     Resource(&'static str),
     /// One sends this event type and the other reads or sends it.
     Event(&'static str),
-    /// One records commands and the other touches components, resources or commands.
+    /// One records commands (with the ordered rules: the earlier one).
     Commands,
     /// Both use this service and at least one writes it.
     Service(Service),
+    /// This system, registered between the two in the same phase, must run
+    /// between them: it is undeclared (exclusive) or conflicts with one of
+    /// them. Only in an [`AccessReport`].
+    Between(&'static str),
 }
 
 impl fmt::Display for AccessConflict {
@@ -695,6 +704,7 @@ impl fmt::Display for AccessConflict {
             AccessConflict::Event(n) => write!(f, "events `{n}`"),
             AccessConflict::Commands => f.write_str("commands"),
             AccessConflict::Service(s) => write!(f, "service `{s}`"),
+            AccessConflict::Between(n) => write!(f, "`{n}`, which runs between them"),
         }
     }
 }
@@ -771,7 +781,8 @@ pub struct ReportedPair {
     /// Index of the later system (same phase).
     pub second: usize,
     /// Why they can't share a parallel batch, by the ordered rules of
-    /// [`SystemAccess::conflicts_before`]; empty if they could.
+    /// [`SystemAccess::conflicts_before`], plus [`AccessConflict::Between`]
+    /// for a system between them that must stay there; empty if they could.
     pub conflicts: Vec<AccessConflict>,
 }
 
@@ -780,7 +791,8 @@ pub struct ReportedPair {
 ///
 /// Lists every system and, for each pair in the same phase where both have
 /// a declaration, its conflicts. Undeclared systems are exclusive and are
-/// left out of the pairs. Purely informational: systems still run in order.
+/// left out of the pairs, but one registered between two declared systems
+/// keeps them apart ([`AccessConflict::Between`]). Purely informational: systems still run in order.
 #[derive(Clone, Debug, Default)]
 pub struct AccessReport {
     /// Every registered system, in run order.
@@ -799,10 +811,22 @@ impl AccessReport {
                 if let Some(ba) = &b.access
                     && a.phase == b.phase
                 {
+                    let mut conflicts = aa.conflicts_before(ba);
+                    // A system between them that can't move out of the way
+                    // keeps them apart: batching would move one across it.
+                    let between = systems[i + 1..j].iter().find(|k| {
+                        k.phase == a.phase
+                            && k.access.as_ref().is_none_or(|ka| {
+                                !aa.conflicts_before(ka).is_empty() || !ka.conflicts_before(ba).is_empty()
+                            })
+                    });
+                    if let Some(k) = between {
+                        conflicts.push(AccessConflict::Between(k.name));
+                    }
                     pairs.push(ReportedPair {
                         first: i,
                         second: j,
-                        conflicts: aa.conflicts_before(ba),
+                        conflicts,
                     });
                 }
             }
@@ -818,13 +842,24 @@ impl AccessReport {
             .map(|p| (self.systems[p.first].name, self.systems[p.second].name))
     }
 
-    /// Names of the compatible pairs where both are view systems, the only
-    /// ones a parallel executor may run together.
+    /// Names of the compatible pairs where both are view systems and every
+    /// system registered between them in the phase is a view system too:
+    /// the only ones a parallel executor may run together. (A declared
+    /// `Ctx` system between them is a barrier: its declaration is only
+    /// checked in debug builds, so it isn't trusted to move.)
     pub fn parallel_pairs(&self) -> impl Iterator<Item = (&'static str, &'static str)> + '_ {
         self.pairs
             .iter()
-            .filter(|p| p.conflicts.is_empty() && self.systems[p.first].enforced && self.systems[p.second].enforced)
+            .filter(|p| self.parallel(p))
             .map(|p| (self.systems[p.first].name, self.systems[p.second].name))
+    }
+
+    fn parallel(&self, p: &ReportedPair) -> bool {
+        let phase = self.systems[p.first].phase;
+        p.conflicts.is_empty()
+            && self.systems[p.first..=p.second]
+                .iter()
+                .all(|s| s.enforced || s.phase != phase)
     }
 }
 
@@ -832,8 +867,7 @@ impl fmt::Display for AccessReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for p in &self.pairs {
             let (a, b) = (self.systems[p.first].name, self.systems[p.second].name);
-            let enforced = self.systems[p.first].enforced && self.systems[p.second].enforced;
-            if p.conflicts.is_empty() && enforced {
+            if self.parallel(p) {
                 writeln!(f, "{a} + {b}: could run together")?;
             } else if p.conflicts.is_empty() {
                 writeln!(f, "{a} + {b}: no conflict, but a `Ctx` system stays sequential")?;

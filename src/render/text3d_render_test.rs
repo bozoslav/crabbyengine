@@ -232,7 +232,7 @@ fn f16_to_f32(h: u16) -> f32 {
 #[test]
 fn text_draws_its_fill_and_outline_only_where_the_letters_are() {
     let Some(outlined) = draw(Color::rgb(0.0, 1.0, 0.0)) else {
-        eprintln!("no GPU: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter or device");
         return;
     };
     let red = |p: &[f32; 4]| p[0] > 0.5 && p[1] < 0.2;

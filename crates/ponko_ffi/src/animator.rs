@@ -678,6 +678,8 @@ pub unsafe extern "C" fn crabby_ctx_animator_set_manual(
 }
 
 /// Advances `entity`'s animator by `dt` seconds and poses its skeleton now.
+/// `dt` must be finite and not negative (an invalid argument otherwise; the
+/// animator is left as it was).
 /// ```
 /// assert_eq!(unsafe { ponko_ffi::crabby_ctx_animator_update(std::ptr::null_mut(), 0, 0.016) } as u32, 1);
 /// ```
@@ -696,9 +698,13 @@ pub unsafe extern "C" fn crabby_ctx_animator_update(ctx: *mut CrabbyCtx, entity_
                     "that entity needs an animator and a skeleton",
                 )
             })?;
+            // `Animator::update` panics on purpose for such a `dt`.
+            if !(dt.is_finite() && dt >= 0.) {
+                return Err(invalid("dt must be finite and not negative"));
+            }
             a.update(dt, s);
             drop(query);
-            c.write_animated_morphs();
+            c.gfx.write_animated_morphs(&mut c.world);
             Ok(())
         })
     })

@@ -8,8 +8,8 @@ let hit = ctx.load_sound("hit.ogg");   // OGG Vorbis, WAV, MP3 or FLAC from asse
 ctx.play_sound(&hit);
 
 let music = ctx.load_sound("theme.ogg");
-let song = ctx.play_sound_ex(&music, SoundParams { volume: 0.5, looping: true, ..Default::default() });
-ctx.stop_sound(song);
+let song = ctx.audio.play_ex(&music, SoundParams { volume: 0.5, looping: true, ..Default::default() });
+ctx.audio.stop(song);
 ```
 
 </div>
@@ -25,7 +25,7 @@ ctx.stop_sound(song);
 - `SoundParams { volume, speed, looping }`: `speed` also changes the pitch,
   and a little random variation keeps repeated effects from sounding
   mechanical.
-- `ctx.create_sound(sample_rate, &samples)` makes a sound from generated
+- `ctx.audio.create(sample_rate, &samples)` makes a sound from generated
   mono samples (-1..1). The `ui` example's click is made this way:
 
 <div class="lang-pair">
@@ -35,7 +35,7 @@ ctx.stop_sound(song);
 let samples: Vec<f32> = (0..4410) // 0.1 s at 44.1 kHz
     .map(|i| 0.3 * (i as f32 * 880.0 * std::f32::consts::TAU / 44100.0).sin())
     .collect();
-let click = ctx.create_sound(44100, &samples);
+let click = ctx.audio.create(44100, &samples);
 ```
 
 </div>
@@ -69,7 +69,7 @@ one-off sound at a point with `ctx.play_sound_at`. Every frame, after your
 systems, the engine moves each sound to its entity and sets its volume,
 panning and doppler from where the listener is. The listener follows
 `ctx.camera3d`; to hear from somewhere else, such as the player in a
-third-person game, call `ctx.set_audio_listener(Some(..))`.
+third-person game, call `ctx.audio.set_listener(Some(..))`.
 Positions use world units; doppler assumes metres and takes velocities
 from frame to frame. Set `doppler: 0.0` to turn it off, for example for
 something that teleports.

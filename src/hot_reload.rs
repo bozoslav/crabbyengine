@@ -66,12 +66,6 @@ pub(crate) struct Watcher {
     pub(crate) on: bool,
     files: Vec<Watched>,
     next_check: Instant,
-    /// Textures reloaded at the start of this frame.
-    pub(crate) reloaded: Vec<Texture>,
-    /// Names of every file reloaded at the start of this frame.
-    pub(crate) reloaded_files: Vec<String>,
-    /// Scratch for `changed`, kept so checks don't allocate.
-    pub(crate) pending: Vec<(Asset, PathBuf, String)>,
 }
 
 impl Default for Watcher {
@@ -80,10 +74,44 @@ impl Default for Watcher {
             on: false,
             files: Vec::new(),
             next_check: Instant::now(),
-            reloaded: Vec::new(),
-            reloaded_files: Vec::new(),
-            pending: Vec::new(),
         }
+    }
+}
+
+/// The [`Watcher`] of a game, shared by every service that loads files:
+/// each registers what it loaded, and `ctx.assets` owns the reloading.
+#[derive(Clone, Default)]
+pub(crate) struct SharedWatcher(std::rc::Rc<std::cell::RefCell<Watcher>>);
+
+impl SharedWatcher {
+    /// Turns watching on or off; files loaded while it was off are not watched.
+    pub(crate) fn set_on(&self, on: bool) {
+        self.0.borrow_mut().on = on;
+    }
+
+    pub(crate) fn on(&self) -> bool {
+        self.0.borrow().on
+    }
+
+    /// As [`Watcher::watched`].
+    #[cfg(test)]
+    pub(crate) fn watched(&self) -> usize {
+        self.0.borrow().watched()
+    }
+
+    /// As [`Watcher::watch`].
+    pub(crate) fn watch(&self, name: &str, path: PathBuf, asset: Asset) {
+        self.0.borrow_mut().watch(name, path, asset);
+    }
+
+    /// As [`Watcher::forget`].
+    pub(crate) fn forget(&self, matches: impl Fn(&Asset) -> bool) {
+        self.0.borrow_mut().forget(matches);
+    }
+
+    /// As [`Watcher::changed`].
+    pub(crate) fn changed(&self, now: Instant, out: &mut Vec<(Asset, PathBuf, String)>) {
+        self.0.borrow_mut().changed(now, out);
     }
 }
 
@@ -124,7 +152,6 @@ impl Watcher {
     /// Stops watching the files of assets `matches` picks (freed ones).
     pub(crate) fn forget(&mut self, matches: impl Fn(&Asset) -> bool) {
         self.files.retain(|f| !matches(&f.asset));
-        self.pending.retain(|(a, _, _)| !matches(a));
     }
 
     /// Files that changed since they were loaded (or last checked), at most

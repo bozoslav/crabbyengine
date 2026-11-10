@@ -134,7 +134,7 @@ fn offscreen_light_benchmark() {
             let start = std::time::Instant::now();
             frame.collect(
                 &mut ctx.world,
-                &ctx.assets3d,
+                &ctx.gfx.assets3d,
                 &crate::three::SkinFrame::default(),
                 &ctx.camera3d,
                 &ctx.lighting,
@@ -168,7 +168,7 @@ fn offscreen_light_benchmark() {
             buffers.push(encoder.finish());
             queue.submit(buffers);
             timer.submitted();
-            ctx.last_render_stats = RenderStats {
+            ctx.perf.last_render_stats = RenderStats {
                 cpu_ms: start.elapsed().as_secs_f32() * 1000.0,
                 gpu_ms: timer.smoothed_ms,
                 draw_calls: renderer.draw_calls(),
@@ -177,7 +177,7 @@ fn offscreen_light_benchmark() {
             // Completion is outside CPU timing, as display/GPU waits are in normal stats.
             device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
             if n >= warmup {
-                let stats = ctx.render_stats();
+                let stats = ctx.perf.render_stats();
                 cpu += stats.cpu_ms;
                 gpu += stats.gpu_ms.unwrap();
             }
@@ -227,7 +227,7 @@ fn offscreen_light_benchmark() {
             frame.lights.lights.len(),
             cpu / measured as f32,
             gpu / measured as f32,
-            ctx.render_stats().draw_calls
+            ctx.perf.render_stats().draw_calls
         );
     }
     assert!(

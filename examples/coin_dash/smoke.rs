@@ -119,7 +119,7 @@ impl Smoke {
 
 /// Sim system (runs before `rules`): the player of the walk-through.
 pub fn autoplay(ctx: &mut Ctx) {
-    let tick = ctx.sim_tick();
+    let tick = ctx.time.sim_tick();
     let screen = *ctx.world.resource::<Screen>();
     let (step, since) = {
         let smoke = ctx.world.resource_mut::<Smoke>();

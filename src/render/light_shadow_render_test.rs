@@ -46,7 +46,7 @@ fn instance_levels_separate_camera_and_local_shadow_geometry() {
 fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, camera: Option<bool>) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        eprintln!("no GPU adapter: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter");
         return;
     };
     let Ok((device, queue)) = pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(
@@ -59,7 +59,7 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
             ..Default::default()
         },
     ))) else {
-        eprintln!("no GPU device: skipped");
+        crate::render::render_test_support::no_gpu("no GPU device");
         return;
     };
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -151,11 +151,11 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
         roughness: 1.0,
         ..Default::default()
     };
-    let material = ctx.create_material(matte);
+    let material = ctx.gfx.create_material(matte);
     let ground = MeshData::plane(20.0);
     let cube = MeshData::cube(1.0);
-    let ground_mesh = ctx.create_mesh(&ground, material);
-    let cube_mesh = ctx.create_mesh(&cube, material);
+    let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+    let cube_mesh = ctx.gfx.create_mesh(&cube, material);
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
     if !batch {
         ctx.world
@@ -199,7 +199,7 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
 
     if batch {
         let handle = if let Some(camera) = camera {
-            ctx.create_instance_batch_levels(
+            ctx.gfx.create_instance_batch_levels(
                 &[InstanceLevel {
                     mesh: cube_mesh,
                     min_distance: 0.0,
@@ -212,7 +212,7 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
                 Default::default(),
             )
         } else {
-            ctx.create_instance_batch(
+            ctx.gfx.create_instance_batch(
                 cube_mesh,
                 &[Mat4::from_translation(vec3(0.0, 3.0, 0.0))],
                 InstanceBatchOptions {
@@ -225,14 +225,14 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
         renderer.set_instance_batch(
             &device,
             handle.id(),
-            ctx.assets3d.instance_batches[handle.id() as usize].as_ref(),
+            ctx.gfx.assets3d.instance_batches[handle.id() as usize].as_ref(),
         );
     }
     let mut draw = |ctx: &mut Ctx| -> Vec<u8> {
         let mut frame = Frame3D::default();
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,

@@ -167,8 +167,8 @@ impl CollisionMeshData {
 /// # use ponko::*;
 /// Game::new("t", 1, 1).physics3d(vec3(0.0, -9.81, 0.0)).run_headless(1, |ctx| {
 ///     let heights = [0.0; 33 * 33];
-///     let ground = ctx.default_material();
-///     let tile = ctx.create_terrain_tile(&heights, 64.0, ground);
+///     let ground = ctx.gfx.default_material();
+///     let tile = ctx.gfx.create_terrain_tile(&heights, 64.0, ground);
 ///     let solid = TerrainCollider::new(ctx.physics3d.heightfield(&heights, 64.0));
 ///     ctx.world.spawn((Transform3D::at(vec3(-32.0, 0.0, -32.0)), tile, solid));
 /// });

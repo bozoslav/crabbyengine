@@ -24,13 +24,13 @@ impl Rig {
     fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
         let Ok((device, queue)) = pollster::block_on(adapter.request_device(
             &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
         )) else {
-            eprintln!("no GPU device: skipped");
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -130,8 +130,8 @@ impl Rig {
 
     /// A mesh of `data` with `desc`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
-        let material = self.ctx.create_material(desc);
-        let mesh = self.ctx.create_mesh(data, material);
+        let material = self.ctx.gfx.create_material(desc);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         self.renderer
@@ -149,7 +149,7 @@ impl Rig {
         frame.size_limit = self.device.limits().max_texture_dimension_2d;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,

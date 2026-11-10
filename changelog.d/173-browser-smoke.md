@@ -14,7 +14,7 @@
   features, asset, expected state and key presses (`--fixture <name> [--build]`),
   and `examples/common/web_smoke.rs` is the shared helper a fixture uses to
   publish its state and the runner's self-test failure cases.
-- Richer artifacts: the engine's own adapter report (`Ctx::gpu_capabilities`,
+- Richer artifacts: the engine's own adapter report (`Graphics::gpu_capabilities`,
   published on `<html data-smoke-gpu>`) is checked against the canvas's context
   and recorded with the limits and fallbacks; a Playwright `trace.zip` for every
   run; an optional Chromium GPU trace (`--chrome-trace`); a Markdown summary of
@@ -27,9 +27,14 @@
 ### Fixed
 - 3D games start in a browser that has only WebGL2: the 3D frame drew into
   multisampled textures, which WebGL2 can't make (it panicked at startup), and
-  read a sprite texture through a linear view, which it can't make either. On
-  WebGL2 the frame now has one sample (`Multisampling` is reported as a
-  fallback; use FXAA or SMAA for smooth edges) and reads the default white image
-  through its own format. Found by the new 3D smoke fixture.
+  read sprite textures through a linear view, which it can't make either. On
+  WebGL2 the frame now has one sample (the capabilities report's
+  `multisampling` entry says so: its `fallback` text, which is part of the
+  serialised JSON, is now "no multisampling: edges are smoothed only by FXAA or
+  SMAA, if chosen" instead of "Nx multisampling"; use FXAA or SMAA for smooth
+  edges), and normal and ORM maps are remade as linear textures with the same
+  bytes when a material first uses them, so they are not decoded as sRGB. A
+  game's own shader must read the scene depth at index 0 or through
+  `scene_position`. Found by the new 3D smoke fixture.
 - `GpuAdapter::backend` is documented as `webgpu`, not `browser_webgpu`, for the
   browser's WebGPU: that is what the engine reports.

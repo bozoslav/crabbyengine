@@ -210,6 +210,20 @@ impl ViewAccess {
     }
 }
 
+impl Drop for ViewState {
+    fn drop(&mut self) {
+        // Not while unwinding: a panicking system's state is dropped then,
+        // and a second panic would abort.
+        if !std::thread::panicking() {
+            debug_assert!(
+                !self.is_prepared(),
+                "ViewState dropped while prepared: {}'s lent resources are lost; call finish first",
+                self.label
+            );
+        }
+    }
+}
+
 /// A written resource, moved out of the world while it is viewed.
 struct Lent {
     id: TypeId,
@@ -268,7 +282,9 @@ impl ViewState {
     /// Gets `world` ready to be viewed: registers the declared components
     /// and moves the declared written resources out of it (a missing one
     /// stays missing). Until [`finish`](Self::finish), those resources are
-    /// absent from the world itself.
+    /// absent from the world itself: dropping a prepared state loses them
+    /// (builds with debug assertions panic when that happens).
+    /// [`run`](Self::run) always finishes.
     ///
     /// # Panics
     /// If the state is already prepared.

@@ -180,7 +180,7 @@ impl Ctx {
     /// Lays out this frame's [`Text3D`]s into glyph quads (farthest first)
     /// and puts new glyphs on the GPU.
     pub(crate) fn collect_text3d(&mut self) {
-        let frame = &mut self.frame3d.particles.texts;
+        let frame = &mut self.gfx.frame3d.particles.texts;
         frame.vertices.clear();
         frame.order.clear();
         let camera = &self.camera3d;
@@ -200,26 +200,26 @@ impl Ctx {
             Some(t) => t,
             None => {
                 let side = Text::ATLAS_SIZE;
-                let t = self.make_texture(side, side, &vec![0; (side * side * 4) as usize]);
-                self.frame3d.particles.texts.atlas = Some(t);
+                let t = self.gfx.make_texture(side, side, &vec![0; (side * side * 4) as usize]);
+                self.gfx.frame3d.particles.texts.atlas = Some(t);
                 t
             }
         };
-        let mut frame = std::mem::take(&mut self.frame3d.particles.texts);
+        let mut frame = std::mem::take(&mut self.gfx.frame3d.particles.texts);
         for &(_, e) in &frame.order.clone() {
             let (Some(t), Some(at)) = (self.world.get::<Text3D>(e), self.world.get::<Transform3D>(e)) else {
                 continue;
             };
-            frame.push(t, at, &self.camera3d, &mut self.text);
+            frame.push(t, at, &self.camera3d, &mut self.gfx.text);
         }
-        if let Some(renderer) = self.renderer.as_mut() {
-            for (at, size, rgba) in self.text.sdf.uploads.drain(..) {
+        if let Some(renderer) = self.gfx.renderer.as_mut() {
+            for (at, size, rgba) in self.gfx.text.sdf.uploads.drain(..) {
                 renderer.update_texture_region(atlas.id, at, size, &rgba);
             }
         } else {
-            self.text.sdf.uploads.clear();
+            self.gfx.text.sdf.uploads.clear();
         }
-        self.frame3d.particles.texts = frame;
+        self.gfx.frame3d.particles.texts = frame;
     }
 }
 

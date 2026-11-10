@@ -79,7 +79,7 @@ simulation logic added before it, should move that logic to
 
 ## One frame, in order
 
-1. Simulation systems, `ctx.fixed_steps()` times (each tick runs all of them
+1. Simulation systems, `ctx.time.fixed_steps()` times (each tick runs all of them
    once, in phase order: `Input`, `BeforePhysics`, `Physics`,
    `AfterPhysics`, `SimLast`).
 2. Frame systems (`Phase::Frame`), then the closure returned from `setup`,
@@ -169,7 +169,7 @@ returns the closure:
 fn spawner(every: u64) -> impl FnMut(&mut Ctx) {
     let mut spawned = 0;
     move |ctx| {
-        if ctx.sim_tick() % every == 0 {
+        if ctx.time.sim_tick() % every == 0 {
             ctx.commands.spawn((Transform2D::default(),));
             spawned += 1;
         }
@@ -216,7 +216,7 @@ Game::new("t", 800, 600)
 
 ## Timings
 
-`ctx.system_timings()` lists every system with its last and average time in
+`ctx.perf.system_timings()` lists every system with its last and average time in
 milliseconds, so a game can show its own profiler overlay. For a full
 timeline, build with `--features profiling` and open
 [puffin_viewer](https://github.com/EmbarkStudios/puffin) on `127.0.0.1:8585`.

@@ -1,5 +1,5 @@
 ### Added
-- `Ctx::pipeline_stats()` and `PipelineStats`: the render pipeline cache's
+- `Graphics::pipeline_stats()` and `PipelineStats`: the render pipeline cache's
   material shaders, variant sets and pipelines alive, hits and misses,
   shaders that shared an identical one's pipelines, build and compile counts
   with total, slowest and last times, sets invalidated by reloads, and the

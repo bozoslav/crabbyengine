@@ -18,22 +18,23 @@ struct Scene {
 
 // ANCHOR: scene
 fn scene(ctx: &mut Ctx) {
-    let t = ctx.time() as f32;
+    let t = ctx.time.elapsed() as f32;
 
     // The world: a grid of tiles, a few shapes, a crab in orbit.
     for y in 0..20 {
         for x in 0..20 {
             let shade = if (x + y) % 2 == 0 { 0.16 } else { 0.19 };
             let tile = Rect::new(x as f32 * 64.0, y as f32 * 64.0, 64.0, 64.0);
-            ctx.draw_rect(tile, Color::rgb(shade, shade + 0.03, shade));
+            ctx.gfx.draw_rect(tile, Color::rgb(shade, shade + 0.03, shade));
         }
     }
     let center = vec2(640.0, 640.0);
-    ctx.draw_circle(center, 180.0, Color::hex(0x3a86ff).with_alpha(0.15));
+    ctx.gfx
+        .draw_circle(center, 180.0, Color::hex(0x3a86ff).with_alpha(0.15));
     let orbit = center + Vec2::from_angle(t * 0.6) * 180.0;
-    ctx.draw_line(center, orbit, 3.0, Color::hex(0xffbe0b));
+    ctx.gfx.draw_line(center, orbit, 3.0, Color::hex(0xffbe0b));
     let crab = ctx.world.resource::<Scene>().crab;
-    ctx.draw_ex(
+    ctx.gfx.draw_ex(
         &crab,
         orbit,
         DrawParams {
@@ -49,12 +50,12 @@ fn scene(ctx: &mut Ctx) {
     if ctx.world.resource::<Scene>().follow {
         ctx.camera.look_at(orbit);
     }
-    if ctx.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
+    if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.ui.wants_pointer() {
         let at = ctx.mouse_world();
         ctx.world.spawn((Transform2D::at(at), Sprite::new(crab)));
         let plop = ctx.world.resource::<Scene>().plop;
         let speed = 0.8 + ctx.random().stream(0).f32() * 0.4;
-        ctx.play_sound_ex(
+        ctx.audio.play_ex(
             &plop,
             SoundParams {
                 speed,
@@ -69,19 +70,28 @@ fn scene(ctx: &mut Ctx) {
 // ANCHOR: hud
 fn hud(ctx: &mut Ctx) {
     let panel = Rect::new(12.0, 12.0, 230.0, 172.0);
-    ctx.ui_panel(panel);
-    let mut at = panel.min + ctx.ui_style.padding;
+    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+    let mut at = panel.min + ctx.ui.immediate.style.padding;
     let (zoom, dropped) = (ctx.camera.zoom, ctx.world.resource::<Scene>().dropped);
-    let lines = format!("zoom {zoom:.2}x\ncrabs dropped: {dropped}\n{:.0} FPS", ctx.fps());
-    at.y += ctx.ui_label(at, &lines).y + 8.0;
+    let lines = format!("zoom {zoom:.2}x\ncrabs dropped: {dropped}\n{:.0} FPS", ctx.time.fps());
+    at.y += ctx.ui.immediate.label(&mut ctx.gfx, at, &lines).y + 8.0;
 
     let follow = ctx.world.resource::<Scene>().follow;
     let label = if follow { "Stop following" } else { "Follow orbiter" };
-    if ctx.ui_button(Rect::new(at.x, at.y, 210.0, 30.0), label) {
+    if ctx
+        .ui
+        .immediate
+        .button(&mut ctx.gfx, &ctx.input, Rect::new(at.x, at.y, 210.0, 30.0), label)
+    {
         ctx.world.resource_mut::<Scene>().follow = !follow;
     }
     at.y += 38.0;
-    if ctx.ui_button(Rect::new(at.x, at.y, 210.0, 30.0), "Reset camera") {
+    if ctx.ui.immediate.button(
+        &mut ctx.gfx,
+        &ctx.input,
+        Rect::new(at.x, at.y, 210.0, 30.0),
+        "Reset camera",
+    ) {
         ctx.camera.zoom = 1.0;
         ctx.camera.position = Vec2::ZERO;
         ctx.world.resource_mut::<Scene>().follow = false;
@@ -99,7 +109,7 @@ fn plop(ctx: &mut Ctx) -> Sound {
             (t * freq * std::f32::consts::TAU).sin() * (1.0 - t * 8.0).max(0.0) * 0.25
         })
         .collect();
-    ctx.create_sound(rate, &samples)
+    ctx.audio.create(rate, &samples)
 }
 
 fn main() {

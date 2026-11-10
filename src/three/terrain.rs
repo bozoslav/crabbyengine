@@ -4,15 +4,15 @@
 use glam::{Vec2, Vec3, Vec4};
 
 use super::{Material, MaterialDesc, Mesh, MeshData, TextureArray};
-use crate::Ctx;
+use crate::gfx::Graphics;
 
 /// The most ground layers a terrain material blends.
 pub const TERRAIN_LAYERS: usize = 8;
 
 /// What a terrain material is made from: ground layers (grass, dirt, rock,
 /// ...) and a weight map saying how much of each shows where. Made into a
-/// [`Material`] with [`Ctx::create_terrain_material`] and used for
-/// [`Ctx::create_terrain_tile`].
+/// [`Material`] with [`Graphics::create_terrain_material`](crate::Graphics::create_terrain_material) and used for
+/// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile).
 ///
 /// The layers' textures are lined up with the world, not with each tile,
 /// so they run on across tile edges; each repeats every
@@ -21,11 +21,11 @@ pub const TERRAIN_LAYERS: usize = 8;
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let ground = ctx.load_texture_array(&["grass.png", "dirt.png", "rock.png"], TextureKind::Color);
+/// let ground = ctx.gfx.load_texture_array(&["grass.png", "dirt.png", "rock.png"], TextureKind::Color);
 /// // One RGBA weight map for the whole 512 m: red grass, green dirt, blue rock.
-/// let weights = ctx.load_texture_array(&["weights.png"], TextureKind::Data);
+/// let weights = ctx.gfx.load_texture_array(&["weights.png"], TextureKind::Data);
 /// let desc = TerrainMaterialDesc::new(ground, weights, vec2(0.0, 0.0), vec2(512.0, 512.0));
-/// let terrain = ctx.create_terrain_material(&desc);
+/// let terrain = ctx.gfx.create_terrain_material(&desc);
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -125,7 +125,7 @@ impl TerrainMaterialDesc {
 pub const TERRAIN_LODS: usize = 4;
 
 /// A square of terrain from a grid of heights, made with
-/// [`Ctx::create_terrain_tile`]. Spawn it with a [`Transform3D`](crate::Transform3D)
+/// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile). Spawn it with a [`Transform3D`](crate::Transform3D)
 /// at the tile's corner, instead of a [`Model`](crate::Model). The renderer
 /// picks a detail level by how far the camera is: the full grid nearer than
 /// `lod_distance`, then every 2nd height to twice that, every 4th to four
@@ -135,13 +135,13 @@ pub const TERRAIN_LODS: usize = 4;
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let grass = ctx.create_material(MaterialDesc { roughness: 0.95, ..MaterialDesc::color(Color::hex(0x5A8A3C)) });
+/// let grass = ctx.gfx.create_material(MaterialDesc { roughness: 0.95, ..MaterialDesc::color(Color::hex(0x5A8A3C)) });
 /// // 65 x 65 heights, 2 m apart: a 128 m tile with gentle hills.
 /// let n = 65;
 /// let heights: Vec<f32> = (0..n * n)
 ///     .map(|i| ((i % n) as f32 * 0.1).sin() * 3.0 + ((i / n) as f32 * 0.07).cos() * 4.0)
 ///     .collect();
-/// let tile = ctx.create_terrain_tile(&heights, 128.0, grass);
+/// let tile = ctx.gfx.create_terrain_tile(&heights, 128.0, grass);
 /// ctx.world.spawn((Transform3D::at(vec3(-64.0, 0.0, -64.0)), tile));
 /// # }
 /// ```
@@ -181,16 +181,16 @@ pub(crate) fn lod_at(distance: f32, lod_distance: f32) -> usize {
     (doublings + 1).min(TERRAIN_LODS - 1)
 }
 
-impl Ctx {
+impl Graphics {
     /// Makes a material for terrain from ground layers and a weight map
     /// (see [`TerrainMaterialDesc`]). It's an ordinary [`Material`]: give
-    /// it to [`Ctx::create_terrain_tile`], or to any mesh.
+    /// it to [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile), or to any mesh.
     ///
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, desc: TerrainMaterialDesc, heights: &[f32]) {
-    /// let ground = ctx.create_terrain_material(&desc);
-    /// let tile = ctx.create_terrain_tile(heights, 256.0, ground);
+    /// let ground = ctx.gfx.create_terrain_material(&desc);
+    /// let tile = ctx.gfx.create_terrain_tile(heights, 256.0, ground);
     /// # }
     /// ```
     ///
@@ -204,7 +204,7 @@ impl Ctx {
             .unwrap_or_else(|e| panic!("ponko: create_terrain_material: {e}"))
     }
 
-    /// [`Ctx::create_terrain_material`] that returns errors (for the C API).
+    /// [`Graphics::create_terrain_material`](crate::Graphics::create_terrain_material) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Result<Material, String> {
         desc.check()?;
@@ -255,7 +255,7 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, heights: &[f32], ground: Material) {
-    /// let tile = ctx.create_terrain_tile(heights, 256.0, ground);
+    /// let tile = ctx.gfx.create_terrain_tile(heights, 256.0, ground);
     /// ctx.world.spawn((Transform3D::at(vec3(256.0, 0.0, 0.0)), tile));
     /// # }
     /// ```
@@ -269,15 +269,15 @@ impl Ctx {
     }
 
     /// Puts a tile's meshes, made by [`TerrainTileData::new`] (on any
-    /// thread), on the GPU: the fast half of [`Ctx::create_terrain_tile`],
+    /// thread), on the GPU: the fast half of [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile),
     /// for tiles streamed in while the game runs.
     ///
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let ground = ctx.default_material();
+    ///     let ground = ctx.gfx.default_material();
     ///     let job = Job::spawn(|| TerrainTileData::new(&[0.0; 33 * 33], 64.0));
-    ///     let tile = ctx.upload_terrain_tile(&job.wait(), ground);
+    ///     let tile = ctx.gfx.upload_terrain_tile(&job.wait(), ground);
     ///     assert_eq!(tile.lod_distance, 64.0);
     /// });
     /// ```
@@ -294,15 +294,15 @@ impl Ctx {
     }
 
     /// Frees the GPU memory of every detail level of `tile` (see
-    /// [`Ctx::free_mesh`]); despawn its entity too.
+    /// [`Graphics::free_mesh`](crate::Graphics::free_mesh)); despawn its entity too.
     ///
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let ground = ctx.default_material();
-    ///     let tile = ctx.create_terrain_tile(&[0.0; 9 * 9], 16.0, ground);
-    ///     ctx.free_terrain_tile(tile);
-    ///     assert!(!ctx.is_mesh_live(tile.lods[0]));
+    ///     let ground = ctx.gfx.default_material();
+    ///     let tile = ctx.gfx.create_terrain_tile(&[0.0; 9 * 9], 16.0, ground);
+    ///     ctx.gfx.free_terrain_tile(tile);
+    ///     assert!(!ctx.gfx.is_mesh_live(tile.lods[0]));
     /// });
     /// ```
     pub fn free_terrain_tile(&mut self, tile: TerrainTile) {
@@ -314,7 +314,7 @@ impl Ctx {
 
 /// The meshes of a terrain tile at every detail level, made on the CPU
 /// from its heights: build them on a worker thread with a [`Job`](crate::Job),
-/// then [`Ctx::upload_terrain_tile`] on the game's.
+/// then [`Graphics::upload_terrain_tile`](crate::Graphics::upload_terrain_tile) on the game's.
 ///
 /// ```
 /// # use ponko::*;
@@ -329,7 +329,7 @@ pub struct TerrainTileData {
 
 impl TerrainTileData {
     /// A tile `size` wide from a square grid of heights, as
-    /// [`Ctx::create_terrain_tile`] takes them.
+    /// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile) takes them.
     ///
     /// ```
     /// # use ponko::*;
@@ -400,7 +400,7 @@ pub struct Heightfield {
 
 impl Heightfield {
     /// A tile `size` wide from n × n heights, as
-    /// [`Ctx::create_terrain_tile`] takes them (NaN for a hole).
+    /// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile) takes them (NaN for a hole).
     ///
     /// ```
     /// # use ponko::*;

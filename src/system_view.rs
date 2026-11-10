@@ -83,7 +83,6 @@ pub struct SystemView<'a> {
     clock: Clock,
     random: Random,
     audio: &'a mut crate::audio::Audio,
-    headless: bool,
     camera: &'a mut crate::Camera2D,
     #[cfg(feature = "3d")]
     camera3d: &'a mut crate::Camera3D,
@@ -156,7 +155,7 @@ impl SystemView<'_> {
         self.clock.dt
     }
 
-    /// As [`Ctx::fixed_dt`]. Needs `Service::Time`.
+    /// As [`Time::fixed_dt`](crate::Time::fixed_dt). Needs `Service::Time`.
     #[track_caller]
     #[must_use]
     pub fn fixed_dt(&self) -> f32 {
@@ -164,7 +163,7 @@ impl SystemView<'_> {
         self.clock.fixed_dt
     }
 
-    /// As [`Ctx::sim_tick`]. Needs `Service::Time`.
+    /// As [`Time::sim_tick`](crate::Time::sim_tick). Needs `Service::Time`.
     #[track_caller]
     #[must_use]
     pub fn sim_tick(&self) -> u64 {
@@ -172,7 +171,7 @@ impl SystemView<'_> {
         self.clock.sim_tick
     }
 
-    /// As [`Ctx::time`]. Needs `Service::Time`.
+    /// As [`Time::elapsed`](crate::Time::elapsed). Needs `Service::Time`.
     #[track_caller]
     #[must_use]
     pub fn time(&self) -> f64 {
@@ -180,7 +179,7 @@ impl SystemView<'_> {
         self.clock.time
     }
 
-    /// As [`Ctx::frame`]. Needs `Service::Time`.
+    /// As [`Time::frame`](crate::Time::frame). Needs `Service::Time`.
     #[track_caller]
     #[must_use]
     pub fn frame(&self) -> u64 {
@@ -225,7 +224,7 @@ impl SystemView<'_> {
         self.input.key_released(key)
     }
 
-    /// As [`Ctx::mouse_down`]. Needs `Service::Input`.
+    /// As [`Input::mouse_down`](crate::Input::mouse_down). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn mouse_down(&self, button: MouseButton) -> bool {
@@ -233,7 +232,7 @@ impl SystemView<'_> {
         self.input.mouse_down(button)
     }
 
-    /// As [`Ctx::mouse_pressed`]. Needs `Service::Input`.
+    /// As [`Input::mouse_pressed`](crate::Input::mouse_pressed). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn mouse_pressed(&self, button: MouseButton) -> bool {
@@ -241,7 +240,7 @@ impl SystemView<'_> {
         self.input.mouse_pressed(button)
     }
 
-    /// As [`Ctx::mouse_released`]. Needs `Service::Input`.
+    /// As [`Input::mouse_released`](crate::Input::mouse_released). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn mouse_released(&self, button: MouseButton) -> bool {
@@ -257,7 +256,7 @@ impl SystemView<'_> {
         self.input.mouse_pos()
     }
 
-    /// As [`Ctx::action_down`]. Needs `Service::Input`.
+    /// As [`Input::action_down`](crate::Input::action_down). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn action_down(&self, action: impl crate::ActionRef) -> bool {
@@ -265,7 +264,7 @@ impl SystemView<'_> {
         self.input.actions.down(action)
     }
 
-    /// As [`Ctx::action_pressed`]. Needs `Service::Input`.
+    /// As [`Input::action_pressed`](crate::Input::action_pressed). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn action_pressed(&self, action: impl crate::ActionRef) -> bool {
@@ -273,7 +272,7 @@ impl SystemView<'_> {
         self.input.actions.pressed(action)
     }
 
-    /// As [`Ctx::action_released`]. Needs `Service::Input`.
+    /// As [`Input::action_released`](crate::Input::action_released). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn action_released(&self, action: impl crate::ActionRef) -> bool {
@@ -281,7 +280,7 @@ impl SystemView<'_> {
         self.input.actions.released(action)
     }
 
-    /// As [`Ctx::action_axis`]. Needs `Service::Input`.
+    /// As [`Input::action_axis`](crate::Input::action_axis). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn action_axis(&self, action: impl crate::ActionRef) -> f32 {
@@ -289,7 +288,7 @@ impl SystemView<'_> {
         self.input.actions.axis(action)
     }
 
-    /// As [`Ctx::action_axis2`]. Needs `Service::Input`.
+    /// As [`Input::action_axis2`](crate::Input::action_axis2). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn action_axis2(&self, action: impl crate::ActionRef) -> Vec2 {
@@ -305,14 +304,11 @@ impl SystemView<'_> {
         self.play_sound_ex(sound, SoundParams::default())
     }
 
-    /// As [`Ctx::play_sound_ex`]. Needs `Service::Audio` written.
+    /// As [`Audio::play_ex`](crate::Audio::play_ex). Needs `Service::Audio` written.
     #[track_caller]
     pub fn play_sound_ex(&mut self, sound: &Sound, params: SoundParams) -> Playing {
         self.need(Service::Audio, true);
-        if self.headless {
-            return Playing(0);
-        }
-        Playing(self.audio.play(sound.id, params))
+        self.audio.play_ex(sound, params)
     }
 
     // ---- cameras, spatial grid, physics, net -----------------------------------------------
@@ -484,13 +480,12 @@ where
     move |ctx: &mut Ctx| {
         let clock = Clock {
             dt: ctx.dt(),
-            fixed_dt: ctx.fixed_dt(),
-            sim_tick: ctx.sim_tick(),
-            time: ctx.time(),
-            frame: ctx.frame(),
+            fixed_dt: ctx.time.fixed_dt(),
+            sim_tick: ctx.time.sim_tick(),
+            time: ctx.time.elapsed(),
+            frame: ctx.time.frame(),
         };
         let random = ctx.random();
-        let headless = ctx.headless;
         let commands = &mut ctx.commands;
         let events = &mut ctx.events;
         let input = &ctx.input;
@@ -516,7 +511,6 @@ where
                 clock,
                 random,
                 audio,
-                headless,
                 camera,
                 #[cfg(feature = "3d")]
                 camera3d,

@@ -12,7 +12,7 @@ pub const TICKS: u64 = 10_000;
 struct Total(u64);
 
 fn sim(ctx: &mut Ctx) {
-    ctx.net.set_input(&(ctx.sim_tick() as u32, ctx.net.player() as u8));
+    ctx.net.set_input(&(ctx.time.sim_tick() as u32, ctx.net.player() as u8));
     let mut sum = 0;
     for p in 0..ctx.net.players() {
         if let Some((tick, _)) = ctx.net.input::<(u32, u8)>(p) {

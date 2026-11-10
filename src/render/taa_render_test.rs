@@ -49,9 +49,9 @@ impl Rig {
             emissive: Color::WHITE,
             ..Default::default()
         };
-        let material = ctx.create_material(glow);
+        let material = ctx.gfx.create_material(glow);
         let cube_data = MeshData::cube(1.0);
-        let cube = ctx.create_mesh(&cube_data, material);
+        let cube = ctx.gfx.create_mesh(&cube_data, material);
         let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         renderer.create_material(&device, &GpuMaterialDesc::new(&glow), &textures);
         renderer.create_mesh(
@@ -113,7 +113,7 @@ impl Rig {
             ctx.post.anti_aliasing == AntiAliasing::Taa || (ctx.post.ao_temporal && ctx.post.ambient_occlusion.enabled);
         self.frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -338,24 +338,24 @@ impl Rig {
             color: Color::BLACK,
             roughness: 1.0,
             emissive: Color::WHITE,
-            shader: Some(self.ctx.create_shader("offsets", OFFSETS)),
+            shader: Some(self.ctx.gfx.create_shader("offsets", OFFSETS)),
             ..Default::default()
         };
         self.renderer.create_shader(&self.device, "offsets", OFFSETS).unwrap();
-        let material = self.ctx.create_material(glow);
+        let material = self.ctx.gfx.create_material(glow);
         let data = MeshData::cube(1.0);
-        let mesh = self.ctx.create_mesh(&data, material);
+        let mesh = self.ctx.gfx.create_mesh(&data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&glow), &self.textures);
         self.renderer
             .create_mesh(&self.device, &data, &[(0..data.indices.len() as u32, material)], true);
         let len = offsets.len() as u32;
-        let b = self.ctx.create_gpu_buffer(len, offsets);
+        let b = self.ctx.gfx.create_gpu_buffer(len, offsets);
         self.renderer.create_gpu_buffer(&self.device, b.id, len, offsets);
-        self.ctx.set_mesh_gpu_buffer(mesh, b, len);
+        self.ctx.gfx.set_mesh_gpu_buffer(mesh, b, len);
         self.renderer.set_mesh_gpu_buffer(mesh.id, b.id, len);
         // The offsets reach beyond the entity's own bounds.
-        self.ctx.set_mesh_gpu_bounds(mesh, vec3(0.0, 1.0, 0.0), 2.0);
+        self.ctx.gfx.set_mesh_gpu_bounds(mesh, vec3(0.0, 1.0, 0.0), 2.0);
         Some(mesh)
     }
 }

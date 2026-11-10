@@ -38,7 +38,7 @@ pub(super) fn unavailable(ctx: &Ctx, method: &str) -> Option<String> {
             Some("headless games have no window to capture; launch the game with a window".into())
         }
         "perf.trace" if ctx.headless => Some("headless games have no frames to trace".into()),
-        "input.scenario.load" if !ctx.input_injection_allowed() => Some(
+        "input.scenario.load" if !ctx.input.injection_allowed() => Some(
             "input injection is off: start the game with PONKO_INPUT_INJECTION=1 or call Game::input_injection(true)"
                 .into(),
         ),
@@ -63,7 +63,7 @@ fn limited(ctx: &Ctx, method: &str) -> Option<&'static str> {
 /// before the game loop has listed its systems (no frame or tick yet).
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 fn scheduled(ctx: &Ctx, name: &str) -> Option<bool> {
-    let t = ctx.system_timings();
+    let t = ctx.perf.system_timings();
     (!t.is_empty()).then(|| t.iter().any(|s| s.sim && s.name == name))
 }
 
@@ -129,7 +129,7 @@ fn subsystems(ctx: &Ctx) -> Value {
             "feature": "audio",
             "compiled": true,
             // Opens on the first sound; headless games may never open it.
-            "device": ctx.audio.device_state(),
+            "device": ctx.audio.backend.device_state(),
         })
     } else {
         compiled_out("audio")
@@ -148,7 +148,7 @@ fn subsystems(ctx: &Ctx) -> Value {
             "transports": { "udp": true, "steam": cfg!(feature = "steam") },
         },
         "profiling": {
-            "scope_timing": ctx.profiling(),
+            "scope_timing": ctx.perf.profiling(),
             "puffin_feature": cfg!(feature = "profiling"),
         },
         // Whoever reads this reached it through the endpoint.
@@ -195,7 +195,7 @@ mod tests {
 
     fn ctx(headless: bool) -> Ctx {
         let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ZERO);
-        ctx.headless = headless;
+        ctx.set_headless(headless);
         ctx
     }
 
@@ -242,7 +242,11 @@ mod tests {
         assert_eq!(method(&w, "capabilities")["available"], true);
         // Reading capabilities changes nothing.
         assert_eq!(
-            (headless.world.len(), headless.sim_tick(), headless.is_paused()),
+            (
+                headless.world.len(),
+                headless.time.sim_tick(),
+                headless.time.is_paused()
+            ),
             (0, 0, false)
         );
     }
@@ -325,9 +329,10 @@ mod tests {
             last_ms: 0.0,
             avg_ms: 0.0,
         };
-        ctx.timings = vec![timing("game::tick")];
+        ctx.perf.timings = vec![timing("game::tick")];
         assert_eq!(report(&ctx)["subsystems"]["physics"]["active"], false);
-        ctx.timings
+        ctx.perf
+            .timings
             .push(timing(std::any::type_name_of_val(&crate::step_physics)));
         assert_eq!(report(&ctx)["subsystems"]["physics"]["active"], true);
     }

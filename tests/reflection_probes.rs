@@ -21,13 +21,13 @@ fn probe_weights_fade_inside_box_and_projection_hits_wall() {
 fn bake_requires_a_live_probe_and_allocates_content_once() {
     Game::new("probe", 1, 1).run_headless(0, |ctx| {
         let entity = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
-        ctx.bake_reflection_probe(entity).unwrap();
+        ctx.gfx.bake_reflection_probe(&mut ctx.world, entity).unwrap();
         let content = ctx.world.get::<ReflectionProbe3D>(entity).unwrap().content;
         assert_ne!(content, 0);
-        ctx.bake_reflection_probe(entity).unwrap();
+        ctx.gfx.bake_reflection_probe(&mut ctx.world, entity).unwrap();
         assert_eq!(ctx.world.get::<ReflectionProbe3D>(entity).unwrap().content, content);
         let empty = ctx.world.spawn((0u32,));
-        assert!(ctx.bake_reflection_probe(empty).is_err());
+        assert!(ctx.gfx.bake_reflection_probe(&mut ctx.world, empty).is_err());
     });
 }
 
@@ -46,16 +46,24 @@ fn loading_needs_a_two_to_one_finite_image() {
     let broken = write_image("nan", 64, 32, f32::NAN);
     Game::new("probe", 1, 1).run_headless(0, |ctx| {
         let entity = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
-        let bad = ctx.load_reflection_probe(entity, &square).unwrap_err();
+        let bad = ctx
+            .gfx
+            .load_reflection_probe(&mut ctx.world, entity, &square)
+            .unwrap_err();
         assert!(bad.contains("2:1"), "{bad}");
         assert!(
-            ctx.load_reflection_probe(entity, &broken)
+            ctx.gfx
+                .load_reflection_probe(&mut ctx.world, entity, &broken)
                 .unwrap_err()
                 .contains("finite")
         );
-        assert!(ctx.load_reflection_probe(entity, "missing-probe.exr").is_err());
+        assert!(
+            ctx.gfx
+                .load_reflection_probe(&mut ctx.world, entity, "missing-probe.exr")
+                .is_err()
+        );
         assert_eq!(ctx.world.get::<ReflectionProbe3D>(entity).unwrap().content, 0);
-        ctx.load_reflection_probe(entity, &good).unwrap();
+        ctx.gfx.load_reflection_probe(&mut ctx.world, entity, &good).unwrap();
         assert_ne!(ctx.world.get::<ReflectionProbe3D>(entity).unwrap().content, 0);
     });
     for path in [good, square, broken] {
@@ -68,9 +76,14 @@ fn a_fifth_environment_is_refused() {
     Game::new("probe", 1, 1).run_headless(0, |ctx| {
         for _ in 0..4 {
             let e = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
-            ctx.bake_reflection_probe(e).unwrap();
+            ctx.gfx.bake_reflection_probe(&mut ctx.world, e).unwrap();
         }
         let fifth = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
-        assert!(ctx.bake_reflection_probe(fifth).unwrap_err().contains("four"));
+        assert!(
+            ctx.gfx
+                .bake_reflection_probe(&mut ctx.world, fifth)
+                .unwrap_err()
+                .contains("four")
+        );
     });
 }

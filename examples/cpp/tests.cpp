@@ -2189,13 +2189,15 @@ static void headless_wrapper_calls() {
 }
 
 // Shader, effect and compute files load once, and the same file gives the same handle.
+// Hot reload is off for the files that must fail: with it on (the default in
+// debug builds of the engine) a file that doesn't compile loads as a stand-in.
 static void shader_files() {
     const auto dir = std::filesystem::temp_directory_path();
     const auto surface = dir / "ponko-cpp-wind.wgsl", effect = dir / "ponko-cpp-grey.wgsl", compute = dir / "ponko-cpp-fade.wgsl";
     std::ofstream(surface) << "fn vertex(v: Vertex) -> Vertex { var o = v; o.position.x += material.custom[0].x; return o; }";
     std::ofstream(effect) << "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(dot(p.color, vec3<f32>(0.3, 0.6, 0.1))); }";
     std::ofstream(compute) << "fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }";
-    ponko::game("shaders", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+    ponko::game("shaders", 1, 1).hot_reload(false).run_headless(0, [&](ponko::ctx& ctx) {
         auto a = ctx.load_shader(surface.string().c_str());
         CHECK(a.id == ctx.load_shader(surface.string().c_str()).id);
         auto e = ctx.load_effect(effect.string().c_str());
@@ -2205,6 +2207,16 @@ static void shader_files() {
         throws([&] { ctx.load_shader("no-such-shader.wgsl"); });
         throws([&] { ctx.load_effect(surface.string().c_str()); }); // a surface shader is no effect
         throws([&] { ctx.load_compute("no-such-compute.wgsl"); });
+    });
+    // With hot reload on, the file that is no effect still gets a handle: a
+    // stand-in, reported as failed and watched. A missing file is still an error.
+    ponko::game("stand-ins", 1, 1).hot_reload(true).run_headless(0, [&](ponko::ctx& ctx) {
+        (void)ctx.load_effect(surface.string().c_str());
+        auto shaders = ctx.shader_status();
+        CHECK(shaders.size() == 1 && !shaders[0].ok());
+        CHECK(shaders[0].info.kind == PONKO_SHADER_EFFECT && shaders[0].info.outcome == PONKO_SHADER_FAILED);
+        CHECK(!shaders[0].errors.empty());
+        throws([&] { ctx.load_effect("no-such-effect.wgsl"); });
     });
     for (auto& f : {surface, effect, compute}) std::filesystem::remove(f);
 }

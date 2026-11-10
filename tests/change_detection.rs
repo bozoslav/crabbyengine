@@ -47,7 +47,7 @@ fn setup(ctx: &mut Ctx) {
 
 /// Adds 1 to the `Health` whose tens digit is `tick + 1`, on ticks 0..3.
 fn hurt_one(ctx: &mut Ctx) {
-    let tens = ctx.sim_tick() as i32 + 1;
+    let tens = ctx.time.sim_tick() as i32 + 1;
     let target = ctx
         .world
         .query::<(Entity, &Health)>()
@@ -64,12 +64,12 @@ fn every_system_sees_each_change_once_before_or_after_the_writer() {
     let world = Game::new("changes", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
             let seen = changed(ctx);
-            log(ctx, format!("before {} {seen:?}", ctx.sim_tick()));
+            log(ctx, format!("before {} {seen:?}", ctx.time.sim_tick()));
         })
         .sim_system(hurt_one)
         .sim_system(|ctx: &mut Ctx| {
             let seen = changed(ctx);
-            log(ctx, format!("after {} {seen:?}", ctx.sim_tick()));
+            log(ctx, format!("after {} {seen:?}", ctx.time.sim_tick()));
         })
         .run_headless(5, setup);
     assert_eq!(
@@ -99,7 +99,7 @@ fn a_system_is_not_shown_its_own_changes_or_commands() {
             // Reacts to changes by writing and by recording commands: it
             // must not trigger itself on the next tick.
             let seen = changed(ctx);
-            log(ctx, format!("reactor {} {seen:?}", ctx.sim_tick()));
+            log(ctx, format!("reactor {} {seen:?}", ctx.time.sim_tick()));
             let hurt: Vec<Entity> = ctx.world.query::<Entity>().filter::<Changed<Health>>().iter().collect();
             for (i, e) in hurt.into_iter().enumerate() {
                 if i == 0 {
@@ -111,7 +111,7 @@ fn a_system_is_not_shown_its_own_changes_or_commands() {
         })
         .sim_system(|ctx: &mut Ctx| {
             let seen = changed(ctx);
-            log(ctx, format!("watcher {} {seen:?}", ctx.sim_tick()));
+            log(ctx, format!("watcher {} {seen:?}", ctx.time.sim_tick()));
         })
         .run_headless(3, setup);
     assert_eq!(
@@ -145,7 +145,7 @@ fn a_view_system_writes_are_changes_for_the_other_systems() {
         )
         .sim_system(|ctx: &mut Ctx| {
             let seen = changed(ctx);
-            log(ctx, format!("{} {seen:?}", ctx.sim_tick()));
+            log(ctx, format!("{} {seen:?}", ctx.time.sim_tick()));
         })
         .run_headless(3, |ctx| {
             setup(ctx);
@@ -165,7 +165,7 @@ fn a_mutable_query_in_one_system_is_a_change_for_the_others() {
         })
         .sim_system(|ctx: &mut Ctx| {
             let seen = changed(ctx);
-            log(ctx, format!("{} {seen:?}", ctx.sim_tick()));
+            log(ctx, format!("{} {seen:?}", ctx.time.sim_tick()));
         })
         .run_headless(3, |ctx| {
             setup(ctx);
@@ -180,7 +180,7 @@ fn a_slow_system_sees_everything_since_its_last_run() {
         .sim_system(hurt_one)
         .sim_system_every(2, |ctx: &mut Ctx| {
             let seen = changed(ctx);
-            log(ctx, format!("slow {} {seen:?}", ctx.sim_tick()));
+            log(ctx, format!("slow {} {seen:?}", ctx.time.sim_tick()));
         })
         .run_headless(6, setup);
     assert_eq!(lines(&world), ["slow 0 [11, 20, 30]", "slow 2 [21, 31]", "slow 4 []"]);
@@ -191,13 +191,13 @@ fn systems_in_every_fixed_phase_see_changes_from_the_other_phases() {
     let reader = |name: &'static str| {
         move |ctx: &mut Ctx| {
             let seen = changed(ctx);
-            log(ctx, format!("{name} {} {seen:?}", ctx.sim_tick()));
+            log(ctx, format!("{name} {} {seen:?}", ctx.time.sim_tick()));
         }
     };
     let world = Game::new("changes", 1, 1)
         .add(Phase::SimLast, reader("last"))
         .add(Phase::AfterPhysics, |ctx: &mut Ctx| {
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 hurt_one(ctx);
             }
         })
@@ -224,12 +224,12 @@ fn every_system_is_shown_each_removal_once() {
     let world = Game::new("changes", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
             let n = removed(ctx);
-            log(ctx, format!("before {} {n}", ctx.sim_tick()));
+            log(ctx, format!("before {} {n}", ctx.time.sim_tick()));
         })
         .sim_system(|ctx: &mut Ctx| {
             // Despawns one entity per tick: one directly, the rest deferred.
             let victim = ctx.world.query::<Entity>().with::<Health>().iter().next();
-            match (victim, ctx.sim_tick()) {
+            match (victim, ctx.time.sim_tick()) {
                 (Some(e), 0) => {
                     ctx.world.despawn(e);
                 }
@@ -239,7 +239,7 @@ fn every_system_is_shown_each_removal_once() {
         })
         .sim_system(|ctx: &mut Ctx| {
             let n = removed(ctx);
-            log(ctx, format!("after {} {n}", ctx.sim_tick()));
+            log(ctx, format!("after {} {n}", ctx.time.sim_tick()));
         })
         .run_headless(5, setup);
     assert_eq!(
@@ -298,10 +298,10 @@ fn a_system_that_starts_using_a_filter_late_sees_every_value() {
     let world = Game::new("changes", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
             // Nothing asked about `Shield` before tick 2.
-            if ctx.sim_tick() >= 2 {
+            if ctx.time.sim_tick() >= 2 {
                 let n = ctx.world.query::<&Shield>().filter::<Changed<Shield>>().count();
                 let added = ctx.world.query::<&Shield>().filter::<Added<Shield>>().count();
-                log(ctx, format!("{} changed={n} added={added}", ctx.sim_tick()));
+                log(ctx, format!("{} changed={n} added={added}", ctx.time.sim_tick()));
             }
         })
         .run_headless(4, |ctx| {
@@ -323,10 +323,13 @@ fn loading_a_save_counts_as_removing_and_adding_everything() {
             let removed = ctx.world.removed::<Health>().len();
             log(
                 ctx,
-                format!("{} changed={changed:?} added={added} removed={removed}", ctx.sim_tick()),
+                format!(
+                    "{} changed={changed:?} added={added} removed={removed}",
+                    ctx.time.sim_tick()
+                ),
             );
         })
-        .sim_system(|ctx: &mut Ctx| match ctx.sim_tick() {
+        .sim_system(|ctx: &mut Ctx| match ctx.time.sim_tick() {
             1 => {
                 let save = ctx.world.save();
                 ctx.world.insert_resource(save);
@@ -365,10 +368,10 @@ fn replacing_the_world_shows_every_reader_everything() {
     let world = Game::new("changes", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
             let seen = changed(ctx);
-            log(ctx, format!("{} {seen:?}", ctx.sim_tick()));
+            log(ctx, format!("{} {seen:?}", ctx.time.sim_tick()));
         })
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 5 {
+            if ctx.time.sim_tick() == 5 {
                 let mut fresh = World::new();
                 fresh.insert_resource(Log(lines(&ctx.world)));
                 fresh.track_changes::<Health>();

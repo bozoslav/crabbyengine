@@ -1,10 +1,10 @@
 //! What the renderer's pipeline cache did since the game started:
-//! [`Ctx::pipeline_stats`].
+//! [`Graphics::pipeline_stats`](crate::Graphics::pipeline_stats).
 
-use crate::Ctx;
+use crate::gfx::Graphics;
 
 /// The render pipeline cache's counters and timings, for debugging hitches
-/// and shader reloads ([`Ctx::pipeline_stats`]).
+/// and shader reloads ([`Graphics::pipeline_stats`](crate::Graphics::pipeline_stats)).
 ///
 /// Material shaders are built into a set of pipelines per variant (one-
 /// or double-sided, plain, crossfading or buffer-driven instances), and in
@@ -33,7 +33,7 @@ pub struct PipelineStats {
     /// Draws whose pipelines were already built.
     pub hits: u64,
     /// Draws that had to build their variant first, inside a frame (see
-    /// [`Ctx::warm_render_pipelines`](crate::Ctx::warm_render_pipelines)).
+    /// [`Graphics::warm_render_pipelines`](crate::Graphics::warm_render_pipelines)).
     pub misses: u64,
     /// Material shaders made or reloaded with the same code (and variant)
     /// as one already built: they share its pipelines, nothing is compiled.
@@ -77,7 +77,7 @@ impl PipelineStats {
     }
 }
 
-impl Ctx {
+impl Graphics {
     /// What the render pipeline cache did since the game started: shaders
     /// and pipelines alive, hits and misses, how long building them took,
     /// and how many a hot reload threw away. All zero in headless runs.
@@ -85,7 +85,7 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let p = ctx.pipeline_stats();
+    /// let p = ctx.gfx.pipeline_stats();
     /// if p.misses > 0 {
     ///     eprintln!("{} pipeline builds inside frames; warm them while loading", p.misses);
     /// }

@@ -9,6 +9,7 @@
 - [Entities, components, queries](ecs.md)
 - [Systems and the frame](systems.md)
 - [Declared system access](system-access.md)
+- [Ctx and its services](services.md)
 - [Input: keyboard, mouse, gamepads](input.md)
 - [Named input actions](actions.md)
 - [Events: messages between systems](events.md)

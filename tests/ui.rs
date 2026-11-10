@@ -33,11 +33,11 @@ fn the_camera_maps_the_mouse_into_the_world() {
 #[test]
 fn shapes_and_screen_sprites_are_queued_like_sprites() {
     in_tick(|ctx| {
-        let tex = ctx.create_texture(1, 1, &[255; 4]);
-        ctx.draw_rect(Rect::new(0.0, 0.0, 10.0, 10.0), Color::RED);
-        ctx.draw_line(Vec2::ZERO, vec2(5.0, 5.0), 1.0, Color::RED);
-        ctx.draw_circle(Vec2::ZERO, 3.0, Color::RED);
-        ctx.draw_ex(
+        let tex = ctx.gfx.create_texture(1, 1, &[255; 4]);
+        ctx.gfx.draw_rect(Rect::new(0.0, 0.0, 10.0, 10.0), Color::RED);
+        ctx.gfx.draw_line(Vec2::ZERO, vec2(5.0, 5.0), 1.0, Color::RED);
+        ctx.gfx.draw_circle(Vec2::ZERO, 3.0, Color::RED);
+        ctx.gfx.draw_ex(
             &tex,
             Vec2::ZERO,
             DrawParams {
@@ -45,20 +45,20 @@ fn shapes_and_screen_sprites_are_queued_like_sprites() {
                 ..Default::default()
             },
         );
-        assert_eq!(ctx.sprite_count(), 4);
+        assert_eq!(ctx.gfx.sprite_count(), 4);
     });
 }
 
 #[test]
 fn text_is_measured_headless_but_not_drawn() {
     in_tick(|ctx| {
-        let one = ctx.measure_text("Ants: 5000", 20.0);
-        let two = ctx.measure_text("Ants: 5000\nFood: 12", 20.0);
+        let one = ctx.gfx.measure_text("Ants: 5000", 20.0);
+        let two = ctx.gfx.measure_text("Ants: 5000\nFood: 12", 20.0);
         assert!(one.x > 50.0 && one.x < 150.0, "{one}");
         assert!((two.y - 2.0 * one.y).abs() < 0.5, "two lines: {one} {two}");
-        assert!(ctx.measure_text("wide text", 40.0).x > ctx.measure_text("wide text", 20.0).x);
+        assert!(ctx.gfx.measure_text("wide text", 40.0).x > ctx.gfx.measure_text("wide text", 20.0).x);
         ctx.draw_text("hello", Vec2::ZERO, 20.0, Color::WHITE);
-        assert_eq!(ctx.sprite_count(), 0, "no glyph atlas without a GPU");
+        assert_eq!(ctx.gfx.sprite_count(), 0, "no glyph atlas without a GPU");
     });
 }
 
@@ -67,11 +67,16 @@ fn ui_takes_the_mouse_and_buttons_need_a_click() {
     in_tick(|ctx| {
         // The mouse starts at (0, 0), inside this button.
         let button = Rect::new(0.0, 0.0, 100.0, 30.0);
-        assert!(!ctx.mouse_over_ui());
-        assert!(!ctx.ui_button(button, "Go"), "hovering isn't clicking");
-        assert!(ctx.mouse_over_ui());
-        ctx.ui_panel(Rect::new(500.0, 500.0, 10.0, 10.0));
-        assert!(ctx.ui_label(vec2(500.0, 500.0), "label").y > 0.0);
+        assert!(!ctx.ui.wants_pointer());
+        assert!(
+            !ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, button, "Go"),
+            "hovering isn't clicking"
+        );
+        assert!(ctx.ui.wants_pointer());
+        ctx.ui
+            .immediate
+            .panel(&mut ctx.gfx, Rect::new(500.0, 500.0, 10.0, 10.0));
+        assert!(ctx.ui.immediate.label(&mut ctx.gfx, vec2(500.0, 500.0), "label").y > 0.0);
     });
 }
 
@@ -90,8 +95,8 @@ fn loading_a_font_file_twice_gives_the_same_font() {
     std::fs::write(&path, epaint_default_fonts::UBUNTU_LIGHT).unwrap();
     let name = path.to_str().unwrap().to_string();
     Game::new("fonts", 1, 1).run_headless(0, |ctx| {
-        let a = ctx.load_font(&name);
-        assert_eq!(a, ctx.load_font(&name));
+        let a = ctx.gfx.load_font(&name);
+        assert_eq!(a, ctx.gfx.load_font(&name));
         assert_ne!(a, Font::DEFAULT);
     });
 }

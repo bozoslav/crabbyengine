@@ -80,7 +80,13 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     out
 }
 
+/// Runs `body` in a one-frame headless game, hot reload off (so a broken
+/// shader file is an error, in debug builds too).
 fn with_ctx(body: impl FnOnce(*mut CrabbyCtx)) {
+    run_ctx(false, body);
+}
+
+fn run_ctx(hot_reload: bool, body: impl FnOnce(*mut CrabbyCtx)) {
     type Body = Box<dyn FnOnce(*mut CrabbyCtx)>;
     struct Slot {
         body: Option<Body>,
@@ -103,6 +109,7 @@ fn with_ctx(body: impl FnOnce(*mut CrabbyCtx)) {
     };
     unsafe {
         let game = crabby_game_new(c"files".as_ptr(), 1, 1);
+        assert_eq!(crabby_game_hot_reload(game, hot_reload), CRABBY_OK);
         let mut world = null_mut();
         let status = crabby_game_run_headless(game, 1, Some(trampoline), (&raw mut slot).cast(), &mut world);
         if let Some(p) = slot.panic.take() {
@@ -191,6 +198,32 @@ fn shader_effect_and_compute_files_load_once_and_broken_ones_fail() {
             BAD
         );
         assert_eq!(crabby_ctx_load_compute(ctx, compute.as_ptr(), null_mut()), BAD);
+    });
+}
+
+/// With hot reload on (the default in debug builds), a shader file that
+/// doesn't compile still loads: a stand-in, reported as failed, watched
+/// until a fix is saved.
+#[test]
+fn with_hot_reload_on_broken_shader_files_load_as_failed_stand_ins() {
+    let dir = Scratch::new("stand-ins");
+    let broken = dir.file("broken.wgsl", "fn surface(s: Surface) -> Surface { return 1; }");
+    run_ctx(true, |ctx| unsafe {
+        let mut shader = CrabbyShader { id: 999 };
+        assert_eq!(crabby_ctx_load_shader(ctx, broken.as_ptr(), &mut shader), CRABBY_OK);
+        assert_ne!(shader.id, 999);
+        let mut status = CrabbyShaderStatus::default();
+        assert_eq!(crabby_ctx_shader_status(ctx, 0, &mut status), CRABBY_OK);
+        assert_eq!(
+            (status.outcome, status.ok, status.line),
+            (CRABBY_SHADER_FAILED, false, 1)
+        );
+        let mut missing = CrabbyShader::default();
+        assert_ne!(
+            crabby_ctx_load_shader(ctx, c"no-such-shader.wgsl".as_ptr(), &mut missing),
+            CRABBY_OK,
+            "a missing file is still an error"
+        );
     });
 }
 

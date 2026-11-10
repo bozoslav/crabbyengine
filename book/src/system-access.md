@@ -139,8 +139,7 @@ systems in different phases are never compared.
 
 `SystemAccess::conflicts_with` is the conservative, symmetric rule: any
 system that sends an event type conflicts with any other that reads or
-sends it, and a command recorder conflicts with every system that touches
-components, resources or commands.
+sends it, and a command recorder conflicts with every other system.
 
 `SystemAccess::conflicts_before(later)` is the finer rule for a known
 order (the report uses it). It holds under the **batch contract** a
@@ -160,9 +159,19 @@ Under that contract, for an earlier system `a` and a later system `b`:
 | sends `E` | reads `E` | yes | sequentially `b` sees `a`'s events in the same tick |
 | reads `E` | sends `E` | no | sequentially `a` only sees them on its next run anyway |
 | sends `E` | sends `E` | no | events are published in registration order |
-| records commands | touches components or resources | yes | sequentially `b` sees the applied commands |
-| touches components or resources | records commands | no | `a` never saw `b`'s commands |
-| records commands | records commands | no | both apply, in order, at the barrier |
+| records commands | anything | yes | sequentially `b` sees the applied commands |
+| anything | records commands | no | `a` never saw `b`'s commands |
+
+"Anything" includes a system that declares no data at all: every view can
+see the world's structure (`len`, `is_alive`, `has`, `with` and `without`
+filters) without declaring it, and commands change that structure.
+
+Two systems can only share a batch if every system registered between
+them in the phase could move out of the way: the report adds a
+`Between` conflict naming the first one that can't (an undeclared system,
+or one that conflicts with either), and `parallel_pairs()` also treats a
+`Ctx` system between them as a barrier, since its declaration is only
+checked in debug builds.
 
 Running systems one after another (what the engine does now) keeps this
 contract trivially, so declaring access never changes results.
@@ -178,7 +187,7 @@ the batch. To stay correct either way:
 
 - If `b` needs `a`'s commands or events in the same tick, declare both so
   the rules above make them conflict (`a` records commands or sends `E`;
-  `b` touches the world or reads `E`), or put `b` in a later phase.
+  `b` reads `E`), or put `b` in a later phase.
 - Don't count on registration order between systems that don't conflict.
 - Keep "make a change and look at it" inside one system, through
   `world` (immediate) or a single `commands.add` closure.
@@ -229,7 +238,9 @@ naming the system. Raw C access can't tell reads from writes, so a
 component or resource declared by name covers any use of it: declare a
 write when the system changes it, so the report shows the conflict.
 `ponko_access_conflicts` and `ponko_game_access_report` expose the rules
-and the report. C and C++ systems always stay sequential.
+and the report. Build declarations at registration, not per frame: each
+step copies the declaration and keeps its names for the rest of the
+program. C and C++ systems always stay sequential.
 
 ## Design: the soundness strategy (RFC)
 
@@ -294,6 +305,6 @@ allocation per run once its buffers have grown
 
 **Limits.** Query filters in a view are `with` and `without` (not the
 `filter::<F>()` combinators), and custom `QueryData` types must implement
-the shared lookup to be queried through a view. Change detection
-([#140](https://github.com/ponkoengine/ponko/issues/140)) will need its
-write marks applied from views too.
+the shared lookup to be queried through a view. Writes through a view
+count for [change detection](ecs.md#change-detection), but a view query
+can't filter by `Changed<T>` or `Added<T>`.

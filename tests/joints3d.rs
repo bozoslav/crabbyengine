@@ -161,11 +161,11 @@ fn despawning_either_endpoint_or_joint_entity_removes_joint() {
         Game::new("test", 1, 1)
             .physics3d(Vec3::ZERO)
             .sim_system(move |ctx: &mut Ctx| {
-                if ctx.sim_tick() == 2 {
+                if ctx.time.sim_tick() == 2 {
                     assert_eq!(ctx.physics3d.joint_count(), 1);
                     ctx.world.despawn(slot.get().unwrap());
                 }
-                if ctx.sim_tick() == 4 {
+                if ctx.time.sim_tick() == 4 {
                     assert_eq!(ctx.physics3d.joint_count(), 0);
                 }
             })
@@ -222,12 +222,12 @@ fn changed_joint_drive_updates_and_removed_component_detaches() {
     Game::new("test", 1, 1)
         .physics3d(Vec3::ZERO)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() == 50 {
+            if ctx.time.sim_tick() == 50 {
                 assert_eq!(ctx.physics3d.joint_count(), 1);
                 let j = ctx.world.get_mut::<Joint3D>(joint_slot.get().unwrap()).unwrap();
                 j.drives[3] = Some(JointDrive3D::velocity(-2.0, 20.0));
             }
-            if ctx.sim_tick() == 100 {
+            if ctx.time.sim_tick() == 100 {
                 assert_eq!(ctx.physics3d.joint_count(), 1);
                 assert!(
                     ctx.world
@@ -239,7 +239,7 @@ fn changed_joint_drive_updates_and_removed_component_detaches() {
                 );
                 ctx.world.remove::<Joint3D>(joint_slot.get().unwrap());
             }
-            if ctx.sim_tick() == 102 {
+            if ctx.time.sim_tick() == 102 {
                 assert_eq!(ctx.physics3d.joint_count(), 0);
             }
         })

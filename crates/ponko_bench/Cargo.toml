@@ -17,8 +17,11 @@ rapier3d = "0.36.1"
 rayon = "1.12.0"
 bevy_ecs = "0.20.1"
 hecs = "0.11.2"
-libc = "0.2"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
+
+# The thread CPU clock of the streaming benchmark (wall time elsewhere).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [features]
 render = ["ponko/window"]

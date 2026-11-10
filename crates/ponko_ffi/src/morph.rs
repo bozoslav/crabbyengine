@@ -1,6 +1,6 @@
 //! Morph targets (blend shapes) from C: shapes on mesh data, weights on
 //! entities (Rust `MeshData::morph_targets`, `MorphWeights`,
-//! `Ctx::morph_target`).
+//! `Graphics::morph_target`).
 
 use ponko::{Ctx, Entity, MorphTarget, MorphWeights};
 
@@ -112,7 +112,7 @@ pub unsafe extern "C" fn crabby_mesh_data_morph_target_count(data: *const Crabby
 }
 
 /// The index of `mesh`'s morph target called `name`, for the weight calls
-/// (Rust `Ctx::morph_target`). `CRABBY_NOT_FOUND` when the mesh has no such
+/// (Rust `Graphics::morph_target`). `CRABBY_NOT_FOUND` when the mesh has no such
 /// target or was freed.
 /// # Safety
 /// `ctx` null or live; `name` a C string; output writable.
@@ -133,7 +133,7 @@ pub unsafe extern "C" fn crabby_ctx_morph_target(
             if out_target.is_null() {
                 return Err(invalid("output is null"));
             }
-            let target = c.morph_target(to_c(mesh), name).ok_or_else(|| {
+            let target = c.gfx.morph_target(to_c(mesh), name).ok_or_else(|| {
                 error(
                     CrabbyStatus::CRABBY_NOT_FOUND,
                     "that mesh has no morph target of that name",
@@ -359,7 +359,7 @@ pub unsafe extern "C" fn crabby_ctx_write_animated_morphs(ctx: *mut CrabbyCtx) -
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.write_animated_morphs();
+            c.gfx.write_animated_morphs(&mut c.world);
             Ok(())
         })
     })

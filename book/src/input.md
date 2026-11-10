@@ -23,9 +23,9 @@ Dvorak players too. In C++: `ctx.key_down(PONKO_KEY_RIGHT)`.
 
 - `ctx.mouse_pos()`: in window pixels; `ctx.mouse_world()`: through the
   [camera](camera-ui.md), in world units.
-- `ctx.mouse_down(MouseButton::Left)` (and `_pressed`, `_released`).
-- `ctx.mouse_delta()` since the last frame, and `ctx.mouse_wheel()`.
-- `ctx.mouse_over_ui()`: `true` over a UI panel or the
+- `ctx.input.mouse_down(MouseButton::Left)` (and `_pressed`, `_released`).
+- `ctx.input.mouse_delta()` since the last frame, and `ctx.input.mouse_wheel()`.
+- `ctx.ui.wants_pointer()`: `true` over a UI panel or the
   [inspector](inspector.md), so a click on a button doesn't also act in the
   world.
 
@@ -33,22 +33,22 @@ Dvorak players too. In C++: `ctx.key_down(PONKO_KEY_RIGHT)`.
 
 For a first-person or orbit camera, lock the cursor and read raw motion:
 
-- `ctx.set_cursor_locked(true)` hides the cursor and holds it in the
+- `ctx.input.set_cursor_locked(true)` hides the cursor and holds it in the
   window (where the platform can't hold it in place, it's kept inside the
   window instead); `false` lets it go. It takes effect after the frame and
   comes back when the window regains focus.
-- `ctx.mouse_motion()`: how far the mouse moved this frame in raw device
+- `ctx.input.mouse_motion()`: how far the mouse moved this frame in raw device
   units (+y is down), even while the cursor is locked and can't move.
   `mouse_delta()` stops at the window's edge; this doesn't.
 
-C++: `ctx.set_cursor_locked(true)`, `ctx.mouse_motion()`. See
+C++: `ctx.input.set_cursor_locked(true)`, `ctx.input.mouse_motion()`. See
 [3D physics](physics3d.md) for a walker that uses both.
 
 ## Gamepads
 
 Xbox, PlayStation, Switch and most other controllers work, plugged in or
 over Bluetooth, and can come and go while the game runs.
-`ctx.gamepads()` lists the connected ones. Each keeps its **slot** while
+`ctx.input.gamepads()` lists the connected ones. Each keeps its **slot** while
 connected (`pad.slot()`: 0 is player one), and a pad plugged in later takes
 the lowest free slot.
 
@@ -86,10 +86,10 @@ brand:
 
 Sticks and triggers are axes:
 
-- `ctx.gamepad_stick(pad, GamepadStick::Left)` is a `Vec2` from `-1` to `1`,
+- `ctx.input.gamepad_stick(pad, GamepadStick::Left)` is a `Vec2` from `-1` to `1`,
   **y down** like screen coordinates, so adding it to a position moves that
   way. Small wobbles around the center read as zero.
-- `ctx.gamepad_axis(pad, GamepadAxis::RightTrigger)` goes from `0` (released)
+- `ctx.input.gamepad_axis(pad, GamepadAxis::RightTrigger)` goes from `0` (released)
   to `1` (fully pulled): use it for throttles and charge-ups. The triggers
   also count as buttons once pulled past halfway.
 
@@ -97,5 +97,5 @@ Sticks and triggers are axes:
 `cargo run --example gamepad`.
 
 Gamepads need the `gamepad` cargo feature, on by default. Without it, or in
-[headless runs](headless.md), `ctx.gamepads()` is empty. On Linux, building
+[headless runs](headless.md), `ctx.input.gamepads()` is empty. On Linux, building
 it needs the udev headers (`sudo apt-get install libudev-dev`).

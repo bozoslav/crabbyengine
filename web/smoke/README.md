@@ -6,7 +6,7 @@ a headless browser (Chromium, Firefox or WebKit; no window) and checks, in
 order:
 
 1. **Startup**: the game reaches its first frame (no panic, no page error).
-   The engine's own GPU report (`Ctx::gpu_capabilities`) must then agree with
+   The engine's own GPU report (`Graphics::gpu_capabilities`) must then agree with
    the canvas: an engine that says `gl` on a canvas with a WebGPU context, or
    the reverse, fails.
 2. **Assets**: `assets/index.json` and the fixture's asset were fetched

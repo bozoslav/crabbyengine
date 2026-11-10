@@ -68,7 +68,7 @@ impl SpriteSheet {
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, sheet: SpriteSheet) {
-    /// ctx.draw_ex(&sheet.texture, vec2(50.0, 50.0), DrawParams {
+    /// ctx.gfx.draw_ex(&sheet.texture, vec2(50.0, 50.0), DrawParams {
     ///     region: Some(sheet.frame(2)),
     ///     ..Default::default()
     /// });

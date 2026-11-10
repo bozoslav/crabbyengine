@@ -30,17 +30,21 @@ fn spin(ctx: &mut Ctx) {
 
 fn orbit(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Space) {
-        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+        if ctx.time.is_paused() {
+            ctx.time.resume()
+        } else {
+            ctx.time.pause()
+        }
     }
     if ctx.key_pressed(Key::Escape) {
         ctx.quit();
     }
-    let drag = if ctx.mouse_down(MouseButton::Left) {
-        ctx.mouse_delta()
+    let drag = if ctx.input.mouse_down(MouseButton::Left) {
+        ctx.input.mouse_delta()
     } else {
         Vec2::ZERO
     };
-    let wheel = ctx.mouse_wheel().y;
+    let wheel = ctx.input.mouse_wheel().y;
     let o = ctx.world.resource_mut::<Orbit>();
     o.yaw -= drag.x * 0.005;
     o.pitch = (o.pitch + drag.y * 0.005).clamp(0.05, 1.5);
@@ -67,9 +71,9 @@ struct Bench {
 
 fn bench(ctx: &mut Ctx) {
     let now = std::time::Instant::now();
-    let cpu = ctx.render_stats().cpu_ms as f64;
-    let gpu = ctx.render_stats().gpu_ms.unwrap_or(0.0) as f64;
-    let wait = ctx.display_wait_ms() as f64;
+    let cpu = ctx.perf.render_stats().cpu_ms as f64;
+    let gpu = ctx.perf.render_stats().gpu_ms.unwrap_or(0.0) as f64;
+    let wait = ctx.perf.display_wait_ms() as f64;
     let b = ctx.world.resource_mut::<Bench>();
     let start = *b.start.get_or_insert(now);
     let elapsed = now.duration_since(start).as_secs_f64();
@@ -87,7 +91,7 @@ fn bench(ctx: &mut Ctx) {
     let (frames, frame_ms, render_cpu_ms, busy_ms, gpu_ms) =
         (b.frames, b.frame_ms, b.render_cpu_ms, b.busy_ms, b.gpu_ms);
     if first && let Ok(path) = std::env::var("BENCH_SHOT") {
-        ctx.save_screenshot(path);
+        ctx.gfx.save_screenshot(path);
     }
     if done {
         let n = frames as f64;
@@ -115,7 +119,7 @@ fn main() {
         game.sim_system(spin)
     };
     game.run(move |ctx| {
-        ctx.clear(Color::hex(0x9CC4E4)); // sky
+        ctx.gfx.clear(Color::hex(0x9CC4E4)); // sky
         ctx.camera3d.far = 2000.0;
         ctx.lighting.sun_direction = vec3(-0.8, -0.6, -0.4); // late afternoon: long shadows
         if let Some(seconds) = bench_seconds {
@@ -136,20 +140,20 @@ fn main() {
             distance: 18.0,
         });
 
-        let grass = ctx.create_material(MaterialDesc {
+        let grass = ctx.gfx.create_material(MaterialDesc {
             roughness: 0.95,
             ..MaterialDesc::color(Color::hex(0x5E8C4A))
         });
-        let ground = ctx.create_mesh(&MeshData::plane(400.0), grass);
+        let ground = ctx.gfx.create_mesh(&MeshData::plane(400.0), grass);
         ctx.world.spawn((Transform3D::default(), Model::new(ground)));
 
         // Spheres: rough to smooth left to right, plastic in front, metal behind.
         // One mesh, uploaded once; each sphere draws it with its own material.
-        let white = ctx.default_material();
-        let ball = ctx.create_mesh(&MeshData::sphere(0.45, 32), white);
+        let white = ctx.gfx.default_material();
+        let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.45, 32), white);
         for row in 0..2 {
             for col in 0..6 {
-                let material = ctx.create_material(MaterialDesc {
+                let material = ctx.gfx.create_material(MaterialDesc {
                     roughness: 0.05 + col as f32 * 0.19,
                     metallic: row as f32,
                     ..MaterialDesc::color(if row == 0 {
@@ -165,7 +169,7 @@ fn main() {
         }
 
         // A field of spinning cubes, one mesh, tinted per cube.
-        let cube = ctx.create_mesh(&MeshData::cube(0.6), white);
+        let cube = ctx.gfx.create_mesh(&MeshData::cube(0.6), white);
         let side = (cubes as f32).sqrt().ceil() as usize;
         let mut rng = Rng::new(3);
         for i in 0..cubes {
