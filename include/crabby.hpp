@@ -2609,7 +2609,9 @@ public:
 /// What a system declares it reads and writes: components, resources and
 /// events by C++ type (their registered names) or by name, commands and
 /// services. Pass it to game::add with a system; debug builds stop the game
-/// if the system uses anything it didn't declare. Copyable.
+/// if the system uses anything it didn't declare. Copyable. Build it at
+/// registration, not per frame: every step copies the declaration and keeps
+/// each name for the rest of the program.
 class access {
     CrabbyAccess* raw_ = nullptr;
     access& step(CrabbyStatus s) { detail::check(s); return *this; }

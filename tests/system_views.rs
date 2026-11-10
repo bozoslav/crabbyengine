@@ -388,10 +388,13 @@ fn ordered_rules_relax_sends_and_commands_only_where_order_hides_them() {
     assert_eq!(reader.conflicts_with(&spawner), [AccessConflict::Commands]);
     // An earlier recorder's commands would be seen by a later world user...
     assert_eq!(spawner.conflicts_before(&reader), [AccessConflict::Commands]);
-    // ...but an earlier world user never sees a later recorder's commands,
+    // ...even one that declares no data (it can still see the structure),
+    let counter = SystemAccess::new().send_events::<Hit>();
+    assert_eq!(spawner.conflicts_before(&counter), [AccessConflict::Commands]);
+    assert_eq!(spawner.conflicts_before(&spawner.clone()), [AccessConflict::Commands]);
+    // ...but an earlier system never sees a later recorder's commands.
     assert!(reader.conflicts_before(&spawner).is_empty());
-    // and two recorders apply in order at the barrier.
-    assert!(spawner.conflicts_before(&spawner.clone()).is_empty());
+    assert!(counter.conflicts_before(&spawner).is_empty());
     // Data and exclusivity are the same in both rule sets.
     let w = SystemAccess::new().write::<Pos>();
     assert_eq!(reader.conflicts_before(&w), reader.conflicts_with(&w));
@@ -455,6 +458,28 @@ fn sequential_runs_show_what_the_ordered_rules_rely_on() {
     );
 }
 
+/// A view that declares no data still sees the world's structure, so a
+/// command recorder before it must conflict with it.
+#[test]
+fn a_view_without_declared_data_sees_earlier_commands() {
+    let spawner = SystemAccess::new().commands();
+    let counter = SystemAccess::new().write_resource::<Log>();
+    assert_eq!(spawner.conflicts_before(&counter), [AccessConflict::Commands]);
+    let world = run(
+        Game::new("views", 1, 1)
+            .add_view(Phase::AfterPhysics, spawner, |sys| {
+                sys.commands().spawn((Pos(0.0),));
+            })
+            .add_view(Phase::AfterPhysics, counter, |sys| {
+                let (n, alive) = (sys.world.len(), sys.world.query::<Entity>().count());
+                sys.world.resource_mut::<Log>().0.push(format!("{n} {alive}"));
+            }),
+        2,
+    );
+    // setup spawns one entity; each tick's spawn is seen in the same tick.
+    assert_eq!(world.resource::<Log>().0, ["2 2", "3 3"]);
+}
+
 // ---- the report --------------------------------------------------------------------------
 
 fn fall(sys: &mut SystemView) {
@@ -510,6 +535,69 @@ fn only_view_systems_are_parallel_candidates() {
     assert_eq!((v, h), (0.0, 2));
 }
 
+fn noop_ctx(_: &mut Ctx) {}
+
+/// Batching two views would move one across every system between them, so
+/// such a system must be able to move too.
+#[test]
+fn a_system_between_two_views_keeps_them_apart() {
+    let short = |n: &str| n.rsplit("::").next().unwrap().to_string();
+    let a = || SystemAccess::new().write::<Vel>();
+    let b = || SystemAccess::new().write::<Health>();
+    // An undeclared (exclusive) system between them.
+    let report = Game::new("views", 1, 1)
+        .add_view(Phase::AfterPhysics, a(), |_| {})
+        .add(Phase::AfterPhysics, noop_ctx)
+        .add_view(Phase::AfterPhysics, b(), |_| {})
+        .access_report();
+    assert_eq!(report.pairs.len(), 1);
+    let between = &report.pairs[0].conflicts;
+    assert_eq!(between.len(), 1);
+    assert!(
+        matches!(between[0], AccessConflict::Between(n) if short(n) == "noop_ctx"),
+        "{between:?}"
+    );
+    assert_eq!(report.parallel_pairs().count(), 0);
+    assert!(report.to_string().contains("which runs between them"), "{report}");
+
+    // A view between them that conflicts with one of them.
+    let report = Game::new("views", 1, 1)
+        .add_view(Phase::AfterPhysics, a(), |_| {})
+        .add_view(Phase::AfterPhysics, SystemAccess::new().read::<Vel>(), |_| {})
+        .add_view(Phase::AfterPhysics, b(), |_| {})
+        .access_report();
+    let first_last = report.pairs.iter().find(|p| p.second - p.first == 2).unwrap();
+    assert!(matches!(first_last.conflicts[..], [AccessConflict::Between(_)]));
+    // The reader and `b` still could.
+    assert_eq!(report.parallel_pairs().count(), 1);
+
+    // A view between them that conflicts with neither: all three could.
+    let report = Game::new("views", 1, 1)
+        .add_view(Phase::AfterPhysics, a(), |_| {})
+        .add_view(Phase::AfterPhysics, SystemAccess::new().read::<Pos>(), |_| {})
+        .add_view(Phase::AfterPhysics, b(), |_| {})
+        .access_report();
+    assert_eq!(report.parallel_pairs().count(), 3);
+
+    // A declared `Ctx` system between them that conflicts with neither: the
+    // declarations allow it, but its declaration isn't trusted to move.
+    let report = Game::new("views", 1, 1)
+        .add_view(Phase::AfterPhysics, a(), |_| {})
+        .add_with_access(Phase::AfterPhysics, SystemAccess::new().read::<Pos>(), noop_ctx)
+        .add_view(Phase::AfterPhysics, b(), |_| {})
+        .access_report();
+    assert_eq!(report.compatible_pairs().count(), 3);
+    assert_eq!(report.parallel_pairs().count(), 0);
+
+    // Systems in other phases don't count.
+    let report = Game::new("views", 1, 1)
+        .add_view(Phase::AfterPhysics, a(), |_| {})
+        .add(Phase::Frame, noop_ctx)
+        .add_view(Phase::AfterPhysics, b(), |_| {})
+        .access_report();
+    assert_eq!(report.parallel_pairs().count(), 1);
+}
+
 #[test]
 fn the_report_uses_the_ordered_rules() {
     let report = Game::new("views", 1, 1)
@@ -523,9 +611,13 @@ fn the_report_uses_the_ordered_rules() {
         .map(|p| (p.first, p.second, p.conflicts.len()))
         .filter(|p| p.2 > 0)
         .collect();
-    // Only the sender before the second reader conflicts.
-    assert_eq!(conflicts.len(), 1);
-    let p = conflicts[0];
+    // The sender before the second reader conflicts, and so the two readers
+    // are kept apart by the sender between them.
+    assert_eq!(conflicts.len(), 2);
+    let (r1, s, r2) = (conflicts[0].0, conflicts[1].0, conflicts[1].1);
+    let readers = report.pairs.iter().find(|p| (p.first, p.second) == (r1, r2)).unwrap();
+    assert_eq!(readers.conflicts, [AccessConflict::Between(report.systems[s].name)]);
+    let p = conflicts[1];
     assert!(
         report.systems[p.0]
             .access
@@ -591,5 +683,83 @@ mod guide {
         });
         let p = world.query::<&Pos>().iter().next().unwrap().0;
         assert!(p < -4.0 && p > -6.0, "{p}");
+    }
+}
+
+// ---- physics services (features `physics`, `physics3d`) ----------------------------------
+
+#[cfg(feature = "physics")]
+mod physics2d {
+    use ponko::*;
+
+    fn with_physics(access: SystemAccess, system: impl FnMut(&mut SystemView) + 'static) -> World {
+        Game::new("views", 1, 1)
+            .physics(vec2(0.0, 10.0))
+            .add_view(Phase::AfterPhysics, access, system)
+            .run_headless(1, |_| {})
+    }
+
+    #[test]
+    fn declared_physics_is_offered() {
+        with_physics(SystemAccess::new().write_service(Service::Physics), |sys| {
+            assert_eq!(sys.physics().gravity(), vec2(0.0, 10.0));
+            sys.physics_mut().set_gravity(vec2(0.0, -5.0));
+            assert_eq!(sys.physics().gravity(), vec2(0.0, -5.0));
+            assert_eq!(sys.physics().body_count(), 0);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "doesn't declare that it may read service `physics`")]
+    fn undeclared_physics_panics() {
+        with_physics(SystemAccess::new(), |sys| {
+            let _ = sys.physics().gravity();
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "doesn't declare that it may write service `physics`")]
+    fn reading_physics_does_not_allow_changing_it() {
+        with_physics(SystemAccess::new().read_service(Service::Physics), |sys| {
+            sys.physics_mut().set_gravity(Vec2::ZERO);
+        });
+    }
+}
+
+#[cfg(feature = "physics3d")]
+mod physics3d {
+    use ponko::*;
+
+    fn with_physics(access: SystemAccess, system: impl FnMut(&mut SystemView) + 'static) -> World {
+        Game::new("views", 1, 1)
+            .physics3d(vec3(0.0, -10.0, 0.0))
+            .add_view(Phase::AfterPhysics, access, system)
+            .run_headless(1, |_| {})
+    }
+
+    #[test]
+    fn declared_physics3d_is_offered() {
+        with_physics(SystemAccess::new().write_service(Service::Physics3D), |sys| {
+            assert_eq!(sys.physics3d().gravity(), vec3(0.0, -10.0, 0.0));
+            sys.physics3d_mut().set_gravity(vec3(0.0, -1.0, 0.0));
+            assert_eq!(sys.physics3d().gravity(), vec3(0.0, -1.0, 0.0));
+            assert_eq!(sys.physics3d().body_count(), 0);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "doesn't declare that it may read service `physics3d`")]
+    fn undeclared_physics3d_panics() {
+        with_physics(SystemAccess::new(), |sys| {
+            let _ = sys.physics3d().gravity();
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "doesn't declare that it may write service `physics3d`")]
+    fn reading_physics3d_does_not_allow_changing_it() {
+        with_physics(SystemAccess::new().read_service(Service::Physics3D), |sys| {
+            sys.physics3d_mut().set_gravity(Vec3::ZERO);
+        });
     }
 }

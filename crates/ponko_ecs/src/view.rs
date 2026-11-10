@@ -203,6 +203,20 @@ impl ViewAccess {
     }
 }
 
+impl Drop for ViewState {
+    fn drop(&mut self) {
+        // Not while unwinding: a panicking system's state is dropped then,
+        // and a second panic would abort.
+        if !std::thread::panicking() {
+            debug_assert!(
+                !self.is_prepared(),
+                "ViewState dropped while prepared: {}'s lent resources are lost; call finish first",
+                self.label
+            );
+        }
+    }
+}
+
 /// A written resource, moved out of the world while it is viewed.
 struct Lent {
     id: TypeId,
@@ -261,7 +275,9 @@ impl ViewState {
     /// Gets `world` ready to be viewed: registers the declared components
     /// and moves the declared written resources out of it (a missing one
     /// stays missing). Until [`finish`](Self::finish), those resources are
-    /// absent from the world itself.
+    /// absent from the world itself: dropping a prepared state loses them
+    /// (builds with debug assertions panic when that happens).
+    /// [`run`](Self::run) always finishes.
     ///
     /// # Panics
     /// If the state is already prepared.
@@ -456,6 +472,9 @@ impl<'w> WorldView<'w> {
         Some(unsafe { &*ptr.cast::<T>() })
     }
 
+    // TODO(#140): writes through a view don't set change marks yet; apply
+    // them here (from the view's own state, not shared `&World`) once
+    // change detection lands.
     /// Component `T` of `e` to change (declared write).
     #[track_caller]
     pub fn get_mut<T: Component>(&mut self, e: Entity) -> Option<&mut T> {
@@ -603,6 +622,9 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         }
     }
 
+    // TODO(#140): writes through a view don't set change marks yet; apply
+    // them here (from the view's own state, not shared `&World`) once
+    // change detection lands.
     /// Runs `f` for every matching entity.
     #[inline]
     pub fn for_each(&mut self, mut f: impl FnMut(Q::Item<'_>)) {
@@ -623,6 +645,9 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         }
     }
 
+    // TODO(#140): writes through a view don't set change marks yet; apply
+    // them here (from the view's own state, not shared `&World`) once
+    // change detection lands.
     /// An iterator over the matching entities.
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
         QueryIter {
@@ -645,6 +670,9 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
             .sum()
     }
 
+    // TODO(#140): writes through a view don't set change marks yet; apply
+    // them here (from the view's own state, not shared `&World`) once
+    // change detection lands.
     /// The item for `e`, or `None` if it's dead or doesn't match.
     pub fn get(&mut self, e: Entity) -> Option<Q::Item<'_>> {
         if self.empty {
