@@ -1046,7 +1046,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/tests/animator.rs": {
-      "occurrences": 314,
+      "occurrences": 320,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."

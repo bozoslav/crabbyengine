@@ -21,3 +21,6 @@
   stderr, for a parameter of the wrong kind or index, a non-finite value, an
   unknown state or a negative or non-finite crossfade duration or offset. They
   now return `INVALID_ARGUMENT` and leave the animator unchanged.
+- `animator_update` from C returned a panic status for a `dt` that is not
+  finite or is negative; it now returns `INVALID_ARGUMENT` and leaves the
+  animator and its skeleton unchanged.
