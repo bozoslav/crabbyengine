@@ -59,22 +59,28 @@ A failed asset isn't retried by asking again, so a missing file costs
 nothing each frame; `resident_texture` or `resident_mesh` loads it again.
 
 States change only in the upload step. Normally that step never waits for a
-decode, so which frame an asset arrives in depends on how fast the workers
-are. With `set_deterministic_uploads(true)` the step waits for each decode
-instead, so every state changes in a frame that depends only on the order
-of requests and the budget: replays, lockstep games and tests see the same
-frames every run. `finish_uploads()` waits for everything asked for so far,
+decode, so which frame an asset arrives in (and the order new textures get
+their ids in) depends on how fast the workers are. With
+`set_deterministic_uploads(true)` the step waits for each decode instead,
+so every state changes in a frame that depends only on the order of
+requests and the budget: replays, lockstep games and tests see the same
+frames every run. States are fixed per frame, not per simulation tick: a
+frame can run several ticks or none, so replays need the same frames too. `finish_uploads()` waits for everything asked for so far,
 for loading screens and tests.
 
 ## Budgets: staying in memory
 
 `set_residency_budget(kind, bytes)` caps the bytes of meshes or textures
 loaded by name (estimates of their GPU memory). When resident assets go
-over it, the **least recently used** ones are evicted until they fit.
-Never evicted:
+over it, the **least recently used** ones are evicted until they fit. The
+budget is checked when an asset loads and at the start of every frame, so
+what entities stop showing goes without waiting for the next load. Never
+evicted:
 
-- assets asked for in the current frame and tick (a handle you just got
-  stays good while you use it),
+- assets asked for in this or the previous frame or tick: a handle you just
+  got stays good while you use it, and what you ask for every frame (or
+  every fixed-step tick, with frames between) is never evicted between two
+  asks,
 - meshes a `Model`, `ShadowMesh` or `LodGroup` shows, and textures a
   `Sprite` shows,
 - pinned ones (`pin_resident_texture`, `pin_resident_mesh` until unpinned),
@@ -96,8 +102,9 @@ Eviction never leaves a handle pointing at something else:
   is asked for again and streams back up under the same handle.
 - An **evicted mesh** is freed, but its id is kept for its file: a handle
   you kept in a resource reads as not live (`is_live` is false), a model
-  showing it draws nothing, and no other mesh ever takes that id. Asking for
-  the file again brings the mesh back under the same handle.
+  showing it draws nothing, and no other mesh takes that id. Asking for
+  the file again brings the mesh back under the same handle. Freeing that
+  handle (`ctx.free`) releases the id; the file then loads as a new mesh.
 
 Materials keep sampling an evicted texture's stand-in, so ask for textures
 that only materials use each frame they are on screen, or pin them.
@@ -144,20 +151,37 @@ numbers in code, including how long the upload step took.
 ## Measured
 
 `cargo run --release -p ponko_bench -- streaming/` runs a headless game that
-needs sixteen new 1024 × 1024 images (noise PNGs on disk) at once, and
-measures the game thread's CPU time spent loading in each frame: the load or
-stream calls plus the upload step. CPU time rather than wall time, so a busy
-machine pausing the thread doesn't count. On an Apple M4 Max (macOS, release
-build, three runs, the machine under heavy other load):
+needs sixteen new assets at once, written to disk first: 1024 × 1024 noise
+PNGs, or glTF binaries of a 256 × 256 vertex grid (65 536 vertices and
+130 050 triangles, about 3 MiB each). It measures the game thread's CPU
+time spent loading in each frame: the load or stream calls plus the upload
+step, which for meshes includes building them from the decoded file. CPU
+time rather than wall time, so a busy machine pausing the thread doesn't
+count (on Windows, which has no such clock here, it is wall time). On an
+Apple M4 Max (macOS, release build, the default 16 MiB upload budget, one
+set of three runs with the machine under heavy other load, load average
+about 60):
 
 | | Worst frame's loading work | Median | Usable after |
 |---|---|---|---|
-| `load_texture` | 11.3 to 13.0 ms | 0.20 ms | the same frame |
-| `stream_texture` | 0.49 to 0.94 ms | 0.004 ms | 3 to 8 frames |
+| `load_texture` | 10.1 to 11.5 ms | 0.18 ms | the same frame |
+| `stream_texture` | 0.42 to 0.73 ms | 0.001 ms | 3 to 11 frames |
+| `load_mesh` | 44.0 to 48.4 ms | 0.19 ms | the same frame |
+| `stream_mesh` | 0.52 to 0.65 ms | 0.002 to 0.005 ms | 10 to 11 frames |
 
-`load_texture` decodes all sixteen in the frame that first needs them;
-streaming spreads only the uploads over frames. Headless runs don't include
-the GPU's share of uploads; the upload budget is what bounds that.
+The loading calls decode all sixteen in the frame that first needs them;
+streaming moves decoding to workers and spreads the uploads over frames.
+Read the numbers with these caveats:
+
+- "Usable after" for textures counts the 32-pixel stand-ins; full
+  resolution comes a few uploads later. Meshes arrive whole.
+- Headless runs don't include the GPU's share of uploads (copying buffers
+  and textures to the GPU); the upload budget is what bounds that.
+- Decode cost depends on the files: noise PNGs stand in for real art and
+  may decode more cheaply than it, and the grid meshes have no materials
+  or textures.
+- One set of runs on a loaded machine: compare the two ways within a run,
+  not against other machines.
 
 ## Browsers and asset sources
 

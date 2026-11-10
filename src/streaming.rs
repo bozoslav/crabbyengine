@@ -17,6 +17,10 @@
 //! [`Ctx::set_deterministic_uploads`] the step waits for decoding instead of
 //! moving on, so which frame each state changes in depends only on the
 //! order of requests and the budget: the same run gives the same frames.
+//! States are fixed per frame, not per simulation tick (a frame may run
+//! several ticks or none). Without it, decodes finish when the workers do:
+//! the frame an asset arrives in, and so the order new textures get their
+//! ids in, can differ between runs.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -402,8 +406,9 @@ impl Ctx {
     /// are asked for again. The handle stays the same throughout and is
     /// never freed by the budget.
     ///
-    /// Never evicted: textures asked for in the current frame and tick,
-    /// ones a `Sprite` shows, and [pinned](Self::pin_resident_texture) ones.
+    /// The budget is checked when a texture loads and at the start of every
+    /// frame. Never evicted: textures asked for in this or the previous
+    /// frame or tick, ones a `Sprite` shows, and [pinned](Self::pin_resident_texture) ones.
     /// Textures that only materials use are kept while asked for; evicted,
     /// those materials sample the stand-in.
     ///
@@ -545,7 +550,13 @@ impl Ctx {
     /// instead of moving on to the next, so every [`AssetState`] changes in
     /// a frame that depends only on the order assets were asked for and the
     /// upload budget: replays, lockstep games and tests see the same
-    /// frames each run. Off by default, so frames never wait for a decode.
+    /// frames each run. Off by default, so frames never wait for a decode;
+    /// then the frame an asset arrives in, and the order new textures get
+    /// their ids in, follow when decodes finish and can differ between runs.
+    ///
+    /// States are fixed per frame, not per simulation tick: a frame can run
+    /// several ticks or none, so for the same ticks each run, also run the
+    /// same frames (as headless runs and fixed frame rates do).
     pub fn set_deterministic_uploads(&mut self, on: bool) {
         self.streaming.deterministic = on;
     }

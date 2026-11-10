@@ -15,10 +15,14 @@ impl Ctx {
     /// asked for, as the same [`Mesh`] (its id is kept for it while it is
     /// out: a handle the game kept reads as not [live](Self::is_live) and
     /// models showing it draw nothing until then); its materials and
-    /// textures stay loaded.
+    /// textures stay loaded. [Freeing](Self::free) such a kept handle
+    /// releases the id; the file then loads as a new mesh.
     ///
-    /// Never evicted: meshes asked for in the current frame and tick (so the
-    /// handle stays good while you use it), meshes a [`Model`],
+    /// The budget is checked when a mesh loads and at the start of every
+    /// frame (so what entities stop showing can go). Never evicted: meshes
+    /// asked for in this or the previous frame or tick (so the handle stays
+    /// good while you use it, and what you ask for every frame or every
+    /// fixed-step tick stays between asks), meshes a [`Model`],
     /// [`ShadowMesh`] or [`LodGroup`] shows, [pinned](Self::pin_resident_mesh)
     /// ones, and ones the game also loaded with `load_mesh` before asking
     /// here. Without a budget nothing is evicted.

@@ -26,6 +26,12 @@
   the `streaming/` benchmark.
 
 ### Changed
+- Residency budgets are also checked at the start of every frame, so what
+  entities stop showing is evicted without waiting for the next load.
+  Assets asked for in this or the previous frame or tick are kept (before,
+  only the current frame and tick), so what a game asks for every frame or
+  every fixed-step tick is never evicted between two asks.
+- Freeing an evicted resident mesh's kept handle releases its id.
 - A resident mesh evicted by its budget keeps its id for its file: a handle
   the game kept reads as not live and comes back under the same id, instead
   of possibly naming another mesh.
