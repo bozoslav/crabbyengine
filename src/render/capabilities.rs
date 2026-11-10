@@ -870,7 +870,7 @@ mod tests {
             let window = of(tier.window_limits(engine.clone()));
             assert_eq!(window.max_texture_dimension_2d, 8192, "{tier}");
             assert!(
-                2560.max(1440) <= window.max_texture_dimension_2d,
+                window.max_texture_dimension_2d >= 2560,
                 "{tier}: a 1280x720 window at 2x"
             );
             assert_eq!(
