@@ -84,7 +84,9 @@ fn grid_glb(seed: u32) -> Vec<u8> {
     }
     let positions = bin.len();
     for _ in 0..n * n {
-        [0.0f32, 1.0, 0.0].iter().for_each(|v| bin.extend_from_slice(&v.to_le_bytes()));
+        [0.0f32, 1.0, 0.0]
+            .iter()
+            .for_each(|v| bin.extend_from_slice(&v.to_le_bytes()));
     }
     let normals = bin.len() - positions;
     let mut indices = 0;
