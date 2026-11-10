@@ -320,7 +320,7 @@ fn vehicles_add_no_allocations_to_rapiers_own() {
     );
 }
 
-/// Under `PARALLEL_FROM` (8), so the characters move on the calling thread
+/// Under `PARALLEL_FROM` (16), so the characters move on the calling thread
 /// and its thread-local count sees everything.
 const WALKERS: usize = 4;
 
