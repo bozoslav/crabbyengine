@@ -65,7 +65,7 @@ Remove `web/smoke/.browsers` and `web/smoke/node_modules` when done; both are
 git-ignored. The wasm build is a full extra copy of the dependencies:
 `rm -rf target/wasm32-unknown-unknown target/web` afterwards.
 
-`node --test web/smoke` runs the runner's own tests (no browser or build).
+`node --test web/smoke/*.test.mjs` runs the runner's own tests (no browser or build).
 
 Options:
 
