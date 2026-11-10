@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 /// use ponko::{ButtonBinding, Key};
 /// let binding = ButtonBinding::Key(Key::Space);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ButtonBinding {
     /// Physical keyboard key.
     Key(Key),
@@ -31,7 +31,7 @@ pub enum ButtonBinding {
 /// use ponko::{AxisBinding, Key};
 /// let binding = AxisBinding::Keys { negative: Key::A, positive: Key::D };
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AxisBinding {
     /// Opposing keys cancel.
     Keys {
@@ -57,7 +57,7 @@ pub enum AxisBinding {
 /// use ponko::{Axis2Binding, Key};
 /// let binding = Axis2Binding::Keys { left: Key::A, right: Key::D, up: Key::W, down: Key::S };
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Axis2Binding {
     /// Four physical keys (for example WASD).
     Keys {
@@ -87,7 +87,7 @@ pub enum Axis2Binding {
 /// use ponko::{Action, ButtonBinding, Key};
 /// let jump = Action::Button(vec![ButtonBinding::Key(Key::Space)]);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Action {
     /// Digital sources.
     Button(Vec<ButtonBinding>),
@@ -95,6 +95,45 @@ pub enum Action {
     Axis(Vec<AxisBinding>),
     /// Vector sources.
     Axis2(Vec<Axis2Binding>),
+}
+impl Action {
+    /// The sources of a button action; empty for an axis.
+    /// ```
+    /// # use ponko::*;
+    /// let jump = Action::Button(vec![ButtonBinding::Key(Key::Space)]);
+    /// assert_eq!(jump.buttons(), [ButtonBinding::Key(Key::Space)]);
+    /// assert!(jump.axes().is_empty());
+    /// ```
+    pub fn buttons(&self) -> &[ButtonBinding] {
+        match self {
+            Action::Button(b) => b,
+            _ => &[],
+        }
+    }
+    /// The sources of a scalar axis action; empty for the other kinds.
+    /// ```
+    /// # use ponko::*;
+    /// let steer = Action::Axis(vec![AxisBinding::Keys { negative: Key::A, positive: Key::D }]);
+    /// assert_eq!(steer.axes().len(), 1);
+    /// ```
+    pub fn axes(&self) -> &[AxisBinding] {
+        match self {
+            Action::Axis(a) => a,
+            _ => &[],
+        }
+    }
+    /// The sources of a vector axis action; empty for the other kinds.
+    /// ```
+    /// # use ponko::*;
+    /// let walk = Action::Axis2(vec![Axis2Binding::Keys { left: Key::A, right: Key::D, up: Key::W, down: Key::S }]);
+    /// assert_eq!(walk.axes2().len(), 1);
+    /// ```
+    pub fn axes2(&self) -> &[Axis2Binding] {
+        match self {
+            Action::Axis2(a) => a,
+            _ => &[],
+        }
+    }
 }
 
 /// An action resolved once, so a query is an array index instead of a string
@@ -249,6 +288,11 @@ struct State {
 /// Serializable bindings, ordered by name. Runtime state is never serialized.
 /// Unknown names and queries of the wrong kind return false/zero; resolve a
 /// name once with [`ActionMap::resolve`] or `Input::action_id` to learn of a typo.
+///
+/// The bindings read back with [`get`](Self::get) and [`iter`](Self::iter),
+/// so a rebinding screen can show `ctx.input.actions()` instead of keeping
+/// its own copy; [`Input::set_action`](crate::Input::set_action) changes one
+/// installed action in place.
 /// ```
 /// use ponko::{ActionMap, Action, ButtonBinding, Key};
 /// let mut map = ActionMap::default();
@@ -295,6 +339,46 @@ impl ActionMap {
             self.states[slot as usize] = State::default();
         }
         self.sync();
+    }
+    /// The bindings of one action, or `None` for an unknown name.
+    /// ```
+    /// # use ponko::*;
+    /// let mut map = ActionMap::default();
+    /// map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
+    /// assert_eq!(map.get("jump").unwrap().buttons(), [ButtonBinding::Key(Key::Space)]);
+    /// assert!(map.get("fire").is_none());
+    /// ```
+    pub fn get(&self, name: &str) -> Option<&Action> {
+        self.bindings.get(name)
+    }
+    /// Every action and its bindings, ordered by name (the order the JSON
+    /// file stores them in, whatever order they were set in).
+    /// ```
+    /// # use ponko::*;
+    /// let mut map = ActionMap::default();
+    /// map.set("jump", Action::Button(vec![]));
+    /// map.set("fire", Action::Button(vec![]));
+    /// let names: Vec<&str> = map.iter().map(|(name, _)| name).collect();
+    /// assert_eq!(names, ["fire", "jump"]);
+    /// ```
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = (&str, &Action)> + '_ {
+        self.bindings.iter().map(|(name, action)| (name.as_str(), action))
+    }
+    /// The number of actions.
+    /// ```
+    /// # use ponko::*;
+    /// assert_eq!(ActionMap::default().len(), 0);
+    /// ```
+    pub fn len(&self) -> usize {
+        self.bindings.len()
+    }
+    /// Whether the map has no actions.
+    /// ```
+    /// # use ponko::*;
+    /// assert!(ActionMap::default().is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool {
+        self.bindings.is_empty()
     }
     /// Resolves an action name once, for the id-based queries. An unknown
     /// name is an error that lists the known actions.
@@ -347,6 +431,14 @@ impl ActionMap {
         self.slots = old.slots.clone();
         self.states = vec![State::default(); old.states.len()];
         self.sync();
+    }
+    /// Clears one action's edges, so changing its bindings fires none.
+    pub(crate) fn clear_edges(&mut self, name: &str) {
+        if let Some(&slot) = self.slots.get(name) {
+            let s = &mut self.states[slot as usize];
+            s.pressed = false;
+            s.released = false;
+        }
     }
     pub(crate) fn end_frame(&mut self) {
         for s in &mut self.states {

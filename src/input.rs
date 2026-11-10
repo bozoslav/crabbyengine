@@ -822,6 +822,29 @@ impl Input {
         self.actions.end_frame();
     }
 
+    /// Adds or replaces one installed action, leaving the others alone: the
+    /// name keeps its slot (ids resolved earlier stay valid), the other
+    /// actions keep their state and edges, and, as with
+    /// [`set_actions`](Self::set_actions), sources already held are the
+    /// baseline, so the change fires no pressed/released edge. Read the
+    /// current bindings with [`actions`](Self::actions).
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &mut Ctx) {
+    /// let mut jump = ctx.input.actions().get("jump").cloned().unwrap_or(Action::Button(vec![]));
+    /// if let Action::Button(sources) = &mut jump {
+    ///     sources.push(ButtonBinding::Key(Key::K));
+    /// }
+    /// ctx.input.set_action("jump", jump);
+    /// # }
+    /// ```
+    pub fn set_action(&mut self, name: impl Into<String>, action: crate::Action) {
+        let name = name.into();
+        self.actions.set(name.clone(), action);
+        self.refresh_actions();
+        self.actions.clear_edges(&name);
+    }
+
     /// Feed input by hand for tests/replay; live input uses the same state.
     /// Edges clear after each headless or windowed frame.
     /// ```

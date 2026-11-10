@@ -158,3 +158,85 @@ fn json_round_trip_and_rebinding_reset_edges_without_releasing_held_sources() {
         assert_eq!(ctx.input.action_axis2("move"), Vec2::ZERO);
     });
 }
+
+#[test]
+fn a_map_built_in_code_and_one_loaded_from_json_read_back_the_same_bindings() {
+    let built = bindings();
+    let loaded = ActionMap::from_json(&built.to_json().unwrap()).unwrap();
+    assert_eq!(built.len(), 3);
+    assert!(!built.is_empty() && ActionMap::default().is_empty());
+    // Ordered by name, whatever order they were set in.
+    let names: Vec<&str> = built.iter().map(|(name, _)| name).collect();
+    assert_eq!(names, ["jump", "move", "throttle"]);
+    assert!(built.iter().eq(loaded.iter()));
+    for (name, action) in built.iter() {
+        assert_eq!(loaded.get(name), Some(action), "{name}");
+    }
+    assert_eq!(built.get("nope"), None);
+
+    let jump = loaded.get("jump").unwrap();
+    assert_eq!(jump.buttons()[0], ButtonBinding::Key(Key::Space));
+    assert_eq!(jump.buttons()[1], ButtonBinding::Mouse(MouseButton::Left));
+    assert!(jump.axes().is_empty() && jump.axes2().is_empty());
+    let pad = Gamepad::from_slot(0).unwrap();
+    assert_eq!(
+        loaded.get("throttle").unwrap().axes()[1],
+        AxisBinding::Gamepad {
+            pad,
+            axis: GamepadAxis::RightTrigger,
+            deadzone: 0.2
+        }
+    );
+    assert!(matches!(
+        loaded.get("move").unwrap().axes2()[0],
+        Axis2Binding::Keys { left: Key::A, .. }
+    ));
+    assert!(loaded.get("move").unwrap().buttons().is_empty());
+}
+
+#[test]
+fn set_action_changes_one_action_in_place_keeping_ids_and_the_others_state() {
+    Game::new("set_action", 1, 1).run_headless(0, |ctx| {
+        ctx.input.set_actions(bindings());
+        let [jump, throttle, mv] = ctx.input.action_ids(&["jump", "throttle", "move"]);
+        ctx.input.feed(InputEvent::Key(Key::W, true));
+        ctx.input.feed(InputEvent::Key(Key::Space, true));
+        assert!(ctx.input.action_pressed(jump));
+
+        // Rebind one source of "move": read it back, change it, put it back.
+        let mut walk = ctx.input.actions().get("move").unwrap().clone();
+        let Action::Axis2(sources) = &mut walk else { unreachable!() };
+        sources[0] = Axis2Binding::Keys {
+            left: Key::J,
+            right: Key::L,
+            up: Key::I,
+            down: Key::K,
+        };
+        ctx.input.set_action("move", walk.clone());
+        assert_eq!(ctx.input.actions().get("move"), Some(&walk));
+        assert_eq!(ctx.input.action_id("move"), mv, "the name keeps its slot");
+        assert_eq!(ctx.input.action_axis2(mv), Vec2::ZERO, "W no longer moves");
+        ctx.input.feed(InputEvent::Key(Key::I, true));
+        assert_eq!(ctx.input.action_axis2(mv), Vec2::new(0.0, -1.0), "I does");
+
+        // The others are untouched: still held, this frame's edge still there.
+        assert!(ctx.input.action_down(jump) && ctx.input.action_pressed(jump));
+        assert_eq!(ctx.input.action_axis(throttle), 1.0);
+
+        // A held source becomes the baseline: no edge from rebinding itself.
+        ctx.input.set_action("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
+        assert!(ctx.input.action_down(jump));
+        assert!(!ctx.input.action_pressed(jump) && !ctx.input.action_released(jump));
+        ctx.input.set_action("jump", Action::Button(vec![ButtonBinding::Key(Key::Enter)]));
+        assert!(!ctx.input.action_down(jump));
+        assert!(!ctx.input.action_released(jump), "rebinding releases nothing");
+
+        // A new name gets a new slot; ids resolved before stay valid.
+        ctx.input.set_action("fire", Action::Button(vec![ButtonBinding::Key(Key::F)]));
+        let fire = ctx.input.action_id("fire");
+        assert!(fire != jump && fire != throttle && fire != mv);
+        ctx.input.feed(InputEvent::Key(Key::F, true));
+        assert!(ctx.input.action_pressed(fire));
+        assert_eq!(ctx.input.action_axis(throttle), 1.0);
+    });
+}
