@@ -416,6 +416,8 @@ struct Marker;
 
 #[test]
 fn small_and_zero_sized_components_keep_values_and_stamps_through_growth_and_sorting() {
+    // Rows before and after the sort: enough for several reallocations.
+    let (first, total) = if cfg!(miri) { (70, 200) } else { (600, 2000) };
     // Tracking starts when rows exist, without capacity, and before the
     // component is first used.
     for start in ["with rows", "empty", "unused"] {
@@ -439,7 +441,7 @@ fn small_and_zero_sized_components_keep_values_and_stamps_through_growth_and_sor
         }
         let seen = w.advance_change_tick();
         // Growth, many times over; the first rows' stamps stay old.
-        es.extend((es.len()..600).map(|i| w.spawn((Small(i as u8), Marker, Health(i as i32)))));
+        es.extend((es.len()..first).map(|i| w.spawn((Small(i as u8), Marker, Health(i as i32)))));
         let old = if start == "with rows" { 3 } else { 0 };
         assert_eq!(added::<Small>(&mut w, seen), sorted(es[old..].to_vec()), "{start}");
         assert_eq!(added::<Marker>(&mut w, seen), sorted(es[old..].to_vec()), "{start}");
@@ -464,7 +466,7 @@ fn small_and_zero_sized_components_keep_values_and_stamps_through_growth_and_sor
             assert_eq!(w.get::<Health>(e).unwrap().0, i as i32);
         }
         // More growth after the sort, then removal from the middle.
-        es.extend((600..2000).map(|i| w.spawn((Small(i as u8), Marker, Health(i)))));
+        es.extend((first..total).map(|i| w.spawn((Small(i as u8), Marker, Health(i as i32)))));
         for &e in es.iter().step_by(3) {
             w.despawn(e);
         }
@@ -472,7 +474,7 @@ fn small_and_zero_sized_components_keep_values_and_stamps_through_growth_and_sor
         let left: Vec<Entity> = es
             .iter()
             .enumerate()
-            .filter(|(i, _)| i % 3 != 0 && (*i >= 600 || i % 7 == 0))
+            .filter(|(i, _)| i % 3 != 0 && (*i >= first || i % 7 == 0))
             .map(|(_, e)| *e)
             .collect();
         assert_eq!(changed::<Small>(&mut w, later), sorted(left.clone()), "{start}");
@@ -486,12 +488,13 @@ fn stamps_survive_column_growth() {
     w.get_mut::<Health>(b).unwrap().0 = 0;
     let later = w.advance_change_tick();
     // Many reallocations of the column and its stamp arrays.
-    w.spawn_batch((0..5000).map(|hp| (Health(hp),)));
+    let batch = if cfg!(miri) { 400 } else { 5000 };
+    w.spawn_batch((0..batch).map(|hp| (Health(hp),)));
     for hp in 0..100 {
         w.spawn((Health(hp),));
     }
-    assert_eq!(changed::<Health>(&mut w, seen).len(), 5101);
-    assert_eq!(changed::<Health>(&mut w, later).len(), 5100);
+    assert_eq!(changed::<Health>(&mut w, seen).len(), batch as usize + 101);
+    assert_eq!(changed::<Health>(&mut w, later).len(), batch as usize + 100);
     assert!(changed::<Health>(&mut w, seen).contains(&b));
     assert!(!changed::<Health>(&mut w, later).contains(&b));
     let _ = (a, c);
@@ -1297,7 +1300,7 @@ struct ModelEntity {
 /// the model says were added, changed or removed since each reader's tick.
 #[test]
 fn generated_sequences_report_exactly_what_the_model_changed() {
-    let (cases, ops) = if cfg!(miri) { (2, 120) } else { (40, 600) };
+    let (cases, ops) = if cfg!(miri) { (2, 60) } else { (40, 600) };
     for seed in 0..cases {
         let mut rng = Rng::new(0xC0FFEE + seed);
         let mut w = World::new();
