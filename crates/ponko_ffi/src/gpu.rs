@@ -266,21 +266,45 @@ mod tests {
 
     #[test]
     fn c_enums_follow_the_rust_order() {
-        assert_eq!(GpuTier::ALL.len(), 3);
-        for (i, t) in GpuTier::ALL.into_iter().enumerate() {
-            assert_eq!(t as u32, i as u32);
+        use CrabbyGpuFeature::*;
+        use CrabbyGpuTier::*;
+        let tiers = [
+            (CRABBY_GPU_TIER_WEBGL2, GpuTier::WebGl2),
+            (CRABBY_GPU_TIER_BASELINE, GpuTier::Baseline),
+            (CRABBY_GPU_TIER_DESKTOP, GpuTier::Desktop),
+        ];
+        assert_eq!(tiers.len(), GpuTier::ALL.len());
+        for (c, rust) in tiers {
+            assert_eq!(c as u32, rust as u32, "{c:?}");
+            assert_eq!(tier(c as u32).ok(), Some(rust), "{c:?}");
         }
-        assert_eq!(
-            CrabbyGpuFeature::CRABBY_GPU_FEATURE_MULTISAMPLING as usize + 1,
-            GpuFeature::ALL.len()
-        );
-        assert_eq!(
-            GpuFeature::ALL[CrabbyGpuFeature::CRABBY_GPU_FEATURE_TEMPORAL_ANTIALIASING as usize],
-            GpuFeature::TemporalAntialiasing
-        );
-        assert_eq!(
-            GpuFeature::ALL[CrabbyGpuFeature::CRABBY_GPU_FEATURE_DECALS as usize],
-            GpuFeature::Decals
-        );
+        let features = [
+            (CRABBY_GPU_FEATURE_TIMESTAMPS, GpuFeature::Timestamps),
+            (CRABBY_GPU_FEATURE_COMPUTE, GpuFeature::Compute),
+            (CRABBY_GPU_FEATURE_STORAGE_BUFFERS, GpuFeature::StorageBuffers),
+            (CRABBY_GPU_FEATURE_COMPUTE_CULLING, GpuFeature::ComputeCulling),
+            (CRABBY_GPU_FEATURE_GPU_SKINNING, GpuFeature::GpuSkinning),
+            (CRABBY_GPU_FEATURE_OCCLUSION_CULLING, GpuFeature::OcclusionCulling),
+            (
+                CRABBY_GPU_FEATURE_TEMPORAL_ANTIALIASING,
+                GpuFeature::TemporalAntialiasing,
+            ),
+            (CRABBY_GPU_FEATURE_AMBIENT_OCCLUSION, GpuFeature::AmbientOcclusion),
+            (CRABBY_GPU_FEATURE_CONTACT_SHADOWS, GpuFeature::ContactShadows),
+            (
+                CRABBY_GPU_FEATURE_SCREEN_SPACE_REFLECTIONS,
+                GpuFeature::ScreenSpaceReflections,
+            ),
+            (CRABBY_GPU_FEATURE_GLOBAL_ILLUMINATION, GpuFeature::GlobalIllumination),
+            (CRABBY_GPU_FEATURE_DECALS, GpuFeature::Decals),
+            (CRABBY_GPU_FEATURE_MULTISAMPLING, GpuFeature::Multisampling),
+        ];
+        assert_eq!(features.len(), GpuFeature::ALL.len(), "one C value per Rust feature");
+        for (i, (c, rust)) in features.into_iter().enumerate() {
+            assert_eq!(c as usize, i, "{c:?} in report order");
+            assert_eq!(feature(c as u32).ok(), Some(rust), "{c:?}");
+        }
+        assert!(feature(features.len() as u32).is_err());
+        assert!(tier(tiers.len() as u32).is_err());
     }
 }

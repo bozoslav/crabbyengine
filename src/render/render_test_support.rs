@@ -100,6 +100,9 @@ pub(super) fn forced_tier() -> Option<crate::GpuTier> {
 pub(super) fn forced<'a>(descriptor: &wgpu::DeviceDescriptor<'a>) -> wgpu::DeviceDescriptor<'a> {
     let mut d = descriptor.clone();
     if let Some(tier) = forced_tier() {
+        // CI checks for these lines: a run where nothing opened a device on
+        // the tier must not pass.
+        eprintln!("render test opens a device [{}] as the {tier} tier", test_name());
         d.required_limits = tier.device_limits(d.required_limits);
         d.required_features = tier.device_features(d.required_features);
     }
