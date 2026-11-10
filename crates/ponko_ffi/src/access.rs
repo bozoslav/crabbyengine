@@ -11,7 +11,7 @@ use std::ffi::{CStr, c_char, c_void};
 /// `crabby_game_add_system_with_access` (which copies it), free it with
 /// `crabby_access_free`.
 ///
-/// Meant for registration, not per frame: each `crabby_access_*` call
+/// Meant for registration, not per frame: each access call
 /// copies the whole declaration, and each name it is given is kept for the
 /// rest of the program.
 /// ```
