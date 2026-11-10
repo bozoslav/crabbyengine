@@ -5,9 +5,9 @@ use std::ffi::{CStr, c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::{null, null_mut};
 
-use CrabbyStatus::*;
+use PonkoStatus::*;
 
-type Ctx = *mut CrabbyCtx;
+type Ctx = *mut PonkoCtx;
 
 struct Scenario {
     body: unsafe fn(Ctx),
@@ -30,98 +30,92 @@ unsafe extern "C" fn trampoline(ctx: Ctx, user: *mut c_void) {
 fn run(body: unsafe fn(Ctx)) {
     let mut scenario = Scenario { body, failure: None };
     unsafe {
-        let game = crabby_game_new(c"ui".as_ptr(), 1, 1);
+        let game = ponko_game_new(c"ui".as_ptr(), 1, 1);
         assert_eq!(
-            crabby_game_sim_system(
+            ponko_game_sim_system(
                 game,
                 c"s".as_ptr(),
                 1,
                 Some(trampoline),
                 (&mut scenario as *mut Scenario).cast()
             ),
-            CRABBY_OK
+            PONKO_OK
         );
         let mut world = null_mut();
-        assert_eq!(
-            crabby_game_run_headless(game, 1, None, null_mut(), &mut world),
-            CRABBY_OK
-        );
-        crabby_world_free(world);
+        assert_eq!(ponko_game_run_headless(game, 1, None, null_mut(), &mut world), PONKO_OK);
+        ponko_world_free(world);
     }
     if let Some(failure) = scenario.failure {
         panic!("{failure}");
     }
 }
 
-fn px(value: f32) -> CrabbyUiLength {
-    CrabbyUiLength {
-        kind: CrabbyUiLengthKind::CRABBY_UI_LENGTH_POINTS as u32,
+fn px(value: f32) -> PonkoUiLength {
+    PonkoUiLength {
+        kind: PonkoUiLengthKind::PONKO_UI_LENGTH_POINTS as u32,
         value,
     }
 }
-fn pct(value: f32) -> CrabbyUiLength {
-    CrabbyUiLength {
-        kind: CrabbyUiLengthKind::CRABBY_UI_LENGTH_PERCENT as u32,
+fn pct(value: f32) -> PonkoUiLength {
+    PonkoUiLength {
+        kind: PonkoUiLengthKind::PONKO_UI_LENGTH_PERCENT as u32,
         value,
     }
 }
-fn all(length: CrabbyUiLength) -> CrabbyUiSides {
-    CrabbyUiSides {
+fn all(length: PonkoUiLength) -> PonkoUiSides {
+    PonkoUiSides {
         top: length,
         right: length,
         bottom: length,
         left: length,
     }
 }
-fn size(width: f32, height: f32) -> CrabbyUiLayout {
-    CrabbyUiLayout {
+fn size(width: f32, height: f32) -> PonkoUiLayout {
+    PonkoUiLayout {
         width: px(width),
         height: px(height),
         flex_shrink: 0.0,
-        ..crabby_ui_layout_default()
+        ..ponko_ui_layout_default()
     }
 }
-fn v2(x: f32, y: f32) -> CrabbyVec2 {
-    CrabbyVec2 { x, y }
+fn v2(x: f32, y: f32) -> PonkoVec2 {
+    PonkoVec2 { x, y }
 }
-const SCREEN: CrabbyVec2 = CrabbyVec2 { x: 800.0, y: 600.0 };
+const SCREEN: PonkoVec2 = PonkoVec2 { x: 800.0, y: 600.0 };
 
-unsafe fn id_of(status: impl FnOnce(*mut u64) -> CrabbyStatus) -> u64 {
-    let mut id = CRABBY_UI_NONE;
-    assert_eq!(status(&mut id), CRABBY_OK, "{}", last_error());
-    assert_ne!(id, CRABBY_UI_NONE);
+unsafe fn id_of(status: impl FnOnce(*mut u64) -> PonkoStatus) -> u64 {
+    let mut id = PONKO_UI_NONE;
+    assert_eq!(status(&mut id), PONKO_OK, "{}", last_error());
+    assert_ne!(id, PONKO_UI_NONE);
     id
 }
 fn last_error() -> String {
-    unsafe { CStr::from_ptr(crabby_last_error()) }
+    unsafe { CStr::from_ptr(ponko_last_error()) }
         .to_string_lossy()
         .into_owned()
 }
-unsafe fn panel(ctx: Ctx, parent: u64, layout: &CrabbyUiLayout) -> u64 {
-    unsafe { id_of(|out| crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, parent, layout, out)) }
+unsafe fn panel(ctx: Ctx, parent: u64, layout: &PonkoUiLayout) -> u64 {
+    unsafe { id_of(|out| ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, parent, layout, out)) }
 }
-unsafe fn button(ctx: Ctx, parent: u64, text: &CStr, layout: &CrabbyUiLayout) -> u64 {
-    unsafe { id_of(|out| crabby_ctx_ui_add_button(ctx, CRABBY_UI_SCREEN, parent, text.as_ptr(), layout, out)) }
+unsafe fn button(ctx: Ctx, parent: u64, text: &CStr, layout: &PonkoUiLayout) -> u64 {
+    unsafe { id_of(|out| ponko_ctx_ui_add_button(ctx, PONKO_UI_SCREEN, parent, text.as_ptr(), layout, out)) }
 }
-unsafe fn rect(ctx: Ctx, id: u64) -> CrabbyRect {
-    let mut r = CrabbyRect::default();
-    assert_eq!(
-        unsafe { crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, id, &mut r) },
-        CRABBY_OK
-    );
+unsafe fn rect(ctx: Ctx, id: u64) -> PonkoRect {
+    let mut r = PonkoRect::default();
+    assert_eq!(unsafe { ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, id, &mut r) }, PONKO_OK);
     r
 }
-unsafe fn frame(ctx: Ctx, input: CrabbyUiInput) {
+unsafe fn frame(ctx: Ctx, input: PonkoUiInput) {
     assert_eq!(
-        unsafe { crabby_ctx_ui_frame(ctx, CRABBY_UI_SCREEN, SCREEN, &input) },
-        CRABBY_OK,
+        unsafe { ponko_ctx_ui_frame(ctx, PONKO_UI_SCREEN, SCREEN, &input) },
+        PONKO_OK,
         "{}",
         last_error()
     );
 }
-unsafe fn click(ctx: Ctx, at: CrabbyVec2) {
+unsafe fn click(ctx: Ctx, at: PonkoVec2) {
     unsafe {
-        let mut input = crabby_ui_input_default();
+        let mut input = ponko_ui_input_default();
         input.pointer = at;
         input.pressed = true;
         input.held = true;
@@ -132,16 +126,16 @@ unsafe fn click(ctx: Ctx, at: CrabbyVec2) {
         frame(ctx, input);
     }
 }
-unsafe fn events(ctx: Ctx) -> Vec<(CrabbyUiEventKind, u64)> {
+unsafe fn events(ctx: Ctx) -> Vec<(PonkoUiEventKind, u64)> {
     let mut all = Vec::new();
     loop {
-        let mut event = CrabbyUiEvent {
-            kind: CrabbyUiEventKind::CRABBY_UI_EVENT_CLICKED,
+        let mut event = PonkoUiEvent {
+            kind: PonkoUiEventKind::PONKO_UI_EVENT_CLICKED,
             id: 0,
         };
-        match unsafe { crabby_ctx_ui_next_event(ctx, CRABBY_UI_SCREEN, &mut event) } {
-            CRABBY_OK => all.push((event.kind, event.id)),
-            CRABBY_NOT_FOUND => return all,
+        match unsafe { ponko_ctx_ui_next_event(ctx, PONKO_UI_SCREEN, &mut event) } {
+            PONKO_OK => all.push((event.kind, event.id)),
+            PONKO_NOT_FOUND => return all,
             other => panic!("{other:?}: {}", last_error()),
         }
     }
@@ -149,22 +143,22 @@ unsafe fn events(ctx: Ctx) -> Vec<(CrabbyUiEventKind, u64)> {
 unsafe fn text_of(ctx: Ctx, id: u64) -> String {
     let mut len = 0;
     assert_eq!(
-        unsafe { crabby_ctx_ui_text(ctx, CRABBY_UI_SCREEN, id, null_mut(), 0, &mut len) },
-        CRABBY_OK
+        unsafe { ponko_ctx_ui_text(ctx, PONKO_UI_SCREEN, id, null_mut(), 0, &mut len) },
+        PONKO_OK
     );
     let mut buffer = vec![0u8; len + 1];
     assert_eq!(
         unsafe {
-            crabby_ctx_ui_text(
+            ponko_ctx_ui_text(
                 ctx,
-                CRABBY_UI_SCREEN,
+                PONKO_UI_SCREEN,
                 id,
                 buffer.as_mut_ptr().cast::<c_char>(),
                 buffer.len(),
                 &mut len,
             )
         },
-        CRABBY_OK
+        PONKO_OK
     );
     assert_eq!(buffer[len], 0);
     String::from_utf8(buffer[..len].to_vec()).unwrap()
@@ -172,8 +166,8 @@ unsafe fn text_of(ctx: Ctx, id: u64) -> String {
 unsafe fn value_of(ctx: Ctx, id: u64) -> f32 {
     let mut value = -1.0;
     assert_eq!(
-        unsafe { crabby_ctx_ui_value(ctx, CRABBY_UI_SCREEN, id, &mut value) },
-        CRABBY_OK
+        unsafe { ponko_ctx_ui_value(ctx, PONKO_UI_SCREEN, id, &mut value) },
+        PONKO_OK
     );
     value
 }
@@ -184,25 +178,24 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
     unsafe {
         let root = panel(
             ctx,
-            CRABBY_UI_NONE,
-            &CrabbyUiLayout {
-                flex_direction: CrabbyUiFlexDirection::CRABBY_UI_FLEX_COLUMN as u32,
+            PONKO_UI_NONE,
+            &PonkoUiLayout {
+                flex_direction: PonkoUiFlexDirection::PONKO_UI_FLEX_COLUMN as u32,
                 padding: all(px(10.0)),
-                gap: CrabbyUiGap {
+                gap: PonkoUiGap {
                     column: px(5.0),
                     row: px(5.0),
                 },
                 ..size(400.0, 300.0)
             },
         );
-        let label = id_of(|out| {
-            crabby_ctx_ui_add_label(ctx, CRABBY_UI_SCREEN, root, c"Title".as_ptr(), &size(100.0, 20.0), out)
-        });
+        let label =
+            id_of(|out| ponko_ctx_ui_add_label(ctx, PONKO_UI_SCREEN, root, c"Title".as_ptr(), &size(100.0, 20.0), out));
         let go = button(ctx, root, c"Go", &size(200.0, 40.0));
         let toggle = id_of(|out| {
-            crabby_ctx_ui_add_toggle(
+            ponko_ctx_ui_add_toggle(
                 ctx,
-                CRABBY_UI_SCREEN,
+                PONKO_UI_SCREEN,
                 root,
                 c"Gift".as_ptr(),
                 false,
@@ -210,12 +203,12 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
                 out,
             )
         });
-        let slider = id_of(|out| crabby_ctx_ui_add_slider(ctx, CRABBY_UI_SCREEN, root, 0.25, &size(200.0, 20.0), out));
+        let slider = id_of(|out| ponko_ctx_ui_add_slider(ctx, PONKO_UI_SCREEN, root, 0.25, &size(200.0, 20.0), out));
         let input = id_of(|out| {
-            crabby_ctx_ui_add_text_input(ctx, CRABBY_UI_SCREEN, root, c"hi".as_ptr(), &size(200.0, 30.0), out)
+            ponko_ctx_ui_add_text_input(ctx, PONKO_UI_SCREEN, root, c"hi".as_ptr(), &size(200.0, 30.0), out)
         });
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
-        frame(ctx, crabby_ui_input_default());
+        assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false), PONKO_OK);
+        frame(ctx, ponko_ui_input_default());
 
         // A padded column with gaps: each child sits below the last.
         let at = |id| {
@@ -233,52 +226,52 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
 
         let mut hit = 0;
         assert_eq!(
-            crabby_ctx_ui_hit_test(ctx, CRABBY_UI_SCREEN, v2(50.0, 50.0), &mut hit),
-            CRABBY_OK
+            ponko_ctx_ui_hit_test(ctx, PONKO_UI_SCREEN, v2(50.0, 50.0), &mut hit),
+            PONKO_OK
         );
         assert_eq!(hit, go);
         assert_eq!(
-            crabby_ctx_ui_hit_test(ctx, CRABBY_UI_SCREEN, v2(700.0, 500.0), &mut hit),
-            CRABBY_OK
+            ponko_ctx_ui_hit_test(ctx, PONKO_UI_SCREEN, v2(700.0, 500.0), &mut hit),
+            PONKO_OK
         );
-        assert_eq!(hit, CRABBY_UI_NONE);
+        assert_eq!(hit, PONKO_UI_NONE);
 
         // A button click: press, then release over it.
         click(ctx, v2(50.0, 50.0));
-        assert_eq!(events(ctx), [(CrabbyUiEventKind::CRABBY_UI_EVENT_CLICKED, go)]);
+        assert_eq!(events(ctx), [(PonkoUiEventKind::PONKO_UI_EVENT_CLICKED, go)]);
         assert!(events(ctx).is_empty(), "events are taken once");
         let mut focus = 0;
-        assert_eq!(crabby_ctx_ui_focus(ctx, CRABBY_UI_SCREEN, &mut focus), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_focus(ctx, PONKO_UI_SCREEN, &mut focus), PONKO_OK);
         assert_eq!(focus, go);
 
         // Disabled controls ignore clicks, and come back when enabled.
-        assert_eq!(crabby_ctx_ui_set_enabled(ctx, CRABBY_UI_SCREEN, go, false), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_set_enabled(ctx, PONKO_UI_SCREEN, go, false), PONKO_OK);
         click(ctx, v2(50.0, 50.0));
         assert!(events(ctx).is_empty());
-        assert_eq!(crabby_ctx_ui_set_enabled(ctx, CRABBY_UI_SCREEN, go, true), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_set_enabled(ctx, PONKO_UI_SCREEN, go, true), PONKO_OK);
 
         // A toggle flips; a slider follows the pointer.
         click(ctx, v2(20.0, 90.0));
-        assert_eq!(events(ctx), [(CrabbyUiEventKind::CRABBY_UI_EVENT_CHANGED, toggle)]);
+        assert_eq!(events(ctx), [(PonkoUiEventKind::PONKO_UI_EVENT_CHANGED, toggle)]);
         assert_eq!(value_of(ctx, toggle), 1.0);
         // The slider changes while the pointer is down on it, so read its
         // events in that same frame (each frame starts with an empty queue).
-        let mut press = crabby_ui_input_default();
+        let mut press = ponko_ui_input_default();
         press.pointer = v2(110.0, 115.0);
         press.pressed = true;
         press.held = true;
         frame(ctx, press);
         assert_eq!(value_of(ctx, slider), 0.5);
-        assert!(events(ctx).contains(&(CrabbyUiEventKind::CRABBY_UI_EVENT_CHANGED, slider)));
+        assert!(events(ctx).contains(&(PonkoUiEventKind::PONKO_UI_EVENT_CHANGED, slider)));
         frame(
             ctx,
-            CrabbyUiInput {
+            PonkoUiInput {
                 released: true,
                 pointer: press.pointer,
-                ..crabby_ui_input_default()
+                ..ponko_ui_input_default()
             },
         );
-        assert_eq!(crabby_ctx_ui_set_value(ctx, CRABBY_UI_SCREEN, slider, 7.0), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_set_value(ctx, PONKO_UI_SCREEN, slider, 7.0), PONKO_OK);
         assert_eq!(value_of(ctx, slider), 1.0, "values are clamped");
         assert!(events(ctx).is_empty(), "setters queue no events");
 
@@ -288,33 +281,33 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
         let text = c"!?";
         frame(
             ctx,
-            CrabbyUiInput {
+            PonkoUiInput {
                 text: text.as_ptr(),
-                ..crabby_ui_input_default()
+                ..ponko_ui_input_default()
             },
         );
         assert_eq!(text_of(ctx, input), "hi!?");
-        assert_eq!(events(ctx), [(CrabbyUiEventKind::CRABBY_UI_EVENT_CHANGED, input)]);
+        assert_eq!(events(ctx), [(PonkoUiEventKind::PONKO_UI_EVENT_CHANGED, input)]);
         frame(
             ctx,
-            CrabbyUiInput {
+            PonkoUiInput {
                 backspace: true,
-                ..crabby_ui_input_default()
+                ..ponko_ui_input_default()
             },
         );
         assert_eq!(text_of(ctx, input), "hi!");
         events(ctx);
         frame(
             ctx,
-            CrabbyUiInput {
+            PonkoUiInput {
                 confirm: true,
-                ..crabby_ui_input_default()
+                ..ponko_ui_input_default()
             },
         );
-        assert_eq!(events(ctx), [(CrabbyUiEventKind::CRABBY_UI_EVENT_SUBMITTED, input)]);
+        assert_eq!(events(ctx), [(PonkoUiEventKind::PONKO_UI_EVENT_SUBMITTED, input)]);
         assert_eq!(
-            crabby_ctx_ui_set_text(ctx, CRABBY_UI_SCREEN, input, c"a\tb".as_ptr()),
-            CRABBY_OK
+            ponko_ctx_ui_set_text(ctx, PONKO_UI_SCREEN, input, c"a\tb".as_ptr()),
+            PONKO_OK
         );
         assert_eq!(text_of(ctx, input), "ab", "inputs drop control characters");
 
@@ -322,58 +315,51 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
         let mut small = [7 as c_char; 2];
         let mut len = 0;
         assert_eq!(
-            crabby_ctx_ui_text(ctx, CRABBY_UI_SCREEN, label, small.as_mut_ptr(), small.len(), &mut len),
-            CRABBY_OK
+            ponko_ctx_ui_text(ctx, PONKO_UI_SCREEN, label, small.as_mut_ptr(), small.len(), &mut len),
+            PONKO_OK
         );
         assert_eq!((len, small[0]), (5, 0));
         assert_eq!(
-            crabby_ctx_ui_text(ctx, CRABBY_UI_SCREEN, label, small.as_mut_ptr(), 0, &mut len),
-            CRABBY_OK
+            ponko_ctx_ui_text(ctx, PONKO_UI_SCREEN, label, small.as_mut_ptr(), 0, &mut len),
+            PONKO_OK
         );
         assert_eq!(
-            crabby_ctx_ui_text(ctx, CRABBY_UI_SCREEN, label, null_mut(), 1, &mut len),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_text(ctx, PONKO_UI_SCREEN, label, null_mut(), 1, &mut len),
+            PONKO_INVALID_ARGUMENT
         );
         // The outputs are checked first: a null output is an invalid
         // argument even for a node or panel that doesn't exist (not "not
         // found"), and nothing is read.
         for (target, node) in [
-            (CRABBY_UI_SCREEN, 999_999),
-            (CRABBY_UI_SCREEN, label),
+            (PONKO_UI_SCREEN, 999_999),
+            (PONKO_UI_SCREEN, label),
             (u64::MAX - 1, label),
         ] {
             assert_eq!(
-                crabby_ctx_ui_text(ctx, target, node, small.as_mut_ptr(), small.len(), null_mut()),
-                CRABBY_INVALID_ARGUMENT
+                ponko_ctx_ui_text(ctx, target, node, small.as_mut_ptr(), small.len(), null_mut()),
+                PONKO_INVALID_ARGUMENT
             );
             assert_eq!(
-                crabby_ctx_ui_name(ctx, target, node, null_mut(), 4, &mut len),
-                CRABBY_INVALID_ARGUMENT
+                ponko_ctx_ui_name(ctx, target, node, null_mut(), 4, &mut len),
+                PONKO_INVALID_ARGUMENT
             );
         }
         assert_eq!(
-            crabby_ctx_ui_text(
-                ctx,
-                CRABBY_UI_SCREEN,
-                999_999,
-                small.as_mut_ptr(),
-                small.len(),
-                &mut len
-            ),
-            CRABBY_NOT_FOUND,
+            ponko_ctx_ui_text(ctx, PONKO_UI_SCREEN, 999_999, small.as_mut_ptr(), small.len(), &mut len),
+            PONKO_NOT_FOUND,
             "with good outputs, the missing node is the error"
         );
 
         // The tab key walks the controls in order.
         frame(
             ctx,
-            CrabbyUiInput {
+            PonkoUiInput {
                 next: true,
-                ..crabby_ui_input_default()
+                ..ponko_ui_input_default()
             },
         );
-        assert_eq!(crabby_ctx_ui_focus(ctx, CRABBY_UI_SCREEN, &mut focus), CRABBY_OK);
-        assert_ne!(focus, CRABBY_UI_NONE);
+        assert_eq!(ponko_ctx_ui_focus(ctx, PONKO_UI_SCREEN, &mut focus), PONKO_OK);
+        assert_ne!(focus, PONKO_UI_NONE);
     }
 }
 #[test]
@@ -385,86 +371,74 @@ fn widgets_lay_out_and_react_to_input() {
 
 unsafe fn screens_stack_and_pop(ctx: Ctx) {
     unsafe {
-        let base = panel(ctx, CRABBY_UI_NONE, &size(800.0, 600.0));
+        let base = panel(ctx, PONKO_UI_NONE, &size(800.0, 600.0));
         let base_button = button(ctx, base, c"Open", &size(100.0, 40.0));
-        let dialog = panel(ctx, CRABBY_UI_NONE, &size(300.0, 200.0));
+        let dialog = panel(ctx, PONKO_UI_NONE, &size(300.0, 200.0));
         let child = button(ctx, dialog, c"Ok", &size(80.0, 30.0));
         let mut top = 0;
-        assert_eq!(crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, &mut top), CRABBY_OK);
-        assert_eq!(top, CRABBY_UI_NONE);
+        assert_eq!(ponko_ctx_ui_top_screen(ctx, PONKO_UI_SCREEN, &mut top), PONKO_OK);
+        assert_eq!(top, PONKO_UI_NONE);
         let (mut keyboard, mut pointer) = (true, true);
-        assert_eq!(crabby_ctx_ui_wants_keyboard(ctx, &mut keyboard), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_wants_keyboard(ctx, &mut keyboard), PONKO_OK);
         assert!(!keyboard);
 
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, base, false), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, base, false), PONKO_OK);
         assert_eq!(
-            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, base, false),
-            CRABBY_INVALID_ARGUMENT,
+            ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, base, false),
+            PONKO_INVALID_ARGUMENT,
             "twice"
         );
         assert_eq!(
-            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, base_button, false),
-            CRABBY_INVALID_ARGUMENT,
+            ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, base_button, false),
+            PONKO_INVALID_ARGUMENT,
             "has a parent"
         );
         assert_eq!(
-            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, 4242, false),
-            CRABBY_NOT_FOUND
+            ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, 4242, false),
+            PONKO_NOT_FOUND
         );
-        frame(ctx, crabby_ui_input_default());
-        assert_eq!(crabby_ctx_ui_wants_keyboard(ctx, &mut keyboard), CRABBY_OK);
+        frame(ctx, ponko_ui_input_default());
+        assert_eq!(ponko_ctx_ui_wants_keyboard(ctx, &mut keyboard), PONKO_OK);
         assert!(keyboard);
-        assert_eq!(
-            crabby_ctx_ui_wants_pointer(ctx, CRABBY_UI_SCREEN, &mut pointer),
-            CRABBY_OK
-        );
+        assert_eq!(ponko_ctx_ui_wants_pointer(ctx, PONKO_UI_SCREEN, &mut pointer), PONKO_OK);
         assert!(pointer, "the pointer rests over the base screen");
 
         // A modal dialog owns input: the button under it is out of reach.
-        assert_eq!(
-            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, dialog, true),
-            CRABBY_OK
-        );
-        assert_eq!(crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, &mut top), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, dialog, true), PONKO_OK);
+        assert_eq!(ponko_ctx_ui_top_screen(ctx, PONKO_UI_SCREEN, &mut top), PONKO_OK);
         assert_eq!(top, dialog);
         click(ctx, v2(10.0, 10.0));
-        assert_eq!(events(ctx), [(CrabbyUiEventKind::CRABBY_UI_EVENT_CLICKED, child)]);
+        assert_eq!(events(ctx), [(PonkoUiEventKind::PONKO_UI_EVENT_CLICKED, child)]);
         click(ctx, v2(500.0, 500.0));
         assert!(events(ctx).is_empty());
 
         // Cancel pops it and says so; the pop consumes that frame's input.
         frame(
             ctx,
-            CrabbyUiInput {
+            PonkoUiInput {
                 cancel: true,
-                ..crabby_ui_input_default()
+                ..ponko_ui_input_default()
             },
         );
-        assert_eq!(
-            events(ctx),
-            [(CrabbyUiEventKind::CRABBY_UI_EVENT_SCREEN_POPPED, dialog)]
-        );
-        assert_eq!(crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, &mut top), CRABBY_OK);
+        assert_eq!(events(ctx), [(PonkoUiEventKind::PONKO_UI_EVENT_SCREEN_POPPED, dialog)]);
+        assert_eq!(ponko_ctx_ui_top_screen(ctx, PONKO_UI_SCREEN, &mut top), PONKO_OK);
         assert_eq!(top, base);
 
         // Popped screens stay usable.
-        assert_eq!(
-            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, dialog, false),
-            CRABBY_OK
-        );
+        assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, dialog, false), PONKO_OK);
         let mut popped = 0;
-        assert_eq!(crabby_ctx_ui_pop_screen(ctx, CRABBY_UI_SCREEN, &mut popped), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_pop_screen(ctx, PONKO_UI_SCREEN, &mut popped), PONKO_OK);
         assert_eq!(popped, dialog);
-        assert_eq!(crabby_ctx_ui_pop_screen(ctx, CRABBY_UI_SCREEN, &mut popped), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_pop_screen(ctx, PONKO_UI_SCREEN, &mut popped), PONKO_OK);
         assert_eq!(popped, base);
-        assert_eq!(crabby_ctx_ui_pop_screen(ctx, CRABBY_UI_SCREEN, &mut popped), CRABBY_OK);
-        assert_eq!(popped, CRABBY_UI_NONE, "nothing left to pop");
+        assert_eq!(ponko_ctx_ui_pop_screen(ctx, PONKO_UI_SCREEN, &mut popped), PONKO_OK);
+        assert_eq!(popped, PONKO_UI_NONE, "nothing left to pop");
 
         // Removing a screen's root drops it from the stack.
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, base, false), CRABBY_OK);
-        assert_eq!(crabby_ctx_ui_remove(ctx, CRABBY_UI_SCREEN, base), CRABBY_OK);
-        assert_eq!(crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, &mut top), CRABBY_OK);
-        assert_eq!(top, CRABBY_UI_NONE);
+        assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, base, false), PONKO_OK);
+        assert_eq!(ponko_ctx_ui_remove(ctx, PONKO_UI_SCREEN, base), PONKO_OK);
+        assert_eq!(ponko_ctx_ui_top_screen(ctx, PONKO_UI_SCREEN, &mut top), PONKO_OK);
+        assert_eq!(top, PONKO_UI_NONE);
     }
 }
 #[test]
@@ -476,20 +450,20 @@ fn screens_stack_modal_and_pop() {
 
 unsafe fn grid_absolute_and_scroll(ctx: Ctx) {
     unsafe {
-        let fr = CrabbyUiTrack {
-            kind: CrabbyUiTrackKind::CRABBY_UI_TRACK_FR as u32,
+        let fr = PonkoUiTrack {
+            kind: PonkoUiTrackKind::PONKO_UI_TRACK_FR as u32,
             value: 1.0,
         };
         let columns = [fr, fr, fr];
-        let rows = [CrabbyUiTrack {
-            kind: CrabbyUiTrackKind::CRABBY_UI_TRACK_POINTS as u32,
+        let rows = [PonkoUiTrack {
+            kind: PonkoUiTrackKind::PONKO_UI_TRACK_POINTS as u32,
             value: 40.0,
         }];
         let grid = panel(
             ctx,
-            CRABBY_UI_NONE,
-            &CrabbyUiLayout {
-                display: CrabbyUiDisplay::CRABBY_UI_DISPLAY_GRID as u32,
+            PONKO_UI_NONE,
+            &PonkoUiLayout {
+                display: PonkoUiDisplay::PONKO_UI_DISPLAY_GRID as u32,
                 grid_columns: columns.as_ptr(),
                 grid_column_count: columns.len(),
                 grid_auto_rows: rows.as_ptr(),
@@ -497,37 +471,37 @@ unsafe fn grid_absolute_and_scroll(ctx: Ctx) {
                 ..size(300.0, 200.0)
             },
         );
-        let cells: Vec<u64> = (0..3).map(|_| panel(ctx, grid, &crabby_ui_layout_default())).collect();
+        let cells: Vec<u64> = (0..3).map(|_| panel(ctx, grid, &ponko_ui_layout_default())).collect();
         let wide = panel(
             ctx,
             grid,
-            &CrabbyUiLayout {
-                grid_column_end: CrabbyUiGridLine {
-                    kind: CrabbyUiGridLineKind::CRABBY_UI_GRID_SPAN as u32,
+            &PonkoUiLayout {
+                grid_column_end: PonkoUiGridLine {
+                    kind: PonkoUiGridLineKind::PONKO_UI_GRID_SPAN as u32,
                     value: 2,
                 },
-                ..crabby_ui_layout_default()
+                ..ponko_ui_layout_default()
             },
         );
         // The corner is a relative box with an absolutely placed child.
         let corner = panel(
             ctx,
-            CRABBY_UI_NONE,
-            &CrabbyUiLayout {
-                position: CrabbyUiPosition::CRABBY_UI_POSITION_RELATIVE as u32,
+            PONKO_UI_NONE,
+            &PonkoUiLayout {
+                position: PonkoUiPosition::PONKO_UI_POSITION_RELATIVE as u32,
                 ..size(200.0, 100.0)
             },
         );
         let pinned = panel(
             ctx,
             corner,
-            &CrabbyUiLayout {
-                position: CrabbyUiPosition::CRABBY_UI_POSITION_ABSOLUTE as u32,
-                inset: CrabbyUiSides {
+            &PonkoUiLayout {
+                position: PonkoUiPosition::PONKO_UI_POSITION_ABSOLUTE as u32,
+                inset: PonkoUiSides {
                     left: px(10.0),
                     top: px(20.0),
-                    ..all(CrabbyUiLength {
-                        kind: CrabbyUiLengthKind::CRABBY_UI_LENGTH_AUTO as u32,
+                    ..all(PonkoUiLength {
+                        kind: PonkoUiLengthKind::PONKO_UI_LENGTH_AUTO as u32,
                         value: 0.0,
                     })
                 },
@@ -538,14 +512,14 @@ unsafe fn grid_absolute_and_scroll(ctx: Ctx) {
         // Scrolling: tall content in a short area.
         let scroll_area = {
             let id =
-                id_of(|out| crabby_ctx_ui_add_scroll(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &size(100.0, 100.0), out));
+                id_of(|out| ponko_ctx_ui_add_scroll(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &size(100.0, 100.0), out));
             panel(ctx, id, &size(100.0, 400.0));
             id
         };
         for root in [grid, corner, scroll_area] {
-            assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
+            assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false), PONKO_OK);
         }
-        frame(ctx, crabby_ui_input_default());
+        frame(ctx, ponko_ui_input_default());
 
         let at = |id| {
             let r = rect(ctx, id);
@@ -565,48 +539,48 @@ unsafe fn grid_absolute_and_scroll(ctx: Ctx) {
         );
 
         assert_eq!(
-            crabby_ctx_ui_set_scroll(ctx, CRABBY_UI_SCREEN, scroll_area, v2(0.0, 50.0)),
-            CRABBY_OK
+            ponko_ctx_ui_set_scroll(ctx, PONKO_UI_SCREEN, scroll_area, v2(0.0, 50.0)),
+            PONKO_OK
         );
-        frame(ctx, crabby_ui_input_default());
-        let mut offset = CrabbyVec2::default();
+        frame(ctx, ponko_ui_input_default());
+        let mut offset = PonkoVec2::default();
         assert_eq!(
-            crabby_ctx_ui_scroll(ctx, CRABBY_UI_SCREEN, scroll_area, &mut offset),
-            CRABBY_OK
+            ponko_ctx_ui_scroll(ctx, PONKO_UI_SCREEN, scroll_area, &mut offset),
+            PONKO_OK
         );
         assert_eq!(offset, v2(0.0, 50.0));
         assert_eq!(
-            crabby_ctx_ui_set_scroll(ctx, CRABBY_UI_SCREEN, scroll_area, v2(0.0, 9999.0)),
-            CRABBY_OK
+            ponko_ctx_ui_set_scroll(ctx, PONKO_UI_SCREEN, scroll_area, v2(0.0, 9999.0)),
+            PONKO_OK
         );
-        frame(ctx, crabby_ui_input_default());
+        frame(ctx, ponko_ui_input_default());
         assert_eq!(
-            crabby_ctx_ui_scroll(ctx, CRABBY_UI_SCREEN, scroll_area, &mut offset),
-            CRABBY_OK
+            ponko_ctx_ui_scroll(ctx, PONKO_UI_SCREEN, scroll_area, &mut offset),
+            PONKO_OK
         );
         assert_eq!(offset, v2(0.0, 300.0), "clamped to the content");
 
         // Changing a layout later moves things on the next layout.
-        let moved = CrabbyUiLayout {
-            margin: CrabbyUiSides {
+        let moved = PonkoUiLayout {
+            margin: PonkoUiSides {
                 left: px(25.0),
                 ..all(px(0.0))
             },
             ..size(100.0, 40.0)
         };
         assert_eq!(
-            crabby_ctx_ui_set_layout(ctx, CRABBY_UI_SCREEN, cells[0], &moved),
-            CRABBY_OK
+            ponko_ctx_ui_set_layout(ctx, PONKO_UI_SCREEN, cells[0], &moved),
+            PONKO_OK
         );
-        assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, SCREEN), PONKO_OK);
         assert_eq!(rect(ctx, cells[0]).min.x, 25.0);
         assert_eq!(
-            crabby_ctx_ui_set_layout(ctx, CRABBY_UI_SCREEN, cells[0], null()),
-            CRABBY_OK,
+            ponko_ctx_ui_set_layout(ctx, PONKO_UI_SCREEN, cells[0], null()),
+            PONKO_OK,
             "null is the default"
         );
-        assert_eq!(crabby_ctx_ui_set_scale(ctx, CRABBY_UI_SCREEN, 2.0), CRABBY_OK);
-        assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_set_scale(ctx, PONKO_UI_SCREEN, 2.0), PONKO_OK);
+        assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, SCREEN), PONKO_OK);
         assert_eq!(rect(ctx, grid).max.x, 600.0, "the user scale applies to geometry");
     }
 }
@@ -619,66 +593,62 @@ fn grid_absolute_and_scroll_layouts() {
 
 unsafe fn paint_and_images(ctx: Ctx) {
     unsafe {
-        let node = button(ctx, CRABBY_UI_NONE, c"Look", &crabby_ui_layout_default());
-        let mut paint = crabby_ui_paint_default();
-        assert_eq!(paint.align, CrabbyUiTextAlign::CRABBY_UI_TEXT_ALIGN_START as u32);
-        paint.align = CrabbyUiTextAlign::CRABBY_UI_TEXT_ALIGN_CENTER as u32;
+        let node = button(ctx, PONKO_UI_NONE, c"Look", &ponko_ui_layout_default());
+        let mut paint = ponko_ui_paint_default();
+        assert_eq!(paint.align, PonkoUiTextAlign::PONKO_UI_TEXT_ALIGN_START as u32);
+        paint.align = PonkoUiTextAlign::PONKO_UI_TEXT_ALIGN_CENTER as u32;
         paint.wrap = true;
         paint.border_width = 2.0;
         paint.font_size = 24.0;
-        assert_eq!(crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, &paint), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_set_paint(ctx, PONKO_UI_SCREEN, node, &paint), PONKO_OK);
         assert_eq!(
-            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, null()),
-            CRABBY_OK,
+            ponko_ctx_ui_set_paint(ctx, PONKO_UI_SCREEN, node, null()),
+            PONKO_OK,
             "null is the default"
         );
 
         paint.align = 9;
         assert_eq!(
-            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, &paint),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_set_paint(ctx, PONKO_UI_SCREEN, node, &paint),
+            PONKO_INVALID_ARGUMENT
         );
-        paint = crabby_ui_paint_default();
+        paint = ponko_ui_paint_default();
         paint.font_size = f32::NAN;
         assert_eq!(
-            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, &paint),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_set_paint(ctx, PONKO_UI_SCREEN, node, &paint),
+            PONKO_INVALID_ARGUMENT
         );
-        paint = crabby_ui_paint_default();
+        paint = ponko_ui_paint_default();
         paint.border_width = -1.0;
         assert_eq!(
-            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, &paint),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_set_paint(ctx, PONKO_UI_SCREEN, node, &paint),
+            PONKO_INVALID_ARGUMENT
         );
-        paint = crabby_ui_paint_default();
-        paint.font = CrabbyFont { id: 99 };
+        paint = ponko_ui_paint_default();
+        paint.font = PonkoFont { id: 99 };
         assert_eq!(
-            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, node, &paint),
-            CRABBY_INVALID_ARGUMENT,
+            ponko_ctx_ui_set_paint(ctx, PONKO_UI_SCREEN, node, &paint),
+            PONKO_INVALID_ARGUMENT,
             "{}",
             last_error()
         );
 
-        let mut texture = CrabbyTexture {
+        let mut texture = PonkoTexture {
             id: 0,
             width: 0,
             height: 0,
         };
         assert_eq!(
-            crabby_ctx_create_texture(ctx, 2, 2, [255u8; 16].as_ptr(), 16, &mut texture),
-            CRABBY_OK
+            ponko_ctx_create_texture(ctx, 2, 2, [255u8; 16].as_ptr(), 16, &mut texture),
+            PONKO_OK
         );
-        let image = id_of(|out| {
-            crabby_ctx_ui_add_image(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, texture, &size(64.0, 64.0), out)
-        });
-        let mut textured = crabby_ui_paint_default();
+        let image =
+            id_of(|out| ponko_ctx_ui_add_image(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, texture, &size(64.0, 64.0), out));
+        let mut textured = ponko_ui_paint_default();
         textured.has_texture = true;
         textured.texture = texture;
         textured.slice = 1.0;
-        assert_eq!(
-            crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, image, &textured),
-            CRABBY_OK
-        );
+        assert_eq!(ponko_ctx_ui_set_paint(ctx, PONKO_UI_SCREEN, image, &textured), PONKO_OK);
     }
 }
 #[test]
@@ -690,123 +660,120 @@ fn paint_and_images_are_checked() {
 
 unsafe fn stale_ids_and_bad_arguments(ctx: Ctx) {
     unsafe {
-        let root = panel(ctx, CRABBY_UI_NONE, &crabby_ui_layout_default());
-        let child = button(ctx, root, c"x", &crabby_ui_layout_default());
-        let grandchild = id_of(|out| crabby_ctx_ui_add_label(ctx, CRABBY_UI_SCREEN, child, c"y".as_ptr(), null(), out));
+        let root = panel(ctx, PONKO_UI_NONE, &ponko_ui_layout_default());
+        let child = button(ctx, root, c"x", &ponko_ui_layout_default());
+        let grandchild = id_of(|out| ponko_ctx_ui_add_label(ctx, PONKO_UI_SCREEN, child, c"y".as_ptr(), null(), out));
         let mut sink;
 
         // A failed add leaves no node behind: the next id follows the last one.
         let next = {
-            let probe = panel(ctx, root, &crabby_ui_layout_default());
+            let probe = panel(ctx, root, &ponko_ui_layout_default());
             probe + 1
         };
-        let bad = CrabbyUiLayout {
+        let bad = PonkoUiLayout {
             display: 99,
-            ..crabby_ui_layout_default()
+            ..ponko_ui_layout_default()
         };
         sink = 123;
         assert_eq!(
-            crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, root, &bad, &mut sink),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, root, &bad, &mut sink),
+            PONKO_INVALID_ARGUMENT
         );
         assert_eq!(sink, 123, "the output stays untouched on failure");
         assert_eq!(
-            crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, 9999, null(), &mut sink),
-            CRABBY_NOT_FOUND
+            ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, 9999, null(), &mut sink),
+            PONKO_NOT_FOUND
         );
-        assert_eq!(panel(ctx, root, &crabby_ui_layout_default()), next);
+        assert_eq!(panel(ctx, root, &ponko_ui_layout_default()), next);
         assert_eq!(
-            crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, root, null(), null_mut()),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, root, null(), null_mut()),
+            PONKO_INVALID_ARGUMENT
         );
         assert_eq!(
-            crabby_ctx_ui_add_label(
+            ponko_ctx_ui_add_label(
                 ctx,
-                CRABBY_UI_SCREEN,
+                PONKO_UI_SCREEN,
                 root,
                 [0xffu8, 0].as_ptr().cast(),
                 null(),
                 &mut sink
             ),
-            CRABBY_INVALID_ARGUMENT,
+            PONKO_INVALID_ARGUMENT,
             "text must be UTF-8"
         );
 
         // Removing a node takes its whole subtree and its events with it.
-        assert_eq!(crabby_ctx_ui_remove(ctx, CRABBY_UI_SCREEN, child), CRABBY_OK);
-        let mut r = CrabbyRect::default();
+        assert_eq!(ponko_ctx_ui_remove(ctx, PONKO_UI_SCREEN, child), PONKO_OK);
+        let mut r = PonkoRect::default();
         for gone in [child, grandchild] {
+            assert_eq!(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, gone, &mut r), PONKO_NOT_FOUND);
             assert_eq!(
-                crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, gone, &mut r),
-                CRABBY_NOT_FOUND
+                ponko_ctx_ui_set_text(ctx, PONKO_UI_SCREEN, gone, c"z".as_ptr()),
+                PONKO_NOT_FOUND
             );
             assert_eq!(
-                crabby_ctx_ui_set_text(ctx, CRABBY_UI_SCREEN, gone, c"z".as_ptr()),
-                CRABBY_NOT_FOUND
+                ponko_ctx_ui_set_layout(ctx, PONKO_UI_SCREEN, gone, null()),
+                PONKO_NOT_FOUND
             );
             assert_eq!(
-                crabby_ctx_ui_set_layout(ctx, CRABBY_UI_SCREEN, gone, null()),
-                CRABBY_NOT_FOUND
+                ponko_ctx_ui_set_enabled(ctx, PONKO_UI_SCREEN, gone, true),
+                PONKO_NOT_FOUND
             );
-            assert_eq!(
-                crabby_ctx_ui_set_enabled(ctx, CRABBY_UI_SCREEN, gone, true),
-                CRABBY_NOT_FOUND
-            );
-            assert_eq!(crabby_ctx_ui_remove(ctx, CRABBY_UI_SCREEN, gone), CRABBY_NOT_FOUND);
+            assert_eq!(ponko_ctx_ui_remove(ctx, PONKO_UI_SCREEN, gone), PONKO_NOT_FOUND);
         }
         assert_eq!(
-            crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, child, null(), &mut sink),
-            CRABBY_NOT_FOUND
+            ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, child, null(), &mut sink),
+            PONKO_NOT_FOUND
         );
         assert_eq!(
-            crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &mut r),
-            CRABBY_NOT_FOUND
+            ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &mut r),
+            PONKO_NOT_FOUND
         );
 
         // Null pointers are errors, never crashes.
         assert_eq!(
-            crabby_ctx_ui_value(ctx, CRABBY_UI_SCREEN, root, null_mut()),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_value(ctx, PONKO_UI_SCREEN, root, null_mut()),
+            PONKO_INVALID_ARGUMENT
         );
         assert_eq!(
-            crabby_ctx_ui_rect(ctx, CRABBY_UI_SCREEN, root, null_mut()),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, root, null_mut()),
+            PONKO_INVALID_ARGUMENT
         );
         assert_eq!(
-            crabby_ctx_ui_next_event(ctx, CRABBY_UI_SCREEN, null_mut()),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_next_event(ctx, PONKO_UI_SCREEN, null_mut()),
+            PONKO_INVALID_ARGUMENT
         );
         assert_eq!(
-            crabby_ctx_ui_top_screen(ctx, CRABBY_UI_SCREEN, null_mut()),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_top_screen(ctx, PONKO_UI_SCREEN, null_mut()),
+            PONKO_INVALID_ARGUMENT
         );
-        assert_eq!(crabby_ctx_ui_insert_text(ctx, null()), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(ponko_ctx_ui_insert_text(ctx, null()), PONKO_INVALID_ARGUMENT);
         assert_eq!(
-            crabby_ctx_ui_next_event(
+            ponko_ctx_ui_next_event(
                 ctx,
-                CRABBY_UI_SCREEN,
-                &mut CrabbyUiEvent {
-                    kind: CrabbyUiEventKind::CRABBY_UI_EVENT_CLICKED,
+                PONKO_UI_SCREEN,
+                &mut PonkoUiEvent {
+                    kind: PonkoUiEventKind::PONKO_UI_EVENT_CLICKED,
                     id: 0,
                 }
             ),
-            CRABBY_NOT_FOUND
+            PONKO_NOT_FOUND
         );
 
         // A bad track array is rejected before anything changes.
-        let tracks = CrabbyUiLayout {
+        let tracks = PonkoUiLayout {
             grid_columns: null(),
             grid_column_count: 3,
-            ..crabby_ui_layout_default()
+            ..ponko_ui_layout_default()
         };
         assert_eq!(
-            crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, root, &tracks, &mut sink),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, root, &tracks, &mut sink),
+            PONKO_INVALID_ARGUMENT
         );
     }
     assert_eq!(
-        unsafe { crabby_ctx_ui_set_scale(null_mut(), CRABBY_UI_SCREEN, 1.0) },
-        CRABBY_INVALID_ARGUMENT
+        unsafe { ponko_ctx_ui_set_scale(null_mut(), PONKO_UI_SCREEN, 1.0) },
+        PONKO_INVALID_ARGUMENT
     );
 }
 #[test]
@@ -817,15 +784,12 @@ fn stale_ids_and_bad_arguments_fail_cleanly() {
 unsafe fn text_typed_through_the_context(ctx: Ctx) {
     unsafe {
         let input = id_of(|out| {
-            crabby_ctx_ui_add_text_input(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, null(), &size(200.0, 30.0), out)
+            ponko_ctx_ui_add_text_input(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, null(), &size(200.0, 30.0), out)
         });
-        assert_eq!(
-            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, input, false),
-            CRABBY_OK
-        );
+        assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, input, false), PONKO_OK);
         // Frames without input text read none; the context's own typed text
         // feeds the engine's frame, not this explicit one.
-        assert_eq!(crabby_ctx_ui_insert_text(ctx, c"abc".as_ptr()), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_insert_text(ctx, c"abc".as_ptr()), PONKO_OK);
         assert_eq!(text_of(ctx, input), "");
     }
 }
@@ -838,11 +802,11 @@ fn inserted_text_waits_for_the_engine_frame() {
 fn named_areas_lines_and_repeat_tracks_layout_and_validate() {
     unsafe fn scenario(ctx: Ctx) {
         unsafe {
-            let tracks = [CrabbyUiTrack {
-                kind: CrabbyUiTrackKind::CRABBY_UI_TRACK_FR as u32,
+            let tracks = [PonkoUiTrack {
+                kind: PonkoUiTrackKind::PONKO_UI_TRACK_FR as u32,
                 value: 1.0,
             }];
-            let components = [CrabbyUiTemplateTrack {
+            let components = [PonkoUiTemplateTrack {
                 track: tracks[0],
                 repetition: 1,
                 count: 2,
@@ -852,28 +816,28 @@ fn named_areas_lines_and_repeat_tracks_layout_and_validate() {
                 line_name_count: 0,
             }];
             let mut layout = size(300.0, 200.0);
-            layout.display = CrabbyUiDisplay::CRABBY_UI_DISPLAY_GRID as u32;
+            layout.display = PonkoUiDisplay::PONKO_UI_DISPLAY_GRID as u32;
             layout.grid_template_columns = components.as_ptr();
             layout.grid_template_column_count = 1;
             let rows = [
-                CrabbyUiTrack { kind: 1, value: 40.0 },
-                CrabbyUiTrack { kind: 1, value: 160.0 },
+                PonkoUiTrack { kind: 1, value: 40.0 },
+                PonkoUiTrack { kind: 1, value: 160.0 },
             ];
             layout.grid_rows = rows.as_ptr();
             layout.grid_row_count = 2;
-            let root = panel(ctx, CRABBY_UI_NONE, &layout);
+            let root = panel(ctx, PONKO_UI_NONE, &layout);
             let area_rows = [c"header header".as_ptr(), c"side main".as_ptr()];
             assert_eq!(
-                crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, area_rows.as_ptr(), 2),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_template_areas(ctx, PONKO_UI_SCREEN, root, area_rows.as_ptr(), 2),
+                PONKO_OK
             );
-            let child = panel(ctx, root, &crabby_ui_layout_default());
+            let child = panel(ctx, root, &ponko_ui_layout_default());
             assert_eq!(
-                crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, child, c"main".as_ptr()),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_area(ctx, PONKO_UI_SCREEN, child, c"main".as_ptr()),
+                PONKO_OK
             );
-            assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
-            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+            assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false), PONKO_OK);
+            assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, SCREEN), PONKO_OK);
             let r = rect(ctx, child);
             assert_eq!((r.min.x, r.min.y, r.max.x, r.max.y), (150.0, 40.0, 300.0, 200.0));
             for bad in [
@@ -882,75 +846,75 @@ fn named_areas_lines_and_repeat_tracks_layout_and_validate() {
                 [c"a !".as_ptr(), c"b b".as_ptr()],
             ] {
                 assert_eq!(
-                    crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, bad.as_ptr(), 2),
-                    CRABBY_INVALID_ARGUMENT
+                    ponko_ctx_ui_set_grid_template_areas(ctx, PONKO_UI_SCREEN, root, bad.as_ptr(), 2),
+                    PONKO_INVALID_ARGUMENT
                 );
                 assert!(!last_error().is_empty());
             }
             // Invalid edits preserve both layout and placement.
-            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+            assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, SCREEN), PONKO_OK);
             assert_eq!(rect(ctx, child).min.x, 150.0);
             let dots = [c"... .".as_ptr(), c". main".as_ptr()];
             assert_eq!(
-                crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, dots.as_ptr(), 2),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_template_areas(ctx, PONKO_UI_SCREEN, root, dots.as_ptr(), 2),
+                PONKO_OK
             );
-            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+            assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, SCREEN), PONKO_OK);
             assert_eq!((rect(ctx, child).min.x, rect(ctx, child).min.y), (150.0, 40.0));
             assert_eq!(
-                crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, null(), 0),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_template_areas(ctx, PONKO_UI_SCREEN, root, null(), 0),
+                PONKO_OK
             );
             assert_eq!(
-                crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, child, c"".as_ptr()),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_area(ctx, PONKO_UI_SCREEN, child, c"".as_ptr()),
+                PONKO_OK
             );
             assert_eq!(
-                crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, area_rows.as_ptr(), 2),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_template_areas(ctx, PONKO_UI_SCREEN, root, area_rows.as_ptr(), 2),
+                PONKO_OK
             );
             assert_eq!(
-                crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, child, c"main".as_ptr()),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_area(ctx, PONKO_UI_SCREEN, child, c"main".as_ptr()),
+                PONKO_OK
             );
             let names = [c"left".as_ptr(), c"right".as_ptr()];
             assert_eq!(
-                crabby_ctx_ui_set_grid_line_names(ctx, CRABBY_UI_SCREEN, root, 0, names.as_ptr(), 2),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_line_names(ctx, PONKO_UI_SCREEN, root, 0, names.as_ptr(), 2),
+                PONKO_OK
             );
             assert_eq!(
-                crabby_ctx_ui_set_grid_named_line(ctx, CRABBY_UI_SCREEN, child, 0, false, c"left".as_ptr(), 1),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_named_line(ctx, PONKO_UI_SCREEN, child, 0, false, c"left".as_ptr(), 1),
+                PONKO_OK
             );
             assert_eq!(
-                crabby_ctx_ui_set_grid_named_line(ctx, CRABBY_UI_SCREEN, child, 0, true, c"right".as_ptr(), 1),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_named_line(ctx, PONKO_UI_SCREEN, child, 0, true, c"right".as_ptr(), 1),
+                PONKO_OK
             );
-            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+            assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, SCREEN), PONKO_OK);
             assert_eq!((rect(ctx, child).min.x, rect(ctx, child).max.x), (0.0, 300.0));
             assert_eq!(
-                crabby_ctx_ui_set_grid_line_names(ctx, CRABBY_UI_SCREEN, root, 2, names.as_ptr(), 2),
-                CRABBY_INVALID_ARGUMENT
+                ponko_ctx_ui_set_grid_line_names(ctx, PONKO_UI_SCREEN, root, 2, names.as_ptr(), 2),
+                PONKO_INVALID_ARGUMENT
             );
             assert_eq!(
-                crabby_ctx_ui_set_grid_template_areas(ctx, CRABBY_UI_SCREEN, root, null(), 1),
-                CRABBY_INVALID_ARGUMENT
+                ponko_ctx_ui_set_grid_template_areas(ctx, PONKO_UI_SCREEN, root, null(), 1),
+                PONKO_INVALID_ARGUMENT
             );
             assert_eq!(
-                crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, child, null()),
-                CRABBY_INVALID_ARGUMENT
+                ponko_ctx_ui_set_grid_area(ctx, PONKO_UI_SCREEN, child, null()),
+                PONKO_INVALID_ARGUMENT
             );
             assert_eq!(
-                crabby_ctx_ui_set_grid_area(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, c"main".as_ptr()),
-                CRABBY_NOT_FOUND
+                ponko_ctx_ui_set_grid_area(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, c"main".as_ptr()),
+                PONKO_NOT_FOUND
             );
             assert_eq!(
-                crabby_ctx_ui_set_grid_area(ctx, 0, child, c"main".as_ptr()),
-                CRABBY_INVALID_ARGUMENT
+                ponko_ctx_ui_set_grid_area(ctx, 0, child, c"main".as_ptr()),
+                PONKO_INVALID_ARGUMENT
             );
             for mode in [2, 3] {
-                let fixed = [CrabbyUiTrack { kind: 1, value: 100.0 }];
-                let auto = [CrabbyUiTemplateTrack {
+                let fixed = [PonkoUiTrack { kind: 1, value: 100.0 }];
+                let auto = [PonkoUiTemplateTrack {
                     track: fixed[0],
                     repetition: mode,
                     count: 0,
@@ -960,75 +924,75 @@ fn named_areas_lines_and_repeat_tracks_layout_and_validate() {
                     line_name_count: 0,
                 }];
                 layout.grid_template_columns = auto.as_ptr();
-                let root = panel(ctx, CRABBY_UI_NONE, &layout);
-                let item = panel(ctx, root, &crabby_ui_layout_default());
-                let mut third = crabby_ui_layout_default();
-                third.grid_column_start = CrabbyUiGridLine { kind: 1, value: 3 };
+                let root = panel(ctx, PONKO_UI_NONE, &layout);
+                let item = panel(ctx, root, &ponko_ui_layout_default());
+                let mut third = ponko_ui_layout_default();
+                third.grid_column_start = PonkoUiGridLine { kind: 1, value: 3 };
                 let last = panel(ctx, root, &third);
-                assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
-                assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+                assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false), PONKO_OK);
+                assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, SCREEN), PONKO_OK);
                 assert_eq!(rect(ctx, item).max.x, 100.0);
                 assert_eq!(rect(ctx, last).min.x, if mode == 2 { 200.0 } else { 100.0 });
-                let invalid = [CrabbyUiTemplateTrack {
+                let invalid = [PonkoUiTemplateTrack {
                     tracks: tracks.as_ptr(),
                     ..auto[0]
                 }];
                 layout.grid_template_columns = invalid.as_ptr();
-                let mut out = CRABBY_UI_NONE;
+                let mut out = PONKO_UI_NONE;
                 assert_eq!(
-                    crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &layout, &mut out),
-                    CRABBY_INVALID_ARGUMENT
+                    ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &layout, &mut out),
+                    PONKO_INVALID_ARGUMENT
                 );
-                assert_eq!(out, CRABBY_UI_NONE);
+                assert_eq!(out, PONKO_UI_NONE);
             }
             let repeat_names = [c"begin".as_ptr(), c"finish".as_ptr()];
-            let named_repeat = [CrabbyUiTemplateTrack {
+            let named_repeat = [PonkoUiTemplateTrack {
                 line_names: repeat_names.as_ptr(),
                 line_name_count: 2,
                 ..components[0]
             }];
             layout.grid_template_columns = named_repeat.as_ptr();
-            let named_root = panel(ctx, CRABBY_UI_NONE, &layout);
-            let named_item = panel(ctx, named_root, &crabby_ui_layout_default());
+            let named_root = panel(ctx, PONKO_UI_NONE, &layout);
+            let named_item = panel(ctx, named_root, &ponko_ui_layout_default());
             assert_eq!(
-                crabby_ctx_ui_set_grid_named_line(ctx, CRABBY_UI_SCREEN, named_item, 0, false, c"begin".as_ptr(), 2),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_named_line(ctx, PONKO_UI_SCREEN, named_item, 0, false, c"begin".as_ptr(), 2),
+                PONKO_OK
             );
             assert_eq!(
-                crabby_ctx_ui_set_grid_named_line(ctx, CRABBY_UI_SCREEN, named_item, 0, true, c"finish".as_ptr(), -1),
-                CRABBY_OK
+                ponko_ctx_ui_set_grid_named_line(ctx, PONKO_UI_SCREEN, named_item, 0, true, c"finish".as_ptr(), -1),
+                PONKO_OK
             );
             assert_eq!(
-                crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, named_root, false),
-                CRABBY_OK
+                ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, named_root, false),
+                PONKO_OK
             );
-            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+            assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, SCREEN), PONKO_OK);
             assert_eq!(
                 (rect(ctx, named_item).min.x, rect(ctx, named_item).max.x),
                 (150.0, 300.0)
             );
-            let invalid_names = [CrabbyUiTemplateTrack {
+            let invalid_names = [PonkoUiTemplateTrack {
                 line_name_count: 1,
                 ..named_repeat[0]
             }];
             layout.grid_template_columns = invalid_names.as_ptr();
-            let mut unused = CRABBY_UI_NONE;
+            let mut unused = PONKO_UI_NONE;
             assert_eq!(
-                crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &layout, &mut unused),
-                CRABBY_INVALID_ARGUMENT
+                ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &layout, &mut unused),
+                PONKO_INVALID_ARGUMENT
             );
             for (mode, count, len) in [(1, 0, 1), (1, 65536, 1), (4, 1, 1), (1, 2, 0)] {
-                let bad = [CrabbyUiTemplateTrack {
+                let bad = [PonkoUiTemplateTrack {
                     repetition: mode,
                     count,
                     track_count: len,
                     ..components[0]
                 }];
                 layout.grid_template_columns = bad.as_ptr();
-                let mut out = CRABBY_UI_NONE;
+                let mut out = PONKO_UI_NONE;
                 assert_eq!(
-                    crabby_ctx_ui_add_panel(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, &layout, &mut out),
-                    CRABBY_INVALID_ARGUMENT
+                    ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &layout, &mut out),
+                    PONKO_INVALID_ARGUMENT
                 );
             }
         }
@@ -1041,36 +1005,36 @@ fn named_areas_lines_and_repeat_tracks_layout_and_validate() {
 unsafe fn name_of(ctx: Ctx, id: u64) -> String {
     let mut len = 0;
     assert_eq!(
-        unsafe { crabby_ctx_ui_name(ctx, CRABBY_UI_SCREEN, id, null_mut(), 0, &mut len) },
-        CRABBY_OK
+        unsafe { ponko_ctx_ui_name(ctx, PONKO_UI_SCREEN, id, null_mut(), 0, &mut len) },
+        PONKO_OK
     );
     let mut buffer = vec![0u8; len + 1];
     let status = unsafe {
-        crabby_ctx_ui_name(
+        ponko_ctx_ui_name(
             ctx,
-            CRABBY_UI_SCREEN,
+            PONKO_UI_SCREEN,
             id,
             buffer.as_mut_ptr().cast::<c_char>(),
             buffer.len(),
             &mut len,
         )
     };
-    assert_eq!(status, CRABBY_OK);
+    assert_eq!(status, PONKO_OK);
     String::from_utf8(buffer[..len].to_vec()).unwrap()
 }
 unsafe fn find(ctx: Ctx, name: &CStr) -> u64 {
     let mut id = 0;
     assert_eq!(
-        unsafe { crabby_ctx_ui_find(ctx, CRABBY_UI_SCREEN, name.as_ptr(), &mut id) },
-        CRABBY_OK
+        unsafe { ponko_ctx_ui_find(ctx, PONKO_UI_SCREEN, name.as_ptr(), &mut id) },
+        PONKO_OK
     );
     id
 }
-unsafe fn paint_of(ctx: Ctx, id: u64) -> CrabbyUiPaint {
-    let mut paint = crabby_ui_paint_default();
+unsafe fn paint_of(ctx: Ctx, id: u64) -> PonkoUiPaint {
+    let mut paint = ponko_ui_paint_default();
     assert_eq!(
-        unsafe { crabby_ctx_ui_paint(ctx, CRABBY_UI_SCREEN, id, &mut paint) },
-        CRABBY_OK
+        unsafe { ponko_ctx_ui_paint(ctx, PONKO_UI_SCREEN, id, &mut paint) },
+        PONKO_OK
     );
     paint
 }
@@ -1078,48 +1042,45 @@ unsafe fn paint_of(ctx: Ctx, id: u64) -> CrabbyUiPaint {
 unsafe fn presets_theme_titles_and_names(ctx: Ctx) {
     unsafe {
         // A screen laid out with presets only.
-        let mut root_layout = crabby_ui_layout_fill();
+        let mut root_layout = ponko_ui_layout_fill();
         root_layout.padding = all(px(10.0));
-        let root = panel(ctx, CRABBY_UI_NONE, &root_layout);
+        let root = panel(ctx, PONKO_UI_NONE, &root_layout);
         let title = id_of(|out| {
-            crabby_ctx_ui_add_title(
+            ponko_ctx_ui_add_title(
                 ctx,
-                CRABBY_UI_SCREEN,
+                PONKO_UI_SCREEN,
                 root,
                 c"Shop".as_ptr(),
-                &crabby_ui_layout_row(40.0),
+                &ponko_ui_layout_row(40.0),
                 out,
             )
         });
-        let bar = panel(ctx, root, &crabby_ui_layout_row(50.0));
-        let side = panel(ctx, bar, &crabby_ui_layout_column(120.0));
-        let buy = button(ctx, bar, c"Buy", &crabby_ui_layout_fixed(100.0, 30.0));
-        let map = panel(ctx, root, &crabby_ui_layout_anchored(0.75, 0.0, 0.25, 0.25));
-        assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
-        let dialog = panel(ctx, CRABBY_UI_NONE, &crabby_ui_layout_centered(200.0, 100.0));
-        assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+        let bar = panel(ctx, root, &ponko_ui_layout_row(50.0));
+        let side = panel(ctx, bar, &ponko_ui_layout_column(120.0));
+        let buy = button(ctx, bar, c"Buy", &ponko_ui_layout_fixed(100.0, 30.0));
+        let map = panel(ctx, root, &ponko_ui_layout_anchored(0.75, 0.0, 0.25, 0.25));
+        assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false), PONKO_OK);
+        let dialog = panel(ctx, PONKO_UI_NONE, &ponko_ui_layout_centered(200.0, 100.0));
+        assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, SCREEN), PONKO_OK);
         let r = |id| rect(ctx, id);
         assert_eq!((r(title).min.x, r(title).min.y, r(title).max.x), (10.0, 10.0, 790.0));
         assert_eq!((r(bar).min.y, r(bar).max.y), (50.0, 100.0));
         assert_eq!((r(side).min.x, r(side).max.x, r(side).max.y), (10.0, 130.0, 100.0));
         assert_eq!((r(buy).min.x, r(buy).max.x - r(buy).min.x), (130.0, 100.0));
         assert_eq!((r(map).min.x, r(map).max.x, r(map).max.y), (600.0, 800.0, 150.0));
-        assert_eq!(
-            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, dialog, true),
-            CRABBY_OK
-        );
-        assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, dialog, true), PONKO_OK);
+        assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, SCREEN), PONKO_OK);
         assert_eq!((r(dialog).min.x, r(dialog).min.y), (300.0, 250.0));
         let mut popped = 0;
-        assert_eq!(crabby_ctx_ui_pop_screen(ctx, CRABBY_UI_SCREEN, &mut popped), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_pop_screen(ctx, PONKO_UI_SCREEN, &mut popped), PONKO_OK);
 
         // The theme: titles in its title paint, buttons in its control
         // paint, and a node's own paint kept across a change.
-        let mut theme = crabby_ui_theme_default();
-        assert_eq!(crabby_ctx_ui_theme(ctx, CRABBY_UI_SCREEN, &mut theme), CRABBY_OK);
-        assert_eq!(theme, crabby_ui_theme_default());
+        let mut theme = ponko_ui_theme_default();
+        assert_eq!(ponko_ctx_ui_theme(ctx, PONKO_UI_SCREEN, &mut theme), PONKO_OK);
+        assert_eq!(theme, ponko_ui_theme_default());
         assert_eq!(paint_of(ctx, title).font_size, theme.title_size);
-        let green = CrabbyColor {
+        let green = PonkoColor {
             r: 0.0,
             g: 1.0,
             b: 0.0,
@@ -1127,100 +1088,100 @@ unsafe fn presets_theme_titles_and_names(ctx: Ctx) {
         };
         let mut own = paint_of(ctx, buy);
         own.color = green;
-        assert_eq!(crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, buy, &own), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_set_paint(ctx, PONKO_UI_SCREEN, buy, &own), PONKO_OK);
         theme.title = green;
         theme.title_size = 30.0;
         theme.control = theme.accent;
         theme.text = theme.accent;
-        assert_eq!(crabby_ctx_ui_set_theme(ctx, CRABBY_UI_SCREEN, &theme), CRABBY_OK);
-        let mut read = crabby_ui_theme_default();
-        assert_eq!(crabby_ctx_ui_theme(ctx, CRABBY_UI_SCREEN, &mut read), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_set_theme(ctx, PONKO_UI_SCREEN, &theme), PONKO_OK);
+        let mut read = ponko_ui_theme_default();
+        assert_eq!(ponko_ctx_ui_theme(ctx, PONKO_UI_SCREEN, &mut read), PONKO_OK);
         assert_eq!(read, theme);
         let (title_paint, buy_paint) = (paint_of(ctx, title), paint_of(ctx, buy));
         assert_eq!((title_paint.color, title_paint.font_size), (green, 30.0));
         assert_eq!(buy_paint.background, theme.accent, "follows the theme");
         assert_eq!(buy_paint.color, green, "set on the node: kept");
         // The immediate widgets follow the same theme.
-        let mut style = crabby_ui_style_default();
-        assert_eq!(crabby_ctx_ui_style(ctx, &mut style), CRABBY_OK);
+        let mut style = ponko_ui_style_default();
+        assert_eq!(ponko_ctx_ui_style(ctx, &mut style), PONKO_OK);
         assert_eq!((style.button, style.text), (theme.accent, theme.accent));
         // Bad themes change nothing.
         let mut bad = theme;
         bad.title_size = -2.0;
         assert_eq!(
-            crabby_ctx_ui_set_theme(ctx, CRABBY_UI_SCREEN, &bad),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_set_theme(ctx, PONKO_UI_SCREEN, &bad),
+            PONKO_INVALID_ARGUMENT
         );
         bad = theme;
-        bad.font = CrabbyFont { id: 999 };
+        bad.font = PonkoFont { id: 999 };
         assert_eq!(
-            crabby_ctx_ui_set_theme(ctx, CRABBY_UI_SCREEN, &bad),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_set_theme(ctx, PONKO_UI_SCREEN, &bad),
+            PONKO_INVALID_ARGUMENT
         );
         assert_eq!(
-            crabby_ctx_ui_set_theme(ctx, CRABBY_UI_SCREEN, null()),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_set_theme(ctx, PONKO_UI_SCREEN, null()),
+            PONKO_INVALID_ARGUMENT
         );
-        assert_eq!(crabby_ctx_ui_theme(ctx, CRABBY_UI_SCREEN, &mut read), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_theme(ctx, PONKO_UI_SCREEN, &mut read), PONKO_OK);
         assert_eq!(read, theme);
 
         // Names: found, moved, cleared, and gone with their node.
         assert_eq!(
-            crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, buy, c"shop.buy".as_ptr()),
-            CRABBY_OK
+            ponko_ctx_ui_set_name(ctx, PONKO_UI_SCREEN, buy, c"shop.buy".as_ptr()),
+            PONKO_OK
         );
         assert_eq!(
-            crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, map, c"map".as_ptr()),
-            CRABBY_OK
+            ponko_ctx_ui_set_name(ctx, PONKO_UI_SCREEN, map, c"map".as_ptr()),
+            PONKO_OK
         );
         assert_eq!(
             (find(ctx, c"shop.buy"), name_of(ctx, buy)),
             (buy, "shop.buy".to_string())
         );
-        assert_eq!(find(ctx, c"shop.sell"), CRABBY_UI_NONE);
+        assert_eq!(find(ctx, c"shop.sell"), PONKO_UI_NONE);
         assert_eq!(
-            crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, side, c"shop.buy".as_ptr()),
-            CRABBY_OK
+            ponko_ctx_ui_set_name(ctx, PONKO_UI_SCREEN, side, c"shop.buy".as_ptr()),
+            PONKO_OK
         );
         assert_eq!((find(ctx, c"shop.buy"), name_of(ctx, buy)), (side, String::new()));
-        assert_eq!(crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, side, null()), CRABBY_OK);
-        assert_eq!(find(ctx, c"shop.buy"), CRABBY_UI_NONE);
-        assert_eq!(crabby_ctx_ui_remove(ctx, CRABBY_UI_SCREEN, map), CRABBY_OK);
-        assert_eq!(find(ctx, c"map"), CRABBY_UI_NONE);
+        assert_eq!(ponko_ctx_ui_set_name(ctx, PONKO_UI_SCREEN, side, null()), PONKO_OK);
+        assert_eq!(find(ctx, c"shop.buy"), PONKO_UI_NONE);
+        assert_eq!(ponko_ctx_ui_remove(ctx, PONKO_UI_SCREEN, map), PONKO_OK);
+        assert_eq!(find(ctx, c"map"), PONKO_UI_NONE);
         assert_eq!(
-            crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, map, c"map".as_ptr()),
-            CRABBY_NOT_FOUND
+            ponko_ctx_ui_set_name(ctx, PONKO_UI_SCREEN, map, c"map".as_ptr()),
+            PONKO_NOT_FOUND
         );
         assert_eq!(
-            crabby_ctx_ui_find(ctx, CRABBY_UI_SCREEN, null(), &mut popped),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_find(ctx, PONKO_UI_SCREEN, null(), &mut popped),
+            PONKO_INVALID_ARGUMENT
         );
 
         // take_click: the last click once, other events dropped.
         assert_eq!(
-            crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, buy, c"buy".as_ptr()),
-            CRABBY_OK
+            ponko_ctx_ui_set_name(ctx, PONKO_UI_SCREEN, buy, c"buy".as_ptr()),
+            PONKO_OK
         );
         let mut clicked = 0;
-        assert_eq!(crabby_ctx_ui_take_click(ctx, CRABBY_UI_SCREEN, &mut clicked), CRABBY_OK);
-        assert_eq!(clicked, CRABBY_UI_NONE);
+        assert_eq!(ponko_ctx_ui_take_click(ctx, PONKO_UI_SCREEN, &mut clicked), PONKO_OK);
+        assert_eq!(clicked, PONKO_UI_NONE);
         let at = rect(ctx, buy);
         click(ctx, v2((at.min.x + at.max.x) * 0.5, (at.min.y + at.max.y) * 0.5));
-        assert_eq!(crabby_ctx_ui_take_click(ctx, CRABBY_UI_SCREEN, &mut clicked), CRABBY_OK);
+        assert_eq!(ponko_ctx_ui_take_click(ctx, PONKO_UI_SCREEN, &mut clicked), PONKO_OK);
         assert_eq!(name_of(ctx, clicked), "buy");
-        assert_eq!(crabby_ctx_ui_take_click(ctx, CRABBY_UI_SCREEN, &mut clicked), CRABBY_OK);
-        assert_eq!(clicked, CRABBY_UI_NONE);
+        assert_eq!(ponko_ctx_ui_take_click(ctx, PONKO_UI_SCREEN, &mut clicked), PONKO_OK);
+        assert_eq!(clicked, PONKO_UI_NONE);
         assert!(events(ctx).is_empty());
         assert_eq!(
-            crabby_ctx_ui_take_click(ctx, CRABBY_UI_SCREEN, null_mut()),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_take_click(ctx, PONKO_UI_SCREEN, null_mut()),
+            PONKO_INVALID_ARGUMENT
         );
 
         // A title needs a parent.
         let mut id = 0;
         assert_eq!(
-            crabby_ctx_ui_add_title(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, c"x".as_ptr(), null(), &mut id),
-            CRABBY_INVALID_ARGUMENT
+            ponko_ctx_ui_add_title(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, c"x".as_ptr(), null(), &mut id),
+            PONKO_INVALID_ARGUMENT
         );
     }
 }
@@ -1230,28 +1191,28 @@ fn presets_theme_titles_names_and_take_click_work_from_c() {
     run(presets_theme_titles_and_names);
 }
 
-/// Screen roots with `CRABBY_UI_LENGTH_AUTO` margins share out the window's
+/// Screen roots with `PONKO_UI_LENGTH_AUTO` margins share out the window's
 /// free space, as children do: centered, in the middle, or pushed aside.
 unsafe fn auto_margins_on_screen_roots(ctx: Ctx) {
     unsafe {
-        let automatic = CrabbyUiLength {
-            kind: CrabbyUiLengthKind::CRABBY_UI_LENGTH_AUTO as u32,
+        let automatic = PonkoUiLength {
+            kind: PonkoUiLengthKind::PONKO_UI_LENGTH_AUTO as u32,
             value: 0.0,
         };
-        let mut across = crabby_ui_layout_fixed(200.0, 100.0);
+        let mut across = ponko_ui_layout_fixed(200.0, 100.0);
         across.margin.left = automatic;
         across.margin.right = automatic;
         across.margin.top = px(40.0);
-        let mut middle = crabby_ui_layout_fixed(200.0, 100.0);
+        let mut middle = ponko_ui_layout_fixed(200.0, 100.0);
         middle.margin = all(automatic);
-        let mut pushed = crabby_ui_layout_fixed(200.0, 100.0);
+        let mut pushed = ponko_ui_layout_fixed(200.0, 100.0);
         pushed.margin.left = automatic;
-        let roots = [across, middle, pushed].map(|layout| panel(ctx, CRABBY_UI_NONE, &layout));
+        let roots = [across, middle, pushed].map(|layout| panel(ctx, PONKO_UI_NONE, &layout));
         for root in roots {
-            assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
+            assert_eq!(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false), PONKO_OK);
         }
-        let corners = |window: CrabbyVec2| {
-            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, window), CRABBY_OK);
+        let corners = |window: PonkoVec2| {
+            assert_eq!(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, window), PONKO_OK);
             roots.map(|root| {
                 let r = rect(ctx, root);
                 (r.min.x, r.min.y, r.max.x - r.min.x)

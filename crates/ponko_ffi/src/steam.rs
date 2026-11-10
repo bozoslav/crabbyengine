@@ -5,10 +5,10 @@
 //! The Steam client is started once per process, by the first call that
 //! takes an `app_id`.
 
-use crate::ctx::CrabbyCtx;
-use crate::{CrabbyGame, CrabbyStatus, boundary, invalid};
+use crate::ctx::PonkoCtx;
 #[cfg(feature = "steam")]
 use crate::{Failure, ctx::ctx_access, ctx::out, game::build, invalid_owned};
+use crate::{PonkoGame, PonkoStatus, boundary, invalid};
 
 #[cfg(feature = "steam")]
 pub(crate) mod client {
@@ -42,22 +42,22 @@ fn off<T>() -> Result<T, crate::Failure> {
 
 /// Hosts a lockstep session for `players` (2-8) over Steam: starts Steam
 /// for `app_id` (480 is Valve's test app) and creates a friends-only lobby
-/// that friends join from the overlay (`crabby_ctx_steam_invite`). Packets
+/// that friends join from the overlay (`ponko_ctx_steam_invite`). Packets
 /// go through Steam's relays: no addresses, no port forwarding. Delay and
-/// checks as in `crabby_game_lockstep_host`.
+/// checks as in `ponko_game_lockstep_host`.
 /// # Safety
 /// Live game.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_game_lockstep_steam_host(std::ptr::null_mut(), 480, 2, 3, 60) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_game_lockstep_steam_host(std::ptr::null_mut(), 480, 2, 3, 60) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_game_lockstep_steam_host(
-    game: *mut CrabbyGame,
+pub unsafe extern "C" fn ponko_game_lockstep_steam_host(
+    game: *mut PonkoGame,
     app_id: u32,
     players: u32,
     input_delay: u32,
     checksum_every: u32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     let mut net: Option<ponko::net::Net> = None;
     let status = boundary(|| {
         if game.is_null() {
@@ -93,19 +93,15 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_host(
     status
 }
 
-/// Joins the Steam lobby `lobby` (from an invite: `crabby_steam_lobby_from_args`
-/// or `crabby_steam_wait_for_invite`), starting Steam for `app_id`.
+/// Joins the Steam lobby `lobby` (from an invite: `ponko_steam_lobby_from_args`
+/// or `ponko_steam_wait_for_invite`), starting Steam for `app_id`.
 /// # Safety
 /// Live game.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_game_lockstep_steam_join(std::ptr::null_mut(), 480, 1) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_game_lockstep_steam_join(std::ptr::null_mut(), 480, 1) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_game_lockstep_steam_join(
-    game: *mut CrabbyGame,
-    app_id: u32,
-    lobby: u64,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_game_lockstep_steam_join(game: *mut PonkoGame, app_id: u32, lobby: u64) -> PonkoStatus {
     let mut net: Option<ponko::net::Net> = None;
     let status = boundary(|| {
         if game.is_null() {
@@ -139,12 +135,12 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_join(
 /// Writable output.
 /// ```
 /// let mut lobby = 7;
-/// let status = unsafe { ponko_ffi::crabby_steam_lobby_from_args(&mut lobby) };
+/// let status = unsafe { ponko_ffi::ponko_steam_lobby_from_args(&mut lobby) };
 /// # #[cfg(feature = "steam")]
 /// assert_eq!((status as u32, lobby), (0, 0));
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_lobby_from_args(out_lobby: *mut u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_steam_lobby_from_args(out_lobby: *mut u64) -> PonkoStatus {
     boundary(|| {
         if out_lobby.is_null() {
             return Err(invalid("output is null"));
@@ -166,14 +162,10 @@ pub unsafe extern "C" fn crabby_steam_lobby_from_args(out_lobby: *mut u64) -> Cr
 /// # Safety
 /// Writable output.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_steam_wait_for_invite(480, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_steam_wait_for_invite(480, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_steam_wait_for_invite(
-    app_id: u32,
-    timeout_ms: u32,
-    out_lobby: *mut u64,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_steam_wait_for_invite(app_id: u32, timeout_ms: u32, out_lobby: *mut u64) -> PonkoStatus {
     boundary(|| {
         if out_lobby.is_null() {
             return Err(invalid("output is null"));
@@ -198,10 +190,10 @@ pub unsafe extern "C" fn crabby_steam_wait_for_invite(
 /// # Safety
 /// Live ctx; writable output.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_steam_lobby(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_steam_lobby(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_steam_lobby(ctx: *mut CrabbyCtx, out_lobby: *mut u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_steam_lobby(ctx: *mut PonkoCtx, out_lobby: *mut u64) -> PonkoStatus {
     boundary(|| {
         if out_lobby.is_null() {
             return Err(invalid("output is null"));
@@ -225,10 +217,10 @@ pub unsafe extern "C" fn crabby_ctx_steam_lobby(ctx: *mut CrabbyCtx, out_lobby: 
 /// # Safety
 /// Live ctx.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_steam_invite(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_steam_invite(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_steam_invite(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_steam_invite(ctx: *mut PonkoCtx) -> PonkoStatus {
     boundary(|| {
         #[cfg(feature = "steam")]
         // SAFETY: forwarded caller contract.

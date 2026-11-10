@@ -268,7 +268,7 @@ impl Collider {
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[repr(C)] // C sees it as CrabbyVelocity.
+#[repr(C)] // C sees it as PonkoVelocity.
 pub struct Velocity {
     /// Pixels per second.
     pub linear: Vec2,

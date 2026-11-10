@@ -1,5 +1,5 @@
 {
-  "format": "crabby-prefab",
+  "format": "ponko-prefab",
   "version": 1,
   "components": {
     "Transform2D": { "rotation": 0.1 },

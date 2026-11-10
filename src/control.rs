@@ -62,15 +62,15 @@ pub(crate) fn env_flag(name: &str) -> bool {
 }
 
 /// The directory where running instances register: `$PONKO_INSTANCES_DIR`,
-/// else `~/.crabby/instances` (`%LOCALAPPDATA%\crabby\instances` on Windows).
+/// else `~/.ponko/instances` (`%LOCALAPPDATA%\crabby\instances` on Windows).
 pub(crate) fn instances_dir() -> Option<PathBuf> {
     if let Some(dir) = crate::environment::var_os(ENV_INSTANCES_DIR) {
         return Some(PathBuf::from(dir));
     }
     if cfg!(windows) {
-        crate::environment::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("crabby").join("instances"))
+        crate::environment::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("ponko").join("instances"))
     } else {
-        crate::environment::var_os("HOME").map(|d| PathBuf::from(d).join(".crabby").join("instances"))
+        crate::environment::var_os("HOME").map(|d| PathBuf::from(d).join(".ponko").join("instances"))
     }
 }
 

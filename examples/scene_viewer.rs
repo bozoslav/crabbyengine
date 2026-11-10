@@ -1,4 +1,4 @@
-//! Looks around a 3D scene file (a `crabby-world` save of `Transform3D` and
+//! Looks around a 3D scene file (a `ponko-world` save of `Transform3D` and
 //! `Model` entities, like the Unity importer writes):
 //!
 //!   SCENE=town/Town.json cargo run --release --features 3d --example scene_viewer

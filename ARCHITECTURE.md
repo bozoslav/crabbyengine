@@ -29,7 +29,7 @@ flowchart TD
 | `ponko_ecs` | Entities, column storage, queries, commands and resources: [crates/ponko_ecs/src](crates/ponko_ecs/src). It does not own the window or GPU. |
 | Rendering | Device/surface and frame coordination in [src/render/gpu.rs](src/render/gpu.rs); 3D coordination in [src/render/gpu3d.rs](src/render/gpu3d.rs); game-facing 3D types in [src/three](src/three). |
 | `ponko_mcp` | Stdio MCP server, tool schemas, instance discovery and forwarding to a running game: [crates/ponko_mcp/src/lib.rs](crates/ponko_mcp/src/lib.rs). |
-| `ponko_ffi` | Exported native API and handle/callback conversion: [crates/ponko_ffi](crates/ponko_ffi), [include/crabby.h](include/crabby.h), [include/crabby.hpp](include/crabby.hpp). |
+| `ponko_ffi` | Exported native API and handle/callback conversion: [crates/ponko_ffi](crates/ponko_ffi), [include/ponko.h](include/ponko.h), [include/ponko.hpp](include/ponko.hpp). |
 | `ponko_unity` | External asset/scene conversion tooling: [crates/ponko_unity](crates/ponko_unity). This is an importer, not a Unity runtime or C# compatibility layer. |
 | `ponko_bench` | Development benchmarks: [crates/ponko_bench](crates/ponko_bench). Results need workload, hardware, build and feature context. |
 

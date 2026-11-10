@@ -18,7 +18,7 @@ fn png(w: u32, h: u32) -> Vec<u8> {
 }
 
 /// The start of a prefab file, up to its components.
-const PREFAB_HEADER: &str = r#"{ "format": "crabby-prefab", "version": 1, "#;
+const PREFAB_HEADER: &str = r#"{ "format": "ponko-prefab", "version": 1, "#;
 
 fn game() -> Game {
     Game::new("asset sources", 1, 1).hot_reload(false)

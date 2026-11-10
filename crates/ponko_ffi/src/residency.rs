@@ -12,59 +12,59 @@ use ponko::streaming::UploadStats;
 use ponko::{Handle, d3::StreamedLod};
 
 use crate::ctx::{ctx_access, out, text};
-use crate::three::CrabbyMesh;
-use crate::types::{CrabbyTexture, texture_to_c};
-use crate::{CrabbyCtx, CrabbyStatus, boundary, invalid};
+use crate::three::PonkoMesh;
+use crate::types::{PonkoTexture, texture_to_c};
+use crate::{PonkoCtx, PonkoStatus, boundary, invalid};
 
 /// A kind of asset with its own residency budget (Rust `ResidencyKind`);
 /// pass it as a `uint32_t`.
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyResidencyKind::CRABBY_RESIDENCY_TEXTURE as u32, 1);
+/// assert_eq!(ponko_ffi::PonkoResidencyKind::PONKO_RESIDENCY_TEXTURE as u32, 1);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbyResidencyKind {
-    /// Meshes (`crabby_ctx_resident_mesh`, `crabby_ctx_stream_mesh`).
-    CRABBY_RESIDENCY_MESH = 0,
-    /// Textures (`crabby_ctx_resident_texture`, `crabby_ctx_stream_texture`).
-    CRABBY_RESIDENCY_TEXTURE = 1,
+pub enum PonkoResidencyKind {
+    /// Meshes (`ponko_ctx_resident_mesh`, `ponko_ctx_stream_mesh`).
+    PONKO_RESIDENCY_MESH = 0,
+    /// Textures (`ponko_ctx_resident_texture`, `ponko_ctx_stream_texture`).
+    PONKO_RESIDENCY_TEXTURE = 1,
 }
 
 /// Where a streamed asset is (Rust `AssetState`), from
-/// `crabby_ctx_asset_state`.
+/// `ponko_ctx_asset_state`.
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyAssetState::CRABBY_ASSET_FAILED as u32, 6);
+/// assert_eq!(ponko_ffi::PonkoAssetState::PONKO_ASSET_FAILED as u32, 6);
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbyAssetState {
+pub enum PonkoAssetState {
     /// Never asked for (or freed since).
-    CRABBY_ASSET_UNKNOWN = 0,
+    PONKO_ASSET_UNKNOWN = 0,
     /// Being read and decoded on a worker thread.
-    CRABBY_ASSET_LOADING = 1,
+    PONKO_ASSET_LOADING = 1,
     /// Decoded, waiting for room in the upload budget.
-    CRABBY_ASSET_UPLOADING = 2,
+    PONKO_ASSET_UPLOADING = 2,
     /// A texture at less than full resolution, getting sharper.
-    CRABBY_ASSET_STREAMING = 3,
+    PONKO_ASSET_STREAMING = 3,
     /// Fully loaded.
-    CRABBY_ASSET_RESIDENT = 4,
+    PONKO_ASSET_RESIDENT = 4,
     /// Evicted by its budget: a texture shows a small stand-in, a mesh
     /// draws nothing; asking again brings it back under the same handle.
-    CRABBY_ASSET_EVICTED = 5,
-    /// Loading failed (`crabby_ctx_asset_error` says why).
-    CRABBY_ASSET_FAILED = 6,
+    PONKO_ASSET_EVICTED = 5,
+    /// Loading failed (`ponko_ctx_asset_error` says why).
+    PONKO_ASSET_FAILED = 6,
 }
 
 /// A kind's budget and counters (Rust `ResidencyStats`), from
-/// `crabby_ctx_residency`. Bytes are estimates of GPU memory.
+/// `ponko_ctx_residency`. Bytes are estimates of GPU memory.
 /// ```
-/// assert!(!ponko_ffi::CrabbyResidencyStats::default().has_budget);
+/// assert!(!ponko_ffi::PonkoResidencyStats::default().has_budget);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CrabbyResidencyStats {
+pub struct PonkoResidencyStats {
     /// Whether there is a budget; `budget` is its bytes.
     pub has_budget: bool,
     /// The budget's bytes (0 without one).
@@ -89,7 +89,7 @@ pub struct CrabbyResidencyStats {
     pub evicted_bytes: u64,
 }
 
-impl From<ResidencyStats> for CrabbyResidencyStats {
+impl From<ResidencyStats> for PonkoResidencyStats {
     fn from(s: ResidencyStats) -> Self {
         Self {
             has_budget: s.budget.is_some(),
@@ -108,13 +108,13 @@ impl From<ResidencyStats> for CrabbyResidencyStats {
 }
 
 /// The upload queue's budget and counters (Rust `UploadStats`), from
-/// `crabby_ctx_upload_stats`.
+/// `ponko_ctx_upload_stats`.
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyUploadStats::default().pending, 0);
+/// assert_eq!(ponko_ffi::PonkoUploadStats::default().pending, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CrabbyUploadStats {
+pub struct PonkoUploadStats {
     /// Whether there is a per-frame budget; `budget` is its bytes.
     pub has_budget: bool,
     /// The budget's bytes (0 without one).
@@ -143,7 +143,7 @@ pub struct CrabbyUploadStats {
     pub max_step_ms: f32,
 }
 
-impl From<UploadStats> for CrabbyUploadStats {
+impl From<UploadStats> for PonkoUploadStats {
     fn from(s: UploadStats) -> Self {
         Self {
             has_budget: s.budget.is_some(),
@@ -173,30 +173,30 @@ fn kind_from(kind: u32) -> Result<ResidencyKind, crate::Failure> {
 
 fn state_to_c(state: AssetState) -> u32 {
     (match state {
-        AssetState::Loading => CrabbyAssetState::CRABBY_ASSET_LOADING,
-        AssetState::Uploading => CrabbyAssetState::CRABBY_ASSET_UPLOADING,
-        AssetState::Streaming => CrabbyAssetState::CRABBY_ASSET_STREAMING,
-        AssetState::Resident => CrabbyAssetState::CRABBY_ASSET_RESIDENT,
-        AssetState::Evicted => CrabbyAssetState::CRABBY_ASSET_EVICTED,
-        AssetState::Failed => CrabbyAssetState::CRABBY_ASSET_FAILED,
-        _ => CrabbyAssetState::CRABBY_ASSET_UNKNOWN,
+        AssetState::Loading => PonkoAssetState::PONKO_ASSET_LOADING,
+        AssetState::Uploading => PonkoAssetState::PONKO_ASSET_UPLOADING,
+        AssetState::Streaming => PonkoAssetState::PONKO_ASSET_STREAMING,
+        AssetState::Resident => PonkoAssetState::PONKO_ASSET_RESIDENT,
+        AssetState::Evicted => PonkoAssetState::PONKO_ASSET_EVICTED,
+        AssetState::Failed => PonkoAssetState::PONKO_ASSET_FAILED,
+        _ => PonkoAssetState::PONKO_ASSET_UNKNOWN,
     }) as u32
 }
 
-/// Sets the byte budget of `kind` (a `CrabbyResidencyKind`); `has_budget`
+/// Sets the byte budget of `kind` (a `PonkoResidencyKind`); `has_budget`
 /// false for no limit (the default). Lowering it evicts at once what it can.
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_residency_budget(std::ptr::null_mut(), 0, true, 1) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_residency_budget(std::ptr::null_mut(), 0, true, 1) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_residency_budget(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_residency_budget(
+    ctx: *mut PonkoCtx,
     kind: u32,
     has_budget: bool,
     bytes: u64,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -206,18 +206,18 @@ pub unsafe extern "C" fn crabby_ctx_set_residency_budget(
     })
 }
 
-/// The budget and counters of `kind` (a `CrabbyResidencyKind`).
+/// The budget and counters of `kind` (a `PonkoResidencyKind`).
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_residency(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_residency(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_residency(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_residency(
+    ctx: *mut PonkoCtx,
     kind: u32,
-    out_stats: *mut CrabbyResidencyStats,
-) -> CrabbyStatus {
+    out_stats: *mut PonkoResidencyStats,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_stats, c.gfx.residency(kind_from(kind)?).into())) })
 }
@@ -227,15 +227,15 @@ pub unsafe extern "C" fn crabby_ctx_residency(
 /// `ctx` null or live; `name` a NUL-terminated string; output writable.
 /// ```
 /// let mut r = true;
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_is_resident(std::ptr::null_mut(), 0, std::ptr::null(), &mut r) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_is_resident(std::ptr::null_mut(), 0, std::ptr::null(), &mut r) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_is_resident(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_is_resident(
+    ctx: *mut PonkoCtx,
     kind: u32,
     name: *const c_char,
     out_resident: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -245,20 +245,20 @@ pub unsafe extern "C" fn crabby_ctx_is_resident(
     })
 }
 
-/// Where the asset of `kind` called `name` is: a `CrabbyAssetState`.
+/// Where the asset of `kind` called `name` is: a `PonkoAssetState`.
 /// # Safety
 /// `ctx` null or live; `name` a NUL-terminated string; output writable.
 /// ```
 /// let mut s = 0;
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_asset_state(std::ptr::null_mut(), 0, std::ptr::null(), &mut s) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_asset_state(std::ptr::null_mut(), 0, std::ptr::null(), &mut s) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_asset_state(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_asset_state(
+    ctx: *mut PonkoCtx,
     kind: u32,
     name: *const c_char,
     out_state: *mut u32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -277,17 +277,17 @@ pub unsafe extern "C" fn crabby_ctx_asset_state(
 /// `capacity` 0) or `capacity` writable bytes; output writable.
 /// ```
 /// let mut n = 0;
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_asset_error(std::ptr::null_mut(), 0, std::ptr::null(), std::ptr::null_mut(), 0, &mut n) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_asset_error(std::ptr::null_mut(), 0, std::ptr::null(), std::ptr::null_mut(), 0, &mut n) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_asset_error(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_asset_error(
+    ctx: *mut PonkoCtx,
     kind: u32,
     name: *const c_char,
     buffer: *mut c_char,
     capacity: usize,
     out_len: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -316,15 +316,15 @@ pub unsafe extern "C" fn crabby_ctx_asset_error(
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_resident_texture(std::ptr::null_mut(), std::ptr::null(), false, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_resident_texture(std::ptr::null_mut(), std::ptr::null(), false, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_resident_texture(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_resident_texture(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
     pin: bool,
-    out_texture: *mut CrabbyTexture,
-) -> CrabbyStatus {
+    out_texture: *mut PonkoTexture,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -346,15 +346,15 @@ pub unsafe extern "C" fn crabby_ctx_resident_texture(
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_resident_mesh(std::ptr::null_mut(), std::ptr::null(), false, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_resident_mesh(std::ptr::null_mut(), std::ptr::null(), false, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_resident_mesh(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_resident_mesh(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
     pin: bool,
-    out_mesh: *mut CrabbyMesh,
-) -> CrabbyStatus {
+    out_mesh: *mut PonkoMesh,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -366,7 +366,7 @@ pub unsafe extern "C" fn crabby_ctx_resident_mesh(
             if pin {
                 c.pin_resident_mesh(path);
             }
-            out(out_mesh, CrabbyMesh { id: mesh.id() })
+            out(out_mesh, PonkoMesh { id: mesh.id() })
         })
     })
 }
@@ -375,14 +375,10 @@ pub unsafe extern "C" fn crabby_ctx_resident_mesh(
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_unpin_resident(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_unpin_resident(std::ptr::null_mut(), 0, std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_unpin_resident(
-    ctx: *mut CrabbyCtx,
-    kind: u32,
-    path: *const c_char,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_unpin_resident(ctx: *mut PonkoCtx, kind: u32, path: *const c_char) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -403,15 +399,15 @@ pub unsafe extern "C" fn crabby_ctx_unpin_resident(
 /// `ctx` null or live; `path` a NUL-terminated string; outputs writable.
 /// ```
 /// let mut ready = true;
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_stream_texture(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), &mut ready) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_stream_texture(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), &mut ready) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_stream_texture(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_stream_texture(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
-    out_texture: *mut CrabbyTexture,
+    out_texture: *mut PonkoTexture,
     out_ready: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -434,15 +430,15 @@ pub unsafe extern "C" fn crabby_ctx_stream_texture(
 /// `ctx` null or live; `path` a NUL-terminated string; outputs writable.
 /// ```
 /// let mut ready = true;
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_stream_mesh(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), &mut ready) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_stream_mesh(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut(), &mut ready) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_stream_mesh(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_stream_mesh(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
-    out_mesh: *mut CrabbyMesh,
+    out_mesh: *mut PonkoMesh,
     out_ready: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -452,7 +448,7 @@ pub unsafe extern "C" fn crabby_ctx_stream_mesh(
             }
             let mesh = c.stream_mesh(path);
             if let Some(m) = mesh {
-                out(out_mesh, CrabbyMesh { id: m.id() })?;
+                out(out_mesh, PonkoMesh { id: m.id() })?;
             }
             out(out_ready, mesh.is_some())
         })
@@ -464,14 +460,10 @@ pub unsafe extern "C" fn crabby_ctx_stream_mesh(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_upload_budget(std::ptr::null_mut(), true, 1) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_upload_budget(std::ptr::null_mut(), true, 1) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_upload_budget(
-    ctx: *mut CrabbyCtx,
-    has_budget: bool,
-    bytes: u64,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_set_upload_budget(ctx: *mut PonkoCtx, has_budget: bool, bytes: u64) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -486,10 +478,10 @@ pub unsafe extern "C" fn crabby_ctx_set_upload_budget(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_deterministic_uploads(std::ptr::null_mut(), true) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_deterministic_uploads(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_deterministic_uploads(ctx: *mut CrabbyCtx, on: bool) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_set_deterministic_uploads(ctx: *mut PonkoCtx, on: bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -503,13 +495,10 @@ pub unsafe extern "C" fn crabby_ctx_set_deterministic_uploads(ctx: *mut CrabbyCt
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_upload_stats(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_upload_stats(std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_upload_stats(
-    ctx: *mut CrabbyCtx,
-    out_stats: *mut CrabbyUploadStats,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_upload_stats(ctx: *mut PonkoCtx, out_stats: *mut PonkoUploadStats) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_stats, c.gfx.upload_stats().into())) })
 }
@@ -518,10 +507,10 @@ pub unsafe extern "C" fn crabby_ctx_upload_stats(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_finish_uploads(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_finish_uploads(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_finish_uploads(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_finish_uploads(ctx: *mut PonkoCtx) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -531,22 +520,22 @@ pub unsafe extern "C" fn crabby_ctx_finish_uploads(ctx: *mut CrabbyCtx) -> Crabb
     })
 }
 
-/// Gives `entity` (which has a LOD group, `crabby_ctx_set_lod_group`) a
+/// Gives `entity` (which has a LOD group, `ponko_ctx_set_lod_group`) a
 /// Rust `StreamedLod`: file `i` of `files` streams in the mesh of level
 /// `i`'s first renderer as the camera needs it.
 /// # Safety
 /// `ctx` null or live; `files` null (with `count` 0) or `count`
 /// NUL-terminated strings.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_streamed_lod(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_streamed_lod(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_streamed_lod(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_streamed_lod(
+    ctx: *mut PonkoCtx,
     entity: u64,
     files: *const *const c_char,
     count: usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {

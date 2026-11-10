@@ -19,7 +19,7 @@ use crate::{Texture, Vec3};
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)] // shared with C/C++ (`CrabbyCompute`)
+#[repr(C)] // shared with C/C++ (`PonkoCompute`)
 pub struct Compute {
     pub(crate) id: u32,
 }

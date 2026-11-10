@@ -58,7 +58,7 @@ public static class BenchBuild
         var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
         {
             scenes = new[] { "Assets/Bench/Bench.unity" },
-            locationPathName = "Build/CrabbyBench3D.app",
+            locationPathName = "Build/PonkoBench3D.app",
             target = BuildTarget.StandaloneOSX,
             options = BuildOptions.None,
         });

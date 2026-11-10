@@ -26,8 +26,8 @@ things up and step it tick by tick.
 
 ## Finding instances
 
-Each instance writes a small JSON file to `~/.crabby/instances/`
-(`%LOCALAPPDATA%\crabby\instances` on Windows, or `$PONKO_INSTANCES_DIR`)
+Each instance writes a small JSON file to `~/.ponko/instances/`
+(`%LOCALAPPDATA%\ponko\instances` on Windows, or `$PONKO_INSTANCES_DIR`)
 and removes it on exit:
 
 ```json
@@ -208,7 +208,7 @@ keep; `logs.get` then says it isn't captured.
 
 ```sh
 PONKO_CONTROL=1 cargo run --release --example boids &
-f=$(ls ~/.crabby/instances/*.json | head -1)
+f=$(ls ~/.ponko/instances/*.json | head -1)
 port=$(jq .port "$f"); token=$(jq -r .token "$f")
 echo "{\"id\":1,\"token\":\"$token\",\"method\":\"info\"}" | nc -q1 127.0.0.1 "$port"
 ```

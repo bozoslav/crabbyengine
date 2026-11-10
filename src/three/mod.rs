@@ -115,7 +115,7 @@ use crate::{Color, Texture};
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
-#[repr(C, align(16))] // shared with C/C++ (`CrabbyTransform3D`): 48 bytes everywhere
+#[repr(C, align(16))] // shared with C/C++ (`PonkoTransform3D`): 48 bytes everywhere
 pub struct Transform3D {
     /// Which way it faces.
     pub rotation: Quat,
@@ -238,7 +238,7 @@ fn look_rotation(direction: Vec3) -> Quat {
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)] // shared with C/C++ (`CrabbyMesh`)
+#[repr(C)] // shared with C/C++ (`PonkoMesh`)
 pub struct Mesh {
     pub(crate) id: u32,
 }
@@ -292,7 +292,7 @@ pub struct MeshCost {
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)] // shared with C/C++ (`CrabbyMaterial`)
+#[repr(C)] // shared with C/C++ (`PonkoMaterial`)
 pub struct Material {
     pub(crate) id: u32,
 }
@@ -331,7 +331,7 @@ pub struct Material {
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)] // shared with C/C++ (`CrabbyShader`)
+#[repr(C)] // shared with C/C++ (`PonkoShader`)
 pub struct Shader {
     pub(crate) id: u32,
 }
@@ -471,7 +471,7 @@ impl MaterialDesc {
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(C)] // shared with C/C++ (`CrabbyModel`)
+#[repr(C)] // shared with C/C++ (`PonkoModel`)
 pub struct Model {
     /// What to draw.
     pub mesh: Mesh,

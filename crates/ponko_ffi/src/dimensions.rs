@@ -2,13 +2,13 @@
 use std::ffi::c_char;
 
 use crate::ctx::{ctx_access, out, text};
-use crate::types::{CrabbyEntity, CrabbyTransform2D, CrabbyVec2, to_c};
-use crate::{CrabbyCtx, CrabbyRayHit, CrabbyStatus, CrabbyTransform3D, CrabbyVec3, boundary, invalid, invalid_owned};
+use crate::types::{PonkoEntity, PonkoTransform2D, PonkoVec2, to_c};
+use crate::{PonkoCtx, PonkoRayHit, PonkoStatus, PonkoTransform3D, PonkoVec3, boundary, invalid, invalid_owned};
 
 /// Which colliders a filtered 2D query sees; zero initialization selects solids only.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CrabbyQueryFilter2D {
+pub struct PonkoQueryFilter2D {
     /// Look through `exclude_entity` when true.
     pub exclude: bool,
     /// Entity ignored when `exclude` is true.
@@ -18,7 +18,7 @@ pub struct CrabbyQueryFilter2D {
 }
 
 #[cfg(feature = "physics")]
-impl CrabbyQueryFilter2D {
+impl PonkoQueryFilter2D {
     fn into_engine(self) -> ponko::d2::QueryFilter {
         ponko::d2::QueryFilter {
             exclude: self.exclude.then(|| ponko_ecs::Entity::from_bits(self.exclude_entity)),
@@ -31,15 +31,15 @@ impl CrabbyQueryFilter2D {
 /// # Safety
 /// Live context outside query callbacks; both outputs writable and non-null.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_cast_ray_filtered(
-    ctx: *mut CrabbyCtx,
-    origin: CrabbyVec2,
-    direction: CrabbyVec2,
+pub unsafe extern "C" fn ponko_ctx_cast_ray_filtered(
+    ctx: *mut PonkoCtx,
+    origin: PonkoVec2,
+    direction: PonkoVec2,
     max_distance: f32,
-    filter: CrabbyQueryFilter2D,
+    filter: PonkoQueryFilter2D,
     out_found: *mut bool,
-    out_hit: *mut CrabbyRayHit,
-) -> CrabbyStatus {
+    out_hit: *mut PonkoRayHit,
+) -> PonkoStatus {
     boundary(|| {
         if out_found.is_null() || out_hit.is_null() {
             return Err(invalid("output is null"));
@@ -65,7 +65,7 @@ pub unsafe extern "C" fn crabby_ctx_cast_ray_filtered(
             // SAFETY: outputs were checked non-null and the caller supplies writable storage.
             unsafe {
                 if let Some(h) = hit {
-                    out_hit.write(CrabbyRayHit {
+                    out_hit.write(PonkoRayHit {
                         entity: to_c(h.entity),
                         point: to_c(h.point),
                         normal: to_c(h.normal),
@@ -88,15 +88,15 @@ pub unsafe extern "C" fn crabby_ctx_cast_ray_filtered(
 /// Live context outside query callbacks; output writable for capacity elements (null for
 /// zero capacity is allowed), and a writable non-null count.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_overlap_ball(
-    ctx: *mut CrabbyCtx,
-    center: CrabbyVec2,
+pub unsafe extern "C" fn ponko_ctx_overlap_ball(
+    ctx: *mut PonkoCtx,
+    center: PonkoVec2,
     radius: f32,
-    filter: CrabbyQueryFilter2D,
-    out_entities: *mut CrabbyEntity,
+    filter: PonkoQueryFilter2D,
+    out_entities: *mut PonkoEntity,
     capacity: usize,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         if out_count.is_null() || (out_entities.is_null() && capacity != 0) {
             return Err(invalid("output buffer or count is null"));
@@ -134,12 +134,7 @@ pub unsafe extern "C" fn crabby_ctx_overlap_ball(
     })
 }
 
-unsafe fn spawn_placed(
-    ctx: *mut CrabbyCtx,
-    path: *const c_char,
-    at: ponko::Placement,
-    output: *mut u64,
-) -> CrabbyStatus {
+unsafe fn spawn_placed(ctx: *mut PonkoCtx, path: *const c_char, at: ponko::Placement, output: *mut u64) -> PonkoStatus {
     boundary(|| {
         if output.is_null() {
             return Err(invalid("entity output is null"));
@@ -157,12 +152,12 @@ unsafe fn spawn_placed(
 /// # Safety
 /// Live context, NUL-terminated UTF-8 path, writable non-null entity output.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_spawn_prefab3d(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_spawn_prefab3d(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
-    at: CrabbyVec3,
+    at: PonkoVec3,
     output: *mut u64,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     let position: ponko::Vec3 = to_c(at);
     // SAFETY: forwards the caller's context, path and output contract.
     unsafe { spawn_placed(ctx, path, position.into(), output) }
@@ -172,12 +167,12 @@ pub unsafe extern "C" fn crabby_ctx_spawn_prefab3d(
 /// # Safety
 /// Live context, NUL-terminated UTF-8 path, writable non-null entity output.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_spawn_prefab_transform3d(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_spawn_prefab_transform3d(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
-    at: CrabbyTransform3D,
+    at: PonkoTransform3D,
     output: *mut u64,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwards the caller's context, path and output contract.
     unsafe { spawn_placed(ctx, path, crate::three::transform_from_c(at).into(), output) }
 }
@@ -186,12 +181,12 @@ pub unsafe extern "C" fn crabby_ctx_spawn_prefab_transform3d(
 /// # Safety
 /// Live context, NUL-terminated UTF-8 path, writable non-null entity output.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_spawn_prefab_transform2d(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_spawn_prefab_transform2d(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
-    at: CrabbyTransform2D,
+    at: PonkoTransform2D,
     output: *mut u64,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     let transform: ponko::d2::Transform = to_c(at);
     // SAFETY: forwards the caller's context, path and output contract.
     unsafe { spawn_placed(ctx, path, transform.into(), output) }

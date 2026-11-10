@@ -48,7 +48,7 @@ def code_only(text):
 def exports():
     names = set()
     for source in sorted((ROOT / 'crates/ponko_ffi/src').rglob('*.rs')):
-        names.update(EXPORT.findall(source.read_text()))
+        names.update(n.replace('crabby_', 'ponko_', 1) for n in EXPORT.findall(source.read_text()))
     return names
 
 
@@ -61,8 +61,8 @@ def test_text():
 def untested(names, text):
     result = set()
     for name in names:
-        short = name.removeprefix('crabby_')
-        if not re.search(rf'(^|[^a-z0-9_])({name}|ponko_{short})([^a-z0-9_]|$)', text):
+        short = name.removeprefix('ponko_')
+        if not re.search(rf'(^|[^a-z0-9_])({name}|crabby_{short})([^a-z0-9_]|$)', text):
             result.add(name)
     return result
 

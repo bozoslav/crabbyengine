@@ -29,17 +29,19 @@ def references():
 
 
 def classify(name):
-    if name.startswith(('include/', 'crates/ponko_ffi/')):
-        return 'public compatibility', 'Stable native ABI implementation, generated aliases or compatibility coverage.'
-    if name.endswith('README.md') or name in ('AGENTS.md', 'CLAUDE.md', 'CHANGELOG.md', 'NOTICE', 'LICENSE-MIT'):
-        return 'intentional history', 'Pre-existing project instructions, README text, release history or legal attribution.'
-    if name.startswith(('tests/', 'assets/')) or '/tests/' in name:
-        return 'public compatibility', 'Existing saved-format, native or environment compatibility fixtures; isolated test names.'
-    if name.startswith('book/') or name in ('STABILITY.md', 'CONTRIBUTING.md', 'SECURITY.md'):
-        return 'public migration', 'Explains retained native, saved-format, registry, embedding or historical contracts.'
-    if name.startswith('scripts/') or name.endswith('CMakeLists.txt'):
-        return 'public compatibility', 'Migration checks, alias generation or existing leak/build configuration fallback.'
-    return 'public compatibility', 'Retained public format, ABI type, environment fallback, embedding or external output identifier.'
+    if name.endswith('README.md') or name in ('AGENTS.md', 'CLAUDE.md', 'CHANGELOG.md', 'NOTICE', 'LICENSE-MIT') or name.endswith('CONTENT-NOTICES.txt'):
+        return 'intentional history', 'Preserved project instructions, README text, release history or legal attribution.'
+    if '/fixtures/' in name:
+        return 'intentional history', 'Immutable historical ABI or saved-format baseline and its provenance/generator.'
+    if name.startswith(('include/crabby', 'crates/ponko_ffi/src/legacy')):
+        return 'deprecated compatibility', 'Optional legacy native exports and source shims; removal requires a major release no earlier than 2027-11-10.'
+    if name.startswith('book/') or name == 'STABILITY.md':
+        return 'deprecated compatibility', 'Migration instructions and deprecation schedule for legacy names.'
+    if name.startswith('src/') or name == 'crates/ponko_mcp/src/lib.rs':
+        return 'deprecated compatibility', 'Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage.'
+    if name.startswith(('tests/', 'crates/ponko_ffi/tests/', 'crates/ponko_mcp/tests/')) or name.startswith('examples/cpp/') and not name.endswith('CMakeLists.txt'):
+        return 'deprecated compatibility', 'Tests old native symbols/headers or old persisted/environment names during the deprecation cycle.'
+    return 'deprecated compatibility', 'Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration.'
 
 
 def check(current, baseline):

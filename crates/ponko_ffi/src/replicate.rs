@@ -1,6 +1,6 @@
 //! Replication helpers from C (Rust's `seq_newer`, `Authority`,
 //! `LatestWins`, `SnapshotStream<Pose>` and `Interest`): they sit on top of
-//! the byte messages of `crabby_net_messages_*` and never touch the wire, so
+//! the byte messages of `ponko_net_messages_*` and never touch the wire, so
 //! the game keeps its own packet format.
 
 use ponko::net::Authority;
@@ -25,14 +25,14 @@ use ponko::net::seq_newer;
 use ponko::{Vec3, net::MAX_INTEREST_TIERS};
 
 use crate::ctx::{collect, out};
-use crate::three::{CrabbyQuat, CrabbyVec3, quat_from_c, quat_to_c};
-use crate::{CrabbyStatus, Failure, boundary, invalid, invalid_owned};
+use crate::three::{PonkoQuat, PonkoVec3, quat_from_c, quat_to_c};
+use crate::{Failure, PonkoStatus, boundary, invalid, invalid_owned};
 
-fn v3(v: CrabbyVec3) -> Vec3 {
+fn v3(v: PonkoVec3) -> Vec3 {
     Vec3::new(v.x, v.y, v.z)
 }
-fn v3_to_c(v: Vec3) -> CrabbyVec3 {
-    CrabbyVec3 { x: v.x, y: v.y, z: v.z }
+fn v3_to_c(v: Vec3) -> PonkoVec3 {
+    PonkoVec3 { x: v.x, y: v.y, z: v.z }
 }
 /// # Safety
 /// `ptr` null or readable for `len` values.
@@ -53,40 +53,40 @@ unsafe fn slice<'a, T>(ptr: *const T, len: usize, what: &str) -> Result<&'a [T],
 /// (Rust `seq_newer`)? Equal numbers, and numbers exactly 32768 apart, are
 /// not newer.
 /// ```
-/// assert!(ponko_ffi::crabby_seq_newer(0, 65535));
-/// assert!(!ponko_ffi::crabby_seq_newer(5, 5));
+/// assert!(ponko_ffi::ponko_seq_newer(0, 65535));
+/// assert!(!ponko_ffi::ponko_seq_newer(5, 5));
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_seq_newer(a: u16, b: u16) -> bool {
+pub extern "C" fn ponko_seq_newer(a: u16, b: u16) -> bool {
     seq_newer(a, b)
 }
 
 /// How far `a` is ahead of `b` among wrapping 16-bit sequence numbers:
 /// negative when it is behind (Rust `seq_diff`).
 /// ```
-/// assert_eq!(ponko_ffi::crabby_seq_diff(1, 65535), 2);
+/// assert_eq!(ponko_ffi::ponko_seq_diff(1, 65535), 2);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_seq_diff(a: u16, b: u16) -> i16 {
+pub extern "C" fn ponko_seq_diff(a: u16, b: u16) -> i16 {
     seq_diff(a, b)
 }
 
 /// A state update's place in time: the authority `epoch` it was sent under
 /// and a wrapping `seq` counter (Rust `UpdateStamp`).
 /// ```
-/// let s = ponko_ffi::CrabbyUpdateStamp { epoch: 1, seq: 0 };
+/// let s = ponko_ffi::PonkoUpdateStamp { epoch: 1, seq: 0 };
 /// assert_eq!(s.epoch, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CrabbyUpdateStamp {
+pub struct PonkoUpdateStamp {
     /// Authority epoch, bumped by every handoff.
     pub epoch: u16,
     /// The sender's wrapping update counter.
     pub seq: u16,
 }
-impl From<CrabbyUpdateStamp> for UpdateStamp {
-    fn from(s: CrabbyUpdateStamp) -> Self {
+impl From<PonkoUpdateStamp> for UpdateStamp {
+    fn from(s: PonkoUpdateStamp) -> Self {
         UpdateStamp {
             epoch: s.epoch,
             seq: s.seq,
@@ -98,11 +98,11 @@ impl From<CrabbyUpdateStamp> for UpdateStamp {
 /// and a newer sequence number?
 /// ```
 /// use ponko_ffi::*;
-/// let old = CrabbyUpdateStamp { epoch: 0, seq: 900 };
-/// assert!(crabby_stamp_newer(CrabbyUpdateStamp { epoch: 1, seq: 0 }, old));
+/// let old = PonkoUpdateStamp { epoch: 0, seq: 900 };
+/// assert!(ponko_stamp_newer(PonkoUpdateStamp { epoch: 1, seq: 0 }, old));
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_stamp_newer(a: CrabbyUpdateStamp, b: CrabbyUpdateStamp) -> bool {
+pub extern "C" fn ponko_stamp_newer(a: PonkoUpdateStamp, b: PonkoUpdateStamp) -> bool {
     UpdateStamp::from(a).newer_than(b.into())
 }
 
@@ -110,20 +110,20 @@ pub extern "C" fn crabby_stamp_newer(a: CrabbyUpdateStamp, b: CrabbyUpdateStamp)
 
 /// Who owns an entity: an owner peer and an epoch counter (Rust
 /// `Authority`). A plain value: keep one per entity. Make it with
-/// `crabby_authority_new`.
+/// `ponko_authority_new`.
 /// ```
-/// let a = ponko_ffi::crabby_authority_new(0);
+/// let a = ponko_ffi::ponko_authority_new(0);
 /// assert_eq!((a.owner, a.epoch), (0, 0));
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CrabbyAuthority {
+pub struct PonkoAuthority {
     /// The peer whose updates are accepted (the host is 0).
     pub owner: u64,
     /// Counts handoffs (wrapping).
     pub epoch: u16,
 }
-impl CrabbyAuthority {
+impl PonkoAuthority {
     fn get(&self) -> Authority {
         Authority::with_epoch(PeerId::from_bits(self.owner), self.epoch)
     }
@@ -135,48 +135,48 @@ impl CrabbyAuthority {
 
 /// How an update compares with an authority record (Rust `AuthorityCheck`).
 /// ```
-/// let _ = ponko_ffi::CrabbyAuthorityCheck::CRABBY_AUTHORITY_ACCEPT;
+/// let _ = ponko_ffi::PonkoAuthorityCheck::PONKO_AUTHORITY_ACCEPT;
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbyAuthorityCheck {
+pub enum PonkoAuthorityCheck {
     /// From the owner, in the current epoch: apply it.
-    CRABBY_AUTHORITY_ACCEPT = 0,
+    PONKO_AUTHORITY_ACCEPT = 0,
     /// Sent under an older epoch, before a handoff: drop it.
-    CRABBY_AUTHORITY_STALE = 1,
+    PONKO_AUTHORITY_STALE = 1,
     /// The current epoch, but not from the owner: drop it.
-    CRABBY_AUTHORITY_WRONG_OWNER = 2,
+    PONKO_AUTHORITY_WRONG_OWNER = 2,
     /// Sent under a newer epoch than we know: the handoff announcement
-    /// hasn't arrived yet. Drop it or hold it until `crabby_authority_adopt`.
-    CRABBY_AUTHORITY_AHEAD = 3,
+    /// hasn't arrived yet. Drop it or hold it until `ponko_authority_adopt`.
+    PONKO_AUTHORITY_AHEAD = 3,
 }
 
 /// A record owned by `owner`, at epoch 0.
 /// ```
-/// assert_eq!(ponko_ffi::crabby_authority_new(3).owner, 3);
+/// assert_eq!(ponko_ffi::ponko_authority_new(3).owner, 3);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_authority_new(owner: u64) -> CrabbyAuthority {
-    CrabbyAuthority { owner, epoch: 0 }
+pub extern "C" fn ponko_authority_new(owner: u64) -> PonkoAuthority {
+    PonkoAuthority { owner, epoch: 0 }
 }
 
 /// Gives the entity to `new_owner` and writes the new epoch to announce
 /// (send `(new_owner, epoch)` to everyone on a reliable lane).
 /// ```
-/// let mut a = ponko_ffi::crabby_authority_new(0);
+/// let mut a = ponko_ffi::ponko_authority_new(0);
 /// let mut epoch = 0;
-/// assert_eq!(unsafe { ponko_ffi::crabby_authority_handoff(&mut a, 2, &mut epoch) } as u32, 0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_authority_handoff(&mut a, 2, &mut epoch) } as u32, 0);
 /// assert_eq!((a.owner, epoch), (2, 1));
 /// ```
 /// # Safety
 /// `authority` and `out_epoch` live and writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_authority_handoff(
-    authority: *mut CrabbyAuthority,
+pub unsafe extern "C" fn ponko_authority_handoff(
+    authority: *mut PonkoAuthority,
     new_owner: u64,
     out_epoch: *mut u16,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: forwarded caller contract.
         let a = unsafe { authority.as_mut() }.ok_or_else(|| invalid("authority is null"))?;
@@ -192,20 +192,20 @@ pub unsafe extern "C" fn crabby_authority_handoff(
 /// it changed the record. Older epochs are ignored; the same epoch with
 /// another owner is a race the lower owner id wins, so all peers agree.
 /// ```
-/// let mut a = ponko_ffi::crabby_authority_new(0);
+/// let mut a = ponko_ffi::ponko_authority_new(0);
 /// let mut changed = false;
-/// assert_eq!(unsafe { ponko_ffi::crabby_authority_adopt(&mut a, 1, 1, &mut changed) } as u32, 0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_authority_adopt(&mut a, 1, 1, &mut changed) } as u32, 0);
 /// assert!(changed && a.owner == 1);
 /// ```
 /// # Safety
 /// `authority` and `out_changed` live and writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_authority_adopt(
-    authority: *mut CrabbyAuthority,
+pub unsafe extern "C" fn ponko_authority_adopt(
+    authority: *mut PonkoAuthority,
     owner: u64,
     epoch: u16,
     out_changed: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: forwarded caller contract.
         let a = unsafe { authority.as_mut() }.ok_or_else(|| invalid("authority is null"))?;
@@ -219,28 +219,28 @@ pub unsafe extern "C" fn crabby_authority_adopt(
 
 /// Judges an update from peer `from` stamped with `epoch`.
 /// ```
-/// let a = ponko_ffi::crabby_authority_new(0);
-/// let mut check = ponko_ffi::CrabbyAuthorityCheck::CRABBY_AUTHORITY_STALE;
-/// assert_eq!(unsafe { ponko_ffi::crabby_authority_check(&a, 0, 0, &mut check) } as u32, 0);
-/// assert_eq!(check, ponko_ffi::CrabbyAuthorityCheck::CRABBY_AUTHORITY_ACCEPT);
+/// let a = ponko_ffi::ponko_authority_new(0);
+/// let mut check = ponko_ffi::PonkoAuthorityCheck::PONKO_AUTHORITY_STALE;
+/// assert_eq!(unsafe { ponko_ffi::ponko_authority_check(&a, 0, 0, &mut check) } as u32, 0);
+/// assert_eq!(check, ponko_ffi::PonkoAuthorityCheck::PONKO_AUTHORITY_ACCEPT);
 /// ```
 /// # Safety
 /// `authority` live; `out_check` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_authority_check(
-    authority: *const CrabbyAuthority,
+pub unsafe extern "C" fn ponko_authority_check(
+    authority: *const PonkoAuthority,
     from: u64,
     epoch: u16,
-    out_check: *mut CrabbyAuthorityCheck,
-) -> CrabbyStatus {
+    out_check: *mut PonkoAuthorityCheck,
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: forwarded caller contract.
         let a = unsafe { authority.as_ref() }.ok_or_else(|| invalid("authority is null"))?;
         let check = match a.get().check(PeerId::from_bits(from), epoch) {
-            AuthorityCheck::Accept => CrabbyAuthorityCheck::CRABBY_AUTHORITY_ACCEPT,
-            AuthorityCheck::Stale => CrabbyAuthorityCheck::CRABBY_AUTHORITY_STALE,
-            AuthorityCheck::WrongOwner => CrabbyAuthorityCheck::CRABBY_AUTHORITY_WRONG_OWNER,
-            AuthorityCheck::Ahead => CrabbyAuthorityCheck::CRABBY_AUTHORITY_AHEAD,
+            AuthorityCheck::Accept => PonkoAuthorityCheck::PONKO_AUTHORITY_ACCEPT,
+            AuthorityCheck::Stale => PonkoAuthorityCheck::PONKO_AUTHORITY_STALE,
+            AuthorityCheck::WrongOwner => PonkoAuthorityCheck::PONKO_AUTHORITY_WRONG_OWNER,
+            AuthorityCheck::Ahead => PonkoAuthorityCheck::PONKO_AUTHORITY_AHEAD,
         };
         // SAFETY: forwarded caller contract.
         unsafe { out(out_check, check) }
@@ -250,34 +250,34 @@ pub unsafe extern "C" fn crabby_authority_check(
 // ---- latest wins ------------------------------------------------------------
 
 /// A "latest wins per entity" filter for unreliable state updates (Rust
-/// `LatestWins`). Free it with `crabby_latest_wins_free`.
-pub struct CrabbyLatestWins(LatestWins<u64>);
+/// `LatestWins`). Free it with `ponko_latest_wins_free`.
+pub struct PonkoLatestWins(LatestWins<u64>);
 
 /// An empty filter.
 /// ```
-/// let f = ponko_ffi::crabby_latest_wins_new();
-/// unsafe { ponko_ffi::crabby_latest_wins_free(f) };
+/// let f = ponko_ffi::ponko_latest_wins_new();
+/// unsafe { ponko_ffi::ponko_latest_wins_free(f) };
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_latest_wins_new() -> *mut CrabbyLatestWins {
-    Box::into_raw(Box::new(CrabbyLatestWins(LatestWins::new())))
+pub extern "C" fn ponko_latest_wins_new() -> *mut PonkoLatestWins {
+    Box::into_raw(Box::new(PonkoLatestWins(LatestWins::new())))
 }
 
 /// Frees a filter. Null is ignored.
 /// ```
-/// unsafe { ponko_ffi::crabby_latest_wins_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::ponko_latest_wins_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `filter` null or live, not used afterwards.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_latest_wins_free(filter: *mut CrabbyLatestWins) {
+pub unsafe extern "C" fn ponko_latest_wins_free(filter: *mut PonkoLatestWins) {
     if !filter.is_null() {
         // SAFETY: forwarded caller contract.
         drop(unsafe { Box::from_raw(filter) });
     }
 }
 
-fn filter<'a>(f: *mut CrabbyLatestWins) -> Result<&'a mut LatestWins<u64>, Failure> {
+fn filter<'a>(f: *mut PonkoLatestWins) -> Result<&'a mut LatestWins<u64>, Failure> {
     // SAFETY: callers pass null or a live filter.
     unsafe { f.as_mut() }
         .map(|f| &mut f.0)
@@ -288,25 +288,25 @@ fn filter<'a>(f: *mut CrabbyLatestWins) -> Result<&'a mut LatestWins<u64>, Failu
 /// newer than every one accepted before for that key. Drop it if not.
 /// ```
 /// use ponko_ffi::*;
-/// let f = crabby_latest_wins_new();
+/// let f = ponko_latest_wins_new();
 /// let mut ok = false;
 /// unsafe {
-///     crabby_latest_wins_accept(f, 7, CrabbyUpdateStamp { epoch: 0, seq: 2 }, &mut ok);
+///     ponko_latest_wins_accept(f, 7, PonkoUpdateStamp { epoch: 0, seq: 2 }, &mut ok);
 ///     assert!(ok);
-///     crabby_latest_wins_accept(f, 7, CrabbyUpdateStamp { epoch: 0, seq: 1 }, &mut ok);
+///     ponko_latest_wins_accept(f, 7, PonkoUpdateStamp { epoch: 0, seq: 1 }, &mut ok);
 ///     assert!(!ok);
-///     crabby_latest_wins_free(f);
+///     ponko_latest_wins_free(f);
 /// }
 /// ```
 /// # Safety
 /// `filter` live; `out_accepted` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_latest_wins_accept(
-    f: *mut CrabbyLatestWins,
+pub unsafe extern "C" fn ponko_latest_wins_accept(
+    f: *mut PonkoLatestWins,
     key: u64,
-    stamp: CrabbyUpdateStamp,
+    stamp: PonkoUpdateStamp,
     out_accepted: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         let accepted = filter(f)?.accept(key, stamp.into());
         // SAFETY: forwarded caller contract.
@@ -316,12 +316,12 @@ pub unsafe extern "C" fn crabby_latest_wins_accept(
 
 /// Forgets `key` (the entity is gone): its next update is accepted.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_latest_wins_forget(std::ptr::null_mut(), 1) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_latest_wins_forget(std::ptr::null_mut(), 1) } as u32, 1);
 /// ```
 /// # Safety
 /// `filter` live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_latest_wins_forget(f: *mut CrabbyLatestWins, key: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_latest_wins_forget(f: *mut PonkoLatestWins, key: u64) -> PonkoStatus {
     boundary(|| {
         filter(f)?.forget(&key);
         Ok(())
@@ -330,12 +330,12 @@ pub unsafe extern "C" fn crabby_latest_wins_forget(f: *mut CrabbyLatestWins, key
 
 /// Forgets every key.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_latest_wins_clear(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_latest_wins_clear(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `filter` live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_latest_wins_clear(f: *mut CrabbyLatestWins) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_latest_wins_clear(f: *mut PonkoLatestWins) -> PonkoStatus {
     boundary(|| {
         filter(f)?.clear();
         Ok(())
@@ -344,12 +344,12 @@ pub unsafe extern "C" fn crabby_latest_wins_clear(f: *mut CrabbyLatestWins) -> C
 
 /// How many keys the filter remembers (0 for null).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_latest_wins_len(std::ptr::null()) }, 0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_latest_wins_len(std::ptr::null()) }, 0);
 /// ```
 /// # Safety
 /// `filter` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_latest_wins_len(f: *const CrabbyLatestWins) -> usize {
+pub unsafe extern "C" fn ponko_latest_wins_len(f: *const PonkoLatestWins) -> usize {
     // SAFETY: forwarded caller contract.
     unsafe { f.as_ref() }.map_or(0, |f| f.0.len())
 }
@@ -358,42 +358,42 @@ pub unsafe extern "C" fn crabby_latest_wins_len(f: *const CrabbyLatestWins) -> u
 
 /// A position, rotation and optional velocity (Rust `Pose`).
 /// ```
-/// let p = ponko_ffi::CrabbyPose::default();
+/// let p = ponko_ffi::PonkoPose::default();
 /// assert!(!p.has_velocity);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyPose {
+pub struct PonkoPose {
     /// Where, in world units.
-    pub position: CrabbyVec3,
+    pub position: PonkoVec3,
     /// Which way it faces.
-    pub rotation: CrabbyQuat,
+    pub rotation: PonkoQuat,
     /// Units per second; only read when `has_velocity`. With velocities on
     /// both sides, the path between snapshots is a smooth curve instead of
     /// a straight line.
-    pub velocity: CrabbyVec3,
+    pub velocity: PonkoVec3,
     /// Whether `velocity` is meaningful.
     pub has_velocity: bool,
 }
-impl Default for CrabbyPose {
+impl Default for PonkoPose {
     fn default() -> Self {
         Self {
-            position: CrabbyVec3::default(),
+            position: PonkoVec3::default(),
             rotation: quat_to_c(ponko::Quat::IDENTITY),
-            velocity: CrabbyVec3::default(),
+            velocity: PonkoVec3::default(),
             has_velocity: false,
         }
     }
 }
-fn pose_from_c(p: &CrabbyPose) -> Pose {
+fn pose_from_c(p: &PonkoPose) -> Pose {
     Pose {
         position: v3(p.position),
         rotation: quat_from_c(p.rotation),
         velocity: p.has_velocity.then(|| v3(p.velocity)),
     }
 }
-fn pose_to_c(p: Pose) -> CrabbyPose {
-    CrabbyPose {
+fn pose_to_c(p: Pose) -> PonkoPose {
+    PonkoPose {
         position: v3_to_c(p.position),
         rotation: quat_to_c(p.rotation),
         velocity: v3_to_c(p.velocity.unwrap_or_default()),
@@ -402,14 +402,14 @@ fn pose_to_c(p: Pose) -> CrabbyPose {
 }
 
 /// Tuning of a snapshot stream (Rust `SnapshotConfig`). Start from
-/// `crabby_snapshot_config_default`.
+/// `ponko_snapshot_config_default`.
 /// ```
-/// let c = ponko_ffi::crabby_snapshot_config_default();
+/// let c = ponko_ffi::ponko_snapshot_config_default();
 /// assert_eq!(c.capacity, 64);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbySnapshotConfig {
+pub struct PonkoSnapshotConfig {
     /// Seconds in the past that remote entities are shown (default 0.1):
     /// the gap between packets plus their jitter.
     pub delay: f64,
@@ -422,12 +422,12 @@ pub struct CrabbySnapshotConfig {
 
 /// The defaults: 0.1 s delay, 0.25 s extrapolation, 64 snapshots.
 /// ```
-/// assert_eq!(ponko_ffi::crabby_snapshot_config_default().delay, 0.1);
+/// assert_eq!(ponko_ffi::ponko_snapshot_config_default().delay, 0.1);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_snapshot_config_default() -> CrabbySnapshotConfig {
+pub extern "C" fn ponko_snapshot_config_default() -> PonkoSnapshotConfig {
     let c = SnapshotConfig::default();
-    CrabbySnapshotConfig {
+    PonkoSnapshotConfig {
         delay: c.delay,
         max_extrapolation: c.max_extrapolation,
         capacity: c.capacity as u32,
@@ -436,49 +436,49 @@ pub extern "C" fn crabby_snapshot_config_default() -> CrabbySnapshotConfig {
 
 /// What happened to a pushed snapshot (Rust `SnapshotPush`).
 /// ```
-/// let _ = ponko_ffi::CrabbySnapshotPush::CRABBY_SNAPSHOT_ADDED;
+/// let _ = ponko_ffi::PonkoSnapshotPush::PONKO_SNAPSHOT_ADDED;
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbySnapshotPush {
+pub enum PonkoSnapshotPush {
     /// Stored, in time order even if it was late.
-    CRABBY_SNAPSHOT_ADDED = 0,
+    PONKO_SNAPSHOT_ADDED = 0,
     /// A snapshot with this timestamp is already stored: ignored.
-    CRABBY_SNAPSHOT_DUPLICATE = 1,
+    PONKO_SNAPSHOT_DUPLICATE = 1,
     /// Older than everything kept in a full buffer: ignored.
-    CRABBY_SNAPSHOT_TOO_OLD = 2,
+    PONKO_SNAPSHOT_TOO_OLD = 2,
     /// The timestamp was not a finite number: ignored.
-    CRABBY_SNAPSHOT_INVALID = 3,
+    PONKO_SNAPSHOT_INVALID = 3,
 }
 
 /// How a sampled pose was produced (Rust `SnapshotState`).
 /// ```
-/// let _ = ponko_ffi::CrabbySnapshotState::CRABBY_SNAPSHOT_INTERPOLATED;
+/// let _ = ponko_ffi::PonkoSnapshotState::PONKO_SNAPSHOT_INTERPOLATED;
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbySnapshotState {
+pub enum PonkoSnapshotState {
     /// Between two snapshots: the normal case.
-    CRABBY_SNAPSHOT_INTERPOLATED = 0,
+    PONKO_SNAPSHOT_INTERPOLATED = 0,
     /// Past the newest snapshot, predicted from it for a bounded time.
-    CRABBY_SNAPSHOT_EXTRAPOLATED = 1,
+    PONKO_SNAPSHOT_EXTRAPOLATED = 1,
     /// Standing still: before the oldest snapshot, or past the prediction limit.
-    CRABBY_SNAPSHOT_HELD = 2,
+    PONKO_SNAPSHOT_HELD = 2,
 }
 
 /// The snapshots of one remote entity plus an estimate of the sender's clock
-/// (Rust `SnapshotStream<Pose>`). Free it with `crabby_snapshot_stream_free`.
-pub struct CrabbySnapshotStream(SnapshotStream<Pose>);
+/// (Rust `SnapshotStream<Pose>`). Free it with `ponko_snapshot_stream_free`.
+pub struct PonkoSnapshotStream(SnapshotStream<Pose>);
 
-fn stream<'a>(s: *const CrabbySnapshotStream) -> Result<&'a SnapshotStream<Pose>, Failure> {
+fn stream<'a>(s: *const PonkoSnapshotStream) -> Result<&'a SnapshotStream<Pose>, Failure> {
     // SAFETY: callers pass null or a live stream.
     unsafe { s.as_ref() }
         .map(|s| &s.0)
         .ok_or_else(|| invalid("stream is null"))
 }
-fn stream_mut<'a>(s: *mut CrabbySnapshotStream) -> Result<&'a mut SnapshotStream<Pose>, Failure> {
+fn stream_mut<'a>(s: *mut PonkoSnapshotStream) -> Result<&'a mut SnapshotStream<Pose>, Failure> {
     // SAFETY: callers pass null or a live stream.
     unsafe { s.as_mut() }
         .map(|s| &mut s.0)
@@ -489,16 +489,16 @@ fn stream_mut<'a>(s: *mut CrabbySnapshotStream) -> Result<&'a mut SnapshotStream
 /// `capacity` below 2 or a negative or non-finite time.
 /// ```
 /// let mut s = std::ptr::null_mut();
-/// assert_eq!(unsafe { ponko_ffi::crabby_snapshot_stream_new(std::ptr::null(), &mut s) } as u32, 0);
-/// unsafe { ponko_ffi::crabby_snapshot_stream_free(s) };
+/// assert_eq!(unsafe { ponko_ffi::ponko_snapshot_stream_new(std::ptr::null(), &mut s) } as u32, 0);
+/// unsafe { ponko_ffi::ponko_snapshot_stream_free(s) };
 /// ```
 /// # Safety
 /// `config` null or readable; `out_stream` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_snapshot_stream_new(
-    config: *const CrabbySnapshotConfig,
-    out_stream: *mut *mut CrabbySnapshotStream,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_snapshot_stream_new(
+    config: *const PonkoSnapshotConfig,
+    out_stream: *mut *mut PonkoSnapshotStream,
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: forwarded caller contract.
         let config = match unsafe { config.as_ref() } {
@@ -510,7 +510,7 @@ pub unsafe extern "C" fn crabby_snapshot_stream_new(
             None => SnapshotConfig::default(),
         };
         config.validate().map_err(invalid)?;
-        let stream = Box::into_raw(Box::new(CrabbySnapshotStream(SnapshotStream::with_config(config))));
+        let stream = Box::into_raw(Box::new(PonkoSnapshotStream(SnapshotStream::with_config(config))));
         // SAFETY: forwarded caller contract.
         unsafe { out(out_stream, stream) }
     })
@@ -518,12 +518,12 @@ pub unsafe extern "C" fn crabby_snapshot_stream_new(
 
 /// Frees a stream. Null is ignored.
 /// ```
-/// unsafe { ponko_ffi::crabby_snapshot_stream_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::ponko_snapshot_stream_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `stream` null or live, not used afterwards.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_snapshot_stream_free(s: *mut CrabbySnapshotStream) {
+pub unsafe extern "C" fn ponko_snapshot_stream_free(s: *mut PonkoSnapshotStream) {
     if !s.is_null() {
         // SAFETY: forwarded caller contract.
         drop(unsafe { Box::from_raw(s) });
@@ -536,33 +536,33 @@ pub unsafe extern "C" fn crabby_snapshot_stream_free(s: *mut CrabbySnapshotStrea
 /// ```
 /// use ponko_ffi::*;
 /// let mut s = std::ptr::null_mut();
-/// let mut result = CrabbySnapshotPush::CRABBY_SNAPSHOT_INVALID;
+/// let mut result = PonkoSnapshotPush::PONKO_SNAPSHOT_INVALID;
 /// unsafe {
-///     crabby_snapshot_stream_new(std::ptr::null(), &mut s);
-///     crabby_snapshot_stream_push(s, 10.0, 0.5, &CrabbyPose::default(), &mut result);
-///     assert_eq!(result, CrabbySnapshotPush::CRABBY_SNAPSHOT_ADDED);
-///     crabby_snapshot_stream_free(s);
+///     ponko_snapshot_stream_new(std::ptr::null(), &mut s);
+///     ponko_snapshot_stream_push(s, 10.0, 0.5, &PonkoPose::default(), &mut result);
+///     assert_eq!(result, PonkoSnapshotPush::PONKO_SNAPSHOT_ADDED);
+///     ponko_snapshot_stream_free(s);
 /// }
 /// ```
 /// # Safety
 /// `stream` live; `pose` readable; `out_result` null or writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_snapshot_stream_push(
-    s: *mut CrabbySnapshotStream,
+pub unsafe extern "C" fn ponko_snapshot_stream_push(
+    s: *mut PonkoSnapshotStream,
     remote_time: f64,
     local_now: f64,
-    pose: *const CrabbyPose,
-    out_result: *mut CrabbySnapshotPush,
-) -> CrabbyStatus {
+    pose: *const PonkoPose,
+    out_result: *mut PonkoSnapshotPush,
+) -> PonkoStatus {
     boundary(|| {
         let stream = stream_mut(s)?;
         // SAFETY: forwarded caller contract.
         let pose = unsafe { pose.as_ref() }.ok_or_else(|| invalid("pose is null"))?;
         let result = match stream.push(remote_time, local_now, pose_from_c(pose)) {
-            SnapshotPush::Added => CrabbySnapshotPush::CRABBY_SNAPSHOT_ADDED,
-            SnapshotPush::Duplicate => CrabbySnapshotPush::CRABBY_SNAPSHOT_DUPLICATE,
-            SnapshotPush::TooOld => CrabbySnapshotPush::CRABBY_SNAPSHOT_TOO_OLD,
-            SnapshotPush::Invalid => CrabbySnapshotPush::CRABBY_SNAPSHOT_INVALID,
+            SnapshotPush::Added => PonkoSnapshotPush::PONKO_SNAPSHOT_ADDED,
+            SnapshotPush::Duplicate => PonkoSnapshotPush::PONKO_SNAPSHOT_DUPLICATE,
+            SnapshotPush::TooOld => PonkoSnapshotPush::PONKO_SNAPSHOT_TOO_OLD,
+            SnapshotPush::Invalid => PonkoSnapshotPush::PONKO_SNAPSHOT_INVALID,
         };
         if out_result.is_null() {
             return Ok(());
@@ -580,24 +580,24 @@ pub unsafe extern "C" fn crabby_snapshot_stream_push(
 /// ```
 /// use ponko_ffi::*;
 /// let mut s = std::ptr::null_mut();
-/// let (mut pose, mut state, mut found) = (CrabbyPose::default(), CrabbySnapshotState::CRABBY_SNAPSHOT_HELD, true);
+/// let (mut pose, mut state, mut found) = (PonkoPose::default(), PonkoSnapshotState::PONKO_SNAPSHOT_HELD, true);
 /// unsafe {
-///     crabby_snapshot_stream_new(std::ptr::null(), &mut s);
-///     crabby_snapshot_stream_sample(s, 0.0, &mut pose, &mut state, &mut found);
+///     ponko_snapshot_stream_new(std::ptr::null(), &mut s);
+///     ponko_snapshot_stream_sample(s, 0.0, &mut pose, &mut state, &mut found);
 ///     assert!(!found);
-///     crabby_snapshot_stream_free(s);
+///     ponko_snapshot_stream_free(s);
 /// }
 /// ```
 /// # Safety
 /// `stream` live; `out_pose` and `out_found` writable; `out_state` null or writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_snapshot_stream_sample(
-    s: *const CrabbySnapshotStream,
+pub unsafe extern "C" fn ponko_snapshot_stream_sample(
+    s: *const PonkoSnapshotStream,
     now: f64,
-    out_pose: *mut CrabbyPose,
-    out_state: *mut CrabbySnapshotState,
+    out_pose: *mut PonkoPose,
+    out_state: *mut PonkoSnapshotState,
     out_found: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         let sample = stream(s)?.sample(now);
         // SAFETY: forwarded caller contract.
@@ -607,9 +607,9 @@ pub unsafe extern "C" fn crabby_snapshot_stream_sample(
         unsafe { out(out_pose, pose_to_c(sample.value))? };
         if !out_state.is_null() {
             let state = match sample.state {
-                SnapshotState::Interpolated => CrabbySnapshotState::CRABBY_SNAPSHOT_INTERPOLATED,
-                SnapshotState::Extrapolated => CrabbySnapshotState::CRABBY_SNAPSHOT_EXTRAPOLATED,
-                SnapshotState::Held => CrabbySnapshotState::CRABBY_SNAPSHOT_HELD,
+                SnapshotState::Interpolated => PonkoSnapshotState::PONKO_SNAPSHOT_INTERPOLATED,
+                SnapshotState::Extrapolated => PonkoSnapshotState::PONKO_SNAPSHOT_EXTRAPOLATED,
+                SnapshotState::Held => PonkoSnapshotState::PONKO_SNAPSHOT_HELD,
             };
             // SAFETY: checked non-null.
             unsafe { out_state.write(state) };
@@ -620,12 +620,12 @@ pub unsafe extern "C" fn crabby_snapshot_stream_sample(
 
 /// Changes how far in the past the entity is shown, in seconds (not negative).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_snapshot_stream_set_delay(std::ptr::null_mut(), 0.2) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_snapshot_stream_set_delay(std::ptr::null_mut(), 0.2) } as u32, 1);
 /// ```
 /// # Safety
 /// `stream` live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_snapshot_stream_set_delay(s: *mut CrabbySnapshotStream, delay: f64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_snapshot_stream_set_delay(s: *mut PonkoSnapshotStream, delay: f64) -> PonkoStatus {
     boundary(|| {
         let stream = stream_mut(s)?;
         if !(delay.is_finite() && delay >= 0.0) {
@@ -639,12 +639,12 @@ pub unsafe extern "C" fn crabby_snapshot_stream_set_delay(s: *mut CrabbySnapshot
 /// Forgets the snapshots but keeps the clock estimate: call it on a teleport
 /// or respawn, so the entity jumps instead of sliding across.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_snapshot_stream_clear(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_snapshot_stream_clear(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `stream` live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_snapshot_stream_clear(s: *mut CrabbySnapshotStream) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_snapshot_stream_clear(s: *mut PonkoSnapshotStream) -> PonkoStatus {
     boundary(|| {
         stream_mut(s)?.clear();
         Ok(())
@@ -653,12 +653,12 @@ pub unsafe extern "C" fn crabby_snapshot_stream_clear(s: *mut CrabbySnapshotStre
 
 /// Forgets the snapshots and the clock estimate: a new connection.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_snapshot_stream_reset(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_snapshot_stream_reset(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `stream` live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_snapshot_stream_reset(s: *mut CrabbySnapshotStream) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_snapshot_stream_reset(s: *mut PonkoSnapshotStream) -> PonkoStatus {
     boundary(|| {
         stream_mut(s)?.reset();
         Ok(())
@@ -667,28 +667,28 @@ pub unsafe extern "C" fn crabby_snapshot_stream_reset(s: *mut CrabbySnapshotStre
 
 /// Snapshots stored (0 for null).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_snapshot_stream_len(std::ptr::null()) }, 0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_snapshot_stream_len(std::ptr::null()) }, 0);
 /// ```
 /// # Safety
 /// `stream` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_snapshot_stream_len(s: *const CrabbySnapshotStream) -> usize {
+pub unsafe extern "C" fn ponko_snapshot_stream_len(s: *const PonkoSnapshotStream) -> usize {
     stream(s).map_or(0, |s| s.buffer().len())
 }
 
 /// The clock estimate, your time minus the sender's, in seconds; `*out_known`
 /// is false until a snapshot arrived.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_snapshot_stream_clock_offset(std::ptr::null(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_snapshot_stream_clock_offset(std::ptr::null(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `stream` live; `out_offset` and `out_known` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_snapshot_stream_clock_offset(
-    s: *const CrabbySnapshotStream,
+pub unsafe extern "C" fn ponko_snapshot_stream_clock_offset(
+    s: *const PonkoSnapshotStream,
     out_offset: *mut f64,
     out_known: *mut bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         let offset = stream(s)?.clock().offset();
         // SAFETY: forwarded caller contract.
@@ -703,12 +703,12 @@ pub unsafe extern "C" fn crabby_snapshot_stream_clock_offset(
 
 /// One ring of interest (Rust `InterestTier`).
 /// ```
-/// let t = ponko_ffi::CrabbyInterestTier { radius: 40.0, every: 1 };
+/// let t = ponko_ffi::PonkoInterestTier { radius: 40.0, every: 1 };
 /// assert_eq!(t.every, 1);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CrabbyInterestTier {
+pub struct PonkoInterestTier {
     /// Distance from the viewer, in world units.
     pub radius: f32,
     /// Send once every this many ticks (at least 1).
@@ -716,16 +716,16 @@ pub struct CrabbyInterestTier {
 }
 
 /// The rings of an interest manager (Rust `InterestConfig`). Start from
-/// `crabby_interest_config_default`.
+/// `ponko_interest_config_default`.
 /// ```
-/// let c = ponko_ffi::crabby_interest_config_default();
+/// let c = ponko_ffi::ponko_interest_config_default();
 /// assert_eq!(c.tier_count, 2);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyInterestConfig {
+pub struct PonkoInterestConfig {
     /// The first `tier_count` rings, nearest first, with increasing radii.
-    pub tiers: [CrabbyInterestTier; 8],
+    pub tiers: [PonkoInterestTier; 8],
     /// How many of `tiers` are used, 1 to 8.
     pub tier_count: u32,
     /// An entity changes ring only once it is this far past the edge, so one
@@ -738,19 +738,19 @@ pub struct CrabbyInterestConfig {
 /// The defaults: 40 units every tick, 120 units every 4th tick, hysteresis 5,
 /// staggered.
 /// ```
-/// assert_eq!(ponko_ffi::crabby_interest_config_default().hysteresis, 5.0);
+/// assert_eq!(ponko_ffi::ponko_interest_config_default().hysteresis, 5.0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_interest_config_default() -> CrabbyInterestConfig {
+pub extern "C" fn ponko_interest_config_default() -> PonkoInterestConfig {
     let c = InterestConfig::default();
-    let mut tiers = [CrabbyInterestTier::default(); MAX_INTEREST_TIERS];
+    let mut tiers = [PonkoInterestTier::default(); MAX_INTEREST_TIERS];
     for (slot, t) in tiers.iter_mut().zip(&c.tiers) {
-        *slot = CrabbyInterestTier {
+        *slot = PonkoInterestTier {
             radius: t.radius,
             every: t.every,
         };
     }
-    CrabbyInterestConfig {
+    PonkoInterestConfig {
         tiers,
         tier_count: c.tiers.len() as u32,
         hysteresis: c.hysteresis,
@@ -761,40 +761,40 @@ pub extern "C" fn crabby_interest_config_default() -> CrabbyInterestConfig {
 /// Somebody who looks at the world: a peer and where. A peer may have
 /// several; an entity counts by its nearest.
 /// ```
-/// let v = ponko_ffi::CrabbyInterestViewer::default();
+/// let v = ponko_ffi::PonkoInterestViewer::default();
 /// assert_eq!(v.peer, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CrabbyInterestViewer {
-    /// Who receives updates (the id from `CRABBY_MESSAGE_CONNECTED`).
+pub struct PonkoInterestViewer {
+    /// Who receives updates (the id from `PONKO_MESSAGE_CONNECTED`).
     pub peer: u64,
     /// Where they look from.
-    pub position: CrabbyVec3,
+    pub position: PonkoVec3,
 }
 
 /// An entity in the world: your id for it (unique) and its position.
 /// ```
-/// let e = ponko_ffi::CrabbyInterestEntity::default();
+/// let e = ponko_ffi::PonkoInterestEntity::default();
 /// assert_eq!(e.id, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CrabbyInterestEntity {
+pub struct PonkoInterestEntity {
     /// Your identifier.
     pub id: u64,
     /// Where it is.
-    pub position: CrabbyVec3,
+    pub position: PonkoVec3,
 }
 
 /// One entity a peer is interested in (Rust `InterestEntry`).
 /// ```
-/// let e = ponko_ffi::CrabbyInterestEntry::default();
+/// let e = ponko_ffi::PonkoInterestEntry::default();
 /// assert!(!e.send);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct CrabbyInterestEntry {
+pub struct PonkoInterestEntry {
     /// The entity's id.
     pub entity: u64,
     /// Distance to the peer's nearest viewer.
@@ -808,44 +808,44 @@ pub struct CrabbyInterestEntry {
 
 /// Whether an entity entered or left a peer's interest.
 /// ```
-/// let _ = ponko_ffi::CrabbyInterestChangeKind::CRABBY_INTEREST_ENTERED;
+/// let _ = ponko_ffi::PonkoInterestChangeKind::PONKO_INTEREST_ENTERED;
 /// ```
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CrabbyInterestChangeKind {
+pub enum PonkoInterestChangeKind {
     /// Start telling the peer about it (spawn it there).
-    CRABBY_INTEREST_ENTERED = 0,
+    PONKO_INTEREST_ENTERED = 0,
     /// The peer no longer needs it (despawn it there), also when the entity
     /// is gone from the world.
-    CRABBY_INTEREST_LEFT = 1,
+    PONKO_INTEREST_LEFT = 1,
 }
 
 /// An entity entering or leaving a peer's interest.
 /// ```
-/// let c = ponko_ffi::CrabbyInterestChange { peer: 1, entity: 2, kind: ponko_ffi::CrabbyInterestChangeKind::CRABBY_INTEREST_LEFT };
+/// let c = ponko_ffi::PonkoInterestChange { peer: 1, entity: 2, kind: ponko_ffi::PonkoInterestChangeKind::PONKO_INTEREST_LEFT };
 /// assert_eq!(c.entity, 2);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyInterestChange {
+pub struct PonkoInterestChange {
     /// The peer concerned.
     pub peer: u64,
     /// The entity concerned.
     pub entity: u64,
     /// What happened.
-    pub kind: CrabbyInterestChangeKind,
+    pub kind: PonkoInterestChangeKind,
 }
 
 /// Decides which entities each peer receives, and how often, by distance
-/// (Rust `Interest`). Free it with `crabby_interest_free`.
-pub struct CrabbyInterest {
+/// (Rust `Interest`). Free it with `ponko_interest_free`.
+pub struct PonkoInterest {
     interest: Interest,
     viewers: Vec<InterestViewer>,
     entities: Vec<InterestEntity>,
 }
 
-fn interest_ref<'a>(i: *const CrabbyInterest) -> Result<&'a CrabbyInterest, Failure> {
+fn interest_ref<'a>(i: *const PonkoInterest) -> Result<&'a PonkoInterest, Failure> {
     // SAFETY: callers pass null or a live interest manager.
     unsafe { i.as_ref() }.ok_or_else(|| invalid("interest is null"))
 }
@@ -855,16 +855,16 @@ fn interest_ref<'a>(i: *const CrabbyInterest) -> Result<&'a CrabbyInterest, Fail
 /// of 0, or a hysteresis not below the first radius.
 /// ```
 /// let mut i = std::ptr::null_mut();
-/// assert_eq!(unsafe { ponko_ffi::crabby_interest_new(std::ptr::null(), &mut i) } as u32, 0);
-/// unsafe { ponko_ffi::crabby_interest_free(i) };
+/// assert_eq!(unsafe { ponko_ffi::ponko_interest_new(std::ptr::null(), &mut i) } as u32, 0);
+/// unsafe { ponko_ffi::ponko_interest_free(i) };
 /// ```
 /// # Safety
 /// `config` null or readable; `out_interest` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_interest_new(
-    config: *const CrabbyInterestConfig,
-    out_interest: *mut *mut CrabbyInterest,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_interest_new(
+    config: *const PonkoInterestConfig,
+    out_interest: *mut *mut PonkoInterest,
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: forwarded caller contract.
         let config = match unsafe { config.as_ref() } {
@@ -888,7 +888,7 @@ pub unsafe extern "C" fn crabby_interest_new(
             None => InterestConfig::default(),
         };
         config.validate().map_err(invalid)?;
-        let interest = Box::into_raw(Box::new(CrabbyInterest {
+        let interest = Box::into_raw(Box::new(PonkoInterest {
             interest: Interest::new(config),
             viewers: Vec::new(),
             entities: Vec::new(),
@@ -900,12 +900,12 @@ pub unsafe extern "C" fn crabby_interest_new(
 
 /// Frees an interest manager. Null is ignored.
 /// ```
-/// unsafe { ponko_ffi::crabby_interest_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::ponko_interest_free(std::ptr::null_mut()) };
 /// ```
 /// # Safety
 /// `interest` null or live, not used afterwards.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_interest_free(i: *mut CrabbyInterest) {
+pub unsafe extern "C" fn ponko_interest_free(i: *mut PonkoInterest) {
     if !i.is_null() {
         // SAFETY: forwarded caller contract.
         drop(unsafe { Box::from_raw(i) });
@@ -919,27 +919,27 @@ pub unsafe extern "C" fn crabby_interest_free(i: *mut CrabbyInterest) {
 /// use ponko_ffi::*;
 /// let mut i = std::ptr::null_mut();
 /// unsafe {
-///     crabby_interest_new(std::ptr::null(), &mut i);
-///     let viewer = CrabbyInterestViewer::default();
-///     let near = CrabbyInterestEntity { id: 1, position: CrabbyVec3 { x: 5.0, y: 0.0, z: 0.0 } };
-///     assert_eq!(crabby_interest_update(i, 0, &viewer, 1, &near, 1) as u32, 0);
+///     ponko_interest_new(std::ptr::null(), &mut i);
+///     let viewer = PonkoInterestViewer::default();
+///     let near = PonkoInterestEntity { id: 1, position: PonkoVec3 { x: 5.0, y: 0.0, z: 0.0 } };
+///     assert_eq!(ponko_interest_update(i, 0, &viewer, 1, &near, 1) as u32, 0);
 ///     let mut count = 0;
-///     crabby_interest_entries(i, 0, std::ptr::null_mut(), 0, &mut count);
+///     ponko_interest_entries(i, 0, std::ptr::null_mut(), 0, &mut count);
 ///     assert_eq!(count, 1);
-///     crabby_interest_free(i);
+///     ponko_interest_free(i);
 /// }
 /// ```
 /// # Safety
 /// `interest` live; `viewers` and `entities` readable for their counts.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_interest_update(
-    i: *mut CrabbyInterest,
+pub unsafe extern "C" fn ponko_interest_update(
+    i: *mut PonkoInterest,
     tick: u64,
-    viewers: *const CrabbyInterestViewer,
+    viewers: *const PonkoInterestViewer,
     viewer_count: usize,
-    entities: *const CrabbyInterestEntity,
+    entities: *const PonkoInterestEntity,
     entity_count: usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: callers pass null or a live interest manager.
         let i = unsafe { i.as_mut() }.ok_or_else(|| invalid("interest is null"))?;
@@ -969,19 +969,19 @@ pub unsafe extern "C" fn crabby_interest_update(
 /// `capacity` entries and sets `*out_count` to the total. Call with
 /// capacity 0 to learn the size.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_interest_entries(std::ptr::null(), 0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_interest_entries(std::ptr::null(), 0, std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `interest` live; `out_entries` writable for `capacity` entries (null if
 /// 0); `out_count` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_interest_entries(
-    i: *const CrabbyInterest,
+pub unsafe extern "C" fn ponko_interest_entries(
+    i: *const PonkoInterest,
     peer: u64,
-    out_entries: *mut CrabbyInterestEntry,
+    out_entries: *mut PonkoInterestEntry,
     capacity: usize,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         let i = interest_ref(i)?;
         let mut n = 0;
@@ -989,7 +989,7 @@ pub unsafe extern "C" fn crabby_interest_entries(
         unsafe {
             collect(out_entries, capacity, out_count, &mut n, |sink| {
                 for e in i.interest.entries(PeerId::from_bits(peer)) {
-                    sink.push(CrabbyInterestEntry {
+                    sink.push(PonkoInterestEntry {
                         entity: e.entity,
                         distance: e.distance,
                         tier: u32::from(e.tier),
@@ -1004,18 +1004,18 @@ pub unsafe extern "C" fn crabby_interest_entries(
 /// The entities that entered or left a peer's interest in the last update:
 /// writes up to `capacity` changes and sets `*out_count` to the total.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_interest_changes(std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_interest_changes(std::ptr::null(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `interest` live; `out_changes` writable for `capacity` changes (null if
 /// 0); `out_count` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_interest_changes(
-    i: *const CrabbyInterest,
-    out_changes: *mut CrabbyInterestChange,
+pub unsafe extern "C" fn ponko_interest_changes(
+    i: *const PonkoInterest,
+    out_changes: *mut PonkoInterestChange,
     capacity: usize,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         let i = interest_ref(i)?;
         let mut n = 0;
@@ -1023,12 +1023,12 @@ pub unsafe extern "C" fn crabby_interest_changes(
         unsafe {
             collect(out_changes, capacity, out_count, &mut n, |sink| {
                 for &InterestChange { peer, entity, kind } in i.interest.changes() {
-                    sink.push(CrabbyInterestChange {
+                    sink.push(PonkoInterestChange {
                         peer: peer.to_bits(),
                         entity,
                         kind: match kind {
-                            InterestChangeKind::Entered => CrabbyInterestChangeKind::CRABBY_INTEREST_ENTERED,
-                            InterestChangeKind::Left => CrabbyInterestChangeKind::CRABBY_INTEREST_LEFT,
+                            InterestChangeKind::Entered => PonkoInterestChangeKind::PONKO_INTEREST_ENTERED,
+                            InterestChangeKind::Left => PonkoInterestChangeKind::PONKO_INTEREST_LEFT,
                         },
                     });
                 }
@@ -1039,12 +1039,12 @@ pub unsafe extern "C" fn crabby_interest_changes(
 
 /// Forgets a peer that disconnected, without reporting its entities as left.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_interest_remove_peer(std::ptr::null_mut(), 1) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_interest_remove_peer(std::ptr::null_mut(), 1) } as u32, 1);
 /// ```
 /// # Safety
 /// `interest` live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_interest_remove_peer(i: *mut CrabbyInterest, peer: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_interest_remove_peer(i: *mut PonkoInterest, peer: u64) -> PonkoStatus {
     boundary(|| {
         // SAFETY: callers pass null or a live interest manager.
         let i = unsafe { i.as_mut() }.ok_or_else(|| invalid("interest is null"))?;

@@ -33,7 +33,7 @@ use crate::{Entity, Quat, Vec3, World};
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[repr(C)] // C sees it as CrabbyFrictionCurve.
+#[repr(C)] // C sees it as PonkoFrictionCurve.
 pub struct FrictionCurve {
     /// The slip where grip peaks.
     pub extremum_slip: f32,
@@ -131,7 +131,7 @@ impl FrictionCurve {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[repr(C, align(16))] // C sees it as CrabbyWheel3D.
+#[repr(C, align(16))] // C sees it as PonkoWheel3D.
 pub struct Wheel3D {
     // Setup.
     /// Where the wheel's center is at full compression, in the chassis's
@@ -311,7 +311,7 @@ impl Wheel3D {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-#[repr(C, align(16))] // C sees it as CrabbyVehicle3D.
+#[repr(C, align(16))] // C sees it as PonkoVehicle3D.
 pub struct Vehicle3D {
     /// The wheels; only the first [`wheel_count`](Self::wheel_count) are
     /// used (see [`wheels`](Self::wheels)).

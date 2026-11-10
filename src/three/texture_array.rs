@@ -31,7 +31,7 @@ pub enum TextureKind {
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)] // shared with C/C++ (`CrabbyTextureArray`)
+#[repr(C)] // shared with C/C++ (`PonkoTextureArray`)
 pub struct TextureArray {
     pub(crate) id: u32,
     pub(crate) width: u32,

@@ -98,7 +98,7 @@ fn bench(ctx: &mut Ctx) {
     if done {
         let n = frames as f64;
         println!(
-            "{{\"engine\":\"crabby\",\"frames\":{frames},\"fps\":{:.3},\"frame_ms\":{:.3},\"render_cpu_ms\":{:.3},\"busy_ms\":{:.3},\"gpu_ms\":{:.3}}}",
+            "{{\"engine\":\"ponko\",\"frames\":{frames},\"fps\":{:.3},\"frame_ms\":{:.3},\"render_cpu_ms\":{:.3},\"busy_ms\":{:.3},\"gpu_ms\":{:.3}}}",
             n / (frame_ms / 1000.0),
             frame_ms / n,
             render_cpu_ms / n,

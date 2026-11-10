@@ -2,7 +2,7 @@
 //! server that lets AI agents inspect and drive running Ponko games.
 //!
 //! Agents launch it over stdio. It finds games through the instance registry
-//! (`~/.crabby/instances`) that every game with the control endpoint on
+//! (`~/.ponko/instances`) that every game with the control endpoint on
 //! writes to, and talks to each game's endpoint over localhost TCP. Every
 //! tool takes an `instance`, so several agents, each with its own
 //! `ponko-mcp`, can work with several games at once.
@@ -29,7 +29,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long a single endpoint call may take.
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Where games register: `$CRABBY_INSTANCES_DIR`, else `~/.crabby/instances`
+/// Where games register: `$PONKO_INSTANCES_DIR`, else `~/.ponko/instances`
 /// (`%LOCALAPPDATA%\crabby\instances` on Windows). Matches the engine.
 ///
 /// ```
@@ -37,17 +37,26 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 /// assert!(dir.is_none_or(|d| d.ends_with("instances") || std::env::var_os("PONKO_INSTANCES_DIR").or_else(|| std::env::var_os("CRABBY_INSTANCES_DIR")).is_some()));
 /// ```
 pub fn default_instances_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("PONKO_INSTANCES_DIR").or_else(|| std::env::var_os("CRABBY_INSTANCES_DIR")) {
+    if let Some(dir) = instances_override() {
         return Some(PathBuf::from(dir));
     }
-    registry_home().map(|h| h.join("instances"))
+    registry_home(false).map(|h| h.join("instances"))
 }
 
-fn registry_home() -> Option<PathBuf> {
+fn instances_override() -> Option<std::ffi::OsString> {
+    std::env::var_os("PONKO_INSTANCES_DIR").or_else(|| {
+        let value = std::env::var_os("CRABBY_INSTANCES_DIR")?;
+        static WARNING: std::sync::Once = std::sync::Once::new();
+        WARNING.call_once(|| eprintln!("ponko-mcp: deprecated environment CRABBY_INSTANCES_DIR; use PONKO_INSTANCES_DIR. Removal requires a major release, no earlier than 2027-11-10."));
+        Some(value)
+    })
+}
+
+fn registry_home(legacy: bool) -> Option<PathBuf> {
     if cfg!(windows) {
-        std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("crabby"))
+        std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join(if legacy { "crabby" } else { "ponko" }))
     } else {
-        std::env::var_os("HOME").map(|d| PathBuf::from(d).join(".crabby"))
+        std::env::var_os("HOME").map(|d| PathBuf::from(d).join(if legacy { ".crabby" } else { ".ponko" }))
     }
 }
 
@@ -89,7 +98,7 @@ pub struct Config {
 impl Config {
     /// The default directories, writable tools on.
     pub fn from_env() -> Self {
-        let home = registry_home().unwrap_or_else(|| std::env::temp_dir().join("crabby"));
+        let home = registry_home(false).unwrap_or_else(|| std::env::temp_dir().join("ponko"));
         Self {
             instances_dir: default_instances_dir().unwrap_or_else(|| home.join("instances")),
             logs_dir: home.join("logs"),
@@ -189,6 +198,32 @@ fn discover(dir: &Path) -> Vec<Instance> {
             continue;
         }
         out.push(inst);
+    }
+    out.sort_by_key(|i| i.info["started"].as_u64().unwrap_or(0));
+    out
+}
+
+// The default Config path opts into legacy discovery. Explicit environment
+// overrides (including empty ones) and non-default Config paths stay isolated.
+fn discover_compatible(dir: &Path) -> Vec<Instance> {
+    let mut directories = vec![dir.to_path_buf()];
+    if instances_override().is_none()
+        && registry_home(false).is_some_and(|home| home.join("instances") == dir)
+        && let Some(home) = registry_home(true)
+    {
+        directories.push(home.join("instances"));
+    }
+    discover_directories(&directories)
+}
+
+fn discover_directories(directories: &[PathBuf]) -> Vec<Instance> {
+    let mut out: Vec<Instance> = Vec::new();
+    for dir in directories {
+        for instance in discover(dir) {
+            if !out.iter().any(|existing| existing.id() == instance.id()) {
+                out.push(instance);
+            }
+        }
     }
     out.sort_by_key(|i| i.info["started"].as_u64().unwrap_or(0));
     out
@@ -331,7 +366,7 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "perf_report",
-            description: "Where a windowed game's frame time goes, over the last few seconds: fps and frame-time percentiles; CPU time in systems, rendering and waiting on the display; GPU time per pass (shadows, opaque, bloom, ...); draw calls and the 3D models and triangles drawn for the camera and the shadows; the slowest systems; optionally the meshes drawing the most triangles. Start here for any performance question: a large display wait means the GPU is the limit. For exact numbers, run the game with PONKO_BENCH=<frames> instead (a fixed-length, vsync-off run that prints a report and quits). Pass profiling=true to also time the game's own profile_scope!/CRABBY_PROFILE_SCOPE scopes and count allocations per system; ask again a few seconds later and the answer has `report` with the slowest frames and warnings with advice. The answer always has `render_inspector` (versioned `schema`): the renderer's CPU ms split into extract, prepare, encode, submit and other; GPU ms per frame and per pass; draw/model/triangle/occlusion counts; the active graphics quality preset and settings. A metric that can't be measured is null, never 0, and `unavailable` says why (for example a GPU without timestamp queries).",
+            description: "Where a windowed game's frame time goes, over the last few seconds: fps and frame-time percentiles; CPU time in systems, rendering and waiting on the display; GPU time per pass (shadows, opaque, bloom, ...); draw calls and the 3D models and triangles drawn for the camera and the shadows; the slowest systems; optionally the meshes drawing the most triangles. Start here for any performance question: a large display wait means the GPU is the limit. For exact numbers, run the game with PONKO_BENCH=<frames> instead (a fixed-length, vsync-off run that prints a report and quits). Pass profiling=true to also time the game's own profile_scope!/PONKO_PROFILE_SCOPE scopes and count allocations per system; ask again a few seconds later and the answer has `report` with the slowest frames and warnings with advice. The answer always has `render_inspector` (versioned `schema`): the renderer's CPU ms split into extract, prepare, encode, submit and other; GPU ms per frame and per pass; draw/model/triangle/occlusion counts; the active graphics quality preset and settings. A metric that can't be measured is null, never 0, and `unavailable` says why (for example a GPU without timestamp queries).",
             writes: false,
             params: || {
                 json!({
@@ -819,7 +854,7 @@ impl Server {
 
     /// Finds the instance an agent means.
     fn instance(&self, args: &Value) -> Result<Instance, String> {
-        let all = discover(&self.config.instances_dir);
+        let all = discover_compatible(&self.config.instances_dir);
         let wanted = match args.get("instance") {
             None | Some(Value::Null) => None,
             Some(Value::String(s)) => Some(s.clone()),
@@ -864,7 +899,7 @@ impl Server {
         };
         match name {
             "list_instances" => Ok(Value::Array(
-                discover(&self.config.instances_dir)
+                discover_compatible(&self.config.instances_dir)
                     .iter()
                     .map(Instance::public)
                     .collect(),
@@ -1194,7 +1229,7 @@ impl Server {
 
         let deadline = deadline_after(args["timeout_secs"].as_u64().unwrap_or(600));
         loop {
-            if let Some(i) = discover(&self.config.instances_dir)
+            if let Some(i) = discover_compatible(&self.config.instances_dir)
                 .into_iter()
                 .find(|i| i.info["launch_id"] == json!(launch_id))
             {
@@ -1530,5 +1565,37 @@ mod tests {
         assert_eq!(registry_name(Path::new("/x/checkpoint.json")), None);
         assert_eq!(registry_name(Path::new("/x/1-99999.json")), None); // not a port
         assert_eq!(registry_name(Path::new("/x/1-2.txt")), None);
+    }
+    #[test]
+    fn discovery_reads_both_registries_and_prefers_primary_duplicates() {
+        let root = std::env::temp_dir().join(format!("ponko-registry-migration-{}", random_id()));
+        let primary = root.join("primary");
+        let legacy = root.join("legacy");
+        std::fs::create_dir_all(&primary).unwrap();
+        std::fs::create_dir_all(&legacy).unwrap();
+        let first = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let second = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let write = |dir: &Path, listener: &std::net::TcpListener, name: &str| {
+            let port = listener.local_addr().unwrap().port();
+            std::fs::write(
+                dir.join(format!("1-{port}.json")),
+                json!({
+                    "pid": 1, "port": port, "name": name, "token": "t", "started": port
+                })
+                .to_string(),
+            )
+            .unwrap();
+        };
+        write(&primary, &first, "primary");
+        write(&legacy, &first, "duplicate");
+        write(&legacy, &second, "legacy");
+        let both = discover_directories(&[primary.clone(), legacy.clone()]);
+        assert_eq!(both.len(), 2);
+        assert!(both.iter().any(|i| i.name() == "primary"));
+        assert!(both.iter().any(|i| i.name() == "legacy"));
+        assert_eq!(discover_directories(std::slice::from_ref(&primary)).len(), 1);
+        std::fs::remove_dir_all(&primary).unwrap();
+        assert_eq!(discover_directories(&[primary, legacy]).len(), 2);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

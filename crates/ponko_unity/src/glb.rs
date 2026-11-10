@@ -252,7 +252,7 @@ pub(crate) fn write(
                 channels.push(json!({"sampler": samplers.len()-1, "target": {"node": 0, "path": "weights"}}));
             }
             if !channels.is_empty() {
-                animations.push(json!({"name": clip.name, "extras": {"loop": clip.looping, "crabbyAnimatedTargets": clip.morphs.iter().map(|(n,_,_)| n).collect::<Vec<_>>()}, "channels": channels, "samplers": samplers}));
+                animations.push(json!({"name": clip.name, "extras": {"loop": clip.looping, "ponkoAnimatedTargets": clip.morphs.iter().map(|(n,_,_)| n).collect::<Vec<_>>()}, "channels": channels, "samplers": samplers}));
             }
         }
     }
@@ -273,8 +273,7 @@ pub(crate) fn write(
     if !vertices.targets.is_empty() {
         let names: Vec<&str> = vertices.targets.iter().map(|t| t.name.as_str()).collect();
         doc["meshes"][0]["extras"] = json!({ "targetNames": names });
-        doc["meshes"][0]["extras"]["crabbyMorphFrames"] =
-            json!(vertices.targets.iter().enumerate().filter_map(|(i,t)| {
+        doc["meshes"][0]["extras"]["ponkoMorphFrames"] = json!(vertices.targets.iter().enumerate().filter_map(|(i,t)| {
             let channel = vertices.targets.iter().position(|p| p.name == t.channel)?;
             Some(json!({"channel": channel, "target": i, "weight": if t.frame_weight > 0. {t.frame_weight} else {1.}}))
         }).collect::<Vec<_>>());

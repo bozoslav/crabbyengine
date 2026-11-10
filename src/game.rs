@@ -1365,7 +1365,7 @@ impl Game {
     /// change speed, read system timings.
     ///
     /// It listens on `127.0.0.1` only, and every request must carry a random
-    /// token written to the instance registry (`~/.crabby/instances`),
+    /// token written to the instance registry (`~/.ponko/instances`),
     /// which only your user can read. Off by default; setting the
     /// environment variable `PONKO_CONTROL=1` turns it on without code
     /// changes, and `PONKO_START_PAUSED=1` starts the simulation paused.

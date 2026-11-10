@@ -79,8 +79,8 @@ unsafe impl GlobalAlloc for CountingAllocator {
 }
 
 /// Counts one allocation of `bytes` made by something that isn't Rust's
-/// allocator, such as C++'s `operator new` (see `CRABBY_COUNT_CPP_ALLOCATIONS`
-/// in `crabby.hpp`). Counts only while profiling is on.
+/// allocator, such as C++'s `operator new` (see `PONKO_COUNT_CPP_ALLOCATIONS`
+/// in `ponko.hpp`). Counts only while profiling is on.
 pub fn note_allocation(bytes: usize) {
     note(bytes);
 }

@@ -7,55 +7,55 @@
 
 use std::ffi::c_void;
 
-use crate::three::CrabbyVec3;
-use crate::{CrabbyCtx, CrabbyStatus, CrabbyWorld};
+use crate::three::PonkoVec3;
+use crate::{PonkoCtx, PonkoStatus, PonkoWorld};
 
 /// The built-in `ContactModifier3D` component (Rust `ContactModifier3D`):
 /// changes how a body's contacts behave. Put it on an entity with a
 /// collider; the one-way side and the conveyor velocity are in that body's
 /// own frame, so they turn with it. Bodies with this component pay a little:
 /// their contacts are rebuilt every step. Start from
-/// `crabby_contact_modifier3d_one_way`, `_conveyor`, `_hook` or `_default`.
+/// `ponko_contact_modifier3d_one_way`, `_conveyor`, `_hook` or `_default`.
 /// Not a query column.
 /// ```
-/// let m = ponko_ffi::crabby_contact_modifier3d_default();
+/// let m = ponko_ffi::ponko_contact_modifier3d_default();
 /// assert!(!m.has_one_way && !m.hook);
 /// assert_eq!(m.one_way_angle, 1.2);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct CrabbyContactModifier3D {
+pub struct PonkoContactModifier3D {
     /// Whether `one_way` is used.
     pub has_one_way: bool,
     /// When `has_one_way`: contacts count only where the other body touches
     /// the side this (local) direction points to; from anywhere else it
     /// passes through. A body already partly inside keeps passing until it
     /// is out.
-    pub one_way: CrabbyVec3,
+    pub one_way: PonkoVec3,
     /// How far from `one_way` a contact's direction may lean and still
     /// count, in radians (0 or more). Default 1.2 (about 70°).
     pub one_way_angle: f32,
     /// How fast the surface moves the things on it, in its own frame (m/s);
     /// the part along the surface counts. Zero for none.
-    pub surface_velocity: CrabbyVec3,
+    pub surface_velocity: PonkoVec3,
     /// Whether this body's contacts go to the hook set with
-    /// `crabby_ctx_set_contact_hook3d`.
+    /// `ponko_ctx_set_contact_hook3d`.
     pub hook: bool,
 }
 
 /// A modifier that does nothing: no one-way side (angle 1.2), no surface
 /// velocity, no hook.
 /// ```
-/// let m = ponko_ffi::crabby_contact_modifier3d_default();
+/// let m = ponko_ffi::ponko_contact_modifier3d_default();
 /// assert_eq!(m.surface_velocity.x, 0.0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_contact_modifier3d_default() -> CrabbyContactModifier3D {
-    CrabbyContactModifier3D {
+pub extern "C" fn ponko_contact_modifier3d_default() -> PonkoContactModifier3D {
+    PonkoContactModifier3D {
         has_one_way: false,
-        one_way: CrabbyVec3::default(),
+        one_way: PonkoVec3::default(),
         one_way_angle: 1.2,
-        surface_velocity: CrabbyVec3::default(),
+        surface_velocity: PonkoVec3::default(),
         hook: false,
     }
 }
@@ -63,60 +63,57 @@ pub extern "C" fn crabby_contact_modifier3d_default() -> CrabbyContactModifier3D
 /// Solid only from the side `up` (a local direction) points to: things pass
 /// up through a platform like this and land on top.
 /// ```
-/// let up = ponko_ffi::CrabbyVec3 { x: 0.0, y: 1.0, z: 0.0 };
-/// let m = ponko_ffi::crabby_contact_modifier3d_one_way(up);
+/// let up = ponko_ffi::PonkoVec3 { x: 0.0, y: 1.0, z: 0.0 };
+/// let m = ponko_ffi::ponko_contact_modifier3d_one_way(up);
 /// assert!(m.has_one_way && m.one_way.y == 1.0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_contact_modifier3d_one_way(up: CrabbyVec3) -> CrabbyContactModifier3D {
-    CrabbyContactModifier3D {
+pub extern "C" fn ponko_contact_modifier3d_one_way(up: PonkoVec3) -> PonkoContactModifier3D {
+    PonkoContactModifier3D {
         has_one_way: true,
         one_way: up,
-        ..crabby_contact_modifier3d_default()
+        ..ponko_contact_modifier3d_default()
     }
 }
 
 /// A surface moving what touches it at `velocity` (in its own frame, m/s),
 /// like a conveyor belt.
 /// ```
-/// let v = ponko_ffi::CrabbyVec3 { x: 2.0, y: 0.0, z: 0.0 };
-/// assert_eq!(ponko_ffi::crabby_contact_modifier3d_conveyor(v).surface_velocity.x, 2.0);
+/// let v = ponko_ffi::PonkoVec3 { x: 2.0, y: 0.0, z: 0.0 };
+/// assert_eq!(ponko_ffi::ponko_contact_modifier3d_conveyor(v).surface_velocity.x, 2.0);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_contact_modifier3d_conveyor(velocity: CrabbyVec3) -> CrabbyContactModifier3D {
-    CrabbyContactModifier3D {
+pub extern "C" fn ponko_contact_modifier3d_conveyor(velocity: PonkoVec3) -> PonkoContactModifier3D {
+    PonkoContactModifier3D {
         surface_velocity: velocity,
-        ..crabby_contact_modifier3d_default()
+        ..ponko_contact_modifier3d_default()
     }
 }
 
 /// A modifier whose contacts go to the hook set with
-/// `crabby_ctx_set_contact_hook3d`.
+/// `ponko_ctx_set_contact_hook3d`.
 /// ```
-/// assert!(ponko_ffi::crabby_contact_modifier3d_hook().hook);
+/// assert!(ponko_ffi::ponko_contact_modifier3d_hook().hook);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_contact_modifier3d_hook() -> CrabbyContactModifier3D {
-    CrabbyContactModifier3D {
+pub extern "C" fn ponko_contact_modifier3d_hook() -> PonkoContactModifier3D {
+    PonkoContactModifier3D {
         hook: true,
-        ..crabby_contact_modifier3d_default()
+        ..ponko_contact_modifier3d_default()
     }
 }
 
 /// The id of the built-in `ContactModifier3D` component
-/// (`CrabbyContactModifier3D`), registering it if needed.
+/// (`PonkoContactModifier3D`), registering it if needed.
 /// # Safety
 /// Live handle and writable output.
 /// ```
 /// use ponko_ffi::*;
-/// let w = crabby_world_new();
-/// unsafe { let mut id = 99; assert_eq!(crabby_contact_modifier3d_component(w, &mut id), CrabbyStatus::CRABBY_OK); crabby_world_free(w); }
+/// let w = ponko_world_new();
+/// unsafe { let mut id = 99; assert_eq!(ponko_contact_modifier3d_component(w, &mut id), PonkoStatus::PONKO_OK); ponko_world_free(w); }
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_modifier3d_component(
-    world: *mut CrabbyWorld,
-    out_id: *mut u32,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_contact_modifier3d_component(world: *mut PonkoWorld, out_id: *mut u32) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::component(world, out_id) }
 }
@@ -126,46 +123,46 @@ pub unsafe extern "C" fn crabby_contact_modifier3d_component(
 /// it was passed to. Changes affect this step only; the hook runs again the
 /// next.
 /// ```
-/// let none: Option<&ponko_ffi::CrabbyContactPair3D> = None;
+/// let none: Option<&ponko_ffi::PonkoContactPair3D> = None;
 /// assert!(none.is_none());
 /// ```
-pub struct CrabbyContactPair3D {
+pub struct PonkoContactPair3D {
     _private: (),
 }
 
-/// The contact hook (see `crabby_ctx_set_contact_hook3d`). `pair` is valid
+/// The contact hook (see `ponko_ctx_set_contact_hook3d`). `pair` is valid
 /// only until the hook returns. The hook must return normally (no C++
-/// exceptions, no `longjmp`) and must not call any `crabby_ctx_*` or
-/// `crabby_world_*` function: it runs inside the physics step.
+/// exceptions, no `longjmp`) and must not call any `ponko_ctx_*` or
+/// `ponko_world_*` function: it runs inside the physics step.
 /// ```
-/// let hook: ponko_ffi::CrabbyContactHook3D = None;
+/// let hook: ponko_ffi::PonkoContactHook3D = None;
 /// assert!(hook.is_none());
 /// ```
-pub type CrabbyContactHook3D = Option<unsafe extern "C" fn(pair: *mut CrabbyContactPair3D, user: *mut c_void)>;
+pub type PonkoContactHook3D = Option<unsafe extern "C" fn(pair: *mut PonkoContactPair3D, user: *mut c_void)>;
 
 /// Sets the custom contact hook (Rust `Physics3D::set_contact_hook`): each
 /// step, before the solver uses them, `hook(pair, user)` is called for the
-/// contacts of every body whose `CrabbyContactModifier3D::hook` is set. It
+/// contacts of every body whose `PonkoContactModifier3D::hook` is set. It
 /// can drop contacts or points, change friction and bounciness, or set a
-/// surface velocity (the `crabby_contact_pair3d_*` functions). Replaces an
+/// surface velocity (the `ponko_contact_pair3d_*` functions). Replaces an
 /// earlier hook. A NULL `hook` clears it.
 ///
 /// The hook runs on the thread that steps physics, during this ctx's own
 /// step: it sees only the pair, so keep anything else it needs behind `user`.
-/// It must return normally and must not call `crabby_ctx_*` or
-/// `crabby_world_*` functions.
+/// It must return normally and must not call `ponko_ctx_*` or
+/// `ponko_world_*` functions.
 /// # Safety
 /// `ctx` null or live, outside query callbacks. `hook` and `user` must stay
 /// valid until the hook is replaced or cleared, or the game ends.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_contact_hook3d(std::ptr::null_mut(), None, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_contact_hook3d(std::ptr::null_mut(), None, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_contact_hook3d(
-    ctx: *mut CrabbyCtx,
-    hook: CrabbyContactHook3D,
+pub unsafe extern "C" fn ponko_ctx_set_contact_hook3d(
+    ctx: *mut PonkoCtx,
+    hook: PonkoContactHook3D,
     user: *mut c_void,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::set_hook(ctx, hook, user) }
 }
@@ -175,14 +172,14 @@ pub unsafe extern "C" fn crabby_ctx_set_contact_hook3d(
 /// `pair` is the pointer a contact hook was just given; outputs writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_entities(p, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_entities(p, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_entities(
-    pair: *mut CrabbyContactPair3D,
+pub unsafe extern "C" fn ponko_contact_pair3d_entities(
+    pair: *mut PonkoContactPair3D,
     out_a: *mut u64,
     out_b: *mut u64,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::entities(pair, out_a, out_b) }
 }
@@ -193,13 +190,13 @@ pub unsafe extern "C" fn crabby_contact_pair3d_entities(
 /// `pair` is the pointer a contact hook was just given; output writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_normal(p, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_normal(p, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_normal(
-    pair: *mut CrabbyContactPair3D,
-    out_normal: *mut CrabbyVec3,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_contact_pair3d_normal(
+    pair: *mut PonkoContactPair3D,
+    out_normal: *mut PonkoVec3,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::normal(pair, out_normal) }
 }
@@ -210,33 +207,33 @@ pub unsafe extern "C" fn crabby_contact_pair3d_normal(
 /// `pair` is the pointer a contact hook was just given; output writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_point_count(p, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_point_count(p, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_point_count(
-    pair: *mut CrabbyContactPair3D,
+pub unsafe extern "C" fn ponko_contact_pair3d_point_count(
+    pair: *mut PonkoContactPair3D,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::point_count(pair, out_count) }
 }
 
 /// Contact point `index` in the world (on `a`'s surface), and how far the
 /// two bodies are apart there (negative: overlapping; Rust
-/// `ContactPair3D::point`). `CRABBY_NOT_FOUND` if there is no such point.
+/// `ContactPair3D::point`). `PONKO_NOT_FOUND` if there is no such point.
 /// # Safety
 /// `pair` is the pointer a contact hook was just given; outputs writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_point(p, 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_point(p, 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_point(
-    pair: *mut CrabbyContactPair3D,
+pub unsafe extern "C" fn ponko_contact_pair3d_point(
+    pair: *mut PonkoContactPair3D,
     index: usize,
-    out_point: *mut CrabbyVec3,
+    out_point: *mut PonkoVec3,
     out_distance: *mut f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::point(pair, index, out_point, out_distance) }
 }
@@ -246,10 +243,10 @@ pub unsafe extern "C" fn crabby_contact_pair3d_point(
 /// # Safety
 /// `pair` is the pointer a contact hook was just given.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_ignore(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_ignore(std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_ignore(pair: *mut CrabbyContactPair3D) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_contact_pair3d_ignore(pair: *mut PonkoContactPair3D) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::ignore(pair) }
 }
@@ -259,13 +256,10 @@ pub unsafe extern "C" fn crabby_contact_pair3d_ignore(pair: *mut CrabbyContactPa
 /// # Safety
 /// `pair` is the pointer a contact hook was just given.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_remove_point(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_remove_point(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_remove_point(
-    pair: *mut CrabbyContactPair3D,
-    index: usize,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_contact_pair3d_remove_point(pair: *mut PonkoContactPair3D, index: usize) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::remove_point(pair, index) }
 }
@@ -276,13 +270,13 @@ pub unsafe extern "C" fn crabby_contact_pair3d_remove_point(
 /// `pair` is the pointer a contact hook was just given; output writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_friction(p, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_friction(p, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_friction(
-    pair: *mut CrabbyContactPair3D,
+pub unsafe extern "C" fn ponko_contact_pair3d_friction(
+    pair: *mut PonkoContactPair3D,
     out_friction: *mut f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::friction(pair, out_friction) }
 }
@@ -292,13 +286,13 @@ pub unsafe extern "C" fn crabby_contact_pair3d_friction(
 /// # Safety
 /// `pair` is the pointer a contact hook was just given.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_set_friction(std::ptr::null_mut(), 0.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_set_friction(std::ptr::null_mut(), 0.0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_set_friction(
-    pair: *mut CrabbyContactPair3D,
+pub unsafe extern "C" fn ponko_contact_pair3d_set_friction(
+    pair: *mut PonkoContactPair3D,
     friction: f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::set_friction(pair, friction) }
 }
@@ -308,13 +302,13 @@ pub unsafe extern "C" fn crabby_contact_pair3d_set_friction(
 /// `pair` is the pointer a contact hook was just given; output writable.
 /// ```
 /// let p = std::ptr::null_mut();
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_restitution(p, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_restitution(p, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_restitution(
-    pair: *mut CrabbyContactPair3D,
+pub unsafe extern "C" fn ponko_contact_pair3d_restitution(
+    pair: *mut PonkoContactPair3D,
     out_restitution: *mut f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::restitution(pair, out_restitution) }
 }
@@ -324,13 +318,13 @@ pub unsafe extern "C" fn crabby_contact_pair3d_restitution(
 /// # Safety
 /// `pair` is the pointer a contact hook was just given.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_set_restitution(std::ptr::null_mut(), 0.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_set_restitution(std::ptr::null_mut(), 0.0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_set_restitution(
-    pair: *mut CrabbyContactPair3D,
+pub unsafe extern "C" fn ponko_contact_pair3d_set_restitution(
+    pair: *mut PonkoContactPair3D,
     restitution: f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::set_restitution(pair, restitution) }
 }
@@ -341,14 +335,14 @@ pub unsafe extern "C" fn crabby_contact_pair3d_set_restitution(
 /// # Safety
 /// `pair` is the pointer a contact hook was just given.
 /// ```
-/// let v = ponko_ffi::CrabbyVec3::default();
-/// assert_eq!(unsafe { ponko_ffi::crabby_contact_pair3d_set_surface_velocity(std::ptr::null_mut(), v) } as u32, 1);
+/// let v = ponko_ffi::PonkoVec3::default();
+/// assert_eq!(unsafe { ponko_ffi::ponko_contact_pair3d_set_surface_velocity(std::ptr::null_mut(), v) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_contact_pair3d_set_surface_velocity(
-    pair: *mut CrabbyContactPair3D,
-    velocity: CrabbyVec3,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_contact_pair3d_set_surface_velocity(
+    pair: *mut PonkoContactPair3D,
+    velocity: PonkoVec3,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     unsafe { imp::set_surface_velocity(pair, velocity) }
 }
@@ -364,8 +358,8 @@ mod imp {
     use ponko::d3::ContactPair as ContactPair3D;
 
     impl CMirror for ContactModifier3D {
-        type C = CrabbyContactModifier3D;
-        fn from_c(c: &CrabbyContactModifier3D) -> Result<Self, Failure> {
+        type C = PonkoContactModifier3D;
+        fn from_c(c: &PonkoContactModifier3D) -> Result<Self, Failure> {
             let one_way: Vec3 = to_c(c.one_way);
             let surface_velocity: Vec3 = to_c(c.surface_velocity);
             if !one_way.is_finite() || !surface_velocity.is_finite() {
@@ -381,8 +375,8 @@ mod imp {
                 hook: c.hook,
             })
         }
-        fn to_c(&self) -> CrabbyContactModifier3D {
-            CrabbyContactModifier3D {
+        fn to_c(&self) -> PonkoContactModifier3D {
+            PonkoContactModifier3D {
                 has_one_way: self.one_way.is_some(),
                 one_way: to_c(self.one_way.unwrap_or(Vec3::ZERO)),
                 one_way_angle: self.one_way_angle,
@@ -399,7 +393,7 @@ mod imp {
         (t == std::any::TypeId::of::<ContactModifier3D>()).then_some(Kind::Mirror(&MODIFIER))
     }
 
-    pub(super) unsafe fn component(world: *mut CrabbyWorld, out_id: *mut u32) -> CrabbyStatus {
+    pub(super) unsafe fn component(world: *mut PonkoWorld, out_id: *mut u32) -> PonkoStatus {
         // SAFETY: forwarded caller contract.
         unsafe { builtin::<ContactModifier3D>(world, out_id) }
     }
@@ -407,27 +401,27 @@ mod imp {
     /// The hook and its user pointer, so the closure that physics keeps
     /// (which must be `Send + Sync`) can hold them.
     struct Hook {
-        f: unsafe extern "C" fn(*mut CrabbyContactPair3D, *mut c_void),
+        f: unsafe extern "C" fn(*mut PonkoContactPair3D, *mut c_void),
         user: *mut c_void,
     }
     // SAFETY: physics calls the hook only from inside `Ctx`'s own step, on
     // the thread that runs it (rapier's `parallel` feature is off), and the
     // `Ctx` that owns the closure never leaves the game's thread. The caller
-    // of `crabby_ctx_set_contact_hook3d` promised `user` stays usable by
+    // of `ponko_ctx_set_contact_hook3d` promised `user` stays usable by
     // that thread. So the pointer is never used from two threads at once.
     unsafe impl Send for Hook {}
     // SAFETY: as for `Send`: calls never overlap.
     unsafe impl Sync for Hook {}
     impl Hook {
         fn call(&self, pair: &mut ContactPair3D) {
-            let raw: *mut CrabbyContactPair3D = (pair as *mut ContactPair3D).cast();
+            let raw: *mut PonkoContactPair3D = (pair as *mut ContactPair3D).cast();
             // SAFETY: `pair` outlives the call; the caller of
-            // crabby_ctx_set_contact_hook3d promised `f` and `user` stay valid.
+            // ponko_ctx_set_contact_hook3d promised `f` and `user` stay valid.
             unsafe { (self.f)(raw, self.user) }
         }
     }
 
-    pub(super) unsafe fn set_hook(ctx: *mut CrabbyCtx, hook: CrabbyContactHook3D, user: *mut c_void) -> CrabbyStatus {
+    pub(super) unsafe fn set_hook(ctx: *mut PonkoCtx, hook: PonkoContactHook3D, user: *mut c_void) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             unsafe {
@@ -448,7 +442,7 @@ mod imp {
     /// The pair behind a pointer a hook was given.
     /// # Safety
     /// `pair` null, or the pointer passed to the running hook.
-    unsafe fn pair<'p>(pair: *mut CrabbyContactPair3D) -> Result<&'p mut ContactPair3D<'p, 'p>, Failure> {
+    unsafe fn pair<'p>(pair: *mut PonkoContactPair3D) -> Result<&'p mut ContactPair3D<'p, 'p>, Failure> {
         if pair.is_null() {
             return Err(invalid("pair is null"));
         }
@@ -460,7 +454,7 @@ mod imp {
         if x.is_finite() { Ok(x) } else { Err(invalid(what)) }
     }
 
-    pub(super) unsafe fn entities(p: *mut CrabbyContactPair3D, out_a: *mut u64, out_b: *mut u64) -> CrabbyStatus {
+    pub(super) unsafe fn entities(p: *mut PonkoContactPair3D, out_a: *mut u64, out_b: *mut u64) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             let pair = unsafe { pair(p) }?;
@@ -472,7 +466,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn normal(p: *mut CrabbyContactPair3D, out_normal: *mut CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn normal(p: *mut PonkoContactPair3D, out_normal: *mut PonkoVec3) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             let pair = unsafe { pair(p) }?;
@@ -481,7 +475,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn point_count(p: *mut CrabbyContactPair3D, out_count: *mut usize) -> CrabbyStatus {
+    pub(super) unsafe fn point_count(p: *mut PonkoContactPair3D, out_count: *mut usize) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             let pair = unsafe { pair(p) }?;
@@ -491,17 +485,17 @@ mod imp {
     }
 
     pub(super) unsafe fn point(
-        p: *mut CrabbyContactPair3D,
+        p: *mut PonkoContactPair3D,
         index: usize,
-        out_point: *mut CrabbyVec3,
+        out_point: *mut PonkoVec3,
         out_distance: *mut f32,
-    ) -> CrabbyStatus {
+    ) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             let pair = unsafe { pair(p) }?;
             let (point, distance) = pair
                 .point(index)
-                .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "no such contact point"))?;
+                .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "no such contact point"))?;
             // SAFETY: forwarded caller contract.
             unsafe {
                 out(out_point, to_c(point))?;
@@ -510,7 +504,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn ignore(p: *mut CrabbyContactPair3D) -> CrabbyStatus {
+    pub(super) unsafe fn ignore(p: *mut PonkoContactPair3D) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             unsafe { pair(p) }?.ignore();
@@ -518,7 +512,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn remove_point(p: *mut CrabbyContactPair3D, index: usize) -> CrabbyStatus {
+    pub(super) unsafe fn remove_point(p: *mut PonkoContactPair3D, index: usize) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             unsafe { pair(p) }?.remove_point(index);
@@ -526,7 +520,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn friction(p: *mut CrabbyContactPair3D, out_friction: *mut f32) -> CrabbyStatus {
+    pub(super) unsafe fn friction(p: *mut PonkoContactPair3D, out_friction: *mut f32) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             let pair = unsafe { pair(p) }?;
@@ -535,7 +529,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn set_friction(p: *mut CrabbyContactPair3D, friction: f32) -> CrabbyStatus {
+    pub(super) unsafe fn set_friction(p: *mut PonkoContactPair3D, friction: f32) -> PonkoStatus {
         boundary(|| {
             let friction = finite(friction, "friction must be finite")?;
             // SAFETY: forwarded caller contract.
@@ -544,7 +538,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn restitution(p: *mut CrabbyContactPair3D, out_restitution: *mut f32) -> CrabbyStatus {
+    pub(super) unsafe fn restitution(p: *mut PonkoContactPair3D, out_restitution: *mut f32) -> PonkoStatus {
         boundary(|| {
             // SAFETY: forwarded caller contract.
             let pair = unsafe { pair(p) }?;
@@ -553,7 +547,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn set_restitution(p: *mut CrabbyContactPair3D, restitution: f32) -> CrabbyStatus {
+    pub(super) unsafe fn set_restitution(p: *mut PonkoContactPair3D, restitution: f32) -> PonkoStatus {
         boundary(|| {
             let restitution = finite(restitution, "restitution must be finite")?;
             // SAFETY: forwarded caller contract.
@@ -562,7 +556,7 @@ mod imp {
         })
     }
 
-    pub(super) unsafe fn set_surface_velocity(p: *mut CrabbyContactPair3D, velocity: CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn set_surface_velocity(p: *mut PonkoContactPair3D, velocity: PonkoVec3) -> PonkoStatus {
         boundary(|| {
             let velocity: Vec3 = to_c(velocity);
             if !velocity.is_finite() {
@@ -587,43 +581,43 @@ mod imp {
     pub(crate) fn kind(_: std::any::TypeId) -> Option<crate::Kind> {
         None
     }
-    pub(super) unsafe fn component(_: *mut CrabbyWorld, _: *mut u32) -> CrabbyStatus {
+    pub(super) unsafe fn component(_: *mut PonkoWorld, _: *mut u32) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn set_hook(_: *mut CrabbyCtx, _: CrabbyContactHook3D, _: *mut c_void) -> CrabbyStatus {
+    pub(super) unsafe fn set_hook(_: *mut PonkoCtx, _: PonkoContactHook3D, _: *mut c_void) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn entities(_: *mut CrabbyContactPair3D, _: *mut u64, _: *mut u64) -> CrabbyStatus {
+    pub(super) unsafe fn entities(_: *mut PonkoContactPair3D, _: *mut u64, _: *mut u64) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn normal(_: *mut CrabbyContactPair3D, _: *mut CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn normal(_: *mut PonkoContactPair3D, _: *mut PonkoVec3) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn point_count(_: *mut CrabbyContactPair3D, _: *mut usize) -> CrabbyStatus {
+    pub(super) unsafe fn point_count(_: *mut PonkoContactPair3D, _: *mut usize) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn point(_: *mut CrabbyContactPair3D, _: usize, _: *mut CrabbyVec3, _: *mut f32) -> CrabbyStatus {
+    pub(super) unsafe fn point(_: *mut PonkoContactPair3D, _: usize, _: *mut PonkoVec3, _: *mut f32) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn ignore(_: *mut CrabbyContactPair3D) -> CrabbyStatus {
+    pub(super) unsafe fn ignore(_: *mut PonkoContactPair3D) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn remove_point(_: *mut CrabbyContactPair3D, _: usize) -> CrabbyStatus {
+    pub(super) unsafe fn remove_point(_: *mut PonkoContactPair3D, _: usize) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn friction(_: *mut CrabbyContactPair3D, _: *mut f32) -> CrabbyStatus {
+    pub(super) unsafe fn friction(_: *mut PonkoContactPair3D, _: *mut f32) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn set_friction(_: *mut CrabbyContactPair3D, _: f32) -> CrabbyStatus {
+    pub(super) unsafe fn set_friction(_: *mut PonkoContactPair3D, _: f32) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn restitution(_: *mut CrabbyContactPair3D, _: *mut f32) -> CrabbyStatus {
+    pub(super) unsafe fn restitution(_: *mut PonkoContactPair3D, _: *mut f32) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn set_restitution(_: *mut CrabbyContactPair3D, _: f32) -> CrabbyStatus {
+    pub(super) unsafe fn set_restitution(_: *mut PonkoContactPair3D, _: f32) -> PonkoStatus {
         boundary(off)
     }
-    pub(super) unsafe fn set_surface_velocity(_: *mut CrabbyContactPair3D, _: CrabbyVec3) -> CrabbyStatus {
+    pub(super) unsafe fn set_surface_velocity(_: *mut PonkoContactPair3D, _: PonkoVec3) -> PonkoStatus {
         boundary(off)
     }
 }

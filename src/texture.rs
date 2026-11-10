@@ -17,7 +17,7 @@ use crate::color::Color;
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)] // shared with C/C++ (`CrabbyTexture`)
+#[repr(C)] // shared with C/C++ (`PonkoTexture`)
 pub struct Texture {
     pub(crate) id: u32,
     width: u32,

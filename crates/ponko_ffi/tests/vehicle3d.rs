@@ -5,8 +5,8 @@ use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::null_mut;
 
-use CrabbyBodyKind::*;
-use CrabbyStatus::*;
+use PonkoBodyKind::*;
+use PonkoStatus::*;
 
 #[derive(Default)]
 struct Ids {
@@ -15,49 +15,49 @@ struct Ids {
     collider: u32,
     vehicle: u32,
     car: u64,
-    center: Option<CrabbyVec3>,
+    center: Option<PonkoVec3>,
 }
 
-fn value<T>(component: u32, v: &T) -> CrabbyValue {
-    CrabbyValue {
+fn value<T>(component: u32, v: &T) -> PonkoValue {
+    PonkoValue {
         component,
         data: (v as *const T).cast(),
         size: size_of::<T>(),
     }
 }
-fn v3(x: f32, y: f32, z: f32) -> CrabbyVec3 {
-    CrabbyVec3 { x, y, z }
+fn v3(x: f32, y: f32, z: f32) -> PonkoVec3 {
+    PonkoVec3 { x, y, z }
 }
 
-unsafe fn ids_of(w: *mut CrabbyWorld, ids: &mut Ids) {
+unsafe fn ids_of(w: *mut PonkoWorld, ids: &mut Ids) {
     unsafe {
-        assert_eq!(crabby_transform3d_component(w, &mut ids.transform), CRABBY_OK);
-        assert_eq!(crabby_rigid_body3d_component(w, &mut ids.body), CRABBY_OK);
-        assert_eq!(crabby_collider3d_component(w, &mut ids.collider), CRABBY_OK);
-        assert_eq!(crabby_vehicle3d_component(w, &mut ids.vehicle), CRABBY_OK);
+        assert_eq!(ponko_transform3d_component(w, &mut ids.transform), PONKO_OK);
+        assert_eq!(ponko_rigid_body3d_component(w, &mut ids.body), PONKO_OK);
+        assert_eq!(ponko_collider3d_component(w, &mut ids.collider), PONKO_OK);
+        assert_eq!(ponko_vehicle3d_component(w, &mut ids.vehicle), PONKO_OK);
     }
 }
 
-fn car() -> CrabbyVehicle3D {
-    let mut v = crabby_vehicle3d();
+fn car() -> PonkoVehicle3D {
+    let mut v = ponko_vehicle3d();
     for (x, z) in [(-0.8, -1.3), (0.8, -1.3), (-0.8, 1.3), (0.8, 1.3)] {
         assert_eq!(
-            unsafe { crabby_vehicle3d_add_wheel(&mut v, crabby_wheel3d(v3(x, -0.3, z), 0.35)) },
-            CRABBY_OK
+            unsafe { ponko_vehicle3d_add_wheel(&mut v, ponko_wheel3d(v3(x, -0.3, z), 0.35)) },
+            PONKO_OK
         );
     }
     v
 }
 
-unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn setup(ctx: *mut PonkoCtx, user: *mut c_void) {
     unsafe {
         let ids = &mut *user.cast::<Ids>();
-        let w = crabby_ctx_world(ctx);
+        let w = ponko_ctx_world(ctx);
         ids_of(w, ids);
         let (floor_at, fixed, floor) = (
-            crabby_transform3d_at(v3(0.0, -0.5, 0.0)),
-            crabby_rigid_body3d(CRABBY_BODY_FIXED as u32),
-            crabby_collider3d_box(v3(200.0, 1.0, 200.0)),
+            ponko_transform3d_at(v3(0.0, -0.5, 0.0)),
+            ponko_rigid_body3d(PONKO_BODY_FIXED as u32),
+            ponko_collider3d_box(v3(200.0, 1.0, 200.0)),
         );
         let ground = [
             value(ids.transform, &floor_at),
@@ -65,13 +65,13 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             value(ids.collider, &floor),
         ];
         let mut e = 0;
-        assert_eq!(crabby_spawn(w, ground.as_ptr(), 3, &mut e), CRABBY_OK);
-        let at = crabby_transform3d_at(v3(0.0, 1.0, 0.0));
-        let mut chassis = crabby_rigid_body3d(CRABBY_BODY_DYNAMIC as u32);
+        assert_eq!(ponko_spawn(w, ground.as_ptr(), 3, &mut e), PONKO_OK);
+        let at = ponko_transform3d_at(v3(0.0, 1.0, 0.0));
+        let mut chassis = ponko_rigid_body3d(PONKO_BODY_DYNAMIC as u32);
         chassis.mass = 1200.0;
         chassis.has_center_of_mass = true;
         chassis.center_of_mass = v3(0.0, -0.3, 0.0);
-        let shape = crabby_collider3d_box(v3(1.8, 0.6, 4.2));
+        let shape = ponko_collider3d_box(v3(1.8, 0.6, 4.2));
         let vehicle = car();
         let values = [
             value(ids.transform, &at),
@@ -79,14 +79,14 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             value(ids.collider, &shape),
             value(ids.vehicle, &vehicle),
         ];
-        assert_eq!(crabby_spawn(w, values.as_ptr(), 4, &mut ids.car), CRABBY_OK);
+        assert_eq!(ponko_spawn(w, values.as_ptr(), 4, &mut ids.car), PONKO_OK);
     }
 }
 
-unsafe extern "C" fn throttle(chunk: *const CrabbyChunk, _: *mut c_void) {
+unsafe extern "C" fn throttle(chunk: *const PonkoChunk, _: *mut c_void) {
     unsafe {
         let chunk = &*chunk;
-        let cars = (*chunk.columns).cast::<CrabbyVehicle3D>();
+        let cars = (*chunk.columns).cast::<PonkoVehicle3D>();
         for i in 0..chunk.count {
             let car = &mut *cars.add(i);
             car.wheels[2].motor_torque = 500.0;
@@ -95,19 +95,19 @@ unsafe extern "C" fn throttle(chunk: *const CrabbyChunk, _: *mut c_void) {
     }
 }
 
-unsafe extern "C" fn drive(ctx: *mut CrabbyCtx, user: *mut c_void) {
+unsafe extern "C" fn drive(ctx: *mut PonkoCtx, user: *mut c_void) {
     unsafe {
         let ids = &mut *user.cast::<Ids>();
-        let tick = crabby_ctx_sim_tick(ctx);
+        let tick = ponko_ctx_sim_tick(ctx);
         if tick == 99 {
             let mut c = v3(0.0, 0.0, 0.0);
-            assert_eq!(crabby_ctx_body_center_of_mass3d(ctx, ids.car, &mut c), CRABBY_OK);
+            assert_eq!(ponko_ctx_body_center_of_mass3d(ctx, ids.car, &mut c), PONKO_OK);
             ids.center = Some(c);
-            assert_eq!(crabby_ctx_body_center_of_mass3d(ctx, 12345, &mut c), CRABBY_NOT_FOUND);
+            assert_eq!(ponko_ctx_body_center_of_mass3d(ctx, 12345, &mut c), PONKO_NOT_FOUND);
         }
         if tick >= 100 {
-            let w = crabby_ctx_world(ctx);
-            assert_eq!(crabby_query(w, &ids.vehicle, 1, Some(throttle), null_mut()), CRABBY_OK);
+            let w = ponko_ctx_world(ctx);
+            assert_eq!(ponko_query(w, &ids.vehicle, 1, Some(throttle), null_mut()), PONKO_OK);
         }
     }
 }
@@ -118,16 +118,13 @@ fn a_c_car_settles_on_its_wheels_and_drives_off() {
     let user = (&raw mut ids).cast::<c_void>();
     let mut world = null_mut();
     unsafe {
-        let g = crabby_game_new(c"vehicle".as_ptr(), 1, 1);
+        let g = ponko_game_new(c"vehicle".as_ptr(), 1, 1);
         assert_eq!(
-            crabby_game_sim_system(g, c"drive".as_ptr(), 1, Some(drive), user),
-            CRABBY_OK
+            ponko_game_sim_system(g, c"drive".as_ptr(), 1, Some(drive), user),
+            PONKO_OK
         );
-        assert_eq!(crabby_game_physics3d(g, v3(0.0, -9.81, 0.0)), CRABBY_OK);
-        assert_eq!(
-            crabby_game_run_headless(g, 200, Some(setup), user, &mut world),
-            CRABBY_OK
-        );
+        assert_eq!(ponko_game_physics3d(g, v3(0.0, -9.81, 0.0)), PONKO_OK);
+        assert_eq!(ponko_game_run_headless(g, 200, Some(setup), user, &mut world), PONKO_OK);
 
         let center = ids.center.expect("asked");
         assert!(
@@ -135,25 +132,22 @@ fn a_c_car_settles_on_its_wheels_and_drives_off() {
             "rests 0.8 m up, center 0.3 m below: {}",
             center.y
         );
-        let mut v = crabby_vehicle3d();
-        let n = size_of::<CrabbyVehicle3D>();
+        let mut v = ponko_vehicle3d();
+        let n = size_of::<PonkoVehicle3D>();
+        assert_eq!(ponko_get(world, ids.car, ids.vehicle, (&raw mut v).cast(), n), PONKO_OK);
+        let mut t = ponko_transform3d_at(v3(0.0, 0.0, 0.0));
+        let n = size_of::<PonkoTransform3D>();
         assert_eq!(
-            crabby_get(world, ids.car, ids.vehicle, (&raw mut v).cast(), n),
-            CRABBY_OK
-        );
-        let mut t = crabby_transform3d_at(v3(0.0, 0.0, 0.0));
-        let n = size_of::<CrabbyTransform3D>();
-        assert_eq!(
-            crabby_get(world, ids.car, ids.transform, (&raw mut t).cast(), n),
-            CRABBY_OK
+            ponko_get(world, ids.car, ids.transform, (&raw mut t).cast(), n),
+            PONKO_OK
         );
         assert_eq!(v.wheel_count, 4);
         assert!(v.wheels.iter().take(4).all(|w| w.grounded));
         assert!(v.wheels[3].angular_velocity > 0.0 && v.wheels[3].motor_torque == 500.0);
         assert!(t.position.z < -3.0, "drove forward (-Z): {}", t.position.z);
-        let pose = crabby_wheel3d_pose(&v.wheels[0], t);
+        let pose = ponko_wheel3d_pose(&v.wheels[0], t);
         assert!((pose.position.y - 0.35).abs() < 0.05, "{}", pose.position.y);
-        crabby_world_free(world);
+        ponko_world_free(world);
     }
 }
 
@@ -161,57 +155,57 @@ fn a_c_car_settles_on_its_wheels_and_drives_off() {
 fn bodies_keep_their_mass_and_center_and_bad_ones_are_refused() {
     let mut ids = Ids::default();
     unsafe {
-        let w = crabby_world_new();
+        let w = ponko_world_new();
         ids_of(w, &mut ids);
-        let mut body = crabby_rigid_body3d(CRABBY_BODY_DYNAMIC as u32);
+        let mut body = ponko_rigid_body3d(PONKO_BODY_DYNAMIC as u32);
         body.mass = 900.0;
         body.has_center_of_mass = true;
         body.center_of_mass = v3(0.1, -0.4, 0.2);
         let vehicle = car();
         let values = [value(ids.body, &body), value(ids.vehicle, &vehicle)];
         let mut e = 0;
-        assert_eq!(crabby_spawn(w, values.as_ptr(), 2, &mut e), CRABBY_OK);
-        let mut back = crabby_rigid_body3d(0);
-        let n = size_of::<CrabbyRigidBody3D>();
-        assert_eq!(crabby_get(w, e, ids.body, (&raw mut back).cast(), n), CRABBY_OK);
+        assert_eq!(ponko_spawn(w, values.as_ptr(), 2, &mut e), PONKO_OK);
+        let mut back = ponko_rigid_body3d(0);
+        let n = size_of::<PonkoRigidBody3D>();
+        assert_eq!(ponko_get(w, e, ids.body, (&raw mut back).cast(), n), PONKO_OK);
         assert_eq!(back, body);
-        let mut v = crabby_vehicle3d();
-        let n = size_of::<CrabbyVehicle3D>();
-        assert_eq!(crabby_get(w, e, ids.vehicle, (&raw mut v).cast(), n), CRABBY_OK);
+        let mut v = ponko_vehicle3d();
+        let n = size_of::<PonkoVehicle3D>();
+        assert_eq!(ponko_get(w, e, ids.vehicle, (&raw mut v).cast(), n), PONKO_OK);
         assert_eq!(v, vehicle);
 
         for bad in [
-            CrabbyRigidBody3D { mass: -1.0, ..body },
-            CrabbyRigidBody3D {
+            PonkoRigidBody3D { mass: -1.0, ..body },
+            PonkoRigidBody3D {
                 center_of_mass: v3(f32::NAN, 0.0, 0.0),
                 ..body
             },
         ] {
-            let n = size_of::<CrabbyRigidBody3D>();
+            let n = size_of::<PonkoRigidBody3D>();
             assert_eq!(
-                crabby_set(w, e, ids.body, (&raw const bad).cast(), n),
-                CRABBY_INVALID_ARGUMENT
+                ponko_set(w, e, ids.body, (&raw const bad).cast(), n),
+                PONKO_INVALID_ARGUMENT
             );
         }
         // Without the flag the center is ignored, NaN or not.
-        let ignored = CrabbyRigidBody3D {
+        let ignored = PonkoRigidBody3D {
             has_center_of_mass: false,
             center_of_mass: v3(f32::NAN, 0.0, 0.0),
             ..body
         };
-        let n = size_of::<CrabbyRigidBody3D>();
-        assert_eq!(crabby_set(w, e, ids.body, (&raw const ignored).cast(), n), CRABBY_OK);
-        crabby_world_free(w);
+        let n = size_of::<PonkoRigidBody3D>();
+        assert_eq!(ponko_set(w, e, ids.body, (&raw const ignored).cast(), n), PONKO_OK);
+        ponko_world_free(w);
     }
 }
 
 #[test]
 fn friction_curves_and_wheels_match_rust() {
-    let c = crabby_friction_curve_sideways();
-    assert_eq!(crabby_friction_curve_evaluate(c, 0.2), 1.0);
-    assert_eq!(crabby_friction_curve_evaluate(c, -9.0), 0.75);
+    let c = ponko_friction_curve_sideways();
+    assert_eq!(ponko_friction_curve_evaluate(c, 0.2), 1.0);
+    assert_eq!(ponko_friction_curve_evaluate(c, -9.0), 0.75);
     let rust = ponko::d3::Wheel::new(ponko::vec3(1.0, 2.0, 3.0), 0.4);
-    let w = crabby_wheel3d(v3(1.0, 2.0, 3.0), 0.4);
+    let w = ponko_wheel3d(v3(1.0, 2.0, 3.0), 0.4);
     assert_eq!(
         (w.mass, w.suspension_distance, w.spring, w.damper, w.damping_rate),
         (
@@ -224,16 +218,13 @@ fn friction_curves_and_wheels_match_rust() {
     );
     assert_eq!(w.forward_friction.extremum_slip, rust.forward_friction.extremum_slip);
     assert_eq!(w.local_position.y, rust.local_position.y);
-    let mut v = crabby_vehicle3d();
+    let mut v = ponko_vehicle3d();
     assert_eq!(
-        unsafe { crabby_vehicle3d_add_wheel(std::ptr::null_mut(), w) },
-        CRABBY_INVALID_ARGUMENT
+        unsafe { ponko_vehicle3d_add_wheel(std::ptr::null_mut(), w) },
+        PONKO_INVALID_ARGUMENT
     );
     for _ in 0..8 {
-        assert_eq!(unsafe { crabby_vehicle3d_add_wheel(&mut v, w) }, CRABBY_OK);
+        assert_eq!(unsafe { ponko_vehicle3d_add_wheel(&mut v, w) }, PONKO_OK);
     }
-    assert_eq!(
-        unsafe { crabby_vehicle3d_add_wheel(&mut v, w) },
-        CRABBY_INVALID_ARGUMENT
-    );
+    assert_eq!(unsafe { ponko_vehicle3d_add_wheel(&mut v, w) }, PONKO_INVALID_ARGUMENT);
 }

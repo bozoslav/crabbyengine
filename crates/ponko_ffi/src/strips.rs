@@ -1,11 +1,11 @@
 //! Ribbons, lines and decals from C (Rust `Trail3D`, `Line3D`,
 //! `MeshData::decal` and `Graphics::load_mesh_data`).
 //!
-//! Fill a `CrabbyTrail3D` (start from `crabby_trail3d_new()`) or a
-//! `CrabbyLine3D` (start from `crabby_line3d_new()`), then give an entity with a
-//! 3D transform one with `crabby_ctx_set_trail3d` / `crabby_ctx_set_line3d`.
-//! Their curves and gradients are the particle keys (`CrabbyParticleKey`,
-//! `CrabbyParticleColorKey`) and their blend a `CrabbyParticleBlend3D`.
+//! Fill a `PonkoTrail3D` (start from `ponko_trail3d_new()`) or a
+//! `PonkoLine3D` (start from `ponko_line3d_new()`), then give an entity with a
+//! 3D transform one with `ponko_ctx_set_trail3d` / `ponko_ctx_set_line3d`.
+//! Their curves and gradients are the particle keys (`PonkoParticleKey`,
+//! `PonkoParticleColorKey`) and their blend a `PonkoParticleBlend3D`.
 
 use std::ffi::c_char;
 
@@ -16,25 +16,25 @@ use ponko::{Color, Mat4, Vec3};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::particles::{
-    CrabbyParticleBlend3D, CrabbyParticleColorKey, CrabbyParticleKey, blend_from_c, curve_from_c, entity, finite,
+    PonkoParticleBlend3D, PonkoParticleColorKey, PonkoParticleKey, blend_from_c, curve_from_c, entity, finite,
     gradient_from_c, keys,
 };
-use crate::three::{CrabbyMeshData, CrabbyVec3};
-use crate::types::{CrabbyColor, CrabbyTexture, texture_from_c, to_c};
-use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, invalid, invalid_owned};
+use crate::three::{PonkoMeshData, PonkoVec3};
+use crate::types::{PonkoColor, PonkoTexture, texture_from_c, to_c};
+use crate::{Failure, PonkoCtx, PonkoStatus, boundary, invalid, invalid_owned};
 
 /// A ribbon left behind its entity as it moves (Rust `Trail3D`). Make one
-/// with `crabby_trail3d_new`, change what you like, then give it to an
-/// entity with `crabby_ctx_set_trail3d`. The key pointers are only read
+/// with `ponko_trail3d_new`, change what you like, then give it to an
+/// entity with `ponko_ctx_set_trail3d`. The key pointers are only read
 /// during the call that takes the trail; null with a count of 0 keeps the
 /// default curve.
 /// ```
-/// let t = ponko_ffi::crabby_trail3d_new(0.5, 0.1);
+/// let t = ponko_ffi::ponko_trail3d_new(0.5, 0.1);
 /// assert_eq!(t.max_points, 64);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct CrabbyTrail3D {
+pub struct PonkoTrail3D {
     /// Seconds a point lasts before the ribbon lets go of it. Must be positive.
     pub lifetime: f32,
     /// Width in meters at the entity, narrowing to 0 at the end; used when
@@ -42,20 +42,20 @@ pub struct CrabbyTrail3D {
     pub width: f32,
     /// Width in meters over age (0 the newest end, 1 the oldest); null to
     /// narrow from `width` to 0.
-    pub width_keys: *const CrabbyParticleKey,
+    pub width_keys: *const PonkoParticleKey,
     /// Number of `width_keys`.
     pub width_key_count: usize,
     /// Color over age (0 the newest end, 1 the oldest); null for white
     /// fading out.
-    pub color_keys: *const CrabbyParticleColorKey,
+    pub color_keys: *const PonkoParticleColorKey,
     /// Number of `color_keys`.
     pub color_key_count: usize,
     /// Use `texture` (u is each point's age over `lifetime`, v across);
     /// otherwise the ribbon is plain white. Default false.
     pub has_texture: bool,
     /// The ribbon image.
-    pub texture: CrabbyTexture,
-    /// A `CrabbyParticleBlend3D`. Default alpha.
+    pub texture: PonkoTexture,
+    /// A `PonkoParticleBlend3D`. Default alpha.
     pub blend: u32,
     /// A new point is kept only after the entity moved this far (meters)
     /// from the last one. Default 0.05.
@@ -69,13 +69,13 @@ pub struct CrabbyTrail3D {
 /// A ribbon `width` meters wide (narrowing to 0 at its end) whose points last
 /// `lifetime` seconds, white and alpha blended (Rust `Trail3D::new`).
 /// ```
-/// let t = ponko_ffi::crabby_trail3d_new(0.25, 0.05);
+/// let t = ponko_ffi::ponko_trail3d_new(0.25, 0.05);
 /// assert_eq!((t.lifetime, t.width, t.emitting), (0.25, 0.05, true));
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_trail3d_new(lifetime: f32, width: f32) -> CrabbyTrail3D {
+pub extern "C" fn ponko_trail3d_new(lifetime: f32, width: f32) -> PonkoTrail3D {
     let t = Trail3D::new(lifetime, width);
-    CrabbyTrail3D {
+    PonkoTrail3D {
         lifetime,
         width,
         width_keys: std::ptr::null(),
@@ -83,12 +83,12 @@ pub extern "C" fn crabby_trail3d_new(lifetime: f32, width: f32) -> CrabbyTrail3D
         color_keys: std::ptr::null(),
         color_key_count: 0,
         has_texture: false,
-        texture: CrabbyTexture {
+        texture: PonkoTexture {
             id: 0,
             width: 0,
             height: 0,
         },
-        blend: CrabbyParticleBlend3D::CRABBY_PARTICLES_ALPHA as u32,
+        blend: PonkoParticleBlend3D::PONKO_PARTICLES_ALPHA as u32,
         min_distance: t.min_distance,
         max_points: t.max_points as u32,
         emitting: t.emitting,
@@ -99,7 +99,7 @@ pub extern "C" fn crabby_trail3d_new(lifetime: f32, width: f32) -> CrabbyTrail3D
 ///
 /// # Safety
 /// The key pointers are null or point to their counts of keys.
-unsafe fn trail_from_c(t: &CrabbyTrail3D) -> Result<Trail3D, Failure> {
+unsafe fn trail_from_c(t: &PonkoTrail3D) -> Result<Trail3D, Failure> {
     if !(t.lifetime.is_finite() && t.lifetime > 0.0) {
         return Err(invalid("trail lifetime must be positive"));
     }
@@ -141,17 +141,17 @@ fn trail(c: &mut ponko::Ctx, bits: u64) -> Result<&mut Trail3D, Failure> {
 /// Gives `entity` (which needs a 3D transform to draw) a new ribbon trail,
 /// replacing any it had along with its points.
 /// ```
-/// let t = ponko_ffi::crabby_trail3d_new(0.5, 0.1);
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_trail3d(std::ptr::null_mut(), 0, &t) } as u32, 1);
+/// let t = ponko_ffi::ponko_trail3d_new(0.5, 0.1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_trail3d(std::ptr::null_mut(), 0, &t) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `trail` null or valid, its key pointers as documented.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_trail3d(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_trail3d(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
-    trail: *const CrabbyTrail3D,
-) -> CrabbyStatus {
+    trail: *const PonkoTrail3D,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -168,16 +168,16 @@ pub unsafe extern "C" fn crabby_ctx_set_trail3d(
 /// Trails only record in visual frames, which headless runs skip.
 /// ```
 /// let mut n = 0;
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_trail3d_point_count(std::ptr::null_mut(), 0, &mut n) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_trail3d_point_count(std::ptr::null_mut(), 0, &mut n) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_count` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_trail3d_point_count(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_trail3d_point_count(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     out_count: *mut u32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -190,12 +190,12 @@ pub unsafe extern "C" fn crabby_ctx_trail3d_point_count(
 /// Forgets every point of `entity`'s trail (Rust `Trail3D::clear`): after a
 /// teleport, so no ribbon spans the jump.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_clear_trail3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_clear_trail3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_clear_trail3d(ctx: *mut CrabbyCtx, entity_bits: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_clear_trail3d(ctx: *mut PonkoCtx, entity_bits: u64) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -208,16 +208,16 @@ pub unsafe extern "C" fn crabby_ctx_clear_trail3d(ctx: *mut CrabbyCtx, entity_bi
 /// Starts or stops `entity`'s trail adding points (Rust `Trail3D::emitting`);
 /// while it's off, the ribbon fades out.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_trail3d_emitting(std::ptr::null_mut(), 0, false) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_trail3d_emitting(std::ptr::null_mut(), 0, false) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_trail3d_emitting(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_trail3d_emitting(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     emitting: bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -229,12 +229,12 @@ pub unsafe extern "C" fn crabby_ctx_set_trail3d_emitting(
 
 /// Removes `entity`'s trail and its points.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_trail3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_remove_trail3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_remove_trail3d(ctx: *mut CrabbyCtx, entity_bits: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_remove_trail3d(ctx: *mut PonkoCtx, entity_bits: u64) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -247,30 +247,30 @@ pub unsafe extern "C" fn crabby_ctx_remove_trail3d(ctx: *mut CrabbyCtx, entity_b
 
 /// A line through points in its entity's space, drawn as a camera-facing
 /// strip (Rust `Line3D`): beams, cables, ropes. Make one with
-/// `crabby_line3d_new`, set `points` and `point_count`, then give it to an
-/// entity with `crabby_ctx_set_line3d`, which copies the points; call it
+/// `ponko_line3d_new`, set `points` and `point_count`, then give it to an
+/// entity with `ponko_ctx_set_line3d`, which copies the points; call it
 /// again any time to change them.
 /// ```
-/// let l = ponko_ffi::crabby_line3d_new(0.1, ponko_ffi::CrabbyColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
+/// let l = ponko_ffi::ponko_line3d_new(0.1, ponko_ffi::PonkoColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
 /// assert_eq!(l.point_count, 0);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct CrabbyLine3D {
+pub struct PonkoLine3D {
     /// `point_count` points; at least two to draw anything.
-    pub points: *const CrabbyVec3,
+    pub points: *const PonkoVec3,
     /// Number of `points`.
     pub point_count: usize,
     /// Meters, scaled by the entity's largest scale.
     pub width: f32,
     /// Its color (and opacity) along its whole length.
-    pub color: CrabbyColor,
+    pub color: PonkoColor,
     /// Use `texture` (u along the line, v across); otherwise plain white.
     /// Default false.
     pub has_texture: bool,
     /// The line image.
-    pub texture: CrabbyTexture,
-    /// A `CrabbyParticleBlend3D`. Default alpha.
+    pub texture: PonkoTexture,
+    /// A `PonkoParticleBlend3D`. Default alpha.
     pub blend: u32,
     /// Meters of line per repeat of `texture`; 0 stretches it once over the
     /// whole line. Default 0.
@@ -280,23 +280,23 @@ pub struct CrabbyLine3D {
 /// A `color` line `width` meters wide, alpha blended, with no points yet
 /// (Rust `Line3D::new`).
 /// ```
-/// let l = ponko_ffi::crabby_line3d_new(0.1, ponko_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 });
+/// let l = ponko_ffi::ponko_line3d_new(0.1, ponko_ffi::PonkoColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 });
 /// assert_eq!((l.width, l.texture_length), (0.1, 0.0));
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_line3d_new(width: f32, color: CrabbyColor) -> CrabbyLine3D {
-    CrabbyLine3D {
+pub extern "C" fn ponko_line3d_new(width: f32, color: PonkoColor) -> PonkoLine3D {
+    PonkoLine3D {
         points: std::ptr::null(),
         point_count: 0,
         width,
         color,
         has_texture: false,
-        texture: CrabbyTexture {
+        texture: PonkoTexture {
             id: 0,
             width: 0,
             height: 0,
         },
-        blend: CrabbyParticleBlend3D::CRABBY_PARTICLES_ALPHA as u32,
+        blend: PonkoParticleBlend3D::PONKO_PARTICLES_ALPHA as u32,
         texture_length: 0.0,
     }
 }
@@ -304,17 +304,17 @@ pub extern "C" fn crabby_line3d_new(width: f32, color: CrabbyColor) -> CrabbyLin
 /// Gives `entity` (which needs a 3D transform to draw) a line, replacing any
 /// it had. The points are copied.
 /// ```
-/// let l = ponko_ffi::crabby_line3d_new(0.1, ponko_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 });
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_line3d(std::ptr::null_mut(), 0, &l) } as u32, 1);
+/// let l = ponko_ffi::ponko_line3d_new(0.1, ponko_ffi::PonkoColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 });
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_line3d(std::ptr::null_mut(), 0, &l) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `line` null or valid, its `points` null or holding `point_count` points.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_line3d(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_line3d(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
-    line: *const CrabbyLine3D,
-) -> CrabbyStatus {
+    line: *const PonkoLine3D,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -348,12 +348,12 @@ pub unsafe extern "C" fn crabby_ctx_set_line3d(
 
 /// Removes `entity`'s line.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_line3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_remove_line3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_remove_line3d(ctx: *mut CrabbyCtx, entity_bits: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_remove_line3d(ctx: *mut PonkoCtx, entity_bits: u64) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -375,29 +375,29 @@ pub unsafe extern "C" fn crabby_ctx_remove_line3d(ctx: *mut CrabbyCtx, entity_bi
 /// only faces turned toward +Z get it. Each corner is lifted `lift` meters
 /// along its normal so the decal doesn't flicker (a few millimeters is
 /// typical). The result is empty (`index_count` 0 in
-/// `crabby_mesh_data_view`) when the box misses the mesh; don't give an
-/// empty one to `crabby_ctx_create_mesh`. Null (see `crabby_last_error`) if
+/// `ponko_mesh_data_view`) when the box misses the mesh; don't give an
+/// empty one to `ponko_ctx_create_mesh`. Null (see `ponko_last_error`) if
 /// `data` or `projector` is null or the projector isn't finite. Free the
-/// result with `crabby_mesh_data_free`.
+/// result with `ponko_mesh_data_free`.
 /// # Safety
 /// `data` null or live; `projector` null or holds 16 floats.
 /// ```
 /// use ponko_ffi::*;
-/// let floor = crabby_mesh_data_plane(4.0);
+/// let floor = ponko_mesh_data_plane(4.0);
 /// // A 0.5 m mark projected along the floor's -Y (box +Z turned up), 0.2 m deep.
 /// let down = [0.5, 0.0, 0.0, 0.0,  0.0, 0.0, -0.2, 0.0,  0.0, 0.5, 0.0, 0.0,  1.0, 0.0, 0.0, 1.0];
-/// let mark = unsafe { crabby_mesh_data_decal(floor, down.as_ptr(), 0.002) };
+/// let mark = unsafe { ponko_mesh_data_decal(floor, down.as_ptr(), 0.002) };
 /// assert!(!mark.is_null());
-/// unsafe { crabby_mesh_data_free(mark) };
-/// assert!(unsafe { crabby_mesh_data_decal(floor, std::ptr::null(), 0.002) }.is_null());
-/// unsafe { crabby_mesh_data_free(floor) };
+/// unsafe { ponko_mesh_data_free(mark) };
+/// assert!(unsafe { ponko_mesh_data_decal(floor, std::ptr::null(), 0.002) }.is_null());
+/// unsafe { ponko_mesh_data_free(floor) };
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_mesh_data_decal(
-    data: *const CrabbyMeshData,
+pub unsafe extern "C" fn ponko_mesh_data_decal(
+    data: *const PonkoMeshData,
     projector: *const f32,
     lift: f32,
-) -> *mut CrabbyMeshData {
+) -> *mut PonkoMeshData {
     let mut result = std::ptr::null_mut();
     boundary(|| {
         // SAFETY: caller passes null or live mesh data.
@@ -412,7 +412,7 @@ pub unsafe extern "C" fn crabby_mesh_data_decal(
         if !projector.is_finite() || !lift.is_finite() {
             return Err(invalid("projector and lift must be finite"));
         }
-        result = Box::into_raw(Box::new(CrabbyMeshData(data.0.decal(projector, lift))));
+        result = Box::into_raw(Box::new(PonkoMeshData(data.0.decal(projector, lift))));
         Ok(())
     });
     result
@@ -421,20 +421,20 @@ pub unsafe extern "C" fn crabby_mesh_data_decal(
 /// Reads a glTF file's mesh onto the CPU (Rust `Graphics::load_mesh_data`), all
 /// its parts in one and placed as in the file, without making anything on
 /// the GPU: to cut decals from or read its corners. Loads the file each
-/// call; keep the result. Free it with `crabby_mesh_data_free`. Fails if
+/// call; keep the result. Free it with `ponko_mesh_data_free`. Fails if
 /// the file is missing or isn't a glTF file with triangles.
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; `out_data` writable.
 /// ```
 /// let mut d = std::ptr::null_mut();
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_mesh_data(std::ptr::null_mut(), c"a.glb".as_ptr(), &mut d) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_load_mesh_data(std::ptr::null_mut(), c"a.glb".as_ptr(), &mut d) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_load_mesh_data(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_load_mesh_data(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
-    out_data: *mut *mut CrabbyMeshData,
-) -> CrabbyStatus {
+    out_data: *mut *mut PonkoMeshData,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -443,7 +443,7 @@ pub unsafe extern "C" fn crabby_ctx_load_mesh_data(
                 return Err(invalid("output is null"));
             }
             let data: MeshData = c.gfx.load_mesh_data(path).map_err(invalid_owned)?;
-            out(out_data, Box::into_raw(Box::new(CrabbyMeshData(data))))
+            out(out_data, Box::into_raw(Box::new(PonkoMeshData(data))))
         })
     })
 }

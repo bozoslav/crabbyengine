@@ -39,7 +39,7 @@ import {
 } from "./lib.mjs";
 
 // The canvas web/index.html gives the engine (its CANVAS_ID in src/web.rs).
-const GAME_CANVAS = "canvas#crabby";
+const GAME_CANVAS = "canvas#ponko";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const LAUNCHERS = { chromium, firefox, webkit };

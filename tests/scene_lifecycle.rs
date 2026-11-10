@@ -153,7 +153,7 @@ fn a_scene_with_an_unreflected_component_changes_nothing() {
     write_asset(
         file.0,
         &serde_json::json!({
-            "format": "crabby-world", "version": 1,
+            "format": "ponko-world", "version": 1,
             "entities": [{ "entity": 0, "components": { "NoSuchComponent": {} } }],
         }),
     );
@@ -180,7 +180,7 @@ fn a_scene_with_a_missing_texture_changes_nothing_but_keeps_loaded_ones() {
     write_asset(
         file.0,
         &serde_json::json!({
-            "format": "crabby-world", "version": 1,
+            "format": "ponko-world", "version": 1,
             "entities": [
                 { "entity": 0, "components": { "Sprite": sprite("crab.png") } },
                 { "entity": 1, "components": { "Sprite": sprite("no-such-texture.png") } },
@@ -334,7 +334,7 @@ mod physics {
         let bad = TempAsset("test-lifecycle-gravity-bad.json");
         write_asset(
             bad.0,
-            &serde_json::json!({ "format": "crabby-world", "version": 99, "entities": [] }),
+            &serde_json::json!({ "format": "ponko-world", "version": 99, "entities": [] }),
         );
         Game::new("t", 1, 1)
             .physics(GRAVITY)

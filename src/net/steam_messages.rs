@@ -13,7 +13,9 @@ use super::{NetMessages, PeerId};
 
 const CHANNEL: u32 = 12701; // independent of lockstep's channel zero
 const PACKET_LIMIT: usize = 1500; // renet's MTU plus our session envelope
-const PROTOCOL: &str = "crabby-messages-1";
+const PROTOCOL: &str = "ponko-messages-1";
+// Deprecated version-1 metadata for interoperability with existing peers.
+const LEGACY_PROTOCOL: &str = "crabby-messages-1";
 #[derive(Default)]
 struct LobbyResult {
     result: Option<Result<LobbyId, String>>,
@@ -320,12 +322,19 @@ impl Relay {
         self.lobby.poll()?;
         if let Some(id) = self.lobby.id() {
             if self.hosting && !self.published {
-                self.lobby.set_metadata("crabby_protocol", PROTOCOL)?;
+                self.lobby.set_metadata("ponko_protocol", PROTOCOL)?;
+                // Same packet encoding: advertise to pre-migration peers too.
+                self.lobby.set_metadata("crabby_protocol", LEGACY_PROTOCOL)?;
                 self.published = true;
             }
             if !self.hosting {
-                match self.lobby.metadata("crabby_protocol").as_deref() {
-                    Some(PROTOCOL) => self.owner = Some(self.lobby.api.owner(id)),
+                match self
+                    .lobby
+                    .metadata("ponko_protocol")
+                    .or_else(|| self.lobby.metadata("crabby_protocol"))
+                    .as_deref()
+                {
+                    Some(PROTOCOL | LEGACY_PROTOCOL) => self.owner = Some(self.lobby.api.owner(id)),
                     Some(_) => return Err(io::Error::other("incompatible message protocol")),
                     None => return Ok(()), // owner may still be publishing
                 }
@@ -717,7 +726,42 @@ mod tests {
             .get_mut(&1)
             .unwrap()
             .metadata
-            .insert("crabby_protocol".into(), "other".into());
+            .insert("ponko_protocol".into(), "other".into());
         assert!(nets[1].poll_elapsed(Duration::ZERO).is_err());
+    }
+    #[test]
+    fn renamed_protocol_metadata_keeps_old_peers_and_primary_precedence() {
+        let (mut nets, state) = endpoints(2);
+        poll(&mut nets, 30);
+        let metadata = state.lock().unwrap().rooms[&1].metadata.clone();
+        assert_eq!(
+            metadata.get("ponko_protocol").map(String::as_str),
+            Some("ponko-messages-1")
+        );
+        assert_eq!(
+            metadata.get("crabby_protocol").map(String::as_str),
+            Some("crabby-messages-1")
+        );
+        state
+            .lock()
+            .unwrap()
+            .rooms
+            .get_mut(&1)
+            .unwrap()
+            .metadata
+            .remove("ponko_protocol");
+        assert!(
+            nets[1].poll_elapsed(Duration::ZERO).is_ok(),
+            "old hosts stay compatible"
+        );
+        {
+            let mut state = state.lock().unwrap();
+            let metadata = &mut state.rooms.get_mut(&1).unwrap().metadata;
+            metadata.insert("ponko_protocol".into(), "ponko-messages-2".into());
+        }
+        assert!(
+            nets[1].poll_elapsed(Duration::ZERO).is_err(),
+            "unknown primary versions cannot fall back"
+        );
     }
 }

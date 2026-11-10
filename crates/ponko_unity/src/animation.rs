@@ -946,7 +946,7 @@ mod tests {
         let len = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
         let doc: serde_json::Value = serde_json::from_slice(&bytes[20..20 + len]).unwrap();
         assert_eq!(
-            doc["animations"][0]["extras"]["crabbyAnimatedTargets"],
+            doc["animations"][0]["extras"]["ponkoAnimatedTargets"],
             serde_json::json!(["Raise"])
         );
     }

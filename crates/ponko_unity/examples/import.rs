@@ -76,7 +76,7 @@ fn main() {
     if let Some(name) = &one {
         let at = Path::new(out).join(name);
         let world = serde_json::json!({
-            "format": "crabby-world",
+            "format": "ponko-world",
             "version": 1,
             "entities": merged,
             "resources": {},

@@ -20,7 +20,7 @@ pub(crate) struct SceneAssetField {
     load: SceneAssetLoader,
 }
 
-pub(crate) const PREFAB_FORMAT: &str = "crabby-prefab";
+pub(crate) const PREFAB_FORMAT: &str = "ponko-prefab";
 pub(crate) const PREFAB_VERSION: u64 = 1;
 
 impl Ctx {
@@ -317,7 +317,8 @@ fn field_names(json: &Value, component: &str, field: &str, out: &mut Vec<String>
 
 /// A prefab file's components, checked.
 fn components_of(prefab: &Value) -> Result<Value, String> {
-    if prefab["format"] != PREFAB_FORMAT {
+    // Deprecated identifier remains readable throughout the migration cycle.
+    if prefab["format"] != PREFAB_FORMAT && prefab["format"] != "crabby-prefab" {
         return Err(format!("not a prefab (expected \"format\": \"{PREFAB_FORMAT}\")"));
     }
     if prefab["version"].as_u64() != Some(PREFAB_VERSION) {

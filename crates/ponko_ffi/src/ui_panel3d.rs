@@ -1,10 +1,10 @@
 //! Retained UI on surfaces in the 3D world from C (Rust `UiPanel3D`,
 //! `Graphics::create_ui_panel`, `Ui::set_pointer_ray`).
 //!
-//! `crabby_ctx_create_ui_panel` gives an entity a panel: its own UI, drawn
+//! `ponko_ctx_create_ui_panel` gives an entity a panel: its own UI, drawn
 //! every frame into a render target that a glowing quad shows. Build that UI
-//! with the `crabby_ctx_ui_*` calls, passing the entity as their `target`
-//! (`CRABBY_UI_SCREEN` is the screen's own UI). The mouse works on the nearest
+//! with the `ponko_ctx_ui_*` calls, passing the entity as their `target`
+//! (`PONKO_UI_SCREEN` is the screen's own UI). The mouse works on the nearest
 //! panel its ray hits, in the panel's pixels, unless the screen's UI has it.
 
 use ponko::render::Model;
@@ -12,14 +12,14 @@ use ponko::{Ctx, Vec3, d3::UiPanel as UiPanel3D};
 
 use crate::ctx::{ctx_access, out};
 use crate::particles::entity;
-use crate::types::{CrabbyTexture, CrabbyVec2, texture_to_c, to_c};
-use crate::{CrabbyCtx, CrabbyStatus, CrabbyVec3, Failure, boundary, error, invalid, invalid_owned};
+use crate::types::{PonkoTexture, PonkoVec2, texture_to_c, to_c};
+use crate::{Failure, PonkoCtx, PonkoStatus, PonkoVec3, boundary, error, invalid, invalid_owned};
 
 fn panel(c: &mut Ctx, bits: u64) -> Result<&mut UiPanel3D, Failure> {
     let e = entity(c, bits)?;
     c.world
         .get_mut::<UiPanel3D>(e)
-        .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "entity has no UI panel"))
+        .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "entity has no UI panel"))
 }
 
 /// Gives `entity` a UI panel `width` x `height` pixels, `size` meters wide
@@ -27,23 +27,23 @@ fn panel(c: &mut Ctx, bits: u64) -> Result<&mut UiPanel3D, Failure> {
 /// XY plane, centered on it and facing +Z, with a glowing, alpha-blended
 /// material. The entity needs a 3D transform to be drawn and hit. This
 /// replaces the entity's model and any panel it had. Build the panel's UI with
-/// the `crabby_ctx_ui_*` calls, giving the entity as their `target`. Writes the
+/// the `ponko_ctx_ui_*` calls, giving the entity as their `target`. Writes the
 /// panel's texture (a render target) to `out_texture` unless it is null.
 /// ```
-/// let size = ponko_ffi::CrabbyVec2 { x: 1.0, y: 0.5 };
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_ui_panel(std::ptr::null_mut(), 0, 256, 128, size, std::ptr::null_mut()) } as u32, 1);
+/// let size = ponko_ffi::PonkoVec2 { x: 1.0, y: 0.5 };
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_create_ui_panel(std::ptr::null_mut(), 0, 256, 128, size, std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; `out_texture` null or writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_create_ui_panel(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_create_ui_panel(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     width: u32,
     height: u32,
-    size: CrabbyVec2,
-    out_texture: *mut CrabbyTexture,
-) -> CrabbyStatus {
+    size: PonkoVec2,
+    out_texture: *mut PonkoTexture,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -66,12 +66,12 @@ pub unsafe extern "C" fn crabby_ctx_create_ui_panel(
 /// Removes `entity`'s UI panel and its UI. Its model stays: despawn the entity
 /// or remove the model to hide the quad.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_ui_panel(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_remove_ui_panel(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_remove_ui_panel(ctx: *mut CrabbyCtx, entity_bits: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_remove_ui_panel(ctx: *mut PonkoCtx, entity_bits: u64) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -84,16 +84,16 @@ pub unsafe extern "C" fn crabby_ctx_remove_ui_panel(ctx: *mut CrabbyCtx, entity_
 
 /// Whether the mouse and keyboard can use `entity`'s panel (on by default).
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_ui_panel_interactive(std::ptr::null_mut(), 0, false) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_ui_panel_interactive(std::ptr::null_mut(), 0, false) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_ui_panel_interactive(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_ui_panel_interactive(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     interactive: bool,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -103,22 +103,22 @@ pub unsafe extern "C" fn crabby_ctx_set_ui_panel_interactive(
     })
 }
 
-/// Where the mouse (or the ray from `crabby_ctx_set_ui_pointer_ray`) is on
+/// Where the mouse (or the ray from `ponko_ctx_set_ui_pointer_ray`) is on
 /// `entity`'s panel this frame: `out_over` says whether it is over it, and
 /// `out_pixel` is the spot in the panel's pixels (zero when it isn't).
 /// ```
 /// let (mut over, mut at) = (false, Default::default());
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_panel_pointer(std::ptr::null_mut(), 0, &mut over, &mut at) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_ui_panel_pointer(std::ptr::null_mut(), 0, &mut over, &mut at) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live; outputs writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_ui_panel_pointer(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_ui_panel_pointer(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     out_over: *mut bool,
-    out_pixel: *mut CrabbyVec2,
-) -> CrabbyStatus {
+    out_pixel: *mut PonkoVec2,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         if out_over.is_null() || out_pixel.is_null() {
@@ -137,20 +137,20 @@ pub unsafe extern "C" fn crabby_ctx_ui_panel_pointer(
 /// Makes panels use the ray from `origin` along `direction` (in the world)
 /// instead of the camera's ray through the mouse, from this frame on: aim
 /// with the camera's forward ray while the cursor is locked, or a controller's
-/// in VR. Clear it with `crabby_ctx_clear_ui_pointer_ray`. A zero or
-/// non-finite `direction` fails with `CRABBY_INVALID_ARGUMENT`.
+/// in VR. Clear it with `ponko_ctx_clear_ui_pointer_ray`. A zero or
+/// non-finite `direction` fails with `PONKO_INVALID_ARGUMENT`.
 /// ```
-/// let v = ponko_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: -1.0 };
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_ui_pointer_ray(std::ptr::null_mut(), Default::default(), v) } as u32, 1);
+/// let v = ponko_ffi::PonkoVec3 { x: 0.0, y: 0.0, z: -1.0 };
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_ui_pointer_ray(std::ptr::null_mut(), Default::default(), v) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_ui_pointer_ray(
-    ctx: *mut CrabbyCtx,
-    origin: CrabbyVec3,
-    direction: CrabbyVec3,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_set_ui_pointer_ray(
+    ctx: *mut PonkoCtx,
+    origin: PonkoVec3,
+    direction: PonkoVec3,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let (origin, direction): (Vec3, Vec3) = (to_c(origin), to_c(direction));
@@ -166,12 +166,12 @@ pub unsafe extern "C" fn crabby_ctx_set_ui_pointer_ray(
 
 /// Goes back to the camera's ray through the mouse for panels.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_clear_ui_pointer_ray(std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_clear_ui_pointer_ray(std::ptr::null_mut()) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_clear_ui_pointer_ray(ctx: *mut CrabbyCtx) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_clear_ui_pointer_ray(ctx: *mut PonkoCtx) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {

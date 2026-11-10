@@ -2,7 +2,7 @@
 use crate::ctx::{ctx_access, out, text};
 use crate::media::{font_from_c, font_to_c};
 use crate::types::to_c;
-use crate::{CrabbyColor, CrabbyCtx, CrabbyFont, CrabbyStatus, boundary, error, invalid};
+use crate::{PonkoColor, PonkoCtx, PonkoFont, PonkoStatus, boundary, error, invalid};
 use ponko::Entity;
 use ponko::d3::Text as Text3D;
 use ponko::d3::TextAlign as TextAlign3D;
@@ -10,49 +10,49 @@ use std::ffi::c_char;
 
 /// How lines line up inside a world text block.
 /// ```
-/// assert_eq!(ponko_ffi::CrabbyTextAlign3D::CRABBY_TEXT_ALIGN3D_CENTER as u32, 1);
+/// assert_eq!(ponko_ffi::PonkoTextAlign3D::PONKO_TEXT_ALIGN3D_CENTER as u32, 1);
 /// ```
 #[repr(u32)]
 #[derive(Clone, Copy, Debug)]
 #[allow(non_camel_case_types)]
-pub enum CrabbyTextAlign3D {
+pub enum PonkoTextAlign3D {
     /// Left edge.
-    CRABBY_TEXT_ALIGN3D_LEFT = 0,
+    PONKO_TEXT_ALIGN3D_LEFT = 0,
     /// Center (default).
-    CRABBY_TEXT_ALIGN3D_CENTER = 1,
+    PONKO_TEXT_ALIGN3D_CENTER = 1,
     /// Right edge.
-    CRABBY_TEXT_ALIGN3D_RIGHT = 2,
+    PONKO_TEXT_ALIGN3D_RIGHT = 2,
 }
 
-/// World text settings. Start with `crabby_text3d_default`. Size is meters
+/// World text settings. Start with `ponko_text3d_default`. Size is meters
 /// per line; outline width and softness are fractions of a line, clamped
 /// by the renderer to about 0.12. Text needs a Transform3D to be drawn.
 /// ```
-/// let settings: ponko_ffi::CrabbyText3D = ponko_ffi::crabby_text3d_default();
+/// let settings: ponko_ffi::PonkoText3D = ponko_ffi::ponko_text3d_default();
 /// assert!(!settings.billboard);
 /// ```
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct CrabbyText3D {
+pub struct PonkoText3D {
     /// Loaded font, or id 0 for the built-in font.
-    pub font: CrabbyFont,
+    pub font: PonkoFont,
     /// Line height in meters (default 0.25).
     pub size: f32,
     /// Fill color.
-    pub color: CrabbyColor,
+    pub color: PonkoColor,
     /// Outline color (transparent by default).
-    pub outline: CrabbyColor,
+    pub outline: PonkoColor,
     /// Outline reach in lines.
     pub outline_width: f32,
     /// Edge softness in lines.
     pub softness: f32,
-    /// CrabbyTextAlign3D as uint32_t.
+    /// PonkoTextAlign3D as uint32_t.
     pub align: u32,
     /// Face the camera instead of following the transform's rotation.
     pub billboard: bool,
 }
-fn settings(t: &Text3D) -> CrabbyText3D {
-    CrabbyText3D {
+fn settings(t: &Text3D) -> PonkoText3D {
+    PonkoText3D {
         font: font_to_c(t.font),
         size: t.size,
         color: to_c(t.color),
@@ -65,10 +65,10 @@ fn settings(t: &Text3D) -> CrabbyText3D {
 }
 /// Default settings: white, centered, quarter-meter lines, no outline.
 /// ```
-/// assert_eq!(ponko_ffi::crabby_text3d_default().size, 0.25);
+/// assert_eq!(ponko_ffi::ponko_text3d_default().size, 0.25);
 /// ```
 #[unsafe(no_mangle)]
-pub extern "C" fn crabby_text3d_default() -> CrabbyText3D {
+pub extern "C" fn ponko_text3d_default() -> PonkoText3D {
     settings(&Text3D::new(""))
 }
 
@@ -78,15 +78,15 @@ pub extern "C" fn crabby_text3d_default() -> CrabbyText3D {
 /// # Safety
 /// `ctx` null or live; `value` null or readable; `string` null or a C string.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_text3d(std::ptr::null_mut(), 0, c"Hi".as_ptr(), &ponko_ffi::crabby_text3d_default()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_text3d(std::ptr::null_mut(), 0, c"Hi".as_ptr(), &ponko_ffi::ponko_text3d_default()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_text3d(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_text3d(
+    ctx: *mut PonkoCtx,
     entity: u64,
     string: *const c_char,
-    value: *const CrabbyText3D,
-) -> CrabbyStatus {
+    value: *const PonkoText3D,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -135,14 +135,10 @@ pub unsafe extern "C" fn crabby_ctx_set_text3d(
 /// # Safety
 /// `ctx` null or live; output null or writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_text3d(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_text3d(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_text3d(
-    ctx: *mut CrabbyCtx,
-    entity: u64,
-    output: *mut CrabbyText3D,
-) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_text3d(ctx: *mut PonkoCtx, entity: u64, output: *mut PonkoText3D) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -153,7 +149,7 @@ pub unsafe extern "C" fn crabby_ctx_text3d(
             let t = c
                 .world
                 .get::<Text3D>(e)
-                .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "entity has no world text"))?;
+                .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "entity has no world text"))?;
             out(output, settings(t))
         })
     })
@@ -167,16 +163,16 @@ pub unsafe extern "C" fn crabby_ctx_text3d(
 /// `ctx` null or live; buffer writable for capacity bytes (null only with
 /// capacity 0); length null or writable. Outputs must not overlap.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_text3d_text(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_text3d_text(std::ptr::null_mut(), 0, std::ptr::null_mut(), 0, &mut 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_text3d_text(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_text3d_text(
+    ctx: *mut PonkoCtx,
     entity: u64,
     buffer: *mut c_char,
     capacity: usize,
     length: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract; outputs validated before writes.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -190,7 +186,7 @@ pub unsafe extern "C" fn crabby_ctx_text3d_text(
             let t = c
                 .world
                 .get::<Text3D>(e)
-                .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "entity has no world text"))?;
+                .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "entity has no world text"))?;
             length.write(t.text.len());
             if capacity > t.text.len() {
                 std::ptr::copy_nonoverlapping(t.text.as_ptr(), buffer.cast(), t.text.len());
@@ -207,10 +203,10 @@ pub unsafe extern "C" fn crabby_ctx_text3d_text(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_remove_text3d(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_remove_text3d(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_remove_text3d(ctx: *mut CrabbyCtx, entity: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_remove_text3d(ctx: *mut PonkoCtx, entity: u64) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {

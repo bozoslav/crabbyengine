@@ -27,6 +27,15 @@ fn environment_spellings_remain_interoperable() {
                 .env("PONKO_BENCH", if enabled { "3" } else { value });
         }
         let result = child.output().unwrap();
+        let warnings = String::from_utf8_lossy(&result.stderr)
+            .matches("deprecated environment")
+            .count();
+        assert_eq!(
+            warnings,
+            usize::from(primary.is_none()),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
         assert!(
             result.status.success(),
             "{}\n{}",
@@ -45,5 +54,8 @@ fn configuration_child() {
     Game::new("Naming compatibility", 1, 1).run_headless(1, |ctx| {
         assert_eq!(ctx.control_addr().is_some(), enabled);
     });
-    assert_eq!(Color::PONKO_DARK, Color::CRABBY_DARK);
+    #[allow(deprecated)]
+    {
+        assert_eq!(Color::PONKO_DARK, Color::CRABBY_DARK);
+    }
 }

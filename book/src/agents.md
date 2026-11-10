@@ -104,7 +104,7 @@ Troubleshooting a slow tick, for example:
 
 ## Several agents, several games
 
-Every game with the endpoint on registers itself in `~/.crabby/instances/`,
+Every game with the endpoint on registers itself in `~/.ponko/instances/`,
 and every `ponko-mcp` reads that registry. So:
 
 - each agent runs its own `ponko-mcp`, and all of them see all games;

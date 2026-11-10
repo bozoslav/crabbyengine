@@ -19,7 +19,7 @@ named.
 
 - **The control endpoint** (`PONKO_CONTROL=1`) lets tools and AI agents
   read and change a running game. It's off by default, listens only on
-  localhost, and needs a random token written to `~/.crabby/instances`.
+  localhost, and needs a random token written to `~/.ponko/instances`.
   Never expose it to a network.
 - **The C API** (`ponko_ffi`) trusts its caller like any C library:
   passing invalid pointers is undefined behavior, not a vulnerability.

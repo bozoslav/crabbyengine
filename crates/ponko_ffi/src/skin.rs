@@ -13,24 +13,24 @@ use ponko::{Ctx, Entity};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::three::{
-    CrabbyMaterial, CrabbyMesh, CrabbyMeshData, CrabbyTransform3D, CrabbyVec3, transform_from_c, transform_to_c,
+    PonkoMaterial, PonkoMesh, PonkoMeshData, PonkoTransform3D, PonkoVec3, transform_from_c, transform_to_c,
 };
-use crate::types::CrabbyColor;
+use crate::types::PonkoColor;
 use crate::types::to_c;
-use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, error, invalid, invalid_owned};
+use crate::{Failure, PonkoCtx, PonkoStatus, boundary, error, invalid, invalid_owned};
 
 /// One joint of a skeleton (Rust `Joint`): its name, the index of the
 /// joint it hangs from (earlier in the list; -1 for a root) and where it
 /// sits relative to that joint at rest.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct CrabbyJoint {
+pub struct PonkoJoint {
     /// Its name (UTF-8, copied).
     pub name: *const c_char,
     /// The joint it hangs from, or -1.
     pub parent: i32,
     /// Where it sits relative to its parent at rest.
-    pub rest: CrabbyTransform3D,
+    pub rest: PonkoTransform3D,
 }
 
 fn entity(c: &Ctx, bits: u64) -> Result<Entity, Failure> {
@@ -45,14 +45,14 @@ fn entity(c: &Ctx, bits: u64) -> Result<Entity, Failure> {
 fn skeleton(c: &Ctx, bits: u64) -> Result<&Skeleton, Failure> {
     c.world
         .get::<Skeleton>(entity(c, bits)?)
-        .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "that entity has no skeleton"))
+        .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "that entity has no skeleton"))
 }
 
 fn skeleton_mut(c: &mut Ctx, bits: u64) -> Result<&mut Skeleton, Failure> {
     let e = entity(c, bits)?;
     c.world
         .get_mut::<Skeleton>(e)
-        .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "that entity has no skeleton"))
+        .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "that entity has no skeleton"))
 }
 
 fn joint_index(s: &Skeleton, joint: usize) -> Result<usize, Failure> {
@@ -72,20 +72,20 @@ fn joint_index(s: &Skeleton, joint: usize) -> Result<usize, Failure> {
 /// # Safety
 /// `data` null or live; `joints` and `weights` hold `4 * count` values (null when 0).
 /// ```
-/// use ponko_ffi::{CrabbyStatus::*, *};
-/// let d = crabby_mesh_data_plane(1.0);
+/// use ponko_ffi::{PonkoStatus::*, *};
+/// let d = ponko_mesh_data_plane(1.0);
 /// let (j, w) = ([0u16; 16], [1.0f32, 0.0, 0.0, 0.0].repeat(4));
-/// assert_eq!(unsafe { crabby_mesh_data_set_skin(d, j.as_ptr(), w.as_ptr(), 4) }, CRABBY_OK);
-/// assert_eq!(unsafe { crabby_mesh_data_set_skin(d, j.as_ptr(), w.as_ptr(), 3) }, CRABBY_INVALID_ARGUMENT);
-/// unsafe { crabby_mesh_data_free(d) };
+/// assert_eq!(unsafe { ponko_mesh_data_set_skin(d, j.as_ptr(), w.as_ptr(), 4) }, PONKO_OK);
+/// assert_eq!(unsafe { ponko_mesh_data_set_skin(d, j.as_ptr(), w.as_ptr(), 3) }, PONKO_INVALID_ARGUMENT);
+/// unsafe { ponko_mesh_data_free(d) };
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_mesh_data_set_skin(
-    data: *mut CrabbyMeshData,
+pub unsafe extern "C" fn ponko_mesh_data_set_skin(
+    data: *mut PonkoMeshData,
     joints: *const u16,
     weights: *const f32,
     count: usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     boundary(|| {
         // SAFETY: caller contract: null or live.
         let Some(data) = (unsafe { data.as_mut() }) else {
@@ -122,15 +122,15 @@ pub unsafe extern "C" fn crabby_mesh_data_set_skin(
 /// # Safety
 /// `ctx` null or live; `joints` holds `count` joints with valid names.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_skeleton(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_skeleton(std::ptr::null_mut(), 0, std::ptr::null(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_skeleton(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_skeleton(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
-    joints: *const CrabbyJoint,
+    joints: *const PonkoJoint,
     count: usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -180,14 +180,14 @@ pub unsafe extern "C" fn crabby_ctx_set_skeleton(
 /// # Safety
 /// `ctx` null or live; `path` a C string.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_skeleton(std::ptr::null_mut(), 0, c"a.glb".as_ptr()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_load_skeleton(std::ptr::null_mut(), 0, c"a.glb".as_ptr()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_load_skeleton(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_load_skeleton(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     path: *const c_char,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -209,16 +209,16 @@ pub unsafe extern "C" fn crabby_ctx_load_skeleton(
 /// # Safety
 /// `ctx` null or live; `data` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_skinned_mesh(std::ptr::null_mut(), std::ptr::null(), Default::default(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_create_skinned_mesh(std::ptr::null_mut(), std::ptr::null(), Default::default(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_create_skinned_mesh(
-    ctx: *mut CrabbyCtx,
-    data: *const CrabbyMeshData,
-    material: CrabbyMaterial,
+pub unsafe extern "C" fn ponko_ctx_create_skinned_mesh(
+    ctx: *mut PonkoCtx,
+    data: *const PonkoMeshData,
+    material: PonkoMaterial,
     skeleton_entity: u64,
-    out_mesh: *mut CrabbyMesh,
-) -> CrabbyStatus {
+    out_mesh: *mut PonkoMesh,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -231,7 +231,7 @@ pub unsafe extern "C" fn crabby_ctx_create_skinned_mesh(
             // Checked here so bad input is an error, not a panic.
             data.0.check().map_err(invalid_owned)?;
             if data.0.joints.is_empty() {
-                return Err(invalid("the mesh data has no joints (use crabby_ctx_create_mesh)"));
+                return Err(invalid("the mesh data has no joints (use ponko_ctx_create_mesh)"));
             }
             if !c.gfx.is_live(to_c(material)) {
                 return Err(invalid("that material wasn't made by this game"));
@@ -250,14 +250,14 @@ pub unsafe extern "C" fn crabby_ctx_create_skinned_mesh(
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_joint_count(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_joint_count(std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_joint_count(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_joint_count(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     out_count: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, skeleton(c, entity_bits)?.joints().len())) })
 }
@@ -268,16 +268,16 @@ pub unsafe extern "C" fn crabby_ctx_joint_count(
 /// # Safety
 /// `ctx` null or live; `name` a C string; outputs writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_find_joint(std::ptr::null_mut(), 0, c"hip".as_ptr(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_find_joint(std::ptr::null_mut(), 0, c"hip".as_ptr(), std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_find_joint(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_find_joint(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     name: *const c_char,
     out_found: *mut bool,
     out_joint: *mut usize,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -300,15 +300,15 @@ pub unsafe extern "C" fn crabby_ctx_find_joint(
 /// # Safety
 /// `ctx` null or live; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_joint_pose(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_joint_pose(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_joint_pose(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_joint_pose(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     joint: usize,
-    out_pose: *mut CrabbyTransform3D,
-) -> CrabbyStatus {
+    out_pose: *mut PonkoTransform3D,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -325,15 +325,15 @@ pub unsafe extern "C" fn crabby_ctx_joint_pose(
 /// # Safety
 /// `ctx` null or live; `pose` null or readable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_joint_pose(std::ptr::null_mut(), 0, 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_joint_pose(std::ptr::null_mut(), 0, 0, std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_joint_pose(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_joint_pose(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     joint: usize,
-    pose: *const CrabbyTransform3D,
-) -> CrabbyStatus {
+    pose: *const PonkoTransform3D,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -357,10 +357,10 @@ pub unsafe extern "C" fn crabby_ctx_set_joint_pose(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_reset_pose(std::ptr::null_mut(), 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_reset_pose(std::ptr::null_mut(), 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_reset_pose(ctx: *mut CrabbyCtx, entity_bits: u64) -> CrabbyStatus {
+pub unsafe extern "C" fn ponko_ctx_reset_pose(ctx: *mut PonkoCtx, entity_bits: u64) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -375,15 +375,15 @@ pub unsafe extern "C" fn crabby_ctx_reset_pose(ctx: *mut CrabbyCtx, entity_bits:
 /// # Safety
 /// `ctx` null or live; `out_matrix` holds 16 floats.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_joint_matrix(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_joint_matrix(std::ptr::null_mut(), 0, 0, std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_joint_matrix(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_joint_matrix(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     joint: usize,
     out_matrix: *mut f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -403,14 +403,14 @@ pub unsafe extern "C" fn crabby_ctx_joint_matrix(
 /// # Safety
 /// `ctx` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_skin_of(std::ptr::null_mut(), 0, 0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_set_skin_of(std::ptr::null_mut(), 0, 0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_set_skin_of(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_set_skin_of(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     skeleton_entity: u64,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -427,16 +427,16 @@ pub unsafe extern "C" fn crabby_ctx_set_skin_of(
 /// # Safety
 /// `ctx` null or live; `offset` null or readable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_attach_to_joint(std::ptr::null_mut(), 0, 0, 0, std::ptr::null()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_attach_to_joint(std::ptr::null_mut(), 0, 0, 0, std::ptr::null()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_attach_to_joint(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_attach_to_joint(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     skeleton_entity: u64,
     joint: usize,
-    offset: *const CrabbyTransform3D,
-) -> CrabbyStatus {
+    offset: *const PonkoTransform3D,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -458,24 +458,24 @@ pub unsafe extern "C" fn crabby_ctx_attach_to_joint(
 }
 
 /// An animation clip (Rust `AnimationClip`): made with
-/// `crabby_ctx_load_clip`, freed with `crabby_clip_free`.
-pub struct CrabbyClip(pub(crate) ponko::anim::AnimationClip);
+/// `ponko_ctx_load_clip`, freed with `ponko_clip_free`.
+pub struct PonkoClip(pub(crate) ponko::anim::AnimationClip);
 
 /// Loads the clip called `name` of a glTF file with skins (Rust
-/// `Graphics::load_clip`); free it with `crabby_clip_free`.
-/// `CRABBY_NOT_FOUND` when the file has no clip of that name.
+/// `Graphics::load_clip`); free it with `ponko_clip_free`.
+/// `PONKO_NOT_FOUND` when the file has no clip of that name.
 /// # Safety
 /// `ctx` null or live; `path` and `name` C strings; output writable.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_clip(std::ptr::null_mut(), c"a.glb".as_ptr(), c"walk".as_ptr(), std::ptr::null_mut()) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_load_clip(std::ptr::null_mut(), c"a.glb".as_ptr(), c"walk".as_ptr(), std::ptr::null_mut()) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_load_clip(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_load_clip(
+    ctx: *mut PonkoCtx,
     path: *const c_char,
     name: *const c_char,
-    out_clip: *mut *mut CrabbyClip,
-) -> CrabbyStatus {
+    out_clip: *mut *mut PonkoClip,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -487,8 +487,8 @@ pub unsafe extern "C" fn crabby_ctx_load_clip(
             let clip = clips
                 .into_iter()
                 .find(|clip| clip.name() == name)
-                .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "no clip of that name in the file"))?;
-            *out_clip = Box::into_raw(Box::new(CrabbyClip(clip)));
+                .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "no clip of that name in the file"))?;
+            *out_clip = Box::into_raw(Box::new(PonkoClip(clip)));
             Ok(())
         })
     })
@@ -496,12 +496,12 @@ pub unsafe extern "C" fn crabby_ctx_load_clip(
 
 /// Frees a clip; null does nothing.
 /// # Safety
-/// `clip` null or from `crabby_ctx_load_clip`, freed once.
+/// `clip` null or from `ponko_ctx_load_clip`, freed once.
 /// ```
-/// unsafe { ponko_ffi::crabby_clip_free(std::ptr::null_mut()) };
+/// unsafe { ponko_ffi::ponko_clip_free(std::ptr::null_mut()) };
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_clip_free(clip: *mut CrabbyClip) {
+pub unsafe extern "C" fn ponko_clip_free(clip: *mut PonkoClip) {
     if !clip.is_null() {
         // SAFETY: caller contract: from Box::into_raw, freed once.
         drop(unsafe { Box::from_raw(clip) });
@@ -512,10 +512,10 @@ pub unsafe extern "C" fn crabby_clip_free(clip: *mut CrabbyClip) {
 /// # Safety
 /// `clip` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_clip_duration(std::ptr::null()) }, 0.0);
+/// assert_eq!(unsafe { ponko_ffi::ponko_clip_duration(std::ptr::null()) }, 0.0);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_clip_duration(clip: *const CrabbyClip) -> f32 {
+pub unsafe extern "C" fn ponko_clip_duration(clip: *const PonkoClip) -> f32 {
     // SAFETY: caller contract.
     unsafe { clip.as_ref() }.map_or(0.0, |c| c.0.duration())
 }
@@ -527,16 +527,16 @@ pub unsafe extern "C" fn crabby_clip_duration(clip: *const CrabbyClip) -> f32 {
 /// # Safety
 /// `ctx` null or live; `clip` null or live.
 /// ```
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_sample_clip(std::ptr::null_mut(), std::ptr::null(), 0, 0.0, 1.0) } as u32, 1);
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_sample_clip(std::ptr::null_mut(), std::ptr::null(), 0, 0.0, 1.0) } as u32, 1);
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_sample_clip(
-    ctx: *mut CrabbyCtx,
-    clip: *const CrabbyClip,
+pub unsafe extern "C" fn ponko_ctx_sample_clip(
+    ctx: *mut PonkoCtx,
+    clip: *const PonkoClip,
     entity_bits: u64,
     time: f32,
     weight: f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -558,23 +558,23 @@ pub unsafe extern "C" fn crabby_ctx_sample_clip(
 /// Out-of-reach targets get a straight chain pointing at them (Rust
 /// `two_bone_ik`). Use it in a late system, after animation.
 /// ```
-/// let v = ponko_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 0.0 };
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_two_bone_ik(std::ptr::null_mut(), 0, 0, 1, 2, v, v, 1.0) } as u32, 1);
+/// let v = ponko_ffi::PonkoVec3 { x: 0.0, y: 0.0, z: 0.0 };
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_two_bone_ik(std::ptr::null_mut(), 0, 0, 1, 2, v, v, 1.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn crabby_ctx_two_bone_ik(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_two_bone_ik(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     upper: usize,
     middle: usize,
     end: usize,
-    target: CrabbyVec3,
-    pole: CrabbyVec3,
+    target: PonkoVec3,
+    pole: PonkoVec3,
     weight: f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -595,21 +595,21 @@ pub unsafe extern "C" fn crabby_ctx_two_bone_ik(
 /// `weight` 0 to 1 (Rust `look_at_joint`). For a spine-neck-head chain, call
 /// it per joint from the root out with smaller weights.
 /// ```
-/// let v = ponko_ffi::CrabbyVec3 { x: 0.0, y: 0.0, z: 1.0 };
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_look_at_joint(std::ptr::null_mut(), 0, 0, v, v, 1.0, 1.0) } as u32, 1);
+/// let v = ponko_ffi::PonkoVec3 { x: 0.0, y: 0.0, z: 1.0 };
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_look_at_joint(std::ptr::null_mut(), 0, 0, v, v, 1.0, 1.0) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_look_at_joint(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_look_at_joint(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
     joint: usize,
-    axis: CrabbyVec3,
-    target: CrabbyVec3,
+    axis: PonkoVec3,
+    target: PonkoVec3,
     max_angle: f32,
     weight: f32,
-) -> CrabbyStatus {
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
@@ -626,17 +626,17 @@ pub unsafe extern "C" fn crabby_ctx_look_at_joint(
 /// Draws `entity`'s bones this frame as lines from each joint to its
 /// parent, over the scene (no depth test).
 /// ```
-/// let white = ponko_ffi::CrabbyColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
-/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_draw_skeleton(std::ptr::null_mut(), 0, white) } as u32, 1);
+/// let white = ponko_ffi::PonkoColor { r: 1.0, g: 1.0, b: 1.0, a: 1.0 };
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_draw_skeleton(std::ptr::null_mut(), 0, white) } as u32, 1);
 /// ```
 /// # Safety
 /// `ctx` null or live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn crabby_ctx_draw_skeleton(
-    ctx: *mut CrabbyCtx,
+pub unsafe extern "C" fn ponko_ctx_draw_skeleton(
+    ctx: *mut PonkoCtx,
     entity_bits: u64,
-    color: CrabbyColor,
-) -> CrabbyStatus {
+    color: PonkoColor,
+) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
