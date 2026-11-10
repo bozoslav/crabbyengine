@@ -205,7 +205,9 @@ fn set_action_changes_one_action_in_place_keeping_ids_and_the_others_state() {
 
         // Rebind one source of "move": read it back, change it, put it back.
         let mut walk = ctx.input.actions().get("move").unwrap().clone();
-        let Action::Axis2(sources) = &mut walk else { unreachable!() };
+        let Action::Axis2(sources) = &mut walk else {
+            unreachable!()
+        };
         sources[0] = Axis2Binding::Keys {
             left: Key::J,
             right: Key::L,
@@ -224,15 +226,18 @@ fn set_action_changes_one_action_in_place_keeping_ids_and_the_others_state() {
         assert_eq!(ctx.input.action_axis(throttle), 1.0);
 
         // A held source becomes the baseline: no edge from rebinding itself.
-        ctx.input.set_action("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
+        ctx.input
+            .set_action("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
         assert!(ctx.input.action_down(jump));
         assert!(!ctx.input.action_pressed(jump) && !ctx.input.action_released(jump));
-        ctx.input.set_action("jump", Action::Button(vec![ButtonBinding::Key(Key::Enter)]));
+        ctx.input
+            .set_action("jump", Action::Button(vec![ButtonBinding::Key(Key::Enter)]));
         assert!(!ctx.input.action_down(jump));
         assert!(!ctx.input.action_released(jump), "rebinding releases nothing");
 
         // A new name gets a new slot; ids resolved before stay valid.
-        ctx.input.set_action("fire", Action::Button(vec![ButtonBinding::Key(Key::F)]));
+        ctx.input
+            .set_action("fire", Action::Button(vec![ButtonBinding::Key(Key::F)]));
         let fire = ctx.input.action_id("fire");
         assert!(fire != jump && fire != throttle && fire != mv);
         ctx.input.feed(InputEvent::Key(Key::F, true));

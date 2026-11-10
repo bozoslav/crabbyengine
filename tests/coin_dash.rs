@@ -1625,6 +1625,45 @@ fn rebound_controls_become_bindings_that_keep_the_resolved_action_ids() {
 }
 
 #[test]
+fn controls_read_back_from_their_bindings_and_from_a_loaded_actions_file() {
+    let mut rebound = Controls::default();
+    rebound.set_key(Control::MoveUp, Key::I).unwrap();
+    rebound.set_key(Control::Pause, Key::X).unwrap();
+    rebound.set_pad(Control::Restart, GamepadButton::Select).unwrap();
+    for controls in [Controls::default(), rebound] {
+        let map = settings::bindings_for(&controls);
+        assert_eq!(Controls::from_bindings(&map), controls);
+        let loaded = ActionMap::from_json(&map.to_json().unwrap()).unwrap();
+        assert_eq!(Controls::from_bindings(&loaded), controls);
+    }
+}
+
+#[test]
+fn the_settings_screen_shows_the_installed_bindings_not_a_copy() {
+    Game::new("t", 800, 600).run_headless(0, |ctx| {
+        setup_with(ctx, None);
+        // Bindings installed behind the settings' back, as a user-edited
+        // actions file would be: the screen reads them from the map.
+        let mut confirm = ctx.input.actions().get("confirm").unwrap().clone();
+        let Action::Button(sources) = &mut confirm else {
+            unreachable!()
+        };
+        sources[0] = ButtonBinding::Key(Key::G);
+        ctx.input.set_action("confirm", confirm);
+        assert_eq!(settings_of(ctx).controls.key(Control::Confirm), Key::Enter);
+        intent(ctx).settings = true;
+        rules(ctx);
+        idle(ctx);
+        idle(ctx);
+        let tree = ctx.ui.accessibility_tree();
+        assert!(
+            tree.nodes().iter().any(|n| n.name == "Confirm key: G"),
+            "the screen shows the bound key:\n{tree}"
+        );
+    });
+}
+
+#[test]
 fn the_default_controls_are_the_default_bindings() {
     // `bindings()` is what a game without a settings file runs on.
     let from_controls = settings::bindings_for(&Controls::default());
