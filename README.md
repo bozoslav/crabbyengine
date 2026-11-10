@@ -185,7 +185,7 @@ AGENTS=1000000 TICKS=600 cargo run --release --example headless
 | [window](examples/window.rs) / [ui](examples/ui.rs) | Input, drawing and interface basics |
 | [battle](examples/battle.rs) / [boids](examples/boids.rs) | Large simulations and spatial queries |
 | [headless](examples/headless.rs) | Simulation without window or GPU |
-| [coin_dash](examples/coin_dash/) | A small complete game (no assets): title, play, pause and result screens, saved best time with recovery from a damaged save, input actions, tested headlessly by `tests/coin_dash.rs` |
+| [coin_dash](examples/coin_dash/) | A small complete game: title, settings (UI scale, rebindable controls), play, pause and result screens, sound, saved best time with recovery from a damaged save, tested headlessly by `tests/coin_dash.rs`, packaged for the desktop and smoke-tested (`scripts/package-coin-dash.py`), and built for the web (see [the guide](book/src/packaging.md)) |
 | [terrain](examples/terrain.rs) / [shaders](examples/shaders.rs) | 3D terrain and custom materials |
 | [physics3d](examples/physics3d.rs) / [vehicle](examples/vehicle.rs) | Characters and raycast-wheel vehicles |
 | [C++ examples](examples/cpp) | Native wrapper usage |

@@ -51,7 +51,7 @@ fn read_pings(ctx: &mut Ctx) -> Vec<u64> {
 fn frame_systems_see_events_and_commands_from_every_tick_of_their_frame() {
     let mut game = bare(Game::new("t", 1, 1))
         .sim_system(|ctx: &mut Ctx| {
-            ctx.events.send(Ping(ctx.sim_tick()));
+            ctx.events.send(Ping(ctx.time.sim_tick()));
             ctx.commands.spawn((Marker,));
         })
         .system(|ctx: &mut Ctx| {
@@ -78,11 +78,11 @@ fn sim_systems_see_frame_events_on_the_next_frames_first_tick() {
     let mut game = bare(Game::new("t", 1, 1))
         .sim_system(|ctx: &mut Ctx| {
             let pings = read_pings(ctx);
-            log(ctx, format!("tick {} {pings:?}", ctx.sim_tick()));
+            log(ctx, format!("tick {} {pings:?}", ctx.time.sim_tick()));
         })
         .system(|ctx: &mut Ctx| {
             // Stamped with the next tick: the frame's ticks already ran.
-            ctx.events.send(Ping(100 + ctx.sim_tick()));
+            ctx.events.send(Ping(100 + ctx.time.sim_tick()));
         });
     let mut ctx = ctx();
     frame(&mut game, &mut ctx, 2);
@@ -98,9 +98,9 @@ fn frame_events_wait_for_sim_readers_while_the_sim_is_paused() {
     let mut game = bare(Game::new("t", 1, 1))
         .sim_system(|ctx: &mut Ctx| {
             let pings = read_pings(ctx);
-            log(ctx, format!("tick {} {pings:?}", ctx.sim_tick()));
+            log(ctx, format!("tick {} {pings:?}", ctx.time.sim_tick()));
         })
-        .system(|ctx: &mut Ctx| ctx.events.send(Ping(ctx.frame())));
+        .system(|ctx: &mut Ctx| ctx.events.send(Ping(ctx.time.frame())));
     let mut ctx = ctx();
     frame(&mut game, &mut ctx, 1);
     for _ in 0..5 {
@@ -119,7 +119,7 @@ fn frame_events_wait_for_sim_readers_while_the_sim_is_paused() {
 #[test]
 fn sim_events_live_at_least_one_whole_frame_for_frame_readers() {
     let mut game = bare(Game::new("t", 1, 1))
-        .sim_system(|ctx: &mut Ctx| ctx.events.send(Ping(ctx.sim_tick())))
+        .sim_system(|ctx: &mut Ctx| ctx.events.send(Ping(ctx.time.sim_tick())))
         .system(|ctx: &mut Ctx| {
             let kept = ctx.events.peek::<Ping>().len();
             log(ctx, format!("kept {kept}"));
@@ -156,4 +156,65 @@ fn commands_from_frame_systems_apply_before_late_and_draw_phases() {
     let mut ctx = ctx();
     frame(&mut game, &mut ctx, 0);
     assert_eq!(take(&mut ctx), ["animate 1", "late 2", "draw 3"]);
+}
+
+// ---- change detection -------------------------------------------------------------
+
+use crate::{Changed, Entity, Tick};
+
+struct Hp;
+
+fn changed_hp(ctx: &mut Ctx) -> usize {
+    ctx.world.query::<&Hp>().filter::<Changed<Hp>>().count()
+}
+
+#[test]
+fn frame_systems_see_the_changes_of_every_tick_since_their_last_frame() {
+    let mut game = bare(Game::new("t", 1, 1))
+        .sim_system(|ctx: &mut Ctx| {
+            // One new entity per tick; frame systems change nothing.
+            ctx.world.spawn((Hp,));
+            let n = changed_hp(ctx);
+            log(ctx, format!("sim {n}"));
+        })
+        .system(|ctx: &mut Ctx| {
+            let n = changed_hp(ctx);
+            log(ctx, format!("frame {n}"));
+        })
+        .late_system(|ctx: &mut Ctx| {
+            let removed = ctx.world.removed::<Hp>().len();
+            let first = ctx.world.query::<Entity>().with::<Hp>().iter().next();
+            if let Some(e) = first {
+                ctx.commands.despawn(e);
+            }
+            log(ctx, format!("late removed {removed}"));
+        });
+    let mut ctx = ctx();
+    ctx.world.track_changes::<Hp>();
+    frame(&mut game, &mut ctx, 3);
+    frame(&mut game, &mut ctx, 0);
+    frame(&mut game, &mut ctx, 1);
+    assert_eq!(
+        take(&mut ctx),
+        [
+            // A sim system sees what it changed earlier in the same run,
+            // but not its own spawn from the tick before.
+            "sim 1",
+            "sim 1",
+            "sim 1",
+            // The frame system sees all three ticks' spawns at once.
+            "frame 3",
+            "late removed 0",
+            "frame 0",
+            // The late system's own despawn isn't reported back to it.
+            "late removed 0",
+            "sim 1",
+            "frame 1",
+            "late removed 0",
+        ]
+    );
+    // Seen by every system (the sim system last, in the third frame's tick),
+    // the first two removals were dropped; the last one is still held for
+    // the systems that haven't run since.
+    assert_eq!(ctx.world.removed_since::<Hp>(Tick::default()).len(), 1);
 }

@@ -3,10 +3,11 @@
 
 use glam::{Mat4, Vec3, Vec4};
 
+use super::lights::MAX_LIGHT_SHADOW_VIEWS;
+use super::retained::{self, Lists, Overrides, Tracked, Transients};
 use super::{
     Assets3D, Camera3D, Lighting, LodGroup, LodHysteresis, LodPick, LodRenderer, LodSettings, LodShadow, Model,
-    ModelMaterial, ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, TERRAIN_LODS, TerrainTile, Transform3D,
-    linear,
+    ModelMaterial, ReceivesDecals, ShadowMesh, SkinFrame, TERRAIN_LODS, TerrainTile, Transform3D, linear,
 };
 use crate::World;
 
@@ -54,22 +55,27 @@ impl Instance3D {
     }
 }
 
+/// The renderer uploads the instances that changed since the frame before;
+/// two of them with up to this many unchanged ones between go in one write.
+pub(crate) const INSTANCE_BRIDGE: usize = 15;
+
 /// Set in the mesh id of a run whose instances are crossfading (dithered):
 /// their depth and shadow passes run a fragment shader for the dither.
 pub(crate) const FADED: u32 = 1 << 31;
 
-/// An instance before sorting: its mesh, whether the camera sees it, and
-/// which shadow views it casts into (one bit each).
-type Entry = (u32, Instance3D, bool, u32);
-
-/// This frame's 3D drawing. `instances` holds the camera's models sorted by
-/// mesh, then the shadow casters sorted by mesh; `runs` and `shadow_runs`
-/// say where each mesh's instances are. Kept between frames so it doesn't
-/// allocate once warm.
+/// This frame's 3D drawing. `instances` holds the models each view draws
+/// (the camera, then every shadow view), each mesh's in a block of their
+/// own; `runs` and `shadow_runs` say where each mesh's instances are. Kept
+/// between frames: a model keeps its place in `instances` while a view
+/// draws it, and a frame only works out what changed (see
+/// [`retained`](super::retained)), without allocating once warm.
 #[derive(Default)]
 pub(crate) struct Frame3D {
     pub static_shadowless: Vec<u32>,
     pub(crate) instance_batch_revision: u64,
+    /// The instances the runs point into. Between the blocks (and past a
+    /// block's instances, where it has room to grow) are instances no run
+    /// draws.
     pub instances: Vec<Instance3D>,
     pub probes: [super::probe::ProbeUniform; 4],
     pub probe_uploads: Vec<(u32, std::sync::Arc<Vec<u16>>)>,
@@ -119,8 +125,13 @@ pub(crate) struct Frame3D {
     pub target_effects: Vec<(u32, u32, u32)>,
     /// The compute passes to run, in order: (compute, target texture, material).
     pub computes: Vec<(u32, u32, u32)>,
-    /// How many of `instances` the camera sees (the rest cast shadows).
+    /// How many instances the camera draws.
     pub visible: usize,
+    /// How many instances the camera and this frame's shadow views draw.
+    pub drawn: usize,
+    /// How many models some view holds (the camera's, or a shadow view's,
+    /// whether this frame draws it again or keeps its map), each once.
+    pub models: usize,
     /// An earlier frame's depth to cull hidden models with, when the camera
     /// has [`occlusion_culling`](Camera3D::occlusion_culling) on.
     pub occlusion: Option<super::occlusion::OcclusionGrid>,
@@ -154,9 +165,12 @@ pub(crate) struct Frame3D {
     pub override_base: u32,
     /// Where each pair is in `material_overrides`.
     override_index: std::collections::HashMap<(u32, u32), u32>,
-    scratch: Vec<Entry>,
-    counts: Vec<u32>,
-    /// Per model, which passes see it (see `collect`), kept between frames.
+    /// Each view's instances, and what they were collected from.
+    lists: Lists,
+    tracked: Tracked,
+    transients: Transients,
+    /// Per shadow-only caster, which passes see it (see `collect`), kept
+    /// between frames.
     flags: Vec<u32>,
     /// Per LOD group: what the camera picked, and which passes see any of it.
     lod_picks: Vec<(LodPick, u32)>,
@@ -248,7 +262,7 @@ impl Frame3D {
         // into a box a little bigger than it needs, and kept while what the
         // camera sees of that stretch stays inside it, the sun stays put and
         // its turn hasn't come (see `Lighting::shadow_refresh`). Kept
-        // cascades cull every caster, so they draw nothing.
+        // cascades draw nothing.
         let refresh = lighting.shadow_refresh.clamp(1, MAX_SHADOW_REFRESH);
         let first_far = if refresh > 1 {
             far_cascades(self.cascades)
@@ -273,58 +287,49 @@ impl Frame3D {
                         && center.distance(c.center) + radius <= c.reach
                 });
                 if let Some(c) = kept {
+                    // Its casters stay in its list (culled against the box
+                    // its map was drawn with), but no run draws them.
                     self.sun_view_proj[i] = c.view_proj;
                     self.cascade_texel[i] = c.texel;
-                    // Planes no sphere is inside of: nothing is drawn.
-                    sun_planes[i] = [Vec4::new(0.0, 0.0, 0.0, -f32::MAX); 5];
-                    continue;
+                } else {
+                    let (m, texel, reach) = sun_box(
+                        camera,
+                        lighting.sun_direction,
+                        near,
+                        splits[i],
+                        self.shadow_size,
+                        1.0 + CACHE_MARGIN,
+                    );
+                    self.cascade_cache[i] = Some(CachedCascade {
+                        view_proj: m,
+                        texel,
+                        center,
+                        reach,
+                        sun: lighting.sun_direction,
+                        size: self.shadow_size,
+                        cascades: self.cascades,
+                    });
+                    self.sun_view_proj[i] = m;
+                    self.cascade_texel[i] = texel;
+                    self.redrawn |= 1 << i;
                 }
-                let (m, texel, reach) = sun_box(
-                    camera,
-                    lighting.sun_direction,
-                    near,
-                    splits[i],
-                    self.shadow_size,
-                    1.0 + CACHE_MARGIN,
-                );
-                self.cascade_cache[i] = Some(CachedCascade {
-                    view_proj: m,
-                    texel,
-                    center,
-                    reach,
-                    sun: lighting.sun_direction,
-                    size: self.shadow_size,
-                    cascades: self.cascades,
-                });
-                self.sun_view_proj[i] = m;
-                self.cascade_texel[i] = texel;
             } else {
                 self.cascade_cache[i] = None;
                 let (m, texel) = sun_view_proj(camera, lighting.sun_direction, near, splits[i], self.shadow_size);
                 self.sun_view_proj[i] = m;
                 self.cascade_texel[i] = texel;
+                self.redrawn |= 1 << i;
             }
-            self.redrawn |= 1 << i;
             let [l, r, b, t, _, f] = frustum_planes(self.sun_view_proj[i]);
             sun_planes[i] = [l, r, b, t, f];
         }
         for cache in &mut self.cascade_cache[self.cascades..] {
             *cache = None;
         }
-        let sun_planes = &sun_planes[..self.cascades];
-        let mut light_planes = [[Vec4::ZERO; 6]; super::lights::MAX_LIGHT_SHADOW_VIEWS];
+        let mut light_planes = [[Vec4::ZERO; 6]; MAX_LIGHT_SHADOW_VIEWS];
         for (planes, m) in light_planes.iter_mut().zip(&self.lights.shadow_views) {
             *planes = frustum_planes(*m);
         }
-        let light_planes = &light_planes[..self.light_views];
-        self.instances.clear();
-        self.runs.clear();
-        self.motion.begin();
-        for runs in &mut self.shadow_runs {
-            runs.clear();
-        }
-        self.scratch.clear();
-        let planes = frustum_planes(self.view_proj);
         // What the sun's shadows can fall on: the view out to the shadow
         // distance. A caster is drawn into the cascades only if its shadow,
         // swept along the sunlight, can reach that (Unity's caster sweep).
@@ -337,108 +342,39 @@ impl Frame3D {
             }
             .view_proj(),
         );
-        let sunlight = lighting.sun_direction.try_normalize().unwrap_or(Vec3::NEG_Y);
-        let sweep = lighting.shadow_distance * 2.0;
-        let texels = self.cascade_texel;
-        let scratch = &mut self.scratch;
-        let motion = &mut self.motion;
-        // `meshes`: what the camera draws, then what each cascade's shadow
-        // map draws (the same for models; coarser for distant terrain).
         // Which passes see a model: bit 0 the camera, bit 1 + i shadow view
         // i (cascades, then light views from MAX_CASCADES on).
+        let culler = Culler {
+            planes: frustum_planes(self.view_proj),
+            receivers,
+            camera: camera.position,
+            sunlight: lighting.sun_direction.try_normalize().unwrap_or(Vec3::NEG_Y),
+            sweep: lighting.shadow_distance * 2.0,
+            sun_planes,
+            cascades: self.cascades,
+            texels: self.cascade_texel,
+            light_planes,
+            light_views: self.light_views,
+            // Hidden behind what an earlier frame drew: still casts shadows.
+            occlusion: self.occlusion.as_ref().filter(|_| camera.occlusion_culling),
+            occluded: std::sync::atomic::AtomicUsize::new(0),
+        };
         // `bounds`: the camera mesh's, and the shadow mesh's (`None`: no
         // shadow), as (center, radius) in model space.
-        // Hidden behind what an earlier frame drew: still casts shadows.
-        let occlusion = self.occlusion.as_ref().filter(|_| camera.occlusion_culling);
-        let occluded = std::sync::atomic::AtomicUsize::new(0);
         let classify_at = |matrix: Mat4, scale: f32, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u32 {
-            let (center, radius) = (matrix.transform_point3(bounds.0), bounds.1 * scale);
-            let mut seen = sphere_visible(&planes, center, radius);
-            if seen
-                && let Some(grid) = occlusion
-                && grid.hides(center - radius, center + radius, camera.position)
-            {
-                occluded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                seen = false;
-            }
-            let mut flags = u32::from(seen);
-            if let Some((center, radius)) = shadow_bounds {
-                let (world_center, world_radius) = (matrix.transform_point3(center), radius * scale);
-                // How far the shadow can reach: down through the whole view.
-                let reach = world_center.distance(camera.position) + sweep;
-                if capsule_visible(&receivers, world_center, world_center + sunlight * reach, world_radius) {
-                    for (i, p) in sun_planes.iter().enumerate() {
-                        // Smaller than a texel: its shadow wouldn't show.
-                        if world_radius * 2.0 >= texels[i] && sphere_visible(p, world_center, world_radius) {
-                            flags |= 2 << i;
-                        }
-                    }
-                }
-                for (i, p) in light_planes.iter().enumerate() {
-                    if sphere_visible(p, world_center, world_radius) {
-                        flags |= 2 << (MAX_CASCADES + i);
-                    }
-                }
-            }
-            flags
+            culler.classify(
+                matrix.transform_point3(bounds.0),
+                bounds.1 * scale,
+                shadow_bounds.map(|(center, radius)| (matrix.transform_point3(center), radius * scale)),
+            )
         };
         let classify = |t: &Transform3D, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u32 {
             classify_at(t.matrix(), t.scale.abs().max_element(), bounds, shadow_bounds)
-        };
-        // A model's meshes (camera, then each cascade's) and bounds.
-        let model_meshes = |m: &Model, shadow: Option<&ShadowMesh>| {
-            let bounds = assets.live_bounds(m.mesh.id)?;
-            let caster = match shadow {
-                Some(ShadowMesh(caster)) => *caster,
-                None => Some(m.mesh),
-            };
-            let caster = caster.filter(|c| assets.casts_shadows(c.id));
-            let shadow_bounds = caster.and_then(|c| assets.live_bounds(c.id));
-            let mut meshes = [caster.map_or(m.mesh.id, |c| c.id); 1 + MAX_CASCADES];
-            meshes[0] = m.mesh.id;
-            Some((meshes, bounds, shadow_bounds))
         };
         // A shadow-only caster's mesh and bounds.
         let shadow_only = |shadow: &ShadowMesh| {
             let mesh = shadow.0.filter(|c| assets.casts_shadows(c.id))?;
             Some((mesh.id, assets.live_bounds(mesh.id)?))
-        };
-        // The entries for a model the passes in `flags` see.
-        // Light views draw the first cascade's (finest) shadow mesh.
-        let view_mesh = |meshes: &[u32; 1 + MAX_CASCADES], view: usize| {
-            if view < MAX_CASCADES {
-                meshes[view + 1]
-            } else {
-                meshes[1]
-            }
-        };
-        let mut add_instance = |meshes: [u32; 1 + MAX_CASCADES], instance: Instance3D, flags: u32, key: u64| {
-            let (seen, casts) = (flags & 1 != 0, flags >> 1);
-            // One entry per distinct mesh, with the passes that draw it.
-            let mut done = 0u32; // views already in an entry
-            let camera_mesh = meshes[0];
-            let in_cascades = |mesh: u32| {
-                (0..MAX_SHADOW_VIEWS).fold(0u32, |m, i| {
-                    if casts & (1 << i) != 0 && view_mesh(&meshes, i) == mesh {
-                        m | 1 << i
-                    } else {
-                        m
-                    }
-                })
-            };
-            if seen {
-                motion.note(key, camera_mesh, &instance);
-                let mask = in_cascades(camera_mesh);
-                done |= mask;
-                scratch.push((camera_mesh, instance, true, mask));
-            }
-            while casts & !done != 0 {
-                let first = (casts & !done).trailing_zeros() as usize;
-                let mesh = view_mesh(&meshes, first);
-                let mask = in_cascades(mesh);
-                done |= mask;
-                scratch.push((mesh, instance, false, mask));
-            }
         };
         // The matrix's fourth row is always (0, 0, 0, 1): its first three
         // slots carry what the shader needs per model; the first holds the
@@ -448,13 +384,15 @@ impl Frame3D {
             model[0][3] = receives;
             Instance3D { model, color }
         };
+        // What the views drew last frame, to bring up to date.
+        let mut lists = std::mem::take(&mut self.lists);
+        let mut transients = std::mem::take(&mut self.transients);
+        let mut arena = std::mem::take(&mut self.instances);
+        let mut motion = std::mem::take(&mut self.motion);
+        lists.begin(&mut arena);
+        transients.begin();
+        motion.begin();
         let all_decals = super::projected::receiver_mask(None);
-        // Skinned models posed by a skeleton are drawn from `skins` instead.
-        // So are meshes with morph targets that aren't skinned.
-        let posed = |m: &Model, s: Option<&Skeleton>| match assets.skin(m.mesh.id) {
-            Some(_) => s.is_some(),
-            None => assets.morph(m.mesh.id).is_some(),
-        };
         // Material overrides: each (mesh, material) pair gets a mesh id of
         // its own past the skinned models, so its models batch together
         // and the rest keep the plain per-mesh path.
@@ -470,62 +408,39 @@ impl Frame3D {
                 overrides.len() as u32 - 1
             });
         });
-        let override_index = &self.override_index;
-        // Models: culled on all cores (most of the work, and most models are
-        // culled), then the few that are seen are added in order.
+        // Models: each compared with what it was last frame, culled again
+        // when it or the views changed (on all cores), and only then are its
+        // instances written again.
+        self.tracked.sync(
+            world,
+            assets,
+            &culler,
+            &Overrides {
+                index: &self.override_index,
+                base: override_base,
+                pairs: &self.material_overrides,
+            },
+            &mut lists,
+            &mut arena,
+            &mut motion,
+        );
+        // The rest is worked out every frame: what a view draws keeps the
+        // place it had (found by its key), what none draws any more leaves.
+        // `meshes`: what the camera draws, then what each cascade's shadow
+        // map draws (the same for models; coarser for distant terrain).
+        let mut touch = |key: retained::Key, motion_key: u64, meshes: retained::Meshes, instance: Instance3D, flags| {
+            transients.touch(
+                &mut lists,
+                &mut arena,
+                &mut motion,
+                key,
+                motion_key,
+                &meshes,
+                flags,
+                &instance,
+            );
+        };
         let flags = &mut self.flags;
-        world
-            .query::<(
-                &Transform3D,
-                &Model,
-                Option<&ShadowMesh>,
-                Option<&Skeleton>,
-                Option<&ReceivesDecals>,
-            )>()
-            .without::<SkinOf>()
-            .par_collect_into(flags, |(t, m, shadow, skeleton, _)| {
-                if posed(m, skeleton) {
-                    return 0;
-                }
-                model_meshes(m, shadow).map_or(0, |(_, bounds, shadow_bounds)| classify(t, bounds, shadow_bounds))
-            });
-        let mut at = 0;
-        world
-            .query::<(
-                crate::Entity,
-                &Transform3D,
-                &Model,
-                Option<&ShadowMesh>,
-                Option<&Skeleton>,
-                Option<&ReceivesDecals>,
-                Option<&ModelMaterial>,
-            )>()
-            .without::<SkinOf>()
-            .for_each(|(e, t, m, shadow, _, receives, material)| {
-                let f = flags[at];
-                at += 1;
-                if f != 0
-                    && let Some((mut meshes, _, _)) = model_meshes(m, shadow)
-                {
-                    // The model's own mesh, wherever it is drawn (not a
-                    // separate `ShadowMesh`), takes the override.
-                    if let Some(o) = material
-                        && let Some(&k) = override_index.get(&(m.mesh.id, o.0.id))
-                    {
-                        for mesh in &mut meshes {
-                            if *mesh == m.mesh.id {
-                                *mesh = override_base + k;
-                            }
-                        }
-                    }
-                    add_instance(
-                        meshes,
-                        instance(t, linear(m.color), super::projected::receiver_mask(receives)),
-                        f,
-                        e.to_bits(),
-                    );
-                }
-            });
         // Shadows with no model: only the cascades that see them.
         world
             .query::<(&Transform3D, &ShadowMesh)>()
@@ -535,19 +450,20 @@ impl Frame3D {
             });
         let mut at = 0;
         world
-            .query::<(&Transform3D, &ShadowMesh)>()
+            .query::<(crate::Entity, &Transform3D, &ShadowMesh)>()
             .without::<Model>()
-            .for_each(|(t, shadow)| {
+            .for_each(|(e, t, shadow)| {
                 let f = flags[at];
                 at += 1;
                 if f != 0
                     && let Some((mesh, _)) = shadow_only(shadow)
                 {
-                    add_instance(
+                    touch(
+                        (e.to_bits(), retained::SHADOW_ONLY),
+                        super::motion::NO_KEY,
                         [mesh; 1 + MAX_CASCADES],
                         instance(t, [1.0; 4], all_decals),
                         f,
-                        super::motion::NO_KEY,
                     );
                 }
             });
@@ -559,7 +475,13 @@ impl Frame3D {
             let caster = assets.casts_shadows(d.mesh).then_some(d.bounds);
             let f = classify_at(d.matrix, d.scale, d.bounds, caster);
             if f != 0 {
-                add_instance([real_meshes + k as u32; 1 + MAX_CASCADES], d.instance, f, d.entity);
+                touch(
+                    (d.entity, retained::SKINNED),
+                    d.entity,
+                    [real_meshes + k as u32; 1 + MAX_CASCADES],
+                    d.instance,
+                    f,
+                );
             }
         }
         // LOD groups: the level (or two, in a crossfade) the camera picks
@@ -619,7 +541,11 @@ impl Frame3D {
                 at += 1;
                 if seen != 0 {
                     let receives = super::projected::receiver_mask(decals);
+                    // Which of the group's renderers this is, in the order
+                    // the pick draws them.
+                    let mut renderer = retained::LOD;
                     lod_draws(g, pick, |r, drawn, casts, fade| {
+                        renderer += 1;
                         if let Some((matrix, f)) = lod_flags(t, r, drawn, casts)
                             && f != 0
                         {
@@ -631,11 +557,12 @@ impl Frame3D {
                             };
                             // No motion of their own for temporal antialiasing: they
                             // reproject with the camera (scenery stays put).
-                            add_instance(
+                            touch(
+                                (entity.to_bits(), renderer),
+                                super::motion::NO_KEY,
                                 [r.mesh.id; 1 + MAX_CASCADES],
                                 instance.with_fade(fade),
                                 f,
-                                super::motion::NO_KEY,
                             );
                         }
                     });
@@ -667,65 +594,187 @@ impl Frame3D {
                     let casts = !matches!(shadow, Some(ShadowMesh(None)));
                     let f = classify(t, (center, radius), casts.then_some((center, radius)));
                     if f != 0 {
-                        add_instance(meshes, instance(t, [1.0; 4], all_decals), f, e.to_bits());
+                        touch(
+                            (e.to_bits(), retained::TERRAIN),
+                            e.to_bits(),
+                            meshes,
+                            instance(t, [1.0; 4], all_decals),
+                            f,
+                        );
                     }
                 }
             });
-        self.motion.finish();
-        let meshes = override_base as usize + self.material_overrides.len();
-        let (counts, instances) = (&mut self.counts, &mut self.instances);
-        self.occluded = occluded.into_inner();
-        self.visible = sort_runs(&self.scratch, |e| e.2, meshes, counts, instances, &mut self.runs);
-        for i in shadow_views(self.cascades, self.light_views) {
-            let runs = &mut self.shadow_runs[i];
-            sort_runs(&self.scratch, |e| e.3 & (1 << i) != 0, meshes, counts, instances, runs);
+        transients.finish(&mut lists, &mut arena);
+        motion.finish();
+        lists.finish(&mut arena);
+        self.occluded = culler.occluded.into_inner();
+        lists.runs(0, &mut self.runs);
+        self.visible = lists.count(0);
+        self.models = lists.things();
+        self.drawn = self.visible;
+        for (i, runs) in self.shadow_runs.iter_mut().enumerate() {
+            // A kept cascade's casters stay in its list; nothing draws them.
+            let drawn = if i < MAX_CASCADES {
+                i < self.cascades && self.redrawn & (1 << i) != 0
+            } else {
+                i - MAX_CASCADES < self.light_views
+            };
+            if drawn {
+                lists.runs(1 + i, runs);
+                self.drawn += lists.count(1 + i);
+            } else {
+                runs.clear();
+            }
         }
+        self.lists = lists;
+        self.transients = transients;
+        self.instances = arena;
+        self.motion = motion;
         self.collect_gi(world, assets, skins, camera, lighting);
+    }
+}
+
+impl Frame3D {
+    /// How many times the instance array was packed again.
+    #[cfg(test)]
+    pub(crate) fn repacks(&self) -> u32 {
+        self.lists.repacks
+    }
+
+    /// Whether the models are worked out without comparing them (see
+    /// `Tracked::rush`).
+    #[cfg(test)]
+    pub(crate) fn rushing(&self) -> bool {
+        self.tracked.rushing()
+    }
+
+    /// Bytes the model collection keeps between frames: its buffers'
+    /// capacity (instances, lists and what is remembered per model).
+    pub(crate) fn extraction_bytes(&self) -> usize {
+        let runs = self.runs.capacity() + self.shadow_runs.iter().map(Vec::capacity).sum::<usize>();
+        self.instances.capacity() * size_of::<Instance3D>()
+            + self.lists.bytes()
+            + self.tracked.bytes()
+            + self.transients.bytes()
+            + self.flags.capacity() * size_of::<u32>()
+            + runs * size_of::<(u32, u32, u32)>()
+    }
+}
+
+/// What a frame culls with: the camera's and the shadow views' planes.
+pub(super) struct Culler<'a> {
+    planes: [Vec4; 6],
+    /// What the sun's shadows can fall on.
+    receivers: [Vec4; 6],
+    camera: Vec3,
+    sunlight: Vec3,
+    /// How far past the camera a caster's shadow is followed.
+    sweep: f32,
+    /// Each cascade's box, open towards the sun.
+    sun_planes: [[Vec4; 5]; MAX_CASCADES],
+    cascades: usize,
+    texels: [f32; MAX_CASCADES],
+    light_planes: [[Vec4; 6]; MAX_LIGHT_SHADOW_VIEWS],
+    light_views: usize,
+    occlusion: Option<&'a super::occlusion::OcclusionGrid>,
+    /// How many spheres in view were culled as hidden.
+    occluded: std::sync::atomic::AtomicUsize,
+}
+
+impl Culler<'_> {
+    /// Which passes see a sphere in the world (bit 0 the camera) and its
+    /// shadow caster's (`None`: no shadow; bit 1 + i shadow view i).
+    pub fn classify(&self, center: Vec3, radius: f32, caster: Option<(Vec3, f32)>) -> u32 {
+        let mut seen = sphere_visible(&self.planes, center, radius);
+        if seen
+            && let Some(grid) = self.occlusion
+            && grid.hides(center - radius, center + radius, self.camera)
+        {
+            self.occluded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            seen = false;
+        }
+        let mut flags = u32::from(seen);
+        if let Some((world_center, world_radius)) = caster {
+            // How far the shadow can reach: down through the whole view.
+            let reach = world_center.distance(self.camera) + self.sweep;
+            if capsule_visible(
+                &self.receivers,
+                world_center,
+                world_center + self.sunlight * reach,
+                world_radius,
+            ) {
+                for (i, p) in self.sun_planes[..self.cascades].iter().enumerate() {
+                    // Smaller than a texel: its shadow wouldn't show.
+                    if world_radius * 2.0 >= self.texels[i] && sphere_visible(p, world_center, world_radius) {
+                        flags |= 2 << i;
+                    }
+                }
+            }
+            for (i, p) in self.light_planes[..self.light_views].iter().enumerate() {
+                if sphere_visible(p, world_center, world_radius) {
+                    flags |= 2 << (MAX_CASCADES + i);
+                }
+            }
+        }
+        flags
+    }
+
+    /// [`classify`](Self::classify) for spheres kept as `xyz` center and
+    /// `w` radius; a negative radius is no sphere (the first: nothing is
+    /// seen at all).
+    pub fn classify_spheres(&self, sphere: [f32; 4], caster: [f32; 4]) -> u32 {
+        if sphere[3] < 0.0 {
+            return 0;
+        }
+        let center = |s: [f32; 4]| Vec3::new(s[0], s[1], s[2]);
+        self.classify(
+            center(sphere),
+            sphere[3],
+            (caster[3] >= 0.0).then(|| (center(caster), caster[3])),
+        )
+    }
+
+    /// Whether culling gives other answers than with the views in `key`
+    /// (those of the frame before), which become these. An occlusion grid
+    /// is new every frame.
+    pub fn changed_since(&self, key: &mut Vec<f32>) -> bool {
+        let mut changed = self.occlusion.is_some();
+        let mut n = 0;
+        let mut put = |v: f32| {
+            if n == key.len() {
+                key.push(v);
+                changed = true;
+            } else if key[n].to_bits() != v.to_bits() {
+                key[n] = v;
+                changed = true;
+            }
+            n += 1;
+        };
+        put(f32::from(u8::from(self.occlusion.is_some())));
+        put(self.cascades as f32);
+        put(self.light_views as f32);
+        put(self.sweep);
+        for v in [self.camera, self.sunlight] {
+            v.to_array().into_iter().for_each(&mut put);
+        }
+        let planes = (self.planes.iter().chain(&self.receivers))
+            .chain(self.sun_planes[..self.cascades].iter().flatten())
+            .chain(self.light_planes[..self.light_views].iter().flatten());
+        for p in planes {
+            p.to_array().into_iter().for_each(&mut put);
+        }
+        self.texels[..self.cascades].iter().copied().for_each(&mut put);
+        if n < key.len() {
+            key.truncate(n);
+            changed = true;
+        }
+        changed
     }
 }
 
 /// The shadow views drawn this frame: the sun's cascades, then the light views.
 pub(crate) fn shadow_views(cascades: usize, light_views: usize) -> impl Iterator<Item = usize> + Clone {
     (0..cascades).chain(MAX_CASCADES..MAX_CASCADES + light_views)
-}
-
-/// Appends the entries of `scratch` that `keep` picks to `instances`, sorted
-/// by mesh (a counting sort), and their runs to `runs`. Returns how many.
-/// Crossfading entries (see [`Instance3D::with_fade`]) come after the whole
-/// ones, in runs of their own with [`FADED`] set in the mesh id.
-fn sort_runs(
-    scratch: &[Entry],
-    keep: impl Fn(&Entry) -> bool,
-    meshes: usize,
-    counts: &mut Vec<u32>,
-    instances: &mut Vec<Instance3D>,
-    runs: &mut Vec<(u32, u32, u32)>,
-) -> usize {
-    let bucket = |e: &Entry| e.0 as usize + if e.1.fade() != 0.0 { meshes } else { 0 };
-    counts.clear();
-    counts.resize(meshes * 2, 0);
-    for e in scratch.iter().filter(|e| keep(e)) {
-        counts[bucket(e)] += 1;
-    }
-    let base = instances.len() as u32;
-    let mut start = base;
-    for (b, count) in counts.iter_mut().enumerate() {
-        if *count > 0 {
-            let faded = if b >= meshes { FADED } else { 0 };
-            runs.push(((b % meshes) as u32 | faded, start, *count));
-        }
-        let n = *count;
-        *count = start; // now: where this bucket's next instance goes
-        start += n;
-    }
-    let added = (start - base) as usize;
-    instances.resize(instances.len() + added, Instance3D::default());
-    for e in scratch.iter().filter(|e| keep(e)) {
-        let at = &mut counts[bucket(e)];
-        instances[*at as usize] = e.1;
-        *at += 1;
-    }
-    added
 }
 
 /// Calls `f(renderer, drawn, casts, fade)` for each renderer that `pick`

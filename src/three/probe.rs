@@ -1,5 +1,6 @@
 //! Local, axis-aligned reflection volumes. Captures are explicit, never per-frame.
-use crate::{Ctx, Entity, Texture, Transform3D, Vec3};
+use crate::gfx::Graphics;
+use crate::{Entity, Texture, Transform3D, Vec3, World};
 
 /// A local environment at an entity's [`Transform3D::position`]. Rotation and
 /// scale are ignored. Four baked environments can be resident; zero content
@@ -131,24 +132,22 @@ impl ProbeAssets {
     }
 }
 
-impl Ctx {
+impl Graphics {
     /// Queue six 128² HDR scene views and GGX filtering on the next rendered
-    /// frame. Calling again refreshes the same content. At most four captures
+    /// frame, for the probe on `entity` of `world` (the game's is `ctx.world`). Calling again refreshes the same content. At most four captures
     /// can be allocated in a context. Headless simulation queues no GPU work.
     /// ```
     /// use ponko::*;
     /// Game::new("probe", 1, 1).run_headless(0, |ctx| {
     ///     let e = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
-    ///     ctx.bake_reflection_probe(e).unwrap();
+    ///     ctx.gfx.bake_reflection_probe(&mut ctx.world, e).unwrap();
     /// });
     /// ```
-    pub fn bake_reflection_probe(&mut self, entity: Entity) -> Result<(), String> {
-        let probe = *self
-            .world
+    pub fn bake_reflection_probe(&mut self, world: &mut World, entity: Entity) -> Result<(), String> {
+        let probe = *world
             .get::<ReflectionProbe3D>(entity)
             .ok_or("entity has no reflection probe")?;
-        let center = self
-            .world
+        let center = world
             .get::<Transform3D>(entity)
             .ok_or("probe has no transform")?
             .position;
@@ -165,7 +164,7 @@ impl Ctx {
             });
             self.assets3d.probes.captures.push(faces);
             let slot = self.assets3d.probes.captures.len() as u32;
-            self.world.get_mut::<ReflectionProbe3D>(entity).unwrap().content = slot;
+            world.get_mut::<ReflectionProbe3D>(entity).unwrap().content = slot;
             slot
         } else {
             if probe.content as usize > self.assets3d.probes.captures.len() {
@@ -188,21 +187,24 @@ pub(crate) struct ProbeUniform {
     pub params: [f32; 4],
 }
 
-impl Ctx {
-    /// Load an HDR/EXR latitude-longitude image as a probe's baked content.
+impl Graphics {
+    /// Load an HDR/EXR latitude-longitude image, from the [added asset
+    /// sources](crate::Assets::add_source) or `assets/`, as the baked content
+    /// of the probe on `entity` of `world` (the game's is `ctx.world`).
     /// Pixels are linear radiance, with +Y at the top and +X at the center.
     /// The file must have a 2:1 aspect ratio. Filtering runs next rendered frame.
     /// ```no_run
     /// # use ponko::*;
     /// # fn load(ctx: &mut Ctx, probe: Entity) -> Result<(), String> {
-    /// ctx.load_reflection_probe(probe, "interior.exr")?;
+    /// ctx.gfx.load_reflection_probe(&mut ctx.world, probe, "interior.exr")?;
     /// # Ok(()) }
     /// ```
-    pub fn load_reflection_probe(&mut self, entity: Entity, name: &str) -> Result<(), String> {
-        let path = crate::assets::resolve(name)?;
-        let bytes = crate::assets::read(&path).map_err(|e| e.to_string())?;
+    pub fn load_reflection_probe(&mut self, world: &mut World, entity: Entity, name: &str) -> Result<(), String> {
+        let found = self.asset_sources.find(name)?;
+        let origin = found.origin.clone();
+        let bytes = found.into_bytes()?;
         let image = image::load_from_memory(&bytes)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("{} is not a valid image: {e}", origin.describe(name)))?
             .into_rgb32f();
         let (width, height) = image.dimensions();
         if width != height.saturating_mul(2) || height == 0 {
@@ -242,8 +244,8 @@ impl Ctx {
                 pixels.push(half::f16::ONE.to_bits());
             }
         }
-        self.bake_reflection_probe(entity)?;
-        let slot = self.world.get::<ReflectionProbe3D>(entity).unwrap().content;
+        self.bake_reflection_probe(world, entity)?;
+        let slot = world.get::<ReflectionProbe3D>(entity).unwrap().content;
         self.assets3d.probes.pending.retain(|&(s, _)| s != slot);
         self.assets3d.probes.uploads.retain(|(s, _)| *s != slot);
         self.assets3d.probes.uploads.push((slot, std::sync::Arc::new(pixels)));

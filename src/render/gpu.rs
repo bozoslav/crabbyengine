@@ -268,6 +268,15 @@ impl Renderer {
         self.stats
     }
 
+    /// The pipeline cache's counters; all zero before any 3D.
+    pub fn pipeline_stats(&self) -> super::PipelineStats {
+        #[cfg(feature = "3d")]
+        if let Some(three) = &self.three {
+            return three.pipeline_stats();
+        }
+        super::PipelineStats::default()
+    }
+
     /// See `Renderer3D::mesh_costs`; empty before any 3D.
     #[cfg(feature = "3d")]
     pub fn mesh_costs(&self) -> Vec<(u32, usize, usize, usize, usize)> {
@@ -375,13 +384,28 @@ impl Renderer {
             .await
             .unwrap_or_else(|e| panic!("ponko: no compatible GPU found: {e}"));
 
+        // `PONKO_GPU_TIER` opens the device as a weaker GPU would be.
+        let forced_tier = super::GpuTier::forced();
+        if let Some(tier) = forced_tier {
+            eprintln!("ponko: PONKO_GPU_TIER forces the {tier} GPU tier");
+        }
+        let required_features = adapter.features()
+            & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES);
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("ponko device"),
-                required_features: adapter.features()
-                    & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
+                required_features: forced_tier.map_or(required_features, |t| t.device_features(required_features)),
                 // The defaults ask for more than WebGL2 has; we need little.
-                required_limits: if cfg!(target_arch = "wasm32") {
+                required_limits: if let Some(tier) = forced_tier {
+                    // The tier's limits, but a surface as large as the window.
+                    tier.window_limits(wgpu::Limits {
+                        max_sampled_textures_per_shader_stage: adapter
+                            .limits()
+                            .max_sampled_textures_per_shader_stage
+                            .clamp(16, 24),
+                        ..wgpu::Limits::default()
+                    })
+                } else if cfg!(target_arch = "wasm32") {
                     adapter.limits()
                 } else {
                     // One more sampled texture than the default 16, where
@@ -403,13 +427,19 @@ impl Renderer {
         // can multisample both 3D targets that much, else 4 (always works).
         let requested_msaa = msaa;
         #[cfg(feature = "3d")]
-        let msaa = if super::gpu3d::multisamples(&adapter, msaa) {
+        let msaa = if super::gpu3d::browser_gl_has_no_multisampled_textures(adapter.get_info().backend) {
+            // WebGL2 can't make multisampled textures through wgpu (glow's
+            // browser binding panics): draw the 3D frame unsmoothed, and
+            // leave edges to FXAA or SMAA.
+            1
+        } else if super::gpu3d::multisamples(&adapter, msaa) {
             msaa
         } else {
             eprintln!("ponko: this GPU can't do {msaa}x multisampling here; using 4x");
             4
         };
-        let capabilities = super::capabilities::of_device(&adapter.get_info(), &device, (requested_msaa, msaa));
+        let mut capabilities = super::capabilities::of_device(&adapter.get_info(), &device, (requested_msaa, msaa));
+        capabilities.forced_tier = forced_tier;
         // Apple's GPUs (Metal) draw in tiles and drop hidden solid fragments
         // themselves: there solid surfaces skip the depth prepass.
         #[cfg(feature = "3d")]
@@ -600,7 +630,7 @@ impl Renderer {
         if self.three.is_none() {
             let white = self.create_texture(1, 1, &[255; 4]);
             let white_array = self.upload_texture_array(1, 1, &[&[255; 4]], false);
-            self.three = Some(super::gpu3d::Renderer3D::new(
+            let renderer = super::gpu3d::Renderer3D::new(
                 &self.device,
                 &self.texture_layout,
                 self.view_format,
@@ -608,7 +638,13 @@ impl Renderer {
                 &white_array,
                 self.msaa,
                 !self.tiled,
-            ));
+            );
+            // No view formats (WebGL2): sprite textures can't be read through a linear view.
+            self.three = Some(if self.image_view_formats.is_empty() {
+                renderer.without_linear_views()
+            } else {
+                renderer
+            });
         }
         self.three.as_mut().expect("just made")
     }
@@ -757,30 +793,40 @@ impl Renderer {
     }
     /// Compiles a compute pass; its id, or the compiler's message.
     #[cfg(feature = "3d")]
-    pub fn create_compute(&mut self, name: &str, source: &str) -> Result<u32, String> {
+    pub fn create_compute(&mut self, name: &str, source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().create_compute(&device, name, source)
     }
 
     /// Recompiles compute pass `id` in place (hot reload).
     #[cfg(feature = "3d")]
-    pub fn replace_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+    pub fn replace_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().replace_compute(&device, id, name, source)
     }
 
     /// Compiles a screen effect; its id, or the compiler's message.
     #[cfg(feature = "3d")]
-    pub fn create_effect(&mut self, name: &str, source: &str) -> Result<u32, String> {
+    pub fn create_effect(&mut self, name: &str, source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().create_effect(&device, name, source)
     }
 
     /// Recompiles screen effect `id` (hot reload).
     #[cfg(feature = "3d")]
-    pub fn replace_effect(&mut self, id: u32, name: &str, source: &str) -> Result<(), String> {
+    pub fn replace_effect(&mut self, id: u32, name: &str, source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().replace_effect(&device, id, name, source)
+    }
+
+    /// Shaders whose pipelines the GPU rejected after they were put in use
+    /// (a browser's WebGPU answers late): the previous ones are back.
+    #[cfg(feature = "3d")]
+    pub fn poll_shader_checks(&mut self, out: &mut Vec<super::gpu3d::LateShaderError>) {
+        let device = self.device.clone();
+        if let Some(three) = self.three.as_mut() {
+            three.poll_shader_checks(&device, out);
+        }
     }
 
     /// Compiles a material shader; its index, or the compiler's message.
@@ -918,6 +964,37 @@ impl Renderer {
             mips: None,
         });
         (self.textures.len() - 1) as u32
+    }
+
+    /// Replaces texture `id` with `rgba` at a new size (resolution
+    /// streaming): the same id, sampling and mipmap kind, so sprites and
+    /// materials showing it see the new pixels at once.
+    pub fn replace_texture(&mut self, id: u32, width: u32, height: u32, rgba: &[u8]) {
+        let Some(old) = self.textures.get(id as usize) else {
+            return;
+        };
+        let nearest = old.nearest;
+        #[cfg(feature = "3d")]
+        let mips = old.mips;
+        let texture = self.upload_texture(width, height, rgba);
+        let bind_group = self.sprite_bind_group(&texture, nearest);
+        self.textures[id as usize] = GpuTexture {
+            bind_group,
+            texture,
+            nearest,
+            #[cfg(feature = "3d")]
+            mips: None,
+        };
+        #[cfg(feature = "3d")]
+        {
+            if let Some(linear) = mips {
+                self.ensure_mips(id, linear);
+            }
+            if let Some(three) = &mut self.three {
+                three.texture_changed(id);
+                three.texture_replaced(&self.device, &self.textures, id);
+            }
+        }
     }
 
     /// Frees texture `id`: its slot shows a 1x1 white texture from now on,
@@ -1063,7 +1140,10 @@ impl Renderer {
         }
         let (width, height) = (tex.texture.width(), tex.texture.height());
         let levels = super::mips::levels(width, height);
-        if levels == 1 {
+        // Without view formats (WebGL2) a data texture can't be read through
+        // a linear view of its sRGB texture: it is remade as a linear one.
+        let remake_as_data = linear && self.image_view_formats.is_empty();
+        if levels == 1 && !remake_as_data {
             self.textures[id as usize].mips = Some(linear);
             return;
         }
@@ -1072,29 +1152,34 @@ impl Renderer {
             height,
             depth_or_array_layers: 1,
         };
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("material texture"),
-            size,
-            mip_level_count: levels,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: self.image_view_formats,
-        });
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        encoder.copy_texture_to_texture(
-            self.textures[id as usize].texture.as_image_copy(),
-            texture.as_image_copy(),
-            size,
-        );
         let mips = self
             .mips
             .get_or_insert_with(|| super::mips::MipMaker::new(&self.device));
-        mips.generate(&self.device, &mut encoder, &texture, linear);
+        let texture = if remake_as_data {
+            mips.data_texture(&self.device, &mut encoder, &self.textures[id as usize].texture, levels)
+        } else {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("material texture"),
+                size,
+                mip_level_count: levels,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: self.image_view_formats,
+            });
+            encoder.copy_texture_to_texture(
+                self.textures[id as usize].texture.as_image_copy(),
+                texture.as_image_copy(),
+                size,
+            );
+            mips.generate(&self.device, &mut encoder, &texture, linear);
+            texture
+        };
         self.queue.submit([encoder.finish()]);
         let bind_group = self.sprite_bind_group(&texture, self.textures[id as usize].nearest);
         let tex = &mut self.textures[id as usize];

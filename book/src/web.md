@@ -84,11 +84,21 @@ nowhere; panics appear in the browser's developer console.
 
 ## Testing in a browser
 
-`web/smoke/` in the engine's repository runs a web build in headless
-Chromium and checks that it starts, fetches its assets, keeps simulating,
-reacts to a click and draws something; CI runs it on every change with
-WebGL2. See its
-[README](https://github.com/ponkoengine/ponko/blob/main/web/smoke/README.md).
+`web/smoke/` in the engine's repository runs a web build in a headless
+browser (Chromium, Firefox or WebKit) and checks that it starts, fetches its
+assets, keeps simulating, reacts to a click and draws something. It also reads
+the engine's own report of the GPU it opened (`ctx.gfx.gpu_capabilities()`) and
+checks that it agrees with the canvas, so a page that fell back to WebGL2
+can't pass as WebGPU. A 2D fixture, a 3D fixture (built with `--features 3d`:
+a glTF model fetched and parsed in the browser, with a sun and shadows) and
+the complete-game reference `coin_dash` ([A complete game,
+packaged](packaging.md#the-web-build)) are built and checked there. CI runs
+WebGL2 in all three browsers in the merge queue; WebGPU is tried too, and a
+browser that can't show a WebGPU canvas is reported as unsupported, with the
+reason, never as a pass. Each run leaves a report, a trace and a screenshot.
+See its
+[README](https://github.com/ponkoengine/ponko/blob/main/web/smoke/README.md)
+for running it, adding a fixture for another example, and what runs where.
 
 ## C and C++
 

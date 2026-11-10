@@ -300,10 +300,10 @@ fn native_text_storage_is_shared_and_cleared_with_frame_input() {
     Game::new("input test", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
             let frame = count.fetch_add(1, Ordering::SeqCst);
-            assert_eq!(ctx.typed_text(), if frame == 0 { "é猫" } else { "" });
+            assert_eq!(ctx.input.typed_text(), if frame == 0 { "é猫" } else { "" });
         })
         .run_headless(2, |ctx| {
-            ctx.ui_insert_text("é猫");
+            ctx.input.insert_text("é猫");
         });
     assert_eq!(seen.load(Ordering::SeqCst), 2);
 }

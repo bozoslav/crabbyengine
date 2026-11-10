@@ -5,9 +5,11 @@ use std::ops::Range;
 use glam::Vec3;
 
 use super::{
-    AnimationClip, Blend, Material, MaterialDesc, Mesh, MeshData, MeshMorph, MeshSkin, Shader, Skeleton, gltf, linear,
+    AnimationClip, Blend, Material, MaterialDesc, Mesh, MeshData, MeshMorph, MeshSkin, Shader, SharedImage, Skeleton,
+    gltf, linear,
 };
-use crate::{Ctx, assets};
+use crate::gfx::Graphics;
+use crate::{Ctx, World, assets};
 
 /// A material as the GPU reads it (one uniform block).
 #[repr(C)]
@@ -76,7 +78,7 @@ impl GpuMaterialDesc {
     }
 }
 
-impl Ctx {
+impl Graphics {
     /// Puts a material on the GPU: a color (and texture), how rough and how
     /// metallic, and light it gives off.
     ///
@@ -84,7 +86,7 @@ impl Ctx {
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let bricks = ctx.load_texture("bricks.png");
-    /// let wall = ctx.create_material(MaterialDesc { texture: Some(bricks), roughness: 0.9, ..Default::default() });
+    /// let wall = ctx.gfx.create_material(MaterialDesc { texture: Some(bricks), roughness: 0.9, ..Default::default() });
     /// # }
     /// ```
     ///
@@ -103,7 +105,7 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let err = ctx.try_create_material(MaterialDesc { roughness: 2.0, ..Default::default() }).unwrap_err();
+    ///     let err = ctx.gfx.try_create_material(MaterialDesc { roughness: 2.0, ..Default::default() }).unwrap_err();
     ///     assert_eq!(err.kind(), ErrorKind::Invalid);
     /// });
     /// ```
@@ -129,13 +131,13 @@ impl Ctx {
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, lamp: Material) {
     /// let on = MaterialDesc { emissive: Color::hex(0xFFD080), ..Default::default() };
-    /// ctx.update_material(lamp, on);
+    /// ctx.gfx.update_material(lamp, on);
     /// # }
     /// ```
     ///
     /// # Panics
     ///
-    /// As [`Ctx::create_material`], or if the material comes from another
+    /// As [`Graphics::create_material`](crate::Graphics::create_material), or if the material comes from another
     /// game. Updating a freed material does nothing: it stays freed.
     pub fn update_material(&mut self, material: Material, desc: MaterialDesc) {
         assert!(
@@ -254,7 +256,7 @@ impl Ctx {
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// // ... load meshes, materials and shaders ...
-    /// ctx.warm_render_pipelines();
+    /// ctx.gfx.warm_render_pipelines();
     /// # }
     /// ```
     pub fn warm_render_pipelines(&mut self) {
@@ -294,7 +296,7 @@ impl Ctx {
     }
 
     /// Loads a material shader (WGSL) from an [added asset
-    /// source](Ctx::add_asset_source) or `assets/`. It can define
+    /// source](crate::Assets::add_source) or `assets/`. It can define
     /// `fn vertex(v: Vertex) -> Vertex`, to move vertices (wind, waves), and
     /// `fn surface(s: Surface) -> Surface`, to change how each pixel looks;
     /// the engine lights it, shadows it and does the rest. With hot reload
@@ -304,19 +306,22 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let wind = ctx.load_shader("shaders/wind.wgsl");
-    /// let leaves = ctx.create_material(MaterialDesc { shader: Some(wind), double_sided: true, ..Default::default() });
+    /// let wind = ctx.gfx.load_shader("shaders/wind.wgsl");
+    /// let leaves = ctx.gfx.create_material(MaterialDesc { shader: Some(wind), double_sided: true, ..Default::default() });
     /// # }
     /// ```
     ///
     /// # Panics
     ///
     /// If the file can't be read or doesn't compile (the message says where).
+    /// With hot reload on, a file that doesn't compile doesn't panic: it
+    /// gets a stand-in and stays watched until a saved fix compiles
+    /// ([`ShaderOutcome::Failed`](crate::ShaderOutcome::Failed), [`Graphics::shader_status`](crate::Graphics::shader_status)).
     pub fn load_shader(&mut self, path: &str) -> Shader {
         self.try_load_shader(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Ctx::load_shader`] that returns errors (for the C API).
+    /// [`Graphics::load_shader`](crate::Graphics::load_shader) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_load_shader(&mut self, path: &str) -> Result<Shader, String> {
         let found = match self
@@ -328,7 +333,20 @@ impl Ctx {
         };
         let origin = found.origin.clone();
         let source = found.into_text(path)?;
-        let shader = self.try_create_shader(path, &source)?;
+        let shader = match self.try_create_shader(path, &source) {
+            Ok(shader) => shader,
+            // With hot reload on, it draws with the built-in look until a
+            // saved fix compiles; its status says what's wrong.
+            Err(e) if self.keeps_failed_load(&origin) => {
+                Self::report_stand_in(path, &e);
+                let id = self.assets3d.shaders;
+                self.compile_shader(path, "", None).map_err(|_| e)?;
+                self.assets3d.shaders += 1;
+                self.assets3d.shaders_live.insert(id);
+                Shader { id }
+            }
+            Err(e) => return Err(e),
+        };
         self.assets3d.loaded_shaders.insert(origin.clone(), shader);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher
@@ -338,12 +356,12 @@ impl Ctx {
     }
 
     /// Makes a material shader from WGSL source; `name` is for error
-    /// messages. See [`Ctx::load_shader`] for what it can define.
+    /// messages. See [`Graphics::load_shader`](crate::Graphics::load_shader) for what it can define.
     ///
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let stripes = ctx.create_shader("stripes", "
+    /// let stripes = ctx.gfx.create_shader("stripes", "
     ///     fn surface(s: Surface) -> Surface {
     ///         var out = s;
     ///         out.albedo *= step(0.5, fract(s.uv.x * 8.0));
@@ -360,7 +378,7 @@ impl Ctx {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Ctx::create_shader`] that returns errors (for the C API).
+    /// [`Graphics::create_shader`](crate::Graphics::create_shader) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_shader(&mut self, name: &str, source: &str) -> Result<Shader, String> {
         let id = self.assets3d.shaders;
@@ -416,7 +434,7 @@ impl Ctx {
     #[doc(hidden)]
     #[must_use]
     pub fn has_material(&self, material: Material) -> bool {
-        self.is_live(material)
+        self.assets3d.materials_live.contains(material.id)
     }
 
     /// Whether this game made `shader` and hasn't freed it (for the C API,
@@ -424,7 +442,7 @@ impl Ctx {
     #[doc(hidden)]
     #[must_use]
     pub fn has_shader(&self, shader: Shader) -> bool {
-        self.is_live(shader)
+        self.assets3d.shaders_live.contains(shader.id)
     }
 
     /// A plain white material, made once and shared.
@@ -432,8 +450,8 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let white = ctx.default_material();
-    /// let ball = ctx.create_mesh(&MeshData::sphere(0.5, 32), white);
+    /// let white = ctx.gfx.default_material();
+    /// let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.5, 32), white);
     /// # }
     /// ```
     pub fn default_material(&mut self) -> Material {
@@ -451,8 +469,8 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let stone = ctx.create_material(MaterialDesc::color(Color::hex(0x8A8A8A)));
-    /// let block = ctx.create_mesh(&MeshData::cube(1.0), stone);
+    /// let stone = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x8A8A8A)));
+    /// let block = ctx.gfx.create_mesh(&MeshData::cube(1.0), stone);
     /// ctx.world.spawn((Transform3D::default(), Model::new(block)));
     /// # }
     /// ```
@@ -473,10 +491,10 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let stone = ctx.create_material(MaterialDesc::default());
+    ///     let stone = ctx.gfx.create_material(MaterialDesc::default());
     ///     let mut broken = MeshData::cube(1.0);
     ///     broken.indices.pop();
-    ///     assert_eq!(ctx.try_create_mesh(&broken, stone).unwrap_err().kind(), ErrorKind::Invalid);
+    ///     assert_eq!(ctx.gfx.try_create_mesh(&broken, stone).unwrap_err().kind(), ErrorKind::Invalid);
     /// });
     /// ```
     pub fn try_create_mesh(&mut self, data: &MeshData, material: Material) -> Result<Mesh, crate::Error> {
@@ -510,8 +528,8 @@ impl Ctx {
     ///     // Corners above the middle follow the top joint.
     ///     post.joints = post.positions.iter().map(|p| [if p.y > 0.0 { 1 } else { 0 }, 0, 0, 0]).collect();
     ///     post.weights = vec![[1.0, 0.0, 0.0, 0.0]; post.positions.len()];
-    ///     let material = ctx.default_material();
-    ///     let mesh = ctx.create_skinned_mesh(&post, material, &skeleton);
+    ///     let material = ctx.gfx.default_material();
+    ///     let mesh = ctx.gfx.create_skinned_mesh(&post, material, &skeleton);
     ///     ctx.world.spawn((Transform3D::default(), Model::new(mesh), skeleton));
     /// });
     /// ```
@@ -566,8 +584,8 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let fox = ctx.load_mesh("models/fox.glb");
-    /// let skeleton = ctx.load_skeleton("models/fox.glb");
+    /// let fox = ctx.gfx.load_mesh("models/fox.glb");
+    /// let skeleton = ctx.gfx.load_skeleton("models/fox.glb");
     /// ctx.world.spawn((Transform3D::default(), Model::new(fox), skeleton));
     /// # }
     /// ```
@@ -588,7 +606,7 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let err = ctx.try_load_skeleton("models/missing.glb").unwrap_err();
+    ///     let err = ctx.gfx.try_load_skeleton("models/missing.glb").unwrap_err();
     ///     assert_eq!(err.kind(), ErrorKind::NotFound);
     /// });
     /// ```
@@ -608,7 +626,7 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let clips = ctx.load_clips("models/character.glb");
+    /// let clips = ctx.gfx.load_clips("models/character.glb");
     /// # }
     /// ```
     pub fn load_clips(&mut self, path: &str) -> Vec<AnimationClip> {
@@ -619,7 +637,7 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let clips = ctx.try_load_clips("models/character.glb");
+    /// let clips = ctx.gfx.try_load_clips("models/character.glb");
     /// # }
     /// ```
     pub fn try_load_clips(&mut self, path: &str) -> Result<Vec<AnimationClip>, String> {
@@ -635,7 +653,7 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let walk = ctx.load_clip("models/character.glb", "walk");
+    /// let walk = ctx.gfx.load_clip("models/character.glb", "walk");
     /// # }
     /// ```
     pub fn load_clip(&mut self, path: &str, name: &str) -> AnimationClip {
@@ -646,7 +664,7 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let walk = ctx.try_load_clip("models/character.glb", "walk");
+    /// let walk = ctx.gfx.try_load_clip("models/character.glb", "walk");
     /// # }
     /// ```
     pub fn try_load_clip(&mut self, path: &str, name: &str) -> Result<AnimationClip, String> {
@@ -658,7 +676,7 @@ impl Ctx {
     }
 
     /// Loads a glTF model (`.glb`, or `.gltf` with its files next to it)
-    /// from an [added asset source](Ctx::add_asset_source) or `assets/` as
+    /// from an [added asset source](crate::Assets::add_source) or `assets/` as
     /// one [`Mesh`]: every mesh in the file's scene, where the file puts it, with its materials and their base color, normal,
     /// occlusion-roughness-metalness and emissive maps.
     /// Loading the same file again returns the same mesh. After freeing its
@@ -668,7 +686,7 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// Game::new("Forest", 1280, 720).run(|ctx| {
-    ///     let tree = ctx.load_mesh("models/tree.glb");
+    ///     let tree = ctx.gfx.load_mesh("models/tree.glb");
     ///     for i in 0..100 {
     ///         let at = vec3((i % 10) as f32 * 4.0, 0.0, (i / 10) as f32 * -4.0);
     ///         ctx.world.spawn((Transform3D::at(at), Model::new(tree)));
@@ -692,7 +710,7 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let hat = ctx.try_load_mesh("models/hat.glb").unwrap_or(Mesh::NONE);
+    ///     let hat = ctx.gfx.try_load_mesh("models/hat.glb").unwrap_or(Mesh::NONE);
     ///     assert_eq!(hat, Mesh::NONE);
     /// });
     /// ```
@@ -712,25 +730,79 @@ impl Ctx {
         };
         let file = found.origin.clone();
         let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
+        let (loaded, image_keys) = self.decode_gltf(path, &bytes)?;
+        Ok((self.mesh_from_loaded(path, file.clone(), loaded, image_keys), file))
+    }
+
+    /// Decodes the glTF file `path` from `bytes` on the game thread, without
+    /// the pixels of images another model already shares, and works out
+    /// each image's key (see [`image_keys`](Self::image_keys)).
+    pub(crate) fn decode_gltf(
+        &self,
+        path: &str,
+        bytes: &[u8],
+    ) -> Result<(gltf::Loaded, Vec<Option<SharedImage>>), crate::Error> {
         let shared = &self.assets3d.shared_images;
         let sources = &self.asset_sources;
-        let loaded = gltf::load(path, &bytes, &mut |name| sources.read(name), &|source| {
-            shared.contains_key(source)
+        // Each image file's key: where it is found, so the same name in two
+        // sources is two images. Worked out once per file.
+        let keys = std::cell::RefCell::new(std::collections::HashMap::<String, Option<SharedImage>>::new());
+        let key_of = |source: &str| {
+            keys.borrow_mut()
+                .entry(source.to_string())
+                .or_insert_with(|| SharedImage::of(sources, source))
+                .clone()
+        };
+        let loaded = gltf::load(path, bytes, &mut |name| sources.read(name), &|source| {
+            key_of(source).is_some_and(|key| shared.contains_key(&key))
         })
         .map_err(|e| crate::Error::decode(path, e))?;
+        let image_keys = loaded
+            .image_sources
+            .iter()
+            .map(|source| source.as_deref().and_then(key_of))
+            .collect();
+        Ok((loaded, image_keys))
+    }
+
+    /// The shared-image key of each image of a decoded glTF file (a file
+    /// decoded on a worker, which can't look at the asset sources).
+    pub(crate) fn image_keys(&self, loaded: &gltf::Loaded) -> Vec<Option<SharedImage>> {
+        loaded
+            .image_sources
+            .iter()
+            .map(|source| {
+                source
+                    .as_deref()
+                    .and_then(|source| SharedImage::of(&self.asset_sources, source))
+            })
+            .collect()
+    }
+
+    /// Makes the mesh, materials and textures of a decoded glTF file
+    /// `path` found at `file`, and caches it (the game-thread half of
+    /// `load_mesh_from`; streaming decodes on a worker first). `image_keys`
+    /// has the shared-image key of each of the file's images.
+    pub(crate) fn mesh_from_loaded(
+        &mut self,
+        path: &str,
+        file: assets::Origin,
+        loaded: gltf::Loaded,
+        image_keys: Vec<Option<SharedImage>>,
+    ) -> Mesh {
         let materials = if let Some(materials) = self.assets3d.file_materials.get(&file) {
             materials.clone()
         } else {
             let textures: Vec<crate::Texture> = loaded
                 .images
                 .iter()
-                .zip(&loaded.image_sources)
-                .map(|((w, h, rgba), source)| match source {
-                    Some(s) => match self.assets3d.shared_images.get(s) {
+                .zip(image_keys)
+                .map(|((w, h, rgba), key)| match key {
+                    Some(key) => match self.assets3d.shared_images.get(&key) {
                         Some(&t) => t,
                         None => {
                             let t = self.create_texture(*w, *h, rgba);
-                            self.assets3d.shared_images.insert(s.clone(), t);
+                            self.assets3d.shared_images.insert(key, t);
                             t
                         }
                     },
@@ -789,11 +861,8 @@ impl Ctx {
         });
         let mesh = self.mesh_from_parts(&loaded.data, &parts, skin, loaded.morph_defaults);
         self.assets3d.loaded.insert(file.clone(), mesh);
-        if let Some(names) = self.world.get_resource_mut::<crate::reflect::MeshNames>() {
-            names.by_id.insert(mesh.id, path.to_string());
-            names.by_name.insert(path.to_string(), mesh);
-        }
-        Ok((mesh, file))
+        self.mesh_names.set(mesh.id, path, mesh);
+        mesh
     }
 
     /// A glTF file's mesh on the CPU (all its parts in one, placed as in
@@ -804,7 +873,7 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) -> Result<(), String> {
-    /// let wall = ctx.load_mesh_data("models/wall.glb")?;
+    /// let wall = ctx.gfx.load_mesh_data("models/wall.glb")?;
     /// let hole = wall.decal(Mat4::from_scale(Vec3::splat(0.1)), 0.002);
     /// # Ok(()) }
     /// ```
@@ -831,7 +900,14 @@ impl Ctx {
     ) -> Mesh {
         // A freed mesh's id first, so streaming meshes in and out doesn't
         // grow the tables (and the per-frame sort, which spans every id).
-        let id = match self.assets3d.free_meshes.pop() {
+        // A resident mesh coming back after eviction takes its old id, so
+        // handles the game kept stay good.
+        let id = match self
+            .assets3d
+            .reuse_mesh_id
+            .take()
+            .or_else(|| self.assets3d.free_meshes.pop())
+        {
             Some(id) => {
                 self.assets3d.gpu_mesh_bounds.remove(&id);
                 self.assets3d.bounds[id as usize] = data.bounds();
@@ -877,10 +953,10 @@ impl Ctx {
     ///     let mut quad = MeshData::plane(1.0);
     ///     let up = vec![vec3(0.0, 0.1, 0.0); quad.positions.len()];
     ///     quad.morph_targets.push(MorphTarget { name: "lift".into(), positions: up, normals: Vec::new() });
-    ///     let material = ctx.default_material();
-    ///     let mesh = ctx.create_mesh(&quad, material);
-    ///     assert_eq!(ctx.morph_target(mesh, "lift"), Some(0));
-    ///     assert_eq!(ctx.morph_target(mesh, "sag"), None);
+    ///     let material = ctx.gfx.default_material();
+    ///     let mesh = ctx.gfx.create_mesh(&quad, material);
+    ///     assert_eq!(ctx.gfx.morph_target(mesh, "lift"), Some(0));
+    ///     assert_eq!(ctx.gfx.morph_target(mesh, "sag"), None);
     /// });
     /// ```
     #[must_use]
@@ -891,15 +967,15 @@ impl Ctx {
     /// Every material loaded from glTF files so far that the files call
     /// `name`, with what it was made from: to give materials of imported
     /// models a shader of your own, keep their textures and change the
-    /// rest with [`Ctx::update_material`]. Models loaded later aren't in it.
+    /// rest with [`Graphics::update_material`](crate::Graphics::update_material). Models loaded later aren't in it.
     ///
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.load_scene("town/Town.json").unwrap();
-    /// let brick = ctx.load_shader("shaders/brick.wgsl");
-    /// for (material, desc) in ctx.loaded_materials("Brick") {
-    ///     ctx.update_material(material, MaterialDesc { shader: Some(brick), ..desc });
+    /// let brick = ctx.gfx.load_shader("shaders/brick.wgsl");
+    /// for (material, desc) in ctx.gfx.loaded_materials("Brick") {
+    ///     ctx.gfx.update_material(material, MaterialDesc { shader: Some(brick), ..desc });
     /// }
     /// # }
     /// ```
@@ -918,20 +994,24 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let material = ctx.default_material();
-    ///     let rock = ctx.create_mesh(&MeshData::cube(1.0), material);
-    ///     ctx.free_mesh(rock);
-    ///     assert!(!ctx.is_mesh_live(rock));
+    ///     let material = ctx.gfx.default_material();
+    ///     let rock = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+    ///     ctx.gfx.free_mesh(rock);
+    ///     assert!(!ctx.gfx.is_mesh_live(rock));
     /// });
     /// ```
     pub fn free_mesh(&mut self, mesh: Mesh) {
-        let Some(bounds) = self.assets3d.bounds.get_mut(mesh.id as usize) else {
+        let Some(&(_, radius)) = self.assets3d.bounds.get(mesh.id as usize) else {
             return;
         };
-        if bounds.1 < 0.0 {
+        // Already freed: maybe an evicted resident mesh's kept id, which
+        // freeing its handle releases.
+        if radius < 0.0 {
+            self.release_resident_mesh_id(mesh.id, false);
             return;
         }
-        *bounds = (Vec3::ZERO, -1.0);
+        self.release_resident_mesh_id(mesh.id, true);
+        self.assets3d.bounds[mesh.id as usize] = (Vec3::ZERO, -1.0);
         if let Some(bytes) = self.assets3d.mesh_bytes.get_mut(mesh.id as usize) {
             *bytes = 0;
         }
@@ -958,11 +1038,7 @@ impl Ctx {
             self.assets3d.loaded_clips.remove(&file);
         }
         self.assets3d.loaded.retain(|_, m| *m != mesh);
-        if let Some(names) = self.world.get_resource_mut::<crate::reflect::MeshNames>()
-            && let Some(name) = names.by_id.remove(&mesh.id)
-        {
-            names.by_name.remove(&name);
-        }
+        self.mesh_names.remove(mesh.id);
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
@@ -978,10 +1054,10 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let material = ctx.default_material();
-    ///     let tuft = ctx.create_mesh(&MeshData::cube(0.2), material);
-    ///     ctx.set_mesh_shadows(tuft, false);
-    ///     assert!(!ctx.mesh_shadows(tuft));
+    ///     let material = ctx.gfx.default_material();
+    ///     let tuft = ctx.gfx.create_mesh(&MeshData::cube(0.2), material);
+    ///     ctx.gfx.set_mesh_shadows(tuft, false);
+    ///     assert!(!ctx.gfx.mesh_shadows(tuft));
     /// });
     /// ```
     pub fn set_mesh_shadows(&mut self, mesh: Mesh, casts: bool) {
@@ -1005,9 +1081,9 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let material = ctx.default_material();
-    ///     let house = ctx.create_mesh(&MeshData::cube(4.0), material);
-    ///     assert!(ctx.mesh_shadows(house));
+    ///     let material = ctx.gfx.default_material();
+    ///     let house = ctx.gfx.create_mesh(&MeshData::cube(4.0), material);
+    ///     assert!(ctx.gfx.mesh_shadows(house));
     /// });
     /// ```
     #[must_use]
@@ -1021,9 +1097,9 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let material = ctx.default_material();
-    ///     let cube = ctx.create_mesh(&MeshData::cube(1.0), material);
-    ///     assert!(ctx.is_mesh_live(cube));
+    ///     let material = ctx.gfx.default_material();
+    ///     let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+    ///     assert!(ctx.gfx.is_mesh_live(cube));
     /// });
     /// ```
     #[must_use]
@@ -1031,17 +1107,20 @@ impl Ctx {
         self.assets3d.live_bounds(mesh.id).is_some()
     }
 
-    /// How many 3D models were drawn last frame: those the camera could see.
+    /// How many 3D models were drawn last frame: those the camera could
+    /// see, and those out of its view whose shadow can fall into it. Each
+    /// model counts once. A model in a shadow cascade whose map is kept
+    /// this frame ([`crate::Lighting::shadow_refresh`]) counts too.
     ///
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// println!("{} models on screen", ctx.models_drawn());
+    /// println!("{} models on screen", ctx.gfx.models_drawn());
     /// # }
     /// ```
     #[must_use]
     pub fn models_drawn(&self) -> usize {
-        self.frame3d.instances.len()
+        self.frame3d.models
     }
 
     /// Makes TAA, temporal ambient occlusion and screen-space reflections
@@ -1061,90 +1140,11 @@ impl Ctx {
     /// Game::new("t", 1, 1).run_headless(1, |ctx| {
     ///     ctx.post.anti_aliasing = AntiAliasing::Taa;
     ///     ctx.camera3d.position = vec3(500.0, 2.0, 0.0);
-    ///     ctx.reset_temporal_history();
+    ///     ctx.gfx.reset_temporal_history();
     /// });
     /// ```
     pub fn reset_temporal_history(&mut self) {
         self.frame3d.motion.reset = true;
-    }
-
-    /// Engine side, before drawing: collect the visible models and hand
-    /// them, the camera and the light to the renderer.
-    /// What each target camera into a real render target sees.
-    pub(crate) fn collect_views(&mut self, skins: &super::SkinFrame) {
-        let targets = &self.assets3d.render_targets;
-        let mut capture_cameras = Vec::new();
-        self.frame3d.probe_bakes.clear();
-        self.frame3d.probe_uploads.clear();
-        self.assets3d.probes.take_requests();
-        self.frame3d
-            .probe_uploads
-            .extend(self.assets3d.probes.in_flight_uploads.iter().cloned());
-        for &(slot, center) in &self.assets3d.probes.in_flight {
-            let faces = self.assets3d.probes.captures[slot as usize - 1];
-            self.frame3d.probe_bakes.push((slot, faces.map(|t| t.id)));
-            for (face, target) in faces.into_iter().enumerate() {
-                let (direction, up) = match face {
-                    0 => (Vec3::X, Vec3::Y),
-                    1 => (-Vec3::X, Vec3::Y),
-                    2 => (Vec3::Y, -Vec3::Z),
-                    3 => (-Vec3::Y, Vec3::Z),
-                    4 => (Vec3::Z, Vec3::Y),
-                    _ => (-Vec3::Z, Vec3::Y),
-                };
-                let mut camera = self.camera3d;
-                camera.position = center;
-                camera.rotation = glam::Quat::from_mat3(&glam::Mat3::from_cols(direction.cross(up), up, -direction));
-                camera.fov_y = std::f32::consts::FRAC_PI_2;
-                camera.near = 0.05;
-                capture_cameras.push(super::TargetCamera::new(camera, target));
-            }
-        }
-        self.frame3d.probes.fill(Default::default());
-        for (t, p) in self
-            .world
-            .query::<(&super::Transform3D, &super::ReflectionProbe3D)>()
-            .iter()
-        {
-            if (1..=4).contains(&p.content) && p.weight(t.position, t.position) > 0.0 {
-                self.frame3d.probes[p.content as usize - 1] = super::probe::ProbeUniform {
-                    center: t.position.extend(p.content as f32).to_array(),
-                    size: (p.size * 0.5).extend(p.blend_distance.max(0.0)).to_array(),
-                    params: [p.intensity, f32::from(p.box_projection), 0.0, 0.0],
-                };
-            }
-        }
-        let cameras = self
-            .target_cameras
-            .iter()
-            .chain(capture_cameras.iter())
-            .filter(|c| targets.iter().any(|t| t.id == c.target.id));
-        let count = cameras.clone().count();
-        let views = &mut self.frame3d.views;
-        views.resize_with(count, Default::default);
-        let lighting = super::Lighting {
-            shadows: false,
-            gi: super::GlobalIllumination {
-                enabled: false,
-                ..self.lighting.gi
-            },
-            ..self.lighting
-        };
-        for (view, camera) in views.iter_mut().zip(cameras) {
-            let size = (camera.target.width(), camera.target.height());
-            let mut eye = camera.camera;
-            eye.set_viewport(glam::Vec2::new(size.0 as f32, size.1 as f32));
-            view.frame.lod = self.lod;
-            view.frame
-                .collect(&mut self.world, &self.assets3d, skins, &eye, &lighting);
-            view.target = camera.target.id;
-            view.size = size;
-            view.camera = eye.position;
-            view.view_proj = match camera.clip_plane {
-                Some(plane) => super::target::oblique(eye.view_proj(), eye.view(), plane),
-                None => eye.view_proj(),
-            };
-        }
     }
 
     /// What each mesh cost to draw in the last frame: the models and
@@ -1155,7 +1155,7 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// fn heaviest(ctx: &mut Ctx) {
-    ///     for c in ctx.mesh_costs().iter().take(5) {
+    ///     for c in ctx.gfx.mesh_costs().iter().take(5) {
     ///         let name = c.name.as_deref().unwrap_or("(made in code)");
     ///         println!("{name}: {} models, {} + {} shadow triangles", c.models, c.triangles, c.shadow_triangles);
     ///     }
@@ -1190,6 +1190,155 @@ impl Ctx {
         costs
     }
 
+    /// Writes sampled skeleton morph channels to the models of `world`,
+    /// including SkinOf attachments. Automatic animators call this each
+    /// frame; call it after manual sampling. Unanimated weights retain their
+    /// current values.
+    /// ```
+    /// use ponko::*;
+    /// Game::new("morph", 1, 1).run_headless(0, |ctx| ctx.gfx.write_animated_morphs(&mut ctx.world));
+    /// ```
+    pub fn write_animated_morphs(&mut self, world: &mut World) {
+        let mut entities = std::mem::take(&mut self.assets3d.morph_entities);
+        entities.clear();
+        // Only models whose mesh has morph targets: this runs every frame,
+        // and a large world has hundreds of thousands of models.
+        let morphs = &self.assets3d.morphs;
+        if morphs.iter().all(Option::is_none) {
+            self.assets3d.morph_bases.clear();
+            self.assets3d.morph_entities = entities;
+            return;
+        }
+        world.query::<(crate::Entity, &super::Model)>().for_each(|(e, m)| {
+            if morphs.get(m.mesh.id as usize).is_some_and(Option::is_some) {
+                entities.push(e);
+            }
+        });
+        for e in entities.iter().copied() {
+            let mesh_id = world.get::<super::Model>(e).unwrap().mesh.id;
+            let Some(morph) = self.assets3d.morphs.get(mesh_id as usize).and_then(|m| m.clone()) else {
+                continue;
+            };
+            let owner = world.get::<super::SkinOf>(e).map_or(e, |s| s.0);
+            if world.get::<Skeleton>(owner).is_none_or(|s| s.morphs.is_empty()) {
+                continue;
+            }
+            let mut weights = world
+                .get_mut::<super::MorphWeights>(e)
+                .map(|w| std::mem::take(&mut *w))
+                .unwrap_or_else(|| super::MorphWeights(morph.defaults.clone()));
+            let base = self
+                .assets3d
+                .morph_bases
+                .entry(e)
+                .or_insert_with(|| (mesh_id, weights.clone(), weights.clone()));
+            if base.0 != mesh_id {
+                base.0 = mesh_id;
+                base.1.clone_from(&weights);
+            }
+            for i in 0..weights.0.len().max(base.2.0.len()) {
+                if weights.get(i) != base.2.get(i) {
+                    base.1.set(i, weights.get(i));
+                }
+            }
+            world
+                .get::<Skeleton>(owner)
+                .unwrap()
+                .morphs
+                .write_base(&morph.names, &base.1, &mut weights);
+            base.2.clone_from(&weights);
+            if world.get::<super::MorphWeights>(e).is_some() {
+                *world.get_mut::<super::MorphWeights>(e).unwrap() = weights;
+            } else {
+                world.insert(e, weights);
+            }
+        }
+        self.assets3d.morph_bases.retain(|e, _| world.is_alive(*e));
+        self.assets3d.morph_entities = entities;
+    }
+}
+
+impl Ctx {
+    /// Engine side, before drawing: collect the visible models and hand
+    /// them, the camera and the light to the renderer.
+    /// What each target camera into a real render target sees.
+    pub(crate) fn collect_views(&mut self, skins: &super::SkinFrame) {
+        let targets = &self.gfx.assets3d.render_targets;
+        let mut capture_cameras = Vec::new();
+        self.gfx.frame3d.probe_bakes.clear();
+        self.gfx.frame3d.probe_uploads.clear();
+        self.gfx.assets3d.probes.take_requests();
+        self.gfx
+            .frame3d
+            .probe_uploads
+            .extend(self.gfx.assets3d.probes.in_flight_uploads.iter().cloned());
+        for &(slot, center) in &self.gfx.assets3d.probes.in_flight {
+            let faces = self.gfx.assets3d.probes.captures[slot as usize - 1];
+            self.gfx.frame3d.probe_bakes.push((slot, faces.map(|t| t.id)));
+            for (face, target) in faces.into_iter().enumerate() {
+                let (direction, up) = match face {
+                    0 => (Vec3::X, Vec3::Y),
+                    1 => (-Vec3::X, Vec3::Y),
+                    2 => (Vec3::Y, -Vec3::Z),
+                    3 => (-Vec3::Y, Vec3::Z),
+                    4 => (Vec3::Z, Vec3::Y),
+                    _ => (-Vec3::Z, Vec3::Y),
+                };
+                let mut camera = self.camera3d;
+                camera.position = center;
+                camera.rotation = glam::Quat::from_mat3(&glam::Mat3::from_cols(direction.cross(up), up, -direction));
+                camera.fov_y = std::f32::consts::FRAC_PI_2;
+                camera.near = 0.05;
+                capture_cameras.push(super::TargetCamera::new(camera, target));
+            }
+        }
+        self.gfx.frame3d.probes.fill(Default::default());
+        for (t, p) in self
+            .world
+            .query::<(&super::Transform3D, &super::ReflectionProbe3D)>()
+            .iter()
+        {
+            if (1..=4).contains(&p.content) && p.weight(t.position, t.position) > 0.0 {
+                self.gfx.frame3d.probes[p.content as usize - 1] = super::probe::ProbeUniform {
+                    center: t.position.extend(p.content as f32).to_array(),
+                    size: (p.size * 0.5).extend(p.blend_distance.max(0.0)).to_array(),
+                    params: [p.intensity, f32::from(p.box_projection), 0.0, 0.0],
+                };
+            }
+        }
+        let cameras = self
+            .target_cameras
+            .iter()
+            .chain(capture_cameras.iter())
+            .filter(|c| targets.iter().any(|t| t.id == c.target.id));
+        let count = cameras.clone().count();
+        let views = &mut self.gfx.frame3d.views;
+        views.resize_with(count, Default::default);
+        let lighting = super::Lighting {
+            shadows: false,
+            gi: super::GlobalIllumination {
+                enabled: false,
+                ..self.lighting.gi
+            },
+            ..self.lighting
+        };
+        for (view, camera) in views.iter_mut().zip(cameras) {
+            let size = (camera.target.width(), camera.target.height());
+            let mut eye = camera.camera;
+            eye.set_viewport(glam::Vec2::new(size.0 as f32, size.1 as f32));
+            view.frame.lod = self.lod;
+            view.frame
+                .collect(&mut self.world, &self.gfx.assets3d, skins, &eye, &lighting);
+            view.target = camera.target.id;
+            view.size = size;
+            view.camera = eye.position;
+            view.view_proj = match camera.clip_plane {
+                Some(plane) => super::target::oblique(eye.view_proj(), eye.view(), plane),
+                None => eye.view_proj(),
+            };
+        }
+    }
+
     /// Advances visual particle pools after frame systems.
     pub(crate) fn update_particles(&mut self) {
         let dt = self.dt();
@@ -1202,8 +1351,8 @@ impl Ctx {
         any |= trails.count() > 0;
         trails.for_each(|(trail, transform)| trail.update(dt, transform.position));
         any |= self.world.query::<&super::Line3D>().count() > 0;
-        if any && !self.headless && self.renderer.is_some() {
-            self.default_material(); // also initializes a particle-only 3D renderer
+        if any && !self.headless && self.gfx.renderer.is_some() {
+            self.gfx.default_material(); // also initializes a particle-only 3D renderer
         }
     }
 
@@ -1265,83 +1414,16 @@ impl Ctx {
                 t.rotation = (t.rotation * motion.rotation).normalize();
             }
         });
-        self.write_animated_morphs();
-    }
-
-    /// Writes sampled skeleton morph channels to models, including SkinOf
-    /// attachments. Automatic animators call this each frame; call it after
-    /// manual sampling. Unanimated weights retain their current values.
-    /// ```
-    /// use ponko::*;
-    /// Game::new("morph", 1, 1).run_headless(0, |ctx| ctx.write_animated_morphs());
-    /// ```
-    pub fn write_animated_morphs(&mut self) {
-        let mut entities = std::mem::take(&mut self.assets3d.morph_entities);
-        entities.clear();
-        // Only models whose mesh has morph targets: this runs every frame,
-        // and a large world has hundreds of thousands of models.
-        let morphs = &self.assets3d.morphs;
-        if morphs.iter().all(Option::is_none) {
-            self.assets3d.morph_bases.clear();
-            self.assets3d.morph_entities = entities;
-            return;
-        }
-        self.world.query::<(crate::Entity, &super::Model)>().for_each(|(e, m)| {
-            if morphs.get(m.mesh.id as usize).is_some_and(Option::is_some) {
-                entities.push(e);
-            }
-        });
-        for e in entities.iter().copied() {
-            let mesh_id = self.world.get::<super::Model>(e).unwrap().mesh.id;
-            let Some(morph) = self.assets3d.morphs.get(mesh_id as usize).and_then(|m| m.clone()) else {
-                continue;
-            };
-            let owner = self.world.get::<super::SkinOf>(e).map_or(e, |s| s.0);
-            if self.world.get::<Skeleton>(owner).is_none_or(|s| s.morphs.is_empty()) {
-                continue;
-            }
-            let mut weights = self
-                .world
-                .get_mut::<super::MorphWeights>(e)
-                .map(|w| std::mem::take(&mut *w))
-                .unwrap_or_else(|| super::MorphWeights(morph.defaults.clone()));
-            let base = self
-                .assets3d
-                .morph_bases
-                .entry(e)
-                .or_insert_with(|| (mesh_id, weights.clone(), weights.clone()));
-            if base.0 != mesh_id {
-                base.0 = mesh_id;
-                base.1.clone_from(&weights);
-            }
-            for i in 0..weights.0.len().max(base.2.0.len()) {
-                if weights.get(i) != base.2.get(i) {
-                    base.1.set(i, weights.get(i));
-                }
-            }
-            self.world
-                .get::<Skeleton>(owner)
-                .unwrap()
-                .morphs
-                .write_base(&morph.names, &base.1, &mut weights);
-            base.2.clone_from(&weights);
-            if self.world.get::<super::MorphWeights>(e).is_some() {
-                *self.world.get_mut::<super::MorphWeights>(e).unwrap() = weights;
-            } else {
-                self.world.insert(e, weights);
-            }
-        }
-        self.assets3d.morph_bases.retain(|e, _| self.world.is_alive(*e));
-        self.assets3d.morph_entities = entities;
+        self.gfx.write_animated_morphs(&mut self.world);
     }
 
     /// The screen effects, target effects and compute passes this frame runs (with their
     /// materials, `fallback` for none): freed ones, and passes into a freed
     /// target or buffer, are left out.
     pub(crate) fn collect_passes(&mut self, fallback: Option<Material>) {
-        self.frame3d.effects.clear();
-        let effects_live = &self.assets3d.effects_live;
-        self.frame3d.effects.extend(self.effects.iter().filter_map(|e| {
+        self.gfx.frame3d.effects.clear();
+        let effects_live = &self.gfx.assets3d.effects_live;
+        self.gfx.frame3d.effects.extend(self.effects.iter().filter_map(|e| {
             // A freed effect is skipped.
             if !effects_live.contains(e.effect.id) {
                 return None;
@@ -1349,9 +1431,10 @@ impl Ctx {
             let material = e.material.or(fallback)?;
             Some((e.effect.id, material.id))
         }));
-        let targets = &self.assets3d.render_targets;
-        self.frame3d.target_effects.clear();
-        self.frame3d
+        let targets = &self.gfx.assets3d.render_targets;
+        self.gfx.frame3d.target_effects.clear();
+        self.gfx
+            .frame3d
             .target_effects
             .extend(self.target_effects.iter().filter_map(|e| {
                 // A freed effect, or one into a freed target, is skipped.
@@ -1364,79 +1447,91 @@ impl Ctx {
                     .any(|t| t.id == e.target.id)
                     .then_some((e.effect.id, e.target.id, material.id))
             }));
-        self.frame3d.computes.clear();
-        let computes_live = &self.assets3d.computes_live;
-        self.frame3d.computes.extend(self.compute_passes.iter().filter_map(|c| {
-            // A freed pass is skipped.
-            if !computes_live.contains(c.compute.id) {
-                return None;
-            }
-            let material = c.material.or(fallback)?;
-            if let Some(b) = c.buffer {
-                // A freed buffer's passes do nothing.
-                self.assets3d.gpu_buffers.get(b.id as usize).filter(|&&len| len > 0)?;
-                Some((c.compute.id, b.id | (1 << 31), material.id))
-            } else {
-                targets
-                    .iter()
-                    .any(|t| t.id == c.target.id)
-                    .then_some((c.compute.id, c.target.id, material.id))
-            }
-        }));
+        self.gfx.frame3d.computes.clear();
+        let computes_live = &self.gfx.assets3d.computes_live;
+        self.gfx
+            .frame3d
+            .computes
+            .extend(self.compute_passes.iter().filter_map(|c| {
+                // A freed pass is skipped.
+                if !computes_live.contains(c.compute.id) {
+                    return None;
+                }
+                let material = c.material.or(fallback)?;
+                if let Some(b) = c.buffer {
+                    // A freed buffer's passes do nothing.
+                    self.gfx
+                        .assets3d
+                        .gpu_buffers
+                        .get(b.id as usize)
+                        .filter(|&&len| len > 0)?;
+                    Some((c.compute.id, b.id | (1 << 31), material.id))
+                } else {
+                    targets
+                        .iter()
+                        .any(|t| t.id == c.target.id)
+                        .then_some((c.compute.id, c.target.id, material.id))
+                }
+            }));
     }
 
     pub(crate) fn prepare_3d(&mut self) {
-        if self.renderer.is_none()
-            || (self.assets3d.bounds.is_empty()
+        if self.gfx.renderer.is_none()
+            || (self.gfx.assets3d.bounds.is_empty()
                 && self.compute_passes.is_empty()
-                && self.frame3d.particles.runs.is_empty()
-                && self.frame3d.particles.strips.runs.is_empty()
+                && self.gfx.frame3d.particles.runs.is_empty()
+                && self.gfx.frame3d.particles.strips.runs.is_empty()
                 && self.world.query::<&super::ParticleEmitter3D>().count() == 0
                 && self.world.query::<&super::Trail3D>().count() == 0
                 && self.world.query::<&super::Line3D>().count() == 0
-                && self.frame3d.particles.texts.vertices.is_empty()
+                && self.gfx.frame3d.particles.texts.vertices.is_empty()
                 && self.world.query::<&super::Text3D>().count() == 0)
         {
             return; // no drawable 3D scene
         }
-        let time = (self.time() as f32, self.dt());
-        self.assets3d.decals_supported = self.supports_decals();
-        self.assets3d.gi_supported = self.renderer.as_ref().is_some_and(|r| r.supports_gi());
+        let time = (self.time.elapsed() as f32, self.dt());
+        self.gfx.assets3d.decals_supported = self.gfx.supports_decals();
+        self.gfx.assets3d.gi_supported = self.gfx.renderer.as_ref().is_some_and(|r| r.supports_gi());
         let fallback = if self.effects.iter().any(|e| e.material.is_none())
             || self.target_effects.iter().any(|e| e.material.is_none())
             || self.compute_passes.iter().any(|c| c.material.is_none())
         {
-            Some(self.default_material())
+            Some(self.gfx.default_material())
         } else {
             None
         };
         self.collect_passes(fallback);
         let start = web_time::Instant::now();
-        let mut skins = std::mem::take(&mut self.frame3d.skins);
-        skins.collect(&mut self.world, &self.assets3d);
+        let mut skins = std::mem::take(&mut self.gfx.frame3d.skins);
+        skins.collect(&mut self.world, &self.gfx.assets3d);
         self.collect_views(&skins);
         self.collect_text3d();
-        let Some(renderer) = self.renderer.as_mut() else {
+        let Some(renderer) = self.gfx.renderer.as_mut() else {
             return;
         };
-        self.frame3d.size_limit = renderer.max_texture_size();
-        self.frame3d.lod = self.lod;
-        self.frame3d.motion.enabled = self.post.anti_aliasing == super::AntiAliasing::Taa
+        self.gfx.frame3d.size_limit = renderer.max_texture_size();
+        self.gfx.frame3d.lod = self.lod;
+        self.gfx.frame3d.motion.enabled = self.post.anti_aliasing == super::AntiAliasing::Taa
             || (self.post.ao_temporal && self.post.ambient_occlusion.enabled);
         if !self.camera3d.occlusion_culling {
-            self.frame3d.occlusion = None;
+            self.gfx.frame3d.occlusion = None;
         } else if let Some(grid) = renderer.take_occlusion() {
-            self.frame3d.occlusion = Some(grid);
+            self.gfx.frame3d.occlusion = Some(grid);
         }
-        self.frame3d
-            .collect(&mut self.world, &self.assets3d, &skins, &self.camera3d, &self.lighting);
-        self.frame3d.skins = skins;
+        self.gfx.frame3d.collect(
+            &mut self.world,
+            &self.gfx.assets3d,
+            &skins,
+            &self.camera3d,
+            &self.lighting,
+        );
+        self.gfx.frame3d.skins = skins;
         let light = if self.sky.atmosphere {
-            match self.frame3d.sky_light {
+            match self.gfx.frame3d.sky_light {
                 Some((lighting, sky, light)) if lighting == self.lighting && sky == self.sky => light,
                 _ => {
                     let light = super::SkyLight::new(&self.lighting, &self.sky);
-                    self.frame3d.sky_light = Some((self.lighting, self.sky, light));
+                    self.gfx.frame3d.sky_light = Some((self.lighting, self.sky, light));
                     light
                 }
             }
@@ -1453,7 +1548,7 @@ impl Ctx {
         };
         let collect_ms = start.elapsed().as_secs_f32() * 1000.0;
         let scene = super::Scene3D {
-            frame: &self.frame3d,
+            frame: &self.gfx.frame3d,
             lighting: &self.lighting,
             sky: &self.sky,
             light,
@@ -1463,7 +1558,7 @@ impl Ctx {
             occlusion: self.camera3d.occlusion_culling,
         };
         renderer.prepare_3d(&scene, collect_ms);
-        self.frame3d.motion.reset = false;
+        self.gfx.frame3d.motion.reset = false;
     }
 }
 
@@ -1481,43 +1576,44 @@ mod clip_tests {
             AnimationClip::new("idle", &skeleton, vec![]),
             AnimationClip::new("walk", &skeleton, vec![]),
         ];
-        ctx.assets3d.loaded.insert(file.clone(), Mesh { id: 0 });
-        ctx.assets3d.loaded_skeletons.insert(file.clone(), skeleton);
-        ctx.assets3d.loaded_clips.insert(file, clips);
+        ctx.gfx.assets3d.loaded.insert(file.clone(), Mesh { id: 0 });
+        ctx.gfx.assets3d.loaded_skeletons.insert(file.clone(), skeleton);
+        ctx.gfx.assets3d.loaded_clips.insert(file, clips);
         (ctx, path)
     }
 
     #[test]
     fn cached_clips_load_by_name_and_missing_names_list_choices() {
         let (mut ctx, path) = cached_clips();
-        let clips = ctx.load_clips(&path);
+        let clips = ctx.gfx.load_clips(&path);
         assert_eq!(clips.len(), 2);
-        assert_eq!(ctx.load_clip(&path, "walk").name(), "walk");
+        assert_eq!(ctx.gfx.load_clip(&path, "walk").name(), "walk");
         assert!(std::sync::Arc::ptr_eq(
             clips[0].source_joints(),
-            ctx.load_clip(&path, "idle").source_joints()
+            ctx.gfx.load_clip(&path, "idle").source_joints()
         ));
-        let error = ctx.try_load_clip(&path, "run").unwrap_err();
+        let error = ctx.gfx.try_load_clip(&path, "run").unwrap_err();
         assert!(error.contains("idle") && error.contains("walk") && error.contains("run"));
     }
 
     #[test]
     fn clips_cached_from_a_source_are_found_by_the_source_and_not_the_folder() {
         let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ONE);
-        ctx.add_asset_source(crate::MemorySource::new("pack").with("hero.glb", b"unread".to_vec()));
+        ctx.assets
+            .add_source(crate::MemorySource::new("pack").with("hero.glb", b"unread".to_vec()));
         let origin = assets::Origin::Source {
             source: "pack".into(),
             name: "hero.glb".into(),
         };
         let skeleton = Skeleton::new(vec![]);
         let clips = vec![AnimationClip::new("idle", &skeleton, vec![])];
-        ctx.assets3d.loaded.insert(origin.clone(), Mesh { id: 0 });
-        ctx.assets3d.loaded_skeletons.insert(origin.clone(), skeleton);
-        ctx.assets3d.loaded_clips.insert(origin, clips);
+        ctx.gfx.assets3d.loaded.insert(origin.clone(), Mesh { id: 0 });
+        ctx.gfx.assets3d.loaded_skeletons.insert(origin.clone(), skeleton);
+        ctx.gfx.assets3d.loaded_clips.insert(origin, clips);
         // The source's bytes are never read: the cache is asked first.
-        assert_eq!(ctx.load_clip("hero.glb", "idle").name(), "idle");
-        assert_eq!(ctx.load_clips("hero.glb").len(), 1);
-        let error = ctx.try_load_clip("hero.glb", "run").unwrap_err();
+        assert_eq!(ctx.gfx.load_clip("hero.glb", "idle").name(), "idle");
+        assert_eq!(ctx.gfx.load_clips("hero.glb").len(), 1);
+        let error = ctx.gfx.try_load_clip("hero.glb", "run").unwrap_err();
         assert!(error.contains("idle") && error.contains("run"), "{error}");
     }
 
@@ -1525,6 +1621,6 @@ mod clip_tests {
     #[should_panic(expected = "available animations: [\"idle\", \"walk\"]")]
     fn missing_named_clip_panics_with_available_names() {
         let (mut ctx, path) = cached_clips();
-        ctx.load_clip(&path, "run");
+        ctx.gfx.load_clip(&path, "run");
     }
 }

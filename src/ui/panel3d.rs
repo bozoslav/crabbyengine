@@ -6,24 +6,25 @@
 use glam::{Mat4, Vec2, Vec3};
 
 use super::retained::Ui;
+use crate::gfx::Graphics;
 use crate::render::batch::PanelDraw;
 use crate::{Ctx, Entity, MouseButton, Texture, Transform3D};
 
 /// Retained UI shown on a quad in the world (Rust's [`Ui`] on a surface):
 /// a computer screen, a shop terminal, a sign with buttons. Build `ui` like
-/// [`Ctx::ui_retained`]; its widgets are laid out in `texture`'s pixels.
+/// [`Ctx::ui`]; its widgets are laid out in `texture`'s pixels.
 ///
 /// The panel is the quad `size` meters wide and high in its entity's XY
 /// plane, centered on it, facing +Z (what [`mesh`](Self::mesh) makes). The
 /// mouse uses the nearest panel the camera ray through it hits, unless the
 /// screen's own UI has it; the panel clicked last also gets the keyboard.
-/// [`Ctx::create_ui_panel`] makes the texture, material and mesh at once.
+/// [`Graphics::create_ui_panel`](crate::Graphics::create_ui_panel) makes the texture, material and mesh at once.
 ///
 /// ```
 /// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     // A 1.2 x 0.8 m terminal, 600 x 400 pixels.
-///     let (mut panel, model) = ctx.create_ui_panel(600, 400, vec2(1.2, 0.8));
+///     let (mut panel, model) = ctx.gfx.create_ui_panel(600, 400, vec2(1.2, 0.8));
 ///     let buy = panel.ui.add(UiWidget::Button, Default::default());
 ///     panel.ui.set_text(buy, "Buy");
 ///     ctx.world.spawn((Transform3D::at(vec3(0.0, 1.5, -2.0)), model, panel));
@@ -33,7 +34,7 @@ pub struct UiPanel3D {
     /// Its widgets, events, focus and screens.
     pub ui: Ui,
     /// What it's drawn into each frame: a render target
-    /// ([`Ctx::create_render_target`]) whose size is the panel's in pixels.
+    /// ([`Graphics::create_render_target`](crate::Graphics::create_render_target)) whose size is the panel's in pixels.
     pub texture: Texture,
     /// Its size in the world, in meters.
     pub size: Vec2,
@@ -60,7 +61,7 @@ impl UiPanel3D {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let screen = ctx.create_render_target(512, 256);
+    ///     let screen = ctx.gfx.create_render_target(512, 256);
     ///     let panel = UiPanel3D::new(screen, vec2(1.0, 0.5));
     ///     assert!(panel.interactive && panel.pointer().is_none());
     /// });
@@ -146,8 +147,6 @@ impl UiPanel3D {
 /// Panels' state that lives in the context.
 #[derive(Default)]
 pub(crate) struct Panels {
-    /// The ray the mouse uses on panels instead of the camera's through it.
-    pub ray: Option<(Vec3, Vec3)>,
     /// The panel clicked last: it gets the keyboard.
     active: Option<Entity>,
     /// Scratch: this frame's panels.
@@ -158,13 +157,19 @@ pub(crate) struct Panels {
 }
 
 impl Panels {
+    /// Forgets which panel has the keyboard (after a scene load: its entity
+    /// id may name another panel now).
+    pub fn forget_focus(&mut self) {
+        self.active = None;
+    }
+
     /// This frame's drawing.
     pub fn frame_draws(&mut self) -> &mut [PanelDraw] {
         &mut self.draws[..self.used]
     }
 }
 
-impl Ctx {
+impl Graphics {
     /// A [`UiPanel3D`] `width` x `height` pixels, `size` meters in the
     /// world, and the [`Model`](crate::Model) that shows it: a quad with a
     /// glowing, alpha-blended material, so it reads in the dark and its
@@ -172,7 +177,7 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let (panel, model) = ctx.create_ui_panel(256, 256, vec2(0.5, 0.5));
+    ///     let (panel, model) = ctx.gfx.create_ui_panel(256, 256, vec2(0.5, 0.5));
     ///     assert_eq!(panel.texture.width(), 256);
     ///     ctx.world.spawn((Transform3D::default(), model, panel));
     /// });
@@ -187,7 +192,7 @@ impl Ctx {
             .unwrap_or_else(|message| panic!("{message}"))
     }
 
-    /// [`Ctx::create_ui_panel`] that returns errors (for the C API).
+    /// [`Graphics::create_ui_panel`](crate::Graphics::create_ui_panel) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_ui_panel(
         &mut self,
@@ -211,42 +216,27 @@ impl Ctx {
         let mesh = self.create_mesh(&panel.mesh(), material);
         Ok((panel, crate::Model::new(mesh)))
     }
+}
 
-    /// Sets the ray the mouse uses on [`UiPanel3D`]s this frame and later
-    /// (origin and direction, in the world), instead of the camera's ray
-    /// through the mouse: for a locked cursor, use the camera's forward
-    /// ray; for VR, a controller's. `None` goes back to the mouse.
-    /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx) {
-    /// // Aim with the screen's center while the cursor is locked.
-    /// let (origin, forward) = (ctx.camera3d.position, ctx.camera3d.forward());
-    /// ctx.set_ui_pointer_ray(Some((origin, forward)));
-    /// # }
-    /// ```
-    pub fn set_ui_pointer_ray(&mut self, ray: Option<(Vec3, Vec3)>) {
-        self.ui.panels.ray = ray;
-    }
-
+impl Ctx {
     /// Gives every [`UiPanel3D`] this frame's input: the mouse to the
     /// nearest one it's over, the keyboard to the one clicked last.
     pub(crate) fn update_ui_panels(&mut self) {
-        let mut entities = std::mem::take(&mut self.ui.panels.entities);
+        let mut entities = std::mem::take(&mut self.ui_state.panels.entities);
         entities.clear();
         self.world
             .query::<(Entity, &UiPanel3D, &Transform3D)>()
             .for_each(|(e, _, _)| entities.push(e));
         if entities.is_empty() {
-            self.ui.panels.entities = entities;
+            self.ui_state.panels.entities = entities;
             return;
         }
         let (origin, direction) = self
             .ui
-            .panels
-            .ray
+            .pointer_ray
             .unwrap_or_else(|| self.camera3d.screen_ray(self.mouse_pos()));
         // The screen's UI comes first.
-        let screen_has_it = self.ui_retained.wants_pointer();
+        let screen_has_it = self.ui.wants_pointer();
         let mut nearest: Option<(Entity, f32, Vec2)> = None;
         for &e in &entities {
             let (Some(panel), Some(at)) = (self.world.get::<UiPanel3D>(e), self.world.get::<Transform3D>(e)) else {
@@ -261,10 +251,10 @@ impl Ctx {
                 nearest = Some((e, distance, pixel));
             }
         }
-        if self.mouse_pressed(MouseButton::Left) {
-            self.ui.panels.active = nearest.map(|n| n.0);
+        if self.input.mouse_pressed(MouseButton::Left) {
+            self.ui_state.panels.active = nearest.map(|n| n.0);
         }
-        let active = self.ui.panels.active;
+        let active = self.ui_state.panels.active;
         for &e in &entities {
             let Some(mut ui) = self.world.get_mut::<UiPanel3D>(e).map(|p| std::mem::take(&mut p.ui)) else {
                 continue;
@@ -292,27 +282,27 @@ impl Ctx {
             };
             let viewport = Vec2::new(panel.texture.width() as f32, panel.texture.height() as f32);
             panel.pointer = pointer;
-            ui.frame_with_text(viewport, &input, &mut self.text);
+            ui.frame_with_text(viewport, &input, &mut self.gfx.text);
             if let Some(panel) = self.world.get_mut::<UiPanel3D>(e) {
                 panel.ui = ui;
             }
         }
-        self.ui.panels.entities = entities;
+        self.ui_state.panels.entities = entities;
     }
 
     /// Draws every [`UiPanel3D`] into its own list for the renderer.
     pub(crate) fn draw_ui_panels(&mut self) {
-        self.ui.panels.used = 0;
+        self.ui_state.panels.used = 0;
         if self.headless {
             return;
         }
-        let mut entities = std::mem::take(&mut self.ui.panels.entities);
+        let mut entities = std::mem::take(&mut self.ui_state.panels.entities);
         entities.clear();
         self.world
             .query::<(Entity, &UiPanel3D)>()
             .for_each(|(e, _)| entities.push(e));
         // Panels' pixels are the texture's: no window scaling.
-        let window_scale = std::mem::replace(&mut self.scale_factor, 1.0);
+        let window_scale = std::mem::replace(&mut self.gfx.scale_factor, 1.0);
         for &e in &entities {
             let Some((mut ui, texture)) = self
                 .world
@@ -322,31 +312,31 @@ impl Ctx {
                 continue;
             };
             // A freed render target is drawn into no more.
-            if !self.is_render_target(texture) {
+            if !self.gfx.is_render_target(texture) {
                 if let Some(panel) = self.world.get_mut::<UiPanel3D>(e) {
                     panel.ui = ui;
                 }
                 continue;
             }
-            let used = self.ui.panels.used;
-            if used == self.ui.panels.draws.len() {
-                self.ui.panels.draws.push(PanelDraw::default());
+            let used = self.ui_state.panels.used;
+            if used == self.ui_state.panels.draws.len() {
+                self.ui_state.panels.draws.push(PanelDraw::default());
             }
-            let mut draw = std::mem::take(&mut self.ui.panels.draws[used]);
+            let mut draw = std::mem::take(&mut self.ui_state.panels.draws[used]);
             draw.texture = texture.id;
             draw.size = [texture.width(), texture.height()];
             draw.list.clear();
-            std::mem::swap(&mut self.ui_list, &mut draw.list);
+            std::mem::swap(&mut self.gfx.ui_list, &mut draw.list);
             self.draw_ui_tree(&mut ui, Vec2::new(texture.width() as f32, texture.height() as f32));
-            std::mem::swap(&mut self.ui_list, &mut draw.list);
-            self.ui.panels.draws[used] = draw;
-            self.ui.panels.used += 1;
+            std::mem::swap(&mut self.gfx.ui_list, &mut draw.list);
+            self.ui_state.panels.draws[used] = draw;
+            self.ui_state.panels.used += 1;
             if let Some(panel) = self.world.get_mut::<UiPanel3D>(e) {
                 panel.ui = ui;
             }
         }
-        self.scale_factor = window_scale;
-        self.ui.panels.entities = entities;
+        self.gfx.scale_factor = window_scale;
+        self.ui_state.panels.entities = entities;
     }
 }
 
@@ -425,10 +415,34 @@ mod tests {
         assert_eq!(far_events, 0, "the far panel is behind the near one");
         assert!(ctx.world.get::<UiPanel3D>(near).unwrap().pointer().is_some());
         assert!(ctx.world.get::<UiPanel3D>(far).unwrap().pointer().is_none());
-        assert_eq!(ctx.ui.panels.active, Some(near), "clicked last: it gets the keyboard");
+        assert_eq!(
+            ctx.ui_state.panels.active,
+            Some(near),
+            "clicked last: it gets the keyboard"
+        );
         // A set ray goes elsewhere: nothing is under it.
-        ctx.set_ui_pointer_ray(Some((Vec3::ZERO, Vec3::X)));
+        ctx.ui.set_pointer_ray(Some((Vec3::ZERO, Vec3::X)));
         ctx.update_ui_panels();
         assert!(ctx.world.get::<UiPanel3D>(near).unwrap().pointer().is_none());
+    }
+
+    #[test]
+    fn a_scene_load_forgets_which_panel_has_the_keyboard() {
+        let mut ctx = Ctx::new(1.0 / 60.0, V2::new(800.0, 600.0));
+        let e = ctx.world.spawn((Transform3D::default(), panel()));
+        ctx.ui_state.panels.active = Some(e); // clicked last
+        // A scene with the same ids (transforms only: panels aren't saved).
+        let save = crate::WorldReflect::save(&ctx.world);
+        ctx.replace_world(&save).unwrap();
+        assert!(ctx.world.is_alive(e), "the scene has the same id");
+        assert_eq!(ctx.ui_state.panels.active, None, "the old panel's focus is gone");
+        // The game puts a new panel on it: no keyboard until it's clicked.
+        ctx.world.insert(e, panel());
+        ctx.update_ui_panels();
+        assert_eq!(ctx.ui_state.panels.active, None);
+        assert!(
+            ctx.gfx.frame3d.motion.reset,
+            "same-id models have no motion from the old scene"
+        );
     }
 }

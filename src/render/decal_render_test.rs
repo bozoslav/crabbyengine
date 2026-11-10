@@ -63,10 +63,10 @@ impl Rig {
             roughness: 1.0,
             ..Default::default()
         };
-        let material = ctx.create_material(matte);
+        let material = ctx.gfx.create_material(matte);
         let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         renderer.create_material(&device, &GpuMaterialDesc::new(&matte), &textures);
-        ctx.assets3d.decals_supported = decals;
+        ctx.gfx.assets3d.decals_supported = decals;
         ctx.sky.atmosphere = false;
         // A plain light: ambient and sun the same everywhere.
         ctx.lighting.shadows = false;
@@ -84,7 +84,7 @@ impl Rig {
     }
 
     fn mesh(&mut self, data: &MeshData) -> Mesh {
-        let mesh = self.ctx.create_mesh(data, self.material);
+        let mesh = self.ctx.gfx.create_mesh(data, self.material);
         self.renderer.create_mesh(
             &self.device,
             data,
@@ -112,11 +112,11 @@ impl Rig {
             height: size,
             layers: layers.len() as u32,
         };
-        assert_eq!(id as usize, self.ctx.assets3d.arrays.len());
-        self.ctx.assets3d.arrays.push(handle);
-        self.ctx.assets3d.array_data.push(true);
-        self.ctx.assets3d.arrays_live.insert(id);
-        self.ctx.set_decal_textures(Some(handle));
+        assert_eq!(id as usize, self.ctx.gfx.assets3d.arrays.len());
+        self.ctx.gfx.assets3d.arrays.push(handle);
+        self.ctx.gfx.assets3d.array_data.push(true);
+        self.ctx.gfx.assets3d.arrays_live.insert(id);
+        self.ctx.gfx.set_decal_textures(Some(handle));
     }
 
     /// Looks at the origin from `from`.
@@ -130,7 +130,7 @@ impl Rig {
         let mut frame = Frame3D::default();
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -517,7 +517,7 @@ fn decal_cost() {
         for _ in 0..frames {
             frame.collect(
                 &mut rig.ctx.world,
-                &rig.ctx.assets3d,
+                &rig.ctx.gfx.assets3d,
                 &SkinFrame::default(),
                 &rig.ctx.camera3d,
                 &rig.ctx.lighting,

@@ -178,6 +178,140 @@ fn die(ctx: &mut Ctx) {
 
 The engine applies commands after every system, so the next system sees them.
 
+## Change detection
+
+Some work only needs the entities that changed: resize a health bar when
+`Health` changes, rebuild a path when a `Target` moves, upload an instance
+when its transform changes. Ask for them with the filters `Changed<T>` and
+`Added<T>`:
+
+<div class="lang-pair">
+<div>
+
+```rust
+# struct Health(f32);
+# struct HealthBar { width: f32 }
+fn resize_health_bars(ctx: &mut Ctx) {
+    // Only the entities whose Health changed since this system last ran.
+    ctx.world
+        .query::<(&Health, &mut HealthBar)>()
+        .filter::<Changed<Health>>()
+        .for_each(|(hp, bar)| bar.width = hp.0);
+    // The ones that are new, and the ones that lost it (or despawned).
+    let spawned = ctx.world.query::<Entity>().filter::<Added<Health>>().count();
+    let gone: &[Entity] = ctx.world.removed::<Health>();
+#   let _ = (spawned, gone);
+}
+fn regenerate(ctx: &mut Ctx) {
+    // `&mut Health` can write, so every entity visited counts as changed.
+    // Ask for `&Health` when you only read.
+    ctx.world.query::<&mut Health>().for_each(|hp| hp.0 += 1.0);
+}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ecs_changes}}
+```
+
+</div>
+</div>
+
+**It is opt-in, per component.** Nothing is tracked until a component is
+asked for: by a `Changed<T>` or `Added<T>` filter (C++: `ponko::changed<T>`,
+`ponko::added<T>`), or by `world.track_changes::<T>()` (C++:
+`world.track_changes<T>()`). Call `track_changes` in `setup` for components
+whose removals you read, because `removed::<T>()` panics for a component that
+isn't tracked. A game that tracks nothing keeps no stamps and runs the same
+loops as before.
+
+**Each system has its own view.** In a system, the filters and `removed`
+report what happened since that system last ran, so every system sees each
+change exactly once, whether it runs before or after the system that made
+it, and a system that runs every tenth tick sees ten ticks of changes. A
+system isn't shown its own changes (or its own commands) again. The first
+time a system runs, and in code outside systems such as `setup`, everything
+counts as added and changed.
+
+What counts, for a tracked component:
+
+| Operation | Added | Changed |
+|---|---|---|
+| `spawn`, `spawn_batch`, `spawn_at`, and their `_dynamic` forms | yes | yes |
+| `insert` on an entity without one | yes | yes |
+| `insert` replacing a value | no | yes |
+| `get_mut` | no | yes |
+| `&mut T` or `Option<&mut T>` in a query | no | yes, for every entity the query visits |
+| the same in a view system (`sys.world`), and its `get_mut` | no | yes |
+| `mark_changed::<T>(e)` | no | yes |
+| `get`, `has`, `&T` in a query, `count()`, `sort_by` | no | no |
+| `remove`, `despawn`, `clear` | goes to `removed::<T>()`; the entity's other components keep their state |
+
+- **A mutable borrow is a change, written or not.** The world can't see a
+  write through `&mut T`, so it assumes one. A query with `&mut T` marks
+  every entity it visits: all it matches, or only the ones that pass its
+  `Added`/`Changed` filters. To change only a few entities, query `&T` and
+  call `get_mut` (or record a command) for those. A system that both reads
+  `Changed<T>` and writes `T` to every entity makes every other reader of
+  `T` see everything, every tick.
+- **`Changed` includes `Added`**: a new value is also a changed one. Use
+  `Added<T>` alone for "new here". Inserting `T` again after removing it
+  counts as added again.
+- **Filters combine** with the others: `(Changed<A>, Without<Dead>)` needs
+  both, `Or<(Changed<A>, Changed<B>)>` needs either. A filter on `T` also
+  requires `T`, like `With<T>`. Up to 4 `Added`/`Changed` filters per query
+  outside `Or`.
+- **Commands** are stamped when they are applied, which is when the
+  recording system returns: the other systems see them as changes of that
+  system.
+- **Removals** list each entity that lost `T` since the system last ran,
+  in the order it happened, despawned entities included (check
+  `world.is_alive(e)` before using one). The engine drops a removal once
+  every system has been shown it, so a system that doesn't run holds
+  removals back: while the simulation is paused, the removals that frame
+  systems make stay in the logs until the simulation systems run again.
+- **Saving and loading**: stamps and removals are not part of a saved
+  world. Loading a save removes every entity and spawns the saved ones, so
+  every system sees them as removed and then added.
+- **Replacing the world** (`ctx.world = World::new()`) starts every system
+  over: the new world has its own history, so on its next run each system
+  sees everything in the new world as added and changed, and the removals
+  logged there so far, however rarely it runs. Nothing is reported for the
+  old world's entities; they were not removed, their world is gone. A
+  `Tick` you kept yourself belongs to the world it came from: keep
+  `world.id()` next to it and start again from `Tick::default()` when the
+  id differs.
+- **The tick counter doesn't run out.** The world counts ticks in 64 bits
+  and stores 32 bits per stamp. A stamp older than two billion ticks is
+  kept at that age, so a very old change is never mistaken for a new one;
+  a reader that slept that long is shown everything.
+
+C and C++ components work the same way. In C++, an `each` parameter taken
+as `T&` can write and counts as a change, while `const T&` or `T` only
+reads; `world.query<const A, B>(fn)` does the same for whole arrays, and
+`ponko::any_of<ponko::changed<A>, ponko::changed<B>>` is the `Or`. In C,
+`ponko_query` marks every column it hands out, and `ponko_query_with` takes
+a `PonkoQueryOptions` saying which columns it writes and which must have
+changed. `ponko_set` (C++ `world.set`) counts like `insert`, and
+`ponko_mark_changed` (C++ `world.mark_changed<T>(e)`) marks one entity by
+hand, for a value that depends on something the world can't see.
+
+Outside the game loop (a plain `World` in a tool or a test) there are no
+systems, so keep the tick yourself: `let seen = world.advance_change_tick()`
+after looking, then `.since(seen)` on the next query and
+`world.removed_since::<T>(seen)`; call `world.forget_removed(seen)` so the
+removal logs don't grow.
+
+**What it costs.** For a component that isn't tracked: nothing. For a
+tracked one: 8 bytes per entity, and one stamp per entity for each
+mutable visit. With 1M entities on an Apple M-series laptop, a `&mut`
+loop takes 0.20 ms instead of 0.17 ms, a `&T` loop is unchanged, and a
+`Changed<T>` loop that finds nothing takes 0.5 ms (it reads one stamp per
+entity). `cargo run --release -p ponko_bench -- changes` prints the
+numbers for your machine.
+
 ## Resources
 
 A resource is one global value of a type, stored in the world and found

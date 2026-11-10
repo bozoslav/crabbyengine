@@ -1,5 +1,6 @@
 //! Positional playback without custom DSP: Kira applies the gain, pan and rate.
-use super::{AudioBus, AudioEffects, Ctx, Playing, Sound, SoundParams};
+use super::{Audio, AudioBus, AudioEffects, Playing, Sound, SoundParams};
+use crate::Ctx;
 use crate::{Entity, Quat, Transform3D, Vec3};
 
 /// Distance gain curve. Keyed curves use normalized distance and linear gain;
@@ -36,7 +37,7 @@ pub struct AudioSettings3D {
     /// ```
     pub bus: AudioBus,
     /// Initial per-voice low-pass and shared reverb send. Update live voices
-    /// with `Ctx::set_sound_effects` (including positional voices).
+    /// with `Audio::set_effects` (including positional voices).
     /// ```
     /// # use ponko::*;
     /// let settings = AudioSettings3D { effects: AudioEffects::default(), ..Default::default() };
@@ -66,7 +67,7 @@ impl Default for AudioSettings3D {
 }
 
 /// Where the ears are. By default they follow `ctx.camera3d`; set your own with
-/// [`Ctx::set_audio_listener`]. Velocity (for doppler) is estimated from frame
+/// [`Audio::set_listener`]. Velocity (for doppler) is estimated from frame
 /// to frame.
 /// ```
 /// use ponko::*;
@@ -123,11 +124,14 @@ struct Voice {
     remaining: f32,
 }
 #[derive(Default)]
-pub(super) struct SpatialState {
+pub(crate) struct SpatialState {
     /// The listener of the last update, for its velocity.
     listener: Option<AudioListener3D>,
     /// The game's own listener, instead of the camera.
     custom: Option<AudioListener3D>,
+    /// Where `ctx.camera3d` was when the running system started (and when
+    /// the frame's positional sound was updated): the default listener.
+    pub(crate) camera: AudioListener3D,
     voices: Vec<Voice>,
     next_silent: u64,
 }
@@ -174,34 +178,34 @@ fn doppler(direction: Vec3, emitter: Vec3, listener: Vec3, factor: f32) -> f32 {
     ((343.0 + radial(listener)) / (343.0 + radial(emitter))).clamp(0.25, 4.0)
 }
 
-impl Ctx {
+impl Audio {
     /// Plays a sound from a point in the world. Volume, panning and doppler
     /// follow the listener every frame. A looping sound (`settings.sound.looping`)
     /// plays until `stop_sound`.
     /// ```
     /// use ponko::*;
     /// # fn f(ctx: &mut Ctx, sound: Sound) {
-    /// ctx.play_sound_at(&sound, vec3(3.0, 0.0, -5.0), AudioSettings3D::default());
+    /// ctx.audio.play_at(&sound, vec3(3.0, 0.0, -5.0), AudioSettings3D::default());
     /// # }
     /// ```
-    pub fn play_sound_at(&mut self, sound: &Sound, position: Vec3, settings: AudioSettings3D) -> Playing {
-        let listener = self.audio_listener();
+    pub fn play_at(&mut self, sound: &Sound, position: Vec3, settings: AudioSettings3D) -> Playing {
+        let listener = self.listener();
         let offset = position - listener.position;
         let mut params = settings.sound;
         params.volume *= gain(offset.length(), settings);
         let id = if self.headless {
-            self.audio.spatial.next_silent += 1;
-            Playing(self.audio.spatial.next_silent)
+            self.backend.spatial.next_silent += 1;
+            Playing(self.backend.spatial.next_silent)
         } else {
-            self.play_sound_on(sound, params, settings.bus, settings.effects)
+            self.play_on(sound, params, settings.bus, settings.effects)
         };
-        self.audio.spatialize(
+        self.backend.spatialize(
             id.0,
             params.volume,
             pan(offset, listener.rotation),
             params.speed.max(0.01),
         );
-        self.audio.spatial.voices.push(Voice {
+        self.backend.spatial.voices.push(Voice {
             id,
             entity: None,
             position,
@@ -213,47 +217,53 @@ impl Ctx {
     }
 }
 
-impl Ctx {
+impl Audio {
     /// Puts the ears somewhere other than the camera, such as on the player in
     /// a third-person game. `None` goes back to following `ctx.camera3d`.
     /// ```
     /// use ponko::*;
     /// # fn f(ctx: &mut Ctx, player: Vec3) {
-    /// ctx.set_audio_listener(Some(AudioListener3D { position: player, rotation: Quat::IDENTITY }));
+    /// ctx.audio.set_listener(Some(AudioListener3D { position: player, rotation: Quat::IDENTITY }));
     /// # }
     /// ```
-    pub fn set_audio_listener(&mut self, listener: Option<AudioListener3D>) {
-        self.audio.spatial.custom = listener;
+    pub fn set_listener(&mut self, listener: Option<AudioListener3D>) {
+        self.backend.spatial.custom = listener;
     }
 
-    /// Where the ears are: the listener set with [`Ctx::set_audio_listener`],
-    /// or else the camera.
+    /// The listener set with [`set_listener`](Self::set_listener), if any.
+    pub(crate) fn custom_listener(&self) -> Option<AudioListener3D> {
+        self.backend.spatial.custom
+    }
+
+    /// Where the ears are: the listener set with
+    /// [`set_listener`](Self::set_listener), or else `ctx.camera3d` as it
+    /// was when the running system started. The frame's positional sound
+    /// update, after the last system, uses the camera's final place.
     /// ```
     /// use ponko::*;
     /// # fn f(ctx: &Ctx) {
-    /// let ears = ctx.audio_listener().position;
+    /// let ears = ctx.audio.listener().position;
     /// # }
     /// ```
-    pub fn audio_listener(&self) -> AudioListener3D {
-        self.audio.spatial.custom.unwrap_or(AudioListener3D {
-            position: self.camera3d.position,
-            rotation: self.camera3d.rotation,
-        })
+    pub fn listener(&self) -> AudioListener3D {
+        self.backend.spatial.custom.unwrap_or(self.backend.spatial.camera)
     }
 }
 
 /// Moves every positional sound to this frame's listener and emitters. The
 /// game runs it after the frame's systems; no allocations unless a voice starts.
 pub(crate) fn update_audio3d(ctx: &mut Ctx) {
-    let listener = ctx.audio_listener();
+    ctx.sync_audio_camera();
+    let listener = ctx.audio.listener();
     let dt = ctx.dt();
     let inverse_dt = if dt > 0.0 { dt.recip() } else { 0.0 };
     let velocity = ctx
         .audio
+        .backend
         .spatial
         .listener
         .map_or(Vec3::ZERO, |old| (listener.position - old.position) * inverse_dt);
-    ctx.audio.spatial.listener = Some(listener);
+    ctx.audio.backend.spatial.listener = Some(listener);
     // Split fields rather than gathering the query into an allocated buffer.
     for (entity, transform, source) in ctx.world.query::<(Entity, &Transform3D, &mut AudioSource3D)>().iter() {
         if source.playing.is_none() {
@@ -261,14 +271,15 @@ pub(crate) fn update_audio3d(ctx: &mut Ctx) {
             let mut params = source.settings.sound;
             params.volume *= gain(offset.length(), source.settings);
             let id = Playing(if ctx.headless {
-                ctx.audio.spatial.next_silent += 1;
-                ctx.audio.spatial.next_silent
+                ctx.audio.backend.spatial.next_silent += 1;
+                ctx.audio.backend.spatial.next_silent
             } else {
                 ctx.audio
+                    .backend
                     .play_on(source.sound.id, params, source.settings.bus, source.settings.effects)
             });
             source.playing = Some(id);
-            ctx.audio.spatial.voices.push(Voice {
+            ctx.audio.backend.spatial.voices.push(Voice {
                 id,
                 entity: Some(entity),
                 position: transform.position,
@@ -279,8 +290,8 @@ pub(crate) fn update_audio3d(ctx: &mut Ctx) {
         }
     }
     let mut i = 0;
-    while i < ctx.audio.spatial.voices.len() {
-        let voice = &mut ctx.audio.spatial.voices[i];
+    while i < ctx.audio.backend.spatial.voices.len() {
+        let voice = &mut ctx.audio.backend.spatial.voices[i];
         let mut position = voice.position;
         let mut changed_effects = None;
         if let Some(entity) = voice.entity {
@@ -299,8 +310,8 @@ pub(crate) fn update_audio3d(ctx: &mut Ctx) {
                 }
                 _ => {
                     let id = voice.id;
-                    ctx.audio.stop(id.0);
-                    ctx.audio.spatial.voices.swap_remove(i);
+                    ctx.audio.backend.stop(id.0);
+                    ctx.audio.backend.spatial.voices.swap_remove(i);
                     continue;
                 }
             }
@@ -326,11 +337,11 @@ pub(crate) fn update_audio3d(ctx: &mut Ctx) {
         if let Some(effects) = changed_effects {
             // Kira smooths the change, so a filter can follow the game (a
             // door closing, the camera moving inside).
-            ctx.audio.effects(id.0, effects);
+            ctx.audio.backend.effects(id.0, effects);
         }
-        ctx.audio.spatialize(id.0, volume, panning, speed);
+        ctx.audio.backend.spatialize(id.0, volume, panning, speed);
         if finished {
-            ctx.audio.spatial.voices.swap_remove(i);
+            ctx.audio.backend.spatial.voices.swap_remove(i);
         } else {
             i += 1;
         }
@@ -373,19 +384,19 @@ mod tests {
                 assert!(ctx.world.query::<&AudioSource3D>().iter().all(|s| s.playing.is_some()));
             })
             .run_headless(2, |ctx| {
-                let sound = ctx.create_sound(100, &[0.0; 100]);
+                let sound = ctx.audio.create(100, &[0.0; 100]);
                 let entity = ctx.world.spawn((
                     Transform3D::default(),
                     AudioSource3D::new(sound, AudioSettings3D::default()),
                 ));
                 update_audio3d(ctx);
-                assert_eq!(ctx.audio.spatial.voices.len(), 1);
+                assert_eq!(ctx.audio.backend.spatial.voices.len(), 1);
                 ctx.world.get_mut::<Transform3D>(entity).unwrap().position = Vec3::X * 5.0;
                 update_audio3d(ctx);
-                assert_eq!(ctx.audio.spatial.voices[0].position, Vec3::X * 5.0);
+                assert_eq!(ctx.audio.backend.spatial.voices[0].position, Vec3::X * 5.0);
                 ctx.world.despawn(entity);
                 update_audio3d(ctx);
-                assert!(ctx.audio.spatial.voices.is_empty());
+                assert!(ctx.audio.backend.spatial.voices.is_empty());
             });
     }
     #[test]
@@ -393,7 +404,7 @@ mod tests {
         use crate::WorldReflect;
         crate::Game::new("audio test", 1, 1).run_headless(0, |ctx| {
             ctx.world.reflect::<Transform3D>();
-            let sound = ctx.create_sound(100, &[0.0; 100]);
+            let sound = ctx.audio.create(100, &[0.0; 100]);
             let looping = AudioSettings3D {
                 sound: crate::SoundParams {
                     looping: true,
@@ -406,11 +417,14 @@ mod tests {
             let save = ctx.world.save();
             ctx.world.insert(e, AudioSource3D::new(sound, looping));
             update_audio3d(ctx);
-            assert_eq!(ctx.audio.spatial.voices.len(), 1);
+            assert_eq!(ctx.audio.backend.spatial.voices.len(), 1);
             ctx.world.load(&save).unwrap();
             assert!(ctx.world.is_alive(e), "same id, new entity");
             update_audio3d(ctx);
-            assert!(ctx.audio.spatial.voices.is_empty(), "the old entity's voice stops");
+            assert!(
+                ctx.audio.backend.spatial.voices.is_empty(),
+                "the old entity's voice stops"
+            );
         });
     }
 }

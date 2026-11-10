@@ -187,7 +187,7 @@ pub struct UiPaint {
     /// let _ = UiPaint::default().color;
     /// ```
     pub color: Color,
-    /// Font handle, from `Ctx::load_font`.
+    /// Font handle, from `Graphics::load_font`.
     /// ```
     /// use ponko::*;
     /// let _ = UiPaint::default().font;
@@ -429,8 +429,25 @@ enum Drag {
     Text(UiId),
 }
 
-/// Owned UI tree and screen stack. Build once, then mutate node properties.
-/// Draining events avoids callbacks borrowing the game and UI together.
+/// The screen's UI: `ctx.ui`. An owned widget tree and screen stack: build
+/// once, then mutate node properties. Draining events avoids callbacks
+/// borrowing the game and UI together.
+///
+/// - **What lives here:** the retained widget tree with its screen stack,
+///   focus and queued events; who has the pointer and the keyboard
+///   ([`wants_pointer`](Self::wants_pointer),
+///   [`wants_keyboard`](Self::wants_keyboard)); and the immediate widgets
+///   for debug overlays, [`immediate`](Self::immediate).
+/// - **When to call it:** build the tree in setup, then change text, values
+///   and screens from any system. The engine lays it out and feeds it input
+///   before the frame's systems, so [`events`](Self::events) queued this
+///   frame are read in a frame or simulation system. Immediate widgets are
+///   drawn the frame they are called.
+/// - **What it needs:** nothing to build and query (tests drive it with
+///   [`frame`](Self::frame)); drawing needs a window. It borrows apart from
+///   the world and the other services: read its events while playing
+///   sounds or changing entities.
+///
 /// ```
 /// use ponko::*;
 /// let mut ui = Ui::default();
@@ -455,6 +472,15 @@ pub struct Ui {
     external_fonts: bool,
     consumed: bool,
     pub(super) theme: super::UiTheme,
+    /// The immediate widgets (a panel, a label, a button drawn the frame
+    /// they are called) and their style. Only the screen's UI (`ctx.ui`)
+    /// shows them; a [`UiPanel3D`](crate::UiPanel3D)'s tree leaves it unused.
+    pub immediate: super::UiImmediate,
+    /// The mouse is over the inspector overlay.
+    pub(crate) overlay_has_pointer: bool,
+    /// The ray the mouse uses on world panels instead of the camera's through it.
+    #[cfg(feature = "3d")]
+    pub(crate) pointer_ray: Option<(crate::Vec3, crate::Vec3)>,
 }
 // SAFETY: the only part that isn't `Send`/`Sync` is taffy's `CompactLength`,
 // which may hold an opaque `calc()` handle as a raw pointer. The engine
@@ -482,6 +508,10 @@ impl Default for Ui {
             external_fonts: false,
             consumed: false,
             theme: super::UiTheme::default(),
+            immediate: super::UiImmediate::default(),
+            overlay_has_pointer: false,
+            #[cfg(feature = "3d")]
+            pointer_ray: None,
         }
     }
 }
@@ -805,10 +835,22 @@ impl Ui {
     pub fn next_event(&mut self) -> Option<UiEvent> {
         (!self.events.is_empty()).then(|| self.events.remove(0))
     }
-    /// Pointer or a captured drag belongs to UI; modal screens capture outside.
+    /// The pointer belongs to UI: it is over a widget of the tree or an
+    /// [immediate](Self::immediate) one drawn this frame or the previous
+    /// one, a drag is captured, or a modal screen is open (it captures
+    /// outside too). Check it before reacting to clicks in the world, so
+    /// clicking a button doesn't also select a unit behind it.
+    ///
+    /// The pointer is where the mouse was when the running system started.
     /// ```
     /// use ponko::*;
     /// assert!(!Ui::default().wants_pointer());
+    /// # fn select(ctx: &mut Ctx) {
+    /// if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.ui.wants_pointer() {
+    ///     let at = ctx.mouse_world();
+    ///     # let _ = at;
+    /// }
+    /// # }
     /// ```
     pub fn wants_pointer(&self) -> bool {
         self.consumed
@@ -816,12 +858,39 @@ impl Ui {
             || self.drag.is_some()
             || self.hit_test(self.pointer).is_some()
             || self.screens.last().is_some_and(|s| s.modal)
+            || self.overlay_has_pointer
+            || self.immediate.covers(self.pointer)
+    }
+    /// Engine side: where the mouse is now, between frames of the tree.
+    pub(crate) fn set_pointer(&mut self, at: Vec2) {
+        self.pointer = at;
+    }
+    /// Sets the ray the mouse uses on [`UiPanel3D`](crate::UiPanel3D)s this
+    /// frame and later (origin and direction, in the world), instead of the
+    /// camera's ray through the mouse: for a locked cursor, use the camera's
+    /// forward ray; for VR, a controller's. `None` goes back to the mouse.
+    /// Only the screen's UI (`ctx.ui`) reads it.
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// // Aim with the screen's center while the cursor is locked.
+    /// let (origin, forward) = (ctx.camera3d.position, ctx.camera3d.forward());
+    /// ctx.ui.set_pointer_ray(Some((origin, forward)));
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub fn set_pointer_ray(&mut self, ray: Option<(crate::Vec3, crate::Vec3)>) {
+        self.pointer_ray = ray;
     }
     /// Keyboard/gamepad belongs to UI while a screen is open (including text
-    /// focus). The game should suppress its own actions while this is true.
+    /// focus). Check it before the game's own movement and actions, just as
+    /// [`wants_pointer`](Self::wants_pointer) guards the mouse.
     /// ```
     /// use ponko::*;
     /// assert!(!Ui::default().wants_keyboard());
+    /// # fn update(ctx: &mut Ctx) {
+    /// if !ctx.ui.wants_keyboard() && ctx.key_pressed(Key::Space) { /* jump */ }
+    /// # }
     /// ```
     pub fn wants_keyboard(&self) -> bool {
         self.consumed || !self.screens.is_empty()

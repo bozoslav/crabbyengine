@@ -13,6 +13,9 @@ impl Renderer {
     pub fn stats(&self) -> RenderStats {
         match *self {}
     }
+    pub fn pipeline_stats(&self) -> super::PipelineStats {
+        match *self {}
+    }
     pub fn take_screenshot(&mut self) -> Option<Screenshot> {
         match *self {}
     }
@@ -58,6 +61,9 @@ impl Renderer {
         match *self {}
     }
     pub fn update_texture_region(&mut self, _id: u32, _at: [u32; 2], _size: [u32; 2], _rgba: &[u8]) {
+        match *self {}
+    }
+    pub fn replace_texture(&mut self, _id: u32, _width: u32, _height: u32, _rgba: &[u8]) {
         match *self {}
     }
     pub fn free_texture(&mut self, _id: u32) {
@@ -118,19 +124,24 @@ impl Renderer {
     pub fn set_instance_batch(&mut self, _: u32, _: Option<&crate::three::instances::Batch>) {}
     pub fn set_mesh_gpu_buffer(&mut self, _: u32, _: u32, _: u32) {}
     #[cfg(feature = "3d")]
-    pub fn create_compute(&mut self, _name: &str, _source: &str) -> Result<u32, String> {
+    pub fn create_compute(&mut self, _name: &str, _source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn replace_compute(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), String> {
+    pub fn replace_compute(
+        &mut self,
+        _id: u32,
+        _name: &str,
+        _source: &str,
+    ) -> Result<(), Box<crate::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn create_effect(&mut self, _name: &str, _source: &str) -> Result<u32, String> {
+    pub fn create_effect(&mut self, _name: &str, _source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn replace_effect(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), String> {
+    pub fn replace_effect(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]

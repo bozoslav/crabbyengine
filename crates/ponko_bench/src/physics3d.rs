@@ -114,7 +114,7 @@ pub fn run(b: &mut Bench) {
             |_| {
                 let world = Game::new("bench", 1, 1)
                     .sim_system(|ctx: &mut ponko::Ctx| {
-                        let t = ctx.sim_tick() as f32 * 0.02;
+                        let t = ctx.time.sim_tick() as f32 * 0.02;
                         ctx.world.query::<&mut Character3D>().for_each(|c| {
                             let a = t + c.radius * 100.0;
                             c.velocity.x = 3.0 * a.cos();

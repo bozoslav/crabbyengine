@@ -148,7 +148,7 @@ pub unsafe extern "C" fn crabby_ctx_set_texture_filter(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_texture_filter(&texture_from_c(texture), filter);
+            c.gfx.set_texture_filter(&texture_from_c(texture), filter);
             Ok(())
         })
     })

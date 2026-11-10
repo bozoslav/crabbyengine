@@ -10,7 +10,7 @@ use ponko::*;
 
 fn main() {
     Game::new("Ponko: sprites", 800, 600).run(|ctx| {
-        ctx.clear(Color::hex(0x1E2A38));
+        ctx.gfx.clear(Color::hex(0x1E2A38));
         let crab = ctx.load_texture("crab.png");
 
         // A generated texture: a soft white circle.
@@ -23,12 +23,12 @@ fn main() {
                 pixels.extend_from_slice(&[255, 255, 255, a]);
             }
         }
-        let dot = ctx.create_texture(size as u32, size as u32, &pixels);
+        let dot = ctx.gfx.create_texture(size as u32, size as u32, &pixels);
 
         let mut player = ctx.window_size() / 2.0;
 
         move |ctx: &mut Ctx| {
-            let t = ctx.time() as f32;
+            let t = ctx.time.elapsed() as f32;
 
             let mut dir = Vec2::ZERO;
             if ctx.key_down(Key::Left) || ctx.key_down(Key::A) {
@@ -49,7 +49,7 @@ fn main() {
             for i in 0..12 {
                 let angle = t + i as f32 * std::f32::consts::TAU / 12.0;
                 let hue = i as f32 / 12.0;
-                ctx.draw_ex(
+                ctx.gfx.draw_ex(
                     &dot,
                     player + Vec2::from_angle(angle) * 120.0,
                     DrawParams {
@@ -65,7 +65,7 @@ fn main() {
             }
 
             // The player: big and wobbling. Drawn first in code but z = 1 puts it on top.
-            ctx.draw_ex(
+            ctx.gfx.draw_ex(
                 &crab,
                 player,
                 DrawParams {
@@ -78,7 +78,7 @@ fn main() {
 
             // A row of crabs: plain, flipped, tinted, half transparent, pivot at top-left.
             let row_y = 80.0;
-            ctx.draw_ex(
+            ctx.gfx.draw_ex(
                 &crab,
                 vec2(100.0, row_y),
                 DrawParams {
@@ -86,7 +86,7 @@ fn main() {
                     ..Default::default()
                 },
             );
-            ctx.draw_ex(
+            ctx.gfx.draw_ex(
                 &crab,
                 vec2(200.0, row_y),
                 DrawParams {
@@ -94,7 +94,7 @@ fn main() {
                     ..Default::default()
                 },
             );
-            ctx.draw_ex(
+            ctx.gfx.draw_ex(
                 &crab,
                 vec2(300.0, row_y),
                 DrawParams {
@@ -103,7 +103,7 @@ fn main() {
                     ..Default::default()
                 },
             );
-            ctx.draw_ex(
+            ctx.gfx.draw_ex(
                 &crab,
                 vec2(400.0, row_y),
                 DrawParams {
@@ -112,7 +112,7 @@ fn main() {
                     ..Default::default()
                 },
             );
-            ctx.draw_ex(
+            ctx.gfx.draw_ex(
                 &crab,
                 vec2(500.0, row_y),
                 DrawParams {
@@ -124,7 +124,7 @@ fn main() {
             );
 
             // A small crab following the mouse, on top of everything.
-            ctx.draw_ex(
+            ctx.gfx.draw_ex(
                 &crab,
                 ctx.mouse_pos(),
                 DrawParams {

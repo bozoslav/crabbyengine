@@ -10,13 +10,13 @@ struct Ping(u64);
 struct Seen(Vec<(&'static str, u64, u64)>);
 
 fn send_ping(ctx: &mut Ctx) {
-    let t = ctx.sim_tick();
+    let t = ctx.time.sim_tick();
     ctx.events.send(Ping(t));
 }
 
 fn reader(name: &'static str) -> impl FnMut(&mut Ctx) {
     move |ctx: &mut Ctx| {
-        let t = ctx.sim_tick();
+        let t = ctx.time.sim_tick();
         for p in ctx.events.read::<Ping>() {
             ctx.world.resource_mut::<Seen>().0.push((name, t, p.0));
         }

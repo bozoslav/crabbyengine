@@ -23,7 +23,7 @@ cargo run --release --example boids
 | `boids` | Flocking with a spatial grid on all cores |
 | `ants` | Ant colonies: pheromone trails, foraging, growth; up to millions of ants |
 | `headless` | A million agents with no window or GPU |
-| `coin_dash` | A small complete game with no asset files (win, lose, restart, input actions), tested headlessly; see [Headless runs and testing](headless.md#a-complete-game-tested-headlessly) |
+| `coin_dash` | A small complete game (title, settings with UI scale and rebinding, rounds, pause, saved progress, sound), tested headlessly, packaged for the desktop and built for the web; see [A complete game, packaged](packaging.md) and [Headless runs and testing](headless.md#a-complete-game-tested-headlessly) |
 | `examples/cpp/boids.cpp` | The boids example in C++ (build with CMake, see [C and C++](c-cpp.md)) |
 
 Always use `--release` for anything with many entities; debug builds are
@@ -94,7 +94,7 @@ skin, a user's file):
 ```rust
 # use ponko::*;
 # fn setup(ctx: &mut Ctx) {
-match ctx.try_load_texture("skins/gold.png") {
+match ctx.gfx.try_load_texture("skins/gold.png") {
     Ok(skin) => { /* use it */ let _ = skin; }
     Err(e) if e.kind() == ErrorKind::NotFound => { /* no skin installed */ }
     Err(e) => eprintln!("{e}"), // "ponko: ..." with the reason

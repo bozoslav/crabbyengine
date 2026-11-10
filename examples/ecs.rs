@@ -80,17 +80,21 @@ fn aging(ctx: &mut Ctx) {
 /// Frame system: input.
 fn controls(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Space) {
-        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+        if ctx.time.is_paused() {
+            ctx.time.resume()
+        } else {
+            ctx.time.pause()
+        }
     }
     if ctx.key_pressed(Key::Period) {
-        ctx.step();
+        ctx.time.step();
     }
     for (key, speed) in [(Key::Num1, 1.0), (Key::Num2, 4.0), (Key::Num3, 16.0), (Key::Num4, 64.0)] {
         if ctx.key_pressed(key) {
-            ctx.set_sim_speed(speed);
+            ctx.time.set_speed(speed);
         }
     }
-    if ctx.mouse_down(MouseButton::Left) {
+    if ctx.input.mouse_down(MouseButton::Left) {
         let at = ctx.mouse_pos();
         for _ in 0..5 {
             spawn_crab(ctx, at);
@@ -120,18 +124,18 @@ fn main() {
             // Optional per-frame closure: show stats in the title bar once a second.
             let mut next_report = 1.0;
             move |ctx: &mut Ctx| {
-                if ctx.time() >= next_report {
+                if ctx.time.elapsed() >= next_report {
                     next_report += 1.0;
-                    let sim = if ctx.is_paused() {
+                    let sim = if ctx.time.is_paused() {
                         "paused".to_string()
                     } else {
-                        format!("{}x", ctx.sim_speed())
+                        format!("{}x", ctx.time.speed())
                     };
                     println!(
                         "crabs: {:>6}  fps: {:>5.1}  sim: {sim:>6}  tick: {}",
                         ctx.world.len(),
-                        ctx.fps(),
-                        ctx.sim_tick()
+                        ctx.time.fps(),
+                        ctx.time.sim_tick()
                     );
                 }
             }

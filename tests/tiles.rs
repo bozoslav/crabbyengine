@@ -8,7 +8,7 @@ fn in_tick(f: impl FnMut(&mut Ctx) + 'static) {
 }
 
 fn sheet(ctx: &mut Ctx) -> SpriteSheet {
-    let tex = ctx.create_texture(64, 32, &vec![255; 64 * 32 * 4]);
+    let tex = ctx.gfx.create_texture(64, 32, &vec![255; 64 * 32 * 4]);
     SpriteSheet::new(tex, 16, 16)
 }
 
@@ -40,13 +40,13 @@ fn tilemaps_draw_only_visible_tiles() {
 
         // 800 × 600 window at zoom 1 from (0, 0): 50 × 38 tiles, minus the empty one.
         draw_tilemaps(ctx);
-        assert_eq!(ctx.sprite_count(), 50 * 38 - 1);
+        assert_eq!(ctx.gfx.sprite_count(), 50 * 38 - 1);
 
         // Looking past the map's edge: nothing.
         ctx.camera.position = vec2(-5000.0, -5000.0);
-        let before = ctx.sprite_count();
+        let before = ctx.gfx.sprite_count();
         draw_tilemaps(ctx);
-        assert_eq!(ctx.sprite_count(), before);
+        assert_eq!(ctx.gfx.sprite_count(), before);
     });
 }
 
@@ -71,7 +71,7 @@ fn tile_lookup_by_world_position() {
 fn sprite_regions_and_sheets_draw_like_sprites() {
     in_tick(|ctx| {
         let s = sheet(ctx);
-        ctx.draw_ex(
+        ctx.gfx.draw_ex(
             &s.texture,
             Vec2::ZERO,
             DrawParams {
@@ -79,7 +79,7 @@ fn sprite_regions_and_sheets_draw_like_sprites() {
                 ..Default::default()
             },
         );
-        assert_eq!(ctx.sprite_count(), 1);
+        assert_eq!(ctx.gfx.sprite_count(), 1);
         assert_eq!(s.sprite(2).region, Some(Rect::new(32.0, 0.0, 16.0, 16.0)));
     });
 }

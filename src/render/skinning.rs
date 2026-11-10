@@ -480,15 +480,17 @@ mod tests {
         use wgpu::util::DeviceExt;
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return;
         };
-        if compute && !super::super::can_compute(&device) {
-            eprintln!("no compute shaders: skipped");
+        // The compute pass binds six storage buffers (the renderer's own check).
+        if compute && !crate::render::render_test_support::needs(&device, crate::GpuFeature::GpuSkinning) {
             return;
         }
         let skinning = &mut super::Skinning::new(&device, compute);

@@ -151,7 +151,7 @@ fn through_the_engine(queries: bool) -> usize {
     let mut near = Vec::with_capacity(BOXES);
     Game::new("t", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == WARMUP {
+            if ctx.time.sim_tick() == WARMUP {
                 start_counting();
             }
         })
@@ -173,7 +173,7 @@ fn through_the_engine(queries: bool) -> usize {
                     .overlap_box(Vec3::ZERO, Vec3::splat(4.0), Quat::IDENTITY, f, &mut near);
             }
             let _ = ctx.events.read::<CollisionStarted>();
-            if ctx.sim_tick() == WARMUP + MEASURED - 1 {
+            if ctx.time.sim_tick() == WARMUP + MEASURED - 1 {
                 result.set(stop_counting());
             }
         })
@@ -268,7 +268,7 @@ fn cars_driving() -> usize {
     let result = counted.clone();
     Game::new("t", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == WARMUP {
+            if ctx.time.sim_tick() == WARMUP {
                 start_counting();
             }
             ctx.world.query::<&mut Vehicle3D>().for_each(|v| {
@@ -283,7 +283,7 @@ fn cars_driving() -> usize {
         })
         .physics3d(vec3(0.0, -9.81, 0.0))
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() == WARMUP + MEASURED - 1 {
+            if ctx.time.sim_tick() == WARMUP + MEASURED - 1 {
                 result.set(stop_counting());
             }
         })
@@ -423,13 +423,13 @@ fn walkers_through_the_engine() -> usize {
     let result = counted.clone();
     Game::new("t", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == WARMUP {
+            if ctx.time.sim_tick() == WARMUP {
                 start_counting();
             }
         })
         .physics3d(vec3(0.0, -9.81, 0.0))
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() == WARMUP + MEASURED - 1 {
+            if ctx.time.sim_tick() == WARMUP + MEASURED - 1 {
                 result.set(stop_counting());
             }
         })

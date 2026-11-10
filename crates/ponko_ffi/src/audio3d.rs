@@ -1,6 +1,6 @@
 //! Mixer buses, effects, streams and positional sound from C (Rust
 //! `AudioBus`, `AudioEffects`, `AudioSettings3D`, `AudioSource3D`,
-//! `AudioListener3D`, `Ctx::play_sound_at`, `Ctx::set_audio_listener`).
+//! `AudioListener3D`, `Audio::play_at`, `Audio::set_listener`).
 
 use std::ffi::c_char;
 
@@ -183,7 +183,7 @@ fn entity(c: &Ctx, bits: u64) -> Result<Entity, Failure> {
 }
 
 /// The bus named `name`, made the first time it's asked for (Rust
-/// `Ctx::audio_bus`). Keep the handle: names are looked up only here.
+/// `Audio::bus`). Keep the handle: names are looked up only here.
 /// ```
 /// let mut bus = ponko_ffi::CrabbyAudioBus::default();
 /// assert_eq!(unsafe { ponko_ffi::crabby_ctx_audio_bus(std::ptr::null_mut(), c"music".as_ptr(), &mut bus) } as u32, 1);
@@ -200,7 +200,7 @@ pub unsafe extern "C" fn crabby_ctx_audio_bus(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let name = text(name)?;
-            out(out_bus, bus_to_c(c.audio_bus(name)))
+            out(out_bus, bus_to_c(c.audio.bus(name)))
         })
     })
 }
@@ -220,7 +220,7 @@ pub unsafe extern "C" fn crabby_ctx_set_audio_bus_volume(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_audio_bus_volume(bus_from_c(bus), volume);
+            c.audio.set_bus_volume(bus_from_c(bus), volume);
             Ok(())
         })
     })
@@ -241,7 +241,7 @@ pub unsafe extern "C" fn crabby_ctx_mute_audio_bus(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.mute_audio_bus(bus_from_c(bus), muted);
+            c.audio.mute_bus(bus_from_c(bus), muted);
             Ok(())
         })
     })
@@ -272,7 +272,7 @@ pub unsafe extern "C" fn crabby_ctx_play_sound_on(
                 .as_ref()
                 .copied()
                 .unwrap_or_else(|| crabby_sound_params_default());
-            let playing = c.play_sound_on(
+            let playing = c.audio.play_on(
                 &sound_from_c(sound),
                 params_from_c(p),
                 bus_from_c(bus),
@@ -302,7 +302,7 @@ pub unsafe extern "C" fn crabby_ctx_set_sound_effects(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_sound_effects(playing_from_c(playing), effects_from_c(effects));
+            c.audio.set_effects(playing_from_c(playing), effects_from_c(effects));
             Ok(())
         })
     })
@@ -328,12 +328,12 @@ pub unsafe extern "C" fn crabby_ctx_load_stream(
             if out_sound.is_null() {
                 return Err(invalid("output is null"));
             }
-            out(out_sound, sound_to_c(c.load_stream(path)))
+            out(out_sound, sound_to_c(c.audio.load_stream(path)))
         })
     })
 }
 
-/// Plays a sound from a point in the world (Rust `Ctx::play_sound_at`);
+/// Plays a sound from a point in the world (Rust `Audio::play_at`);
 /// `settings` may be null for the defaults. Its volume, panning and doppler
 /// follow the listener every frame.
 /// ```
@@ -354,7 +354,9 @@ pub unsafe extern "C" fn crabby_ctx_play_sound_at(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let playing = c.play_sound_at(&sound_from_c(sound), to_c(position), settings_from_c(settings));
+            let playing = c
+                .audio
+                .play_at(&sound_from_c(sound), to_c(position), settings_from_c(settings));
             if !out_playing.is_null() {
                 out_playing.write(playing_to_c(playing));
             }
@@ -424,7 +426,7 @@ pub unsafe extern "C" fn crabby_ctx_set_audio_listener(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_audio_listener(listener.as_ref().map(|l| AudioListener3D {
+            c.audio.set_listener(listener.as_ref().map(|l| AudioListener3D {
                 position: to_c(l.position),
                 rotation: quat_from_c(l.rotation),
             }));
@@ -448,7 +450,7 @@ pub unsafe extern "C" fn crabby_ctx_audio_listener(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let l = c.audio_listener();
+            let l = c.audio.listener();
             out(
                 out_listener,
                 CrabbyAudioListener3D {

@@ -27,12 +27,14 @@ impl Rig {
     fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
         eprintln!("handle test adapter: {:?}", adapter.get_info());
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -75,7 +77,7 @@ impl Rig {
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
         // No renderer of its own: this test hands the GPU work to `renderer`.
-        ctx.headless = true;
+        ctx.set_headless(true);
         ctx.sky.atmosphere = false;
         let mut rig = Self {
             device,
@@ -119,7 +121,7 @@ impl Rig {
     /// A 1x1 texture of `rgba`, on the CPU and the GPU (the headless
     /// `Ctx` numbers textures from 1, as `textures` does past the white one).
     fn texture(&mut self, rgba: [u8; 4]) -> Texture {
-        let texture = self.ctx.create_texture(1, 1, &rgba);
+        let texture = self.ctx.gfx.create_texture(1, 1, &rgba);
         assert_eq!(texture.id() as usize, self.textures.len());
         let gpu = image(&self.device, &self.queue, rgba);
         self.push_texture(gpu);
@@ -144,7 +146,7 @@ impl Rig {
     }
 
     fn material(&mut self, desc: MaterialDesc) -> Material {
-        let material = self.ctx.create_material(desc);
+        let material = self.ctx.gfx.create_material(desc);
         let id = self
             .renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
@@ -154,7 +156,7 @@ impl Rig {
 
     fn mesh(&mut self, material: Material) -> Mesh {
         let data = MeshData::cube(1.6);
-        let mesh = self.ctx.create_mesh(&data, material);
+        let mesh = self.ctx.gfx.create_mesh(&data, material);
         self.renderer
             .create_mesh(&self.device, &data, &[(0..data.indices.len() as u32, material)], true);
         mesh
@@ -167,7 +169,7 @@ impl Rig {
         frame.lod = ctx.lod;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -335,26 +337,90 @@ fn models_whose_texture_material_or_mesh_was_freed_draw_the_default() {
 #[test]
 fn freed_effects_compute_passes_and_targets_are_left_out_of_the_frame() {
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(64.0, 64.0));
-    ctx.headless = true;
-    let effect = ctx.create_effect("e", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }");
-    let compute = ctx.create_compute("c", "fn compute(c: Cell) -> vec4<f32> { return c.value; }");
-    let target = ctx.create_render_target(8, 8);
+    ctx.set_headless(true);
+    let effect = ctx
+        .gfx
+        .create_effect("e", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }");
+    let compute = ctx
+        .gfx
+        .create_compute("c", "fn compute(c: Cell) -> vec4<f32> { return c.value; }");
+    let target = ctx.gfx.create_render_target(8, 8);
     ctx.effects.push(ScreenEffect::new(effect));
     ctx.compute_passes.push(ComputePass::new(compute, target));
-    let material = ctx.default_material();
+    let material = ctx.gfx.default_material();
     ctx.collect_passes(Some(material));
-    assert_eq!(ctx.frame3d.effects.len(), 1);
-    assert_eq!(ctx.frame3d.computes.len(), 1);
+    assert_eq!(ctx.gfx.frame3d.effects.len(), 1);
+    assert_eq!(ctx.gfx.frame3d.computes.len(), 1);
     ctx.free(effect);
     ctx.free(compute);
     ctx.collect_passes(Some(material));
-    assert!(ctx.frame3d.effects.is_empty() && ctx.frame3d.computes.is_empty());
+    assert!(ctx.gfx.frame3d.effects.is_empty() && ctx.gfx.frame3d.computes.is_empty());
     // A live pass into a freed target is left out too.
-    let other = ctx.create_compute("d", "fn compute(c: Cell) -> vec4<f32> { return c.value; }");
+    let other = ctx
+        .gfx
+        .create_compute("d", "fn compute(c: Cell) -> vec4<f32> { return c.value; }");
     ctx.compute_passes.push(ComputePass::new(other, target));
     ctx.collect_passes(Some(material));
-    assert_eq!(ctx.frame3d.computes.len(), 1);
+    assert_eq!(ctx.gfx.frame3d.computes.len(), 1);
     ctx.free(target);
     ctx.collect_passes(Some(material));
-    assert!(ctx.frame3d.computes.is_empty());
+    assert!(ctx.gfx.frame3d.computes.is_empty());
+}
+
+/// A texture streamed to another resolution keeps its id (as
+/// `Renderer::replace_texture` does): materials that read it are bound to
+/// the new pixels at once, whatever their size.
+#[test]
+fn a_texture_replaced_at_another_resolution_shows_in_the_materials_that_use_it() {
+    let Some(mut rig) = Rig::new() else {
+        return;
+    };
+    let streamed = rig.texture([255, 0, 0, 255]);
+    let material = rig.material(MaterialDesc {
+        color: Color::rgb(0.0, 0.0, 0.0),
+        emissive: Color::WHITE,
+        emissive_map: Some(streamed),
+        roughness: 1.0,
+        ..Default::default()
+    });
+    let mesh = rig.mesh(material);
+    rig.ctx.camera3d.position = vec3(0.0, 0.0, 6.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
+    let view_proj = rig.ctx.camera3d.view_proj();
+    let before = around(&rig.draw(), view_proj, Vec3::ZERO);
+    assert!(before[0] > 150 && before[2] < 60, "red first: {before:?}");
+
+    // The next resolution: 4 x 4 blue, under the same id.
+    let blue = rig.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+    });
+    rig.queue.write_texture(
+        blue.as_image_copy(),
+        &[0, 0, 255, 255].repeat(16),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(16),
+            rows_per_image: None,
+        },
+        blue.size(),
+    );
+    let id = streamed.id() as usize;
+    rig.push_texture(blue);
+    let replaced = rig.textures.pop().expect("just pushed");
+    rig.textures[id] = replaced;
+    rig.renderer.texture_replaced(&rig.device, &rig.textures, streamed.id());
+    let after = around(&rig.draw(), view_proj, Vec3::ZERO);
+    assert!(after[2] > 150 && after[0] < 60, "blue after: {after:?}");
 }

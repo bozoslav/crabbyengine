@@ -103,6 +103,18 @@ constexpr CrabbyMesh mesh_none{CRABBY_MESH_NONE};
 template<class H> constexpr H none() { H h{}; h.id = CRABBY_HANDLE_NONE; return h; }
 /// How many handles of each kind are live (Rust `LiveCounts`).
 using live_counts = CrabbyLiveCounts;
+/// A kind of asset with its own residency budget (Rust `ResidencyKind`).
+enum class residency_kind : std::uint32_t { mesh = CRABBY_RESIDENCY_MESH, texture = CRABBY_RESIDENCY_TEXTURE };
+/// Where a streamed asset is (Rust `AssetState`).
+enum class asset_state : std::uint32_t {
+    unknown = CRABBY_ASSET_UNKNOWN, loading = CRABBY_ASSET_LOADING, uploading = CRABBY_ASSET_UPLOADING,
+    streaming = CRABBY_ASSET_STREAMING, resident = CRABBY_ASSET_RESIDENT, evicted = CRABBY_ASSET_EVICTED,
+    failed = CRABBY_ASSET_FAILED,
+};
+/// A kind's residency budget and counters (Rust `ResidencyStats`).
+using residency_stats = CrabbyResidencyStats;
+/// The upload queue's budget and counters (Rust `UploadStats`).
+using upload_stats = CrabbyUploadStats;
 /// One mesh of a LOD level, placed and tinted (Rust `LodRenderer`).
 using lod_renderer = CrabbyLodRenderer;
 inline lod_renderer lod_renderer_of(CrabbyMesh m) { return crabby_lod_renderer(m); }
@@ -171,6 +183,19 @@ using compute_pass = CrabbyComputePass;
 using effect = CrabbyEffect;
 /// One screen effect run over the lit 3D frame (Rust `ScreenEffect`); see screen_effect_of.
 using screen_effect = CrabbyScreenEffect;
+/// The latest compile or hot reload of one of the game's shaders (Rust
+/// `ShaderStatus`; ctx::shader_status). `info.kind` is CRABBY_SHADER_MATERIAL,
+/// _EFFECT or _COMPUTE; `info.outcome` CRABBY_SHADER_COMPILED, _RELOADED,
+/// _FAILED or _RELOAD_FAILED; `info.line` and `info.column` place the first
+/// error in the game's own WGSL (0: no place).
+struct shader_status {
+    /// The path it was loaded from, or the name given to create_*.
+    std::string shader;
+    CrabbyShaderStatus info;
+    /// Its errors as a compiler prints them (`water.wgsl:4:12: error: ...`); empty when it worked.
+    std::string errors;
+    bool ok() const noexcept { return info.ok; }
+};
 /// How a material covers what's behind it (`material_desc::blend`).
 enum class blend : uint32_t { opaque = 0, transparent = 1, cutout = 2 };
 using camera3d = CrabbyCamera3D;
@@ -200,6 +225,17 @@ using graphics_quality = CrabbyGraphicsQuality;
 /// The presets (Rust `QualityLevel`); `custom` is what graphics_quality_level()
 /// says of settings that are none of them.
 enum class quality_level : uint32_t { low = 0, medium = 1, high = 2, ultra = 3, custom = 4 };
+/// A class of GPU (Rust `GpuTier`), from the weakest the engine runs on:
+/// WebGL2 (no compute), baseline (compute: every screen-space effect and GPU
+/// culling) and desktop (also GPU skinning, decals and global illumination).
+/// See gpu_tier_report() and ctx::gpu_tier().
+enum class gpu_tier : uint32_t { webgl2 = 0, baseline = 1, desktop = 2 };
+/// A renderer feature that depends on the GPU (Rust `GpuFeature`).
+enum class gpu_feature : uint32_t {
+    timestamps = 0, compute = 1, storage_buffers = 2, compute_culling = 3, gpu_skinning = 4,
+    occlusion_culling = 5, temporal_antialiasing = 6, ambient_occlusion = 7, contact_shadows = 8,
+    screen_space_reflections = 9, global_illumination = 10, decals = 11, multisampling = 12
+};
 /// How HDR light maps to the screen (`post::tonemap`).
 enum class tonemap : uint32_t { aces = 0, agx = 1, neutral = 2, none = 3 };
 using draw_params = CrabbyDrawParams;
@@ -239,6 +275,22 @@ enum class phase : uint32_t {
     animate = CRABBY_PHASE_ANIMATE,
     late = CRABBY_PHASE_LATE,
     draw = CRABBY_PHASE_DRAW,
+};
+/// Engine services an access declaration can name (see crabby::access).
+enum class service : uint32_t {
+    input = CRABBY_SERVICE_INPUT,
+    time = CRABBY_SERVICE_TIME,
+    random = CRABBY_SERVICE_RANDOM,
+    gfx = CRABBY_SERVICE_GFX,
+    audio = CRABBY_SERVICE_AUDIO,
+    assets = CRABBY_SERVICE_ASSETS,
+    ui = CRABBY_SERVICE_UI,
+    perf = CRABBY_SERVICE_PERF,
+    camera = CRABBY_SERVICE_CAMERA,
+    spatial = CRABBY_SERVICE_SPATIAL,
+    physics = CRABBY_SERVICE_PHYSICS,
+    physics3d = CRABBY_SERVICE_PHYSICS3D,
+    net = CRABBY_SERVICE_NET,
 };
 /// Owned world text, in meters. Settings follow Rust Text3D defaults.
 struct text3d {
@@ -710,6 +762,21 @@ inline graphics_quality graphics_quality_preset(quality_level level) {
 inline quality_level graphics_quality_level(const graphics_quality& q) {
     uint32_t level = 0; detail::check(crabby_graphics_quality_level(&q, &level)); return quality_level(level);
 }
+/// The quality preset meant for tier `t` (Rust `GraphicsQuality::for_tier`):
+/// low with FXAA, medium or high, asking for nothing the tier lacks.
+inline graphics_quality graphics_quality_for_tier(gpu_tier t) {
+    graphics_quality q{}; detail::check(crabby_graphics_quality_for_tier(uint32_t(t), &q)); return q;
+}
+/// The JSON report a device with exactly tier `t`'s minimum limits gives
+/// (Rust `GpuTier::report`): what the tier guarantees, and for the other
+/// features the fallback and the reason. Needs no GPU.
+inline std::string gpu_tier_report(gpu_tier t) {
+    return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_gpu_tier_report(uint32_t(t), b, c, n); });
+}
+/// Whether every GPU of tier `t` has feature `f`. Needs no GPU.
+inline bool gpu_tier_has(gpu_tier t, gpu_feature f) {
+    bool on = false; detail::check(crabby_gpu_tier_feature(uint32_t(t), uint32_t(f), &on)); return on;
+}
 /// One described field of a component, from crabby::field.
 template<class T> struct field_info { CrabbyField raw; };
 /// Describes member `m` of component `T` for reflection: tools and agents
@@ -778,8 +845,64 @@ public:
 
 class world_view;
 class ctx;
+/// A query filter: only entities whose `T` changed since the calling system
+/// last ran. Use it as `world.each<crabby::changed<Health>>(fn)`, or in the
+/// list of `query` and `count`. A filter also requires the entity to have
+/// `T`, and starts tracking `T` (see world_view::track_changes). Several
+/// filters must all pass; see any_of.
+///
+/// What counts as a change: spawn and set (also their `_later` forms), a
+/// query that takes the component by `&` (every row it visits, written or
+/// not; `const&` and copies only read), and mark_changed.
+template<class T> struct changed {};
+/// A query filter: only entities that got their `T` since the calling system
+/// last ran: spawned with it, or `set` when they had none.
+template<class T> struct added {};
+/// A query filter that passes when at least one of `Fs` does:
+/// `world.each<crabby::any_of<crabby::changed<Pos>, crabby::changed<Vel>>>(fn)`.
+/// The entity must have every component the filters name. It must be the
+/// query's only filter.
+template<class... Fs> struct any_of {};
+
+namespace detail {
+template<class T> struct is_filter : std::false_type {};
+template<class T> struct is_filter<changed<T>> : std::true_type {};
+template<class T> struct is_filter<added<T>> : std::true_type {};
+template<class... Fs> struct is_filter<any_of<Fs...>> : std::true_type {};
+template<class T> struct is_any : std::false_type {};
+template<class... Fs> struct is_any<any_of<Fs...>> : std::true_type {};
+template<class... Ts> struct types {};
+template<class A, class B> struct joined;
+template<class... A, class... B> struct joined<types<A...>, types<B...>> { using type = types<A..., B...>; };
+/// The types among `Ts` that are query filters (`Filters`), or the rest.
+template<bool Filters, class... Ts> struct pick { using type = types<>; };
+template<bool Filters, class T, class... Rest> struct pick<Filters, T, Rest...> {
+    using type = typename joined<typename std::conditional<is_filter<T>::value == Filters, types<T>, types<>>::type,
+                                 typename pick<Filters, Rest...>::type>::type;
+};
+/// The column type of an each() parameter: `T` for `T&` (written), `const T`
+/// for `const T&` and copies (only read).
+template<class P> using column = typename std::conditional<
+    std::is_lvalue_reference<P>::value && !std::is_const<typename std::remove_reference<P>::type>::value,
+    bare<P>, const bare<P>>::type;
+/// The component ids and options of one query.
+struct query_plan {
+    std::array<std::uint32_t, 32> ids{};
+    std::size_t count = 0;
+    CrabbyQueryOptions options = crabby_query_options_default();
+    /// The bit of column `id`, added as a read-only column if it's new.
+    std::uint32_t bit(std::uint32_t id) {
+        for (std::size_t i = 0; i < count; ++i) if (ids[i] == id) return std::uint32_t(1) << i;
+        if (count == ids.size()) throw std::length_error("a query takes at most 32 components");
+        ids[count] = id;
+        return std::uint32_t(1) << count++;
+    }
+};
+}  // namespace detail
+
 /// One archetype's rows in a query: a column (array) per component, in the
-/// order the query lists them. Valid only during the query callback.
+/// order the query lists them. Valid only during the query callback. With a
+/// changed/added filter, a chunk is a run of consecutive rows that pass.
 template<class... Ts> class chunk {
     const CrabbyChunk* raw_;
     template<std::size_t... I> std::tuple<Ts*...> columns(std::index_sequence<I...>) const noexcept {
@@ -918,27 +1041,51 @@ protected:
     }
     template<class T> std::uint32_t id() const { valid(); return id_of<T>(raw_, *owner_); }
 
-    /// Runs `fn(chunk<Ts...>)` for every archetype with all of `Ts`.
-    template<class... Ts, class Run, class F> void run_query(Run run, F& fn) {
-        static_assert(sizeof...(Ts) > 0, "a query needs at least one component");
-        static_assert(!std::disjunction<std::is_same<Ts, sprite>...>::value,
+    template<class T> void add_filter(detail::query_plan& plan, changed<T>*) const { plan.options.changed |= plan.bit(id<T>()); }
+    template<class T> void add_filter(detail::query_plan& plan, added<T>*) const { plan.options.added |= plan.bit(id<T>()); }
+    template<class... Fs> void add_filter(detail::query_plan& plan, any_of<Fs...>*) const {
+        static_assert(!std::disjunction<detail::is_any<Fs>...>::value, "any_of can't hold another any_of: list its filters directly");
+        plan.options.any = true;
+        (add_filter(plan, static_cast<Fs*>(nullptr)), ...);
+    }
+    /// Runs `fn(chunk<Ts...>)` for every archetype with all of `Ts`, or for
+    /// every run of rows that pass the filters `Fs`. A `const` column is only
+    /// read; the others count as changed for every row visited.
+    template<class... Ts, class... Fs, class F> void run_query(detail::types<Ts...>, detail::types<Fs...>, bool parallel, F& fn) {
+        static_assert(sizeof...(Ts) + sizeof...(Fs) > 0, "a query needs at least one component");
+        static_assert(sizeof...(Ts) <= 32, "a query takes at most 32 components");
+        static_assert(!std::disjunction<std::is_same<detail::bare<Ts>, sprite>...>::value,
                       "sprite is not a query column: query transform2d (and your own components) instead");
-        static_assert(!std::disjunction<std::is_same<Ts, rigid_body>..., std::is_same<Ts, collider>...>::value,
+        static_assert(!std::disjunction<std::is_same<detail::bare<Ts>, rigid_body>..., std::is_same<detail::bare<Ts>, collider>...>::value,
                       "rigid_body and collider are not query columns: use get/set (velocity is fine)");
-        static_assert(!std::disjunction<std::is_same<Ts, rigid_body3d>..., std::is_same<Ts, collider3d>...,
-                                        std::is_same<Ts, character3d>..., std::is_same<Ts, joint3d>...,
-                                        std::is_same<Ts, contact_modifier3d>...>::value,
+        static_assert(!std::disjunction<std::is_same<detail::bare<Ts>, rigid_body3d>..., std::is_same<detail::bare<Ts>, collider3d>...,
+                                        std::is_same<detail::bare<Ts>, character3d>..., std::is_same<detail::bare<Ts>, joint3d>...,
+                                        std::is_same<detail::bare<Ts>, contact_modifier3d>...>::value,
                       "rigid_body3d, collider3d, character3d, joint3d and contact_modifier3d are not query columns: use get/set (velocity3d is fine)");
-        valid(); std::array<std::uint32_t, sizeof...(Ts)> ids{{id<Ts>()...}};
+        static_assert(!std::disjunction<detail::is_any<Fs>...>::value || sizeof...(Fs) == 1,
+                      "any_of must be the query's only filter");
+        valid();
+        detail::query_plan plan;
+        plan.options.writes = 0;
+        plan.options.parallel = parallel;
+        ((plan.options.writes |= std::uint32_t(!std::is_const<Ts>::value) << plan.count,
+          plan.ids[plan.count++] = id<detail::bare<Ts>>()), ...);
+        (add_filter(plan, static_cast<Fs*>(nullptr)), ...);
         struct context { F* fn; detail::first_error error; } c{&fn, {}};
         auto trampoline = [](const CrabbyChunk* raw, void* user) noexcept {
             auto& c = *static_cast<context*>(user);
             if (c.error.set.load()) return;
             try { (*c.fn)(chunk<Ts...>(raw)); } catch (...) { c.error.capture(); }
         };
-        auto status = run(raw_, ids.data(), ids.size(), trampoline, &c);
+        auto status = crabby_query_with(raw_, plan.ids.data(), plan.count, &plan.options, trampoline, &c);
         c.error.rethrow();
         detail::check(status);
+    }
+    template<class... Ts, class... Fs> std::size_t count_rows(detail::types<Ts...>, detail::types<Fs...> filters) {
+        std::size_t n = 0;
+        auto add = [&n](chunk<const detail::bare<Ts>...> c) { n += c.size(); };
+        run_query(detail::types<const detail::bare<Ts>...>{}, filters, false, add);
+        return n;
     }
     /// each(): calls `fn` per row with the row's entity (if `fn` asks for one)
     /// and its components. Inlined into a plain loop over the columns.
@@ -965,17 +1112,17 @@ protected:
                 for (std::size_t i = 0; i < n; ++i) fn(std::get<I>(cols)[i]...);
             }
         }
-        template<class F, class Run> static void run(world_view& w, Run run_fn, F& fn) {
+        template<class F, class Filters> static void run(world_view& w, Filters filters, bool parallel, F& fn) {
             auto per_chunk = [&fn](chunk<Ts...> c) { chunk_rows(fn, c.raw_chunk(), std::index_sequence_for<Ts...>{}); };
-            w.run_query<Ts...>(run_fn, per_chunk);
+            w.run_query(detail::types<Ts...>{}, filters, parallel, per_chunk);
         }
     };
     template<class Args> struct each_of;
     template<class First, class... Rest> struct each_of<std::tuple<First, Rest...>> {
         static constexpr bool with_entity = std::is_same<First, entity>::value;
-        template<class F, class Run> static void run(world_view& w, Run run_fn, F& fn) {
-            if constexpr (with_entity) each_row<true, detail::bare<Rest>...>::run(w, run_fn, fn);
-            else each_row<false, detail::bare<First>, detail::bare<Rest>...>::run(w, run_fn, fn);
+        template<class F, class Filters> static void run(world_view& w, Filters filters, bool parallel, F& fn) {
+            if constexpr (with_entity) each_row<true, detail::column<Rest>...>::run(w, filters, parallel, fn);
+            else each_row<false, detail::column<First>, detail::column<Rest>...>::run(w, filters, parallel, fn);
         }
     };
 public:
@@ -1081,16 +1228,28 @@ public:
     /// Take components by `&` to change them, by `const&` to read them. A
     /// first `crabby::entity` parameter gets the entity. As fast as a
     /// hand-written loop over the columns (see query).
-    template<class F> void each(F&& fn) {
+    ///
+    /// Filters narrow it to what changed since the calling system last ran
+    /// (see changed, added, any_of):
+    ///
+    ///     world.each<crabby::changed<Health>>([](crabby::entity e, const Health& h) { ... });
+    ///
+    /// A component taken by `&` counts as changed for every entity visited,
+    /// written or not; one taken by `const&` or by value doesn't.
+    template<class... Filters, class F> void each(F&& fn) {
+        static_assert(std::conjunction<detail::is_filter<Filters>...>::value,
+                      "each<...> takes filters: crabby::changed<T>, crabby::added<T> or crabby::any_of<...>");
         using args = typename detail::params<detail::bare<F>>::type;
-        each_of<args>::run(*this, crabby_query, fn);
+        each_of<args>::run(*this, detail::types<Filters...>{}, false, fn);
     }
     /// Like each, but on all CPU cores at once: `fn` must be thread-safe and
     /// only touch its own entity's components (plus ctx::dt/random and
     /// spatial queries).
-    template<class F> void each_par(F&& fn) {
+    template<class... Filters, class F> void each_par(F&& fn) {
+        static_assert(std::conjunction<detail::is_filter<Filters>...>::value,
+                      "each_par<...> takes filters: crabby::changed<T>, crabby::added<T> or crabby::any_of<...>");
         using args = typename detail::params<detail::bare<F>>::type;
-        each_of<args>::run(*this, crabby_query_par, fn);
+        each_of<args>::run(*this, detail::types<Filters...>{}, true, fn);
     }
     /// The lower-level loop: calls `fn(chunk)` for every archetype with all of
     /// `Ts`, with a column (array) per component, for code that works on
@@ -1100,16 +1259,62 @@ public:
     ///         auto [pos, vel] = chunk.columns();
     ///         for (std::size_t i = 0; i < chunk.size(); ++i) pos[i].x += vel[i].x;
     ///     });
-    template<class... Ts, class F> void query(F&& fn) { run_query<Ts...>(crabby_query, fn); }
-    /// query on all CPU cores at once (see each_par).
-    template<class... Ts, class F> void query_par(F&& fn) { run_query<Ts...>(crabby_query_par, fn); }
-    /// How many entities have all of these components.
-    template<class... Ts> std::size_t count() {
-        std::size_t n = 0;
-        auto add = [&n](chunk<Ts...> c) { n += c.size(); };
-        run_query<Ts...>(crabby_query, add);
-        return n;
+    ///
+    /// A `const` column (`query<Position, const Velocity>`) is only read; the
+    /// others count as changed. Filters go in the same list and aren't
+    /// columns: `query<Position, crabby::changed<Position>>` gets the runs of
+    /// rows whose Position changed.
+    template<class... Ts, class F> void query(F&& fn) {
+        run_query(typename detail::pick<false, Ts...>::type{}, typename detail::pick<true, Ts...>::type{}, false, fn);
     }
+    /// query on all CPU cores at once (see each_par).
+    template<class... Ts, class F> void query_par(F&& fn) {
+        run_query(typename detail::pick<false, Ts...>::type{}, typename detail::pick<true, Ts...>::type{}, true, fn);
+    }
+    /// How many entities have all of these components (and pass these
+    /// filters: `count<crabby::changed<Health>>()`). Counting changes nothing.
+    template<class... Ts> std::size_t count() {
+        return count_rows(typename detail::pick<false, Ts...>::type{}, typename detail::pick<true, Ts...>::type{});
+    }
+
+    // ---- change detection ----
+    /// Starts recording when `T` values are added, changed and removed, for
+    /// the changed/added filters and removed(). Until then a component keeps
+    /// no change data and costs nothing. Values that exist already count as
+    /// added and changed now. Using a filter on `T` does this too.
+    template<class T> void track_changes() { detail::check(crabby_component_track_changes(raw_, id<T>())); }
+    /// Marks `e`'s `T` as changed now, for a write the world can't see.
+    /// False if `e` is dead or has no `T`.
+    template<class T> bool mark_changed(entity e) {
+        const auto status = crabby_mark_changed(raw_, e, id<T>());
+        if (status == CRABBY_NOT_FOUND) return false;
+        detail::check(status);
+        return true;
+    }
+    /// The entities that lost their `T` since the calling system last ran
+    /// (it was removed, or the entity despawned), oldest first. An entity is
+    /// listed once per removal and may have a `T` again. `T` must be tracked
+    /// (track_changes) or this throws.
+    template<class T> std::vector<entity> removed() const { return removed_since<T>(CRABBY_SINCE_LAST_RUN); }
+    /// removed() for a reader that keeps its own tick (see advance_change_tick).
+    template<class T> std::vector<entity> removed_since(std::uint64_t tick) const {
+        const std::uint32_t component = id<T>();
+        std::size_t n = 0;
+        detail::check(crabby_removed(raw_, component, tick, nullptr, 0, &n));
+        std::vector<entity> out(n);
+        if (n) detail::check(crabby_removed(raw_, component, tick, out.data(), out.size(), &n));
+        return out;
+    }
+    /// The world's current change tick: changes made now carry it.
+    std::uint64_t change_tick() const { valid(); std::uint64_t tick = 0; detail::check(crabby_world_change_tick(raw_, &tick)); return tick; }
+    /// Ends the current change tick and returns it. Code that isn't a game
+    /// system keeps its place this way: `set_changes_since(seen)`, look, then
+    /// `seen = advance_change_tick()`. A game does this around every system.
+    std::uint64_t advance_change_tick() { valid(); std::uint64_t tick = 0; detail::check(crabby_world_advance_change_tick(raw_, &tick)); return tick; }
+    /// The tick the filters and removed() compare with: inside a game system,
+    /// when that system last finished; otherwise 0 (everything) unless set.
+    std::uint64_t changes_since() const { valid(); std::uint64_t tick = 0; detail::check(crabby_world_changes_since(raw_, &tick)); return tick; }
+    void set_changes_since(std::uint64_t tick) { valid(); detail::check(crabby_world_set_changes_since(raw_, tick)); }
 
     // ---- reflection and saves ----
     /// Describes `T`'s fields, so tools and agents can read and write it as
@@ -2539,6 +2744,77 @@ public:
     CrabbyActionMap* raw() const noexcept { return raw_; }
 };
 
+/// What a system declares it reads and writes: components, resources and
+/// events by C++ type (their registered names) or by name, commands and
+/// services. Pass it to game::add with a system; debug builds stop the game
+/// if the system uses anything it didn't declare. Copyable. Build it at
+/// registration, not per frame: every step copies the declaration and keeps
+/// each name for the rest of the program.
+class access {
+    CrabbyAccess* raw_ = nullptr;
+    access& step(CrabbyStatus s) { detail::check(s); return *this; }
+public:
+    access() : raw_(crabby_access_new()) { if (!raw_) throw std::runtime_error(crabby_last_error()); }
+    ~access() { crabby_access_free(raw_); }
+    access(const access& other) : access() { *this = other; }
+    access& operator=(const access& other) {
+        if (this != &other) { access fresh; std::swap(raw_, fresh.raw_); names_.clear(); copy_from(other); }
+        return *this;
+    }
+    access(access&& other) noexcept : raw_(std::exchange(other.raw_, nullptr)) {}
+    access& operator=(access&& other) noexcept { if (this != &other) { crabby_access_free(raw_); raw_ = std::exchange(other.raw_, nullptr); } return *this; }
+    /// Reads component T.
+    template<class T> access& read() { return read_component(detail::type_name<T>().c_str()); }
+    /// Reads and writes component T.
+    template<class T> access& write() { return write_component(detail::type_name<T>().c_str()); }
+    /// Reads resource T.
+    template<class T> access& read_resource() { return read_resource(detail::type_name<T>().c_str()); }
+    /// Reads and writes resource T.
+    template<class T> access& write_resource() { return write_resource(detail::type_name<T>().c_str()); }
+    /// Reads T events.
+    template<class T> access& read_events() { return read_events(detail::type_name<T>().c_str()); }
+    /// Sends T events (doesn't cover reading them).
+    template<class T> access& send_events() { return send_events(detail::type_name<T>().c_str()); }
+    access& read_component(const char* name) { names_.push_back({0, name}); return step(crabby_access_read_component(raw_, name)); }
+    access& write_component(const char* name) { names_.push_back({1, name}); return step(crabby_access_write_component(raw_, name)); }
+    access& read_resource(const char* name) { names_.push_back({2, name}); return step(crabby_access_read_resource(raw_, name)); }
+    access& write_resource(const char* name) { names_.push_back({3, name}); return step(crabby_access_write_resource(raw_, name)); }
+    access& read_events(const char* name) { names_.push_back({4, name}); return step(crabby_access_read_events(raw_, name)); }
+    access& send_events(const char* name) { names_.push_back({5, name}); return step(crabby_access_send_events(raw_, name)); }
+    /// Records commands (ctx::*_later).
+    access& commands() { names_.push_back({6, {}}); return step(crabby_access_commands(raw_)); }
+    /// Uses `s`: reading it, or also changing it.
+    access& read_service(service s) { names_.push_back({7, {}, static_cast<std::uint32_t>(s)}); return step(crabby_access_service(raw_, static_cast<std::uint32_t>(s), false)); }
+    access& write_service(service s) { names_.push_back({8, {}, static_cast<std::uint32_t>(s)}); return step(crabby_access_service(raw_, static_cast<std::uint32_t>(s), true)); }
+    /// Number of reasons this system, registered before `later`, can't share
+    /// a parallel batch with it (0: it could). `ordered = false` checks
+    /// either order.
+    std::size_t conflicts_before(const access& later, bool ordered = true) const {
+        std::size_t n = 0;
+        detail::check(crabby_access_conflicts(raw_, later.raw_, ordered, &n));
+        return n;
+    }
+    const CrabbyAccess* raw() const noexcept { return raw_; }
+private:
+    struct entry { int kind; std::string name; std::uint32_t service = 0; };
+    std::vector<entry> names_;
+    void copy_from(const access& other) {
+        for (const auto& e : other.names_) {
+            switch (e.kind) {
+            case 0: read_component(e.name.c_str()); break;
+            case 1: write_component(e.name.c_str()); break;
+            case 2: read_resource(e.name.c_str()); break;
+            case 3: write_resource(e.name.c_str()); break;
+            case 4: read_events(e.name.c_str()); break;
+            case 5: send_events(e.name.c_str()); break;
+            case 6: commands(); break;
+            case 7: read_service(static_cast<service>(e.service)); break;
+            default: write_service(static_cast<service>(e.service)); break;
+            }
+        }
+    }
+};
+
 /// Manual input for tests and replay (same state as live input).
 struct input_event {
     std::uint32_t kind, slot, input;
@@ -2757,6 +3033,9 @@ public:
     // Scenes and prefabs: worlds and entities kept as JSON under assets/.
     /// Replaces the world with the scene in assets/`path`; ids are kept.
     void load_scene(const char* path) { detail::check(crabby_ctx_load_scene(raw_, path)); }
+    /// load_scene, named for a lockstep game: call it from a sim system or
+    /// setup, which every peer runs. Both throw from a frame system in a session.
+    void load_scene_lockstep(const char* path) { detail::check(crabby_ctx_load_scene_lockstep(raw_, path)); }
     /// Saves the world as a scene in assets/`path`.
     void save_scene(const char* path) { detail::check(crabby_ctx_save_scene(raw_, path)); }
     /// Spawns the prefab in assets/`path` with its position at `at`.
@@ -2797,6 +3076,24 @@ public:
     /// Loads a material shader (WGSL) from assets/: it may define
     /// `fn vertex(v: Vertex) -> Vertex` and `fn surface(s: Surface) -> Surface`.
     /// Hot reloaded; throws if it doesn't compile (the message says where).
+    /// What happened to each of the game's shaders the last time it was
+    /// compiled (oldest first): whether an edit took effect, and where an
+    /// error is in its own WGSL.
+    std::vector<crabby::shader_status> shader_status() const {
+        std::size_t count = 0;
+        detail::check(crabby_ctx_shader_status_count(raw_, &count));
+        std::vector<crabby::shader_status> list(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            detail::check(crabby_ctx_shader_status(raw_, i, &list[i].info));
+            list[i].shader = detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_name(raw_, i, b, c, n); });
+            list[i].errors = detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_text(raw_, i, b, c, n); });
+        }
+        return list;
+    }
+    /// shader_status() as JSON, as the `shaders.status` control method returns it.
+    std::string shader_status_json() const {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_json(raw_, b, c, n); });
+    }
     crabby::shader load_shader(const char* path) { crabby::shader x{}; detail::check(crabby_ctx_load_shader(raw_, path, &x)); return x; }
     /// Makes a material shader from WGSL source; `name` is for error messages.
     crabby::shader create_shader(const char* name, const char* source) {
@@ -2989,7 +3286,7 @@ public:
         for (const joint& j : joints) raw.push_back(CrabbyJoint{j.name.c_str(), j.parent, j.rest});
         detail::check(crabby_ctx_set_skeleton(raw_, e, raw.data(), raw.size()));
     }
-    /// Puts the skeleton of a glTF file with skins on `e`, at rest (Rust `Ctx::load_skeleton`).
+    /// Puts the skeleton of a glTF file with skins on `e`, at rest (Rust `Graphics::load_skeleton`).
     void load_skeleton(entity e, const char* path) { detail::check(crabby_ctx_load_skeleton(raw_, e, path)); }
     /// A mesh that bends with the skeleton on `skeleton`: `data`'s joints
     /// (mesh_data::set_skin) index its joints; modelled with it at rest.
@@ -3015,7 +3312,7 @@ public:
     /// Writes manually sampled skeleton morph channels to models.
     void write_animated_morphs() { detail::check(crabby_ctx_write_animated_morphs(raw_)); }
     /// The index of mesh `m`'s morph target called `name` (Rust
-    /// `Ctx::morph_target`), for set_morph_weight and morph_weight.
+    /// `Graphics::morph_target`), for set_morph_weight and morph_weight.
     std::optional<std::size_t> morph_target(mesh m, const char* name) const {
         std::size_t result = 0;
         const CrabbyStatus status = crabby_ctx_morph_target(raw_, m, name, &result);
@@ -3042,7 +3339,7 @@ public:
     /// Takes `e`'s morph weights away, so its model shows its mesh's
     /// default weights again (Rust `MorphWeights` removed).
     void clear_morph_weights(entity e) { detail::check(crabby_ctx_clear_morph_weights(raw_, e)); }
-    /// The clip called `name` of a glTF file with skins (Rust `Ctx::load_clip`).
+    /// The clip called `name` of a glTF file with skins (Rust `Graphics::load_clip`).
     crabby::clip load_clip(const char* path, const char* name) {
         CrabbyClip* c = nullptr; detail::check(crabby_ctx_load_clip(raw_, path, name, &c)); return crabby::clip(c);
     }
@@ -3151,7 +3448,7 @@ public:
         detail::check(crabby_ctx_set_line3d(raw_, e, &c));
     }
     void remove_line3d(entity e) { detail::check(crabby_ctx_remove_line3d(raw_, e)); }
-    /// A glTF file's mesh on the CPU (Rust `Ctx::load_mesh_data`), all its
+    /// A glTF file's mesh on the CPU (Rust `Graphics::load_mesh_data`), all its
     /// parts in one, without making anything on the GPU: to cut decals from.
     /// Loads the file each call; keep the result.
     mesh_data load_mesh_data(const char* path) {
@@ -3249,6 +3546,80 @@ public:
     crabby::live_counts live_counts() const {
         crabby::live_counts c{}; detail::check(crabby_ctx_live_counts(raw_, &c)); return c;
     }
+    /// Sets `kind`'s residency budget in bytes; std::nullopt for no limit
+    /// (Rust `Ctx::set_residency_budget`).
+    void set_residency_budget(residency_kind kind, std::optional<std::uint64_t> bytes) {
+        detail::check(crabby_ctx_set_residency_budget(raw_, static_cast<std::uint32_t>(kind), bytes.has_value(), bytes.value_or(0)));
+    }
+    /// `kind`'s budget and counters (Rust `Graphics::residency`).
+    crabby::residency_stats residency(residency_kind kind) const {
+        crabby::residency_stats r{}; detail::check(crabby_ctx_residency(raw_, static_cast<std::uint32_t>(kind), &r)); return r;
+    }
+    /// Whether the asset of `kind` called `name` is resident.
+    bool is_resident(residency_kind kind, const char* name) const {
+        bool r = false; detail::check(crabby_ctx_is_resident(raw_, static_cast<std::uint32_t>(kind), name, &r)); return r;
+    }
+    /// Texture `path` at full resolution under the texture budget, loaded
+    /// now if it isn't; with `pin`, never evicted until unpinned (Rust
+    /// `Ctx::resident_texture`, `pin_resident_texture`).
+    texture resident_texture(const char* path, bool pin = false) {
+        texture t{}; detail::check(crabby_ctx_resident_texture(raw_, path, pin, &t)); return t;
+    }
+    /// Mesh `path` under the mesh budget (Rust `Ctx::resident_mesh`, `pin_resident_mesh`).
+    mesh resident_mesh(const char* path, bool pin = false) {
+        mesh m{}; detail::check(crabby_ctx_resident_mesh(raw_, path, pin, &m)); return m;
+    }
+    /// Lets a pinned asset be evicted again.
+    void unpin_resident(residency_kind kind, const char* path) {
+        detail::check(crabby_ctx_unpin_resident(raw_, static_cast<std::uint32_t>(kind), path));
+    }
+    /// Texture `path` streamed in without waiting (Rust `Ctx::stream_texture`):
+    /// std::nullopt until its stand-in is uploaded.
+    std::optional<texture> stream_texture(const char* path) {
+        texture t{}; bool ready = false;
+        detail::check(crabby_ctx_stream_texture(raw_, path, &t, &ready));
+        if (!ready) return std::nullopt;
+        return t;
+    }
+    /// Mesh `path` streamed in without waiting (Rust `Ctx::stream_mesh`).
+    std::optional<mesh> stream_mesh(const char* path) {
+        mesh m{}; bool ready = false;
+        detail::check(crabby_ctx_stream_mesh(raw_, path, &m, &ready));
+        if (!ready) return std::nullopt;
+        return m;
+    }
+    /// Where the asset of `kind` called `name` is (Rust `Graphics::asset_state`).
+    crabby::asset_state asset_state(residency_kind kind, const char* name) const {
+        std::uint32_t s = 0;
+        detail::check(crabby_ctx_asset_state(raw_, static_cast<std::uint32_t>(kind), name, &s));
+        return static_cast<crabby::asset_state>(s);
+    }
+    /// Why loading it failed; empty if it didn't (Rust `Graphics::asset_error`).
+    std::string asset_error(residency_kind kind, const char* name) const {
+        std::size_t len = 0;
+        detail::check(crabby_ctx_asset_error(raw_, static_cast<std::uint32_t>(kind), name, nullptr, 0, &len));
+        std::string text(len + 1, '\0');
+        detail::check(crabby_ctx_asset_error(raw_, static_cast<std::uint32_t>(kind), name, text.data(), text.size(), &len));
+        text.resize(len);
+        return text;
+    }
+    /// Bytes the upload step may send each frame; std::nullopt for no limit.
+    void set_upload_budget(std::optional<std::uint64_t> bytes) {
+        detail::check(crabby_ctx_set_upload_budget(raw_, bytes.has_value(), bytes.value_or(0)));
+    }
+    /// Asset states change in the same frames every run (Rust `Graphics::set_deterministic_uploads`).
+    void set_deterministic_uploads(bool on) { detail::check(crabby_ctx_set_deterministic_uploads(raw_, on)); }
+    /// The upload queue's budget and counters.
+    crabby::upload_stats upload_stats() const {
+        crabby::upload_stats u{}; detail::check(crabby_ctx_upload_stats(raw_, &u)); return u;
+    }
+    /// Waits until everything streamed so far is loaded (loading screens, tests).
+    void finish_uploads() { detail::check(crabby_ctx_finish_uploads(raw_)); }
+    /// Streams the levels of `e`'s LOD group in from `files`, one per level
+    /// (Rust `StreamedLod`).
+    void set_streamed_lod(entity e, const std::vector<const char*>& files) {
+        detail::check(crabby_ctx_set_streamed_lod(raw_, e, files.data(), files.size()));
+    }
     /// How many 3D models were drawn last frame.
     std::size_t models_drawn() const { std::size_t n = 0; detail::check(crabby_ctx_models_drawn(raw_, &n)); return n; }
     crabby::camera3d camera3d() const { crabby::camera3d c{}; detail::check(crabby_ctx_camera3d(raw_, &c)); return c; }
@@ -3293,6 +3664,39 @@ public:
     /// resolution scale and shadow map sizes. Throws, changing nothing, for a field
     /// outside its range.
     void set_graphics_quality(const crabby::graphics_quality& q) { detail::check(crabby_ctx_set_graphics_quality(raw_, &q)); }
+    /// The GPU report as JSON (Rust `ctx.gpu_capabilities()`): adapter, limits,
+    /// tier, forced_tier and one {feature, available, fallback, reason} entry per
+    /// feature. Empty before a GPU opens (headless, before the window).
+    std::optional<std::string> gpu_capabilities() const {
+        std::size_t len = 0;
+        CrabbyStatus status = crabby_ctx_gpu_capabilities(raw_, nullptr, 0, &len);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_gpu_capabilities(raw_, b, c, n); });
+    }
+    /// The GPU's tier; empty before a GPU opens.
+    std::optional<crabby::gpu_tier> gpu_tier() const {
+        uint32_t t = 0;
+        CrabbyStatus status = crabby_ctx_gpu_tier(raw_, &t);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status); return crabby::gpu_tier(t);
+    }
+    /// Whether the GPU has feature `f` (false before a GPU opens); the fallback
+    /// and the reason are in gpu_capabilities().
+    bool gpu_has(crabby::gpu_feature f) const {
+        bool on = false;
+        CrabbyStatus status = crabby_ctx_gpu_feature(raw_, uint32_t(f), &on);
+        if (status == CRABBY_NOT_FOUND) return false;
+        detail::check(status); return on;
+    }
+    /// The preset for the open GPU, fitted to what it has (Rust
+    /// `GraphicsQuality::recommended`); empty before a GPU opens.
+    std::optional<crabby::graphics_quality> recommended_graphics_quality() const {
+        crabby::graphics_quality q{};
+        CrabbyStatus status = crabby_ctx_recommended_graphics_quality(raw_, &q);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status); return q;
+    }
     /// Makes temporal antialiasing and temporal AO forget earlier frames: call it
     /// after a camera cut or an object teleport. (Resizes and big camera jumps
     /// reset by themselves.)
@@ -3858,6 +4262,18 @@ public:
     template<class F> game& add(phase p, F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_add_system(raw_, static_cast<std::uint32_t>(p), name, every, trampoline,
                                             keep(std::move(fn))));
+    }
+    /// A system in an explicit phase with a declaration of what it reads and
+    /// writes (see crabby::access). Debug builds stop the game if it uses
+    /// anything undeclared. It still runs in order, like any other system.
+    template<class F> game& add(phase p, const access& a, F fn, const char* name = nullptr, std::uint32_t every = 1) {
+        return check(crabby_game_add_system_with_access(raw_, static_cast<std::uint32_t>(p), name, every, a.raw(),
+                                                        trampoline, keep(std::move(fn))));
+    }
+    /// One line per pair of declared systems in the same phase: whether
+    /// they could run together, or what they conflict on.
+    std::string access_report() {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* l) { return crabby_game_access_report(raw_, b, c, l); });
     }
     /// A system once per frame (input, camera, UI). Not run headless.
     template<class F> game& system(F fn, const char* name = nullptr) {

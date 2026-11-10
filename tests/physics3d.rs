@@ -29,7 +29,7 @@ fn query_after<T: 'static>(
     Game::new("t", 1, 1)
         .physics3d(gravity)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() == ticks {
+            if ctx.time.sim_tick() == ticks {
                 *slot.borrow_mut() = Some(query(ctx));
             }
         })
@@ -51,12 +51,12 @@ fn physics3d_steps_at_50_hz_unless_the_game_chose_a_rate() {
     let mut dt = 0.0;
     Game::new("t", 1, 1)
         .physics3d(GRAVITY)
-        .run_headless(1, |ctx| dt = ctx.fixed_dt());
+        .run_headless(1, |ctx| dt = ctx.time.fixed_dt());
     assert!((dt - 0.02).abs() < 1e-6, "{dt}");
     Game::new("t", 1, 1)
         .fixed_hz(120)
         .physics3d(GRAVITY)
-        .run_headless(1, |ctx| dt = ctx.fixed_dt());
+        .run_headless(1, |ctx| dt = ctx.time.fixed_dt());
     assert!((dt - 1.0 / 120.0).abs() < 1e-6, "{dt}");
 }
 
@@ -131,7 +131,7 @@ fn a_heightfield_collider_matches_the_drawn_ground() {
     Game::new("t", 1, 1)
         .physics3d(Vec3::ZERO)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() != 1 {
+            if ctx.time.sim_tick() != 1 {
                 return;
             }
             let mut found = Vec::new();
@@ -196,7 +196,7 @@ fn moving_the_transform_teleports_the_body() {
     let mut world = Game::new("t", 1, 1)
         .physics3d(Vec3::ZERO)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 5 {
+            if ctx.time.sim_tick() == 5 {
                 ctx.world
                     .query::<&mut Transform3D>()
                     .with::<RigidBody3D>()
@@ -238,7 +238,7 @@ fn bodies_leave_the_world_when_despawned() {
     Game::new("t", 1, 1)
         .physics3d(GRAVITY)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() == 2 {
+            if ctx.time.sim_tick() == 2 {
                 let all: Vec<Entity> = ctx.world.query::<Entity>().with::<RigidBody3D>().iter().collect();
                 for e in all {
                     ctx.world.despawn(e);
@@ -310,7 +310,7 @@ fn restitution_bounces_and_friction_slows() {
     let mut world = Game::new("t", 1, 1)
         .physics3d(GRAVITY)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() > 50 {
+            if ctx.time.sim_tick() > 50 {
                 ctx.world
                     .query::<(&Transform3D, &Collider3D)>()
                     .iter()
@@ -540,7 +540,7 @@ fn impulses_push_dynamic_bodies() {
     let mut world = Game::new("t", 1, 1)
         .physics3d(Vec3::ZERO)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 let e = ctx.world.query::<Entity>().with::<RigidBody3D>().iter().next().unwrap();
                 let mass = ctx.physics3d.mass(e).unwrap();
                 assert!(ctx.physics3d.apply_impulse(e, vec3(2.0 * mass, 0.0, 0.0)));
@@ -675,7 +675,7 @@ fn a_character_stays_grounded_walking_downhill() {
         })
         .physics3d(GRAVITY)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() > 10 {
+            if ctx.time.sim_tick() > 10 {
                 let c = *ctx.world.query::<&Character3D>().iter().next().unwrap();
                 if !c.grounded {
                     seen.set(seen.get() + 1);
@@ -705,7 +705,7 @@ fn a_character_jumps_and_lands() {
         let mut player = None;
         let mut world = Game::new("t", 1, 1)
             .sim_system(|ctx: &mut Ctx| {
-                if ctx.sim_tick() == 30 {
+                if ctx.time.sim_tick() == 30 {
                     ctx.world.query::<&mut Character3D>().for_each(|c| {
                         assert!(c.grounded);
                         c.velocity.y = 5.0;
@@ -831,7 +831,7 @@ fn scenes_make_mesh_colliders_from_mesh_files_and_save_them_by_file() {
         Vec3::ZERO,
         move |ctx| {
             ctx.load_scene(&file_name).unwrap();
-            ctx.save_scene(&saved_name).unwrap();
+            ctx.assets.save_scene(&ctx.world, &saved_name).unwrap();
         },
         |ctx| {
             let top = |x: f32| {

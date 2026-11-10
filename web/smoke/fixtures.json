@@ -1,0 +1,29 @@
+{
+  "web_smoke": {
+    "example": "web_smoke",
+    "asset": "crab.png",
+    "assetSize": "32x32",
+    "assetSource": "4x2",
+    "engineGpu": true
+  },
+  "web_smoke_3d": {
+    "example": "web_smoke_3d",
+    "features": ["3d"],
+    "asset": "models/house.glb",
+    "min": { "models_drawn": 1, "triangles": 100 },
+    "engineGpu": true
+  },
+  "coin_dash": {
+    "example": "coin_dash",
+    "asset": "coin_dash/coin.png",
+    "assetSize": "32x32",
+    "presses": [
+      "Enter=screen:Playing",
+      "Escape=screen:Paused",
+      "Q=screen:Title",
+      "O=screen:Settings",
+      "Escape=screen:Title"
+    ],
+    "engineGpu": true
+  }
+}

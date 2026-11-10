@@ -36,7 +36,7 @@ pub struct Joint {
 /// models whose [`SkinOf`] points at it): each joint's `pose` is where it
 /// sits relative to its parent this frame, and the mesh's corners follow
 /// the joints they're weighted to. Loaded from a glTF file with
-/// [`Ctx::load_skeleton`](crate::Ctx::load_skeleton), or made in code with
+/// [`Graphics::load_skeleton`](crate::Graphics::load_skeleton), or made in code with
 /// [`Skeleton::new`]. Cloning one is cheap: the joints are shared.
 ///
 /// A skinned model without a skeleton draws in the pose it was modelled in.
@@ -44,8 +44,8 @@ pub struct Joint {
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let body = ctx.load_mesh("models/fox.glb");
-/// let skeleton = ctx.load_skeleton("models/fox.glb");
+/// let body = ctx.gfx.load_mesh("models/fox.glb");
+/// let skeleton = ctx.gfx.load_skeleton("models/fox.glb");
 /// let head = skeleton.find("head").unwrap();
 /// let fox = ctx.world.spawn((Transform3D::default(), Model::new(body), skeleton));
 /// // Later, in a system: turn the head.
@@ -228,9 +228,9 @@ impl Skeleton {
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let body = ctx.load_mesh("people/body.glb");
-/// let hat = ctx.load_mesh("people/hat.glb");
-/// let skeleton = ctx.load_skeleton("people/body.glb");
+/// let body = ctx.gfx.load_mesh("people/body.glb");
+/// let hat = ctx.gfx.load_mesh("people/hat.glb");
+/// let skeleton = ctx.gfx.load_skeleton("people/body.glb");
 /// let person = ctx.world.spawn((Transform3D::default(), Model::new(body), skeleton));
 /// ctx.world.spawn((Model::new(hat), SkinOf(person)));
 /// # }
@@ -325,9 +325,9 @@ impl MeshSkin {
 ///     let mut up = vec![Vec3::ZERO; quad.positions.len()];
 ///     up[0] = vec3(0.0, 0.5, 0.0);
 ///     quad.morph_targets.push(MorphTarget { name: "raise".into(), positions: up, normals: Vec::new() });
-///     let material = ctx.default_material();
-///     let mesh = ctx.create_mesh(&quad, material);
-///     let raise = ctx.morph_target(mesh, "raise").unwrap();
+///     let material = ctx.gfx.default_material();
+///     let mesh = ctx.gfx.create_mesh(&quad, material);
+///     let raise = ctx.gfx.morph_target(mesh, "raise").unwrap();
 ///     let mut weights = MorphWeights::default();
 ///     weights.set(raise, 0.5); // halfway there
 ///     ctx.world.spawn((Transform3D::default(), Model::new(mesh), weights));
@@ -767,6 +767,63 @@ mod tests {
         // The cup: on the bent tip, then half a unit along the tip's up (now -x).
         let cup_at = world.get::<Transform3D>(cup).unwrap().position;
         assert!(cup_at.abs_diff_eq(vec3(8.5, 0.0, 0.0), 1e-5), "{cup_at}");
+    }
+
+    #[test]
+    fn skinning_scratch_follows_a_same_id_world_load() {
+        use crate::WorldReflect;
+        let mut world = World::new();
+        world.reflect::<Transform3D>();
+        let mut bent = arm();
+        let assets = stick(&bent);
+        bent.pose[0].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        let mesh = super::super::Mesh { id: 0 };
+        let body = world.spawn((Transform3D::default(), Model::new(mesh), bent));
+        let cup = world.spawn((
+            Transform3D::default(),
+            AttachToJoint {
+                skeleton: body,
+                joint: 1,
+                offset: Transform3D::default(),
+            },
+        ));
+        let mut frame = SkinFrame::default();
+        frame.collect(&mut world, &assets);
+        assert_eq!(frame.draws.len(), 1);
+        // The next scene: the same ids, the body moved, skeletons and joint
+        // attachments not saved (they aren't reflected).
+        world.get_mut::<Transform3D>(body).unwrap().position = vec3(5.0, 0.0, 0.0);
+        let next = world.save();
+        world.load(&next).unwrap();
+        frame.collect(&mut world, &assets);
+        assert!(
+            frame.draws.is_empty() && frame.matrices.is_empty(),
+            "nothing of the old pose is drawn"
+        );
+        // The game adds an unbent skeleton to the same id.
+        world.insert(body, Model::new(mesh));
+        world.insert(body, arm());
+        world.insert(
+            cup,
+            AttachToJoint {
+                skeleton: body,
+                joint: 1,
+                offset: Transform3D::default(),
+            },
+        );
+        frame.collect(&mut world, &assets);
+        assert_eq!(frame.draws.len(), 1);
+        assert_eq!(frame.draws[0].matrix, Transform3D::at(vec3(5.0, 0.0, 0.0)).matrix());
+        let tip = frame.matrices[1].transform_point3(vec3(0.0, 1.0, 0.0));
+        assert!(
+            tip.abs_diff_eq(vec3(0.0, 1.0, 0.0), 1e-5),
+            "the new pose, not the old one: {tip}"
+        );
+        let cup_at = world.get::<Transform3D>(cup).unwrap().position;
+        assert!(
+            cup_at.abs_diff_eq(vec3(5.0, 1.0, 0.0), 1e-5),
+            "on the new skeleton's tip: {cup_at}"
+        );
     }
 
     #[test]

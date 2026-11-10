@@ -5,7 +5,8 @@
 use glam::{Mat4, Vec3, Vec4};
 
 use super::Camera3D;
-use crate::{Ctx, Texture};
+use crate::Texture;
+use crate::gfx::Graphics;
 
 /// A camera drawing the 3D world into a render target each frame, before
 /// the main view: one entry of [`Ctx::target_cameras`](crate::Ctx::target_cameras).
@@ -17,13 +18,13 @@ use crate::{Ctx, Texture};
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let screen = ctx.create_render_target(512, 512);
+/// let screen = ctx.gfx.create_render_target(512, 512);
 /// let mut camera = ctx.camera3d;
 /// camera.position = vec3(0.0, 10.0, 0.0);
 /// camera.look_at(Vec3::ZERO);
 /// ctx.target_cameras.push(TargetCamera::new(camera, screen));
 /// // A monitor showing it: a material with the target as its texture.
-/// let monitor = ctx.create_material(MaterialDesc {
+/// let monitor = ctx.gfx.create_material(MaterialDesc {
 ///     emissive_map: Some(screen),
 ///     emissive: Color::WHITE,
 ///     ..MaterialDesc::color(Color::BLACK)
@@ -34,7 +35,7 @@ use crate::{Ctx, Texture};
 pub struct TargetCamera {
     /// Where it looks from. Its aspect ratio follows the target's size.
     pub camera: Camera3D,
-    /// Made by [`Ctx::create_render_target`]; other textures are skipped.
+    /// Made by [`Graphics::create_render_target`](crate::Graphics::create_render_target); other textures are skipped.
     pub target: Texture,
     /// Only what lies on the front of this plane is drawn: `(normal, d)`,
     /// keeping points where `normal.dot(p) + d >= 0`. For reflections,
@@ -49,7 +50,7 @@ impl TargetCamera {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let target = ctx.create_render_target(256, 256);
+    /// let target = ctx.gfx.create_render_target(256, 256);
     /// ctx.target_cameras.push(TargetCamera::new(ctx.camera3d, target));
     /// # }
     /// ```
@@ -70,7 +71,7 @@ impl TargetCamera {
     /// ```
     /// # use ponko::*;
     /// Game::new("lake", 640, 360).run_headless(0, |ctx| {
-    ///     let reflection = ctx.create_render_target(640, 360);
+    ///     let reflection = ctx.gfx.create_render_target(640, 360);
     ///     ctx.camera3d.position = vec3(0.0, 5.0, 0.0);
     ///     let mirrored = TargetCamera::reflection(ctx.camera3d, reflection, 1.0);
     ///     assert_eq!(mirrored.camera.position, vec3(0.0, -3.0, 0.0));
@@ -123,15 +124,15 @@ fn kept(plane: Vec4, p: Vec3) -> bool {
     plane.xyz().dot(p) + plane.w >= 0.0
 }
 
-impl Ctx {
+impl Graphics {
     /// A texture of `width` x `height` pixels that a [`TargetCamera`] in
-    /// [`Ctx::target_cameras`] draws the 3D world into (feature `3d`).
+    /// [`Ctx::target_cameras`](crate::Ctx::target_cameras) draws the 3D world into (feature `3d`).
     /// Use it in a material like any texture; it holds linear HDR light.
     ///
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let mirror = ctx.create_render_target(512, 512);
+    /// let mirror = ctx.gfx.create_render_target(512, 512);
     /// assert_eq!(mirror.width(), 512);
     /// # }
     /// ```
@@ -144,7 +145,7 @@ impl Ctx {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Ctx::create_render_target`] that returns errors (for the C API).
+    /// [`Graphics::create_render_target`](crate::Graphics::create_render_target) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_render_target(&mut self, width: u32, height: u32) -> Result<Texture, String> {
         let texture = self.make_render_target(width, height)?;
@@ -152,7 +153,7 @@ impl Ctx {
         Ok(texture)
     }
 
-    /// [`Ctx::try_create_render_target`] for the engine's own targets
+    /// [`Graphics::try_create_render_target`](crate::Graphics::try_create_render_target) for the engine's own targets
     /// (reflection probe faces): not the game's to free or count.
     pub(crate) fn make_render_target(&mut self, width: u32, height: u32) -> Result<Texture, String> {
         if width == 0 || height == 0 {
@@ -181,10 +182,10 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let target = ctx.create_render_target(64, 64);
-    ///     assert!(ctx.is_render_target(target));
-    ///     let image = ctx.create_texture(1, 1, &[255; 4]);
-    ///     assert!(!ctx.is_render_target(image));
+    ///     let target = ctx.gfx.create_render_target(64, 64);
+    ///     assert!(ctx.gfx.is_render_target(target));
+    ///     let image = ctx.gfx.create_texture(1, 1, &[255; 4]);
+    ///     assert!(!ctx.gfx.is_render_target(image));
     /// });
     /// ```
     #[must_use]

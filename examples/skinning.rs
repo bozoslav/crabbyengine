@@ -60,7 +60,7 @@ fn tube(bottom: f32, top: f32, radius: f32) -> MeshData {
 
 // ANCHOR: skin_pose
 fn sway(ctx: &mut Ctx) {
-    let time = ctx.time() as f32;
+    let time = ctx.time.elapsed() as f32;
     ctx.world.query::<(&mut Skeleton, &Sway)>().for_each(|(s, phase)| {
         for (i, pose) in s.pose.iter_mut().enumerate() {
             pose.rotation = Quat::from_rotation_z((time * 1.5 + phase.0 - i as f32 * 0.45).sin() * 0.16);
@@ -82,8 +82,8 @@ fn sway(ctx: &mut Ctx) {
 #[allow(dead_code)]
 fn load_character(ctx: &mut Ctx) {
     // ANCHOR: skin_load
-    let mesh = ctx.load_mesh("models/character.glb");
-    let skeleton = ctx.load_skeleton("models/character.glb");
+    let mesh = ctx.gfx.load_mesh("models/character.glb");
+    let skeleton = ctx.gfx.load_skeleton("models/character.glb");
     let hand = skeleton.find("hand_r").expect("model needs hand_r");
     let character = ctx.world.spawn((Transform3D::default(), Model::new(mesh), skeleton));
     let skeleton = ctx.world.get_mut::<Skeleton>(character).unwrap();
@@ -121,10 +121,10 @@ fn bend_clip(skeleton: &Skeleton) -> AnimationClip {
 #[allow(dead_code)]
 fn play_clips(ctx: &mut Ctx) {
     // ANCHOR: clip_play
-    let mut skeleton = ctx.load_skeleton("models/character.glb");
-    let walk = ctx.load_clip("models/character.glb", "walk");
-    let run = ctx.load_clip("models/character.glb", "run");
-    let time = ctx.time() as f32;
+    let mut skeleton = ctx.gfx.load_skeleton("models/character.glb");
+    let walk = ctx.gfx.load_clip("models/character.glb", "walk");
+    let run = ctx.gfx.load_clip("models/character.glb", "run");
+    let time = ctx.time.elapsed() as f32;
     let loop_time = |clip: &AnimationClip| {
         if clip.duration() > 0.0 {
             time.rem_euclid(clip.duration())
@@ -201,21 +201,21 @@ fn layers_and_root_motion(skeleton: &Skeleton, wave: AnimationClip) -> Animator 
 
 fn main() {
     Game::new("Ponko: skinned meshes", 1000, 700).system(sway).run(|ctx| {
-        ctx.clear(Color::hex(0xABCBDD));
+        ctx.gfx.clear(Color::hex(0xABCBDD));
         ctx.camera3d.position = vec3(6.0, 4.0, 9.0);
         ctx.camera3d.look_at(vec3(0.0, 1.7, 0.0));
-        let green = ctx.create_material(MaterialDesc::color(Color::hex(0x398F79)));
-        let gold = ctx.create_material(MaterialDesc::color(Color::hex(0xF2BD50)));
-        let white = ctx.default_material();
-        let ground = ctx.create_mesh(&MeshData::plane(20.0), white);
+        let green = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x398F79)));
+        let gold = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0xF2BD50)));
+        let white = ctx.gfx.default_material();
+        let ground = ctx.gfx.create_mesh(&MeshData::plane(20.0), white);
         ctx.world.spawn((Transform3D::default(), Model::new(ground)));
         // ANCHOR: skin_create
         let skeleton = chain();
-        let mesh = ctx.create_skinned_mesh(&tube(0.0, 3.5, 0.22), green, &skeleton);
+        let mesh = ctx.gfx.create_skinned_mesh(&tube(0.0, 3.5, 0.22), green, &skeleton);
         // A separate skeleton with matching names demonstrates name binding.
-        let band = ctx.create_skinned_mesh(&tube(2.2, 2.5, 0.25), gold, &chain());
+        let band = ctx.gfx.create_skinned_mesh(&tube(2.2, 2.5, 0.25), gold, &chain());
         // ANCHOR_END: skin_create
-        let ball = ctx.create_mesh(&MeshData::sphere(0.18, 16), gold);
+        let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.18, 16), gold);
         let bend = bend_clip(&skeleton);
         for i in 0..3 {
             let tentacle = ctx.world.spawn((

@@ -79,7 +79,7 @@ simulation logic added before it, should move that logic to
 
 ## One frame, in order
 
-1. Simulation systems, `ctx.fixed_steps()` times (each tick runs all of them
+1. Simulation systems, `ctx.time.fixed_steps()` times (each tick runs all of them
    once, in phase order: `Input`, `BeforePhysics`, `Physics`,
    `AfterPhysics`, `SimLast`).
 2. Frame systems (`Phase::Frame`), then the closure returned from `setup`,
@@ -105,6 +105,7 @@ barrier**: within a phase, across phases, and between ticks.
 | An event, to a system earlier in the order | on that system's next run (the next tick for simulation systems) |
 | Events from simulation ticks, to frame systems | in the same frame, all ticks of it |
 | Events from frame systems, to simulation systems | on the next tick that runs |
+| A change to a tracked component, to `Changed<T>`, `Added<T>` and `removed::<T>()` | to every other system, the next time it runs; never to the system that made it (see [Change detection](ecs.md#change-detection)) |
 
 Commands apply in the order they were recorded: a closure from
 `commands.add` sees the ones before it, and an `insert` after a `despawn` of
@@ -144,16 +145,15 @@ in may get coarser barriers, documented there. To be ready:
 
 ## Parallel queries and future scheduling
 
-Systems currently execute sequentially, taking exclusive `&mut Ctx` access.
-A system can use the ECS's parallel query methods to divide its entity work
-across threads; this is not automatic parallel execution of different systems.
-Optional declared-access scheduling is planned in
-[#137](https://github.com/ponkoengine/ponko/issues/137) and
-[#138](https://github.com/ponkoengine/ponko/issues/138), after safety and
-performance baselines. The sequential barriers above are the baseline any
-such scheduler must keep or document
-([#146](https://github.com/ponkoengine/ponko/issues/146)). Existing
-unannotated `sim_system` callbacks must remain usable and exclusive.
+Systems currently execute sequentially. A system can use the ECS's parallel
+query methods to divide its entity work across threads; this is not
+automatic parallel execution of different systems. Systems may declare what
+they read and write, and view systems (`Game::add_view`) get only what they
+declared; see [Declared system access](system-access.md). The parallel
+scheduler that will use those declarations is planned in
+[#138](https://github.com/ponkoengine/ponko/issues/138); the batch barrier it
+must keep is documented in that chapter. Existing unannotated `sim_system`
+callbacks remain usable and exclusive.
 See [the architecture](https://github.com/ponkoengine/ponko/blob/main/ARCHITECTURE.md)
 for current subsystem boundaries.
 
@@ -169,7 +169,7 @@ returns the closure:
 fn spawner(every: u64) -> impl FnMut(&mut Ctx) {
     let mut spawned = 0;
     move |ctx| {
-        if ctx.sim_tick() % every == 0 {
+        if ctx.time.sim_tick() % every == 0 {
             ctx.commands.spawn((Transform2D::default(),));
             spawned += 1;
         }
@@ -216,7 +216,7 @@ Game::new("t", 800, 600)
 
 ## Timings
 
-`ctx.system_timings()` lists every system with its last and average time in
+`ctx.perf.system_timings()` lists every system with its last and average time in
 milliseconds, so a game can show its own profiler overlay. For a full
 timeline, build with `--features profiling` and open
 [puffin_viewer](https://github.com/EmbarkStudios/puffin) on `127.0.0.1:8585`.

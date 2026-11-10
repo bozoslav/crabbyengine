@@ -60,7 +60,7 @@ fn drive(
     Game::new("t", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
             let e = get.borrow().expect("spawned");
-            let tick = ctx.sim_tick();
+            let tick = ctx.time.sim_tick();
             if let Some(v) = ctx.world.get_mut::<Vehicle3D>(e) {
                 drive(tick, v.wheels_mut());
             }

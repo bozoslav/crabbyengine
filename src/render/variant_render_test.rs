@@ -28,7 +28,7 @@ impl Rig {
     fn new(samples: u32) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
         if !multisamples(&adapter, samples) {
@@ -49,8 +49,10 @@ impl Rig {
             },
             ..Default::default()
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&descriptor)) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) =
+            pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&descriptor)))
+        else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -151,15 +153,15 @@ impl Rig {
 
     /// A shader made from `source`, on the CPU and the GPU.
     fn shader(&mut self, source: &str) -> Shader {
-        let shader = self.ctx.create_shader("test", source);
+        let shader = self.ctx.gfx.create_shader("test", source);
         self.renderer.create_shader(&self.device, "test", source).unwrap();
         shader
     }
 
     /// A mesh of `data` with `desc`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
-        let material = self.ctx.create_material(desc);
-        let mesh = self.ctx.create_mesh(data, material);
+        let material = self.ctx.gfx.create_material(desc);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         self.renderer
@@ -174,7 +176,7 @@ impl Rig {
         frame.lod = ctx.lod;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -405,7 +407,7 @@ fn displaced_cube(x: f32, shift: f32, grow: bool) -> Option<usize> {
     desc.custom[0] = vec4(shift, 0.0, 0.0, 0.0);
     let cube = rig.mesh(&MeshData::cube(2.0), desc);
     if grow {
-        rig.ctx.set_mesh_gpu_bounds(cube, vec3(shift, 0.0, 0.0), 2.0);
+        rig.ctx.gfx.set_mesh_gpu_bounds(cube, vec3(shift, 0.0, 0.0), 2.0);
     }
     rig.ctx.world.spawn((
         Transform3D {
@@ -437,4 +439,45 @@ fn culling_uses_the_mesh_bounds_before_vertex_displacement() {
     // A small displacement within view is drawn where `vertex` put it.
     let nudged = displaced_cube(0.0, 1.0, false).unwrap();
     assert!(nudged.abs_diff(still) < still / 5, "{nudged} vs {still}");
+}
+
+/// Draws a plane with `BOTH_HOOKS` through shader `id` (made by `make`,
+/// which may make other shaders first), cut out, at 4x multisampling.
+fn plane_with(make: impl FnOnce(&mut Rig) -> Shader) -> Option<(Vec<u8>, crate::PipelineStats)> {
+    let mut rig = Rig::new(4)?;
+    rig.ctx.lighting.shadows = true;
+    let shader = make(&mut rig);
+    let plane = rig.mesh(&MeshData::plane(1.0), material(shader, Blend::Cutout, false));
+    rig.ctx.world.spawn((
+        Transform3D {
+            scale: Vec3::splat(40.0),
+            ..Default::default()
+        },
+        Model::new(plane),
+    ));
+    rig.ctx.camera3d.position = vec3(0.0, 6.0, 0.001);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    let pixels = rig.draw();
+    Some((pixels, rig.renderer.pipeline_stats()))
+}
+
+#[test]
+fn a_shader_sharing_another_ones_pipelines_draws_the_same_pixels() {
+    let Some((own, own_stats)) = plane_with(|rig| rig.shader(BOTH_HOOKS)) else {
+        return;
+    };
+    let Some((shared, shared_stats)) = plane_with(|rig| {
+        rig.shader(BOTH_HOOKS);
+        rig.shader(BOTH_HOOKS)
+    }) else {
+        return;
+    };
+    assert_eq!(
+        shared_stats.shared,
+        own_stats.shared + 1,
+        "the second shader shared the first's set"
+    );
+    assert_eq!(shared_stats.compiles, own_stats.compiles);
+    assert!(lit(&own) > 0);
+    assert_eq!(own, shared, "identical pixels through the shared pipelines");
 }

@@ -60,8 +60,9 @@ Fallible calls follow one convention, introduced with `ponko::Error`:
 
 Texture, mesh, skeleton, sound and font loading and material and mesh
 creation follow it. Older calls that return `Result<_, String>` keep their
-signatures; they move to `ponko::Error` as the grouped `Ctx` services land,
-and `String: From<ponko::Error>` keeps them interoperable meanwhile.
+signatures on the `Ctx` services (`ctx.gfx`, `ctx.assets`); they move to
+`ponko::Error` service by service, and `String: From<ponko::Error>` keeps
+them interoperable meanwhile.
 
 ## Deprecation
 
@@ -104,6 +105,27 @@ within it unless the world once had over 4 million entities alive and was
 saved with under an eighth of them; such a save still loads back into the
 world that wrote it.
 
+## Compatibility checks
+
+The promises above are tested against retained baselines, not only against
+what the current revision generates. A baseline is a small fixture recorded at
+a named engine revision with its provenance next to it; it is never edited to
+make a test pass. The baselines come from the engine's `main` branch, not from
+a published release, so they show that today's code honors what that revision
+promised and do not claim anything about earlier binary releases.
+
+| Contract | Baseline | Check |
+|---|---|---|
+| Saved worlds, scenes and prefabs | `tests/fixtures/saves/` | `tests/save_compat.rs`, `tests/prefab_compat.rs` |
+| MCP tools and parameters | `crates/ponko_mcp/tests/fixtures/` | `crates/ponko_mcp/tests/contract.rs` |
+| C ABI header and layouts | `crates/ponko_ffi/tests/fixtures/abi/` | `crates/ponko_ffi/tests/abi_compat.rs`, `examples/cpp/abi_baseline.c` |
+
+Additions pass: new MCP tools and optional parameters, new C functions and enum
+constants. A removed or changed tool, parameter, function or struct layout, a
+new required MCP parameter, or a parameter that accepts fewer values fails with
+a message naming it. Each fixture folder's README says how to retain a new
+baseline after an intentional major-version change.
+
 ## Determinism
 
 What gives the same world from the same seed and inputs:
@@ -131,6 +153,10 @@ What gives the same world from the same seed and inputs:
 
 Tested in CI on every change: Linux x86-64, macOS (Apple Silicon) and
 Windows x86-64. Built in CI on every change: the web (wasm32, WebGPU with a
-WebGL2 fallback); a small web build is also run in headless Chromium with
-WebGL2 (`web/smoke/`; WebGPU on real GPUs isn't tested in CI). Other targets that wgpu and winit support usually work
+WebGL2 fallback); small web builds (2D, 3D and the complete-game reference)
+are also run in headless Chromium and WebKit with WebGL2 in the merge
+queue (`web/smoke/`; Firefox is tried there too, but the runner's headless
+Firefox has no WebGL2, so it is reported, not verified). WebGPU is tried there too and reported, but a runner
+without a GPU usually can't show it, so WebGPU is verified on real GPUs by hand,
+not gated in CI. Other targets that wgpu and winit support usually work
 but aren't tested.

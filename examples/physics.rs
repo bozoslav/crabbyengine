@@ -95,21 +95,21 @@ fn laser(ctx: &mut Ctx) -> Option<RayHit> {
 
 fn drop_things(ctx: &mut Ctx) {
     let at = ctx.mouse_world();
-    if ctx.mouse_pressed(MouseButton::Left) {
+    if ctx.input.mouse_pressed(MouseButton::Left) {
         ctx.world.spawn((
             Transform2D::at(at),
             RigidBody::dynamic(),
             Collider::rect(vec2(30.0, 30.0)).friction(0.8),
         ));
     }
-    if ctx.mouse_pressed(MouseButton::Right) {
+    if ctx.input.mouse_pressed(MouseButton::Right) {
         ctx.world.spawn((
             Transform2D::at(at),
             RigidBody::dynamic(),
             Collider::circle(12.0).restitution(0.6),
         ));
     }
-    if ctx.mouse_pressed(MouseButton::Middle) {
+    if ctx.input.mouse_pressed(MouseButton::Middle) {
         let rock: Vec<Vec2> = (0..5)
             .map(|i| Vec2::from_angle(i as f32 * std::f32::consts::TAU / 5.0) * 18.0)
             .collect();
@@ -132,7 +132,7 @@ fn drop_things(ctx: &mut Ctx) {
 }
 
 fn draw(ctx: &mut Ctx) {
-    ctx.clear(Color::hex(0x1d2330));
+    ctx.gfx.clear(Color::hex(0x1d2330));
     let shapes: Vec<(Transform2D, Collider, bool, f32)> = ctx
         .world
         .query::<(&Transform2D, &Collider, &RigidBody, Option<&Bell>)>()
@@ -149,10 +149,10 @@ fn draw(ctx: &mut Ctx) {
         };
         match c.shape {
             Shape::Circle { radius } => {
-                ctx.draw_circle(t.position, radius, color);
+                ctx.gfx.draw_circle(t.position, radius, color);
                 // A spoke shows the spin.
                 let spoke = t.position + Vec2::from_angle(t.rotation) * radius;
-                ctx.draw_line(t.position, spoke, 2.0, Color::hex(0x1d2330));
+                ctx.gfx.draw_line(t.position, spoke, 2.0, Color::hex(0x1d2330));
             }
             Shape::Rect { size } => {
                 // Four corners turned with the body, drawn as edges.
@@ -161,31 +161,34 @@ fn draw(ctx: &mut Ctx) {
                 let h = size / 2.0;
                 let corners = [vec2(-h.x, -h.y), vec2(h.x, -h.y), vec2(h.x, h.y), vec2(-h.x, h.y)].map(turn);
                 if fixed || c.sensor {
-                    ctx.draw_rect(Rect::new(t.position.x - h.x, t.position.y - h.y, size.x, size.y), color);
+                    ctx.gfx
+                        .draw_rect(Rect::new(t.position.x - h.x, t.position.y - h.y, size.x, size.y), color);
                 } else {
                     for i in 0..4 {
-                        ctx.draw_line(corners[i], corners[(i + 1) % 4], 3.0, color);
+                        ctx.gfx.draw_line(corners[i], corners[(i + 1) % 4], 3.0, color);
                     }
                 }
             }
             Shape::Capsule { height, radius } => {
                 let up = Vec2::from_angle(t.rotation + std::f32::consts::FRAC_PI_2) * height / 2.0;
-                ctx.draw_line(t.position - up, t.position + up, radius * 2.0, color);
+                ctx.gfx.draw_line(t.position - up, t.position + up, radius * 2.0, color);
             }
             Shape::Polygon { .. } => {
                 let (sin, cos) = t.rotation.sin_cos();
                 let turn = |v: Vec2| t.position + vec2(v.x * cos - v.y * sin, v.x * sin + v.y * cos);
                 let corners: Vec<Vec2> = c.shape.points().iter().map(|&p| turn(p + c.offset)).collect();
                 for i in 0..corners.len() {
-                    ctx.draw_line(corners[i], corners[(i + 1) % corners.len()], 3.0, color);
+                    ctx.gfx
+                        .draw_line(corners[i], corners[(i + 1) % corners.len()], 3.0, color);
                 }
             }
             _ => {} // shapes added in later versions
         }
     }
     if let Some(hit) = laser(ctx) {
-        ctx.draw_line(ctx.mouse_world(), hit.point, 1.0, Color::rgba(1.0, 0.2, 0.2, 0.8));
-        ctx.draw_circle(hit.point, 4.0, Color::rgb(1.0, 0.2, 0.2));
+        ctx.gfx
+            .draw_line(ctx.mouse_world(), hit.point, 1.0, Color::rgba(1.0, 0.2, 0.2, 0.8));
+        ctx.gfx.draw_circle(hit.point, 4.0, Color::rgb(1.0, 0.2, 0.2));
     }
     let bodies = ctx.physics.body_count();
     ctx.draw_text(

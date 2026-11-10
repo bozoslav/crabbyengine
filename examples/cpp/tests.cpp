@@ -20,6 +20,16 @@ struct Tag {};
 namespace game { struct Health { float value; }; }
 namespace other { struct Health { int value; }; }
 PONKO_COUNT_CPP_ALLOCATIONS
+// The wrapper throws the engine's message; an argument the engine refused says so
+// (a panic would say "panicked").
+template<class F> void throws_invalid(F f, const char* what) {
+    bool caught = false;
+    try { f(); } catch (const std::exception& e) {
+        std::string message = e.what();
+        caught = message.find(what) != std::string::npos && message.find("panic") == std::string::npos;
+    }
+    CHECK(caught);
+}
 template<class F> void throws(F f) { bool caught = false; try { f(); } catch (const std::exception&) { caught = true; } CHECK(caught); }
 
 static void worlds() {
@@ -153,6 +163,14 @@ static void scenes_and_prefabs() {
         ctx.load_scene("test-cpp-scene.json");
     });
     CHECK(loaded.size() == 2 && loaded.get<game::Health>(first).value == 9);
+    // Offline, a lockstep load is a plain load; a failed one changes nothing.
+    auto offline = ponko::game("scenes", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        ctx.world().reflect<game::Health>({ponko::field("value", &game::Health::value)});
+        ctx.world().spawn(Tag{});
+        ctx.load_scene_lockstep("test-cpp-scene.json");
+        throws([&] { ctx.load_scene_lockstep("test-cpp-missing.json"); });
+    });
+    CHECK(offline.size() == 2 && offline.get<game::Health>(first).value == 9);
 }
 
 static void three_d() {
@@ -223,6 +241,17 @@ static void three_d() {
         ctx.set_effects({ponko::screen_effect_of(grey), ponko::screen_effect_of(grey, stone)});
         CHECK(ctx.effects().size() == 2 && ctx.effects()[1].material.id == stone.id);
         throws([&] { ctx.create_effect("bad", "fn effect(p: Pixel) -> f32 { return 1.0; }"); });
+        {
+            auto shaders = ctx.shader_status();
+            CHECK(shaders.size() >= 2);
+            auto& grey_status = shaders[shaders.size() - 2];
+            CHECK(grey_status.shader == "grey" && grey_status.ok() && grey_status.errors.empty());
+            CHECK(grey_status.info.kind == PONKO_SHADER_EFFECT && grey_status.info.outcome == PONKO_SHADER_COMPILED);
+            auto& bad = shaders.back();
+            CHECK(bad.shader == "bad" && !bad.ok() && bad.info.outcome == PONKO_SHADER_FAILED);
+            CHECK(bad.info.diagnostics == 1 && bad.info.line > 0 && bad.errors.rfind("bad", 0) == 0);
+            CHECK(ctx.shader_status_json().find("\"outcome\":\"failed\"") != std::string::npos);
+        }
         throws([&] { ctx.set_effects({ponko::screen_effect_of(ponko::effect{99})}); });
         ctx.set_effects({});
         CHECK(ctx.effects().empty());
@@ -388,6 +417,16 @@ static void three_d() {
         throws([&] { ctx.set_graphics_quality(bad_quality); });
         throws([&] { ponko::graphics_quality_preset(ponko::quality_level::custom); });
         CHECK(ctx.graphics_quality().shadow_cascades == 2);
+        // GPU tiers: no GPU headless; tier reports and presets need none.
+        CHECK(!ctx.gpu_capabilities() && !ctx.gpu_tier() && !ctx.recommended_graphics_quality());
+        CHECK(!ctx.gpu_has(ponko::gpu_feature::compute));
+        CHECK(ponko::gpu_tier_report(ponko::gpu_tier::desktop).find("\"tier\":\"desktop\"") != std::string::npos);
+        CHECK(!ponko::gpu_tier_has(ponko::gpu_tier::webgl2, ponko::gpu_feature::screen_space_reflections));
+        CHECK(ponko::gpu_tier_has(ponko::gpu_tier::baseline, ponko::gpu_feature::compute_culling));
+        CHECK(!ponko::gpu_tier_has(ponko::gpu_tier::baseline, ponko::gpu_feature::gpu_skinning));
+        CHECK(ponko::graphics_quality_level(ponko::graphics_quality_for_tier(ponko::gpu_tier::baseline)) == ponko::quality_level::medium);
+        CHECK(ponko::graphics_quality_for_tier(ponko::gpu_tier::webgl2).anti_aliasing == uint32_t(ponko::anti_aliasing::fxaa));
+        throws([&] { ponko::gpu_tier_has(ponko::gpu_tier(7), ponko::gpu_feature::compute); });
         ctx.set_graphics_quality(ponko::graphics_quality_preset(ponko::quality_level::high));
         CHECK(ctx.graphics_quality().ssr == 1 && ctx.post().ssr == 1);
         CHECK(!ctx.graphics_quality().gi && ponko::graphics_quality_preset(ponko::quality_level::ultra).gi);
@@ -447,6 +486,125 @@ static void parallel_queries() {
     w.query_par<int>([&](auto chunk) { auto [n] = chunk.columns(); for (std::size_t i = 0; i < chunk.size(); ++i) par[chunk.first() + i] = n[i]; });
     CHECK(seq == par);
     CHECK(std::count(seq.begin(), seq.end(), -1) == 5000);
+}
+
+struct Fuel { int value; };
+struct Heat { int value; };
+
+static void change_detection() {
+    using list = std::vector<ponko::entity>;
+    ponko::world w;
+    w.track_changes<Fuel>();
+    const auto a = w.spawn(Fuel{1}, Heat{1}), b = w.spawn(Fuel{2}, Heat{2}), c = w.spawn(Fuel{3});
+    auto changed = [&] { list out; w.each<ponko::changed<Fuel>>([&](ponko::entity e, const Fuel&) { out.push_back(e); }); return out; };
+    auto added = [&] { list out; w.each<ponko::added<Fuel>>([&](ponko::entity e, const Fuel&) { out.push_back(e); }); return out; };
+    // Outside a game the reader keeps its own place: look, then move on.
+    auto next = [&] { w.set_changes_since(w.advance_change_tick()); };
+    CHECK(w.change_tick() == 1 && w.changes_since() == 0);
+    CHECK(changed() == list{a, b, c} && added() == list{a, b, c});   // nothing seen yet: everything
+    next();
+    CHECK(w.change_tick() == 2 && w.changes_since() == 1);
+    CHECK(changed().empty() && added().empty() && w.count<ponko::changed<Fuel>>() == 0);
+
+    // Reads change nothing: const&, copies, const columns, get, count.
+    w.each([](const Fuel&) {}); w.each([](Fuel) {}); w.each_par([](const Fuel&, const Heat&) {});
+    w.query<const Fuel>([](auto chunk) {
+        auto [fuel] = chunk.columns();
+        static_assert(std::is_same<decltype(fuel), const Fuel*>::value, "const columns are read-only");
+    });
+    (void)w.get<Fuel>(a); CHECK(w.count<Fuel>() == 3);
+    CHECK(changed().empty());
+
+    // Writes do: set, a `&` parameter (every row visited), a column, mark_changed.
+    w.set(b, Fuel{20}); CHECK(changed() == list{b} && added().empty());
+    next();
+    w.each([](Fuel&, const Heat&) {}); CHECK(changed() == list{a, b});
+    next();
+    w.query<Fuel>([](auto) {}); CHECK(changed() == list{a, b, c});
+    next();
+    w.query_par<const Heat, Fuel>([](auto) {}); CHECK(changed() == list{a, b});
+    next();
+    CHECK(w.mark_changed<Fuel>(c) && !w.mark_changed<Heat>(c)); CHECK(changed() == list{c});
+    CHECK(w.count<ponko::changed<Fuel>>() == 1 && w.count<Heat, ponko::changed<Fuel>>() == 0);
+
+    // A filtered loop that writes marks only the rows it visits.
+    next();
+    w.set(a, Fuel{5});
+    w.each<ponko::changed<Fuel>>([](Fuel& f) { f.value += 1; });
+    CHECK(w.get<Fuel>(a).value == 6 && w.get<Fuel>(b).value == 20 && changed() == list{a});
+    // Filtered columns: runs of rows, numbered by first().
+    w.mark_changed<Fuel>(c);
+    std::size_t rows = 0;
+    w.query<Fuel, ponko::changed<Fuel>>([&](auto chunk) { CHECK(chunk.first() == rows); rows += chunk.size(); });
+    CHECK(rows == 2);
+
+    // Added: a new component on an old entity; a filter needn't be a column.
+    next();
+    w.remove<Fuel>(c); w.set(c, Fuel{7}); w.set(a, Fuel{8});
+    CHECK(added() == list{c} && w.count<ponko::changed<Fuel>>() == 2);
+    list heated; w.each<ponko::added<Fuel>>([&](ponko::entity e, const Heat&) { heated.push_back(e); });
+    CHECK(heated.empty());
+    w.set(c, Heat{3});
+    w.each<ponko::added<Fuel>>([&](ponko::entity e, const Heat&) { heated.push_back(e); });
+    CHECK(heated == list{c});
+    // Several filters must all pass; any_of needs one.
+    CHECK(w.count<ponko::changed<Fuel>, ponko::added<Fuel>>() == 1);
+    CHECK((w.count<ponko::any_of<ponko::changed<Fuel>, ponko::added<Fuel>>>() == 2));
+    // A filter starts tracking: Heat is new to it, so all three count.
+    CHECK(w.count<ponko::changed<Heat>>() == 3);
+
+    // Removals: a removed component or a despawned entity, oldest first.
+    CHECK(w.removed<Fuel>() == list{c});   // from the remove above
+    next();
+    CHECK(w.removed<Fuel>().empty());
+    w.remove<Fuel>(a); w.despawn(b);
+    CHECK(w.removed<Fuel>() == list{a, b} && w.removed<Heat>() == list{b});
+    const auto seen = w.advance_change_tick();
+    CHECK(w.removed_since<Fuel>(seen).empty() && w.removed_since<Fuel>(0) == list{c, a, b});
+    throws([&] { (void)w.removed<Pos>(); });   // not tracked
+    throws([&] { ponko::world moved(std::move(w)); (void)w.change_tick(); });
+
+    // On all cores: each passing row once.
+    ponko::world big;
+    big.track_changes<int>();
+    std::vector<ponko::entity> es;
+    for (int i = 0; i < 50000; ++i) es.push_back(i % 2 ? big.spawn(i) : big.spawn(i, 'x'));
+    big.set_changes_since(big.advance_change_tick());
+    for (std::size_t i = 0; i < es.size(); i += 3) big.mark_changed<int>(es[i]);
+    std::atomic<long long> sum{0}, visits{0};
+    big.each_par<ponko::changed<int>>([&](const int& n) { sum += n; ++visits; });
+    long long want = 0, n = 0;
+    for (int i = 0; i < 50000; i += 3) { want += i; ++n; }
+    CHECK(sum == want && visits == n && big.count<ponko::changed<int>>() == std::size_t(n));
+
+    // In a game every system has its own place: each change is seen once,
+    // by a reader on either side of the writer, also through commands.
+    for (bool reader_first : {true, false}) {
+        std::vector<std::size_t> seen_changes, seen_removed, own;
+        ponko::entity target = 0;
+        auto reader = [&](ponko::ctx& ctx) {
+            seen_changes.push_back(ctx.world().count<ponko::changed<Fuel>>());
+            seen_removed.push_back(ctx.world().removed<Fuel>().size());
+        };
+        auto writer = [&](ponko::ctx& ctx) {
+            own.push_back(ctx.world().count<ponko::changed<Fuel>>());   // its own writes aren't news to it
+            if (ctx.sim_tick() == 1) ctx.world().set(target, Fuel{9});
+            if (ctx.sim_tick() == 3) ctx.set_later(target, Fuel{10});
+            if (ctx.sim_tick() == 5) ctx.despawn_later(target);
+        };
+        ponko::game g("t", 1, 1);
+        if (reader_first) g.sim_system(reader, "reader").sim_system(writer, "writer");
+        else g.sim_system(writer, "writer").sim_system(reader, "reader");
+        g.run_headless(8, [&](ponko::ctx& ctx) {
+            ctx.world().track_changes<Fuel>();
+            target = ctx.world().spawn(Fuel{0}); ctx.world().spawn(Fuel{0});
+        });
+        const std::size_t late = reader_first ? 1 : 0;
+        std::vector<std::size_t> changes(8, 0), removals(8, 0);
+        changes[0] = 2; changes[1 + late] = 1; changes[3 + late] = 1; removals[5 + late] = 1;
+        CHECK(seen_changes == changes && seen_removed == removals);
+        CHECK(own == std::vector<std::size_t>{2, 0, 0, 0, 0, 0, 0, 0});
+    }
 }
 
 struct Hp { int value; };
@@ -737,9 +895,21 @@ static void vehicles() {
 static void lockstep() {
     // Two games over UDP on localhost see the same inputs, tick for tick.
     struct Order { std::uint32_t tick; float x; };
-    struct Seen { std::uint64_t sum = 0; std::uint32_t others = 0, player = 9; bool desync = false; };
+    struct Seen { std::uint64_t sum = 0; std::uint32_t others = 0, player = 9; bool desync = false; std::size_t loaded = 0; };
+    // Both peers load it in setup and again at tick 50, in a sim system:
+    // places every peer runs, so the loads keep them in step.
+    ponko::game("scene", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        ctx.world().spawn(ponko::transform_at({1, 2}));
+        ctx.world().spawn(ponko::transform_at({3, 4}));
+        ctx.save_scene("test-cpp-lockstep.json");
+    });
     auto play = [](ponko::game& g, Seen& seen) {
         g.sim_system([&seen](ponko::ctx& ctx) {
+            if (ctx.sim_tick() == 50) {
+                ctx.world().spawn(ponko::transform_at({5, 6}));
+                ctx.load_scene_lockstep("test-cpp-lockstep.json");
+                seen.loaded = ctx.world().size();
+            }
             seen.player = ctx.player();
             ctx.set_input(Order{std::uint32_t(ctx.sim_tick()), float(ctx.player())});
             for (std::uint32_t p = 0; p < ctx.players(); ++p)
@@ -749,7 +919,7 @@ static void lockstep() {
                 }
             seen.desync = ctx.desynced();
         });
-        g.run_headless(200, [](ponko::ctx&) {});
+        g.run_headless(200, [](ponko::ctx& ctx) { ctx.load_scene("test-cpp-lockstep.json"); });
     };
     std::uint16_t port = 0;
     Seen host_seen, guest_seen;
@@ -764,6 +934,7 @@ static void lockstep() {
     CHECK(host_seen.player == 0 && guest_seen.player == 1);
     CHECK(host_seen.sum == guest_seen.sum && host_seen.others > 150 && guest_seen.others > 150);
     CHECK(!host_seen.desync && !guest_seen.desync);
+    CHECK(host_seen.loaded == 2 && guest_seen.loaded == 2);
     throws([] { ponko::game("t", 1, 1).lockstep_host("127.0.0.1:0", 1); });
     throws([] { ponko::game("t", 1, 1).lockstep_steam_host(480, 2); });   // built without `steam`
 }
@@ -800,6 +971,37 @@ static void streaming() {
         ctx.free_mesh(cube);
         ctx.free_mesh(cube);
         CHECK(!ctx.is_mesh_live(cube));
+    });
+}
+
+static void asset_streaming() {
+    ponko::game("streaming", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        ctx.set_deterministic_uploads(true);
+        ctx.set_upload_budget(std::nullopt);
+        CHECK(!ctx.stream_texture("crab.png"));
+        CHECK(ctx.asset_state(ponko::residency_kind::texture, "crab.png") == ponko::asset_state::loading);
+        ctx.finish_uploads();
+        auto crab = ctx.stream_texture("crab.png");
+        CHECK(crab && crab->width > 0 && ctx.is_live(*crab));
+        CHECK(ctx.asset_state(ponko::residency_kind::texture, "crab.png") == ponko::asset_state::resident);
+        CHECK(!ctx.upload_stats().has_budget && ctx.upload_stats().pending == 0);
+        CHECK(ctx.resident_texture("crab.png").id == crab->id);
+        CHECK(ctx.is_resident(ponko::residency_kind::texture, "crab.png"));
+        ctx.set_residency_budget(ponko::residency_kind::texture, 1);
+        auto r = ctx.residency(ponko::residency_kind::texture);
+        CHECK(r.has_budget && r.budget == 1 && r.resident == 1 && r.over_budget_bytes > 0);  // asked for this tick
+        auto house = ctx.resident_mesh("models/house.glb", true);
+        CHECK(ctx.is_live(house) && ctx.residency(ponko::residency_kind::mesh).pinned == 1);
+        ctx.unpin_resident(ponko::residency_kind::mesh, "models/house.glb");
+        CHECK(!ctx.stream_mesh("models/nope.glb"));
+        ctx.finish_uploads();
+        CHECK(ctx.asset_state(ponko::residency_kind::mesh, "models/nope.glb") == ponko::asset_state::failed);
+        CHECK(ctx.asset_error(ponko::residency_kind::mesh, "models/nope.glb").find("nope.glb") != std::string::npos);
+        CHECK(ctx.asset_error(ponko::residency_kind::mesh, "models/house.glb").empty());
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ctx.set_lod_group(e, 4, {ponko::lod_level{0.0f, 0, {ponko::lod_renderer_of(ponko::mesh_none)}, false, {}}});
+        ctx.set_streamed_lod(e, {"models/house.glb"});
+        throws([] { ponko::detail::check(ponko_ctx_set_streamed_lod(nullptr, 0, nullptr, 0)); });
     });
 }
 
@@ -1026,9 +1228,9 @@ static void sound3d() {
     });
 }
 
-// A two-joint skin with one clip, "rise": the arm goes up 2 over 1 second.
-static void animators() {
-    const auto file = std::filesystem::temp_directory_path() / "ponko-cpp-rise.gltf";
+// Writes the two-joint skin with the clip "rise" to the temp folder.
+static std::filesystem::path write_rise_gltf(const char* name) {
+    const auto file = std::filesystem::temp_directory_path() / name;
     std::ofstream(file) << R"({"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}],
         "nodes": [{"name": "root", "children": [1]}, {"name": "arm", "mesh": 0}],
         "meshes": [{"primitives": [{"attributes": {"POSITION": 2}}]}],
@@ -1041,6 +1243,12 @@ static void animators() {
         "accessors": [{"bufferView": 0, "componentType": 5126, "count": 2, "type": "SCALAR", "min": [0], "max": [1]},
             {"bufferView": 1, "componentType": 5126, "count": 2, "type": "VEC3"},
             {"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}]})";
+    return file;
+}
+
+// A two-joint skin with one clip, "rise": the arm goes up 2 over 1 second.
+static void animators() {
+    const auto file = write_rise_gltf("ponko-cpp-rise.gltf");
     const std::string path = file.string();
     ponko::game("animators", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         auto rise = ctx.load_clip(path.c_str(), "rise");
@@ -1074,7 +1282,9 @@ static void animators() {
         CHECK(ctx.animator_normalized_time(e) == 0.75f);
         CHECK(ctx.animator_next_event(e) == std::optional<std::string>("half"));
         CHECK(!ctx.animator_next_event(e));
-        throws([&] { ctx.animator_set_bool(e, speed, true); }); // speed is a float
+        throws_invalid([&] { ctx.animator_set_bool(e, speed, true); }, "not a bool"); // speed is a float
+        throws_invalid([&] { ctx.animator_crossfade(e, 7, 0.1f); }, "no such animation state");
+        throws_invalid([&] { ctx.animator_crossfade(e, still, -1.0f); }, "duration");
         ctx.animator_play(e, still);
         ctx.animator_update(e, 0.0f);
         CHECK(ctx.animator_state(e) == still);
@@ -1798,7 +2008,263 @@ static void profiling() {
     });
 }
 
+// Animator parameters a layer reads (bool, trigger, float), a 2D blend tree,
+// and the C++ face of the 3D joint kinds, queries and clock.
+static void animator_layers_and_blend_trees() {
+    const auto file = write_rise_gltf("ponko-cpp-layers.gltf");
+    const std::string path = file.string();
+    ponko::game("layers", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto rise = ctx.load_clip(path.c_str(), "rise");
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ctx.load_skeleton(e, path.c_str());
+        auto arm = *ctx.find_joint(e, "arm");
+
+        // The base animation holds still; a layer rises when told to.
+        ponko::animation_graph_builder base;
+        base.add_state(ponko::motion::of(rise), 0);
+        ctx.set_animator(e, base.build(0));
+        ctx.animator_set_manual(e, true);
+
+        ponko::animation_graph_builder lb;
+        auto flag = lb.add_bool();
+        auto fire = lb.add_trigger();
+        auto amount = lb.add_float();
+        auto idle = lb.add_state(ponko::motion::of(rise), 0);
+        auto run = lb.add_state(ponko::motion::of(rise), 1, std::nullopt, false);
+        auto by_flag = lb.add_transition(idle, run, 0);
+        lb.add_condition(by_flag, PONKO_CONDITION_BOOL, flag, 1);
+        auto by_trigger = lb.add_transition(idle, run, 0);
+        lb.add_condition(by_trigger, PONKO_CONDITION_TRIGGER, fire);
+        auto by_float = lb.add_transition(idle, run, 0);
+        lb.add_condition(by_float, PONKO_CONDITION_GREATER, amount, 0.5f);
+        auto overlay = lb.build(idle);
+        auto layer = ctx.animator_add_layer(e, overlay, ponko::layer_blend::override_pose);
+
+        auto arm_y = [&] { return ctx.joint_pose(e, arm).position.y; };
+        auto back_to_idle = [&] {
+            ctx.animator_layer_crossfade(e, layer, idle, 0);
+            ctx.animator_update(e, 0);
+            CHECK(std::fabs(arm_y()) < 1e-4f);
+        };
+        ctx.animator_update(e, 0.5f);
+        CHECK(std::fabs(arm_y()) < 1e-4f); // nothing asked the layer to move
+
+        ctx.animator_layer_set_bool(e, layer, flag, true);
+        ctx.animator_update(e, 0);
+        ctx.animator_update(e, 0.5f);
+        CHECK(std::fabs(arm_y() - 1.0f) < 1e-4f); // by the bool
+        ctx.animator_layer_set_bool(e, layer, flag, false);
+        back_to_idle();
+
+        ctx.animator_layer_set_trigger(e, layer, fire);
+        ctx.animator_update(e, 0);
+        ctx.animator_update(e, 0.5f);
+        CHECK(std::fabs(arm_y() - 1.0f) < 1e-4f); // by the trigger
+        back_to_idle();
+
+        ctx.animator_layer_set_float(e, layer, amount, 1.0f);
+        ctx.animator_update(e, 0);
+        ctx.animator_update(e, 0.5f);
+        CHECK(std::fabs(arm_y() - 1.0f) < 1e-4f); // by the float
+        throws([&] { ctx.animator_layer_set_float(e, layer + 1, amount, 1.0f); }); // no such layer
+        throws_invalid([&] { ctx.animator_layer_set_bool(e, layer, amount, true); }, "not a bool"); // amount is a float
+
+        // A base graph with a trigger: it fires once and is used up.
+        ponko::animation_graph_builder tb;
+        auto go = tb.add_trigger();
+        auto first = tb.add_state(ponko::motion::of(rise), 0);
+        auto second = tb.add_state(ponko::motion::of(rise), 0);
+        auto t = tb.add_transition(first, second, 0);
+        tb.add_condition(t, PONKO_CONDITION_TRIGGER, go);
+        auto second_entity = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ctx.load_skeleton(second_entity, path.c_str());
+        ctx.set_animator(second_entity, tb.build(first));
+        ctx.animator_set_manual(second_entity, true);
+        ctx.animator_update(second_entity, 0.1f);
+        CHECK(ctx.animator_state(second_entity) == first);
+        ctx.animator_set_trigger(second_entity, go);
+        ctx.animator_update(second_entity, 0);
+        CHECK(ctx.animator_state(second_entity) == second);
+
+        // A 2D blend tree of the same clip at three points plays the clip
+        // wherever the two parameters put the blend.
+        ponko::animation_graph_builder bb;
+        auto x = bb.add_float();
+        auto y = bb.add_float();
+        auto tree = ponko::motion::blend2d(x, y);
+        tree.add(0, 0, ponko::motion::of(rise)).add(1, 0, ponko::motion::of(rise)).add(0, 1, ponko::motion::of(rise), 1);
+        bb.add_state(std::move(tree), 1);
+        auto third = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ctx.load_skeleton(third, path.c_str());
+        ctx.set_animator(third, bb.build(0));
+        ctx.animator_set_manual(third, true);
+        ctx.animator_set_float(third, x, 0.3f);
+        ctx.animator_set_float(third, y, 0.6f);
+        ctx.animator_update(third, 0.5f);
+        CHECK(std::fabs(ctx.joint_pose(third, arm).position.y - 1.0f) < 1e-4f);
+    });
+    std::filesystem::remove(file);
+}
+
+// Joint kinds, 3D queries, 3D body kinds, gravity, the clock, idle input and
+// the headless camera helpers, through the C++ wrapper.
+static void headless_wrapper_calls() {
+    // Joints: which axes each kind leaves free.
+    {
+        auto count = [](const ponko::joint3d& j, PonkoJointMotionKind kind) {
+            int n = 0;
+            for (auto& axis : j.axes) n += axis.kind == kind;
+            return n;
+        };
+        CHECK(count(ponko::fixed_joint3d(1, 2), PONKO_JOINT_LOCKED) == 6);
+        CHECK(count(ponko::generic_joint3d(1, 2), PONKO_JOINT_FREE) == 6);
+        auto slider = ponko::prismatic_joint3d(1, 2);
+        CHECK(slider.axes[ponko::joint_axis::linear_x].kind == PONKO_JOINT_FREE && count(slider, PONKO_JOINT_FREE) == 1);
+        CHECK(ponko::kinematic_body3d().kind == PONKO_BODY_KINEMATIC);
+        CHECK(ponko::kinematic_body().kind == PONKO_BODY_KINEMATIC);
+    }
+
+    ponko::entity wall = 0, ball = 0, plain = 0;
+    bool asked = false;
+    ponko::game("queries", 1, 1)
+        .physics3d({0, 0, 0})
+        .physics({0, 0})
+        .spatial_grid(16)
+        .sim_system([&](ponko::ctx& ctx) {
+            if (ctx.sim_tick() != 1) return;
+            asked = true;
+            // A ray along +Z meets the wall (4 to 6 m away) and then the ball.
+            std::vector<ponko::hit3d> hits;
+            ctx.cast_ray3d_all({0, 0, 0}, {0, 0, 1}, 100, hits);
+            CHECK(hits.size() == 2);
+            CHECK(ponko_entity_bits(hits[0].entity) == wall);
+            CHECK(std::fabs(hits[0].distance - 4.0f) < 1e-3f);
+            CHECK(ponko_entity_bits(hits[1].entity) == ball);
+            CHECK(hits[1].distance > hits[0].distance);
+            // A ball swept along +Z touches the wall half its radius early.
+            auto swept = ctx.cast_sphere3d({0, 0, 0}, 0.5f, {0, 0, 1}, 100);
+            CHECK(swept && std::fabs(swept->distance - 3.5f) < 1e-3f);
+            CHECK(!ctx.cast_sphere3d({0, 0, 0}, 0.5f, {0, 1, 0}, 100));
+            auto capsule = ctx.cast_capsule3d({0, 0, 0}, 2, 0.5f, {0, 0, 1}, 100);
+            CHECK(capsule && std::fabs(capsule->distance - 3.5f) < 1e-3f);
+            // Overlaps: a box around the wall finds it and not the ball.
+            std::vector<PonkoEntity> found;
+            ctx.overlap_box3d({0, 0, 5}, {4, 4, 4}, {0, 0, 0, 1}, found);
+            CHECK(found.size() == 1 && ponko_entity_bits(found[0]) == wall);
+            // Masses: the ball has one, a plain entity is no body.
+            CHECK(ctx.mass3d(ball) && *ctx.mass3d(ball) > 0);
+            CHECK(!ctx.mass3d(plain));
+            // The built-in grid sees the 2D transforms, and nothing outside the rectangle.
+            std::vector<ponko::grid_hit> cells;
+            ctx.spatial_rect({-1, -1}, {1, 1}, cells);
+            CHECK(cells.empty());
+
+            // The clock, idle input and cameras of a headless run.
+            ctx.set_sim_speed(0.5f);
+            CHECK(ctx.sim_speed() == 0.5f);
+            throws([&] { ctx.set_sim_speed(-1); });
+            CHECK(!ctx.key_released(PONKO_KEY_A) && !ctx.mouse_released(PONKO_MOUSE_LEFT));
+            CHECK(ctx.mouse_pos().x == 0 && ctx.mouse_pos().y == 0);
+            CHECK(ctx.mouse_wheel().y == 0 && ctx.mouse_motion().x == 0);
+            CHECK(!ctx.cursor_locked());
+            auto [origin, direction] = ctx.screen_ray(ctx.window_size() * 0.5f);
+            auto camera = ctx.camera3d();
+            CHECK(origin.x == camera.position.x && origin.y == camera.position.y && origin.z == camera.position.z);
+            CHECK(std::fabs(std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z) - 1.0f) < 1e-4f);
+            CHECK(ctx.models_drawn() == 0);
+            ctx.set_gravity({0, 10});
+            ctx.set_gravity3d({0, -1, 0});
+            throws([&] { ctx.set_gravity({NAN, 0}); });
+            ctx.warm_render_pipelines(); // nothing to build without a renderer
+        })
+        .run_headless(3, [&](ponko::ctx& ctx) {
+            auto world = ctx.world();
+            wall = world.spawn(ponko::transform3d_at({0, 0, 5}), ponko::fixed_body3d(), ponko::box_collider({2, 2, 2}));
+            ball = world.spawn(ponko::transform3d_at({0, 0, 10}), ponko::dynamic_body3d(), ponko::sphere_collider(0.5f));
+            plain = world.spawn(ponko::transform3d_at({30, 0, 0}));
+            auto pole = world.spawn(ponko::transform3d_at({50, 0, 0}), ponko::kinematic_body3d(), ponko::capsule_collider3d(1, 0.25f));
+            CHECK(world.get<ponko::rigid_body3d>(pole).kind == PONKO_BODY_KINEMATIC);
+        });
+    CHECK(asked);
+}
+
+// Shader, effect and compute files load once, and the same file gives the same handle.
+// Hot reload is off for the files that must fail: with it on (the default in
+// debug builds of the engine) a file that doesn't compile loads as a stand-in.
+static void shader_files() {
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto surface = dir / "ponko-cpp-wind.wgsl", effect = dir / "ponko-cpp-grey.wgsl", compute = dir / "ponko-cpp-fade.wgsl";
+    std::ofstream(surface) << "fn vertex(v: Vertex) -> Vertex { var o = v; o.position.x += material.custom[0].x; return o; }";
+    std::ofstream(effect) << "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(dot(p.color, vec3<f32>(0.3, 0.6, 0.1))); }";
+    std::ofstream(compute) << "fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }";
+    ponko::game("shaders", 1, 1).hot_reload(false).run_headless(0, [&](ponko::ctx& ctx) {
+        auto a = ctx.load_shader(surface.string().c_str());
+        CHECK(a.id == ctx.load_shader(surface.string().c_str()).id);
+        auto e = ctx.load_effect(effect.string().c_str());
+        CHECK(e.id == ctx.load_effect(effect.string().c_str()).id);
+        auto c = ctx.load_compute(compute.string().c_str());
+        CHECK(c.id == ctx.load_compute(compute.string().c_str()).id);
+        throws([&] { ctx.load_shader("no-such-shader.wgsl"); });
+        throws([&] { ctx.load_effect(surface.string().c_str()); }); // a surface shader is no effect
+        throws([&] { ctx.load_compute("no-such-compute.wgsl"); });
+    });
+    // With hot reload on, the file that is no effect still gets a handle: a
+    // stand-in, reported as failed and watched. A missing file is still an error.
+    ponko::game("stand-ins", 1, 1).hot_reload(true).run_headless(0, [&](ponko::ctx& ctx) {
+        (void)ctx.load_effect(surface.string().c_str());
+        auto shaders = ctx.shader_status();
+        CHECK(shaders.size() == 1 && !shaders[0].ok());
+        CHECK(shaders[0].info.kind == PONKO_SHADER_EFFECT && shaders[0].info.outcome == PONKO_SHADER_FAILED);
+        CHECK(!shaders[0].errors.empty());
+        throws([&] { ctx.load_effect("no-such-effect.wgsl"); });
+    });
+    for (auto& f : {surface, effect, compute}) std::filesystem::remove(f);
+}
+
+static void declared_access() {
+    // A system declares what it reads and writes; debug builds of the
+    // library stop the game if it uses anything else (tests/system_access.rs).
+    struct Score { int value; };
+    auto mover = ponko::access().write<Pos>().read<Vel>().read_service(ponko::service::time);
+    auto scorer = ponko::access().write_resource<Score>().read_events<Died>();
+    auto killer = ponko::access().read<Hp>().send_events<Died>().commands();
+    CHECK(mover.conflicts_before(scorer) == 0);
+    // The scorer would see the killer's events and applied commands.
+    CHECK(killer.conflicts_before(scorer) == 2);
+    CHECK(scorer.conflicts_before(killer) == 0);
+    CHECK(scorer.conflicts_before(killer, false) == 2);
+    ponko::access copy = killer;
+    CHECK(copy.conflicts_before(scorer) == 2);
+    copy = mover;
+    CHECK(copy.conflicts_before(mover) == 1);
+    int scored = 0;
+    auto g = ponko::game("t", 1, 1);
+    g.add(ponko::phase::after_physics, mover, [](ponko::ctx& ctx) {
+         ctx.world().each([](Pos& p, const Vel& v) { p.x += v.x; });
+     }, "mover")
+     .add(ponko::phase::after_physics, killer, [](ponko::ctx& ctx) {
+         ctx.world().each([&](ponko::entity e, const Hp& hp) {
+             if (hp.value <= 0) { ctx.send(Died{e, ctx.sim_tick()}); ctx.despawn_later(e); }
+         });
+     }, "killer")
+     .add(ponko::phase::after_physics, scorer, [&](ponko::ctx& ctx) {
+         scored += static_cast<int>(ctx.read<Died>().size());
+     }, "scorer");
+    const std::string report = g.access_report();
+    CHECK(report.find("mover + killer: could run together") == std::string::npos);
+    CHECK(report.find("mover + killer: no conflict, but a `Ctx` system stays sequential") != std::string::npos);
+    CHECK(report.find("killer + scorer: conflict on events") != std::string::npos);
+    auto w = g.run_headless(2, [](ponko::ctx& ctx) {
+        ctx.world().set_resource(Score{0});
+        ctx.world().spawn(Pos{0, 0}, Vel{1, 0});
+        ctx.world().spawn(Hp{0});
+    });
+    CHECK(scored == 1);
+    CHECK(w.size() == 1);
+}
+
 int main() {
+    declared_access();
     worlds();
     names_and_reflection();
     resources();
@@ -1811,11 +2277,16 @@ int main() {
     morph_targets();
     sound3d();
     animators();
+    animator_layers_and_blend_trees();
+    headless_wrapper_calls();
+    shader_files();
     inverse_kinematics();
     streaming();
     streamed_worlds();
     handle_lifecycle();
+    asset_streaming();
     parallel_queries();
+    change_detection();
     games();
     attachments();
     physics();

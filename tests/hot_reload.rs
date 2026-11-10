@@ -29,11 +29,11 @@ fn run(path: &Path, hot_reload: bool, edit: impl Fn() + 'static) -> (Texture, Ve
     Game::new("hot", 1, 1)
         .hot_reload(hot_reload)
         .sim_system(move |ctx: &mut Ctx| {
-            let reloaded = ctx.reloaded_textures().to_vec();
+            let reloaded = ctx.assets.reloaded_textures().to_vec();
             if !reloaded.is_empty() {
-                log.lock().unwrap().push((ctx.sim_tick(), reloaded));
+                log.lock().unwrap().push((ctx.time.sim_tick(), reloaded));
             }
-            if ctx.sim_tick() == 2 {
+            if ctx.time.sim_tick() == 2 {
                 // Windows file times move in ~16 ms steps, and headless ticks
                 // are much faster: without this, an edit of the same length can
                 // land on the same time as the first write and look unchanged.
@@ -75,6 +75,47 @@ fn nothing_reloads_with_hot_reload_off() {
     assert!(seen.is_empty());
 }
 
+#[test]
+fn a_file_overridden_by_an_asset_source_is_not_reloaded_but_the_folders_copy_is() {
+    // The same name from a source and from the folder: editing the file
+    // reloads only the folder's texture, loaded before the source was added.
+    let path = temp_png("both.png");
+    let name = path.to_str().unwrap().to_string();
+    let p = path.clone();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = seen.clone();
+    let mut loaded = None;
+    Game::new("hot", 1, 1)
+        .hot_reload(true)
+        .sim_system(move |ctx: &mut Ctx| {
+            log.lock()
+                .unwrap()
+                .extend(ctx.assets.reloaded_textures().iter().copied());
+            if ctx.time.sim_tick() == 2 {
+                std::thread::sleep(Duration::from_millis(50));
+                write_png(&p, 4, 4, [0, 0, 255, 255]);
+                std::thread::sleep(Duration::from_millis(400));
+            }
+        })
+        .run_headless(5, |ctx| {
+            let from_folder = ctx.load_texture(&name);
+            let mut png = Vec::new();
+            image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 255, 0, 255]))
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            ctx.assets.add_source(MemorySource::new("pack").with(name.clone(), png));
+            let from_source = ctx.load_texture(&name);
+            loaded = Some((from_folder, from_source));
+        });
+    let (from_folder, from_source) = loaded.unwrap();
+    assert_ne!(from_folder, from_source);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![from_folder],
+        "only the folder's copy reloads"
+    );
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
 struct Rules {
     speed: f32,
@@ -100,14 +141,14 @@ fn run_rules(path: &Path, edit: &'static str) -> Vec<(f32, Vec<String>)> {
         .hot_reload(true)
         .sim_system(move |ctx: &mut Ctx| {
             let speed = ctx.world.resource::<Rules>().speed;
-            log.lock().unwrap().push((speed, ctx.reloaded_files().to_vec()));
-            if ctx.sim_tick() == 2 {
+            log.lock().unwrap().push((speed, ctx.assets.reloaded_files().to_vec()));
+            if ctx.time.sim_tick() == 2 {
                 std::thread::sleep(Duration::from_millis(50)); // see `run`
                 std::fs::write(&file, edit).unwrap();
                 std::thread::sleep(Duration::from_millis(400));
             }
         })
-        .run_headless(5, |ctx| ctx.load_resource::<Rules>(&name));
+        .run_headless(5, |ctx| ctx.assets.load_resource::<Rules>(&mut ctx.world, &name));
     seen.lock().unwrap().clone()
 }
 
@@ -134,13 +175,15 @@ fn data_files_that_dont_parse_keep_the_old_values() {
 fn bad_data_files_say_where_at_load() {
     let path = temp_json("bad.json", r#"{"speed": "fast", "damage": 2}"#);
     let name = path.to_str().unwrap().to_string();
-    Game::new("data", 1, 1).run_headless(0, |ctx| ctx.load_resource::<Rules>(&name));
+    Game::new("data", 1, 1).run_headless(0, |ctx| ctx.assets.load_resource::<Rules>(&mut ctx.world, &name));
 }
 
 #[test]
 #[should_panic(expected = "not found in assets/")]
 fn missing_data_files_say_where_they_were_looked_for() {
-    Game::new("data", 1, 1).run_headless(0, |ctx| ctx.load_resource::<Rules>("no-such-rules.json"));
+    Game::new("data", 1, 1).run_headless(0, |ctx| {
+        ctx.assets.load_resource::<Rules>(&mut ctx.world, "no-such-rules.json")
+    });
 }
 
 // ANCHOR: data_files
@@ -151,7 +194,7 @@ struct Tuning {
 }
 
 fn load_tuning(ctx: &mut Ctx, path: &str) {
-    ctx.load_resource::<Tuning>(path); // e.g. "tuning.json": {"speed": 30, "damage": 2}
+    ctx.assets.load_resource::<Tuning>(&mut ctx.world, path); // e.g. "tuning.json": {"speed": 30, "damage": 2}
 }
 
 fn step_size(ctx: &Ctx) -> f32 {
@@ -188,10 +231,10 @@ fn reload_ticks(name: &str, before: &[u8], after: Vec<u8>, load: fn(&mut Ctx, &s
     Game::new("media", 1, 1)
         .hot_reload(true)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.reloaded_files().contains(&watched) {
-                log.lock().unwrap().push(ctx.sim_tick());
+            if ctx.assets.reloaded_files().contains(&watched) {
+                log.lock().unwrap().push(ctx.time.sim_tick());
             }
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 std::thread::sleep(Duration::from_millis(50)); // see `run`
                 std::fs::write(&path, &after).unwrap();
                 std::thread::sleep(Duration::from_millis(400));
@@ -228,7 +271,7 @@ fn wav(samples: usize, level: i16) -> Vec<u8> {
 fn edited_fonts_reload_and_broken_ones_are_kept() {
     let font = epaint_default_fonts::UBUNTU_LIGHT;
     let load = |ctx: &mut Ctx, f: &str| {
-        ctx.load_font(f);
+        ctx.gfx.load_font(f);
     };
     assert_eq!(reload_ticks("good.ttf", font, font[..].to_vec(), load), [2]);
     assert_eq!(

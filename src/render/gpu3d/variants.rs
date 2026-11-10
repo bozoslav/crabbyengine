@@ -24,9 +24,11 @@
 //! same pipelines draw them. There is no unlit variant either: an unlit look
 //! is a `surface` hook that writes `emissive` and a black `albedo`.
 //!
-//! This is a description of the current set, not a cache: the plain variants
-//! are built with the shader, the others the first time a frame draws them (or
-//! all up front by `Renderer3D::warm_pipelines`).
+//! The plain variants are built with the shader, the others the first time a
+//! frame draws them (or all up front by `Renderer3D::warm_pipelines`). The
+//! sets are cached by shader code, composed features, target formats and
+//! samples (`pipeline_cache.rs`), which also lists the renderer's fixed
+//! pipelines.
 
 /// Which faces of a material's triangles are drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -134,6 +136,23 @@ pub(crate) enum Pass {
     Capture,
 }
 
+impl Pass {
+    pub(crate) const ALL: [Pass; 7] = [
+        Pass::Shadow,
+        Pass::Prepass,
+        Pass::PrepassCoverage,
+        Pass::Opaque,
+        Pass::Transparent,
+        Pass::Velocity,
+        Pass::Capture,
+    ];
+}
+
+/// Every (cutout, transparent, full_prepass) combination.
+fn blend_and_prepass() -> impl Iterator<Item = (bool, bool, bool)> {
+    (0..8u8).map(|i| (i & 1 != 0, i & 2 != 0, i & 4 != 0))
+}
+
 /// One pipeline of a [`ShaderVariant`]'s set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum PipelineRole {
@@ -160,7 +179,6 @@ pub(crate) enum PipelineRole {
 }
 
 impl PipelineRole {
-    #[cfg(test)]
     pub(crate) const ALL: [PipelineRole; 10] = [
         PipelineRole::Prepass,
         PipelineRole::PrepassCutout,
@@ -173,6 +191,29 @@ impl PipelineRole {
         PipelineRole::ShadowCutout,
         PipelineRole::Velocity,
     ];
+
+    /// Which roles [`PipelineRole::for_pass`] picks for some pass, blend
+    /// and prepass setting, with or without multisampling (`coverage`).
+    fn picked(coverage: bool) -> [bool; Self::ALL.len()] {
+        let mut used = [false; Self::ALL.len()];
+        for pass in Pass::ALL {
+            for (cutout, transparent, full_prepass) in blend_and_prepass() {
+                if let Some(role) = Self::for_pass(pass, cutout, transparent, coverage, full_prepass) {
+                    used[Self::ALL.iter().position(|&r| r == role).expect("listed in ALL")] = true;
+                }
+            }
+        }
+        used
+    }
+
+    /// How many pipelines a set has: every role some pass draws with
+    /// without multisampling, and with it (`coverage`) the alpha-to-coverage
+    /// ones too. A multisampled set keeps the plain cut-out prepass, which
+    /// the passes then don't pick.
+    pub(crate) fn per_set(coverage: bool) -> usize {
+        let (plain, multisampled) = (Self::picked(false), Self::picked(coverage));
+        plain.iter().zip(multisampled).filter(|&(&p, m)| p || m).count()
+    }
 
     /// The vertex entry point in the composed shader.
     pub(crate) fn vertex_entry(self) -> &'static str {
@@ -295,6 +336,12 @@ mod tests {
                 role.fragment_entry(Instancing::Plain)
             );
         }
+    }
+
+    #[test]
+    fn a_set_has_every_role_with_multisampling_and_no_coverage_ones_without() {
+        assert_eq!(PipelineRole::per_set(true), PipelineRole::ALL.len());
+        assert_eq!(PipelineRole::per_set(false), PipelineRole::ALL.len() - 2);
     }
 
     #[test]

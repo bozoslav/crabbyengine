@@ -1,0 +1,27 @@
+# C functions no FFI test or native suite calls, each with the reason it
+# cannot run on a headless machine. scripts/check-ffi-coverage.py fails when an
+# untested export is missing here, and when an entry here gets a test (remove
+# it then). Keep this list short: test a function instead of adding it.
+#
+# Format: <function>  # <why it can't be tested without a window or Steam>
+
+# Drawing: the calls only queue sprites and text for the frame the window
+# shows. A headless run discards the queue, so nothing is observable.
+crabby_ctx_clear                   # sets the background of a frame that is only drawn in a window
+crabby_ctx_draw                    # queues a sprite; headless runs discard the draw list
+crabby_ctx_draw_ex                 # queues a sprite with options; same
+crabby_ctx_draw_text               # headless runs skip text layout entirely (no font atlas without a GPU)
+crabby_ctx_warm_render_pipelines   # builds GPU pipelines; does nothing without a renderer
+
+# A real window.
+crabby_game_run                    # opens the window and blocks until it closes
+crabby_game_vsync                  # read only when a window opens; nothing to observe headless
+crabby_game_fullscreen             # same
+crabby_ctx_set_texture_filter      # sets the sampler of a texture; headless textures keep none
+crabby_ctx_clear_decal_textures    # clears the array the decal pass samples; there is no pass headless
+
+# Needs a running Steam client and a live lobby (the calls that fail without
+# one are tested in tests/game_setup.rs and tests/steam_messages.rs).
+crabby_steam_lobby_id              # reads a lobby made by crabby_steam_lobby_create, which needs Steam
+crabby_steam_lobby_members         # same
+crabby_steam_lobby_metadata        # same

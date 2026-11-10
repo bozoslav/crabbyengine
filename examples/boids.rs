@@ -30,7 +30,7 @@ fn flocking(bounds: Vec2) -> impl FnMut(&mut Ctx) {
         let dt = ctx.dt();
         // Keep boids that are close in space close in memory, so neighbor
         // lookups hit the cache (1M boids: 62 -> 40 ms/tick).
-        if ctx.sim_tick().is_multiple_of(SPATIAL_SORT_EVERY) {
+        if ctx.time.sim_tick().is_multiple_of(SPATIAL_SORT_EVERY) {
             ctx.world.sort_by::<Transform2D>(|t| spatial_key(t.position, RADIUS));
         }
         grid.rebuild_with_data(
@@ -69,14 +69,18 @@ fn flocking(bounds: Vec2) -> impl FnMut(&mut Ctx) {
 
 fn controls(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Space) {
-        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+        if ctx.time.is_paused() {
+            ctx.time.resume()
+        } else {
+            ctx.time.pause()
+        }
     }
     if ctx.key_pressed(Key::Period) {
-        ctx.step();
+        ctx.time.step();
     }
     for (key, speed) in [(Key::Num1, 1.0), (Key::Num2, 4.0), (Key::Num3, 16.0), (Key::Num4, 64.0)] {
         if ctx.key_pressed(key) {
-            ctx.set_sim_speed(speed);
+            ctx.time.set_speed(speed);
         }
     }
     if ctx.key_pressed(Key::Escape) {
@@ -142,15 +146,21 @@ fn main() {
             spawn_boids(ctx, n, bounds);
             let mut next = 1.0;
             move |ctx: &mut Ctx| {
-                if ctx.time() >= next {
+                if ctx.time.elapsed() >= next {
                     next += 1.0;
-                    let sim_ms: f32 = ctx.system_timings().iter().filter(|t| t.sim).map(|t| t.avg_ms).sum();
+                    let sim_ms: f32 = ctx
+                        .perf
+                        .system_timings()
+                        .iter()
+                        .filter(|t| t.sim)
+                        .map(|t| t.avg_ms)
+                        .sum();
                     println!(
                         "boids: {}  fps: {:.0}  sim: {:.2} ms/frame  tick: {}",
                         ctx.world.len(),
-                        ctx.fps(),
+                        ctx.time.fps(),
                         sim_ms,
-                        ctx.sim_tick()
+                        ctx.time.sim_tick()
                     );
                 }
             }

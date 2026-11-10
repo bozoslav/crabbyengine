@@ -416,7 +416,7 @@ pub struct UiTheme {
     /// let _ = UiTheme::default().text;
     /// ```
     pub text: Color,
-    /// Font handle, from `Ctx::load_font`.
+    /// Font handle, from `Graphics::load_font`.
     /// ```
     /// use ponko::*;
     /// let _ = UiTheme::default().font;
@@ -599,7 +599,7 @@ impl UiBuilder<'_> {
     pub fn border_width(self, width: f32) -> Self {
         self.paint_with(|p| p.border_width = width)
     }
-    /// Font handle, from `Ctx::load_font`.
+    /// Font handle, from `Graphics::load_font`.
     /// ```
     /// use ponko::*;
     /// let mut ui = Ui::default();

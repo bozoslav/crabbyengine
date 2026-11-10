@@ -12,7 +12,7 @@
 //! [`CellStreamer`](crate::CellStreamer); the budget then caps the memory
 //! however many cells are near.
 
-// Only meshes use the sets so far, and meshes need the `3d` feature.
+// Without the `3d` feature only textures use the sets.
 #![cfg_attr(not(feature = "3d"), allow(dead_code, unused_variables))]
 
 use std::collections::BTreeMap;
@@ -25,36 +25,43 @@ pub enum ResidencyKind {
     /// Meshes loaded from files with [`Ctx::resident_mesh`](crate::Ctx::resident_mesh):
     /// their vertex and index buffers.
     Mesh,
+    /// Images loaded with [`Ctx::resident_texture`](crate::Ctx::resident_texture)
+    /// or [`Ctx::stream_texture`](crate::Ctx::stream_texture): the pixels of
+    /// the resolution each one is at now. Evicted textures keep a small
+    /// stand-in (at most 32 pixels a side) that the budget doesn't count.
+    Texture,
 }
 
 impl ResidencyKind {
     /// Every kind, in a fixed order.
-    pub const ALL: [ResidencyKind; 1] = [ResidencyKind::Mesh];
+    pub const ALL: [ResidencyKind; 2] = [ResidencyKind::Mesh, ResidencyKind::Texture];
 
-    /// Its name in reports: `"mesh"`.
+    /// Its name in reports: `"mesh"` or `"texture"`.
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
             ResidencyKind::Mesh => "mesh",
+            ResidencyKind::Texture => "texture",
         }
     }
 
     fn index(self) -> usize {
         match self {
             ResidencyKind::Mesh => 0,
+            ResidencyKind::Texture => 1,
         }
     }
 }
 
 /// The budget, usage and eviction counters of one [`ResidencyKind`]
-/// ([`Ctx::residency`](crate::Ctx::residency)). Bytes are the engine's
+/// ([`Graphics::residency`](crate::Graphics::residency)). Bytes are the engine's
 /// estimates of GPU memory.
 ///
 /// ```
 /// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     ctx.set_residency_budget(ResidencyKind::Mesh, Some(64 << 20));
-///     let meshes = ctx.residency(ResidencyKind::Mesh);
+///     let meshes = ctx.gfx.residency(ResidencyKind::Mesh);
 ///     assert_eq!(meshes.budget, Some(64 << 20));
 ///     assert_eq!((meshes.resident, meshes.evictions), (0, 0));
 /// });
@@ -86,7 +93,8 @@ pub struct ResidencyStats {
 impl ResidencyStats {
     /// How far the resident bytes are over the budget; 0 when under it or
     /// without one. Only assets that can't be evicted keep it above 0:
-    /// pinned ones, ones entities show, and ones asked for this tick.
+    /// pinned ones, ones entities show, and ones asked for in this or the
+    /// previous frame or tick.
     #[must_use]
     pub fn over_budget_bytes(&self) -> u64 {
         self.budget.map_or(0, |b| self.resident_bytes.saturating_sub(b))
@@ -129,7 +137,9 @@ pub(crate) struct Entry {
     /// When it was last asked for: a counter, so no two uses tie.
     last_use: u64,
     /// The frame and tick it was last asked for in: it stays resident for
-    /// the rest of them, so handles given out then stay good.
+    /// the rest of them and the next ones ([`Entry::recent`]), so handles
+    /// given out then stay good and what is asked for every frame or tick
+    /// is never evicted between two asks.
     used_in: (u64, u64),
     pub pinned: bool,
     /// Loaded by the game directly before residency took it: the game holds
@@ -140,6 +150,19 @@ pub(crate) struct Entry {
 impl Entry {
     fn kept(&self) -> bool {
         self.pinned || self.shared
+    }
+
+    /// Asked for in frame or tick `now` or the one before: protected. The
+    /// previous frame covers what the game asks for every frame (the budget
+    /// is enforced at the start of a frame, before the game asks again);
+    /// the previous tick covers what fixed-step systems ask for every tick
+    /// when frames without a tick run between them.
+    fn recent(&self, now: (u64, u64)) -> bool {
+        self.used_in.0 + 1 >= now.0 || self.used_in.1 + 1 >= now.1
+    }
+
+    fn evictable(&self, now: (u64, u64)) -> bool {
+        !self.kept() && !self.recent(now)
     }
 }
 
@@ -157,6 +180,9 @@ pub(crate) struct ResidentSet {
     evictions: u64,
     evicted_bytes: u64,
     uses: u64,
+    /// Eviction candidates (last use, bytes): reused, so checking the
+    /// budget each frame doesn't allocate.
+    scratch: Vec<(u64, u64)>,
 }
 
 impl ResidentSet {
@@ -211,6 +237,27 @@ impl ResidentSet {
         Some(e)
     }
 
+    /// Changes `name`'s bytes (a texture streamed to another resolution).
+    pub fn set_bytes(&mut self, name: &str, bytes: u64) {
+        if let Some(e) = self.entries.get_mut(name) {
+            self.resident_bytes = self.resident_bytes - e.bytes + bytes;
+            e.bytes = bytes;
+        }
+    }
+
+    /// The names resident now, in order.
+    pub fn names(&self) -> impl Iterator<Item = &String> {
+        self.entries.keys()
+    }
+
+    pub fn budget(&self) -> Option<u64> {
+        self.budget
+    }
+
+    pub fn resident_bytes(&self) -> u64 {
+        self.resident_bytes
+    }
+
     pub fn set_pinned(&mut self, name: &str, pinned: bool) {
         if let Some(e) = self.entries.get_mut(name) {
             e.pinned = pinned;
@@ -225,33 +272,57 @@ impl ResidentSet {
     /// could go, ignoring what entities use (the caller finds that out only
     /// when this says yes, since it costs a world scan).
     pub fn wants_eviction(&self, now: (u64, u64)) -> bool {
-        self.budget.is_some_and(|b| self.resident_bytes > b)
-            && self.entries.values().any(|e| !e.kept() && e.used_in != now)
+        self.budget.is_some_and(|b| self.resident_bytes > b) && self.entries.values().any(|e| e.evictable(now))
+    }
+
+    /// Bytes that could be evicted now, ignoring what entities use (an
+    /// upper bound), other than `name`'s.
+    pub fn evictable_bytes(&self, now: (u64, u64), name: &str) -> u64 {
+        self.entries
+            .iter()
+            .filter(|(n, e)| n.as_str() != name && e.evictable(now))
+            .map(|(_, e)| e.bytes)
+            .sum()
     }
 
     /// Removes and returns the assets to evict, least recently used first,
     /// until the set fits its budget or nothing else can go. Never pinned
-    /// or shared ones, ones used in `now`, or ones `in_use` says are.
+    /// or shared ones, ones used recently ([`Entry::recent`]), or ones
+    /// `in_use` says are. Allocates only when it evicts something.
     pub fn evict(&mut self, now: (u64, u64), in_use: impl Fn(u32) -> bool) -> Vec<(String, Entry)> {
         let Some(budget) = self.budget else {
             return Vec::new();
         };
-        let mut candidates: Vec<(u64, &String)> = self
-            .entries
-            .iter()
-            .filter(|(_, e)| !e.kept() && e.used_in != now && !in_use(e.handle))
-            .map(|(name, e)| (e.last_use, name))
-            .collect();
+        let candidate = |e: &Entry| e.evictable(now) && !in_use(e.handle);
+        let mut candidates = std::mem::take(&mut self.scratch);
+        candidates.clear();
+        candidates.extend(
+            self.entries
+                .values()
+                .filter(|e| candidate(e))
+                .map(|e| (e.last_use, e.bytes)),
+        );
         candidates.sort_unstable();
+        // Uses are a counter, so the last one to go marks them all.
         let mut bytes = self.resident_bytes;
-        let mut names = Vec::new();
-        for (_, name) in candidates {
+        let mut cutoff = None;
+        for &(last_use, b) in &candidates {
             if bytes <= budget {
                 break;
             }
-            bytes -= self.entries[name].bytes;
-            names.push(name.clone());
+            bytes -= b;
+            cutoff = Some(last_use);
         }
+        self.scratch = candidates;
+        let Some(cutoff) = cutoff else {
+            return Vec::new();
+        };
+        let names: Vec<String> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.last_use <= cutoff && candidate(e))
+            .map(|(name, _)| name.clone())
+            .collect();
         names
             .into_iter()
             .map(|name| {
@@ -284,6 +355,12 @@ impl ResidentSet {
 #[derive(Default)]
 pub(crate) struct Residency {
     sets: [ResidentSet; ResidencyKind::ALL.len()],
+    /// The ids of evicted resident meshes, by name: they come back under
+    /// them, so handles the game kept stay good.
+    pub reserved_meshes: BTreeMap<String, u32>,
+    /// Ids entities show, found while over budget: reused, so checking the
+    /// budget each frame doesn't allocate.
+    pub shown: std::collections::HashSet<u32>,
 }
 
 impl Residency {
@@ -303,14 +380,43 @@ impl crate::Ctx {
     /// The budget counts the engine's estimates of the assets' GPU memory,
     /// and only assets loaded through residency (such as
     /// [`resident_mesh`](Self::resident_mesh)). It can be exceeded: assets
-    /// that are pinned, shown by entities or asked for in the current tick
-    /// are never evicted, and [`ResidencyStats::over_budget_bytes`] says by
+    /// that are pinned, shown by entities, or asked for in this or the
+    /// previous frame or tick are never evicted, and [`ResidencyStats::over_budget_bytes`] says by
     /// how much.
+    ///
+    /// The budget is checked when an asset loads and at the start of every
+    /// frame. While `kind` stays over its budget, that check looks at every
+    /// entity showing an asset of the kind each frame (no allocation, but a
+    /// cost that grows with the scene): keep the budget above what the scene
+    /// shows at once.
     pub fn set_residency_budget(&mut self, kind: ResidencyKind, bytes: Option<u64>) {
-        self.residency.set_mut(kind).set_budget(bytes);
+        self.gfx.residency.set_mut(kind).set_budget(bytes);
         self.enforce_residency(kind);
     }
 
+    /// The frame and tick now: residency protects assets asked for in them
+    /// or the ones before.
+    pub(crate) fn residency_now(&self) -> (u64, u64) {
+        (self.time.frame(), self.time.sim_tick())
+    }
+
+    /// Evicts what `kind`'s budget needs gone.
+    pub(crate) fn enforce_residency(&mut self, kind: ResidencyKind) {
+        let now = self.residency_now();
+        if !self.gfx.residency.set(kind).wants_eviction(now) {
+            return;
+        }
+        match kind {
+            #[cfg(feature = "3d")]
+            ResidencyKind::Mesh => self.evict_meshes(now),
+            #[cfg(not(feature = "3d"))]
+            ResidencyKind::Mesh => {}
+            ResidencyKind::Texture => self.evict_textures(now),
+        }
+    }
+}
+
+impl crate::Graphics {
     /// The budget, usage and eviction counters of `kind`.
     #[must_use]
     pub fn residency(&self, kind: ResidencyKind) -> ResidencyStats {
@@ -326,25 +432,11 @@ impl crate::Ctx {
             ResidencyKind::Mesh => self.live_resident_mesh(name).is_some(),
             #[cfg(not(feature = "3d"))]
             ResidencyKind::Mesh => false,
-        }
-    }
-
-    /// The frame and tick now, which residency protects assets asked for in.
-    pub(crate) fn residency_now(&self) -> (u64, u64) {
-        (self.frame(), self.sim_tick())
-    }
-
-    /// Evicts what `kind`'s budget needs gone.
-    pub(crate) fn enforce_residency(&mut self, kind: ResidencyKind) {
-        let now = self.residency_now();
-        if !self.residency.set(kind).wants_eviction(now) {
-            return;
-        }
-        match kind {
-            #[cfg(feature = "3d")]
-            ResidencyKind::Mesh => self.evict_meshes(now),
-            #[cfg(not(feature = "3d"))]
-            ResidencyKind::Mesh => {}
+            ResidencyKind::Texture => self
+                .residency
+                .set(kind)
+                .get(name)
+                .is_some_and(|e| self.textures_live.contains(e.handle)),
         }
     }
 }
@@ -354,13 +446,19 @@ mod tests {
     use super::*;
     use crate::assets::Origin;
 
-    const NOW: (u64, u64) = (0, 10);
+    const NOW: (u64, u64) = (10, 10);
 
     fn set(budget: u64, names: &[(&str, u64)]) -> ResidentSet {
         let mut s = ResidentSet::default();
         s.set_budget(Some(budget));
         for (i, &(name, bytes)) in names.iter().enumerate() {
-            s.insert(name, (i as u32, Origin::File(name.into())), bytes, false, (0, i as u64));
+            s.insert(
+                name,
+                (i as u32, Origin::File(name.into())),
+                bytes,
+                false,
+                (i as u64, i as u64),
+            );
         }
         s
     }
@@ -368,7 +466,7 @@ mod tests {
     #[test]
     fn evicts_least_recently_used_until_it_fits() {
         let mut s = set(250, &[("a", 100), ("b", 100), ("c", 100), ("d", 100)]);
-        s.touch("a", (0, 5));
+        s.touch("a", (5, 5));
         let gone: Vec<String> = s.evict(NOW, |_| false).into_iter().map(|(n, _)| n).collect();
         assert_eq!(gone, ["b", "c"]);
         let st = s.stats();
@@ -379,12 +477,20 @@ mod tests {
     fn skips_pinned_shared_in_use_and_current() {
         let mut s = set(0, &[("a", 1), ("b", 1), ("c", 1), ("d", 1), ("e", 1)]);
         s.set_pinned("a", true);
-        s.insert("b", (1, Origin::File("b".into())), 1, true, (0, 1));
+        s.insert("b", (1, Origin::File("b".into())), 1, true, (1, 1));
         s.touch("d", NOW);
         let gone: Vec<String> = s.evict(NOW, |h| h == 2).into_iter().map(|(n, _)| n).collect();
         assert_eq!(gone, ["e"]);
         assert_eq!(s.stats().over_budget_bytes(), 4);
         assert_eq!(s.stats().pinned, 2);
+    }
+
+    #[test]
+    fn assets_used_in_the_previous_frame_or_tick_stay() {
+        let mut s = set(0, &[("a", 1)]);
+        assert!(s.evict((1, 5), |_| false).is_empty(), "used the frame before");
+        assert!(s.evict((5, 1), |_| false).is_empty(), "used the tick before");
+        assert_eq!(s.evict((2, 2), |_| false).len(), 1);
     }
 
     #[test]

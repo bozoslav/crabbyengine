@@ -121,7 +121,7 @@ impl TileMap {
 /// ```
 pub fn draw_tilemaps(ctx: &mut Ctx) {
     let view = ctx.camera.visible_rect();
-    let list = &mut ctx.draw_list;
+    let list = &mut ctx.gfx.draw_list;
     ctx.world.query::<(&Transform2D, &TileMap)>().for_each(|(t, map)| {
         let ts = map.tile_size;
         let lo = ((view.min - t.position) / ts).floor().max(Vec2::ZERO);

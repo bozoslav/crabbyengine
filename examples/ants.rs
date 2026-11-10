@@ -213,7 +213,7 @@ fn evaporate(ctx: &mut Ctx) {
 /// their nest; starving ants die. Each ant decides on all cores and notes
 /// what happened in its `event`; one quick pass then applies the events.
 fn forage(ctx: &mut Ctx) {
-    let turn = ctx.turns(2);
+    let turn = ctx.time.turns(2);
     let mut food_grid = SpatialGrid::new(8.0);
     food_grid.rebuild_from(
         ctx.world
@@ -394,14 +394,18 @@ fn delivered(world: &mut World) -> u64 {
 
 fn controls(ctx: &mut Ctx) {
     if ctx.key_pressed(Key::Space) {
-        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+        if ctx.time.is_paused() {
+            ctx.time.resume()
+        } else {
+            ctx.time.pause()
+        }
     }
     if ctx.key_pressed(Key::Period) {
-        ctx.step();
+        ctx.time.step();
     }
     for (key, speed) in [(Key::Num1, 1.0), (Key::Num2, 4.0), (Key::Num3, 16.0), (Key::Num4, 64.0)] {
         if ctx.key_pressed(key) {
-            ctx.set_sim_speed(speed);
+            ctx.time.set_speed(speed);
         }
     }
     if ctx.key_pressed(Key::Escape) {
@@ -415,27 +419,39 @@ fn hud(ctx: &mut Ctx) {
     let nests = ctx.world.query::<&Nest>().count();
     let food = delivered(&mut ctx.world);
     let panel = Rect::new(12.0, 12.0, 260.0, 156.0);
-    ctx.ui_panel(panel);
-    let mut at = panel.min + ctx.ui_style.padding;
-    let speed = if ctx.is_paused() {
+    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+    let mut at = panel.min + ctx.ui.immediate.style.padding;
+    let speed = if ctx.time.is_paused() {
         "paused".to_string()
     } else {
-        format!("{}x", ctx.sim_speed())
+        format!("{}x", ctx.time.speed())
     };
     let stats = format!(
         "{ants} ants in {nests} colonies\n{food} food delivered\nspeed {speed}, {:.0} FPS",
-        ctx.fps()
+        ctx.time.fps()
     );
-    at.y += ctx.ui_label(at, &stats).y + 8.0;
-    let pause = if ctx.is_paused() { "Run" } else { "Pause" };
-    if ctx.ui_button(Rect::new(at.x, at.y, 72.0, 30.0), pause) {
-        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+    at.y += ctx.ui.immediate.label(&mut ctx.gfx, at, &stats).y + 8.0;
+    let pause = if ctx.time.is_paused() { "Run" } else { "Pause" };
+    if ctx
+        .ui
+        .immediate
+        .button(&mut ctx.gfx, &ctx.input, Rect::new(at.x, at.y, 72.0, 30.0), pause)
+    {
+        if ctx.time.is_paused() {
+            ctx.time.resume()
+        } else {
+            ctx.time.pause()
+        }
     }
     for (i, speed) in [1.0f32, 4.0, 16.0].into_iter().enumerate() {
         let r = Rect::new(at.x + 80.0 + i as f32 * 54.0, at.y, 48.0, 30.0);
-        if ctx.ui_button(r, &format!("{speed}x")) {
-            ctx.set_sim_speed(speed);
-            ctx.resume();
+        if ctx
+            .ui
+            .immediate
+            .button(&mut ctx.gfx, &ctx.input, r, &format!("{speed}x"))
+        {
+            ctx.time.set_speed(speed);
+            ctx.time.resume();
         }
     }
 }
@@ -452,7 +468,7 @@ fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             (f.w, f.h)
         };
         let field_tex =
-            *field_texture.get_or_insert_with(|| ctx.create_texture(w as u32, h as u32, &vec![0; w * h * 4]));
+            *field_texture.get_or_insert_with(|| ctx.gfx.create_texture(w as u32, h as u32, &vec![0; w * h * 4]));
         let field = ctx.world.resource::<Field>();
         pixels.clear();
         pixels.extend(field.to_food.iter().zip(&field.to_home).flat_map(|(&food, &home)| {
@@ -460,10 +476,10 @@ fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             let b = (home.sqrt() * 120.0) as u8;
             [g / 3, g, b.max(g / 4), 255]
         }));
-        ctx.update_texture(&field_tex, &pixels);
-        ctx.clear(Color::BLACK);
+        ctx.gfx.update_texture(&field_tex, &pixels);
+        ctx.gfx.clear(Color::BLACK);
         let scale = bounds / vec2(w as f32, h as f32);
-        ctx.draw_ex(
+        ctx.gfx.draw_ex(
             &field_tex,
             bounds * 0.5,
             DrawParams {
@@ -481,7 +497,7 @@ fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             dots.push((t.position, NEST_RADIUS, Color::hex(0x8E5A3C)));
         });
         for &(p, radius, color) in &dots {
-            ctx.draw_circle(p, radius, color);
+            ctx.gfx.draw_circle(p, radius, color);
         }
     }
 }
@@ -518,7 +534,7 @@ fn main() {
         .system(draw_world(bounds))
         .system(hud)
         .run(move |ctx| {
-            let sprite = ctx.create_texture(3, 2, &[255; 3 * 2 * 4]);
+            let sprite = ctx.gfx.create_texture(3, 2, &[255; 3 * 2 * 4]);
             setup(ctx, bounds, ants, Some(sprite));
             // Start with the whole world in view.
             let fit = ctx.window_size() / bounds;
@@ -526,15 +542,21 @@ fn main() {
             ctx.camera.look_at(bounds / 2.0);
             let mut next = 1.0;
             move |ctx: &mut Ctx| {
-                if ctx.time() >= next {
+                if ctx.time.elapsed() >= next {
                     next += 1.0;
-                    let sim_ms: f32 = ctx.system_timings().iter().filter(|t| t.sim).map(|t| t.avg_ms).sum();
+                    let sim_ms: f32 = ctx
+                        .perf
+                        .system_timings()
+                        .iter()
+                        .filter(|t| t.sim)
+                        .map(|t| t.avg_ms)
+                        .sum();
                     println!(
                         "ants: {}  delivered: {}  fps: {:.0}  sim: {sim_ms:.2} ms/frame  tick: {}",
                         ctx.world.query::<&Ant>().count(),
                         delivered(&mut ctx.world),
-                        ctx.fps(),
-                        ctx.sim_tick()
+                        ctx.time.fps(),
+                        ctx.time.sim_tick()
                     );
                 }
             }

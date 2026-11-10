@@ -43,9 +43,9 @@ For UI, effects and quick prototypes, draw directly every frame:
 
 ```rust
 # let crab = ctx.load_texture("crab.png");
-ctx.clear(Color::hex(0x203040));
+ctx.gfx.clear(Color::hex(0x203040));
 ctx.draw(&crab, vec2(100.0, 100.0));
-ctx.draw_ex(&crab, vec2(200.0, 100.0), DrawParams {
+ctx.gfx.draw_ex(&crab, vec2(200.0, 100.0), DrawParams {
     rotation: 0.5,
     scale: vec2(2.0, 2.0),
     color: Color::RED,
@@ -69,9 +69,9 @@ top-left) until you move the camera; see [Camera, text and UI](camera-ui.md).
 ## Textures
 
 - `ctx.load_texture("path.png")` loads an image file.
-- `ctx.create_texture(w, h, &rgba)` makes one from pixels.
+- `ctx.gfx.create_texture(w, h, &rgba)` makes one from pixels.
 
-- `ctx.update_texture(&tex, &rgba)` replaces a texture's pixels, for
+- `ctx.gfx.update_texture(&tex, &rgba)` replaces a texture's pixels, for
   images that change while the game runs (a minimap, a heat map, a
   simulated field). The ants example draws its pheromone field this way
   every frame.
@@ -109,7 +109,7 @@ Game::new("Art test", 1280, 720)
     .run(|ctx| {
         let level = ctx.load_texture("level.png");
         move |ctx: &mut Ctx| {
-            if ctx.reloaded_textures().contains(&level) {
+            if ctx.assets.reloaded_textures().contains(&level) {
                 println!("level.png changed: rebuilding the map");
             }
         }
@@ -139,7 +139,7 @@ second.
 
 ```rust
 if ctx.key_pressed(Key::F12) {
-    ctx.save_screenshot("shot.png");
+    ctx.gfx.save_screenshot("shot.png");
 }
 ```
 

@@ -27,11 +27,112 @@ frame resets and action queries allocate nothing.
 keyboard, mouse and gamepad input updates the same action state automatically.
 Frame edges clear after each frame (after each tick in headless runs).
 
+## Input scenarios
+
 To replay input by simulation tick, build an `InputScenario` with
 `.at(tick, event)` and install it with `Game::input_scenario` (Rust only for
 now). Before each tick's simulation systems run, the scenario feeds that tick's
-events through `feed_input`. The same seed and scenario therefore give the same
-headless run.
+events through `feed_input`, the same path as live input, so actions see
+ordinary pressed, held and released states. The same seed and scenario
+therefore give the same headless run. Nothing is injected unless a game calls
+`input_scenario` (or a tool is explicitly allowed to, see below).
+
+```rust
+# struct Jumps { count: u32 }
+let scenario = InputScenario::new()
+    .named("jump-once")
+    .at(10, InputEvent::Key(Key::Space, true)) // pressed on tick 10, held after
+    .expect(10, ScenarioCheck::action("jump").pressed(true).down(true))
+    .at(12, InputEvent::Key(Key::Space, false))
+    .expect(12, ScenarioCheck::action("jump").released(true))
+    .expect(12, ScenarioCheck::resource("Jumps", "/count", 1)); // a reflected resource, by JSON pointer
+let (world, report) = Game::new("test", 1, 1)
+    .sim_system(|ctx: &mut Ctx| {})
+    .run_headless_scenario(scenario, |ctx| {});
+report.assert_passed(); // or look at report.failure
+```
+
+- **Ticks.** The first tick of a run is 0. A step at tick `t` is fed before
+  tick `t`'s systems run, and several steps on one tick keep the order they were
+  added in, so a press and a release on the same tick keep both edges. A scenario
+  started mid-run (`ctx.input.start_scenario`, or a tool) counts from the next
+  tick. Pausing doesn't move a step, because a paused game doesn't advance the tick.
+- **Several ticks per frame.** In a window, one frame can run several ticks. A
+  step is still fed before its own tick, but edges last until the end of the
+  frame, as with live input: a press on the first tick of a three-tick frame is
+  also `pressed` on the other two. Headless runs have one tick per frame.
+- **Checks** run after the tick's systems: `ScenarioCheck::action` compares an
+  action's `pressed`, `down` and `released` (an unbound name fails rather than
+  passing), `resource` compares a reflected resource's JSON field, and `count`
+  counts the entities with a reflected component. The first check that doesn't
+  hold ends the run, and `ScenarioReport::failure` says which: its `step`, its
+  `tick`, what was `expected` and what was `actual`, as data.
+- **The report** is a `ScenarioReport` resource in the world (status `pending`,
+  `running`, `passed`, `failed` or `cancelled`, ticks run, checks passed).
+  `run_headless_scenario` runs exactly `scenario.ticks()` ticks, which is the
+  bound on a run, and hands it back with the world.
+- **Releasing input.** `ctx.input.cancel_scenario(&mut ctx.world, &mut ctx.time)`, a scenario that replaces
+  it, a failed check and a tool's disconnect release every key, button and axis
+  the scenario still holds. A run in game code that simply finishes leaves its
+  input as it was, unless the scenario says `.release_when_done()`; a run a tool
+  loads releases it by default (see below). Only what the scenario itself left
+  held is released, but the input state is one shared set of held keys with no
+  record of which device holds one: a key a player also holds physically reads as
+  up until its next key event.
+- **Started from a system.** `ctx.input.start_scenario` called from a simulation
+  system begins on the next tick; nothing of it (input or checks) happens on the
+  tick that started it.
+
+### The scenario file
+
+A scenario also has a small versioned JSON form, which tools send and tests can
+keep next to their fixtures (`InputScenario::from_json`, `to_json`):
+
+```json
+{
+  "version": 1,
+  "id": "jump-once",
+  "duration": 120,
+  "release_when_done": true,
+  "steps": [
+    { "tick": 10, "type": "key", "key": "Space", "down": true },
+    { "tick": 10, "type": "expect_action", "action": "jump", "pressed": true },
+    { "tick": 12, "type": "key", "key": "Space", "down": false },
+    { "tick": 12, "type": "expect_resource", "resource": "Jumps", "pointer": "/count", "equals": 1 },
+    { "tick": 12, "type": "expect_count", "component": "Coin", "equals": 2 }
+  ]
+}
+```
+
+Input steps are `key`, `mouse`, `gamepad_button`, `gamepad_axis`, `focus_lost`
+and `gamepad_disconnected`; check steps are `expect_action`, `expect_resource`
+and `expect_count`. Steps may come in any order, and a step's number in a
+failure report is its position in the file. Unknown fields, a `version` this
+engine doesn't read, more than 100,000 steps and steps past `duration` are
+errors, so a typo can't quietly weaken a test. The format is for reproducing
+gameplay on one build; it isn't a promise of identical replays across engine
+versions.
+
+### From tools
+
+With the [control endpoint](control.md) on, `input.scenario.load`,
+`input.scenario.status` and `input.scenario.cancel` run a scenario in a live
+game, and the MCP server's `run_input_scenario` steps a paused game through one
+and returns the report (see [Working with AI agents](agents.md)). A game that
+only opens the endpoint for inspection refuses to load scenarios: allow it with
+`Game::input_injection(true)` or `PONKO_INPUT_INJECTION=1` (the MCP `launch`
+tool sets it). A scenario loaded with `bind_connection` is cancelled, and its
+input released, when the client that loaded it disconnects.
+
+A tool's scenario releases the keys it holds when it ends, however it ends, so a
+tool that dies mid-run leaves nothing pressed. With `keep_input_when_done` they
+stay held (to look at the result, say), and stay owned by the scenario's owner:
+`input.scenario.cancel`, or the owner's disconnect when it was bound, still
+releases them, and the report's `still_held` says how many are left. With
+`max_ticks` a too-long scenario is refused before the running one is touched, and
+with `queue_ticks` a paused game gets the scenario's own ticks queued as steps; a
+failed check or a cancel takes back only those that haven't run, never ticks
+another client asked for with `sim.step`.
 
 | Action | Rust sources | C++ sources |
 | --- | --- | --- |
@@ -65,13 +166,13 @@ and allocate nothing.
 
 In Rust, resolve each name once and keep the `Copy` `ActionId`: queries by id
 are an array index instead of a name lookup, and an unknown name is an error
-logged when you resolve it, not a silent `false` every frame. `ctx.action_id("jump")`
-resolves one, `ctx.action_ids(&["jump", "fire"])` several, and the `actions!`
+logged when you resolve it, not a silent `false` every frame. `ctx.input.action_id("jump")`
+resolves one, `ctx.input.action_ids(&["jump", "fire"])` several, and the `actions!`
 macro (as in the example above) declares the names in one place. Ids stay
 valid when you rebind with `set_actions`. The queries accept an id or a name,
 so both spellings work. C and C++ keep the name forms for now.
 
-To rebind, copy `ctx.actions()`, call `set` or `remove`, then install it with
+To rebind, copy `ctx.input.actions()`, call `set` or `remove`, then install it with
 `ctx.set_actions`. Rust uses `.clone()` to copy the map; C++ returns an owned
 map. Installation resets action edges and uses currently held inputs as the
 baseline. Rebinding a held key therefore does not generate a new press.

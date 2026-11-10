@@ -10,6 +10,9 @@ use crate::{CrabbyStatus, boundary, invalid_owned};
 
 /// Replaces the world with the scene in `assets/<path>`; entities keep their
 /// ids. Components must be reflected. On an error the world is unchanged.
+/// In a lockstep session it works from a sim system or setup (every peer
+/// runs those); elsewhere (a frame system) it fails, since it would change
+/// only this peer.
 /// # Safety
 /// Live ctx; `path` NUL-terminated.
 /// ```
@@ -19,6 +22,20 @@ use crate::{CrabbyStatus, boundary, invalid_owned};
 pub unsafe extern "C" fn crabby_ctx_load_scene(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe { ctx_access(ctx, |c| c.load_scene(text(path)?).map_err(invalid_owned)) })
+}
+
+/// `crabby_ctx_load_scene`, named for a lockstep game: the same load on
+/// every peer at the same tick (`Ctx::load_scene_lockstep`), with the same
+/// rules (a sim system or setup in a session, anywhere offline).
+/// # Safety
+/// Live ctx; `path` NUL-terminated.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_load_scene_lockstep(std::ptr::null_mut(), c"a.json".as_ptr()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_scene_lockstep(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { ctx_access(ctx, |c| c.load_scene_lockstep(text(path)?).map_err(invalid_owned)) })
 }
 
 /// Saves the world's reflected components and resources as a scene in
@@ -31,7 +48,11 @@ pub unsafe extern "C" fn crabby_ctx_load_scene(ctx: *mut CrabbyCtx, path: *const
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_save_scene(ctx: *mut CrabbyCtx, path: *const c_char) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| c.save_scene(text(path)?).map_err(invalid_owned)) })
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            c.assets.save_scene(&c.world, text(path)?).map_err(invalid_owned)
+        })
+    })
 }
 
 /// Spawns the prefab in `assets/<path>` with its position at `at`, writing
@@ -72,7 +93,8 @@ pub unsafe extern "C" fn crabby_ctx_save_prefab(ctx: *mut CrabbyCtx, entity: u64
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.save_prefab(Entity::from_bits(entity), text(path)?)
+            c.assets
+                .save_prefab(&c.world, Entity::from_bits(entity), text(path)?)
                 .map_err(invalid_owned)
         })
     })

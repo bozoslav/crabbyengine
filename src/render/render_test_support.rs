@@ -18,6 +18,18 @@
 //!   Set `PONKO_REQUIRE_GPU=1` on a machine (or CI runner) that has a GPU to
 //!   turn a missing adapter or device into a failure instead of a skip.
 //!   Capability skips stay skips: some adapters really lack a feature.
+//! - **GPU tiers.** Set `PONKO_GPU_TIER` to `webgl2` or `baseline` to run
+//!   every suite on a device opened with that tier's limits and without
+//!   timestamp queries ([`forced`]; `desktop` runs as usual), as CI does
+//!   one tier at a time:
+//!
+//!   ```sh
+//!   PONKO_GPU_TIER=webgl2 cargo test -p ponko --lib --features 3d render_test
+//!   ```
+//!
+//!   A test that needs a feature the forced tier lacks calls [`skip`] with
+//!   the reason ([`needs`] does both); every other test must pass as on the
+//!   real device. Only the capability suite opens its own forced devices.
 //! - **Assertions.** Prefer semantic checks that say what must hold ("the box
 //!   is lit", "the background behind it stays black", "this mode costs more
 //!   than that one") with a negative control showing the check can fail.
@@ -69,11 +81,50 @@ pub(super) fn skip(reason: impl std::fmt::Display) {
 }
 
 /// A missing adapter or device: a skip, or a failure under `PONKO_REQUIRE_GPU`.
-fn no_gpu(reason: impl std::fmt::Display) {
+/// Every suite reports a failed adapter or device request through this.
+pub(super) fn no_gpu(reason: impl std::fmt::Display) {
     if env_set("PONKO_REQUIRE_GPU") {
         panic!("{reason}, and PONKO_REQUIRE_GPU is set");
     }
     skip(reason);
+}
+
+/// The tier `PONKO_GPU_TIER` forces on the suites, if any.
+pub(super) fn forced_tier() -> Option<crate::GpuTier> {
+    crate::GpuTier::forced()
+}
+
+/// `descriptor` as the forced tier opens it (unchanged without one): that
+/// tier's limits, and no timestamp queries below `desktop`. Every suite
+/// opens its device through this.
+pub(super) fn forced<'a>(descriptor: &wgpu::DeviceDescriptor<'a>) -> wgpu::DeviceDescriptor<'a> {
+    let mut d = descriptor.clone();
+    if let Some(tier) = forced_tier() {
+        // CI checks for these lines: a run where nothing opened a device on
+        // the tier must not pass.
+        eprintln!("render test opens a device [{}] as the {tier} tier", test_name());
+        d.required_limits = tier.device_limits(d.required_limits);
+        d.required_features = tier.device_features(d.required_features);
+    }
+    d
+}
+
+/// Whether `device` has `feature` (as the renderer decides it); if not,
+/// logs a skip naming the forced tier (the caller returns early).
+pub(super) fn needs(device: &wgpu::Device, feature: crate::GpuFeature) -> bool {
+    let caps = super::capabilities::report(
+        Default::default(),
+        super::capabilities::GpuLimits::of(device),
+        device.features().contains(wgpu::Features::TIMESTAMP_QUERY),
+        (4, 4),
+        true,
+    );
+    if caps.available(feature) {
+        return true;
+    }
+    let tier = forced_tier().map_or_else(|| "this device".to_owned(), |t| format!("the forced {t} tier"));
+    skip(format_args!("needs {feature:?}, which {tier} lacks"));
+    false
 }
 
 /// A device with default limits and no optional features, or `None` (the
@@ -104,14 +155,21 @@ pub(super) fn gpu_with(
             return None;
         }
     };
-    let (device, queue) = match pollster::block_on(adapter.request_device(&descriptor)) {
+    let (device, queue) = match pollster::block_on(adapter.request_device(&forced(&descriptor))) {
         Ok(pair) => pair,
         Err(e) => {
             no_gpu(format_args!("no GPU device on {} ({e})", info.name));
             return None;
         }
     };
-    eprintln!("render test ran [{}] on {}", test_name(), describe_adapter(&info));
+    match forced_tier() {
+        Some(tier) => eprintln!(
+            "render test ran [{}] on {} as the {tier} tier",
+            test_name(),
+            describe_adapter(&info)
+        ),
+        None => eprintln!("render test ran [{}] on {}", test_name(), describe_adapter(&info)),
+    }
     Some(TestGpu { info, device, queue })
 }
 

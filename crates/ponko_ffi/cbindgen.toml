@@ -41,7 +41,7 @@ header = """
  * for that panel's UI.
  *
  * Enums (CrabbyKey, CrabbyMouseButton, CrabbyGamepadButton, CrabbyGamepadAxis,
- * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyHandleKind, and the
+ * CrabbyTextAlign3D, CrabbyBodyKind, CrabbyShapeKind, CrabbyShape3DKind, CrabbyNetState, CrabbyPhase, CrabbyService, CrabbyHandleKind, CrabbyResidencyKind, CrabbyAssetState, CrabbyGpuTier, CrabbyGpuFeature, and the
  * CrabbyUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
@@ -51,4 +51,4 @@ header = """
 parse_deps = false
 [export]
 exclude = ["Failure"]
-include = ["CrabbyTextAlign3D", "CrabbyActionSource", "CrabbyHandleKind", "CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyPhase", "CrabbyShapeKind", "CrabbyVelocity", "CrabbyNetState", "CrabbyTransform3D", "CrabbyModel", "CrabbyPointLight3D", "CrabbySpotLight3D", "CrabbyReceivesDecals", "CrabbyShape3DKind", "CrabbyVelocity3D", "CrabbyParticleShape3D", "CrabbyParticleBlend3D", "CrabbyParticleSpace3D", "CrabbyLayerBlend", "CrabbyRootMotion", "CrabbyUiDisplay", "CrabbyUiPosition", "CrabbyUiFlexDirection", "CrabbyUiFlexWrap", "CrabbyUiAlign", "CrabbyUiAlignContent", "CrabbyUiLengthKind", "CrabbyUiTrackKind", "CrabbyUiGridLineKind", "CrabbyUiTextAlign"]
+include = ["CrabbyTextAlign3D", "CrabbyActionSource", "CrabbyHandleKind", "CrabbyResidencyKind", "CrabbyAssetState", "CrabbyKey", "CrabbyMouseButton", "CrabbyGamepadButton", "CrabbyGamepadAxis", "CrabbyTransform2D", "CrabbySprite", "CrabbyFieldType", "CrabbyAnimation", "CrabbyAttached", "CrabbyBodyKind", "CrabbyPhase", "CrabbyService", "CrabbyShapeKind", "CrabbyVelocity", "CrabbyNetState", "CrabbyTransform3D", "CrabbyModel", "CrabbyPointLight3D", "CrabbySpotLight3D", "CrabbyReceivesDecals", "CrabbyShape3DKind", "CrabbyVelocity3D", "CrabbyParticleShape3D", "CrabbyParticleBlend3D", "CrabbyParticleSpace3D", "CrabbyLayerBlend", "CrabbyRootMotion", "CrabbyUiDisplay", "CrabbyUiPosition", "CrabbyUiFlexDirection", "CrabbyUiFlexWrap", "CrabbyUiAlign", "CrabbyUiAlignContent", "CrabbyUiLengthKind", "CrabbyUiTrackKind", "CrabbyUiGridLineKind", "CrabbyUiTextAlign", "CrabbyGpuTier", "CrabbyGpuFeature"]

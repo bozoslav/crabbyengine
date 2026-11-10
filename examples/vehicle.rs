@@ -178,16 +178,16 @@ fn build_world(ctx: &mut Ctx, draw: bool) {
         return;
     }
     let look = grass(ctx);
-    let tile = ctx.create_terrain_tile(&heights, SIZE, look);
+    let tile = ctx.gfx.create_terrain_tile(&heights, SIZE, look);
     ctx.world.insert(terrain, tile);
-    let paint = ctx.create_material(MaterialDesc::color(Color::hex(0xC8402E)));
-    let body = ctx.create_mesh(&MeshData::cube(1.0), paint);
+    let paint = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0xC8402E)));
+    let body = ctx.gfx.create_mesh(&MeshData::cube(1.0), paint);
     if let Some(t) = ctx.world.get_mut::<Transform3D>(car) {
         t.scale = vec3(1.8, 0.6, 4.2);
     }
     ctx.world.insert(car, Model::new(body));
-    let rubber = ctx.create_material(MaterialDesc::color(Color::hex(0x202020)));
-    let tyre = ctx.create_mesh(&MeshData::cube(1.0), rubber);
+    let rubber = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x202020)));
+    let tyre = ctx.gfx.create_mesh(&MeshData::cube(1.0), rubber);
     for _ in 0..4 {
         let wheel = ctx.world.spawn((
             Transform3D {
@@ -213,16 +213,19 @@ fn grass(ctx: &mut Ctx) -> Material {
             ]
         })
         .collect();
-    let layers = ctx.create_texture_array(16, 16, &[&green], TextureKind::Color);
-    let weights = ctx.create_texture_array(1, 1, &[&[255, 0, 0, 0]], TextureKind::Data);
+    let layers = ctx.gfx.create_texture_array(16, 16, &[&green], TextureKind::Color);
+    let weights = ctx
+        .gfx
+        .create_texture_array(1, 1, &[&[255, 0, 0, 0]], TextureKind::Data);
     let corner = vec2(-SIZE / 2.0, -SIZE / 2.0);
-    ctx.create_terrain_material(&TerrainMaterialDesc::new(layers, weights, corner, vec2(SIZE, SIZE)))
+    ctx.gfx
+        .create_terrain_material(&TerrainMaterialDesc::new(layers, weights, corner, vec2(SIZE, SIZE)))
 }
 
 /// The script for `HEADLESS=1`: full throttle for 4 s, then steer right
 /// for 2 s, then brake to a stop and hold it with the handbrake.
 fn autopilot(ctx: &mut Ctx) {
-    let t = ctx.sim_tick() as f32 * ctx.dt();
+    let t = ctx.time.sim_tick() as f32 * ctx.dt();
     let car = ctx.world.resource::<Player>().car;
     let rolling = forward_speed(&ctx.world, car) > 0.3;
     *ctx.world.resource_mut::<Controls>() = Controls {
@@ -243,7 +246,7 @@ fn autopilot(ctx: &mut Ctx) {
 struct Log(Vec<(f32, Vec3)>);
 
 fn record(ctx: &mut Ctx) {
-    if ctx.sim_tick().is_multiple_of(50) {
+    if ctx.time.sim_tick().is_multiple_of(50) {
         let car = ctx.world.resource::<Player>().car;
         let speed = speed_of(&ctx.world, car);
         let facing = ctx.world.get::<Transform3D>(car).map_or(Vec3::NEG_Z, |t| t.forward());
@@ -289,7 +292,7 @@ fn main() {
         .system(chase)
         // ANCHOR_END: setup
         .run(|ctx| {
-            ctx.clear(Color::hex(0x9CC4E4));
+            ctx.gfx.clear(Color::hex(0x9CC4E4));
             build_world(ctx, true);
         });
 }

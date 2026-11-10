@@ -1,11 +1,23 @@
-//! Sound effects and music, played with `kira`.
+//! [`Audio`], the sound service at `ctx.audio`: sound effects and music,
+//! played with `kira`.
 //!
-//! The audio device opens the first time a sound is loaded or played. If
-//! there is none (servers, CI), or the `audio` feature is off, everything
-//! here still works and is simply silent, so game code never needs a
-//! special case.
-
-use crate::ctx::Ctx;
+//! **What lives here:** loading and creating sounds ([`Audio::load`],
+//! [`Audio::create`], [`Audio::load_stream`]), playing them
+//! ([`Audio::play`], [`Audio::play_ex`], [`Audio::play_on`], and
+//! [`Audio::play_at`] for a point in the 3D world), the handles of what is
+//! playing ([`Audio::stop`], [`Audio::set_effects`]), mixer buses
+//! ([`Audio::bus`], [`Audio::set_bus_volume`], [`Audio::mute_bus`]) and the
+//! 3D listener ([`Audio::set_listener`]).
+//!
+//! **When to call it:** load in setup and keep the [`Sound`] handles; play,
+//! stop and mix from any system. It only borrows `ctx.audio`, so a sound can
+//! be played while iterating `ctx.ui.events()` or a `ctx.world` query.
+//!
+//! **What it needs:** the `audio` feature and an output device to be heard.
+//! The device opens the first time a sound is loaded or played. If there is
+//! none (servers, CI), the feature is off, or the run is headless,
+//! everything here still works and is simply silent, so game code never
+//! needs a special case. Positional sound needs the `3d` feature.
 
 #[cfg(feature = "3d")]
 mod spatial;
@@ -14,7 +26,7 @@ pub use spatial::*;
 
 /// A loaded sound. Cheap to copy. Get one from
 /// [`Ctx::load_sound`](crate::Ctx::load_sound) or
-/// [`Ctx::create_sound`](crate::Ctx::create_sound).
+/// [`Audio::create`](crate::Audio::create).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct Sound {
@@ -53,17 +65,17 @@ impl Sound {
 }
 
 /// A sound that was started, to stop it later with
-/// [`Ctx::stop_sound`](crate::Ctx::stop_sound).
+/// [`Audio::stop`](crate::Audio::stop).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
-pub struct Playing(u64);
+pub struct Playing(pub(crate) u64);
 
-/// Optional settings for [`Ctx::play_sound_ex`](crate::Ctx::play_sound_ex).
+/// Optional settings for [`Audio::play_ex`](crate::Audio::play_ex).
 ///
 /// ```
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx, music: Sound) {
-/// ctx.play_sound_ex(&music, SoundParams { volume: 0.5, looping: true, ..Default::default() });
+/// ctx.audio.play_ex(&music, SoundParams { volume: 0.5, looping: true, ..Default::default() });
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -116,7 +128,7 @@ mod backend {
     enum Clip {
         Static(Box<StaticSoundData>),
         #[cfg(not(target_arch = "wasm32"))]
-        Stream(PathBuf),
+        Stream(StreamFrom),
         /// Freed: plays nothing, and its id is never reused.
         Freed,
     }
@@ -165,6 +177,25 @@ mod backend {
             }
         }
     }
+    /// Where a streamed sound's encoded bytes are: each playback opens its
+    /// own decoder over them.
+    #[cfg(not(target_arch = "wasm32"))]
+    enum StreamFrom {
+        /// A file, opened for each playback.
+        File(PathBuf),
+        /// Encoded bytes an asset source handed over, kept (not decoded) in
+        /// memory and shared by every playback.
+        Memory(Arc<[u8]>),
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    impl StreamFrom {
+        fn open(&self) -> Result<StreamingSoundData<FromFileError>, FromFileError> {
+            match self {
+                Self::File(path) => StreamingSoundData::from_file(path),
+                Self::Memory(bytes) => StreamingSoundData::from_cursor(std::io::Cursor::new(bytes.clone())),
+            }
+        }
+    }
     #[derive(Default)]
     pub struct Audio {
         manager: Option<Option<AudioManager<DefaultBackend>>>,
@@ -174,7 +205,7 @@ mod backend {
         pub(super) buses: BusRegistry,
         reverb: Option<SendTrackHandle>,
         #[cfg(feature = "3d")]
-        pub(super) spatial: super::spatial::SpatialState,
+        pub(crate) spatial: super::spatial::SpatialState,
     }
     impl Audio {
         /// For tools: whether the output device was opened (it opens on first use).
@@ -193,8 +224,9 @@ mod backend {
         pub fn load(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
             Ok(self.add(decode(bytes)?))
         }
-        /// Sounds made and not freed, and the bytes of their decoded samples
-        /// (streamed ones are read from their file as they play: 0).
+        /// Sounds made and not freed, and the bytes they hold: decoded
+        /// samples, or for a sound streamed from memory its encoded bytes
+        /// (one streamed from a file is read as it plays: 0).
         pub fn inventory(&self) -> (usize, u64) {
             let live = self.sounds.iter().filter(|clip| !matches!(clip, Clip::Freed));
             let bytes = live
@@ -202,7 +234,9 @@ mod backend {
                 .map(|clip| match clip {
                     Clip::Static(data) => (data.frames.len() * std::mem::size_of::<Frame>()) as u64,
                     #[cfg(not(target_arch = "wasm32"))]
-                    Clip::Stream(_) => 0,
+                    Clip::Stream(StreamFrom::File(_)) => 0,
+                    #[cfg(not(target_arch = "wasm32"))]
+                    Clip::Stream(StreamFrom::Memory(bytes)) => bytes.len() as u64,
                     Clip::Freed => 0,
                 })
                 .sum();
@@ -232,7 +266,7 @@ mod backend {
             if let Some(index) = self
                 .sounds
                 .iter()
-                .position(|clip| matches!(clip, Clip::Stream(p) if *p == path))
+                .position(|clip| matches!(clip, Clip::Stream(StreamFrom::File(p)) if *p == path))
             {
                 let seconds = StreamingSoundData::from_file(&path)
                     .map_err(|e| e.to_string())?
@@ -242,13 +276,31 @@ mod backend {
             }
             let data = StreamingSoundData::from_file(&path).map_err(|e| e.to_string())?;
             let seconds = data.duration().as_secs_f32();
-            self.sounds.push(Clip::Stream(path));
+            self.sounds.push(Clip::Stream(StreamFrom::File(path)));
             Ok(((self.sounds.len() - 1) as u32, seconds))
         }
-        /// The web can't stream from files: read the whole file and decode it.
+        /// A sound streamed from encoded `bytes` held in memory (an asset
+        /// source's): only the header is decoded now, the samples as it plays.
+        #[cfg(not(target_arch = "wasm32"))]
+        pub fn stream_bytes(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
+            let from = StreamFrom::Memory(bytes.into());
+            let seconds = from
+                .open()
+                .map_err(|e| format!("could not decode the sound: {e}"))?
+                .duration()
+                .as_secs_f32();
+            self.sounds.push(Clip::Stream(from));
+            Ok(((self.sounds.len() - 1) as u32, seconds))
+        }
+        /// The web can't stream from files: read the fetched copy and decode it whole.
         #[cfg(target_arch = "wasm32")]
         pub fn stream(&mut self, path: PathBuf) -> Result<(u32, f32), String> {
-            self.load(std::fs::read(&path).map_err(|e| e.to_string())?)
+            self.load(crate::assets::read(&path).map_err(|e| e.to_string())?)
+        }
+        /// The web decodes streamed sounds whole (no decoder thread).
+        #[cfg(target_arch = "wasm32")]
+        pub fn stream_bytes(&mut self, bytes: Vec<u8>) -> Result<(u32, f32), String> {
+            self.load(bytes)
         }
         pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> (u32, f32) {
             let frames: Arc<[Frame]> = samples.iter().map(|&s| Frame::from_mono(s)).collect();
@@ -318,8 +370,8 @@ mod backend {
                     track.play(data).ok().map(Handle::Static)
                 }
                 #[cfg(not(target_arch = "wasm32"))]
-                Clip::Stream(path) => {
-                    let Ok(data) = StreamingSoundData::from_file(path) else {
+                Clip::Stream(from) => {
+                    let Ok(data) = from.open() else {
                         return id;
                     };
                     let mut data = data.volume(volume).playback_rate(speed);
@@ -433,15 +485,17 @@ mod backend {
         #[test]
         fn audio_headless_routing_never_initializes_manager() {
             crate::Game::new("audio", 1, 1).run_headless(0, |ctx| {
-                let bus = ctx.audio_bus("music");
-                let sound = ctx.create_sound(100, &[0.0; 100]);
-                let voice = ctx.play_sound_on(&sound, SoundParams::default(), bus, AudioEffects::default());
-                ctx.set_sound_effects(voice, AudioEffects::default());
-                ctx.set_audio_bus_volume(bus, 0.5);
-                ctx.mute_audio_bus(bus, true);
-                assert!(ctx.audio.manager.is_none());
-                assert!(ctx.audio.playing.is_empty());
-                assert!(ctx.audio.reverb.is_none());
+                let bus = ctx.audio.bus("music");
+                let sound = ctx.audio.create(100, &[0.0; 100]);
+                let voice = ctx
+                    .audio
+                    .play_on(&sound, SoundParams::default(), bus, AudioEffects::default());
+                ctx.audio.set_effects(voice, AudioEffects::default());
+                ctx.audio.set_bus_volume(bus, 0.5);
+                ctx.audio.mute_bus(bus, true);
+                assert!(ctx.audio.backend.manager.is_none());
+                assert!(ctx.audio.backend.playing.is_empty());
+                assert!(ctx.audio.backend.reverb.is_none());
             });
         }
     }
@@ -458,7 +512,7 @@ mod backend {
         next: u64,
         pub(super) buses: BusRegistry,
         #[cfg(feature = "3d")]
-        pub(super) spatial: super::spatial::SpatialState,
+        pub(crate) spatial: super::spatial::SpatialState,
     }
     impl Audio {
         /// For tools: this build has no audio output.
@@ -475,6 +529,9 @@ mod backend {
             ((self.count - self.freed) as usize, 0)
         }
         pub fn stream(&mut self, _path: std::path::PathBuf) -> Result<(u32, f32), String> {
+            self.load(Vec::new())
+        }
+        pub fn stream_bytes(&mut self, _bytes: Vec<u8>) -> Result<(u32, f32), String> {
             self.load(Vec::new())
         }
         pub fn replace(&mut self, _id: u32, _bytes: Vec<u8>) -> Result<(), String> {
@@ -502,10 +559,55 @@ mod backend {
     }
 }
 
-pub(crate) use backend::Audio;
+pub(crate) use backend::Audio as Backend;
 
-impl Ctx {
-    /// Loads a sound from an [added asset source](Ctx::add_asset_source) or the
+/// Sounds, playing handles, buses and the listener: `ctx.audio`.
+///
+/// `ctx.load_sound` and `ctx.play_sound` are shortcuts for
+/// [`load`](Self::load) and [`play`](Self::play); everything else is here.
+///
+/// - **What lives here:** loading and creating sounds, playing them (also
+///   at a point in the 3D world), the handles of what is playing, mixer
+///   buses and the 3D listener.
+/// - **When to call it:** load in setup and keep the [`Sound`] handles;
+///   play, stop and mix from any system. It borrows only `ctx.audio`, so a
+///   sound can play while `ctx.ui.events()` or a `ctx.world` query is
+///   being read.
+/// - **What it needs:** the `audio` feature and an output device to be
+///   heard. Without them, and in headless runs, every call still works and
+///   is silent. Positional sound needs the `3d` feature.
+///
+/// ```
+/// use ponko::*;
+///
+/// Game::new("t", 1, 1).run_headless(0, |ctx| {
+///     let beep = ctx.audio.create(8000, &[0.0; 800]);
+///     let music = ctx.audio.bus("music");
+///     ctx.audio.set_bus_volume(music, 0.5);
+///     let playing = ctx.audio.play_on(&beep, SoundParams::default(), music, AudioEffects::default());
+///     ctx.audio.stop(playing);
+/// });
+/// ```
+#[derive(Default)]
+pub struct Audio {
+    /// The mixer: kira, or the silent stand-in without the `audio` feature.
+    pub(crate) backend: Backend,
+    /// The game's sounds, by id, live or freed.
+    pub(crate) sounds_live: crate::handle::LiveSet,
+    /// Sounds loaded from files, indexed by `loaded` values.
+    pub(crate) cached_sounds: Vec<Sound>,
+    /// Sounds already loaded, by origin: loading one again returns the same handle.
+    pub(crate) loaded: std::collections::HashMap<(crate::assets::Origin, crate::ctx::AssetKind), u64>,
+    /// Where named assets come from, shared with the other loading services.
+    pub(crate) asset_sources: crate::assets::SharedSources,
+    /// Hot reload: which files sounds came from.
+    pub(crate) watcher: crate::hot_reload::SharedWatcher,
+    /// No window: nothing is played.
+    pub(crate) headless: bool,
+}
+
+impl Audio {
+    /// Loads a sound from an [added asset source](crate::Assets::add_source) or the
     /// `assets/` folder: OGG Vorbis, WAV, MP3 or FLAC. Loading the same file
     /// again returns the same handle. Only a file from `assets/` is hot reloaded.
     ///
@@ -523,11 +625,11 @@ impl Ctx {
     /// ctx.play_sound(&hit);
     /// # }
     /// ```
-    pub fn load_sound(&mut self, path: &str) -> Sound {
-        self.try_load_sound(path).unwrap_or_else(|e| panic!("{e}"))
+    pub fn load(&mut self, path: &str) -> Sound {
+        self.try_load(path).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`load_sound`](Self::load_sound) with errors as values:
+    /// [`load`](Self::load) with errors as values:
     /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound),
     /// [`Io`](crate::ErrorKind::Io), or (with the `audio` feature)
     /// [`Decode`](crate::ErrorKind::Decode) if it can't be decoded.
@@ -535,12 +637,12 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     if let Ok(music) = ctx.try_load_sound("music/bonus.ogg") {
+    ///     if let Ok(music) = ctx.audio.try_load("music/bonus.ogg") {
     ///         ctx.play_sound(&music);
     ///     }
     /// });
     /// ```
-    pub fn try_load_sound(&mut self, path: &str) -> Result<Sound, crate::Error> {
+    pub fn try_load(&mut self, path: &str) -> Result<Sound, crate::Error> {
         let found = match self.asset_sources.lookup(path, |origin| {
             let key = (origin.clone(), crate::ctx::AssetKind::Sound);
             self.loaded.get(&key).map(|&i| self.cached_sounds[i as usize])
@@ -550,7 +652,7 @@ impl Ctx {
         };
         let origin = found.origin.clone();
         let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
-        let (id, seconds) = self.audio.load(bytes).map_err(|e| match &origin {
+        let (id, seconds) = self.backend.load(bytes).map_err(|e| match &origin {
             crate::assets::Origin::File(file) => crate::Error::decode(path, format!("{}: {e}", file.display())),
             crate::assets::Origin::Source { .. } => {
                 crate::Error::decode(path, format!("{}: {e}", origin.describe(path)))
@@ -583,7 +685,7 @@ impl Ctx {
     ///         (t * 880.0 * std::f32::consts::TAU).sin() * (1.0 - t * 10.0) * 0.3
     ///     })
     ///     .collect();
-    /// let beep = ctx.create_sound(rate, &beep);
+    /// let beep = ctx.audio.create(rate, &beep);
     /// assert!((beep.seconds() - 0.1).abs() < 0.001);
     /// # }
     /// # Game::new("t", 1, 1).run_headless(0, setup);
@@ -592,9 +694,9 @@ impl Ctx {
     /// # Panics
     ///
     /// If `sample_rate` is 0.
-    pub fn create_sound(&mut self, sample_rate: u32, samples: &[f32]) -> Sound {
+    pub fn create(&mut self, sample_rate: u32, samples: &[f32]) -> Sound {
         assert!(sample_rate > 0, "ponko: the sample rate must not be zero");
-        let (id, seconds) = self.audio.create(sample_rate, samples);
+        let (id, seconds) = self.backend.create(sample_rate, samples);
         self.sounds_live.insert(id);
         Sound { id, seconds }
     }
@@ -604,13 +706,13 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, click: Sound) {
-    /// if ctx.mouse_pressed(MouseButton::Left) {
+    /// if ctx.input.mouse_pressed(MouseButton::Left) {
     ///     ctx.play_sound(&click);
     /// }
     /// # }
     /// ```
-    pub fn play_sound(&mut self, sound: &Sound) -> Playing {
-        self.play_sound_ex(sound, SoundParams::default())
+    pub fn play(&mut self, sound: &Sound) -> Playing {
+        self.play_ex(sound, SoundParams::default())
     }
 
     /// Plays `sound` with a volume, speed, or looping.
@@ -619,43 +721,45 @@ impl Ctx {
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, step: Sound) {
     /// let speed = 0.9 + ctx.random().stream(0).f32() * 0.2; // vary the pitch a little
-    /// ctx.play_sound_ex(&step, SoundParams { volume: 0.4, speed, ..Default::default() });
+    /// ctx.audio.play_ex(&step, SoundParams { volume: 0.4, speed, ..Default::default() });
     /// # }
     /// ```
-    pub fn play_sound_ex(&mut self, sound: &Sound, params: SoundParams) -> Playing {
+    pub fn play_ex(&mut self, sound: &Sound, params: SoundParams) -> Playing {
         if self.headless {
             return Playing(0);
         }
-        Playing(self.audio.play(sound.id, params))
+        Playing(self.backend.play(sound.id, params))
     }
 
     /// Frees sound `id` (see [`Ctx::free`]).
-    pub(crate) fn free_sound_id(&mut self, id: u32) {
+    pub(crate) fn free_id(&mut self, id: u32) {
         if !self.sounds_live.remove(id) {
             return;
         }
         let cached = &self.cached_sounds;
-        self.loaded
-            .retain(|(_, kind), i| *kind != crate::ctx::AssetKind::Sound || cached[*i as usize].id != id);
+        self.loaded.retain(|(_, kind), i| {
+            !matches!(kind, crate::ctx::AssetKind::Sound | crate::ctx::AssetKind::Stream)
+                || cached[*i as usize].id != id
+        });
         self.watcher
             .forget(|a| matches!(a, crate::hot_reload::Asset::Sound(s) if *s == id));
-        self.audio.free(id);
+        self.backend.free(id);
     }
 
-    /// Stops a sound started with [`play_sound`](Self::play_sound) (with a
+    /// Stops a sound started with [`play`](Self::play) (with a
     /// short fade). Does nothing if it already finished.
     ///
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, music: Sound) {
-    /// let song = ctx.play_sound_ex(&music, SoundParams { looping: true, ..Default::default() });
+    /// let song = ctx.audio.play_ex(&music, SoundParams { looping: true, ..Default::default() });
     /// // ... later
-    /// ctx.stop_sound(song);
+    /// ctx.audio.stop(song);
     /// # }
     /// ```
-    pub fn stop_sound(&mut self, playing: Playing) {
+    pub fn stop(&mut self, playing: Playing) {
         #[cfg(feature = "3d")]
-        self.audio.spatial.remove(playing);
-        self.audio.stop(playing.0);
+        self.backend.spatial.remove(playing);
+        self.backend.stop(playing.0);
     }
 }

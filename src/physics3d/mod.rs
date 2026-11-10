@@ -738,7 +738,7 @@ impl Physics3D {
     }
 
     /// Ground for a terrain tile, from the same heights and size as
-    /// [`Ctx::create_terrain_tile`](crate::Ctx::create_terrain_tile) (n × n
+    /// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile) (n × n
     /// heights, row by row along +Z, each row along +X; NaN for a hole), so
     /// the collider matches the drawn ground triangle for triangle. Give it
     /// to a [`TerrainCollider`] on the tile's entity (or a fixed body at the
@@ -1093,7 +1093,7 @@ fn step(physics: &mut Physics3D, world: &mut World, events: &mut Events, dt: f32
 
 /// Draws moving bodies smoothly: between two physics steps, sets each
 /// moving body's [`Transform3D`] to a blend of its last two poses, by how
-/// far the frame is between them ([`Ctx::fixed_alpha`]). Added as the first
+/// far the frame is between them ([`Time::fixed_alpha`](crate::Time::fixed_alpha)). Added as the first
 /// frame system by [`Game::physics3d`](crate::Game::physics3d), so camera
 /// code sees the blended pose too. Does nothing in headless runs, where
 /// frames and ticks line up. Transforms you changed since the last step are
@@ -1102,7 +1102,7 @@ pub fn interpolate_physics3d(ctx: &mut Ctx) {
     if ctx.headless {
         return;
     }
-    let alpha = ctx.fixed_alpha().clamp(0.0, 1.0);
+    let alpha = ctx.time.fixed_alpha().clamp(0.0, 1.0);
     let physics = &mut ctx.physics3d;
     if physics.links.is_empty() {
         return;
@@ -1408,7 +1408,7 @@ mod tests {
 
         // The public system, through a Ctx.
         let mut ctx = Ctx::new(f64::from(DT), Vec2::ZERO);
-        ctx.headless = true;
+        ctx.set_headless(true);
         start(&mut ctx, gravity);
         let wrapped = pile(&mut ctx.world);
         for _ in 0..100 {
@@ -1426,7 +1426,7 @@ mod tests {
     #[test]
     fn headless_runs_draw_the_stepped_pose() {
         let mut ctx = Ctx::new(0.02, Vec2::ZERO);
-        ctx.headless = true;
+        ctx.set_headless(true);
         start(&mut ctx, Vec3::ZERO);
         let ball = ctx.world.spawn((
             Transform3D::default(),
