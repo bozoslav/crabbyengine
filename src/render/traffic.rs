@@ -159,7 +159,22 @@ impl Mirror {
     /// call per run of neighbouring ones). Writes past what is known are
     /// always made. `offset` and `page` keep `wgpu`'s 4-byte copy alignment
     /// when they and `new.len()` are multiples of 4.
-    pub fn sync(&mut self, offset: usize, new: &[u8], page: usize, mut write: impl FnMut(usize, &[u8])) {
+    pub fn sync(&mut self, offset: usize, new: &[u8], page: usize, write: impl FnMut(usize, &[u8])) {
+        self.sync_bridged(offset, new, page, 0, write);
+    }
+
+    /// Like [`sync`](Self::sync), but changed pages with up to `bridge`
+    /// unchanged ones between them go in one write (the unchanged along
+    /// with them): small pages then cost no more writes than large ones,
+    /// while a lone change still uploads one page.
+    pub fn sync_bridged(
+        &mut self,
+        offset: usize,
+        new: &[u8],
+        page: usize,
+        bridge: usize,
+        mut write: impl FnMut(usize, &[u8]),
+    ) {
         let page = page.max(1);
         if offset > self.bytes.len() {
             // A gap of unknown bytes: only what's contiguous is mirrored.
@@ -168,23 +183,27 @@ impl Mirror {
         }
         let end = offset + new.len();
         let known = self.bytes.len().min(end) - offset;
-        let mut run: Option<usize> = None;
+        // The run of pages to write: where it starts, and where its last
+        // changed page ends.
+        let mut run: Option<(usize, usize)> = None;
         let mut at = 0;
         while at < new.len() {
             let to = (at + page).min(new.len());
             let same = to <= known && self.bytes[offset + at..offset + to] == new[at..to];
-            match (same, run) {
-                (false, None) => run = Some(at),
-                (true, Some(start)) => {
-                    write(offset + start, &new[start..at]);
-                    run = None;
-                }
-                _ => {}
+            if !same {
+                run = match run {
+                    Some((start, last)) if at - last <= bridge * page => Some((start, to)),
+                    Some((start, last)) => {
+                        write(offset + start, &new[start..last]);
+                        Some((at, to))
+                    }
+                    None => Some((at, to)),
+                };
             }
             at = to;
         }
-        if let Some(start) = run {
-            write(offset + start, &new[start..]);
+        if let Some((start, last)) = run {
+            write(offset + start, &new[start..last]);
         }
         if end > self.bytes.len() {
             self.bytes.resize(end, 0);
@@ -243,6 +262,31 @@ mod tests {
         assert_eq!(writes(&mut m, 8, &[9; 6]), [(8, vec![9; 6])]);
         let all = m.bytes.clone();
         assert!(writes(&mut m, 0, &all).is_empty());
+    }
+
+    #[test]
+    fn bridged_writes_take_the_few_unchanged_pages_between_changes_along() {
+        let mut m = Mirror::default();
+        let first = vec![0u8; 40];
+        m.sync(0, &first, 4, |_, _| {});
+        // Pages 1, 3, 7 and 9 change: one unchanged page lies between the
+        // first two and the last two, three between the pairs.
+        let mut second = first.clone();
+        for page in [1, 3, 7, 9] {
+            second[page * 4] = 1;
+        }
+        let mut out = Vec::new();
+        m.sync_bridged(0, &second, 4, 1, |at, b| out.push((at, b.len())));
+        assert_eq!(out, [(4, 12), (28, 12)], "runs end with their last changed page");
+        let mut third = second.clone();
+        third[0] = 2;
+        third[39] = 2;
+        out.clear();
+        m.sync_bridged(0, &third, 4, 8, |at, b| out.push((at, b.len())));
+        assert_eq!(out, [(0, 40)], "a wide bridge joins them all");
+        out.clear();
+        m.sync_bridged(0, &third, 4, 8, |at, b| out.push((at, b.len())));
+        assert!(out.is_empty(), "and what was bridged is known");
     }
 
     #[test]

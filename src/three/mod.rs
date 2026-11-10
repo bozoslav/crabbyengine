@@ -15,6 +15,9 @@ mod clip;
 mod collect;
 mod compute;
 mod effect;
+mod extraction_bench;
+#[doc(hidden)]
+pub use extraction_bench::{ExtractionBench, ExtractionSample};
 pub(crate) mod gi;
 mod gltf;
 mod ik;
@@ -42,8 +45,11 @@ pub(crate) mod projected;
 pub use projected::{Decal3D, MAX_DECALS, MAX_DECALS_PER_CLUSTER, ReceivesDecals};
 pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
+#[cfg(test)]
+mod extraction_test;
 mod quality;
 mod resident;
+mod retained;
 mod streamed;
 pub(crate) use streamed::LoadedFile;
 pub use streamed::StreamedLod;
@@ -72,7 +78,7 @@ pub(crate) use api::{MaterialTextures, MaterialUniform};
 pub use clip::{AnimationClip, AnimationTrack, Interpolation, JointAnimation, MorphAnimation};
 pub(crate) mod motion;
 #[cfg(feature = "window")]
-pub(crate) use collect::{FADED, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, shadow_views};
+pub(crate) use collect::{FADED, INSTANCE_BRIDGE, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, shadow_views};
 pub(crate) use collect::{Frame3D, MAX_SHADOW_RESOLUTION, MIN_SHADOW_RESOLUTION, SHADOW_MAP_SIZE};
 pub use compute::{Compute, ComputePass, GpuBuffer};
 pub use effect::{Effect, ScreenEffect, TargetEffect};
@@ -352,8 +358,10 @@ pub enum Blend {
     #[default]
     Opaque = 0,
     /// See-through by its alpha (glass, water). Drawn after everything
-    /// solid, casts no shadow; overlapping transparent models are not
-    /// sorted, so one may show over another that is in front of it.
+    /// solid, casts no shadow. Transparent models of one mesh are drawn far
+    /// to near (by their origins), so they blend in the right order;
+    /// models of different meshes are not sorted against each other, so
+    /// one may show over another that is in front of it.
     Transparent = 1,
     /// Solid, with pixels whose alpha is below 0.5 cut out (leaves,
     /// fences, grass cards). Their shadows have the same holes.

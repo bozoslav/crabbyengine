@@ -174,7 +174,9 @@ goes, in a running game:
   frame, by kind (model transforms, uniforms, lights, ...), and the
   buffers created: in a scene where nothing changes it should stay at a
   few kilobytes of uniforms and no buffers. Models that stand still cost
-  no uploads; only the changed parts of the model list are sent.
+  no uploads, also while the camera moves; only the models that changed,
+  or entered or left a view, are sent (see
+  [Models between frames](#models-between-frames)).
 - **`ctx.gfx.mesh_costs()`**: per mesh, how many models and triangles it drew
   for the camera and the shadows last frame, heaviest first.
 - **Traces**: `ctx.perf.record_trace(path, frames)` (or `PONKO_TRACE=path`)
@@ -261,6 +263,79 @@ costs a frame nothing.
   `mesh_costs` shows which meshes cost the most.
 - **Pixels**: on a large Retina screen, `Game::msaa(2)` costs about a
   third less GPU time for the 3D passes than the default 4x.
+
+### Models between frames
+
+The 3D frame remembers the models it collected: each model's place in the
+list its mesh is drawn from, in the camera's view and in every shadow map,
+and what it was collected from. A frame then pays for what changed:
+
+- **Nothing changed**: one compare per model. Nothing is culled, written
+  or uploaded.
+- **The camera or the sun moved**: every model is culled again, from the
+  bounding sphere kept for it. Models that stay in view keep their place,
+  so only the ones that entered or left a view are written and uploaded.
+- **A model changed** (its `Transform3D`, mesh, tint, `ShadowMesh`,
+  `ModelMaterial` or `ReceivesDecals`): that model is worked out again
+  and its instances rewritten. Changes are found by value, whichever way a
+  component is written: a system that sets the same transform every frame
+  changes nothing.
+- **Models spawned or despawned, or got or lost a component**: the new
+  ones are worked out, the gone ones leave their lists.
+- **A mesh changed** (new data with other bounds, `set_mesh_shadows`): the
+  models of that mesh are worked out again.
+
+`LodGroup` renderers, terrain tiles, skinned models and shadow-only casters
+are still worked out every frame (what they draw depends on the camera or
+a pose), but keep their places in the lists as well.
+
+While more than half the models change every frame, comparing them costs
+more than it saves. The frame then works every model out from its
+components alone, as it did before any were kept, and only looks up the
+ones a view draws; it compares one model in 64 to notice when they settle.
+
+Collecting 100,000 models of 64 meshes, a tenth of them in view, with sun
+shadows (`cargo run --release -p ponko_bench -- extract-100k`: the median
+of 120 frames after 30 warm-up frames, then the median of 8 runs on all 14
+cores and of 5 runs on one core with `RAYON_NUM_THREADS=1`; M4 Max, while
+other builds were running on the machine, so the 14-core times are a
+little high on both sides):
+
+| Each frame | 14 cores: before | now | One core: before | now | Instances uploaded: before | now |
+|---|---|---|---|---|---|---|
+| nothing changes | 0.45 ms | 0.20 ms | 1.21 ms | 0.41 ms | 11 KiB | 0 |
+| the camera flies | 0.44 ms | 0.29 ms | 1.20 ms | 0.85 ms | 789 KiB | 25 KiB |
+| it flies, 1% of the models move | 0.44 ms | 0.30 ms | 1.20 ms | 0.87 ms | 791 KiB | 73 KiB |
+| it flies, every model moves | 0.45 ms | 0.45 ms | 1.20 ms | 1.31 ms | 831 KiB | 906 KiB |
+| it flies, 100 models despawn and 100 spawn | 0.48 ms | 0.47 ms | 1.40 ms | 1.13 ms | 795 KiB | 27 KiB |
+| the first frame (nothing remembered) | 0.49 ms | 1.33 ms | 1.25 ms | 2.66 ms | all | all |
+
+What it costs:
+
+- **Every model moving, on one core** (the web): about 9% slower than
+  before (1.31 ms against 1.20 ms above). The models are culled as before;
+  each drawn one is then looked up and written to its place in every view
+  that draws it, which costs more than appending it to a list that is
+  sorted afterwards. On 14 cores it costs the same as before.
+- **The first frame**, and a frame that spawns many models at once, builds
+  what later frames keep: two to three times a frame of before for those
+  models, once.
+- **Memory**: for every model in the world, in view or not, about 150
+  bytes on one core and 210 on several (14 and 21 MiB for the 100,000
+  above, with their instances; a frame's scratch lists took 3.5 MiB
+  before). Every view that collects models keeps its own: a target camera
+  with a 3D view, and global illumination's capture, each cost that again
+  for every model in the world.
+- **Order**: models of one mesh are kept in no particular order, and it
+  changes as models enter and leave the view. `Blend::Transparent` models
+  of one mesh are drawn far to near by their origins every frame, whatever
+  that order is. Opaque models drawn in another order can differ in a few
+  edge pixels, by a little.
+- **`ctx.gfx.models_drawn()`** counts each model once, including models
+  in a shadow cascade whose map is kept this frame.
+
+`ctx.perf.render_stats().uploads.instances` shows what a frame uploaded: with a
+moving camera it should be a small part of the instances drawn.
 
 ## 3D: Ponko vs Unity
 
