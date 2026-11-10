@@ -35,7 +35,7 @@ fn build_world(ctx: &mut Ctx) {
         .collect();
     let ground = ctx.physics3d.heightfield(&heights, SIZE);
     let look = grass(ctx);
-    let tile = ctx.create_terrain_tile(&heights, SIZE, look);
+    let tile = ctx.gfx.create_terrain_tile(&heights, SIZE, look);
     ctx.world.spawn((
         Transform3D::at(corner),
         tile,
@@ -44,8 +44,8 @@ fn build_world(ctx: &mut Ctx) {
     ));
 
     // Stairs: fixed boxes 0.25 m higher each.
-    let stone = ctx.create_material(MaterialDesc::color(Color::hex(0x9A948A)));
-    let block = ctx.create_mesh(&MeshData::cube(1.0), stone);
+    let stone = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x9A948A)));
+    let block = ctx.gfx.create_mesh(&MeshData::cube(1.0), stone);
     for i in 0..8 {
         let size = vec3(2.0, 0.25 * (i + 1) as f32, 0.6);
         let at = vec3(6.0, height(6.0, 3.0 + i as f32 * 0.6), 3.0 + i as f32 * 0.6);
@@ -61,8 +61,8 @@ fn build_world(ctx: &mut Ctx) {
     }
 
     // Crates: dynamic, light enough to push.
-    let wood = ctx.create_material(MaterialDesc::color(Color::hex(0xB07A43)));
-    let crate_mesh = ctx.create_mesh(&MeshData::cube(1.0), wood);
+    let wood = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0xB07A43)));
+    let crate_mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), wood);
     for i in 0..6 {
         let (x, z) = (-4.0 + i as f32 * 1.5, -6.0);
         ctx.world.spawn((
@@ -101,10 +101,13 @@ fn grass(ctx: &mut Ctx) -> Material {
             ]
         })
         .collect();
-    let layers = ctx.create_texture_array(16, 16, &[&green], TextureKind::Color);
-    let weights = ctx.create_texture_array(1, 1, &[&[255, 0, 0, 0]], TextureKind::Data);
+    let layers = ctx.gfx.create_texture_array(16, 16, &[&green], TextureKind::Color);
+    let weights = ctx
+        .gfx
+        .create_texture_array(1, 1, &[&[255, 0, 0, 0]], TextureKind::Data);
     let corner = vec2(-SIZE / 2.0, -SIZE / 2.0);
-    ctx.create_terrain_material(&TerrainMaterialDesc::new(layers, weights, corner, vec2(SIZE, SIZE)))
+    ctx.gfx
+        .create_terrain_material(&TerrainMaterialDesc::new(layers, weights, corner, vec2(SIZE, SIZE)))
 }
 
 // ANCHOR: walk
@@ -151,21 +154,21 @@ fn shove(ctx: &mut Ctx) {
 /// cursor is locked) and the camera sits at the walker's eyes. A click
 /// locks the mouse, Escape frees it.
 fn eyes(ctx: &mut Ctx) {
-    if ctx.mouse_pressed(MouseButton::Left) {
-        if ctx.cursor_locked() {
+    if ctx.input.mouse_pressed(MouseButton::Left) {
+        if ctx.input.cursor_locked() {
             shove(ctx);
         } else {
-            ctx.set_cursor_locked(true);
+            ctx.input.set_cursor_locked(true);
         }
     } else if ctx.key_pressed(Key::Escape) {
-        if ctx.cursor_locked() {
-            ctx.set_cursor_locked(false);
+        if ctx.input.cursor_locked() {
+            ctx.input.set_cursor_locked(false);
         } else {
             ctx.quit();
         }
     }
-    let turn = if ctx.cursor_locked() {
-        ctx.mouse_motion() * 0.003
+    let turn = if ctx.input.cursor_locked() {
+        ctx.input.mouse_motion() * 0.003
     } else {
         Vec2::ZERO
     };
@@ -188,7 +191,7 @@ fn main() {
         .system(eyes)
         // ANCHOR_END: setup
         .setup(|ctx| {
-            ctx.clear(Color::hex(0x9CC4E4));
+            ctx.gfx.clear(Color::hex(0x9CC4E4));
             build_world(ctx);
         })
         .run();

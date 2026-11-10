@@ -2,7 +2,7 @@
 //! worst frames, warnings with advice, budgets for tests and CI, and
 //! comparing two runs.
 //!
-//! A [`PerfReport`] comes from [`Ctx::perf_report`](crate::Ctx::perf_report)
+//! A [`PerfReport`] comes from [`Perf::report`](crate::Perf::report)
 //! in a running game and from [`Game::profile_headless`](crate::Game::profile_headless)
 //! for a headless run; `PONKO_BENCH` prints one, and the control endpoint's
 //! `perf.get` returns one as JSON.
@@ -14,7 +14,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::alloc_count::{self, AllocCounts};
-use crate::ctx::SystemTiming;
+use crate::perf::SystemTiming;
 use crate::profiler::percentile;
 use crate::scope::{self, ScopeState, ScopeTiming};
 
@@ -176,7 +176,7 @@ pub struct PerfWarning {
 }
 
 /// Where a game's time and allocations go, over its last frames. It comes
-/// from [`Ctx::perf_report`](crate::Ctx::perf_report) in a running game and
+/// from [`Perf::report`](crate::Perf::report) in a running game and
 /// [`Game::profile_headless`](crate::Game::profile_headless) in a headless run.
 ///
 /// ```
@@ -822,7 +822,7 @@ impl Collector {
 pub(crate) struct PerfState {
     /// Profiling is running (scopes and allocation counting count).
     pub on: bool,
-    /// `Ctx::set_profiling(true)` was called.
+    /// `Perf::set_profiling(true)` was called.
     pub explicit: bool,
     pub scopes: ScopeState,
     pub collector: Collector,
@@ -961,7 +961,7 @@ pub(crate) fn analyze(report: &mut PerfReport) {
                 cpu_ms
             ),
             hint: "Wrap parts of it in profile_scope! to see where the time goes. Then: iterate with for_each / \
-                   par_for_each, spread per-entity work over frames with ctx.turns(n), or run it less often with \
+                   par_for_each, spread per-entity work over frames with ctx.time.turns(n), or run it less often with \
                    sim_system_every."
                 .into(),
         });
@@ -984,7 +984,7 @@ pub(crate) fn analyze(report: &mut PerfReport) {
             ),
             hint: "Spikes come from allocation bursts, loading assets, spawning many entities at once, or a system \
                    that sometimes does a lot (path searches, rebuilds). Spread such work over frames with \
-                   ctx.turns(n), or do it ahead of time. ctx.record_trace shows a slow frame on a timeline."
+                   ctx.time.turns(n), or do it ahead of time. ctx.record_trace shows a slow frame on a timeline."
                 .into(),
         });
     }

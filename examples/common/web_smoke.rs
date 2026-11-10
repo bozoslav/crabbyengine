@@ -10,7 +10,7 @@
 //!   "frames":118,"clicks":1,"size":[800,600], ...}` plus whatever the fixture
 //!   adds (`"asset":[32,32]`, `"screen":"Playing"`).
 //! - `<html data-smoke-gpu="...">`, once: what the engine itself says about the
-//!   GPU it opened (`Ctx::gpu_capabilities`, as JSON). The runner compares its
+//!   GPU it opened (`Graphics::gpu_capabilities`, as JSON). The runner compares its
 //!   backend with the canvas's context, so a WebGL2 page can't pass as WebGPU.
 //!
 //! The failure cases come from the page's query string: `?smoke_case=panic`
@@ -63,10 +63,10 @@ impl Smoke {
     /// Call it once per frame, from the frame closure.
     pub fn frame(&mut self, ctx: &mut Ctx, ticks: u64, extra: Value) {
         self.frames += 1;
-        if self.case == "stall" && ticks >= STALL_AFTER && !ctx.is_paused() {
-            ctx.pause();
+        if self.case == "stall" && ticks >= STALL_AFTER && !ctx.time.is_paused() {
+            ctx.time.pause();
         }
-        if ctx.mouse_pressed(MouseButton::Left) {
+        if ctx.input.mouse_pressed(MouseButton::Left) {
             self.clicks += 1;
         }
         let size = ctx.window_size();
@@ -82,7 +82,7 @@ impl Smoke {
         if !self.gpu_published {
             // The adapter is known once the first frame runs; None in
             // headless runs, so try again next frame there.
-            if let Some(gpu) = ctx.gpu_capabilities() {
+            if let Some(gpu) = ctx.gfx.gpu_capabilities() {
                 publish("data-smoke-gpu", &serde_json::to_string(gpu).unwrap_or_default());
                 self.gpu_published = true;
             }

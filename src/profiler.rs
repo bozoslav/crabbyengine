@@ -22,10 +22,10 @@
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
-use crate::ctx::SystemTiming;
+use crate::perf::SystemTiming;
 use crate::render::RenderStats;
 
-/// One GPU pass of a frame, from [`Ctx::gpu_passes`](crate::Ctx::gpu_passes).
+/// One GPU pass of a frame, from [`Perf::gpu_passes`](crate::Perf::gpu_passes).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GpuPass {
     /// What the pass draws ("shadows 0", "opaque", "bloom", ...). Passes
@@ -45,7 +45,7 @@ pub(crate) struct PassSpan {
 }
 
 /// Frame-time statistics over the last few seconds, from
-/// [`Ctx::frame_stats`](crate::Ctx::frame_stats). All times in milliseconds;
+/// [`Perf::frame_stats`](crate::Perf::frame_stats). All times in milliseconds;
 /// the CPU and GPU parts are averages.
 ///
 /// What limits the frame rate: if `gpu_ms` is close to `avg_ms`, the GPU;

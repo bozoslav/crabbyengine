@@ -35,9 +35,9 @@ fn morph(ctx: &mut Ctx) {
             weight: 1.0,
         },
     ];
-    let material = ctx.default_material();
-    let mesh = ctx.create_mesh(&sheet, material);
-    let dent = ctx.morph_target(mesh, "dent").unwrap();
+    let material = ctx.gfx.default_material();
+    let mesh = ctx.gfx.create_mesh(&sheet, material);
+    let dent = ctx.gfx.morph_target(mesh, "dent").unwrap();
     let mut weights = MorphWeights::default();
     weights.set(dent, 0.5); // halfway dented
     let mut skeleton = Skeleton::new(vec![]);
@@ -48,7 +48,7 @@ fn morph(ctx: &mut Ctx) {
     expression.sample(0.5, &mut skeleton);
     ctx.world
         .spawn((Transform3D::default(), Model::new(mesh), weights, skeleton));
-    ctx.write_animated_morphs();
+    ctx.gfx.write_animated_morphs(&mut ctx.world);
 }
 // ANCHOR_END: morph
 
@@ -164,8 +164,8 @@ fn automatic_morph_only_animation_writes_components_and_attachments_without_drif
             positions: vec![Vec3::X; 4],
             normals: vec![],
         });
-        let material = ctx.default_material();
-        let mesh = ctx.create_mesh(&mesh, material);
+        let material = ctx.gfx.default_material();
+        let mesh = ctx.gfx.create_mesh(&mesh, material);
         let skeleton = Skeleton::new(vec![]);
         let base = AnimationClip::new("idle", &skeleton, vec![]);
         let mut animator = Animator::new(graph(vec![Motion::Clip(base)]));
@@ -182,7 +182,7 @@ fn automatic_morph_only_animation_writes_components_and_attachments_without_drif
             let (a, s) = q.get(owner).unwrap();
             a.update(0., s);
             drop(q);
-            ctx.write_animated_morphs();
+            ctx.gfx.write_animated_morphs(&mut ctx.world);
             assert_eq!(ctx.world.get::<MorphWeights>(model).unwrap().0, [0.4, 0.7]);
         }
     });

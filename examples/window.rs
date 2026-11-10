@@ -37,7 +37,7 @@ fn main() {
             pos += dir.normalize_or_zero() * 200.0 * ctx.dt();
 
             // Fixed-rate logic: runs exactly 60 times per second on average.
-            for _ in 0..ctx.fixed_steps() {
+            for _ in 0..ctx.time.fixed_steps() {
                 fixed_ticks += 1;
             }
 
@@ -46,19 +46,19 @@ fn main() {
                     "pos = ({:.0}, {:.0})  time = {:.2}s  fixed ticks = {}  fps = {:.0}",
                     pos.x,
                     pos.y,
-                    ctx.time(),
+                    ctx.time.elapsed(),
                     fixed_ticks,
-                    ctx.fps()
+                    ctx.time.fps()
                 );
             }
 
-            if ctx.mouse_pressed(MouseButton::Left) {
+            if ctx.input.mouse_pressed(MouseButton::Left) {
                 let m = ctx.mouse_pos();
                 println!("click at ({:.0}, {:.0})", m.x, m.y);
             }
 
-            if ctx.mouse_wheel().y != 0.0 {
-                zoom = (zoom * 1.1_f32.powf(ctx.mouse_wheel().y)).clamp(0.1, 10.0);
+            if ctx.input.mouse_wheel().y != 0.0 {
+                zoom = (zoom * 1.1_f32.powf(ctx.input.mouse_wheel().y)).clamp(0.1, 10.0);
                 println!("zoom = {zoom:.2}");
             }
 

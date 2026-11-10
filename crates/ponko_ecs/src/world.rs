@@ -77,6 +77,9 @@ pub struct World {
     scratch_ids: Vec<ComponentId>,
     /// Access recording for declared-access checks (debug builds only).
     pub(crate) recorder: Recorder,
+    /// Unique per world, so a [`ViewState`](crate::ViewState) prepared on
+    /// one world is never used to view another.
+    pub(crate) uid: u64,
 }
 
 // Own the existing box so scoped access needs neither unsafe code nor a new
@@ -160,6 +163,7 @@ impl World {
             dynamic_resources: HashMap::new(),
             scratch_ids: Vec::new(),
             recorder: Recorder::default(),
+            uid: crate::view::next_world_uid(),
         };
         w.archetype_for(&[]); // archetype 0: entities with no components
         w
@@ -611,6 +615,16 @@ impl World {
         self.dynamic_resources.remove(name).is_some()
     }
 
+    /// Moves a typed resource out of the map, unrecorded (for views).
+    pub(crate) fn lend_resource(&mut self, id: TypeId) -> Option<Box<dyn Any + Send + Sync>> {
+        self.resources.remove(&id)
+    }
+
+    /// Puts a resource moved out by `lend_resource` back.
+    pub(crate) fn return_resource(&mut self, id: TypeId, value: Box<dyn Any + Send + Sync>) {
+        self.resources.insert(id, value);
+    }
+
     /// Records resource `R` as read or written, while recording.
     #[inline]
     fn note_resource<R: 'static>(&self, write: bool) {
@@ -806,7 +820,7 @@ impl World {
     }
 
     /// Where component `id` of `e` lives, without recording an access.
-    fn locate(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
+    pub(crate) fn locate(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
         let loc = self.entities.get(e)?;
         let arch = &self.archetypes[loc.archetype as usize];
         let col = arch.column_index(id)?;
@@ -909,9 +923,20 @@ impl World {
     /// `value` must point to a valid value of component `id`; on success the
     /// world takes ownership of it.
     pub unsafe fn insert_dynamic(&mut self, e: Entity, id: ComponentId, value: *const u8) -> bool {
-        self.recorder.note(|l| l.structural = true);
-        let Some(loc) = self.entities.get(e) else { return false };
+        let Some(loc) = self.entities.get(e) else {
+            self.recorder.note(|l| l.structural = true);
+            return false;
+        };
         let src = loc.archetype as usize;
+        // Replacing a component in place is a write, not a structural change.
+        // (Looked up inside, so release builds, which don't record, skip it.)
+        self.recorder.note(|l| {
+            if self.archetypes[src].column_index(id).is_some() {
+                l.component(id, true);
+            } else {
+                l.structural = true;
+            }
+        });
         if let Some(col) = self.archetypes[src].column_index(id) {
             let c = &self.archetypes[src].columns[col];
             let dst = c.ptr(loc.row as usize);

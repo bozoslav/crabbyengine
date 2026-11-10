@@ -32,6 +32,7 @@ import {
   checkEngineGpu,
   checkMinimums,
   launchConfig,
+  launchFailureKind,
   parseArgs,
   parseFixtures,
   unsupportedReason,
@@ -307,8 +308,8 @@ async function main() {
     } catch (e) {
       // A browser that isn't installed is "unsupported" here; one that is
       // installed and won't start is a failure, never a quiet pass.
-      const notInstalled = /Executable doesn't exist/.test(e.message);
-      throw new Failure(notInstalled ? "unsupported" : "launch", `could not launch headless ${args.browser}: ${e.message.split("\n").slice(0, 6).join(" | ")}`);
+      const kind = launchFailureKind(e.message, process.env);
+      throw new Failure(kind, `could not launch headless ${args.browser}: ${e.message.split("\n").slice(0, 6).join(" | ")}`);
     }
     report.browser = `${args.browser} ${browser.version()}`;
     log(`${report.browser}, ${report.platform}`);
@@ -465,6 +466,8 @@ async function main() {
     const clickDeadline = Date.now() + 10_000;
     for (;;) {
       snapshot = await smokeState(page);
+      failure = appFailure(snapshot.status);
+      if (failure) throw failure;
       if (snapshot.state.clicks >= 1) break;
       if (Date.now() > clickDeadline) throw new Failure("input", "the game never saw the click");
       await sleep(100);
@@ -506,7 +509,7 @@ async function main() {
     log(`canvas: ${JSON.stringify(report.canvas)}`);
     if (Object.values(report.canvas).every(blank)) {
       if (report.backend === "webgpu" && report.capabilities.webgpu?.canvas !== true) {
-        throw new Failure("unsupported", `blank WebGPU canvas, but a plain WebGPU canvas fails here too: ${report.capabilities.webgpu.canvasProblem}`);
+        throw new Failure("unsupported", `blank WebGPU canvas, but a plain WebGPU canvas fails here too: ${report.capabilities.webgpu?.canvasProblem ?? "the browser found no WebGPU adapter"}`);
       }
       throw new Failure("blank", `the canvas looks blank: ${JSON.stringify(report.canvas)}`);
     }

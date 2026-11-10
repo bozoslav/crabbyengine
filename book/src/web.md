@@ -87,7 +87,7 @@ nowhere; panics appear in the browser's developer console.
 `web/smoke/` in the engine's repository runs a web build in a headless
 browser (Chromium, Firefox or WebKit) and checks that it starts, fetches its
 assets, keeps simulating, reacts to a click and draws something. It also reads
-the engine's own report of the GPU it opened (`ctx.gpu_capabilities()`) and
+the engine's own report of the GPU it opened (`ctx.gfx.gpu_capabilities()`) and
 checks that it agrees with the canvas, so a page that fell back to WebGL2
 can't pass as WebGPU. A 2D fixture, a 3D fixture (built with `--features 3d`:
 a glTF model fetched and parsed in the browser, with a sun and shadows) and

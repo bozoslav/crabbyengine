@@ -23,7 +23,7 @@ fn render(downlevel: bool, benchmark: bool) {
     let (width, height) = if benchmark { (1920, 1080) } else { (SIZE, SIZE) };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        eprintln!("no GPU adapter: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter");
         return;
     };
     eprintln!("AO adapter: {:?}", adapter.get_info());
@@ -35,10 +35,15 @@ fn render(downlevel: bool, benchmark: bool) {
         descriptor.required_limits.max_compute_workgroups_per_dimension = 0;
         descriptor.required_limits.max_storage_textures_per_shader_stage = 0;
     }
-    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&descriptor)) else {
-        eprintln!("no GPU device: skipped");
+    let Ok((device, queue)) =
+        pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&descriptor)))
+    else {
+        crate::render::render_test_support::no_gpu("no GPU device");
         return;
     };
+    if !downlevel && !crate::render::render_test_support::needs(&device, crate::GpuFeature::AmbientOcclusion) {
+        return;
+    }
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[
@@ -128,11 +133,11 @@ fn render(downlevel: bool, benchmark: bool) {
         roughness: 1.0,
         ..Default::default()
     };
-    let material = ctx.create_material(matte);
+    let material = ctx.gfx.create_material(matte);
     let ground = MeshData::plane(20.0);
     let cube = MeshData::cube(1.0);
-    let ground_mesh = ctx.create_mesh(&ground, material);
-    let cube_mesh = ctx.create_mesh(&cube, material);
+    let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+    let cube_mesh = ctx.gfx.create_mesh(&cube, material);
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
     ctx.world
         .spawn((Transform3D::at(vec3(0.0, 0.5, 0.0)), Model::new(cube_mesh)));
@@ -167,7 +172,7 @@ fn render(downlevel: bool, benchmark: bool) {
         let mut frame = Frame3D::default();
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,

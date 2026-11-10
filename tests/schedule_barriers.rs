@@ -89,7 +89,7 @@ fn commands_from_setup_apply_before_the_first_tick() {
     let world = Game::new("barriers", 1, 1)
         .add(Phase::Input, |ctx: &mut Ctx| {
             let n = markers(ctx);
-            log(ctx, format!("tick {} sees {n}", ctx.sim_tick()));
+            log(ctx, format!("tick {} sees {n}", ctx.time.sim_tick()));
         })
         .run_headless(1, |ctx| {
             setup(ctx);
@@ -104,7 +104,7 @@ fn commands_from_setup_apply_before_the_first_tick() {
 fn commands_apply_in_recorded_order() {
     let mut world = Game::new("barriers", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() != 0 {
+            if ctx.time.sim_tick() != 0 {
                 return;
             }
             let kept = ctx.world.spawn((Marker(1),));
@@ -142,7 +142,7 @@ fn systems_skipped_by_every_neither_run_nor_flush_anything() {
         .sim_system_every(3, |ctx: &mut Ctx| ctx.commands.spawn((Marker(0),)))
         .sim_system(|ctx: &mut Ctx| {
             let n = markers(ctx);
-            log(ctx, format!("{}:{n}", ctx.sim_tick()));
+            log(ctx, format!("{}:{n}", ctx.time.sim_tick()));
         })
         .run_headless(6, setup);
     assert_eq!(lines(&world), ["0:1", "1:1", "2:1", "3:2", "4:2", "5:2"]);
@@ -163,7 +163,7 @@ fn events_and_commands_from_one_system_are_visible_together_to_later_systems() {
         .sim_system(|ctx: &mut Ctx| {
             let events = ctx.events.read::<Spawned>().len();
             let n = markers(ctx);
-            log(ctx, format!("tick {} events={events} markers={n}", ctx.sim_tick()));
+            log(ctx, format!("tick {} events={events} markers={n}", ctx.time.sim_tick()));
         })
         .run_headless(2, setup);
     assert_eq!(
@@ -199,12 +199,12 @@ fn an_event_about_a_despawn_command_arrives_after_the_despawn() {
 fn readers_in_earlier_phases_see_later_phase_events_next_tick() {
     let world = Game::new("barriers", 1, 1)
         .add(Phase::SimLast, |ctx: &mut Ctx| {
-            let t = ctx.sim_tick() as u32;
+            let t = ctx.time.sim_tick() as u32;
             ctx.events.send(Marker(t));
         })
         .add(Phase::Input, |ctx: &mut Ctx| {
             let got: Vec<u32> = ctx.events.read::<Marker>().iter().map(|m| m.0).collect();
-            log(ctx, format!("tick {} read {got:?}", ctx.sim_tick()));
+            log(ctx, format!("tick {} read {got:?}", ctx.time.sim_tick()));
         })
         .run_headless(3, setup);
     assert_eq!(lines(&world), ["tick 0 read []", "tick 1 read [0]", "tick 2 read [1]"]);
@@ -214,7 +214,7 @@ fn readers_in_earlier_phases_see_later_phase_events_next_tick() {
 fn a_sender_reading_its_own_type_sees_its_own_events_once() {
     let world = Game::new("barriers", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            let t = ctx.sim_tick() as u32;
+            let t = ctx.time.sim_tick() as u32;
             ctx.events.send(Marker(t));
             let got: Vec<u32> = ctx.events.read::<Marker>().iter().map(|m| m.0).collect();
             log(ctx, format!("{got:?}"));
@@ -229,7 +229,7 @@ fn events_stay_readable_for_the_slowest_every_interval() {
     // kept events last at least `max(every)` ticks.
     let world = Game::new("barriers", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            let t = ctx.sim_tick() as u32;
+            let t = ctx.time.sim_tick() as u32;
             ctx.events.send(Marker(t));
             let kept = ctx.events.peek::<Marker>().len();
             log(ctx, format!("kept {kept}"));
@@ -264,11 +264,11 @@ fn events_stay_readable_for_the_slowest_every_interval() {
 fn headless_events_expire_two_ticks_after_they_were_sent() {
     let world = Game::new("barriers", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 0 {
+            if ctx.time.sim_tick() == 0 {
                 ctx.events.send(Marker(0));
             }
             let kept = ctx.events.peek::<Marker>().len();
-            log(ctx, format!("{}:{kept}", ctx.sim_tick()));
+            log(ctx, format!("{}:{kept}", ctx.time.sim_tick()));
         })
         .run_headless(4, setup);
     assert_eq!(lines(&world), ["0:1", "1:1", "2:0", "3:0"]);

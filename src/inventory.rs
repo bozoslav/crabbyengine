@@ -17,10 +17,10 @@ use crate::ctx::Ctx;
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum AssetClass {
-    /// Images from [`Ctx::create_texture`] and [`Ctx::load_texture`]
+    /// Images from [`Graphics::create_texture`](crate::Graphics::create_texture) and [`Ctx::load_texture`]
     /// (fonts and UI images too). Never freed.
     Texture,
-    /// 3D: textures cameras draw into ([`Ctx::create_render_target`](crate::Ctx::create_render_target)). Never freed.
+    /// 3D: textures cameras draw into ([`Graphics::create_render_target`](crate::Graphics::create_render_target)). Never freed.
     RenderTarget,
     /// 3D: [`TextureArray`](crate::TextureArray)s. Never freed.
     TextureArray,
@@ -28,9 +28,9 @@ pub enum AssetClass {
     Material,
     /// 3D: material [`Shader`](crate::Shader)s. Never freed.
     Shader,
-    /// 3D: [`Mesh`](crate::Mesh)es, freed with [`Ctx::free_mesh`](crate::Ctx::free_mesh).
+    /// 3D: [`Mesh`](crate::Mesh)es, freed with [`Graphics::free_mesh`](crate::Graphics::free_mesh).
     Mesh,
-    /// 3D: [`GpuBuffer`](crate::GpuBuffer)s, freed with [`Ctx::free_gpu_buffer`](crate::Ctx::free_gpu_buffer).
+    /// 3D: [`GpuBuffer`](crate::GpuBuffer)s, freed with [`Ctx::free`](crate::Ctx::free).
     GpuBuffer,
     /// 3D: screen [`Effect`](crate::Effect)s. Never freed.
     Effect,
@@ -127,7 +127,7 @@ pub struct GpuResidency {
 /// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     let before = ctx.asset_inventory();
-///     let _sprite = ctx.create_texture(2, 2, &[255; 16]);
+///     let _sprite = ctx.gfx.create_texture(2, 2, &[255; 16]);
 ///     let after = ctx.asset_inventory();
 ///     assert_eq!(after.get(AssetClass::Texture).live, before.get(AssetClass::Texture).live + 1);
 ///     let growth = after.growth_since(&before);
@@ -242,12 +242,12 @@ impl Ctx {
     pub fn asset_inventory(&self) -> AssetInventory {
         let mut classes = vec![AssetCount {
             class: AssetClass::Texture,
-            live: self.asset_ledger.textures.len(),
-            bytes: self.asset_ledger.textures.values().sum(),
+            live: self.gfx.asset_ledger.textures.len(),
+            bytes: self.gfx.asset_ledger.textures.values().sum(),
         }];
         #[cfg(feature = "3d")]
-        classes.extend(self.assets3d.inventory(&self.textures_live));
-        let (sounds, sound_bytes) = self.audio.inventory();
+        classes.extend(self.gfx.assets3d.inventory(&self.gfx.textures_live));
+        let (sounds, sound_bytes) = self.audio.backend.inventory();
         classes.push(AssetCount {
             class: AssetClass::Sound,
             live: sounds,
@@ -256,7 +256,7 @@ impl Ctx {
         let gpu = if self.headless {
             None
         } else {
-            self.renderer.as_ref().and_then(crate::render::Renderer::residency)
+            self.gfx.renderer.as_ref().and_then(crate::render::Renderer::residency)
         };
         AssetInventory { classes, gpu }
     }

@@ -13,12 +13,14 @@ const UNBOUND: &str = "@group(3) @binding(7) var<uniform> extra: vec4<f32>;\nfn 
 fn rig() -> Option<(wgpu::Device, Renderer3D)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&Default::default())) else {
-        eprintln!("no GPU adapter: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter");
         return None;
     };
     eprintln!("shader reload test adapter: {:?}", adapter.get_info());
-    let Ok((device, _queue)) = pollster::block_on(adapter.request_device(&Default::default())) else {
-        eprintln!("no GPU device: skipped");
+    let Ok((device, _queue)) =
+        pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&Default::default())))
+    else {
+        crate::render::render_test_support::no_gpu("no GPU device");
         return None;
     };
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -335,6 +337,10 @@ fn effect_and_compute_errors_have_a_place_and_failed_reloads_keep_the_last_good_
     let Some((device, mut renderer)) = rig() else {
         return;
     };
+    // Both reload a compute pass too.
+    if !crate::render::render_test_support::needs(&device, crate::GpuFeature::Compute) {
+        return;
+    }
     let fx = renderer.create_effect(&device, "grey.wgsl", FX_GREY).unwrap();
     let cs = renderer.create_compute(&device, "fade.wgsl", CS_FADE).unwrap();
     let (fx_before, cs_before) = (
@@ -393,6 +399,10 @@ fn late_gpu_rejections_put_the_previous_pipelines_back_and_are_reported() {
     let Some((device, mut renderer)) = rig() else {
         return;
     };
+    // Both reload a compute pass too.
+    if !crate::render::render_test_support::needs(&device, crate::GpuFeature::Compute) {
+        return;
+    }
     let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
     let other = renderer.create_shader(&device, "blue.wgsl", BLUE).unwrap();
     let fx = renderer.create_effect(&device, "grey.wgsl", FX_GREY).unwrap();
@@ -467,5 +477,120 @@ fn a_late_rejection_behind_a_newer_reload_falls_back_to_the_last_good_version() 
         pipelines(&renderer, red),
         good,
         "both rejected: the first good version is back"
+    );
+    let flags: Vec<(bool, bool)> = late.iter().map(|e| (e.reload, e.superseded)).collect();
+    assert_eq!(
+        flags,
+        [(true, true), (true, false)],
+        "the older one was replaced before its verdict"
+    );
+    // What `shader_status` makes of it: both reloads undone, one failure.
+    let status = statuses_after("red.wgsl", 2, late);
+    assert_eq!(status.outcome, crate::ShaderOutcome::ReloadFailed);
+    assert_eq!(status.reloads, 0);
+    assert_eq!(status.diagnostics.len(), 1, "{:?}", status.diagnostics);
+}
+
+/// The status of material shader `name` made, then reloaded `reloads`
+/// times (each recorded as it is put in use), after the late rejections
+/// `late` from the renderer.
+fn statuses_after(name: &str, reloads: u32, late: Vec<LateShaderError>) -> crate::ShaderStatus {
+    let mut out = None;
+    crate::Game::new("t", 1, 1).run_headless(0, |ctx| {
+        ctx.gfx.create_shader(name, RED);
+        for _ in 0..reloads {
+            ctx.gfx.record_shader(name, ShaderKind::Material, true, Ok(())).unwrap();
+        }
+        for e in late {
+            ctx.gfx.record_rejected(e.reload, e.superseded, *e.diagnostic);
+        }
+        out = ctx.gfx.shader_status().first().cloned();
+    });
+    out.unwrap()
+}
+
+#[test]
+fn a_late_rejection_of_an_older_reload_leaves_the_newer_one_that_passed() {
+    let Some((device, mut renderer)) = rig() else {
+        return;
+    };
+    let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
+    renderer.defer_checks = true;
+    renderer.replace_shader(&device, red, "red.wgsl", UNBOUND).unwrap();
+    renderer.replace_shader(&device, red, "red.wgsl", BLUE).unwrap();
+    let blue = pipelines(&renderer, red);
+    let mut late = Vec::new();
+    renderer.poll_shader_checks(&device, &mut late);
+    assert_eq!(late.len(), 1);
+    assert!(late[0].superseded);
+    assert_eq!(pipelines(&renderer, red), blue, "the newer code stays");
+    let status = statuses_after("red.wgsl", 2, late);
+    assert_eq!(
+        status.outcome,
+        crate::ShaderOutcome::Reloaded,
+        "{:?}",
+        status.diagnostics
+    );
+    assert_eq!(status.reloads, 1, "only the reload that took effect counts");
+    assert!(status.diagnostics.is_empty());
+}
+
+#[test]
+fn a_late_rejection_handed_down_also_frees_shaders_sharing_the_rejected_code() {
+    let Some((device, mut renderer)) = rig() else {
+        return;
+    };
+    let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
+    renderer.defer_checks = true;
+    renderer.replace_shader(&device, red, "red.wgsl", UNBOUND).unwrap();
+    // Made from the same code: shares the waiting pipelines, no check of its own.
+    let twin = renderer.create_shader(&device, "twin.wgsl", UNBOUND).unwrap();
+    assert_eq!(pipelines(&renderer, twin), pipelines(&renderer, red));
+    // A newer reload, also waiting when the older verdict comes (it passes).
+    renderer.replace_shader(&device, red, "red.wgsl", BLUE).unwrap();
+    assert_eq!(renderer.pending_shader_checks(), 2);
+    let blue = pipelines(&renderer, red);
+    let mut late = Vec::new();
+    renderer.poll_shader_checks(&device, &mut late);
+    assert_eq!(late.len(), 1);
+    assert_eq!(
+        pipelines(&renderer, twin),
+        pipelines(&renderer, 0),
+        "the twin draws as the built-in"
+    );
+    assert_eq!(pipelines(&renderer, red), blue, "the newer code stays");
+}
+
+/// What `Ctx` does when a shader file fails at first load (a stand-in,
+/// and for a compute pass, its pipeline freed) and a saved fix reloads it.
+#[test]
+fn first_load_stand_ins_are_replaced_by_the_fixed_reload() {
+    let Some((device, mut renderer)) = rig() else {
+        return;
+    };
+    let shader = renderer.create_shader(&device, "m.wgsl", "").unwrap();
+    assert_eq!(
+        pipelines(&renderer, shader),
+        pipelines(&renderer, 0),
+        "the built-in look"
+    );
+    let fx = renderer
+        .create_effect(&device, "fx.wgsl", crate::three::EFFECT_STAND_IN)
+        .unwrap();
+    let cs = renderer
+        .create_compute(&device, "cs.wgsl", crate::three::COMPUTE_STAND_IN)
+        .unwrap();
+    renderer.free_compute(cs);
+    assert!(renderer.compute_pipelines[cs as usize].is_none(), "skipped until fixed");
+    let fx_stand_in = renderer.effect_pipelines[fx as usize].clone();
+
+    renderer.replace_shader(&device, shader, "m.wgsl", RED).unwrap();
+    renderer.replace_effect(&device, fx, "fx.wgsl", FX_GREY).unwrap();
+    renderer.replace_compute(&device, cs, "cs.wgsl", CS_FADE).unwrap();
+    assert_ne!(pipelines(&renderer, shader), pipelines(&renderer, 0));
+    assert_ne!(renderer.effect_pipelines[fx as usize], fx_stand_in);
+    assert!(
+        renderer.compute_pipelines[cs as usize].is_some(),
+        "the fix fills the slot"
     );
 }

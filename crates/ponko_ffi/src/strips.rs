@@ -1,5 +1,5 @@
 //! Ribbons, lines and decals from C (Rust `Trail3D`, `Line3D`,
-//! `MeshData::decal` and `Ctx::load_mesh_data`).
+//! `MeshData::decal` and `Graphics::load_mesh_data`).
 //!
 //! Fill a `CrabbyTrail3D` (start from `crabby_trail3d_new()`) or a
 //! `CrabbyLine3D` (start from `crabby_line3d_new()`), then give an entity with a
@@ -415,7 +415,7 @@ pub unsafe extern "C" fn crabby_mesh_data_decal(
     result
 }
 
-/// Reads a glTF file's mesh onto the CPU (Rust `Ctx::load_mesh_data`), all
+/// Reads a glTF file's mesh onto the CPU (Rust `Graphics::load_mesh_data`), all
 /// its parts in one and placed as in the file, without making anything on
 /// the GPU: to cut decals from or read its corners. Loads the file each
 /// call; keep the result. Free it with `crabby_mesh_data_free`. Fails if
@@ -439,7 +439,7 @@ pub unsafe extern "C" fn crabby_ctx_load_mesh_data(
             if out_data.is_null() {
                 return Err(invalid("output is null"));
             }
-            let data: MeshData = c.load_mesh_data(path).map_err(invalid_owned)?;
+            let data: MeshData = c.gfx.load_mesh_data(path).map_err(invalid_owned)?;
             out(out_data, Box::into_raw(Box::new(CrabbyMeshData(data))))
         })
     })

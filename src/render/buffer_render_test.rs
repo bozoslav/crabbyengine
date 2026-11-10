@@ -27,7 +27,7 @@ impl Rig {
     fn with_compute(compute: bool) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
         eprintln!("adapter: {:?}", adapter.get_info());
@@ -36,11 +36,13 @@ impl Rig {
         } else {
             wgpu::Limits::downlevel_webgl2_defaults()
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_limits: limits,
-            ..Default::default()
-        })) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor {
+                required_limits: limits,
+                ..Default::default()
+            }),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -141,8 +143,8 @@ impl Rig {
 
     /// A mesh of `data` with `desc`, on the CPU and the GPU.
     pub fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
-        let material = self.ctx.create_material(desc);
-        let mesh = self.ctx.create_mesh(data, material);
+        let material = self.ctx.gfx.create_material(desc);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         self.renderer
@@ -167,20 +169,20 @@ impl Rig {
         frame.occlusion = grid;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
         );
-        ctx.frame3d.views = std::mem::take(&mut frame.views);
+        ctx.gfx.frame3d.views = std::mem::take(&mut frame.views);
         ctx.collect_views(&SkinFrame::default());
-        frame.views = std::mem::take(&mut ctx.frame3d.views);
+        frame.views = std::mem::take(&mut ctx.gfx.frame3d.views);
         // Like the frame does: a freed buffer's passes are left out.
         frame.computes.clear();
         frame.computes.extend(
             ctx.compute_passes
                 .iter()
-                .filter(|c| ctx.gpu_buffer_len(c.buffer.unwrap()).is_some())
+                .filter(|c| ctx.gfx.gpu_buffer_len(c.buffer.unwrap()).is_some())
                 .map(|c| (c.compute.id, c.buffer.unwrap().id | (1 << 31), 0)),
         );
         let scene = Scene3D {
@@ -263,7 +265,7 @@ fn buffer_draw(compute: bool) {
         return;
     }
     let source = "fn vertex(v: Vertex) -> Vertex { var o = v; o.position += items[v.instance_index].xyz; return o; }";
-    let shader = rig.ctx.create_shader("buffer draw", source);
+    let shader = rig.ctx.gfx.create_shader("buffer draw", source);
     rig.renderer.create_shader(&rig.device, "buffer draw", source).unwrap();
     let mesh = rig.mesh(
         &MeshData::cube(0.4),
@@ -275,7 +277,7 @@ fn buffer_draw(compute: bool) {
     );
     let mut data = vec![vec4(99.0, -1.0, 0.0, 1.0); 65];
     data[0].x = -2.0;
-    let b = rig.ctx.create_gpu_buffer(65, &data);
+    let b = rig.ctx.gfx.create_gpu_buffer(65, &data);
     rig.renderer.create_gpu_buffer(&rig.device, b.id, 65, &data);
     rig.renderer
         .write_gpu_buffer(&rig.queue, b.id, 64, &[vec4(0.0, -1.0, 0.0, 1.0)]);
@@ -283,7 +285,7 @@ fn buffer_draw(compute: bool) {
     let first = "fn update(i: u32) { items[i].x += 1.0; }";
     let second = "fn update(i: u32) { items[i].y += 1.0 + frame.time.y * 0.0; }";
     for source in [first, second] {
-        let c = rig.ctx.create_compute("positions", source);
+        let c = rig.ctx.gfx.create_compute("positions", source);
         rig.renderer.create_compute(&rig.device, "positions", source).unwrap();
         rig.ctx.compute_passes.push(ComputePass::for_buffer(c, b));
     }
@@ -325,6 +327,9 @@ fn persistent_batch_draw(compute: bool) {
     let Some(mut rig) = Rig::with_compute(compute) else {
         return;
     };
+    if compute && !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ComputeCulling) {
+        return;
+    }
     let mesh = rig.mesh(
         &MeshData::cube(0.5),
         MaterialDesc {
@@ -342,11 +347,11 @@ fn persistent_batch_draw(compute: bool) {
     };
     let at = [vec3(-1.0, 0.0, -5.0), vec3(1.0, 0.0, 5.0), vec3(-8.0, 0.0, -20.0)];
     let transforms = at.map(Mat4::from_translation);
-    let b = rig.ctx.create_instance_batch(mesh, &transforms, options);
+    let b = rig.ctx.gfx.create_instance_batch(mesh, &transforms, options);
     rig.renderer.set_instance_batch(
         &rig.device,
         b.id(),
-        rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+        rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
     );
     let image = rig.draw();
     if let Ok(path) = std::env::var("PONKO_TEST_IMAGE") {
@@ -405,11 +410,12 @@ fn persistent_batch_draw(compute: bool) {
     );
     let cb = rig
         .ctx
+        .gfx
         .create_instance_batch(cutout, &[Mat4::from_translation(at[0])], options);
     rig.renderer.set_instance_batch(
         &rig.device,
         cb.id(),
-        rig.ctx.assets3d.instance_batches[cb.id() as usize].as_ref(),
+        rig.ctx.gfx.assets3d.instance_batches[cb.id() as usize].as_ref(),
     );
     rig.ctx.lighting.shadows = true;
     rig.ctx.camera3d.occlusion_culling = false;
@@ -432,7 +438,7 @@ const OFFSETS: &str =
 impl Rig {
     /// A cube mesh drawn from GPU buffer elements by `OFFSETS`.
     fn offset_mesh(&mut self) -> Mesh {
-        let shader = self.ctx.create_shader("offsets", OFFSETS);
+        let shader = self.ctx.gfx.create_shader("offsets", OFFSETS);
         self.renderer.create_shader(&self.device, "offsets", OFFSETS).unwrap();
         self.mesh(
             &MeshData::cube(0.4),
@@ -444,7 +450,7 @@ impl Rig {
     }
     /// A buffer of `data` on the CPU and the GPU.
     fn buffer(&mut self, data: &[Vec4]) -> GpuBuffer {
-        let b = self.ctx.create_gpu_buffer(data.len() as u32, data);
+        let b = self.ctx.gfx.create_gpu_buffer(data.len() as u32, data);
         self.renderer
             .create_gpu_buffer(&self.device, b.id, data.len() as u32, data);
         b
@@ -532,7 +538,7 @@ fn buffer_instances_are_culled_by_the_grown_bounds() {
         "culled by the mesh's own bounds"
     );
 
-    rig.ctx.set_mesh_gpu_bounds(mesh, vec3(12.0, 0.0, 0.0), 1.0);
+    rig.ctx.gfx.set_mesh_gpu_bounds(mesh, vec3(12.0, 0.0, 0.0), 1.0);
     let pixels = rig.draw();
     assert!(
         channel(&pixels, view_proj, Vec3::ZERO, 0) > 150,
@@ -550,7 +556,7 @@ fn freed_buffers_are_skipped_and_their_ids_reused() {
     let b = rig.buffer(&[vec4(-1.0, 0.0, 0.0, 0.0), vec4(1.0, 0.0, 0.0, 0.0)]);
     rig.renderer.set_mesh_gpu_buffer(mesh.id, b.id, 2);
     let source = "fn update(i: u32) { items[i].y += 1.0; }";
-    let c = rig.ctx.create_compute("up", source);
+    let c = rig.ctx.gfx.create_compute("up", source);
     rig.renderer.create_compute(&rig.device, "up", source).unwrap();
     rig.ctx.compute_passes.push(ComputePass::for_buffer(c, b));
     rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
@@ -559,9 +565,9 @@ fn freed_buffers_are_skipped_and_their_ids_reused() {
 
     assert!(drawn(&mut rig, vec3(-1.0, 1.0, 0.0)), "the pass moved it up");
 
-    rig.ctx.free_gpu_buffer(b);
+    rig.ctx.free(b);
     rig.renderer.free_gpu_buffer(b.id);
-    assert_eq!(rig.ctx.gpu_buffer_len(b), None);
+    assert_eq!(rig.ctx.gfx.gpu_buffer_len(b), None);
     assert!(rig.ctx.compute_passes.is_empty(), "its passes went with it");
     assert!(!drawn(&mut rig, vec3(-1.0, 1.0, 0.0)) && !drawn(&mut rig, vec3(-1.0, 0.0, 0.0)));
 
@@ -570,7 +576,7 @@ fn freed_buffers_are_skipped_and_their_ids_reused() {
     assert!(!drawn(&mut rig, vec3(-1.0, 0.0, 0.0)));
     rig.ctx.compute_passes.clear();
     // Freeing it again does nothing.
-    rig.ctx.free_gpu_buffer(b);
+    rig.ctx.free(b);
 
     // The id comes back for a new buffer; the mesh isn't bound to it.
     let again = rig.buffer(&[
@@ -579,7 +585,7 @@ fn freed_buffers_are_skipped_and_their_ids_reused() {
         vec4(0.0, 1.0, 0.0, 0.0),
     ]);
     assert_eq!(again, b);
-    assert_eq!(rig.ctx.gpu_buffer_len(again), Some(3));
+    assert_eq!(rig.ctx.gfx.gpu_buffer_len(again), Some(3));
     assert!(!drawn(&mut rig, Vec3::ZERO), "the old binding was cleared");
     rig.renderer.set_mesh_gpu_buffer(mesh.id, again.id, 3);
     assert!(
@@ -618,7 +624,7 @@ fn batch_target_levels(compute: bool, reflection: bool, levels: bool) {
         },
     );
     let b = if levels {
-        rig.ctx.create_instance_batch_levels(
+        rig.ctx.gfx.create_instance_batch_levels(
             &[
                 InstanceLevel {
                     mesh,
@@ -640,7 +646,7 @@ fn batch_target_levels(compute: bool, reflection: bool, levels: bool) {
             Default::default(),
         )
     } else {
-        rig.ctx.create_instance_batch(
+        rig.ctx.gfx.create_instance_batch(
             mesh,
             &[Mat4::from_translation(vec3(0.0, 1.0, 0.0))],
             InstanceBatchOptions {
@@ -653,7 +659,7 @@ fn batch_target_levels(compute: bool, reflection: bool, levels: bool) {
     rig.renderer.set_instance_batch(
         &rig.device,
         b.id(),
-        rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+        rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
     );
     let texture = rig.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("batch target test"),
@@ -668,8 +674,8 @@ fn batch_target_levels(compute: bool, reflection: bool, levels: bool) {
         view_formats: &[],
     });
     // The test owns the offscreen renderer separately from the context.
-    rig.ctx.headless = true;
-    let handle = rig.ctx.create_render_target(SIZE, SIZE);
+    rig.ctx.set_headless(true);
+    let handle = rig.ctx.gfx.create_render_target(SIZE, SIZE);
     rig.renderer.add_render_target(handle.id, &texture);
     let mut camera = rig.ctx.camera3d;
     camera.position = vec3(0.0, 1.0, 4.0);
@@ -725,7 +731,7 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
             continue;
         };
         let source = "fn surface(s: Surface) -> Surface { var o=s; o.emissive=s.albedo*4.0; return o; }";
-        let shader = rig.ctx.create_shader("instance colours", source);
+        let shader = rig.ctx.gfx.create_shader("instance colours", source);
         rig.renderer
             .create_shader(&rig.device, "instance colours", source)
             .unwrap();
@@ -760,7 +766,7 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
                 shadows: false,
             },
         ];
-        let batch = rig.ctx.create_instance_batch_levels(
+        let batch = rig.ctx.gfx.create_instance_batch_levels(
             &levels,
             &[Mat4::from_translation(vec3(0.0, 0.0, -10.0))],
             &[],
@@ -769,7 +775,7 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
         rig.renderer.set_instance_batch(
             &rig.device,
             batch.id(),
-            rig.ctx.assets3d.instance_batches[batch.id() as usize].as_ref(),
+            rig.ctx.gfx.assets3d.instance_batches[batch.id() as usize].as_ref(),
         );
         for (z, channel) in [(-0.125, 0), (0.0, 2), (0.125, 2)] {
             rig.ctx.camera3d.position.z = z;
@@ -792,7 +798,7 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
         let white = mesh(&mut rig, Color::WHITE);
         rig.ctx.camera3d.position = Vec3::ZERO;
         let at = [vec3(-1.0, 0.0, -5.0), vec3(1.0, 0.0, -5.0)];
-        let b = rig.ctx.create_instance_batch_levels(
+        let b = rig.ctx.gfx.create_instance_batch_levels(
             &[InstanceLevel {
                 mesh: white,
                 min_distance: 0.0,
@@ -807,7 +813,7 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
         rig.renderer.set_instance_batch(
             &rig.device,
             b.id(),
-            rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+            rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
         );
         let pixels = rig.draw();
         let vp = rig.ctx.camera3d.view_proj();
@@ -838,6 +844,10 @@ fn instance_levels_overlap_exactly_without_copying_source_records() {
     let Some(mut rig) = Rig::new() else {
         return;
     };
+    // Instance levels are chosen per instance by the GPU culling pass.
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ComputeCulling) {
+        return;
+    }
     let mesh = rig.mesh(
         &MeshData::cube(1.0),
         MaterialDesc {
@@ -856,7 +866,7 @@ fn instance_levels_overlap_exactly_without_copying_source_records() {
             camera: true,
             shadows: false,
         });
-    let b = rig.ctx.create_instance_batch_levels(
+    let b = rig.ctx.gfx.create_instance_batch_levels(
         &levels,
         &[Mat4::from_translation(vec3(0.0, 0.0, -10.0))],
         &[],
@@ -865,7 +875,7 @@ fn instance_levels_overlap_exactly_without_copying_source_records() {
     rig.renderer.set_instance_batch(
         &rig.device,
         b.id(),
-        rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+        rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
     );
     rig.draw();
     let batch = rig.renderer.static_batches[b.id() as usize].as_ref().unwrap();
@@ -904,6 +914,10 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
     let Some(mut rig) = Rig::new() else {
         return;
     };
+    // Instance levels are chosen per instance by the GPU culling pass.
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ComputeCulling) {
+        return;
+    }
     let mut data = MeshData::cube(1.0);
     for p in &mut data.positions {
         *p += vec3(0.0, 0.0, -10.0);
@@ -919,7 +933,7 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
     rig.ctx.camera3d.look_at(-Vec3::Z);
     rig.ctx.lighting.shadows = false;
     for camera in [true, false] {
-        let b = rig.ctx.create_instance_batch_levels(
+        let b = rig.ctx.gfx.create_instance_batch_levels(
             &[InstanceLevel {
                 mesh,
                 min_distance: 0.0,
@@ -934,7 +948,7 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
         rig.renderer.set_instance_batch(
             &rig.device,
             b.id(),
-            rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+            rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
         );
         let pixels = rig.draw();
         let i = ((SIZE / 2 * SIZE + SIZE / 2) * 4) as usize;

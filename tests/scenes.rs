@@ -23,7 +23,7 @@ fn a_saved_scene_loads_back_with_the_same_entities() {
         ctx.world.reflect::<Palm>();
         first = Some(ctx.world.spawn((Transform2D::at(vec2(1.0, 2.0)), Palm { height: 3.0 })));
         ctx.world.spawn((Transform2D::at(vec2(5.0, 6.0)),));
-        ctx.save_scene(file.name()).unwrap();
+        ctx.assets.save_scene(&ctx.world, file.name()).unwrap();
     });
     let world = game().run_headless(0, |ctx| {
         ctx.world.reflect::<Palm>();
@@ -44,7 +44,7 @@ fn prefabs_spawn_where_asked_with_their_saved_components() {
         let model = ctx
             .world
             .spawn((Transform2D::at(vec2(70.0, 80.0)).rotated(0.5), Palm { height: 9.0 }));
-        ctx.save_prefab(model, file.name()).unwrap();
+        ctx.assets.save_prefab(&ctx.world, model, file.name()).unwrap();
         ctx.world.despawn(model);
         for x in 0..3 {
             ctx.spawn_prefab(file.name(), vec2(x as f32 * 10.0, 100.0)).unwrap();
@@ -99,7 +99,11 @@ fn bad_files_are_errors_that_change_nothing() {
         assert_eq!(ctx.world.len(), 0);
         let dead = ctx.world.spawn((Transform2D::default(),));
         ctx.world.despawn(dead);
-        assert!(ctx.save_prefab(dead, "test-never-written.json").is_err());
+        assert!(
+            ctx.assets
+                .save_prefab(&ctx.world, dead, "test-never-written.json")
+                .is_err()
+        );
     });
 }
 
@@ -152,7 +156,7 @@ fn sprites_are_saved_by_their_image_name_and_load_it() {
         let mut sprite = Sprite::new(crab);
         sprite.z = 3.0;
         let model = ctx.world.spawn((Transform2D::default(), sprite));
-        ctx.save_prefab(model, file.name()).unwrap();
+        ctx.assets.save_prefab(&ctx.world, model, file.name()).unwrap();
     });
     let text = file.read();
     assert!(text.contains(r#""texture": "crab.png""#), "{text}");
@@ -168,7 +172,7 @@ fn sprites_are_saved_by_their_image_name_and_load_it() {
 #[test]
 fn sprites_of_textures_made_in_code_are_left_out_of_saves() {
     game().run_headless(0, |ctx| {
-        let made = ctx.create_texture(1, 1, &[255; 4]);
+        let made = ctx.gfx.create_texture(1, 1, &[255; 4]);
         let e = ctx.world.spawn((Transform2D::default(), Sprite::new(made)));
         let json = ctx.world.entity_json(e).unwrap();
         assert!(

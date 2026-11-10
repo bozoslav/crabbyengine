@@ -166,14 +166,14 @@ pub fn setup(ctx: &mut Ctx) {
 /// [`setup`] with an explicit save file (`None`: don't keep progress or
 /// settings). The settings file lives next to it, see [`settings::settings_path`].
 pub fn setup_with(ctx: &mut Ctx, save: Option<PathBuf>) {
-    ctx.clear(Color::hex(0x14181f));
+    ctx.gfx.clear(Color::hex(0x14181f));
     let settings_file = save.as_deref().and_then(settings::settings_path);
     let (loaded, settings_load) = match &settings_file {
         Some(path) => Settings::load(path),
         None => (Settings::default(), LoadStatus::Fresh),
     };
-    ctx.set_actions(settings::bindings_for(&loaded.controls));
-    ctx.ui_retained.set_scale(loaded.ui_scale);
+    ctx.input.set_actions(settings::bindings_for(&loaded.controls));
+    ctx.ui.set_scale(loaded.ui_scale);
     let disc = disc(ctx);
     let coin = ctx.load_texture(COIN_ASSET);
     ctx.world.insert_resource(Art { disc, coin });
@@ -224,7 +224,7 @@ fn tone(ctx: &mut Ctx, from: f32, to: f32, seconds: f32) -> Sound {
             phase.sin() * (1.0 - t) * 0.25
         })
         .collect();
-    ctx.create_sound(RATE, &samples)
+    ctx.audio.create(RATE, &samples)
 }
 
 /// Plays one of the sound effects at the saved volume. Silent without audio.
@@ -232,7 +232,7 @@ fn sfx(ctx: &mut Ctx, pick: fn(&Sounds) -> Sound) {
     let sound = pick(ctx.world.resource::<Sounds>());
     let volume = ctx.world.resource::<Settings>().volume;
     if volume > 0.0 {
-        ctx.play_sound_ex(
+        ctx.audio.play_ex(
             &sound,
             SoundParams {
                 volume,
@@ -254,7 +254,7 @@ fn disc(ctx: &mut Ctx) -> Texture {
             rgba.extend([255, 255, 255, (alpha * 255.0) as u8]);
         }
     }
-    ctx.create_texture(SIZE, SIZE, &rgba)
+    ctx.gfx.create_texture(SIZE, SIZE, &rgba)
 }
 
 /// A disc sprite with a radius in world units.
@@ -276,12 +276,12 @@ pub fn bindings() -> ActionMap {
 /// Frame system: named actions to [`Intent`]. Runs once per rendered frame.
 pub fn read_input(ctx: &mut Ctx) {
     let act = *ctx.world.resource::<Act>();
-    let direction = ctx.action_axis2(act.movement);
-    let confirm = ctx.action_pressed(act.confirm);
-    let restart = ctx.action_pressed(act.restart);
-    let pause = ctx.action_pressed(act.pause);
-    let back = ctx.action_pressed(act.back);
-    let open_settings = ctx.action_pressed(act.settings);
+    let direction = ctx.input.action_axis2(act.movement);
+    let confirm = ctx.input.action_pressed(act.confirm);
+    let restart = ctx.input.action_pressed(act.restart);
+    let pause = ctx.input.action_pressed(act.pause);
+    let back = ctx.input.action_pressed(act.back);
+    let open_settings = ctx.input.action_pressed(act.settings);
     let intent = ctx.world.resource_mut::<Intent>();
     intent.direction = direction;
     intent.confirm |= confirm;
@@ -730,7 +730,7 @@ pub fn hud(ctx: &mut Ctx) {
     let mut y = (ARENA.y - height) / 2.0;
     for l in lines {
         let size = l.size * scale;
-        let width = ctx.measure_text(&l.text, size).x;
+        let width = ctx.gfx.measure_text(&l.text, size).x;
         ctx.draw_text(&l.text, vec2((ARENA.x - width) / 2.0, y), size, l.color);
         y += size * 1.5;
     }

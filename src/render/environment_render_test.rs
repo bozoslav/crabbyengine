@@ -22,11 +22,13 @@ impl Rig {
     fn new() -> Option<Rig> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -112,7 +114,7 @@ impl Rig {
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
         // Probe captures get size-only handles; `Rig::draw` backs them.
-        ctx.headless = true;
+        ctx.set_headless(true);
         ctx.lighting.sun_intensity = 0.0;
         ctx.lighting.shadows = false;
         ctx.sky.atmosphere = false;
@@ -131,8 +133,8 @@ impl Rig {
 
     /// A mesh with its material, uploaded to the renderer.
     fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
-        let material = self.ctx.create_material(desc);
-        let mesh = self.ctx.create_mesh(data, material);
+        let material = self.ctx.gfx.create_material(desc);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         self.renderer
@@ -142,7 +144,7 @@ impl Rig {
 
     /// Backs the context's probe capture handles with real targets.
     fn register_captures(&mut self) {
-        let captures = self.ctx.assets3d.probes.captures.clone();
+        let captures = self.ctx.gfx.assets3d.probes.captures.clone();
         for faces in &captures[self.registered.min(captures.len())..] {
             for face in faces {
                 let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -174,14 +176,15 @@ impl Rig {
         let ctx = &mut self.ctx;
         let skins = SkinFrame::default();
         ctx.collect_views(&skins);
-        ctx.frame3d
-            .collect(&mut ctx.world, &ctx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        ctx.gfx
+            .frame3d
+            .collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
         let rgb = |c| {
             let [r, g, b, _] = crate::three::linear(c);
             Vec3::new(r, g, b)
         };
         let scene = Scene3D {
-            frame: &ctx.frame3d,
+            frame: &ctx.gfx.frame3d,
             lighting: &ctx.lighting,
             sky: &ctx.sky,
             light: if ctx.sky.atmosphere {
@@ -397,7 +400,7 @@ fn a_probe_reflects_a_bright_wall_inside_its_box_and_the_sky_outside() {
             ..Default::default()
         },
     ));
-    rig.ctx.bake_reflection_probe(probe).unwrap();
+    rig.ctx.gfx.bake_reflection_probe(&mut rig.ctx.world, probe).unwrap();
     rig.draw();
     // The ball goes in after the capture, so it doesn't hide the room.
     let ball = rig.mesh(&MeshData::sphere(1.5, 32), mirror(Color::WHITE));
@@ -465,7 +468,7 @@ fn box_projection_moves_the_reflection_where_infinite_projection_puts_it_elsewhe
             ..Default::default()
         },
     ));
-    rig.ctx.bake_reflection_probe(probe).unwrap();
+    rig.ctx.gfx.bake_reflection_probe(&mut rig.ctx.world, probe).unwrap();
     rig.draw();
     // The floor goes in after the capture, so the capture is of the room alone.
     let floor = rig.mesh(&MeshData::plane(30.0), mirror(Color::WHITE));
@@ -524,7 +527,10 @@ fn a_loaded_equirect_image_lights_the_ball_from_the_right_direction() {
             ..Default::default()
         },
     ));
-    rig.ctx.load_reflection_probe(probe, path.to_str().unwrap()).unwrap();
+    rig.ctx
+        .gfx
+        .load_reflection_probe(&mut rig.ctx.world, probe, path.to_str().unwrap())
+        .unwrap();
     std::fs::remove_file(&path).ok();
     let ball = rig.mesh(&MeshData::sphere(1.5, 32), mirror(Color::WHITE));
     rig.ctx.world.spawn((Transform3D::default(), Model::new(ball)));
@@ -584,13 +590,13 @@ fn a_probe_inside_a_bigger_one_wins_and_the_bigger_one_shows_around_it() {
     let red = rig.mesh(&MeshData::cube(1.0), glowing(6.0));
     let wall_entity = rig.ctx.world.spawn((wall, Model::new(red)));
     let big = rig.ctx.world.spawn(probe(12.0));
-    rig.ctx.bake_reflection_probe(big).unwrap();
+    rig.ctx.gfx.bake_reflection_probe(&mut rig.ctx.world, big).unwrap();
     rig.draw();
     rig.ctx.world.despawn(wall_entity);
     let blue = rig.mesh(&MeshData::cube(1.0), glowing_colour(Color::rgb(0.0, 0.0, 6.0)));
     rig.ctx.world.spawn((wall, Model::new(blue)));
     let small = rig.ctx.world.spawn(probe(9.0));
-    rig.ctx.bake_reflection_probe(small).unwrap();
+    rig.ctx.gfx.bake_reflection_probe(&mut rig.ctx.world, small).unwrap();
     rig.draw();
     let ball = rig.mesh(&MeshData::sphere(1.5, 32), mirror(Color::WHITE));
     rig.ctx.world.spawn((Transform3D::default(), Model::new(ball)));

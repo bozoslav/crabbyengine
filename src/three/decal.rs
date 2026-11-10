@@ -48,7 +48,7 @@ impl MeshData {
     /// let mark = floor.decal(at, 0.002);
     /// assert!(!mark.indices.is_empty());
     /// assert!(mark.positions.iter().all(|p| (p.x - 1.0).abs() <= 0.25 + 1e-4 && p.z.abs() <= 0.25 + 1e-4));
-    /// // Then: ctx.create_mesh(&mark, scorch_material), drawn where the floor is.
+    /// // Then: ctx.gfx.create_mesh(&mark, scorch_material), drawn where the floor is.
     /// ```
     #[must_use]
     pub fn decal(&self, projector: Mat4, lift: f32) -> MeshData {

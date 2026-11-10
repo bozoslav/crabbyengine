@@ -8,6 +8,7 @@ import {
   checkEngineGpu,
   checkMinimums,
   launchConfig,
+  launchFailureKind,
   parseArgs,
   parseFixtures,
   parseMin,
@@ -163,4 +164,14 @@ test("launch options per browser", () => {
   assert.ok(!mac.args.includes("--enable-features=Vulkan"));
   assert.equal(launchConfig("firefox", "linux").options.firefoxUserPrefs["dom.webgpu.enabled"], true);
   assert.equal(launchConfig("webkit", "linux").options.headless, true);
+});
+
+test("a browser that isn't installed is unsupported on a laptop and a failure in CI", () => {
+  const missing = "browserType.launch: Executable doesn't exist at /x/webkit-1/pw_run.sh";
+  assert.equal(launchFailureKind(missing, {}), "unsupported");
+  assert.equal(launchFailureKind(missing, { CI: "" }), "unsupported");
+  assert.equal(launchFailureKind(missing, { CI: "false" }), "unsupported");
+  assert.equal(launchFailureKind(missing, { CI: "true" }), "launch", "the CI job installs its browsers: missing is broken");
+  assert.equal(launchFailureKind("Failed to launch the browser process", {}), "launch");
+  assert.equal(launchFailureKind("Failed to launch the browser process", { CI: "true" }), "launch");
 });

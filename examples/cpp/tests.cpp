@@ -417,6 +417,16 @@ static void three_d() {
         throws([&] { ctx.set_graphics_quality(bad_quality); });
         throws([&] { ponko::graphics_quality_preset(ponko::quality_level::custom); });
         CHECK(ctx.graphics_quality().shadow_cascades == 2);
+        // GPU tiers: no GPU headless; tier reports and presets need none.
+        CHECK(!ctx.gpu_capabilities() && !ctx.gpu_tier() && !ctx.recommended_graphics_quality());
+        CHECK(!ctx.gpu_has(ponko::gpu_feature::compute));
+        CHECK(ponko::gpu_tier_report(ponko::gpu_tier::desktop).find("\"tier\":\"desktop\"") != std::string::npos);
+        CHECK(!ponko::gpu_tier_has(ponko::gpu_tier::webgl2, ponko::gpu_feature::screen_space_reflections));
+        CHECK(ponko::gpu_tier_has(ponko::gpu_tier::baseline, ponko::gpu_feature::compute_culling));
+        CHECK(!ponko::gpu_tier_has(ponko::gpu_tier::baseline, ponko::gpu_feature::gpu_skinning));
+        CHECK(ponko::graphics_quality_level(ponko::graphics_quality_for_tier(ponko::gpu_tier::baseline)) == ponko::quality_level::medium);
+        CHECK(ponko::graphics_quality_for_tier(ponko::gpu_tier::webgl2).anti_aliasing == uint32_t(ponko::anti_aliasing::fxaa));
+        throws([&] { ponko::gpu_tier_has(ponko::gpu_tier(7), ponko::gpu_feature::compute); });
         ctx.set_graphics_quality(ponko::graphics_quality_preset(ponko::quality_level::high));
         CHECK(ctx.graphics_quality().ssr == 1 && ctx.post().ssr == 1);
         CHECK(!ctx.graphics_quality().gi && ponko::graphics_quality_preset(ponko::quality_level::ultra).gi);
@@ -2060,13 +2070,15 @@ static void headless_wrapper_calls() {
 }
 
 // Shader, effect and compute files load once, and the same file gives the same handle.
+// Hot reload is off for the files that must fail: with it on (the default in
+// debug builds of the engine) a file that doesn't compile loads as a stand-in.
 static void shader_files() {
     const auto dir = std::filesystem::temp_directory_path();
     const auto surface = dir / "ponko-cpp-wind.wgsl", effect = dir / "ponko-cpp-grey.wgsl", compute = dir / "ponko-cpp-fade.wgsl";
     std::ofstream(surface) << "fn vertex(v: Vertex) -> Vertex { var o = v; o.position.x += material.custom[0].x; return o; }";
     std::ofstream(effect) << "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(dot(p.color, vec3<f32>(0.3, 0.6, 0.1))); }";
     std::ofstream(compute) << "fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }";
-    ponko::game("shaders", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+    ponko::game("shaders", 1, 1).hot_reload(false).run_headless(0, [&](ponko::ctx& ctx) {
         auto a = ctx.load_shader(surface.string().c_str());
         CHECK(a.id == ctx.load_shader(surface.string().c_str()).id);
         auto e = ctx.load_effect(effect.string().c_str());
@@ -2077,10 +2089,63 @@ static void shader_files() {
         throws([&] { ctx.load_effect(surface.string().c_str()); }); // a surface shader is no effect
         throws([&] { ctx.load_compute("no-such-compute.wgsl"); });
     });
+    // With hot reload on, the file that is no effect still gets a handle: a
+    // stand-in, reported as failed and watched. A missing file is still an error.
+    ponko::game("stand-ins", 1, 1).hot_reload(true).run_headless(0, [&](ponko::ctx& ctx) {
+        (void)ctx.load_effect(surface.string().c_str());
+        auto shaders = ctx.shader_status();
+        CHECK(shaders.size() == 1 && !shaders[0].ok());
+        CHECK(shaders[0].info.kind == PONKO_SHADER_EFFECT && shaders[0].info.outcome == PONKO_SHADER_FAILED);
+        CHECK(!shaders[0].errors.empty());
+        throws([&] { ctx.load_effect("no-such-effect.wgsl"); });
+    });
     for (auto& f : {surface, effect, compute}) std::filesystem::remove(f);
 }
 
+static void declared_access() {
+    // A system declares what it reads and writes; debug builds of the
+    // library stop the game if it uses anything else (tests/system_access.rs).
+    struct Score { int value; };
+    auto mover = ponko::access().write<Pos>().read<Vel>().read_service(ponko::service::time);
+    auto scorer = ponko::access().write_resource<Score>().read_events<Died>();
+    auto killer = ponko::access().read<Hp>().send_events<Died>().commands();
+    CHECK(mover.conflicts_before(scorer) == 0);
+    // The scorer would see the killer's events and applied commands.
+    CHECK(killer.conflicts_before(scorer) == 2);
+    CHECK(scorer.conflicts_before(killer) == 0);
+    CHECK(scorer.conflicts_before(killer, false) == 2);
+    ponko::access copy = killer;
+    CHECK(copy.conflicts_before(scorer) == 2);
+    copy = mover;
+    CHECK(copy.conflicts_before(mover) == 1);
+    int scored = 0;
+    auto g = ponko::game("t", 1, 1);
+    g.add(ponko::phase::after_physics, mover, [](ponko::ctx& ctx) {
+         ctx.world().each([](Pos& p, const Vel& v) { p.x += v.x; });
+     }, "mover")
+     .add(ponko::phase::after_physics, killer, [](ponko::ctx& ctx) {
+         ctx.world().each([&](ponko::entity e, const Hp& hp) {
+             if (hp.value <= 0) { ctx.send(Died{e, ctx.sim_tick()}); ctx.despawn_later(e); }
+         });
+     }, "killer")
+     .add(ponko::phase::after_physics, scorer, [&](ponko::ctx& ctx) {
+         scored += static_cast<int>(ctx.read<Died>().size());
+     }, "scorer");
+    const std::string report = g.access_report();
+    CHECK(report.find("mover + killer: could run together") == std::string::npos);
+    CHECK(report.find("mover + killer: no conflict, but a `Ctx` system stays sequential") != std::string::npos);
+    CHECK(report.find("killer + scorer: conflict on events") != std::string::npos);
+    auto w = g.run_headless(2, [](ponko::ctx& ctx) {
+        ctx.world().set_resource(Score{0});
+        ctx.world().spawn(Pos{0, 0}, Vel{1, 0});
+        ctx.world().spawn(Hp{0});
+    });
+    CHECK(scored == 1);
+    CHECK(w.size() == 1);
+}
+
 int main() {
+    declared_access();
     worlds();
     names_and_reflection();
     resources();

@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use crate::ctx::Ctx;
 use crate::reflect::WorldReflect;
 use crate::{Gamepad, GamepadAxis, GamepadButton, InputEvent, Key, MouseButton};
+use crate::{Time, World};
 
 /// The scenario file format this engine reads and writes.
 pub const SCENARIO_VERSION: u32 = 1;
@@ -133,10 +134,10 @@ impl ScenarioCheck {
 ///
 /// Install it with [`Game::input_scenario`](crate::Game::input_scenario)
 /// (ticks count from the start of the run) or start it mid-run with
-/// [`Ctx::start_input_scenario`](crate::Ctx::start_input_scenario) (ticks
+/// [`Input::start_scenario`](crate::Input::start_scenario) (ticks
 /// count from the tick it starts on). Before the simulation systems of tick
 /// `t` run, every input step scheduled at or before `t` goes through
-/// [`Ctx::feed_input`](crate::Ctx::feed_input), the same path as live input,
+/// [`Input::feed`](crate::Input::feed), the same path as live input,
 /// so actions see ordinary pressed, held and released states. After they
 /// ran, every check scheduled at or before `t` is evaluated. Steps keep the
 /// order they were added in within a tick. The first tick of a run is 0.
@@ -421,7 +422,7 @@ pub enum ScenarioStatus {
     Passed,
     /// A check failed; the run ended there.
     Failed,
-    /// Ended early by [`Ctx::cancel_input_scenario`], a tool, a client that
+    /// Ended early by [`Input::cancel_scenario`](crate::Input::cancel_scenario), a tool, a client that
     /// disconnected, or a scenario that replaced it.
     Cancelled,
 }
@@ -527,6 +528,7 @@ impl ScenarioReport {
 // --------------------------------------------------------------------- run
 
 /// An installed scenario and its cursors.
+#[derive(Debug, Clone)]
 pub(crate) struct ScenarioRun {
     scenario: InputScenario,
     /// The simulation tick that is the scenario's tick 0.
@@ -563,13 +565,14 @@ pub(crate) struct RunOrigin {
 
 /// Input a finished tool scenario left held on purpose. It stays owned, so a
 /// cancel or the owner's disconnect still releases it.
+#[derive(Debug, Clone)]
 pub(crate) struct Leftover {
     held: Vec<InputEvent>,
     owner: Option<u64>,
 }
 
-/// What a [`Ctx`] keeps for scenarios.
-#[derive(Default)]
+/// What [`Input`](crate::Input) keeps for scenarios.
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Scenarios {
     pub(crate) run: Option<ScenarioRun>,
     pub(crate) leftover: Option<Leftover>,
@@ -577,25 +580,28 @@ pub(crate) struct Scenarios {
     pub(crate) injection: bool,
 }
 
-impl Ctx {
+impl crate::Input {
     /// Starts `scenario` on the next simulation tick, which is its tick 0,
     /// replacing (and cancelling) one that is running. Use it from systems and
     /// tests; [`Game::input_scenario`](crate::Game::input_scenario) starts one
-    /// with the game.
+    /// with the game. The run's [`ScenarioReport`] is kept in `world` and
+    /// its ticks are counted on `time` (the game's are `ctx.world` and
+    /// `ctx.time`).
     /// ```
     /// use ponko::*;
     /// struct PressedOn(Option<u64>);
     ///
     /// let game = Game::new("t", 1, 1)
     ///     .sim_system(|ctx: &mut Ctx| {
-    ///         if ctx.sim_tick() == 3 {
+    ///         if ctx.time.sim_tick() == 3 {
     ///             // Started during tick 3, so the scenario's tick 0 is tick 4.
-    ///             ctx.start_input_scenario(InputScenario::new().at(0, InputEvent::Key(Key::Space, true)));
+    ///             let scenario = InputScenario::new().at(0, InputEvent::Key(Key::Space, true));
+    ///             ctx.input.start_scenario(&mut ctx.world, &mut ctx.time, scenario);
     ///         }
     ///     })
     ///     .sim_system(|ctx: &mut Ctx| {
     ///         if ctx.key_pressed(Key::Space) {
-    ///             let tick = ctx.sim_tick();
+    ///             let tick = ctx.time.sim_tick();
     ///             ctx.world.resource_mut::<PressedOn>().0 = Some(tick);
     ///         }
     ///     });
@@ -603,19 +609,19 @@ impl Ctx {
     /// assert_eq!(world.resource::<ScenarioReport>().start_tick, 4);
     /// assert_eq!(world.resource::<PressedOn>().0, Some(4), "fed before tick 4's systems");
     /// ```
-    pub fn start_input_scenario(&mut self, scenario: InputScenario) {
+    pub fn start_scenario(&mut self, world: &mut World, time: &mut Time, scenario: InputScenario) {
         // A system runs inside a tick, so its scenario's tick 0 is the next one.
-        let start = if self.in_sim() {
-            self.sim_tick() + 1
+        let start = if time.in_sim() {
+            time.sim_tick() + 1
         } else {
-            self.sim_tick()
+            time.sim_tick()
         };
-        self.install_scenario(scenario, start, RunOrigin::default());
+        self.install_scenario(world, time, scenario, start, RunOrigin::default());
     }
 
     /// Ends the running scenario, releasing the keys, buttons and axes it
-    /// still holds. Returns whether one was running. The report says
-    /// `cancelled`.
+    /// still holds. Returns whether one was running. The report (in
+    /// `world`) says `cancelled`.
     ///
     /// The input state is one shared set of held keys, with no record of
     /// which device holds one, so a key the scenario pressed is released even
@@ -624,8 +630,8 @@ impl Ctx {
     /// ```
     /// use ponko::*;
     /// let mut game = Game::new("t", 1, 1).sim_system(|ctx: &mut Ctx| {
-    ///     if ctx.sim_tick() == 2 {
-    ///         assert!(ctx.cancel_input_scenario());
+    ///     if ctx.time.sim_tick() == 2 {
+    ///         assert!(ctx.input.cancel_scenario(&mut ctx.world, &mut ctx.time));
     ///         assert!(!ctx.key_down(Key::Space)); // released
     ///     }
     /// });
@@ -633,27 +639,36 @@ impl Ctx {
     /// let (world, report) = game.run_headless_scenario(scenario, |_| {});
     /// assert_eq!(report.status, ScenarioStatus::Cancelled);
     /// ```
-    pub fn cancel_input_scenario(&mut self) -> bool {
-        self.cancel_scenario("cancelled", None)
+    pub fn cancel_scenario(&mut self, world: &mut World, time: &mut Time) -> bool {
+        self.cancel_scenario_for(world, time, "cancelled", None)
     }
 
-    /// The latest scenario run's report.
-    pub fn input_scenario_report(&self) -> Option<&ScenarioReport> {
-        self.world.get_resource::<ScenarioReport>()
+    /// The latest scenario run's report, which is kept in `world`.
+    #[must_use]
+    pub fn scenario_report<'w>(&self, world: &'w World) -> Option<&'w ScenarioReport> {
+        world.get_resource::<ScenarioReport>()
     }
 
     /// Whether tools may start scenarios through the control endpoint.
-    pub fn input_injection_allowed(&self) -> bool {
+    #[must_use]
+    pub fn injection_allowed(&self) -> bool {
         self.scenarios.injection
     }
 
-    pub(crate) fn install_scenario(&mut self, scenario: InputScenario, start: u64, origin: RunOrigin) {
-        self.cancel_scenario("replaced by another scenario", None);
-        self.release_leftover("replaced by another scenario", None);
+    pub(crate) fn install_scenario(
+        &mut self,
+        world: &mut World,
+        time: &mut Time,
+        scenario: InputScenario,
+        start: u64,
+        origin: RunOrigin,
+    ) {
+        self.cancel_scenario_for(world, time, "replaced by another scenario", None);
+        self.release_leftover(world, "replaced by another scenario", None);
         let ticks = scenario.ticks();
-        self.world.insert_resource(ScenarioReport::new(&scenario, start));
+        world.insert_resource(ScenarioReport::new(&scenario, start));
         let own_steps = if origin.queue_ticks { ticks } else { 0 };
-        self.queue_steps(own_steps);
+        time.queue_steps(own_steps);
         self.scenarios.run = Some(ScenarioRun {
             scenario,
             start,
@@ -669,9 +684,15 @@ impl Ctx {
     /// Cancels the run if `only_owner` is `None` or owns it. Without a run,
     /// releases what a finished tool scenario left held. Returns whether
     /// anything was cancelled or released.
-    pub(crate) fn cancel_scenario(&mut self, reason: &str, only_owner: Option<u64>) -> bool {
+    pub(crate) fn cancel_scenario_for(
+        &mut self,
+        world: &mut World,
+        time: &mut Time,
+        reason: &str,
+        only_owner: Option<u64>,
+    ) -> bool {
         match (&self.scenarios.run, only_owner) {
-            (None, _) => return self.release_leftover(reason, only_owner),
+            (None, _) => return self.release_leftover(world, reason, only_owner),
             (Some(run), Some(owner)) if run.owner != Some(owner) => return false,
             _ => {}
         }
@@ -679,8 +700,8 @@ impl Ctx {
             return false;
         };
         let released = self.release_held(&run);
-        self.drop_pending_steps(run.remaining_own());
-        if let Some(report) = self.world.get_resource_mut::<ScenarioReport>() {
+        time.drop_pending_steps(run.remaining_own());
+        if let Some(report) = world.get_resource_mut::<ScenarioReport>() {
             report.status = ScenarioStatus::Cancelled;
             report.released = released;
             report.cancel_reason = Some(reason.to_string());
@@ -690,7 +711,7 @@ impl Ctx {
 
     /// Releases the input a finished tool scenario left held, if `only_owner`
     /// is `None` or owns it.
-    fn release_leftover(&mut self, reason: &str, only_owner: Option<u64>) -> bool {
+    fn release_leftover(&mut self, world: &mut World, reason: &str, only_owner: Option<u64>) -> bool {
         match (&self.scenarios.leftover, only_owner) {
             (None, _) => return false,
             (Some(left), Some(owner)) if left.owner != Some(owner) => return false,
@@ -700,9 +721,9 @@ impl Ctx {
             return false;
         };
         for &event in &left.held {
-            self.feed_input(event);
+            self.feed(event);
         }
-        if let Some(report) = self.world.get_resource_mut::<ScenarioReport>() {
+        if let Some(report) = world.get_resource_mut::<ScenarioReport>() {
             report.released = left.held.len();
             report.still_held = 0;
             report.cancel_reason = Some(reason.to_string());
@@ -714,28 +735,30 @@ impl Ctx {
     fn release_held(&mut self, run: &ScenarioRun) -> usize {
         let held = held_inputs(&run.scenario.inputs[..run.next_input]);
         for &event in &held {
-            self.feed_input(event);
+            self.feed(event);
         }
         held.len()
     }
+}
 
+impl Ctx {
     /// Before a tick's simulation systems: feeds the input steps due.
     pub(crate) fn scenario_begin_tick(&mut self) {
-        let Some(mut run) = self.scenarios.run.take() else {
+        let Some(mut run) = self.input.scenarios.run.take() else {
             return;
         };
         // Started by a system during an earlier tick: tick 0 is still to come.
-        if self.sim_tick() < run.start {
-            self.scenarios.run = Some(run);
+        if self.time.sim_tick() < run.start {
+            self.input.scenarios.run = Some(run);
             return;
         }
-        let rel = self.sim_tick() - run.start;
+        let rel = self.time.sim_tick() - run.start;
         let mut fed = 0;
         while let Some(&(tick, _, event)) = run.scenario.inputs.get(run.next_input) {
             if tick > rel {
                 break;
             }
-            self.feed_input(event);
+            self.input.feed(event);
             run.next_input += 1;
             fed += 1;
         }
@@ -743,18 +766,18 @@ impl Ctx {
             report.status = ScenarioStatus::Running;
             report.inputs_applied += fed;
         }
-        self.scenarios.run = Some(run);
+        self.input.scenarios.run = Some(run);
     }
 
     /// After a tick's simulation systems: runs the checks due, and ends the
     /// run on a failure or when its duration is over.
     pub(crate) fn scenario_end_tick(&mut self) {
-        let Some(mut run) = self.scenarios.run.take() else {
+        let Some(mut run) = self.input.scenarios.run.take() else {
             return;
         };
-        let sim_tick = self.sim_tick();
+        let sim_tick = self.time.sim_tick();
         if sim_tick < run.start {
-            self.scenarios.run = Some(run);
+            self.input.scenarios.run = Some(run);
             return;
         }
         let rel = sim_tick - run.start;
@@ -780,7 +803,7 @@ impl Ctx {
         }
         let done = rel + 1 >= run.scenario.ticks();
         let release = failure.is_some() || (done && run.scenario.release_when_done);
-        let released = if release { self.release_held(&run) } else { 0 };
+        let released = if release { self.input.release_held(&run) } else { 0 };
         // A tool's scenario that finished and kept its input: stays owned.
         let left = if done && !release && run.tool {
             held_inputs(&run.scenario.inputs[..run.next_input])
@@ -789,7 +812,7 @@ impl Ctx {
         };
         let still_held = left.len();
         if still_held > 0 {
-            self.scenarios.leftover = Some(Leftover {
+            self.input.scenarios.leftover = Some(Leftover {
                 held: left,
                 owner: run.owner,
             });
@@ -804,7 +827,7 @@ impl Ctx {
                 report.failure = failure.take();
                 // Only the steps this run queued for itself are dropped, not
                 // ticks another client asked for.
-                self.drop_pending_steps(run.remaining_own());
+                self.time.drop_pending_steps(run.remaining_own());
             } else if done {
                 report.status = ScenarioStatus::Passed;
             }
@@ -812,7 +835,7 @@ impl Ctx {
         // `failure` was moved into the report when there is one.
         let ended = done || release;
         if !ended {
-            self.scenarios.run = Some(run);
+            self.input.scenarios.run = Some(run);
         }
     }
 }
@@ -895,9 +918,9 @@ fn evaluate(ctx: &Ctx, check: &ScenarioCheck) -> Result<(), Box<ScenarioFailure>
                 )
             })?;
             let actual = [
-                ("pressed", ctx.action_pressed(id)),
-                ("down", ctx.action_down(id)),
-                ("released", ctx.action_released(id)),
+                ("pressed", ctx.input.action_pressed(id)),
+                ("down", ctx.input.action_down(id)),
+                ("released", ctx.input.action_released(id)),
             ];
             let wanted = [("pressed", pressed), ("down", down), ("released", released)];
             let mut expected = serde_json::Map::new();

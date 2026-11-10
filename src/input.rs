@@ -1,8 +1,24 @@
-//! Keyboard, mouse and gamepad state.
+//! [`Input`], the input service at `ctx.input`: keyboard, mouse, gamepads,
+//! named actions, typed text and the cursor lock.
 //!
-//! The engine records raw window events here; game code reads the result
-//! through [`Ctx`](crate::Ctx). State lives in fixed-size arrays indexed by enum
-//! discriminant, so lookups are O(1) and nothing allocates per frame.
+//! **What lives here:** what is held (`key_down`, `mouse_down`,
+//! `gamepad_down`), what changed this frame (`*_pressed`, `*_released`),
+//! pointer position and movement, gamepad axes, the
+//! [`ActionMap`](crate::ActionMap) and its queries (`action_down`,
+//! `action_axis`, ...), text typed this frame, and the cursor lock.
+//!
+//! **When to call it:** in any system. Edges (`pressed`, `released`, wheel,
+//! typed text) last one frame and are cleared after the frame's systems; a
+//! simulation system that runs several ticks in one frame sees the same
+//! edges in each. Install bindings with [`Input::set_actions`] in setup.
+//!
+//! **What it needs:** a window for live input (feature `window`), and the
+//! `gamepad` feature for controllers. Headless it is silent unless you
+//! [`feed`](Input::feed) it, which is how tests and replays drive a game.
+//!
+//! The engine records raw window events here. State lives in fixed-size
+//! arrays indexed by enum discriminant, so lookups are O(1) and nothing
+//! allocates per frame.
 
 use glam::Vec2;
 #[cfg(feature = "window")]
@@ -177,7 +193,7 @@ impl GamepadAxis {
     pub(crate) const COUNT: usize = 6;
 }
 
-/// Which stick, for [`Ctx::gamepad_stick`](crate::Ctx::gamepad_stick).
+/// Which stick, for [`Input::gamepad_stick`](crate::Input::gamepad_stick).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum GamepadStick {
     /// The left stick.
@@ -186,7 +202,7 @@ pub enum GamepadStick {
     Right,
 }
 
-/// A connected gamepad, from [`Ctx::gamepads`](crate::Ctx::gamepads). It
+/// A connected gamepad, from [`Input::gamepads`](crate::Input::gamepads). It
 /// keeps its slot while connected, so `pads[0]` stays player one; a pad that
 /// reconnects takes the lowest free slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -210,7 +226,7 @@ impl Gamepad {
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// for pad in ctx.gamepads() {
+    /// for pad in ctx.input.gamepads() {
     ///     println!("player {} is connected", pad.slot() + 1);
     /// }
     /// # }
@@ -293,9 +309,34 @@ impl<const N: usize> ButtonStates<N> {
     }
 }
 
-/// Everything the engine knows about keyboard and mouse this frame.
+/// Keyboard, mouse, gamepads and named actions this frame: `ctx.input`.
+///
+/// The everyday reads also have shortcuts on [`Ctx`](crate::Ctx)
+/// (`ctx.key_down`, `ctx.key_pressed`, `ctx.key_released`, `ctx.mouse_pos`);
+/// everything else is here.
+///
+/// - **What lives here:** what is held (`key_down`, `mouse_down`,
+///   `gamepad_down`), what changed this frame (`*_pressed`, `*_released`),
+///   the pointer, gamepad axes, the [`ActionMap`](crate::ActionMap) and its
+///   queries, text typed this frame and the cursor lock.
+/// - **When to call it:** in any system. Edges last one frame; a simulation
+///   system that runs several ticks in a frame sees the same edges in each.
+///   Install bindings with [`set_actions`](Self::set_actions) in setup.
+/// - **What it needs:** a window for live input (feature `window`) and the
+///   `gamepad` feature for controllers. Headless it is silent unless you
+///   [`feed`](Self::feed) it, which is how tests and replays drive a game.
+///
+/// ```
+/// use ponko::*;
+///
+/// Game::new("t", 1, 1).run_headless(1, |ctx| {
+///     ctx.input.feed(InputEvent::Key(Key::Space, true));
+///     assert!(ctx.input.key_pressed(Key::Space));
+///     assert!(ctx.input.key_down(Key::Space));
+/// });
+/// ```
 #[derive(Debug, Clone)]
-pub(crate) struct Input {
+pub struct Input {
     pub(super) keys: ButtonStates<{ Key::COUNT }>,
     pub(super) mouse: ButtonStates<{ MouseButton::COUNT }>,
     mouse_pos: Vec2,
@@ -308,10 +349,16 @@ pub(crate) struct Input {
     /// Connected pads, sorted by slot.
     connected: Vec<Gamepad>,
     pub(crate) actions: crate::ActionMap,
+    /// The cursor is hidden and held in the window (`set_cursor_locked`).
+    cursor_locked: bool,
+    /// `cursor_locked` changed since the window last applied it.
+    pub(crate) cursor_lock_changed: bool,
+    /// Running input scenario and whether tools may start one.
+    pub(crate) scenarios: crate::scenario::Scenarios,
 }
 
 impl Input {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             keys: ButtonStates::new(),
             mouse: ButtonStates::new(),
@@ -323,38 +370,52 @@ impl Input {
             pads: [const { PadState::new() }; MAX_GAMEPADS],
             connected: Vec::with_capacity(MAX_GAMEPADS),
             actions: crate::ActionMap::default(),
+            cursor_locked: false,
+            cursor_lock_changed: false,
+            scenarios: Default::default(),
         }
     }
 
     // --- event recording (engine side) ---
 
-    pub fn set_key(&mut self, key: Key, is_down: bool) {
+    pub(crate) fn set_key(&mut self, key: Key, is_down: bool) {
         self.keys.set(key as usize, is_down);
         self.refresh_actions();
     }
 
-    pub fn set_mouse_button(&mut self, button: MouseButton, is_down: bool) {
+    pub(crate) fn set_mouse_button(&mut self, button: MouseButton, is_down: bool) {
         self.mouse.set(button as usize, is_down);
         self.refresh_actions();
     }
 
-    pub fn set_mouse_pos(&mut self, pos: Vec2) {
+    pub(crate) fn set_mouse_pos(&mut self, pos: Vec2) {
         self.mouse_pos = pos;
     }
 
-    pub fn add_text(&mut self, text: &str) {
+    pub(crate) fn add_text(&mut self, text: &str) {
         self.typed_text.push_str(text);
     }
 
+    /// Committed Unicode typed this frame, also readable when UI has focus.
+    /// Cleared with other input after frame systems. Does not include IME
+    /// composition/preedit. Physical keys remain separate.
+    /// ```
+    /// use ponko::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// let text = ctx.input.typed_text();
+    /// # let _ = text;
+    /// # }
+    /// ```
+    #[must_use]
     pub fn typed_text(&self) -> &str {
         &self.typed_text
     }
 
-    pub fn add_mouse_wheel(&mut self, delta: Vec2) {
+    pub(crate) fn add_mouse_wheel(&mut self, delta: Vec2) {
         self.mouse_wheel += delta;
     }
 
-    pub fn add_mouse_motion(&mut self, delta: Vec2) {
+    pub(crate) fn add_mouse_motion(&mut self, delta: Vec2) {
         self.mouse_motion += delta;
     }
 
@@ -362,7 +423,7 @@ impl Input {
     /// [`MAX_GAMEPADS`] slots are taken.
     // Only the gilrs backend plugs pads in (and the unit tests).
     #[cfg_attr(not(feature = "gamepad"), allow(dead_code))]
-    pub fn connect_gamepad(&mut self) -> Option<Gamepad> {
+    pub(crate) fn connect_gamepad(&mut self) -> Option<Gamepad> {
         let slot = (0..MAX_GAMEPADS as u8).find(|&s| !self.connected.contains(&Gamepad(s)))?;
         let pad = Gamepad(slot);
         self.pads[usize::from(slot)] = PadState::new();
@@ -373,7 +434,7 @@ impl Input {
     }
 
     /// A pad was unplugged: its held buttons count as released this frame.
-    pub fn disconnect_gamepad(&mut self, pad: Gamepad) {
+    pub(crate) fn disconnect_gamepad(&mut self, pad: Gamepad) {
         self.connected.retain(|&p| p != pad);
         let state = &mut self.pads[pad.slot()];
         state.buttons.release_all();
@@ -381,26 +442,26 @@ impl Input {
         self.refresh_actions();
     }
 
-    pub fn set_gamepad_button(&mut self, pad: Gamepad, button: GamepadButton, is_down: bool) {
+    pub(crate) fn set_gamepad_button(&mut self, pad: Gamepad, button: GamepadButton, is_down: bool) {
         self.pads[pad.slot()].buttons.set(button as usize, is_down);
         self.refresh_actions();
     }
 
-    pub fn set_gamepad_axis(&mut self, pad: Gamepad, axis: GamepadAxis, value: f32) {
+    pub(crate) fn set_gamepad_axis(&mut self, pad: Gamepad, axis: GamepadAxis, value: f32) {
         self.pads[pad.slot()].axes[axis as usize] = value;
         self.refresh_actions();
     }
 
     /// Called when the window loses focus: we will never see the matching
     /// key-up events, so treat everything as released to avoid stuck keys.
-    pub fn release_all(&mut self) {
+    pub(crate) fn release_all(&mut self) {
         self.keys.release_all();
         self.mouse.release_all();
         self.refresh_actions();
     }
 
     /// Clears per-frame state. Called after the game's update for the frame.
-    pub fn end_frame(&mut self) {
+    pub(crate) fn end_frame(&mut self) {
         self.actions.end_frame();
         self.keys.end_frame();
         self.mouse.end_frame();
@@ -419,64 +480,422 @@ impl Input {
 
     // --- queries (exposed through Ctx) ---
 
+    /// `true` while `key` is held down.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
+    /// if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
+    /// # }
+    /// ```
+    #[must_use]
     pub fn key_down(&self, key: Key) -> bool {
         self.keys.down[key as usize]
     }
 
+    /// `true` only on the frame `key` went down. Good for jumps, menus, toggles.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, paused: &mut bool) {
+    /// if ctx.key_pressed(Key::P) { *paused = !*paused; }
+    /// # }
+    /// ```
+    #[must_use]
     pub fn key_pressed(&self, key: Key) -> bool {
         self.keys.pressed[key as usize]
     }
 
+    /// `true` only on the frame `key` was let go.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, charging: &mut bool) {
+    /// if ctx.key_released(Key::Space) { *charging = false; }
+    /// # }
+    /// ```
+    #[must_use]
     pub fn key_released(&self, key: Key) -> bool {
         self.keys.released[key as usize]
     }
 
+    /// `true` while `button` is held down.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// let dragging = ctx.input.mouse_down(MouseButton::Left);
+    /// # }
+    /// ```
+    #[must_use]
     pub fn mouse_down(&self, button: MouseButton) -> bool {
         self.mouse.down[button as usize]
     }
 
+    /// `true` only on the frame `button` went down.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// if ctx.input.mouse_pressed(MouseButton::Left) { println!("click at {}", ctx.mouse_pos()); }
+    /// # }
+    /// ```
+    #[must_use]
     pub fn mouse_pressed(&self, button: MouseButton) -> bool {
         self.mouse.pressed[button as usize]
     }
 
+    /// `true` only on the frame `button` was let go.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// if ctx.input.mouse_released(MouseButton::Left) { println!("drop"); }
+    /// # }
+    /// ```
+    #[must_use]
     pub fn mouse_released(&self, button: MouseButton) -> bool {
         self.mouse.released[button as usize]
     }
 
+    /// Mouse position in window pixels. `(0, 0)` is the top-left corner,
+    /// `y` grows downward.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// let target = ctx.mouse_pos();
+    /// # }
+    /// ```
+    #[must_use]
     pub fn mouse_pos(&self) -> Vec2 {
         self.mouse_pos
     }
 
+    /// How far the mouse moved since the previous frame, in window pixels.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, camera: &mut Vec2) {
+    /// if ctx.input.mouse_down(MouseButton::Right) { *camera -= ctx.input.mouse_delta(); }
+    /// # }
+    /// ```
+    #[must_use]
     pub fn mouse_delta(&self) -> Vec2 {
         self.mouse_pos - self.mouse_pos_at_frame_start
     }
 
+    /// Scroll wheel movement this frame. `y > 0` means scrolled up / away from
+    /// the user. Roughly one unit per wheel notch.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, zoom: &mut f32) {
+    /// *zoom *= 1.1_f32.powf(ctx.input.mouse_wheel().y);
+    /// # }
+    /// ```
+    #[must_use]
     pub fn mouse_wheel(&self) -> Vec2 {
         self.mouse_wheel
     }
 
+    /// How far the mouse itself moved this frame, in the system's raw
+    /// mouse units (about a pixel each, without pointer acceleration). Unlike
+    /// [`mouse_delta`](Self::mouse_delta) it keeps coming while the cursor is
+    /// locked and at the window's edge: use it to turn a first-person camera.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn look(ctx: &mut Ctx, yaw: &mut f32, pitch: &mut f32) {
+    /// let turn = ctx.input.mouse_motion() * 0.002; // radians per unit
+    /// *yaw -= turn.x;
+    /// *pitch = (*pitch - turn.y).clamp(-1.5, 1.5);
+    /// # }
+    /// ```
+    #[must_use]
     pub fn mouse_motion(&self) -> Vec2 {
         self.mouse_motion
     }
 
+    /// The connected gamepads, by slot (player one first). Empty when none
+    /// are plugged in, in headless runs, and without the `gamepad` feature.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
+    /// if let Some(&pad) = ctx.input.gamepads().first() {
+    ///     *pos += ctx.input.gamepad_stick(pad, GamepadStick::Left) * 300.0 * ctx.dt();
+    /// }
+    /// # }
+    /// ```
+    #[must_use]
     pub fn gamepads(&self) -> &[Gamepad] {
         &self.connected
     }
 
+    /// `true` while `button` is held on `pad`.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
+    /// let running = ctx.input.gamepad_down(pad, GamepadButton::West);
+    /// # }
+    /// ```
+    #[must_use]
     pub fn gamepad_down(&self, pad: Gamepad, button: GamepadButton) -> bool {
         self.pads[pad.slot()].buttons.down[button as usize]
     }
 
+    /// `true` only on the frame `button` went down on `pad`.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
+    /// if ctx.input.gamepad_pressed(pad, GamepadButton::South) { println!("jump"); }
+    /// # }
+    /// ```
+    #[must_use]
     pub fn gamepad_pressed(&self, pad: Gamepad, button: GamepadButton) -> bool {
         self.pads[pad.slot()].buttons.pressed[button as usize]
     }
 
+    /// `true` only on the frame `button` was let go on `pad` (or `pad` was
+    /// unplugged while it was held).
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
+    /// if ctx.input.gamepad_released(pad, GamepadButton::RightTrigger) { println!("fire!"); }
+    /// # }
+    /// ```
+    #[must_use]
     pub fn gamepad_released(&self, pad: Gamepad, button: GamepadButton) -> bool {
         self.pads[pad.slot()].buttons.released[button as usize]
     }
 
+    /// One axis of `pad`: sticks from `-1.0` to `1.0` (y down is positive,
+    /// like screen coordinates), triggers from `0.0` to `1.0`. Small
+    /// movements around the center read as `0.0`.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
+    /// let throttle = ctx.input.gamepad_axis(pad, GamepadAxis::RightTrigger);
+    /// # }
+    /// ```
+    #[must_use]
     pub fn gamepad_axis(&self, pad: Gamepad, axis: GamepadAxis) -> f32 {
         self.pads[pad.slot()].axes[axis as usize]
+    }
+}
+
+impl Input {
+    /// Current binding configuration.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.input.actions();
+    /// # }
+    /// ```
+    pub fn actions(&self) -> &crate::ActionMap {
+        &self.actions
+    }
+
+    /// Resolves an action name once into a `Copy` [`ActionId`](crate::ActionId)
+    /// for the queries below, which then skip the string lookup. An unknown
+    /// name logs an error (naming the known actions) and gives
+    /// [`ActionId::NONE`](crate::ActionId::NONE), which reads false/zero.
+    /// Resolve in setup, after installing the bindings with
+    /// [`set_actions`](Self::set_actions); later rebinding keeps the id valid.
+    ///
+    /// The queries take an id or a `&str` name. They are meant to move to the
+    /// `ctx.input` service of the API-friction work (#195).
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let jump = ctx.input.action_id("jump");
+    /// if ctx.input.action_pressed(jump) { /* ... */ }
+    /// # }
+    /// ```
+    pub fn action_id(&self, name: &str) -> crate::ActionId {
+        match self.actions.resolve(name) {
+            Ok(id) => id,
+            Err(e) => {
+                eprintln!("ponko: {e}");
+                crate::ActionId::NONE
+            }
+        }
+    }
+
+    /// Like [`action_id`](Self::action_id), but returns the error instead of
+    /// logging it.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let jump = ctx.input.try_action_id("jump");
+    /// # }
+    /// ```
+    pub fn try_action_id(&self, name: &str) -> Result<crate::ActionId, crate::UnknownAction> {
+        self.actions.resolve(name)
+    }
+
+    /// Resolves several actions at once; see also [`actions!`](crate::actions!),
+    /// which keeps the names in one declaration.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let [jump, fire] = ctx.input.action_ids(&["jump", "fire"]);
+    /// # }
+    /// ```
+    pub fn action_ids<const N: usize>(&self, names: &[&str; N]) -> [crate::ActionId; N] {
+        names.map(|n| self.action_id(n))
+    }
+
+    /// Whether a named button is held. Takes a name or an
+    /// [`ActionId`](crate::ActionId) from [`action_id`](Self::action_id).
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.input.action_down("move");
+    /// # }
+    /// ```
+    pub fn action_down(&self, action: impl crate::ActionRef) -> bool {
+        self.actions.down(action)
+    }
+
+    /// Whether a named button became held this frame.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.input.action_pressed("move");
+    /// # }
+    /// ```
+    pub fn action_pressed(&self, action: impl crate::ActionRef) -> bool {
+        self.actions.pressed(action)
+    }
+
+    /// Whether all sources of a named button were released this frame.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.input.action_released("move");
+    /// # }
+    /// ```
+    pub fn action_released(&self, action: impl crate::ActionRef) -> bool {
+        self.actions.released(action)
+    }
+
+    /// A named scalar axis, or zero.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.input.action_axis("move");
+    /// # }
+    /// ```
+    pub fn action_axis(&self, action: impl crate::ActionRef) -> f32 {
+        self.actions.axis(action)
+    }
+
+    /// A named vector axis, or zero.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &Ctx) {
+    /// let value = ctx.input.action_axis2("move");
+    /// # }
+    /// ```
+    pub fn action_axis2(&self, action: impl crate::ActionRef) -> Vec2 {
+        self.actions.axis2(action)
+    }
+
+    /// Replace bindings at runtime. Held sources establish a baseline;
+    /// rebinding itself generates no pressed/released edges.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &mut Ctx) {
+    /// ctx.input.set_actions(ActionMap::default());
+    /// # }
+    /// ```
+    pub fn set_actions(&mut self, mut actions: crate::ActionMap) {
+        actions.prepare_after(&self.actions);
+        self.actions = actions;
+        self.refresh_actions();
+        self.actions.end_frame();
+    }
+
+    /// Feed input by hand for tests/replay; live input uses the same state.
+    /// Edges clear after each headless or windowed frame.
+    /// ```
+    /// # use ponko::*;
+    /// # fn example(ctx: &mut Ctx) {
+    /// ctx.input.feed(InputEvent::Key(Key::Space, true));
+    /// # }
+    /// ```
+    pub fn feed(&mut self, event: crate::InputEvent) {
+        use crate::InputEvent;
+        match event {
+            InputEvent::Key(k, down) => self.set_key(k, down),
+            InputEvent::Mouse(b, down) => self.set_mouse_button(b, down),
+            InputEvent::GamepadButton(p, b, down) => self.set_gamepad_button(p, b, down),
+            InputEvent::GamepadAxis(p, a, value) => self.set_gamepad_axis(p, a, value),
+            InputEvent::FocusLost => self.release_all(),
+            InputEvent::GamepadDisconnected(p) => self.disconnect_gamepad(p),
+        }
+    }
+
+    /// A stick of `pad` as a vector, each part from `-1.0` to `1.0`, y down:
+    /// add it to a position to move that way.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn update(ctx: &mut Ctx, pad: Gamepad, aim: &mut Vec2) {
+    /// let stick = ctx.input.gamepad_stick(pad, GamepadStick::Right);
+    /// if stick.length() > 0.5 { *aim = stick.normalize(); }
+    /// # }
+    /// ```
+    pub fn gamepad_stick(&self, pad: Gamepad, stick: GamepadStick) -> Vec2 {
+        let (x, y) = match stick {
+            GamepadStick::Left => (GamepadAxis::LeftStickX, GamepadAxis::LeftStickY),
+            GamepadStick::Right => (GamepadAxis::RightStickX, GamepadAxis::RightStickY),
+        };
+        Vec2::new(self.gamepad_axis(pad, x), self.gamepad_axis(pad, y))
+    }
+
+    /// Hides the cursor and holds it in the window (`true`), for mouse-look,
+    /// or shows and frees it again (`false`). Applied after the frame; read
+    /// the movement with [`mouse_motion`](Self::mouse_motion). The system
+    /// frees the cursor while the window isn't focused, and it's held again
+    /// when focus comes back. Headless runs only remember the setting.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(1, |ctx| {
+    ///     ctx.input.set_cursor_locked(true);
+    ///     assert!(ctx.input.cursor_locked());
+    /// });
+    /// ```
+    pub fn set_cursor_locked(&mut self, locked: bool) {
+        if self.cursor_locked != locked {
+            self.cursor_locked = locked;
+            self.cursor_lock_changed = true;
+        }
+    }
+
+    /// Whether the cursor is locked, as set with
+    /// [`set_cursor_locked`](Self::set_cursor_locked).
+    pub fn cursor_locked(&self) -> bool {
+        self.cursor_locked
+    }
+
+    /// Feed committed Unicode text from a custom host or headless test. Native
+    /// hosts should forward character events, rather than mapping physical keys.
+    /// ```
+    /// use ponko::*;
+    /// # fn update(ctx: &mut Ctx) {
+    /// ctx.input.insert_text("Hello");
+    /// # }
+    /// ```
+    pub fn insert_text(&mut self, text: &str) {
+        self.add_text(text);
     }
 }
 

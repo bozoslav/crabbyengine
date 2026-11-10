@@ -1,6 +1,6 @@
-use super::{Ctx, Playing, Sound, SoundParams};
+use super::{Audio, Playing, Sound, SoundParams};
 
-/// Named mixer bus, created once with [`Ctx::audio_bus`]. Handles belong to
+/// Named mixer bus, created once with [`Audio::bus`]. Handles belong to
 /// their creating context. The default handle selects the `sfx` bus.
 /// ```
 /// use ponko::AudioBus;
@@ -102,17 +102,17 @@ impl BusRegistry {
         }
     }
 }
-impl Ctx {
+impl Audio {
     /// Gets or creates a named bus. Lookup allocates only for a new name;
     /// save the returned handle. This never opens an audio device.
     /// ```
     /// use ponko::*;
     /// Game::new("audio", 1, 1).run_headless(0, |ctx| {
-    ///     assert_eq!(ctx.audio_bus("music"), ctx.audio_bus("music"));
+    ///     assert_eq!(ctx.audio.bus("music"), ctx.audio.bus("music"));
     /// });
     /// ```
-    pub fn audio_bus(&mut self, name: &str) -> AudioBus {
-        self.audio.buses.named(name)
+    pub fn bus(&mut self, name: &str) -> AudioBus {
+        self.backend.buses.named(name)
     }
 
     /// Changes a bus's linear gain, preserving its mute state. Negative or
@@ -120,68 +120,62 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let music = ctx.audio_bus("music");
-    /// ctx.set_audio_bus_volume(music, 0.5);
+    /// let music = ctx.audio.bus("music");
+    /// ctx.audio.set_bus_volume(music, 0.5);
     /// # }
     /// ```
-    pub fn set_audio_bus_volume(&mut self, bus: AudioBus, volume: f32) {
-        self.audio.buses.ensure_default();
-        if let Some(state) = self.audio.buses.entries.get_mut(bus.0) {
+    pub fn set_bus_volume(&mut self, bus: AudioBus, volume: f32) {
+        self.backend.buses.ensure_default();
+        if let Some(state) = self.backend.buses.entries.get_mut(bus.0) {
             state.volume = finite(volume, 0.0).max(0.0);
         }
-        self.audio.bus_changed(bus);
+        self.backend.bus_changed(bus);
     }
     /// Mutes or unmutes a bus without losing its configured volume. Existing
     /// reverb tails decay naturally; new input to reverb is muted immediately.
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let music = ctx.audio_bus("music");
-    /// ctx.mute_audio_bus(music, true);
+    /// let music = ctx.audio.bus("music");
+    /// ctx.audio.mute_bus(music, true);
     /// # }
     /// ```
-    pub fn mute_audio_bus(&mut self, bus: AudioBus, muted: bool) {
-        self.audio.buses.ensure_default();
-        if let Some(state) = self.audio.buses.entries.get_mut(bus.0) {
+    pub fn mute_bus(&mut self, bus: AudioBus, muted: bool) {
+        self.backend.buses.ensure_default();
+        if let Some(state) = self.backend.buses.entries.get_mut(bus.0) {
             state.muted = muted;
         }
-        self.audio.bus_changed(bus);
+        self.backend.bus_changed(bus);
     }
     /// Plays a decoded or streamed sound on a bus with per-voice effects.
     /// Ordinary `play_sound` and `play_sound_ex` use `sfx` and default effects.
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, sound: Sound) {
-    /// let music = ctx.audio_bus("music");
-    /// ctx.play_sound_on(&sound, SoundParams::default(), music, AudioEffects::default());
+    /// let music = ctx.audio.bus("music");
+    /// ctx.audio.play_on(&sound, SoundParams::default(), music, AudioEffects::default());
     /// # }
     /// ```
-    pub fn play_sound_on(
-        &mut self,
-        sound: &Sound,
-        params: SoundParams,
-        bus: AudioBus,
-        effects: AudioEffects,
-    ) -> Playing {
+    pub fn play_on(&mut self, sound: &Sound, params: SoundParams, bus: AudioBus, effects: AudioEffects) -> Playing {
         if self.headless {
             return Playing(0);
         }
-        Playing(self.audio.play_on(sound.id, params, bus, effects.validated()))
+        Playing(self.backend.play_on(sound.id, params, bus, effects.validated()))
     }
     /// Changes a playing voice's low-pass cutoff and reverb send with Kira
     /// smoothing. Does nothing for stopped or headless voices.
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx, voice: Playing) {
-    /// ctx.set_sound_effects(voice, AudioEffects { low_pass_hz: 700.0, reverb: 0.4 });
+    /// ctx.audio.set_effects(voice, AudioEffects { low_pass_hz: 700.0, reverb: 0.4 });
     /// # }
     /// ```
-    pub fn set_sound_effects(&mut self, playing: Playing, effects: AudioEffects) {
-        self.audio.effects(playing.0, effects.validated());
+    pub fn set_effects(&mut self, playing: Playing, effects: AudioEffects) {
+        self.backend.effects(playing.0, effects.validated());
     }
 
     /// Loads music to stream, from an [added asset
-    /// source](Ctx::add_asset_source) or `assets/`, returning the same kind
+    /// source](crate::Assets::add_source) or `assets/`, returning the same kind
     /// of handle as `load_sound`. Each playback opens its own decoder:
     /// samples are decoded on Kira's worker thread as they play rather than
     /// held decoded in memory. A file from `assets/` is read as it plays; a
@@ -195,8 +189,8 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let music = ctx.load_stream("music.ogg");
-    /// ctx.play_sound_ex(&music, SoundParams { looping: true, ..Default::default() });
+    /// let music = ctx.audio.load_stream("music.ogg");
+    /// ctx.audio.play_ex(&music, SoundParams { looping: true, ..Default::default() });
     /// # }
     /// ```
     pub fn load_stream(&mut self, path: &str) -> Sound {
@@ -212,7 +206,7 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let music = ctx.try_load_stream("music/theme.ogg");
+    ///     let music = ctx.audio.try_load_stream("music/theme.ogg");
     ///     assert_eq!(music.unwrap_err().kind(), ErrorKind::NotFound);
     /// });
     /// ```
@@ -228,10 +222,10 @@ impl Ctx {
         };
         let origin = found.origin.clone();
         let streamed = match &origin {
-            Origin::File(file) => self.audio.stream(file.clone()),
+            Origin::File(file) => self.backend.stream(file.clone()),
             Origin::Source { .. } => {
                 let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
-                self.audio.stream_bytes(bytes)
+                self.backend.stream_bytes(bytes)
             }
         };
         let (id, seconds) = streamed.map_err(|e| match &origin {
@@ -283,22 +277,24 @@ mod tests {
     #[test]
     fn audio_headless_buses_and_effects_never_open_device() {
         crate::Game::new("audio", 1, 1).run_headless(0, |ctx| {
-            let music = ctx.audio_bus("music");
-            ctx.set_audio_bus_volume(music, 0.4);
-            ctx.mute_audio_bus(music, true);
-            ctx.mute_audio_bus(music, false);
-            assert_eq!(ctx.audio.buses.entries[music.0].volume, 0.4);
-            assert!(!ctx.audio.buses.entries[music.0].muted);
-            let sound = ctx.create_sound(100, &[0.0; 100]);
-            let voice = ctx.play_sound_on(&sound, SoundParams::default(), music, AudioEffects::default());
-            ctx.set_sound_effects(
+            let music = ctx.audio.bus("music");
+            ctx.audio.set_bus_volume(music, 0.4);
+            ctx.audio.mute_bus(music, true);
+            ctx.audio.mute_bus(music, false);
+            assert_eq!(ctx.audio.backend.buses.entries[music.0].volume, 0.4);
+            assert!(!ctx.audio.backend.buses.entries[music.0].muted);
+            let sound = ctx.audio.create(100, &[0.0; 100]);
+            let voice = ctx
+                .audio
+                .play_on(&sound, SoundParams::default(), music, AudioEffects::default());
+            ctx.audio.set_effects(
                 voice,
                 AudioEffects {
                     low_pass_hz: 600.0,
                     reverb: 0.5,
                 },
             );
-            ctx.stop_sound(voice);
+            ctx.audio.stop(voice);
         });
     }
     #[cfg(feature = "audio")]

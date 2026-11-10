@@ -2,7 +2,7 @@
 //! `web/build.sh web_smoke` and drives in a headless browser.
 //!
 //! It loads one asset file (`crab.png`, fetched over HTTP on the web) and
-//! two assets from an in-memory [asset source](Ctx::add_asset_source) (an
+//! two assets from an in-memory [asset source](Assets::add_source) (an
 //! image and streamed music, never fetched), runs
 //! a fixed-step simulation, counts left clicks and draws something on every
 //! frame. Each frame it publishes its state for the runner (see
@@ -37,13 +37,13 @@ fn main() {
             // The one fetched asset; a missing file panics with its name.
             let crab = ctx.load_texture("crab.png");
             // Assets from a source the game adds: found by name, never fetched.
-            ctx.add_asset_source(
+            ctx.assets.add_source(
                 MemorySource::new("embedded")
                     .with("embedded/dot.png", png(4, 2))
                     .with("embedded/beep.wav", silent_wav(800)),
             );
             let dot = ctx.load_texture("embedded/dot.png");
-            let stream = ctx.try_load_stream("embedded/beep.wav").is_ok();
+            let stream = ctx.audio.try_load_stream("embedded/beep.wav").is_ok();
             move |ctx: &mut Ctx| {
                 smoke.frame(
                     ctx,
@@ -55,7 +55,7 @@ fn main() {
                     }),
                 );
                 // The background changes with each click, so a click shows.
-                ctx.clear(if smoke.clicks().is_multiple_of(2) {
+                ctx.gfx.clear(if smoke.clicks().is_multiple_of(2) {
                     Color::hex(0x1E2A38)
                 } else {
                     Color::hex(0x2E4A28)
@@ -64,7 +64,7 @@ fn main() {
                 let t = ticks.get() as f32 / 60.0;
                 for i in 0..8 {
                     let angle = t + i as f32 * std::f32::consts::TAU / 8.0;
-                    ctx.draw_ex(
+                    ctx.gfx.draw_ex(
                         &crab,
                         size / 2.0 + Vec2::from_angle(angle) * size.min_element() * 0.3,
                         DrawParams {

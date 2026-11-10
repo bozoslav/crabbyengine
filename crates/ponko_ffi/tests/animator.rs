@@ -758,6 +758,23 @@ unsafe fn bad_arguments(ctx: *mut CrabbyCtx, run: &Run, idle: *const CrabbyClip,
         assert_eq!(crabby_ctx_animator_crossfade(ctx, e, 0, f32::NAN, 0.0), BAD);
         assert_eq!(crabby_ctx_animator_crossfade(ctx, e, 0, 0.1, -1.0), BAD);
         assert_eq!(crabby_ctx_animator_crossfade(ctx, e, 0, 0.1, f32::NAN), BAD);
+        // A time step that isn't a time is refused too, before the animator
+        // or its skeleton is touched.
+        let before = (state_of(ctx, e), root_x(ctx, e));
+        assert_eq!(crabby_ctx_animator_update(ctx, e, f32::NAN), BAD);
+        assert_eq!(crabby_ctx_animator_update(ctx, e, f32::INFINITY), BAD);
+        assert_eq!(crabby_ctx_animator_update(ctx, e, -0.1), BAD);
+        assert_eq!(
+            (state_of(ctx, e), root_x(ctx, e)),
+            before,
+            "a refused update poses nothing"
+        );
+        assert_eq!(
+            crabby_ctx_animator_update(ctx, bare, f32::NAN),
+            CRABBY_NOT_FOUND,
+            "no animator"
+        );
+        assert_eq!(crabby_ctx_animator_update(ctx, e, 0.0), OK, "zero is a valid step");
         assert_eq!(crabby_ctx_animator_update(ctx, e, 0.1), OK);
         assert_eq!(state_of(ctx, e).0, 0, "refused calls changed nothing");
         // Setting an animator again starts over.

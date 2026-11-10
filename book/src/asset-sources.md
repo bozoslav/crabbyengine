@@ -20,7 +20,7 @@ the game needs nothing next to the executable:
 {{#include ../../tests/asset_sources.rs:embedded}}
 ```
 
-`ctx.add_asset_source(source)` takes any type that implements `AssetSource`,
+`ctx.assets.add_source(source)` takes any type that implements `AssetSource`,
 and `MemorySource` is the ready-made one. Your own is two methods: `id` (a
 short name, unique among the sources you add) and `read(name)` (the bytes, or
 an error of kind `NotFound` when the source doesn't have that name). Use it
@@ -79,7 +79,7 @@ A few details:
 
 ## Your own asset types
 
-`ctx.load_asset_with(name, decode)` reads a named asset from the sources
+`ctx.assets.load_with(name, decode)` reads a named asset from the sources
 (then `assets/`) and hands its bytes to your decode function: no
 registration. Nothing is cached, so keep the result, for example in a
 resource.

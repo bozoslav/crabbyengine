@@ -384,13 +384,28 @@ impl Renderer {
             .await
             .unwrap_or_else(|e| panic!("ponko: no compatible GPU found: {e}"));
 
+        // `PONKO_GPU_TIER` opens the device as a weaker GPU would be.
+        let forced_tier = super::GpuTier::forced();
+        if let Some(tier) = forced_tier {
+            eprintln!("ponko: PONKO_GPU_TIER forces the {tier} GPU tier");
+        }
+        let required_features = adapter.features()
+            & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES);
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("ponko device"),
-                required_features: adapter.features()
-                    & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
+                required_features: forced_tier.map_or(required_features, |t| t.device_features(required_features)),
                 // The defaults ask for more than WebGL2 has; we need little.
-                required_limits: if cfg!(target_arch = "wasm32") {
+                required_limits: if let Some(tier) = forced_tier {
+                    // The tier's limits, but a surface as large as the window.
+                    tier.window_limits(wgpu::Limits {
+                        max_sampled_textures_per_shader_stage: adapter
+                            .limits()
+                            .max_sampled_textures_per_shader_stage
+                            .clamp(16, 24),
+                        ..wgpu::Limits::default()
+                    })
+                } else if cfg!(target_arch = "wasm32") {
                     adapter.limits()
                 } else {
                     // One more sampled texture than the default 16, where
@@ -423,7 +438,8 @@ impl Renderer {
             eprintln!("ponko: this GPU can't do {msaa}x multisampling here; using 4x");
             4
         };
-        let capabilities = super::capabilities::of_device(&adapter.get_info(), &device, (requested_msaa, msaa));
+        let mut capabilities = super::capabilities::of_device(&adapter.get_info(), &device, (requested_msaa, msaa));
+        capabilities.forced_tier = forced_tier;
         // Apple's GPUs (Metal) draw in tiles and drop hidden solid fragments
         // themselves: there solid surfaces skip the depth prepass.
         #[cfg(feature = "3d")]
@@ -1124,7 +1140,10 @@ impl Renderer {
         }
         let (width, height) = (tex.texture.width(), tex.texture.height());
         let levels = super::mips::levels(width, height);
-        if levels == 1 {
+        // Without view formats (WebGL2) a data texture can't be read through
+        // a linear view of its sRGB texture: it is remade as a linear one.
+        let remake_as_data = linear && self.image_view_formats.is_empty();
+        if levels == 1 && !remake_as_data {
             self.textures[id as usize].mips = Some(linear);
             return;
         }
@@ -1133,29 +1152,34 @@ impl Renderer {
             height,
             depth_or_array_layers: 1,
         };
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("material texture"),
-            size,
-            mip_level_count: levels,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::COPY_SRC
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: self.image_view_formats,
-        });
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        encoder.copy_texture_to_texture(
-            self.textures[id as usize].texture.as_image_copy(),
-            texture.as_image_copy(),
-            size,
-        );
         let mips = self
             .mips
             .get_or_insert_with(|| super::mips::MipMaker::new(&self.device));
-        mips.generate(&self.device, &mut encoder, &texture, linear);
+        let texture = if remake_as_data {
+            mips.data_texture(&self.device, &mut encoder, &self.textures[id as usize].texture, levels)
+        } else {
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("material texture"),
+                size,
+                mip_level_count: levels,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: self.image_view_formats,
+            });
+            encoder.copy_texture_to_texture(
+                self.textures[id as usize].texture.as_image_copy(),
+                texture.as_image_copy(),
+                size,
+            );
+            mips.generate(&self.device, &mut encoder, &texture, linear);
+            texture
+        };
         self.queue.submit([encoder.finish()]);
         let bind_group = self.sprite_bind_group(&texture, self.textures[id as usize].nearest);
         let tex = &mut self.textures[id as usize];

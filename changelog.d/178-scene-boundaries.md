@@ -13,7 +13,8 @@
   Stop, the control endpoint's `scene.load` and `world.load`). Loads in
   setup and in simulation systems, which every peer runs, work as before.
 - The editor's Stop keeps its Play snapshot and undo history when the world
-  can't be put back, so it can be retried.
+  can't be put back, so it can be retried, and it no longer pauses the
+  simulation when it is refused.
 - A scene load clears the inspector's selection, which could otherwise show
   a different entity that reused the id.
 - A scene load forgets which 3D UI panel had the keyboard, so a new panel

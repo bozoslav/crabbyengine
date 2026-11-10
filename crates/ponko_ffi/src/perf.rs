@@ -1,5 +1,5 @@
 //! Profiling from C: frame-time statistics, the performance overlay and
-//! traces (Rust `Ctx::frame_stats`, `set_perf_hud`, `record_trace`).
+//! traces (Rust `Perf::frame_stats`, `set_perf_hud`, `record_trace`).
 
 use std::ffi::c_char;
 
@@ -73,7 +73,7 @@ pub unsafe extern "C" fn crabby_ctx_frame_stats(
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        let s = ctx_access(ctx, |c| Ok(c.frame_stats()))?;
+        let s = ctx_access(ctx, |c| Ok(c.perf.frame_stats()))?;
         out(
             out_stats,
             CrabbyFrameStats {
@@ -105,7 +105,7 @@ pub unsafe extern "C" fn crabby_ctx_set_perf_hud(ctx: *mut CrabbyCtx, on: bool) 
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_perf_hud(on);
+            c.perf.set_hud(on);
             Ok(())
         })
     })
@@ -127,7 +127,7 @@ pub unsafe extern "C" fn crabby_ctx_record_trace(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.record_trace(text(path)?, frames as usize);
+            c.perf.record_trace(text(path)?, frames as usize);
             Ok(())
         })
     })
@@ -267,7 +267,7 @@ pub unsafe extern "C" fn crabby_ctx_set_profiling(ctx: *mut CrabbyCtx, on: bool)
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_profiling(on);
+            c.perf.set_profiling(on);
             Ok(())
         })
     })
@@ -301,7 +301,13 @@ pub unsafe extern "C" fn crabby_ctx_perf_report(
         if buffer.is_null() && capacity > 0 {
             return Err(invalid("buffer is null"));
         }
-        let json = ctx_access(ctx, |c| Ok(c.perf_report().to_json()))?;
+        let json = ctx_access(ctx, |c| {
+            // Count the world as it is now, as this function always has:
+            // the service's count is from the last command flush.
+            let mut report = c.perf.report();
+            report.entities = c.world.len();
+            Ok(report.to_json())
+        })?;
         write_text(buffer, capacity, out_len, &json);
         Ok(())
     })

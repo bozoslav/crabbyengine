@@ -13,6 +13,7 @@
 use std::sync::{Arc, Mutex};
 
 use super::*;
+use crate::GpuTier;
 use crate::render::capabilities::{self, GpuFeature};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight, linear};
 use crate::*;
@@ -57,12 +58,55 @@ struct Outcome {
     report: GpuCapabilities,
     errors: Vec<String>,
     pixels: Vec<u8>,
+    /// The built-in shader's cached set: its composed engine parts.
+    features: super::pipeline_cache::Features,
 }
+
+/// The limits the engine asks for on desktop.
+fn engine_limits(a: &wgpu::Adapter) -> wgpu::Limits {
+    wgpu::Limits {
+        max_sampled_textures_per_shader_stage: a.limits().max_sampled_textures_per_shader_stage.clamp(16, 24),
+        ..wgpu::Limits::default()
+    }
+}
+
+/// Each tier forced as `PONKO_GPU_TIER` forces it on the engine's request.
+const TIERS: [(GpuTier, Profile); 3] = [
+    (
+        GpuTier::WebGl2,
+        Profile {
+            name: "forced-webgl2",
+            limits: |a| GpuTier::WebGl2.device_limits(engine_limits(a)),
+            timestamps: false,
+        },
+    ),
+    (
+        GpuTier::Baseline,
+        Profile {
+            name: "forced-baseline",
+            limits: |a| GpuTier::Baseline.device_limits(engine_limits(a)),
+            timestamps: false,
+        },
+    ),
+    (
+        GpuTier::Desktop,
+        Profile {
+            name: "forced-desktop",
+            limits: |a| GpuTier::Desktop.device_limits(engine_limits(a)),
+            timestamps: true,
+        },
+    ),
+];
 
 /// Opens a device for `profile` and draws three frames with TAA, GTAO,
 /// contact shadows, screen-space reflections and global illumination on;
 /// `None` when it can't be set up here (printed).
 fn draw(profile: &Profile) -> Option<Outcome> {
+    draw_with(profile, (SIZE, SIZE), |_| {})
+}
+
+/// [`draw`], with `setup` changing the scene's settings before the frames.
+fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> Option<Outcome> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
         eprintln!("{}: no GPU adapter: skipped", profile.name);
@@ -161,8 +205,8 @@ fn draw(profile: &Profile) -> Option<Outcome> {
     let output = device.create_texture(&wgpu::TextureDescriptor {
         label: None,
         size: wgpu::Extent3d {
-            width: SIZE,
-            height: SIZE,
+            width: size.0,
+            height: size.1,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -173,20 +217,20 @@ fn draw(profile: &Profile) -> Option<Outcome> {
         view_formats: &[],
     });
 
-    let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
+    let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(size.0 as f32, size.1 as f32));
     // As `Ctx` does from the renderer's answers.
-    ctx.assets3d.decals_supported = report.available(GpuFeature::Decals);
-    ctx.assets3d.gi_supported = report.available(GpuFeature::GlobalIllumination);
+    ctx.gfx.assets3d.decals_supported = report.available(GpuFeature::Decals);
+    ctx.gfx.assets3d.gi_supported = report.available(GpuFeature::GlobalIllumination);
     let matte = MaterialDesc {
         color: Color::rgb(0.8, 0.5, 0.2),
         roughness: 0.3,
         ..Default::default()
     };
-    let material = ctx.create_material(matte);
+    let material = ctx.gfx.create_material(matte);
     let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
     renderer.create_material(&device, &GpuMaterialDesc::new(&matte), &textures);
     let mut add = |ctx: &mut Ctx, data: &MeshData, at: Transform3D| {
-        let mesh = ctx.create_mesh(data, material);
+        let mesh = ctx.gfx.create_mesh(data, material);
         renderer.create_mesh(&device, data, &[(0..data.indices.len() as u32, material)], true);
         ctx.world.spawn((Model::new(mesh), at));
     };
@@ -213,13 +257,16 @@ fn draw(profile: &Profile) -> Option<Outcome> {
     ctx.post.ssr = 1.0;
     ctx.camera3d.position = vec3(2.5, 2.0, 3.0);
     ctx.camera3d.look_at(Vec3::ZERO);
+    setup(&mut ctx);
 
     let mut pixels = Vec::new();
     for _ in 0..3 {
         let mut frame = Frame3D::default();
+        // As the engine does: no shadow map larger than the device allows.
+        frame.size_limit = device.limits().max_texture_dimension_2d;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -248,7 +295,7 @@ fn draw(profile: &Profile) -> Option<Outcome> {
             &Prepare3D {
                 scene: &scene,
                 lut: None,
-                size: (SIZE, SIZE),
+                size,
             },
         );
         let target = output.create_view(&Default::default());
@@ -261,31 +308,31 @@ fn draw(profile: &Profile) -> Option<Outcome> {
     let on = |f| report.available(f);
     assert_eq!(
         renderer.taa_on,
-        on(GpuFeature::TemporalAntialiasing),
+        on(GpuFeature::TemporalAntialiasing) && ctx.post.anti_aliasing == AntiAliasing::Taa,
         "{}: TAA",
         profile.name
     );
-    let aa = if on(GpuFeature::TemporalAntialiasing) {
-        AntiAliasing::Taa
-    } else {
-        AntiAliasing::Fxaa
+    // TAA where the device has it, FXAA instead; other modes as asked.
+    let aa = match ctx.post.anti_aliasing {
+        AntiAliasing::Taa if !on(GpuFeature::TemporalAntialiasing) => AntiAliasing::Fxaa,
+        asked => asked,
     };
     assert_eq!(renderer.aa, aa, "{}: the antialiasing used", profile.name);
     assert_eq!(
         renderer.ao_enabled,
-        on(GpuFeature::AmbientOcclusion),
+        on(GpuFeature::AmbientOcclusion) && (ctx.post.ambient_occlusion.enabled || ctx.post.contact_shadows > 0.0),
         "{}: GTAO",
         profile.name
     );
     assert_eq!(
         renderer.ssr_on,
-        on(GpuFeature::ScreenSpaceReflections),
+        on(GpuFeature::ScreenSpaceReflections) && ctx.post.ssr > 0.0,
         "{}: SSR",
         profile.name
     );
     assert_eq!(
         renderer.gi.is_some(),
-        on(GpuFeature::GlobalIllumination),
+        on(GpuFeature::GlobalIllumination) && ctx.lighting.gi.enabled,
         "{}: GI",
         profile.name
     );
@@ -322,16 +369,30 @@ fn draw(profile: &Profile) -> Option<Outcome> {
 
     if let Some(dir) = std::env::var_os("PONKO_CAPABILITIES_PNG") {
         let path = std::path::Path::new(&dir).join(format!("{}.png", profile.name));
-        image::save_buffer(&path, &pixels, SIZE, SIZE, image::ColorType::Rgba8).unwrap();
+        image::save_buffer(&path, &pixels, size.0, size.1, image::ColorType::Rgba8).unwrap();
     }
+    let features = renderer
+        .cache
+        .built_keys()
+        .into_iter()
+        .find(|k| k.set.module.source.is_empty())
+        .expect("the built-in shader's set is cached")
+        .set
+        .module
+        .features;
     let errors = errors.lock().unwrap().clone();
-    Some(Outcome { report, errors, pixels })
+    Some(Outcome {
+        report,
+        errors,
+        pixels,
+        features,
+    })
 }
 
 fn read(device: &wgpu::Device, queue: &wgpu::Queue, output: &wgpu::Texture) -> Vec<u8> {
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: u64::from(SIZE * SIZE * 4),
+        size: u64::from(output.width() * output.height() * 4),
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
@@ -342,7 +403,8 @@ fn read(device: &wgpu::Device, queue: &wgpu::Queue, output: &wgpu::Texture) -> V
             buffer: &readback,
             layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(SIZE * 4),
+                // A multiple of 256 at every size these tests use.
+                bytes_per_row: Some(output.width() * 4),
                 rows_per_image: None,
             },
         },
@@ -356,7 +418,12 @@ fn read(device: &wgpu::Device, queue: &wgpu::Queue, output: &wgpu::Texture) -> V
 
 /// The cube in the middle of the frame is lit (not the black clear color).
 fn assert_drawn(name: &str, pixels: &[u8]) {
-    let i = (((SIZE / 2) * SIZE + SIZE / 2) * 4) as usize;
+    assert_drawn_at(name, pixels, (SIZE, SIZE));
+}
+
+/// [`assert_drawn`] for a frame of `size`.
+fn assert_drawn_at(name: &str, pixels: &[u8], (w, h): (u32, u32)) {
+    let i = (((h / 2) * w + w / 2) * 4) as usize;
     let [r, g, b] = [pixels[i], pixels[i + 1], pixels[i + 2]];
     assert!(
         u32::from(r) + u32::from(g) + u32::from(b) > 60,
@@ -433,4 +500,111 @@ fn engine_desktop_device_reports_what_the_adapter_has() {
         assert_eq!(f.available, f.reason.is_none(), "{f:?}");
     }
     eprintln!("{}", serde_json::to_string_pretty(r).unwrap());
+}
+
+#[test]
+fn forced_tiers_report_their_tier_and_cache_distinct_pipelines() {
+    let mut seen = Vec::new();
+    for (tier, profile) in &TIERS {
+        let Some(out) = draw(profile) else { continue };
+        assert_eq!(out.errors, Vec::<String>::new(), "{}", profile.name);
+        assert_drawn(profile.name, &out.pixels);
+        let r = &out.report;
+        if *tier == GpuTier::Desktop && GpuTier::of(&r.limits) < GpuTier::Desktop {
+            // An adapter with fewer than 18 texture slots can't be forced up.
+            eprintln!("{}: this adapter reaches only {}: skipped", profile.name, r.tier);
+            continue;
+        }
+        assert_eq!(r.tier, *tier, "{}", profile.name);
+        // The cached built-in set is composed from what the report says.
+        let f = out.features;
+        assert_eq!(
+            (f.decals, f.gi, f.storage),
+            (
+                r.available(GpuFeature::Decals),
+                r.available(GpuFeature::GlobalIllumination),
+                r.available(GpuFeature::StorageBuffers)
+            ),
+            "{}",
+            profile.name
+        );
+        // A tier guarantees what its floor has.
+        for g in GpuFeature::ALL {
+            assert!(
+                !tier.report().available(g) || r.available(g),
+                "{}: {g:?} is guaranteed at {tier}",
+                profile.name
+            );
+        }
+        seen.push((*tier, f));
+    }
+    for (i, (a, fa)) in seen.iter().enumerate() {
+        for (b, fb) in &seen[i + 1..] {
+            assert_ne!(fa, fb, "{a} and {b} share pipeline keys");
+        }
+    }
+}
+
+#[test]
+fn every_quality_preset_draws_on_every_tier_without_gpu_errors() {
+    let presets = [
+        ("low", GraphicsQuality::low()),
+        ("medium", GraphicsQuality::medium()),
+        ("high", GraphicsQuality::high()),
+        ("ultra", GraphicsQuality::ultra()),
+    ];
+    for (tier, profile) in &TIERS {
+        let fitted = ("for_tier", GraphicsQuality::for_tier(*tier));
+        for (name, quality) in presets.iter().chain([&fitted]) {
+            let Some(out) = draw_with(profile, (SIZE, SIZE), |ctx| {
+                ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, *quality)
+            }) else {
+                return;
+            };
+            assert_eq!(
+                out.errors,
+                Vec::<String>::new(),
+                "{} with the {name} preset",
+                profile.name
+            );
+            assert_drawn(&format!("{} with the {name} preset", profile.name), &out.pixels);
+            // The preset fitted to the device asks for nothing it lacks.
+            let fit = GraphicsQuality::recommended(&out.report);
+            assert_eq!(fit, fit.fitted_to(&out.report));
+        }
+    }
+}
+
+/// What `PONKO_GPU_TIER` gives the engine's window device: the tier's
+/// limits, but room for the window. A 1280x720 window on a 2x display is
+/// drawn at 2560x1440, past the tiers' 2048 texture floor; the forced
+/// device draws a frame that size without a GPU error.
+#[test]
+fn forced_window_devices_draw_a_high_dpi_window_sized_frame() {
+    const WINDOW: (u32, u32) = (2560, 1440);
+    let profiles = [
+        Profile {
+            name: "window-webgl2",
+            limits: |a| GpuTier::WebGl2.window_limits(engine_limits(a)),
+            timestamps: false,
+        },
+        Profile {
+            name: "window-baseline",
+            limits: |a| GpuTier::Baseline.window_limits(engine_limits(a)),
+            timestamps: false,
+        },
+    ];
+    for (tier, profile) in [GpuTier::WebGl2, GpuTier::Baseline].iter().zip(&profiles) {
+        let Some(out) = draw_with(profile, WINDOW, |_| {}) else {
+            continue;
+        };
+        assert_eq!(out.errors, Vec::<String>::new(), "{}", profile.name);
+        assert_drawn_at(profile.name, &out.pixels, WINDOW);
+        assert_eq!(out.report.tier, *tier, "{}: still that tier", profile.name);
+        assert!(
+            out.report.limits.max_texture_dimension_2d >= WINDOW.0,
+            "{}",
+            profile.name
+        );
+    }
 }

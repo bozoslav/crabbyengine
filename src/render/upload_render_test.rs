@@ -224,7 +224,7 @@ fn flight(ball: bool) -> Option<(Rig, Vec<Entity>, Mesh, Material)> {
             ..Default::default()
         },
     );
-    let red = rig.ctx.create_material(MaterialDesc {
+    let red = rig.ctx.gfx.create_material(MaterialDesc {
         color: Color::RED,
         ..Default::default()
     });

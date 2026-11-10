@@ -182,7 +182,7 @@ fn restart_works_in_the_middle_of_a_round_too() {
     let seen = taken_before_restart.clone();
     let mut world = script(move |ctx| {
         chase_nearest_coin(ctx);
-        if ctx.sim_tick() == 2 * HZ {
+        if ctx.time.sim_tick() == 2 * HZ {
             seen.set(ctx.world.resource::<Round>().collected);
             intent(ctx).restart = true;
             ctx.quit();
@@ -270,7 +270,7 @@ fn the_game_starts_on_an_empty_title_screen_that_ignores_movement() {
 #[test]
 fn confirm_on_the_title_screen_starts_round_one() {
     let mut world = script(|ctx| {
-        if ctx.sim_tick() == 3 {
+        if ctx.time.sim_tick() == 3 {
             intent(ctx).confirm = true;
             ctx.quit();
         }
@@ -297,7 +297,7 @@ fn pause_or_back_on_the_title_screen_quits_the_game() {
         let counted = ticks.clone();
         script(move |ctx| {
             counted.set(counted.get() + 1);
-            if ctx.sim_tick() == 2 {
+            if ctx.time.sim_tick() == 2 {
                 press(intent(ctx));
             }
         })
@@ -312,7 +312,7 @@ fn pausing_freezes_the_round_and_resuming_continues_it() {
     let at_pause = Rc::new(RefCell::new(None));
     let record = at_pause.clone();
     let mut world = script(move |ctx| {
-        let tick = ctx.sim_tick();
+        let tick = ctx.time.sim_tick();
         if tick == HZ {
             intent(ctx).pause = true;
         }
@@ -353,7 +353,7 @@ fn pause_toggles_with_the_pause_button_and_confirm_resumes() {
     let log = seen.clone();
     script(move |ctx| {
         log.borrow_mut().push(screen(&ctx.world));
-        match ctx.sim_tick() {
+        match ctx.time.sim_tick() {
             1 | 5 => intent(ctx).pause = true, // pause ...
             3 => intent(ctx).confirm = true,   // ... resume with confirm
             7 => intent(ctx).pause = true,     // ... resume with pause
@@ -376,7 +376,7 @@ fn pause_toggles_with_the_pause_button_and_confirm_resumes() {
 #[test]
 fn restart_from_the_pause_screen_starts_a_fresh_round_and_back_returns_to_the_title() {
     let mut world = script(|ctx| {
-        match ctx.sim_tick() {
+        match ctx.time.sim_tick() {
             HZ => intent(ctx).pause = true,
             n if n == HZ + 2 => {
                 intent(ctx).restart = true;
@@ -389,7 +389,7 @@ fn restart_from_the_pause_screen_starts_a_fresh_round_and_back_returns_to_the_ti
     .run_headless(5 * HZ, setup_playing);
     assert_fresh_round(&mut world, 2);
 
-    let world = script(|ctx| match ctx.sim_tick() {
+    let world = script(|ctx| match ctx.time.sim_tick() {
         5 => intent(ctx).pause = true,
         7 => {
             intent(ctx).back = true;
@@ -469,7 +469,7 @@ fn each_screen_shows_its_own_text() {
     );
 
     let paused = script(|ctx| {
-        if ctx.sim_tick() == 1 {
+        if ctx.time.sim_tick() == 1 {
             intent(ctx).pause = true;
         }
     })
@@ -598,7 +598,7 @@ fn a_missing_save_file_is_a_first_run_and_is_only_written_when_a_round_ends() {
     );
 
     // Quitting a round halfway (back to the title) doesn't count either.
-    let quit_midway = script(|ctx| match ctx.sim_tick() {
+    let quit_midway = script(|ctx| match ctx.time.sim_tick() {
         0 => intent(ctx).confirm = true,
         30 => intent(ctx).pause = true,
         32 => intent(ctx).back = true,
@@ -762,7 +762,7 @@ fn a_whole_session_can_be_played_from_key_presses() {
             // Same as holding the keys for the direction: written where read_input leaves it.
             intent(ctx).direction = nearest.map_or(Vec2::ZERO, |c| (c - player).normalize_or_zero());
         }
-        log.borrow_mut().push((ctx.sim_tick(), screen(&ctx.world)));
+        log.borrow_mut().push((ctx.time.sim_tick(), screen(&ctx.world)));
     })
     .run_headless(1800, {
         let path = path.clone();
@@ -794,26 +794,28 @@ fn keys_and_gamepad_map_to_the_same_intent() {
     Game::new("t", 800, 600).run_headless(0, |ctx| {
         setup_playing(ctx);
         // Keyboard: A is left, S is down.
-        ctx.feed_input(InputEvent::Key(Key::A, true));
-        ctx.feed_input(InputEvent::Key(Key::S, true));
+        ctx.input.feed(InputEvent::Key(Key::A, true));
+        ctx.input.feed(InputEvent::Key(Key::S, true));
         read_input(ctx);
         let d = ctx.world.resource::<Intent>().direction;
         assert!(d.x < 0.0 && d.y > 0.0, "left and down, got {d}");
-        ctx.feed_input(InputEvent::Key(Key::A, false));
-        ctx.feed_input(InputEvent::Key(Key::S, false));
+        ctx.input.feed(InputEvent::Key(Key::A, false));
+        ctx.input.feed(InputEvent::Key(Key::S, false));
 
         // Arrow keys do the same as WASD.
-        ctx.feed_input(InputEvent::Key(Key::Right, true));
+        ctx.input.feed(InputEvent::Key(Key::Right, true));
         read_input(ctx);
         assert!(ctx.world.resource::<Intent>().direction.x > 0.0);
-        ctx.feed_input(InputEvent::Key(Key::Right, false));
+        ctx.input.feed(InputEvent::Key(Key::Right, false));
 
         // The left stick, past its dead zone, pushes up.
         let pad = Gamepad::from_slot(0).unwrap();
-        ctx.feed_input(InputEvent::GamepadAxis(pad, GamepadAxis::LeftStickY, -1.0));
+        ctx.input
+            .feed(InputEvent::GamepadAxis(pad, GamepadAxis::LeftStickY, -1.0));
         read_input(ctx);
         assert!(ctx.world.resource::<Intent>().direction.y < 0.0, "stick up");
-        ctx.feed_input(InputEvent::GamepadAxis(pad, GamepadAxis::LeftStickY, 0.0));
+        ctx.input
+            .feed(InputEvent::GamepadAxis(pad, GamepadAxis::LeftStickY, 0.0));
 
         // Nothing held: standing still.
         read_input(ctx);
@@ -853,9 +855,9 @@ fn every_button_binding_sets_its_own_request_which_the_sim_takes_once() {
             Game::new("t", 800, 600).run_headless(0, |ctx| {
                 setup_with(ctx, None);
                 assert!(!flag(ctx.world.resource::<Intent>()), "{name}: not pressed yet");
-                ctx.feed_input(press);
+                ctx.input.feed(press);
                 read_input(ctx);
-                ctx.feed_input(release);
+                ctx.input.feed(release);
                 // A frame without a sim tick must not lose it.
                 assert!(flag(ctx.world.resource::<Intent>()), "{press:?} sets {name}");
                 // Only that one button: the others are untouched.
@@ -887,7 +889,7 @@ use game::settings::{self, Control, Controls, PAD_BUTTONS, Refused, SCALES, Sett
 /// What the engine does with the retained UI at the start of every frame (layout,
 /// focus, events from this input), then the game's own frame system.
 fn ui_frame(ctx: &mut Ctx, input: UiInput) {
-    ctx.ui_retained.frame(ARENA, &input);
+    ctx.ui.frame(ARENA, &input);
     settings::settings_ui(ctx);
 }
 
@@ -920,7 +922,7 @@ fn press_confirm(ctx: &mut Ctx) {
 
 /// The name of the control that has the focus, as a screen reader would say it.
 fn focused(ctx: &Ctx) -> Option<String> {
-    let tree = ctx.ui_retained.accessibility_tree();
+    let tree = ctx.ui.accessibility_tree();
     tree.nodes().iter().find(|n| n.focused).map(|n| n.name.clone())
 }
 
@@ -942,13 +944,13 @@ fn tab_to(ctx: &mut Ctx, name: &str) {
     }
     panic!(
         "Tab never reached \"{name}\"; the screen is:\n{}",
-        ctx.ui_retained.accessibility_tree()
+        ctx.ui.accessibility_tree()
     );
 }
 
 /// The bounds of the control called `name`, after the last frame.
 fn bounds(ctx: &Ctx, name: &str) -> Rect {
-    let tree = ctx.ui_retained.accessibility_tree();
+    let tree = ctx.ui.accessibility_tree();
     tree.nodes()
         .iter()
         .find(|n| named(&n.name, name))
@@ -975,7 +977,7 @@ fn the_settings_screen_opens_from_the_title_and_leaves_with_its_back_button() {
     Game::new("t", 800, 600).run_headless(0, |ctx| {
         open_settings(ctx, None);
         assert!(
-            ctx.ui_wants_keyboard(),
+            ctx.ui.wants_keyboard(),
             "the retained UI owns the keyboard while it is open"
         );
         tab_to(ctx, "Back");
@@ -984,10 +986,10 @@ fn the_settings_screen_opens_from_the_title_and_leaves_with_its_back_button() {
         rules(ctx);
         assert_eq!(screen(&ctx.world), Screen::Title);
         idle(ctx); // the game takes the screen off the UI's stack ...
-        assert!(ctx.ui_retained.top_screen().is_none());
+        assert!(ctx.ui.top_screen().is_none());
         idle(ctx); // ... and the next frame's input is the game's again
-        assert!(!ctx.ui_wants_keyboard(), "the screen was taken off the UI's stack");
-        assert!(ctx.ui_retained.top_screen().is_none());
+        assert!(!ctx.ui.wants_keyboard(), "the screen was taken off the UI's stack");
+        assert!(ctx.ui.top_screen().is_none());
     });
 }
 
@@ -1007,13 +1009,13 @@ fn escape_and_the_east_button_close_the_settings_screen_too() {
         rules(ctx);
         assert_eq!(screen(&ctx.world), Screen::Title);
         idle(ctx);
-        assert!(ctx.ui_retained.top_screen().is_none());
+        assert!(ctx.ui.top_screen().is_none());
 
         // And it can be opened again.
         intent(ctx).settings = true;
         rules(ctx);
         idle(ctx);
-        assert!(ctx.ui_wants_keyboard());
+        assert!(ctx.ui.wants_keyboard());
     });
 }
 
@@ -1087,17 +1089,14 @@ fn the_ui_scale_steps_through_the_offered_sizes_and_scales_the_screen() {
         idle(ctx);
         assert_eq!(bounds(ctx, "Back").size(), back * 1.25, "geometry scales with it");
         let hit = bounds(ctx, "Back").center();
-        assert_eq!(
-            ctx.ui_retained.hit_test(hit).map(|id| ctx.ui_retained.text(id)),
-            Some(Some("Back"))
-        );
+        assert_eq!(ctx.ui.hit_test(hit).map(|id| ctx.ui.text(id)), Some(Some("Back")));
         // The screen still fits the window at the largest size.
         tab_to(ctx, "Larger UI");
         press_confirm(ctx);
         press_confirm(ctx); // already the largest: stays
         assert_eq!(settings_of(ctx).ui_scale, 1.5);
         idle(ctx);
-        for node in ctx.ui_retained.accessibility_tree().nodes() {
+        for node in ctx.ui.accessibility_tree().nodes() {
             if node.rect.size().x > 0.0 && node.depth <= 2 {
                 assert!(
                     node.rect.max.x <= ARENA.x + 0.5 && node.rect.min.x >= -0.5,
@@ -1150,9 +1149,9 @@ fn rebind_key_through_the_screen(ctx: &mut Ctx, control: Control, key: Key) {
     tab_to(ctx, &name);
     press_confirm(ctx); // opens the prompt; the Enter that did it must not answer it
     idle(ctx);
-    ctx.feed_input(InputEvent::Key(key, true));
+    ctx.input.feed(InputEvent::Key(key, true));
     idle(ctx);
-    ctx.feed_input(InputEvent::Key(key, false));
+    ctx.input.feed(InputEvent::Key(key, false));
 }
 
 // ANCHOR: rebind_test
@@ -1163,11 +1162,9 @@ fn rebinding_a_key_changes_what_the_game_reads() {
         tab_to(ctx, "Restart round key");
         press_confirm(ctx);
         assert!(
-            ctx.ui_retained.top_screen().is_some_and(|top| ctx
-                .ui_retained
-                .accessibility_tree()
-                .get(top)
-                .is_some_and(|n| n.modal)),
+            ctx.ui
+                .top_screen()
+                .is_some_and(|top| ctx.ui.accessibility_tree().get(top).is_some_and(|n| n.modal)),
             "the prompt is a modal screen"
         );
         assert_eq!(
@@ -1177,16 +1174,14 @@ fn rebinding_a_key_changes_what_the_game_reads() {
         );
 
         // The player presses K.
-        ctx.feed_input(InputEvent::Key(Key::K, true));
+        ctx.input.feed(InputEvent::Key(Key::K, true));
         idle(ctx);
-        ctx.feed_input(InputEvent::Key(Key::K, false));
+        ctx.input.feed(InputEvent::Key(Key::K, false));
         assert_eq!(settings_of(ctx).controls.key(Control::Restart), Key::K);
         assert!(
-            ctx.ui_retained.top_screen().is_some_and(|top| !ctx
-                .ui_retained
-                .accessibility_tree()
-                .get(top)
-                .is_some_and(|n| n.modal)),
+            ctx.ui
+                .top_screen()
+                .is_some_and(|top| !ctx.ui.accessibility_tree().get(top).is_some_and(|n| n.modal)),
             "the prompt closed"
         );
         assert_eq!(
@@ -1196,14 +1191,14 @@ fn rebinding_a_key_changes_what_the_game_reads() {
         );
 
         // The installed bindings follow: K is "restart" now, R is nothing.
-        ctx.feed_input(InputEvent::Key(Key::R, true));
+        ctx.input.feed(InputEvent::Key(Key::R, true));
         read_input(ctx);
         assert!(!intent(ctx).restart, "the old key does nothing");
-        ctx.feed_input(InputEvent::Key(Key::R, false));
-        ctx.feed_input(InputEvent::Key(Key::K, true));
+        ctx.input.feed(InputEvent::Key(Key::R, false));
+        ctx.input.feed(InputEvent::Key(Key::K, true));
         read_input(ctx);
         assert!(intent(ctx).restart, "the new key restarts");
-        ctx.feed_input(InputEvent::Key(Key::K, false));
+        ctx.input.feed(InputEvent::Key(Key::K, false));
         assert!(
             screen_lines(&ctx.world).is_empty(),
             "settings screen text is the retained UI's"
@@ -1235,9 +1230,9 @@ fn a_refused_key_keeps_the_prompt_open_and_says_why_and_escape_cancels() {
         tab_to(ctx, "Confirm key");
         press_confirm(ctx);
         idle(ctx);
-        let prompt_open = |ctx: &Ctx| ctx.ui_retained.accessibility_tree().nodes().iter().any(|n| n.modal);
+        let prompt_open = |ctx: &Ctx| ctx.ui.accessibility_tree().nodes().iter().any(|n| n.modal);
         let prompt_text = |ctx: &Ctx| {
-            ctx.ui_retained
+            ctx.ui
                 .accessibility_tree()
                 .nodes()
                 .iter()
@@ -1252,9 +1247,9 @@ fn a_refused_key_keeps_the_prompt_open_and_says_why_and_escape_cancels() {
             (Key::Space, "always works for something else"),
             (Key::Left, "always works for something else"),
         ] {
-            ctx.feed_input(InputEvent::Key(key, true));
+            ctx.input.feed(InputEvent::Key(key, true));
             idle(ctx);
-            ctx.feed_input(InputEvent::Key(key, false));
+            ctx.input.feed(InputEvent::Key(key, false));
             idle(ctx);
             assert_eq!(
                 settings_of(ctx).controls,
@@ -1273,9 +1268,9 @@ fn a_refused_key_keeps_the_prompt_open_and_says_why_and_escape_cancels() {
             },
         );
         assert!(!prompt_open(ctx));
-        ctx.feed_input(InputEvent::Key(Key::Escape, true));
+        ctx.input.feed(InputEvent::Key(Key::Escape, true));
         idle(ctx);
-        ctx.feed_input(InputEvent::Key(Key::Escape, false));
+        ctx.input.feed(InputEvent::Key(Key::Escape, false));
         assert_eq!(settings_of(ctx).controls, Controls::default());
         assert_eq!(screen(&ctx.world), Screen::Settings, "Escape closed only the prompt");
         assert!(!intent(ctx).close_settings);
@@ -1294,10 +1289,10 @@ fn reset_to_defaults_restores_controls_scale_and_volume() {
         press_confirm(ctx);
         assert_eq!(settings_of(ctx), Settings::default());
         // The bindings really are the defaults again: Escape pauses.
-        ctx.feed_input(InputEvent::Key(Key::Escape, true));
+        ctx.input.feed(InputEvent::Key(Key::Escape, true));
         read_input(ctx);
         assert!(intent(ctx).pause);
-        ctx.feed_input(InputEvent::Key(Key::Escape, false));
+        ctx.input.feed(InputEvent::Key(Key::Escape, false));
     });
 }
 
@@ -1330,7 +1325,7 @@ fn chosen_settings_are_saved_when_leaving_and_come_back_next_run() {
         setup_with(ctx, Some(path.clone()));
         assert_eq!(ctx.world.resource::<SettingsFile>().load, LoadStatus::Loaded);
         assert_eq!(settings_of(ctx), chosen);
-        ctx.feed_input(InputEvent::Key(Key::K, true));
+        ctx.input.feed(InputEvent::Key(Key::K, true));
         read_input(ctx);
         assert!(intent(ctx).confirm, "K confirms after the restart");
     });
@@ -1527,7 +1522,7 @@ fn the_gamepad_prompt_refuses_the_dpad_in_the_screen_and_takes_another_button() 
         idle(ctx);
         let pad = Gamepad::from_slot(0).unwrap();
         let prompt = |ctx: &Ctx| {
-            ctx.ui_retained
+            ctx.ui
                 .accessibility_tree()
                 .nodes()
                 .iter()
@@ -1536,9 +1531,9 @@ fn the_gamepad_prompt_refuses_the_dpad_in_the_screen_and_takes_another_button() 
                 .join(" | ")
         };
         for dpad in [GamepadButton::DPadRight, GamepadButton::DPadLeft] {
-            ctx.feed_input(InputEvent::GamepadButton(pad, dpad, true));
+            ctx.input.feed(InputEvent::GamepadButton(pad, dpad, true));
             idle(ctx);
-            ctx.feed_input(InputEvent::GamepadButton(pad, dpad, false));
+            ctx.input.feed(InputEvent::GamepadButton(pad, dpad, false));
             idle(ctx);
             assert_eq!(
                 settings_of(ctx).controls,
@@ -1551,9 +1546,11 @@ fn the_gamepad_prompt_refuses_the_dpad_in_the_screen_and_takes_another_button() 
                 prompt(ctx)
             );
         }
-        ctx.feed_input(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, true));
+        ctx.input
+            .feed(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, true));
         idle(ctx);
-        ctx.feed_input(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, false));
+        ctx.input
+            .feed(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, false));
         assert_eq!(
             settings_of(ctx).controls.pad(Control::Restart),
             Some(GamepadButton::LeftBumper)
@@ -1563,10 +1560,12 @@ fn the_gamepad_prompt_refuses_the_dpad_in_the_screen_and_takes_another_button() 
             Some("Restart round gamepad button: LeftBumper")
         );
         // The installed bindings follow.
-        ctx.feed_input(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, true));
+        ctx.input
+            .feed(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, true));
         read_input(ctx);
         assert!(intent(ctx).restart, "the left bumper restarts now");
-        ctx.feed_input(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, false));
+        ctx.input
+            .feed(InputEvent::GamepadButton(pad, GamepadButton::LeftBumper, false));
     });
 }
 
@@ -1574,7 +1573,7 @@ fn the_gamepad_prompt_refuses_the_dpad_in_the_screen_and_takes_another_button() 
 fn the_settings_screen_says_which_keys_belong_to_the_menus() {
     Game::new("t", 800, 600).run_headless(0, |ctx| {
         open_settings(ctx, None);
-        let tree = ctx.ui_retained.accessibility_tree();
+        let tree = ctx.ui.accessibility_tree();
         let hint = tree
             .nodes()
             .iter()
@@ -1602,21 +1601,23 @@ fn rebound_controls_become_bindings_that_keep_the_resolved_action_ids() {
     Game::new("t", 800, 600).run_headless(0, |ctx| {
         setup_playing(ctx);
         let act = *ctx.world.resource::<Act>();
-        ctx.set_actions(settings::bindings_for(&controls));
+        ctx.input.set_actions(settings::bindings_for(&controls));
         // The ids resolved before the rebind still work: same names, same slots.
-        ctx.feed_input(InputEvent::Key(Key::J, true));
-        assert_eq!(ctx.action_axis2(act.movement).x, -1.0, "J moves left now");
-        ctx.feed_input(InputEvent::Key(Key::J, false));
-        ctx.feed_input(InputEvent::Key(Key::A, true));
-        assert_eq!(ctx.action_axis2(act.movement).x, 0.0, "A no longer does");
-        ctx.feed_input(InputEvent::Key(Key::A, false));
-        ctx.feed_input(InputEvent::Key(Key::Left, true));
-        assert_eq!(ctx.action_axis2(act.movement).x, -1.0, "the arrows are fixed");
-        ctx.feed_input(InputEvent::Key(Key::Left, false));
+        ctx.input.feed(InputEvent::Key(Key::J, true));
+        assert_eq!(ctx.input.action_axis2(act.movement).x, -1.0, "J moves left now");
+        ctx.input.feed(InputEvent::Key(Key::J, false));
+        ctx.input.feed(InputEvent::Key(Key::A, true));
+        assert_eq!(ctx.input.action_axis2(act.movement).x, 0.0, "A no longer does");
+        ctx.input.feed(InputEvent::Key(Key::A, false));
+        ctx.input.feed(InputEvent::Key(Key::Left, true));
+        assert_eq!(ctx.input.action_axis2(act.movement).x, -1.0, "the arrows are fixed");
+        ctx.input.feed(InputEvent::Key(Key::Left, false));
         let pad = Gamepad::from_slot(0).unwrap();
-        ctx.feed_input(InputEvent::GamepadButton(pad, GamepadButton::Select, true));
-        assert!(ctx.action_pressed(act.pause), "Select pauses now");
-        ctx.feed_input(InputEvent::GamepadButton(pad, GamepadButton::Select, false));
+        ctx.input
+            .feed(InputEvent::GamepadButton(pad, GamepadButton::Select, true));
+        assert!(ctx.input.action_pressed(act.pause), "Select pauses now");
+        ctx.input
+            .feed(InputEvent::GamepadButton(pad, GamepadButton::Select, false));
     });
     // Saved controls survive a round trip through JSON.
     let json = serde_json::to_string(&controls).unwrap();
@@ -1655,7 +1656,7 @@ fn every_screen_fits_the_window_at_every_ui_scale() {
                 let lines = screen_lines(&ctx.world);
                 let mut height = 0.0;
                 for l in &lines {
-                    let width = ctx.measure_text(&l.text, l.size * scale).x;
+                    let width = ctx.gfx.measure_text(&l.text, l.size * scale).x;
                     assert!(width <= ARENA.x, "{shown:?} at {scale}: \"{}\" is {width} wide", l.text);
                     height += l.size * scale * 1.5;
                 }

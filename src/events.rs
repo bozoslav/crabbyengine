@@ -162,11 +162,13 @@ impl Events {
 
     /// Like `note`, for events without a Rust type.
     #[inline]
-    fn note_raw(&self) {
+    fn note_raw(&self, id: u32, sent: bool) {
         #[cfg(debug_assertions)]
         if let Some(used) = self.used.borrow_mut().as_mut() {
-            used.raw = true;
+            used.note_raw(id, sent);
         }
+        #[cfg(not(debug_assertions))]
+        let _ = (id, sent);
     }
 
     fn typed<T: 'static>(&mut self) -> &mut Typed<T> {
@@ -207,7 +209,7 @@ impl Events {
     /// id fixes its size.
     #[doc(hidden)]
     pub fn send_raw(&mut self, id: u32, bytes: &[u8]) -> Result<(), &'static str> {
-        self.note_raw();
+        self.note_raw(id, true);
         let (frame, tick) = (self.frame, self.tick);
         let ch = self.raw(id, bytes.len());
         if ch.size != bytes.len() {
@@ -223,7 +225,7 @@ impl Events {
     /// type or the end of the system.
     #[doc(hidden)]
     pub fn read_raw(&mut self, id: u32, size: usize) -> Result<(*const u8, usize), &'static str> {
-        self.note_raw();
+        self.note_raw(id, false);
         let reader = self.reader;
         let ch = self.raw(id, size);
         if ch.size != size {

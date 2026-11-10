@@ -24,11 +24,13 @@ impl Rig {
     fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -130,7 +132,7 @@ impl Rig {
     fn material(&mut self, desc: MaterialDesc) -> Material {
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
-        self.ctx.create_material(desc)
+        self.ctx.gfx.create_material(desc)
     }
 
     /// The GPU half of a mesh the `Ctx` made (meshes are numbered in the
@@ -142,7 +144,7 @@ impl Rig {
 
     /// A mesh of `data` with `material`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, material: Material) -> Mesh {
-        let mesh = self.ctx.create_mesh(data, material);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.upload(data, material);
         mesh
     }
@@ -162,7 +164,7 @@ impl Rig {
         frame.lod = ctx.lod;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,

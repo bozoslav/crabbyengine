@@ -385,7 +385,7 @@ fn answer(ctx: &mut Ctx, req: Request) {
         match screenshot_path(ctx, &req.params) {
             Ok(path) => {
                 let max_size = req.params.get("max_size").and_then(Value::as_u64).unwrap_or(0) as u32;
-                ctx.queue_screenshot(path, max_size, Some(req.reply));
+                ctx.gfx.queue_screenshot(path, max_size, Some(req.reply));
             }
             Err(e) => {
                 let _ = req.reply.send(Err(e));
@@ -411,9 +411,11 @@ fn camera_json(ctx: &Ctx) -> Value {
 /// The `path` param, or a fresh file in the temp dir.
 fn screenshot_path(ctx: &Ctx, params: &Value) -> Result<PathBuf, String> {
     match params.get("path") {
-        None | Some(Value::Null) => {
-            Ok(std::env::temp_dir().join(format!("ponko-screenshot-{}-{}.png", std::process::id(), ctx.frame())))
-        }
+        None | Some(Value::Null) => Ok(std::env::temp_dir().join(format!(
+            "ponko-screenshot-{}-{}.png",
+            std::process::id(),
+            ctx.time.frame()
+        ))),
         Some(Value::String(p)) => Ok(PathBuf::from(p)),
         Some(_) => Err("`path` must be a string".into()),
     }
@@ -558,21 +560,21 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
 /// `perf.get`'s `render_inspector`: the last frame's rendering cost in a
 /// versioned schema (see `control/inspector.rs`).
 fn render_inspector_json(ctx: &Ctx) -> Value {
-    let source = match (ctx.headless, ctx.last_render_detail) {
+    let source = match (ctx.headless, ctx.perf.last_render_detail) {
         (true, _) => inspector::Source::Headless,
         (false, None) => inspector::Source::NotDrawn,
         (false, Some(detail)) => inspector::Source::Drawn(detail),
     };
     #[cfg(feature = "3d")]
-    let quality = Some(inspector::quality_json(&ctx.graphics_quality()));
+    let quality = Some(inspector::quality_json(&ctx.gfx.quality(&ctx.post, &ctx.lighting)));
     #[cfg(not(feature = "3d"))]
     let quality = None;
     inspector::render_inspector(&inspector::Inputs {
         source,
-        stats: ctx.render_stats(),
-        passes: ctx.gpu_passes(),
+        stats: ctx.perf.render_stats(),
+        passes: ctx.perf.gpu_passes(),
         quality,
-        pipelines: ctx.pipeline_stats(),
+        pipelines: ctx.gfx.pipeline_stats(),
     })
 }
 
@@ -582,10 +584,10 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
         let slowest = slowest_systems(ctx);
         return json!({ "headless": true, "systems": slowest, "residency": residency_json(ctx), "streaming": streaming_json(ctx), "render_inspector": render_inspector_json(ctx) });
     }
-    let f = ctx.frame_stats();
-    let r = ctx.render_stats();
+    let f = ctx.perf.frame_stats();
+    let r = ctx.perf.render_stats();
     let passes: Vec<Value> = {
-        let mut p: Vec<_> = ctx.gpu_passes().to_vec();
+        let mut p: Vec<_> = ctx.perf.gpu_passes().to_vec();
         p.sort_by(|a, b| b.ms.total_cmp(&a.ms));
         p.iter().map(|p| json!({ "name": p.name, "ms": p.ms })).collect()
     };
@@ -618,6 +620,7 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
     #[cfg(feature = "3d")]
     if meshes > 0 {
         out["meshes"] = ctx
+            .gfx
             .mesh_costs()
             .iter()
             .take(meshes)
@@ -637,11 +640,11 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
     out
 }
 
-/// `Ctx::shader_status` as JSON.
+/// `Graphics::shader_status` as JSON.
 #[cfg(feature = "3d")]
-pub(crate) fn shader_status_json(ctx: &Ctx) -> Value {
+pub(crate) fn shader_status_json(gfx: &crate::Graphics) -> Value {
     use crate::{ShaderKind, ShaderOutcome};
-    let shaders: Vec<Value> = ctx
+    let shaders: Vec<Value> = gfx
         .shader_status()
         .iter()
         .map(|s| {
@@ -689,7 +692,7 @@ pub(crate) fn shader_status_json(ctx: &Ctx) -> Value {
 
 /// Without the `3d` feature a game has no custom shaders.
 #[cfg(not(feature = "3d"))]
-fn shader_status_json(_ctx: &Ctx) -> Value {
+fn shader_status_json(_gfx: &crate::Graphics) -> Value {
     json!({ "shaders": [], "note": "built without the `3d` feature: no custom shaders" })
 }
 
@@ -719,8 +722,9 @@ fn ecs_diagnostics_json(ctx: &Ctx, params: &Value) -> Result<Value, String> {
 
 /// The upload queue and every streamed asset's state.
 fn streaming_json(ctx: &Ctx) -> Value {
-    let u = ctx.upload_stats();
+    let u = ctx.gfx.upload_stats();
     let assets: Vec<Value> = ctx
+        .gfx
         .streamed_assets()
         .into_iter()
         .map(|a| {
@@ -757,7 +761,7 @@ fn residency_json(ctx: &Ctx) -> Value {
     crate::ResidencyKind::ALL
         .iter()
         .map(|&kind| {
-            let r = ctx.residency(kind);
+            let r = ctx.gfx.residency(kind);
             let value = json!({
                 "budget": r.budget,
                 "resident": r.resident,
@@ -778,7 +782,12 @@ fn residency_json(ctx: &Ctx) -> Value {
 
 /// The 10 systems with the most average time.
 fn slowest_systems(ctx: &Ctx) -> Value {
-    let mut t: Vec<_> = ctx.system_timings().iter().filter(|t| t.sim || !ctx.headless).collect();
+    let mut t: Vec<_> = ctx
+        .perf
+        .system_timings()
+        .iter()
+        .filter(|t| t.sim || !ctx.headless)
+        .collect();
     t.sort_by(|a, b| b.avg_ms.total_cmp(&a.avg_ms));
     t.iter()
         .take(10)
@@ -829,17 +838,17 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         "info" => json!({
             "pid": std::process::id(),
             "headless": ctx.headless,
-            "tick": ctx.sim_tick(),
-            "sim_time": ctx.sim_time(),
-            "paused": ctx.is_paused(),
-            "speed": ctx.sim_speed(),
-            "fixed_dt": ctx.fixed_dt(),
+            "tick": ctx.time.sim_tick(),
+            "sim_time": ctx.time.sim_time(),
+            "paused": ctx.time.is_paused(),
+            "speed": ctx.time.speed(),
+            "fixed_dt": ctx.time.fixed_dt(),
             // Headless games have no frames, so no frame rate.
-            "fps": if ctx.headless { Value::Null } else { json!(ctx.fps()) },
-            "frame": if ctx.headless { Value::Null } else { json!(ctx.frame()) },
+            "fps": if ctx.headless { Value::Null } else { json!(ctx.time.fps()) },
+            "frame": if ctx.headless { Value::Null } else { json!(ctx.time.frame()) },
             "entities": ctx.world.len(),
             "render": if ctx.headless { Value::Null } else {
-                let r = ctx.render_stats();
+                let r = ctx.perf.render_stats();
                 json!({ "sprites": r.sprites, "draw_calls": r.draw_calls, "cpu_ms": r.cpu_ms, "gpu_ms": r.gpu_ms })
             },
         }),
@@ -960,12 +969,12 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 "resources": save["resources"].as_object().map_or(0, |r| r.len()),
                 "bytes": text.len(),
                 "not_saved": save["not_saved"],
-                "tick": ctx.sim_tick(),
+                "tick": ctx.time.sim_tick(),
             })
         }
         "scene.save" => {
             let path = str_param(params, "path")?;
-            ctx.save_scene(path)?;
+            ctx.assets.save_scene(&ctx.world, path)?;
             json!({ "path": path, "entities": ctx.world.len() })
         }
         "scene.load" => {
@@ -983,7 +992,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         "prefab.save" => {
             let e = entity_param(params)?;
             let path = str_param(params, "path")?;
-            ctx.save_prefab(e, path)?;
+            ctx.assets.save_prefab(&ctx.world, e, path)?;
             json!({ "path": path })
         }
         "world.load" => {
@@ -994,28 +1003,28 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             json!({ "path": path, "entities": ctx.world.len() })
         }
         "sim.pause" => {
-            ctx.pause();
-            json!({ "paused": true, "tick": ctx.sim_tick() })
+            ctx.time.pause();
+            json!({ "paused": true, "tick": ctx.time.sim_tick() })
         }
         "sim.resume" => {
-            ctx.resume();
-            json!({ "paused": false, "tick": ctx.sim_tick() })
+            ctx.time.resume();
+            json!({ "paused": false, "tick": ctx.time.sim_tick() })
         }
         "sim.step" => {
             let ticks = usize_param(params, "ticks", 1)?;
             let ticks = u32::try_from(ticks).map_err(|_| "`ticks` is too large")?;
             for _ in 0..ticks {
-                ctx.step();
+                ctx.time.step();
             }
-            json!({ "queued_ticks": ticks, "tick": ctx.sim_tick() })
+            json!({ "queued_ticks": ticks, "tick": ctx.time.sim_tick() })
         }
         "sim.speed" => {
             let speed = param(params, "speed")?
                 .as_f64()
                 .filter(|s| s.is_finite() && *s >= 0.0)
                 .ok_or("`speed` must be a finite number >= 0")?;
-            ctx.set_sim_speed(speed as f32);
-            json!({ "speed": ctx.sim_speed() })
+            ctx.time.set_speed(speed as f32);
+            json!({ "speed": ctx.time.speed() })
         }
         "input.scenario.load" => {
             let mut scenario =
@@ -1044,14 +1053,16 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                     ));
                 }
             }
-            if queue && !ctx.is_paused() {
+            if queue && !ctx.time.is_paused() {
                 return Err("`queue_ticks` needs a paused game (call sim.pause first)".into());
             }
             // A tool's scenario lets go of its input when it ends, unless told to keep it.
             scenario.release_unless_kept(keep);
             let owner = params.get("_connection").and_then(Value::as_u64).filter(|_| bind);
-            let start = ctx.sim_tick();
-            ctx.install_scenario(
+            let start = ctx.time.sim_tick();
+            ctx.input.install_scenario(
+                &mut ctx.world,
+                &mut ctx.time,
                 scenario,
                 start,
                 crate::scenario::RunOrigin {
@@ -1060,20 +1071,23 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                     queue_ticks: queue,
                 },
             );
-            json!({ "report": ctx.input_scenario_report(), "bound_to_connection": owner.is_some() })
+            json!({ "report": ctx.input.scenario_report(&ctx.world), "bound_to_connection": owner.is_some() })
         }
-        "input.scenario.status" => json!(ctx.input_scenario_report()),
+        "input.scenario.status" => json!(ctx.input.scenario_report(&ctx.world)),
         "input.scenario.cancel" => {
             let reason = params
                 .get("reason")
                 .and_then(Value::as_str)
                 .unwrap_or("cancelled by a tool");
             let owner = params.get("connection").and_then(Value::as_u64);
-            let cancelled = ctx.cancel_scenario(reason, owner);
-            json!({ "cancelled": cancelled, "report": ctx.input_scenario_report() })
+            let cancelled = ctx
+                .input
+                .cancel_scenario_for(&mut ctx.world, &mut ctx.time, reason, owner);
+            json!({ "cancelled": cancelled, "report": ctx.input.scenario_report(&ctx.world) })
         }
         "systems.timings" => Value::Array(
-            ctx.system_timings()
+            ctx.perf
+                .system_timings()
                 .iter()
                 // Headless games run only simulation systems.
                 .filter(|t| t.sim || !ctx.headless)
@@ -1083,12 +1097,13 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         "ecs.diagnostics" => ecs_diagnostics_json(ctx, params)?,
         "perf.get" => {
             if let Some(on) = params.get("profiling") {
-                ctx.set_profiling(on.as_bool().ok_or("`profiling` must be true or false")?);
+                ctx.perf
+                    .set_profiling(on.as_bool().ok_or("`profiling` must be true or false")?);
             }
             let mut out = perf_json(ctx, usize_param(params, "meshes", 0)?);
             out["assets"] = serde_json::to_value(ctx.asset_inventory()).unwrap_or_default();
-            if ctx.profiling() {
-                let report = ctx.perf_report();
+            if ctx.perf.profiling() {
+                let report = ctx.perf.report();
                 out["report"] = serde_json::to_value(&report).unwrap_or_default();
                 out["report_text"] = json!(report.to_string());
             }
@@ -1098,14 +1113,16 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             let frames = usize_param(params, "frames", 120)?.clamp(1, 10_000);
             let path = match params.get("path").and_then(Value::as_str) {
                 Some(p) => PathBuf::from(p),
-                None => std::env::temp_dir().join(format!("ponko-trace-{}-{}.json", std::process::id(), ctx.frame())),
+                None => {
+                    std::env::temp_dir().join(format!("ponko-trace-{}-{}.json", std::process::id(), ctx.time.frame()))
+                }
             };
-            ctx.record_trace(path.clone(), frames);
-            json!({ "path": path, "frames": frames, "written_after_frame": ctx.frame() + frames as u64 })
+            ctx.perf.record_trace(path.clone(), frames);
+            json!({ "path": path, "frames": frames, "written_after_frame": ctx.time.frame() + frames as u64 })
         }
         "perf.hud" => {
             let on = param(params, "on")?.as_bool().ok_or("`on` must be true or false")?;
-            ctx.set_perf_hud(on);
+            ctx.perf.set_hud(on);
             json!(on)
         }
         "game.quit" => {
@@ -1138,7 +1155,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         }
         "events.unsubscribe" => json!(ctx.events.feed.take().is_some()),
         "camera.get" => camera_json(ctx),
-        "shaders.status" => shader_status_json(ctx),
+        "shaders.status" => shader_status_json(&ctx.gfx),
         "camera.set" => {
             let vec = |name: &str| -> Result<Option<Vec2>, String> {
                 match params.get(name) {
@@ -1215,7 +1232,7 @@ mod tests {
             handle(&mut ctx, "shaders.status", &json!({})).unwrap()["shaders"],
             json!([])
         );
-        let _ = ctx.try_create_shader(
+        let _ = ctx.gfx.try_create_shader(
             "red.wgsl",
             "// red\nfn surface(s: Surface) -> Surface {\n    return 1.0;\n}",
         );
@@ -1283,18 +1300,18 @@ mod tests {
     fn sim_methods_drive_the_clock() {
         let mut ctx = ctx();
         handle(&mut ctx, "sim.pause", &json!({})).unwrap();
-        assert!(ctx.is_paused());
+        assert!(ctx.time.is_paused());
         handle(&mut ctx, "sim.step", &json!({ "ticks": 3 })).unwrap();
         assert_eq!(ctx.take_pending_steps(), 3);
         handle(&mut ctx, "sim.speed", &json!({ "speed": 4.0 })).unwrap();
-        assert_eq!(ctx.sim_speed(), 4.0);
+        assert_eq!(ctx.time.speed(), 4.0);
         assert!(handle(&mut ctx, "sim.speed", &json!({ "speed": -1.0 })).is_err());
     }
 
     #[test]
     fn perf_reports_put_the_slowest_systems_first() {
         let mut ctx = ctx();
-        ctx.timings = ["fast", "slow", "middle"]
+        ctx.perf.timings = ["fast", "slow", "middle"]
             .iter()
             .zip([0.1, 3.0, 1.0])
             .map(|(&name, avg_ms)| crate::SystemTiming {
@@ -1331,19 +1348,19 @@ mod tests {
             "{inspector}"
         );
         assert!(handle(&mut ctx, "perf.hud", &json!({ "on": true })).unwrap() == json!(true));
-        assert!(ctx.perf_hud());
+        assert!(ctx.perf.hud());
         assert!(handle(&mut ctx, "perf.hud", &json!({})).is_err(), "`on` is required");
         assert!(perf.get("report").is_none(), "the deep report needs profiling on");
         let deep = handle(&mut ctx, "perf.get", &json!({ "profiling": true })).unwrap();
-        assert!(ctx.profiling() && deep["report"].is_object(), "{deep}");
+        assert!(ctx.perf.profiling() && deep["report"].is_object(), "{deep}");
         assert!(handle(&mut ctx, "perf.get", &json!({ "profiling": 3 })).is_err());
-        ctx.set_profiling(false);
+        ctx.perf.set_profiling(false);
     }
 
     #[test]
     fn headless_games_cant_trace_frames() {
         let mut ctx = ctx();
-        ctx.headless = true;
+        ctx.set_headless(true);
         let err = handle(&mut ctx, "perf.trace", &json!({})).unwrap_err();
         assert!(err.contains("headless"), "{err}");
         let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
@@ -1378,8 +1395,8 @@ mod tests {
     #[test]
     fn headless_games_report_no_frames_and_only_sim_timings() {
         let mut ctx = ctx();
-        ctx.headless = true;
-        ctx.timings = vec![
+        ctx.set_headless(true);
+        ctx.perf.timings = vec![
             crate::SystemTiming {
                 name: "sim",
                 sim: true,
@@ -1398,7 +1415,7 @@ mod tests {
         let timings = handle(&mut ctx, "systems.timings", &json!({})).unwrap();
         assert_eq!(timings.as_array().unwrap().len(), 1);
         assert_eq!(timings[0]["name"], "sim");
-        ctx.headless = false;
+        ctx.set_headless(false);
         assert!(handle(&mut ctx, "info", &json!({})).unwrap()["fps"].is_number());
         assert_eq!(
             handle(&mut ctx, "systems.timings", &json!({}))

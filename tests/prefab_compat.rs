@@ -5,7 +5,7 @@
 //! A scene is the saved-world format, so the retained world fixture is loaded
 //! here the way a game loads a level. A prefab has its own format
 //! (`crabby-prefab`, version 1); `tests/fixtures/saves/prefab_v1.json` is one
-//! written by `Ctx::save_prefab` at a recorded revision (see
+//! written by `Assets::save_prefab` at a recorded revision (see
 //! `prefab_v1.provenance.json` and the README next to it).
 //!
 //! These tests only read checked-in bytes; they never write a fixture.
@@ -223,7 +223,7 @@ fn an_unsupported_scene_version_fails_usefully_and_keeps_the_world() {
     assert_eq!(world.len(), 1, "a failed load keeps the world");
 }
 
-/// Writes the prefab fixture from `Ctx::save_prefab`. Not a regression test:
+/// Writes the prefab fixture from `Assets::save_prefab`. Not a regression test:
 /// it's how the retained file was made (see tests/fixtures/saves/README.md).
 /// It refuses to overwrite a file.
 ///
@@ -261,7 +261,7 @@ fn write_prefab_v1_fixture() {
             },
             Mood::Alert { since: 7 },
         ));
-        ctx.save_prefab(model, tmp.name()).unwrap();
+        ctx.assets.save_prefab(&ctx.world, model, tmp.name()).unwrap();
     });
     std::fs::write(out, tmp.read()).unwrap();
 }

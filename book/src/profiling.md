@@ -15,12 +15,12 @@ most detailed:
 
 | You want | Use |
 |---|---|
-| a quick look while playing | the overlay: `PONKO_HUD=1`, or `ctx.set_perf_hud(true)` |
-| to know *which system or part of it* is slow, and what allocates | scopes and `ctx.perf_report()` |
+| a quick look while playing | the overlay: `PONKO_HUD=1`, or `ctx.perf.set_hud(true)` |
+| to know *which system or part of it* is slow, and what allocates | scopes and `ctx.perf.report()` |
 | a number for a test or CI that fails when things get slower | `Game::profile_headless` and a `Budget` |
 
 The overlay and `PONKO_BENCH` switch the deeper profiling on by themselves.
-In your own code, `ctx.set_profiling(true)` does. While it is **off**, a scope
+In your own code, `ctx.perf.set_profiling(true)` does. While it is **off**, a scope
 costs a single atomic load and the allocation counter a single load per
 allocation, so leaving scopes in shipped code is fine.
 
@@ -47,7 +47,8 @@ suspect:
 </div>
 
 `profile_scope!("name")` (C++: `PONKO_PROFILE_SCOPE("name")`) times the rest
-of the block. `ctx.profile("name", |ctx| ...)` times a closure. Scopes nest
+of the block. `let _timing = ctx.perf.scope("name");` times until the guard
+is dropped, for a name made at run time. Scopes nest
 (times are inclusive), they work on any thread, and times from several threads
 add up. A scope named `"steering/neighbors"` sorts next to its parent in the
 report.
@@ -236,7 +237,7 @@ runs each tick. C++: reuse a `std::vector` and `reserve`.
 **One system dominates.** Wrap its halves in scopes to see which. Then, in
 order of effort: iterate with `for_each` / `par_for_each` instead of
 `iter()` ([ECS](ecs.md)); do the work for a quarter of the entities per tick
-with `ctx.turns(4)`; run it less often with `sim_system_every`
+with `ctx.time.turns(4)`; run it less often with `sim_system_every`
 ([The simulation clock](sim-clock.md)); use a spatial grid or flow field
 instead of checking every pair ([Spatial queries](spatial.md)).
 
@@ -244,7 +245,7 @@ instead of checking every pair ([Spatial queries](spatial.md)).
 work that sometimes does a lot (a path search, a rebuild, spawning a wave).
 Spread it over ticks, or do it ahead of time. Allocation bursts, asset loads
 and spawning thousands of entities at once show up the same way.
-`ctx.record_trace(path, frames)` shows a slow frame on a timeline in
+`ctx.perf.record_trace(path, frames)` shows a slow frame on a timeline in
 [Perfetto](https://ui.perfetto.dev).
 
 **GPU bound** (GPU time close to the frame time, display wait large). The

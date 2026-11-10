@@ -32,7 +32,7 @@ fn regen(ctx: &mut Ctx) {
     ctx.world
         .query::<&mut Health>()
         .for_each(|h| h.current = (h.current + 1.0).min(h.max));
-    let tick = ctx.sim_tick();
+    let tick = ctx.time.sim_tick();
     ctx.events.send(Regen { tick });
     ctx.world.resource_mut::<Rules>().round += 1;
 }
@@ -58,8 +58,8 @@ fn start_game_with(name: &'static str, injection: bool) -> (u16, thread::JoinHan
                 ctx.world.insert_resource(Rules { regen: 1.0, round: 0 });
                 let mut actions = ActionMap::default();
                 actions.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
-                ctx.set_actions(actions);
-                ctx.pause();
+                ctx.input.set_actions(actions);
+                ctx.time.pause();
                 tx.send(ctx.control_addr().unwrap().port()).unwrap();
             })
     });

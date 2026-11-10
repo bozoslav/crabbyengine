@@ -29,14 +29,16 @@ impl Rig {
     fn sized(width: u32, height: u32) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
-            ..Default::default()
-        })) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor {
+                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+                ..Default::default()
+            }),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -137,8 +139,8 @@ impl Rig {
 
     /// A mesh of `data` with `desc`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
-        let material = self.ctx.create_material(desc);
-        let mesh = self.ctx.create_mesh(data, material);
+        let material = self.ctx.gfx.create_material(desc);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         self.renderer
@@ -164,7 +166,7 @@ impl Rig {
         frame.motion.reset = std::mem::take(&mut self.reset_history);
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -260,6 +262,9 @@ fn mirror_rig() -> Option<(Rig, Vec3, Vec3)> {
 
 fn floor_rig(roughness: f32) -> Option<(Rig, Vec3, Vec3)> {
     let mut rig = Rig::new()?;
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ScreenSpaceReflections) {
+        return None;
+    }
     let mirror = MaterialDesc {
         color: Color::WHITE,
         roughness,
@@ -303,6 +308,9 @@ fn a_mirror_floor_reflects_the_box_above_it() {
     let Some((mut rig, reflection, aside)) = mirror_rig() else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ScreenSpaceReflections) {
+        return;
+    }
     let view_proj = rig.ctx.camera3d.view_proj();
     let at = |pixels: &[u8], p: Vec3| {
         let (x, y) = pixel(view_proj, p);
@@ -331,6 +339,9 @@ fn reflections_work_with_taa_and_fade_with_distance() {
     let Some((mut rig, reflection, _)) = mirror_rig() else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ScreenSpaceReflections) {
+        return;
+    }
     let view_proj = rig.ctx.camera3d.view_proj();
     let red = |pixels: &[u8]| {
         let (x, y) = pixel(view_proj, reflection);
@@ -357,6 +368,9 @@ fn reflections_and_ambient_occlusion_share_the_opaque_pass_image() {
     let Some((mut rig, reflection, _)) = mirror_rig() else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ScreenSpaceReflections) {
+        return;
+    }
     let view_proj = rig.ctx.camera3d.view_proj();
     let red = |pixels: &[u8]| {
         let (x, y) = pixel(view_proj, reflection);
@@ -538,6 +552,9 @@ fn a_history_reset_drops_the_last_frames_image_from_the_reflections() {
     let Some((mut rig, reflection, _)) = mirror_rig() else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ScreenSpaceReflections) {
+        return;
+    }
     // A dark box far off to the side, to swap with the glowing one.
     let shade = rig.mesh(
         &MeshData::cube(1.0),

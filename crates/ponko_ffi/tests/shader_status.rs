@@ -1,5 +1,5 @@
 //! Shader compile results from C: whether a shader compiled, and where in
-//! the game's own WGSL an error is (Rust `Ctx::shader_status`).
+//! the game's own WGSL an error is (Rust `Graphics::shader_status`).
 use ponko_ffi::*;
 use std::ffi::c_void;
 use std::ptr::null_mut;

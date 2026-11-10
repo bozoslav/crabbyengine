@@ -94,7 +94,7 @@ skin, a user's file):
 ```rust
 # use ponko::*;
 # fn setup(ctx: &mut Ctx) {
-match ctx.try_load_texture("skins/gold.png") {
+match ctx.gfx.try_load_texture("skins/gold.png") {
     Ok(skin) => { /* use it */ let _ = skin; }
     Err(e) if e.kind() == ErrorKind::NotFound => { /* no skin installed */ }
     Err(e) => eprintln!("{e}"), // "ponko: ..." with the reason

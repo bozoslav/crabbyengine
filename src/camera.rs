@@ -148,7 +148,7 @@ impl Camera2D {
     /// ```
     /// # use ponko::*;
     /// # fn place(ctx: &mut Ctx, flag: Texture) {
-    /// if ctx.mouse_pressed(MouseButton::Left) {
+    /// if ctx.input.mouse_pressed(MouseButton::Left) {
     ///     let at = ctx.camera.screen_to_world(ctx.mouse_pos());
     ///     ctx.world.spawn((Transform2D::at(at), Sprite::new(flag)));
     /// }
@@ -207,7 +207,7 @@ impl Camera2D {
     /// ```
     /// # use ponko::*;
     /// # fn wheel_zoom(ctx: &mut Ctx) {
-    /// let wheel = ctx.mouse_wheel().y;
+    /// let wheel = ctx.input.mouse_wheel().y;
     /// if wheel != 0.0 {
     ///     let mouse = ctx.mouse_pos();
     ///     ctx.camera.zoom_at(mouse, 1.1f32.powf(wheel));
@@ -262,12 +262,12 @@ impl Camera2D {
 /// ```
 pub fn camera_controls(ctx: &mut crate::Ctx) {
     use crate::MouseButton;
-    if ctx.mouse_down(MouseButton::Right) || ctx.mouse_down(MouseButton::Middle) {
-        let delta = ctx.mouse_delta();
+    if ctx.input.mouse_down(MouseButton::Right) || ctx.input.mouse_down(MouseButton::Middle) {
+        let delta = ctx.input.mouse_delta();
         ctx.camera.position -= delta / ctx.camera.zoom;
     }
-    let wheel = ctx.mouse_wheel().y;
-    if wheel != 0.0 && !ctx.mouse_over_ui() {
+    let wheel = ctx.input.mouse_wheel().y;
+    if wheel != 0.0 && !ctx.ui.wants_pointer() {
         let mouse = ctx.mouse_pos();
         ctx.camera.zoom_at(mouse, 1.15f32.powf(wheel));
     }

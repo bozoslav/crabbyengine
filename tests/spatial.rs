@@ -135,7 +135,7 @@ fn rebuild_reads_transforms_from_the_world() {
 
 fn dummy_texture() -> Texture {
     let mut tex = None;
-    Game::new("t", 1, 1).run_headless(0, |ctx| tex = Some(ctx.create_texture(1, 1, &[255; 4])));
+    Game::new("t", 1, 1).run_headless(0, |ctx| tex = Some(ctx.gfx.create_texture(1, 1, &[255; 4])));
     tex.unwrap()
 }
 

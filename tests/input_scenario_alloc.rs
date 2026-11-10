@@ -56,7 +56,7 @@ fn applying_scenario_input_steps_allocates_nothing_once_the_run_started() {
     let mut pressed = 0;
     Game::new("allocations", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
-            match ctx.sim_tick() {
+            match ctx.time.sim_tick() {
                 0 => {
                     ALLOCS.set(0);
                     TRACK.set(true);

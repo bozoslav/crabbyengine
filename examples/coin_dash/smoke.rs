@@ -119,7 +119,7 @@ impl Smoke {
 
 /// Sim system (runs before `rules`): the player of the walk-through.
 pub fn autoplay(ctx: &mut Ctx) {
-    let tick = ctx.sim_tick();
+    let tick = ctx.time.sim_tick();
     let screen = *ctx.world.resource::<Screen>();
     let (step, since) = {
         let smoke = ctx.world.resource_mut::<Smoke>();
@@ -230,14 +230,14 @@ pub fn publish_web_state(ctx: &mut Ctx) {
     }
     let mut counts = ctx.world.remove_resource::<Counts>().unwrap_or_default();
     counts.frames += 1;
-    if ctx.mouse_pressed(MouseButton::Left) {
+    if ctx.input.mouse_pressed(MouseButton::Left) {
         counts.clicks += 1;
     }
     let coin = ctx.world.resource::<Art>().coin;
     let size = ctx.window_size();
     let state = format!(
         r#"{{"ticks":{},"frames":{},"asset":[{},{}],"clicks":{},"size":[{},{}],"screen":"{}"}}"#,
-        ctx.sim_tick(),
+        ctx.time.sim_tick(),
         counts.frames,
         coin.width(),
         coin.height(),
@@ -254,7 +254,10 @@ pub fn publish_web_state(ctx: &mut Ctx) {
         let _ = root.set_attribute("data-smoke", &state);
         // What the engine says about the GPU it opened, once it is known.
         if !root.has_attribute("data-smoke-gpu")
-            && let Some(gpu) = ctx.gpu_capabilities().and_then(|gpu| serde_json::to_string(gpu).ok())
+            && let Some(gpu) = ctx
+                .gfx
+                .gpu_capabilities()
+                .and_then(|gpu| serde_json::to_string(gpu).ok())
         {
             let _ = root.set_attribute("data-smoke-gpu", &gpu);
         }

@@ -35,7 +35,7 @@ mod timer;
 #[cfg(feature = "window")]
 pub(crate) mod traffic;
 
-pub use capabilities::{GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits};
+pub use capabilities::{GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuTier};
 #[cfg(feature = "window")]
 pub(crate) use gpu::Renderer;
 #[cfg(all(feature = "window", feature = "3d"))]
@@ -48,7 +48,7 @@ pub use pipeline_stats::PipelineStats;
 #[cfg(all(feature = "window", feature = "3d"))]
 pub(crate) use shader_diagnostics::{diagnose, without_location};
 
-/// What drawing the last frame cost, from [`Ctx::render_stats`](crate::Ctx::render_stats).
+/// What drawing the last frame cost, from [`Perf::render_stats`](crate::Perf::render_stats).
 ///
 /// Compare `cpu_ms` and `gpu_ms` with the frame time to see what limits the
 /// frame rate: if `gpu_ms` is close to the frame time, the GPU is the
@@ -91,7 +91,7 @@ pub struct RenderStats {
     /// 3D pipeline variants built while drawing (crossfading level-of-detail
     /// models, buffer-driven instances), each the first time a frame needed
     /// it. Each one costs several milliseconds inside its frame; call
-    /// [`Ctx::warm_render_pipelines`](crate::Ctx::warm_render_pipelines)
+    /// [`Graphics::warm_render_pipelines`](crate::Graphics::warm_render_pipelines)
     /// while loading to build them up front. Always 0 without the `3d` feature.
     pub pipelines_built: usize,
     /// What the renderer sent to the GPU since the frame before: bytes

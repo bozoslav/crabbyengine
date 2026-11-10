@@ -1,4 +1,4 @@
-//! Shader compile and hot reload results from C (Rust `Ctx::shader_status`):
+//! Shader compile and hot reload results from C (Rust `Graphics::shader_status`):
 //! whether an edit took effect, and where an error is in the game's WGSL.
 
 use std::ffi::c_char;
@@ -94,7 +94,7 @@ fn status_to_c(s: &ShaderStatus) -> CrabbyShaderStatus {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_shader_status_count(ctx: *const CrabbyCtx, out_count: *mut usize) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, c.shader_status().len())) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, c.gfx.shader_status().len())) })
 }
 
 /// Runs `f` on shader status `index`.
@@ -110,6 +110,7 @@ unsafe fn with_status(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let status = c
+                .gfx
                 .shader_status()
                 .get(index)
                 .ok_or_else(|| invalid("index is past crabby_ctx_shader_status_count"))?;
@@ -119,7 +120,7 @@ unsafe fn with_status(
 }
 
 /// The latest compile or hot reload result of shader `index` (Rust
-/// `Ctx::shader_status()[index]`): check here whether an edit took effect.
+/// `Graphics::shader_status()[index]`): check here whether an edit took effect.
 /// # Safety
 /// `ctx` null or live; `out_status` writable.
 /// ```
@@ -227,7 +228,7 @@ pub unsafe extern "C" fn crabby_ctx_shader_status_json(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         text_output(buffer, capacity, out_len)?;
-        let json = ctx_access(ctx, |c| Ok(c.shader_status_json()))?;
+        let json = ctx_access(ctx, |c| Ok(c.gfx.shader_status_json()))?;
         write_text(buffer, capacity, out_len, &json);
         Ok(())
     })

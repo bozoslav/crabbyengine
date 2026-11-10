@@ -9,11 +9,17 @@
   the GPU check on each platform, and what isn't caught.
 
 ### Changed
-- With hot reload on, a shader, screen effect or compute pass file that
-  doesn't compile at load no longer panics: it gets its handle and a
-  stand-in (the built-in look, the frame as it is, or a skipped pass), is
-  reported as `ShaderOutcome::Failed`, stays watched, and loads when a fix
-  is saved. Without hot reload it is an error as before.
+- With hot reload on (the default in debug builds, `Game::hot_reload`,
+  `PONKO_HOT_RELOAD`), a shader, screen effect or compute pass file that
+  doesn't compile at load no longer fails: `load_shader`, `load_effect` and
+  `load_compute` don't panic, and `try_load_shader`, `try_load_effect`,
+  `try_load_compute` and the C `ponko_ctx_load_shader`,
+  `ponko_ctx_load_effect` and `ponko_ctx_load_compute` return OK with a
+  handle. The handle uses a stand-in (the built-in look, the frame as it
+  is, or a skipped pass), is reported as `ShaderOutcome::Failed` with the
+  error, stays watched, and loads when a fix is saved. Code that relied on
+  that error to detect a broken file should check `Graphics::shader_status`.
+  With hot reload off (release builds by default) it is an error as before.
 - Screen effect and compute pass errors now have the shader's line and
   column, its kind and variant (they used the compiler's text before),
   and their pipelines are built in a GPU error scope: a pipeline the GPU
@@ -21,7 +27,7 @@
 - In a browser with WebGPU, which answers GPU error scopes a frame or so
   later, shader pipelines the GPU rejects are replaced by the previous
   ones (or a stand-in) on the next frame and reported in
-  `Ctx::shader_status`. Before, the web only caught compiler errors.
+  `Graphics::shader_status`. Before, the web only caught compiler errors.
 
 ### Fixed
 - A failed reload of a shader file that never compiled stays `Failed`

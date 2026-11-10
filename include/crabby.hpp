@@ -225,6 +225,17 @@ using graphics_quality = CrabbyGraphicsQuality;
 /// The presets (Rust `QualityLevel`); `custom` is what graphics_quality_level()
 /// says of settings that are none of them.
 enum class quality_level : uint32_t { low = 0, medium = 1, high = 2, ultra = 3, custom = 4 };
+/// A class of GPU (Rust `GpuTier`), from the weakest the engine runs on:
+/// WebGL2 (no compute), baseline (compute: every screen-space effect and GPU
+/// culling) and desktop (also GPU skinning, decals and global illumination).
+/// See gpu_tier_report() and ctx::gpu_tier().
+enum class gpu_tier : uint32_t { webgl2 = 0, baseline = 1, desktop = 2 };
+/// A renderer feature that depends on the GPU (Rust `GpuFeature`).
+enum class gpu_feature : uint32_t {
+    timestamps = 0, compute = 1, storage_buffers = 2, compute_culling = 3, gpu_skinning = 4,
+    occlusion_culling = 5, temporal_antialiasing = 6, ambient_occlusion = 7, contact_shadows = 8,
+    screen_space_reflections = 9, global_illumination = 10, decals = 11, multisampling = 12
+};
 /// How HDR light maps to the screen (`post::tonemap`).
 enum class tonemap : uint32_t { aces = 0, agx = 1, neutral = 2, none = 3 };
 using draw_params = CrabbyDrawParams;
@@ -264,6 +275,22 @@ enum class phase : uint32_t {
     animate = CRABBY_PHASE_ANIMATE,
     late = CRABBY_PHASE_LATE,
     draw = CRABBY_PHASE_DRAW,
+};
+/// Engine services an access declaration can name (see crabby::access).
+enum class service : uint32_t {
+    input = CRABBY_SERVICE_INPUT,
+    time = CRABBY_SERVICE_TIME,
+    random = CRABBY_SERVICE_RANDOM,
+    gfx = CRABBY_SERVICE_GFX,
+    audio = CRABBY_SERVICE_AUDIO,
+    assets = CRABBY_SERVICE_ASSETS,
+    ui = CRABBY_SERVICE_UI,
+    perf = CRABBY_SERVICE_PERF,
+    camera = CRABBY_SERVICE_CAMERA,
+    spatial = CRABBY_SERVICE_SPATIAL,
+    physics = CRABBY_SERVICE_PHYSICS,
+    physics3d = CRABBY_SERVICE_PHYSICS3D,
+    net = CRABBY_SERVICE_NET,
 };
 /// Owned world text, in meters. Settings follow Rust Text3D defaults.
 struct text3d {
@@ -734,6 +761,21 @@ inline graphics_quality graphics_quality_preset(quality_level level) {
 /// Which preset `q` is, or quality_level::custom. Throws if a field is out of range.
 inline quality_level graphics_quality_level(const graphics_quality& q) {
     uint32_t level = 0; detail::check(crabby_graphics_quality_level(&q, &level)); return quality_level(level);
+}
+/// The quality preset meant for tier `t` (Rust `GraphicsQuality::for_tier`):
+/// low with FXAA, medium or high, asking for nothing the tier lacks.
+inline graphics_quality graphics_quality_for_tier(gpu_tier t) {
+    graphics_quality q{}; detail::check(crabby_graphics_quality_for_tier(uint32_t(t), &q)); return q;
+}
+/// The JSON report a device with exactly tier `t`'s minimum limits gives
+/// (Rust `GpuTier::report`): what the tier guarantees, and for the other
+/// features the fallback and the reason. Needs no GPU.
+inline std::string gpu_tier_report(gpu_tier t) {
+    return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_gpu_tier_report(uint32_t(t), b, c, n); });
+}
+/// Whether every GPU of tier `t` has feature `f`. Needs no GPU.
+inline bool gpu_tier_has(gpu_tier t, gpu_feature f) {
+    bool on = false; detail::check(crabby_gpu_tier_feature(uint32_t(t), uint32_t(f), &on)); return on;
 }
 /// One described field of a component, from crabby::field.
 template<class T> struct field_info { CrabbyField raw; };
@@ -2564,6 +2606,77 @@ public:
     CrabbyActionMap* raw() const noexcept { return raw_; }
 };
 
+/// What a system declares it reads and writes: components, resources and
+/// events by C++ type (their registered names) or by name, commands and
+/// services. Pass it to game::add with a system; debug builds stop the game
+/// if the system uses anything it didn't declare. Copyable. Build it at
+/// registration, not per frame: every step copies the declaration and keeps
+/// each name for the rest of the program.
+class access {
+    CrabbyAccess* raw_ = nullptr;
+    access& step(CrabbyStatus s) { detail::check(s); return *this; }
+public:
+    access() : raw_(crabby_access_new()) { if (!raw_) throw std::runtime_error(crabby_last_error()); }
+    ~access() { crabby_access_free(raw_); }
+    access(const access& other) : access() { *this = other; }
+    access& operator=(const access& other) {
+        if (this != &other) { access fresh; std::swap(raw_, fresh.raw_); names_.clear(); copy_from(other); }
+        return *this;
+    }
+    access(access&& other) noexcept : raw_(std::exchange(other.raw_, nullptr)) {}
+    access& operator=(access&& other) noexcept { if (this != &other) { crabby_access_free(raw_); raw_ = std::exchange(other.raw_, nullptr); } return *this; }
+    /// Reads component T.
+    template<class T> access& read() { return read_component(detail::type_name<T>().c_str()); }
+    /// Reads and writes component T.
+    template<class T> access& write() { return write_component(detail::type_name<T>().c_str()); }
+    /// Reads resource T.
+    template<class T> access& read_resource() { return read_resource(detail::type_name<T>().c_str()); }
+    /// Reads and writes resource T.
+    template<class T> access& write_resource() { return write_resource(detail::type_name<T>().c_str()); }
+    /// Reads T events.
+    template<class T> access& read_events() { return read_events(detail::type_name<T>().c_str()); }
+    /// Sends T events (doesn't cover reading them).
+    template<class T> access& send_events() { return send_events(detail::type_name<T>().c_str()); }
+    access& read_component(const char* name) { names_.push_back({0, name}); return step(crabby_access_read_component(raw_, name)); }
+    access& write_component(const char* name) { names_.push_back({1, name}); return step(crabby_access_write_component(raw_, name)); }
+    access& read_resource(const char* name) { names_.push_back({2, name}); return step(crabby_access_read_resource(raw_, name)); }
+    access& write_resource(const char* name) { names_.push_back({3, name}); return step(crabby_access_write_resource(raw_, name)); }
+    access& read_events(const char* name) { names_.push_back({4, name}); return step(crabby_access_read_events(raw_, name)); }
+    access& send_events(const char* name) { names_.push_back({5, name}); return step(crabby_access_send_events(raw_, name)); }
+    /// Records commands (ctx::*_later).
+    access& commands() { names_.push_back({6, {}}); return step(crabby_access_commands(raw_)); }
+    /// Uses `s`: reading it, or also changing it.
+    access& read_service(service s) { names_.push_back({7, {}, static_cast<std::uint32_t>(s)}); return step(crabby_access_service(raw_, static_cast<std::uint32_t>(s), false)); }
+    access& write_service(service s) { names_.push_back({8, {}, static_cast<std::uint32_t>(s)}); return step(crabby_access_service(raw_, static_cast<std::uint32_t>(s), true)); }
+    /// Number of reasons this system, registered before `later`, can't share
+    /// a parallel batch with it (0: it could). `ordered = false` checks
+    /// either order.
+    std::size_t conflicts_before(const access& later, bool ordered = true) const {
+        std::size_t n = 0;
+        detail::check(crabby_access_conflicts(raw_, later.raw_, ordered, &n));
+        return n;
+    }
+    const CrabbyAccess* raw() const noexcept { return raw_; }
+private:
+    struct entry { int kind; std::string name; std::uint32_t service = 0; };
+    std::vector<entry> names_;
+    void copy_from(const access& other) {
+        for (const auto& e : other.names_) {
+            switch (e.kind) {
+            case 0: read_component(e.name.c_str()); break;
+            case 1: write_component(e.name.c_str()); break;
+            case 2: read_resource(e.name.c_str()); break;
+            case 3: write_resource(e.name.c_str()); break;
+            case 4: read_events(e.name.c_str()); break;
+            case 5: send_events(e.name.c_str()); break;
+            case 6: commands(); break;
+            case 7: read_service(static_cast<service>(e.service)); break;
+            default: write_service(static_cast<service>(e.service)); break;
+            }
+        }
+    }
+};
+
 /// Manual input for tests and replay (same state as live input).
 struct input_event {
     std::uint32_t kind, slot, input;
@@ -3035,7 +3148,7 @@ public:
         for (const joint& j : joints) raw.push_back(CrabbyJoint{j.name.c_str(), j.parent, j.rest});
         detail::check(crabby_ctx_set_skeleton(raw_, e, raw.data(), raw.size()));
     }
-    /// Puts the skeleton of a glTF file with skins on `e`, at rest (Rust `Ctx::load_skeleton`).
+    /// Puts the skeleton of a glTF file with skins on `e`, at rest (Rust `Graphics::load_skeleton`).
     void load_skeleton(entity e, const char* path) { detail::check(crabby_ctx_load_skeleton(raw_, e, path)); }
     /// A mesh that bends with the skeleton on `skeleton`: `data`'s joints
     /// (mesh_data::set_skin) index its joints; modelled with it at rest.
@@ -3061,7 +3174,7 @@ public:
     /// Writes manually sampled skeleton morph channels to models.
     void write_animated_morphs() { detail::check(crabby_ctx_write_animated_morphs(raw_)); }
     /// The index of mesh `m`'s morph target called `name` (Rust
-    /// `Ctx::morph_target`), for set_morph_weight and morph_weight.
+    /// `Graphics::morph_target`), for set_morph_weight and morph_weight.
     std::optional<std::size_t> morph_target(mesh m, const char* name) const {
         std::size_t result = 0;
         const CrabbyStatus status = crabby_ctx_morph_target(raw_, m, name, &result);
@@ -3088,7 +3201,7 @@ public:
     /// Takes `e`'s morph weights away, so its model shows its mesh's
     /// default weights again (Rust `MorphWeights` removed).
     void clear_morph_weights(entity e) { detail::check(crabby_ctx_clear_morph_weights(raw_, e)); }
-    /// The clip called `name` of a glTF file with skins (Rust `Ctx::load_clip`).
+    /// The clip called `name` of a glTF file with skins (Rust `Graphics::load_clip`).
     crabby::clip load_clip(const char* path, const char* name) {
         CrabbyClip* c = nullptr; detail::check(crabby_ctx_load_clip(raw_, path, name, &c)); return crabby::clip(c);
     }
@@ -3197,7 +3310,7 @@ public:
         detail::check(crabby_ctx_set_line3d(raw_, e, &c));
     }
     void remove_line3d(entity e) { detail::check(crabby_ctx_remove_line3d(raw_, e)); }
-    /// A glTF file's mesh on the CPU (Rust `Ctx::load_mesh_data`), all its
+    /// A glTF file's mesh on the CPU (Rust `Graphics::load_mesh_data`), all its
     /// parts in one, without making anything on the GPU: to cut decals from.
     /// Loads the file each call; keep the result.
     mesh_data load_mesh_data(const char* path) {
@@ -3300,7 +3413,7 @@ public:
     void set_residency_budget(residency_kind kind, std::optional<std::uint64_t> bytes) {
         detail::check(crabby_ctx_set_residency_budget(raw_, static_cast<std::uint32_t>(kind), bytes.has_value(), bytes.value_or(0)));
     }
-    /// `kind`'s budget and counters (Rust `Ctx::residency`).
+    /// `kind`'s budget and counters (Rust `Graphics::residency`).
     crabby::residency_stats residency(residency_kind kind) const {
         crabby::residency_stats r{}; detail::check(crabby_ctx_residency(raw_, static_cast<std::uint32_t>(kind), &r)); return r;
     }
@@ -3337,13 +3450,13 @@ public:
         if (!ready) return std::nullopt;
         return m;
     }
-    /// Where the asset of `kind` called `name` is (Rust `Ctx::asset_state`).
+    /// Where the asset of `kind` called `name` is (Rust `Graphics::asset_state`).
     crabby::asset_state asset_state(residency_kind kind, const char* name) const {
         std::uint32_t s = 0;
         detail::check(crabby_ctx_asset_state(raw_, static_cast<std::uint32_t>(kind), name, &s));
         return static_cast<crabby::asset_state>(s);
     }
-    /// Why loading it failed; empty if it didn't (Rust `Ctx::asset_error`).
+    /// Why loading it failed; empty if it didn't (Rust `Graphics::asset_error`).
     std::string asset_error(residency_kind kind, const char* name) const {
         std::size_t len = 0;
         detail::check(crabby_ctx_asset_error(raw_, static_cast<std::uint32_t>(kind), name, nullptr, 0, &len));
@@ -3356,7 +3469,7 @@ public:
     void set_upload_budget(std::optional<std::uint64_t> bytes) {
         detail::check(crabby_ctx_set_upload_budget(raw_, bytes.has_value(), bytes.value_or(0)));
     }
-    /// Asset states change in the same frames every run (Rust `Ctx::set_deterministic_uploads`).
+    /// Asset states change in the same frames every run (Rust `Graphics::set_deterministic_uploads`).
     void set_deterministic_uploads(bool on) { detail::check(crabby_ctx_set_deterministic_uploads(raw_, on)); }
     /// The upload queue's budget and counters.
     crabby::upload_stats upload_stats() const {
@@ -3413,6 +3526,39 @@ public:
     /// resolution scale and shadow map sizes. Throws, changing nothing, for a field
     /// outside its range.
     void set_graphics_quality(const crabby::graphics_quality& q) { detail::check(crabby_ctx_set_graphics_quality(raw_, &q)); }
+    /// The GPU report as JSON (Rust `ctx.gpu_capabilities()`): adapter, limits,
+    /// tier, forced_tier and one {feature, available, fallback, reason} entry per
+    /// feature. Empty before a GPU opens (headless, before the window).
+    std::optional<std::string> gpu_capabilities() const {
+        std::size_t len = 0;
+        CrabbyStatus status = crabby_ctx_gpu_capabilities(raw_, nullptr, 0, &len);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_gpu_capabilities(raw_, b, c, n); });
+    }
+    /// The GPU's tier; empty before a GPU opens.
+    std::optional<crabby::gpu_tier> gpu_tier() const {
+        uint32_t t = 0;
+        CrabbyStatus status = crabby_ctx_gpu_tier(raw_, &t);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status); return crabby::gpu_tier(t);
+    }
+    /// Whether the GPU has feature `f` (false before a GPU opens); the fallback
+    /// and the reason are in gpu_capabilities().
+    bool gpu_has(crabby::gpu_feature f) const {
+        bool on = false;
+        CrabbyStatus status = crabby_ctx_gpu_feature(raw_, uint32_t(f), &on);
+        if (status == CRABBY_NOT_FOUND) return false;
+        detail::check(status); return on;
+    }
+    /// The preset for the open GPU, fitted to what it has (Rust
+    /// `GraphicsQuality::recommended`); empty before a GPU opens.
+    std::optional<crabby::graphics_quality> recommended_graphics_quality() const {
+        crabby::graphics_quality q{};
+        CrabbyStatus status = crabby_ctx_recommended_graphics_quality(raw_, &q);
+        if (status == CRABBY_NOT_FOUND) return std::nullopt;
+        detail::check(status); return q;
+    }
     /// Makes temporal antialiasing and temporal AO forget earlier frames: call it
     /// after a camera cut or an object teleport. (Resizes and big camera jumps
     /// reset by themselves.)
@@ -3978,6 +4124,18 @@ public:
     template<class F> game& add(phase p, F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(crabby_game_add_system(raw_, static_cast<std::uint32_t>(p), name, every, trampoline,
                                             keep(std::move(fn))));
+    }
+    /// A system in an explicit phase with a declaration of what it reads and
+    /// writes (see crabby::access). Debug builds stop the game if it uses
+    /// anything undeclared. It still runs in order, like any other system.
+    template<class F> game& add(phase p, const access& a, F fn, const char* name = nullptr, std::uint32_t every = 1) {
+        return check(crabby_game_add_system_with_access(raw_, static_cast<std::uint32_t>(p), name, every, a.raw(),
+                                                        trampoline, keep(std::move(fn))));
+    }
+    /// One line per pair of declared systems in the same phase: whether
+    /// they could run together, or what they conflict on.
+    std::string access_report() {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* l) { return crabby_game_access_report(raw_, b, c, l); });
     }
     /// A system once per frame (input, camera, UI). Not run headless.
     template<class F> game& system(F fn, const char* name = nullptr) {
