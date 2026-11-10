@@ -223,6 +223,18 @@ impl Lists {
         self.applied[id as usize] == Applied::new(meshes, flags, instance)
     }
 
+    /// The slots of `id` in the instance array, if it is drawn in exactly
+    /// these views (some) with these meshes: writing `instance` to them is
+    /// then all that [`set`](Self::set) would do.
+    fn held(&self, id: u32, meshes: &Meshes, flags: u32, instance: &Instance3D) -> Option<impl Iterator<Item = usize>> {
+        let flags = flags & VIEW_BITS;
+        (flags != 0 && self.holds(id, meshes, flags, instance)).then(|| {
+            (0..VIEWS)
+                .filter(move |view| flags & (1 << view) != 0)
+                .map(move |view| self.views[view].slots[id as usize] as usize)
+        })
+    }
+
     /// Where `id` is in the instance array for `view`, which draws it.
     pub fn slot(&self, view: usize, id: u32) -> usize {
         debug_assert!(self.applied[id as usize].flags & (1 << view) != 0);
@@ -843,6 +855,20 @@ thread_local! {
     pub(crate) static SERIAL: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
 }
 
+/// How many words an instance is.
+const WORDS: usize = size_of::<Instance3D>() / size_of::<u32>();
+
+/// The instance array as words that the tasks of the parallel compare can
+/// write through a shared borrow: each writes only the slots of the models
+/// it finds, and every model is found by one task.
+fn shared(instances: &mut [Instance3D]) -> &[AtomicU32] {
+    let words: &mut [u32] = bytemuck::cast_slice_mut(instances);
+    // SAFETY: `AtomicU32` has the size, alignment and bit validity of
+    // `u32`, and the words are borrowed exclusively for as long as the
+    // result lives, so they are read and written through it alone.
+    unsafe { &*(std::ptr::from_mut(words) as *const [AtomicU32]) }
+}
+
 /// What the parallel compare reads and (through atomics) writes.
 struct Pass<'a> {
     slot_of: &'a [u64],
@@ -859,9 +885,35 @@ struct Pass<'a> {
     news: &'a Mutex<Vec<crate::Entity>>,
     new_count: &'a AtomicUsize,
     sampled: &'a AtomicUsize,
+    lists: &'a Lists,
+    /// The instance array (see [`shared`]); empty to stage every instance.
+    arena: &'a [AtomicU32],
 }
 
 impl Pass<'_> {
+    /// Writes the instance of object `k`'s model to its slots, if it is
+    /// drawn in the views of `flags` with these meshes already (as most
+    /// models that changed are): the lists are then up to date with it.
+    /// Otherwise they take it in on one thread, in order.
+    fn write_in_place(&self, k: usize, source: Source<'_>, flags: u32, mesh: u32, caster: u32) -> bool {
+        if self.arena.is_empty() {
+            return false;
+        }
+        let mut meshes = [caster; 1 + MAX_CASCADES];
+        meshes[0] = mesh;
+        let instance = source.instance();
+        let Some(slots) = self.lists.held(self.hot[k].id, &meshes, flags, &instance) else {
+            return false;
+        };
+        let words: &[u32] = bytemuck::cast_slice(std::slice::from_ref(&instance));
+        for slot in slots {
+            for (to, &word) in self.arena[slot * WORDS..][..WORDS].iter().zip(words) {
+                to.store(word, Ordering::Relaxed);
+            }
+        }
+        true
+    }
+
     /// One model: compared with its digest; worked out again if it
     /// differs, and culled again if it or the views changed. In a rush,
     /// only one model in [`SAMPLE`] is; the others are worked out and
@@ -899,6 +951,9 @@ impl Pass<'_> {
                 return UNCHANGED;
             }
             let Some(k) = find() else { return new() };
+            if self.write_in_place(k, source, flags, derived.mesh, derived.caster) {
+                return k as u32 | SAME;
+            }
             let cold = &self.cold[k];
             cold.mesh.store(derived.mesh, Ordering::Relaxed);
             cold.caster.store(derived.caster, Ordering::Relaxed);
@@ -929,6 +984,9 @@ impl Pass<'_> {
             let flags = self.culler.classify_spheres(derived.sphere, derived.caster_sphere);
             cold.pending.store(flags, Ordering::Relaxed);
             if flags != 0 {
+                if self.write_in_place(k, source, flags, derived.mesh, derived.caster) {
+                    return k as u32 | diff | SAME;
+                }
                 keep();
             }
             if flags != 0 || was != 0 {
@@ -1341,8 +1399,12 @@ impl Tracked {
         if let Ok(news) = self.news.get_mut() {
             news.clear();
         }
-        let pass = |tracked: &Self, how: How<'_>, rush: bool, results: &mut Vec<u32>, world: &mut World| {
-            let pass = tracked.pass(assets, culler, overrides, how, rush);
+        // Where a moved model was is listed on this thread.
+        let tracking = motion.tracking();
+        type Out<'a> = (&'a mut Vec<u32>, &'a Lists, &'a mut Vec<Instance3D>);
+        let pass = |tracked: &Self, how: How<'_>, rush: bool, (results, lists, arena): Out<'_>, world: &mut World| {
+            let arena = if tracking { &[] } else { shared(arena) };
+            let pass = tracked.pass(assets, culler, overrides, how, rush, lists, arena);
             world
                 .query::<ModelItem<'_>>()
                 .without::<SkinOf>()
@@ -1358,7 +1420,7 @@ impl Tracked {
             results.clear();
             new = world.query::<ModelItem<'_>>().without::<SkinOf>().count();
         } else {
-            pass(self, how, rush, &mut results, world);
+            pass(self, how, rush, (&mut results, lists, arena), world);
             for &result in &results {
                 match result {
                     UNCHANGED => {}
@@ -1432,17 +1494,21 @@ impl Tracked {
                 cull: how.cull,
             };
             if many {
-                pass(self, rest, false, &mut results, world);
+                pass(self, rest, false, (&mut results, lists, arena), world);
                 for &result in &results {
-                    if result < DIFFERED {
-                        self.apply((result & !(DIFF | SAME)) as usize, lists, arena, motion);
+                    if result < DIFFERED && result & SAME == 0 {
+                        self.apply((result & !DIFF) as usize, lists, arena, motion);
                     }
                 }
             } else {
                 let mut models = world.query::<ModelItem<'_>>().without::<SkinOf>();
                 for &(k, entity) in &fresh {
                     let Some(item) = models.get(entity) else { continue };
-                    if self.pass(assets, culler, overrides, rest, false).check(item) == k {
+                    if self
+                        .pass(assets, culler, overrides, rest, false, lists, &[])
+                        .check(item)
+                        == k
+                    {
                         self.apply(k as usize, lists, arena, motion);
                         if rush {
                             self.mark(k as usize, &mut now);
@@ -1477,6 +1543,8 @@ impl Tracked {
         overrides: &'a Overrides<'a>,
         how: How<'a>,
         rush: bool,
+        lists: &'a Lists,
+        arena: &'a [AtomicU32],
     ) -> Pass<'a> {
         Pass {
             slot_of: &self.slot_of,
@@ -1492,6 +1560,8 @@ impl Tracked {
             news: &self.news,
             new_count: &self.new_count,
             sampled: &self.sampled,
+            lists,
+            arena,
         }
     }
 

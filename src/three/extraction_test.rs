@@ -639,7 +639,7 @@ fn many_models_spawned_at_once_are_drawn_also_while_most_move() {
     let mut scene = Scene::new(6000);
     let first = scene.check("first");
     // More at once than are taken in one by one, all in view.
-    let mut wave = |scene: &mut Scene, height: f32| {
+    let wave = |scene: &mut Scene, height: f32| {
         for i in 0..700 {
             let at = Vec3::new((i % 27) as f32 * 0.3 - 4.0, height, (i / 27) as f32 * 0.3 - 4.0);
             let e = scene.world.spawn((Transform3D::at(at), Model::new(mesh(i))));
