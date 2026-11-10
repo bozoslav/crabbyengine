@@ -2,7 +2,7 @@
 //!
 //! Each one is checked against the type's real serialized JSON by
 //! `builtin_shapes_match_serialized_fields_and_value_types`.
-use crate::ValueSchema::{self, *};
+use crate::schema::ValueSchema::{self, *};
 fn transform2d() -> ValueSchema {
     ValueSchema::object([("position", Vec2), ("rotation", Number), ("scale", Vec2)])
 }
@@ -146,7 +146,7 @@ fn character3d() -> ValueSchema {
 #[cfg(feature = "physics3d")]
 fn vehicle3d() -> ValueSchema {
     ValueSchema::object([
-        ("wheels", Tuple(vec![wheel3d(); crate::Vehicle3D::MAX_WHEELS])),
+        ("wheels", Tuple(vec![wheel3d(); crate::d3::Vehicle::MAX_WHEELS])),
         ("wheel_count", Unsigned),
         ("groups", collisiongroups()),
     ])
@@ -205,26 +205,26 @@ fn frictioncurve() -> ValueSchema {
 }
 pub(super) fn builtin<T: 'static>() -> Option<ValueSchema> {
     let id = std::any::TypeId::of::<T>();
-    if id == std::any::TypeId::of::<crate::Transform2D>() {
+    if id == std::any::TypeId::of::<crate::d2::Transform>() {
         return Some(transform2d());
     }
-    if id == std::any::TypeId::of::<crate::Attached>() {
+    if id == std::any::TypeId::of::<crate::d2::Attached>() {
         return Some(attached());
     }
     #[cfg(feature = "3d")]
-    if id == std::any::TypeId::of::<crate::Transform3D>() {
+    if id == std::any::TypeId::of::<crate::d3::Transform>() {
         return Some(transform3d());
     }
     #[cfg(feature = "3d")]
-    if id == std::any::TypeId::of::<crate::PointLight3D>() {
+    if id == std::any::TypeId::of::<crate::d3::PointLight>() {
         return Some(pointlight3d());
     }
     #[cfg(feature = "3d")]
-    if id == std::any::TypeId::of::<crate::SpotLight3D>() {
+    if id == std::any::TypeId::of::<crate::d3::SpotLight>() {
         return Some(spotlight3d());
     }
     #[cfg(feature = "3d")]
-    if id == std::any::TypeId::of::<crate::Decal3D>() {
+    if id == std::any::TypeId::of::<crate::d3::Decal>() {
         return Some(decal3d());
     }
     #[cfg(feature = "3d")]
@@ -236,39 +236,39 @@ pub(super) fn builtin<T: 'static>() -> Option<ValueSchema> {
         return Some(receivesdecals());
     }
     #[cfg(feature = "physics")]
-    if id == std::any::TypeId::of::<crate::RigidBody>() {
+    if id == std::any::TypeId::of::<crate::d2::RigidBody>() {
         return Some(rigidbody());
     }
     #[cfg(feature = "physics")]
-    if id == std::any::TypeId::of::<crate::Collider>() {
+    if id == std::any::TypeId::of::<crate::d2::Collider>() {
         return Some(collider());
     }
     #[cfg(feature = "physics")]
-    if id == std::any::TypeId::of::<crate::Velocity>() {
+    if id == std::any::TypeId::of::<crate::d2::Velocity>() {
         return Some(velocity());
     }
     #[cfg(feature = "physics3d")]
-    if id == std::any::TypeId::of::<crate::RigidBody3D>() {
+    if id == std::any::TypeId::of::<crate::d3::RigidBody>() {
         return Some(rigidbody3d());
     }
     #[cfg(feature = "physics3d")]
-    if id == std::any::TypeId::of::<crate::Collider3D>() {
+    if id == std::any::TypeId::of::<crate::d3::Collider>() {
         return Some(collider3d());
     }
     #[cfg(feature = "physics3d")]
-    if id == std::any::TypeId::of::<crate::Velocity3D>() {
+    if id == std::any::TypeId::of::<crate::d3::Velocity>() {
         return Some(velocity3d());
     }
     #[cfg(feature = "physics3d")]
-    if id == std::any::TypeId::of::<crate::Character3D>() {
+    if id == std::any::TypeId::of::<crate::d3::Character>() {
         return Some(character3d());
     }
     #[cfg(feature = "physics3d")]
-    if id == std::any::TypeId::of::<crate::Vehicle3D>() {
+    if id == std::any::TypeId::of::<crate::d3::Vehicle>() {
         return Some(vehicle3d());
     }
     #[cfg(feature = "physics3d")]
-    if id == std::any::TypeId::of::<crate::ColliderFocus>() {
+    if id == std::any::TypeId::of::<crate::physics3d::ColliderFocus>() {
         return Some(colliderfocus());
     }
     None
@@ -350,7 +350,7 @@ fn shape2d() -> ValueSchema {
         ValueSchema::strict_object([(
             "Polygon",
             ValueSchema::object([
-                ("points", Tuple(vec![Vec2; crate::MAX_POLYGON_POINTS])),
+                ("points", Tuple(vec![Vec2; crate::physics::MAX_POLYGON_POINTS])),
                 ("count", Unsigned),
             ]),
         )]),
@@ -552,14 +552,17 @@ mod tests {
             };
             validate(&model_materials(), &json_of(parts));
         }
-        check!(crate::Transform2D, crate::Transform2D::default());
-        check!(crate::Attached, crate::Attached::to(crate::Entity::from_bits(0)));
+        check!(crate::d2::Transform, crate::d2::Transform::default());
+        check!(
+            crate::d2::Attached,
+            crate::d2::Attached::to(crate::Entity::from_bits(0))
+        );
         #[cfg(feature = "3d")]
         {
-            check!(crate::Transform3D, crate::Transform3D::default());
-            check!(crate::PointLight3D, crate::PointLight3D::default());
-            check!(crate::SpotLight3D, crate::SpotLight3D::default());
-            check!(crate::Decal3D, crate::Decal3D::default());
+            check!(crate::d3::Transform, crate::d3::Transform::default());
+            check!(crate::d3::PointLight, crate::d3::PointLight::default());
+            check!(crate::d3::SpotLight, crate::d3::SpotLight::default());
+            check!(crate::d3::Decal, crate::d3::Decal::default());
             check!(crate::ReceivesDecals, crate::ReceivesDecals::default());
             check!(crate::LodHysteresis, crate::LodHysteresis::default());
         }
@@ -573,14 +576,15 @@ mod tests {
         {
             for kind in kinds {
                 check!(
-                    crate::RigidBody,
-                    crate::RigidBody {
+                    crate::d2::RigidBody,
+                    crate::d2::RigidBody {
                         kind,
                         ..Default::default()
                     }
                 );
             }
-            use crate::{Collider, MAX_POLYGON_POINTS};
+            use crate::d2::Collider;
+            use crate::physics::MAX_POLYGON_POINTS;
             let v = glam::Vec2::new;
             let most: Vec<_> = (0..MAX_POLYGON_POINTS)
                 .map(|i| v((i as f32).cos(), (i as f32).sin()))
@@ -599,27 +603,28 @@ mod tests {
                 polygon["shape"]["Polygon"]["points"].as_array().unwrap().len(),
                 MAX_POLYGON_POINTS
             );
-            check!(crate::Velocity, crate::Velocity::default());
+            check!(crate::d2::Velocity, crate::d2::Velocity::default());
         }
         #[cfg(feature = "physics3d")]
         {
             for kind in kinds {
                 check!(
-                    crate::RigidBody3D,
-                    crate::RigidBody3D {
+                    crate::d3::RigidBody,
+                    crate::d3::RigidBody {
                         kind,
                         ..Default::default()
                     }
                 );
             }
-            let body = crate::RigidBody3D {
+            let body = crate::d3::RigidBody {
                 mass: Some(2.0),
                 center_of_mass: Some(glam::Vec3::Y),
                 ..Default::default()
             };
             assert!(fills_an_optional(&rigidbody3d(), &json_of(body)));
-            check!(crate::RigidBody3D, body);
-            use crate::{Collider3D, CollisionMesh};
+            check!(crate::d3::RigidBody, body);
+            use crate::d3::Collider as Collider3D;
+            use crate::physics3d::CollisionMesh;
             for collider in [
                 Collider3D::sphere(1.0),
                 Collider3D::cuboid(glam::Vec3::ONE),
@@ -643,15 +648,18 @@ mod tests {
             let mesh = &collider3d().to_json_schema()["properties"]["shape"]["anyOf"][3];
             let forms = &mesh["properties"]["Mesh"]["anyOf"];
             assert_eq!(forms[1]["required"], json!(["file"]), "{forms}");
-            check!(crate::Velocity3D, crate::Velocity3D::default());
-            check!(crate::Character3D, crate::Character3D::default());
-            let vehicle = json_of(crate::Vehicle3D::default());
+            check!(crate::d3::Velocity, crate::d3::Velocity::default());
+            check!(crate::d3::Character, crate::d3::Character::default());
+            let vehicle = json_of(crate::d3::Vehicle::default());
             assert_eq!(
                 vehicle["wheels"].as_array().unwrap().len(),
-                crate::Vehicle3D::MAX_WHEELS
+                crate::d3::Vehicle::MAX_WHEELS
             );
-            check!(crate::Vehicle3D, crate::Vehicle3D::default());
-            check!(crate::ColliderFocus, crate::ColliderFocus::default());
+            check!(crate::d3::Vehicle, crate::d3::Vehicle::default());
+            check!(
+                crate::physics3d::ColliderFocus,
+                crate::physics3d::ColliderFocus::default()
+            );
         }
     }
 

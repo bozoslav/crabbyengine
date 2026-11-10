@@ -1,6 +1,6 @@
 //! Profiling: frame statistics, the performance overlay and traces.
 
-use ponko::*;
+use ponko::prelude::*;
 
 // ANCHOR: profiling
 /// F3 shows the performance overlay; F4 records the next 300 frames as a
@@ -45,7 +45,7 @@ fn upload_watch(ctx: &mut Ctx) {
 #[test]
 fn headless_runs_upload_nothing_to_the_gpu() {
     Game::new("t", 1, 1).system(upload_watch).run_headless(10, |ctx| {
-        assert_eq!(ctx.perf.render_stats().uploads, GpuUploads::default());
+        assert_eq!(ctx.perf.render_stats().uploads, ponko::render::GpuUploads::default());
     });
 }
 

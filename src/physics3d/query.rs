@@ -24,12 +24,12 @@ pub struct Hit3D {
 /// and no sensors.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// # let player = Entity::from_bits(1);
 /// const TERRAIN: u32 = 1 << 2;
-/// let ground_only = QueryFilter3D::default().groups(CollisionGroups::new(u32::MAX, TERRAIN));
-/// let not_me = QueryFilter3D::default().exclude(player);
-/// let triggers_too = QueryFilter3D::default().with_sensors();
+/// let ground_only = ponko::d3::QueryFilter::default().groups(ponko::physics3d::CollisionGroups::new(u32::MAX, TERRAIN));
+/// let not_me = ponko::d3::QueryFilter::default().exclude(player);
+/// let triggers_too = ponko::d3::QueryFilter::default().with_sensors();
 /// assert!(triggers_too.sensors && !not_me.sensors);
 /// # let _ = ground_only;
 /// ```
@@ -65,6 +65,23 @@ impl QueryFilter3D {
 }
 
 impl Physics3D {
+    /// Explicit filtered ray query, matching the 2D argument convention.
+    /// The existing `cast_ray` spelling remains available.
+    pub fn cast_ray_filtered(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f32,
+        filter: QueryFilter3D,
+    ) -> Option<Hit3D> {
+        self.cast_ray(origin, direction, max_distance, filter)
+    }
+
+    /// Dimension-neutral ball overlap (a sphere in 3D).
+    pub fn overlap_ball(&self, center: Vec3, radius: f32, filter: QueryFilter3D, out: &mut Vec<Entity>) {
+        self.overlap_sphere(center, radius, filter, out);
+    }
+
     fn rp_filter(&self, f: QueryFilter3D) -> rp::QueryFilter<'static> {
         let mut filter = rp::QueryFilter::default().groups(f.groups.to_rp());
         if !f.sensors {
@@ -80,15 +97,15 @@ impl Physics3D {
     /// within `max_distance`. Up to date as of the last physics step.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// fn look_down(ctx: &mut Ctx) {
-    ///     let filter = QueryFilter3D::default();
+    ///     let filter = ponko::d3::QueryFilter::default();
     ///     if let Some(hit) = ctx.physics3d.cast_ray(vec3(0.0, 5.0, 0.0), Vec3::NEG_Y, 100.0, filter) {
     ///         assert!((hit.distance - 4.5).abs() < 1e-4, "the ground's top is at 0.5");
     ///     }
     /// }
     /// Game::new("t", 1, 1).physics3d(Vec3::ZERO).sim_system(look_down).run_headless(2, |ctx| {
-    ///     ctx.world.spawn((Transform3D::default(), RigidBody3D::fixed(), Collider3D::cuboid(vec3(10.0, 1.0, 10.0))));
+    ///     ctx.world.spawn((ponko::d3::Transform::default(), ponko::d3::RigidBody::fixed(), ponko::d3::Collider::cuboid(vec3(10.0, 1.0, 10.0))));
     /// });
     /// ```
     pub fn cast_ray(&self, origin: Vec3, direction: Vec3, max_distance: f32, filter: QueryFilter3D) -> Option<Hit3D> {
@@ -112,10 +129,10 @@ impl Physics3D {
     /// `out` (cleared first; reuse it so casts don't allocate).
     ///
     /// ```
-    /// use ponko::*;
-    /// let physics = Physics3D::default();
+    /// use ponko::prelude::*;
+    /// let physics = ponko::d3::Physics::default();
     /// let mut hits = Vec::new();
-    /// physics.cast_ray_all(Vec3::ZERO, Vec3::X, 50.0, QueryFilter3D::default(), &mut hits);
+    /// physics.cast_ray_all(Vec3::ZERO, Vec3::X, 50.0, ponko::d3::QueryFilter::default(), &mut hits);
     /// assert!(hits.is_empty());
     /// ```
     pub fn cast_ray_all(
@@ -182,9 +199,9 @@ impl Physics3D {
     /// rays: bullets with size, "is there room to walk there").
     ///
     /// ```
-    /// use ponko::*;
-    /// let physics = Physics3D::default();
-    /// assert!(physics.cast_sphere(Vec3::ZERO, 0.5, Vec3::Z, 10.0, QueryFilter3D::default()).is_none());
+    /// use ponko::prelude::*;
+    /// let physics = ponko::d3::Physics::default();
+    /// assert!(physics.cast_sphere(Vec3::ZERO, 0.5, Vec3::Z, 10.0, ponko::d3::QueryFilter::default()).is_none());
     /// ```
     pub fn cast_sphere(
         &self,
@@ -209,9 +226,9 @@ impl Physics3D {
     /// and returns the first collider it touches within `max_distance`.
     ///
     /// ```
-    /// use ponko::*;
-    /// let physics = Physics3D::default();
-    /// assert!(physics.cast_capsule(Vec3::ZERO, 1.2, 0.3, Vec3::X, 10.0, QueryFilter3D::default()).is_none());
+    /// use ponko::prelude::*;
+    /// let physics = ponko::d3::Physics::default();
+    /// assert!(physics.cast_capsule(Vec3::ZERO, 1.2, 0.3, Vec3::X, 10.0, ponko::d3::QueryFilter::default()).is_none());
     /// ```
     pub fn cast_capsule(
         &self,
@@ -242,10 +259,10 @@ impl Physics3D {
     /// Every entity whose collider overlaps the ball, into `out` (cleared first).
     ///
     /// ```
-    /// use ponko::*;
-    /// let physics = Physics3D::default();
+    /// use ponko::prelude::*;
+    /// let physics = ponko::d3::Physics::default();
     /// let mut near = Vec::new();
-    /// physics.overlap_sphere(Vec3::ZERO, 5.0, QueryFilter3D::default(), &mut near);
+    /// physics.overlap_sphere(Vec3::ZERO, 5.0, ponko::d3::QueryFilter::default(), &mut near);
     /// assert!(near.is_empty());
     /// ```
     pub fn overlap_sphere(&self, center: Vec3, radius: f32, filter: QueryFilter3D, out: &mut Vec<Entity>) {
@@ -257,10 +274,10 @@ impl Physics3D {
     /// `center` and turned by `rotation`, into `out` (cleared first).
     ///
     /// ```
-    /// use ponko::*;
-    /// let physics = Physics3D::default();
+    /// use ponko::prelude::*;
+    /// let physics = ponko::d3::Physics::default();
     /// let mut inside = Vec::new();
-    /// physics.overlap_box(Vec3::ZERO, Vec3::ONE, Quat::IDENTITY, QueryFilter3D::default(), &mut inside);
+    /// physics.overlap_box(Vec3::ZERO, Vec3::ONE, Quat::IDENTITY, ponko::d3::QueryFilter::default(), &mut inside);
     /// assert!(inside.is_empty());
     /// ```
     pub fn overlap_box(&self, center: Vec3, size: Vec3, rotation: Quat, filter: QueryFilter3D, out: &mut Vec<Entity>) {
@@ -273,10 +290,10 @@ impl Physics3D {
     /// `center`, into `out` (cleared first). Can a character stand up here?
     ///
     /// ```
-    /// use ponko::*;
-    /// let physics = Physics3D::default();
+    /// use ponko::prelude::*;
+    /// let physics = ponko::d3::Physics::default();
     /// let mut blocking = Vec::new();
-    /// physics.overlap_capsule(Vec3::ZERO, 1.2, 0.3, QueryFilter3D::default(), &mut blocking);
+    /// physics.overlap_capsule(Vec3::ZERO, 1.2, 0.3, ponko::d3::QueryFilter::default(), &mut blocking);
     /// assert!(blocking.is_empty());
     /// ```
     pub fn overlap_capsule(

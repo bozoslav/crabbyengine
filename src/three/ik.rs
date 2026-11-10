@@ -47,9 +47,9 @@ fn rotate_toward(s: &mut Skeleton, j: usize, from: Vec3, to: Vec3, w: f32, max: 
 /// No allocations are made. Apply after animation with [`crate::Game::late_system`].
 ///
 /// ```
-/// use ponko::*;
-/// let mut s = Skeleton::new(vec![]);
-/// two_bone_ik(&mut s, &Transform3D::default(), [0, 1, 2], Vec3::Y, Vec3::Z, 1.0);
+/// use ponko::prelude::*;
+/// let mut s = ponko::anim::Skeleton::new(vec![]);
+/// ponko::render::two_bone_ik(&mut s, &ponko::d3::Transform::default(), [0, 1, 2], Vec3::Y, Vec3::Z, 1.0);
 /// ```
 pub fn two_bone_ik(s: &mut Skeleton, model: &Transform3D, chain: [usize; 3], target: Vec3, pole: Vec3, w: f32) {
     let [upper, middle, end] = chain;
@@ -112,9 +112,9 @@ pub fn two_bone_ik(s: &mut Skeleton, model: &Transform3D, chain: [usize; 3], tar
 /// joint scales/shear make the angular limit approximate in world space.
 ///
 /// ```
-/// use ponko::*;
-/// let mut s = Skeleton::new(vec![Joint { name: "head".into(), parent: None, rest: Transform3D::default() }]);
-/// look_at_joint(&mut s, &Transform3D::default(), 0, Vec3::Z, Vec3::X, 1.0, 0.5);
+/// use ponko::prelude::*;
+/// let mut s = ponko::anim::Skeleton::new(vec![ponko::anim::Joint { name: "head".into(), parent: None, rest: ponko::d3::Transform::default() }]);
+/// ponko::render::look_at_joint(&mut s, &ponko::d3::Transform::default(), 0, Vec3::Z, Vec3::X, 1.0, 0.5);
 /// ```
 #[allow(clippy::too_many_arguments)]
 pub fn look_at_joint(
@@ -156,7 +156,7 @@ impl crate::Ctx {
     /// the near/far plane are clipped. Missing components are ignored.
     ///
     /// ```no_run
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// fn debug(ctx: &mut Ctx, entity: Entity) { ctx.draw_skeleton(entity, Color::RED); }
     /// ```
     pub fn draw_skeleton(&mut self, entity: crate::Entity, color: crate::Color) {
@@ -207,7 +207,7 @@ impl crate::Ctx {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Joint;
+    use crate::anim::Joint;
     fn arm() -> Skeleton {
         Skeleton::new(
             (0usize..3)

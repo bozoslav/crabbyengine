@@ -9,7 +9,9 @@
 //! Then edit `spin` or `wobble` below and save: the crabs change behavior
 //! within a second, mid-spin, where they were.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::*;
+use ponko::prelude::*;
 
 /// Every crab turns. Try a different speed, or `-=` to turn the other way.
 // ANCHOR: spin

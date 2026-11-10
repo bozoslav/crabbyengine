@@ -14,7 +14,9 @@
 mod common;
 
 use common::TempAsset;
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::Transform as Transform2D;
+use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -56,7 +58,7 @@ struct Round(u32);
 
 fn reflect_all(w: &mut World) {
     w.reflect::<Transform2D>();
-    w.reflect::<Attached>();
+    w.reflect::<ponko::d2::Attached>();
     w.reflect::<Health>();
     w.reflect::<Team>();
     w.reflect::<Follows>();
@@ -198,7 +200,7 @@ fn the_retained_world_save_loads_as_a_scene() {
     let (base, turret, scout, marker) = (id(4, 1), id(2, 3), id(1, 3), id(0, 3));
     assert_eq!(world.len(), 4);
     assert_eq!(world.get::<Transform2D>(base).unwrap().position, vec2(120.5, -64.0));
-    assert_eq!(world.get::<Attached>(turret).unwrap().to, base);
+    assert_eq!(world.get::<ponko::d2::Attached>(turret).unwrap().to, base);
     assert_eq!(world.get::<Follows>(scout), Some(&Follows(base)));
     assert_eq!(world.get::<Mood>(base), Some(&Mood::Alert { since: 42 }));
     assert_eq!(world.get::<Label>(marker).map(|l| l.name.as_str()), Some("marker"));

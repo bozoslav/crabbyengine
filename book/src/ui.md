@@ -109,10 +109,10 @@ CSS escapes; reserved CSS keywords and names starting with digits are rejected.
 <div>
 
 ```rust
-use ponko::{Ui, UiWidget, ui_layout::*};
-use ponko::ui_layout::style_helpers::*;
-let mut tree = Ui::default();
-let dashboard = tree.add(UiWidget::Panel, Style {
+use ponko::ui::{Ui, UiWidget, layout::*};
+use ponko::ui::layout::style_helpers::*;
+let mut tree = ponko::ui::Ui::default();
+let dashboard = tree.add(ponko::ui::UiWidget::Panel, Style {
     display: Display::Grid,
     size: Size { width: length(600.0), height: length(400.0) },
     grid_template_columns: vec![repeat(2, vec![fr(1.0)])],
@@ -128,7 +128,7 @@ let dashboard = tree.add(UiWidget::Panel, Style {
     ..Style::default()
 });
 let placement = GridPlacement::NamedLine("main".into(), 0);
-let main = tree.add_child(dashboard, UiWidget::Label, Style {
+let main = tree.add_child(dashboard, ponko::ui::UiWidget::Label, Style {
     grid_column: Line { start: placement.clone(), end: placement.clone() },
     grid_row: Line { start: placement.clone(), end: placement },
     ..Style::default()
@@ -272,10 +272,10 @@ but inert. The snapshot prints one indented line per node, which suits golden
 tests:
 
 ```rust
-let mut ui = Ui::default();
-let root = ui.root().layout(UiLayout::fill()).id();
+let mut ui = ponko::ui::Ui::default();
+let root = ui.root().layout(ponko::ui::UiLayout::fill()).id();
 ui.button(root, "Play");
-ui.slider(root).layout(UiLayout::row(20.0)).value(0.25).accessible_name("Volume");
+ui.slider(root).layout(ponko::ui::UiLayout::row(20.0)).value(0.25).accessible_name("Volume");
 ui.push_screen(root, false);
 ui.layout(vec2(800.0, 600.0));
 assert_eq!(
@@ -290,14 +290,14 @@ adapter is planned, and the C/C++ API does not expose these semantics yet
 
 ## UI on surfaces in the world
 
-A computer screen, a shop terminal or a sign with buttons is a `UiPanel3D`: a
+A computer screen, a shop terminal or a sign with buttons is a `d3::UiPanel`: a
 component with its own `Ui` that the engine draws every frame into a render
 target, which a glowing, alpha-blended quad shows. Build `panel.ui` just like the
 screen's tree; its widgets are laid out in the target's pixels, so a 600 x 400
 panel has a 600 x 400 viewport. `ctx.gfx.create_ui_panel(width, height, size)` makes
 the render target, the material and the quad (`size` is in meters, in the
 entity's XY plane, facing +Z) and returns the panel and the `Model` to spawn
-with it, next to a `Transform3D`. The quad is an ordinary model: move and
+with it, next to a `d3::Transform`. The quad is an ordinary model: move and
 rotate the entity as usual.
 
 In C++ the entity comes first: `ctx.gfx.create_ui_panel(entity, width, height, size)`

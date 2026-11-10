@@ -63,7 +63,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::messages::PacketTransport;
-use crate::{Lane, MAX_MESSAGE_BYTES, MessageEvent, NetMessages, PeerId};
+use crate::net::Lane;
+use crate::net::MAX_MESSAGE_BYTES;
+use crate::net::MessageEvent;
+use crate::net::NetMessages;
+use crate::net::PeerId;
 
 /// Largest datagram the protocol emits and the transports accept.
 const MTU: usize = 1500;

@@ -2,7 +2,8 @@
 //! input as bytes, read everyone's.
 use std::ffi::{c_char, c_void};
 
-use ponko::{Net, NetState};
+use ponko::net::Net;
+use ponko::net::NetState;
 
 use crate::ctx::{CrabbyCtx, ctx_access, out, text};
 use crate::game::build;
@@ -171,7 +172,7 @@ pub unsafe extern "C" fn crabby_ctx_net_state(ctx: *mut CrabbyCtx, out_state: *m
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_set_input(ctx: *mut CrabbyCtx, data: *const c_void, size: usize) -> CrabbyStatus {
     boundary(|| {
-        if size > ponko::MAX_INPUT_BYTES {
+        if size > ponko::net::MAX_INPUT_BYTES {
             return Err(invalid("input is over 1024 bytes"));
         }
         if data.is_null() && size != 0 {

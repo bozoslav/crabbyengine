@@ -7,7 +7,10 @@
 //! Click the water to drop a stone in. `SHOT=path.png` saves frame 120
 //! and quits.
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
 
 /// The wave equation on a grid: each texel moves toward the average of
 /// its neighbours, overshooting like water does, and calms slowly.
@@ -106,7 +109,7 @@ fn main() {
                 ..MaterialDesc::color(Color::hex(0x2A5A75))
             });
             let surface = ctx.gfx.create_mesh(&MeshData::plane(SIZE), water);
-            ctx.world.spawn((Transform3D::default(), Model::new(surface)));
+            ctx.world.spawn((Transform::default(), Model::new(surface)));
 
             let stone = ctx.gfx.create_material(MaterialDesc {
                 roughness: 0.8,
@@ -116,9 +119,9 @@ fn main() {
             for i in 0..40 {
                 let a = i as f32 / 40.0 * std::f32::consts::TAU;
                 let edge = vec3(a.cos(), 0.0, a.sin()) * SIZE * 0.55;
-                let t = Transform3D {
+                let t = Transform {
                     scale: Vec3::splat(0.8 + (i % 3) as f32 * 0.3),
-                    ..Transform3D::at(edge)
+                    ..Transform::at(edge)
                 };
                 ctx.world.spawn((t, Model::new(rock)));
             }
@@ -128,7 +131,7 @@ fn main() {
             });
             let ground = ctx.gfx.create_mesh(&MeshData::plane(200.0), grass);
             ctx.world
-                .spawn((Transform3D::at(vec3(0.0, -0.3, 0.0)), Model::new(ground)));
+                .spawn((Transform::at(vec3(0.0, -0.3, 0.0)), Model::new(ground)));
         })
         .run();
 }

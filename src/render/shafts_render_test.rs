@@ -3,8 +3,12 @@
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
 use super::render_test_support::*;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{MaterialDesc, Mesh, MeshData, Model};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 

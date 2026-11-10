@@ -1003,10 +1003,19 @@ pub unsafe extern "C" fn crabby_ctx_body_center_of_mass3d(
 mod imp {
     use std::cell::RefCell;
 
-    use ponko::{
-        BodyKind, Character3D, Collider3D, CollisionGroups, CollisionMesh, Hit3D, Joint3D, JointDrive3D, JointMotion3D,
-        Quat, QueryFilter3D, RigidBody3D, Shape3D, Vec3, Velocity3D,
-    };
+    use ponko::d3::Character as Character3D;
+    use ponko::d3::Collider as Collider3D;
+    use ponko::d3::Hit as Hit3D;
+    use ponko::d3::Joint as Joint3D;
+    use ponko::d3::JointDrive as JointDrive3D;
+    use ponko::d3::JointMotion as JointMotion3D;
+    use ponko::d3::QueryFilter as QueryFilter3D;
+    use ponko::d3::RigidBody as RigidBody3D;
+    use ponko::d3::Shape as Shape3D;
+    use ponko::d3::Velocity as Velocity3D;
+    use ponko::physics3d::CollisionGroups;
+    use ponko::physics3d::CollisionMesh;
+    use ponko::{BodyKind, Quat, Vec3};
     use ponko_ecs::Entity;
 
     use super::*;
@@ -1278,7 +1287,7 @@ mod imp {
         } else if t == TypeId::of::<Velocity3D>() {
             // repr(C), layout checked against CrabbyVelocity3D; any bits are valid.
             Some(Kind::Plain)
-        } else if t == TypeId::of::<ponko::Vehicle3D>() {
+        } else if t == TypeId::of::<ponko::d3::Vehicle>() {
             // repr(C), layout checked against CrabbyVehicle3D; floats, counts
             // (clamped to 8) and bools a C `bool` keeps 0 or 1.
             Some(Kind::Plain)

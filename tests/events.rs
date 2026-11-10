@@ -1,6 +1,6 @@
 //! Events between systems: `ctx.events.send` and `ctx.events.read`.
 
-use ponko::*;
+use ponko::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Ping(u64);

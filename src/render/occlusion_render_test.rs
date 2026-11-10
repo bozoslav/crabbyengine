@@ -3,8 +3,12 @@
 //! the wall moves away. Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{GpuFeature, MaterialDesc, Mesh, MeshData, Model};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 
@@ -260,7 +264,7 @@ fn a_box_behind_a_wall_is_culled_and_comes_back_when_the_wall_moves() {
         let Some(mut rig) = Rig::new(solid_prepass) else {
             return;
         };
-        if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::OcclusionCulling) {
+        if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::OcclusionCulling) {
             return;
         }
         let wall = wall_scene(&mut rig);

@@ -2,8 +2,12 @@
 //! scene collection, bake passes and shading together). Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::d3::{ReflectionProbe as ReflectionProbe3D, Transform as Transform3D};
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{MaterialDesc, Mesh, MeshData, Model, Sky};
 use crate::three::{GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 

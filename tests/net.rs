@@ -2,7 +2,11 @@
 use std::thread;
 use std::time::Duration;
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::Transform as Transform2D;
+#[allow(unused_imports)]
+use ponko::net::{Desync, Net, NetState};
+use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// What a player does in a tick.
@@ -38,7 +42,7 @@ fn play_along(ctx: &mut Ctx) {
 /// and push apart through the spatial grid, so any difference in inputs or
 /// order spreads through the whole crowd.
 fn crowd(ctx: &mut Ctx) {
-    let mut steer = [Vec2::ZERO; MAX_PLAYERS];
+    let mut steer = [Vec2::ZERO; ponko::net::MAX_PLAYERS];
     for (p, s) in steer.iter_mut().enumerate().take(ctx.net.players()) {
         if let Some(Steer { dir }) = ctx.net.input::<Steer>(p) {
             *s = dir;
@@ -87,7 +91,7 @@ fn spawn_crowd(ctx: &mut Ctx, units: usize, players: usize) {
 
 /// Runs each session in its own thread for `ticks`; `tweak(player)` is an
 /// extra sim system, to break determinism on purpose.
-fn play(nets: Vec<Net>, ticks: u64, units: usize, tweak: fn(&mut Ctx)) -> Vec<(Value, Outcome)> {
+fn play(nets: Vec<Net>, ticks: u64, units: usize, tweak: fn(&mut Ctx)) -> Vec<(ponko::serde_json::Value, Outcome)> {
     let players = nets.len();
     let runs: Vec<_> = nets
         .into_iter()
@@ -120,7 +124,7 @@ fn play(nets: Vec<Net>, ticks: u64, units: usize, tweak: fn(&mut Ctx)) -> Vec<(V
 
 fn nothing(_: &mut Ctx) {}
 
-fn assert_identical(results: &[(Value, Outcome)]) {
+fn assert_identical(results: &[(ponko::serde_json::Value, Outcome)]) {
     // The host is player 0; guests are numbered in the order their hellos
     // arrive, which packet loss can shuffle.
     let mut players: Vec<usize> = results.iter().map(|(_, o)| o.player).collect();

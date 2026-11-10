@@ -716,19 +716,19 @@
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
     },
     "include/crabby.h": {
-      "occurrences": 3391,
+      "occurrences": 3418,
       "path_occurrences": 1,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "include/crabby.hpp": {
-      "occurrences": 1487,
+      "occurrences": 1496,
       "path_occurrences": 1,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "include/ponko.h": {
-      "occurrences": 1262,
+      "occurrences": 1268,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -1158,6 +1158,18 @@
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Existing saved-format, native or environment compatibility fixtures; isolated test names."
+    },
+    "crates/ponko_ffi/src/dimensions.rs": {
+      "occurrences": 38,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/dimensions.rs": {
+      "occurrences": 8,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     }
   }
 }

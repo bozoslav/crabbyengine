@@ -66,6 +66,31 @@ them interoperable meanwhile.
 
 ## Deprecation
 
+The module/prelude migration keeps the original compatibility coverage of
+existing root exports and dynamic `World` methods, including those now hidden
+from the landing page or typed API documentation. Hiding an existing API is
+not permission to remove it in a compatible release. The root re-exports the
+prelude's items undeprecated, and every other moved root name is a re-export
+of the original item (never a type alias), so identity, layouts, enum-variant
+imports, unit and tuple struct values, and the combination of the root glob
+with the prelude or a module glob all keep working. Those re-exports carry
+`#[deprecated]`, but rustc does not warn through a re-export, so the
+[naming chapter](book/src/naming.md#the-root-glob-and-deprecated-root-spellings)
+and the CHANGELOG list each of them instead. This includes the
+root spellings of the built-in systems (`step_physics`, `draw_sprites`, ...),
+which keep compiling but do not warn. Only the root constants that became
+associated constants and the dynamic `World` methods (now behind
+`World::raw`) are separate items, and those do warn. C/C++ names and layouts
+remain flat and unchanged.
+
+The root glob also brings in the root modules (`audio`, `input`, `net`,
+`render`, `ui`, ...). For a game that writes `use ponko::*;` and depends on a
+crate of the same name, a path in code then means the Ponko module, and a
+`use name::...;` declaration is ambiguous (E0659); the way out is to spell
+the crate `::name::...` or to import `ponko::prelude::*` instead. A new root
+module is therefore a source change for such games: the CHANGELOG names
+every root module a release adds.
+
 Nothing is removed without warning. Before an item is removed in the next
 major release, at least one minor release ships it marked `#[deprecated]`
 (Rust) or with a note in the header (C), saying what to use instead. The

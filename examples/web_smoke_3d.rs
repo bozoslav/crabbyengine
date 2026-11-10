@@ -13,7 +13,12 @@
 //! The failure cases are `web_smoke`'s. On the desktop it opens a window
 //! (`cargo run --example web_smoke_3d --features 3d`).
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
 use serde_json::json;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -37,12 +42,12 @@ fn main() {
                 ..MaterialDesc::color(Color::hex(0x5E8C4A))
             });
             let ground = ctx.gfx.create_mesh(&MeshData::plane(60.0), ground_material);
-            ctx.world.spawn((Transform3D::default(), Model::new(ground)));
+            ctx.world.spawn((Transform::default(), Model::new(ground)));
 
             // The fetched asset: a model with its own materials and textures.
             let house = ctx.gfx.load_mesh("models/house.glb");
             ctx.world
-                .spawn((Transform3D::at(vec3(0.0, 0.0, -3.0)), Model::new(house)));
+                .spawn((Transform::at(vec3(0.0, 0.0, -3.0)), Model::new(house)));
 
             let white = ctx.gfx.default_material();
             let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.45, 24), white);
@@ -53,7 +58,7 @@ fn main() {
                     ..MaterialDesc::color(Color::hex(0xD8453B))
                 });
                 ctx.world.spawn((
-                    Transform3D::at(vec3(i as f32 * 1.1 - 2.75, 0.45, 2.0)),
+                    Transform::at(vec3(i as f32 * 1.1 - 2.75, 0.45, 2.0)),
                     Model::new(ball),
                     ModelMaterial(material),
                 ));
@@ -72,7 +77,7 @@ fn main() {
             });
             let bumpy_ball = ctx.gfx.create_mesh(&MeshData::sphere(0.9, 32), bumpy);
             ctx.world
-                .spawn((Transform3D::at(vec3(3.0, 0.9, -1.0)), Model::new(bumpy_ball)));
+                .spawn((Transform::at(vec3(3.0, 0.9, -1.0)), Model::new(bumpy_ball)));
             ctx.world.insert_resource(Fixture(smoke));
         })
         .run();

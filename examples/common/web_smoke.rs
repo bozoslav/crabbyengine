@@ -18,7 +18,8 @@
 //! ticks. On the desktop the case comes from the `SMOKE_CASE` environment
 //! variable and the state is printed once a second.
 
-use ponko::*;
+use ponko::prelude::*;
+
 use serde_json::{Map, Value, json};
 
 /// Ticks a `stall` run simulates before pausing. Keep it well below the

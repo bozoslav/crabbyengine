@@ -11,12 +11,15 @@
 
 use std::time::Instant;
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
 
 /// The middle and size of where the scene's models are.
 fn extent(world: &mut World) -> (Vec3, f32) {
     let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-    world.query::<(&Transform3D, &Model)>().for_each(|(t, _)| {
+    world.query::<(&Transform, &Model)>().for_each(|(t, _)| {
         min = min.min(t.position);
         max = max.max(t.position);
     });

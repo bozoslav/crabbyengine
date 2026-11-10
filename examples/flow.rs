@@ -12,7 +12,10 @@
 //! Shows: `NavGrid` and `FlowField` (one search shared by every agent),
 //! looked up from `par_for_each`, recomputed when the goal moves.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::*;
+#[allow(unused_imports)]
+use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// World units per grid cell.
@@ -43,7 +46,7 @@ struct Paths {
 
 impl Paths {
     fn set_goal(&mut self, goal: Vec2) {
-        let start = Instant::now();
+        let start = ponko::perf::Instant::now();
         self.goal = goal;
         self.flow.compute(&self.nav, &[goal]);
         self.compute_ms = start.elapsed().as_secs_f32() * 1000.0;
@@ -265,7 +268,7 @@ fn main() {
     let agents = env_number("AGENTS", 20_000.0) as usize;
     if env_number("HEADLESS", 0.0) != 0.0 {
         let ticks = env_number("TICKS", 600.0) as u64;
-        let mut start = Instant::now();
+        let mut start = ponko::perf::Instant::now();
         let mut rng = Rng::new(99);
         let mut field_ms = Vec::new();
         Game::new("flow", 1, 1)
@@ -288,7 +291,7 @@ fn main() {
             // The two-argument form may borrow a local, here the timer.
             .run_headless(ticks, |ctx| {
                 setup(ctx, agents, None);
-                start = Instant::now();
+                start = ponko::perf::Instant::now();
             });
         let secs = start.elapsed().as_secs_f64();
         println!(
@@ -302,7 +305,7 @@ fn main() {
     Game::new("Ponko: flow fields", 1280, 720)
         .sim_system(steer)
         .system(click_to_move_goal)
-        .system(camera_controls)
+        .system(ponko::camera::camera_controls)
         .system(hud)
         .system(draw_map)
         .setup(move |ctx| {

@@ -6,7 +6,16 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::{ReflectionProbe as ReflectionProbe3D, Transform as Transform3D};
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::Model;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::terrain::TextureKind;
 
 const HOUSE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/models/house.glb"));
 const SURFACE: &str = "fn surface(s: Surface) -> Surface { return s; }";

@@ -12,12 +12,12 @@ use serde::{Deserialize, Serialize};
 /// renderer feature that depends on the device, whether it's available and
 /// what the renderer does instead when it isn't.
 ///
-/// From [`Graphics::gpu_capabilities`](crate::Graphics::gpu_capabilities). It is
+/// From [`Graphics::gpu_capabilities`](crate::gfx::Graphics::gpu_capabilities). It is
 /// decided once, when the GPU is opened, and doesn't change while the game
 /// runs. Serializes to JSON (`serde_json::to_value`) for tools.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// fn report(ctx: &mut Ctx) {
 ///     if let Some(caps) = ctx.gfx.gpu_capabilities() {
 ///         for f in caps.features.iter().filter(|f| !f.available) {
@@ -190,16 +190,16 @@ pub struct GpuFeatureStatus {
 /// the per-feature entries of [`GpuCapabilities`] are the exact answer.
 /// Nothing in the table fails on a weaker tier: each unavailable feature
 /// falls back as its [`GpuFeatureStatus`] says.
-/// [`GraphicsQuality::for_tier`](crate::GraphicsQuality::for_tier) picks a
+/// [`GraphicsQuality::for_tier`](crate::render::GraphicsQuality::for_tier) picks a
 /// preset per tier.
 ///
 /// ```
-/// use ponko::*;
-/// let floor = GpuTier::Baseline.report();
-/// assert!(floor.available(GpuFeature::Compute));
-/// assert!(!floor.available(GpuFeature::Decals));
-/// assert_eq!(GpuTier::of(&floor.limits), GpuTier::Baseline);
-/// assert_eq!("webgl2".parse(), Ok(GpuTier::WebGl2));
+/// use ponko::prelude::*;
+/// let floor = ponko::render::GpuTier::Baseline.report();
+/// assert!(floor.available(ponko::render::GpuFeature::Compute));
+/// assert!(!floor.available(ponko::render::GpuFeature::Decals));
+/// assert_eq!(ponko::render::GpuTier::of(&floor.limits), ponko::render::GpuTier::Baseline);
+/// assert_eq!("webgl2".parse(), Ok(ponko::render::GpuTier::WebGl2));
 /// ```
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u32)]

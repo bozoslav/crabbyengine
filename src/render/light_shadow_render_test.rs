@@ -3,8 +3,12 @@
 //! light views' collection, passes and lookup together). Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::d3::{PointLight as PointLight3D, SpotLight as SpotLight3D, Transform as Transform3D};
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{InstanceBatchOptions, InstanceLevel, MaterialDesc, MeshData, Model};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 64;
 

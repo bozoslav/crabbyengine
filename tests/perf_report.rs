@@ -1,6 +1,10 @@
 //! Performance reports: scopes, per-system timings, budgets and comparing runs.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::Transform as Transform2D;
+#[allow(unused_imports)]
+use ponko::perf::{Budget, PerfReport};
+use ponko::prelude::*;
 
 // ANCHOR: profile_scopes
 /// Time the parts of your own code you suspect.

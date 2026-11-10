@@ -1,5 +1,5 @@
 //! The material pipeline cache: typed keys, shared pipeline sets for
-//! identical shaders, and the counters behind [`crate::PipelineStats`].
+//! identical shaders, and the counters behind [`crate::render::PipelineStats`].
 //!
 //! A material shader's pipelines depend on:
 //!
@@ -34,7 +34,7 @@ use std::time::Duration;
 use super::ShaderPipelines;
 #[cfg(test)]
 use super::ShaderVariant;
-use crate::PipelineStats;
+use crate::render::PipelineStats;
 
 /// The optional parts of the engine's code a material shader is composed
 /// with: whichever the device has room for.

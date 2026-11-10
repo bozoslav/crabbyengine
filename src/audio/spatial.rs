@@ -1,13 +1,14 @@
 //! Positional playback without custom DSP: Kira applies the gain, pan and rate.
 use super::{Audio, AudioBus, AudioEffects, Playing, Sound, SoundParams};
 use crate::Ctx;
-use crate::{Entity, Quat, Transform3D, Vec3};
+use crate::d3::Transform as Transform3D;
+use crate::{Entity, Quat, Vec3};
 
 /// Distance gain curve. Keyed curves use normalized distance and linear gain;
 /// keys must be sorted by distance. Values outside the keys use the nearest key.
 /// ```
-/// use ponko::AudioRolloff;
-/// let curve = AudioRolloff::Keyed(&[(0.0, 1.0), (0.5, 0.3), (1.0, 0.0)]);
+/// use ponko::audio::AudioRolloff;
+/// let curve = ponko::audio::AudioRolloff::Keyed(&[(0.0, 1.0), (0.5, 0.3), (1.0, 0.0)]);
 /// ```
 #[derive(Clone, Copy, Debug, Default)]
 pub enum AudioRolloff {
@@ -23,8 +24,8 @@ pub enum AudioRolloff {
 /// Settings for a positional voice. Distances are in world units (metres for
 /// doppler); pitch is controlled by `sound.speed`. Invalid ranges are clamped.
 /// ```
-/// use ponko::*;
-/// let settings = AudioSettings3D { max_distance: 80.0, doppler: 0.0, ..Default::default() };
+/// use ponko::prelude::*;
+/// let settings = ponko::d3::AudioSettings { max_distance: 80.0, doppler: 0.0, ..Default::default() };
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct AudioSettings3D {
@@ -32,15 +33,15 @@ pub struct AudioSettings3D {
     pub sound: SoundParams,
     /// Routing bus, selected when playback starts. Defaults to `sfx`.
     /// ```
-    /// # use ponko::*;
-    /// let settings = AudioSettings3D { bus: AudioBus::default(), ..Default::default() };
+    /// # use ponko::prelude::*;
+    /// let settings = ponko::d3::AudioSettings { bus: AudioBus::default(), ..Default::default() };
     /// ```
     pub bus: AudioBus,
     /// Initial per-voice low-pass and shared reverb send. Update live voices
     /// with `Audio::set_effects` (including positional voices).
     /// ```
-    /// # use ponko::*;
-    /// let settings = AudioSettings3D { effects: AudioEffects::default(), ..Default::default() };
+    /// # use ponko::prelude::*;
+    /// let settings = ponko::d3::AudioSettings { effects: ponko::audio::AudioEffects::default(), ..Default::default() };
     /// ```
     pub effects: AudioEffects,
     /// Full-volume radius, clamped to at least 0.001.
@@ -70,8 +71,8 @@ impl Default for AudioSettings3D {
 /// [`Audio::set_listener`]. Velocity (for doppler) is estimated from frame
 /// to frame.
 /// ```
-/// use ponko::*;
-/// let listener = AudioListener3D { position: Vec3::ZERO, rotation: Quat::IDENTITY };
+/// use ponko::prelude::*;
+/// let listener = ponko::d3::AudioListener { position: Vec3::ZERO, rotation: Quat::IDENTITY };
 /// ```
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AudioListener3D {
@@ -85,9 +86,9 @@ pub struct AudioListener3D {
 /// itself and follows the entity every frame. Removing the component or the
 /// entity stops it. One-shots don't restart after they finish.
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// # fn setup(ctx: &mut Ctx, sound: Sound) {
-/// ctx.world.spawn((Transform3D::default(), AudioSource3D::new(sound, AudioSettings3D::default())));
+/// ctx.world.spawn((ponko::d3::Transform::default(), ponko::d3::AudioSource::new(sound, ponko::d3::AudioSettings::default())));
 /// # }
 /// ```
 #[derive(Debug)]
@@ -101,9 +102,9 @@ pub struct AudioSource3D {
 impl AudioSource3D {
     /// Creates an unstarted source. Looping follows `settings.sound.looping`.
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// # fn f(sound: Sound) {
-    /// let source = AudioSource3D::new(sound, AudioSettings3D::default());
+    /// let source = ponko::d3::AudioSource::new(sound, ponko::d3::AudioSettings::default());
     /// # }
     /// ```
     pub fn new(sound: Sound, settings: AudioSettings3D) -> Self {
@@ -197,9 +198,9 @@ impl Audio {
     /// follow the listener every frame. A looping sound (`settings.sound.looping`)
     /// plays until `stop_sound`.
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, sound: Sound) {
-    /// ctx.audio.play_at(&sound, vec3(3.0, 0.0, -5.0), AudioSettings3D::default());
+    /// ctx.audio.play_at(&sound, vec3(3.0, 0.0, -5.0), ponko::d3::AudioSettings::default());
     /// # }
     /// ```
     pub fn play_at(&mut self, sound: &Sound, position: Vec3, settings: AudioSettings3D) -> Playing {
@@ -235,9 +236,9 @@ impl Audio {
     /// Puts the ears somewhere other than the camera, such as on the player in
     /// a third-person game. `None` goes back to following `ctx.camera3d`.
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, player: Vec3) {
-    /// ctx.audio.set_listener(Some(AudioListener3D { position: player, rotation: Quat::IDENTITY }));
+    /// ctx.audio.set_listener(Some(ponko::d3::AudioListener { position: player, rotation: Quat::IDENTITY }));
     /// # }
     /// ```
     pub fn set_listener(&mut self, listener: Option<AudioListener3D>) {
@@ -254,7 +255,7 @@ impl Audio {
     /// was when the running system started. The frame's positional sound
     /// update, after the last system, uses the camera's final place.
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// # fn f(ctx: &Ctx) {
     /// let ears = ctx.audio.listener().position;
     /// # }

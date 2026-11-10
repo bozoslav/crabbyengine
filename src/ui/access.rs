@@ -14,8 +14,8 @@ use taffy::prelude::Display;
 
 /// What a node is to assistive technology.
 /// ```
-/// use ponko::*;
-/// assert_eq!(UiRole::of(UiWidget::Toggle), UiRole::CheckBox);
+/// use ponko::prelude::*;
+/// assert_eq!(ponko::ui::UiRole::of(ponko::ui::UiWidget::Toggle), ponko::ui::UiRole::CheckBox);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UiRole {
@@ -42,8 +42,8 @@ pub enum UiRole {
 impl UiRole {
     /// The role a widget kind has outside a modal screen root.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(UiRole::of(UiWidget::Scroll), UiRole::ScrollView);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::ui::UiRole::of(ponko::ui::UiWidget::Scroll), ponko::ui::UiRole::ScrollView);
     /// ```
     pub const fn of(widget: UiWidget) -> Self {
         match widget {
@@ -59,8 +59,8 @@ impl UiRole {
     }
     /// Lower-case name used by the snapshot text.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(UiRole::TextInput.as_str(), "text-input");
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::ui::UiRole::TextInput.as_str(), "text-input");
     /// ```
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -79,13 +79,13 @@ impl UiRole {
 
 /// A node's current value, by role.
 /// ```
-/// use ponko::*;
-/// let mut ui = Ui::default();
+/// use ponko::prelude::*;
+/// let mut ui = ponko::ui::Ui::default();
 /// let root = ui.root().id();
 /// let music = ui.toggle(root, "Music").value(1.0).id();
 /// ui.push_screen(root, false);
 /// ui.layout(vec2(800.0, 600.0));
-/// assert_eq!(ui.accessibility_tree().get(music).unwrap().value, UiAccessValue::Checked(true));
+/// assert_eq!(ui.accessibility_tree().get(music).unwrap().value, ponko::ui::UiAccessValue::Checked(true));
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiAccessValue {
@@ -101,15 +101,15 @@ pub enum UiAccessValue {
 
 /// One exposed node of a [`UiAccessTree`].
 /// ```
-/// use ponko::*;
-/// let mut ui = Ui::default();
+/// use ponko::prelude::*;
+/// let mut ui = ponko::ui::Ui::default();
 /// let root = ui.root().id();
 /// let play = ui.button(root, "Play").id();
 /// ui.push_screen(root, false);
 /// ui.layout(vec2(800.0, 600.0));
 /// let tree = ui.accessibility_tree();
 /// let node = tree.get(play).unwrap();
-/// assert_eq!((node.role, node.name.as_str(), node.parent), (UiRole::Button, "Play", Some(root)));
+/// assert_eq!((node.role, node.name.as_str(), node.parent), (ponko::ui::UiRole::Button, "Play", Some(root)));
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct UiAccessNode {
@@ -151,11 +151,11 @@ pub struct UiAccessNode {
 /// [`Ui::layout`] so bounds and focus are current. Its `Display` form is one
 /// line per node, indented by depth, for golden tests and tools.
 /// ```
-/// use ponko::*;
-/// let mut ui = Ui::default();
-/// let root = ui.root().layout(UiLayout::fill()).id();
+/// use ponko::prelude::*;
+/// let mut ui = ponko::ui::Ui::default();
+/// let root = ui.root().layout(ponko::ui::UiLayout::fill()).id();
 /// ui.button(root, "Play");
-/// ui.slider(root).layout(UiLayout::row(20.0)).value(0.25).accessible_name("Volume");
+/// ui.slider(root).layout(ponko::ui::UiLayout::row(20.0)).value(0.25).accessible_name("Volume");
 /// ui.push_screen(root, false);
 /// ui.layout(vec2(800.0, 600.0));
 /// assert_eq!(
@@ -174,8 +174,8 @@ pub struct UiAccessTree {
 impl UiAccessTree {
     /// All exposed nodes, depth-first, screens from the bottom up.
     /// ```
-    /// use ponko::*;
-    /// assert!(Ui::default().accessibility_tree().nodes().is_empty());
+    /// use ponko::prelude::*;
+    /// assert!(ponko::ui::Ui::default().accessibility_tree().nodes().is_empty());
     /// ```
     pub fn nodes(&self) -> &[UiAccessNode] {
         &self.nodes
@@ -183,24 +183,24 @@ impl UiAccessTree {
     /// The exposed node for `id`, or `None` if it is hidden, removed or on a
     /// screen covered by a modal one.
     /// ```
-    /// use ponko::*;
-    /// assert!(Ui::default().accessibility_tree().get(UiId::from_bits(0)).is_none());
+    /// use ponko::prelude::*;
+    /// assert!(ponko::ui::Ui::default().accessibility_tree().get(ponko::ui::UiId::from_bits(0)).is_none());
     /// ```
     pub fn get(&self, id: UiId) -> Option<&UiAccessNode> {
         self.index.get(&id).map(|&i| &self.nodes[i])
     }
     /// Exposed screen roots, from the bottom up.
     /// ```
-    /// use ponko::*;
-    /// assert!(Ui::default().accessibility_tree().screens().is_empty());
+    /// use ponko::prelude::*;
+    /// assert!(ponko::ui::Ui::default().accessibility_tree().screens().is_empty());
     /// ```
     pub fn screens(&self) -> &[UiId] {
         &self.screens
     }
     /// The focused node, if it is exposed.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(Ui::default().accessibility_tree().focus(), None);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::ui::Ui::default().accessibility_tree().focus(), None);
     /// ```
     pub fn focus(&self) -> Option<UiId> {
         self.focus
@@ -245,8 +245,8 @@ impl Ui {
     /// An empty name restores the default. Names never change layout,
     /// drawing, focus or events.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
     /// let root = ui.root().id();
     /// let close = ui.button(root, "X").id();
     /// ui.set_accessible_name(close, "Close");
@@ -261,8 +261,8 @@ impl Ui {
     }
     /// The name assistive technology reads, or `None` for a stale id.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
     /// let root = ui.root().id();
     /// let play = ui.button(root, "Play").id();
     /// assert_eq!(ui.accessible_name(play), Some("Play"));
@@ -281,12 +281,12 @@ impl Ui {
     /// allocates, so take it when the UI changes or a tool asks, not as part
     /// of every frame's hot path.
     /// ```
-    /// use ponko::*;
-    /// let mut ui = Ui::default();
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
     /// let root = ui.root().id();
     /// let play = ui.button(root, "Play").id();
     /// ui.push_screen(root, false);
-    /// ui.frame(vec2(800.0, 600.0), &UiInput { next: true, ..Default::default() });
+    /// ui.frame(vec2(800.0, 600.0), &ponko::ui::UiInput { next: true, ..Default::default() });
     /// assert_eq!(ui.accessibility_tree().focus(), Some(play));
     /// ```
     pub fn accessibility_tree(&self) -> UiAccessTree {

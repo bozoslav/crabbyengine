@@ -58,12 +58,12 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_host(
     input_delay: u32,
     checksum_every: u32,
 ) -> CrabbyStatus {
-    let mut net: Option<ponko::Net> = None;
+    let mut net: Option<ponko::net::Net> = None;
     let status = boundary(|| {
         if game.is_null() {
             return Err(invalid("game is null"));
         }
-        if !(2..=ponko::MAX_PLAYERS as u32).contains(&players) {
+        if !(2..=ponko::net::MAX_PLAYERS as u32).contains(&players) {
             return Err(invalid("2 to 8 players"));
         }
         if input_delay > 64 {
@@ -73,7 +73,7 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_host(
         {
             let client = client::get(app_id)?;
             net = Some(
-                ponko::Net::steam_host(&client, players as usize)
+                ponko::net::Net::steam_host(&client, players as usize)
                     .input_delay(input_delay)
                     .checksum_every(checksum_every),
             );
@@ -106,7 +106,7 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_join(
     app_id: u32,
     lobby: u64,
 ) -> CrabbyStatus {
-    let mut net: Option<ponko::Net> = None;
+    let mut net: Option<ponko::net::Net> = None;
     let status = boundary(|| {
         if game.is_null() {
             return Err(invalid("game is null"));
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn crabby_game_lockstep_steam_join(
         {
             let client = client::get(app_id)?;
             let lobby = ponko::steamworks::LobbyId::from_raw(lobby);
-            net = Some(ponko::Net::steam_join(&client, lobby));
+            net = Some(ponko::net::Net::steam_join(&client, lobby));
             Ok(())
         }
         #[cfg(not(feature = "steam"))]
@@ -151,7 +151,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_from_args(out_lobby: *mut u64) -> Cr
         }
         #[cfg(feature = "steam")]
         {
-            let lobby = ponko::steam_lobby_from_args().map_or(0, |l| l.raw());
+            let lobby = ponko::net::steam_lobby_from_args().map_or(0, |l| l.raw());
             // SAFETY: checked non-null; caller supplies writable storage.
             unsafe { out(out_lobby, lobby) }
         }
@@ -182,7 +182,7 @@ pub unsafe extern "C" fn crabby_steam_wait_for_invite(
         {
             let client = client::get(app_id)?;
             let wait = std::time::Duration::from_millis(timeout_ms.into());
-            let lobby = ponko::steam_wait_for_invite(&client, wait).map_or(0, |l| l.raw());
+            let lobby = ponko::net::steam_wait_for_invite(&client, wait).map_or(0, |l| l.raw());
             // SAFETY: checked non-null; caller supplies writable storage.
             unsafe { out(out_lobby, lobby) }
         }

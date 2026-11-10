@@ -70,7 +70,7 @@ cargo add ponko
 Put `crab.png` in the project's `assets/` folder, then use this in `src/main.rs`:
 
 ```rust
-use ponko::*;
+use ponko::prelude::*;
 
 fn main() {
     Game::new("My Game", 800, 600).run(|ctx| {
@@ -98,7 +98,7 @@ Large workloads use the same engine API. This separate example moves one
 million entities for 600 fixed ticks without opening a window:
 
 ```rust
-use ponko::*;
+use ponko::prelude::*;
 
 struct Velocity(Vec2);
 

@@ -7,7 +7,7 @@
 
 use serde_json::{Value, json};
 
-use crate::{Ctx, Entity, Transform2D, Vec2, WorldReflect};
+use crate::{Ctx, Entity, Vec2, WorldReflect};
 
 /// Loads one asset a scene names (`Assets::scene_asset_field`).
 type SceneAssetLoader = std::rc::Rc<dyn Fn(&mut Ctx, &str) -> Result<(), String>>;
@@ -32,9 +32,9 @@ impl Ctx {
     /// [asset source](crate::Assets::add_source).
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Crabs", 800, 600).run(|ctx| {
-    ///     ctx.world.reflect::<Transform2D>();
+    ///     ctx.world.reflect::<ponko::d2::Transform>();
     ///     ctx.load_scene("levels/beach.json").expect("level");
     /// });
     /// ```
@@ -56,7 +56,7 @@ impl Ctx {
     /// | 2D and 3D physics | Bodies, characters and joints are removed at once (queries find nothing), then built from the new components at the next physics step, from rest unless the scene has a velocity component. Gravity, collision meshes, contact hooks and settings are kept. |
     /// | [`spatial`](Self::spatial) neighbor grid | Refilled at the start of the next simulation tick. |
     /// | 3D navigation (`NavMesh3D`, with the `navmesh` feature) | The baked mesh, a resource, is kept. Crowd agents are components, so they go with their entities; `step_navmesh3d` frees the old agents' crowd slots at its next step, and agents added to the new scene's entities (even with the same ids) start from where they are. |
-    /// | [`Attached`](crate::Attached) | Reflected: the scene's attachments, to the scene's entities. [`follow_attachments`](crate::follow_attachments) places them at its next run and despawns those whose entity isn't in the scene. |
+    /// | [`Attached`](crate::d2::Attached) | Reflected: the scene's attachments, to the scene's entities. [`follow_attachments`](crate::systems::follow_attachments) places them at its next run and despawns those whose entity isn't in the scene. |
     /// | Skeletons, joint attachments, skinned and morphing models | Components: gone with their entities unless the game adds them again. The engine's skinning scratch is rebuilt every frame from the world as it is. |
     /// | Assets | Textures, meshes and collision files the scene names are loaded first and stay cached. Loaded assets are never unloaded by a load. |
     /// | Prefabs | Kept: files [`spawn_prefab`](Self::spawn_prefab) read stay cached, so spawning one after a load doesn't read it again. |
@@ -89,11 +89,11 @@ impl Ctx {
     /// (a simulation system or setup in a session, anywhere offline); the
     /// name says at the call site that the load is part of the shared
     /// simulation. The peers' worlds are still compared every
-    /// [`checksum_every`](crate::Net::checksum_every) ticks, so a load that
-    /// only some peers made shows up as a [`Desync`](crate::Desync).
+    /// [`checksum_every`](crate::net::Net::checksum_every) ticks, so a load that
+    /// only some peers made shows up as a [`Desync`](crate::net::Desync).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn next_level(ctx: &mut Ctx) {
     /// // A simulation system: every peer reaches tick 600 with the same world.
     /// if ctx.time.sim_tick() == 600 {
@@ -132,7 +132,10 @@ impl Ctx {
     }
 
     fn session_active(&self) -> bool {
-        matches!(self.net.state(), crate::NetState::Connecting | crate::NetState::Running)
+        matches!(
+            self.net.state(),
+            crate::net::NetState::Connecting | crate::net::NetState::Running
+        )
     }
 
     /// Replaces the world with `save` (a scene or world save) for tools (the
@@ -173,7 +176,7 @@ impl Ctx {
     /// rotation and scale as saved). The file is read once, then kept.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// for x in 0..10 {
     ///     ctx.spawn_prefab("prefabs/palm.json", vec2(x as f32 * 64.0, 400.0)).expect("palm");
@@ -185,7 +188,7 @@ impl Ctx {
     ///
     /// If the file is missing or isn't a prefab, or a component isn't
     /// reflected or doesn't fit; nothing is spawned then.
-    pub fn spawn_prefab(&mut self, path: &str, at: Vec2) -> Result<Entity, String> {
+    pub fn spawn_prefab(&mut self, path: &str, at: impl Into<Placement>) -> Result<Entity, String> {
         if !self.assets.prefabs.contains_key(path) {
             let (_, text) = self.assets.read_text(path)?;
             let prefab: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
@@ -195,7 +198,7 @@ impl Ctx {
             self.assets.prefabs.insert(path.to_string(), components);
         }
         let components = self.assets.prefabs[path].clone();
-        spawn_at(&mut self.world, components, at).map_err(|e| format!("{path}: {e}"))
+        spawn_at(&mut self.world, components, at.into()).map_err(|e| format!("{path}: {e}"))
     }
 }
 
@@ -222,7 +225,7 @@ impl crate::Assets {
     /// for the same component and field replaces its loader.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// /// A shop item: its icon is an image, saved by name.
     /// #[derive(Clone, serde::Serialize, serde::Deserialize)]
     /// struct ShopItem {
@@ -331,12 +334,78 @@ fn components_of(prefab: &Value) -> Result<Value, String> {
 
 /// Spawns `components` with the position set to `at` (adding a transform if
 /// there's none).
-fn spawn_at(world: &mut crate::World, mut components: Value, at: Vec2) -> Result<Entity, String> {
-    match components.get_mut("Transform2D") {
-        Some(t) => t["position"] = json!([at.x, at.y]),
-        None => components["Transform2D"] = serde_json::to_value(Transform2D::at(at)).map_err(|e| e.to_string())?,
+fn spawn_at(world: &mut crate::World, mut components: Value, at: Placement) -> Result<Entity, String> {
+    match at {
+        Placement::Position2(at) => match components.get_mut("Transform2D") {
+            Some(t) => t["position"] = json!([at.x, at.y]),
+            None => {
+                components["Transform2D"] =
+                    serde_json::to_value(crate::d2::Transform::at(at)).map_err(|e| e.to_string())?
+            }
+        },
+        Placement::D2(at) => {
+            components["Transform2D"] = serde_json::to_value(at).map_err(|e| e.to_string())?;
+        }
+        #[cfg(feature = "3d")]
+        Placement::Position3(at) => match components.get_mut("Transform3D") {
+            Some(t) => t["position"] = json!([at.x, at.y, at.z]),
+            None => {
+                components["Transform3D"] =
+                    serde_json::to_value(crate::d3::Transform::at(at)).map_err(|e| e.to_string())?
+            }
+        },
+        #[cfg(feature = "3d")]
+        Placement::D3(at) => {
+            components["Transform3D"] = serde_json::to_value(at).map_err(|e| e.to_string())?;
+        }
     }
     world.spawn_json(components).map_err(|e| e.to_string())
+}
+
+/// Where [`Ctx::spawn_prefab`](crate::Ctx::spawn_prefab) puts a prefab: a
+/// `Vec2` or `Vec3` moves it and keeps its saved rotation and scale; a
+/// `d2::Transform` or `d3::Transform` sets all three. Serialized component
+/// names stay stable. Variants depend on features (`3d`), so the enum is
+/// `#[non_exhaustive]`: build one with `.into()` or `Placement::from`.
+///
+/// `spawn_prefab` takes `impl Into<Placement>`, so an argument whose type the
+/// compiler used to infer as `Vec2` (`Default::default()`, `(x, y).into()`)
+/// now needs its type written out: `Vec2::ZERO`, `vec2(x, y)`.
+#[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
+pub enum Placement {
+    /// Repositions a 2D prefab, preserving saved rotation and scale.
+    Position2(crate::Vec2),
+    /// Repositions a 3D prefab, preserving saved rotation and scale.
+    #[cfg(feature = "3d")]
+    Position3(crate::Vec3),
+    /// A 2D position/transform.
+    D2(crate::d2::Transform),
+    /// A 3D position/transform.
+    #[cfg(feature = "3d")]
+    D3(crate::d3::Transform),
+}
+impl From<Vec2> for Placement {
+    fn from(at: Vec2) -> Self {
+        Self::Position2(at)
+    }
+}
+impl From<crate::d2::Transform> for Placement {
+    fn from(at: crate::d2::Transform) -> Self {
+        Self::D2(at)
+    }
+}
+#[cfg(feature = "3d")]
+impl From<crate::Vec3> for Placement {
+    fn from(at: crate::Vec3) -> Self {
+        Self::Position3(at)
+    }
+}
+#[cfg(feature = "3d")]
+impl From<crate::d3::Transform> for Placement {
+    fn from(at: crate::d3::Transform) -> Self {
+        Self::D3(at)
+    }
 }
 
 /// Loads during a lockstep session: refused where only one peer would load,
@@ -346,7 +415,10 @@ mod lockstep_tests {
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
-    use crate::{Ctx, Desync, Game, Net, NetState, World, WorldReflect};
+    use crate::net::Desync;
+    use crate::net::Net;
+    use crate::net::NetState;
+    use crate::{Ctx, Game, World, WorldReflect};
 
     #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
     struct Tag(u32);

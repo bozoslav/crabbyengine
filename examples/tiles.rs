@@ -10,7 +10,9 @@
 //! so the example needs no image files. Only tiles the camera can see are
 //! drawn, so the map size barely affects the frame time.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::*;
+use ponko::prelude::*;
 
 const TILE: u32 = 16;
 /// Tile frames in the generated tileset.
@@ -87,7 +89,7 @@ struct Wander(Vec2);
 // ANCHOR: setup
 fn setup(ctx: &mut Ctx, side: u32) {
     let tiles = tileset(ctx);
-    let mut map = TileMap::new(tiles, side, side);
+    let mut map = ponko::d2::TileMap::new(tiles, side, side);
     for y in 0..side {
         for x in 0..side {
             map.set(x, y, Some(terrain(x as f32, y as f32)));
@@ -127,11 +129,13 @@ fn paint(ctx: &mut Ctx) {
         return;
     }
     let at = ctx.mouse_world();
-    ctx.world.query::<(&Transform2D, &mut TileMap)>().for_each(|(t, map)| {
-        if let Some(tile) = map.tile_at(t.position, at) {
-            map.set(tile.x, tile.y, Some(STONE));
-        }
-    });
+    ctx.world
+        .query::<(&Transform2D, &mut ponko::d2::TileMap)>()
+        .for_each(|(t, map)| {
+            if let Some(tile) = map.tile_at(t.position, at) {
+                map.set(tile.x, tile.y, Some(STONE));
+            }
+        });
 }
 // ANCHOR_END: paint
 
@@ -156,7 +160,7 @@ fn main() {
     let side = std::env::var("MAP").ok().and_then(|v| v.parse().ok()).unwrap_or(1000);
     Game::new("Ponko: tiles", 1280, 720)
         .vsync(false)
-        .system(camera_controls)
+        .system(ponko::camera::camera_controls)
         .system(wander)
         .system(paint)
         .system(hud)

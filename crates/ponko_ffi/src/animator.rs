@@ -7,10 +7,19 @@
 use std::ffi::c_char;
 use std::sync::Arc;
 
-use ponko::{
-    AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer, AnimationParameter, AnimationState,
-    AnimationTransition, Animator, Ctx, Entity, JointMask, LayerBlend, Motion, MotionChild, Skeleton, Vec2,
-};
+use ponko::anim::AnimationCondition;
+use ponko::anim::AnimationEvent;
+use ponko::anim::AnimationGraph;
+use ponko::anim::AnimationLayer;
+use ponko::anim::AnimationParameter;
+use ponko::anim::AnimationState;
+use ponko::anim::AnimationTransition;
+use ponko::anim::Animator;
+use ponko::anim::LayerBlend;
+use ponko::anim::Motion;
+use ponko::anim::MotionChild;
+use ponko::anim::Skeleton;
+use ponko::{Ctx, Entity, Vec2, anim::JointMask};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::skin::CrabbyClip;

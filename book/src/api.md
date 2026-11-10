@@ -9,9 +9,10 @@ cargo doc --workspace --no-deps --open
 The crates:
 
 - [`ponko`](api/ponko/index.html): the engine. Start here;
-  `use ponko::*;` brings in everything a game needs.
+  `use ponko::prelude::*;` brings in what a typical game needs; `ponko::d2`,
+  `ponko::d3` and the service modules (`net`, `perf`, `render`, ...) hold the rest.
 - [`ponko_ecs`](api/ponko_ecs/index.html): the ECS on its own, including
-  the C-compatible path (`register_component`, `for_each_chunk`) for other
+  the C-compatible path (`register_component`, `world.raw().for_each_chunk`) for other
   languages.
 
 - [`ponko_ffi`](api/ponko_ffi/index.html): the C ABI and safety contracts.

@@ -8,7 +8,17 @@
 mod game;
 
 use game::*;
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::actions::InputEvent;
+#[allow(unused_imports)]
+use ponko::d2::Transform as Transform2D;
+#[allow(unused_imports)]
+use ponko::input::{Gamepad, GamepadAxis, GamepadButton, Input};
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::scenario::InputScenario;
+#[allow(unused_imports)]
+use ponko::ui::UiInput;
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;

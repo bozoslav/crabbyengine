@@ -2,7 +2,8 @@
 //! entities (Rust `MeshData::morph_targets`, `MorphWeights`,
 //! `Graphics::morph_target`).
 
-use ponko::{Ctx, Entity, MorphTarget, MorphWeights};
+use ponko::anim::MorphTarget;
+use ponko::{Ctx, Entity, anim::MorphWeights};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::three::{CrabbyMesh, CrabbyMeshData, CrabbyVec3};
@@ -245,7 +246,7 @@ pub unsafe extern "C" fn crabby_mesh_data_add_morph_frame(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let data = data.as_mut().ok_or_else(|| invalid("mesh data is null"))?;
-        data.0.morph_frames.push(ponko::MorphFrame {
+        data.0.morph_frames.push(ponko::anim::MorphFrame {
             channel,
             target,
             weight,
@@ -277,9 +278,9 @@ pub unsafe extern "C" fn crabby_clip_new(
         }
         out(
             output,
-            Box::into_raw(Box::new(crate::CrabbyClip(ponko::AnimationClip::new(
+            Box::into_raw(Box::new(crate::CrabbyClip(ponko::anim::AnimationClip::new(
                 name,
-                &ponko::Skeleton::new(vec![]),
+                &ponko::anim::Skeleton::new(vec![]),
                 vec![],
             )))),
         )?;
@@ -313,14 +314,14 @@ pub unsafe extern "C" fn crabby_clip_set_morph_track(
             return Err(invalid("invalid morph keys"));
         }
         let interpolation = match interpolation {
-            0 => ponko::Interpolation::Step,
-            1 => ponko::Interpolation::Linear,
-            2 => ponko::Interpolation::CubicSpline,
+            0 => ponko::anim::Interpolation::Step,
+            1 => ponko::anim::Interpolation::Linear,
+            2 => ponko::anim::Interpolation::CubicSpline,
             _ => return Err(invalid("invalid interpolation")),
         };
         let times = std::slice::from_raw_parts(times, count).to_vec();
         let n = count
-            * if interpolation == ponko::Interpolation::CubicSpline {
+            * if interpolation == ponko::anim::Interpolation::CubicSpline {
                 3
             } else {
                 1
@@ -332,14 +333,14 @@ pub unsafe extern "C" fn crabby_clip_set_morph_track(
         {
             return Err(invalid("invalid morph keys"));
         }
-        let track = ponko::AnimationTrack::new(
+        let track = ponko::anim::AnimationTrack::new(
             times,
             values.iter().map(|v| ponko::Vec4::new(*v, 0., 0., 0.)).collect(),
             interpolation,
         );
         let mut tracks = clip.0.morph_tracks().to_vec();
         tracks.retain(|t| t.name != name);
-        tracks.push(ponko::MorphAnimation {
+        tracks.push(ponko::anim::MorphAnimation {
             name: name.into(),
             track,
         });

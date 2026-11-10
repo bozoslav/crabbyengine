@@ -1,12 +1,17 @@
 //! Ribbon trails, lines and decals: `cargo run --features 3d --example ribbons`.
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::prelude::*;
 
 /// Flies in a circle.
 struct Orbiting;
 
 fn fly(ctx: &mut Ctx) {
     let t = ctx.time.elapsed() as f32;
-    ctx.world.query::<(&mut Transform3D, &Orbiting)>().for_each(|(at, _)| {
+    ctx.world.query::<(&mut Transform, &Orbiting)>().for_each(|(at, _)| {
         at.position = vec3(t.cos() * 3.0, 1.0 + (t * 2.0).sin() * 0.5, t.sin() * 3.0);
     });
 }
@@ -17,31 +22,31 @@ fn setup(ctx: &mut Ctx) {
     let floor_material = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x6B7B58)));
     let floor_data = MeshData::plane(12.0);
     let floor = ctx.gfx.create_mesh(&floor_data, floor_material);
-    ctx.world.spawn((Transform3D::default(), Model::new(floor)));
+    ctx.world.spawn((Transform::default(), Model::new(floor)));
 
     // ANCHOR: trail
     // A glowing tracer behind a flying ball: a quarter second long, thin at
     // the end and fading out.
-    let mut tracer = Trail3D::new(0.25, 0.12);
-    tracer.color = ParticleGradient::new(vec![
+    let mut tracer = Trail::new(0.25, 0.12);
+    tracer.color = ponko::render::ParticleGradient::new(vec![
         (0.0, Color::rgb(1.0, 0.8, 0.3)),
         (1.0, Color::rgba(1.0, 0.3, 0.0, 0.0)),
     ]);
-    tracer.blend = ParticleBlend3D::Additive;
+    tracer.blend = ParticleBlend::Additive;
     let white = ctx.gfx.default_material();
     let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.15, 16), white);
     ctx.world
-        .spawn((Transform3D::default(), Model::new(ball), tracer, Orbiting));
-    // After a teleport: ctx.world.get_mut::<Trail3D>(entity).unwrap().clear();
+        .spawn((Transform::default(), Model::new(ball), tracer, Orbiting));
+    // After a teleport: ctx.world.get_mut::<d3::Trail>(entity).unwrap().clear();
     // ANCHOR_END: trail
 
     // ANCHOR: line
     // A laser beam 5 m long, from the entity forward.
-    let beam = Line3D {
-        blend: ParticleBlend3D::Additive,
-        ..Line3D::new(vec![Vec3::ZERO, vec3(0.0, 0.0, -5.0)], 0.03, Color::RED)
+    let beam = Line {
+        blend: ParticleBlend::Additive,
+        ..Line::new(vec![Vec3::ZERO, vec3(0.0, 0.0, -5.0)], 0.03, Color::RED)
     };
-    ctx.world.spawn((Transform3D::at(vec3(-4.0, 1.5, 3.0)), beam));
+    ctx.world.spawn((Transform::at(vec3(-4.0, 1.5, 3.0)), beam));
     // ANCHOR_END: line
 
     // ANCHOR: decal
@@ -57,7 +62,7 @@ fn setup(ctx: &mut Ctx) {
         });
         let mark = ctx.gfx.create_mesh(&mark, scorch);
         // Drawn where the floor is.
-        ctx.world.spawn((Transform3D::default(), Model::new(mark)));
+        ctx.world.spawn((Transform::default(), Model::new(mark)));
     }
     // A mesh from a glTF file works the same: ctx.gfx.load_mesh_data("models/wall.glb")?.decal(..)
     // ANCHOR_END: decal

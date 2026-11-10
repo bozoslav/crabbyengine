@@ -1,6 +1,6 @@
 //! `CrabbyGrid`: a spatial grid owned by C, with a `uint32_t` of your own per
 //! item (an index into your arrays), like Rust's `SpatialGrid::with_data`.
-use ponko::SpatialGrid;
+use ponko::spatial::SpatialGrid;
 
 use crate::types::*;
 use crate::{CrabbyStatus, Failure, boundary, ctx::collect, invalid};
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn crabby_grid_rebuild(
             unsafe { std::slice::from_raw_parts(items, count) }
         };
         grid.rebuild_with_data(items.iter().map(|i| {
-            let e: ponko::GridEntry<u32> = to_c(*i);
+            let e: ponko::spatial::GridEntry<u32> = to_c(*i);
             (e.entity, e.position, e.data)
         }));
         Ok(())
@@ -201,7 +201,7 @@ pub(crate) fn view_of<T: Copy + Send + Sync>(grid: &SpatialGrid<T>) -> CrabbyGri
     let raw = grid.raw_view();
     CrabbyGridView {
         entries: raw.entries.as_ptr().cast(),
-        entry_size: size_of::<ponko::GridEntry<T>>(),
+        entry_size: size_of::<ponko::spatial::GridEntry<T>>(),
         cells: raw.cells.as_ptr(),
         starts: raw.starts.as_ptr(),
         len: raw.entries.len(),

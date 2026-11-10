@@ -82,7 +82,7 @@ A service owns its own state and nothing else. The few calls that read or
 write something outside it take that thing as an argument:
 
 ```rust
-# use ponko::*;
+# use ponko::prelude::*;
 # #[derive(serde::Deserialize)]
 # struct Rules { speed: f32 }
 # fn setup(ctx: &mut Ctx) {

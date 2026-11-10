@@ -7,10 +7,10 @@ use std::ffi::c_char;
 /// Owned lobby handle. Free once with `crabby_steam_lobby_free`.
 pub struct CrabbySteamLobby {
     #[cfg(feature = "steam")]
-    lobby: ponko::SteamLobby,
+    lobby: ponko::net::SteamLobby,
 }
 #[cfg(feature = "steam")]
-fn live<'a>(p: *mut CrabbySteamLobby) -> Result<&'a mut ponko::SteamLobby, crate::Failure> {
+fn live<'a>(p: *mut CrabbySteamLobby) -> Result<&'a mut ponko::net::SteamLobby, crate::Failure> {
     // SAFETY: callers supply null or a live lobby handle.
     unsafe { p.as_mut() }
         .map(|p| &mut p.lobby)
@@ -44,12 +44,12 @@ pub unsafe extern "C" fn crabby_steam_lobby_create(
         #[cfg(feature = "steam")]
         {
             let client = crate::steam::client::get(app_id)?;
-            let lobby = ponko::SteamLobby::create(
+            let lobby = ponko::net::SteamLobby::create(
                 &client,
                 match visibility {
-                    0 => ponko::SteamLobbyVisibility::FriendsOnly,
-                    1 => ponko::SteamLobbyVisibility::Public,
-                    _ => ponko::SteamLobbyVisibility::Private,
+                    0 => ponko::net::SteamLobbyVisibility::FriendsOnly,
+                    1 => ponko::net::SteamLobbyVisibility::Public,
+                    _ => ponko::net::SteamLobbyVisibility::Private,
                 },
                 max_members,
             )?;
@@ -90,7 +90,7 @@ pub unsafe extern "C" fn crabby_steam_lobby_join(
         #[cfg(feature = "steam")]
         {
             let client = crate::steam::client::get(app_id)?;
-            let lobby = ponko::SteamLobby::join(&client, ponko::steamworks::LobbyId::from_raw(id))?;
+            let lobby = ponko::net::SteamLobby::join(&client, ponko::steamworks::LobbyId::from_raw(id))?;
             // SAFETY: forwarded caller contract.
             unsafe { out(output, Box::into_raw(Box::new(CrabbySteamLobby { lobby }))) }
         }
@@ -499,7 +499,7 @@ pub unsafe extern "C" fn crabby_net_messages_steam_lobby_members(
 }
 
 #[cfg(feature = "steam")]
-fn endpoint_lobby<'a>(endpoint: *mut crate::CrabbyNetMessages) -> Result<&'a ponko::SteamLobby, crate::Failure> {
+fn endpoint_lobby<'a>(endpoint: *mut crate::CrabbyNetMessages) -> Result<&'a ponko::net::SteamLobby, crate::Failure> {
     // SAFETY: caller supplies null or live endpoint.
     let endpoint = unsafe { endpoint.as_ref() }.ok_or_else(|| invalid("endpoint is null"))?;
     endpoint

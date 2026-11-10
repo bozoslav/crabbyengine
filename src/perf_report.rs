@@ -2,7 +2,7 @@
 //! worst frames, warnings with advice, budgets for tests and CI, and
 //! comparing two runs.
 //!
-//! A [`PerfReport`] comes from [`Perf::report`](crate::Perf::report)
+//! A [`PerfReport`] comes from [`Perf::report`](crate::perf::Perf::report)
 //! in a running game and from [`Game::profile_headless`](crate::Game::profile_headless)
 //! for a headless run; `PONKO_BENCH` prints one, and the control endpoint's
 //! `perf.get` returns one as JSON.
@@ -176,11 +176,11 @@ pub struct PerfWarning {
 }
 
 /// Where a game's time and allocations go, over its last frames. It comes
-/// from [`Perf::report`](crate::Perf::report) in a running game and
+/// from [`Perf::report`](crate::perf::Perf::report) in a running game and
 /// [`Game::profile_headless`](crate::Game::profile_headless) in a headless run.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// fn spin(ctx: &mut Ctx) {
 ///     profile_scope!("spin/work");
@@ -208,7 +208,7 @@ pub struct PerfReport {
     /// add them to the systems' times.
     pub scopes: Vec<ScopeReport>,
     /// Heap allocations, if they're counted
-    /// ([`CountingAllocator`](crate::CountingAllocator) is installed).
+    /// ([`CountingAllocator`](crate::alloc_count::CountingAllocator) is installed).
     pub allocs: Option<AllocReport>,
     /// The slowest frames and what was in them.
     pub worst_frames: Vec<WorstFrame>,
@@ -318,10 +318,10 @@ impl PerfReport {
     /// any limit in `budget` is broken. For tests and CI.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     ///
     /// let (_w, report) = Game::new("t", 1, 1).sim_system(|_: &mut Ctx| {}).profile_headless(0, 10, |_| {});
-    /// report.assert_within(&Budget::new().frame_p99_ms(50.0));
+    /// report.assert_within(&ponko::perf::Budget::new().frame_p99_ms(50.0));
     /// ```
     ///
     /// # Panics
@@ -346,7 +346,7 @@ impl PerfReport {
     /// than 0.05 ms (or one allocation), so noise in tiny numbers is ignored.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// # let (_w, report) = Game::new("t", 1, 1).sim_system(|_: &mut Ctx| {}).profile_headless(0, 5, |_| {});
     /// # let baseline = report.clone();
     /// assert!(report.regressions(&baseline, 0.25).is_empty());
@@ -501,8 +501,8 @@ impl fmt::Display for PerfReport {
 /// "systems": {"movement": 0.5}}`), which is how C and C++ pass them.
 ///
 /// ```
-/// use ponko::Budget;
-/// let budget = Budget::new()
+/// use ponko::perf::Budget;
+/// let budget = ponko::perf::Budget::new()
 ///     .frame_p99_ms(2.0)
 ///     .allocs_per_frame(0.0)
 ///     .system("movement", 0.5)

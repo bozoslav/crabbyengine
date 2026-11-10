@@ -48,7 +48,7 @@ python3 scripts/check-book-snippets.py
 ```
 
 A block is wrapped in `fn snippet(ctx: &mut Ctx, world: &mut World) -> Result<..>`
-with `use ponko::*;` in scope, so it can use `ctx`, `world` and `?` directly.
+with `use ponko::prelude::*;` in scope, so it can use `ctx`, `world` and `?` directly.
 Anything else it needs goes on hidden lines, which mdBook doesn't show and the
 checker keeps (`# ` prefix, as in rustdoc):
 

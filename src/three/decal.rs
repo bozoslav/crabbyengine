@@ -38,9 +38,9 @@ impl MeshData {
     /// It's empty when the box misses the mesh.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// // A 4 x 4 m floor facing up.
-    /// let floor = MeshData::plane(4.0);
+    /// let floor = ponko::render::MeshData::plane(4.0);
     /// // A 0.5 m scorch mark at (1, 0, 0), projected from above (the box's
     /// // +Z turned to point up), 0.2 m deep.
     /// let down = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);

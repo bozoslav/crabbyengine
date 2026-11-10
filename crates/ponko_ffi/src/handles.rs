@@ -2,10 +2,16 @@
 //! `Ctx::live_counts`): every handle struct starts with its `uint32_t id`,
 //! so one pair of calls takes a kind and an id for all of them.
 
-use ponko::{
-    Compute, Effect, Font, GpuBuffer, Handle, InstanceBatch, LiveCounts, Material, Mesh, Shader, Sound, Texture,
-    TextureArray,
-};
+use ponko::handle::LiveCounts;
+use ponko::render::Compute;
+use ponko::render::Effect;
+use ponko::render::GpuBuffer;
+use ponko::render::InstanceBatch;
+use ponko::render::Material;
+use ponko::render::Mesh;
+use ponko::render::Shader;
+use ponko::terrain::TextureArray;
+use ponko::{Font, Handle, Sound, Texture};
 
 use crate::ctx::{ctx_access, out};
 use crate::{CrabbyCtx, CrabbyStatus, boundary, invalid};

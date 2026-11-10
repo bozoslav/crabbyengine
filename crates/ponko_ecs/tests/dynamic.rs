@@ -11,15 +11,18 @@ fn dynamic_components_and_chunks() {
     let p = unsafe { w.register_component("Pos", 8, 4, None) };
     let v = unsafe { w.register_component("Vel", 8, 4, None) };
     assert_eq!(unsafe { w.register_component("Pos", 8, 4, None) }, p);
-    assert_eq!(w.component_by_name("Vel"), Some(v));
+    assert_eq!(w.raw_ref().component_by_name("Vel"), Some(v));
     let mut es = Vec::new();
     for i in 0..100 {
         let pos = [i as f32, 0.0f32];
         let vel = [1.0f32, 2.0f32];
-        es.push(unsafe { w.spawn_dynamic(&[(p, pos.as_ptr().cast()), (v, vel.as_ptr().cast())]) });
+        es.push(unsafe {
+            w.raw()
+                .spawn_dynamic(&[(p, pos.as_ptr().cast()), (v, vel.as_ptr().cast())])
+        });
     }
     let mut chunks = 0;
-    w.for_each_chunk(&[p, v], |c| {
+    w.raw().for_each_chunk(&[p, v], |c| {
         chunks += 1;
         let pos = unsafe { std::slice::from_raw_parts_mut(c.columns[0].cast::<[f32; 2]>(), c.len()) };
         let vel = unsafe { std::slice::from_raw_parts(c.columns[1].cast::<[f32; 2]>(), c.len()) };
@@ -29,17 +32,17 @@ fn dynamic_components_and_chunks() {
         }
     });
     assert_eq!(chunks, 1);
-    let ptr = w.get_dynamic(es[10], p).unwrap();
+    let ptr = w.raw_ref().get_dynamic(es[10], p).unwrap();
     assert_eq!(unsafe { *ptr.cast::<[f32; 2]>() }, [11.0, 2.0]);
 
     // Add/remove a dynamic component.
     let hp = unsafe { w.register_component("Hp", 4, 4, None) };
     let val = 7i32;
-    assert!(unsafe { w.insert_dynamic(es[0], hp, (&val as *const i32).cast()) });
-    assert_eq!(unsafe { *w.get_dynamic(es[0], hp).unwrap().cast::<i32>() }, 7);
-    assert!(w.remove_dynamic(es[0], hp));
-    assert!(w.get_dynamic(es[0], hp).is_none());
-    assert!(w.get_dynamic(es[0], p).is_some());
+    assert!(unsafe { w.raw().insert_dynamic(es[0], hp, (&val as *const i32).cast()) });
+    assert_eq!(unsafe { *w.raw_ref().get_dynamic(es[0], hp).unwrap().cast::<i32>() }, 7);
+    assert!(w.raw().remove_dynamic(es[0], hp));
+    assert!(w.raw_ref().get_dynamic(es[0], hp).is_none());
+    assert!(w.raw_ref().get_dynamic(es[0], p).is_some());
 }
 
 #[test]
@@ -56,10 +59,10 @@ fn dynamic_name_clash_panics() {
 fn rust_and_dynamic_views_share_storage() {
     let mut w = World::new();
     let e = w.spawn((Pos(1.0, 2.0),));
-    let id = w.component_by_name(std::any::type_name::<Pos>()).unwrap();
+    let id = w.raw_ref().component_by_name(std::any::type_name::<Pos>()).unwrap();
     assert_eq!(Some(id), w.component_id::<Pos>());
     let mut n = 0;
-    w.for_each_chunk(&[id], |c| {
+    w.raw().for_each_chunk(&[id], |c| {
         n += c.len();
         assert_eq!(c.entities, &[e]);
     });
@@ -74,21 +77,33 @@ fn spawn_at_dynamic_restores_ids_and_refuses_taken_slots() {
     let saved = Entity::from_bits(9 | 4 << 32);
     let p = [3.0f32, 4.0];
     let n = [7u64, 8];
-    assert!(unsafe { w.spawn_at_dynamic(saved, &[(pos, p.as_ptr().cast()), (name, n.as_ptr().cast())]) });
+    assert!(unsafe {
+        w.raw()
+            .spawn_at_dynamic(saved, &[(pos, p.as_ptr().cast()), (name, n.as_ptr().cast())])
+    });
     assert!(w.is_alive(saved));
-    assert_eq!(unsafe { *w.get_dynamic(saved, pos).unwrap().cast::<[f32; 2]>() }, p);
-    assert_eq!(unsafe { *w.get_dynamic(saved, name).unwrap().cast::<[u64; 2]>() }, n);
+    assert_eq!(
+        unsafe { *w.raw_ref().get_dynamic(saved, pos).unwrap().cast::<[f32; 2]>() },
+        p
+    );
+    assert_eq!(
+        unsafe { *w.raw_ref().get_dynamic(saved, name).unwrap().cast::<[u64; 2]>() },
+        n
+    );
 
     // Taken: nothing changes.
-    assert!(!unsafe { w.spawn_at_dynamic(saved, &[(pos, [0.0f32, 0.0].as_ptr().cast())]) });
+    assert!(!unsafe { w.raw().spawn_at_dynamic(saved, &[(pos, [0.0f32, 0.0].as_ptr().cast())]) });
     assert_eq!(w.len(), 1);
-    assert_eq!(unsafe { *w.get_dynamic(saved, pos).unwrap().cast::<[f32; 2]>() }, p);
+    assert_eq!(
+        unsafe { *w.raw_ref().get_dynamic(saved, pos).unwrap().cast::<[f32; 2]>() },
+        p
+    );
 
     // Fresh spawns never collide with the restored id, and queries see both.
-    let fresh = unsafe { w.spawn_dynamic(&[(pos, [1.0f32, 1.0].as_ptr().cast())]) };
+    let fresh = unsafe { w.raw().spawn_dynamic(&[(pos, [1.0f32, 1.0].as_ptr().cast())]) };
     assert_ne!(fresh, saved);
     let mut rows = 0;
-    w.for_each_chunk(&[pos], |c| rows += c.len());
+    w.raw().for_each_chunk(&[pos], |c| rows += c.len());
     assert_eq!(rows, 2);
 }
 
@@ -99,7 +114,7 @@ fn spawn_at_dynamic_rejects_duplicate_components() {
     let hp = unsafe { w.register_component("Hp", 4, 4, None) };
     let v = 1i32;
     let v = (&v as *const i32).cast();
-    unsafe { w.spawn_at_dynamic(Entity::from_bits(3), &[(hp, v), (hp, v)]) };
+    unsafe { w.raw().spawn_at_dynamic(Entity::from_bits(3), &[(hp, v), (hp, v)]) };
 }
 
 /// Structural changes map every source column to its place in the destination
@@ -116,12 +131,15 @@ fn structural_changes_keep_values_in_wide_archetypes() {
     let value = |c: u32, n: u32| c * 100 + n;
     let set = |w: &mut World, n: u32, e: Entity, c: u32| {
         let v = value(c, n);
-        assert!(unsafe { w.insert_dynamic(e, ids[c as usize], (&raw const v).cast()) });
+        assert!(unsafe { w.raw().insert_dynamic(e, ids[c as usize], (&raw const v).cast()) });
     };
     let check = |w: &World, es: &[Entity], has: &dyn Fn(u32) -> bool| {
         for (n, &e) in es.iter().enumerate() {
             for c in 0..WIDE {
-                let got = w.get_dynamic(e, ids[c as usize]).map(|p| unsafe { *p.cast::<u32>() });
+                let got = w
+                    .raw_ref()
+                    .get_dynamic(e, ids[c as usize])
+                    .map(|p| unsafe { *p.cast::<u32>() });
                 assert_eq!(got, has(c).then(|| value(c, n as u32)), "entity {n} component {c}");
             }
         }
@@ -146,7 +164,7 @@ fn structural_changes_keep_values_in_wide_archetypes() {
         }
         check(&w, &es, &|c| initial(c) || c == extra);
         for &e in &es {
-            assert!(w.remove_dynamic(e, ids[extra as usize]));
+            assert!(w.raw().remove_dynamic(e, ids[extra as usize]));
         }
         check(&w, &es, &initial);
     }
@@ -154,7 +172,7 @@ fn structural_changes_keep_values_in_wide_archetypes() {
     // Remove from the start, the middle and the end of the original set, middle entity first.
     for gone in [0, 22, 38] {
         for &i in &[1, 0, 2] {
-            assert!(w.remove_dynamic(es[i], ids[gone as usize]));
+            assert!(w.raw().remove_dynamic(es[i], ids[gone as usize]));
         }
     }
     check(&w, &es, &|c| initial(c) && ![0, 22, 38].contains(&c));

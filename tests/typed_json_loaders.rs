@@ -2,7 +2,8 @@
 mod common;
 
 use common::TempAsset;
-use ponko::*;
+use ponko::prelude::*;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]

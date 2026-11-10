@@ -11,7 +11,9 @@ use std::time::{Duration, Instant};
 mod common;
 
 use common::TempAsset;
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::{Sprite, Transform as Transform2D};
+use ponko::prelude::*;
 
 fn registry_file(addr: SocketAddr) -> PathBuf {
     let dir = match std::env::var_os("CRABBY_INSTANCES_DIR") {
@@ -42,14 +44,18 @@ impl Client {
         }
     }
 
-    fn raw(&mut self, msg: Value) -> Value {
+    fn raw(&mut self, msg: ponko::reflect::json::Value) -> ponko::reflect::json::Value {
         writeln!(self.writer, "{msg}").unwrap();
         let mut line = String::new();
         self.reader.read_line(&mut line).unwrap();
         serde_json::from_str(&line).unwrap()
     }
 
-    fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+    fn call(
+        &mut self,
+        method: &str,
+        params: ponko::reflect::json::Value,
+    ) -> Result<ponko::reflect::json::Value, String> {
         self.next_id += 1;
         let id = self.next_id;
         let reply = self.raw(json!({ "id": id, "token": self.token, "method": method, "params": params }));
@@ -86,7 +92,7 @@ fn a_paused_headless_game_is_driven_over_tcp() {
 
     // The registry file says who we are and holds the token.
     let file = registry_file(addr);
-    let info: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    let info: ponko::reflect::json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
     assert_eq!(info["name"], "control-test");
     assert_eq!(info["port"], addr.port());
     assert_eq!(info["headless"], true);
@@ -205,7 +211,8 @@ fn two_instances_get_their_own_endpoints() {
     let (b, hb) = start();
     assert_ne!(a.port(), b.port());
     for (addr, h) in [(a, ha), (b, hb)] {
-        let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+        let info: ponko::reflect::json::Value =
+            serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
         let mut c = Client::connect(addr, info["token"].as_str().unwrap().into());
         c.call("game.quit", json!({})).unwrap();
         h.join().unwrap();
@@ -226,7 +233,8 @@ fn a_paused_game_reports_its_capabilities_before_any_tick() {
         })
     });
     let addr = rx.recv_timeout(Duration::from_secs(10)).unwrap();
-    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let info: ponko::reflect::json::Value =
+        serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
     let mut c = Client::connect(addr, info["token"].as_str().unwrap().into());
 
     let caps = c.call("capabilities", json!({})).unwrap();
@@ -297,7 +305,8 @@ fn reflected_resources_are_read_and_written_over_tcp() {
             })
     });
     let addr = addr_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let info: ponko::reflect::json::Value =
+        serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
     let mut c = Client::connect(addr, info["token"].as_str().unwrap().to_string());
 
     assert_eq!(
@@ -378,7 +387,8 @@ fn subscribers_get_reflected_events_with_their_ticks() {
             })
     });
     let addr = addr_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let info: ponko::reflect::json::Value =
+        serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
     let mut c = Client::connect(addr, info["token"].as_str().unwrap().to_string());
 
     assert!(c.call("events.take", json!({})).unwrap_err().contains("subscribe"));
@@ -426,7 +436,7 @@ fn subscribers_get_reflected_events_with_their_ticks() {
 
 /// Lines this test printed. Other tests share the process, and the test
 /// harness's progress dots (no newline) can end up in front of ours.
-fn ours(logs: &Value) -> Vec<String> {
+fn ours(logs: &ponko::reflect::json::Value) -> Vec<String> {
     let lines = logs["lines"].as_array().unwrap().iter().filter_map(|l| l.as_str());
     lines
         .filter_map(|l| l.find("logs-test").map(|i| l[i..].to_string()))
@@ -450,7 +460,8 @@ fn the_game_output_is_kept_for_tools() {
             })
     });
     let addr = addr_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let info: ponko::reflect::json::Value =
+        serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
     let mut c = Client::connect(addr, info["token"].as_str().unwrap().to_string());
 
     let first = c.call("logs.get", json!({ "lines": 5000 })).unwrap();
@@ -549,7 +560,8 @@ fn scenes_and_prefabs_are_saved_and_loaded_over_tcp() {
             })
     });
     let addr = addr_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let info: ponko::reflect::json::Value =
+        serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
     let mut c = Client::connect(addr, info["token"].as_str().unwrap().to_string());
 
     // An agent builds a level: a crab sprite saved as a prefab, placed twice.
@@ -575,7 +587,8 @@ fn scenes_and_prefabs_are_saved_and_loaded_over_tcp() {
     assert!(c.call("entity.get", json!({ "entity": a })).is_ok(), "same id back");
 
     // A scene with a huge entity id is refused and changes nothing.
-    let mut saved: Value = serde_json::from_str(&std::fs::read_to_string(scene.path()).unwrap()).unwrap();
+    let mut saved: ponko::reflect::json::Value =
+        serde_json::from_str(&std::fs::read_to_string(scene.path()).unwrap()).unwrap();
     saved["entities"][1]["entity"] = json!(50_000_000u64);
     std::fs::write(huge_scene.path(), saved.to_string()).unwrap();
     let huge = c.call("scene.load", json!({ "path": names[2] })).unwrap_err();
@@ -632,7 +645,8 @@ fn scenario_game(injection: bool) -> (Client, thread::JoinHandle<World>) {
 }
 
 fn connect(addr: SocketAddr) -> Client {
-    let info: Value = serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
+    let info: ponko::reflect::json::Value =
+        serde_json::from_str(&std::fs::read_to_string(registry_file(addr)).unwrap()).unwrap();
     Client::connect(addr, info["token"].as_str().unwrap().to_string())
 }
 
@@ -643,7 +657,7 @@ fn step(c: &mut Client, ticks: u64) {
     wait_for_tick(c, target);
 }
 
-fn scenario_status(c: &mut Client) -> Value {
+fn scenario_status(c: &mut Client) -> ponko::reflect::json::Value {
     c.call("input.scenario.status", json!({})).unwrap()
 }
 
@@ -664,7 +678,7 @@ fn tools_cannot_inject_input_unless_the_game_allows_it() {
         .find(|m| m["name"] == "input.scenario.load")
         .unwrap();
     assert_eq!(method["available"], false, "{method}");
-    assert_eq!(scenario_status(&mut c), Value::Null);
+    assert_eq!(scenario_status(&mut c), ponko::reflect::json::Value::Null);
     step(&mut c, 2);
     assert_eq!(
         c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap(),
@@ -870,7 +884,7 @@ fn space_held(c: &mut Client) -> bool {
     c.call("resource.get", json!({ "resource": "SpaceHeld" })).unwrap() == json!(true)
 }
 
-fn hold_space(extra: Value) -> Value {
+fn hold_space(extra: ponko::reflect::json::Value) -> ponko::reflect::json::Value {
     let mut params = json!({
         "scenario": {
             "version": 1,

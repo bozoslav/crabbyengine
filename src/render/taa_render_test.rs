@@ -4,8 +4,12 @@
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
 use super::render_test_support::*;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{AmbientOcclusion, AntiAliasing, GpuFeature, MaterialDesc, Mesh, MeshData, Model, Tonemap};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 /// A renderer drawing a light box (or two) on black, read back as pixels.
 struct Rig {
@@ -236,7 +240,7 @@ fn a_still_diagonal_edge_converges_smoother_than_without_it() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return;
     }
     rig.slab(0.37);
@@ -289,7 +293,7 @@ fn a_moved_model_writes_its_motion_and_a_still_one_does_not() {
     let Some(mut rig) = Rig::new(SIZE * 2, false) else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return;
     }
     rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
@@ -365,7 +369,7 @@ impl Rig {
 /// `buffered` draws the cubes from a GPU buffer; `None` without a GPU.
 fn trail(disabled: bool, buffered: bool) -> Option<f32> {
     let mut rig = Rig::new(SIZE, false)?;
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return None;
     }
     rig.disable_motion = disabled;
@@ -444,7 +448,7 @@ fn resetting_the_history_starts_over_from_the_current_frame() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return;
     }
     rig.slab(0.37);
@@ -490,7 +494,7 @@ fn temporal_ao_tracks_objects_without_taa_and_reset_discards_history() {
     let Some(mut rig) = Rig::new(SIZE * 2, false) else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::AmbientOcclusion) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::AmbientOcclusion) {
         return;
     }
     rig.ctx.post.ambient_occlusion.enabled = true;
@@ -583,7 +587,7 @@ fn rotation_animation_writes_motion_away_from_the_pivot() {
     let Some(mut rig) = Rig::new(256, false) else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return;
     }
     rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
@@ -617,7 +621,7 @@ fn each_history_trigger_resets_once_and_steady_frames_keep_the_history() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return;
     }
     rig.slab(0.37);
@@ -677,7 +681,7 @@ fn a_reset_frame_reports_no_motion_for_a_teleported_model() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return;
     }
     rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
@@ -710,7 +714,7 @@ fn a_reset_requested_on_a_frame_that_draws_nothing_still_applies() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return;
     }
     rig.slab(0.37);
@@ -798,7 +802,7 @@ fn slab_truth(size: u32) -> Vec<f32> {
 /// then the next frame (red channel, linear). `None` without a GPU.
 fn frame_after(step: impl FnOnce(&mut Rig)) -> Option<Vec<f32>> {
     let mut rig = Rig::new(SIZE, false)?;
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return None;
     }
     rig.slab(0.37);

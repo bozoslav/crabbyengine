@@ -1,5 +1,7 @@
 //! `ActionId`: names resolved once, queried by index.
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::actions::InputEvent;
+use ponko::prelude::*;
 
 actions! {
     /// Test actions: names declared once.

@@ -3,7 +3,7 @@
 `ponko_unity` reads a Unity project and turns its scenes and prefabs into
 Ponko [scenes](scenes.md): every drawn mesh becomes a `.glb` with its
 materials, its textures become PNGs, and the scene is a `crabby-world`
-file of `Transform3D` and `Model` entities that `load_scene` loads. It
+file of `d3::Transform` and `Model` entities that `load_scene` loads. It
 runs once, as a tool, and writes into your game's `assets/`.
 
 ```sh
@@ -48,8 +48,8 @@ space.
 - **Prefabs** inside prefabs, with their overrides, baked into one flat
   list of entities placed in the world.
 - **Colliders**, if you ask (`importer.colliders(true)`): box, sphere,
-  capsule and mesh colliders become entities with a fixed `RigidBody3D`
-  and a `Collider3D` ([3D physics](physics3d.md)), the object's scale
+  capsule and mesh colliders become entities with a fixed `d3::RigidBody`
+  and a `d3::Collider` ([3D physics](physics3d.md)), the object's scale
   worked into the shape. A mesh collider's mesh is written as a `.glb` and
   named in the scene by file; `ctx.load_scene` makes a triangle mesh of
   it (a convex hull for a convex one), once per mesh and scale, and saving
@@ -247,7 +247,7 @@ let hills = ponko_unity::UnityTerrain::from_object(data)?;
 // In the game (or written to a file the game reads):
 let tile = ctx.gfx.create_terrain_tile(&hills.heights, hills.size, ground);
 let [x, y, z] = hills.corner([0.0, 0.0, 0.0]); // the Unity Terrain's position
-ctx.world.spawn((Transform3D::at(vec3(x, y, z)), tile));
+ctx.world.spawn((ponko::d3::Transform::at(vec3(x, y, z)), tile));
 ```
 
 The weight maps are `Texture2D`s in the same file: read them with

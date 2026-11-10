@@ -13,10 +13,17 @@
 use std::sync::{Arc, Mutex};
 
 use super::*;
-use crate::GpuTier;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+use crate::render::GpuTier;
 use crate::render::capabilities::{self, GpuFeature};
+#[allow(unused_imports)]
+use crate::render::{
+    AmbientOcclusion, AntiAliasing, Compute, GlobalIllumination, GpuCapabilities, GraphicsQuality, MaterialDesc,
+    MeshData, Model,
+};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight, linear};
-use crate::*;
 
 const SIZE: u32 = 128;
 
@@ -248,7 +255,7 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
         enabled: true,
         extent: vec3(8.0, 4.0, 8.0),
         spacing: 1.0,
-        probes_per_frame: MAX_GI_PROBES_PER_FRAME,
+        probes_per_frame: crate::render::GlobalIllumination::MAX_PROBES_PER_FRAME,
         intensity: 1.0,
     };
     ctx.post.anti_aliasing = AntiAliasing::Taa;

@@ -10,7 +10,7 @@ How a block is compiled (the same idea as rustdoc, kept deliberately small):
   hides them, the checker keeps them (minus the `# `). Use them for context the
   reader doesn't need: `# struct Health(f32);`, `# let steer = Vec2::ZERO;`.
   `##` at the start of a line stands for a literal `#`.
-- `use ponko::*;` is in scope, and the body sits in
+- `use ponko::prelude::*;` is in scope, and the body sits in
   `fn snippet(ctx: &mut Ctx, world: &mut World) -> Result<(), Box<dyn Error>>`,
   so snippets can use `ctx`, `world` and `?` without setup. A block that
   defines its own `fn main` is used as it is, without the wrapper.
@@ -21,6 +21,11 @@ How a block is compiled (the same idea as rustdoc, kept deliberately small):
   the block must say why in a comment line, `// ignore: <reason>` (put it on
   a hidden line, `# // ignore: needs a GPU`, to keep it out of the book).
 - Warnings such as unused variables are allowed; deprecated items are not.
+  Most deprecated root spellings are re-exports, which rustc does not warn
+  about, so the checker also rejects `use ponko::*;` and any root path
+  (`ponko::Name`, `use ponko::{Name, ..}`) to a name in the naming chapter's
+  list of deprecated root spellings, in snippets and in inline code in the
+  prose (except the naming chapter itself, which lists them).
 
 Generated files keep the markdown's line numbers, so a compiler error at
 `src/physics.rs:40` is `book/src/physics.md:40`.
@@ -80,13 +85,95 @@ def unhide(line):
     return line
 
 
+NAMING = BOOK / "naming.md"
+LIST_START = "They stay until the next\nmajor release:"
+LIST_END = "What does warn"
+
+
+def deprecated_root_names():
+    """The deprecated root re-exports listed in the naming chapter (old spellings only)."""
+    text = NAMING.read_text()
+    if LIST_START not in text or LIST_END not in text:
+        sys.exit(f"{NAMING}: the list of deprecated root spellings is missing (looked for {LIST_START!r})")
+    section = text.split(LIST_START, 1)[1].split(LIST_END, 1)[0]
+    names = set()
+    for line in section.splitlines():
+        m = re.match(r"^- `\w+`: (.*)$", line)
+        if not m:
+            continue
+        # Drop the new spellings in parentheses: `Collider3D` (`d3::Collider`).
+        names.update(re.findall(r"`(\w+)`", re.sub(r"\(`[^)]*`\)", "", m.group(1))))
+    if len(names) < 50:
+        sys.exit(f"{NAMING}: found only {len(names)} deprecated root spellings; has the list's format changed?")
+    return names
+
+
+ROOT_PATH = re.compile(r"(?<![\w:])(?:::)?ponko::(\w+|\*|\{)")
+
+
+def root_path_names(code):
+    """Top-level names a piece of code reaches through the crate root (`*` for the root glob)."""
+    found = []
+    for m in ROOT_PATH.finditer(code):
+        head = m.group(1)
+        if head != "{":
+            found.append(head)
+            continue
+        depth, i, start = 1, m.end(), m.end()
+        while i < len(code) and depth:
+            depth += {"{": 1, "}": -1}.get(code[i], 0)
+            i += 1
+        inner, depth, part = code[start : i - 1], 0, ""
+        parts = []
+        for ch in inner + ",":
+            if ch == "," and depth == 0:
+                parts.append(part.strip())
+                part = ""
+                continue
+            depth += {"{": 1, "}": -1}.get(ch, 0)
+            part += ch
+        found.extend(re.match(r"(\w+|\*)", p).group(1) for p in parts if re.match(r"(\w+|\*)", p))
+    return found
+
+
+def old_spellings(code, deprecated):
+    """Deprecated root spellings (and the root glob) used by `code`."""
+    bad = []
+    for name in root_path_names(code):
+        if name == "*":
+            bad.append("use ponko::*; (use ponko::prelude::*; and module imports)")
+        elif name in deprecated:
+            bad.append(f"ponko::{name}")
+    return bad
+
+
+def check_prose(md, deprecated):
+    """Inline code in the prose names no deprecated root spelling."""
+    problems = []
+    in_fence = None
+    for n, line in enumerate(md.read_text().split("\n"), 1):
+        m = FENCE.match(line)
+        if m:
+            in_fence = None if in_fence else m.group(2)[0]
+            continue
+        if in_fence:
+            continue
+        for span in re.findall(r"`([^`]+)`", line):
+            for bad in old_spellings(span, deprecated):
+                problems.append(f"book/src/{md.name}:{n}: `{span}` uses the deprecated root spelling {bad}")
+    return problems
+
+
 def generate(out_src, features):
     """Write src/<chapter>.rs for every chapter with blocks. Returns (checked, skipped, ignored, problems)."""
     modules = []
     checked = skipped = 0
     ignored = []
     problems = []
+    deprecated = deprecated_root_names()
     for md in sorted(BOOK.glob("*.md")):
+        if md != NAMING:
+            problems.extend(check_prose(md, deprecated))
         out = []  # generated lines; len(out) is the line number reached
         for start, end, attrs, body in extract(md):
             rel = f"book/src/{md.name}:{start}"
@@ -102,14 +189,16 @@ def generate(out_src, features):
                 skipped += 1
                 continue
             code = [unhide(l) for l in body]
+            for bad in sorted(set(old_spellings("\n".join(code), deprecated))):
+                problems.append(f"{rel}: uses the deprecated root spelling {bad}; see the naming chapter")
             has_main = any(re.search(r"\bfn\s+main\s*\(", l) for l in code)
             allow = "#![allow(warnings)] #![deny(deprecated)]"
             if has_main:
-                header = f"mod b{start} {{ {allow} use ponko::*;"
+                header = f"mod b{start} {{ {allow} use ponko::prelude::*;"
                 footer = "}"
             else:
                 header = (
-                    f"mod b{start} {{ {allow} use ponko::*; "
+                    f"mod b{start} {{ {allow} use ponko::prelude::*; "
                     "fn snippet(ctx: &mut Ctx, world: &mut World) -> Result<(), Box<dyn std::error::Error>> {"
                 )
                 footer = ";Ok(()) } }"

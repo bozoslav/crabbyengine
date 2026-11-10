@@ -1,6 +1,18 @@
 //! Ragdolls (feature `physics3d`): a skeleton handed over to physics.
 #![cfg(feature = "physics3d")]
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::anim::{Joint, Skeleton};
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::Transform;
+#[allow(unused_imports)]
+#[cfg(feature = "physics3d")]
+use ponko::d3::{Collider, Ragdoll, RigidBody};
+#[allow(unused_imports)]
+#[cfg(feature = "physics3d")]
+use ponko::physics3d::RagdollBone;
+use ponko::prelude::*;
 
 const GRAVITY: Vec3 = Vec3::new(0.0, -9.81, 0.0);
 
@@ -10,7 +22,7 @@ fn figure() -> Skeleton {
     let joint = |name: &str, parent, at: Vec3| Joint {
         name: name.into(),
         parent,
-        rest: Transform3D::at(at),
+        rest: Transform::at(at),
     };
     Skeleton::new(vec![
         joint("hips", None, vec3(0.0, 1.0, 0.0)),
@@ -31,7 +43,7 @@ fn bones() -> Vec<RagdollBone> {
 }
 
 fn joint_world(world: &mut World, e: Entity, joint: usize) -> Vec3 {
-    let model = world.get::<Transform3D>(e).unwrap().matrix();
+    let model = world.get::<Transform>(e).unwrap().matrix();
     let skeleton = world.get::<Skeleton>(e).unwrap();
     (model * skeleton.joint_matrix(joint)).transform_point3(Vec3::ZERO)
 }
@@ -41,14 +53,14 @@ fn a_ragdoll_falls_to_the_floor_in_one_piece() {
     let mut figure_entity = None;
     let mut world = Game::new("t", 1, 1).physics3d(GRAVITY).run_headless(250, |ctx| {
         ctx.world.spawn((
-            Transform3D::at(vec3(0.0, -0.5, 0.0)),
-            RigidBody3D::fixed(),
-            Collider3D::cuboid(vec3(20.0, 1.0, 20.0)),
+            Transform::at(vec3(0.0, -0.5, 0.0)),
+            RigidBody::fixed(),
+            Collider::cuboid(vec3(20.0, 1.0, 20.0)),
         ));
-        let e = ctx.world.spawn((Transform3D::at(vec3(0.0, 2.0, 0.0)), figure()));
+        let e = ctx.world.spawn((Transform::at(vec3(0.0, 2.0, 0.0)), figure()));
         ctx.start_ragdoll(e, &bones()).unwrap();
         // A shove, so it topples instead of landing on its hips.
-        let spine = ctx.world.get::<Ragdoll3D>(e).unwrap().body(1).unwrap();
+        let spine = ctx.world.get::<Ragdoll>(e).unwrap().body(1).unwrap();
         assert!(
             ctx.physics3d.apply_impulse(spine, vec3(4.0, 0.0, 0.0)),
             "linked at once"
@@ -78,7 +90,7 @@ fn a_ragdoll_falls_to_the_floor_in_one_piece() {
 fn joint_limits_hold_a_bone_inside_its_cone() {
     let mut figure_entity = None;
     let mut world = Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(100, |ctx| {
-        let e = ctx.world.spawn((Transform3D::default(), figure()));
+        let e = ctx.world.spawn((Transform::default(), figure()));
         ctx.start_ragdoll(
             e,
             &[
@@ -88,9 +100,9 @@ fn joint_limits_hold_a_bone_inside_its_cone() {
         )
         .unwrap();
         // Hold the hips still and kick the top of the spine sideways, hard.
-        let r = ctx.world.get::<Ragdoll3D>(e).unwrap();
+        let r = ctx.world.get::<Ragdoll>(e).unwrap();
         let (hips, spine) = (r.body(0).unwrap(), r.body(1).unwrap());
-        ctx.world.get_mut::<RigidBody3D>(hips).unwrap().kind = BodyKind::Fixed;
+        ctx.world.get_mut::<RigidBody>(hips).unwrap().kind = BodyKind::Fixed;
         assert!(
             ctx.physics3d
                 .apply_impulse_at(spine, vec3(30.0, 0.0, 0.0), vec3(0.0, 2.0, 0.0))
@@ -107,7 +119,7 @@ fn joint_limits_hold_a_bone_inside_its_cone() {
 #[test]
 fn stopping_removes_the_bodies_and_starting_checks_its_bones() {
     Game::new("t", 1, 1).physics3d(GRAVITY).run_headless(3, |ctx| {
-        let e = ctx.world.spawn((Transform3D::default(), figure()));
+        let e = ctx.world.spawn((Transform::default(), figure()));
         let entities = ctx.world.len();
         ctx.start_ragdoll(e, &bones()).unwrap();
         assert_eq!(ctx.world.len(), entities + 4 + 3, "four bodies and three joints");
@@ -116,12 +128,12 @@ fn stopping_removes_the_bodies_and_starting_checks_its_bones() {
         assert_eq!(ctx.world.len(), entities + 7);
         ctx.stop_ragdoll(e, 0.0);
         assert_eq!(ctx.world.len(), entities);
-        assert!(ctx.world.get::<Ragdoll3D>(e).is_none());
+        assert!(ctx.world.get::<Ragdoll>(e).is_none());
         // Blending back keeps the component (without bodies) until it ends.
         ctx.start_ragdoll(e, &bones()).unwrap();
         ctx.stop_ragdoll(e, 0.5);
         assert_eq!(ctx.world.len(), entities);
-        assert!(ctx.world.get::<Ragdoll3D>(e).unwrap().is_blending());
+        assert!(ctx.world.get::<Ragdoll>(e).unwrap().is_blending());
 
         let errors = [
             vec![RagdollBone::new("tail", 0.1)],
@@ -134,8 +146,8 @@ fn stopping_removes_the_bodies_and_starting_checks_its_bones() {
         }
         // A bad call leaves the running ragdoll alone.
         assert_eq!(ctx.world.len(), entities + 7);
-        assert!(ctx.world.get::<Ragdoll3D>(e).unwrap().body(0).is_some());
-        let bare = ctx.world.spawn((Transform3D::default(),));
+        assert!(ctx.world.get::<Ragdoll>(e).unwrap().body(0).is_some());
+        let bare = ctx.world.spawn((Transform::default(),));
         assert!(ctx.start_ragdoll(bare, &bones()).is_err());
     });
 }
@@ -144,11 +156,11 @@ fn stopping_removes_the_bodies_and_starting_checks_its_bones() {
 fn guide_ragdoll_snippet_compiles_and_steps() {
     Game::new("ragdoll", 1, 1).physics3d(GRAVITY).run_headless(5, |ctx| {
         ctx.world.spawn((
-            Transform3D::at(vec3(0.0, -0.5, 0.0)),
-            RigidBody3D::fixed(),
-            Collider3D::cuboid(vec3(20.0, 1.0, 20.0)),
+            Transform::at(vec3(0.0, -0.5, 0.0)),
+            RigidBody::fixed(),
+            Collider::cuboid(vec3(20.0, 1.0, 20.0)),
         ));
-        let enemy = ctx.world.spawn((Transform3D::default(), figure()));
+        let enemy = ctx.world.spawn((Transform::default(), figure()));
         let hit = Vec3::X;
         // ANCHOR: ragdoll
         // A hit knocks `enemy` over: physics takes over its skeleton.
@@ -163,7 +175,7 @@ fn guide_ragdoll_snippet_compiles_and_steps() {
         )
         .expect("the skeleton has these joints");
         let spine = ctx.world.get::<Skeleton>(enemy).unwrap().find("spine").unwrap();
-        let body = ctx.world.get::<Ragdoll3D>(enemy).unwrap().body(spine).unwrap();
+        let body = ctx.world.get::<Ragdoll>(enemy).unwrap().body(spine).unwrap();
         ctx.physics3d.apply_impulse(body, hit * 40.0);
         // When it gets up: bodies gone, half a second back to the animation.
         ctx.stop_ragdoll(enemy, 0.5);

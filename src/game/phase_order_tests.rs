@@ -111,7 +111,9 @@ fn ticks_per_frame_follow_the_requested_count() {
 #[cfg(feature = "3d")]
 mod positional_audio {
     use super::*;
-    use crate::{AudioSettings3D, AudioSource3D, Transform3D, Vec3};
+    use crate::{
+        Vec3, d3::AudioSettings as AudioSettings3D, d3::AudioSource as AudioSource3D, d3::Transform as Transform3D,
+    };
 
     #[test]
     fn positional_audio_follows_late_and_draw_systems() {
@@ -279,8 +281,9 @@ fn a_frame_runs_ticks_then_frame_then_late_then_draw_and_applies_commands_betwee
 #[test]
 fn builtin_animation_and_particles_run_between_frame_and_late_systems() {
     use crate::{
-        AnimationClip, AnimationGraph, AnimationState, Animator, Joint, Motion, ParticleEmitter3D, ParticleSettings3D,
-        Skeleton, Transform3D, Vec3,
+        Vec3, anim::AnimationClip, anim::AnimationGraph, anim::AnimationState, anim::Animator, anim::Joint,
+        anim::Motion, anim::Skeleton, d3::ParticleEmitter as ParticleEmitter3D,
+        d3::ParticleSettings as ParticleSettings3D, d3::Transform as Transform3D,
     };
     let skeleton = Skeleton::new(vec![Joint {
         name: "root".into(),

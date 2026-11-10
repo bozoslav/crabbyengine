@@ -298,7 +298,7 @@ fn pipeline_creation_and_reload_stalls_are_measured() {
 }
 
 /// Every set built is either still in use or was invalidated.
-fn assert_builds_add_up(s: &crate::PipelineStats) {
+fn assert_builds_add_up(s: &crate::render::PipelineStats) {
     assert_eq!(s.builds, s.variant_sets as u64 + s.invalidated, "{s:?}");
 }
 
@@ -338,7 +338,7 @@ fn effect_and_compute_errors_have_a_place_and_failed_reloads_keep_the_last_good_
         return;
     };
     // Both reload a compute pass too.
-    if !crate::render::render_test_support::needs(&device, crate::GpuFeature::Compute) {
+    if !crate::render::render_test_support::needs(&device, crate::render::GpuFeature::Compute) {
         return;
     }
     let fx = renderer.create_effect(&device, "grey.wgsl", FX_GREY).unwrap();
@@ -400,7 +400,7 @@ fn late_gpu_rejections_put_the_previous_pipelines_back_and_are_reported() {
         return;
     };
     // Both reload a compute pass too.
-    if !crate::render::render_test_support::needs(&device, crate::GpuFeature::Compute) {
+    if !crate::render::render_test_support::needs(&device, crate::render::GpuFeature::Compute) {
         return;
     }
     let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
@@ -486,7 +486,7 @@ fn a_late_rejection_behind_a_newer_reload_falls_back_to_the_last_good_version() 
     );
     // What `shader_status` makes of it: both reloads undone, one failure.
     let status = statuses_after("red.wgsl", 2, late);
-    assert_eq!(status.outcome, crate::ShaderOutcome::ReloadFailed);
+    assert_eq!(status.outcome, crate::render::ShaderOutcome::ReloadFailed);
     assert_eq!(status.reloads, 0);
     assert_eq!(status.diagnostics.len(), 1, "{:?}", status.diagnostics);
 }
@@ -494,7 +494,7 @@ fn a_late_rejection_behind_a_newer_reload_falls_back_to_the_last_good_version() 
 /// The status of material shader `name` made, then reloaded `reloads`
 /// times (each recorded as it is put in use), after the late rejections
 /// `late` from the renderer.
-fn statuses_after(name: &str, reloads: u32, late: Vec<LateShaderError>) -> crate::ShaderStatus {
+fn statuses_after(name: &str, reloads: u32, late: Vec<LateShaderError>) -> crate::render::ShaderStatus {
     let mut out = None;
     crate::Game::new("t", 1, 1).run_headless(0, |ctx| {
         ctx.gfx.create_shader(name, RED);
@@ -527,7 +527,7 @@ fn a_late_rejection_of_an_older_reload_leaves_the_newer_one_that_passed() {
     let status = statuses_after("red.wgsl", 2, late);
     assert_eq!(
         status.outcome,
-        crate::ShaderOutcome::Reloaded,
+        crate::render::ShaderOutcome::Reloaded,
         "{:?}",
         status.diagnostics
     );
@@ -585,7 +585,7 @@ fn first_load_stand_ins_are_replaced_by_the_fixed_reload() {
     assert_ne!(renderer.effect_pipelines[fx as usize], fx_stand_in);
 
     // The compute pass, where the device has compute shaders.
-    if !crate::render::render_test_support::needs(&device, crate::GpuFeature::Compute) {
+    if !crate::render::render_test_support::needs(&device, crate::render::GpuFeature::Compute) {
         return;
     }
     let cs = renderer

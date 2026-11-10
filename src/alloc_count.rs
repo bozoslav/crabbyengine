@@ -2,7 +2,7 @@
 //!
 //! Install [`CountingAllocator`] as the global allocator and the profiler
 //! counts allocations per frame and per system (the overlay, benchmark
-//! reports and [`Perf::report`](crate::Perf::report) show them). It
+//! reports and [`Perf::report`](crate::perf::Perf::report) show them). It
 //! counts only while profiling is on, so a game that leaves it installed pays
 //! one relaxed atomic load per allocation.
 //!
@@ -32,10 +32,10 @@ pub struct AllocCounts {
 /// The system allocator, counting what it hands out while profiling is on.
 ///
 /// ```ignore
-/// use ponko::CountingAllocator;
+/// use ponko::alloc_count::CountingAllocator;
 ///
 /// #[global_allocator]
-/// static ALLOCATOR: CountingAllocator = CountingAllocator;
+/// static ALLOCATOR: ponko::alloc_count::CountingAllocator = ponko::alloc_count::CountingAllocator;
 /// ```
 pub struct CountingAllocator;
 
@@ -91,9 +91,9 @@ pub fn note_allocation(bytes: usize) {
 /// [`note_allocation`].
 ///
 /// ```
-/// use ponko::alloc_counts;
-/// let before = alloc_counts();
-/// let after = alloc_counts();
+/// use ponko::perf::alloc_counts;
+/// let before = ponko::alloc_count::alloc_counts();
+/// let after = ponko::alloc_count::alloc_counts();
 /// assert!(after.count >= before.count);
 /// ```
 pub fn alloc_counts() -> AllocCounts {

@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 /// Parameter defaults; indices in the graph identify parameters.
 /// ```
-/// use ponko::AnimationParameter;
-/// let speed = AnimationParameter::Float(0.0);
+/// use ponko::anim::AnimationParameter;
+/// let speed = ponko::anim::AnimationParameter::Float(0.0);
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub enum AnimationParameter {
@@ -24,9 +24,9 @@ pub enum AnimationParameter {
 /// that child (the first if points coincide). Quaternion blends use ordered
 /// incremental slerp, so child order matters for more than two rotations.
 /// ```
-/// use ponko::*;
-/// let clip = AnimationClip::new("idle", &Skeleton::new(vec![]), vec![]);
-/// let motion = Motion::Clip(clip);
+/// use ponko::prelude::*;
+/// let clip = ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![]);
+/// let motion = ponko::anim::Motion::Clip(clip);
 /// ```
 #[derive(Debug, Clone)]
 pub enum Motion {
@@ -52,8 +52,8 @@ pub enum Motion {
 
 /// A motion inside a tree; positive time scale multiplies seconds.
 /// ```
-/// use ponko::*;
-/// let child = MotionChild { motion: Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])), time_scale: 1.0 };
+/// use ponko::prelude::*;
+/// let child = ponko::anim::MotionChild { motion: ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])), time_scale: 1.0 };
 /// ```
 #[derive(Debug, Clone)]
 pub struct MotionChild {
@@ -65,8 +65,8 @@ pub struct MotionChild {
 
 /// A named event on a state's normalized clock.
 /// ```
-/// use ponko::AnimationEvent;
-/// let step = AnimationEvent { time: 0.5, name: "step".into() };
+/// use ponko::anim::AnimationEvent;
+/// let step = ponko::anim::AnimationEvent { time: 0.5, name: "step".into() };
 /// ```
 #[derive(Debug, Clone)]
 pub struct AnimationEvent {
@@ -78,8 +78,8 @@ pub struct AnimationEvent {
 
 /// State playback settings. Use [`AnimationState::new`] for looping defaults.
 /// ```
-/// use ponko::*;
-/// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+/// use ponko::prelude::*;
+/// let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
 /// assert!(s.looping);
 /// ```
 #[derive(Debug, Clone)]
@@ -98,8 +98,8 @@ pub struct AnimationState {
 impl AnimationState {
     /// Loop a motion at normal speed, without events.
     /// ```
-    /// use ponko::*;
-    /// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// use ponko::prelude::*;
+    /// let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
     /// assert_eq!(s.speed, 1.0);
     /// ```
     pub fn new(motion: Motion) -> Self {
@@ -115,8 +115,8 @@ impl AnimationState {
 
 /// Transition predicates, all of which must hold.
 /// ```
-/// use ponko::AnimationCondition;
-/// let moving = AnimationCondition::Greater(0, 0.05);
+/// use ponko::anim::AnimationCondition;
+/// let moving = ponko::anim::AnimationCondition::Greater(0, 0.05);
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub enum AnimationCondition {
@@ -135,8 +135,8 @@ pub enum AnimationCondition {
 /// not reenter their current target. Exit time is a minimum on the state's
 /// unwrapped normalized clock, checked against the end of this update.
 /// ```
-/// use ponko::*;
-/// let t = AnimationTransition { from: Some(0), to: 1, conditions: vec![], exit_time: Some(1.0), duration: 0.12, offset: 0.0 };
+/// use ponko::prelude::*;
+/// let t = ponko::anim::AnimationTransition { from: Some(0), to: 1, conditions: vec![], exit_time: Some(1.0), duration: 0.12, offset: 0.0 };
 /// ```
 #[derive(Debug, Clone)]
 pub struct AnimationTransition {
@@ -156,10 +156,10 @@ pub struct AnimationTransition {
 
 /// Immutable graph shared by animators with independent parameters and clocks.
 /// ```
-/// use ponko::*;
-/// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-/// let graph = AnimationGraph::new(vec![], vec![state], vec![], 0);
-/// let animator = Animator::new(graph.clone());
+/// use ponko::prelude::*;
+/// let state = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+/// let graph = ponko::anim::AnimationGraph::new(vec![], vec![state], vec![], 0);
+/// let animator = ponko::anim::Animator::new(graph.clone());
 /// ```
 #[derive(Debug)]
 pub struct AnimationGraph {
@@ -172,9 +172,9 @@ impl AnimationGraph {
     /// Validate indices, parameter types, finite clocks and nonempty trees.
     /// Panics with `AnimationGraph` in the message for invalid definitions.
     /// ```
-    /// use ponko::*;
-    /// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// let graph = AnimationGraph::new(vec![], vec![s], vec![], 0);
+    /// use ponko::prelude::*;
+    /// let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// let graph = ponko::anim::AnimationGraph::new(vec![], vec![s], vec![], 0);
     /// ```
     pub fn new(
         parameters: Vec<AnimationParameter>,
@@ -499,9 +499,9 @@ struct Fade {
 
 /// How a layer combines with the lower pose.
 /// ```
-/// use ponko::LayerBlend;
-/// let mode = LayerBlend::Additive;
-/// assert_ne!(mode, LayerBlend::Override);
+/// use ponko::anim::LayerBlend;
+/// let mode = ponko::anim::LayerBlend::Additive;
+/// assert_ne!(mode, ponko::anim::LayerBlend::Override);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayerBlend {
@@ -513,8 +513,8 @@ pub enum LayerBlend {
 
 /// Joint indices selected for one skeleton layout. Build once, reuse each frame.
 /// ```
-/// use ponko::*;
-/// let mask = JointMask::new(vec![0, 2]);
+/// use ponko::prelude::*;
+/// let mask = ponko::anim::JointMask::new(vec![0, 2]);
 /// assert!(mask.contains(2));
 /// ```
 #[derive(Debug, Clone)]
@@ -522,8 +522,8 @@ pub struct JointMask(Vec<usize>);
 impl JointMask {
     /// Select explicit joint indices (duplicates are removed).
     /// ```
-    /// use ponko::JointMask;
-    /// assert!(JointMask::new(vec![3, 3]).contains(3));
+    /// use ponko::anim::JointMask;
+    /// assert!(ponko::anim::JointMask::new(vec![3, 3]).contains(3));
     /// ```
     pub fn new(mut joints: Vec<usize>) -> Self {
         joints.sort_unstable();
@@ -532,8 +532,8 @@ impl JointMask {
     }
     /// Select the named joint and every descendant; None if the name is absent.
     /// ```
-    /// use ponko::*;
-    /// assert!(JointMask::descendants(&Skeleton::new(vec![]), "arm").is_none());
+    /// use ponko::prelude::*;
+    /// assert!(ponko::anim::JointMask::descendants(&ponko::anim::Skeleton::new(vec![]), "arm").is_none());
     /// ```
     pub fn descendants(skeleton: &Skeleton, name: &str) -> Option<Self> {
         let root = skeleton.find(name)?;
@@ -547,8 +547,8 @@ impl JointMask {
     }
     /// Whether the joint index is selected.
     /// ```
-    /// use ponko::JointMask;
-    /// assert!(!JointMask::new(vec![1]).contains(0));
+    /// use ponko::anim::JointMask;
+    /// assert!(!ponko::anim::JointMask::new(vec![1]).contains(0));
     /// ```
     pub fn contains(&self, joint: usize) -> bool {
         self.0.binary_search(&joint).is_ok()
@@ -559,12 +559,12 @@ impl JointMask {
 /// at weight zero. Configure parameters/commands through `animator`; base-layer
 /// commands remain on the parent Animator. Nested layers are supported.
 /// ```
-/// use ponko::*;
-/// let s = Skeleton::new(vec![]);
-/// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
-/// let mut layer = AnimationLayer::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+/// use ponko::prelude::*;
+/// let s = ponko::anim::Skeleton::new(vec![]);
+/// let state = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &s, vec![])));
+/// let mut layer = ponko::anim::AnimationLayer::new(ponko::anim::AnimationGraph::new(vec![], vec![state], vec![], 0));
 /// layer.weight = 0.5;
-/// layer.mode = LayerBlend::Additive;
+/// layer.mode = ponko::anim::LayerBlend::Additive;
 /// ```
 #[derive(Debug, Clone)]
 pub struct AnimationLayer {
@@ -584,10 +584,10 @@ pub struct AnimationLayer {
 impl AnimationLayer {
     /// Make a full-weight override layer, without a mask or explicit reference.
     /// ```
-    /// use ponko::*;
-    /// let s = Skeleton::new(vec![]);
-    /// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
-    /// let layer = AnimationLayer::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+    /// use ponko::prelude::*;
+    /// let s = ponko::anim::Skeleton::new(vec![]);
+    /// let state = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &s, vec![])));
+    /// let layer = ponko::anim::AnimationLayer::new(ponko::anim::AnimationGraph::new(vec![], vec![state], vec![], 0));
     /// assert_eq!(layer.weight, 1.0);
     /// ```
     pub fn new(graph: Arc<AnimationGraph>) -> Self {
@@ -663,8 +663,8 @@ impl AnimationLayer {
 /// Vertical motion and pitch/roll stay in the pose. Apply translation using the
 /// entity's pre-update orientation, then postmultiply its rotation.
 /// ```
-/// use ponko::*;
-/// let delta = RootMotion::default();
+/// use ponko::prelude::*;
+/// let delta = ponko::anim::RootMotion::default();
 /// assert_eq!(delta.position, Vec3::ZERO);
 /// assert_eq!(delta.rotation, Quat::IDENTITY);
 /// ```
@@ -702,10 +702,10 @@ fn angle_delta(a: f32, b: f32) -> f32 {
 /// emits events and tests transitions. Events accumulate until drained, up to
 /// 64 entries; excess events are dropped, retaining the earliest events.
 /// ```
-/// use ponko::*;
-/// let mut s = Skeleton::new(vec![]);
-/// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
-/// let mut a = Animator::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+/// use ponko::prelude::*;
+/// let mut s = ponko::anim::Skeleton::new(vec![]);
+/// let state = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &s, vec![])));
+/// let mut a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![], vec![state], vec![], 0));
 /// a.manual = true;
 /// a.update(0.016, &mut s);
 /// ```
@@ -735,9 +735,9 @@ pub struct Animator {
 impl Animator {
     /// Start at the graph's initial state with its default parameters.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// let a = Animator::new(AnimationGraph::new(vec![], vec![s], vec![], 0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// let a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![], vec![s], vec![], 0));
     /// assert_eq!(a.state(), 0);
     /// ```
     pub fn new(graph: Arc<AnimationGraph>) -> Self {
@@ -760,12 +760,12 @@ impl Animator {
     }
     /// Append an overlay, returning its zero-based overlay index (base excluded).
     /// ```
-    /// use ponko::*;
-    /// let s = Skeleton::new(vec![]);
-    /// let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
-    /// let g = AnimationGraph::new(vec![], vec![state], vec![], 0);
-    /// let mut a = Animator::new(g.clone());
-    /// assert_eq!(a.add_layer(AnimationLayer::new(g)), 0);
+    /// use ponko::prelude::*;
+    /// let s = ponko::anim::Skeleton::new(vec![]);
+    /// let state = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &s, vec![])));
+    /// let g = ponko::anim::AnimationGraph::new(vec![], vec![state], vec![], 0);
+    /// let mut a = ponko::anim::Animator::new(g.clone());
+    /// assert_eq!(a.add_layer(ponko::anim::AnimationLayer::new(g)), 0);
     /// ```
     pub fn add_layer(&mut self, layer: AnimationLayer) -> usize {
         let index = self.layers.len();
@@ -774,12 +774,12 @@ impl Animator {
     }
     /// Edit an overlay by index; panics for an invalid index.
     /// ```
-    /// use ponko::*;
-    /// # let s = Skeleton::new(vec![]);
-    /// # let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
-    /// # let g = AnimationGraph::new(vec![], vec![state], vec![], 0);
-    /// # let mut a = Animator::new(g.clone());
-    /// let index = a.add_layer(AnimationLayer::new(g));
+    /// use ponko::prelude::*;
+    /// # let s = ponko::anim::Skeleton::new(vec![]);
+    /// # let state = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &s, vec![])));
+    /// # let g = ponko::anim::AnimationGraph::new(vec![], vec![state], vec![], 0);
+    /// # let mut a = ponko::anim::Animator::new(g.clone());
+    /// let index = a.add_layer(ponko::anim::AnimationLayer::new(g));
     /// a.layer_mut(index).weight = 0.25;
     /// ```
     pub fn layer_mut(&mut self, index: usize) -> &mut AnimationLayer {
@@ -787,10 +787,10 @@ impl Animator {
     }
     /// Number of overlays added with [`add_layer`](Self::add_layer).
     /// ```
-    /// use ponko::*;
-    /// # let s = Skeleton::new(vec![]);
-    /// # let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
-    /// let a = Animator::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+    /// use ponko::prelude::*;
+    /// # let s = ponko::anim::Skeleton::new(vec![]);
+    /// # let state = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &s, vec![])));
+    /// let a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![], vec![state], vec![], 0));
     /// assert_eq!(a.layer_count(), 0);
     /// ```
     pub fn layer_count(&self) -> usize {
@@ -801,10 +801,10 @@ impl Animator {
     /// Ordinary crossfades blend deltas using the end-of-update fade weight;
     /// interrupted fades blend from zero velocity (their pose source is frozen).
     /// ```
-    /// use ponko::*;
-    /// # let s = Skeleton::new(vec![]);
-    /// # let state = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &s, vec![])));
-    /// # let mut a = Animator::new(AnimationGraph::new(vec![], vec![state], vec![], 0));
+    /// use ponko::prelude::*;
+    /// # let s = ponko::anim::Skeleton::new(vec![]);
+    /// # let state = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &s, vec![])));
+    /// # let mut a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![], vec![state], vec![], 0));
     /// a.extract_root_motion = true;
     /// assert_eq!(a.root_motion().position, Vec3::ZERO);
     /// ```
@@ -814,10 +814,10 @@ impl Animator {
     /// The current value of a parameter by index, or `None` for an invalid
     /// index. Lets callers check an index and kind before a setter that panics.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// let a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Bool(true)], vec![s], vec![], 0));
-    /// assert!(matches!(a.parameter(0), Some(AnimationParameter::Bool(true))));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// let a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![ponko::anim::AnimationParameter::Bool(true)], vec![s], vec![], 0));
+    /// assert!(matches!(a.parameter(0), Some(ponko::anim::AnimationParameter::Bool(true))));
     /// assert!(a.parameter(1).is_none());
     /// ```
     pub fn parameter(&self, index: usize) -> Option<AnimationParameter> {
@@ -826,9 +826,9 @@ impl Animator {
     /// Number of states in the graph, so a state index can be checked before
     /// [`crossfade`](Self::crossfade) or [`play`](Self::play) panic on it.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// let a = Animator::new(AnimationGraph::new(vec![], vec![s], vec![], 0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// let a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![], vec![s], vec![], 0));
     /// assert_eq!(a.state_count(), 1);
     /// ```
     pub fn state_count(&self) -> usize {
@@ -836,9 +836,9 @@ impl Animator {
     }
     /// Set a float by index. Panics on a wrong type/index or non-finite value.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// # let mut a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Float(0.)],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// # let mut a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![ponko::anim::AnimationParameter::Float(0.)],vec![s],vec![],0));
     /// a.set_float(0, 1.5);
     /// ```
     pub fn set_float(&mut self, parameter: usize, value: f32) {
@@ -850,9 +850,9 @@ impl Animator {
     }
     /// Set a persistent bool by index; panics on a wrong type/index.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// # let mut a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Bool(false)],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// # let mut a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![ponko::anim::AnimationParameter::Bool(false)],vec![s],vec![],0));
     /// a.set_bool(0, true);
     /// ```
     pub fn set_bool(&mut self, parameter: usize, value: bool) {
@@ -863,9 +863,9 @@ impl Animator {
     }
     /// Set or reset a trigger by index; panics on a wrong type/index.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// # let mut a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Trigger(false)],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// # let mut a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![ponko::anim::AnimationParameter::Trigger(false)],vec![s],vec![],0));
     /// a.set_trigger(0, true);
     /// ```
     pub fn set_trigger(&mut self, parameter: usize, value: bool) {
@@ -876,9 +876,9 @@ impl Animator {
     }
     /// Destination state index, including while crossfading.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// # let a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// # let a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![],vec![s],vec![],0));
     /// assert_eq!(a.state(), 0);
     /// ```
     pub fn state(&self) -> usize {
@@ -886,9 +886,9 @@ impl Animator {
     }
     /// Unwrapped normalized destination clock (clamped for non-looping states).
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// # let a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// # let a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![],vec![s],vec![],0));
     /// assert_eq!(a.normalized_time(), 0.0);
     /// ```
     pub fn normalized_time(&self) -> f32 {
@@ -897,9 +897,9 @@ impl Animator {
     }
     /// Destination weight; one when no crossfade is active.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// # let a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// # let a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![],vec![s],vec![],0));
     /// assert_eq!(a.fade_weight(), 1.0);
     /// ```
     pub fn fade_weight(&self) -> f32 {
@@ -909,9 +909,9 @@ impl Animator {
     /// Multiple commands before an update use the last command. Panics for
     /// invalid state, negative/non-finite duration or normalized offset.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// # let mut a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![],vec![s],vec![],0));
     /// a.crossfade(0, 0.12, 0.0);
     /// ```
     pub fn crossfade(&mut self, state: usize, duration: f32, normalized_offset: f32) {
@@ -927,9 +927,9 @@ impl Animator {
     }
     /// Queue an immediate state change at a normalized time; applied on update.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// # let mut a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![],vec![s],vec![],0));
     /// a.play(0, 0.5);
     /// ```
     pub fn play(&mut self, state: usize, normalized_time: f32) {
@@ -938,9 +938,9 @@ impl Animator {
     /// Takes the oldest unread event, if any (for reading events one at a
     /// time, as the C API does; [`drain_events`](Self::drain_events) takes all).
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// # let mut a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![],vec![s],vec![],0));
     /// while let Some(name) = a.next_event() { println!("{name}"); }
     /// ```
     pub fn next_event(&mut self) -> Option<Arc<str>> {
@@ -948,9 +948,9 @@ impl Animator {
     }
     /// Drain retained event names, preserving the buffer's allocation.
     /// ```
-    /// # use ponko::*;
-    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
-    /// # let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// # let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &ponko::anim::Skeleton::new(vec![]), vec![])));
+    /// # let mut a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![],vec![s],vec![],0));
     /// for name in a.drain_events() { println!("{name}"); }
     /// ```
     pub fn drain_events(&mut self) -> impl Iterator<Item = Arc<str>> + '_ {
@@ -977,10 +977,10 @@ impl Animator {
     /// transitions but emit no events. Warm up once with each skeleton layout
     /// before allocation-sensitive gameplay (clip name binding also warms up).
     /// ```
-    /// # use ponko::*;
-    /// let mut skeleton = Skeleton::new(vec![]);
-    /// let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &skeleton, vec![])));
-    /// let mut a = Animator::new(AnimationGraph::new(vec![],vec![s],vec![],0));
+    /// # use ponko::prelude::*;
+    /// let mut skeleton = ponko::anim::Skeleton::new(vec![]);
+    /// let s = ponko::anim::AnimationState::new(ponko::anim::Motion::Clip(ponko::anim::AnimationClip::new("idle", &skeleton, vec![])));
+    /// let mut a = ponko::anim::Animator::new(ponko::anim::AnimationGraph::new(vec![],vec![s],vec![],0));
     /// a.update(0.016, &mut skeleton);
     /// ```
     pub fn update(&mut self, dt: f32, skeleton: &mut Skeleton) {
@@ -1151,7 +1151,12 @@ impl Animator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AnimationTrack, Interpolation, Joint, JointAnimation, Transform3D, Vec4};
+    use crate::Vec4;
+    use crate::anim::AnimationTrack;
+    use crate::anim::Interpolation;
+    use crate::anim::Joint;
+    use crate::anim::JointAnimation;
+    use crate::d3::Transform as Transform3D;
     fn skeleton() -> Skeleton {
         Skeleton::new(vec![Joint {
             name: "root".into(),

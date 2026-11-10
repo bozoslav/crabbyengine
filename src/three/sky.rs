@@ -6,7 +6,8 @@
 
 use glam::Vec3;
 
-use crate::{Color, Lighting};
+use crate::Color;
+use crate::render::Lighting;
 
 use super::linear;
 
@@ -19,10 +20,10 @@ use super::linear;
 /// `ground_color`. One world unit is taken to be a meter.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// // Late evening, a little hazy, with fog lying in the valleys.
-/// ctx.lighting.sun_direction = Sky::sun_direction_at(18.5);
+/// ctx.lighting.sun_direction = ponko::render::Sky::sun_direction_at(18.5);
 /// ctx.sky.haze = 3.0;
 /// ctx.sky.fog_density = 0.01;
 /// ctx.sky.fog_height = 5.0;
@@ -75,7 +76,7 @@ pub struct Sky {
     /// shadow it stops glowing, so beams of sunlight show between them.
     /// It needs fog, a `fog_sun_glow` and the sun's shadows, and reaches
     /// as far as they do. It costs 16 shadow map taps per pixel, and it is
-    /// grainy without [`AntiAliasing::Taa`](crate::AntiAliasing::Taa) in
+    /// grainy without [`AntiAliasing::Taa`](crate::render::AntiAliasing::Taa) in
     /// `ctx.post`, which smooths it out.
     pub light_shafts: f32,
 }
@@ -107,9 +108,9 @@ impl Sky {
     /// noon (60° up, to the south, -Z) and sets in the west at 18.
     ///
     /// ```
-    /// # use ponko::*;
-    /// assert!(Sky::sun_direction_at(12.0).y < -0.8, "noon: from high up");
-    /// assert!(Sky::sun_direction_at(0.0).y > 0.0, "midnight: from below the ground");
+    /// # use ponko::prelude::*;
+    /// assert!(ponko::render::Sky::sun_direction_at(12.0).y < -0.8, "noon: from high up");
+    /// assert!(ponko::render::Sky::sun_direction_at(0.0).y > 0.0, "midnight: from below the ground");
     /// ```
     pub fn sun_direction_at(hour: f32) -> Vec3 {
         let angle = (hour - 6.0) / 12.0 * std::f32::consts::PI;

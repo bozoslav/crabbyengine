@@ -12,10 +12,10 @@ use super::PeerId;
 /// than half the range (32768) apart are ambiguous; that exact distance
 /// yields `i16::MIN`.
 /// ```
-/// use ponko::seq_diff;
-/// assert_eq!(seq_diff(5, 3), 2);
-/// assert_eq!(seq_diff(3, 5), -2);
-/// assert_eq!(seq_diff(1, 65535), 2); // wrapped
+/// use ponko::net::seq_diff;
+/// assert_eq!(ponko::net::seq_diff(5, 3), 2);
+/// assert_eq!(ponko::net::seq_diff(3, 5), -2);
+/// assert_eq!(ponko::net::seq_diff(1, 65535), 2); // wrapped
 /// ```
 pub const fn seq_diff(a: u16, b: u16) -> i16 {
     a.wrapping_sub(b) as i16
@@ -24,12 +24,12 @@ pub const fn seq_diff(a: u16, b: u16) -> i16 {
 /// Is `a` newer than `b`, with 16-bit wrap-around? Equal numbers are not
 /// newer. Exactly half the range apart (32768) is ambiguous: neither is newer.
 /// ```
-/// use ponko::seq_newer;
-/// assert!(seq_newer(2, 1));
-/// assert!(!seq_newer(1, 2));
-/// assert!(!seq_newer(7, 7));
-/// assert!(seq_newer(0, 65535)); // 0 follows 65535
-/// assert!(!seq_newer(65535, 0));
+/// use ponko::net::seq_newer;
+/// assert!(ponko::net::seq_newer(2, 1));
+/// assert!(!ponko::net::seq_newer(1, 2));
+/// assert!(!ponko::net::seq_newer(7, 7));
+/// assert!(ponko::net::seq_newer(0, 65535)); // 0 follows 65535
+/// assert!(!ponko::net::seq_newer(65535, 0));
 /// ```
 pub const fn seq_newer(a: u16, b: u16) -> bool {
     seq_diff(a, b) > 0
@@ -40,11 +40,11 @@ pub const fn seq_newer(a: u16, b: u16) -> bool {
 /// A higher epoch always beats a lower one; within an epoch the newer `seq`
 /// wins.
 /// ```
-/// use ponko::UpdateStamp;
-/// let old = UpdateStamp { epoch: 1, seq: 65535 };
-/// assert!(UpdateStamp { epoch: 1, seq: 0 }.newer_than(old)); // wrapped
-/// assert!(UpdateStamp { epoch: 2, seq: 0 }.newer_than(old)); // handoff beats any seq
-/// assert!(!UpdateStamp { epoch: 0, seq: 99 }.newer_than(old));
+/// use ponko::net::UpdateStamp;
+/// let old = ponko::net::UpdateStamp { epoch: 1, seq: 65535 };
+/// assert!(ponko::net::UpdateStamp { epoch: 1, seq: 0 }.newer_than(old)); // wrapped
+/// assert!(ponko::net::UpdateStamp { epoch: 2, seq: 0 }.newer_than(old)); // handoff beats any seq
+/// assert!(!ponko::net::UpdateStamp { epoch: 0, seq: 99 }.newer_than(old));
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct UpdateStamp {
@@ -57,8 +57,8 @@ impl UpdateStamp {
     /// Is this strictly newer than `other`? Epochs compare with wrap-around
     /// like sequence numbers.
     /// ```
-    /// use ponko::UpdateStamp;
-    /// let a = UpdateStamp { epoch: 0, seq: 10 };
+    /// use ponko::net::UpdateStamp;
+    /// let a = ponko::net::UpdateStamp { epoch: 0, seq: 10 };
     /// assert!(!a.newer_than(a));
     /// ```
     pub const fn newer_than(self, other: UpdateStamp) -> bool {
@@ -81,13 +81,14 @@ impl UpdateStamp {
 /// after a timeout.
 ///
 /// ```
-/// use ponko::{LatestWins, UpdateStamp};
-/// let mut filter = LatestWins::new();
-/// assert!(filter.accept(7u64, UpdateStamp { epoch: 0, seq: 1 }));
-/// assert!(filter.accept(7, UpdateStamp { epoch: 0, seq: 3 }));
-/// assert!(!filter.accept(7, UpdateStamp { epoch: 0, seq: 2 })); // late: dropped
-/// assert!(!filter.accept(7, UpdateStamp { epoch: 0, seq: 3 })); // duplicate
-/// assert!(filter.accept(8, UpdateStamp { epoch: 0, seq: 2 })); // other entity
+/// use ponko::net::LatestWins;
+/// use ponko::net::UpdateStamp;
+/// let mut filter = ponko::net::LatestWins::new();
+/// assert!(filter.accept(7u64, ponko::net::UpdateStamp { epoch: 0, seq: 1 }));
+/// assert!(filter.accept(7, ponko::net::UpdateStamp { epoch: 0, seq: 3 }));
+/// assert!(!filter.accept(7, ponko::net::UpdateStamp { epoch: 0, seq: 2 })); // late: dropped
+/// assert!(!filter.accept(7, ponko::net::UpdateStamp { epoch: 0, seq: 3 })); // duplicate
+/// assert!(filter.accept(8, ponko::net::UpdateStamp { epoch: 0, seq: 2 })); // other entity
 /// ```
 #[derive(Clone, Debug)]
 pub struct LatestWins<K: Hash + Eq> {
@@ -101,7 +102,7 @@ impl<K: Hash + Eq> Default for LatestWins<K> {
 impl<K: Hash + Eq> LatestWins<K> {
     /// An empty filter.
     /// ```
-    /// let f = ponko::LatestWins::<u32>::new();
+    /// let f = ponko::net::LatestWins::<u32>::new();
     /// assert!(f.is_empty());
     /// ```
     pub fn new() -> Self {
@@ -112,10 +113,11 @@ impl<K: Hash + Eq> LatestWins<K> {
     /// last accepted one (or the first for this key); false if the update
     /// should be dropped.
     /// ```
-    /// use ponko::{LatestWins, UpdateStamp};
-    /// let mut f = LatestWins::new();
-    /// assert!(f.accept("crate", UpdateStamp::default()));
-    /// assert!(!f.accept("crate", UpdateStamp::default()));
+    /// use ponko::net::LatestWins;
+    /// use ponko::net::UpdateStamp;
+    /// let mut f = ponko::net::LatestWins::new();
+    /// assert!(f.accept("crate", ponko::net::UpdateStamp::default()));
+    /// assert!(!f.accept("crate", ponko::net::UpdateStamp::default()));
     /// ```
     pub fn accept(&mut self, key: K, stamp: UpdateStamp) -> bool {
         match self.latest.get_mut(&key) {
@@ -133,7 +135,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Like [`accept`](Self::accept) for streams without epochs (epoch 0).
     /// ```
-    /// let mut f = ponko::LatestWins::new();
+    /// let mut f = ponko::net::LatestWins::new();
     /// assert!(f.accept_seq(1u32, 10));
     /// assert!(!f.accept_seq(1, 9));
     /// ```
@@ -143,7 +145,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// The newest stamp accepted for `key`.
     /// ```
-    /// let mut f = ponko::LatestWins::new();
+    /// let mut f = ponko::net::LatestWins::new();
     /// f.accept_seq(1u32, 4);
     /// assert_eq!(f.latest(&1).map(|s| s.seq), Some(4));
     /// ```
@@ -153,7 +155,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Forgets `key`: its next update is accepted whatever its stamp.
     /// ```
-    /// let mut f = ponko::LatestWins::new();
+    /// let mut f = ponko::net::LatestWins::new();
     /// f.accept_seq(1u32, 4);
     /// f.forget(&1);
     /// assert!(f.accept_seq(1, 2));
@@ -164,7 +166,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Forgets every key.
     /// ```
-    /// let mut f = ponko::LatestWins::new();
+    /// let mut f = ponko::net::LatestWins::new();
     /// f.accept_seq(1u32, 4);
     /// f.clear();
     /// assert!(f.is_empty());
@@ -175,7 +177,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Keeps only the keys for which `keep` is true.
     /// ```
-    /// let mut f = ponko::LatestWins::new();
+    /// let mut f = ponko::net::LatestWins::new();
     /// f.accept_seq(1u32, 4);
     /// f.accept_seq(2, 4);
     /// f.retain(|k| *k == 2);
@@ -187,7 +189,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Number of keys remembered.
     /// ```
-    /// assert_eq!(ponko::LatestWins::<u8>::new().len(), 0);
+    /// assert_eq!(ponko::net::LatestWins::<u8>::new().len(), 0);
     /// ```
     pub fn len(&self) -> usize {
         self.latest.len()
@@ -195,7 +197,7 @@ impl<K: Hash + Eq> LatestWins<K> {
 
     /// Whether no keys are remembered.
     /// ```
-    /// assert!(ponko::LatestWins::<u8>::new().is_empty());
+    /// assert!(ponko::net::LatestWins::<u8>::new().is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
         self.latest.is_empty()
@@ -204,8 +206,8 @@ impl<K: Hash + Eq> LatestWins<K> {
 
 /// What to do with a state update, judged against an [`Authority`].
 /// ```
-/// use ponko::AuthorityCheck;
-/// assert_ne!(AuthorityCheck::Accept, AuthorityCheck::Stale);
+/// use ponko::net::AuthorityCheck;
+/// assert_ne!(ponko::net::AuthorityCheck::Accept, ponko::net::AuthorityCheck::Stale);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AuthorityCheck {
@@ -237,16 +239,18 @@ pub enum AuthorityCheck {
 /// every peer converges on the same owner.
 ///
 /// ```
-/// use ponko::{Authority, AuthorityCheck, PeerId};
-/// let host = PeerId::HOST;
-/// let guest = PeerId::from_bits(1);
-/// let mut car = Authority::new(host);
-/// assert_eq!(car.check(host, 0), AuthorityCheck::Accept);
+/// use ponko::net::Authority;
+/// use ponko::net::AuthorityCheck;
+/// use ponko::net::PeerId;
+/// let host = ponko::net::PeerId::HOST;
+/// let guest = ponko::net::PeerId::from_bits(1);
+/// let mut car = ponko::net::Authority::new(host);
+/// assert_eq!(car.check(host, 0), ponko::net::AuthorityCheck::Accept);
 ///
 /// let epoch = car.handoff(guest); // the guest takes the wheel
 /// assert_eq!(epoch, 1);
-/// assert_eq!(car.check(host, 0), AuthorityCheck::Stale); // late packet from before
-/// assert_eq!(car.check(guest, 1), AuthorityCheck::Accept);
+/// assert_eq!(car.check(host, 0), ponko::net::AuthorityCheck::Stale); // late packet from before
+/// assert_eq!(car.check(guest, 1), ponko::net::AuthorityCheck::Accept);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Authority {
@@ -256,7 +260,7 @@ pub struct Authority {
 impl Authority {
     /// Owned by `owner`, epoch 0.
     /// ```
-    /// let a = ponko::Authority::new(ponko::PeerId::HOST);
+    /// let a = ponko::net::Authority::new(ponko::net::PeerId::HOST);
     /// assert_eq!(a.epoch(), 0);
     /// ```
     pub const fn new(owner: PeerId) -> Self {
@@ -265,7 +269,7 @@ impl Authority {
 
     /// Owned by `owner` under a known `epoch` (for a late joiner).
     /// ```
-    /// let a = ponko::Authority::with_epoch(ponko::PeerId::HOST, 9);
+    /// let a = ponko::net::Authority::with_epoch(ponko::net::PeerId::HOST, 9);
     /// assert_eq!(a.epoch(), 9);
     /// ```
     pub const fn with_epoch(owner: PeerId, epoch: u16) -> Self {
@@ -274,8 +278,8 @@ impl Authority {
 
     /// The peer whose updates are accepted.
     /// ```
-    /// let a = ponko::Authority::new(ponko::PeerId::HOST);
-    /// assert_eq!(a.owner(), ponko::PeerId::HOST);
+    /// let a = ponko::net::Authority::new(ponko::net::PeerId::HOST);
+    /// assert_eq!(a.owner(), ponko::net::PeerId::HOST);
     /// ```
     pub const fn owner(&self) -> PeerId {
         self.owner
@@ -283,7 +287,7 @@ impl Authority {
 
     /// Counts handoffs (wrapping).
     /// ```
-    /// assert_eq!(ponko::Authority::new(ponko::PeerId::HOST).epoch(), 0);
+    /// assert_eq!(ponko::net::Authority::new(ponko::net::PeerId::HOST).epoch(), 0);
     /// ```
     pub const fn epoch(&self) -> u16 {
         self.epoch
@@ -292,10 +296,11 @@ impl Authority {
     /// Gives the entity to `owner` and returns the new epoch to announce.
     /// Handing it to the current owner still bumps the epoch.
     /// ```
-    /// use ponko::{Authority, PeerId};
-    /// let mut a = Authority::new(PeerId::HOST);
-    /// assert_eq!(a.handoff(PeerId::from_bits(2)), 1);
-    /// assert_eq!(a.owner(), PeerId::from_bits(2));
+    /// use ponko::net::Authority;
+    /// use ponko::net::PeerId;
+    /// let mut a = ponko::net::Authority::new(ponko::net::PeerId::HOST);
+    /// assert_eq!(a.handoff(ponko::net::PeerId::from_bits(2)), 1);
+    /// assert_eq!(a.owner(), ponko::net::PeerId::from_bits(2));
     /// ```
     pub fn handoff(&mut self, owner: PeerId) -> u16 {
         self.epoch = self.epoch.wrapping_add(1);
@@ -307,11 +312,12 @@ impl Authority {
     /// changed the record. Older epochs are ignored (a late announcement); the
     /// same epoch with a different owner is a race, won by the lower owner id.
     /// ```
-    /// use ponko::{Authority, PeerId};
-    /// let (a, b) = (PeerId::from_bits(1), PeerId::from_bits(2));
-    /// let mut x = Authority::new(PeerId::HOST);
+    /// use ponko::net::Authority;
+    /// use ponko::net::PeerId;
+    /// let (a, b) = (ponko::net::PeerId::from_bits(1), ponko::net::PeerId::from_bits(2));
+    /// let mut x = ponko::net::Authority::new(ponko::net::PeerId::HOST);
     /// assert!(x.adopt(b, 1));
-    /// assert!(!x.adopt(PeerId::HOST, 0)); // older: ignored
+    /// assert!(!x.adopt(ponko::net::PeerId::HOST, 0)); // older: ignored
     /// assert!(x.adopt(a, 1)); // simultaneous handoff: lower id wins
     /// assert!(!x.adopt(b, 1));
     /// assert_eq!(x.owner(), a);
@@ -331,10 +337,12 @@ impl Authority {
 
     /// Judges an update from `from` stamped with `epoch`.
     /// ```
-    /// use ponko::{Authority, AuthorityCheck, PeerId};
-    /// let a = Authority::new(PeerId::HOST);
-    /// assert_eq!(a.check(PeerId::from_bits(3), 0), AuthorityCheck::WrongOwner);
-    /// assert_eq!(a.check(PeerId::HOST, 1), AuthorityCheck::Ahead);
+    /// use ponko::net::Authority;
+    /// use ponko::net::AuthorityCheck;
+    /// use ponko::net::PeerId;
+    /// let a = ponko::net::Authority::new(ponko::net::PeerId::HOST);
+    /// assert_eq!(a.check(ponko::net::PeerId::from_bits(3), 0), ponko::net::AuthorityCheck::WrongOwner);
+    /// assert_eq!(a.check(ponko::net::PeerId::HOST, 1), ponko::net::AuthorityCheck::Ahead);
     /// ```
     pub fn check(&self, from: PeerId, epoch: u16) -> AuthorityCheck {
         if epoch == self.epoch {

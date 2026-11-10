@@ -55,8 +55,8 @@ pub use crate::sheet::animate_sprites;
 pub use crate::spatial::rebuild_spatial_grid;
 pub use crate::tilemap::draw_tilemaps;
 
-/// Advances every [`Animator`](crate::Animator) that isn't in manual mode
-/// by this frame's time and poses its [`Skeleton`](crate::Skeleton); with
+/// Advances every [`Animator`](crate::anim::Animator) that isn't in manual mode
+/// by this frame's time and poses its [`Skeleton`](crate::anim::Skeleton); with
 /// `physics3d`, ragdolls pose theirs first. The game runs it at the end of
 /// [`Phase::Animate`](crate::Phase::Animate)
 /// ([`Systems::UPDATE_ANIMATORS`](crate::Systems::UPDATE_ANIMATORS)), so late
@@ -66,8 +66,8 @@ pub fn update_animators(ctx: &mut Ctx) {
     ctx.update_animators();
 }
 
-/// Advances every [`ParticleEmitter3D`](crate::ParticleEmitter3D) and
-/// [`Trail3D`](crate::Trail3D) by this frame's time. The game runs it at
+/// Advances every [`ParticleEmitter3D`](crate::d3::ParticleEmitter) and
+/// [`Trail3D`](crate::d3::Trail) by this frame's time. The game runs it at
 /// the end of [`Phase::Animate`](crate::Phase::Animate), after the animators
 /// ([`Systems::UPDATE_PARTICLES`](crate::Systems::UPDATE_PARTICLES)).
 #[cfg(feature = "3d")]
@@ -75,7 +75,7 @@ pub fn update_particles(ctx: &mut Ctx) {
     ctx.update_particles();
 }
 
-/// Moves every positional sound ([`AudioSource3D`](crate::AudioSource3D))
+/// Moves every positional sound ([`AudioSource3D`](crate::d3::AudioSource))
 /// to this frame's listener and emitters. The game runs it at the end of
 /// [`Phase::Draw`](crate::Phase::Draw), after the drawing systems
 /// ([`Systems::UPDATE_AUDIO3D`](crate::Systems::UPDATE_AUDIO3D)), so sound
@@ -85,39 +85,40 @@ pub fn update_audio3d(ctx: &mut Ctx) {
     crate::audio::update_audio3d(ctx);
 }
 
-/// The old crate-root spellings of the built-in systems, re-exported there
-/// until the next major release. Each forwards to the function above and
-/// counts as the same built-in (same [`Systems`](crate::Systems) id).
+/// The old crate-root spellings of the built-in systems, kept there until
+/// the next major release. They re-export the functions above (the same
+/// items, as before the move), so `use ponko::*;` combines with
+/// `use ponko::systems::*;` and with the owning modules' globs. rustc does
+/// not warn through a re-export; the naming chapter lists them.
 #[doc(hidden)]
 pub mod at_root {
-    use crate::Ctx;
-
-    macro_rules! moved {
-        ($($(#[$cfg:meta])? $name:ident => $note:literal;)*) => {$(
-            $(#[$cfg])?
-            #[doc = concat!("Moved to [`ponko::systems::", stringify!($name), "`](crate::systems::", stringify!($name), ").")]
-            #[deprecated(note = $note)]
-            pub fn $name(ctx: &mut Ctx) {
-                super::$name(ctx)
-            }
-        )*};
-    }
-
-    moved! {
-        follow_attachments => "use `ponko::systems::follow_attachments`, or `Systems::FOLLOW_ATTACHMENTS` to remove it";
-        draw_sprites => "use `ponko::systems::draw_sprites`, or `Systems::DRAW_SPRITES` to remove it";
-        animate_sprites => "use `ponko::systems::animate_sprites`, or `Systems::ANIMATE_SPRITES` to remove it";
-        draw_tilemaps => "use `ponko::systems::draw_tilemaps`, or `Systems::DRAW_TILEMAPS` to remove it";
-        rebuild_spatial_grid => "use `ponko::systems::rebuild_spatial_grid`, or `Systems::REBUILD_SPATIAL_GRID` to remove it";
-        #[cfg(feature = "physics")]
-        step_physics => "use `ponko::systems::step_physics`, or `Systems::PHYSICS` to remove it";
-        #[cfg(feature = "physics3d")]
-        step_physics3d => "use `ponko::systems::step_physics3d`, or `Systems::PHYSICS3D` to remove it";
-        #[cfg(feature = "physics3d")]
-        interpolate_physics3d => "use `ponko::systems::interpolate_physics3d`, or `Systems::INTERPOLATE_PHYSICS3D` to remove it";
-        #[cfg(feature = "navmesh")]
-        step_navmesh3d => "use `ponko::systems::step_navmesh3d`, or `Systems::STEP_NAVMESH3D` to remove it";
-        #[cfg(feature = "3d")]
-        apply_net_poses => "use `ponko::systems::apply_net_poses`";
-    }
+    #[deprecated(note = "use `ponko::systems::animate_sprites`, or `Systems::ANIMATE_SPRITES` to remove it")]
+    pub use super::animate_sprites;
+    #[cfg(feature = "3d")]
+    #[deprecated(note = "use `ponko::systems::apply_net_poses`")]
+    pub use super::apply_net_poses;
+    #[deprecated(note = "use `ponko::systems::draw_sprites`, or `Systems::DRAW_SPRITES` to remove it")]
+    pub use super::draw_sprites;
+    #[deprecated(note = "use `ponko::systems::draw_tilemaps`, or `Systems::DRAW_TILEMAPS` to remove it")]
+    pub use super::draw_tilemaps;
+    #[deprecated(note = "use `ponko::systems::follow_attachments`, or `Systems::FOLLOW_ATTACHMENTS` to remove it")]
+    pub use super::follow_attachments;
+    #[cfg(feature = "physics3d")]
+    #[deprecated(
+        note = "use `ponko::systems::interpolate_physics3d`, or `Systems::INTERPOLATE_PHYSICS3D` to remove it"
+    )]
+    pub use super::interpolate_physics3d;
+    #[deprecated(
+        note = "use `ponko::systems::rebuild_spatial_grid`, or `Systems::REBUILD_SPATIAL_GRID` to remove it"
+    )]
+    pub use super::rebuild_spatial_grid;
+    #[cfg(feature = "navmesh")]
+    #[deprecated(note = "use `ponko::systems::step_navmesh3d`, or `Systems::STEP_NAVMESH3D` to remove it")]
+    pub use super::step_navmesh3d;
+    #[cfg(feature = "physics")]
+    #[deprecated(note = "use `ponko::systems::step_physics`, or `Systems::PHYSICS` to remove it")]
+    pub use super::step_physics;
+    #[cfg(feature = "physics3d")]
+    #[deprecated(note = "use `ponko::systems::step_physics3d`, or `Systems::PHYSICS3D` to remove it")]
+    pub use super::step_physics3d;
 }

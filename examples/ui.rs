@@ -7,7 +7,9 @@
 //!   clicking the UI).
 //! - Buttons: follow the orbiting crab, reset the camera.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::*;
+use ponko::prelude::*;
 
 struct Scene {
     crab: Texture,
@@ -114,7 +116,7 @@ fn plop(ctx: &mut Ctx) -> Sound {
 
 fn main() {
     Game::new("Ponko: camera, shapes, text, UI", 1280, 720)
-        .system(camera_controls)
+        .system(ponko::camera::camera_controls)
         .system(scene)
         .system(hud)
         .setup(|ctx| {

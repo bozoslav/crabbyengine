@@ -5,15 +5,15 @@ use super::Material;
 use crate::Texture;
 use crate::gfx::Graphics;
 
-/// A screen effect shader, made with [`Graphics::load_effect`](crate::Graphics::load_effect) or
-/// [`Graphics::create_effect`](crate::Graphics::create_effect); a cheap handle. Run it by adding a
+/// A screen effect shader, made with [`Graphics::load_effect`](crate::gfx::Graphics::load_effect) or
+/// [`Graphics::create_effect`](crate::gfx::Graphics::create_effect); a cheap handle. Run it by adding a
 /// [`ScreenEffect`] to [`Ctx::effects`](crate::Ctx::effects).
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let underwater = ctx.gfx.load_effect("effects/underwater.wgsl");
-/// ctx.effects.push(ScreenEffect::new(underwater));
+/// ctx.effects.push(ponko::render::ScreenEffect::new(underwater));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -43,10 +43,10 @@ impl Effect {
 /// (`material.custom[0]` to `[3]`, `custom_texture0`, ...).
 ///
 /// ```no_run
-/// # use ponko::*;
-/// # fn f(ctx: &mut Ctx, tint: Effect) {
-/// let strength = ctx.gfx.create_material(MaterialDesc { custom: [vec4(0.5, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO], ..Default::default() });
-/// ctx.effects.push(ScreenEffect::new(tint).with_material(strength));
+/// # use ponko::prelude::*;
+/// # fn f(ctx: &mut Ctx, tint: ponko::render::Effect) {
+/// let strength = ctx.gfx.create_material(ponko::render::MaterialDesc { custom: [vec4(0.5, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO], ..Default::default() });
+/// ctx.effects.push(ponko::render::ScreenEffect::new(tint).with_material(strength));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,9 +62,9 @@ impl ScreenEffect {
     /// Runs `effect` with no values of its own.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, e: Effect) {
-    /// ctx.effects.push(ScreenEffect::new(e));
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, e: ponko::render::Effect) {
+    /// ctx.effects.push(ponko::render::ScreenEffect::new(e));
     /// # }
     /// ```
     #[must_use]
@@ -73,12 +73,12 @@ impl ScreenEffect {
     }
 
     /// The same, reading its values and textures from `material`; change
-    /// them with [`Graphics::update_material`](crate::Graphics::update_material) to animate the effect.
+    /// them with [`Graphics::update_material`](crate::gfx::Graphics::update_material) to animate the effect.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(e: Effect, m: Material) {
-    /// let fx = ScreenEffect::new(e).with_material(m);
+    /// # use ponko::prelude::*;
+    /// # fn f(e: ponko::render::Effect, m: ponko::render::Material) {
+    /// let fx = ponko::render::ScreenEffect::new(e).with_material(m);
     /// # }
     /// ```
     #[must_use]
@@ -108,7 +108,7 @@ impl ScreenEffect {
 /// - materials, target cameras and compute passes, which run earlier, see the
 ///   one from the frame before (all 0 at first).
 ///
-/// **Resources.** `target` must be made by [`Graphics::create_render_target`](crate::Graphics::create_render_target);
+/// **Resources.** `target` must be made by [`Graphics::create_render_target`](crate::gfx::Graphics::create_render_target);
 /// other textures are skipped. Its whole contents are replaced each frame. The
 /// game owns it and keeps it until it stops using it; the engine only writes
 /// it. An entry whose material samples its own `target` can't run (one pass
@@ -116,19 +116,19 @@ impl ScreenEffect {
 /// Without a 3D scene nothing runs.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// // A quarter-size map of how far each pixel is, for a later effect to blur.
 /// let far = ctx.gfx.create_effect("far", "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(p.distance); }");
 /// let depth = ctx.gfx.create_render_target(320, 180);
-/// ctx.target_effects.push(TargetEffect::new(far, depth));
+/// ctx.target_effects.push(ponko::render::TargetEffect::new(far, depth));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TargetEffect {
     /// The shader, made like a screen effect's.
     pub effect: Effect,
-    /// What it writes: made by [`Graphics::create_render_target`](crate::Graphics::create_render_target).
+    /// What it writes: made by [`Graphics::create_render_target`](crate::gfx::Graphics::create_render_target).
     pub target: Texture,
     /// Where its values and textures come from. `None`: the default
     /// material (all custom values 0).
@@ -139,9 +139,9 @@ impl TargetEffect {
     /// Runs `effect` into `target` with no values of its own.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, e: Effect, t: Texture) {
-    /// ctx.target_effects.push(TargetEffect::new(e, t));
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, e: ponko::render::Effect, t: Texture) {
+    /// ctx.target_effects.push(ponko::render::TargetEffect::new(e, t));
     /// # }
     /// ```
     #[must_use]
@@ -156,9 +156,9 @@ impl TargetEffect {
     /// The same, reading its values and textures from `material`.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(e: Effect, t: Texture, m: Material) {
-    /// let pass = TargetEffect::new(e, t).with_material(m);
+    /// # use ponko::prelude::*;
+    /// # fn f(e: ponko::render::Effect, t: Texture, m: ponko::render::Material) {
+    /// let pass = ponko::render::TargetEffect::new(e, t).with_material(m);
     /// # }
     /// ```
     #[must_use]
@@ -182,10 +182,10 @@ impl Graphics {
     /// file again returns the same effect.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let haze = ctx.gfx.load_effect("effects/haze.wgsl");
-    /// ctx.effects.push(ScreenEffect::new(haze));
+    /// ctx.effects.push(ponko::render::ScreenEffect::new(haze));
     /// # }
     /// ```
     ///
@@ -194,12 +194,12 @@ impl Graphics {
     /// If the file can't be read or doesn't compile (the message says where).
     /// With hot reload on, a file that doesn't compile doesn't panic: it
     /// gets a stand-in and stays watched until a saved fix compiles
-    /// ([`ShaderOutcome::Failed`](crate::ShaderOutcome::Failed), [`Graphics::shader_status`](crate::Graphics::shader_status)).
+    /// ([`ShaderOutcome::Failed`](crate::render::ShaderOutcome::Failed), [`Graphics::shader_status`](crate::gfx::Graphics::shader_status)).
     pub fn load_effect(&mut self, path: &str) -> Effect {
         self.try_load_effect(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Graphics::load_effect`](crate::Graphics::load_effect) that returns errors (for the C API).
+    /// [`Graphics::load_effect`](crate::gfx::Graphics::load_effect) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_load_effect(&mut self, path: &str) -> Result<Effect, String> {
         let found = match self
@@ -234,16 +234,16 @@ impl Graphics {
     }
 
     /// Makes a screen effect shader from WGSL source; `name` is for error
-    /// messages. See [`Graphics::load_effect`](crate::Graphics::load_effect) for what it defines.
+    /// messages. See [`Graphics::load_effect`](crate::gfx::Graphics::load_effect) for what it defines.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let grey = ctx.gfx.create_effect("grey", "
     ///     fn effect(p: Pixel) -> vec3<f32> {
     ///         return vec3<f32>(dot(p.color, vec3<f32>(0.2126, 0.7152, 0.0722)));
     ///     }");
-    /// ctx.effects.push(ScreenEffect::new(grey));
+    /// ctx.effects.push(ponko::render::ScreenEffect::new(grey));
     /// # }
     /// ```
     ///
@@ -255,7 +255,7 @@ impl Graphics {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Graphics::create_effect`](crate::Graphics::create_effect) that returns errors (for the C API).
+    /// [`Graphics::create_effect`](crate::gfx::Graphics::create_effect) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_effect(&mut self, name: &str, source: &str) -> Result<Effect, String> {
         let id = self.assets3d.effects;

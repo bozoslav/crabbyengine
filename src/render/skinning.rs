@@ -527,7 +527,7 @@ mod tests {
             return;
         };
         // The compute pass binds six storage buffers (the renderer's own check).
-        if compute && !crate::render::render_test_support::needs(&device, crate::GpuFeature::GpuSkinning) {
+        if compute && !crate::render::render_test_support::needs(&device, crate::render::GpuFeature::GpuSkinning) {
             return;
         }
         let skinning = &mut super::Skinning::new(&device, compute);

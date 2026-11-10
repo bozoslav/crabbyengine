@@ -17,10 +17,10 @@ The game world lives in `ctx.world`, an entity-component system (ECS).
 struct Health(f32);
 struct Enemy;
 
-let e: Entity = ctx.world.spawn((Transform2D::at(vec2(10.0, 20.0)), Health(100.0), Enemy));
+let e: Entity = ctx.world.spawn((ponko::d2::Transform::at(vec2(10.0, 20.0)), Health(100.0), Enemy));
 
 // Many at once is much faster than a loop of `spawn`:
-ctx.world.spawn_batch((0..100_000).map(|i| (Transform2D::at(vec2(i as f32, 0.0)), Health(10.0))));
+ctx.world.spawn_batch((0..100_000).map(|i| (ponko::d2::Transform::at(vec2(i as f32, 0.0)), Health(10.0))));
 ```
 
 </div>
@@ -77,7 +77,7 @@ assert!(!ctx.world.is_alive(e));   // old handles stay dead, even if the slot is
 # struct Health(f32);
 # struct Enemy;
 ctx.world
-    .query::<(&mut Transform2D, &Health)>()
+    .query::<(&mut ponko::d2::Transform, &Health)>()
     .without::<Enemy>()
     .for_each(|(t, h)| t.position.y += h.0);
 ```
@@ -366,7 +366,7 @@ the loop: `&T` to read one, `&mut T` to change it, or a tuple of those.
 # ctx.world.insert_resource(Speed(2.0));
 # ctx.world.insert_resource(Score(0));
 ctx.world
-    .query::<&mut Transform2D>()
+    .query::<&mut ponko::d2::Transform>()
     .with_resources::<(&Speed, &mut Score)>()
     .for_each(|t, (speed, score)| {
         t.position.x += speed.0;

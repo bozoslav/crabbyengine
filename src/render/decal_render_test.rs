@@ -5,8 +5,14 @@
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
 use super::render_test_support::*;
+#[allow(unused_imports)]
+use crate::d3::{Decal as Decal3D, Transform as Transform3D};
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{Material, MaterialDesc, Mesh, MeshData, Model, ReceivesDecals};
+#[allow(unused_imports)]
+use crate::terrain::TextureKind;
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight, TextureArray, linear};
-use crate::*;
 
 /// Width and height of the offscreen frames (a row of pixels is 512 bytes, as copies need).
 const SIZE: u32 = 128;

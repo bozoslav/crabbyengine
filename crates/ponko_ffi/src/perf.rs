@@ -3,7 +3,9 @@
 
 use std::ffi::c_char;
 
-use ponko::{Budget, PerfReport, ProfileScope};
+use ponko::perf::Budget;
+use ponko::perf::PerfReport;
+use ponko::scope::ProfileScope;
 
 use crate::ctx::{ctx_access, out, text};
 use crate::{CrabbyCtx, CrabbyStatus, boundary, invalid, invalid_owned};
@@ -137,8 +139,8 @@ pub struct CrabbyGpuUploads {
     pub reallocations: u32,
 }
 
-impl From<ponko::GpuUploads> for CrabbyGpuUploads {
-    fn from(u: ponko::GpuUploads) -> Self {
+impl From<ponko::render::GpuUploads> for CrabbyGpuUploads {
+    fn from(u: ponko::render::GpuUploads) -> Self {
         Self {
             bytes: u.bytes(),
             instances: u.instances,
@@ -296,7 +298,7 @@ pub struct CrabbyProfileScope {
 pub unsafe extern "C" fn crabby_profile_scope(name: *const c_char) -> *const CrabbyProfileScope {
     // SAFETY: forwarded caller contract.
     match unsafe { text(name) } {
-        Ok(name) => std::ptr::from_ref(ponko::scope_named(name)).cast(),
+        Ok(name) => std::ptr::from_ref(ponko::perf::scope_named(name)).cast(),
         Err(_) => std::ptr::null(),
     }
 }
@@ -337,7 +339,7 @@ pub unsafe extern "C" fn crabby_profile_end(scope: *const CrabbyProfileScope, to
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_note_allocation(bytes: usize) {
-    ponko::note_allocation(bytes);
+    ponko::perf::note_allocation(bytes);
 }
 
 /// Turns the deeper profiling on or off: scopes are timed and allocations

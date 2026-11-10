@@ -9,7 +9,7 @@
 //!
 //! Nothing is drawn yet; rendering arrives in M2. Watch the terminal.
 
-use ponko::*;
+use ponko::prelude::*;
 
 fn main() {
     Game::new("Ponko: window", 800, 600).run(|ctx| {

@@ -1,6 +1,7 @@
 use super::retained::*;
+use crate::input::GamepadButton;
 use crate::render::batch::{SpriteInstance, uv_region};
-use crate::{Color, Ctx, GamepadButton, Key, MouseButton, Rect, TextParams, Vec2};
+use crate::{Color, Ctx, Key, MouseButton, Rect, TextParams, Vec2};
 
 impl Ctx {
     pub(crate) fn update_retained_ui(&mut self) {
@@ -14,7 +15,7 @@ impl Ctx {
 
     /// This frame's input for `ui`, as the window's mouse, keyboard and
     /// gamepads give it; `text` (emptied) receives the typed text.
-    pub(super) fn retained_input(&self, ui: &crate::Ui, mut text: String) -> crate::UiInput {
+    pub(super) fn retained_input(&self, ui: &crate::ui::Ui, mut text: String) -> crate::ui::UiInput {
         text.clear();
         text.push_str(self.input.typed_text());
         let pressed = |key| self.key_pressed(key);
@@ -24,7 +25,7 @@ impl Ctx {
             || self.key_down(Key::RightCtrl)
             || self.key_down(Key::LeftSuper)
             || self.key_down(Key::RightSuper);
-        crate::UiInput {
+        crate::ui::UiInput {
             pointer: self.mouse_pos(),
             pressed: self.input.mouse_pressed(MouseButton::Left),
             held: self.input.mouse_down(MouseButton::Left),
@@ -43,7 +44,7 @@ impl Ctx {
                 || (pressed(Key::Space)
                     && !ui
                         .focus()
-                        .is_some_and(|id| ui.node(id).is_some_and(|n| n.widget == crate::UiWidget::TextInput))),
+                        .is_some_and(|id| ui.node(id).is_some_and(|n| n.widget == crate::ui::UiWidget::TextInput))),
             cancel: pressed(Key::Escape) || pad(GamepadButton::East),
             shift,
             select_all: ctrl && pressed(Key::A),
@@ -66,7 +67,7 @@ impl Ctx {
     }
 
     /// Draws `ui`, laid out in `viewport`, into `ui_list`.
-    pub(crate) fn draw_ui_tree(&mut self, ui: &mut crate::Ui, viewport: Vec2) {
+    pub(crate) fn draw_ui_tree(&mut self, ui: &mut crate::ui::Ui, viewport: Vec2) {
         // Mutations made by game systems (including screen pushes) show now.
         ui.layout_with_text(viewport, &mut self.gfx.text);
         let scale = ui.scale();
@@ -126,7 +127,7 @@ impl Ctx {
                     ) * scale,
             };
             let mut text_rect = content;
-            if n.widget == crate::UiWidget::Toggle {
+            if n.widget == crate::ui::UiWidget::Toggle {
                 let side = content.size().y.min(20.0 * scale);
                 self.gfx.ui_fill(
                     Rect::new(content.min.x, content.min.y, side, side),
@@ -147,7 +148,7 @@ impl Ctx {
                 }
                 text_rect.min.x += side + 6.0 * scale;
             }
-            if n.widget == crate::UiWidget::Slider {
+            if n.widget == crate::ui::UiWidget::Slider {
                 self.gfx.ui_fill(
                     Rect::new(
                         content.min.x,
@@ -171,7 +172,7 @@ impl Ctx {
             }
             let font_size = n.paint.font_size * scale;
             let mut origin = text_rect.min;
-            if n.widget == crate::UiWidget::TextInput && ui.focus == Some(id) {
+            if n.widget == crate::ui::UiWidget::TextInput && ui.focus == Some(id) {
                 let caret = self.gfx.measure_text_ex(&n.text[..n.caret], n.paint.font, font_size).x;
                 origin.x -= (caret - text_rect.size().x + 3.0 * scale).max(0.0);
                 let a = self
@@ -202,7 +203,7 @@ impl Ctx {
                 z: z + 0.7,
             };
             self.retained_text(&n.text, origin, text_rect.size().x, params, n.paint.wrap, n.paint.align);
-            if n.widget == crate::UiWidget::Scroll && n.max_scroll.y > 0.0 {
+            if n.widget == crate::ui::UiWidget::Scroll && n.max_scroll.y > 0.0 {
                 let h = n.rect.size().y;
                 let thumb = (h * h / (h + n.max_scroll.y * scale)).max(20.0 * scale).min(h);
                 let y = n.rect.min.y + (h - thumb) * n.scroll.y / n.max_scroll.y;
@@ -222,7 +223,7 @@ impl Ctx {
         width: f32,
         params: TextParams,
         wrap: bool,
-        align: crate::UiTextAlign,
+        align: crate::ui::UiTextAlign,
     ) {
         let mut y = origin.y;
         for paragraph in text.split('\n') {
@@ -237,9 +238,9 @@ impl Ctx {
                 let w = self.gfx.measure_text_ex(line, params.font, params.size).x;
                 let x = origin.x
                     + match align {
-                        crate::UiTextAlign::Start => 0.0,
-                        crate::UiTextAlign::Center => (width - w) * 0.5,
-                        crate::UiTextAlign::End => width - w,
+                        crate::ui::UiTextAlign::Start => 0.0,
+                        crate::ui::UiTextAlign::Center => (width - w) * 0.5,
+                        crate::ui::UiTextAlign::End => width - w,
                     };
                 self.gfx.draw_text_ex(line, Vec2::new(x, y), params);
                 y += self.gfx.measure_text_ex(line, params.font, params.size).y;

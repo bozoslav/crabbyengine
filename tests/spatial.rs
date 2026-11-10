@@ -1,7 +1,11 @@
 //! The spatial grid: every query is checked against brute force.
 
+#[allow(unused_imports)]
+use ponko::d2::{Sprite, Transform as Transform2D};
 use ponko::ecs_core::World;
-use ponko::*;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::spatial::SpatialGrid;
 
 /// Deterministic random points in `[-span, span)²`.
 fn points(n: usize, span: f32, seed: u64) -> Vec<(Entity, Vec2)> {
@@ -207,12 +211,15 @@ fn entries_carry_their_data() {
 #[test]
 fn spatial_key_orders_nearby_cells_together() {
     // Same cell → same key; negative cells sort below positive ones.
-    assert_eq!(spatial_key(vec2(1.0, 1.0), 10.0), spatial_key(vec2(9.0, 9.0), 10.0));
-    assert!(spatial_key(vec2(-5.0, -5.0), 10.0) < spatial_key(vec2(5.0, 5.0), 10.0));
+    assert_eq!(
+        ponko::spatial::spatial_key(vec2(1.0, 1.0), 10.0),
+        ponko::spatial::spatial_key(vec2(9.0, 9.0), 10.0)
+    );
+    assert!(ponko::spatial::spatial_key(vec2(-5.0, -5.0), 10.0) < ponko::spatial::spatial_key(vec2(5.0, 5.0), 10.0));
     // Within a 2x2 block of cells, keys are consecutive (Z-order).
     let mut block: Vec<u64> = [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0), (10.0, 10.0)]
         .iter()
-        .map(|&(x, y)| spatial_key(vec2(x, y), 10.0))
+        .map(|&(x, y)| ponko::spatial::spatial_key(vec2(x, y), 10.0))
         .collect();
     block.sort();
     assert!(block.windows(2).all(|w| w[1] == w[0] + 1), "{block:?}");
@@ -228,7 +235,7 @@ fn built_in_grid_sorts_entities_by_cell() {
     let keys: Vec<u64> = world
         .query::<&Transform2D>()
         .iter()
-        .map(|t| spatial_key(t.position, 10.0))
+        .map(|t| ponko::spatial::spatial_key(t.position, 10.0))
         .collect();
     assert!(keys.windows(2).all(|w| w[0] <= w[1]), "{keys:?}");
 }

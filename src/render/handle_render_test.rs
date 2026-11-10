@@ -4,8 +4,12 @@
 //! without a GPU (a skip is not a pass).
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{ComputePass, Material, MaterialDesc, Mesh, MeshData, Model, ScreenEffect};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 

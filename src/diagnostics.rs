@@ -115,7 +115,7 @@ impl EcsDiagnostics {
     /// An unknown name is an error that lists the known ones.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// struct Hp(u32);
     /// fn check(ctx: &mut Ctx) {
     ///     let m = ctx.ecs_diagnostics().matching(&["Hp"]).unwrap();
@@ -196,6 +196,7 @@ pub(crate) fn snapshot(ctx: &Ctx) -> EcsDiagnostics {
         })
         .collect();
     let archetypes = world
+        .raw_ref()
         .archetypes()
         .iter()
         .enumerate()

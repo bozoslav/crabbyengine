@@ -2,7 +2,23 @@
 //! anything undeclared panics in every build, service declarations, the
 //! ordered barrier rules and the report. Headless.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::access::{AccessConflict, Service, SystemAccess};
+#[allow(unused_imports)]
+use ponko::audio::Audio;
+#[allow(unused_imports)]
+#[cfg(feature = "physics")]
+use ponko::d2::Physics;
+#[allow(unused_imports)]
+#[cfg(feature = "physics3d")]
+use ponko::d3::Physics as Physics3D;
+#[allow(unused_imports)]
+use ponko::input::Input;
+#[allow(unused_imports)]
+use ponko::net::Net;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::system_view::SystemView;
 
 #[derive(Debug, PartialEq)]
 struct Pos(f32);
@@ -632,7 +648,27 @@ fn the_report_uses_the_ordered_rules() {
 // ---- the guide's example ------------------------------------------------------------------
 
 mod guide {
-    use ponko::*;
+    #[allow(unused_imports)]
+    use ponko::access::AccessConflict;
+    #[allow(unused_imports)]
+    use ponko::access::Service;
+    #[allow(unused_imports)]
+    use ponko::access::SystemAccess;
+    #[allow(unused_imports)]
+    use ponko::audio::Audio;
+    #[allow(unused_imports)]
+    #[cfg(feature = "physics")]
+    use ponko::d2::Physics;
+    #[allow(unused_imports)]
+    #[cfg(feature = "physics3d")]
+    use ponko::d3::Physics as Physics3D;
+    #[allow(unused_imports)]
+    use ponko::input::Input;
+    #[allow(unused_imports)]
+    use ponko::net::Net;
+    use ponko::prelude::*;
+    #[allow(unused_imports)]
+    use ponko::system_view::SystemView;
 
     // ANCHOR: view_system
     struct Pos(f32);
@@ -690,7 +726,27 @@ mod guide {
 
 #[cfg(feature = "physics")]
 mod physics2d {
-    use ponko::*;
+    #[allow(unused_imports)]
+    use ponko::access::AccessConflict;
+    #[allow(unused_imports)]
+    use ponko::access::Service;
+    #[allow(unused_imports)]
+    use ponko::access::SystemAccess;
+    #[allow(unused_imports)]
+    use ponko::audio::Audio;
+    #[allow(unused_imports)]
+    #[cfg(feature = "physics")]
+    use ponko::d2::Physics;
+    #[allow(unused_imports)]
+    #[cfg(feature = "physics3d")]
+    use ponko::d3::Physics as Physics3D;
+    #[allow(unused_imports)]
+    use ponko::input::Input;
+    #[allow(unused_imports)]
+    use ponko::net::Net;
+    use ponko::prelude::*;
+    #[allow(unused_imports)]
+    use ponko::system_view::SystemView;
 
     fn with_physics(access: SystemAccess, system: impl FnMut(&mut SystemView) + 'static) -> World {
         Game::new("views", 1, 1)
@@ -728,7 +784,27 @@ mod physics2d {
 
 #[cfg(feature = "physics3d")]
 mod physics3d {
-    use ponko::*;
+    #[allow(unused_imports)]
+    use ponko::access::AccessConflict;
+    #[allow(unused_imports)]
+    use ponko::access::Service;
+    #[allow(unused_imports)]
+    use ponko::access::SystemAccess;
+    #[allow(unused_imports)]
+    use ponko::audio::Audio;
+    #[allow(unused_imports)]
+    #[cfg(feature = "physics")]
+    use ponko::d2::Physics;
+    #[allow(unused_imports)]
+    #[cfg(feature = "physics3d")]
+    use ponko::d3::Physics as Physics3D;
+    #[allow(unused_imports)]
+    use ponko::input::Input;
+    #[allow(unused_imports)]
+    use ponko::net::Net;
+    use ponko::prelude::*;
+    #[allow(unused_imports)]
+    use ponko::system_view::SystemView;
 
     fn with_physics(access: SystemAccess, system: impl FnMut(&mut SystemView) + 'static) -> World {
         Game::new("views", 1, 1)

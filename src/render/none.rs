@@ -44,7 +44,7 @@ impl Renderer {
     pub fn max_texture_size(&self) -> u32 {
         match *self {}
     }
-    pub fn residency(&self) -> Option<crate::GpuResidency> {
+    pub fn residency(&self) -> Option<crate::inventory::GpuResidency> {
         match *self {}
     }
     pub fn create_texture(&mut self, _width: u32, _height: u32, _rgba: &[u8]) -> u32 {
@@ -124,7 +124,7 @@ impl Renderer {
     pub fn set_instance_batch(&mut self, _: u32, _: Option<&crate::three::instances::Batch>) {}
     pub fn set_mesh_gpu_buffer(&mut self, _: u32, _: u32, _: u32) {}
     #[cfg(feature = "3d")]
-    pub fn create_compute(&mut self, _name: &str, _source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
+    pub fn create_compute(&mut self, _name: &str, _source: &str) -> Result<u32, Box<crate::render::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]
@@ -133,31 +133,41 @@ impl Renderer {
         _id: u32,
         _name: &str,
         _source: &str,
-    ) -> Result<(), Box<crate::ShaderDiagnostic>> {
+    ) -> Result<(), Box<crate::render::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn create_effect(&mut self, _name: &str, _source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
+    pub fn create_effect(&mut self, _name: &str, _source: &str) -> Result<u32, Box<crate::render::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn replace_effect(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
+    pub fn replace_effect(
+        &mut self,
+        _id: u32,
+        _name: &str,
+        _source: &str,
+    ) -> Result<(), Box<crate::render::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn create_shader(&mut self, _name: &str, _source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
+    pub fn create_shader(&mut self, _name: &str, _source: &str) -> Result<u32, Box<crate::render::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn replace_shader(&mut self, _id: u32, _name: &str, _source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
+    pub fn replace_shader(
+        &mut self,
+        _id: u32,
+        _name: &str,
+        _source: &str,
+    ) -> Result<(), Box<crate::render::ShaderDiagnostic>> {
         match *self {}
     }
     #[cfg(feature = "3d")]
     pub fn create_mesh(
         &mut self,
         _id: u32,
-        _data: &crate::MeshData,
-        _parts: &[(std::ops::Range<u32>, crate::Material)],
+        _data: &crate::render::MeshData,
+        _parts: &[(std::ops::Range<u32>, crate::render::Material)],
         _skinned: bool,
     ) {
         match *self {}

@@ -6,11 +6,11 @@ use crate::{Color, Mat4, Vec3};
 /// A persistent batch. Handles are never recycled; freeing twice is harmless.
 /// Create one batch per streamed region and free it when that region unloads.
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// Game::new("instances", 1, 1).run_headless(0, |ctx| {
-///     let mat = ctx.gfx.create_material(MaterialDesc::default());
-///     let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), mat);
-///     let batch = ctx.gfx.create_instance_batch(mesh, &[Mat4::IDENTITY], InstanceBatchOptions::default());
+///     let mat = ctx.gfx.create_material(ponko::render::MaterialDesc::default());
+///     let mesh = ctx.gfx.create_mesh(&ponko::render::MeshData::cube(1.0), mat);
+///     let batch = ctx.gfx.create_instance_batch(mesh, &[Mat4::IDENTITY], ponko::render::InstanceBatchOptions::default());
 ///     ctx.gfx.free(batch);
 /// });
 /// ```
@@ -31,8 +31,8 @@ impl InstanceBatch {
 }
 /// Settings for a batch; materials come from the mesh's parts.
 /// ```
-/// use ponko::*;
-/// let settings = InstanceBatchOptions { max_distance: 500.0, ..Default::default() };
+/// use ponko::prelude::*;
+/// let settings = ponko::render::InstanceBatchOptions { max_distance: 500.0, ..Default::default() };
 /// assert!(settings.cast_shadows);
 /// ```
 #[derive(Clone, Copy, Debug)]
@@ -291,13 +291,13 @@ impl Graphics {
         self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);
         true
     }
-    /// Releases a region's CPU and GPU resources: [`Graphics::free`](crate::Graphics::free)
+    /// Releases a region's CPU and GPU resources: [`Graphics::free`](crate::gfx::Graphics::free)
     /// with a batch. See [`InstanceBatch`].
     #[deprecated(note = "use `ctx.gfx.free(batch)`")]
     pub fn free_instance_batch(&mut self, batch: InstanceBatch) {
         self.free(batch);
     }
-    /// Frees instance batch `id`: the engine side of [`Graphics::free`](crate::Graphics::free).
+    /// Frees instance batch `id`: the engine side of [`Graphics::free`](crate::gfx::Graphics::free).
     pub(crate) fn free_instance_batch_id(&mut self, id: u32) {
         let batch = InstanceBatch { id };
         if let Some(slot) = self.assets3d.instance_batches.get_mut(batch.id as usize) {

@@ -2,7 +2,7 @@
 //! next to it) into one [`MeshData`] with a part per material.
 //!
 //! Every mesh in the file's default scene is placed where its node puts it
-//! and merged, so a file is one [`Mesh`](crate::Mesh): a tree, a house, a
+//! and merged, so a file is one [`Mesh`](crate::render::Mesh): a tree, a house, a
 //! car. A file with skins keeps its nodes as the joints of a skeleton:
 //! skinned meshes stay in the space they were bound in, and other meshes
 //! follow their node rigidly. Animation clips retain local joint tracks.
@@ -1139,7 +1139,8 @@ mod tests {
 
     #[test]
     fn morph_only_gltf_channels_sample_all_interpolations_and_frame_metadata() {
-        use crate::{MorphWeights, Skeleton};
+        use crate::anim::MorphWeights;
+        use crate::anim::Skeleton;
         for (mode, values, expected) in [
             ("LINEAR", vec![0., 0.2, 1., 0.6], [0.5, 0.4]),
             ("STEP", vec![0., 0.2, 1., 0.6], [0., 0.2]),

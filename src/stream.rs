@@ -14,12 +14,12 @@ use glam::{Vec2, Vec3};
 /// Start it with [`Job::spawn`], then check [`Job::take`] each frame: the
 /// game keeps running meanwhile. GPU work (making meshes, textures) belongs
 /// on the game's thread, after the job; building the data for it (heights,
-/// [`MeshData`](crate::MeshData), decoded images) belongs in the job. In a
+/// [`MeshData`](crate::render::MeshData), decoded images) belongs in the job. In a
 /// browser, which has no threads here, the work runs when it's spawned.
 ///
 /// ```
-/// # use ponko::*;
-/// let mut job = Job::spawn(|| (1..=10).sum::<i32>());
+/// # use ponko::prelude::*;
+/// let mut job = ponko::stream::Job::spawn(|| (1..=10).sum::<i32>());
 /// // Each frame, until it's done:
 /// let sum = loop {
 ///     if let Some(sum) = job.take() {
@@ -48,8 +48,8 @@ impl<T: Send + 'static> Job<T> {
     /// doesn't stop its work.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let heights = Job::spawn(|| vec![0.0f32; 129 * 129]);
+    /// # use ponko::prelude::*;
+    /// let heights = ponko::stream::Job::spawn(|| vec![0.0f32; 129 * 129]);
     /// assert_eq!(heights.wait().len(), 129 * 129);
     /// ```
     pub fn spawn(work: impl FnOnce() -> T + Send + 'static) -> Self {
@@ -98,8 +98,8 @@ impl<T> Job<T> {
     /// Whether the work has finished (its result may already be taken).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut job = Job::spawn(|| 7);
+    /// # use ponko::prelude::*;
+    /// let mut job = ponko::stream::Job::spawn(|| 7);
     /// while !job.is_done() {}
     /// assert!(job.is_done());
     /// ```
@@ -112,8 +112,8 @@ impl<T> Job<T> {
     /// was taken. Never waits.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut job = Job::spawn(|| "ready");
+    /// # use ponko::prelude::*;
+    /// let mut job = ponko::stream::Job::spawn(|| "ready");
     /// while !job.is_done() {}
     /// assert_eq!(job.take(), Some("ready"));
     /// assert_eq!(job.take(), None);
@@ -135,8 +135,8 @@ impl<T> Job<T> {
     /// tests; a game's frames shouldn't wait).
     ///
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(Job::spawn(|| 2 + 2).wait(), 4);
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::stream::Job::spawn(|| 2 + 2).wait(), 4);
     /// ```
     ///
     /// # Panics
@@ -175,8 +175,8 @@ impl<T> Job<T> {
 /// `(x + 1) * cell_size` along X, and the same along Z.
 ///
 /// ```
-/// # use ponko::*;
-/// let mut cells = CellStreamer::new(256.0, 600.0, 800.0);
+/// # use ponko::prelude::*;
+/// let mut cells = ponko::stream::CellStreamer::new(256.0, 600.0, 800.0);
 /// cells.update(Vec3::ZERO, 100);
 /// assert!(cells.to_load().contains(&(0, 0)));
 /// assert_eq!(cells.to_load()[0], (-1, -1), "nearest first: all four touch the camera");
@@ -204,8 +204,8 @@ impl CellStreamer {
     /// (raised to `load_radius` when it's less).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let cells = CellStreamer::new(128.0, 500.0, 700.0);
+    /// # use ponko::prelude::*;
+    /// let cells = ponko::stream::CellStreamer::new(128.0, 500.0, 700.0);
     /// assert!(cells.loaded().next().is_none());
     /// ```
     ///
@@ -240,8 +240,8 @@ impl CellStreamer {
     /// as done (loaded, dropped) from here on.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut cells = CellStreamer::new(10.0, 25.0, 40.0);
+    /// # use ponko::prelude::*;
+    /// let mut cells = ponko::stream::CellStreamer::new(10.0, 25.0, 40.0);
     /// cells.update(Vec3::ZERO, 2);
     /// assert_eq!(cells.to_load().len(), 2, "two this frame");
     /// cells.update(Vec3::ZERO, 100);
@@ -290,8 +290,8 @@ impl CellStreamer {
     /// The cells the last [`CellStreamer::update`] started loading, nearest first.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut cells = CellStreamer::new(1.0, 0.4, 0.4);
+    /// # use ponko::prelude::*;
+    /// let mut cells = ponko::stream::CellStreamer::new(1.0, 0.4, 0.4);
     /// cells.update(vec3(0.5, 0.0, 0.5), 10);
     /// assert_eq!(cells.to_load(), &[(0, 0)]);
     /// ```
@@ -303,8 +303,8 @@ impl CellStreamer {
     /// The cells the last [`CellStreamer::update`] dropped, in grid order.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut cells = CellStreamer::new(1.0, 0.4, 0.4);
+    /// # use ponko::prelude::*;
+    /// let mut cells = ponko::stream::CellStreamer::new(1.0, 0.4, 0.4);
     /// cells.update(vec3(0.5, 0.0, 0.5), 10);
     /// cells.update(vec3(10.5, 0.0, 0.5), 10);
     /// assert_eq!(cells.to_drop(), &[(0, 0)]);
@@ -317,8 +317,8 @@ impl CellStreamer {
     /// Every cell loaded now (or being loaded), in no order.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut cells = CellStreamer::new(1.0, 0.4, 0.4);
+    /// # use ponko::prelude::*;
+    /// let mut cells = ponko::stream::CellStreamer::new(1.0, 0.4, 0.4);
     /// cells.update(vec3(0.5, 0.0, 0.5), 10);
     /// assert_eq!(cells.loaded().count(), 1);
     /// ```
@@ -329,8 +329,8 @@ impl CellStreamer {
     /// Whether `cell` is loaded (or being loaded).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut cells = CellStreamer::new(1.0, 0.4, 0.4);
+    /// # use ponko::prelude::*;
+    /// let mut cells = ponko::stream::CellStreamer::new(1.0, 0.4, 0.4);
     /// cells.update(vec3(0.5, 0.0, 0.5), 10);
     /// assert!(cells.is_loaded((0, 0)) && !cells.is_loaded((5, 5)));
     /// ```
@@ -342,8 +342,8 @@ impl CellStreamer {
     /// How many cells are loaded (or being loaded).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let cells = CellStreamer::new(1.0, 0.4, 0.4);
+    /// # use ponko::prelude::*;
+    /// let cells = ponko::stream::CellStreamer::new(1.0, 0.4, 0.4);
     /// assert_eq!(cells.loaded_count(), 0);
     /// ```
     #[must_use]
@@ -355,8 +355,8 @@ impl CellStreamer {
     /// height 0.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let cells = CellStreamer::new(256.0, 0.0, 0.0);
+    /// # use ponko::prelude::*;
+    /// let cells = ponko::stream::CellStreamer::new(256.0, 0.0, 0.0);
     /// assert_eq!(cells.corner((2, -1)), vec3(512.0, 0.0, -256.0));
     /// ```
     #[must_use]
@@ -368,8 +368,8 @@ impl CellStreamer {
     /// dropped them all, or a new level).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut cells = CellStreamer::new(1.0, 2.0, 2.0);
+    /// # use ponko::prelude::*;
+    /// let mut cells = ponko::stream::CellStreamer::new(1.0, 2.0, 2.0);
     /// cells.update(Vec3::ZERO, 100);
     /// cells.clear();
     /// assert_eq!(cells.loaded().count(), 0);

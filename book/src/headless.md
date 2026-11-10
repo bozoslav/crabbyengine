@@ -16,7 +16,7 @@ Use it for:
 <div>
 
 ```rust
-use ponko::*;
+use ponko::prelude::*;
 
 struct Pos(f32);
 

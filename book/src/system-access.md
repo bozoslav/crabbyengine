@@ -112,7 +112,7 @@ state can be handed out on its own:
 | `Audio` | write: `play_sound`, `play_sound_ex` |
 | `Camera` | read `camera()` / `camera3d()`, write `camera_mut()` / `camera3d_mut()` |
 | `Spatial` | read: `spatial()` |
-| `Physics`, `Physics3D` | read `physics()` (ray casts, overlaps), write `physics_mut()` |
+| `d2::Physics`, `d3::Physics` | read `physics()` (ray casts, overlaps), write `physics_mut()` |
 | `Net` | read `net()`, write `net_mut()` |
 | `Gfx`, `Ui`, `Assets`, `Perf` | not offered |
 
@@ -138,11 +138,11 @@ each pair of declared systems in the same phase, whether they could share
 a parallel batch:
 
 ```rust
-# use ponko::*;
+# use ponko::prelude::*;
 # struct Vel(f32);
 let report = Game::new("report", 1, 1)
-    .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Vel>(), |_| {})
-    .add_view(Phase::AfterPhysics, SystemAccess::new().read::<Vel>(), |_| {})
+    .add_view(Phase::AfterPhysics, ponko::access::SystemAccess::new().write::<Vel>(), |_| {})
+    .add_view(Phase::AfterPhysics, ponko::access::SystemAccess::new().read::<Vel>(), |_| {})
     .access_report();
 // "... + ...: conflict on component `...Vel`"
 print!("{report}");
@@ -232,14 +232,14 @@ and event names; C++ uses the type's name, as the world does):
 <div>
 
 ```rust
-# use ponko::*;
+# use ponko::prelude::*;
 # struct Health(i32);
 # struct Died(Entity);
 # fn hurt(_: &mut Ctx) {}
 // The same declaration, by name, as C and C++ build it.
 let game = Game::new("named", 1, 1).add_with_access(
     Phase::AfterPhysics,
-    SystemAccess::new()
+    ponko::access::SystemAccess::new()
         .write_named(std::any::type_name::<Health>())
         .send_events_named(std::any::type_name::<Died>())
         .commands(),

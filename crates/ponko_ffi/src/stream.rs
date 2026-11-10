@@ -2,7 +2,9 @@
 //! thread, far terrain beyond them, and freeing meshes and tiles. Background work itself is the
 //! game's (C++ has `std::async` and threads); Rust's `Job` has no C API.
 
-use ponko::{CellStreamer, FarTerrain, TerrainTileData, vec3};
+use ponko::terrain::FarTerrain;
+use ponko::terrain::TerrainTileData;
+use ponko::{stream::CellStreamer, vec3};
 
 use crate::ctx::{ctx_access, out};
 use crate::three::{CrabbyMaterial, CrabbyMesh, CrabbyTerrainTile, CrabbyVec3, square_grid};
@@ -387,7 +389,7 @@ pub unsafe extern "C" fn crabby_ctx_free_terrain_tile(ctx: *mut CrabbyCtx, tile:
 /// (Rust `FarTerrain`). Make it with `crabby_far_terrain_new`.
 pub struct CrabbyFarTerrain {
     far: FarTerrain,
-    material: ponko::Material,
+    material: ponko::render::Material,
 }
 
 /// Makes far ground from `count` heights, `columns` per row (row after row

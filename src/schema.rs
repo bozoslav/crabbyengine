@@ -32,11 +32,11 @@ use crate::reflect::{Field, FieldType};
 /// [`optional`](Self::optional).
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
-/// let health = ValueSchema::object([
-///     ("current", ValueSchema::Number),
-///     ("max", ValueSchema::Number),
+/// let health = ponko::reflect::ValueSchema::object([
+///     ("current", ponko::reflect::ValueSchema::Number),
+///     ("max", ponko::reflect::ValueSchema::Number),
 /// ]);
 /// assert_eq!(health.to_json_schema()["properties"]["max"]["type"], "number");
 /// ```

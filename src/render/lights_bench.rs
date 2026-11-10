@@ -2,8 +2,10 @@
 //! real timestamp queries, no event loop or native window.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{Material, MaterialDesc, RenderStats};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkyLight};
-use crate::*;
 mod scene {
     include!(concat!(env!("CARGO_MANIFEST_DIR"), "/examples/common/lights_scene.rs"));
 }
@@ -108,7 +110,7 @@ fn offscreen_light_benchmark() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(1280.0, 720.0));
         scene::setup(&mut ctx, count);
         let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
-        let desc = GpuMaterialDesc::new(&crate::MaterialDesc {
+        let desc = GpuMaterialDesc::new(&crate::render::MaterialDesc {
             roughness: 0.5,
             ..Default::default()
         });
@@ -117,7 +119,7 @@ fn offscreen_light_benchmark() {
             renderer.create_mesh(
                 &device,
                 &data,
-                &[(0..data.indices.len() as u32, crate::Material { id: 0 })],
+                &[(0..data.indices.len() as u32, crate::render::Material { id: 0 })],
                 false,
             );
         }

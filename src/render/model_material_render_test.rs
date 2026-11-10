@@ -4,8 +4,16 @@
 //! Skips without a GPU (a skip is not a pass).
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::anim::{Joint, MorphTarget, Skeleton, SkinOf};
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{LodGroup, LodLevel, LodRenderer, Material, MaterialDesc, Mesh, MeshData, Model, ModelMaterial};
+#[allow(unused_imports)]
+use crate::terrain::TerrainTile;
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 
@@ -392,13 +400,17 @@ fn listed_parts_draw_with_their_materials_and_the_rest_keep_theirs() {
         let world = &mut rig.ctx.world;
         let at = |y: f32| Transform3D::at(vec3(0.0, y, 0.0));
         // Top: part 1 red. Middle: as made. Bottom: all blue, part 1 red.
-        let top = world.spawn((at(2.6), Model::new(pair), ModelMaterials::new(&[(1, red)])));
+        let top = world.spawn((
+            at(2.6),
+            Model::new(pair),
+            crate::render::ModelMaterials::new(&[(1, red)]),
+        ));
         world.spawn((at(0.0), Model::new(pair)));
         world.spawn((
             at(-2.6),
             Model::new(pair),
             ModelMaterial(blue),
-            ModelMaterials::new(&[(1, red)]),
+            crate::render::ModelMaterials::new(&[(1, red)]),
         ));
         let (pixels, runs) = rig.draw();
         let view_proj = rig.ctx.camera3d.view_proj();
@@ -411,18 +423,20 @@ fn listed_parts_draw_with_their_materials_and_the_rest_keep_theirs() {
         // A part the mesh doesn't have is ignored; the same list on another
         // model shares its run.
         let world = &mut rig.ctx.world;
-        *world.get_mut::<ModelMaterials>(top).unwrap() = ModelMaterials::new(&[(1, red), (7, blue)]);
+        *world.get_mut::<crate::render::ModelMaterials>(top).unwrap() =
+            crate::render::ModelMaterials::new(&[(1, red), (7, blue)]);
         world.spawn((
             Transform3D::at(vec3(0.0, 2.6, -3.0)),
             Model::new(pair),
-            ModelMaterials::new(&[(7, blue), (1, red)]),
+            crate::render::ModelMaterials::new(&[(7, blue), (1, red)]),
         ));
         let (pixels, runs) = rig.draw();
         assert_eq!(row(&pixels, 2.6), [1, 0], "top: still green, red");
         assert_eq!(runs, 3);
 
         // Changing the list changes the picture (and the cached shadow maps' key).
-        *rig.ctx.world.get_mut::<ModelMaterials>(top).unwrap() = ModelMaterials::new(&[(0, blue)]);
+        *rig.ctx.world.get_mut::<crate::render::ModelMaterials>(top).unwrap() =
+            crate::render::ModelMaterials::new(&[(0, blue)]);
         let (pixels, _) = rig.draw();
         assert_eq!(row(&pixels, 2.6), [2, 1], "top: blue, green");
     }
@@ -468,14 +482,14 @@ fn skinned_and_morphing_models_draw_with_the_override() {
         Model::new(skinned),
         skeleton,
         ModelMaterial(red),
-        ModelMaterials::new(&[(1, blue)]),
+        crate::render::ModelMaterials::new(&[(1, blue)]),
     ));
     // Morphing, not skinned: part 0 blue.
     world.spawn((
         at(-3.9),
         Model::new(morphing),
-        MorphWeights::default(),
-        ModelMaterials::new(&[(0, blue)]),
+        crate::anim::MorphWeights::default(),
+        crate::render::ModelMaterials::new(&[(0, blue)]),
     ));
     let (pixels, _) = rig.draw();
     let view_proj = rig.ctx.camera3d.view_proj();
@@ -519,12 +533,17 @@ fn lod_groups_and_terrain_tiles_draw_with_the_override() {
     let group = || LodGroup::new(4.0, vec![LodLevel::new(0.0, vec![LodRenderer::new(pair)])]);
     world.spawn((at(3.9), group()));
     world.spawn((at(1.3), group(), ModelMaterial(red)));
-    world.spawn((at(-1.3), group(), ModelMaterials::new(&[(1, blue)])));
+    world.spawn((at(-1.3), group(), crate::render::ModelMaterials::new(&[(1, blue)])));
     let tile = TerrainTile {
-        lods: [pair; TERRAIN_LODS],
+        lods: [pair; crate::terrain::TerrainTile::LODS],
         lod_distance: 100.0,
     };
-    world.spawn((at(-3.9), tile, ModelMaterial(blue), ModelMaterials::new(&[(0, red)])));
+    world.spawn((
+        at(-3.9),
+        tile,
+        ModelMaterial(blue),
+        crate::render::ModelMaterials::new(&[(0, red)]),
+    ));
     let (pixels, runs) = rig.draw();
     let view_proj = rig.ctx.camera3d.view_proj();
     let row = |p: &[u8], y: f32| [-1.2, 1.2].map(|x| shows(p, view_proj, vec3(x, y, 0.0)));

@@ -1,5 +1,11 @@
 //! Tick-indexed input scenarios driving named actions in headless runs.
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::actions::InputEvent;
+#[allow(unused_imports)]
+use ponko::input::{Gamepad, GamepadAxis, GamepadButton};
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::scenario::{InputScenario, ScenarioCheck, ScenarioReport, ScenarioStatus};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -439,7 +445,7 @@ fn a_json_scenario_that_could_silently_do_nothing_is_refused() {
 #[test]
 fn a_scenario_with_too_many_steps_is_refused() {
     let step = r#"{ "tick": 0, "type": "focus_lost" }"#;
-    let steps = vec![step; MAX_SCENARIO_STEPS + 1].join(",");
+    let steps = vec![step; ponko::scenario::MAX_SCENARIO_STEPS + 1].join(",");
     let error = InputScenario::from_json(&format!(r#"{{ "version": 1, "steps": [{steps}] }}"#)).unwrap_err();
     assert!(error.to_string().contains("too many"), "{error}");
 }

@@ -21,16 +21,16 @@ Two types do this:
 <div>
 
 ```rust
-let mut nav = NavGrid::new(100, 80, 4.0); // 100 × 80 cells, 4 world units each
+let mut nav = ponko::flow::NavGrid::new(100, 80, 4.0); // 100 × 80 cells, 4 world units each
 for y in 0..60 {
-    nav.set_cost(40, y, NavGrid::WALL);
+    nav.set_cost(40, y, ponko::flow::NavGrid::WALL);
 }
 for x in 50..70 {
     for y in 20..40 {
         nav.set_cost(x, y, 6); // mud: six times slower
     }
 }
-let mut flow = FlowField::new();
+let mut flow = ponko::flow::FlowField::new();
 flow.compute(&nav, &[vec2(390.0, 10.0)]); // or several goals: the nearest wins
 ```
 

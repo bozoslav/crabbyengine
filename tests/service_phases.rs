@@ -4,7 +4,9 @@
 //! The windowed frame order is pinned in `src/game/phase_order_tests.rs`;
 //! the table of who owns what is in ARCHITECTURE.md.
 
-use ponko::*;
+use ponko::actions::InputEvent;
+use ponko::prelude::*;
+use ponko::ui::UiWidget;
 use std::{cell::RefCell, rc::Rc};
 
 type Log = Rc<RefCell<Vec<&'static str>>>;

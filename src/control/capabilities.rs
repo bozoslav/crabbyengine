@@ -90,7 +90,7 @@ fn compiled_out(feature: &str) -> Value {
     })
 }
 
-fn subsystems(ctx: &Ctx, gpu: Option<&crate::GpuCapabilities>) -> Value {
+fn subsystems(ctx: &Ctx, gpu: Option<&crate::render::GpuCapabilities>) -> Value {
     let windowed = !ctx.headless;
     let renderer = if !cfg!(feature = "window") {
         compiled_out("window")
@@ -169,7 +169,7 @@ pub(super) fn report(ctx: &Ctx) -> Value {
     report_with_gpu(ctx, ctx.gfx.gpu_capabilities())
 }
 
-fn report_with_gpu(ctx: &Ctx, gpu: Option<&crate::GpuCapabilities>) -> Value {
+fn report_with_gpu(ctx: &Ctx, gpu: Option<&crate::render::GpuCapabilities>) -> Value {
     let methods: Vec<Value> = METHODS
         .iter()
         .map(|(name, about)| {
@@ -391,7 +391,7 @@ mod tests {
             report(&ctx)["subsystems"]["physics"]["active"].is_null(),
             "unknown before the loop runs"
         );
-        let timing = |name| crate::SystemTiming {
+        let timing = |name| crate::perf::SystemTiming {
             name,
             sim: true,
             last_ms: 0.0,
@@ -448,7 +448,7 @@ mod tests {
         // SAFETY: as above.
         unsafe {
             ctx.world
-                .reflect_fields(id, &[crate::Field::new("hp", crate::FieldType::F32, 0)]);
+                .reflect_fields(id, &[crate::reflect::Field::new("hp", crate::FieldType::F32, 0)]);
         }
         let r = crate::control::handle(&mut ctx, "capabilities", &json!({})).unwrap();
         let comp = |name: &str| {
@@ -484,9 +484,9 @@ mod tests {
     fn describing_an_unreflected_type_is_an_error() {
         let mut ctx = ctx(true);
         let e = ctx.world.describe_component("Nope", crate::ValueSchema::Number);
-        assert!(matches!(e, Err(crate::ReflectError::UnknownComponent(_))));
+        assert!(matches!(e, Err(crate::reflect::ReflectError::UnknownComponent(_))));
         let e = ctx.world.describe_resource("Nope", crate::ValueSchema::Number);
-        assert!(matches!(e, Err(crate::ReflectError::UnknownResource(_))));
+        assert!(matches!(e, Err(crate::reflect::ReflectError::UnknownResource(_))));
     }
 }
 

@@ -156,11 +156,11 @@ impl Ao {
         queue: &wgpu::Queue,
         view_proj: Mat4,
         camera: Vec3,
-        ao: Option<&crate::AmbientOcclusion>,
+        ao: Option<&crate::render::AmbientOcclusion>,
         sun: (Vec3, f32),
         modes: (bool, bool),
     ) {
-        let off = crate::AmbientOcclusion {
+        let off = crate::render::AmbientOcclusion {
             intensity: 0.0,
             ..Default::default()
         };

@@ -179,9 +179,9 @@ optional; anything you leave out isn't checked:
 <div>
 
 ```rust
-# use ponko::*;
-# let report = PerfReport::default();
-let budget = Budget::new()
+# use ponko::prelude::*;
+# let report = ponko::perf::PerfReport::default();
+let budget = ponko::perf::Budget::new()
     .frame_p99_ms(4.0)
     .allocs_per_frame(0.0)
     .system("steering", 0.5)
@@ -213,10 +213,10 @@ To catch regressions without picking numbers, keep a report from a good run
 and compare against it:
 
 ```rust
-# use ponko::*;
+# use ponko::prelude::*;
 # let (_w, report) = Game::new("t", 1, 1).profile_headless(0, 5, |_| {});
 report.save("target/perf-now.json").unwrap();
-if let Ok(before) = PerfReport::load("perf-baseline.json") {
+if let Ok(before) = ponko::perf::PerfReport::load("perf-baseline.json") {
     for slower in report.regressions(&before, 0.25) {
         println!("slower: {slower}"); // e.g. system `my_game::steering` (ms): 0.047 -> 0.081
     }

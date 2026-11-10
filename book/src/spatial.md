@@ -26,7 +26,7 @@ struct Neighbors(usize);
 fn count_neighbors(ctx: &mut Ctx) {
     let grid = &ctx.spatial;
     ctx.world
-        .query::<(Entity, &Transform2D, &mut Neighbors)>()
+        .query::<(Entity, &ponko::d2::Transform, &mut Neighbors)>()
         .par_for_each(|(me, t, n)| {
             n.0 = 0;
             grid.for_each_in_radius(t.position, 10.0, |o| {

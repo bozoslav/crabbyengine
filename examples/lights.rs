@@ -2,7 +2,8 @@
 //! `LIGHTS=1000 cargo run --release --features 3d --example lights`
 //! `SHOT=lights.png` saves one frame and exits. For a windowless GPU benchmark:
 //! `cargo test --release --features 3d --lib offscreen_light_benchmark -- --ignored --nocapture`
-use ponko::*;
+use ponko::prelude::*;
+
 #[path = "common/lights_scene.rs"]
 mod scene;
 fn main() {

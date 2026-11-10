@@ -34,7 +34,7 @@ agents and your own code write them like any other file.
   types before loading or saving. `Transform2D`, `Sprite` and the physics
   components are reflected already. A sprite names its image
   (`"texture": "crab.png"`), and loading the scene or prefab loads it.
-  With 3D on, `Transform3D` and `Model` are reflected too: a model names
+  With 3D on, `d3::Transform` (saved as `"Transform3D"`) and `Model` are reflected too: a model names
   its mesh's glTF file (`"mesh": "tree.glb"`), loaded the same way. Scenes
   can also come from Unity ([Importing from Unity](unity.md)).
 - Errors say what's wrong and change nothing: a missing file lists the
@@ -51,7 +51,7 @@ position. Both write over the file in `assets/` if it's there, else create
 it (and its folders). Web builds can't save files.
 
 ```rust
-# let palm = ctx.world.spawn((Transform2D::default(),));
+# let palm = ctx.world.spawn((ponko::d2::Transform::default(),));
 ctx.assets.save_scene(&ctx.world, "levels/beach.json")?;
 ctx.assets.save_prefab(&ctx.world, palm, "prefabs/palm.json")?;
 ```

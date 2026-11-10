@@ -14,8 +14,10 @@ use std::any::TypeId;
 use glam::Vec2;
 use ponko_ecs::{Commands, ViewState, WorldView};
 
+use crate::access::Service;
+use crate::access::SystemAccess;
 use crate::events::Events;
-use crate::{Ctx, Key, MouseButton, Playing, Random, Service, Sound, SoundParams, SystemAccess};
+use crate::{Ctx, Key, MouseButton, Playing, Random, Sound, SoundParams};
 
 /// The clocks, read once when the system starts.
 #[derive(Clone, Copy)]
@@ -43,11 +45,11 @@ struct Clock {
 /// what is missing, if it isn't declared.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// struct Health(i32);
 /// struct Died(Entity);
 ///
-/// fn hurt(sys: &mut SystemView) {
+/// fn hurt(sys: &mut ponko::system_view::SystemView) {
 ///     let mut died = Vec::new();
 ///     sys.world.query::<(Entity, &mut Health)>().for_each(|(e, h)| {
 ///         h.0 -= 1;
@@ -64,7 +66,7 @@ struct Clock {
 /// let world = Game::new("view", 1, 1)
 ///     .add_view(
 ///         Phase::AfterPhysics,
-///         SystemAccess::new().write::<Health>().send_events::<Died>().commands(),
+///         ponko::access::SystemAccess::new().write::<Health>().send_events::<Died>().commands(),
 ///         hurt,
 ///     )
 ///     .run_headless(3, |ctx| {
@@ -83,15 +85,15 @@ pub struct SystemView<'a> {
     clock: Clock,
     random: Random,
     audio: &'a mut crate::audio::Audio,
-    camera: &'a mut crate::Camera2D,
+    camera: &'a mut crate::d2::Camera,
     #[cfg(feature = "3d")]
-    camera3d: &'a mut crate::Camera3D,
-    spatial: &'a crate::SpatialGrid,
+    camera3d: &'a mut crate::d3::Camera,
+    spatial: &'a crate::spatial::SpatialGrid,
     #[cfg(feature = "physics")]
-    physics: &'a mut crate::Physics,
+    physics: &'a mut crate::d2::Physics,
     #[cfg(feature = "physics3d")]
-    physics3d: &'a mut crate::Physics3D,
-    net: &'a mut crate::Net,
+    physics3d: &'a mut crate::d3::Physics,
+    net: &'a mut crate::net::Net,
 }
 
 impl SystemView<'_> {
@@ -224,7 +226,7 @@ impl SystemView<'_> {
         self.input.key_released(key)
     }
 
-    /// As [`Input::mouse_down`](crate::Input::mouse_down). Needs `Service::Input`.
+    /// As [`Input::mouse_down`](crate::input::Input::mouse_down). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn mouse_down(&self, button: MouseButton) -> bool {
@@ -232,7 +234,7 @@ impl SystemView<'_> {
         self.input.mouse_down(button)
     }
 
-    /// As [`Input::mouse_pressed`](crate::Input::mouse_pressed). Needs `Service::Input`.
+    /// As [`Input::mouse_pressed`](crate::input::Input::mouse_pressed). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn mouse_pressed(&self, button: MouseButton) -> bool {
@@ -240,7 +242,7 @@ impl SystemView<'_> {
         self.input.mouse_pressed(button)
     }
 
-    /// As [`Input::mouse_released`](crate::Input::mouse_released). Needs `Service::Input`.
+    /// As [`Input::mouse_released`](crate::input::Input::mouse_released). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn mouse_released(&self, button: MouseButton) -> bool {
@@ -256,7 +258,7 @@ impl SystemView<'_> {
         self.input.mouse_pos()
     }
 
-    /// As [`Input::action_down`](crate::Input::action_down). Needs `Service::Input`.
+    /// As [`Input::action_down`](crate::input::Input::action_down). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn action_down(&self, action: impl crate::ActionRef) -> bool {
@@ -264,7 +266,7 @@ impl SystemView<'_> {
         self.input.actions.down(action)
     }
 
-    /// As [`Input::action_pressed`](crate::Input::action_pressed). Needs `Service::Input`.
+    /// As [`Input::action_pressed`](crate::input::Input::action_pressed). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn action_pressed(&self, action: impl crate::ActionRef) -> bool {
@@ -272,7 +274,7 @@ impl SystemView<'_> {
         self.input.actions.pressed(action)
     }
 
-    /// As [`Input::action_released`](crate::Input::action_released). Needs `Service::Input`.
+    /// As [`Input::action_released`](crate::input::Input::action_released). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn action_released(&self, action: impl crate::ActionRef) -> bool {
@@ -280,7 +282,7 @@ impl SystemView<'_> {
         self.input.actions.released(action)
     }
 
-    /// As [`Input::action_axis`](crate::Input::action_axis). Needs `Service::Input`.
+    /// As [`Input::action_axis`](crate::input::Input::action_axis). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn action_axis(&self, action: impl crate::ActionRef) -> f32 {
@@ -288,7 +290,7 @@ impl SystemView<'_> {
         self.input.actions.axis(action)
     }
 
-    /// As [`Input::action_axis2`](crate::Input::action_axis2). Needs `Service::Input`.
+    /// As [`Input::action_axis2`](crate::input::Input::action_axis2). Needs `Service::Input`.
     #[track_caller]
     #[must_use]
     pub fn action_axis2(&self, action: impl crate::ActionRef) -> Vec2 {
@@ -304,7 +306,7 @@ impl SystemView<'_> {
         self.play_sound_ex(sound, SoundParams::default())
     }
 
-    /// As [`Audio::play_ex`](crate::Audio::play_ex). Needs `Service::Audio` written.
+    /// As [`Audio::play_ex`](crate::audio::Audio::play_ex). Needs `Service::Audio` written.
     #[track_caller]
     pub fn play_sound_ex(&mut self, sound: &Sound, params: SoundParams) -> Playing {
         self.need(Service::Audio, true);
@@ -316,14 +318,14 @@ impl SystemView<'_> {
     /// The 2D camera ([`Ctx::camera`]). Needs `Service::Camera`.
     #[track_caller]
     #[must_use]
-    pub fn camera(&self) -> &crate::Camera2D {
+    pub fn camera(&self) -> &crate::d2::Camera {
         self.need(Service::Camera, false);
         self.camera
     }
 
     /// The 2D camera to move. Needs `Service::Camera` written.
     #[track_caller]
-    pub fn camera_mut(&mut self) -> &mut crate::Camera2D {
+    pub fn camera_mut(&mut self) -> &mut crate::d2::Camera {
         self.need(Service::Camera, true);
         self.camera
     }
@@ -332,7 +334,7 @@ impl SystemView<'_> {
     #[cfg(feature = "3d")]
     #[track_caller]
     #[must_use]
-    pub fn camera3d(&self) -> &crate::Camera3D {
+    pub fn camera3d(&self) -> &crate::d3::Camera {
         self.need(Service::Camera, false);
         self.camera3d
     }
@@ -340,7 +342,7 @@ impl SystemView<'_> {
     /// The 3D camera to move (feature `3d`). Needs `Service::Camera` written.
     #[cfg(feature = "3d")]
     #[track_caller]
-    pub fn camera3d_mut(&mut self) -> &mut crate::Camera3D {
+    pub fn camera3d_mut(&mut self) -> &mut crate::d3::Camera {
         self.need(Service::Camera, true);
         self.camera3d
     }
@@ -348,7 +350,7 @@ impl SystemView<'_> {
     /// The spatial grid ([`Ctx::spatial`]). Needs `Service::Spatial`.
     #[track_caller]
     #[must_use]
-    pub fn spatial(&self) -> &crate::SpatialGrid {
+    pub fn spatial(&self) -> &crate::spatial::SpatialGrid {
         self.need(Service::Spatial, false);
         self.spatial
     }
@@ -358,7 +360,7 @@ impl SystemView<'_> {
     #[cfg(feature = "physics")]
     #[track_caller]
     #[must_use]
-    pub fn physics(&self) -> &crate::Physics {
+    pub fn physics(&self) -> &crate::d2::Physics {
         self.need(Service::Physics, false);
         self.physics
     }
@@ -367,7 +369,7 @@ impl SystemView<'_> {
     /// `Service::Physics` written.
     #[cfg(feature = "physics")]
     #[track_caller]
-    pub fn physics_mut(&mut self) -> &mut crate::Physics {
+    pub fn physics_mut(&mut self) -> &mut crate::d2::Physics {
         self.need(Service::Physics, true);
         self.physics
     }
@@ -376,7 +378,7 @@ impl SystemView<'_> {
     #[cfg(feature = "physics3d")]
     #[track_caller]
     #[must_use]
-    pub fn physics3d(&self) -> &crate::Physics3D {
+    pub fn physics3d(&self) -> &crate::d3::Physics {
         self.need(Service::Physics3D, false);
         self.physics3d
     }
@@ -384,7 +386,7 @@ impl SystemView<'_> {
     /// The 3D physics world to change. Needs `Service::Physics3D` written.
     #[cfg(feature = "physics3d")]
     #[track_caller]
-    pub fn physics3d_mut(&mut self) -> &mut crate::Physics3D {
+    pub fn physics3d_mut(&mut self) -> &mut crate::d3::Physics {
         self.need(Service::Physics3D, true);
         self.physics3d
     }
@@ -392,14 +394,14 @@ impl SystemView<'_> {
     /// Lockstep networking ([`Ctx::net`]). Needs `Service::Net`.
     #[track_caller]
     #[must_use]
-    pub fn net(&self) -> &crate::Net {
+    pub fn net(&self) -> &crate::net::Net {
         self.need(Service::Net, false);
         self.net
     }
 
     /// Lockstep networking, to send input. Needs `Service::Net` written.
     #[track_caller]
-    pub fn net_mut(&mut self) -> &mut crate::Net {
+    pub fn net_mut(&mut self) -> &mut crate::net::Net {
         self.need(Service::Net, true);
         self.net
     }

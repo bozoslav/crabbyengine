@@ -4,7 +4,12 @@
 //! `cargo test --release --lib --features 3d upload_bench -- --ignored --nocapture`.
 use super::buffer_render_test::Rig;
 use super::traffic;
-use crate::*;
+use crate::d3::{
+    Line as Line3D, ParticleEmitter as ParticleEmitter3D, ParticleSettings as ParticleSettings3D,
+    ParticleSpace as ParticleSpace3D, Transform as Transform3D,
+};
+use crate::prelude::*;
+use crate::render::{AntiAliasing, GpuUploads, MaterialDesc, Mesh, MeshData, Model};
 
 /// `n` × `n` cubes on the ground under a camera, with sun shadows.
 fn ground(n: i32) -> Option<(Rig, Vec<Entity>, Mesh)> {

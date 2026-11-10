@@ -1,7 +1,11 @@
 //! Counting heap allocations per frame and per system. This file has its own
 //! process (and a single test), so nothing else allocates while it counts.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::alloc_count::CountingAllocator;
+#[allow(unused_imports)]
+use ponko::perf::{Budget, WarningKind};
+use ponko::prelude::*;
 
 // ANCHOR: counting_allocator
 #[global_allocator]

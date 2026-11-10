@@ -5,7 +5,21 @@
 mod common;
 
 use common::TempAsset;
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::actions::InputEvent;
+#[allow(unused_imports)]
+use ponko::audio::AudioEffects;
+#[allow(unused_imports)]
+use ponko::d2::{Sprite, Transform as Transform2D};
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::{AudioListener, ReflectionProbe, Transform};
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::{ComputePass, GraphicsQuality, MaterialDesc, Mesh, MeshData, QualityLevel};
+#[allow(unused_imports)]
+use ponko::ui::{UiEvent, UiId, UiInput, UiWidget};
 
 struct Pos(f32);
 
@@ -236,7 +250,7 @@ fn the_default_listener_is_the_camera_as_the_running_system_found_it() {
         // The camera the system started with is where the ears are...
         assert_eq!(ctx.audio.listener().position, ctx.camera3d.position);
         // ...and a listener of the game's own replaces it at once.
-        let ears = AudioListener3D {
+        let ears = AudioListener {
             position: vec3(1.0, 2.0, 3.0),
             rotation: Quat::IDENTITY,
         };
@@ -328,11 +342,11 @@ fn a_texture_loaded_by_the_service_is_saved_by_file_name() {
     assert_eq!(save.matches("\"texture\":\"dot.png\"").count(), 1, "{save}");
 }
 
-fn sized(w: f32, h: f32) -> ui_layout::Style {
-    ui_layout::Style {
-        size: ui_layout::Size {
-            width: ui_layout::Dimension::length(w),
-            height: ui_layout::Dimension::length(h),
+fn sized(w: f32, h: f32) -> ponko::ui::layout::Style {
+    ponko::ui::layout::Style {
+        size: ponko::ui::layout::Size {
+            width: ponko::ui::layout::Dimension::length(w),
+            height: ponko::ui::layout::Dimension::length(h),
         },
         flex_shrink: 0.0,
         ..Default::default()
@@ -521,7 +535,50 @@ fn scenes_and_prefabs_are_saved_from_the_world_they_are_given() {
 
 #[cfg(feature = "3d")]
 mod three {
-    use ponko::*;
+    #[allow(unused_imports)]
+    use ponko::actions::InputEvent;
+    #[allow(unused_imports)]
+    use ponko::audio::AudioEffects;
+    #[allow(unused_imports)]
+    use ponko::d2::Sprite;
+    #[allow(unused_imports)]
+    use ponko::d2::Transform as Transform2D;
+    #[allow(unused_imports)]
+    #[cfg(feature = "3d")]
+    use ponko::d3::AudioListener;
+    #[allow(unused_imports)]
+    #[cfg(feature = "3d")]
+    use ponko::d3::ReflectionProbe;
+    #[allow(unused_imports)]
+    #[cfg(feature = "3d")]
+    use ponko::d3::Transform;
+    use ponko::prelude::*;
+    #[allow(unused_imports)]
+    #[cfg(feature = "3d")]
+    use ponko::render::ComputePass;
+    #[allow(unused_imports)]
+    #[cfg(feature = "3d")]
+    use ponko::render::GraphicsQuality;
+    #[allow(unused_imports)]
+    #[cfg(feature = "3d")]
+    use ponko::render::MaterialDesc;
+    #[allow(unused_imports)]
+    #[cfg(feature = "3d")]
+    use ponko::render::Mesh;
+    #[allow(unused_imports)]
+    #[cfg(feature = "3d")]
+    use ponko::render::MeshData;
+    #[allow(unused_imports)]
+    #[cfg(feature = "3d")]
+    use ponko::render::QualityLevel;
+    #[allow(unused_imports)]
+    use ponko::ui::UiEvent;
+    #[allow(unused_imports)]
+    use ponko::ui::UiId;
+    #[allow(unused_imports)]
+    use ponko::ui::UiInput;
+    #[allow(unused_imports)]
+    use ponko::ui::UiWidget;
 
     struct Box3(Mesh);
 
@@ -547,10 +604,10 @@ mod three {
     #[test]
     fn the_calls_that_touch_entities_take_the_world() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
-            let probe = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
+            let probe = ctx.world.spawn((Transform::default(), ReflectionProbe::default()));
             ctx.gfx.bake_reflection_probe(&mut ctx.world, probe).unwrap();
-            assert_ne!(ctx.world.get::<ReflectionProbe3D>(probe).unwrap().content, 0);
-            let bare = ctx.world.spawn((Transform3D::default(),));
+            assert_ne!(ctx.world.get::<ReflectionProbe>(probe).unwrap().content, 0);
+            let bare = ctx.world.spawn((Transform::default(),));
             assert!(ctx.gfx.bake_reflection_probe(&mut ctx.world, bare).is_err());
             ctx.gfx.write_animated_morphs(&mut ctx.world);
         });
@@ -588,7 +645,7 @@ mod three {
     fn the_pointer_ray_for_world_panels_is_set_on_the_ui() {
         Game::new("t", 800, 600).run_headless(1, |ctx| {
             let (panel, model) = ctx.gfx.create_ui_panel(64, 64, vec2(1.0, 1.0));
-            ctx.world.spawn((Transform3D::at(vec3(0.0, 0.0, -2.0)), model, panel));
+            ctx.world.spawn((Transform::at(vec3(0.0, 0.0, -2.0)), model, panel));
             ctx.ui.set_pointer_ray(Some((Vec3::ZERO, -Vec3::Z)));
             ctx.ui.set_pointer_ray(None);
         });
