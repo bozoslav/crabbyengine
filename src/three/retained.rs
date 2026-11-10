@@ -1573,6 +1573,7 @@ impl Tracked {
         (found, new)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn pass<'a>(
         &'a self,
         assets: &'a Assets3D,
