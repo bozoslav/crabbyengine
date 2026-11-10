@@ -57,7 +57,7 @@ pub struct GpuAdapter {
     /// The adapter's name, such as the GPU model.
     pub name: String,
     /// The graphics API: `vulkan`, `metal`, `dx12`, `gl` (WebGL2 in a
-    /// browser), `browser_webgpu` or `noop`.
+    /// browser), `webgpu` (the browser's WebGPU) or `noop`.
     pub backend: String,
     /// `discrete_gpu`, `integrated_gpu`, `virtual_gpu`, `cpu` or `other`.
     pub device_type: String,
@@ -286,7 +286,11 @@ pub(crate) fn report(
                     ),
                     GpuFeature::Multisampling => (
                         msaa.0 == msaa.1,
-                        format!("{}x multisampling", msaa.1),
+                        if msaa.1 <= 1 {
+                            "no multisampling: edges are smoothed only by FXAA or SMAA, if chosen".into()
+                        } else {
+                            format!("{}x multisampling", msaa.1)
+                        },
                         format!("the GPU can't multisample the 3D frame's color and depth {}x", msaa.0),
                     ),
                 }
@@ -488,6 +492,25 @@ mod tests {
         assert!(!msaa.available);
         assert_eq!(msaa.fallback.as_deref(), Some("4x multisampling"));
         assert!(msaa.reason.as_deref().unwrap().contains("8x"));
+    }
+
+    #[test]
+    fn no_multisampling_is_reported_as_a_fallback_without_a_count() {
+        let r = report(GpuAdapter::default(), webgl2(), false, (4, 1), true);
+        let msaa = r.feature(GpuFeature::Multisampling).unwrap();
+        assert!(!msaa.available);
+        assert!(msaa.fallback.as_deref().unwrap().starts_with("no multisampling"));
+        assert!(msaa.reason.as_deref().unwrap().contains("4x"));
+    }
+
+    #[cfg(all(feature = "window", feature = "3d"))]
+    #[test]
+    fn only_a_browsers_gl_lacks_multisampled_textures() {
+        use crate::render::gpu3d::browser_gl_has_no_multisampled_textures as lacks;
+        // On the desktop even GL has them; in a browser (wasm32) only GL lacks them.
+        assert!(!lacks(wgpu::Backend::Vulkan));
+        assert!(!lacks(wgpu::Backend::BrowserWebGpu));
+        assert_eq!(lacks(wgpu::Backend::Gl), cfg!(target_arch = "wasm32"));
     }
 
     #[test]

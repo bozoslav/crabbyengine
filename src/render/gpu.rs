@@ -412,7 +412,12 @@ impl Renderer {
         // can multisample both 3D targets that much, else 4 (always works).
         let requested_msaa = msaa;
         #[cfg(feature = "3d")]
-        let msaa = if super::gpu3d::multisamples(&adapter, msaa) {
+        let msaa = if super::gpu3d::browser_gl_has_no_multisampled_textures(adapter.get_info().backend) {
+            // WebGL2 can't make multisampled textures through wgpu (glow's
+            // browser binding panics): draw the 3D frame unsmoothed, and
+            // leave edges to FXAA or SMAA.
+            1
+        } else if super::gpu3d::multisamples(&adapter, msaa) {
             msaa
         } else {
             eprintln!("ponko: this GPU can't do {msaa}x multisampling here; using 4x");
@@ -609,7 +614,7 @@ impl Renderer {
         if self.three.is_none() {
             let white = self.create_texture(1, 1, &[255; 4]);
             let white_array = self.upload_texture_array(1, 1, &[&[255; 4]], false);
-            self.three = Some(super::gpu3d::Renderer3D::new(
+            let renderer = super::gpu3d::Renderer3D::new(
                 &self.device,
                 &self.texture_layout,
                 self.view_format,
@@ -617,7 +622,13 @@ impl Renderer {
                 &white_array,
                 self.msaa,
                 !self.tiled,
-            ));
+            );
+            // No view formats (WebGL2): sprite textures can't be read through a linear view.
+            self.three = Some(if self.image_view_formats.is_empty() {
+                renderer.without_linear_views()
+            } else {
+                renderer
+            });
         }
         self.three.as_mut().expect("just made")
     }

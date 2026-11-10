@@ -1,28 +1,28 @@
-//! The browser smoke-test fixture: a tiny game that `web/smoke/` builds with
+//! The 2D browser smoke-test fixture: a tiny game that `web/smoke/` builds with
 //! `web/build.sh web_smoke` and drives in a headless browser.
 //!
 //! It loads one asset file (`crab.png`, fetched over HTTP on the web), runs
 //! a fixed-step simulation, counts left clicks and draws something on every
-//! frame. Each frame it writes its state as JSON to the page's
-//! `<html data-smoke="...">` attribute, which the runner reads:
+//! frame. Each frame it publishes its state for the runner (see
+//! `common/web_smoke.rs`):
 //!
-//! `{"ticks":120,"frames":118,"asset":[32,32],"clicks":1,"size":[800,600]}`
+//! `{"fixture":"web_smoke","ticks":120,"frames":118,"clicks":1,"size":[800,600],"asset":[32,32]}`
 //!
 //! Failure cases for the runner's self-tests, chosen with the page's query
 //! string: `?smoke_case=panic` panics during setup, `?smoke_case=stall`
-//! pauses the simulation after a few ticks.
+//! pauses the simulation after a few ticks. `web_smoke_3d` is the same
+//! fixture for the 3D renderer.
 //!
 //! On the desktop it opens a window like any other example
 //! (`cargo run --example web_smoke`) and prints its state once a second.
 
 use ponko::*;
+use serde_json::json;
 use std::cell::Cell;
 use std::rc::Rc;
 
-/// Ticks a `stall` run simulates before pausing. Keep it well below the
-/// smoke harness's `MIN_PROGRESS_TICKS` (`web/smoke/smoke.mjs`), so the stall
-/// is caught however early the harness first sees the state.
-const STALL_AFTER: u64 = 20;
+#[path = "common/web_smoke.rs"]
+mod smoke;
 
 fn main() {
     let ticks = Rc::new(Cell::new(0u64));
@@ -31,24 +31,13 @@ fn main() {
         .fixed_hz(60)
         .sim_system(move |_ctx| sim_ticks.set(sim_ticks.get() + 1))
         .run(move |ctx| {
-            let case = smoke_case();
-            if case == "panic" {
-                panic!("web_smoke: panicking during setup, as ?smoke_case=panic asked");
-            }
+            let mut smoke = smoke::Smoke::new("web_smoke");
             // The one fetched asset; a missing file panics with its name.
             let crab = ctx.load_texture("crab.png");
-            let mut clicks = 0u32;
-            let mut frames = 0u64;
             move |ctx: &mut Ctx| {
-                frames += 1;
-                if case == "stall" && ticks.get() >= STALL_AFTER && !ctx.is_paused() {
-                    ctx.pause();
-                }
-                if ctx.mouse_pressed(MouseButton::Left) {
-                    clicks += 1;
-                }
+                smoke.frame(ctx, ticks.get(), json!({ "asset": [crab.width(), crab.height()] }));
                 // The background changes with each click, so a click shows.
-                ctx.clear(if clicks.is_multiple_of(2) {
+                ctx.clear(if smoke.clicks().is_multiple_of(2) {
                     Color::hex(0x1E2A38)
                 } else {
                     Color::hex(0x2E4A28)
@@ -66,54 +55,6 @@ fn main() {
                         },
                     );
                 }
-                let state = format!(
-                    r#"{{"ticks":{},"frames":{},"asset":[{},{}],"clicks":{},"size":[{},{}]}}"#,
-                    ticks.get(),
-                    frames,
-                    crab.width(),
-                    crab.height(),
-                    clicks,
-                    size.x,
-                    size.y
-                );
-                report(&state, frames);
             }
         });
-}
-
-/// The page's `smoke_case` query parameter (web), or `""`.
-#[cfg(target_arch = "wasm32")]
-fn smoke_case() -> String {
-    let search = web_sys::window()
-        .and_then(|w| w.location().search().ok())
-        .unwrap_or_default();
-    search
-        .trim_start_matches('?')
-        .split('&')
-        .find_map(|pair| pair.strip_prefix("smoke_case="))
-        .unwrap_or("")
-        .to_string()
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn smoke_case() -> String {
-    std::env::var("SMOKE_CASE").unwrap_or_default()
-}
-
-/// Publishes the state on `<html data-smoke>` for the browser runner.
-#[cfg(target_arch = "wasm32")]
-fn report(state: &str, _frames: u64) {
-    if let Some(root) = web_sys::window()
-        .and_then(|w| w.document())
-        .and_then(|d| d.document_element())
-    {
-        let _ = root.set_attribute("data-smoke", state);
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn report(state: &str, frames: u64) {
-    if frames.is_multiple_of(60) {
-        println!("{state}");
-    }
 }
