@@ -137,6 +137,31 @@ static void setup(PonkoCtx* ctx, void* user) {
     CHECK(now.light_shadow_atlas == 8192 && now.light_shadow_views == 24);
     quality.light_shadow_atlas = 3000; /* not a power of two */
     CHECK(ponko_ctx_set_graphics_quality(ctx, &quality) == PONKO_INVALID_ARGUMENT);
+    /* GPU tiers: reports and presets need no GPU; a headless ctx has none. */
+    {
+        size_t len = 0;
+        bool on = true;
+        uint32_t tier = 99;
+        char small[8];
+        PonkoGraphicsQuality web;
+        CHECK(ponko_ctx_gpu_capabilities(ctx, NULL, 0, &len) == PONKO_NOT_FOUND);
+        CHECK(ponko_ctx_gpu_tier(ctx, &tier) == PONKO_NOT_FOUND && tier == 99);
+        CHECK(ponko_ctx_gpu_feature(ctx, PONKO_GPU_FEATURE_DECALS, &on) == PONKO_NOT_FOUND);
+        CHECK(ponko_ctx_recommended_graphics_quality(ctx, &web) == PONKO_NOT_FOUND);
+        CHECK(ponko_gpu_tier_report(PONKO_GPU_TIER_BASELINE, NULL, 0, &len) == PONKO_OK && len > 100);
+        CHECK(ponko_gpu_tier_report(PONKO_GPU_TIER_BASELINE, small, sizeof small, &len) == PONKO_OK && small[0] == 0);
+        CHECK(ponko_gpu_tier_report(3, NULL, 0, &len) == PONKO_INVALID_ARGUMENT);
+        CHECK(ponko_gpu_tier_feature(PONKO_GPU_TIER_WEBGL2, PONKO_GPU_FEATURE_TEMPORAL_ANTIALIASING, &on) == PONKO_OK && !on);
+        CHECK(ponko_gpu_tier_feature(PONKO_GPU_TIER_BASELINE, PONKO_GPU_FEATURE_TEMPORAL_ANTIALIASING, &on) == PONKO_OK && on);
+        CHECK(ponko_gpu_tier_feature(PONKO_GPU_TIER_BASELINE, PONKO_GPU_FEATURE_DECALS, &on) == PONKO_OK && !on);
+        CHECK(ponko_gpu_tier_feature(PONKO_GPU_TIER_DESKTOP, PONKO_GPU_FEATURE_GLOBAL_ILLUMINATION, &on) == PONKO_OK && on);
+        CHECK(ponko_gpu_tier_feature(PONKO_GPU_TIER_DESKTOP, 13, &on) == PONKO_INVALID_ARGUMENT);
+        CHECK(ponko_graphics_quality_for_tier(PONKO_GPU_TIER_WEBGL2, &web) == PONKO_OK);
+        CHECK(web.anti_aliasing == 1 && !web.ambient_occlusion && web.ssr == 0 && !web.gi && web.shadow_cascades == 2);
+        CHECK(ponko_graphics_quality_for_tier(PONKO_GPU_TIER_DESKTOP, &web) == PONKO_OK);
+        CHECK(ponko_graphics_quality_level(&web, &level) == PONKO_OK && level == 2);
+        CHECK(ponko_graphics_quality_for_tier(3, &web) == PONKO_INVALID_ARGUMENT);
+    }
     post.anti_aliasing = 3; /* temporal */
     post.taa_sharpness = 2;
     CHECK(ponko_ctx_set_post(ctx, &post) == PONKO_INVALID_ARGUMENT);

@@ -27,7 +27,9 @@ impl Rig {
             eprintln!("no GPU adapter: skipped");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
             eprintln!("no GPU device: skipped");
             return None;
         };
@@ -216,6 +218,9 @@ fn pixel(view_proj: Mat4, p: Vec3) -> (u32, u32) {
 #[test]
 fn contact_shadows_shade_what_something_close_blocks() {
     let Some(mut rig) = Rig::new() else { return };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ContactShadows) {
+        return;
+    }
     let white = MaterialDesc::color(Color::WHITE);
     let ground = rig.mesh(&MeshData::cube(1.0), white);
     let block = rig.mesh(&MeshData::cube(1.0), white);

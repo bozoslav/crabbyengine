@@ -54,6 +54,8 @@ mod stream;
 mod strips;
 mod text3d;
 mod three;
+// After `three`: it uses the quality struct, which the header defines there.
+mod gpu;
 mod tiles;
 mod types;
 mod ui_panel3d;
@@ -74,6 +76,7 @@ pub use contacts3d::*;
 pub use ctx::*;
 pub use flow::*;
 pub use game::*;
+pub use gpu::*;
 pub use grid::*;
 pub use handles::*;
 pub use keys::*;

@@ -15,7 +15,10 @@ const SIZE: u32 = 64;
 fn draw(outline: Color) -> Option<Vec<[f32; 4]>> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+    let (device, queue) = pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(
+        &wgpu::DeviceDescriptor::default(),
+    )))
+    .ok()?;
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[

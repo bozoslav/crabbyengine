@@ -49,7 +49,9 @@ impl Rig {
             },
             ..Default::default()
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&descriptor)) else {
+        let Ok((device, queue)) =
+            pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&descriptor)))
+        else {
             eprintln!("no GPU device: skipped");
             return None;
         };

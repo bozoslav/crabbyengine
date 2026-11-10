@@ -172,7 +172,8 @@ pub use profiler::{FrameStats, GpuPass};
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
 pub use render::{
-    GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuUploads, PipelineStats, RenderStats,
+    GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuTier, GpuUploads, PipelineStats,
+    RenderStats,
 };
 pub use residency::{ResidencyKind, ResidencyStats};
 pub use scenario::{

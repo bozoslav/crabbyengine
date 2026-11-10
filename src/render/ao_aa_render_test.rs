@@ -35,10 +35,15 @@ fn render(downlevel: bool, benchmark: bool) {
         descriptor.required_limits.max_compute_workgroups_per_dimension = 0;
         descriptor.required_limits.max_storage_textures_per_shader_stage = 0;
     }
-    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&descriptor)) else {
+    let Ok((device, queue)) =
+        pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&descriptor)))
+    else {
         eprintln!("no GPU device: skipped");
         return;
     };
+    if !downlevel && !crate::render::render_test_support::needs(&device, crate::GpuFeature::AmbientOcclusion) {
+        return;
+    }
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[
