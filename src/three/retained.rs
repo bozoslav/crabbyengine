@@ -51,7 +51,8 @@
 
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use glam::{Quat, Vec3};
 
@@ -708,6 +709,14 @@ fn load<const N: usize>(words: &[AtomicU32; N]) -> [f32; N] {
 const UNCHANGED: u32 = u32::MAX;
 /// In `Tracked::results`: the model isn't tracked yet.
 const NEW: u32 = u32::MAX - 1;
+/// In `Tracked::results`: the model changed, and no view drew or draws it.
+const DIFFERED: u32 = u32::MAX - 2;
+/// Set in a result that names an object: its model changed since it was
+/// last compared.
+const DIFF: u32 = 1 << 31;
+/// Set in a result that names an object: the lists are up to date with it
+/// (a rush has to know that it is still drawn).
+const SAME: u32 = 1 << 30;
 const DEAD: u64 = u64::MAX;
 /// More new models than this in a frame are worked out on all cores.
 const MANY_NEW: usize = 512;
@@ -804,11 +813,11 @@ pub(crate) struct Tracked {
     stale: Vec<bool>,
     overrides: (u32, Vec<(u32, u32)>),
     view: Vec<f32>,
-    /// On one core, while more than half the models change every frame:
-    /// every model is worked out each frame as if nothing was kept (the
-    /// digest and what is kept would cost more than they save), except one
-    /// in [`SAMPLE`], which says when the models have settled. What is kept
-    /// of the others is stale meanwhile, but for the views that draw them.
+    /// While more than half the models change every frame: every model is
+    /// worked out each frame as if nothing was kept (the digest and what
+    /// is kept would cost more than they save), except one in [`SAMPLE`],
+    /// which says when the models have settled. What is kept of the others
+    /// is stale meanwhile, but for the views that draw them.
     rush: bool,
     /// In a rush: the objects the last frame found drawn, and (free
     /// between frames) those this frame did.
@@ -818,6 +827,12 @@ pub(crate) struct Tracked {
     marked: Vec<bool>,
     /// Work every model out again in the next frame: what is kept is stale.
     renew: bool,
+    /// On several cores: the models a frame found that aren't tracked, if
+    /// they are no more than [`MANY_NEW`], and how many it found.
+    news: Mutex<Vec<crate::Entity>>,
+    new_count: AtomicUsize,
+    /// On several cores, in a rush: how many models were compared.
+    sampled: AtomicUsize,
 }
 
 #[cfg(test)]
@@ -839,29 +854,70 @@ struct Pass<'a> {
     culler: &'a Culler<'a>,
     overrides: &'a Overrides<'a>,
     how: How<'a>,
+    /// See `Tracked::rush`.
+    rush: bool,
+    news: &'a Mutex<Vec<crate::Entity>>,
+    new_count: &'a AtomicUsize,
+    sampled: &'a AtomicUsize,
 }
 
 impl Pass<'_> {
     /// One model: compared with its digest; worked out again if it
-    /// differs, and culled again if it or the views changed. Returns what
-    /// goes into `Tracked::results`.
+    /// differs, and culled again if it or the views changed. In a rush,
+    /// only one model in [`SAMPLE`] is; the others are worked out and
+    /// culled from their components alone. Returns what goes into
+    /// `Tracked::results`.
     fn check(&self, (entity, t, m, shadow, skeleton, receives, material): ModelItem<'_>) -> u32 {
-        let bits = entity.to_bits();
-        let k = match self.slot_of.get(entity.index() as usize) {
-            Some(&slot) if slot >> 32 == bits >> 32 && (slot as u32 as usize) < self.hot.len() => slot as u32 as usize,
-            _ => return NEW,
-        };
-        let hot = &self.hot[k];
         let source = Source::of(t, m, shadow, skeleton, receives, material);
-        let digest = source.digest();
-        let (cold, was) = (&self.cold[k], hot.applied.load(Ordering::Relaxed));
-        let keep = || {
+        let find = || {
+            let bits = entity.to_bits();
+            match self.slot_of.get(entity.index() as usize) {
+                Some(&slot) if slot >> 32 == bits >> 32 && (slot as u32 as usize) < self.hot.len() => {
+                    Some(slot as u32 as usize)
+                }
+                _ => None,
+            }
+        };
+        let new = || {
+            // A few new models are listed, to save finding them again.
+            if self.new_count.fetch_add(1, Ordering::Relaxed) < MANY_NEW
+                && let Ok(mut news) = self.news.lock()
+            {
+                news.push(entity);
+            }
+            NEW
+        };
+        let keep = |k: usize| {
             for (kept, value) in self.kept[k].iter().zip(source.kept()) {
                 kept.store(value.to_bits(), Ordering::Relaxed);
             }
         };
+        if self.rush && !sampled(entity) {
+            let derived = derive(source, self.assets, self.overrides);
+            let flags = self.culler.classify_spheres(derived.sphere, derived.caster_sphere);
+            if flags == 0 {
+                return UNCHANGED;
+            }
+            let Some(k) = find() else { return new() };
+            let cold = &self.cold[k];
+            cold.mesh.store(derived.mesh, Ordering::Relaxed);
+            cold.caster.store(derived.caster, Ordering::Relaxed);
+            cold.pending.store(flags, Ordering::Relaxed);
+            keep(k);
+            return k as u32;
+        }
+        let Some(k) = find() else { return new() };
+        if self.rush {
+            self.sampled.fetch_add(1, Ordering::Relaxed);
+        }
+        let hot = &self.hot[k];
+        let digest = source.digest();
+        let (cold, was) = (&self.cold[k], hot.applied.load(Ordering::Relaxed));
+        let keep = || keep(k);
         // With ECS change ticks, this compare is what a tick test replaces.
-        if hot.digest.load(Ordering::Relaxed) != digest || self.how.reworks(source) {
+        let before = hot.digest.load(Ordering::Relaxed);
+        let diff = if before != digest && before != 0 { DIFF } else { 0 };
+        if before != digest || self.how.reworks(source) {
             let derived = derive(source, self.assets, self.overrides);
             let spheres = derived.sphere.into_iter().chain(derived.caster_sphere);
             for (kept, value) in self.spheres[k].iter().zip(spheres) {
@@ -876,7 +932,10 @@ impl Pass<'_> {
                 keep();
             }
             if flags != 0 || was != 0 {
-                return k as u32;
+                return k as u32 | diff;
+            }
+            if diff != 0 {
+                return DIFFERED;
             }
         } else if self.how.cull {
             let [x, y, z, r, cx, cy, cz, cr] = load(&self.spheres[k]);
@@ -888,6 +947,9 @@ impl Pass<'_> {
                 }
                 return k as u32;
             }
+        }
+        if self.rush && was != 0 {
+            return k as u32 | SAME;
         }
         UNCHANGED
     }
@@ -1012,17 +1074,8 @@ impl Tracked {
                 let source = Source::of(t, m, shadow, skeleton, receives, material);
                 self.settle(k, source, &frame, &mut tally, lists, arena, motion);
             });
-            if !how.force && tally.compared >= RUSH_MIN && tally.differed * 2 > tally.compared {
-                // From the next frame on, until the models settle.
-                self.rush = true;
-                self.marked.clear();
-                self.marked.resize(self.entities.len(), false);
-                self.drawn.clear();
-                for (k, hot) in self.hot.iter_mut().enumerate() {
-                    if *hot.applied.get_mut() != 0 {
-                        self.drawn.push(k as u32);
-                    }
-                }
+            if !how.force {
+                self.rush_if_most_changed(&tally);
             }
             return (found, new);
         }
@@ -1045,6 +1098,30 @@ impl Tracked {
                 new += self.rush_drawn(entity, source, seen, &frame, &mut now, lists, arena, motion);
             }
         });
+        self.end_rush_frame(now, &tally, lists, arena);
+        // Which tracked models are gone is found when the rush ends.
+        (self.live, new)
+    }
+
+    /// After a frame that compared every model: starts a rush, from the
+    /// next frame on until the models settle, if most of them changed.
+    fn rush_if_most_changed(&mut self, tally: &Tally) {
+        if tally.compared < RUSH_MIN || tally.differed * 2 <= tally.compared {
+            return;
+        }
+        self.rush = true;
+        self.marked.clear();
+        self.marked.resize(self.entities.len(), false);
+        self.drawn.clear();
+        for (k, hot) in self.hot.iter_mut().enumerate() {
+            if *hot.applied.get_mut() != 0 {
+                self.drawn.push(k as u32);
+            }
+        }
+    }
+
+    /// Ends a frame of a rush that found the objects in `now` drawn.
+    fn end_rush_frame(&mut self, now: Vec<u32>, tally: &Tally, lists: &mut Lists, arena: &mut Vec<Instance3D>) {
         // The models drawn before that this frame didn't find drawn left
         // the views, or the world.
         for &k in &self.drawn {
@@ -1065,8 +1142,6 @@ impl Tracked {
             self.rush = false;
             self.renew = true;
         }
-        // Which tracked models are gone is found when the rush ends.
-        (self.live, new)
     }
 
     /// In a rush: a sampled model, compared as in any other frame.
@@ -1257,60 +1332,96 @@ impl Tracked {
         arena: &mut Vec<Instance3D>,
         motion: &mut Motion,
     ) -> (usize, usize) {
-        // After a rush on one core, what is kept is stale.
-        let how = How {
-            force: how.force || std::mem::take(&mut self.rush),
-            ..how
-        };
+        let rush = self.rush && !how.force;
+        self.rush = rush;
         self.grow(lists, true);
         let mut results = std::mem::take(&mut self.results);
-        let pass = |tracked: &Self, how: How<'_>, results: &mut Vec<u32>, world: &mut World| {
-            let pass = tracked.pass(assets, culler, overrides, how);
+        *self.new_count.get_mut() = 0;
+        *self.sampled.get_mut() = 0;
+        if let Ok(news) = self.news.get_mut() {
+            news.clear();
+        }
+        let pass = |tracked: &Self, how: How<'_>, rush: bool, results: &mut Vec<u32>, world: &mut World| {
+            let pass = tracked.pass(assets, culler, overrides, how, rush);
             world
                 .query::<ModelItem<'_>>()
                 .without::<SkinOf>()
                 .par_collect_into(results, |item| pass.check(item));
         };
-        let mut new = 0;
+        // In a rush: the objects this frame finds drawn.
+        let mut now = std::mem::take(&mut self.fresh_drawn);
+        now.clear();
+        let (mut new, mut differed) = (0, 0);
         // With nothing tracked, every model is new.
         let nothing = self.live == 0;
         if nothing {
             results.clear();
             new = world.query::<ModelItem<'_>>().without::<SkinOf>().count();
         } else {
-            pass(self, how, &mut results, world);
+            pass(self, how, rush, &mut results, world);
             for &result in &results {
                 match result {
                     UNCHANGED => {}
                     NEW => new += 1,
-                    k => self.apply(k as usize, lists, arena, motion),
+                    DIFFERED => differed += 1,
+                    result => {
+                        let k = (result & !(DIFF | SAME)) as usize;
+                        differed += usize::from(result & DIFF != 0);
+                        if result & SAME == 0 {
+                            self.apply(k, lists, arena, motion);
+                        }
+                        if rush && *self.hot[k].applied.get_mut() != 0 {
+                            self.mark(k, &mut now);
+                        }
+                    }
                 }
             }
         }
-        let found = if nothing { 0 } else { results.len() - new };
+        // A rush doesn't look for the tracked models that are gone.
+        let found = match (nothing, rush) {
+            (true, _) => 0,
+            (false, true) => self.live,
+            (false, false) => results.len() - new,
+        };
         if new > 0 {
-            // New models (spawned, or with the components now) are found
-            // again in order, by entity alone, and each given an object.
+            // Each new model (spawned, or with the components now) is given
+            // an object.
             self.reserve(new, lists, true);
-            let many = new > MANY_NEW;
+            // Many are worked out on all cores, like the rest (in a rush
+            // they can't be: what is kept of the rest is stale).
+            let many = new > MANY_NEW && !rush;
             let mut fresh = std::mem::take(&mut self.fresh);
             fresh.clear();
-            let mut at = 0;
-            world
-                .query::<crate::Entity>()
-                .with::<Transform3D>()
-                .with::<Model>()
-                .without::<SkinOf>()
-                .for_each(|entity| {
-                    at += 1;
-                    if nothing || results[at - 1] == NEW {
-                        let k = self.add(entity) as u32;
-                        if !many {
-                            fresh.push((k, entity));
+            if !nothing && new <= MANY_NEW {
+                // The compare listed them, in no order of its own.
+                let mut news = self.news.get_mut().map(std::mem::take).unwrap_or_default();
+                debug_assert_eq!(news.len(), new, "every new model is listed");
+                news.sort_unstable_by_key(|entity| entity.to_bits());
+                for &entity in &news {
+                    fresh.push((self.add(entity) as u32, entity));
+                }
+                if let Ok(kept) = self.news.get_mut() {
+                    *kept = news;
+                }
+            } else {
+                // They are found again in order, by entity alone.
+                let mut at = 0;
+                world
+                    .query::<crate::Entity>()
+                    .with::<Transform3D>()
+                    .with::<Model>()
+                    .without::<SkinOf>()
+                    .for_each(|entity| {
+                        at += 1;
+                        if nothing || results[at - 1] == NEW {
+                            let k = self.add(entity) as u32;
+                            if !many {
+                                fresh.push((k, entity));
+                            }
                         }
-                    }
-                });
-            debug_assert!(nothing || at == results.len(), "both queries find the same models");
+                    });
+                debug_assert!(nothing || at == results.len(), "both queries find the same models");
+            }
             self.grow(lists, true);
             // The rest was just worked out: only the new ones' digests
             // match nothing yet.
@@ -1321,25 +1432,41 @@ impl Tracked {
                 cull: how.cull,
             };
             if many {
-                // Many: worked out on all cores, like the rest.
-                pass(self, rest, &mut results, world);
+                pass(self, rest, false, &mut results, world);
                 for &result in &results {
-                    if result < NEW {
-                        self.apply(result as usize, lists, arena, motion);
+                    if result < DIFFERED {
+                        self.apply((result & !(DIFF | SAME)) as usize, lists, arena, motion);
                     }
                 }
             } else {
                 let mut models = world.query::<ModelItem<'_>>().without::<SkinOf>();
                 for &(k, entity) in &fresh {
                     let Some(item) = models.get(entity) else { continue };
-                    if self.pass(assets, culler, overrides, rest).check(item) == k {
+                    if self.pass(assets, culler, overrides, rest, false).check(item) == k {
                         self.apply(k as usize, lists, arena, motion);
+                        if rush {
+                            self.mark(k as usize, &mut now);
+                        }
                     }
                 }
             }
             self.fresh = fresh;
         }
         self.results = results;
+        if rush {
+            let tally = Tally {
+                compared: *self.sampled.get_mut(),
+                differed,
+            };
+            self.end_rush_frame(now, &tally, lists, arena);
+        } else {
+            self.fresh_drawn = now;
+            if !how.force {
+                // Every model found had been compared before.
+                let compared = found;
+                self.rush_if_most_changed(&Tally { compared, differed });
+            }
+        }
         (found, new)
     }
 
@@ -1349,6 +1476,7 @@ impl Tracked {
         culler: &'a Culler<'a>,
         overrides: &'a Overrides<'a>,
         how: How<'a>,
+        rush: bool,
     ) -> Pass<'a> {
         Pass {
             slot_of: &self.slot_of,
@@ -1360,6 +1488,10 @@ impl Tracked {
             culler,
             overrides,
             how,
+            rush,
+            news: &self.news,
+            new_count: &self.new_count,
+            sampled: &self.sampled,
         }
     }
 
@@ -1506,8 +1638,7 @@ impl Tracked {
         self.seen = seen;
     }
 
-    /// Whether most models change every frame, so none is compared (on
-    /// one core).
+    /// Whether most models change every frame, so few are compared.
     #[cfg(test)]
     pub fn rushing(&self) -> bool {
         self.rush
@@ -1528,6 +1659,7 @@ impl Tracked {
             + self.facts.capacity() * size_of::<Fact>()
             + self.stale.capacity()
             + self.fresh.capacity() * size_of::<(u32, crate::Entity)>()
+            + self.news.lock().map_or(0, |news| news.capacity()) * size_of::<crate::Entity>()
             + self.overrides.1.capacity() * size_of::<(u32, u32)>()
             + self.view.capacity() * size_of::<f32>()
     }

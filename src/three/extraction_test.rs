@@ -541,7 +541,7 @@ fn random_edits_always_draw_what_a_frame_built_from_nothing_draws() {
         }
         scene.check(&format!("frame {frame}"));
     }
-    assert_eq!(rushed > 15, SERIAL.get() == Some(true), "one core rushed: {rushed}");
+    assert!(rushed > 15, "it stopped comparing models while most moved: {rushed} frames");
     assert!(!scene.frame.rushing(), "and compares the models again");
 }
 
@@ -622,10 +622,10 @@ fn while_most_models_move_every_edit_is_still_followed() {
         scene.check(&format!("frame {frame}"));
         rushed += usize::from(scene.frame.rushing());
     }
-    // One core stopped comparing models while they moved, and started
-    // again when they stopped: what it kept of them from before the rush
-    // (the same places, but meshes with other bounds) is worked out anew.
-    assert_eq!(rushed > 30, SERIAL.get() == Some(true), "one core rushed: {rushed}");
+    // It stopped comparing models while they moved, and started again
+    // when they stopped: what it kept of them from before the rush (the
+    // same places, but meshes with other bounds) is worked out anew.
+    assert!(rushed > 30, "{rushed} frames");
     assert!(!scene.frame.rushing());
     let before = scene.frame.instances.clone();
     scene.check("still again");
@@ -635,6 +635,7 @@ fn while_most_models_move_every_edit_is_still_followed() {
 fn a_collection_can_change_between_one_core_and_several() {
     let mut scene = Scene::new(6000);
     let mine = SERIAL.get().unwrap();
+    let mut rushed = 0;
     for frame in 0..60 {
         // Every few frames the other way, also while most models move.
         SERIAL.set(Some(mine ^ (frame / 3 % 2 == 1)));
@@ -650,7 +651,9 @@ fn a_collection_can_change_between_one_core_and_several() {
         }
         scene.camera.position.x = (frame as f32 * 0.3).sin() * 6.0;
         scene.check(&format!("frame {frame}"));
+        rushed += usize::from(scene.frame.rushing());
     }
+    assert!(rushed > 25, "a rush goes on, whichever way a frame is collected: {rushed} frames");
     SERIAL.set(Some(mine));
 }
 
