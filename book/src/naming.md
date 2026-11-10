@@ -17,7 +17,11 @@ C++ wrapper is maintained in `ponko.hpp`.
 
 The default `ponko_ffi` feature `legacy-names` additionally exports the old
 `crabby_*` symbols as forwarding functions and exposes deprecated Rust
-`Crabby*`, `crabby_*` and `CRABBY_*` aliases. Existing binaries and dynamic
+`Crabby*`, `crabby_*` and `CRABBY_*` compatibility names. Enum-free types are
+aliases. Legacy enums and their containing value structs are generated as
+layout-equivalent types, preserving explicit and wildcard variant imports;
+forwarders convert values and compile-time assertions check sizes, alignments,
+field offsets and discriminants. Existing binaries and dynamic
 loaders continue to resolve the original symbols. Deprecated `crabby.h` and
 `crabby.hpp` are thin source shims over the primary headers; both generations
 may be included in either order. The C shim maps struct/enum tags as well as
@@ -71,8 +75,10 @@ New output uses the Ponko spelling; readers retain the old spelling:
 
 MCP searches both default registries, even if the new directory exists or
 has no entries; the primary entry wins for duplicate instance IDs. An explicit
-`PONKO_INSTANCES_DIR`, its legacy fallback, or a custom `Config` directory
-restricts discovery to that directory. New engines register only in the new
+`PONKO_INSTANCES_DIR` or its legacy fallback restricts discovery to that
+directory. A custom `Config` path different from the default also stays
+isolated. Configuring the default path opts into compatibility discovery; set
+an explicit environment override (even to the default path) to restrict it. New engines register only in the new
 default directory. MCP launch logs also use the new home directory. Old MCP
 servers do not automatically discover the new default: set an explicit shared
 instance directory when using an old server with a new engine.

@@ -203,8 +203,8 @@ fn discover(dir: &Path) -> Vec<Instance> {
     out
 }
 
-// Legacy discovery is limited to the default registry. Explicit environment or
-// Config directories remain isolated, including when the override is empty.
+// The default Config path opts into legacy discovery. Explicit environment
+// overrides (including empty ones) and non-default Config paths stay isolated.
 fn discover_compatible(dir: &Path) -> Vec<Instance> {
     let mut directories = vec![dir.to_path_buf()];
     if instances_override().is_none()
@@ -1593,7 +1593,7 @@ mod tests {
         assert_eq!(both.len(), 2);
         assert!(both.iter().any(|i| i.name() == "primary"));
         assert!(both.iter().any(|i| i.name() == "legacy"));
-        assert_eq!(discover_directories(&[primary.clone()]).len(), 1);
+        assert_eq!(discover_directories(std::slice::from_ref(&primary)).len(), 1);
         std::fs::remove_dir_all(&primary).unwrap();
         assert_eq!(discover_directories(&[primary, legacy]).len(), 2);
         std::fs::remove_dir_all(root).unwrap();
