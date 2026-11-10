@@ -76,10 +76,10 @@ fn screen_name(screen: Screen) -> String {
     }
 }
 
-/// Startup for the walk-through: [`setup_with`], then the bookkeeping. The
-/// report goes to `report_path` when it ends (`None`: only into the resource).
-pub fn setup_smoke(ctx: &mut Ctx, save: Option<PathBuf>, report_path: Option<PathBuf>, mode: &str) {
-    setup_with(ctx, save);
+/// Startup for the walk-through, after the game's own (the plugins' setups
+/// run first): the bookkeeping. The report goes to `report_path` when it ends
+/// (`None`: only into the resource).
+pub fn setup_smoke(ctx: &mut Ctx, report_path: Option<PathBuf>, mode: &str) {
     let size = {
         let coin = ctx.world.resource::<Art>().coin;
         [coin.width(), coin.height()]
@@ -207,15 +207,15 @@ fn finish(ctx: &mut Ctx, tick: u64, completed: bool) {
     ctx.quit();
 }
 
-/// The game with the walk-through installed: [`build`] plus [`autoplay`] (before
-/// the rules) and [`count_frames`].
-pub fn build_smoke() -> Game {
-    install(
-        Game::new("Coin Dash", ARENA.x as u32, ARENA.y as u32)
-            .seed(SEED)
-            .sim_system(autoplay),
-    )
-    .system(count_frames)
+/// The game with the walk-through installed: [`autoplay`] (before the
+/// rules), the [`CoinDash`] plugin keeping its files at `save`, and
+/// [`count_frames`]. Start it with [`setup_smoke`].
+pub fn build_smoke(save: Option<PathBuf>) -> Game {
+    Game::new("Coin Dash", ARENA.x as u32, ARENA.y as u32)
+        .seed(SEED)
+        .sim_system(autoplay)
+        .plugin(CoinDash { save })
+        .system(count_frames)
 }
 
 /// Frame system for the web build: publishes the state on `<html data-smoke>`

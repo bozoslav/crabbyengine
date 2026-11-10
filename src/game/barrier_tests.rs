@@ -28,9 +28,12 @@ fn ctx() -> Ctx {
 
 /// A game without the built-in drawing systems.
 fn bare(game: Game) -> Game {
-    game.remove_system(animate_sprites)
-        .remove_system(draw_tilemaps)
-        .remove_system(draw_sprites)
+    game.remove(Systems::ANIMATE_SPRITES)
+        .remove(Systems::DRAW_TILEMAPS)
+        .remove(Systems::DRAW_SPRITES)
+        .remove(Systems::UPDATE_ANIMATORS)
+        .remove(Systems::UPDATE_PARTICLES)
+        .remove(Systems::UPDATE_AUDIO3D)
 }
 
 /// One windowed frame running `ticks` simulation ticks.

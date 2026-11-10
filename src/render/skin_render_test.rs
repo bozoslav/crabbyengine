@@ -11,29 +11,40 @@ const SIZE: u32 = 64;
 
 #[test]
 fn posing_a_skeleton_moves_the_drawn_pixels() {
-    draw_bent(false, false, false);
+    draw_bent(false, false, false, false);
 }
 
 #[test]
 fn morph_weights_move_the_drawn_pixels() {
-    draw_bent(true, false, false);
+    draw_bent(true, false, false, false);
 }
 
 #[test]
 fn culled_models_before_visible_skin_and_morph_models_keep_their_slots() {
-    draw_bent(false, true, false);
-    draw_bent(true, true, false);
+    draw_bent(false, true, false, false);
+    draw_bent(true, true, false, false);
 }
 
 #[test]
 fn culled_models_keep_their_slots_on_the_cpu_skinning_fallback() {
-    draw_bent(false, true, true);
-    draw_bent(true, true, true);
+    draw_bent(false, true, true, false);
+    draw_bent(true, true, true, false);
+}
+
+#[test]
+fn outgrown_skin_buffers_pose_and_draw_as_before() {
+    // 80 more skinned (or morphed) models after the first frame: the skin
+    // matrices and morph weights outgrow their buffers, which are made
+    // anew with new bind groups; the bar still bends and comes back.
+    draw_bent(false, false, false, true);
+    draw_bent(true, false, false, true);
+    draw_bent(false, false, true, true);
 }
 
 /// Draws a bar standing up, then bent left: by its skeleton, or (`morph`)
-/// unskinned, by a morph target.
-fn draw_bent(morph: bool, mixed: bool, downlevel: bool) {
+/// unskinned, by a morph target. `grow`: 80 more of them, out of view,
+/// before it bends.
+fn draw_bent(morph: bool, mixed: bool, downlevel: bool, grow: bool) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
         crate::render::render_test_support::no_gpu("no GPU adapter");
@@ -281,13 +292,49 @@ fn draw_bent(morph: bool, mixed: bool, downlevel: bool) {
     assert!(lit(&rest, &ctx, above), "at rest the top half stands up");
     assert!(!lit(&rest, &ctx, beside));
 
+    if grow {
+        let (model, transform) = (
+            *ctx.world.get::<Model>(entity).unwrap(),
+            Transform3D::at(vec3(1e6, 0.0, 0.0)),
+        );
+        for _ in 0..80 {
+            if morph {
+                let mut weights = MorphWeights::default();
+                weights.set(0, 0.5);
+                ctx.world.spawn((transform, model, weights));
+            } else {
+                let skeleton = ctx.world.get::<Skeleton>(entity).unwrap().clone();
+                ctx.world.spawn((transform, model, skeleton));
+            }
+        }
+    }
     if morph {
         ctx.world.get_mut::<MorphWeights>(entity).unwrap().set(0, 1.0);
     } else {
         let s = ctx.world.get_mut::<Skeleton>(entity).unwrap();
         s.pose[1].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
     }
+    crate::render::traffic::take();
     let bent = draw(&mut ctx);
+    let grew = crate::render::traffic::take();
+    assert_eq!(grew.reallocations > 0, grow, "{grew:?}");
     assert!(!lit(&bent, &ctx, above), "bent, nothing stands above");
     assert!(lit(&bent, &ctx, beside), "bent, the top half points left");
+
+    // Held, the pose isn't uploaded again (on the GPU path: the CPU
+    // fallback poses the corners itself, every frame).
+    crate::render::traffic::take();
+    assert_eq!(draw(&mut ctx), bent);
+    let held = crate::render::traffic::take();
+    if !downlevel {
+        assert_eq!(held.skins, 0, "a held pose: {held:?}");
+    }
+    // Back at rest: what changed is uploaded, and draws as at first.
+    if morph {
+        ctx.world.get_mut::<MorphWeights>(entity).unwrap().set(0, 0.0);
+    } else {
+        ctx.world.get_mut::<Skeleton>(entity).unwrap().pose[1].rotation = Quat::IDENTITY;
+    }
+    assert_eq!(draw(&mut ctx), rest, "back at rest");
+    renderer.check_mirrors(&device, &queue);
 }

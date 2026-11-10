@@ -1847,6 +1847,39 @@ pub unsafe extern "C" fn crabby_ctx_create_mesh(
     })
 }
 
+/// Puts mesh data on the GPU as a mesh with no material of its own (Rust
+/// `Ctx::create_plain_mesh`): `crabby_ctx_create_mesh` with the default
+/// material, for meshes whose look comes from each model
+/// (`crabby_ctx_set_model_material`). The data can be freed afterwards.
+/// # Safety
+/// `ctx` null or live; `data` live; output writable.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_create_plain_mesh(std::ptr::null_mut(), std::ptr::null(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_create_plain_mesh(
+    ctx: *mut CrabbyCtx,
+    data: *const CrabbyMeshData,
+    out_mesh: *mut CrabbyMesh,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let Some(data) = data.as_ref() else {
+                return Err(invalid("mesh data is null"));
+            };
+            if out_mesh.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let mesh = c
+                .gfx
+                .try_create_plain_mesh(&data.0)
+                .map_err(|e| invalid_owned(e.to_string()))?;
+            out(out_mesh, to_c(mesh))
+        })
+    })
+}
+
 /// Makes a terrain tile `size` wide from `count` heights (n x n, row after
 /// row along +Z, NaN for a hole) drawn with `material` (Rust
 /// `Graphics::create_terrain_tile`). Spawn it with a `CrabbyTransform3D` at the
@@ -3007,6 +3040,167 @@ pub unsafe extern "C" fn crabby_ctx_set_shadow_mesh(
             }
             c.world.insert(entity, ponko::ShadowMesh(casts.then(|| to_c(mesh))));
             Ok(())
+        })
+    })
+}
+
+/// Draws `entity`'s model with `material` instead of the ones its mesh was
+/// made with, every part (Rust `ModelMaterial`); with `enabled` false, with
+/// its mesh's own again. One uploaded mesh can so be drawn in several
+/// materials. It applies to plain, skinned and morphing models, LOD groups
+/// and terrain tiles. Stale entities and materials are an error.
+/// # Safety
+/// `ctx` null or live.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_model_material(std::ptr::null_mut(), 0, Default::default(), false) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_model_material(
+    ctx: *mut CrabbyCtx,
+    entity: u64,
+    material: CrabbyMaterial,
+    enabled: bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let entity = ponko::Entity::from_bits(entity);
+            if !c.world.is_alive(entity) {
+                return Err(invalid("no such entity"));
+            }
+            if !enabled {
+                c.world.remove::<ponko::ModelMaterial>(entity);
+                return Ok(());
+            }
+            if !c.gfx.has_material(to_c(material)) {
+                return Err(invalid("that material wasn't made by this game"));
+            }
+            c.world.insert(entity, ponko::ModelMaterial(to_c(material)));
+            Ok(())
+        })
+    })
+}
+
+/// The material set with `crabby_ctx_set_model_material`: `out_has` says
+/// whether `entity` has one, `out_material` (optional) is it.
+/// # Safety
+/// `ctx` null or live; outputs writable or null as documented.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_model_material(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_model_material(
+    ctx: *mut CrabbyCtx,
+    entity: u64,
+    out_material: *mut CrabbyMaterial,
+    out_has: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let entity = ponko::Entity::from_bits(entity);
+            if !c.world.is_alive(entity) {
+                return Err(invalid("no such entity"));
+            }
+            if out_has.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let found = c.world.get::<ponko::ModelMaterial>(entity).copied();
+            if let (Some(m), false) = (found, out_material.is_null()) {
+                *out_material = to_c(m.0);
+            }
+            out(out_has, found.is_some())
+        })
+    })
+}
+
+/// Draws some parts of `entity`'s model with other materials (Rust
+/// `ModelMaterials`): part `parts[i]` with `materials[i]`, for `count`
+/// pairs. Parts are numbered from 0 in the order the mesh was made with;
+/// parts not listed keep the material of `crabby_ctx_set_model_material`,
+/// or the mesh's own. A part listed twice takes the last; a part the mesh
+/// doesn't have is ignored. `count` 0 takes the list off. Stale entities
+/// and materials are an error.
+/// # Safety
+/// `ctx` null or live; `parts` and `materials` hold `count` values each.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_set_model_part_materials(std::ptr::null_mut(), 0, std::ptr::null(), std::ptr::null(), 0) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_model_part_materials(
+    ctx: *mut CrabbyCtx,
+    entity: u64,
+    parts: *const u32,
+    materials: *const CrabbyMaterial,
+    count: usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let entity = ponko::Entity::from_bits(entity);
+            if !c.world.is_alive(entity) {
+                return Err(invalid("no such entity"));
+            }
+            if count == 0 {
+                c.world.remove::<ponko::ModelMaterials>(entity);
+                return Ok(());
+            }
+            if parts.is_null() || materials.is_null() {
+                return Err(invalid("parts or materials is null"));
+            }
+            let parts = std::slice::from_raw_parts(parts, count);
+            let materials = std::slice::from_raw_parts(materials, count);
+            if materials.iter().any(|&m| !c.gfx.has_material(to_c(m))) {
+                return Err(invalid("a material wasn't made by this game"));
+            }
+            let list: Vec<(usize, ponko::Material)> = parts
+                .iter()
+                .zip(materials)
+                .map(|(&part, &m)| (part as usize, to_c(m)))
+                .collect();
+            c.world.insert(entity, ponko::ModelMaterials::new(&list));
+            Ok(())
+        })
+    })
+}
+
+/// How many parts `crabby_ctx_set_model_part_materials` listed for
+/// `entity` (0: none), and with `out_parts` and `out_materials` non-null,
+/// up to `capacity` of them, by part number.
+/// # Safety
+/// `ctx` null or live; the outputs hold `capacity` values each, or are null.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_model_part_materials(std::ptr::null_mut(), 0, std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_model_part_materials(
+    ctx: *mut CrabbyCtx,
+    entity: u64,
+    out_parts: *mut u32,
+    out_materials: *mut CrabbyMaterial,
+    capacity: usize,
+    out_count: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let entity = ponko::Entity::from_bits(entity);
+            if !c.world.is_alive(entity) {
+                return Err(invalid("no such entity"));
+            }
+            if out_count.is_null() {
+                return Err(invalid("output is null"));
+            }
+            let Some(list) = c.world.get::<ponko::ModelMaterials>(entity) else {
+                return out(out_count, 0);
+            };
+            if !out_parts.is_null() && !out_materials.is_null() {
+                for (i, (part, material)) in list.parts().take(capacity).enumerate() {
+                    *out_parts.add(i) = part as u32;
+                    *out_materials.add(i) = to_c(material);
+                }
+            }
+            out(out_count, list.parts().len())
         })
     })
 }

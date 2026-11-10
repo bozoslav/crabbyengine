@@ -46,25 +46,27 @@ fn main() {
     );
     let saved = bindings.to_json().unwrap();
     let restored = ActionMap::from_json(&saved).unwrap();
-    Game::new("actions", 1, 1).run_headless(0, |ctx| {
-        ctx.input.set_actions(restored);
-        // Resolve once, after installing the bindings (an unknown name logs an
-        // error here instead of reading false every frame). Ids stay valid
-        // when the bindings are replaced below.
-        let act = Act::resolve(ctx);
-        ctx.input.feed(InputEvent::Key(Key::Space, true));
-        assert!(ctx.input.action_pressed(act.jump) && ctx.input.action_down(act.jump));
-        let movement = ctx.input.action_axis2(act.movement);
-        let throttle = ctx.input.action_axis(act.throttle);
-        assert_eq!((movement, throttle), (Vec2::ZERO, 0.0));
-        ctx.input.feed(InputEvent::Key(Key::Space, false));
-        assert!(ctx.input.action_released(act.jump));
-        let mut changed = ctx.input.actions().clone();
-        changed.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Enter)]));
-        ctx.input.set_actions(changed);
-        assert!(!ctx.input.action_pressed(act.jump));
-        // The name form still works, for one-off checks and tools.
-        assert!(!ctx.input.action_down("jump"));
-    });
+    Game::new("actions", 1, 1)
+        .setup(|ctx| {
+            ctx.input.set_actions(restored);
+            // Resolve once, after installing the bindings (an unknown name logs an
+            // error here instead of reading false every frame). Ids stay valid
+            // when the bindings are replaced below.
+            let act = Act::resolve(ctx);
+            ctx.input.feed(InputEvent::Key(Key::Space, true));
+            assert!(ctx.input.action_pressed(act.jump) && ctx.input.action_down(act.jump));
+            let movement = ctx.input.action_axis2(act.movement);
+            let throttle = ctx.input.action_axis(act.throttle);
+            assert_eq!((movement, throttle), (Vec2::ZERO, 0.0));
+            ctx.input.feed(InputEvent::Key(Key::Space, false));
+            assert!(ctx.input.action_released(act.jump));
+            let mut changed = ctx.input.actions().clone();
+            changed.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Enter)]));
+            ctx.input.set_actions(changed);
+            assert!(!ctx.input.action_pressed(act.jump));
+            // The name form still works, for one-off checks and tools.
+            assert!(!ctx.input.action_down("jump"));
+        })
+        .run_headless(0);
 }
 // ANCHOR_END: action_map

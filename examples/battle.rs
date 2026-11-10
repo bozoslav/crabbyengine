@@ -551,9 +551,15 @@ fn controls(ctx: &mut Ctx) {
     }
 }
 
-/// The map as one texture (a pixel per cell), the bases with their health,
-/// and red's rally point. Units are sprites, drawn by the engine.
-fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
+/// The map as one texture, a pixel per cell. Made once at startup.
+#[derive(Clone, Copy)]
+struct MapArt {
+    tex: Texture,
+    size: UVec2,
+}
+
+/// Startup: paints the map texture from the navigation grid.
+fn paint_map(ctx: &mut Ctx) {
     let size = ctx.world.resource::<Battle>().nav.size();
     let mut pixels = vec![0u8; (size.x * size.y * 4) as usize];
     {
@@ -573,35 +579,40 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
     }
     let tex = ctx.gfx.create_texture(size.x, size.y, &pixels);
     ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
-    move |ctx: &mut Ctx| {
-        ctx.gfx.clear(Color::BLACK);
-        let world = size.as_vec2() * CELL;
-        ctx.gfx.draw_ex(
-            &tex,
-            world / 2.0,
-            DrawParams {
-                scale: Vec2::splat(CELL),
-                z: -10.0,
-                ..Default::default()
-            },
+    ctx.world.insert_resource(MapArt { tex, size });
+}
+
+/// Frame system: the map, the bases with their health, and red's rally
+/// point. Units are sprites, drawn by the engine.
+fn draw_map(ctx: &mut Ctx) {
+    let MapArt { tex, size } = *ctx.world.resource::<MapArt>();
+    ctx.gfx.clear(Color::BLACK);
+    let world = size.as_vec2() * CELL;
+    ctx.gfx.draw_ex(
+        &tex,
+        world / 2.0,
+        DrawParams {
+            scale: Vec2::splat(CELL),
+            z: -10.0,
+            ..Default::default()
+        },
+    );
+    let rally = ctx.world.resource::<Battle>().rally[0];
+    let mut bases = [(Vec2::ZERO, 0.0, Team::Red); 2];
+    ctx.world.query::<(&Transform2D, &Base)>().for_each(|(t, b)| {
+        bases[b.team.index()] = (t.position, b.hp / b.max_hp, b.team);
+    });
+    for (at, health, team) in bases {
+        ctx.gfx.draw_circle(at, BASE_RADIUS, team.color().with_alpha(0.35));
+        ctx.gfx.draw_circle(at, BASE_RADIUS * 0.4, team.color());
+        let bar = Rect::new(at.x - BASE_RADIUS, at.y - BASE_RADIUS - 8.0, BASE_RADIUS * 2.0, 3.0);
+        ctx.gfx.draw_rect(bar, Color::rgba(0.0, 0.0, 0.0, 0.6));
+        ctx.gfx.draw_rect(
+            Rect::new(bar.min.x, bar.min.y, bar.size().x * health, 3.0),
+            team.color(),
         );
-        let rally = ctx.world.resource::<Battle>().rally[0];
-        let mut bases = [(Vec2::ZERO, 0.0, Team::Red); 2];
-        ctx.world.query::<(&Transform2D, &Base)>().for_each(|(t, b)| {
-            bases[b.team.index()] = (t.position, b.hp / b.max_hp, b.team);
-        });
-        for (at, health, team) in bases {
-            ctx.gfx.draw_circle(at, BASE_RADIUS, team.color().with_alpha(0.35));
-            ctx.gfx.draw_circle(at, BASE_RADIUS * 0.4, team.color());
-            let bar = Rect::new(at.x - BASE_RADIUS, at.y - BASE_RADIUS - 8.0, BASE_RADIUS * 2.0, 3.0);
-            ctx.gfx.draw_rect(bar, Color::rgba(0.0, 0.0, 0.0, 0.6));
-            ctx.gfx.draw_rect(
-                Rect::new(bar.min.x, bar.min.y, bar.size().x * health, 3.0),
-                team.color(),
-            );
-        }
-        ctx.gfx.draw_circle(rally, 5.0, Color::rgba(1.0, 0.9, 0.3, 0.9));
     }
+    ctx.gfx.draw_circle(rally, 5.0, Color::rgba(1.0, 0.9, 0.3, 0.9));
 }
 
 fn hud(ctx: &mut Ctx) {
@@ -676,6 +687,7 @@ fn main() {
                     );
                 }
             })
+            // The two-argument form may borrow a local, here the timer.
             .run_headless(ticks, |ctx| {
                 setup(ctx, units, seed, None);
                 start = Instant::now();
@@ -696,12 +708,14 @@ fn main() {
         .system(controls)
         .system(camera_controls)
         .system(hud)
-        .run(move |ctx| {
+        .system(draw_map)
+        .setup(move |ctx| {
             let dot = ctx.gfx.create_texture(2, 2, &[255; 2 * 2 * 4]);
             setup(ctx, units, seed, Some(dot));
             let world = ctx.world.resource::<Battle>().nav.size().as_vec2() * CELL;
             ctx.camera.zoom = (ctx.camera.viewport() / world).min_element();
             ctx.camera.look_at(world / 2.0);
-            draw_map(ctx)
-        });
+            paint_map(ctx);
+        })
+        .run();
 }

@@ -43,6 +43,20 @@ thread_local! {
     static COUNTS: Cell<GpuUploads> = const { Cell::new(GpuUploads::ZERO) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Upload calls: `write_buffer`, `write_texture`, `create_buffer_init`.
+    /// In `wgpu` each write makes and maps a staging buffer of its own.
+    static WRITES: Cell<[u32; 10]> = const { Cell::new([0; 10]) };
+}
+
+/// The upload calls since the last call on this thread, by [`Upload`] kind
+/// (indexed `kind as usize`), which are then reset.
+#[cfg(all(test, feature = "3d"))]
+pub(crate) fn take_writes() -> [u32; 10] {
+    WRITES.with(|w| w.replace([0; 10]))
+}
+
 fn count(f: impl FnOnce(&mut GpuUploads)) {
     COUNTS.with(|c| {
         let mut counts = c.get();
@@ -52,6 +66,12 @@ fn count(f: impl FnOnce(&mut GpuUploads)) {
 }
 
 fn add(kind: Upload, bytes: u64) {
+    #[cfg(test)]
+    WRITES.with(|w| {
+        let mut writes = w.get();
+        writes[kind as usize] += 1;
+        w.set(writes);
+    });
     count(|c| {
         let field = match kind {
             Upload::Instances => &mut c.instances,
@@ -74,6 +94,67 @@ fn created(size: u64) {
         c.buffers_created += 1;
         c.buffer_bytes_created += size;
     });
+}
+
+/// Whether a buffer holding `capacity` items must be replaced to hold
+/// `needed`; if so, sets `capacity` to the size to make it (`needed`
+/// rounded up to a power of two, so a buffer that keeps growing is
+/// replaced only a logarithmic number of times, but never past `most`,
+/// the most the device's buffers hold) and counts a reallocation.
+/// Capacities never shrink.
+///
+/// The caller then makes the new buffer, and everything that refers to the
+/// old one (bind groups, a [`Mirror`]) anew: the old one is dropped. When
+/// `needed` is more than `most`, `capacity` ends below it: the caller
+/// draws only what fits, and says so (see [`too_big`]).
+pub(crate) fn outgrown(capacity: &mut usize, needed: usize, most: usize) -> bool {
+    if needed <= *capacity {
+        return false;
+    }
+    let grown = needed.next_power_of_two().min(most);
+    if grown <= *capacity {
+        return false;
+    }
+    *capacity = grown;
+    reallocated();
+    true
+}
+
+/// The most bytes a buffer of `usage` can hold on `device`, a multiple of
+/// 4: storage buffers are bound whole, so also no more than one binding.
+pub(crate) fn most_bytes(device: &wgpu::Device, usage: wgpu::BufferUsages) -> usize {
+    let limits = device.limits();
+    let mut most = limits.max_buffer_size;
+    if usage.contains(wgpu::BufferUsages::STORAGE) {
+        most = most.min(limits.max_storage_buffer_binding_size);
+    }
+    usize::try_from(most).unwrap_or(usize::MAX) / 4 * 4
+}
+
+/// Reports (to stderr) that `what` needed `needed` bytes, more than the
+/// `most` this device's buffers hold, and what is drawn instead (`then`).
+/// The caller reports once until it fits again, not every frame.
+pub(crate) fn too_big(what: &str, needed: usize, most: usize, then: &str) {
+    #[cfg(test)]
+    TOO_BIG.with(|c| c.set(c.get() + 1));
+    eprintln!("ponko: {what} need {needed} bytes, more than this GPU's buffers hold ({most}); {then}");
+}
+
+#[cfg(test)]
+thread_local! {
+    static TOO_BIG: Cell<u32> = const { Cell::new(0) };
+}
+
+/// The [`too_big`] reports since the last call on this thread.
+#[cfg(all(test, feature = "3d"))]
+pub(crate) fn take_too_big() -> u32 {
+    TOO_BIG.with(|c| c.replace(0))
+}
+
+/// Counts a buffer or texture replaced by a bigger one (see [`outgrown`]).
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
+pub(crate) fn reallocated() {
+    count(|c| c.reallocations += 1);
 }
 
 /// Counted uploads and buffer creations: `device.new_buffer(&desc)` for
@@ -136,6 +217,30 @@ impl NewBuffer for wgpu::Device {
     }
 }
 
+/// The most writes a frame makes into one buffer whose changes can be
+/// scattered (see [`Mirror::sync_capped`]).
+///
+/// `wgpu` makes and maps a staging buffer for every `write_buffer`. On an
+/// Apple M4 Max (Metal) a write costs the CPU about 2 µs, as much as
+/// copying about 30 KB more (`upload_bench`: 64 writes of 64 bytes take
+/// 150 µs, one write of 256 KB 37 µs), so closing gaps narrower than that
+/// saves time. In the benchmark's scattered scene (every 17th of 1,024
+/// models and every other of 200 emitters changing) preparing a frame
+/// took 0.56 ms uncapped (241 writes), 0.37 ms with 64 writes a list,
+/// 0.27 ms with 32 and 0.17 ms with 16 (37 writes), for 98, 208, 264 and
+/// 292 KB uploaded. A few changes still upload only themselves.
+pub(crate) const MAX_WRITES: usize = 16;
+
+/// The usage a buffer written through a [`Mirror`] adds: in tests, it can
+/// be read back to check that it holds what the mirror says
+/// (`Renderer3D::check_mirrors`); otherwise none.
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
+pub(crate) const MIRRORED: wgpu::BufferUsages = if cfg!(test) {
+    wgpu::BufferUsages::COPY_SRC
+} else {
+    wgpu::BufferUsages::empty()
+};
+
 /// What a GPU buffer (or texture) holds, kept on the CPU, so a frame
 /// writes only the parts that changed since the last.
 ///
@@ -145,10 +250,25 @@ impl NewBuffer for wgpu::Device {
 #[cfg_attr(not(feature = "3d"), allow(dead_code))]
 pub(crate) struct Mirror {
     bytes: Vec<u8>,
+    /// Scratch for `sync_capped`: the runs of changed pages, and the gaps
+    /// between them.
+    runs: Vec<(usize, usize)>,
+    gaps: Vec<(usize, usize)>,
 }
 
 #[cfg_attr(not(feature = "3d"), allow(dead_code))]
 impl Mirror {
+    /// Brings `buffer`'s bytes `at..at + data.len()` (whose contents this
+    /// mirrors) up to `data`, counted as `kind`: a uniform, compared a vec4
+    /// at a time, so a frame uploads only the values that changed (with
+    /// up to eight unchanged vec4s between two changed ones along).
+    pub fn upload(&mut self, queue: &wgpu::Queue, kind: Upload, buffer: &wgpu::Buffer, at: u64, data: &[u8]) {
+        let uploads = queue.uploading(kind);
+        self.sync_bridged(0, data, 16, 8, |offset, bytes| {
+            uploads.write_buffer(buffer, at + offset as u64, bytes);
+        });
+    }
+
     /// The GPU side's contents are unknown (a new buffer): write everything next.
     pub fn forget(&mut self) {
         self.bytes.clear();
@@ -205,11 +325,242 @@ impl Mirror {
         if let Some((start, last)) = run {
             write(offset + start, &new[start..last]);
         }
+        self.remember(offset, new);
+    }
+
+    /// Like [`sync_bridged`](Self::sync_bridged), but in at most
+    /// `max_writes` writes: when more runs of pages changed, the runs with
+    /// the narrowest gaps of unchanged bytes between them go in one write
+    /// (the gap along), so what is uploaded beyond the changes is as
+    /// little as that many writes allow. A few changes cost little, and
+    /// changes scattered all over cost no more writes than `max_writes`,
+    /// nor more bytes than writing all.
+    ///
+    /// Every write costs a staging buffer (see [`MAX_WRITES`]), so buffers
+    /// whose changes can be scattered (one record per model, particle,
+    /// joint) are written through this.
+    pub fn sync_capped(
+        &mut self,
+        offset: usize,
+        new: &[u8],
+        (page, bridge): (usize, usize),
+        max_writes: usize,
+        mut write: impl FnMut(usize, &[u8]),
+    ) {
+        let page = page.max(1);
+        if offset > self.bytes.len() {
+            write(offset, new);
+            return;
+        }
+        let end = offset + new.len();
+        let known = self.bytes.len().min(end) - offset;
+        let mut runs = std::mem::take(&mut self.runs);
+        runs.clear();
+        let mut at = 0;
+        while at < new.len() {
+            let to = (at + page).min(new.len());
+            let same = to <= known && self.bytes[offset + at..offset + to] == new[at..to];
+            if !same {
+                match runs.last_mut() {
+                    Some(run) if at - run.1 <= bridge * page => run.1 = to,
+                    _ => runs.push((at, to)),
+                }
+            }
+            at = to;
+        }
+        let splits = max_writes.max(1) - 1;
+        if runs.len() > splits + 1 {
+            // Keep the widest gaps (by the run before them), close the rest.
+            let mut gaps = std::mem::take(&mut self.gaps);
+            gaps.clear();
+            gaps.extend(runs.windows(2).enumerate().map(|(i, w)| (w[1].0 - w[0].1, i)));
+            if splits > 0 {
+                gaps.select_nth_unstable_by(splits - 1, |a, b| b.cmp(a));
+            }
+            let kept = &mut gaps[..splits];
+            kept.sort_unstable_by_key(|g| g.1);
+            let mut start = runs[0].0;
+            for &(_, i) in kept.iter() {
+                write(offset + start, &new[start..runs[i].1]);
+                start = runs[i + 1].0;
+            }
+            let last = runs[runs.len() - 1].1;
+            write(offset + start, &new[start..last]);
+            self.gaps = gaps;
+        } else {
+            for &(start, last) in &runs {
+                write(offset + start, &new[start..last]);
+            }
+        }
+        self.runs = runs;
+        self.remember(offset, new);
+    }
+
+    fn remember(&mut self, offset: usize, new: &[u8]) {
+        let end = offset + new.len();
         if end > self.bytes.len() {
             self.bytes.resize(end, 0);
         }
         self.bytes[offset..end].copy_from_slice(new);
     }
+}
+
+/// A GPU buffer together with its [`Mirror`]: writes upload only the pages
+/// that changed, and the buffer grows (see [`outgrown`]) with its mirror
+/// forgotten in the same step, so no write is ever skipped against
+/// contents a replaced buffer held.
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
+pub(crate) struct Synced {
+    buffer: wgpu::Buffer,
+    mirror: Mirror,
+    /// How many bytes it holds.
+    capacity: usize,
+    label: &'static str,
+    usage: wgpu::BufferUsages,
+    kind: Upload,
+    page: usize,
+    bridge: usize,
+    max_writes: usize,
+    /// The most bytes the device lets it hold (see [`most_bytes`]).
+    most: usize,
+    /// More was asked for than `most`: reported, not yet fitting again.
+    full: bool,
+}
+
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
+impl Synced {
+    /// A buffer of `bytes` (at least 4) whose writes count as `kind`, compared in
+    /// `page`-byte pages (a multiple of 4), joined across up to `bridge`
+    /// unchanged pages, and at most `max_writes` a frame (see
+    /// [`Mirror::sync_capped`]).
+    pub fn new(
+        device: &wgpu::Device,
+        label: &'static str,
+        usage: wgpu::BufferUsages,
+        bytes: usize,
+        kind: Upload,
+        (page, bridge, max_writes): (usize, usize, usize),
+    ) -> Self {
+        let most = most_bytes(device, usage);
+        let capacity = bytes.max(4).next_multiple_of(4).min(most);
+        Self {
+            buffer: Self::make(device, label, usage, capacity),
+            mirror: Mirror::default(),
+            capacity,
+            label,
+            usage,
+            kind,
+            page,
+            bridge,
+            max_writes,
+            most,
+            full: false,
+        }
+    }
+
+    fn make(device: &wgpu::Device, label: &str, usage: wgpu::BufferUsages, bytes: usize) -> wgpu::Buffer {
+        device.new_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: bytes as u64,
+            usage: usage | wgpu::BufferUsages::COPY_DST | MIRRORED,
+            mapped_at_creation: false,
+        })
+    }
+
+    /// The buffer, as it is until the next [`reserve`](Self::reserve) that
+    /// returns true.
+    pub fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
+    }
+
+    /// Makes room for `bytes`, or as many as the device allows (see
+    /// [`fits`](Self::fits); more is reported once). True when that took a
+    /// new buffer: whatever refers to the old one (bind groups) must be made
+    /// again.
+    pub fn reserve(&mut self, device: &wgpu::Device, bytes: usize) -> bool {
+        let grew = outgrown(&mut self.capacity, bytes, self.most);
+        if grew {
+            self.buffer = Self::make(device, self.label, self.usage, self.capacity);
+            self.mirror.forget();
+        }
+        let full = bytes > self.capacity;
+        if full && !self.full {
+            too_big(self.label, bytes, self.most, "drawing only what fits");
+        }
+        self.full = full;
+        grew
+    }
+
+    /// How many bytes it holds: writes past them are dropped.
+    pub fn fits(&self) -> usize {
+        self.capacity
+    }
+
+    /// Brings bytes `offset..offset + data.len()` up to `data`, uploading
+    /// only the pages that changed, in at most its `max_writes` writes. What
+    /// doesn't fit (see [`reserve`](Self::reserve)) is dropped; `offset` and
+    /// `data.len()` are multiples of 4.
+    pub fn write(&mut self, queue: &wgpu::Queue, offset: usize, data: &[u8]) {
+        let data = &data[..data.len().min(self.capacity.saturating_sub(offset))];
+        let (buffer, uploads) = (&self.buffer, queue.uploading(self.kind));
+        let paging = (self.page, self.bridge);
+        self.mirror
+            .sync_capped(offset, data, paging, self.max_writes, |at, bytes| {
+                uploads.write_buffer(buffer, at as u64, bytes);
+            });
+    }
+}
+
+#[cfg(all(test, feature = "3d"))]
+impl Mirror {
+    /// Panics unless `buffer` holds, from `at`, what this mirror says it
+    /// does: no write was skipped against contents it doesn't have.
+    pub fn check(&self, device: &wgpu::Device, queue: &wgpu::Queue, buffer: &wgpu::Buffer, at: u64, what: &str) {
+        if self.bytes.is_empty() {
+            return;
+        }
+        let held = read_back(device, queue, buffer, at, self.bytes.len() as u64);
+        let differ = held.iter().zip(&self.bytes).filter(|(a, b)| a != b).count();
+        assert_eq!(
+            differ,
+            0,
+            "{what}: {differ} of {} bytes differ from what was written",
+            held.len()
+        );
+    }
+}
+
+#[cfg(all(test, feature = "3d"))]
+impl Synced {
+    /// See [`Mirror::check`].
+    pub fn check(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.mirror.check(device, queue, &self.buffer, 0, self.label);
+    }
+}
+
+/// Reads `len` bytes of `buffer` from `at` back from the GPU.
+#[cfg(all(test, feature = "3d"))]
+pub(crate) fn read_back(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    buffer: &wgpu::Buffer,
+    at: u64,
+    len: u64,
+) -> Vec<u8> {
+    let size = len.next_multiple_of(4);
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("read back"),
+        size,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_buffer_to_buffer(buffer, at, &readback, 0, size);
+    queue.submit([encoder.finish()]);
+    readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let bytes = readback.get_mapped_range(..).unwrap().to_vec();
+    bytes[..len as usize].to_vec()
 }
 
 /// The counts since the last call on this thread, which are then reset.
@@ -287,6 +638,64 @@ mod tests {
         out.clear();
         m.sync_bridged(0, &third, 4, 8, |at, b| out.push((at, b.len())));
         assert!(out.is_empty(), "and what was bridged is known");
+    }
+
+    #[test]
+    fn buffers_grow_by_powers_of_two_up_to_the_device_limit() {
+        take();
+        let mut capacity = 16;
+        assert!(!outgrown(&mut capacity, 16, 1000), "it fits");
+        assert!(outgrown(&mut capacity, 17, 1000));
+        assert_eq!(capacity, 32);
+        assert!(outgrown(&mut capacity, 600, 1000), "not rounded past the limit");
+        assert_eq!(capacity, 1000);
+        assert!(!outgrown(&mut capacity, 5000, 1000), "nothing bigger to make");
+        assert_eq!(capacity, 1000);
+        assert_eq!(take().reallocations, 2);
+    }
+
+    #[test]
+    fn capped_writes_close_the_narrowest_gaps_first() {
+        let mut m = Mirror::default();
+        let first = vec![0u8; 64];
+        m.sync(0, &first, 4, |_, _| {});
+        // Pages 0, 2, 3, 10 and 15 change: gaps of 1, 6 and 4 pages.
+        let mut second = first.clone();
+        for page in [0, 2, 3, 10, 15] {
+            second[page * 4] = 1;
+        }
+        let mut out = Vec::new();
+        m.clone_from_bytes(&first);
+        m.sync_capped(0, &second, (4, 0), 8, |at, b| out.push((at, b.len())));
+        assert_eq!(out, [(0, 4), (8, 8), (40, 4), (60, 4)], "under the cap: each run alone");
+        m.clone_from_bytes(&first);
+        out.clear();
+        m.sync_capped(0, &second, (4, 1), 8, |at, b| out.push((at, b.len())));
+        assert_eq!(out, [(0, 16), (40, 4), (60, 4)], "bridged across one page");
+        for (cap, expected) in [
+            (3, vec![(0, 16), (40, 4), (60, 4)]),
+            (2, vec![(0, 16), (40, 24)]),
+            (1, vec![(0, 64)]),
+        ] {
+            m.clone_from_bytes(&first);
+            out.clear();
+            m.sync_capped(0, &second, (4, 0), cap, |at, b| out.push((at, b.len())));
+            assert_eq!(out, expected, "{cap} writes");
+        }
+        out.clear();
+        m.sync_capped(0, &second, (4, 0), 1, |at, b| out.push((at, b.len())));
+        assert!(out.is_empty(), "what was written is known");
+        // Past what is known, everything.
+        out.clear();
+        m.sync_capped(80, &[1; 8], (4, 0), 4, |at, b| out.push((at, b.len())));
+        assert_eq!(out, [(80, 8)]);
+    }
+
+    impl Mirror {
+        fn clone_from_bytes(&mut self, bytes: &[u8]) {
+            self.bytes.clear();
+            self.bytes.extend_from_slice(bytes);
+        }
     }
 
     #[test]

@@ -87,7 +87,7 @@ fn main() {
                 ctx.quit();
             }
         })
-        .run(|ctx| {
+        .setup(|ctx| {
             ctx.camera3d.position = vec3(0.0, 7.0, 10.0);
             ctx.camera3d.look_at(vec3(0.0, 0.0, -1.0));
             ctx.lighting.sun_direction = Sky::sun_direction_at(15.0);
@@ -129,5 +129,6 @@ fn main() {
             let ground = ctx.gfx.create_mesh(&MeshData::plane(200.0), grass);
             ctx.world
                 .spawn((Transform3D::at(vec3(0.0, -0.3, 0.0)), Model::new(ground)));
-        });
+        })
+        .run();
 }

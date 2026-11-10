@@ -26,7 +26,7 @@ fn setup(ctx: &mut Ctx) {
 
 fn main() {
     // The sounds follow their entities and the listener (ctx.camera3d) by themselves.
-    Game::new("Spatial audio", 800, 600).run(setup);
+    Game::new("Spatial audio", 800, 600).setup(setup).run();
 }
 // ANCHOR_END: sound3d
 

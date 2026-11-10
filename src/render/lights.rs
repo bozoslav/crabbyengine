@@ -66,6 +66,7 @@ impl LightTextures {
         ] {
             if height > target.height() {
                 let height = height.next_power_of_two();
+                super::traffic::reallocated();
                 assert!(
                     height <= device.limits().max_texture_dimension_2d,
                     "punctual light texture exceeds adapter capacity"

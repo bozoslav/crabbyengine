@@ -1309,6 +1309,28 @@ mod tests {
     }
 
     #[test]
+    fn perf_reports_list_the_frames_gpu_uploads_and_reallocations() {
+        let mut ctx = ctx();
+        ctx.perf.last_render_stats.uploads = crate::GpuUploads {
+            instances: 640,
+            uniforms: 80,
+            buffers_created: 3,
+            reallocations: 2,
+            buffer_bytes_created: 4096,
+            ..Default::default()
+        };
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        let u = &perf["render"]["uploads"];
+        assert_eq!(u["bytes"], 720, "{u}");
+        assert_eq!(u["instances"], 640, "{u}");
+        assert_eq!(u["buffers_created"], 3, "{u}");
+        assert_eq!(u["reallocations"], 2, "{u}");
+        assert_eq!(u["buffer_bytes_created"], 4096, "{u}");
+        // Every count, by the name it has in Rust.
+        assert_eq!(u.as_object().unwrap().len(), 14, "{u}");
+    }
+
+    #[test]
     fn perf_reports_put_the_slowest_systems_first() {
         let mut ctx = ctx();
         ctx.perf.timings = ["fast", "slow", "middle"]

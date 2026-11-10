@@ -513,6 +513,7 @@ fn main() {
     if env_number("HEADLESS", 0.0) != 0.0 {
         let ticks = env_number("TICKS", 600.0) as u64;
         let mut start = Instant::now();
+        // The two-argument form may borrow a local, here the timer.
         let mut world = colonies(Game::new("ants", 1, 1).seed(seed), bounds).run_headless(ticks, |ctx| {
             setup(ctx, bounds, ants, None);
             start = Instant::now();
@@ -533,32 +534,38 @@ fn main() {
         .system(camera_controls)
         .system(draw_world(bounds))
         .system(hud)
-        .run(move |ctx| {
+        .system(report())
+        .setup(move |ctx| {
             let sprite = ctx.gfx.create_texture(3, 2, &[255; 3 * 2 * 4]);
             setup(ctx, bounds, ants, Some(sprite));
             // Start with the whole world in view.
             let fit = ctx.window_size() / bounds;
             ctx.camera.zoom = fit.x.min(fit.y);
             ctx.camera.look_at(bounds / 2.0);
-            let mut next = 1.0;
-            move |ctx: &mut Ctx| {
-                if ctx.time.elapsed() >= next {
-                    next += 1.0;
-                    let sim_ms: f32 = ctx
-                        .perf
-                        .system_timings()
-                        .iter()
-                        .filter(|t| t.sim)
-                        .map(|t| t.avg_ms)
-                        .sum();
-                    println!(
-                        "ants: {}  delivered: {}  fps: {:.0}  sim: {sim_ms:.2} ms/frame  tick: {}",
-                        ctx.world.query::<&Ant>().count(),
-                        delivered(&mut ctx.world),
-                        ctx.time.fps(),
-                        ctx.time.sim_tick()
-                    );
-                }
-            }
-        });
+        })
+        .run();
+}
+
+/// Frame system with its own state: prints the numbers once a second.
+fn report() -> impl FnMut(&mut Ctx) {
+    let mut next = 1.0;
+    move |ctx: &mut Ctx| {
+        if ctx.time.elapsed() >= next {
+            next += 1.0;
+            let sim_ms: f32 = ctx
+                .perf
+                .system_timings()
+                .iter()
+                .filter(|t| t.sim)
+                .map(|t| t.avg_ms)
+                .sum();
+            println!(
+                "ants: {}  delivered: {}  fps: {:.0}  sim: {sim_ms:.2} ms/frame  tick: {}",
+                ctx.world.query::<&Ant>().count(),
+                delivered(&mut ctx.world),
+                ctx.time.fps(),
+                ctx.time.sim_tick()
+            );
+        }
+    }
 }

@@ -208,6 +208,7 @@ impl Graphics {
         if self.assets3d.default_material == Some(Material { id }) {
             self.assets3d.default_material = None;
         }
+        self.material_names.remove(id);
         for materials in self.assets3d.loaded_materials.values_mut() {
             materials.retain(|(m, _)| m.id != id);
         }
@@ -508,6 +509,50 @@ impl Graphics {
             ));
         }
         Ok(self.mesh_from_parts(data, &[(0..data.indices.len() as u32, material)], None, Vec::new()))
+    }
+
+    /// Puts triangles on the GPU as a [`Mesh`] with no material of its own:
+    /// [`create_mesh`](Self::create_mesh) with the
+    /// [default material](Self::default_material). For meshes whose look
+    /// comes from each model, with a [`ModelMaterial`](crate::ModelMaterial):
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let ball = ctx.gfx.create_plain_mesh(&MeshData::sphere(0.5, 32));
+    /// let gold = ctx.gfx.create_material(MaterialDesc { metallic: 1.0, ..MaterialDesc::color(Color::hex(0xFFC83D)) });
+    /// ctx.world.spawn((Transform3D::default(), Model::new(ball)));                        // plain white
+    /// ctx.world.spawn((Transform3D::at(Vec3::X), Model::new(ball), ModelMaterial(gold))); // gold
+    /// # }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If the data doesn't fit together (see [`MeshData::check`]).
+    pub fn create_plain_mesh(&mut self, data: &MeshData) -> Mesh {
+        self.try_create_plain_mesh(data).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`create_plain_mesh`](Self::create_plain_mesh) with errors as values:
+    /// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) if the data doesn't
+    /// fit together.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let cube = ctx.gfx.try_create_plain_mesh(&MeshData::cube(1.0)).unwrap();
+    ///     assert!(ctx.gfx.is_mesh_live(cube));
+    ///     let mut broken = MeshData::cube(1.0);
+    ///     broken.indices.pop();
+    ///     assert_eq!(ctx.gfx.try_create_plain_mesh(&broken).unwrap_err().kind(), ErrorKind::Invalid);
+    /// });
+    /// ```
+    pub fn try_create_plain_mesh(&mut self, data: &MeshData) -> Result<Mesh, crate::Error> {
+        // Checked first, so bad data doesn't make the default material.
+        data.check()
+            .map_err(|e| crate::Error::new(crate::ErrorKind::Invalid, format!("create_plain_mesh: {e}")))?;
+        let material = self.default_material();
+        self.try_create_mesh(data, material)
     }
 
     /// Makes a mesh that bends with `skeleton`: each corner of `data` has
@@ -862,6 +907,11 @@ impl Graphics {
         let mesh = self.mesh_from_parts(&loaded.data, &parts, skin, loaded.morph_defaults);
         self.assets3d.loaded.insert(file.clone(), mesh);
         self.mesh_names.set(mesh.id, path, mesh);
+        let named = materials
+            .iter()
+            .zip(&loaded.materials)
+            .map(|(m, l)| (*m, l.name.clone()));
+        self.material_names.add(path, named);
         mesh
     }
 

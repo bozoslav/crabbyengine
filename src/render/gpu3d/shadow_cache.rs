@@ -31,9 +31,10 @@ pub(super) struct ShadowContent {
     caster: [[f32; 4]; 4],
     eye: [f32; 3],
     tile: [u32; 3],
-    /// (mesh, material, count) per run (see `Ident`), then every run's
-    /// instances in order.
-    runs: Vec<(u32, u32, u32)>,
+    /// (mesh, material, count, per-part materials) per run (see `Ident`),
+    /// then every run's per-part materials and instances in order.
+    runs: Vec<(u32, u32, u32, u32)>,
+    parts: Vec<(u32, u32)>,
     instances: Vec<Instance3D>,
 }
 
@@ -44,11 +45,18 @@ impl ShadowContent {
             && self.eye == key.eye
             && self.tile == key.tile
             && self.runs.len() == runs.len()
-            && self
-                .runs
-                .iter()
-                .zip(runs)
-                .all(|(&(m, material, n), &(mesh, _, count))| (m, material) == ident(mesh) && n == count)
+            && {
+                let mut at = 0;
+                self.runs
+                    .iter()
+                    .zip(runs)
+                    .all(|(&(m, material, n, listed), &(mesh, _, count))| {
+                        let (mesh, its_material, its_parts) = ident(mesh);
+                        let mine = &self.parts[at..at + listed as usize];
+                        at += listed as usize;
+                        (m, material, n) == (mesh, its_material, count) && mine == its_parts
+                    })
+            }
             && {
                 let mut at = 0;
                 runs.iter().all(|&(_, start, count)| {
@@ -66,10 +74,12 @@ impl ShadowContent {
         self.eye = key.eye;
         self.tile = key.tile;
         self.runs.clear();
-        self.runs.extend(runs.iter().map(|&(mesh, _, count)| {
-            let (mesh, material) = ident(mesh);
-            (mesh, material, count)
-        }));
+        self.parts.clear();
+        for &(mesh, _, count) in runs {
+            let (mesh, material, parts) = ident(mesh);
+            self.runs.push((mesh, material, count, parts.len() as u32));
+            self.parts.extend_from_slice(parts);
+        }
         self.instances.clear();
         for &(_, start, count) in runs {
             self.instances
@@ -81,7 +91,7 @@ impl ShadowContent {
 /// What a run's mesh id draws, the same from frame to frame: (mesh with
 /// its [`FADED`] bit, material override or `u32::MAX`). Material override
 /// ids are numbered afresh each frame, so they're compared by what they draw.
-type Ident<'a> = &'a dyn Fn(u32) -> (u32, u32);
+type Ident<'a> = &'a dyn Fn(u32) -> (u32, u32, &'a [(u32, u32)]);
 
 /// What places a view: see [`ShadowContent`].
 pub(super) struct ViewKey {
@@ -218,7 +228,8 @@ impl Renderer3D {
             m.gpu_buffer.is_some()
                 || m.parts
                     .iter()
-                    .any(|&(_, own)| self.material_volatile(self.part_material(run_mesh, own)))
+                    .enumerate()
+                    .any(|(part, &(_, own))| self.material_volatile(self.part_material(run_mesh, part, own)))
         };
         runs.iter().any(|&(mesh, _, _)| mesh_volatile(mesh))
             || self
@@ -289,11 +300,15 @@ impl Renderer3D {
             };
             let volatile = self.shadow_volatile(&self.shadow_runs[v]);
             let (overrides, base) = (&self.material_overrides, self.override_base);
+            let listed = &self.override_parts;
             let ident = |mesh: u32| {
                 let k = (mesh & !FADED).checked_sub(base);
                 match k.and_then(|k| overrides.get(k as usize)) {
-                    Some(&(m, material)) => (m | (mesh & FADED), material),
-                    None => (mesh, u32::MAX),
+                    Some(o) => {
+                        let (start, len) = (o.parts.0 as usize, o.parts.1 as usize);
+                        (o.mesh | (mesh & FADED), o.material, &listed[start..start + len])
+                    }
+                    None => (mesh, u32::MAX, &[][..]),
                 }
             };
             if self

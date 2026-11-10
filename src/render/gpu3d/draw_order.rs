@@ -67,7 +67,8 @@ impl Renderer3D {
         let solid = base
             .parts
             .iter()
-            .map(|&(_, m)| self.part_material(mesh, m))
+            .enumerate()
+            .map(|(part, &(_, m))| self.part_material(mesh, part, m))
             .map(|m| (m, &self.materials[m as usize]))
             .find(|(_, m)| !m.transparent);
         let Some((id, m)) = solid else {
@@ -125,7 +126,8 @@ impl Renderer3D {
         self.meshes[self.base(mesh) as usize]
             .parts
             .iter()
-            .any(|&(_, m)| self.materials[self.part_material(mesh, m) as usize].transparent)
+            .enumerate()
+            .any(|(part, &(_, m))| self.materials[self.part_material(mesh, part, m) as usize].transparent)
     }
 
     /// Fills `blended_runs` with the camera's runs that blend, each drawing

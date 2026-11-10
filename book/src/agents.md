@@ -217,3 +217,33 @@ GPU/asset memory reports are not implied by their presence. Follow
 planned extensions. Reliable autonomous creation of complete games remains
 a long-term objective, with human review and reproducible evidence still
 required. See [the project vision](https://github.com/ponkoengine/ponko/blob/main/PROJECT_VISION.md).
+
+### Instance schemas and GPU details
+
+The read-only `capabilities` control request (and MCP `instance_capabilities` tool)
+reports this instance's mode, compiled features, operation availability, and
+reflected component/resource schemas. In a windowed renderer,
+`subsystems.renderer.adapter` identifies the adapter/backend and
+`subsystems.renderer.gpu` contains the same limits and feature fallback reasons
+as `Gfx::gpu_capabilities()`. Before a GPU opens, those values are null and
+`adapter_reason` explains why. Headless instances report an inactive renderer.
+A tool being present in MCP does not imply that the selected instance supports it.
+
+Built-in transforms, attachments, sprites, models, LOD, lights, decals and
+registered physics components carry explicit schemas. Asset references use their
+serialized file names; they are not GPU handles. Arbitrary Serde registrations
+still work without extra bounds and remain explicitly opaque until described.
+Schemas describe JSON shape, not asset existence or all value constraints.
+
+C uses `ponko_world_describe_component(world, name, schema)` and
+`ponko_world_describe_resource(world, name, schema)`; C++ uses
+`world.describe_component(name, schema)` / `describe_resource(name, schema)`.
+Names must already be reflected. The schema string encodes Rust's `ValueSchema`,
+for example `{"Object":[["hp","Number"],["label",{"Optional":"String"}]]}`.
+Scalar names include `Bool`, `Integer`, `Unsigned`, `Number`, `String`, `Entity`,
+`Vec2`, `Vec3`, `Color`, `Null`, and `Opaque`. Containers are `Object` (ordered
+name/schema pairs), `Array`, `Optional`, `Tuple` (an array of schemas), `OneOf`
+(alternative schemas), and `Enum` (string values). Invalid JSON or an unknown
+reflected name returns an error without replacing existing metadata. Describing
+again replaces metadata only: serialization and field registration are unchanged.
+The native `capability_schema.c` and `.cpp` tests compile and exercise both APIs.

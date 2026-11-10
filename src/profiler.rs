@@ -535,12 +535,13 @@ impl Bench {
         let u = render.uploads;
         let _ = writeln!(
             report,
-            "gpu uploads (last frame): {} bytes ({} instances, {} uniforms, {} lights)   buffers created {}",
+            "gpu uploads (last frame): {} bytes ({} instances, {} uniforms, {} lights)   buffers created {} ({} outgrown)",
             u.bytes(),
             u.instances,
             u.uniforms,
             u.lights,
-            u.buffers_created
+            u.buffers_created,
+            u.reallocations
         );
         if self.skipped > 0 {
             let _ = writeln!(report, "({} frames weren't drawn and aren't counted)", self.skipped);

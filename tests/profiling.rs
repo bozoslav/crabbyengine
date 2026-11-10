@@ -24,6 +24,31 @@ fn perf_keys(ctx: &mut Ctx) {
 }
 // ANCHOR_END: profiling
 
+// ANCHOR: uploads
+/// Logs frames that send the GPU far more than a still scene does (which
+/// sends next to nothing): many models moved or spawned, or a buffer
+/// outgrown and made anew.
+fn upload_watch(ctx: &mut Ctx) {
+    let u = ctx.perf.render_stats().uploads;
+    if u.bytes() > 256 * 1024 || u.reallocations > 0 {
+        println!(
+            "frame {}: {} KiB uploaded ({} KiB of models), {} buffers outgrown",
+            ctx.time.frame(),
+            u.bytes() / 1024,
+            u.instances / 1024,
+            u.reallocations
+        );
+    }
+}
+// ANCHOR_END: uploads
+
+#[test]
+fn headless_runs_upload_nothing_to_the_gpu() {
+    Game::new("t", 1, 1).system(upload_watch).run_headless(10, |ctx| {
+        assert_eq!(ctx.perf.render_stats().uploads, GpuUploads::default());
+    });
+}
+
 #[test]
 fn headless_runs_have_no_frame_stats() {
     Game::new("t", 1, 1).system(perf_keys).run_headless(10, |ctx| {

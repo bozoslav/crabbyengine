@@ -22,5 +22,6 @@ fn main() {
                 ctx.quit();
             }
         })
-        .run(|ctx| scene::setup(ctx, count));
+        .setup(move |ctx| scene::setup(ctx, count))
+        .run();
 }

@@ -20,10 +20,10 @@ fn animations_show_their_frame_on_the_sprite() {
             .world
             .spawn((Transform2D::default(), s.sprite(0), Animation::new(s, 4..8, 30.0)));
         // One fixed step at 60 Hz is half a frame at 30 fps: still frame 4.
-        animate_sprites(ctx);
+        systems::animate_sprites(ctx);
         assert_eq!(ctx.world.get::<Sprite>(e).unwrap().region, Some(s.frame(4)));
-        animate_sprites(ctx);
-        animate_sprites(ctx);
+        systems::animate_sprites(ctx);
+        systems::animate_sprites(ctx);
         assert_eq!(ctx.world.get::<Animation>(e).unwrap().current_frame(), 5);
         assert_eq!(ctx.world.get::<Sprite>(e).unwrap().region, Some(s.frame(5)));
     });
@@ -39,13 +39,13 @@ fn tilemaps_draw_only_visible_tiles() {
         ctx.world.spawn((Transform2D::default(), map));
 
         // 800 × 600 window at zoom 1 from (0, 0): 50 × 38 tiles, minus the empty one.
-        draw_tilemaps(ctx);
+        systems::draw_tilemaps(ctx);
         assert_eq!(ctx.gfx.sprite_count(), 50 * 38 - 1);
 
         // Looking past the map's edge: nothing.
         ctx.camera.position = vec2(-5000.0, -5000.0);
         let before = ctx.gfx.sprite_count();
-        draw_tilemaps(ctx);
+        systems::draw_tilemaps(ctx);
         assert_eq!(ctx.gfx.sprite_count(), before);
     });
 }

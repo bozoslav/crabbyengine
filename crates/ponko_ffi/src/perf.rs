@@ -93,6 +93,91 @@ pub unsafe extern "C" fn crabby_ctx_frame_stats(
     })
 }
 
+/// What the renderer sent to the GPU over the last drawn frame (Rust
+/// `RenderStats::uploads`, `GpuUploads`): bytes uploaded by kind, buffers
+/// made, and the buffers and textures replaced because they were outgrown.
+/// All zero in headless runs and before the first frame. In a scene where
+/// nothing changes, nothing is uploaded and no buffer is made.
+/// ```
+/// let u = ponko_ffi::CrabbyGpuUploads::default();
+/// assert_eq!((u.bytes, u.reallocations), (0, 0));
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CrabbyGpuUploads {
+    /// Every byte uploaded, all kinds together.
+    pub bytes: u64,
+    /// 3D models' per-frame records (transforms, colors, motion).
+    pub instances: u64,
+    /// 2D sprites' records.
+    pub sprites: u64,
+    /// Instance batches and their culling data.
+    pub static_batches: u64,
+    /// Small per-frame uniforms: cameras, post-processing, effect settings.
+    pub uniforms: u64,
+    /// Lights and decals.
+    pub lights: u64,
+    /// Material parameters.
+    pub materials: u64,
+    /// Skinned models: joint matrices and morph weights.
+    pub skins: u64,
+    /// Mesh vertices and indices, and GPU buffers the game made.
+    pub meshes: u64,
+    /// Texture pixels.
+    pub textures: u64,
+    /// Everything else: particles, 3D text, occlusion grids.
+    pub other: u64,
+    /// The bytes of the buffers made.
+    pub buffer_bytes_created: u64,
+    /// Buffers made.
+    pub buffers_created: u32,
+    /// Buffers and textures replaced by bigger ones because they were
+    /// outgrown (the new buffers are also in `buffers_created`, the
+    /// textures not).
+    pub reallocations: u32,
+}
+
+impl From<ponko::GpuUploads> for CrabbyGpuUploads {
+    fn from(u: ponko::GpuUploads) -> Self {
+        Self {
+            bytes: u.bytes(),
+            instances: u.instances,
+            sprites: u.sprites,
+            static_batches: u.static_batches,
+            uniforms: u.uniforms,
+            lights: u.lights,
+            materials: u.materials,
+            skins: u.skins,
+            meshes: u.meshes,
+            textures: u.textures,
+            other: u.other,
+            buffer_bytes_created: u.buffer_bytes_created,
+            buffers_created: u.buffers_created,
+            reallocations: u.reallocations,
+        }
+    }
+}
+
+/// Writes what the renderer uploaded over the last drawn frame to
+/// `*out_uploads` (see `CrabbyGpuUploads`).
+/// ```
+/// let mut u = ponko_ffi::CrabbyGpuUploads::default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_gpu_uploads(std::ptr::null(), &mut u) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` must be null or live; `out_uploads` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_gpu_uploads(
+    ctx: *const CrabbyCtx,
+    out_uploads: *mut CrabbyGpuUploads,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let u = ctx_access(ctx, |c| Ok(c.perf.render_stats().uploads))?;
+        out(out_uploads, u.into())
+    })
+}
+
 /// Shows or hides the on-screen performance overlay (fps, frame-time
 /// percentiles, CPU and GPU time, the slowest GPU passes).
 /// ```

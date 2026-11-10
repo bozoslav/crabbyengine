@@ -151,59 +151,79 @@ fn setup(ctx: &mut Ctx, agents: usize, texture: Option<Texture>) {
     };
 }
 
-fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
+/// The map picture and what it shows now. Made once at startup.
+struct MapView {
+    tex: Texture,
+    pixels: Vec<u8>,
+    /// Colour the cells by their distance to the goal (H toggles it).
+    heat: bool,
+    /// The goal and mode the texture was last painted for.
+    drawn: Option<(Vec2, bool)>,
+}
+
+/// Startup: the texture the map is painted into.
+fn make_map_view(ctx: &mut Ctx) {
     let (w, h) = (MAP.x as usize, MAP.y as usize);
     let tex = ctx.gfx.create_texture(MAP.x, MAP.y, &vec![0; w * h * 4]);
     ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
-    let mut pixels = vec![0u8; w * h * 4];
-    let mut heat = false;
-    let mut drawn: Option<(Vec2, bool)> = None;
-    move |ctx: &mut Ctx| {
-        if ctx.key_pressed(Key::H) {
-            heat = !heat;
-        }
-        let paths = ctx.world.resource::<Paths>();
-        let goal = paths.goal;
-        if drawn != Some((goal, heat)) {
-            drawn = Some((goal, heat));
-            for y in 0..h {
-                for x in 0..w {
-                    let center = paths.nav.center_of(uvec2(x as u32, y as u32));
-                    let px = match paths.nav.cost(x as u32, y as u32).unwrap() {
-                        NavGrid::WALL => [40, 44, 52, 255],
-                        MUD => [70, 52, 30, 255],
-                        _ => [24, 40, 30, 255],
-                    };
-                    let px = match paths.flow.distance_at(center) {
-                        Some(d) if heat && px[0] != 40 => {
-                            let t = (d / 1500.0).min(1.0);
-                            [
-                                (255.0 * (1.0 - t)) as u8 / 2 + px[0] / 2,
-                                px[1],
-                                (255.0 * t) as u8 / 2 + px[2] / 2,
-                                255,
-                            ]
-                        }
-                        _ => px,
-                    };
-                    pixels[(y * w + x) * 4..][..4].copy_from_slice(&px);
-                }
+    ctx.world.insert_resource(MapView {
+        tex,
+        pixels: vec![0u8; w * h * 4],
+        heat: false,
+        drawn: None,
+    });
+}
+
+/// Frame system: repaints the map when the goal or the mode changed, then
+/// draws it with the goal on top.
+fn draw_map(ctx: &mut Ctx) {
+    let (w, h) = (MAP.x as usize, MAP.y as usize);
+    let toggle = ctx.key_pressed(Key::H);
+    let (paths, view) = ctx.world.resources_mut::<(Paths, MapView)>();
+    view.heat ^= toggle;
+    let (goal, heat, tex) = (paths.goal, view.heat, view.tex);
+    if view.drawn != Some((goal, heat)) {
+        view.drawn = Some((goal, heat));
+        for y in 0..h {
+            for x in 0..w {
+                let center = paths.nav.center_of(uvec2(x as u32, y as u32));
+                let px = match paths.nav.cost(x as u32, y as u32).unwrap() {
+                    NavGrid::WALL => [40, 44, 52, 255],
+                    MUD => [70, 52, 30, 255],
+                    _ => [24, 40, 30, 255],
+                };
+                let px = match paths.flow.distance_at(center) {
+                    Some(d) if heat && px[0] != 40 => {
+                        let t = (d / 1500.0).min(1.0);
+                        [
+                            (255.0 * (1.0 - t)) as u8 / 2 + px[0] / 2,
+                            px[1],
+                            (255.0 * t) as u8 / 2 + px[2] / 2,
+                            255,
+                        ]
+                    }
+                    _ => px,
+                };
+                view.pixels[(y * w + x) * 4..][..4].copy_from_slice(&px);
             }
-            ctx.gfx.update_texture(&tex, &pixels);
         }
-        ctx.gfx.clear(Color::BLACK);
-        let size = MAP.as_vec2() * CELL;
-        ctx.gfx.draw_ex(
-            &tex,
-            size / 2.0,
-            DrawParams {
-                scale: Vec2::splat(CELL),
-                z: -10.0,
-                ..Default::default()
-            },
-        );
-        ctx.gfx.draw_circle(goal, 8.0, Color::rgba(1.0, 0.3, 0.3, 0.8));
+        // The upload needs all of `ctx`, so the pixels leave the resource for it.
+        let pixels = std::mem::take(&mut view.pixels);
+        ctx.gfx.update_texture(&tex, &pixels);
+        ctx.world.resource_mut::<MapView>().pixels = pixels;
     }
+    ctx.gfx.clear(Color::BLACK);
+    let size = MAP.as_vec2() * CELL;
+    ctx.gfx.draw_ex(
+        &tex,
+        size / 2.0,
+        DrawParams {
+            scale: Vec2::splat(CELL),
+            z: -10.0,
+            ..Default::default()
+        },
+    );
+    ctx.gfx.draw_circle(goal, 8.0, Color::rgba(1.0, 0.3, 0.3, 0.8));
 }
 
 fn click_to_move_goal(ctx: &mut Ctx) {
@@ -265,6 +285,7 @@ fn main() {
                     );
                 }
             })
+            // The two-argument form may borrow a local, here the timer.
             .run_headless(ticks, |ctx| {
                 setup(ctx, agents, None);
                 start = Instant::now();
@@ -283,9 +304,11 @@ fn main() {
         .system(click_to_move_goal)
         .system(camera_controls)
         .system(hud)
-        .run(move |ctx| {
+        .system(draw_map)
+        .setup(move |ctx| {
             let dot = ctx.gfx.create_texture(2, 2, &[255; 2 * 2 * 4]);
             setup(ctx, agents, Some(dot));
-            draw_map(ctx)
-        });
+            make_map_view(ctx);
+        })
+        .run();
 }

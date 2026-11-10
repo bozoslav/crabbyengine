@@ -50,9 +50,14 @@
 // Without a window, the code that only the window loop calls is unused.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 
+// Tests include example files (`use ponko::*;`) to check them as they are.
+#[cfg(test)]
+extern crate self as ponko;
+
 mod access;
 mod actions;
 mod alloc_count;
+mod asset_cache;
 mod assets;
 mod attach;
 mod audio;
@@ -90,7 +95,7 @@ mod logs;
 mod nav3d;
 mod net;
 #[cfg(feature = "navmesh")]
-pub use nav3d::{NavAgent3D, NavBakeError, NavBakeSettings, NavMesh3D, NavObstacle3D, NavSource, step_navmesh3d};
+pub use nav3d::{NavAgent3D, NavBakeError, NavBakeSettings, NavMesh3D, NavObstacle3D, NavSource};
 mod perf;
 mod perf_report;
 #[cfg(feature = "physics")]
@@ -113,6 +118,7 @@ mod spatial;
 mod stream;
 mod streaming;
 mod system_view;
+pub mod systems;
 mod text;
 mod texture;
 #[cfg(feature = "3d")]
@@ -125,7 +131,7 @@ mod web;
 
 pub use alloc_count::{AllocCounts, CountingAllocator, alloc_counts, note_allocation};
 pub use assets::{AssetSource, Assets, MemorySource};
-pub use attach::{Attached, follow_attachments};
+pub use attach::Attached;
 pub use audio::{Audio, AudioBus, AudioEffects, Playing, Sound, SoundParams};
 #[cfg(feature = "3d")]
 pub use audio::{AudioListener3D, AudioRolloff, AudioSettings3D, AudioSource3D};
@@ -137,7 +143,7 @@ pub use ctx::Ctx;
 pub use diagnostics::{
     ArchetypeDiagnostics, ComponentDiagnostics, ECS_DIAGNOSTICS_VERSION, EcsDiagnostics, MatchCount, SystemDiagnostics,
 };
-pub use ecs::{Sprite, Transform2D, draw_sprites};
+pub use ecs::{Sprite, Transform2D};
 pub use error::{Error, ErrorKind};
 pub use events::Events;
 #[doc(hidden)]
@@ -148,6 +154,8 @@ pub use gfx::Graphics;
 pub use handle::{Handle, LiveCounts};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Input, Key, MAX_GAMEPADS, MouseButton};
 pub use inventory::{AssetClass, AssetCount, AssetGrowth, AssetInventory, GpuResidency};
+#[cfg(feature = "3d")]
+pub use net::NetPose;
 pub use net::{
     Authority, AuthorityCheck, ClockSync, Interest, InterestChange, InterestChangeKind, InterestConfig, InterestEntity,
     InterestEntry, InterestTier, InterestViewer, Interpolate, LatestWins, MAX_INTEREST_TIERS, Pose, SnapshotBuffer,
@@ -157,8 +165,6 @@ pub use net::{
     Desync, Lane, MAX_INPUT_BYTES, MAX_MESSAGE_BYTES, MAX_PLAYERS, MessageEvent, MessageStats, Net, NetMessages,
     NetState, NetStats, PeerId,
 };
-#[cfg(feature = "3d")]
-pub use net::{NetPose, apply_net_poses};
 #[cfg(feature = "steam")]
 pub use net::{SteamLobby, SteamLobbyVisibility, steam_lobby_from_args, steam_wait_for_invite};
 pub use perf::{Perf, SystemTiming};
@@ -167,13 +173,12 @@ pub use perf_report::{
     RenderReport, ScopeReport, SystemReport, WarningKind, WorstFrame,
 };
 #[cfg(feature = "physics")]
-pub use physics::{Collider, MAX_POLYGON_POINTS, Physics, RayHit, RigidBody, Shape, Velocity, step_physics};
+pub use physics::{Collider, MAX_POLYGON_POINTS, Physics, RayHit, RigidBody, Shape, Velocity};
 #[cfg(feature = "physics3d")]
 pub use physics3d::{
     Character3D, Collider3D, ColliderFocus, CollisionGroups, CollisionMesh, CollisionMeshData, ContactModifier3D,
     ContactPair3D, FrictionCurve, Hit3D, Joint3D, JointAxis3D, JointDrive3D, JointMotion3D, PHYSICS3D_HZ, Physics3D,
     QueryFilter3D, Ragdoll3D, RagdollBone, RigidBody3D, Shape3D, TerrainCollider, Vehicle3D, Velocity3D, Wheel3D,
-    interpolate_physics3d, step_physics3d,
 };
 pub use profiler::{FrameStats, GpuPass};
 pub use random::{DEFAULT_SEED, Random, Rng};
@@ -189,10 +194,10 @@ pub use scenario::{
 };
 pub use schema::ValueSchema;
 pub use scope::{ProfileScope, ScopeGuard, ScopeTiming, scope_named};
-pub use sheet::{Animation, SpriteSheet, animate_sprites};
+pub use sheet::{Animation, SpriteSheet};
 #[doc(hidden)]
 pub use spatial::RawGridView;
-pub use spatial::{GridEntry, SPATIAL_SORT_EVERY, SpatialGrid, rebuild_spatial_grid, spatial_key};
+pub use spatial::{GridEntry, SPATIAL_SORT_EVERY, SpatialGrid, spatial_key};
 /// The Steamworks SDK (re-exported `steamworks` crate, feature `steam`):
 /// create the [`steamworks::Client`] for [`Net::steam_host`] here, and use
 /// it for achievements, friends and the rest of Steam.
@@ -202,6 +207,8 @@ pub use steamworks;
 pub use stream::CellStreamer;
 pub use stream::Job;
 pub use streaming::{AssetState, DEFAULT_UPLOAD_BUDGET, StreamedAsset, UploadStats};
+#[allow(deprecated)]
+pub use systems::at_root::*;
 /// Flex/grid/absolute layout types used by retained UI.
 /// ```
 /// use ponko::ui_layout::Style;
@@ -221,8 +228,8 @@ pub use three::{
     LIGHT_SHADOW_ATLAS_SIZE, LIGHT_SHADOW_SIZE, LayerBlend, Lighting, Line3D, LodGroup, LodHysteresis, LodLevel,
     LodPick, LodRenderer, LodSettings, LodShadow, MAX_DECALS, MAX_DECALS_PER_CLUSTER, MAX_GI_PROBES,
     MAX_GI_PROBES_PER_FRAME, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh,
-    MeshCost, MeshData, Model, ModelMaterial, MorphAnimation, MorphFrame, MorphTarget, MorphWeights, Motion,
-    MotionChild, ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D,
+    MeshCost, MeshData, Model, ModelMaterial, ModelMaterials, MorphAnimation, MorphFrame, MorphTarget, MorphWeights,
+    Motion, MotionChild, ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D,
     ParticleShape3D, ParticleSpace3D, PointLight3D, Post, QualityLevel, ReceivesDecals, ReflectionProbe3D, RootMotion,
     ScreenEffect, Shader, ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus, ShadowMesh, Skeleton, SkinOf, Sky,
     SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TargetEffect, TerrainMaterialDesc, TerrainTile,
@@ -232,7 +239,7 @@ pub use three::{
 #[cfg(feature = "3d")]
 #[doc(hidden)]
 pub use three::{ExtractionBench, ExtractionSample};
-pub use tilemap::{TileMap, draw_tilemaps};
+pub use tilemap::TileMap;
 pub use time::{Time, Turns};
 #[cfg(feature = "3d")]
 pub use ui::UiPanel3D;

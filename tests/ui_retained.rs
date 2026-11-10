@@ -558,3 +558,237 @@ fn theme_paints_new_nodes_and_overrides_survive_a_retheme() {
     );
     assert_eq!(ui.theme(), &light);
 }
+
+#[test]
+fn a_title_takes_the_themes_title_paint_and_follows_a_retheme() {
+    let mut ui = Ui::default();
+    let root = ui.root().id();
+    let plain = ui.title(root, "LOBBY").id();
+    let sized = ui.title(root, "Players").size(40.0).id();
+    let label = ui.label(root, "4 online").id();
+    let theme = *ui.theme();
+    let p = ui.paint(plain).unwrap();
+    assert_eq!((p.color, p.font_size), (theme.title, theme.title_size));
+    assert_eq!(p.background.a, 0.0, "a title is a label: no background");
+    assert!(theme.title_size > theme.text_size);
+
+    ui.set_theme(UiTheme {
+        title: Color::YELLOW,
+        title_size: 32.0,
+        text: Color::GREEN,
+        ..theme
+    });
+    let p = ui.paint(plain).unwrap();
+    assert_eq!((p.color, p.font_size), (Color::YELLOW, 32.0));
+    let p = ui.paint(sized).unwrap();
+    assert_eq!((p.color, p.font_size), (Color::YELLOW, 40.0), "own size kept");
+    let p = ui.paint(label).unwrap();
+    assert_eq!((p.color, p.font_size), (Color::GREEN, theme.text_size));
+}
+
+#[test]
+fn one_theme_styles_the_tree_and_the_immediate_widgets() {
+    // Through the `ui` service, as a game sets it.
+    Game::new("theme", 320, 240).run_headless(0, |ctx| {
+        assert_eq!(ctx.ui.immediate.style, UiStyle::default());
+        assert_eq!(UiTheme::default().style(), UiStyle::default());
+        ctx.ui.immediate.style.padding = 3.0;
+        ctx.ui.immediate.style.text_size = 21.0; // set by hand
+        let theme = UiTheme {
+            panel: Color::BLACK,
+            control: Color::BLUE,
+            hover: Color::GREEN,
+            pressed: Color::RED,
+            accent: Color::YELLOW,
+            text: Color::rgb(0.5, 0.5, 0.5),
+            text_size: 14.0,
+            ..Default::default()
+        };
+        ctx.ui.set_theme(theme);
+        let style = ctx.ui.immediate.style;
+        assert_eq!(
+            (style.panel, style.button, style.button_hovered, style.button_pressed),
+            (Color::BLACK, Color::BLUE, Color::GREEN, Color::RED)
+        );
+        assert_eq!((style.accent, style.text), (Color::YELLOW, theme.text));
+        assert_eq!((style.text_size, style.padding), (21.0, 3.0), "fields set by hand stay");
+        // The tree's nodes are painted from the same theme.
+        let root = ctx.ui.root().id();
+        let ok = ctx.ui.button(root, "OK").id();
+        assert_eq!(ctx.ui.paint(ok).unwrap().background, Color::BLUE);
+        assert_eq!(ctx.ui.paint(root).unwrap().background, Color::BLACK);
+
+        // Back to the default theme: the immediate widgets get their own
+        // defaults back (see-through panels), not the tree's opaque ones.
+        ctx.ui.set_theme(UiTheme::default());
+        let style = ctx.ui.immediate.style;
+        let plain = UiStyle::default();
+        assert_eq!(
+            (style.panel, style.button, style.accent),
+            (plain.panel, plain.button, plain.accent)
+        );
+        assert_eq!(style.text_size, 21.0);
+    });
+}
+
+#[test]
+fn a_name_finds_its_node_moves_to_the_last_one_named_and_dies_with_it() {
+    let mut ui = Ui::default();
+    let root = ui.root().name("chat").id();
+    let history = ui.scroll_area(root).name("chat.history").id();
+    let line = ui.label(history, "hello").id();
+    let input = ui.text_input(root).name("chat.input").id();
+    assert_eq!(ui.find("chat"), Some(root));
+    assert_eq!(ui.find("chat.history"), Some(history));
+    assert_eq!(ui.find("chat.input"), Some(input));
+    assert_eq!(ui.find("chat.send"), None);
+    assert_eq!((ui.name(history), ui.name(line)), (Some("chat.history"), None));
+
+    // Renaming frees the old name; the same name twice moves it.
+    ui.set_name(input, "chat.box");
+    assert_eq!((ui.find("chat.input"), ui.find("chat.box")), (None, Some(input)));
+    ui.set_name(line, "chat.box");
+    assert_eq!((ui.find("chat.box"), ui.name(input)), (Some(line), None));
+    // Naming a node what it is already named changes nothing.
+    ui.set_name(line, "chat.box");
+    assert_eq!((ui.find("chat.box"), ui.name(line)), (Some(line), Some("chat.box")));
+
+    // Removing a subtree frees its names; the ids stay dead.
+    ui.remove(history);
+    assert_eq!((ui.find("chat.history"), ui.find("chat.box")), (None, None));
+    assert_eq!(ui.name(history), None);
+    ui.set_name(history, "ghost");
+    assert_eq!(ui.find("ghost"), None, "a removed node can't be named");
+    // The name is free for a new node.
+    let again = ui.scroll_area(root).name("chat.history").id();
+    assert_eq!(ui.find("chat.history"), Some(again));
+    // Each tree has its own names.
+    assert_eq!(Ui::default().find("chat"), None);
+}
+
+#[test]
+fn take_click_gives_the_clicked_node_once_and_drops_other_events() {
+    let mut ui = Ui::default();
+    let root = ui.root().layout(UiLayout::fill()).id();
+    let ok = ui
+        .button(root, "OK")
+        .layout(UiLayout::fixed(100.0, 40.0))
+        .name("ok")
+        .id();
+    let music = ui.toggle(root, "Music").layout(UiLayout::fixed(100.0, 40.0)).id();
+    ui.push_screen(root, false);
+    let viewport = vec2(400.0, 300.0);
+    let click = |ui: &mut Ui, at: Vec2| {
+        for (pressed, released) in [(true, false), (false, true)] {
+            ui.frame(
+                viewport,
+                &UiInput {
+                    pointer: at,
+                    pressed,
+                    held: pressed,
+                    released,
+                    ..Default::default()
+                },
+            );
+        }
+    };
+    ui.frame(viewport, &UiInput::default());
+    assert_eq!(ui.take_click(), None);
+    click(&mut ui, vec2(50.0, 20.0));
+    let clicked = ui.take_click();
+    assert_eq!(clicked, Some(ok));
+    assert_eq!(clicked.and_then(|id| ui.name(id)), Some("ok"));
+    assert_eq!(ui.take_click(), None, "taken once");
+    // A toggle changes, it isn't clicked; its event is taken and dropped.
+    click(&mut ui, vec2(50.0, 60.0));
+    assert_eq!(ui.value(music), Some(1.0));
+    assert_eq!(ui.take_click(), None);
+    assert_eq!(ui.next_event(), None);
+}
+
+#[test]
+fn top_and_left_place_a_preset_in_pixels() {
+    let mut ui = Ui::default();
+    let root = ui.root().layout(UiLayout::fill()).id();
+    let map = ui
+        .panel(root)
+        .layout(UiLayout::anchored(0.5, 0.5, 0.25, 0.25).left(16.0).top(8.0))
+        .id();
+    let row = ui.panel(root).layout(UiLayout::row(20.0).top(30.0).left(10.0)).id();
+    let dialog = ui.root().layout(UiLayout::centered(200.0, 100.0).top(40.0)).id();
+    ui.push_screen(root, false);
+    ui.push_screen(dialog, true);
+    ui.layout(vec2(800.0, 600.0));
+    assert_eq!(ui.rect(map).unwrap().min, vec2(16.0, 8.0));
+    assert_eq!(ui.rect(map).unwrap().size(), vec2(200.0, 150.0));
+    assert_eq!(ui.rect(row).unwrap().min, vec2(10.0, 30.0), "in the flow: margins");
+    assert_eq!(ui.rect(dialog).unwrap().min, vec2(300.0, 40.0), "still centered across");
+}
+
+#[test]
+fn auto_margins_share_the_windows_free_space_around_a_screen_root() {
+    use ponko::ui_layout::prelude::{auto, length};
+    let margins = |left, right, top, bottom| Style {
+        margin: Edges {
+            left,
+            right,
+            top,
+            bottom,
+        },
+        ..sized(200.0, 100.0)
+    };
+    let mut ui = Ui::default();
+    let centered = ui.add(UiWidget::Panel, margins(auto(), auto(), auto(), auto()));
+    let across = ui.add(UiWidget::Panel, margins(auto(), auto(), length(40.0), auto()));
+    let right = ui.add(UiWidget::Panel, margins(auto(), length(10.0), length(0.0), length(0.0)));
+    let plain = ui.add(
+        UiWidget::Panel,
+        margins(length(5.0), length(0.0), length(7.0), length(0.0)),
+    );
+    let child = ui.add_child(plain, UiWidget::Button, sized(20.0, 20.0));
+    for root in [centered, across, right, plain] {
+        ui.push_screen(root, false);
+    }
+    ui.layout(vec2(800.0, 600.0));
+    let at = |ui: &Ui, id| ui.rect(id).unwrap().min;
+    assert_eq!(at(&ui, centered), vec2(300.0, 250.0));
+    assert_eq!(at(&ui, across), vec2(300.0, 40.0));
+    assert_eq!(at(&ui, right), vec2(590.0, 0.0));
+    assert_eq!(at(&ui, plain), vec2(5.0, 7.0));
+    assert_eq!(at(&ui, child), vec2(5.0, 7.0), "children move with their root");
+    assert_eq!(ui.rect(centered).unwrap().size(), vec2(200.0, 100.0));
+    // A click lands where the root was moved to.
+    assert_eq!(ui.hit_test(vec2(10.0, 10.0)), Some(child));
+
+    // In a smaller window there is no free space to share.
+    ui.layout(vec2(150.0, 80.0));
+    assert_eq!(at(&ui, centered), vec2(0.0, 0.0));
+    // The UI scale counts: 400 x 300 logical units here.
+    ui.set_scale(2.0);
+    ui.layout(vec2(800.0, 600.0));
+    assert_eq!(at(&ui, centered), vec2(200.0, 200.0));
+    assert_eq!(ui.rect(centered).unwrap().size(), vec2(400.0, 200.0));
+}
+
+#[test]
+fn the_ui_examples_are_at_most_half_as_long_as_before_the_builders() {
+    // 156 and 72 lines before the builders, layout presets and names.
+    for (source, before) in [
+        (include_str!("../examples/ui_shop.rs"), 156),
+        (include_str!("../examples/ui_panel.rs"), 72),
+    ] {
+        let lines = source.lines().count();
+        assert!(lines * 2 <= before, "{lines} lines, {before} before");
+        // No layout helper of its own, no raw styles, no id kept in a resource.
+        for helper in [
+            "ui_layout::",
+            "Style {",
+            "fn fixed",
+            "fn row",
+            "insert_resource",
+            "add_child",
+        ] {
+            assert!(!source.contains(helper), "the example still has `{helper}`");
+        }
+    }
+}

@@ -1000,6 +1000,145 @@ fn models_of_loaded_meshes_save_and_load_by_file_name() {
     result.unwrap();
 }
 
+// ANCHOR: model_material
+/// One uploaded ball in three looks, and a house with only its roof changed.
+fn recolored(ctx: &mut Ctx, house: Mesh, gold: Material, rust: Material) {
+    let ball = ctx.gfx.create_plain_mesh(&MeshData::sphere(0.5, 32));
+    let at = |x: f32| Transform3D::at(vec3(x, 0.0, 0.0));
+    ctx.world.spawn((at(0.0), Model::new(ball))); // plain white
+    ctx.world.spawn((at(1.0), Model::new(ball), ModelMaterial(gold)));
+    ctx.world.spawn((at(2.0), Model::new(ball), ModelMaterial(rust)));
+    // Part 1 only; the other parts keep the materials from the file.
+    ctx.world
+        .spawn((at(6.0), Model::new(house), ModelMaterials::new(&[(1, rust)])));
+}
+// ANCHOR_END: model_material
+
+#[test]
+fn one_plain_mesh_is_drawn_in_each_models_material() {
+    Game::new("t", 1, 1).run_headless(2, |ctx| {
+        let gold = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0xFFC83D)));
+        let rust = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x8A4B2A)));
+        let house = ctx.gfx.load_mesh("models/house.glb");
+        ctx.gfx.default_material();
+        let (before, materials) = (ctx.live_counts().meshes, ctx.live_counts().materials);
+        recolored(ctx, house, gold, rust);
+        // Three balls and three looks from one uploaded mesh, which has the
+        // default material: no new one is made for it.
+        assert_eq!(ctx.live_counts().meshes, before + 1);
+        assert_eq!(ctx.live_counts().materials, materials);
+        assert_eq!(ctx.world.query::<(&Model, &ModelMaterial)>().iter().count(), 2);
+        let listed: Vec<_> = ctx
+            .world
+            .query::<&ModelMaterials>()
+            .iter()
+            .flat_map(|m| m.parts().collect::<Vec<_>>())
+            .collect();
+        assert_eq!(listed, vec![(1, rust)]);
+        // Bad data is an error before anything is made.
+        let mut broken = MeshData::cube(1.0);
+        broken.indices.pop();
+        let e = ctx.gfx.try_create_plain_mesh(&broken).unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::Invalid);
+        assert!(e.to_string().contains("create_plain_mesh: 35 indices"), "{e}");
+        assert_eq!(ctx.live_counts().meshes, before + 1);
+    });
+}
+
+#[test]
+fn model_material_overrides_save_and_load_by_file_and_material_name() {
+    let temp = TempAsset::new("material-scene.json");
+    let file = temp.name();
+    let house_file = "models/house.glb"; // part 0 "walls", part 1 "roof"
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        let house = ctx.gfx.load_mesh(house_file);
+        let (walls, roof) = (
+            ctx.gfx.loaded_materials("walls")[0].0,
+            ctx.gfx.loaded_materials("roof")[0].0,
+        );
+        let at = |x: f32| Transform3D::at(vec3(x, 0.0, 0.0));
+        let all_roof = ctx.world.spawn((at(1.0), Model::new(house), ModelMaterial(roof)));
+        let swapped = ctx.world.spawn((
+            at(2.0),
+            Model::new(house),
+            ModelMaterials::new(&[(1, walls), (0, roof)]),
+        ));
+        // A material made in code has no file to name: not saved.
+        let paint = ctx.gfx.create_material(MaterialDesc::color(Color::rgb(1.0, 0.0, 0.0)));
+        let painted = ctx.world.spawn((
+            at(3.0),
+            Model::new(house),
+            ModelMaterial(paint),
+            ModelMaterials::new(&[(0, roof), (1, paint)]),
+        ));
+        assert_eq!(
+            ctx.world.get_json(all_roof, "ModelMaterial").unwrap(),
+            serde_json::json!({ "mesh": house_file, "material": "roof" })
+        );
+        assert_eq!(
+            ctx.world.get_json(swapped, "ModelMaterials").unwrap(),
+            serde_json::json!({ "parts": [
+                { "part": 0, "mesh": house_file, "material": "roof" },
+                { "part": 1, "mesh": house_file, "material": "walls" },
+            ] })
+        );
+        assert!(ctx.world.get_json(painted, "ModelMaterial").is_err());
+        assert!(ctx.world.get_json(painted, "ModelMaterials").is_err());
+        ctx.assets.save_scene(&ctx.world, file).unwrap();
+    });
+    let result = std::panic::catch_unwind(|| {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            // The scene names the file, so loading it loads the materials.
+            ctx.load_scene(file).unwrap();
+            let (walls, roof) = (
+                ctx.gfx.loaded_materials("walls")[0].0,
+                ctx.gfx.loaded_materials("roof")[0].0,
+            );
+            let mut got: Vec<(f32, Option<ModelMaterial>, Option<ModelMaterials>)> = ctx
+                .world
+                .query::<(&Transform3D, &Model, Option<&ModelMaterial>, Option<&ModelMaterials>)>()
+                .iter()
+                .map(|(t, _, m, parts)| (t.position.x, m.copied(), parts.cloned()))
+                .collect();
+            got.sort_by(|a, b| a.0.total_cmp(&b.0));
+            assert_eq!(
+                got,
+                vec![
+                    (1.0, Some(ModelMaterial(roof)), None),
+                    (2.0, None, Some(ModelMaterials::new(&[(0, roof), (1, walls)]))),
+                    (3.0, None, None),
+                ]
+            );
+
+            // By number in the file, and the errors name what's wrong.
+            let e = ctx.world.spawn((Transform3D::default(),));
+            let by_number = serde_json::json!({ "mesh": house_file, "material": 0 });
+            ctx.world.set_json(e, "ModelMaterial", by_number).unwrap();
+            assert_eq!(ctx.world.get::<ModelMaterial>(e), Some(&ModelMaterial(walls)));
+            let unknown = serde_json::json!({ "mesh": house_file, "material": "door" });
+            let err = ctx.world.set_json(e, "ModelMaterial", unknown).unwrap_err().to_string();
+            assert!(
+                err.contains("has no material \"door\"") && err.contains("\"walls\", \"roof\""),
+                "{err}"
+            );
+            let unloaded = serde_json::json!({ "parts": [{ "part": 0, "mesh": "nope.glb", "material": 0 }] });
+            let err = ctx
+                .world
+                .set_json(e, "ModelMaterials", unloaded)
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("ctx.load_mesh(\"nope.glb\")"), "{err}");
+
+            // A freed material is no longer named.
+            ctx.free(roof);
+            let again = serde_json::json!({ "mesh": house_file, "material": "roof" });
+            assert!(ctx.world.set_json(e, "ModelMaterial", again).is_err());
+        });
+    });
+    drop(temp);
+    result.unwrap();
+}
+
 #[test]
 fn models_name_meshes_that_must_be_files() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {

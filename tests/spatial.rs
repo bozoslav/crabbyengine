@@ -191,8 +191,8 @@ fn without_spatial_grid_it_stays_empty() {
 fn rebuild_system_is_removable() {
     let g = Game::new("t", 1, 1)
         .spatial_grid(5.0)
-        .remove_system(rebuild_spatial_grid);
-    drop(g);
+        .remove(Systems::REBUILD_SPATIAL_GRID);
+    assert_eq!(g.system_count(Systems::REBUILD_SPATIAL_GRID), 0);
 }
 
 #[test]

@@ -17,6 +17,12 @@ pub(super) struct Rig {
     pub ctx: Ctx,
     /// What the last draw collected: kept between draws, as a game's is.
     frame: Frame3D,
+    /// The clock the next draw is drawn at: (seconds since the start,
+    /// seconds since the last frame).
+    pub time: (f32, f32),
+    /// CPU time of the last draw's `Renderer3D::prepare` (collecting not
+    /// included), in ms.
+    pub prepare_ms: f64,
 }
 
 impl Rig {
@@ -25,6 +31,11 @@ impl Rig {
         Self::with_compute(true)
     }
     fn with_compute(compute: bool) -> Option<Self> {
+        Self::with_limits(compute, |_| {})
+    }
+    /// A rig whose device has the limits `shrink` leaves (below what the
+    /// adapter has).
+    pub fn with_limits(compute: bool, shrink: impl FnOnce(&mut wgpu::Limits)) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
             crate::render::render_test_support::no_gpu("no GPU adapter");
@@ -36,12 +47,12 @@ impl Rig {
         } else {
             wgpu::Limits::downlevel_webgl2_defaults()
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
-            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor {
-                required_limits: limits,
-                ..Default::default()
-            }),
-        )) else {
+        let mut descriptor = crate::render::render_test_support::forced(&wgpu::DeviceDescriptor {
+            required_limits: limits,
+            ..Default::default()
+        });
+        shrink(&mut descriptor.required_limits);
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&descriptor)) else {
             crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
@@ -138,7 +149,15 @@ impl Rig {
             renderer,
             ctx,
             frame: Frame3D::default(),
+            time: (0.0, 1.0 / 60.0),
+            prepare_ms: 0.0,
         })
+    }
+
+    /// Panics unless the renderer's buffers that are written a change at a
+    /// time hold what was written (see `Renderer3D::check_mirrors`).
+    pub fn check_mirrors(&self) {
+        self.renderer.check_mirrors(&self.device, &self.queue);
     }
 
     /// A mesh of `data` with `desc`, on the CPU and the GPU.
@@ -167,6 +186,9 @@ impl Rig {
         let mut frame = std::mem::take(&mut self.frame);
         frame.lod = ctx.lod;
         frame.occlusion = grid;
+        // Motion vectors, as a game's frame lists them.
+        frame.motion.enabled =
+            ctx.post.anti_aliasing == AntiAliasing::Taa || (ctx.post.ao_temporal && ctx.post.ambient_occlusion.enabled);
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
@@ -197,9 +219,10 @@ impl Rig {
             },
             camera: ctx.camera3d.position,
             post: &ctx.post,
-            time: (0.0, 1.0 / 60.0),
+            time: self.time,
             occlusion: ctx.camera3d.occlusion_culling,
         };
+        let start = std::time::Instant::now();
         self.renderer.prepare(
             &self.device,
             &self.queue,
@@ -209,6 +232,7 @@ impl Rig {
                 size: (SIZE, SIZE),
             },
         );
+        self.prepare_ms = start.elapsed().as_secs_f64() * 1e3;
         let buffers = self
             .renderer
             .draw(&self.device, &self.target, wgpu::Color::BLACK, &self.textures, None);
@@ -398,6 +422,9 @@ fn persistent_batch_draw(compute: bool) {
         hidden[((y * SIZE + x) * 4) as usize] < 50,
         "occluded instance survived ({compute})"
     );
+    // The batch's view settings and its culling header and grid were
+    // written only where they changed.
+    rig.check_mirrors();
     rig.renderer.set_instance_batch(&rig.device, b.id(), None);
     // Cutout-only batches must trigger the coverage prepass even without model entities.
     let cutout = rig.mesh(

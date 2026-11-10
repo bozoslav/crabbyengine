@@ -42,16 +42,18 @@ fn main() {
         std::process::exit(2);
     });
     if std::env::var("HEADLESS").is_ok() {
-        Game::new("scene viewer", 1, 1).run_headless(0, |ctx| {
-            let start = Instant::now();
-            ctx.load_scene(&scene).unwrap_or_else(|e| panic!("{e}"));
-            let models = ctx.world.query::<&Model>().iter().count();
-            let (middle, size) = extent(&mut ctx.world);
-            println!(
-                "{scene}: {models} models in {:.2} s, around {middle} across {size:.0} m",
-                start.elapsed().as_secs_f32()
-            );
-        });
+        Game::new("scene viewer", 1, 1)
+            .setup(move |ctx| {
+                let start = Instant::now();
+                ctx.load_scene(&scene).unwrap_or_else(|e| panic!("{e}"));
+                let models = ctx.world.query::<&Model>().iter().count();
+                let (middle, size) = extent(&mut ctx.world);
+                println!(
+                    "{scene}: {models} models in {:.2} s, around {middle} across {size:.0} m",
+                    start.elapsed().as_secs_f32()
+                );
+            })
+            .run_headless(0);
         return;
     }
     let shot = std::env::var("SHOT").ok();
@@ -109,7 +111,7 @@ fn main() {
                 ctx.quit();
             }
         })
-        .run(move |ctx| {
+        .setup(move |ctx| {
             ctx.load_scene(&scene).unwrap_or_else(|e| panic!("{e}"));
             ctx.lighting.sun_direction = Sky::sun_direction_at(15.0);
             ctx.lighting.shadow_distance = 400.0;
@@ -120,5 +122,6 @@ fn main() {
                 camera_from_env().unwrap_or((middle + vec3(0.0, size * 0.25, size * 0.4), 0.0, -0.5));
             ctx.camera3d.position = at;
             ctx.camera3d.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch);
-        });
+        })
+        .run();
 }

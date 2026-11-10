@@ -853,6 +853,56 @@ static void phases() {
     throws([] { ponko::game("t", 1, 1).add(ponko::phase::frame, [](ponko::ctx&) {}, "bad", 2); });
 }
 
+// A plugin with startup work, and one that only adds systems.
+struct ScoreArea {
+    std::string* log;
+    void build(ponko::game& game) const {
+        game.sim_system([log = log](ponko::ctx&) { *log += 'a'; }, "score");
+    }
+    void setup(ponko::ctx&) const { *log += 's'; }
+};
+struct KickArea {
+    std::string* log;
+    void build(ponko::game& game) const {
+        game.add(ponko::phase::before_physics, [log = log](ponko::ctx&) { *log += 'b'; }, "kick");
+    }
+};
+
+static void plugins_setups_and_system_ids() {
+    // Plugins build at once and set up in the order they were added, with
+    // setup() callbacks in between and the run setup last. The phase, not
+    // the plugin order, decides when their systems run.
+    std::string log;
+    ponko::game("t", 1, 1)
+        .plugin(ScoreArea{&log})
+        .setup([&](ponko::ctx&) { log += 'c'; })
+        .plugin(KickArea{&log})
+        .run_headless(2, [&](ponko::ctx&) { log += 'r'; });
+    CHECK(log == "scrbaba");
+    // setup() alone runs with zero ticks, and applies its commands.
+    auto w = ponko::game("t", 1, 1).setup([](ponko::ctx& ctx) { ctx.spawn_later(Pos{1, 2}); }).run_headless(0);
+    CHECK(w.size() == 1);
+
+    // Ids: two systems from the same function are told apart.
+    log.clear();
+    ponko::game g("t", 1, 1);
+    auto mark = [&](char c) { return [&log, c](ponko::ctx&) { log += c; }; };
+    ponko::system_id first = g.add_system(ponko::phase::after_physics, mark('1'), "same");
+    ponko::system_id second = g.add_system(ponko::phase::after_physics, mark('2'), "same");
+    CHECK(first != second && first.bits != 0);
+    g.remove(first).remove(first);                  // twice is fine
+    g.remove(ponko::systems::draw_sprites)
+        .remove(ponko::systems::update_animators)
+        .remove(ponko::systems::step_navmesh3d);    // not installed: nothing happens
+    throws([&] { g.remove_system("ponko::ecs::draw_sprites"); });   // already gone
+    g.run_headless(2);
+    CHECK(log == "22");
+    throws([&] { g.setup([](ponko::ctx&) {}); });   // already run
+    throws([&] { g.plugin(KickArea{&log}); });
+    throws([] { ponko::game("t", 1, 1).add_system(ponko::phase::frame, [](ponko::ctx&) {}, "bad", 2); });
+    CHECK(ponko::systems::draw_sprites.bits == PONKO_SYSTEM_DRAW_SPRITES);
+}
+
 static void vehicles() {
     // A box car on raycast wheels settles on its suspension, then drives
     // off; the vehicle is a query column (as tests/vehicle3d.rs).
@@ -971,6 +1021,35 @@ static void streaming() {
         ctx.free_mesh(cube);
         ctx.free_mesh(cube);
         CHECK(!ctx.is_mesh_live(cube));
+    });
+}
+
+static void model_material_overrides() {
+    ponko::game("overrides", 64, 64).run_headless(2, [](ponko::ctx& ctx) {
+        auto gold = ctx.create_material(ponko::material_of(ponko::rgb(1, .8f, .2f)));
+        auto wood = ctx.create_material(ponko::material_of(ponko::rgb(.5f, .3f, .1f)));
+        auto cube = ctx.create_plain_mesh(ponko::mesh_data::cube(1));
+        CHECK(ctx.is_mesh_live(cube));
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}), ponko::model_of(cube));
+        CHECK(!ctx.model_material(e));
+        ctx.set_model_material(e, gold);
+        CHECK(ctx.model_material(e) && ctx.model_material(e)->id == gold.id);
+        throws([&] { ctx.set_model_material(e, ponko::material{99}); });
+        ctx.clear_model_material(e);
+        CHECK(!ctx.model_material(e));
+
+        CHECK(ctx.model_part_materials(e).empty());
+        ctx.set_model_part_materials(e, {{3, gold}, {0, wood}, {3, wood}});
+        auto parts = ctx.model_part_materials(e);
+        CHECK(parts.size() == 2 && parts[0].first == 0 && parts[0].second.id == wood.id);
+        CHECK(parts[1].first == 3 && parts[1].second.id == wood.id);
+        throws([&] { ctx.set_model_part_materials(e, {{0, ponko::material{99}}}); });
+        CHECK(ctx.model_part_materials(e).size() == 2);
+        ctx.set_model_part_materials(e, {});
+        CHECK(ctx.model_part_materials(e).empty());
+        // Left on for the frames after setup.
+        ctx.set_model_material(e, gold);
+        ctx.set_model_part_materials(e, {{0, wood}});
     });
 }
 
@@ -1732,6 +1811,61 @@ static void ui_panels() {
     });
 }
 
+// Layout presets, the theme, titles, names and take_click.
+static void retained_ui_presets() {
+    ponko::game("retained ui presets", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        namespace u = ponko::ui;
+        auto ui = ctx.ui_retained();
+        const ponko::vec2 window{800, 600};
+        auto root = ui.add_panel(u::none, u::fill().padding(10).gap(5));
+        auto title = ui.add_title(root, "Shop", u::row(40));
+        auto bar = ui.add_panel(root, u::row(50).gap(10));
+        auto side = ui.add_panel(bar, u::column(120));
+        auto buy = ui.add_button(bar, "Buy", u::fixed(100, 30));
+        auto map = ui.add_panel(root, u::anchored(0.75f, 0, 0.25f, 0.25f));
+        ui.push_screen(root);
+        auto dialog = ui.add_panel(u::none, u::centered(200, 100).top(40));
+        ui.push_screen(dialog, true);
+        ui.layout_for(window);
+        CHECK(ui.rect(title).min.y == 10 && ui.rect(title).max.x == 790);
+        CHECK(ui.rect(bar).min.y == 55 && ui.rect(side).max.x == 130 && ui.rect(side).max.y == 105);
+        CHECK(ui.rect(buy).min.x == 140 && ui.rect(buy).max.x == 240);
+        CHECK(ui.rect(map).min.x == 600 && ui.rect(map).max.y == 150);
+        CHECK(ui.rect(dialog).min.x == 300 && ui.rect(dialog).min.y == 40);
+        CHECK(ui.pop_screen() == dialog);
+
+        // One theme for the tree and the immediate widgets.
+        auto theme = ui.theme();
+        CHECK(theme.title_size > theme.text_size && ui.resolved_paint(title).font_size == theme.title_size);
+        theme.accent = {0, 1, 0, 1};
+        theme.title = {1, 1, 0, 1};
+        theme.title_size = 30;
+        ui.set_theme(theme);
+        CHECK(ui.theme().title_size == 30 && ui.resolved_paint(title).font_size == 30);
+        CHECK(ui.resolved_paint(buy).border.g == 1 && ctx.ui_style().accent.g == 1);
+        theme.border_width = -1;
+        throws([&] { ui.set_theme(theme); });
+
+        // Names instead of a list of ids.
+        ui.set_name(buy, "shop.buy");
+        CHECK(ui.find("shop.buy") == buy && ui.name(buy) == "shop.buy" && !ui.find("shop.sell"));
+        ui.set_name(side, "shop.buy");  // moves the name
+        CHECK(ui.find("shop.buy") == side && ui.name(buy).empty());
+
+        // take_click: the last click's node, once.
+        auto input = u::default_input();
+        input.pointer = {190, 70};
+        input.pressed = input.held = true;
+        ui.frame(window, input);
+        input.pressed = input.held = false;
+        input.released = true;
+        ui.frame(window, input);
+        CHECK(ui.take_click() == buy && !ui.take_click());
+        ui.remove(root);
+        CHECK(!ui.find("shop.buy"));
+    });
+}
+
 static void retained_ui() {
     ponko::game("retained ui", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         auto ui = ctx.ui_retained();
@@ -2005,6 +2139,9 @@ static void profiling() {
         ctx.set_profiling(true);
         CHECK(ctx.perf_report().json().size() > 2);
         ctx.set_profiling(false);
+        // Headless: no renderer, so nothing uploaded to the GPU.
+        const ponko::gpu_uploads uploads = ctx.gpu_uploads();
+        CHECK(uploads.bytes == 0 && uploads.buffers_created == 0 && uploads.reallocations == 0);
     });
 }
 
@@ -2283,6 +2420,7 @@ int main() {
     inverse_kinematics();
     streaming();
     streamed_worlds();
+    model_material_overrides();
     handle_lifecycle();
     asset_streaming();
     parallel_queries();
@@ -2293,6 +2431,7 @@ int main() {
     joints3d();
     vehicles();
     phases();
+    plugins_setups_and_system_ids();
     lockstep();
     messages();
     replication();
@@ -2303,6 +2442,7 @@ int main() {
     contacts3d();
     ribbons_and_decals();
     retained_ui();
+    retained_ui_presets();
     ui_panels();
     events();
     profiling();

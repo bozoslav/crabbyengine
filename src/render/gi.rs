@@ -10,7 +10,7 @@
 //!   views into its tiles in a scratch image, which is then copied into
 //!   the atlas.
 use super::lights::LightTextures;
-use crate::render::traffic::{Counted, NewBuffer, Upload};
+use crate::render::traffic::{NewBuffer, Upload};
 use crate::three::MAX_GI_PROBES_PER_FRAME;
 use crate::three::gi::{GI_SHADOW_SIZE, GiFrame};
 
@@ -51,6 +51,8 @@ pub(super) struct Gi {
     sky_group: Option<wgpu::BindGroup>,
     pipeline: wgpu::ComputePipeline,
     uniform: wgpu::Buffer,
+    /// What `uniform` holds: only what changed is uploaded.
+    uniform_mirror: crate::render::traffic::Mirror,
     atlas: wgpu::Texture,
     pub atlas_view: wgpu::TextureView,
     /// Probe slots the atlas has room for, and its rows of tiles.
@@ -66,6 +68,8 @@ pub(super) struct Gi {
     /// Each view's frame (camera and light), and its bind group (made by
     /// the renderer, from its frame sources).
     pub face_buffers: Vec<wgpu::Buffer>,
+    /// What each of `face_buffers` holds.
+    pub face_mirrors: Vec<crate::render::traffic::Mirror>,
     pub face_groups: Vec<wgpu::BindGroup>,
     /// The lights near the probes.
     pub lights: LightTextures,
@@ -157,7 +161,7 @@ impl Gi {
         let uniform = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("3d gi updates"),
             size: size_of::<Updates>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | crate::render::traffic::MIRRORED,
             mapped_at_creation: false,
         });
         let image = |label, size: (u32, u32), samples, format, usage| {
@@ -217,7 +221,9 @@ impl Gi {
                 device.new_buffer(&wgpu::BufferDescriptor {
                     label: Some("3d gi view frame"),
                     size: uniform_size,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    usage: wgpu::BufferUsages::UNIFORM
+                        | wgpu::BufferUsages::COPY_DST
+                        | crate::render::traffic::MIRRORED,
                     mapped_at_creation: false,
                 })
             })
@@ -233,6 +239,7 @@ impl Gi {
             sky_group: None,
             pipeline,
             uniform,
+            uniform_mirror: Default::default(),
             atlas,
             atlas_view,
             slots: 0,
@@ -242,6 +249,7 @@ impl Gi {
             depth,
             scratch,
             group,
+            face_mirrors: (0..MAX_UPDATES * 6).map(|_| Default::default()).collect(),
             face_buffers,
             face_groups: Vec::new(),
             lights: LightTextures::new(device),
@@ -357,9 +365,8 @@ impl Gi {
                 tile: [column as f32, row as f32, u.keep, 0.0],
             };
         }
-        queue
-            .uploading(Upload::Uniforms)
-            .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&updates));
+        self.uniform_mirror
+            .upload(queue, Upload::Uniforms, &self.uniform, 0, bytemuck::bytes_of(&updates));
         remade
     }
 
@@ -416,6 +423,18 @@ impl Gi {
                 tile(column * DEPTH_TILE, self.rows * LIGHT_TILE + row * DEPTH_TILE),
                 size(DEPTH_TILE),
             );
+        }
+    }
+}
+
+#[cfg(test)]
+impl Gi {
+    /// See `Renderer3D::check_mirrors`.
+    pub fn check_mirrors(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.uniform_mirror
+            .check(device, queue, &self.uniform, 0, "probe updates");
+        for (mirror, buffer) in self.face_mirrors.iter().zip(&self.face_buffers) {
+            mirror.check(device, queue, buffer, 0, "probe face frame uniform");
         }
     }
 }

@@ -265,6 +265,9 @@ impl Rig {
         }
         self.renderer.take_state_changes();
         let pixels = self.draw();
+        // A differing frame is not a skipped upload: the buffers hold what
+        // their mirrors say.
+        self.renderer.check_mirrors(&self.device, &self.queue);
         (pixels, self.renderer.take_state_changes())
     }
 

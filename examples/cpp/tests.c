@@ -325,6 +325,41 @@ static void phases(void) {
     CHECK(fabsf(k.seen_after - 5.0f / 50.0f) < 1e-3f);
     CHECK(ponko_world_free(w) == PONKO_OK);
 }
+/* System ids, setup callbacks and plugins: each callback logs a letter. */
+typedef struct { char text[32]; int n; } Order;
+static void put(Order* o, char c) { if (o->n < 31) o->text[o->n++] = c; }
+static void mark_a(PonkoCtx* ctx, void* user) { (void)ctx; put(user, 'a'); }
+static void mark_b(PonkoCtx* ctx, void* user) { (void)ctx; put(user, 'b'); }
+static void mark_s(PonkoCtx* ctx, void* user) { (void)ctx; put(user, 's'); }
+static void mark_t(PonkoCtx* ctx, void* user) { (void)ctx; put(user, 't'); }
+static void mark_r(PonkoCtx* ctx, void* user) { (void)ctx; put(user, 'r'); }
+static void build_area(PonkoGame* game, void* user) {
+    CHECK(ponko_game_add_system(game, PONKO_PHASE_BEFORE_PHYSICS, "area", 1, mark_b, user) == PONKO_OK);
+}
+static void plugins_setups_and_system_ids(void) {
+    Order o = {0};
+    PonkoGame* game = ponko_game_new("c plugins", 1, 1); CHECK(game);
+    uint32_t first = 0, second = 0;
+    CHECK(ponko_game_add_system_id(game, PONKO_PHASE_AFTER_PHYSICS, "same", 1, mark_a, &o, &first) == PONKO_OK);
+    CHECK(ponko_game_add_system_id(game, PONKO_PHASE_AFTER_PHYSICS, "same", 1, mark_a, &o, &second) == PONKO_OK);
+    CHECK(first != 0 && second != 0 && first != second);
+    CHECK(ponko_game_remove(game, first) == PONKO_OK);
+    CHECK(ponko_game_remove(game, first) == PONKO_OK);   /* twice is fine */
+    CHECK(ponko_game_remove(game, PONKO_SYSTEM_DRAW_SPRITES) == PONKO_OK);
+    CHECK(ponko_game_remove(game, PONKO_SYSTEM_UPDATE_AUDIO3D) == PONKO_OK);
+    CHECK(ponko_game_remove_system(game, "ponko::ecs::draw_sprites") == PONKO_NOT_FOUND);
+    CHECK(ponko_game_add_system_id(game, PONKO_PHASE_FRAME, "bad", 2, mark_a, &o, &first) == PONKO_INVALID_ARGUMENT);
+    CHECK(first == 0);
+    /* Setups and plugins start in the order they were added, before the run setup. */
+    CHECK(ponko_game_setup(game, mark_s, &o) == PONKO_OK);
+    CHECK(ponko_game_plugin(game, build_area, mark_t, &o) == PONKO_OK);
+    CHECK(ponko_game_setup(game, NULL, &o) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_game_plugin(game, NULL, NULL, &o) == PONKO_INVALID_ARGUMENT);
+    PonkoWorld* w = NULL;
+    CHECK(ponko_game_run_headless(game, 2, mark_r, &o, &w) == PONKO_OK);
+    CHECK(strcmp(o.text, "strbaba") == 0);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+}
 /* The retained UI: a column with a button, laid out and clicked from C. */
 static void ui_setup(PonkoCtx* ctx, void* user) {
     (void)user;
@@ -432,10 +467,105 @@ static void ui_panels(void) {
     CHECK(ponko_game_run_headless(game, 0, panel_setup, NULL, &w) == PONKO_OK);
     CHECK(ponko_world_free(w) == PONKO_OK);
 }
+/* Layout presets, the theme, titles, names and take_click. */
+static void ui_presets_setup(PonkoCtx* ctx, void* user) {
+    (void)user;
+    PonkoUiLayout fill = ponko_ui_layout_fill();
+    fill.padding.top = fill.padding.left = (PonkoUiLength){PONKO_UI_LENGTH_POINTS, 10};
+    PonkoUiLayout row = ponko_ui_layout_row(40), fixed = ponko_ui_layout_fixed(100, 30);
+    PonkoUiLayout column = ponko_ui_layout_column(120);
+    PonkoUiLayout map = ponko_ui_layout_anchored(0.75f, 0, 0.25f, 0.25f);
+    PonkoUiLayout dialog_layout = ponko_ui_layout_centered(200, 100);
+    uint64_t root, title, buy, side, corner, dialog, found, clicked;
+    CHECK(ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &fill, &root) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_title(ctx, PONKO_UI_SCREEN, root, "Shop", &row, &title) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_button(ctx, PONKO_UI_SCREEN, root, "Buy", &fixed, &buy) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, root, &column, &side) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, root, &map, &corner) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &dialog_layout, &dialog) == PONKO_OK);
+    CHECK(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false) == PONKO_OK);
+    CHECK(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, dialog, false) == PONKO_OK);
+    CHECK(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, (PonkoVec2){800, 600}) == PONKO_OK);
+    PonkoRect r;
+    CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, title, &r) == PONKO_OK && r.min.y == 10 && r.max.y == 50);
+    CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, buy, &r) == PONKO_OK && r.min.x == 10 && r.max.x == 110);
+    CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, corner, &r) == PONKO_OK && r.min.x == 600 && r.max.y == 150);
+    CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, dialog, &r) == PONKO_OK && r.min.x == 300 && r.min.y == 250);
+    CHECK(ponko_ctx_ui_pop_screen(ctx, PONKO_UI_SCREEN, &found) == PONKO_OK && found == dialog);
+    /* The theme: read, changed, followed by titles and the immediate widgets. */
+    PonkoUiTheme theme = ponko_ui_theme_default();
+    CHECK(ponko_ctx_ui_theme(ctx, PONKO_UI_SCREEN, &theme) == PONKO_OK && theme.title_size > theme.text_size);
+    theme.title = (PonkoColor){1, 1, 0, 1};
+    theme.title_size = 30;
+    theme.accent = (PonkoColor){0, 1, 0, 1};
+    CHECK(ponko_ctx_ui_set_theme(ctx, PONKO_UI_SCREEN, &theme) == PONKO_OK);
+    PonkoUiPaint paint;
+    CHECK(ponko_ctx_ui_paint(ctx, PONKO_UI_SCREEN, title, &paint) == PONKO_OK);
+    CHECK(paint.font_size == 30 && paint.color.g == 1 && paint.color.b == 0);
+    CHECK(ponko_ctx_ui_paint(ctx, PONKO_UI_SCREEN, buy, &paint) == PONKO_OK && paint.border.g == 1 && paint.border.r == 0);
+    PonkoUiStyle style;
+    CHECK(ponko_ctx_ui_style(ctx, &style) == PONKO_OK && style.accent.g == 1 && style.accent.r == 0);
+    theme.text_size = -1;
+    CHECK(ponko_ctx_ui_set_theme(ctx, PONKO_UI_SCREEN, &theme) == PONKO_INVALID_ARGUMENT);
+    /* Names instead of kept ids. */
+    CHECK(ponko_ctx_ui_set_name(ctx, PONKO_UI_SCREEN, buy, "shop.buy") == PONKO_OK);
+    CHECK(ponko_ctx_ui_find(ctx, PONKO_UI_SCREEN, "shop.buy", &found) == PONKO_OK && found == buy);
+    CHECK(ponko_ctx_ui_find(ctx, PONKO_UI_SCREEN, "shop.sell", &found) == PONKO_OK && found == PONKO_UI_NONE);
+    char name[16]; size_t len;
+    CHECK(ponko_ctx_ui_name(ctx, PONKO_UI_SCREEN, buy, name, sizeof name, &len) == PONKO_OK && len == 8 && strcmp(name, "shop.buy") == 0);
+    /* take_click: the last click's node, once. */
+    PonkoVec2 window = {800, 600};
+    PonkoUiInput in = ponko_ui_input_default();
+    in.pointer = (PonkoVec2){50, 65}; in.pressed = true; in.held = true;
+    CHECK(ponko_ctx_ui_frame(ctx, PONKO_UI_SCREEN, window, &in) == PONKO_OK);
+    in.pressed = false; in.held = false; in.released = true;
+    CHECK(ponko_ctx_ui_frame(ctx, PONKO_UI_SCREEN, window, &in) == PONKO_OK);
+    CHECK(ponko_ctx_ui_take_click(ctx, PONKO_UI_SCREEN, &clicked) == PONKO_OK && clicked == buy);
+    CHECK(ponko_ctx_ui_take_click(ctx, PONKO_UI_SCREEN, &clicked) == PONKO_OK && clicked == PONKO_UI_NONE);
+    CHECK(ponko_ctx_ui_remove(ctx, PONKO_UI_SCREEN, root) == PONKO_OK);
+    CHECK(ponko_ctx_ui_find(ctx, PONKO_UI_SCREEN, "shop.buy", &found) == PONKO_OK && found == PONKO_UI_NONE);
+}
+/* A screen root's auto margins take the window's free space, as a child's do. */
+static void ui_auto_margins_setup(PonkoCtx* ctx, void* user) {
+    (void)user;
+    PonkoUiLength automatic = {PONKO_UI_LENGTH_AUTO, 0};
+    PonkoUiLayout across = ponko_ui_layout_fixed(200, 100);
+    across.margin.left = across.margin.right = automatic;
+    across.margin.top = (PonkoUiLength){PONKO_UI_LENGTH_POINTS, 40};
+    PonkoUiLayout middle = ponko_ui_layout_fixed(200, 100);
+    middle.margin.left = middle.margin.right = middle.margin.top = middle.margin.bottom = automatic;
+    PonkoUiLayout pushed = ponko_ui_layout_fixed(200, 100);
+    pushed.margin.left = automatic;
+    uint64_t a, m, p;
+    CHECK(ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &across, &a) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &middle, &m) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &pushed, &p) == PONKO_OK);
+    CHECK(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, a, false) == PONKO_OK);
+    CHECK(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, m, false) == PONKO_OK);
+    CHECK(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, p, false) == PONKO_OK);
+    CHECK(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, (PonkoVec2){800, 600}) == PONKO_OK);
+    PonkoRect r;
+    /* Centered across, 40 points down. */
+    CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, a, &r) == PONKO_OK && r.min.x == 300 && r.min.y == 40 && r.max.x == 500);
+    /* Auto on all four sides: the middle of the window. */
+    CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, m, &r) == PONKO_OK && r.min.x == 300 && r.min.y == 250);
+    /* Only the left margin auto: pushed to the right edge. */
+    CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, p, &r) == PONKO_OK && r.min.x == 600 && r.max.x == 800 && r.min.y == 0);
+    /* A bigger window moves them with it. */
+    CHECK(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, (PonkoVec2){1000, 800}) == PONKO_OK);
+    CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, m, &r) == PONKO_OK && r.min.x == 400 && r.min.y == 350);
+    CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, p, &r) == PONKO_OK && r.min.x == 800);
+}
 static void retained_ui(void) {
     PonkoGame* game = ponko_game_new("c ui", 1, 1); CHECK(game);
     PonkoWorld* w = NULL;
     CHECK(ponko_game_run_headless(game, 0, ui_setup, NULL, &w) == PONKO_OK);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+    game = ponko_game_new("c ui presets", 1, 1); CHECK(game);
+    CHECK(ponko_game_run_headless(game, 0, ui_presets_setup, NULL, &w) == PONKO_OK);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+    game = ponko_game_new("c ui auto margins", 1, 1); CHECK(game);
+    CHECK(ponko_game_run_headless(game, 0, ui_auto_margins_setup, NULL, &w) == PONKO_OK);
     CHECK(ponko_world_free(w) == PONKO_OK);
 }
 /* Ribbon and line defaults, and a decal cut from a floor. */
@@ -492,6 +622,56 @@ static void streamed_worlds(void) {
     PonkoMaterial none = {0};
     CHECK(!ponko_far_terrain_new(flat, 4, 2, (PonkoVec2){0, 0}, 1, 1.5f, none));
     CHECK(!ponko_collision_mesh_data_heightfield(flat, 3, 1));
+}
+
+static void recolor(PonkoCtx* ctx, void* user) {
+    (void)user;
+    PonkoWorld* w = ponko_ctx_world(ctx);
+    uint32_t transform, model;
+    CHECK(ponko_transform3d_component(w, &transform) == PONKO_OK && ponko_model_component(w, &model) == PONKO_OK);
+    PonkoMaterialDesc look = ponko_material_desc((PonkoColor){1, 0.8f, 0.2f, 1});
+    PonkoMaterial gold, wood;
+    CHECK(ponko_ctx_create_material(ctx, &look, &gold) == PONKO_OK);
+    CHECK(ponko_ctx_create_material(ctx, &look, &wood) == PONKO_OK);
+    PonkoMeshData* cube = ponko_mesh_data_cube(1);
+    PonkoMesh mesh;
+    CHECK(ponko_ctx_create_plain_mesh(ctx, cube, &mesh) == PONKO_OK);
+    CHECK(ponko_ctx_create_plain_mesh(ctx, NULL, &mesh) == PONKO_INVALID_ARGUMENT);
+    ponko_mesh_data_free(cube);
+    PonkoTransform3D t = ponko_transform3d_at((PonkoVec3){0, 0, 0});
+    PonkoModel m = ponko_model(mesh);
+    PonkoValue parts[] = {{transform, &t, sizeof t}, {model, &m, sizeof m}};
+    uint64_t e;
+    CHECK(ponko_spawn(w, parts, 2, &e) == PONKO_OK);
+
+    PonkoMaterial found; bool has = true;
+    CHECK(ponko_ctx_model_material(ctx, e, &found, &has) == PONKO_OK && !has);
+    CHECK(ponko_ctx_set_model_material(ctx, e, gold, true) == PONKO_OK);
+    CHECK(ponko_ctx_model_material(ctx, e, &found, &has) == PONKO_OK && has && found.id == gold.id);
+    CHECK(ponko_ctx_set_model_material(ctx, e, (PonkoMaterial){99}, true) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_set_model_material(ctx, e, gold, false) == PONKO_OK);
+    CHECK(ponko_ctx_model_material(ctx, e, &found, &has) == PONKO_OK && !has);
+
+    uint32_t numbers[] = {3, 0, 3};
+    PonkoMaterial materials[] = {gold, wood, wood};
+    CHECK(ponko_ctx_set_model_part_materials(ctx, e, numbers, materials, 3) == PONKO_OK);
+    uint32_t got_parts[2]; PonkoMaterial got[2]; size_t n = 0;
+    CHECK(ponko_ctx_model_part_materials(ctx, e, NULL, NULL, 0, &n) == PONKO_OK && n == 2);
+    CHECK(ponko_ctx_model_part_materials(ctx, e, got_parts, got, 2, &n) == PONKO_OK && n == 2);
+    CHECK(got_parts[0] == 0 && got_parts[1] == 3 && got[0].id == wood.id && got[1].id == wood.id);
+    CHECK(ponko_ctx_set_model_part_materials(ctx, e, numbers, NULL, 2) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_set_model_part_materials(ctx, e, NULL, NULL, 0) == PONKO_OK);
+    CHECK(ponko_ctx_model_part_materials(ctx, e, NULL, NULL, 0, &n) == PONKO_OK && n == 0);
+    // Left on for the frames after setup.
+    CHECK(ponko_ctx_set_model_material(ctx, e, gold, true) == PONKO_OK);
+    CHECK(ponko_ctx_set_model_part_materials(ctx, e, numbers, materials, 1) == PONKO_OK);
+}
+static void model_material_overrides(void) {
+    PonkoGame* game = ponko_game_new("overrides", 64, 64); CHECK(game);
+    PonkoWorld* w = NULL;
+    CHECK(ponko_game_run_headless(game, 2, recolor, NULL, &w) == PONKO_OK);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+    CHECK(ponko_ctx_set_model_material(NULL, 0, (PonkoMaterial){0}, true) == PONKO_INVALID_ARGUMENT);
 }
 
 static void lod_helpers(void) {
@@ -794,6 +974,16 @@ static void change_detection(void) {
     CHECK(ponko_world_free(w) == PONKO_OK);
 }
 
+/* Headless: no renderer, so nothing is uploaded to the GPU. */
+static void no_uploads(PonkoCtx* ctx, void* user) {
+    (void)user;
+    PonkoGpuUploads u = {7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7};
+    CHECK(ponko_ctx_gpu_uploads(ctx, &u) == PONKO_OK);
+    CHECK(u.bytes == 0 && u.instances == 0 && u.uniforms == 0 && u.buffers_created == 0 && u.reallocations == 0);
+    CHECK(ponko_ctx_gpu_uploads(ctx, NULL) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_gpu_uploads(NULL, &u) == PONKO_INVALID_ARGUMENT);
+}
+
 static void profiling_c(void) {
     const PonkoProfileScope* scope = ponko_profile_scope("c scope");
     CHECK(scope && scope == ponko_profile_scope("c scope"));
@@ -813,6 +1003,10 @@ static void profiling_c(void) {
     CHECK(ponko_perf_check(json, "{\"systems\": {\"missing\": 1}}", NULL, 0, &problems) == PONKO_OK && problems > 0);
     CHECK(ponko_perf_report_text("nope", NULL, 0, &problems) == PONKO_INVALID_ARGUMENT);
     free(json);
+    PonkoGame* quiet = ponko_game_new("c uploads", 1, 1); CHECK(quiet);
+    PonkoWorld* w = NULL;
+    CHECK(ponko_game_run_headless(quiet, 0, no_uploads, NULL, &w) == PONKO_OK);
+    CHECK(ponko_world_free(w) == PONKO_OK);
 }
 
 /* A two-joint skin with one clip, "rise": the arm goes up 2 over 1 second. */
@@ -1055,11 +1249,13 @@ int main(void) {
     CHECK(params.scale.x == 1 && params.pivot.x == .5f && !params.screen);
     vehicles();
     phases();
+    plugins_setups_and_system_ids();
     retained_ui();
     ui_panels();
     ribbons_and_decals();
     lod_helpers();
     streamed_worlds();
+    model_material_overrides();
     asset_streaming();
     profiling_c();
     animation_graphs();

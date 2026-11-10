@@ -51,8 +51,8 @@ pub(crate) struct Motion {
     armed: bool,
     /// Whether this frame lists motion.
     tracking: bool,
-    /// (mesh, moved instance) in the order they were found.
-    moved: Vec<(u32, MovedInstance)>,
+    /// (mesh, the order it was found in, moved instance).
+    moved: Vec<(u32, u32, MovedInstance)>,
     /// The moved models, grouped by mesh...
     pub instances: Vec<MovedInstance>,
     /// ...and their runs: (mesh, first instance, count).
@@ -90,6 +90,7 @@ impl Motion {
         if previous != instance.model {
             self.moved.push((
                 mesh,
+                self.moved.len() as u32,
                 MovedInstance {
                     instance: *instance,
                     previous,
@@ -98,10 +99,12 @@ impl Motion {
         }
     }
 
-    /// Ends a frame: groups the moved models by mesh.
+    /// Ends a frame: groups the moved models by mesh, each mesh's in the
+    /// order they were found (so models that keep moving keep their places
+    /// from frame to frame, and the renderer uploads only what changed).
     pub fn finish(&mut self) {
-        self.moved.sort_unstable_by_key(|m| m.0);
-        for &(mesh, moved) in &self.moved {
+        self.moved.sort_unstable_by_key(|m| (m.0, m.1));
+        for &(mesh, _, moved) in &self.moved {
             match self.runs.last_mut() {
                 Some(run) if run.0 == mesh => run.2 += 1,
                 _ => self.runs.push((mesh, self.instances.len() as u32, 1)),

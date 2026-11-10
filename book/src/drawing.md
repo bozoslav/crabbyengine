@@ -104,16 +104,20 @@ collision mask), redo it when the texture shows up in `reloaded_textures`:
 <div>
 
 ```rust
+# struct Level(Texture);
 Game::new("Art test", 1280, 720)
     .hot_reload(true) // the default in debug builds
-    .run(|ctx| {
-        let level = ctx.load_texture("level.png");
-        move |ctx: &mut Ctx| {
-            if ctx.assets.reloaded_textures().contains(&level) {
-                println!("level.png changed: rebuilding the map");
-            }
+    .system(|ctx: &mut Ctx| {
+        let level = ctx.world.resource::<Level>().0;
+        if ctx.assets.reloaded_textures().contains(&level) {
+            println!("level.png changed: rebuilding the map");
         }
-    });
+    })
+    .setup(|ctx| {
+        let level = ctx.load_texture("level.png");
+        ctx.world.insert_resource(Level(level));
+    })
+    .run();
 ```
 
 </div>

@@ -50,18 +50,32 @@ fn steady(rig: &mut Rig, settle: usize, frames: usize, mut change: impl FnMut(&m
         most.skins = most.skins.max(c.skins);
         most.textures = most.textures.max(c.textures);
         most.buffers_created = most.buffers_created.max(c.buffers_created);
+        most.reallocations = most.reallocations.max(c.reallocations);
         most.buffer_bytes_created = most.buffer_bytes_created.max(c.buffer_bytes_created);
     }
     most
 }
 
 #[test]
-fn a_still_scene_creates_no_buffers_and_uploads_no_instances() {
+fn a_still_scene_creates_no_buffers_and_uploads_nothing() {
     let Some((mut rig, _)) = scene(16) else { return };
     let c = steady(&mut rig, 4, 6, |_, _| {});
     eprintln!("still scene, 256 models: {c:?} ({} bytes)", c.bytes());
-    assert_eq!(c.buffers_created, 0, "{c:?}");
-    assert_eq!(c.instances, 0, "{c:?}");
+    assert_eq!((c.buffers_created, c.reallocations), (0, 0), "{c:?}");
+    // Not the models, nor the frame uniforms of the camera and of every
+    // shadow view (which were 15 KiB a frame when uploaded whole).
+    assert_eq!(c.bytes(), 0, "{c:?}");
+}
+
+#[test]
+fn a_still_scene_with_a_running_clock_uploads_only_the_clock() {
+    let Some((mut rig, _)) = scene(16) else { return };
+    let c = steady(&mut rig, 4, 6, |rig, i| rig.time = (i as f32 / 60.0, 1.0 / 60.0));
+    eprintln!("still scene, clock running: {c:?} ({} bytes)", c.bytes());
+    // One vec4 in each frame uniform: the camera's and the shadow views'.
+    assert!(c.uniforms > 0 && c.uniforms <= 16 * 8, "{c:?}");
+    assert_eq!(c.bytes(), c.uniforms, "{c:?}");
+    rig.check_mirrors();
 }
 
 #[test]
@@ -435,4 +449,401 @@ fn overlapping_see_through_models_blend_the_same_while_others_leave_the_view() {
         .filter(|p| p[0] > 40 && p[1] > 40 && p[2] > 40 && p[0] != p[2])
         .count();
     assert!(mixed > 50, "{mixed} pixels show several tints");
+}
+
+/// Still particles, a line and a model: once drawn, none of them is
+/// uploaded again; moving particles are.
+#[test]
+fn still_particles_and_lines_are_not_uploaded_again() {
+    let Some((mut rig, _)) = scene(4) else { return };
+    let settings = ParticleSettings3D {
+        rate: 0.0,
+        burst: 200,
+        max_particles: 400,
+        lifetime: (100.0, 100.0),
+        ..Default::default()
+    };
+    let mut emitter = ParticleEmitter3D::new(settings);
+    let at = Transform3D::at(vec3(0.0, 1.0, 0.0));
+    emitter.update(1.0 / 60.0, &at);
+    assert!(emitter.live_count() > 100);
+    let fountain = rig.ctx.world.spawn((at, emitter));
+    let line = Line3D::new(
+        vec![vec3(-2.0, 0.5, 0.0), vec3(0.0, 1.5, 0.0), vec3(2.0, 0.5, 0.0)],
+        0.1,
+        Color::RED,
+    );
+    rig.ctx.world.spawn((Transform3D::default(), line));
+    let c = steady(&mut rig, 3, 4, |_, _| {});
+    eprintln!("still particles and a line: {c:?}");
+    assert_eq!((c.other, c.bytes(), c.buffers_created), (0, 0, 0), "{c:?}");
+    rig.check_mirrors();
+    // The particles move: they are uploaded, the line isn't.
+    let c = steady(&mut rig, 1, 3, |rig, _| {
+        let e = rig.ctx.world.get_mut::<ParticleEmitter3D>(fountain).unwrap();
+        e.update(1.0 / 60.0, &at);
+    });
+    eprintln!("moving particles and a still line: {c:?}");
+    let particles = rig.ctx.world.get::<ParticleEmitter3D>(fountain).unwrap().live_count() as u64;
+    assert!(c.other > 0 && c.other <= particles * 48, "{c:?}");
+    rig.check_mirrors();
+}
+
+/// Moves `count` of the cubes along x (no turning), to `step`'s place.
+fn slide(rig: &mut Rig, cubes: &[Entity], count: usize, step: usize) {
+    for &e in cubes.iter().step_by(cubes.len() / count).take(count) {
+        rig.ctx.world.get_mut::<Transform3D>(e).unwrap().position.x +=
+            if step.is_multiple_of(2) { 0.05 } else { -0.04 };
+    }
+}
+
+#[test]
+fn moving_models_upload_only_the_changed_parts_of_their_motion() {
+    // The same scene and moves, with temporal antialiasing (which draws
+    // the moved models' motion) and without: the difference is the motion.
+    let uploads = |taa: bool| -> Option<GpuUploads> {
+        let (mut rig, cubes) = scene(16)?;
+        if taa {
+            rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+        }
+        let c = steady(&mut rig, 4, 6, |rig, i| slide(rig, &cubes, 8, i));
+        if taa {
+            rig.check_mirrors();
+        }
+        Some(c)
+    };
+    let (Some(with), Some(without)) = (uploads(true), uploads(false)) else {
+        return;
+    };
+    let motion = with.instances - without.instances;
+    eprintln!("8 of 256 models sliding: {motion} bytes of motion records ({with:?})");
+    // A record is 144 bytes: the instance and last frame's matrix. A model
+    // that slid changes their translations, 16 bytes each.
+    assert!(motion > 0 && motion <= 8 * 32, "{motion}");
+}
+
+#[test]
+fn growing_scenes_reallocate_a_logarithmic_number_of_times() {
+    let Some((mut rig, _)) = scene(4) else { return };
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    let mesh = rig.ctx.world.query::<&Model>().iter().next().unwrap().mesh;
+    rig.draw();
+    traffic::take();
+    let (mut reallocations, mut grew) = (0, 0);
+    let mut models = 16u32;
+    for step in 0..60 {
+        // 40 more models, some of which move.
+        for i in 0..40 {
+            let at = vec3(
+                (i % 8) as f32 - 4.0,
+                0.5 + step as f32 * 0.02,
+                (i / 8) as f32 - 6.0 + step as f32 * 0.1,
+            );
+            rig.ctx.world.spawn((Transform3D::at(at), Model::new(mesh)));
+        }
+        models += 40;
+        for (_, t) in rig.ctx.world.query::<(&Model, &mut Transform3D)>().iter().step_by(7) {
+            t.position.y += 0.01;
+        }
+        rig.draw();
+        let c = traffic::take();
+        reallocations += c.reallocations;
+        grew += u32::from(c.reallocations > 0);
+        if c.reallocations > 0 {
+            // Every buffer replaced starts out unknown, and is written whole.
+            rig.check_mirrors();
+        }
+    }
+    eprintln!("{models} models spawned 40 a frame: {reallocations} reallocations in {grew} of 60 frames");
+    assert!(reallocations > 0, "the buffers grew");
+    // Each buffer doubles: the instances (camera and shadow views, up to
+    // five copies of every model) and the motion records some ten times
+    // or fewer between them, not once a frame.
+    assert!(reallocations <= 2 * (models * 5).ilog2(), "{reallocations}");
+    assert!(grew <= 12, "{grew} frames reallocated");
+    rig.check_mirrors();
+}
+
+#[test]
+fn churning_scenes_stop_allocating() {
+    // A world as big from frame to frame, whose models come and go: once
+    // its buffers fit, it neither makes buffers nor grows them.
+    let Some((mut rig, mut cubes)) = scene(20) else { return };
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    let mesh = rig.ctx.world.get::<Model>(cubes[0]).unwrap().mesh;
+    let mut churn = |rig: &mut Rig, step: usize| {
+        for e in cubes.drain(..80) {
+            rig.ctx.world.despawn(e);
+        }
+        for i in 0..80 {
+            let at = vec3(
+                (i % 20) as f32 - 10.0,
+                0.3 * (step % 3) as f32,
+                (i / 20) as f32 - 10.0 + (step % 5) as f32 * 4.0,
+            );
+            cubes.push(rig.ctx.world.spawn((Transform3D::at(at), Model::new(mesh))));
+        }
+        rig.time = (step as f32 / 60.0, 1.0 / 60.0);
+    };
+    let mut made = Vec::new();
+    for step in 0..40 {
+        churn(&mut rig, step);
+        rig.draw();
+        let c = traffic::take();
+        made.push((c.buffers_created, c.reallocations, c.buffer_bytes_created));
+        if step % 10 == 9 {
+            rig.check_mirrors();
+        }
+    }
+    eprintln!("400 models, 80 replaced a frame: buffers made (count, reallocations, bytes) {made:?}");
+    for (step, &m) in made.iter().enumerate().skip(10) {
+        assert_eq!(m, (0, 0, 0), "frame {step} allocated");
+    }
+}
+
+/// A streamed world under load: rows of models are spawned ahead of a
+/// camera that flies along them, and despawned behind it; a part of
+/// them moves every frame, some with particles. Every few steps, the
+/// frame must draw what a renderer that has drawn nothing yet draws, and
+/// the renderer's buffers hold what was written.
+#[test]
+fn a_streamed_world_under_load_draws_what_a_fresh_renderer_draws() {
+    const ROWS: i32 = 12;
+    const ROW: i32 = 60;
+    struct World {
+        rig: Rig,
+        rows: std::collections::VecDeque<Vec<Entity>>,
+        cube: Mesh,
+        big: Mesh,
+    }
+    fn row(w: &mut World, z: i32) {
+        let mut row = Vec::new();
+        for x in 0..ROW {
+            let at = vec3(x as f32 * 0.5 - ROW as f32 / 4.0, 0.0, -(z as f32) * 0.8);
+            let mesh = if (x + z) % 3 == 0 { w.big } else { w.cube };
+            let mut model = Model::new(mesh);
+            if (x * 7 + z) % 11 == 0 {
+                model = model.with_color(Color::rgb(0.9, 0.3, 0.2));
+            }
+            row.push(w.rig.ctx.world.spawn((Transform3D::at(at), model)));
+        }
+        let fire = ParticleEmitter3D::new(ParticleSettings3D {
+            rate: 0.0,
+            burst: 30,
+            seed: z as u64,
+            lifetime: (100.0, 100.0),
+            ..Default::default()
+        });
+        let at = Transform3D::at(vec3(0.0, 0.5, -(z as f32) * 0.8));
+        let mut fire = fire;
+        fire.update(1.0 / 60.0, &at);
+        row.push(w.rig.ctx.world.spawn((at, fire)));
+        w.rows.push_back(row);
+    }
+    fn world() -> Option<World> {
+        let mut rig = Rig::new()?;
+        let white = MaterialDesc {
+            color: Color::WHITE,
+            ..Default::default()
+        };
+        let cube = rig.mesh(&MeshData::cube(0.3), white);
+        // Another cube, not a ball: balls a few pixels wide drawn in another
+        // order differ at a few edge samples (see
+        // `models_drawn_in_another_order_differ_by_no_more_than_edge_samples`).
+        let big = rig.mesh(&MeshData::cube(0.45), white);
+        rig.ctx.lighting.shadow_refresh = 1;
+        rig.ctx.camera3d.far = 12.0;
+        let mut w = World {
+            rig,
+            rows: Default::default(),
+            cube,
+            big,
+        };
+        for z in 0..ROWS {
+            row(&mut w, z);
+        }
+        Some(w)
+    }
+    /// Step `step`: a row behind goes, a row ahead comes, every third
+    /// model of the rows in view moves, and the camera flies on.
+    fn step(w: &mut World, step: i32) {
+        for e in w.rows.pop_front().unwrap() {
+            w.rig.ctx.world.despawn(e);
+        }
+        row(w, ROWS + step);
+        for (i, row) in w.rows.iter().enumerate() {
+            for &e in row.iter().skip(i % 3).step_by(3) {
+                if let Some(t) = w.rig.ctx.world.get_mut::<Transform3D>(e) {
+                    t.position.y = ((step + i as i32) % 4) as f32 * 0.1;
+                    t.rotation = Quat::from_rotation_y(step as f32 * 0.3);
+                }
+            }
+        }
+        let z = -(step as f32 + 1.0) * 0.8;
+        w.rig.ctx.camera3d.position = vec3(0.0, 2.5, z + 3.0);
+        w.rig.ctx.camera3d.look_at(vec3(0.0, 0.0, z - 3.0));
+        w.rig.time = (step as f32 / 60.0, 1.0 / 60.0);
+    }
+    let Some(mut w) = world() else { return };
+    w.rig.draw();
+    traffic::take();
+    let mut made = Vec::new();
+    for s in 0..24 {
+        step(&mut w, s);
+        let kept = w.rig.draw();
+        let c = traffic::take();
+        made.push((c.buffers_created, c.reallocations));
+        w.rig.check_mirrors();
+        if s % 6 == 5 {
+            let mut fresh = world().unwrap();
+            for earlier in 0..=s {
+                step(&mut fresh, earlier);
+            }
+            let whole = fresh.rig.draw();
+            let differ = kept.chunks(4).zip(whole.chunks(4)).filter(|(a, b)| a != b).count();
+            assert_eq!(differ, 0, "step {s}: {differ} pixels differ from the world drawn once");
+            // Not the streamed renderer's (the counts are this thread's).
+            traffic::take();
+        }
+    }
+    eprintln!("streamed world: buffers made (count, reallocations) per step {made:?}");
+    for (s, &m) in made.iter().enumerate().skip(4) {
+        assert_eq!(m, (0, 0), "step {s} allocated though the load stayed the same");
+    }
+}
+
+#[test]
+fn outgrown_particle_buffers_draw_what_buffers_made_that_size_draw() {
+    // Particles, then many more of them: their buffer is replaced, and
+    // nothing still refers to the old one, nor to what it held.
+    let fire = |rig: &mut Rig| {
+        let at = Transform3D::at(vec3(0.0, 0.5, 0.0));
+        let mut e = ParticleEmitter3D::new(ParticleSettings3D {
+            rate: 0.0,
+            burst: 20,
+            max_particles: 4000,
+            lifetime: (100.0, 100.0),
+            shape: ParticleShape3D::Sphere { radius: 2.0 },
+            ..Default::default()
+        });
+        e.update(1.0 / 60.0, &at);
+        rig.ctx.world.spawn((at, e))
+    };
+    let more = |rig: &mut Rig, e: Entity| {
+        let e = rig.ctx.world.get_mut::<ParticleEmitter3D>(e).unwrap();
+        e.burst(3000);
+        e.update(0.0, &Transform3D::at(vec3(0.0, 0.5, 0.0)));
+    };
+    let Some((mut rig, _)) = scene(4) else { return };
+    let e = fire(&mut rig);
+    let few = rig.draw();
+    traffic::take();
+    more(&mut rig, e);
+    let grown = rig.draw();
+    assert_ne!(grown, few, "the particles show");
+    assert!(traffic::take().reallocations > 0, "the particle buffer grew");
+    rig.check_mirrors();
+    let Some((mut fresh, _)) = scene(4) else { return };
+    let e = fire(&mut fresh);
+    more(&mut fresh, e);
+    let once = fresh.draw();
+    let differ = grown.chunks(4).zip(once.chunks(4)).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "{differ} pixels differ");
+}
+
+#[test]
+fn scattered_changes_take_a_bounded_number_of_writes() {
+    use super::upload_bench::{scatter, scattered};
+    use traffic::{MAX_WRITES, Upload};
+    // Every 17th model and every other emitter's particles change: more
+    // runs of changes than writes allowed, in both buffers.
+    let Some((mut rig, cubes, emitters)) = scattered() else {
+        return;
+    };
+    traffic::take();
+    rig.draw();
+    // The first frame uploads everything whole.
+    let whole = traffic::take();
+    for i in 0..4 {
+        scatter(&mut rig, &cubes, &emitters, i);
+        rig.draw();
+    }
+    traffic::take_writes();
+    traffic::take();
+    for i in 4..8 {
+        scatter(&mut rig, &cubes, &emitters, i);
+        rig.draw();
+        let (writes, uploads) = (traffic::take_writes(), traffic::take());
+        let instances = writes[Upload::Instances as usize] as usize;
+        let particles = writes[Upload::Other as usize] as usize;
+        assert!(instances <= MAX_WRITES, "{instances} instance writes");
+        assert!(particles <= MAX_WRITES, "{particles} particle writes");
+        // Closing gaps uploads unchanged records along, but never more
+        // than writing all of them.
+        assert!(uploads.instances <= whole.instances, "{uploads:?} {whole:?}");
+        assert!(uploads.other <= whole.other, "{uploads:?} {whole:?}");
+    }
+    // And the buffers hold what was meant.
+    rig.check_mirrors();
+}
+
+#[test]
+fn buffers_stop_at_the_device_limit_and_report_what_does_not_fit() {
+    // A device whose buffers hold at most 256 KB: about 3,000 models'
+    // instances, or 5,000 particles.
+    let Some(mut rig) = Rig::with_limits(true, |l| {
+        l.max_buffer_size = 256 << 10;
+        l.max_storage_buffer_binding_size = 256 << 10;
+    }) else {
+        return;
+    };
+    let mesh = rig.mesh(
+        &MeshData::cube(0.4),
+        MaterialDesc {
+            color: Color::WHITE,
+            ..Default::default()
+        },
+    );
+    for x in 0..4 {
+        rig.ctx
+            .world
+            .spawn((Transform3D::at(vec3(x as f32 - 2.0, 0.0, 0.0)), Model::new(mesh)));
+    }
+    rig.ctx.camera3d.position = vec3(0.0, 4.0, 6.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    let few = rig.draw();
+    traffic::take_too_big();
+    // Far more models than fit, behind the camera's near ones: reported
+    // once, never past the device's limit, and the frame isn't drawn.
+    let crowd: Vec<Entity> = (0..80 * 80)
+        .map(|k| {
+            let at = vec3((k % 80) as f32 * 0.5 - 20.0, 0.0, -(k / 80) as f32 * 0.5 - 4.0);
+            rig.ctx.world.spawn((Transform3D::at(at), Model::new(mesh)))
+        })
+        .collect();
+    for _ in 0..3 {
+        rig.draw();
+    }
+    assert_eq!(traffic::take_too_big(), 1, "reported once");
+    for e in crowd {
+        rig.ctx.world.despawn(e);
+    }
+    // Back under the limit: drawn as before.
+    assert_eq!(rig.draw(), few);
+    // And particles past the limit: the ones that fit are drawn.
+    let at = Transform3D::at(vec3(0.0, 1.0, 0.0));
+    let mut e = ParticleEmitter3D::new(ParticleSettings3D {
+        rate: 0.0,
+        burst: 8000,
+        max_particles: 8000,
+        lifetime: (1e4, 1e4),
+        ..Default::default()
+    });
+    e.update(1.0 / 60.0, &at);
+    rig.ctx.world.spawn((at, e));
+    for _ in 0..3 {
+        rig.draw();
+    }
+    assert_eq!(traffic::take_too_big(), 1, "reported once");
+    rig.check_mirrors();
 }

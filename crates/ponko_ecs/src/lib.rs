@@ -24,8 +24,10 @@
 //!     world.spawn((Pos(i as f32, 0.0), Vel(0.0, 0.0)));
 //! }
 //!
-//! let g = world.resource::<Gravity>().0;
-//! world.query::<&mut Vel>().for_each(|v| v.1 += g);
+//! world
+//!     .query::<&mut Vel>()
+//!     .with_resources::<&Gravity>()
+//!     .for_each(|v, gravity| v.1 += gravity.0);
 //! world.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| {
 //!     p.0 += v.0;
 //!     p.1 += v.1;
@@ -39,6 +41,7 @@
 #![warn(missing_docs)]
 
 mod access;
+mod borrow;
 mod bundle;
 mod change;
 mod commands;
@@ -49,6 +52,7 @@ mod view;
 mod world;
 
 pub use access::AccessLog;
+pub use borrow::{Lookup, QueryLookup, QueryResources, ReadOnlyQueryData, ResourceSet, ResourceTuple};
 pub use bundle::{Bundle, Component};
 pub use change::{Added, Changed, ChunkQuery, Tick};
 pub use commands::Commands;

@@ -78,7 +78,9 @@ pub(crate) use api::{MaterialTextures, MaterialUniform};
 pub use clip::{AnimationClip, AnimationTrack, Interpolation, JointAnimation, MorphAnimation};
 pub(crate) mod motion;
 #[cfg(feature = "window")]
-pub(crate) use collect::{FADED, INSTANCE_BRIDGE, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, shadow_views};
+pub(crate) use collect::{
+    FADED, INSTANCE_BRIDGE, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, MaterialOverride, shadow_views,
+};
 pub(crate) use collect::{Frame3D, MAX_SHADOW_RESOLUTION, MIN_SHADOW_RESOLUTION, SHADOW_MAP_SIZE};
 pub use compute::{Compute, ComputePass, GpuBuffer};
 pub use effect::{Effect, ScreenEffect, TargetEffect};
@@ -515,10 +517,17 @@ pub struct ShadowMesh(pub Option<Mesh>);
 /// one draw per mesh part. The [`Model::color`] tint applies on top. A
 /// transparent material casts no shadow, as on a mesh made with it.
 ///
-/// Not yet applied to skinned models posed by a [`Skeleton`], meshes with
-/// morph targets, [`LodGroup`] renderers or [`TerrainTile`]s: those draw
-/// their meshes' own materials. It isn't saved in scene files (materials
-/// have no file names), like a mesh made in code.
+/// It applies to everything that draws the entity's own meshes: a plain
+/// model, a skinned model posed by a [`Skeleton`] (on the entity that has
+/// the [`Model`], also one that borrows a skeleton with [`SkinOf`]), a mesh
+/// with morph targets, every renderer of a [`LodGroup`] and every level of
+/// a [`TerrainTile`]. A separate [`ShadowMesh`] keeps its own materials.
+/// For some parts only, see [`ModelMaterials`].
+///
+/// In scene files it's `"ModelMaterial": { "mesh": "rocks.glb", "material":
+/// "Wet" }`: a material of a loaded file, by its name in the file (or its
+/// number there, from 0). A material made in code has no file to name, so
+/// the override isn't saved, like a model whose mesh was made in code.
 ///
 /// ```no_run
 /// # use ponko::*;
@@ -532,6 +541,69 @@ pub struct ShadowMesh(pub Option<Mesh>);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(C)]
 pub struct ModelMaterial(pub Material);
+
+/// Draws some parts of the entity's [`Model`] with other materials: the
+/// glass of one door, the paint of one car. A mesh's parts are numbered
+/// from 0 in the order it was made with: a loaded file's materials in the
+/// order they first appear, one part for [`Ctx::create_mesh`].
+///
+/// Parts that aren't listed keep the [`ModelMaterial`] if the entity has
+/// one, else the mesh's own material. A part number the mesh doesn't have
+/// is ignored. Like `ModelMaterial` it applies to plain, skinned and
+/// morphing models, [`LodGroup`] renderers (each renderer's own parts) and
+/// [`TerrainTile`]s, and models with the same mesh and the same list are
+/// drawn together.
+///
+/// In scene files it's `"ModelMaterials": { "parts": [{ "part": 1, "mesh":
+/// "door.glb", "material": "Glass" }] }`, with the materials named as for
+/// `ModelMaterial`.
+///
+/// ```no_run
+/// # use ponko::*;
+/// # fn f(ctx: &mut Ctx) {
+/// let door = ctx.load_mesh("door.glb"); // part 0: wood, part 1: window
+/// let frosted = ctx.create_material(MaterialDesc { roughness: 0.6, ..Default::default() });
+/// ctx.world.spawn((Transform3D::default(), Model::new(door), ModelMaterials::new(&[(1, frosted)])));
+/// # }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ModelMaterials(Box<[(u32, Material)]>);
+
+impl ModelMaterials {
+    /// `(part, material)` pairs. The order doesn't matter; if a part is
+    /// listed twice, the last one counts.
+    #[must_use]
+    pub fn new(parts: &[(usize, Material)]) -> Self {
+        let mut list: Vec<(u32, Material)> = Vec::with_capacity(parts.len());
+        for &(part, material) in parts {
+            let part = u32::try_from(part).unwrap_or(u32::MAX);
+            match list.iter_mut().find(|(p, _)| *p == part) {
+                Some(entry) => entry.1 = material,
+                None => list.push((part, material)),
+            }
+        }
+        list.sort_unstable_by_key(|&(part, _)| part);
+        Self(list.into_boxed_slice())
+    }
+
+    /// The pairs, by part number.
+    pub fn parts(&self) -> impl ExactSizeIterator<Item = (usize, Material)> + '_ {
+        self.0.iter().map(|&(part, material)| (part as usize, material))
+    }
+
+    /// The material for `part`, if it's listed.
+    #[must_use]
+    pub fn get(&self, part: usize) -> Option<Material> {
+        let part = u32::try_from(part).ok()?;
+        let at = self.0.binary_search_by_key(&part, |&(p, _)| p).ok()?;
+        Some(self.0[at].1)
+    }
+
+    /// The sorted pairs, for the renderer.
+    pub(crate) fn raw(&self) -> &[(u32, Material)] {
+        &self.0
+    }
+}
 
 impl Model {
     /// Draws `mesh` as it is.

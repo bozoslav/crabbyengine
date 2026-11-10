@@ -7,7 +7,7 @@
 //! Where the GPU can't run compute shaders (WebGL2), the CPU poses them
 //! instead.
 
-use crate::render::traffic::{Counted, NewBuffer, Upload};
+use crate::render::traffic::{self, Counted, MAX_WRITES, NewBuffer, Synced, Upload};
 
 use super::Vertex;
 use crate::three::SkinFrame;
@@ -68,18 +68,17 @@ struct Params {
 pub(super) struct Skinning {
     /// `None` without compute shaders.
     pipeline: Option<(wgpu::ComputePipeline, wgpu::BindGroupLayout)>,
-    /// This frame's skin matrices, and how many fit.
-    joints: wgpu::Buffer,
-    joint_capacity: usize,
-    /// This frame's morph weights, and how many fit.
-    weights: wgpu::Buffer,
-    weight_capacity: usize,
+    /// This frame's skin matrices, written a changed matrix at a time (a
+    /// skeleton that holds its pose costs nothing).
+    joints: Synced,
+    /// This frame's morph weights, written a changed vec4 at a time.
+    weights: Synced,
     /// Bumped whenever `joints` or `weights` is made anew (bind groups name
     /// them).
     generation: u64,
-    /// One `Params` per slot, `stride` bytes apart.
-    params: wgpu::Buffer,
-    param_capacity: usize,
+    /// One `Params` per slot, `stride` bytes apart; only changed ones are
+    /// written.
+    params: Synced,
     stride: u64,
     // Keep collection indices stable even when earlier models are culled.
     // Empty slots have no GPU allocation until a pass first draws them.
@@ -151,15 +150,34 @@ impl Skinning {
             (pipeline, layout)
         });
         let stride = u64::from(device.limits().min_uniform_buffer_offset_alignment).max(size_of::<Params>() as u64);
+        let storage = wgpu::BufferUsages::STORAGE;
         Self {
             pipeline,
-            joints: joint_buffer(device, 64),
-            joint_capacity: 64,
-            weights: weight_buffer(device, 64),
-            weight_capacity: 64,
+            joints: Synced::new(
+                device,
+                "3d skin matrices",
+                storage,
+                64 * 64,
+                Upload::Skins,
+                (64, 4, MAX_WRITES),
+            ),
+            weights: Synced::new(
+                device,
+                "3d morph weights",
+                storage,
+                64 * 4,
+                Upload::Skins,
+                (16, 8, MAX_WRITES),
+            ),
             generation: 0,
-            params: param_buffer(device, stride, 4),
-            param_capacity: 4,
+            params: Synced::new(
+                device,
+                "3d skinning params",
+                wgpu::BufferUsages::UNIFORM,
+                4 * stride as usize,
+                Upload::Skins,
+                (16, 0, MAX_WRITES),
+            ),
             stride,
             slots: Vec::new(),
             draws: Vec::new(),
@@ -244,36 +262,32 @@ impl Skinning {
         if self.draws.iter().all(|d| !d.1) {
             return;
         }
+        // Bind groups name the joints and weights: new ones need new groups.
         let matrices = skins.matrices.len().max(1);
-        if matrices > self.joint_capacity {
-            self.joint_capacity = matrices.next_power_of_two();
-            self.joints = joint_buffer(device, self.joint_capacity);
+        if self.joints.reserve(device, matrices * 64) {
             self.generation += 1;
         }
-        if skins.weights.len() > self.weight_capacity {
-            self.weight_capacity = skins.weights.len().next_power_of_two();
-            self.weights = weight_buffer(device, self.weight_capacity);
+        if self.weights.reserve(device, skins.weights.len() * 4) {
             self.generation += 1;
         }
         if self.pipeline.is_some() && !skins.matrices.is_empty() {
             self.matrix_scratch.clear();
             self.matrix_scratch
                 .extend(skins.matrices.iter().map(glam::Mat4::to_cols_array));
-            queue
-                .uploading(Upload::Skins)
-                .write_buffer(&self.joints, 0, bytemuck::cast_slice(&self.matrix_scratch));
+            self.joints.write(queue, 0, bytemuck::cast_slice(&self.matrix_scratch));
         }
         if self.pipeline.is_some() && !skins.weights.is_empty() {
-            queue
-                .uploading(Upload::Skins)
-                .write_buffer(&self.weights, 0, bytemuck::cast_slice(&skins.weights));
+            self.weights.write(queue, 0, bytemuck::cast_slice(&skins.weights));
         }
-        if self.draws.len() > self.param_capacity {
-            self.param_capacity = self.draws.len().next_power_of_two();
-            self.params = param_buffer(device, self.stride, self.param_capacity);
+        if self.params.reserve(device, self.draws.len() * self.stride as usize) {
             for slot in self.slots.iter_mut().flatten() {
                 slot.group = None;
             }
+        }
+        // Past the most the device holds (reported), skins stay at rest.
+        let fit = self.params.fits() / self.stride as usize;
+        for d in self.draws.iter_mut().skip(fit) {
+            d.1 = false;
         }
         if self.slots.len() < skins.draws.len() {
             self.slots.resize_with(skins.draws.len(), || None);
@@ -301,6 +315,7 @@ impl Skinning {
             });
             if slot.capacity < count {
                 slot.capacity = count.next_power_of_two();
+                traffic::reallocated();
                 slot.buffer = slot_buffer(device, slot.capacity, usage);
                 slot.group = None;
             }
@@ -317,14 +332,14 @@ impl Skinning {
                             entries: &[
                                 entry(0, rest),
                                 entry(1, &skin.influences),
-                                entry(2, &self.joints),
+                                entry(2, self.joints.buffer()),
                                 entry(3, &slot.buffer),
-                                entry(5, &self.weights),
+                                entry(5, self.weights.buffer()),
                                 entry(6, &skin.deltas),
                                 wgpu::BindGroupEntry {
                                     binding: 4,
                                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                        buffer: &self.params,
+                                        buffer: self.params.buffer(),
                                         offset: 0,
                                         size: wgpu::BufferSize::new(size_of::<Params>() as u64),
                                     }),
@@ -369,9 +384,7 @@ impl Skinning {
             }
         }
         if self.pipeline.is_some() {
-            queue
-                .uploading(Upload::Skins)
-                .write_buffer(&self.params, 0, &self.params_scratch);
+            self.params.write(queue, 0, &self.params_scratch);
         }
     }
 
@@ -403,6 +416,14 @@ impl Skinning {
         }
     }
 
+    /// See `Renderer3D::check_mirrors`.
+    #[cfg(test)]
+    pub fn check_mirrors(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        for buffer in [&self.joints, &self.weights, &self.params] {
+            buffer.check(device, queue);
+        }
+    }
+
     /// Whether this frame poses anything on the GPU.
     pub fn has_work(&self) -> bool {
         self.pipeline.is_some() && self.draws.iter().any(|d| d.1)
@@ -421,33 +442,6 @@ fn entry(binding: u32, buffer: &wgpu::Buffer) -> wgpu::BindGroupEntry<'_> {
         binding,
         resource: buffer.as_entire_binding(),
     }
-}
-
-fn joint_buffer(device: &wgpu::Device, matrices: usize) -> wgpu::Buffer {
-    device.new_buffer(&wgpu::BufferDescriptor {
-        label: Some("3d skin matrices"),
-        size: (matrices * 64) as u64,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
-}
-
-fn weight_buffer(device: &wgpu::Device, weights: usize) -> wgpu::Buffer {
-    device.new_buffer(&wgpu::BufferDescriptor {
-        label: Some("3d morph weights"),
-        size: (weights.max(4) * 4) as u64,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
-}
-
-fn param_buffer(device: &wgpu::Device, stride: u64, slots: usize) -> wgpu::Buffer {
-    device.new_buffer(&wgpu::BufferDescriptor {
-        label: Some("3d skinning params"),
-        size: stride * slots as u64,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
 }
 
 fn slot_buffer(device: &wgpu::Device, corners: u32, storage: wgpu::BufferUsages) -> wgpu::Buffer {
@@ -543,6 +537,8 @@ mod tests {
             first: 1,
             morph_first: 1,
             morph_count: 2,
+            material: u32::MAX,
+            parts: (0, 0),
         });
         // Another model's weight first, so `morph_first` matters.
         frame.weights = vec![9.0, 0.5, 0.25];

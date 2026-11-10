@@ -254,7 +254,7 @@ fn main() {
                 }
             }
         })
-        .run(move |ctx| {
+        .setup(move |ctx| {
             ctx.post.bloom = 0.1;
             ctx.lighting.sun_direction = Sky::sun_direction_at(hour);
             ctx.lighting.shadow_distance = 400.0;
@@ -303,5 +303,6 @@ fn main() {
             ctx.effects.push(ScreenEffect::new(underwater).with_material(level));
 
             ctx.camera3d.position = start;
-        });
+        })
+        .run();
 }

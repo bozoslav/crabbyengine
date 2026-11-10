@@ -334,6 +334,35 @@ unsafe fn widgets_lay_out_and_react(ctx: Ctx) {
             crabby_ctx_ui_text(ctx, CRABBY_UI_SCREEN, label, null_mut(), 1, &mut len),
             CRABBY_INVALID_ARGUMENT
         );
+        // The outputs are checked first: a null output is an invalid
+        // argument even for a node or panel that doesn't exist (not "not
+        // found"), and nothing is read.
+        for (target, node) in [
+            (CRABBY_UI_SCREEN, 999_999),
+            (CRABBY_UI_SCREEN, label),
+            (u64::MAX - 1, label),
+        ] {
+            assert_eq!(
+                crabby_ctx_ui_text(ctx, target, node, small.as_mut_ptr(), small.len(), null_mut()),
+                CRABBY_INVALID_ARGUMENT
+            );
+            assert_eq!(
+                crabby_ctx_ui_name(ctx, target, node, null_mut(), 4, &mut len),
+                CRABBY_INVALID_ARGUMENT
+            );
+        }
+        assert_eq!(
+            crabby_ctx_ui_text(
+                ctx,
+                CRABBY_UI_SCREEN,
+                999_999,
+                small.as_mut_ptr(),
+                small.len(),
+                &mut len
+            ),
+            CRABBY_NOT_FOUND,
+            "with good outputs, the missing node is the error"
+        );
 
         // The tab key walks the controls in order.
         frame(
@@ -1005,4 +1034,242 @@ fn named_areas_lines_and_repeat_tracks_layout_and_validate() {
         }
     }
     run(scenario);
+}
+
+// ---- presets, theme, titles, names ------------------------------------------------
+
+unsafe fn name_of(ctx: Ctx, id: u64) -> String {
+    let mut len = 0;
+    assert_eq!(
+        unsafe { crabby_ctx_ui_name(ctx, CRABBY_UI_SCREEN, id, null_mut(), 0, &mut len) },
+        CRABBY_OK
+    );
+    let mut buffer = vec![0u8; len + 1];
+    let status = unsafe {
+        crabby_ctx_ui_name(
+            ctx,
+            CRABBY_UI_SCREEN,
+            id,
+            buffer.as_mut_ptr().cast::<c_char>(),
+            buffer.len(),
+            &mut len,
+        )
+    };
+    assert_eq!(status, CRABBY_OK);
+    String::from_utf8(buffer[..len].to_vec()).unwrap()
+}
+unsafe fn find(ctx: Ctx, name: &CStr) -> u64 {
+    let mut id = 0;
+    assert_eq!(
+        unsafe { crabby_ctx_ui_find(ctx, CRABBY_UI_SCREEN, name.as_ptr(), &mut id) },
+        CRABBY_OK
+    );
+    id
+}
+unsafe fn paint_of(ctx: Ctx, id: u64) -> CrabbyUiPaint {
+    let mut paint = crabby_ui_paint_default();
+    assert_eq!(
+        unsafe { crabby_ctx_ui_paint(ctx, CRABBY_UI_SCREEN, id, &mut paint) },
+        CRABBY_OK
+    );
+    paint
+}
+
+unsafe fn presets_theme_titles_and_names(ctx: Ctx) {
+    unsafe {
+        // A screen laid out with presets only.
+        let mut root_layout = crabby_ui_layout_fill();
+        root_layout.padding = all(px(10.0));
+        let root = panel(ctx, CRABBY_UI_NONE, &root_layout);
+        let title = id_of(|out| {
+            crabby_ctx_ui_add_title(
+                ctx,
+                CRABBY_UI_SCREEN,
+                root,
+                c"Shop".as_ptr(),
+                &crabby_ui_layout_row(40.0),
+                out,
+            )
+        });
+        let bar = panel(ctx, root, &crabby_ui_layout_row(50.0));
+        let side = panel(ctx, bar, &crabby_ui_layout_column(120.0));
+        let buy = button(ctx, bar, c"Buy", &crabby_ui_layout_fixed(100.0, 30.0));
+        let map = panel(ctx, root, &crabby_ui_layout_anchored(0.75, 0.0, 0.25, 0.25));
+        assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
+        let dialog = panel(ctx, CRABBY_UI_NONE, &crabby_ui_layout_centered(200.0, 100.0));
+        assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+        let r = |id| rect(ctx, id);
+        assert_eq!((r(title).min.x, r(title).min.y, r(title).max.x), (10.0, 10.0, 790.0));
+        assert_eq!((r(bar).min.y, r(bar).max.y), (50.0, 100.0));
+        assert_eq!((r(side).min.x, r(side).max.x, r(side).max.y), (10.0, 130.0, 100.0));
+        assert_eq!((r(buy).min.x, r(buy).max.x - r(buy).min.x), (130.0, 100.0));
+        assert_eq!((r(map).min.x, r(map).max.x, r(map).max.y), (600.0, 800.0, 150.0));
+        assert_eq!(
+            crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, dialog, true),
+            CRABBY_OK
+        );
+        assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, SCREEN), CRABBY_OK);
+        assert_eq!((r(dialog).min.x, r(dialog).min.y), (300.0, 250.0));
+        let mut popped = 0;
+        assert_eq!(crabby_ctx_ui_pop_screen(ctx, CRABBY_UI_SCREEN, &mut popped), CRABBY_OK);
+
+        // The theme: titles in its title paint, buttons in its control
+        // paint, and a node's own paint kept across a change.
+        let mut theme = crabby_ui_theme_default();
+        assert_eq!(crabby_ctx_ui_theme(ctx, CRABBY_UI_SCREEN, &mut theme), CRABBY_OK);
+        assert_eq!(theme, crabby_ui_theme_default());
+        assert_eq!(paint_of(ctx, title).font_size, theme.title_size);
+        let green = CrabbyColor {
+            r: 0.0,
+            g: 1.0,
+            b: 0.0,
+            a: 1.0,
+        };
+        let mut own = paint_of(ctx, buy);
+        own.color = green;
+        assert_eq!(crabby_ctx_ui_set_paint(ctx, CRABBY_UI_SCREEN, buy, &own), CRABBY_OK);
+        theme.title = green;
+        theme.title_size = 30.0;
+        theme.control = theme.accent;
+        theme.text = theme.accent;
+        assert_eq!(crabby_ctx_ui_set_theme(ctx, CRABBY_UI_SCREEN, &theme), CRABBY_OK);
+        let mut read = crabby_ui_theme_default();
+        assert_eq!(crabby_ctx_ui_theme(ctx, CRABBY_UI_SCREEN, &mut read), CRABBY_OK);
+        assert_eq!(read, theme);
+        let (title_paint, buy_paint) = (paint_of(ctx, title), paint_of(ctx, buy));
+        assert_eq!((title_paint.color, title_paint.font_size), (green, 30.0));
+        assert_eq!(buy_paint.background, theme.accent, "follows the theme");
+        assert_eq!(buy_paint.color, green, "set on the node: kept");
+        // The immediate widgets follow the same theme.
+        let mut style = crabby_ui_style_default();
+        assert_eq!(crabby_ctx_ui_style(ctx, &mut style), CRABBY_OK);
+        assert_eq!((style.button, style.text), (theme.accent, theme.accent));
+        // Bad themes change nothing.
+        let mut bad = theme;
+        bad.title_size = -2.0;
+        assert_eq!(
+            crabby_ctx_ui_set_theme(ctx, CRABBY_UI_SCREEN, &bad),
+            CRABBY_INVALID_ARGUMENT
+        );
+        bad = theme;
+        bad.font = CrabbyFont { id: 999 };
+        assert_eq!(
+            crabby_ctx_ui_set_theme(ctx, CRABBY_UI_SCREEN, &bad),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_ui_set_theme(ctx, CRABBY_UI_SCREEN, null()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(crabby_ctx_ui_theme(ctx, CRABBY_UI_SCREEN, &mut read), CRABBY_OK);
+        assert_eq!(read, theme);
+
+        // Names: found, moved, cleared, and gone with their node.
+        assert_eq!(
+            crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, buy, c"shop.buy".as_ptr()),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, map, c"map".as_ptr()),
+            CRABBY_OK
+        );
+        assert_eq!(
+            (find(ctx, c"shop.buy"), name_of(ctx, buy)),
+            (buy, "shop.buy".to_string())
+        );
+        assert_eq!(find(ctx, c"shop.sell"), CRABBY_UI_NONE);
+        assert_eq!(
+            crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, side, c"shop.buy".as_ptr()),
+            CRABBY_OK
+        );
+        assert_eq!((find(ctx, c"shop.buy"), name_of(ctx, buy)), (side, String::new()));
+        assert_eq!(crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, side, null()), CRABBY_OK);
+        assert_eq!(find(ctx, c"shop.buy"), CRABBY_UI_NONE);
+        assert_eq!(crabby_ctx_ui_remove(ctx, CRABBY_UI_SCREEN, map), CRABBY_OK);
+        assert_eq!(find(ctx, c"map"), CRABBY_UI_NONE);
+        assert_eq!(
+            crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, map, c"map".as_ptr()),
+            CRABBY_NOT_FOUND
+        );
+        assert_eq!(
+            crabby_ctx_ui_find(ctx, CRABBY_UI_SCREEN, null(), &mut popped),
+            CRABBY_INVALID_ARGUMENT
+        );
+
+        // take_click: the last click once, other events dropped.
+        assert_eq!(
+            crabby_ctx_ui_set_name(ctx, CRABBY_UI_SCREEN, buy, c"buy".as_ptr()),
+            CRABBY_OK
+        );
+        let mut clicked = 0;
+        assert_eq!(crabby_ctx_ui_take_click(ctx, CRABBY_UI_SCREEN, &mut clicked), CRABBY_OK);
+        assert_eq!(clicked, CRABBY_UI_NONE);
+        let at = rect(ctx, buy);
+        click(ctx, v2((at.min.x + at.max.x) * 0.5, (at.min.y + at.max.y) * 0.5));
+        assert_eq!(crabby_ctx_ui_take_click(ctx, CRABBY_UI_SCREEN, &mut clicked), CRABBY_OK);
+        assert_eq!(name_of(ctx, clicked), "buy");
+        assert_eq!(crabby_ctx_ui_take_click(ctx, CRABBY_UI_SCREEN, &mut clicked), CRABBY_OK);
+        assert_eq!(clicked, CRABBY_UI_NONE);
+        assert!(events(ctx).is_empty());
+        assert_eq!(
+            crabby_ctx_ui_take_click(ctx, CRABBY_UI_SCREEN, null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
+
+        // A title needs a parent.
+        let mut id = 0;
+        assert_eq!(
+            crabby_ctx_ui_add_title(ctx, CRABBY_UI_SCREEN, CRABBY_UI_NONE, c"x".as_ptr(), null(), &mut id),
+            CRABBY_INVALID_ARGUMENT
+        );
+    }
+}
+
+#[test]
+fn presets_theme_titles_names_and_take_click_work_from_c() {
+    run(presets_theme_titles_and_names);
+}
+
+/// Screen roots with `CRABBY_UI_LENGTH_AUTO` margins share out the window's
+/// free space, as children do: centered, in the middle, or pushed aside.
+unsafe fn auto_margins_on_screen_roots(ctx: Ctx) {
+    unsafe {
+        let automatic = CrabbyUiLength {
+            kind: CrabbyUiLengthKind::CRABBY_UI_LENGTH_AUTO as u32,
+            value: 0.0,
+        };
+        let mut across = crabby_ui_layout_fixed(200.0, 100.0);
+        across.margin.left = automatic;
+        across.margin.right = automatic;
+        across.margin.top = px(40.0);
+        let mut middle = crabby_ui_layout_fixed(200.0, 100.0);
+        middle.margin = all(automatic);
+        let mut pushed = crabby_ui_layout_fixed(200.0, 100.0);
+        pushed.margin.left = automatic;
+        let roots = [across, middle, pushed].map(|layout| panel(ctx, CRABBY_UI_NONE, &layout));
+        for root in roots {
+            assert_eq!(crabby_ctx_ui_push_screen(ctx, CRABBY_UI_SCREEN, root, false), CRABBY_OK);
+        }
+        let corners = |window: CrabbyVec2| {
+            assert_eq!(crabby_ctx_ui_layout(ctx, CRABBY_UI_SCREEN, window), CRABBY_OK);
+            roots.map(|root| {
+                let r = rect(ctx, root);
+                (r.min.x, r.min.y, r.max.x - r.min.x)
+            })
+        };
+        assert_eq!(
+            corners(v2(800.0, 600.0)),
+            [(300.0, 40.0, 200.0), (300.0, 250.0, 200.0), (600.0, 0.0, 200.0)]
+        );
+        assert_eq!(
+            corners(v2(1000.0, 800.0)),
+            [(400.0, 40.0, 200.0), (400.0, 350.0, 200.0), (800.0, 0.0, 200.0)],
+            "a bigger window moves them with it"
+        );
+    }
+}
+
+#[test]
+fn auto_margins_place_screen_roots_from_c() {
+    run(auto_margins_on_screen_roots);
 }

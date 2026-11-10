@@ -39,6 +39,7 @@ fn main() {
     let mut setup_done = Instant::now();
     let world = Game::new("headless", 1280, 720)
         .sim_system(wander)
+        // The two-argument form may borrow locals, here the timers.
         .run_headless(ticks, |ctx| {
             let tex = ctx.load_texture("crab.png");
             ctx.world.spawn_batch((0..agents).map(|i| {

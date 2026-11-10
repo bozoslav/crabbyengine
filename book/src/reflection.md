@@ -11,16 +11,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 struct Health { current: f32, max: f32 }
 
-Game::new("Arena", 1280, 720).run(|ctx| {
-    ctx.world.reflect::<Health>();
-    let e = ctx.world.spawn((Transform2D::default(), Health { current: 10.0, max: 10.0 }));
+Game::new("Arena", 1280, 720)
+    .setup(|ctx| {
+        ctx.world.reflect::<Health>();
+        let e = ctx.world.spawn((Transform2D::default(), Health { current: 10.0, max: 10.0 }));
 
-    // Read: {"current": 10.0, "max": 10.0}
-    let hp = ctx.world.get_json(e, "Health").unwrap();
+        // Read: {"current": 10.0, "max": 10.0}
+        let hp = ctx.world.get_json(e, "Health").unwrap();
 
-    // Write only some fields; the rest keep their values.
-    ctx.world.set_json(e, "Health", json!({ "current": 3.0 })).unwrap();
-});
+        // Write only some fields; the rest keep their values.
+        ctx.world.set_json(e, "Health", json!({ "current": 3.0 })).unwrap();
+    })
+    .run();
 ```
 
 Add `serde = { version = "1", features = ["derive"] }` to your `Cargo.toml`.

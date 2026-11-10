@@ -31,5 +31,5 @@ fn setup(ctx: &mut Ctx) {
 // ANCHOR_END: particles
 
 fn main() {
-    Game::new("Particles", 960, 640).run(setup);
+    Game::new("Particles", 960, 640).setup(setup).run();
 }

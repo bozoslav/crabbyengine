@@ -20,11 +20,38 @@ const HZ: u64 = 60;
 /// A system that runs before the game's rules and decides what the player
 /// does this tick (in place of `read_input`, which needs a window's frames).
 fn script(f: impl FnMut(&mut Ctx) + 'static) -> Game {
-    install(Game::new("coin dash test", 800, 600).seed(SEED).sim_system(f))
+    script_saving(None, f)
+}
+
+/// [`script`] with progress and settings kept at `save`. The game's plugin
+/// is added unchanged, after the scripted player.
+fn script_saving(save: Option<PathBuf>, f: impl FnMut(&mut Ctx) + 'static) -> Game {
+    Game::new("coin dash test", 800, 600)
+        .seed(SEED)
+        .sim_system(f)
+        .plugin(CoinDash { save })
 }
 // ANCHOR_END: script
 
-/// Startup that skips the title screen: round 1 is already running, nothing is saved.
+/// For a [`script`]ed game: nothing more at startup, so it begins on the
+/// title screen.
+fn on_title(_: &mut Ctx) {}
+
+/// For a [`script`]ed game: skips the title screen, round 1 is already running.
+fn first_round(ctx: &mut Ctx) {
+    new_round(ctx, 1);
+}
+
+/// The game's startup alone, for tests that call its systems by hand in a
+/// game without them: every layer's `setup`, in the plugin's order.
+fn setup_with(ctx: &mut Ctx, save: Option<PathBuf>) {
+    PlayerInput.setup(ctx);
+    SettingsScreen { save: save.clone() }.setup(ctx);
+    Rules { save }.setup(ctx);
+    Drawing.setup(ctx);
+}
+
+/// [`setup_with`] nothing saved, then round 1 already running.
 fn setup_playing(ctx: &mut Ctx) {
     setup_with(ctx, None);
     new_round(ctx, 1);
@@ -85,15 +112,12 @@ fn temp_dir(name: &str) -> PathBuf {
 /// Plays round 1 to a win (chasing coins) with progress kept in `save`.
 fn win_a_round(save: &std::path::Path) -> World {
     let save = save.to_path_buf();
-    script(chase_nearest_coin).run_headless(ROUND_SECONDS as u64 * HZ, move |ctx| {
-        setup_with(ctx, Some(save));
-        new_round(ctx, 1);
-    })
+    script_saving(Some(save), chase_nearest_coin).run_headless(ROUND_SECONDS as u64 * HZ, first_round)
 }
 
 /// Starts on the title screen with progress in `save`, runs `ticks`, returns the world.
 fn open_game(save: Option<PathBuf>, ticks: u64) -> World {
-    script(|_| {}).run_headless(ticks, move |ctx| setup_with(ctx, save))
+    script_saving(save, |_| {}).run_headless(ticks, on_title)
 }
 
 // ---- Rounds -----------------------------------------------------------------
@@ -101,7 +125,7 @@ fn open_game(save: Option<PathBuf>, ticks: u64) -> World {
 // ANCHOR: win
 #[test]
 fn collecting_every_coin_wins_the_round() {
-    let mut world = script(chase_nearest_coin).run_headless(ROUND_SECONDS as u64 * HZ, setup_playing);
+    let mut world = script(chase_nearest_coin).run_headless(ROUND_SECONDS as u64 * HZ, first_round);
     let round = world.resource::<Round>().clone();
     assert_eq!(screen(&world), Screen::Result(Outcome::Won));
     assert_eq!((round.collected, round.number), (COINS, 1));
@@ -122,7 +146,7 @@ fn a_finished_round_stays_finished_until_the_player_moves_on() {
             assert_eq!(*frozen.get_or_insert(seen), seen, "state changed after winning");
         }
     })
-    .run_headless(ROUND_SECONDS as u64 * HZ, setup_playing);
+    .run_headless(ROUND_SECONDS as u64 * HZ, first_round);
     assert_eq!(screen(&world), Screen::Result(Outcome::Won));
     assert_eq!(world.query::<&Player>().iter().count(), 1);
 }
@@ -130,7 +154,7 @@ fn a_finished_round_stays_finished_until_the_player_moves_on() {
 #[test]
 fn running_out_of_time_loses_the_round() {
     let ticks = ROUND_SECONDS as u64 * HZ + 10; // a few spare ticks for rounding
-    let world = script(|_| {}).run_headless(ticks, setup_playing);
+    let world = script(|_| {}).run_headless(ticks, first_round);
     let round = world.resource::<Round>();
     assert_eq!(screen(&world), Screen::Result(Outcome::Lost));
     assert_eq!((round.collected, round.time_left), (0, 0.0));
@@ -166,13 +190,13 @@ fn assert_fresh_round(world: &mut World, number: u32) {
 #[test]
 fn playing_again_after_a_win_starts_a_fresh_round() {
     let mut world =
-        script(restart_when_over(chase_nearest_coin)).run_headless(2 * ROUND_SECONDS as u64 * HZ, setup_playing);
+        script(restart_when_over(chase_nearest_coin)).run_headless(2 * ROUND_SECONDS as u64 * HZ, first_round);
     assert_fresh_round(&mut world, 2);
 }
 
 #[test]
 fn playing_again_after_a_loss_starts_a_fresh_round() {
-    let mut world = script(restart_when_over(|_| {})).run_headless(2 * ROUND_SECONDS as u64 * HZ, setup_playing);
+    let mut world = script(restart_when_over(|_| {})).run_headless(2 * ROUND_SECONDS as u64 * HZ, first_round);
     assert_fresh_round(&mut world, 2);
 }
 
@@ -188,7 +212,7 @@ fn restart_works_in_the_middle_of_a_round_too() {
             ctx.quit();
         }
     })
-    .run_headless(10 * HZ, setup_playing);
+    .run_headless(10 * HZ, first_round);
     assert!(taken_before_restart.get() > 0, "the round was under way");
     assert_fresh_round(&mut world, 2);
 }
@@ -202,7 +226,7 @@ fn the_next_round_can_be_won_too() {
         }
         chase_nearest_coin(ctx);
     })
-    .run_headless(2 * ROUND_SECONDS as u64 * HZ, setup_playing);
+    .run_headless(2 * ROUND_SECONDS as u64 * HZ, first_round);
     let round = world.resource::<Round>().clone();
     assert_eq!(
         (screen(&world), round.number, round.collected),
@@ -213,13 +237,13 @@ fn the_next_round_can_be_won_too() {
 
 #[test]
 fn rounds_are_reproducible_and_each_round_has_its_own_layout() {
-    let layout_after = |ticks| coin_layout(&mut script(|_| {}).run_headless(ticks, setup_playing));
+    let layout_after = |ticks| coin_layout(&mut script(|_| {}).run_headless(ticks, first_round));
     assert_eq!(layout_after(0), layout_after(0), "same seed, same coins");
     assert_eq!(layout_after(0).len(), COINS);
 
     // Same inputs on both runs: identical games, tick for tick.
     let play =
-        || script(restart_when_over(chase_nearest_coin)).run_headless(2 * ROUND_SECONDS as u64 * HZ, setup_playing);
+        || script(restart_when_over(chase_nearest_coin)).run_headless(2 * ROUND_SECONDS as u64 * HZ, first_round);
     let (mut a, mut b) = (play(), play());
     assert_eq!(coin_layout(&mut a), coin_layout(&mut b));
     assert_eq!(a.resource::<Round>().time_left, b.resource::<Round>().time_left);
@@ -231,7 +255,7 @@ fn rounds_are_reproducible_and_each_round_has_its_own_layout() {
 #[test]
 fn the_player_stays_in_the_arena_and_diagonals_are_not_faster() {
     let ticks = HZ; // one second
-    let mut world = script(|ctx| intent(ctx).direction = vec2(1.0, 1.0)).run_headless(1, setup_playing);
+    let mut world = script(|ctx| intent(ctx).direction = vec2(1.0, 1.0)).run_headless(1, first_round);
     let moved = world
         .query::<(&Transform2D, &Player)>()
         .iter()
@@ -246,7 +270,7 @@ fn the_player_stays_in_the_arena_and_diagonals_are_not_faster() {
         "moved {moved}, expected length {one_tick}"
     );
 
-    let mut world = script(|ctx| intent(ctx).direction = vec2(1.0, 1.0)).run_headless(ticks * 10, setup_playing);
+    let mut world = script(|ctx| intent(ctx).direction = vec2(1.0, 1.0)).run_headless(ticks * 10, first_round);
     let at = world
         .query::<(&Transform2D, &Player)>()
         .iter()
@@ -261,7 +285,7 @@ fn the_player_stays_in_the_arena_and_diagonals_are_not_faster() {
 
 #[test]
 fn the_game_starts_on_an_empty_title_screen_that_ignores_movement() {
-    let world = script(|ctx| intent(ctx).direction = vec2(1.0, 0.0)).run_headless(2 * HZ, |ctx| setup_with(ctx, None));
+    let world = script(|ctx| intent(ctx).direction = vec2(1.0, 0.0)).run_headless(2 * HZ, on_title);
     assert_eq!(screen(&world), Screen::Title);
     assert_eq!(world.resource::<Round>().number, 0);
     assert!(world.is_empty(), "no player and no coins before the first round");
@@ -275,7 +299,7 @@ fn confirm_on_the_title_screen_starts_round_one() {
             ctx.quit();
         }
     })
-    .run_headless(10, |ctx| setup_with(ctx, None));
+    .run_headless(10, on_title);
     assert_fresh_round(&mut world, 1);
 }
 
@@ -286,7 +310,7 @@ fn restart_and_pause_do_not_start_a_round_from_the_title_screen() {
         i.restart = true;
         i.direction = vec2(1.0, 1.0);
     })
-    .run_headless(5, |ctx| setup_with(ctx, None));
+    .run_headless(5, on_title);
     assert_eq!(screen(&world), Screen::Title);
 }
 
@@ -301,7 +325,7 @@ fn pause_or_back_on_the_title_screen_quits_the_game() {
                 press(intent(ctx));
             }
         })
-        .run_headless(100, |ctx| setup_with(ctx, None));
+        .run_headless(100, on_title);
         assert_eq!(ticks.get(), 3, "the game stops on the tick after the request");
     }
 }
@@ -330,7 +354,7 @@ fn pausing_freezes_the_round_and_resuming_continues_it() {
         }
         chase_nearest_coin(ctx);
     })
-    .run_headless(6 * HZ + 1, setup_playing);
+    .run_headless(6 * HZ + 1, first_round);
     assert!(at_pause.borrow().is_some(), "the game was paused");
     // Resumed on the last tick: the clock runs again from where it stopped.
     assert_eq!(screen(&world), Screen::Playing);
@@ -361,7 +385,7 @@ fn pause_toggles_with_the_pause_button_and_confirm_resumes() {
             _ => {}
         }
     })
-    .run_headless(10, setup_playing);
+    .run_headless(10, first_round);
     use Screen::*;
     // Each entry is the screen at the start of a tick, before that tick's rules ran,
     // so a request made on tick `t` shows on tick `t + 1`.
@@ -386,7 +410,7 @@ fn restart_from_the_pause_screen_starts_a_fresh_round_and_back_returns_to_the_ti
         }
         chase_nearest_coin(ctx);
     })
-    .run_headless(5 * HZ, setup_playing);
+    .run_headless(5 * HZ, first_round);
     assert_fresh_round(&mut world, 2);
 
     let world = script(|ctx| match ctx.time.sim_tick() {
@@ -397,7 +421,7 @@ fn restart_from_the_pause_screen_starts_a_fresh_round_and_back_returns_to_the_ti
         }
         _ => {}
     })
-    .run_headless(20, setup_playing);
+    .run_headless(20, first_round);
     assert_eq!(screen(&world), Screen::Title);
     assert!(world.is_empty(), "the field is cleared");
     assert_eq!(world.resource::<Round>().number, 1, "the round counter goes on");
@@ -405,7 +429,7 @@ fn restart_from_the_pause_screen_starts_a_fresh_round_and_back_returns_to_the_ti
 
 #[test]
 fn back_does_nothing_while_playing() {
-    let world = script(|ctx| intent(ctx).back = true).run_headless(HZ, setup_playing);
+    let world = script(|ctx| intent(ctx).back = true).run_headless(HZ, first_round);
     assert_eq!(screen(&world), Screen::Playing);
 }
 
@@ -426,7 +450,7 @@ fn result_screen_offers_play_again_and_back_to_the_title() {
             intent(ctx).confirm = true;
         }
     })
-    .run_headless(5 * ROUND_SECONDS as u64 * HZ, |ctx| setup_with(ctx, None));
+    .run_headless(5 * ROUND_SECONDS as u64 * HZ, on_title);
     assert_eq!(screen(&world), Screen::Title);
     let round = world.resource::<Round>();
     assert_eq!(round.number, 2, "title, round 1, round 2");
@@ -441,7 +465,7 @@ fn pause_on_the_result_screen_goes_back_to_the_title() {
             ctx.quit();
         }
     })
-    .run_headless(2 * ROUND_SECONDS as u64 * HZ, setup_playing);
+    .run_headless(2 * ROUND_SECONDS as u64 * HZ, first_round);
     assert_eq!(screen(&world), Screen::Title);
 }
 
@@ -462,7 +486,7 @@ fn each_screen_shows_its_own_text() {
     );
     assert!(text_title.contains("No rounds played yet"), "{text_title}");
 
-    let playing = script(|_| {}).run_headless(1, setup_playing);
+    let playing = script(|_| {}).run_headless(1, first_round);
     assert!(
         screen_lines(&playing).is_empty(),
         "the HUD line is drawn by hud, nothing else"
@@ -473,10 +497,10 @@ fn each_screen_shows_its_own_text() {
             intent(ctx).pause = true;
         }
     })
-    .run_headless(3, setup_playing);
+    .run_headless(3, first_round);
     assert!(text(&paused).contains("Paused"), "{}", text(&paused));
 
-    let won = script(chase_nearest_coin).run_headless(ROUND_SECONDS as u64 * HZ, setup_playing);
+    let won = script(chase_nearest_coin).run_headless(ROUND_SECONDS as u64 * HZ, first_round);
     let text_won = text(&won);
     assert!(
         text_won.contains("You win!") && text_won.contains("Time "),
@@ -484,7 +508,7 @@ fn each_screen_shows_its_own_text() {
     );
     assert!(text_won.contains("Enter: play again"), "{text_won}");
 
-    let lost = script(|_| {}).run_headless(ROUND_SECONDS as u64 * HZ + 10, setup_playing);
+    let lost = script(|_| {}).run_headless(ROUND_SECONDS as u64 * HZ + 10, first_round);
     let text_lost = text(&lost);
     assert!(
         text_lost.contains("Time's up") && text_lost.contains(&format!("Coins 0/{COINS}")),
@@ -598,16 +622,13 @@ fn a_missing_save_file_is_a_first_run_and_is_only_written_when_a_round_ends() {
     );
 
     // Quitting a round halfway (back to the title) doesn't count either.
-    let quit_midway = script(|ctx| match ctx.time.sim_tick() {
+    let quit_midway = script_saving(Some(path.clone()), |ctx| match ctx.time.sim_tick() {
         0 => intent(ctx).confirm = true,
         30 => intent(ctx).pause = true,
         32 => intent(ctx).back = true,
         _ => {}
     })
-    .run_headless(40, {
-        let path = path.clone();
-        move |ctx| setup_with(ctx, Some(path))
-    });
+    .run_headless(40, on_title);
     assert_eq!(screen(&quit_midway), Screen::Title);
     assert_eq!(quit_midway.resource::<Progress>().rounds_played, 0);
     assert!(!path.exists());
@@ -680,13 +701,7 @@ fn an_unreadable_save_location_does_not_stop_the_game() {
     assert_eq!(*world.resource::<Progress>(), Progress::default());
 
     // Losing a round tries to save, fails, says so, and the game carries on.
-    let lost = script(|_| {}).run_headless(ROUND_SECONDS as u64 * HZ + 10, {
-        let dir = dir.clone();
-        move |ctx| {
-            setup_with(ctx, Some(dir));
-            new_round(ctx, 1);
-        }
-    });
+    let lost = script_saving(Some(dir.clone()), |_| {}).run_headless(ROUND_SECONDS as u64 * HZ + 10, first_round);
     assert_eq!(screen(&lost), Screen::Result(Outcome::Lost));
     assert!(lost.resource::<SaveFile>().save_failed);
     let lines: Vec<String> = screen_lines(&lost).into_iter().map(|l| l.text).collect();
@@ -706,7 +721,7 @@ fn an_unreadable_save_location_does_not_stop_the_game() {
 
 #[test]
 fn a_game_without_a_save_path_just_does_not_keep_progress() {
-    let won = script(chase_nearest_coin).run_headless(ROUND_SECONDS as u64 * HZ, setup_playing);
+    let won = script(chase_nearest_coin).run_headless(ROUND_SECONDS as u64 * HZ, first_round);
     assert_eq!(won.resource::<SaveFile>().load, LoadStatus::Fresh);
     assert!(!won.resource::<SaveFile>().save_failed);
     assert_eq!(won.resource::<Progress>().rounds_won, 1);
@@ -1672,8 +1687,8 @@ use game::smoke::{MAX_TICKS, Smoke, build_smoke, setup_smoke};
 
 fn walk_through(save: &std::path::Path) -> game::smoke::Report {
     let save = save.to_path_buf();
-    let mut world = build_smoke().run_headless(MAX_TICKS + 1, move |ctx| {
-        setup_smoke(ctx, Some(save), None, "headless");
+    let mut world = build_smoke(Some(save)).run_headless(MAX_TICKS + 1, |ctx| {
+        setup_smoke(ctx, None, "headless");
     });
     let smoke = world.remove_resource::<Smoke>().unwrap();
     assert!(
@@ -1732,7 +1747,8 @@ fn the_smoke_walk_through_gives_up_instead_of_hanging() {
         .seed(SEED)
         .sim_system(game::smoke::autoplay)
         .run_headless(MAX_TICKS + 1, |ctx| {
-            setup_smoke(ctx, None, None, "headless");
+            setup_with(ctx, None);
+            setup_smoke(ctx, None, "headless");
             ctx.world.insert_resource(Screen::Paused); // nothing here moves it on
         });
     let smoke = world.remove_resource::<Smoke>().unwrap();

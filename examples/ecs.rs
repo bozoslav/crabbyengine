@@ -110,7 +110,8 @@ fn main() {
         .sim_system(movement)
         .sim_system(aging)
         .system(controls)
-        .run(|ctx| {
+        .system(report())
+        .setup(|ctx| {
             let crab = ctx.load_texture("crab.png");
             ctx.world.insert_resource(Settings {
                 rng: 0x9E37_79B9_7F4A_7C15,
@@ -120,24 +121,28 @@ fn main() {
             for _ in 0..500 {
                 spawn_crab(ctx, center);
             }
+        })
+        .run();
+}
 
-            // Optional per-frame closure: show stats in the title bar once a second.
-            let mut next_report = 1.0;
-            move |ctx: &mut Ctx| {
-                if ctx.time.elapsed() >= next_report {
-                    next_report += 1.0;
-                    let sim = if ctx.time.is_paused() {
-                        "paused".to_string()
-                    } else {
-                        format!("{}x", ctx.time.speed())
-                    };
-                    println!(
-                        "crabs: {:>6}  fps: {:>5.1}  sim: {sim:>6}  tick: {}",
-                        ctx.world.len(),
-                        ctx.time.fps(),
-                        ctx.time.sim_tick()
-                    );
-                }
-            }
-        });
+/// A frame system with its own state (the time of the next report): prints
+/// the numbers once a second.
+fn report() -> impl FnMut(&mut Ctx) {
+    let mut next_report = 1.0;
+    move |ctx: &mut Ctx| {
+        if ctx.time.elapsed() >= next_report {
+            next_report += 1.0;
+            let sim = if ctx.time.is_paused() {
+                "paused".to_string()
+            } else {
+                format!("{}x", ctx.time.speed())
+            };
+            println!(
+                "crabs: {:>6}  fps: {:>5.1}  sim: {sim:>6}  tick: {}",
+                ctx.world.len(),
+                ctx.time.fps(),
+                ctx.time.sim_tick()
+            );
+        }
+    }
 }

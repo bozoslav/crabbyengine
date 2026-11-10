@@ -9,7 +9,7 @@
 //! be resolved up to the output's size; for now the renderer uses one size
 //! for both.
 
-use crate::render::traffic::{Counted, NewBuffer, Upload};
+use crate::render::traffic::{NewBuffer, Upload};
 use glam::Mat4;
 
 use super::gpu3d::HDR_FORMAT;
@@ -84,6 +84,8 @@ pub(super) struct Taa {
     layout: wgpu::BindGroupLayout,
     pipeline: wgpu::RenderPipeline,
     uniform: wgpu::Buffer,
+    /// What `uniform` holds: only what changed is uploaded.
+    uniform_mirror: crate::render::traffic::Mirror,
     sampler: wgpu::Sampler,
 }
 
@@ -219,7 +221,7 @@ impl Taa {
         let uniform = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("TAA"),
             size: size_of::<TaaUniform>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | crate::render::traffic::MIRRORED,
             mapped_at_creation: false,
         });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -232,6 +234,7 @@ impl Taa {
             layout,
             pipeline,
             uniform,
+            uniform_mirror: Default::default(),
             sampler,
         }
     }
@@ -310,12 +313,14 @@ impl Taa {
         }
     }
 
-    pub fn prepare(&self, queue: &wgpu::Queue, resolve: &Resolve) {
+    pub fn prepare(&mut self, queue: &wgpu::Queue, resolve: &Resolve) {
         let size = |(w, h): (u32, u32)| {
             let (w, h) = (w.max(1) as f32, h.max(1) as f32);
             [w, h, 1.0 / w, 1.0 / h]
         };
-        queue.uploading(Upload::Uniforms).write_buffer(
+        self.uniform_mirror.upload(
+            queue,
+            Upload::Uniforms,
             &self.uniform,
             0,
             bytemuck::bytes_of(&TaaUniform {
@@ -366,6 +371,15 @@ impl Taa {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &targets.groups[read], &[]);
         pass.draw(0..3, 0..1);
+    }
+}
+
+#[cfg(test)]
+impl Taa {
+    /// See `Renderer3D::check_mirrors`.
+    pub fn check_mirrors(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.uniform_mirror
+            .check(device, queue, &self.uniform, 0, "antialiasing settings");
     }
 }
 

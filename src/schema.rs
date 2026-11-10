@@ -21,6 +21,11 @@ use crate::reflect::{Field, FieldType};
 /// [`to_json_schema`](Self::to_json_schema) turns it into a JSON Schema
 /// fragment, which is what tools receive.
 ///
+/// This type itself serializes using Serde's externally tagged enum encoding,
+/// shared with the C/C++ description APIs: `"Number"`,
+/// `{"Optional":"String"}`, or `{"Object":[["hp","Number"]]}`.
+/// This metadata encoding is distinct from the JSON Schema returned by discovery.
+///
 /// ```
 /// use ponko::*;
 ///
@@ -30,11 +35,17 @@ use crate::reflect::{Field, FieldType};
 /// ]);
 /// assert_eq!(health.to_json_schema()["properties"]["max"]["type"], "number");
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum ValueSchema {
     /// Shape not known; any JSON may appear here.
     Opaque,
+    /// JSON null (including unit marker components).
+    Null,
+    /// A fixed-length sequence of possibly different shapes.
+    Tuple(Vec<ValueSchema>),
+    /// Any one of these shapes.
+    OneOf(Vec<ValueSchema>),
     /// `true` or `false`.
     Bool,
     /// A whole number.
@@ -93,6 +104,11 @@ impl ValueSchema {
         let numbers =
             |n: usize| json!({ "type": "array", "items": { "type": "number" }, "minItems": n, "maxItems": n });
         match self {
+            Self::Null => json!({"type": "null"}),
+            Self::Tuple(items) => {
+                json!({"type": "array", "prefixItems": items.iter().map(Self::to_json_schema).collect::<Vec<_>>(), "minItems": items.len(), "maxItems": items.len()})
+            }
+            Self::OneOf(items) => json!({"anyOf": items.iter().map(Self::to_json_schema).collect::<Vec<_>>()}),
             Self::Opaque => json!({ "x-ponko-opaque": true }),
             Self::Bool => json!({ "type": "boolean" }),
             Self::Integer => json!({ "type": "integer" }),

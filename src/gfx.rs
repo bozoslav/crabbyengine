@@ -43,14 +43,14 @@
 
 use glam::Vec2;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 
+use crate::asset_cache::{AssetCache, AssetKind};
 use crate::assets;
 use crate::camera::Rect;
 use crate::color::Color;
-use crate::ctx::{AssetKind, region};
+use crate::ctx::region;
 use crate::hot_reload::Asset;
 use crate::render::Renderer;
 use crate::render::batch::{DrawList, SpriteInstance, uv_region};
@@ -139,15 +139,18 @@ pub struct Graphics {
     pub(crate) asset_sources: assets::SharedSources,
     /// Hot reload's watch list, shared the same way.
     pub(crate) watcher: crate::hot_reload::SharedWatcher,
-    /// Loaded textures and fonts by where they came from: index into
-    /// `cached_textures`, or the font id.
-    pub(crate) loaded: HashMap<(assets::Origin, AssetKind), u64>,
-    pub(crate) cached_textures: Vec<Texture>,
+    /// Textures loaded from files, by where they came from.
+    pub(crate) loaded_textures: AssetCache<Texture>,
+    /// Fonts loaded from files, by where they came from.
+    pub(crate) loaded_fonts: AssetCache<Font>,
     /// Texture file names for scene saves, shared with the world's copy.
     pub(crate) texture_names: crate::reflect::TextureNames,
     /// Mesh file names, the same way.
     #[cfg(feature = "3d")]
     pub(crate) mesh_names: crate::reflect::MeshNames,
+    /// The materials of loaded mesh files, the same way.
+    #[cfg(feature = "3d")]
+    pub(crate) material_names: crate::reflect::MaterialNames,
     pub(crate) renderer: Option<Renderer>,
     pub(crate) screenshots: Vec<ScreenshotRequest>,
     pub(crate) draw_list: DrawList,
@@ -172,6 +175,7 @@ impl Graphics {
         watcher: crate::hot_reload::SharedWatcher,
         texture_names: crate::reflect::TextureNames,
         #[cfg(feature = "3d")] mesh_names: crate::reflect::MeshNames,
+        #[cfg(feature = "3d")] material_names: crate::reflect::MaterialNames,
     ) -> Self {
         Self {
             residency: Default::default(),
@@ -184,11 +188,13 @@ impl Graphics {
             asset_ledger: Default::default(),
             asset_sources,
             watcher,
-            loaded: HashMap::new(),
-            cached_textures: Vec::new(),
+            loaded_textures: AssetCache::default(),
+            loaded_fonts: AssetCache::default(),
             texture_names,
             #[cfg(feature = "3d")]
             mesh_names,
+            #[cfg(feature = "3d")]
+            material_names,
             renderer: None,
             screenshots: Vec::new(),
             draw_list: DrawList::default(),
@@ -433,14 +439,11 @@ impl Graphics {
     /// });
     /// ```
     pub fn try_load_font(&mut self, path: &str) -> Result<Font, crate::Error> {
-        if let Some((_, id)) = self.cached_in_sources(path, AssetKind::Font) {
-            return Ok(Font(id as u32));
-        }
-        let found = self.asset_sources.find(path)?;
+        let found = match self.loaded_fonts.lookup(&self.asset_sources, path, AssetKind::Font)? {
+            assets::Lookup::Cached(_, font) => return Ok(font),
+            assets::Lookup::Found(found) => found,
+        };
         let origin = found.origin.clone();
-        if let Some(&id) = self.loaded.get(&(origin.clone(), AssetKind::Font)) {
-            return Ok(Font(id as u32));
-        }
         let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
         let font = self.text.add_font(&bytes).map_err(|e| {
             let what = match &origin {
@@ -449,21 +452,11 @@ impl Graphics {
             };
             crate::Error::decode(path, format!("{what}: {e}"))
         })?;
-        self.loaded.insert((origin.clone(), AssetKind::Font), u64::from(font.0));
+        self.loaded_fonts.insert(origin.clone(), AssetKind::Font, font);
         if let assets::Origin::File(file) = origin {
             self.watcher.watch(path, file, Asset::Font(font.0));
         }
         Ok(font)
-    }
-
-    /// A cached `kind` asset called `name` from an added source, searched
-    /// in order. Earlier sources win, so this matches what a fresh
-    /// [`assets::Sources::find`] would pick for anything still cached.
-    fn cached_in_sources(&self, name: &str, kind: AssetKind) -> Option<(assets::Origin, u64)> {
-        self.asset_sources
-            .origins(name)
-            .into_iter()
-            .find_map(|origin| self.loaded.get(&(origin.clone(), kind)).map(|&v| (origin, v)))
     }
 
     /// Whether `font` is the built-in font or one this context loaded and
@@ -517,19 +510,12 @@ impl Graphics {
     /// });
     /// ```
     pub fn try_load_texture(&mut self, path: &str) -> Result<Texture, crate::Error> {
-        let cached = match self.cached_in_sources(path, AssetKind::Texture) {
-            Some((_, i)) => Ok(i),
-            None => {
-                let found = self.asset_sources.find(path)?;
-                match self.loaded.get(&(found.origin.clone(), AssetKind::Texture)) {
-                    Some(&i) => Ok(i),
-                    None => Err(found),
-                }
-            }
-        };
-        let texture = match cached {
-            Ok(i) => self.cached_textures[i as usize],
-            Err(found) => {
+        let texture = match self
+            .loaded_textures
+            .lookup(&self.asset_sources, path, AssetKind::Texture)?
+        {
+            assets::Lookup::Cached(_, texture) => texture,
+            assets::Lookup::Found(found) => {
                 // Acquire, decode (CPU only), then create on the GPU (game thread).
                 let origin = found.origin.clone();
                 let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
@@ -537,9 +523,7 @@ impl Graphics {
                     crate::Error::decode(path, format!("{} is not a valid image: {e}", origin.describe(path)))
                 })?;
                 let texture = self.create_texture(image.width, image.height, &image.rgba);
-                self.loaded
-                    .insert((origin.clone(), AssetKind::Texture), self.cached_textures.len() as u64);
-                self.cached_textures.push(texture);
+                self.loaded_textures.insert(origin.clone(), AssetKind::Texture, texture);
                 if let assets::Origin::File(file) = origin {
                     self.watcher.watch(path, file, Asset::Texture(texture));
                 }
@@ -614,9 +598,7 @@ impl Graphics {
         }
         self.asset_ledger.textures.remove(&id);
         self.forget_streamed_texture_id(id);
-        let cached = &self.cached_textures;
-        self.loaded
-            .retain(|(_, kind), i| *kind != AssetKind::Texture || cached[*i as usize].id != id);
+        self.loaded_textures.release(&[AssetKind::Texture], |t| t.id == id);
         self.watcher.forget(|a| matches!(a, Asset::Texture(t) if t.id == id));
         self.texture_names.remove(id);
         #[cfg(feature = "3d")]
@@ -636,8 +618,7 @@ impl Graphics {
         if !self.text.free_font(Font(id)) {
             return;
         }
-        self.loaded
-            .retain(|(_, kind), v| *kind != AssetKind::Font || *v != u64::from(id));
+        self.loaded_fonts.release(&[AssetKind::Font], |f| f.0 == id);
         self.watcher.forget(|a| matches!(a, Asset::Font(f) if *f == id));
     }
 
@@ -756,6 +737,15 @@ impl Graphics {
     }
 
     // ----------------------------------------------------------------- shapes
+
+    /// For offscreen test rigs that draw `ui_list` themselves, with no
+    /// renderer: gives shapes and text their textures (ids 0 and 1), so
+    /// drawing them works. The rig uploads `text.uploads` into the second.
+    #[cfg(all(test, feature = "3d"))]
+    pub(crate) fn stand_in_textures(&mut self) {
+        self.white = Some(crate::Texture::new(0, 1, 1));
+        self.font_atlas = Some(crate::Texture::new(1, Text::ATLAS_SIZE, Text::ATLAS_SIZE));
+    }
 
     fn white_texture(&mut self) -> crate::Texture {
         if let Some(t) = self.white {

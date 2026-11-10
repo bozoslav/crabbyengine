@@ -492,7 +492,7 @@ fn fixtures() -> PathBuf {
 }
 
 /// Where failing comparisons leave their images.
-fn output_dir() -> PathBuf {
+pub(super) fn output_dir() -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target"))

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use glam::{Mat4, Vec3};
 
 use super::collect::Instance3D;
-use super::{Assets3D, MeshData, Model, Transform3D, linear};
+use super::{Assets3D, MeshData, Model, ModelMaterial, ModelMaterials, Transform3D, linear};
 use crate::{Entity, World};
 
 /// One joint of a [`Skeleton`]: its name, the joint it hangs from, and
@@ -445,6 +445,13 @@ pub(crate) struct SkinDraw {
     /// mesh's morph targets; 0 for none).
     pub morph_first: u32,
     pub morph_count: u32,
+    /// The material every part is drawn with (a `ModelMaterial`), or
+    /// `u32::MAX`: each part's own.
+    pub material: u32,
+    /// Its per-part materials (a `ModelMaterials`), which win over
+    /// `material`: where they start in `SkinFrame::part_materials`, and
+    /// how many.
+    pub parts: (u32, u32),
 }
 
 /// This frame's skinned models and their skin matrices: the joints' matrices
@@ -455,6 +462,9 @@ pub(crate) struct SkinFrame {
     pub matrices: Vec<Mat4>,
     /// This frame's morph weights, `morph_count` per draw.
     pub weights: Vec<f32>,
+    /// `(part, material)` lists of the draws with per-part materials, each
+    /// sorted by part.
+    pub part_materials: Vec<(u32, u32)>,
     attached: Vec<(Entity, AttachToJoint)>,
     moved: Vec<(Entity, Transform3D)>,
     shared: Vec<(Model, Entity, Entity)>,
@@ -467,6 +477,7 @@ impl SkinFrame {
         self.draws.clear();
         self.matrices.clear();
         self.weights.clear();
+        self.part_materials.clear();
         world.query::<&mut Skeleton>().par_for_each(Skeleton::update);
 
         // Attachments, in two steps: the query can't look at other entities.
@@ -502,6 +513,7 @@ impl SkinFrame {
             draws: &mut self.draws,
             matrices: &mut self.matrices,
             weights: &mut self.weights,
+            part_materials: &mut self.part_materials,
         };
         world
             .query::<(
@@ -511,11 +523,13 @@ impl SkinFrame {
                 &Skeleton,
                 Option<&MorphWeights>,
                 Option<&super::ReceivesDecals>,
+                Option<&ModelMaterial>,
+                Option<&ModelMaterials>,
             )>()
-            .for_each(|(e, t, m, s, w, r)| {
+            .for_each(|(e, t, m, s, w, r, material, parts)| {
                 // Unskinned meshes go with the next query, skeleton or not.
                 if assets.skin(m.mesh.id).is_some() {
-                    add(out, assets, e, t, m, Some(s), w, r);
+                    add(out, assets, e, t, m, Some(s), w, r, (material, parts));
                 }
             });
         // Meshes that change shape but don't bend: one identity matrix.
@@ -526,11 +540,13 @@ impl SkinFrame {
                 &Model,
                 Option<&MorphWeights>,
                 Option<&super::ReceivesDecals>,
+                Option<&ModelMaterial>,
+                Option<&ModelMaterials>,
             )>()
             .without::<SkinOf>()
-            .for_each(|(e, t, m, w, r)| {
+            .for_each(|(e, t, m, w, r, material, parts)| {
                 if assets.skin(m.mesh.id).is_none() && assets.morph(m.mesh.id).is_some() {
-                    add(out, assets, e, t, m, None, w, r);
+                    add(out, assets, e, t, m, None, w, r, (material, parts));
                 }
             });
         self.shared.clear();
@@ -548,6 +564,7 @@ impl SkinFrame {
                     Some(s),
                     world.get::<MorphWeights>(*e),
                     world.get::<super::ReceivesDecals>(*e),
+                    (world.get::<ModelMaterial>(*e), world.get::<ModelMaterials>(*e)),
                 );
             }
         }
@@ -559,6 +576,7 @@ struct Out<'a> {
     draws: &'a mut Vec<SkinDraw>,
     matrices: &'a mut Vec<Mat4>,
     weights: &'a mut Vec<f32>,
+    part_materials: &'a mut Vec<(u32, u32)>,
 }
 
 /// Adds model `m`, posed by `s` if its mesh is skinned, shaped by `w` if
@@ -573,6 +591,7 @@ fn add(
     s: Option<&Skeleton>,
     w: Option<&MorphWeights>,
     receives: Option<&super::ReceivesDecals>,
+    (material, parts): (Option<&ModelMaterial>, Option<&ModelMaterials>),
 ) {
     let Some(mesh_bounds) = assets.live_bounds(m.mesh.id) else {
         return;
@@ -641,6 +660,15 @@ fn add(
         first,
         morph_first,
         morph_count,
+        material: material.map_or(u32::MAX, |m| m.0.id),
+        parts: match parts.map(ModelMaterials::raw) {
+            Some(list) if !list.is_empty() => {
+                let start = out.part_materials.len() as u32;
+                out.part_materials.extend(list.iter().map(|&(part, m)| (part, m.id)));
+                (start, list.len() as u32)
+            }
+            _ => (0, 0),
+        },
     });
 }
 

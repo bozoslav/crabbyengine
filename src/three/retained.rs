@@ -95,7 +95,9 @@ use glam::{Quat, Vec3};
 
 use super::collect::{Culler, FADED, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS};
 use super::motion::{IdHasher, Motion, NO_KEY};
-use super::{Assets3D, Model, ModelMaterial, ReceivesDecals, ShadowMesh, Skeleton, SkinOf, Transform3D, linear};
+use super::{
+    Assets3D, Model, ModelMaterial, ModelMaterials, ReceivesDecals, ShadowMesh, Skeleton, SkinOf, Transform3D, linear,
+};
 use crate::World;
 
 /// The views a frame draws models into: the camera (view 0), then the
@@ -490,6 +492,8 @@ struct Source<'a> {
     shadow: u32,
     /// Its [`ModelMaterial`], or [`NONE`].
     material: u32,
+    /// Its [`ModelMaterials`], if it lists any part.
+    parts: Option<&'a ModelMaterials>,
     /// Whether it has a [`Skeleton`].
     skeleton: bool,
 }
@@ -509,6 +513,7 @@ type ModelItem<'a> = (
     Option<&'a Skeleton>,
     Option<&'a ReceivesDecals>,
     Option<&'a ModelMaterial>,
+    Option<&'a ModelMaterials>,
 );
 
 impl<'a> Source<'a> {
@@ -520,6 +525,7 @@ impl<'a> Source<'a> {
         skeleton: Option<&Skeleton>,
         receives: Option<&ReceivesDecals>,
         material: Option<&ModelMaterial>,
+        parts: Option<&'a ModelMaterials>,
     ) -> Self {
         Self {
             transform,
@@ -531,6 +537,7 @@ impl<'a> Source<'a> {
                 Some(ShadowMesh(Some(mesh))) => mesh.id,
             },
             material: material.map_or(NONE, |o| o.0.id),
+            parts: parts.filter(|p| !p.raw().is_empty()),
             skeleton: skeleton.is_some(),
         }
     }
@@ -597,7 +604,8 @@ impl<'a> Source<'a> {
             pair(b, a),
             join(receives.to_bits(), self.mesh()),
             join(self.shadow, self.material),
-            u64::from(self.skeleton),
+            // The part list by its content (most models have none).
+            u64::from(self.skeleton) | self.parts.map_or(0, |p| super::collect::Overrides::hash(p.raw()) << 1),
         ];
         let mut h = 0u64;
         for pair in 0..KEYS.len() / 2 {
@@ -668,17 +676,16 @@ const NOTHING: Derived = Derived {
 /// and whether it casts no shadow, is skinned, has morph targets.
 type Fact = (Vec3, f32, bool, bool, bool);
 
-/// The material overrides' numbering: each (mesh, material) pair's index,
-/// and the mesh id of the first.
-pub(crate) struct Overrides<'a> {
-    pub index: &'a HashMap<(u32, u32), u32>,
+/// The material overrides' numbering: the frame's table of them (each
+/// mesh with its overriding materials once, in order, which also tells
+/// when the numbering changes), and the mesh id of the first.
+pub(crate) struct OverrideIds<'a> {
+    pub table: &'a super::collect::Overrides,
     pub base: u32,
-    /// The pairs in order, to tell when the numbering changes.
-    pub pairs: &'a [(u32, u32)],
 }
 
 #[inline]
-fn derive(source: Source<'_>, assets: &Assets3D, overrides: &Overrides<'_>) -> Derived {
+fn derive(source: Source<'_>, assets: &Assets3D, overrides: &OverrideIds<'_>) -> Derived {
     let mesh = source.mesh();
     // Skinned models posed by a skeleton are drawn from the skins instead.
     // So are meshes with morph targets that aren't skinned.
@@ -702,10 +709,10 @@ fn derive(source: Source<'_>, assets: &Assets3D, overrides: &Overrides<'_>) -> D
     let world = |(center, radius): (Vec3, f32)| matrix.transform_point3(center).extend(radius * widest).to_array();
     // The model's own mesh, wherever it is drawn (not a separate
     // `ShadowMesh`), takes the override.
-    let own = if source.material == NONE {
+    let own = if source.material == NONE && source.parts.is_none() {
         mesh
     } else {
-        (overrides.index.get(&(mesh, source.material))).map_or(mesh, |k| overrides.base + k)
+        (overrides.table.find_ids(mesh, source.material, source.parts)).map_or(mesh, |k| overrides.base + k)
     };
     let sphere = world(bounds);
     Derived {
@@ -789,7 +796,7 @@ fn sampled(entity: crate::Entity) -> bool {
 struct Serial<'a> {
     assets: &'a Assets3D,
     culler: &'a Culler<'a>,
-    overrides: &'a Overrides<'a>,
+    overrides: &'a OverrideIds<'a>,
     how: How<'a>,
     /// Whether `how` reworks any model whose source didn't change.
     reworks: bool,
@@ -825,7 +832,10 @@ impl How<'_> {
             self.stale
                 .is_some_and(|s| s.get(mesh as usize).copied().unwrap_or(false))
         };
-        self.force || stale(source.mesh()) || stale(source.shadow) || (self.renumbered && source.material != NONE)
+        self.force
+            || stale(source.mesh())
+            || stale(source.shadow)
+            || (self.renumbered && (source.material != NONE || source.parts.is_some()))
     }
 }
 
@@ -860,7 +870,9 @@ pub(crate) struct Tracked {
     facts: Vec<Fact>,
     /// By mesh id: whether its facts changed this frame (see `sync`).
     stale: Vec<bool>,
-    overrides: (u32, Vec<(u32, u32)>),
+    /// The overrides' numbering the models were last worked out with: the
+    /// first id, the table's entries and their part lists.
+    overrides: (u32, Vec<super::collect::MaterialOverride>, Vec<(u32, u32)>),
     view: Vec<f32>,
     /// While more than half the models change every frame: every model is
     /// worked out each frame as if nothing was kept (the digest and what
@@ -915,7 +927,7 @@ struct Pass<'a> {
     kept: &'a [[AtomicU32; KEPT]],
     assets: &'a Assets3D,
     culler: &'a Culler<'a>,
-    overrides: &'a Overrides<'a>,
+    overrides: &'a OverrideIds<'a>,
     how: How<'a>,
     /// See `Tracked::rush`.
     rush: bool,
@@ -956,8 +968,8 @@ impl Pass<'_> {
     /// only one model in [`SAMPLE`] is; the others are worked out and
     /// culled from their components alone. Returns what goes into
     /// `Tracked::results`.
-    fn check(&self, (entity, t, m, shadow, skeleton, receives, material): ModelItem<'_>) -> u32 {
-        let source = Source::of(t, m, shadow, skeleton, receives, material);
+    fn check(&self, (entity, t, m, shadow, skeleton, receives, material, parts): ModelItem<'_>) -> u32 {
+        let source = Source::of(t, m, shadow, skeleton, receives, material, parts);
         let find = || {
             let bits = entity.to_bits();
             match self.slot_of.get(entity.index() as usize) {
@@ -1059,7 +1071,7 @@ impl Tracked {
         world: &mut World,
         assets: &Assets3D,
         culler: &Culler<'_>,
-        overrides: &Overrides<'_>,
+        overrides: &OverrideIds<'_>,
         lists: &mut Lists,
         arena: &mut Vec<Instance3D>,
         motion: &mut Motion,
@@ -1084,11 +1096,15 @@ impl Tracked {
             self.facts.clear();
             self.facts.extend((0..meshes).map(fact));
         }
-        let renumbered = self.overrides.0 != overrides.base || self.overrides.1 != overrides.pairs;
+        let table = overrides.table;
+        let renumbered =
+            self.overrides.0 != overrides.base || self.overrides.1 != table.list || self.overrides.2 != table.parts;
         if renumbered {
             self.overrides.0 = overrides.base;
             self.overrides.1.clear();
-            self.overrides.1.extend_from_slice(overrides.pairs);
+            self.overrides.1.extend_from_slice(&table.list);
+            self.overrides.2.clear();
+            self.overrides.2.extend_from_slice(&table.parts);
         }
         // Everything is culled again when the views changed.
         let cull = culler.changed_since(&mut self.view);
@@ -1125,7 +1141,7 @@ impl Tracked {
         world: &mut World,
         assets: &Assets3D,
         culler: &Culler<'_>,
-        overrides: &Overrides<'_>,
+        overrides: &OverrideIds<'_>,
         how: How<'_>,
         lists: &mut Lists,
         arena: &mut Vec<Instance3D>,
@@ -1155,7 +1171,7 @@ impl Tracked {
         let mut tally = Tally::default();
         let mut models = world.query::<ModelItem<'_>>().without::<SkinOf>();
         if !rush {
-            models.for_each(|(entity, t, m, shadow, skeleton, receives, material)| {
+            models.for_each(|(entity, t, m, shadow, skeleton, receives, material, parts)| {
                 let k = match self.find(entity) {
                     Some(k) => {
                         found += 1;
@@ -1166,7 +1182,7 @@ impl Tracked {
                         self.admit(entity, lists)
                     }
                 };
-                let source = Source::of(t, m, shadow, skeleton, receives, material);
+                let source = Source::of(t, m, shadow, skeleton, receives, material, parts);
                 self.settle(k, source, &frame, &mut tally, lists, arena, motion);
             });
             if !how.force {
@@ -1180,8 +1196,8 @@ impl Tracked {
         // in `SAMPLE` is still compared, to tell when the models settle.
         let mut now = std::mem::take(&mut self.fresh_drawn);
         now.clear();
-        models.for_each(|(entity, t, m, shadow, skeleton, receives, material)| {
-            let source = Source::of(t, m, shadow, skeleton, receives, material);
+        models.for_each(|(entity, t, m, shadow, skeleton, receives, material, parts)| {
+            let source = Source::of(t, m, shadow, skeleton, receives, material, parts);
             if sampled(entity) {
                 new += self.rush_sampled(entity, source, &frame, &mut tally, &mut now, lists, arena, motion);
                 return;
@@ -1421,7 +1437,7 @@ impl Tracked {
         world: &mut World,
         assets: &Assets3D,
         culler: &Culler<'_>,
-        overrides: &Overrides<'_>,
+        overrides: &OverrideIds<'_>,
         how: How<'_>,
         lists: &mut Lists,
         arena: &mut Vec<Instance3D>,
@@ -1578,7 +1594,7 @@ impl Tracked {
         &'a self,
         assets: &'a Assets3D,
         culler: &'a Culler<'a>,
-        overrides: &'a Overrides<'a>,
+        overrides: &'a OverrideIds<'a>,
         how: How<'a>,
         rush: bool,
         lists: &'a Lists,
@@ -1768,7 +1784,8 @@ impl Tracked {
             + self.stale.capacity()
             + self.fresh.capacity() * size_of::<(u32, crate::Entity)>()
             + self.news.lock().map_or(0, |news| news.capacity()) * size_of::<crate::Entity>()
-            + self.overrides.1.capacity() * size_of::<(u32, u32)>()
+            + self.overrides.1.capacity() * size_of::<super::collect::MaterialOverride>()
+            + self.overrides.2.capacity() * size_of::<(u32, u32)>()
             + self.view.capacity() * size_of::<f32>()
     }
 }

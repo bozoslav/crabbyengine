@@ -35,17 +35,6 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
     )
 }
 
-/// Which loader a cached file went through.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum AssetKind {
-    Texture,
-    Font,
-    Sound,
-    /// A sound loaded with `load_stream`: the same name can also be a
-    /// `load_sound`, decoded whole, and the two are different sounds.
-    Stream,
-}
-
 /// What every system gets: the world and the engine's services. Systems are
 /// `fn(&mut Ctx)`.
 ///
@@ -426,6 +415,8 @@ impl Ctx {
             world.resource::<crate::reflect::TextureNames>().clone(),
             #[cfg(feature = "3d")]
             world.resource::<crate::reflect::MeshNames>().clone(),
+            #[cfg(feature = "3d")]
+            world.resource::<crate::reflect::MaterialNames>().clone(),
         );
         #[allow(unused_mut, clippy::let_and_return)]
         let mut ctx = Self {
@@ -542,6 +533,33 @@ impl Ctx {
             }
         }
         status
+    }
+
+    // ------------------------------------------------- engine steps of a frame
+    //
+    // The windowed loop (`window.rs`, then `Game::run_systems`) runs these
+    // before the game's systems, in this order; the headless loop runs only
+    // `frame_prepare_services`, because a headless run has ticks and no frames
+    // to draw or hear. The other engine steps of a frame (animators,
+    // particles, positional audio) are systems in `crate::systems`, pinned at
+    // the end of their phase. ARCHITECTURE.md lists who owns each service.
+
+    /// Engine side, start of a frame, after `begin_frame` (and, windowed, the
+    /// gamepad poll; headless runs have none) and before any system:
+    /// reloads changed asset files and runs the streaming and residency
+    /// step. Windowed and headless loops both run it.
+    pub(crate) fn frame_prepare_services(&mut self) {
+        self.reload_changed_assets();
+        self.pump_streaming();
+    }
+
+    /// Engine side, before the frame's first simulation tick or frame
+    /// system: the retained UI processes this frame's input, so systems see
+    /// its focus, events and screen changes. Frames only: headless runs
+    /// never update the UI.
+    #[inline]
+    pub(crate) fn frame_begin_services(&mut self) {
+        self.update_retained_ui();
     }
 
     /// Engine side: start a new frame with fresh timing.
@@ -1148,6 +1166,7 @@ pub(crate) fn region(texture: &Texture, region: Option<Rect>) -> (Vec2, [u16; 4]
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::asset_cache::AssetKind;
     use crate::texture::DrawParams;
 
     fn timing(dt: f32) -> FrameTiming {
@@ -1185,7 +1204,7 @@ mod tests {
         assert_ne!(from_source, from_folder, "same name, other source: another asset");
         assert_eq!(from_source.width(), 3);
         assert_eq!(ctx.assets.watcher.watched(), 1, "source assets are not watched");
-        let keys: Vec<_> = ctx.gfx.loaded.keys().map(|(origin, _)| origin.clone()).collect();
+        let keys = ctx.gfx.loaded_textures.origins();
         assert!(keys.contains(&assets::Origin::Source {
             source: "mem".into(),
             name: name.clone()
@@ -1252,8 +1271,8 @@ mod tests {
             source: "mem".into(),
             name: "theme.wav".into(),
         };
-        assert!(ctx.audio.loaded.contains_key(&(origin.clone(), AssetKind::Stream)));
-        assert!(ctx.audio.loaded.contains_key(&(origin, AssetKind::Sound)));
+        assert!(ctx.audio.loaded.contains(&origin, AssetKind::Stream));
+        assert!(ctx.audio.loaded.contains(&origin, AssetKind::Sound));
         // Freeing the stream forgets it: loading again makes a new one.
         ctx.free(stream);
         assert_ne!(ctx.audio.load_stream("theme.wav"), stream);

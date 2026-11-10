@@ -358,6 +358,13 @@ fn mark<Q: QueryData>(arch: &Archetype, ids: &Q::Ids, stamp: u32, start: usize, 
     });
 }
 
+/// Stamps `row` of `arch` as changed for every tracked component `Q` may
+/// write, as a query does for the rows it visits. The caller holds the
+/// world mutably and no one else reads or writes these stamps meanwhile.
+pub(crate) fn mark_row<Q: QueryData>(arch: &Archetype, ids: &Q::Ids, stamp: u32, row: usize) {
+    mark::<Q>(arch, ids, stamp, row, row + 1);
+}
+
 /// Stamps rows `start..end` of component `id` in `arch` as changed, if the
 /// component is there and tracked. The rows must be live, and nothing else
 /// may read or write these stamps meanwhile: the caller holds the world

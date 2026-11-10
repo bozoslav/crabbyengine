@@ -58,7 +58,7 @@ fn main() {
     Game::new("Ponko: editor", 1280, 720)
         .inspector(true)
         .sim_system(walk)
-        .run(|ctx| {
+        .setup(|ctx| {
             ctx.gfx.clear(Color::hex(0x24323F));
             ctx.world.reflect::<Walker>();
             if ctx.load_scene(LEVEL).is_ok() {
@@ -75,5 +75,6 @@ fn main() {
                 };
                 ctx.world.spawn((Transform2D::at(at), Sprite::new(crab), walker));
             }
-        });
+        })
+        .run();
 }

@@ -1,13 +1,17 @@
 //! The game: rules, input mapping and drawing. Shared with `tests/coin_dash.rs`.
 //!
-//! Three layers, each testable on its own:
+//! Three layers, each a [`Plugin`] and testable on its own:
 //!
-//! 1. `read_input` (frame system) turns keys and gamepad into an [`Intent`].
-//! 2. `rules` (sim system) is the whole game: it reads only the `Intent` and
-//!    the world, so a test can replace step 1 with a script and get the same
-//!    result on every run.
-//! 3. Drawing: entities with a `Sprite` are drawn by the engine's built-in
-//!    `draw_sprites`; `hud` adds the text. Neither changes the game.
+//! 1. [`PlayerInput`]: `read_input` (frame system) turns keys and gamepad
+//!    into an [`Intent`].
+//! 2. [`Rules`]: `rules` (sim system) is the whole game: it reads only the
+//!    `Intent` and the world, so a test can replace step 1 with a script and
+//!    get the same result on every run.
+//! 3. [`Drawing`]: entities with a `Sprite` are drawn by the engine's
+//!    built-in `draw_sprites`; `hud` adds the text. Neither changes the game.
+//!
+//! [`SettingsScreen`] is a fourth plugin beside them, and [`CoinDash`] adds
+//! all four.
 //!
 //! The game moves through five [`Screen`]s: `Title` → `Playing` ⇄ `Paused`,
 //! `Playing` → `Result` → `Playing` again (or back to `Title`), and
@@ -142,74 +146,131 @@ actions! {
 /// the same game.
 pub const SEED: u64 = 2024;
 
-/// The game without a window, ready for `run` or `run_headless`.
+/// The game without a window, ready for `run` or `run_headless`: the
+/// [`CoinDash`] plugin with progress and settings in the default place (see
+/// [`save_path`]).
 pub fn build() -> Game {
-    install(Game::new("Coin Dash", ARENA.x as u32, ARENA.y as u32).seed(SEED))
+    Game::new("Coin Dash", ARENA.x as u32, ARENA.y as u32)
+        .seed(SEED)
+        .plugin(CoinDash { save: save_path() })
 }
 
-/// Adds the game's systems to `game`. A test passes a game that already has a
-/// scripted sim system, which then runs before `rules` on every tick.
-pub fn install(game: Game) -> Game {
-    game.sim_system(rules)
-        .system(read_input)
-        .system(settings::settings_ui)
-        .system(hud)
+// ANCHOR: plugins
+/// The whole game: its layers, each a plugin of its own. Startup is the
+/// plugins' `setup`, in this order.
+pub struct CoinDash {
+    /// Where progress is kept (`None`: don't keep progress or settings). The
+    /// settings file lives next to it, see [`settings::settings_path`].
+    pub save: Option<PathBuf>,
 }
 
-/// Startup: the settings, the bindings they give, the pictures, the sounds,
-/// the saved progress (from the default place, see [`save_path`]) and the
-/// title screen.
-pub fn setup(ctx: &mut Ctx) {
-    setup_with(ctx, save_path());
+impl Plugin for CoinDash {
+    fn build(&self, game: Game) -> Game {
+        let save = self.save.clone();
+        game.plugin(PlayerInput)
+            .plugin(SettingsScreen { save: save.clone() })
+            .plugin(Rules { save })
+            .plugin(Drawing)
+    }
 }
 
-/// [`setup`] with an explicit save file (`None`: don't keep progress or
-/// settings). The settings file lives next to it, see [`settings::settings_path`].
-pub fn setup_with(ctx: &mut Ctx, save: Option<PathBuf>) {
-    ctx.gfx.clear(Color::hex(0x14181f));
-    let settings_file = save.as_deref().and_then(settings::settings_path);
-    let (loaded, settings_load) = match &settings_file {
-        Some(path) => Settings::load(path),
-        None => (Settings::default(), LoadStatus::Fresh),
-    };
-    ctx.input.set_actions(settings::bindings_for(&loaded.controls));
-    ctx.ui.set_scale(loaded.ui_scale);
-    let disc = disc(ctx);
-    let coin = ctx.load_texture(COIN_ASSET);
-    ctx.world.insert_resource(Art { disc, coin });
-    let sounds = Sounds {
-        pickup: tone(ctx, 880.0, 1320.0, 0.10),
-        win: tone(ctx, 523.0, 1047.0, 0.45),
-        lose: tone(ctx, 330.0, 140.0, 0.45),
-        select: tone(ctx, 660.0, 660.0, 0.05),
-    };
-    ctx.world.insert_resource(sounds);
-    ctx.world.insert_resource(loaded);
-    ctx.world.insert_resource(settings::SettingsFile {
-        path: settings_file,
-        load: settings_load,
-        save_failed: false,
-    });
-    ctx.world.insert_resource(Act::resolve(ctx));
-    ctx.world.insert_resource(Intent::default());
-    ctx.world.insert_resource(Round {
-        collected: 0,
-        time_left: ROUND_SECONDS,
-        number: 0,
-        new_best: false,
-    });
-    let (progress, load) = match &save {
-        Some(path) => Progress::load(path),
-        None => (Progress::default(), LoadStatus::Fresh),
-    };
-    ctx.world.insert_resource(progress);
-    ctx.world.insert_resource(SaveFile {
-        path: save,
-        load,
-        save_failed: false,
-    });
-    ctx.world.insert_resource(Screen::Title);
+/// Layer 1: keys and gamepad to an [`Intent`], once per rendered frame.
+pub struct PlayerInput;
+
+impl Plugin for PlayerInput {
+    fn build(&self, game: Game) -> Game {
+        game.add(Phase::Frame, read_input)
+    }
+    fn setup(&self, ctx: &mut Ctx) {
+        // The default controls; the ids stay valid when the settings (or a
+        // rebinding) replace them.
+        ctx.input.set_actions(bindings());
+        ctx.world.insert_resource(Act::resolve(ctx));
+        ctx.world.insert_resource(Intent::default());
+    }
 }
+
+/// The player's choices (UI scale, volume, controls): loaded at startup,
+/// changed on the settings screen.
+pub struct SettingsScreen {
+    pub save: Option<PathBuf>,
+}
+
+impl Plugin for SettingsScreen {
+    fn build(&self, game: Game) -> Game {
+        game.add(Phase::Frame, settings::settings_ui)
+    }
+    fn setup(&self, ctx: &mut Ctx) {
+        let path = self.save.as_deref().and_then(settings::settings_path);
+        let (loaded, load) = match &path {
+            Some(path) => Settings::load(path),
+            None => (Settings::default(), LoadStatus::Fresh),
+        };
+        ctx.input.set_actions(settings::bindings_for(&loaded.controls));
+        ctx.ui.set_scale(loaded.ui_scale);
+        ctx.world.insert_resource(loaded);
+        ctx.world.insert_resource(settings::SettingsFile {
+            path,
+            load,
+            save_failed: false,
+        });
+    }
+}
+
+/// Layer 2: the rules, on the fixed tick, and the resources they own. The
+/// game starts on the title screen with the progress loaded from `save`.
+pub struct Rules {
+    pub save: Option<PathBuf>,
+}
+
+impl Plugin for Rules {
+    fn build(&self, game: Game) -> Game {
+        game.add(Phase::AfterPhysics, rules)
+    }
+    fn setup(&self, ctx: &mut Ctx) {
+        ctx.world.insert_resource(Round {
+            collected: 0,
+            time_left: ROUND_SECONDS,
+            number: 0,
+            new_best: false,
+        });
+        let (progress, load) = match &self.save {
+            Some(path) => Progress::load(path),
+            None => (Progress::default(), LoadStatus::Fresh),
+        };
+        ctx.world.insert_resource(progress);
+        ctx.world.insert_resource(SaveFile {
+            path: self.save.clone(),
+            load,
+            save_failed: false,
+        });
+        ctx.world.insert_resource(Screen::Title);
+    }
+}
+
+/// Layer 3: the pictures, the text and the sound effects. The sprites
+/// themselves are drawn by the engine's built-in sprite system.
+pub struct Drawing;
+
+impl Plugin for Drawing {
+    fn build(&self, game: Game) -> Game {
+        game.add(Phase::Frame, hud)
+    }
+    fn setup(&self, ctx: &mut Ctx) {
+        ctx.gfx.clear(Color::hex(0x14181f));
+        let disc = disc(ctx);
+        let coin = ctx.load_texture(COIN_ASSET);
+        ctx.world.insert_resource(Art { disc, coin });
+        let sounds = Sounds {
+            pickup: tone(ctx, 880.0, 1320.0, 0.10),
+            win: tone(ctx, 523.0, 1047.0, 0.45),
+            lose: tone(ctx, 330.0, 140.0, 0.45),
+            select: tone(ctx, 660.0, 660.0, 0.05),
+        };
+        ctx.world.insert_resource(sounds);
+    }
+}
+// ANCHOR_END: plugins
 
 /// A short sine tone gliding from `from` to `to` Hz, fading out: a sound
 /// effect made in code, so the game needs no sound files.
