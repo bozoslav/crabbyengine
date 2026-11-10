@@ -14,7 +14,10 @@ headless Chromium (no window) and checks, in order:
 5. **Rendering**: the canvas is not blank (screenshot, or a copy of the
    canvas for WebGPU).
 
-The fixture is `examples/web_smoke.rs`. It writes its state as JSON to
+The fixture is `examples/web_smoke.rs`; a second game, `examples/coin_dash`,
+publishes the same state (plus its `screen`) and runs through the same steps
+with `--asset coin_dash/coin.png` and `--press` (below), see
+[A complete game, packaged](../../book/src/packaging.md#the-web-build). It writes its state as JSON to
 `<html data-smoke="...">` each frame, which is how the runner reads ticks,
 frames, clicks and the asset's size.
 
@@ -44,6 +47,9 @@ Options:
 | `--case missing-asset` / `panic` / `stall` | Self-tests: answer 404 for the texture, panic during setup (`?smoke_case=panic`), or pause the simulation (`?smoke_case=stall`). The run passes only if that failure is detected. |
 | `--timeout <s>` | Seconds to wait for the first frame (default 90). |
 | `--allow-unsupported` | Exit 0 instead of 2 when the browser lacks the backend. |
+| `--asset <file>` | The texture file under `assets/` that must be fetched and decoded (default `crab.png`; the `missing-asset` self-test blocks this one). |
+| `--asset-size <W>x<H>` | The size it must decode to (default `32x32`). |
+| `--press <Key>=<field>:<value>` | After the click, press the key (Playwright key name: `Enter`, `Escape`, `Q`) and wait up to 10 s for the reported state's `<field>` to become `<value>`. Repeatable; the presses run in order. |
 | `--out <dir>` | Where artifacts go (default `target/web-smoke/<backend>-<case>`). |
 | `--browser-arg <flag>` | Extra Chromium flag (repeatable). |
 
@@ -72,6 +78,9 @@ Each run writes to its `--out` folder:
 |---|---|---|---|
 | CI (`web-smoke` job, ubuntu-latest, no GPU) | Chromium headless shell from Playwright | Runs on SwiftShader; must pass | Tried; passes as "unsupported" when the headless browser can't present a WebGPU canvas |
 | Apple Silicon Mac, headless shell | same | Passes (ANGLE on SwiftShader) | Unsupported: a SwiftShader fallback adapter exists, but a WebGPU canvas can't be shown |
+
+`coin_dash` also runs in the `web-smoke` job (WebGL2): the same five steps
+plus the key presses that walk its screens. It keeps no progress in a browser.
 
 Not covered yet: WebGPU on real GPU hardware, Firefox and Safari, mobile
 browsers, 3D (`--features 3d`) web builds, and the hosted demo examples.

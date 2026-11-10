@@ -607,6 +607,12 @@
       "category": "public compatibility",
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
     },
+    "examples/coin_dash/CONTENT-NOTICES.txt": {
+      "occurrences": 2,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
+    },
     "examples/cpp/CMakeLists.txt": {
       "occurrences": 4,
       "path_occurrences": 0,
@@ -669,6 +675,12 @@
     },
     "scripts/leak-check.sh": {
       "occurrences": 3,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+    },
+    "scripts/package-coin-dash.py": {
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Migration checks, alias generation or existing leak/build configuration fallback."

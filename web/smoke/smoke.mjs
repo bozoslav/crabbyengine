@@ -40,13 +40,30 @@ function usage(message) {
   console.error(
     "usage: smoke.mjs --dir <built site> [--backend auto|webgpu|webgl2] [--case ok|missing-asset|panic|stall]\n" +
       "                 [--out <artifacts dir>] [--timeout <startup seconds>] [--allow-unsupported]\n" +
+      "                 [--asset <file under assets/>] [--asset-size <W>x<H>] [--press <Key>=<field>:<value>]...\n" +
       "                 [--browser-arg <flag>]...",
   );
   process.exit(EXIT.usage);
 }
 
+/** `Enter=screen:Playing`: press the key, then the state's `screen` must become "Playing". */
+function parsePress(spec) {
+  const match = /^([A-Za-z0-9]+)=([A-Za-z_]+):(.+)$/.exec(spec);
+  if (!match) usage(`--press wants <Key>=<field>:<value>, not "${spec}"`);
+  return { key: match[1], field: match[2], value: match[3] };
+}
+
 function parseArgs(argv) {
-  const args = { backend: "auto", case: "ok", timeout: 90, allowUnsupported: false, browserArgs: [] };
+  const args = {
+    backend: "auto",
+    case: "ok",
+    timeout: 90,
+    allowUnsupported: false,
+    browserArgs: [],
+    asset: "crab.png",
+    assetSize: "32x32",
+    presses: [],
+  };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = () => argv[++i] ?? usage(`${flag} needs a value`);
@@ -58,6 +75,9 @@ function parseArgs(argv) {
       case "--timeout": args.timeout = Number(value()); break;
       case "--allow-unsupported": args.allowUnsupported = true; break;
       case "--browser-arg": args.browserArgs.push(value()); break;
+      case "--asset": args.asset = value(); break;
+      case "--asset-size": args.assetSize = value(); break;
+      case "--press": args.presses.push(parsePress(value())); break;
       default: usage(`unknown argument ${flag}`);
     }
   }
@@ -65,6 +85,8 @@ function parseArgs(argv) {
   if (!BACKENDS.includes(args.backend)) usage(`--backend must be one of ${BACKENDS.join(", ")}`);
   if (!(args.case in CASES)) usage(`--case must be one of ${Object.keys(CASES).join(", ")}`);
   if (!(args.timeout > 0)) usage("--timeout must be a positive number of seconds");
+  if (!/^\d+x\d+$/.test(args.assetSize)) usage("--asset-size must look like 32x32");
+  if (!/^[\w./-]+$/.test(args.asset)) usage("--asset must be a plain file name under assets/");
   args.out ??= join("target", "web-smoke", `${args.backend}-${args.case}`);
   return args;
 }
@@ -332,7 +354,7 @@ async function main() {
       });
     }
     if (args.case === "missing-asset") {
-      await context.route("**/assets/crab.png", (route) => route.fulfill({ status: 404, body: "gone" }));
+      await context.route(`**/assets/${args.asset}`, (route) => route.fulfill({ status: 404, body: "gone" }));
     }
     const page = await context.newPage();
     page.on("console", (m) => report.console.push({ type: m.type(), text: m.text(), at: elapsed() }));
@@ -382,13 +404,14 @@ async function main() {
     }
 
     // 2. Assets: the index and the texture were fetched and decoded.
-    for (const path of ["/assets/index.json", "/assets/crab.png"]) {
+    for (const path of ["/assets/index.json", `/assets/${args.asset}`]) {
       if (!report.requests.some((r) => r.path === path && r.status === 200)) {
         throw new Failure("asset", `${path} was never fetched`);
       }
     }
-    if (JSON.stringify(snapshot.state.asset) !== "[32,32]") {
-      throw new Failure("asset", `crab.png decoded as ${JSON.stringify(snapshot.state.asset)}, not 32x32`);
+    const [assetWidth, assetHeight] = args.assetSize.split("x").map(Number);
+    if (JSON.stringify(snapshot.state.asset) !== JSON.stringify([assetWidth, assetHeight])) {
+      throw new Failure("asset", `${args.asset} decoded as ${JSON.stringify(snapshot.state.asset)}, not ${args.assetSize}`);
     }
 
     // 3. Progress: the fixed-step simulation keeps ticking. The bound is
@@ -420,6 +443,24 @@ async function main() {
       await sleep(100);
     }
     log(`click seen: ${JSON.stringify(snapshot.state)}`);
+
+    // 4b. Keys: each --press key reaches the game and changes the state it
+    //     reports (a game with screens: Enter starts a round, Escape pauses).
+    for (const { key, field, value } of args.presses) {
+      await page.keyboard.press(key);
+      const pressDeadline = Date.now() + 10_000;
+      for (;;) {
+        snapshot = await smokeState(page);
+        failure = appFailure(snapshot.status);
+        if (failure) throw failure;
+        if (String(snapshot.state[field]) === value) break;
+        if (Date.now() > pressDeadline) {
+          throw new Failure("input", `after ${key}, ${field} is ${JSON.stringify(snapshot.state[field])}, not ${value}`);
+        }
+        await sleep(100);
+      }
+      log(`${key} seen: ${field} is ${value}`);
+    }
 
     // 5. Rendering: the canvas shows the background and the sprites.
     const png = await page.locator(GAME_CANVAS).screenshot();

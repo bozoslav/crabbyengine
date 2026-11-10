@@ -549,6 +549,19 @@ jobs:
       - name: Whatever the engine picks
         if: ${{ !cancelled() }}
         run: node web/smoke/smoke.mjs --dir target/web/web_smoke --backend auto --allow-unsupported
+      # The complete-game reference (examples/coin_dash) in the same browser
+      # runner: its coin picture is fetched and decoded, a click and keys reach
+      # it, and the screens it reports follow them (play, pause, title, the
+      # retained-UI settings screen, and Escape closing it again). The web
+      # build keeps no progress yet (no files in a browser).
+      - name: coin_dash in the browser (WebGL2, assets, a click, keys, screens)
+        if: ${{ !cancelled() }}
+        run: |
+          web/build.sh coin_dash
+          node web/smoke/smoke.mjs --dir target/web/coin_dash --backend webgl2 \
+            --out target/web-smoke/coin_dash-webgl2 --asset coin_dash/coin.png \
+            --press Enter=screen:Playing --press Escape=screen:Paused --press Q=screen:Title \
+            --press O=screen:Settings --press Escape=screen:Title
       # The runner itself: each broken build must be caught as that failure.
       - name: Self-tests (missing asset, startup panic, stalled simulation)
         if: ${{ !cancelled() }}
@@ -563,6 +576,74 @@ jobs:
           path: target/web-smoke
           retention-days: 7
 
+  # The complete-game reference, packaged the way a player gets it and played
+  # from an unrelated folder (scripts/package-coin-dash.py, book/src/packaging.md):
+  # the program, its assets, the licenses and the content and third-party
+  # notices; then, on every OS, a headless walk-through (assets found outside
+  # the checkout, saves, damaged-save recovery, the OS's default save folder,
+  # missing assets failing loudly) and a walk-through in a real window. Linux
+  # has no display or GPU: a virtual display and software Vulkan (lavapipe)
+  # are installed and the window run must open a window there too. Windows
+  # runners have no GPU: the step before the window run restricts wgpu to
+  # DirectX 12 (WARP) when no real one is present. A window that can't open is a
+  # failure on every OS; only the local `--allow-unsupported` run passes it.
+  # The dev profile is packaged: the layout and notices are the release's, and
+  # the dependencies are the ones the test jobs already built.
+  package-smoke:
+    name: Packaged game (${{ matrix.os }})
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ALSA and udev headers (audio, gamepads), a virtual display and software Vulkan
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev xvfb mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/windows-linker
+        if: runner.os == 'Windows'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Linux and macOS read the `test` cache (same dev build, default
+          # features) and never write it here. Windows has no cache of that kind
+          # to share (`test-features` holds other feature builds), so it keeps
+          # its own and does not overwrite anyone else's.
+          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          shared-key: ${{ runner.os == 'Windows' && 'package-smoke' || 'test' }}
+      - name: The script's own checks (a crate without a license, window errors)
+        run: python scripts/package-coin-dash.py selftest
+      - name: Package
+        run: python scripts/package-coin-dash.py package --profile dev --out target/package
+      - name: Smoke test, headless (an unpacked copy, started from an unrelated folder)
+        if: ${{ !cancelled() }}
+        run: python scripts/package-coin-dash.py smoke --package target/package --mode headless
+      # The engine reads WGPU_BACKEND (not WGPU_ADAPTER_NAME). With only DirectX 12
+      # enabled, the one adapter left on a runner without a GPU is WARP, the
+      # software renderer, which the engine accepts.
+      - name: Windows without a GPU, use the software renderer (WARP) through DirectX 12
+        if: ${{ runner.os == 'Windows' && !cancelled() }}
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_VideoController | Select-Object Name | Format-Table
+          $real = Get-CimInstance Win32_VideoController | Where-Object { $_.Name -notmatch 'Basic Render|Remote Display|Hyper-V|Basic Display' }
+          if (-not $real) {
+            "WGPU_BACKEND=dx12" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Host "No GPU on this runner: DirectX 12 only, so wgpu picks WARP"
+          }
+      - name: Smoke test, in a window
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a python scripts/package-coin-dash.py smoke --package target/package --mode window
+          else
+            python scripts/package-coin-dash.py smoke --package target/package --mode window
+          fi
+
   # Single check for branch protection and the merge queue: passes only if
   # every job above passed. Requiring one job keeps the rule valid when jobs
   # are added or renamed. Jobs a plain pull request skips (fast tier) are
@@ -571,7 +652,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-examples, test-features, docs, book, miri, native, web, web-smoke]
+    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-examples, test-features, docs, book, miri, native, web, web-smoke, package-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job

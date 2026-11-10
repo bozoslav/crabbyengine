@@ -88,7 +88,7 @@ nowhere; panics appear in the browser's developer console.
 Chromium and checks that it starts, fetches its assets, keeps simulating,
 reacts to a click and draws something; CI runs it on every change with
 WebGL2. See its
-[README](https://github.com/ponkoengine/ponko/blob/main/web/smoke/README.md).
+[README](https://github.com/ponkoengine/ponko/blob/main/web/smoke/README.md). The complete-game reference `coin_dash` is built and checked there too, see [A complete game, packaged](packaging.md#the-web-build).
 
 ## C and C++
 
