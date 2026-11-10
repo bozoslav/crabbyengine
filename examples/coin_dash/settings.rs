@@ -12,9 +12,13 @@
 //! - **UI scale.** `Ui::set_scale` scales the settings screen's geometry, text
 //!   and hit testing together; `hud` applies the same factor to the text it
 //!   draws itself.
-//! - **Rebinding.** [`Controls`] names a key (and gamepad button) for each
-//!   control, [`bindings_for`] turns it into an `ActionMap`, and installing that
-//!   with `ctx.set_actions` keeps the `ActionId`s the game resolved at startup.
+//! - **Rebinding.** The installed `ActionMap` (`ctx.input.actions()`) is the
+//!   one record of what is bound: the screen shows the keys it reads back
+//!   from it, and a new key replaces one action in place with
+//!   `ctx.input.set_action`, keeping the `ActionId`s the game resolved at
+//!   startup. [`Controls`] is only the shape of the saved file:
+//!   [`bindings_for`] turns it into a map when the game starts and
+//!   [`Controls::from_bindings`] reads it back from the map before saving.
 //!   Pressing a control's button opens a small prompt; the next key or button
 //!   pressed becomes the new binding, unless it is reserved or already used.
 //!
@@ -72,6 +76,19 @@ impl Control {
         }
     }
 
+    /// The action this control's key and button feed: every movement key
+    /// is one source of `"move"`, so movement has none of its own.
+    pub fn action(self) -> Option<&'static str> {
+        match self {
+            Control::MoveUp | Control::MoveDown | Control::MoveLeft | Control::MoveRight => None,
+            Control::Confirm => Some("confirm"),
+            Control::Restart => Some("restart"),
+            Control::Pause => Some("pause"),
+            Control::Back => Some("back"),
+            Control::Settings => Some("settings"),
+        }
+    }
+
     /// Movement is the keys here and the left stick on the pad; the stick is not rebindable.
     pub fn is_movement(self) -> bool {
         matches!(
@@ -114,7 +131,9 @@ pub fn is_reserved_pad(button: GamepadButton) -> bool {
     )
 }
 
-/// The key, and the gamepad button, chosen for each [`Control`], in the order of [`Control::ALL`].
+/// The key, and the gamepad button, chosen for each [`Control`], in the order
+/// of [`Control::ALL`]: what `settings.json` stores. The installed bindings are
+/// the live record; [`Controls::from_bindings`] reads this back from them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Controls {
@@ -162,17 +181,39 @@ impl Controls {
 
     /// The key as the player reads it: `Enter`, `Esc`, `1`.
     pub fn key_name(&self, control: Control) -> String {
-        match self.key(control) {
-            Key::Escape => "Esc".to_string(),
-            key => {
-                let name = format!("{key:?}");
-                match name.strip_prefix("Num") {
-                    Some(digit) if digit.len() == 1 => digit.to_string(),
-                    _ => name,
-                }
-            }
-        }
+        key_name(self.key(control))
     }
+
+    // ANCHOR: from_bindings
+    /// Reads the chosen keys and buttons back from bindings made by
+    /// [`bindings_for`] (the installed ones are `ctx.input.actions()`). A
+    /// control the map doesn't bind keeps its default.
+    pub fn from_bindings(map: &ActionMap) -> Controls {
+        let mut controls = Controls::default();
+        if let Some(Axis2Binding::Keys { left, right, up, down }) = map.get("move").and_then(|a| a.axes2().first()) {
+            controls.keys[Control::MoveLeft as usize] = *left;
+            controls.keys[Control::MoveRight as usize] = *right;
+            controls.keys[Control::MoveUp as usize] = *up;
+            controls.keys[Control::MoveDown as usize] = *down;
+        }
+        for control in Control::ALL {
+            let Some(action) = control.action().and_then(|name| map.get(name)) else {
+                continue;
+            };
+            // The chosen key comes first, then the chosen button (if any),
+            // then the fixed alternate key.
+            let sources = action.buttons();
+            if let Some(ButtonBinding::Key(key)) = sources.first() {
+                controls.keys[control as usize] = *key;
+            }
+            controls.pads[control as usize] = sources.iter().find_map(|b| match b {
+                ButtonBinding::Gamepad { button, .. } => Some(*button),
+                _ => None,
+            });
+        }
+        controls
+    }
+    // ANCHOR_END: from_bindings
 
     // ANCHOR: set_key
     /// Gives `control` the key, unless the key is not allowed. Nothing changes on refusal.
@@ -234,6 +275,20 @@ impl Controls {
     }
 }
 
+/// A key as the player reads it: `Enter`, `Esc`, `1`.
+pub fn key_name(key: Key) -> String {
+    match key {
+        Key::Escape => "Esc".to_string(),
+        key => {
+            let name = format!("{key:?}");
+            match name.strip_prefix("Num") {
+                Some(digit) if digit.len() == 1 => digit.to_string(),
+                _ => name,
+            }
+        }
+    }
+}
+
 // ANCHOR: bindings_for
 /// The input bindings for `controls`: the chosen keys and buttons, the fixed
 /// alternates, and the left stick.
@@ -271,11 +326,16 @@ pub fn bindings_for(controls: &Controls) -> ActionMap {
         list.extend(extra.map(ButtonBinding::Key));
         Action::Button(list)
     };
-    map.set("confirm", button(Control::Confirm, Some(Key::Space)));
-    map.set("restart", button(Control::Restart, None));
-    map.set("pause", button(Control::Pause, Some(Key::P)));
-    map.set("back", button(Control::Back, None));
-    map.set("settings", button(Control::Settings, None));
+    let fixed = |control| match control {
+        Control::Confirm => Some(Key::Space),
+        Control::Pause => Some(Key::P),
+        _ => None,
+    };
+    for control in Control::ALL {
+        if let Some(name) = control.action() {
+            map.set(name, button(control, fixed(control)));
+        }
+    }
     map
 }
 // ANCHOR_END: bindings_for
@@ -602,16 +662,19 @@ impl SettingsUi {
         }
     }
 
-    /// Shows the current settings in the labels and buttons.
-    fn refresh(&self, ui: &mut Ui, settings: &Settings) {
+    /// Shows the current settings in the labels and buttons: the scale and
+    /// volume from `settings`, the keys and buttons read back from the
+    /// installed `bindings`.
+    fn refresh(&self, ui: &mut Ui, settings: &Settings, bindings: &ActionMap) {
         ui.set_text(self.scale_label, format!("{:.0}%", settings.ui_scale * 100.0));
         ui.set_value(self.volume, settings.volume);
+        let bound = Controls::from_bindings(bindings);
         // A button's name is its text unless told otherwise; "Enter" alone says nothing.
         for row in &self.rows {
-            let key = settings.controls.key_name(row.control);
+            let key = bound.key_name(row.control);
             ui.set_text(row.key, &key);
             ui.set_accessible_name(row.key, format!("{} key: {key}", row.control.label()));
-            if let (Some(id), Some(button)) = (row.pad, settings.controls.pad(row.control)) {
+            if let (Some(id), Some(button)) = (row.pad, bound.pad(row.control)) {
                 ui.set_text(id, format!("{button:?}"));
                 ui.set_accessible_name(id, format!("{} gamepad button: {button:?}", row.control.label()));
             }
@@ -679,7 +742,7 @@ fn drive(ctx: &mut Ctx, state: &mut SettingsUi, on_screen: bool) {
     }
     if !state.open {
         let settings = ctx.world.resource::<Settings>().clone();
-        state.refresh(&mut ctx.ui, &settings);
+        state.refresh(&mut ctx.ui, &settings, ctx.input.actions());
         ctx.ui.set_text(state.status, "");
         ctx.ui.push_screen(state.root, false);
         state.open = true;
@@ -716,11 +779,11 @@ fn click(ctx: &mut Ctx, state: &mut SettingsUi, id: UiId) {
         settings.ui_scale = step_scale(settings.ui_scale, if id == state.scale_up { 1 } else { -1 });
         let settings = settings.clone();
         ctx.ui.set_scale(settings.ui_scale);
-        state.refresh(&mut ctx.ui, &settings);
+        state.refresh(&mut ctx.ui, &settings, ctx.input.actions());
     } else if id == state.reset {
         let settings = Settings::default();
         apply(ctx, &settings);
-        state.refresh(&mut ctx.ui, &settings);
+        state.refresh(&mut ctx.ui, &settings, ctx.input.actions());
         ctx.world.insert_resource(settings);
         ctx.ui.set_text(state.status, "Defaults restored");
     } else if let Some((control, device)) = state.rows.iter().find_map(|row| {
@@ -780,15 +843,25 @@ fn capture_press(ctx: &mut Ctx, state: &mut SettingsUi, capture: Capture) {
     let Some((name, press)) = pressed(ctx, capture.device) else {
         return;
     };
-    let mut settings = ctx.world.resource::<Settings>().clone();
+    // ANCHOR: rebind
+    // What is bound now, read back from the installed map: no copy to drift.
+    let mut controls = Controls::from_bindings(ctx.input.actions());
     let result = match press {
-        Ok(key) => settings.controls.set_key(capture.control, key),
-        Err(button) => settings.controls.set_pad(capture.control, button),
+        Ok(key) => controls.set_key(capture.control, key),
+        Err(button) => controls.set_pad(capture.control, button),
     };
     match result {
         Ok(()) => {
-            apply(ctx, &settings);
-            state.refresh(&mut ctx.ui, &settings);
+            // Replace only the action this control feeds; its id stays valid.
+            let action_name = capture.control.action().unwrap_or("move");
+            let action = bindings_for(&controls).get(action_name).cloned();
+            ctx.input
+                .set_action(action_name, action.expect("bindings_for sets every action"));
+            // The saved copy is read back from the map, too.
+            let mut settings = ctx.world.resource::<Settings>().clone();
+            settings.controls = Controls::from_bindings(ctx.input.actions());
+            // ANCHOR_END: rebind
+            state.refresh(&mut ctx.ui, &settings, ctx.input.actions());
             let message = format!("\"{}\" is now {name}", capture.control.label());
             ctx.world.insert_resource(settings);
             ctx.ui.set_text(state.status, message);
@@ -797,7 +870,7 @@ fn capture_press(ctx: &mut Ctx, state: &mut SettingsUi, capture: Capture) {
         }
         // Stay in the prompt and say why: pressing Escape still cancels.
         Err(refused) => {
-            let message = refusal(refused, &name, &settings.controls);
+            let message = refusal(refused, &name, &controls);
             ctx.ui.set_text(state.prompt_text, message);
         }
     }
