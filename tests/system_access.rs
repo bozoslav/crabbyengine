@@ -67,7 +67,7 @@ fn senders_conflict_with_readers_and_with_other_senders() {
 }
 
 #[test]
-fn commands_conflict_with_world_users_but_not_with_event_only_systems() {
+fn commands_conflict_with_every_other_system() {
     let spawner = SystemAccess::new().commands();
     assert_eq!(
         spawner.conflicts_with(&SystemAccess::new().read::<Pos>()),
@@ -78,11 +78,13 @@ fn commands_conflict_with_world_users_but_not_with_event_only_systems() {
         [AccessConflict::Commands]
     );
     assert_eq!(spawner.conflicts_with(&spawner.clone()), [AccessConflict::Commands]);
-    assert!(
-        spawner
-            .conflicts_with(&SystemAccess::new().send_events::<Hit>())
-            .is_empty()
+    // Even one that declares no data: it can still see the world's
+    // structure (`len`, `is_alive`, `has`), which commands change.
+    assert_eq!(
+        spawner.conflicts_with(&SystemAccess::new().send_events::<Hit>()),
+        [AccessConflict::Commands]
     );
+    assert_eq!(spawner.conflicts_with(&SystemAccess::new()), [AccessConflict::Commands]);
 }
 
 #[test]
@@ -140,14 +142,14 @@ fn the_report_lists_which_declared_systems_could_run_together() {
     let short = |n: &str| n.rsplit("::").next().unwrap().to_string();
     let mut together: Vec<(String, String)> = report.compatible_pairs().map(|(a, b)| (short(a), short(b))).collect();
     together.sort();
-    assert_eq!(
-        together,
-        [
-            ("fall".to_string(), "decay".to_string()),
-            ("movement".into(), "decay".into())
-        ]
-    );
+    // fall + decay don't conflict, but movement, between them, conflicts
+    // with fall: batching them would move decay before movement.
+    assert_eq!(together, [("movement".to_string(), "decay".to_string())]);
     let text = report.to_string();
+    assert!(
+        text.contains("fall + system_access::decay: conflict on `system_access::movement`, which runs between them"),
+        "{text}"
+    );
     assert!(
         text.contains("fall + system_access::movement: conflict on component `system_access::Vel`"),
         "{text}"

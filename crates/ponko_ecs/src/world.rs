@@ -615,8 +615,6 @@ impl World {
         self.dynamic_resources.remove(name).is_some()
     }
 
-    /// Records resource `R` as read or written, while recording.
-    #[inline]
     /// Moves a typed resource out of the map, unrecorded (for views).
     pub(crate) fn lend_resource(&mut self, id: TypeId) -> Option<Box<dyn Any + Send + Sync>> {
         self.resources.remove(&id)
@@ -627,6 +625,8 @@ impl World {
         self.resources.insert(id, value);
     }
 
+    /// Records resource `R` as read or written, while recording.
+    #[inline]
     fn note_resource<R: 'static>(&self, write: bool) {
         self.recorder
             .note(|l| l.resource(TypeId::of::<R>(), std::any::type_name::<R>(), write));
@@ -929,9 +929,9 @@ impl World {
         };
         let src = loc.archetype as usize;
         // Replacing a component in place is a write, not a structural change.
-        let replaces = self.archetypes[src].column_index(id).is_some();
+        // (Looked up inside, so release builds, which don't record, skip it.)
         self.recorder.note(|l| {
-            if replaces {
+            if self.archetypes[src].column_index(id).is_some() {
                 l.component(id, true);
             } else {
                 l.structural = true;
