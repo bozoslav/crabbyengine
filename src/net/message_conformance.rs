@@ -48,148 +48,20 @@
 //!
 //! # Lockstep is a different contract
 //!
-//! Lockstep (`Net`, the private `Transport` trait in `net.rs`) is not covered
-//! here: its `send` is fire-and-forget (no backpressure or error result, a full
-//! buffer is a lost packet), `recv` returns `Option` and UDP skips receive errors,
-//! failures arrive through `Transport::error`, packets are at most 1400 bytes,
-//! and its timeouts read the wall clock (`Instant`), so scripted lockstep tests
-//! need a caller-owned clock first. Note the difference in UDP receive errors:
-//! lockstep skips them, the message protocol returns them from `poll`.
+//! Lockstep (`Net`, the private `Transport` trait in `net.rs`) has its own
+//! contract table and tests in `net/lockstep_conformance.rs`, on the same
+//! scripted network (`net/scripted.rs`). That module also says which parts
+//! the two protocols share and which differences are intended.
 
-use std::collections::BTreeMap;
 use std::io;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::messages::PacketTransport;
-use crate::net::Lane;
-use crate::net::MAX_MESSAGE_BYTES;
-use crate::net::MessageEvent;
-use crate::net::NetMessages;
-use crate::net::PeerId;
+use super::scripted::{MTU, Network, Port, Shared, addr};
+use crate::net::{Lane, MAX_MESSAGE_BYTES, MessageEvent, NetMessages, PeerId};
 
-/// Largest datagram the protocol emits and the transports accept.
-const MTU: usize = 1500;
 /// One scripted step: the network advances one tick, then every endpoint polls.
 const STEP: Duration = Duration::from_millis(10);
-
-#[derive(Clone)]
-struct Datagram {
-    from: SocketAddr,
-    to: SocketAddr,
-    bytes: Vec<u8>,
-    due: u64,
-}
-
-/// The scripted network shared by every endpoint of one test.
-#[derive(Default)]
-struct Network {
-    tick: u64,
-    in_flight: Vec<Datagram>,
-    /// Ticks between send and earliest delivery.
-    delay: u64,
-    /// Drop every nth submitted datagram (zero: none).
-    drop_every: u64,
-    /// Deliver each datagram twice.
-    duplicate: bool,
-    /// Deliver the newest ready datagram first.
-    newest_first: bool,
-    /// Drop every datagram (a cut link).
-    cut: bool,
-    /// Per sender: refuse this many sends with `Ok(false)`.
-    refuse: BTreeMap<SocketAddr, u32>,
-    /// Per sender / receiver: fail the next send / recv with this error kind.
-    fail_send: BTreeMap<SocketAddr, io::ErrorKind>,
-    fail_recv: BTreeMap<SocketAddr, io::ErrorKind>,
-    /// Counters for assertions.
-    submitted: u64,
-    refused: u64,
-    largest: usize,
-    /// Every submitted datagram, for copying real headers.
-    log: Vec<Datagram>,
-}
-impl Network {
-    fn inject(&mut self, from: SocketAddr, to: SocketAddr, bytes: Vec<u8>) {
-        let due = self.tick;
-        self.in_flight.push(Datagram { from, to, bytes, due });
-    }
-}
-
-type Shared = Arc<Mutex<Network>>;
-
-struct Port {
-    net: Shared,
-    me: SocketAddr,
-}
-impl PacketTransport for Port {
-    fn send(&mut self, to: SocketAddr, bytes: &[u8]) -> io::Result<bool> {
-        let mut n = self.net.lock().unwrap();
-        if bytes.len() > MTU {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "datagram exceeds MTU"));
-        }
-        if let Some(kind) = n.fail_send.remove(&self.me) {
-            return Err(io::Error::new(kind, "scripted send failure"));
-        }
-        if let Some(left) = n.refuse.get_mut(&self.me)
-            && *left > 0
-        {
-            *left -= 1;
-            n.refused += 1;
-            return Ok(false);
-        }
-        n.submitted += 1;
-        n.largest = n.largest.max(bytes.len());
-        let datagram = Datagram {
-            from: self.me,
-            to,
-            bytes: bytes.to_vec(),
-            due: n.tick + n.delay,
-        };
-        n.log.push(datagram.clone());
-        if n.cut || (n.drop_every != 0 && n.submitted.is_multiple_of(n.drop_every)) {
-            return Ok(true);
-        }
-        if n.duplicate {
-            n.in_flight.push(datagram.clone());
-        }
-        n.in_flight.push(datagram);
-        Ok(true)
-    }
-    fn recv(&mut self, buf: &mut [u8]) -> io::Result<Option<(SocketAddr, usize)>> {
-        let mut n = self.net.lock().unwrap();
-        if let Some(kind) = n.fail_recv.remove(&self.me) {
-            return Err(io::Error::new(kind, "scripted recv failure"));
-        }
-        loop {
-            let tick = n.tick;
-            let mut ready = n
-                .in_flight
-                .iter()
-                .enumerate()
-                .filter(|(_, d)| d.to == self.me && d.due <= tick);
-            let found = if n.newest_first {
-                ready.next_back()
-            } else {
-                ready.next()
-            };
-            let Some(i) = found.map(|(i, _)| i) else {
-                return Ok(None);
-            };
-            let d = n.in_flight.remove(i);
-            // Contract: drop datagrams that don't fit, never truncate them.
-            if d.bytes.len() > buf.len() || d.bytes.len() > MTU {
-                continue;
-            }
-            buf[..d.bytes.len()].copy_from_slice(&d.bytes);
-            return Ok(Some((d.from, d.bytes.len())));
-        }
-    }
-}
-
-fn addr(i: usize) -> SocketAddr {
-    SocketAddr::from(([10, 0, 0, 1], 1000 + i as u16))
-}
 
 /// A host (`nets[0]`, address `addr(0)`) and clients (`addr(1)`, ...), with
 /// every event drained into `logs` after each poll.

@@ -26,8 +26,12 @@ use crate::perf::Instant;
 use crate::{World, WorldReflect};
 
 #[cfg(test)]
+mod lockstep_conformance;
+#[cfg(test)]
 mod message_conformance;
 mod messages;
+#[cfg(test)]
+mod scripted;
 pub use messages::{Lane, MAX_MESSAGE_BYTES, MessageEvent, MessageStats, NetMessages, PeerId};
 
 mod interest;
@@ -76,6 +80,14 @@ const BYE: u8 = 7;
 const RING: usize = 256;
 const MAX_DELAY: u32 = 64;
 const PACKET: usize = 1400;
+/// An INPUTS packet with nothing in it yet is this long at most: magic,
+/// version, kind, player count, one acknowledgement per player, block count.
+const INPUTS_HEADER: usize = 4 + 1 + 1 + 1 + 8 * MAX_PLAYERS + 1;
+/// A block's header (stream, first tick, tick count) and one tick's length.
+const BLOCK_HEADER: usize = 1 + 8 + 1 + 2;
+// The largest input always fits a packet of its own, so `flush` can keep
+// every packet within PACKET.
+const _: () = assert!(INPUTS_HEADER + BLOCK_HEADER + MAX_INPUT_BYTES <= PACKET);
 /// Resend unacknowledged inputs (and keep the link alive) this often.
 const RESEND: Duration = Duration::from_millis(20);
 const HELLO_EVERY: Duration = Duration::from_millis(100);
@@ -84,6 +96,9 @@ const HELLO_EVERY: Duration = Duration::from_millis(100);
 const LINGER: Duration = Duration::from_secs(1);
 /// A peer silent this long while we linger has left too.
 const GONE: Duration = Duration::from_millis(250);
+/// Receive errors in a row the UDP transport skips before it reports "no
+/// packet" for this poll.
+const UDP_ERROR_SKIPS: usize = 64;
 
 /// Where a session is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -191,6 +206,10 @@ pub struct Net {
     desync: Option<Desync>,
     /// Waits in a row, to back off from yielding to sleeping.
     waits: u32,
+    /// Keep resending on drop until peers have our inputs (see `Drop`). Off
+    /// for scripted test sessions, which step [`linger_step`](Self::linger_step)
+    /// on their own clock instead.
+    linger: bool,
 }
 
 impl Default for Net {
@@ -208,6 +227,7 @@ impl Default for Net {
             error: None,
             desync: None,
             waits: 0,
+            linger: true,
         }
     }
 }
@@ -310,6 +330,18 @@ impl Net {
                 }
             })
             .collect()
+    }
+
+    /// A session on a caller-supplied transport, hosting `players` players
+    /// or joining `host`: the seam the conformance tests in
+    /// `net/lockstep_conformance.rs` script. Drive it with
+    /// [`ready_at`](Self::ready_at) and a simulated clock.
+    #[cfg(test)]
+    fn transported(transport: Box<dyn Transport>, host: Option<SocketAddr>, players: usize) -> Net {
+        let role = host.map_or(Role::Host, Role::Client);
+        let mut net = Self::with(Session::new(transport, role), 0, players);
+        net.linger = false;
+        net
     }
 
     fn with(session: Session, player: usize, players: usize) -> Net {
@@ -472,6 +504,19 @@ impl Net {
 
     /// Gets ready for `tick`: true once every player's input for it is in.
     pub(crate) fn ready(&mut self, tick: u64) -> bool {
+        if self.session.is_none() {
+            // Offline never reads the clock.
+            std::mem::swap(&mut self.current[0], &mut self.pending);
+            self.pending.clear();
+            return true;
+        }
+        self.ready_at(tick, Instant::now())
+    }
+
+    /// [`ready`](Self::ready) at a time the caller chooses. Every protocol
+    /// timer (resends, hellos, the silence timeout) is measured against
+    /// `now`, so a scripted test owns the clock.
+    fn ready_at(&mut self, tick: u64, now: Instant) -> bool {
         let Some(s) = self.session.as_deref_mut() else {
             std::mem::swap(&mut self.current[0], &mut self.pending);
             self.pending.clear();
@@ -480,7 +525,6 @@ impl Net {
         if self.state == NetState::Lost {
             return false;
         }
-        let now = Instant::now();
         s.poll(
             now,
             &mut Settings {
@@ -560,15 +604,50 @@ impl Net {
         } else {
             std::thread::sleep(Duration::from_micros(200));
         }
+        self.waited(Instant::now())
+    }
+
+    /// The clock half of [`wait`](Self::wait): gives up on connecting once
+    /// nobody answered for [`timeout`](Self::timeout). False once lost.
+    fn waited(&mut self, now: Instant) -> bool {
         if self.state == NetState::Connecting {
             // Connecting has its own patience: the other side may still be starting.
             let s = self.session.as_deref_mut().expect("online");
-            let since = *s.connecting_since.get_or_insert_with(Instant::now);
-            if since.elapsed() > self.timeout {
-                return !self.lose("nobody answered".into());
+            let since = *s.connecting_since.get_or_insert(now);
+            if now - since > self.timeout {
+                return self.lose("nobody answered".into());
             }
         }
         self.state != NetState::Lost
+    }
+
+    /// One step of the goodbye (see `Drop`): keeps resending what peers
+    /// still miss. True once it is over (everyone has our inputs, has left
+    /// or went quiet, or `end` passed) and the BYEs are out.
+    fn linger_step(&mut self, now: Instant, end: Instant) -> bool {
+        let Some(s) = self.session.as_deref_mut() else {
+            return true;
+        };
+        s.poll(
+            now,
+            &mut Settings {
+                player: &mut self.player,
+                players: &mut self.players,
+                delay: &mut self.delay,
+                checksum_every: &mut self.checksum_every,
+                desync: &mut self.desync,
+            },
+        );
+        if now >= end || s.settled(now, self.player) {
+            // Lost BYEs only cost the others GONE of waiting.
+            for i in 0..s.peers.len() {
+                let addr = s.peers[i].addr;
+                s.send_simple(addr, BYE);
+            }
+            return true;
+        }
+        s.flush(now, self.player, self.players);
+        false
     }
 }
 
@@ -577,32 +656,12 @@ impl Drop for Net {
     /// the others still miss, because a packet got lost: it keeps resending
     /// until every peer has them, has left too, or a second passed.
     fn drop(&mut self) {
-        let Some(s) = self.session.as_deref_mut() else { return };
-        if !s.started || self.state == NetState::Lost {
+        let Some(s) = self.session.as_deref() else { return };
+        if !self.linger || !s.started || self.state == NetState::Lost {
             return;
         }
         let end = Instant::now() + LINGER.min(self.timeout);
-        loop {
-            let now = Instant::now();
-            s.poll(
-                now,
-                &mut Settings {
-                    player: &mut self.player,
-                    players: &mut self.players,
-                    delay: &mut self.delay,
-                    checksum_every: &mut self.checksum_every,
-                    desync: &mut self.desync,
-                },
-            );
-            if now >= end || s.settled(now, self.player) {
-                // Lost BYEs only cost the others GONE of waiting.
-                for i in 0..s.peers.len() {
-                    let addr = s.peers[i].addr;
-                    s.send_simple(addr, BYE);
-                }
-                return;
-            }
-            s.flush(now, self.player, self.players);
+        while !self.linger_step(Instant::now(), end) {
             std::thread::sleep(Duration::from_millis(1));
         }
     }
@@ -925,49 +984,67 @@ impl Session {
             if !fresh && peer.last_sent.is_some_and(|t| now - t < RESEND) {
                 continue;
             }
-            self.begin(INPUTS);
-            self.out.push(players as u8);
-            for st in &self.streams {
-                self.out.extend_from_slice(&st.have.to_le_bytes());
-            }
-            let count_at = self.out.len();
-            self.out.push(0);
+            // One packet, or several when the streams don't fit in one
+            // (large inputs from many players): every stream gets its turn
+            // in this flush, and no packet goes over PACKET.
             let mut sent = self.peers[i].sent;
-            for &s in streams {
-                let peer = &self.peers[i];
-                if s == peer.player {
-                    continue;
+            let mut done = [false; MAX_PLAYERS];
+            loop {
+                self.begin(INPUTS);
+                self.out.push(players as u8);
+                for st in &self.streams {
+                    self.out.extend_from_slice(&st.have.to_le_bytes());
                 }
-                let st = &self.streams[s];
-                let first = peer.acked[s];
-                if first >= st.have || self.out.len() + 12 > PACKET {
-                    continue;
-                }
-                let ticks_at = self.out.len() + 9;
-                self.out.push(s as u8);
-                self.out.extend_from_slice(&first.to_le_bytes());
+                let count_at = self.out.len();
                 self.out.push(0);
-                let mut ticks = 0u8;
-                let mut t = first;
-                while t < st.have && ticks < u8::MAX {
-                    let data = st.get(t);
-                    if ticks > 0 && self.out.len() + 2 + data.len() > PACKET {
-                        break;
+                let mut more = false;
+                for &s in streams {
+                    let peer = &self.peers[i];
+                    if s == peer.player || done[s] {
+                        continue;
                     }
-                    self.out.extend_from_slice(&(data.len() as u16).to_le_bytes());
-                    self.out.extend_from_slice(data);
-                    ticks += 1;
-                    t += 1;
+                    let st = &self.streams[s];
+                    let first = peer.acked[s];
+                    if first >= st.have {
+                        done[s] = true;
+                        continue;
+                    }
+                    // The block's header and its first tick go together.
+                    // They always fit an empty packet (asserted next to PACKET).
+                    if self.out.len() + BLOCK_HEADER + st.get(first).len() > PACKET {
+                        more = true;
+                        continue;
+                    }
+                    done[s] = true;
+                    let ticks_at = self.out.len() + 9;
+                    self.out.push(s as u8);
+                    self.out.extend_from_slice(&first.to_le_bytes());
+                    self.out.push(0);
+                    let mut ticks = 0u8;
+                    let mut t = first;
+                    while t < st.have && ticks < u8::MAX {
+                        let data = st.get(t);
+                        if self.out.len() + 2 + data.len() > PACKET {
+                            break;
+                        }
+                        self.out.extend_from_slice(&(data.len() as u16).to_le_bytes());
+                        self.out.extend_from_slice(data);
+                        ticks += 1;
+                        t += 1;
+                    }
+                    self.out[ticks_at] = ticks;
+                    self.out[count_at] += 1;
+                    sent[s] = t;
                 }
-                self.out[ticks_at] = ticks;
-                self.out[count_at] += 1;
-                sent[s] = t;
+                let addr = self.peers[i].addr;
+                self.emit(addr);
+                if !more {
+                    break;
+                }
             }
             let peer = &mut self.peers[i];
             peer.sent = sent;
             peer.last_sent = Some(now);
-            let addr = peer.addr;
-            self.emit(addr);
         }
     }
 
@@ -1166,14 +1243,18 @@ impl Transport for Udp {
         let _ = self.0.send_to(data, to);
     }
     fn recv(&mut self, buf: &mut [u8]) -> Option<(SocketAddr, usize)> {
-        loop {
+        // Windows reports an earlier send to a closed port as a receive
+        // error; skip those. A socket that only fails must not hold the
+        // game thread, so give up for this poll after a few in a row: the
+        // silence timeout then ends the session.
+        for _ in 0..UDP_ERROR_SKIPS {
             match self.0.recv_from(buf) {
                 Ok((n, from)) => return Some((from, n)),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return None,
-                // Windows reports an earlier send to a closed port here; skip it.
-                Err(_) => continue,
+                Err(_) => {}
             }
         }
+        None
     }
     fn local_addr(&self) -> SocketAddr {
         self.0.local_addr().expect("bound socket")
