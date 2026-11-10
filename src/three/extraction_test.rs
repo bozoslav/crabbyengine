@@ -541,7 +541,10 @@ fn random_edits_always_draw_what_a_frame_built_from_nothing_draws() {
         }
         scene.check(&format!("frame {frame}"));
     }
-    assert!(rushed > 15, "it stopped comparing models while most moved: {rushed} frames");
+    assert!(
+        rushed > 15,
+        "it stopped comparing models while most moved: {rushed} frames"
+    );
     assert!(!scene.frame.rushing(), "and compares the models again");
 }
 
@@ -632,6 +635,43 @@ fn while_most_models_move_every_edit_is_still_followed() {
     assert_eq!(rewritten(&before, &scene.frame.instances), 0);
 }
 
+fn many_models_spawned_at_once_are_drawn_also_while_most_move() {
+    let mut scene = Scene::new(6000);
+    let first = scene.check("first");
+    // More at once than are taken in one by one, all in view.
+    let mut wave = |scene: &mut Scene, height: f32| {
+        for i in 0..700 {
+            let at = Vec3::new((i % 27) as f32 * 0.3 - 4.0, height, (i / 27) as f32 * 0.3 - 4.0);
+            let e = scene.world.spawn((Transform3D::at(at), Model::new(mesh(i))));
+            scene.models.push(e);
+        }
+    };
+    wave(&mut scene, 1.0);
+    let more = scene.check("a wave in a still world");
+    assert!(more > first + 600, "{more} of them drawn, {first} before");
+    let mut rushed = 0;
+    for frame in 0..12 {
+        bob(&mut scene, frame);
+        if frame == 6 {
+            assert!(scene.frame.rushing(), "most models move");
+            wave(&mut scene, 2.0);
+            // And as many gone at once.
+            for e in scene.models.drain(100..800) {
+                scene.world.despawn(e);
+            }
+        }
+        let drawn = scene.check(&format!("frame {frame}"));
+        if frame == 6 {
+            assert!(drawn > more + 500, "{drawn} drawn with the second wave, {more} before");
+        }
+        rushed += usize::from(scene.frame.rushing());
+    }
+    assert!(rushed > 8, "{rushed} frames");
+    scene.check("still");
+    scene.check("and compared again");
+    assert!(!scene.frame.rushing());
+}
+
 fn a_collection_can_change_between_one_core_and_several() {
     let mut scene = Scene::new(6000);
     let mine = SERIAL.get().unwrap();
@@ -653,7 +693,10 @@ fn a_collection_can_change_between_one_core_and_several() {
         scene.check(&format!("frame {frame}"));
         rushed += usize::from(scene.frame.rushing());
     }
-    assert!(rushed > 25, "a rush goes on, whichever way a frame is collected: {rushed} frames");
+    assert!(
+        rushed > 25,
+        "a rush goes on, whichever way a frame is collected: {rushed} frames"
+    );
     SERIAL.set(Some(mine));
 }
 
@@ -1079,6 +1122,7 @@ both_ways!(
     what_is_kept_per_model_is_bounded_and_stops_growing,
     while_most_models_move_every_edit_is_still_followed,
     a_collection_can_change_between_one_core_and_several,
+    many_models_spawned_at_once_are_drawn_also_while_most_move,
     lod_groups_keep_up_with_the_camera_and_edits,
     terrain_tiles_keep_up_with_the_camera_and_edits,
     skinned_models_keep_up_as_their_number_changes,
