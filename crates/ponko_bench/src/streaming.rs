@@ -71,7 +71,7 @@ fn frames(paths: &[String], streamed: bool) -> (Vec<Duration>, Option<u64>, Dura
                 *w = (*w).max(now - last);
             }
             last = Some(now);
-            let tick = ctx.sim_tick();
+            let tick = ctx.time.sim_tick();
             // The engine's upload step ran between the end of this system
             // last frame and now: count its CPU time (with a little engine
             // bookkeeping), then the loading calls'.

@@ -13,7 +13,7 @@ use crate::Color;
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let trunk = ctx.load_mesh("trunk.glb");
+/// let trunk = ctx.gfx.load_mesh("trunk.glb");
 /// // A mesh 2 m up the group's own Y axis, tinted.
 /// let part = LodRenderer::new(trunk)
 ///     .with_offset(Transform3D::at(vec3(0.0, 2.0, 0.0)))
@@ -37,7 +37,7 @@ impl LodRenderer {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let renderer = LodRenderer::new(ctx.load_mesh("tree.glb"));
+    /// let renderer = LodRenderer::new(ctx.gfx.load_mesh("tree.glb"));
     /// # }
     /// ```
     #[must_use]
@@ -80,7 +80,7 @@ impl LodRenderer {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum LodShadow {
     /// Its own meshes cast the shadow (those with shadows turned on, see
-    /// [`Ctx::set_mesh_shadows`](crate::Ctx::set_mesh_shadows)).
+    /// [`Graphics::set_mesh_shadows`](crate::Graphics::set_mesh_shadows)).
     #[default]
     Same,
     /// These meshes cast the shadow instead and are not drawn for the
@@ -285,9 +285,9 @@ pub struct LodHysteresis(pub f32);
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let high = ctx.load_mesh("tree_high.glb");
-/// let low = ctx.load_mesh("tree_low.glb");
-/// let billboard = ctx.load_mesh("tree_billboard.glb");
+/// let high = ctx.gfx.load_mesh("tree_high.glb");
+/// let low = ctx.gfx.load_mesh("tree_low.glb");
+/// let billboard = ctx.gfx.load_mesh("tree_billboard.glb");
 /// let group = LodGroup::new(
 ///     6.0, // about 6 m tall
 ///     vec![

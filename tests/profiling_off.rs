@@ -13,9 +13,9 @@ fn scopes_do_nothing_while_profiling_is_off() {
     }
     Game::new("t", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            ctx.profile("off/named", |_| {});
-            assert!(!ctx.profiling());
-            assert!(ctx.scope_timings().is_empty());
+            drop(ctx.perf.scope("off/named"));
+            assert!(!ctx.perf.profiling());
+            assert!(ctx.perf.scope_timings().is_empty());
         })
         .run_headless(3, |_| {});
 }

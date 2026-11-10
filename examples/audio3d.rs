@@ -6,7 +6,7 @@ fn setup(ctx: &mut Ctx) {
     let samples: Vec<f32> = (0..44100)
         .map(|i| (i as f32 * 220.0 * std::f32::consts::TAU / 44100.0).sin() * 0.1)
         .collect();
-    let hum = ctx.create_sound(44100, &samples);
+    let hum = ctx.audio.create(44100, &samples);
     let settings = AudioSettings3D {
         sound: SoundParams {
             volume: 0.4,
@@ -20,7 +20,8 @@ fn setup(ctx: &mut Ctx) {
     };
     ctx.world
         .spawn((Transform3D::at(vec3(4.0, 0.0, 0.0)), AudioSource3D::new(hum, settings)));
-    ctx.play_sound_at(&hum, vec3(-4.0, 0.0, 0.0), AudioSettings3D::default());
+    ctx.audio
+        .play_at(&hum, vec3(-4.0, 0.0, 0.0), AudioSettings3D::default());
 }
 
 fn main() {
@@ -32,9 +33,9 @@ fn main() {
 // ANCHOR: audio_mixer
 #[allow(dead_code)]
 fn buses_and_effects(ctx: &mut Ctx, sound: Sound) {
-    let music = ctx.audio_bus("music"); // Save this handle; names are looked up once.
-    ctx.set_audio_bus_volume(music, 0.6);
-    let voice = ctx.play_sound_on(
+    let music = ctx.audio.bus("music"); // Save this handle; names are looked up once.
+    ctx.audio.set_bus_volume(music, 0.6);
+    let voice = ctx.audio.play_on(
         &sound,
         SoundParams {
             looping: true,
@@ -46,15 +47,15 @@ fn buses_and_effects(ctx: &mut Ctx, sound: Sound) {
             reverb: 0.2,
         },
     );
-    ctx.set_sound_effects(
+    ctx.audio.set_effects(
         voice,
         AudioEffects {
             low_pass_hz: 800.0,
             reverb: 0.5,
         },
     );
-    ctx.mute_audio_bus(music, true);
-    ctx.mute_audio_bus(music, false); // Restores the configured gain.
+    ctx.audio.mute_bus(music, true);
+    ctx.audio.mute_bus(music, false); // Restores the configured gain.
     let settings = AudioSettings3D {
         bus: music,
         effects: AudioEffects {
@@ -63,16 +64,16 @@ fn buses_and_effects(ctx: &mut Ctx, sound: Sound) {
         },
         ..Default::default()
     };
-    ctx.play_sound_at(&sound, vec3(3.0, 0.0, 0.0), settings);
+    ctx.audio.play_at(&sound, vec3(3.0, 0.0, 0.0), settings);
 }
 // ANCHOR_END: audio_mixer
 
 // ANCHOR: audio_stream
 #[allow(dead_code)]
 fn streaming_music(ctx: &mut Ctx) {
-    let music = ctx.audio_bus("music");
-    let song = ctx.load_stream("music.ogg");
-    let voice = ctx.play_sound_on(
+    let music = ctx.audio.bus("music");
+    let song = ctx.audio.load_stream("music.ogg");
+    let voice = ctx.audio.play_on(
         &song,
         SoundParams {
             looping: true,
@@ -81,6 +82,6 @@ fn streaming_music(ctx: &mut Ctx) {
         music,
         AudioEffects::default(),
     );
-    ctx.stop_sound(voice);
+    ctx.audio.stop(voice);
 }
 // ANCHOR_END: audio_stream

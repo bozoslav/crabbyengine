@@ -19,10 +19,13 @@ fn in_tick(f: impl FnOnce(&mut Ctx) + 'static) {
 fn missing_assets_are_not_found_for_every_loader() {
     in_tick(|ctx| {
         let missing = "no/such/asset.bin";
-        assert_eq!(ctx.try_load_texture(missing).unwrap_err().kind(), ErrorKind::NotFound);
-        assert_eq!(ctx.try_load_font(missing).unwrap_err().kind(), ErrorKind::NotFound);
-        assert_eq!(ctx.try_load_sound(missing).unwrap_err().kind(), ErrorKind::NotFound);
-        let err = ctx.try_load_texture(missing).unwrap_err();
+        assert_eq!(
+            ctx.gfx.try_load_texture(missing).unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
+        assert_eq!(ctx.gfx.try_load_font(missing).unwrap_err().kind(), ErrorKind::NotFound);
+        assert_eq!(ctx.audio.try_load(missing).unwrap_err().kind(), ErrorKind::NotFound);
+        let err = ctx.gfx.try_load_texture(missing).unwrap_err();
         assert_eq!(err.path(), Some(missing));
     });
 }
@@ -31,7 +34,7 @@ fn missing_assets_are_not_found_for_every_loader() {
 fn files_that_are_not_images_fail_to_decode() {
     let path = temp_file("bad.png", b"not a png");
     in_tick(move |ctx| {
-        let err = ctx.try_load_texture(&path).unwrap_err();
+        let err = ctx.gfx.try_load_texture(&path).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::Decode);
         assert_eq!(err.path(), Some(path.as_str()));
     });
@@ -41,7 +44,7 @@ fn files_that_are_not_images_fail_to_decode() {
 fn files_that_are_not_fonts_fail_to_decode() {
     let path = temp_file("bad.ttf", b"not a font");
     in_tick(move |ctx| {
-        assert_eq!(ctx.try_load_font(&path).unwrap_err().kind(), ErrorKind::Decode);
+        assert_eq!(ctx.gfx.try_load_font(&path).unwrap_err().kind(), ErrorKind::Decode);
     });
 }
 
@@ -50,23 +53,23 @@ fn files_that_are_not_fonts_fail_to_decode() {
 fn files_that_are_not_sounds_fail_to_decode() {
     let path = temp_file("bad.ogg", b"not a sound");
     in_tick(move |ctx| {
-        assert_eq!(ctx.try_load_sound(&path).unwrap_err().kind(), ErrorKind::Decode);
+        assert_eq!(ctx.audio.try_load(&path).unwrap_err().kind(), ErrorKind::Decode);
     });
 }
 
 #[test]
 fn a_failed_load_leaves_later_loads_working() {
     in_tick(|ctx| {
-        assert!(ctx.try_load_texture("nope.png").is_err());
-        let a = ctx.try_load_texture("crab.png").unwrap();
-        assert_eq!(ctx.try_load_texture("crab.png").unwrap(), a);
+        assert!(ctx.gfx.try_load_texture("nope.png").is_err());
+        let a = ctx.gfx.try_load_texture("crab.png").unwrap();
+        assert_eq!(ctx.gfx.try_load_texture("crab.png").unwrap(), a);
     });
 }
 
 #[test]
 fn errors_convert_with_question_mark_into_boxed_errors() {
     fn load(ctx: &mut Ctx) -> Result<Texture, Box<dyn std::error::Error>> {
-        Ok(ctx.try_load_texture("nope.png")?)
+        Ok(ctx.gfx.try_load_texture("nope.png")?)
     }
     in_tick(|ctx| {
         let err = load(ctx).unwrap_err();
@@ -86,9 +89,9 @@ fn panicking_loaders_panic_with_the_error_message_once_prefixed() {
 #[test]
 fn panics_and_errors_read_the_same() {
     in_tick(|ctx| {
-        let err = ctx.try_load_font("nope.ttf").unwrap_err();
+        let err = ctx.gfx.try_load_font("nope.ttf").unwrap_err();
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            ctx.load_font("nope.ttf");
+            ctx.gfx.load_font("nope.ttf");
         }))
         .unwrap_err();
         let message = panic.downcast_ref::<String>().unwrap();
@@ -111,11 +114,11 @@ mod three {
     fn missing_models_are_not_found() {
         in_tick(|ctx| {
             assert_eq!(
-                ctx.try_load_mesh("no/such.glb").unwrap_err().kind(),
+                ctx.gfx.try_load_mesh("no/such.glb").unwrap_err().kind(),
                 ErrorKind::NotFound
             );
             assert_eq!(
-                ctx.try_load_skeleton("no/such.glb").unwrap_err().kind(),
+                ctx.gfx.try_load_skeleton("no/such.glb").unwrap_err().kind(),
                 ErrorKind::NotFound
             );
         });
@@ -125,8 +128,8 @@ mod three {
     fn files_that_are_not_models_fail_to_decode() {
         let path = temp_file("bad.glb", b"not a model");
         in_tick(move |ctx| {
-            assert_eq!(ctx.try_load_mesh(&path).unwrap_err().kind(), ErrorKind::Decode);
-            assert_eq!(ctx.try_load_skeleton(&path).unwrap_err().kind(), ErrorKind::Decode);
+            assert_eq!(ctx.gfx.try_load_mesh(&path).unwrap_err().kind(), ErrorKind::Decode);
+            assert_eq!(ctx.gfx.try_load_skeleton(&path).unwrap_err().kind(), ErrorKind::Decode);
         });
     }
 
@@ -137,8 +140,11 @@ mod three {
                 metallic: -1.0,
                 ..Default::default()
             };
-            assert_eq!(ctx.try_create_material(desc).unwrap_err().kind(), ErrorKind::Invalid);
-            assert!(ctx.try_create_material(MaterialDesc::default()).is_ok());
+            assert_eq!(
+                ctx.gfx.try_create_material(desc).unwrap_err().kind(),
+                ErrorKind::Invalid
+            );
+            assert!(ctx.gfx.try_create_material(MaterialDesc::default()).is_ok());
         });
     }
 
@@ -149,21 +155,21 @@ mod three {
         let out = other.clone();
         in_tick(move |ctx| {
             for _ in 0..4 {
-                out.set(Some(ctx.create_material(MaterialDesc::default())));
+                out.set(Some(ctx.gfx.create_material(MaterialDesc::default())));
             }
         });
         let foreign: Material = other.get().unwrap();
         in_tick(move |ctx| {
-            let stone = ctx.create_material(MaterialDesc::default());
+            let stone = ctx.gfx.create_material(MaterialDesc::default());
             let mut broken = MeshData::cube(1.0);
             broken.indices.pop();
             assert_eq!(
-                ctx.try_create_mesh(&broken, stone).unwrap_err().kind(),
+                ctx.gfx.try_create_mesh(&broken, stone).unwrap_err().kind(),
                 ErrorKind::Invalid
             );
-            let err = ctx.try_create_mesh(&MeshData::cube(1.0), foreign).unwrap_err();
+            let err = ctx.gfx.try_create_mesh(&MeshData::cube(1.0), foreign).unwrap_err();
             assert_eq!(err.kind(), ErrorKind::BadHandle);
-            assert!(ctx.try_create_mesh(&MeshData::cube(1.0), stone).is_ok());
+            assert!(ctx.gfx.try_create_mesh(&MeshData::cube(1.0), stone).is_ok());
         });
     }
 }

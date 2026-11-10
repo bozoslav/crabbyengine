@@ -55,7 +55,7 @@ report.assert_passed(); // or look at report.failure
 - **Ticks.** The first tick of a run is 0. A step at tick `t` is fed before
   tick `t`'s systems run, and several steps on one tick keep the order they were
   added in, so a press and a release on the same tick keep both edges. A scenario
-  started mid-run (`ctx.start_input_scenario`, or a tool) counts from the next
+  started mid-run (`ctx.input.start_scenario`, or a tool) counts from the next
   tick. Pausing doesn't move a step, because a paused game doesn't advance the tick.
 - **Several ticks per frame.** In a window, one frame can run several ticks. A
   step is still fed before its own tick, but edges last until the end of the
@@ -71,7 +71,7 @@ report.assert_passed(); // or look at report.failure
   `running`, `passed`, `failed` or `cancelled`, ticks run, checks passed).
   `run_headless_scenario` runs exactly `scenario.ticks()` ticks, which is the
   bound on a run, and hands it back with the world.
-- **Releasing input.** `ctx.cancel_input_scenario()`, a scenario that replaces
+- **Releasing input.** `ctx.input.cancel_scenario(&mut ctx.world, &mut ctx.time)`, a scenario that replaces
   it, a failed check and a tool's disconnect release every key, button and axis
   the scenario still holds. A run in game code that simply finishes leaves its
   input as it was, unless the scenario says `.release_when_done()`; a run a tool
@@ -79,7 +79,7 @@ report.assert_passed(); // or look at report.failure
   held is released, but the input state is one shared set of held keys with no
   record of which device holds one: a key a player also holds physically reads as
   up until its next key event.
-- **Started from a system.** `ctx.start_input_scenario` called from a simulation
+- **Started from a system.** `ctx.input.start_scenario` called from a simulation
   system begins on the next tick; nothing of it (input or checks) happens on the
   tick that started it.
 
@@ -166,13 +166,13 @@ and allocate nothing.
 
 In Rust, resolve each name once and keep the `Copy` `ActionId`: queries by id
 are an array index instead of a name lookup, and an unknown name is an error
-logged when you resolve it, not a silent `false` every frame. `ctx.action_id("jump")`
-resolves one, `ctx.action_ids(&["jump", "fire"])` several, and the `actions!`
+logged when you resolve it, not a silent `false` every frame. `ctx.input.action_id("jump")`
+resolves one, `ctx.input.action_ids(&["jump", "fire"])` several, and the `actions!`
 macro (as in the example above) declares the names in one place. Ids stay
 valid when you rebind with `set_actions`. The queries accept an id or a name,
 so both spellings work. C and C++ keep the name forms for now.
 
-To rebind, copy `ctx.actions()`, call `set` or `remove`, then install it with
+To rebind, copy `ctx.input.actions()`, call `set` or `remove`, then install it with
 `ctx.set_actions`. Rust uses `.clone()` to copy the map; C++ returns an owned
 map. Installation resets action edges and uses currently held inputs as the
 baseline. Rebinding a held key therefore does not generate a new press.

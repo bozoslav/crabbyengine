@@ -219,18 +219,18 @@ fn draw_with(profile: &Profile, setup: impl Fn(&mut Ctx)) -> Option<Outcome> {
 
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
     // As `Ctx` does from the renderer's answers.
-    ctx.assets3d.decals_supported = report.available(GpuFeature::Decals);
-    ctx.assets3d.gi_supported = report.available(GpuFeature::GlobalIllumination);
+    ctx.gfx.assets3d.decals_supported = report.available(GpuFeature::Decals);
+    ctx.gfx.assets3d.gi_supported = report.available(GpuFeature::GlobalIllumination);
     let matte = MaterialDesc {
         color: Color::rgb(0.8, 0.5, 0.2),
         roughness: 0.3,
         ..Default::default()
     };
-    let material = ctx.create_material(matte);
+    let material = ctx.gfx.create_material(matte);
     let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
     renderer.create_material(&device, &GpuMaterialDesc::new(&matte), &textures);
     let mut add = |ctx: &mut Ctx, data: &MeshData, at: Transform3D| {
-        let mesh = ctx.create_mesh(data, material);
+        let mesh = ctx.gfx.create_mesh(data, material);
         renderer.create_mesh(&device, data, &[(0..data.indices.len() as u32, material)], true);
         ctx.world.spawn((Model::new(mesh), at));
     };
@@ -266,7 +266,7 @@ fn draw_with(profile: &Profile, setup: impl Fn(&mut Ctx)) -> Option<Outcome> {
         frame.size_limit = device.limits().max_texture_dimension_2d;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -550,7 +550,9 @@ fn every_quality_preset_draws_on_every_tier_without_gpu_errors() {
     for (tier, profile) in &TIERS {
         let fitted = ("for_tier", GraphicsQuality::for_tier(*tier));
         for (name, quality) in presets.iter().chain([&fitted]) {
-            let Some(out) = draw_with(profile, |ctx| ctx.set_graphics_quality(*quality)) else {
+            let Some(out) = draw_with(profile, |ctx| {
+                ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, *quality)
+            }) else {
                 return;
             };
             assert_eq!(

@@ -15,7 +15,7 @@ struct Seen {
 fn jump_bindings(ctx: &mut Ctx) {
     let mut map = ActionMap::default();
     map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
-    ctx.set_actions(map);
+    ctx.input.set_actions(map);
 }
 
 /// Runs `ticks` headless ticks with `scenario` and records the jump action per tick.
@@ -25,10 +25,10 @@ fn record(scenario: InputScenario, ticks: u64) -> Vec<Seen> {
     Game::new("scenario", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
             log.borrow_mut().push(Seen {
-                tick: ctx.sim_tick(),
-                pressed: ctx.action_pressed("jump"),
-                down: ctx.action_down("jump"),
-                released: ctx.action_released("jump"),
+                tick: ctx.time.sim_tick(),
+                pressed: ctx.input.action_pressed("jump"),
+                down: ctx.input.action_down("jump"),
+                released: ctx.input.action_released("jump"),
             });
         })
         .input_scenario(scenario)
@@ -105,7 +105,7 @@ struct Body {
 
 fn jump_and_fall(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    let jump = ctx.action_pressed("jump");
+    let jump = ctx.input.action_pressed("jump");
     let drift = ctx.random().stream(0).range(-0.01, 0.01);
     ctx.world.query::<&mut Body>().for_each(|b| {
         if jump && b.y <= 0.0 {
@@ -190,7 +190,7 @@ struct Progress {
 }
 
 fn count_jumps(ctx: &mut Ctx) {
-    if ctx.action_pressed("jump") {
+    if ctx.input.action_pressed("jump") {
         ctx.world.resource_mut::<Progress>().jumps += 1;
     }
 }
@@ -267,8 +267,8 @@ fn held_trace(scenario: InputScenario, ticks: u64, cancel_at: Option<u64>) -> (V
     let log = trace.clone();
     let (_world, report) = {
         let game = Game::new("held", 1, 1).sim_system(move |ctx: &mut Ctx| {
-            if cancel_at == Some(ctx.sim_tick()) {
-                assert!(ctx.cancel_input_scenario());
+            if cancel_at == Some(ctx.time.sim_tick()) {
+                assert!(ctx.input.cancel_scenario(&mut ctx.world, &mut ctx.time));
             }
             log.borrow_mut().push(ctx.key_down(Key::Space));
         });
@@ -326,8 +326,12 @@ fn a_replaced_scenario_releases_what_the_old_one_held() {
     let log = trace.clone();
     let world = Game::new("replace", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() == 2 {
-                ctx.start_input_scenario(InputScenario::new().named("second").duration(2));
+            if ctx.time.sim_tick() == 2 {
+                ctx.input.start_scenario(
+                    &mut ctx.world,
+                    &mut ctx.time,
+                    InputScenario::new().named("second").duration(2),
+                );
             }
             log.borrow_mut().push(ctx.key_down(Key::Space));
         })
@@ -466,16 +470,17 @@ fn started_on_tick_3(scenario: InputScenario, ticks: u64) -> (Vec<Seen>, Scenari
     let mut scenario = Some(scenario);
     let world = Game::new("started", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() == 3 {
-                ctx.start_input_scenario(scenario.take().unwrap());
+            if ctx.time.sim_tick() == 3 {
+                ctx.input
+                    .start_scenario(&mut ctx.world, &mut ctx.time, scenario.take().unwrap());
             }
         })
         .sim_system(move |ctx: &mut Ctx| {
             log.borrow_mut().push(Seen {
-                tick: ctx.sim_tick(),
-                pressed: ctx.action_pressed("jump"),
-                down: ctx.action_down("jump"),
-                released: ctx.action_released("jump"),
+                tick: ctx.time.sim_tick(),
+                pressed: ctx.input.action_pressed("jump"),
+                down: ctx.input.action_down("jump"),
+                released: ctx.input.action_released("jump"),
             });
         })
         .run_headless(ticks, jump_bindings);

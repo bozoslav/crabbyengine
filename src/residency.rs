@@ -54,14 +54,14 @@ impl ResidencyKind {
 }
 
 /// The budget, usage and eviction counters of one [`ResidencyKind`]
-/// ([`Ctx::residency`](crate::Ctx::residency)). Bytes are the engine's
+/// ([`Graphics::residency`](crate::Graphics::residency)). Bytes are the engine's
 /// estimates of GPU memory.
 ///
 /// ```
 /// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     ctx.set_residency_budget(ResidencyKind::Mesh, Some(64 << 20));
-///     let meshes = ctx.residency(ResidencyKind::Mesh);
+///     let meshes = ctx.gfx.residency(ResidencyKind::Mesh);
 ///     assert_eq!(meshes.budget, Some(64 << 20));
 ///     assert_eq!((meshes.resident, meshes.evictions), (0, 0));
 /// });
@@ -338,10 +338,32 @@ impl crate::Ctx {
     /// are never evicted, and [`ResidencyStats::over_budget_bytes`] says by
     /// how much.
     pub fn set_residency_budget(&mut self, kind: ResidencyKind, bytes: Option<u64>) {
-        self.residency.set_mut(kind).set_budget(bytes);
+        self.gfx.residency.set_mut(kind).set_budget(bytes);
         self.enforce_residency(kind);
     }
 
+    /// The frame and tick now, which residency protects assets asked for in.
+    pub(crate) fn residency_now(&self) -> (u64, u64) {
+        (self.time.frame(), self.time.sim_tick())
+    }
+
+    /// Evicts what `kind`'s budget needs gone.
+    pub(crate) fn enforce_residency(&mut self, kind: ResidencyKind) {
+        let now = self.residency_now();
+        if !self.gfx.residency.set(kind).wants_eviction(now) {
+            return;
+        }
+        match kind {
+            #[cfg(feature = "3d")]
+            ResidencyKind::Mesh => self.evict_meshes(now),
+            #[cfg(not(feature = "3d"))]
+            ResidencyKind::Mesh => {}
+            ResidencyKind::Texture => self.evict_textures(now),
+        }
+    }
+}
+
+impl crate::Graphics {
     /// The budget, usage and eviction counters of `kind`.
     #[must_use]
     pub fn residency(&self, kind: ResidencyKind) -> ResidencyStats {
@@ -362,26 +384,6 @@ impl crate::Ctx {
                 .set(kind)
                 .get(name)
                 .is_some_and(|e| self.textures_live.contains(e.handle)),
-        }
-    }
-
-    /// The frame and tick now, which residency protects assets asked for in.
-    pub(crate) fn residency_now(&self) -> (u64, u64) {
-        (self.frame(), self.sim_tick())
-    }
-
-    /// Evicts what `kind`'s budget needs gone.
-    pub(crate) fn enforce_residency(&mut self, kind: ResidencyKind) {
-        let now = self.residency_now();
-        if !self.residency.set(kind).wants_eviction(now) {
-            return;
-        }
-        match kind {
-            #[cfg(feature = "3d")]
-            ResidencyKind::Mesh => self.evict_meshes(now),
-            #[cfg(not(feature = "3d"))]
-            ResidencyKind::Mesh => {}
-            ResidencyKind::Texture => self.evict_textures(now),
         }
     }
 }

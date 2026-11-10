@@ -62,7 +62,7 @@ fn main() {
                 ctx.quit();
             }
             let dt = ctx.dt();
-            if ctx.frame() == 1 {
+            if ctx.time.frame() == 1 {
                 let (y, x, _) = ctx.camera3d.rotation.to_euler(glam::EulerRot::YXZ);
                 (yaw, pitch) = (y, x);
             }
@@ -100,12 +100,12 @@ fn main() {
             }
             ctx.camera3d.position += go * speed;
             ctx.camera3d.rotation = rotation;
-            if ctx.frame() == 300
+            if ctx.time.frame() == 300
                 && let Some(path) = &shot
             {
-                ctx.save_screenshot(path);
+                ctx.gfx.save_screenshot(path);
             }
-            if ctx.frame() == 302 && shot.is_some() {
+            if ctx.time.frame() == 302 && shot.is_some() {
                 ctx.quit();
             }
         })

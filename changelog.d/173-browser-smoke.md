@@ -14,7 +14,7 @@
   features, asset, expected state and key presses (`--fixture <name> [--build]`),
   and `examples/common/web_smoke.rs` is the shared helper a fixture uses to
   publish its state and the runner's self-test failure cases.
-- Richer artifacts: the engine's own adapter report (`Ctx::gpu_capabilities`,
+- Richer artifacts: the engine's own adapter report (`Graphics::gpu_capabilities`,
   published on `<html data-smoke-gpu>`) is checked against the canvas's context
   and recorded with the limits and fallbacks; a Playwright `trace.zip` for every
   run; an optional Chromium GPU trace (`--chrome-trace`); a Markdown summary of

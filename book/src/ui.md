@@ -1,12 +1,12 @@
 # Retained game UI
 
-Build a tree once in `ctx.ui_retained`, then update its text, values and styles.
+Build a tree once in `ctx.ui`, then update its text, values and styles.
 The engine handles layout/input before frame systems and draws the tree above
 scene sprites. The retained tree is the game's UI: menus, HUDs, shops, dialogs.
-The immediate-mode `ui_panel`, `ui_label` and `ui_button` calls
-([Camera and UI](camera-ui.md#ui)) are for debug overlays and quick prototypes.
+The immediate widgets, `ctx.ui.immediate.panel`, `label` and `button`
+([Camera and UI](camera-ui.md#ui)), are for debug overlays and quick prototypes.
 
-In C++ the tree is `ctx.ui_retained()`, a `ponko::ui::tree`; layouts and paints are
+In C++ the tree is `ctx.ui()`, a `ponko::ui::tree`; layouts and paints are
 built by chaining (`ui::layout().column().size(...)`, `ui::paint().wrap()`). In C it
 is the `ponko_ctx_ui_*` functions with a flat `PonkoUiLayout` and `PonkoUiPaint`
 (see [C and C++](c-cpp.md) and below).
@@ -63,7 +63,7 @@ Colors and text defaults come from the tree's theme:
 `ui.set_theme(UiTheme { panel, control, accent, text, text_size, .. })`. Every
 new node takes its `UiPaint` from the theme for its widget; paint set on a node
 (`.color(..)`, `.size(..)`, `set_paint`) overrides it, and a later `set_theme`
-changes only the fields a node didn't set. `ctx.ui_style` still styles only the
+changes only the fields a node didn't set. `ctx.ui.immediate.style` still styles only the
 immediate-mode widgets.
 
 `UiPaint` supplies background colors for normal/hover/pressed/disabled states,
@@ -209,11 +209,11 @@ Enter, Space or gamepad South activates the focused control. Text inputs reserve
 left/right, Home/End, Backspace/Delete, Shift-selection and Ctrl/Cmd-A for editing;
 Enter submits. Clicking/dragging selects text. Text is UTF-8 with scalar-boundary
 editing; grapheme-cluster editing, clipboard and IME composition are not provided.
-Native committed Unicode is available to both UI and games as `ctx.typed_text()`.
-Custom hosts/tests can supply it through `ctx.ui_insert_text()`.
+Native committed Unicode is available to both UI and games as `ctx.input.typed_text()`.
+Custom hosts/tests can supply it through `ctx.input.insert_text()`.
 
-`ctx.mouse_over_ui()` includes immediate and retained UI, including captured
-drags. `ctx.ui_wants_keyboard()` reports retained keyboard/gamepad ownership
+`ctx.ui.wants_pointer()` includes immediate and retained UI, including captured
+drags. `ctx.ui.wants_keyboard()` reports retained keyboard/gamepad ownership
 while any screen is open. These queries do not erase raw game input: game code
 uses them to suppress world actions. UI screen changes cancel pointer capture,
 so releasing a dialog button cannot activate an underlying screen.
@@ -270,13 +270,13 @@ A computer screen, a shop terminal or a sign with buttons is a `UiPanel3D`: a
 component with its own `Ui` that the engine draws every frame into a render
 target, which a glowing, alpha-blended quad shows. Build `panel.ui` just like the
 screen's tree; its widgets are laid out in the target's pixels, so a 600 x 400
-panel has a 600 x 400 viewport. `ctx.create_ui_panel(width, height, size)` makes
+panel has a 600 x 400 viewport. `ctx.gfx.create_ui_panel(width, height, size)` makes
 the render target, the material and the quad (`size` is in meters, in the
 entity's XY plane, facing +Z) and returns the panel and the `Model` to spawn
 with it, next to a `Transform3D`. The quad is an ordinary model: move and
 rotate the entity as usual.
 
-In C++ the entity comes first: `ctx.create_ui_panel(entity, width, height, size)`
+In C++ the entity comes first: `ctx.gfx.create_ui_panel(entity, width, height, size)`
 gives it the panel and the model, and `ctx.panel_ui(entity)` is the panel's
 `ui::tree`, with every call of the screen's tree.
 
@@ -306,7 +306,7 @@ turns its input off. Events, focus and the screen stack belong to each panel's
 own `Ui`: read them from it.
 
 When the cursor is locked (a first-person game) or the aim isn't the mouse (a
-controller in VR), give panels a ray yourself with `ctx.set_ui_pointer_ray`,
+controller in VR), give panels a ray yourself with `ctx.ui.set_pointer_ray`,
 for example from the camera along its forward direction. `None` goes back to the
 mouse.
 

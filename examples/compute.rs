@@ -64,26 +64,26 @@ fn main() {
                 next_drop = 0.05 + random() * 0.2;
                 drop = vec4(random(), random(), 0.3 + random() * 0.4, 0.0);
             }
-            if ctx.mouse_pressed(MouseButton::Left) {
+            if ctx.input.mouse_pressed(MouseButton::Left) {
                 let (from, dir) = ctx.camera3d.screen_ray(ctx.mouse_pos());
                 if dir.y < 0.0 {
                     let at = from + dir * (-from.y / dir.y);
                     drop = vec4(at.x / SIZE + 0.5, at.z / SIZE + 0.5, 3.0, 0.0);
                 }
             }
-            ctx.update_material(
+            ctx.gfx.update_material(
                 drops,
                 MaterialDesc {
                     custom: [drop, Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
                     ..Default::default()
                 },
             );
-            if ctx.frame() == 120
+            if ctx.time.frame() == 120
                 && let Ok(path) = std::env::var("SHOT")
             {
-                ctx.save_screenshot(path);
+                ctx.gfx.save_screenshot(path);
             }
-            if ctx.frame() == 122 && std::env::var("SHOT").is_ok() {
+            if ctx.time.frame() == 122 && std::env::var("SHOT").is_ok() {
                 ctx.quit();
             }
         })
@@ -93,26 +93,26 @@ fn main() {
             ctx.lighting.sun_direction = Sky::sun_direction_at(15.0);
             ctx.post.bloom = 0.15;
 
-            let heights = ctx.create_render_target(512, 512);
-            let ripples = ctx.create_compute("ripples", RIPPLES);
-            let drops = ctx.create_material(MaterialDesc::default());
+            let heights = ctx.gfx.create_render_target(512, 512);
+            let ripples = ctx.gfx.create_compute("ripples", RIPPLES);
+            let drops = ctx.gfx.create_material(MaterialDesc::default());
             ctx.compute_passes
                 .push(ComputePass::new(ripples, heights).with_material(drops));
 
-            let shader = ctx.create_shader("water", WATER);
-            let water = ctx.create_material(MaterialDesc {
+            let shader = ctx.gfx.create_shader("water", WATER);
+            let water = ctx.gfx.create_material(MaterialDesc {
                 shader: Some(shader),
                 custom_textures: [Some(heights), None],
                 ..MaterialDesc::color(Color::hex(0x2A5A75))
             });
-            let surface = ctx.create_mesh(&MeshData::plane(SIZE), water);
+            let surface = ctx.gfx.create_mesh(&MeshData::plane(SIZE), water);
             ctx.world.spawn((Transform3D::default(), Model::new(surface)));
 
-            let stone = ctx.create_material(MaterialDesc {
+            let stone = ctx.gfx.create_material(MaterialDesc {
                 roughness: 0.8,
                 ..MaterialDesc::color(Color::hex(0x8A8578))
             });
-            let rock = ctx.create_mesh(&MeshData::sphere(0.6, 16), stone);
+            let rock = ctx.gfx.create_mesh(&MeshData::sphere(0.6, 16), stone);
             for i in 0..40 {
                 let a = i as f32 / 40.0 * std::f32::consts::TAU;
                 let edge = vec3(a.cos(), 0.0, a.sin()) * SIZE * 0.55;
@@ -122,11 +122,11 @@ fn main() {
                 };
                 ctx.world.spawn((t, Model::new(rock)));
             }
-            let grass = ctx.create_material(MaterialDesc {
+            let grass = ctx.gfx.create_material(MaterialDesc {
                 roughness: 0.95,
                 ..MaterialDesc::color(Color::hex(0x4E6B33))
             });
-            let ground = ctx.create_mesh(&MeshData::plane(200.0), grass);
+            let ground = ctx.gfx.create_mesh(&MeshData::plane(200.0), grass);
             ctx.world
                 .spawn((Transform3D::at(vec3(0.0, -0.3, 0.0)), Model::new(ground)));
         });

@@ -215,7 +215,7 @@ pub unsafe extern "C" fn crabby_ctx_residency(
     out_stats: *mut CrabbyResidencyStats,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_stats, c.residency(kind_from(kind)?).into())) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_stats, c.gfx.residency(kind_from(kind)?).into())) })
 }
 
 /// Whether the asset of `kind` called `name` is resident.
@@ -236,7 +236,7 @@ pub unsafe extern "C" fn crabby_ctx_is_resident(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let name = text(name)?;
-            out(out_resident, c.is_resident(kind_from(kind)?, name))
+            out(out_resident, c.gfx.is_resident(kind_from(kind)?, name))
         })
     })
 }
@@ -259,7 +259,7 @@ pub unsafe extern "C" fn crabby_ctx_asset_state(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let name = text(name)?;
-            out(out_state, state_to_c(c.asset_state(kind_from(kind)?, name)))
+            out(out_state, state_to_c(c.gfx.asset_state(kind_from(kind)?, name)))
         })
     })
 }
@@ -289,6 +289,7 @@ pub unsafe extern "C" fn crabby_ctx_asset_error(
         ctx_access(ctx, |c| {
             let name = text(name)?;
             let message = c
+                .gfx
                 .asset_error(kind_from(kind)?, name)
                 .map(ToString::to_string)
                 .unwrap_or_default();
@@ -470,14 +471,14 @@ pub unsafe extern "C" fn crabby_ctx_set_upload_budget(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_upload_budget(has_budget.then_some(bytes));
+            c.gfx.set_upload_budget(has_budget.then_some(bytes));
             Ok(())
         })
     })
 }
 
 /// With `on`, the upload step waits for decoding, so asset states change
-/// in the same frames every run (Rust `Ctx::set_deterministic_uploads`).
+/// in the same frames every run (Rust `Graphics::set_deterministic_uploads`).
 /// # Safety
 /// `ctx` null or live.
 /// ```
@@ -488,7 +489,7 @@ pub unsafe extern "C" fn crabby_ctx_set_deterministic_uploads(ctx: *mut CrabbyCt
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_deterministic_uploads(on);
+            c.gfx.set_deterministic_uploads(on);
             Ok(())
         })
     })
@@ -506,7 +507,7 @@ pub unsafe extern "C" fn crabby_ctx_upload_stats(
     out_stats: *mut CrabbyUploadStats,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_stats, c.upload_stats().into())) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_stats, c.gfx.upload_stats().into())) })
 }
 
 /// Waits until everything streamed so far is loaded (loading screens, tests).

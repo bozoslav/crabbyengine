@@ -72,7 +72,7 @@ fn ground(ctx: &mut Ctx) -> Material {
         layer([0.70, 0.62, 0.45], 0.4),
     ];
     let refs: Vec<&[u8]> = layers.iter().map(Vec::as_slice).collect();
-    let layers = ctx.create_texture_array(256, 256, &refs, TextureKind::Color);
+    let layers = ctx.gfx.create_texture_array(256, 256, &refs, TextureKind::Color);
     // One weight map over the whole world, 2 m a pixel.
     let cells = (TILES as usize * (N - 1)) / 2;
     let area = TILES as f32 * TILE;
@@ -90,12 +90,14 @@ fn ground(ctx: &mut Ctx) -> Material {
             [grass, dirt, rock, sand].map(|w| (w * 255.0) as u8)
         })
         .collect();
-    let weights = ctx.create_texture_array(cells as u32, cells as u32, &[&weights], TextureKind::Data);
+    let weights = ctx
+        .gfx
+        .create_texture_array(cells as u32, cells as u32, &[&weights], TextureKind::Data);
     let desc = TerrainMaterialDesc {
         layer_size: [5.0, 4.0, 7.0, 3.0, 4.0, 4.0, 4.0, 4.0],
         ..TerrainMaterialDesc::new(layers, weights, vec2(origin, origin), vec2(area, area))
     };
-    ctx.create_terrain_material(&desc)
+    ctx.gfx.create_terrain_material(&desc)
 }
 
 /// The lake: waves, the bottom seen through it, and the hills mirrored in
@@ -236,17 +238,17 @@ fn main() {
             if ctx.key_pressed(Key::U) {
                 std::mem::swap(&mut ctx.effects, &mut parked);
             }
-            if ctx.frame() == 3
+            if ctx.time.frame() == 3
                 && let Ok(path) = std::env::var("SHOT")
             {
-                ctx.save_screenshot(path);
+                ctx.gfx.save_screenshot(path);
             }
-            if ctx.frame() == 5 && std::env::var("SHOT").is_ok() {
+            if ctx.time.frame() == 5 && std::env::var("SHOT").is_ok() {
                 ctx.quit();
             }
-            if ctx.frame() == 300 {
-                let stats = ctx.render_stats();
-                println!("{stats:?} models drawn: {}", ctx.models_drawn());
+            if ctx.time.frame() == 300 {
+                let stats = ctx.perf.render_stats();
+                println!("{stats:?} models drawn: {}", ctx.gfx.models_drawn());
                 if bench {
                     ctx.quit();
                 }
@@ -269,30 +271,32 @@ fn main() {
                     let heights: Vec<f32> = (0..N * N)
                         .map(|i| height(corner.x + (i % N) as f32 * 2.0, corner.z + (i / N) as f32 * 2.0))
                         .collect();
-                    let tile = ctx.create_terrain_tile(&heights, TILE, ground);
+                    let tile = ctx.gfx.create_terrain_tile(&heights, TILE, ground);
                     ctx.world.spawn((Transform3D::at(corner), tile));
                 }
             }
 
             // Half the window's size is plenty for a rippled mirror.
             let size = ctx.window_size();
-            let mirror = ctx.create_render_target((size.x as u32 / 2).max(1), (size.y as u32 / 2).max(1));
+            let mirror = ctx
+                .gfx
+                .create_render_target((size.x as u32 / 2).max(1), (size.y as u32 / 2).max(1));
             ctx.target_cameras
                 .push(TargetCamera::reflection(ctx.camera3d, mirror, WATER));
-            let water = ctx.create_shader("lake", LAKE);
-            let lake = ctx.create_material(MaterialDesc {
+            let water = ctx.gfx.create_shader("lake", LAKE);
+            let lake = ctx.gfx.create_material(MaterialDesc {
                 shader: Some(water),
                 blend: Blend::Transparent,
                 custom_textures: [Some(mirror), None],
                 custom: [vec4(0.06, 1.5, 1.2, 1.2), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
                 ..MaterialDesc::color(Color::hex(0x1E4D6B))
             });
-            let surface = ctx.create_mesh(&MeshData::plane(TILES as f32 * TILE), lake);
+            let surface = ctx.gfx.create_mesh(&MeshData::plane(TILES as f32 * TILE), lake);
             ctx.world
                 .spawn((Transform3D::at(vec3(0.0, WATER, 0.0)), Model::new(surface)));
 
-            let underwater = ctx.create_effect("underwater", UNDERWATER);
-            let level = ctx.create_material(MaterialDesc {
+            let underwater = ctx.gfx.create_effect("underwater", UNDERWATER);
+            let level = ctx.gfx.create_material(MaterialDesc {
                 custom: [vec4(WATER, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
                 ..Default::default()
             });

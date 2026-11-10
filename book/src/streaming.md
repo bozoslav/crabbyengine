@@ -138,7 +138,7 @@ name again loads it afresh, as a new handle.
 
 `perf.get` on the [control endpoint](control.md) reports `residency` (the
 budget and counters of each kind) and `streaming` (the upload queue's
-counters and every asset's state); `ctx.upload_stats()` gives the same
+counters and every asset's state); `ctx.gfx.upload_stats()` gives the same
 numbers in code, including how long the upload step took.
 
 ## Measured

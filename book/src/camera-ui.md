@@ -83,9 +83,9 @@ In world units, like sprites:
 
 ```rust
 # let (from, to, tower) = (vec2(0.0, 0.0), vec2(100.0, 50.0), vec2(300.0, 300.0));
-ctx.draw_rect(Rect::new(0.0, 0.0, 200.0, 20.0), Color::hex(0x3a5a40));
-ctx.draw_line(from, to, 2.0, Color::RED);
-ctx.draw_circle(tower, 120.0, Color::BLUE.with_alpha(0.2));
+ctx.gfx.draw_rect(Rect::new(0.0, 0.0, 200.0, 20.0), Color::hex(0x3a5a40));
+ctx.gfx.draw_line(from, to, 2.0, Color::RED);
+ctx.gfx.draw_circle(tower, 120.0, Color::BLUE.with_alpha(0.2));
 ```
 
 </div>
@@ -108,9 +108,9 @@ from a corner and a size, like Rust's `Rect::new`.
 
 ```rust
 ctx.draw_text("Hello", vec2(20.0, 20.0), 24.0, Color::WHITE);
-let size = ctx.measure_text("Paused", 32.0); // for centering
-let title = ctx.load_font("fonts/Title.ttf"); // TrueType or OpenType
-ctx.draw_text_ex("Colony", vec2(20.0, 60.0), TextParams { font: title, size: 40.0, ..Default::default() });
+let size = ctx.gfx.measure_text("Paused", 32.0); // for centering
+let title = ctx.gfx.load_font("fonts/Title.ttf"); // TrueType or OpenType
+ctx.gfx.draw_text_ex("Colony", vec2(20.0, 60.0), TextParams { font: title, size: 40.0, ..Default::default() });
 ```
 
 </div>
@@ -156,13 +156,18 @@ Call them every frame:
 </div>
 </div>
 
-- `ui_panel(rect)`: a background.
-- `ui_label(pos, text)`: text in the style's size and color; returns the
-  space it took, so you can stack lines.
-- `ui_button(rect, label)`: `true` on the frame it's clicked.
-- `ctx.ui_style` sets colors, text size and padding (C++: `ui_style()`,
+The widgets are on `ctx.ui.immediate` and say what they use: all of them
+draw through `ctx.gfx`, and a button also reads the mouse from `ctx.input`
+(C++: `ctx.ui_panel(rect)`, `ctx.ui_label(pos, text)`, `ctx.ui_button(rect, label)`).
+
+- `panel(&mut ctx.gfx, rect)`: a background.
+- `label(&mut ctx.gfx, pos, text)`: text in the style's size and color;
+  returns the space it took, so you can stack lines.
+- `button(&mut ctx.gfx, &ctx.input, rect, label)`: `true` on the frame it's
+  clicked.
+- `ctx.ui.immediate.style` sets colors, text size and padding (C++: `ui_style()`,
   `set_ui_style(s)`).
-- `ctx.mouse_over_ui()` says whether the mouse is over UI, so a click on a
+- `ctx.ui.wants_pointer()` says whether the mouse is over UI, so a click on a
   button doesn't also act on the world behind it. `camera_controls` checks
   it before zooming.
 

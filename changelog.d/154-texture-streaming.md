@@ -1,14 +1,14 @@
 ### Added
 - Asset streaming without gameplay-thread stalls: `Ctx::stream_texture` and
   `Ctx::stream_mesh` decode on job threads and return `None` until the asset
-  is uploaded, at the start of a frame, within `Ctx::set_upload_budget`
+  is uploaded, at the start of a frame, within `Graphics::set_upload_budget`
   (16 MiB a frame by default), in the order assets were asked for. Textures
   arrive as a stand-in of at most 32 pixels a side and double in resolution
   each upload under the same handle.
-- `AssetState` for every streamed or resident asset (`Ctx::asset_state`,
-  `asset_error`, `streamed_assets`); `Ctx::set_deterministic_uploads` makes
+- `AssetState` for every streamed or resident asset (`Graphics::asset_state`,
+  `asset_error`, `streamed_assets`); `Graphics::set_deterministic_uploads` makes
   every state change in the same frame each run; `Ctx::finish_uploads` and
-  `Ctx::upload_stats` (`UploadStats`).
+  `Graphics::upload_stats` (`UploadStats`).
 - Texture residency budgets: `ResidencyKind::Texture`, `Ctx::resident_texture`,
   `try_resident_texture`, `pin_resident_texture`, `unpin_resident_texture`.
   Over budget, the least recently used textures drop to their stand-in and

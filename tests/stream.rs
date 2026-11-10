@@ -193,38 +193,38 @@ mod cells {
     #[test]
     fn freed_meshes_are_not_drawn() {
         Game::new("t", 64, 64).run_headless(1, |ctx| {
-            let material = ctx.default_material();
-            let kept = ctx.create_mesh(&MeshData::cube(1.0), material);
-            let freed = ctx.create_mesh(&MeshData::cube(1.0), material);
+            let material = ctx.gfx.default_material();
+            let kept = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            let freed = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
             ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
             ctx.camera3d.look_at(Vec3::ZERO);
             ctx.world.spawn((Transform3D::default(), Model::new(kept)));
             ctx.world.spawn((Transform3D::default(), Model::new(freed)));
-            ctx.free_mesh(freed);
-            ctx.free_mesh(freed); // twice is fine
-            assert!(ctx.is_mesh_live(kept));
-            assert!(!ctx.is_mesh_live(freed));
+            ctx.gfx.free_mesh(freed);
+            ctx.gfx.free_mesh(freed); // twice is fine
+            assert!(ctx.gfx.is_mesh_live(kept));
+            assert!(!ctx.gfx.is_mesh_live(freed));
         });
     }
 
     #[test]
     fn mesh_none_never_becomes_another_mesh() {
         Game::new("t", 64, 64).run_headless(1, |ctx| {
-            let material = ctx.default_material();
+            let material = ctx.gfx.default_material();
             let cube = MeshData::cube(1.0);
-            let freed = ctx.create_mesh(&cube, material);
-            ctx.free_mesh(freed);
-            ctx.free_mesh(Mesh::NONE); // does nothing
-            ctx.set_mesh_shadows(Mesh::NONE, false); // does nothing
+            let freed = ctx.gfx.create_mesh(&cube, material);
+            ctx.gfx.free_mesh(freed);
+            ctx.gfx.free_mesh(Mesh::NONE); // does nothing
+            ctx.gfx.set_mesh_shadows(Mesh::NONE, false); // does nothing
             ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
             ctx.camera3d.look_at(Vec3::ZERO);
             ctx.world.spawn((Transform3D::default(), Model::new(Mesh::NONE)));
             // A freed id is taken by the next mesh made; NONE never is.
-            let made: Vec<Mesh> = (0..4).map(|_| ctx.create_mesh(&cube, material)).collect();
+            let made: Vec<Mesh> = (0..4).map(|_| ctx.gfx.create_mesh(&cube, material)).collect();
             assert!(made.contains(&freed));
             assert!(!made.contains(&Mesh::NONE));
-            assert!(!ctx.is_mesh_live(Mesh::NONE));
-            assert!(ctx.mesh_shadows(Mesh::NONE));
+            assert!(!ctx.gfx.is_mesh_live(Mesh::NONE));
+            assert!(ctx.gfx.mesh_shadows(Mesh::NONE));
         });
     }
 
@@ -232,48 +232,51 @@ mod cells {
     fn tiles_built_on_a_worker_match_tiles_built_in_place() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             let heights: Vec<f32> = (0..17 * 17).map(|i| (i % 17) as f32 * 0.5).collect();
-            let material = ctx.default_material();
-            let here = ctx.create_terrain_tile(&heights, 32.0, material);
+            let material = ctx.gfx.default_material();
+            let here = ctx.gfx.create_terrain_tile(&heights, 32.0, material);
             let moved = heights.clone();
             let job = Job::spawn(move || TerrainTileData::new(&moved, 32.0));
-            let there = ctx.upload_terrain_tile(&job.wait(), material);
+            let there = ctx.gfx.upload_terrain_tile(&job.wait(), material);
             assert_eq!(here.lod_distance, there.lod_distance);
-            ctx.free_terrain_tile(there);
-            assert!(there.lods.iter().all(|&m| !ctx.is_mesh_live(m)));
-            assert!(here.lods.iter().all(|&m| ctx.is_mesh_live(m)));
+            ctx.gfx.free_terrain_tile(there);
+            assert!(there.lods.iter().all(|&m| !ctx.gfx.is_mesh_live(m)));
+            assert!(here.lods.iter().all(|&m| ctx.gfx.is_mesh_live(m)));
         });
     }
 
     #[test]
     fn freeing_a_loaded_mesh_lets_it_load_again() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
-            let a = ctx.load_mesh("models/house.glb");
-            ctx.free_mesh(a);
-            let b = ctx.load_mesh("models/house.glb");
-            assert!(ctx.is_mesh_live(b));
+            let a = ctx.gfx.load_mesh("models/house.glb");
+            ctx.gfx.free_mesh(a);
+            let b = ctx.gfx.load_mesh("models/house.glb");
+            assert!(ctx.gfx.is_mesh_live(b));
         });
     }
 
     #[test]
     fn freed_mesh_ids_are_reused() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
-            let material = ctx.default_material();
+            let material = ctx.gfx.default_material();
             let cube = MeshData::cube(1.0);
-            let first: Vec<Mesh> = (0..4).map(|_| ctx.create_mesh(&cube, material)).collect();
-            ctx.set_mesh_shadows(first[1], false);
-            ctx.free_mesh(first[1]);
-            ctx.free_mesh(first[3]);
+            let first: Vec<Mesh> = (0..4).map(|_| ctx.gfx.create_mesh(&cube, material)).collect();
+            ctx.gfx.set_mesh_shadows(first[1], false);
+            ctx.gfx.free_mesh(first[1]);
+            ctx.gfx.free_mesh(first[3]);
             // Streaming tiles in and out keeps the mesh tables the same size.
-            let again = [ctx.create_mesh(&cube, material), ctx.create_mesh(&cube, material)];
+            let again = [
+                ctx.gfx.create_mesh(&cube, material),
+                ctx.gfx.create_mesh(&cube, material),
+            ];
             assert!(
                 again == [first[3], first[1]] || again == [first[1], first[3]],
                 "{again:?}"
             );
-            assert!(again.iter().all(|&m| ctx.is_mesh_live(m)));
+            assert!(again.iter().all(|&m| ctx.gfx.is_mesh_live(m)));
             // The new mesh doesn't inherit the old one's settings.
-            assert!(ctx.mesh_shadows(first[1]));
+            assert!(ctx.gfx.mesh_shadows(first[1]));
             // Past the freed ones, ids are new.
-            let new = ctx.create_mesh(&cube, material);
+            let new = ctx.gfx.create_mesh(&cube, material);
             assert!(!first.contains(&new));
         });
     }
@@ -281,7 +284,7 @@ mod cells {
     #[test]
     fn far_terrain_rebuilds_the_meshes_around_a_cut_and_frees_what_it_replaces() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
-            let ground = ctx.default_material();
+            let ground = ctx.gfx.default_material();
             // 256 squares of 16 m each way: 4 x 4 meshes. Cells of 128 m.
             let n = 257;
             let heights = vec![0.0; n * n];
@@ -297,7 +300,7 @@ mod cells {
             far.update(ctx);
             let after: Vec<Mesh> = ctx.world.query::<&Model>().iter().map(|m| m.mesh).collect();
             assert_eq!(after.len(), 16);
-            assert!(after.iter().all(|&m| ctx.is_mesh_live(m)));
+            assert!(after.iter().all(|&m| ctx.gfx.is_mesh_live(m)));
             // Freed ids are reused, so the old and new sets are the same size.
             assert_eq!(after.len(), meshes.len());
             // A cell whose mesh has nothing left goes away with its entity.
@@ -314,7 +317,7 @@ mod cells {
             far.clear(ctx);
             tiny.clear(ctx);
             assert_eq!(models(ctx), 0);
-            assert!(meshes.iter().chain(&after).all(|&m| !ctx.is_mesh_live(m)));
+            assert!(meshes.iter().chain(&after).all(|&m| !ctx.gfx.is_mesh_live(m)));
         });
     }
 }
@@ -323,19 +326,19 @@ mod cells {
 #[test]
 fn reloading_freed_geometry_reuses_materials_and_preserves_edits() {
     Game::new("reload", 1, 1).run_headless(0, |ctx| {
-        let mut mesh = ctx.load_mesh("models/house.glb");
-        let walls = ctx.loaded_materials("walls");
-        let roof = ctx.loaded_materials("roof");
+        let mut mesh = ctx.gfx.load_mesh("models/house.glb");
+        let walls = ctx.gfx.loaded_materials("walls");
+        let roof = ctx.gfx.loaded_materials("roof");
         assert!(!walls.is_empty());
         let (material, mut desc) = walls[0];
         desc.roughness = 0.17;
-        ctx.update_material(material, desc);
+        ctx.gfx.update_material(material, desc);
         for _ in 0..32 {
-            ctx.free_mesh(mesh);
-            mesh = ctx.load_mesh("models/house.glb");
-            assert_eq!(ctx.loaded_materials("walls").len(), walls.len());
-            assert_eq!(ctx.loaded_materials("roof").len(), roof.len());
-            assert_eq!(ctx.loaded_materials("walls")[0].0, material);
+            ctx.gfx.free_mesh(mesh);
+            mesh = ctx.gfx.load_mesh("models/house.glb");
+            assert_eq!(ctx.gfx.loaded_materials("walls").len(), walls.len());
+            assert_eq!(ctx.gfx.loaded_materials("roof").len(), roof.len());
+            assert_eq!(ctx.gfx.loaded_materials("walls")[0].0, material);
         }
     });
 }

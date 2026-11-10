@@ -42,7 +42,7 @@ fn commands_queued_before_a_load_are_dropped_and_later_ones_apply() {
     let mut kept = None;
     let mut world = Game::new("t", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() != 1 {
+            if ctx.time.sim_tick() != 1 {
                 return;
             }
             let e = ctx.world.query::<(Entity, &Tag)>().iter().next().unwrap().0;
@@ -55,7 +55,7 @@ fn commands_queued_before_a_load_are_dropped_and_later_ones_apply() {
         .run_headless(2, |ctx| {
             ctx.world.reflect::<Tag>();
             kept = Some(ctx.world.spawn((Tag(1),)));
-            ctx.save_scene(file.0).unwrap();
+            ctx.assets.save_scene(&ctx.world, file.0).unwrap();
         });
     let e = kept.unwrap();
     assert_eq!(
@@ -83,7 +83,7 @@ fn events_sent_before_a_load_can_still_be_read() {
     let seen = got.clone();
     Game::new("t", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 ctx.events.send(Ping(7));
                 ctx.load_scene("test-lifecycle-events.json").unwrap();
             }
@@ -96,7 +96,7 @@ fn events_sent_before_a_load_can_still_be_read() {
         .run_headless(2, |ctx| {
             ctx.world.reflect::<Tag>();
             ctx.world.spawn((Tag(1),));
-            ctx.save_scene(file.0).unwrap();
+            ctx.assets.save_scene(&ctx.world, file.0).unwrap();
         });
     assert_eq!(got.get(), Some(7));
 }
@@ -109,7 +109,7 @@ fn reflected_resources_follow_the_scene_and_other_state_stays() {
         ctx.world.reflect_resource::<Level>();
         ctx.world.insert_resource(Level(1));
         ctx.world.spawn((Tag(1),));
-        ctx.save_scene(file.0).unwrap();
+        ctx.assets.save_scene(&ctx.world, file.0).unwrap();
 
         ctx.world.insert_resource(Level(5));
         ctx.world.insert_resource(Coins(42));
@@ -203,9 +203,9 @@ mod physics {
             RigidBody::dynamic(),
             Collider::circle(10.0),
         ));
-        ctx.save_scene(a).unwrap();
+        ctx.assets.save_scene(&ctx.world, a).unwrap();
         ctx.world.get_mut::<Transform2D>(ball).unwrap().position = vec2(500.0, 0.0);
-        ctx.save_scene(b).unwrap();
+        ctx.assets.save_scene(&ctx.world, b).unwrap();
         ctx.load_scene(a).unwrap();
         ball
     }
@@ -221,7 +221,7 @@ mod physics {
             .physics(GRAVITY)
             .sim_system(|ctx: &mut Ctx| {
                 // Half a second of falling, then the next scene.
-                if ctx.sim_tick() == 30 {
+                if ctx.time.sim_tick() == 30 {
                     ctx.load_scene("test-lifecycle-fall-b.json").unwrap();
                 }
             })
@@ -243,7 +243,7 @@ mod physics {
         let mut world = Game::new("t", 1, 1)
             .physics(GRAVITY)
             .sim_system(|ctx: &mut Ctx| {
-                if ctx.sim_tick() == 30 {
+                if ctx.time.sim_tick() == 30 {
                     let text = std::fs::read_to_string(
                         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/test-lifecycle-raw-b.json"),
                     )
@@ -270,7 +270,7 @@ mod physics {
             .physics(Vec2::ZERO)
             .sim_system(move |ctx: &mut Ctx| {
                 let hit = |ctx: &Ctx| ctx.physics.cast_ray(vec2(-100.0, 0.0), Vec2::X, 1000.0);
-                match ctx.sim_tick() {
+                match ctx.time.sim_tick() {
                     5 => {
                         let before = hit(ctx).expect("scene A's ball");
                         assert!((before.point.x + 10.0).abs() < 0.5, "{:?}", before.point);
@@ -293,9 +293,13 @@ mod physics {
                 let ball = ctx
                     .world
                     .spawn((Transform2D::at(Vec2::ZERO), RigidBody::fixed(), Collider::circle(10.0)));
-                ctx.save_scene("test-lifecycle-query-a.json").unwrap();
+                ctx.assets
+                    .save_scene(&ctx.world, "test-lifecycle-query-a.json")
+                    .unwrap();
                 ctx.world.get_mut::<Transform2D>(ball).unwrap().position = vec2(500.0, 0.0);
-                ctx.save_scene("test-lifecycle-query-b.json").unwrap();
+                ctx.assets
+                    .save_scene(&ctx.world, "test-lifecycle-query-b.json")
+                    .unwrap();
                 ctx.load_scene("test-lifecycle-query-a.json").unwrap();
             });
         drop((a, b));
@@ -312,7 +316,7 @@ mod physics {
         );
         Game::new("t", 1, 1)
             .physics(GRAVITY)
-            .sim_system(|ctx: &mut Ctx| match ctx.sim_tick() {
+            .sim_system(|ctx: &mut Ctx| match ctx.time.sim_tick() {
                 2 => {
                     ctx.physics.set_gravity(vec2(0.0, -50.0));
                     assert!(ctx.load_scene("test-lifecycle-gravity-bad.json").is_err());
@@ -332,7 +336,7 @@ mod physics {
                     RigidBody::dynamic(),
                     Collider::circle(10.0),
                 ));
-                ctx.save_scene(file.0).unwrap();
+                ctx.assets.save_scene(&ctx.world, file.0).unwrap();
             });
     }
 }
@@ -350,7 +354,7 @@ mod physics3d {
         let mut world = Game::new("t", 1, 1)
             .physics3d(vec3(0.0, -9.81, 0.0))
             .sim_system(|ctx: &mut Ctx| {
-                if ctx.sim_tick() == 30 {
+                if ctx.time.sim_tick() == 30 {
                     ctx.load_scene("test-lifecycle-fall3d-b.json").unwrap();
                 }
             })
@@ -360,9 +364,9 @@ mod physics3d {
                     RigidBody3D::dynamic(),
                     Collider3D::sphere(0.5),
                 ));
-                ctx.save_scene(a.0).unwrap();
+                ctx.assets.save_scene(&ctx.world, a.0).unwrap();
                 ctx.world.get_mut::<Transform3D>(ball).unwrap().position = vec3(50.0, 0.0, 0.0);
-                ctx.save_scene(b.0).unwrap();
+                ctx.assets.save_scene(&ctx.world, b.0).unwrap();
                 ctx.load_scene(a.0).unwrap();
             });
         let p = world
@@ -385,9 +389,9 @@ fn prefabs_stay_cached_across_a_load() {
     let mut world = Game::new("t", 1, 1).run_headless(0, |ctx| {
         ctx.world.reflect::<Tag>();
         let model = ctx.world.spawn((Transform2D::default(), Tag(5)));
-        ctx.save_prefab(model, prefab.0).unwrap();
+        ctx.assets.save_prefab(&ctx.world, model, prefab.0).unwrap();
         ctx.spawn_prefab(prefab.0, vec2(1.0, 0.0)).unwrap();
-        ctx.save_scene(scene.0).unwrap();
+        ctx.assets.save_scene(&ctx.world, scene.0).unwrap();
         // The file is gone, but the prefab was read before the load.
         std::fs::remove_file(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -411,7 +415,7 @@ fn attachments_follow_the_new_scenes_entities() {
     let mut ids = None;
     let world = Game::new("t", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 2 {
+            if ctx.time.sim_tick() == 2 {
                 ctx.load_scene("test-lifecycle-attach-b.json").unwrap();
             }
         })
@@ -423,13 +427,13 @@ fn attachments_follow_the_new_scenes_entities() {
                 .world
                 .spawn((Transform2D::default(), Attached::to(tank).offset(vec2(0.0, -4.0))));
             let ring = ctx.world.spawn((Transform2D::default(), Attached::to(other)));
-            ctx.save_scene(a.0).unwrap();
+            ctx.assets.save_scene(&ctx.world, a.0).unwrap();
             // Scene B: the same ids; the tank moved, the turret sits elsewhere
             // on it, and the ring's entity isn't in it.
             ctx.world.get_mut::<Transform2D>(tank).unwrap().position = vec2(100.0, 0.0);
             *ctx.world.get_mut::<Attached>(turret).unwrap() = Attached::to(tank).offset(vec2(10.0, 0.0));
             ctx.world.despawn(other);
-            ctx.save_scene(b.0).unwrap();
+            ctx.assets.save_scene(&ctx.world, b.0).unwrap();
             ctx.load_scene(a.0).unwrap();
             ids = Some((turret, ring));
         });
@@ -452,7 +456,7 @@ fn loads_in_setup_and_simulation_systems_run_on_every_lockstep_peer() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         ctx.world.reflect::<Tag>();
         ctx.world.spawn((Tag(7),));
-        ctx.save_scene(file.0).unwrap();
+        ctx.assets.save_scene(&ctx.world, file.0).unwrap();
     });
     let runs: Vec<_> = Net::loopback(2)
         .into_iter()
@@ -461,12 +465,12 @@ fn loads_in_setup_and_simulation_systems_run_on_every_lockstep_peer() {
                 let mut world = Game::new("t", 1, 1)
                     .lockstep(net.checksum_every(5))
                     .sim_system(|ctx: &mut Ctx| {
-                        ctx.net.set_input(&Step(ctx.sim_tick() as u32));
-                        if ctx.sim_tick() == 10 {
+                        ctx.net.set_input(&Step(ctx.time.sim_tick() as u32));
+                        if ctx.time.sim_tick() == 10 {
                             assert_eq!(ctx.world.query::<&Tag>().iter().next().unwrap().0, 1);
                             ctx.load_scene("test-lifecycle-lockstep.json").unwrap();
                         }
-                        if ctx.sim_tick() == 29 {
+                        if ctx.time.sim_tick() == 29 {
                             let desync = ctx.net.desync().cloned();
                             ctx.world.insert_resource(Some(desync));
                         }
@@ -514,7 +518,7 @@ mod navigation {
         let mut walker = None;
         let world = Game::new("t", 1, 1)
             .sim_system(move |ctx: &mut Ctx| {
-                if ctx.sim_tick() == 5 {
+                if ctx.time.sim_tick() == 5 {
                     ctx.load_scene(next).unwrap();
                     let loaded: Vec<(Entity, u32)> = ctx
                         .world
@@ -548,9 +552,9 @@ mod navigation {
                     .insert_resource(NavMesh3D::bake(&[plane], NavBakeSettings::default()).unwrap());
                 let w = ctx.world.spawn((Transform3D::at(vec3(-6.0, 0.0, 0.0)), Tag(1)));
                 let blocker = ctx.world.spawn((Transform3D::at(vec3(0.0, 0.0, 0.05)), Tag(2)));
-                ctx.save_scene(a).unwrap();
+                ctx.assets.save_scene(&ctx.world, a).unwrap();
                 ctx.world.despawn(blocker);
-                ctx.save_scene(b).unwrap();
+                ctx.assets.save_scene(&ctx.world, b).unwrap();
                 ctx.load_scene(a).unwrap();
                 // Scene A's crowd before the load: both agents stand.
                 ctx.world.insert(w, crowd_agent());
@@ -590,7 +594,7 @@ mod navigation {
             ctx.world
                 .insert_resource(NavMesh3D::bake(&[plane], NavBakeSettings::default()).unwrap());
             ctx.world.spawn((Tag(1),));
-            ctx.save_scene(file.0).unwrap();
+            ctx.assets.save_scene(&ctx.world, file.0).unwrap();
             ctx.load_scene(file.0).unwrap();
         });
         let nav = world.resource::<NavMesh3D>();

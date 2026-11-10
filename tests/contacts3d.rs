@@ -131,7 +131,7 @@ fn removing_the_modifier_makes_the_body_plain_again() {
         .physics3d(GRAVITY)
         .sim_system(|ctx: &mut Ctx| {
             // After a few steps the hook-everything floor turns plain.
-            if ctx.sim_tick() == 5 {
+            if ctx.time.sim_tick() == 5 {
                 let f = ctx
                     .world
                     .query::<(Entity, &ContactModifier3D)>()

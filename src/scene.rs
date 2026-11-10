@@ -7,29 +7,29 @@
 
 use serde_json::{Value, json};
 
-use crate::{Ctx, Entity, Transform2D, Vec2, WorldReflect, assets};
+use crate::{Ctx, Entity, Transform2D, Vec2, WorldReflect};
 
-/// Loads one asset a scene names (`Ctx::scene_asset_field`).
+/// Loads one asset a scene names (`Assets::scene_asset_field`).
 type SceneAssetLoader = std::rc::Rc<dyn Fn(&mut Ctx, &str) -> Result<(), String>>;
 
 /// A field of a reflected component that names an asset, and how to load
-/// it (`Ctx::scene_asset_field`).
+/// it (`Assets::scene_asset_field`).
 pub(crate) struct SceneAssetField {
     component: String,
     field: String,
     load: SceneAssetLoader,
 }
 
-const PREFAB_FORMAT: &str = "crabby-prefab";
-const PREFAB_VERSION: u64 = 1;
+pub(crate) const PREFAB_FORMAT: &str = "crabby-prefab";
+pub(crate) const PREFAB_VERSION: u64 = 1;
 
 impl Ctx {
     /// Replaces the world with the scene in `assets/<path>` (written by
-    /// [`save_scene`](Self::save_scene), the editor, or
+    /// [`save_scene`](crate::Assets::save_scene), the editor, or
     /// [`WorldReflect::save`]). Entities keep their ids, so references
     /// between them hold. Components must be [reflected](WorldReflect::reflect).
     /// The scene and the textures it names may also come from an
-    /// [asset source](Ctx::add_asset_source).
+    /// [asset source](crate::Assets::add_source).
     ///
     /// ```no_run
     /// # use ponko::*;
@@ -49,8 +49,8 @@ impl Ctx {
     /// |---|---|
     /// | Entities | Replaced by the scene's, with the scene's ids. An old [`Entity`] handle may now name a different entity of the new scene. |
     /// | Reflected resources | Those in the scene are written; reflected ones it doesn't name stay. |
-    /// | Other resources | Kept as they were (scores you didn't reflect, tuning loaded with [`load_resource`](Self::load_resource), a baked navigation mesh). |
-    /// | Components that aren't reflected | Gone with their entities; [`save_scene`](Self::save_scene) reports them under `"not_saved"`. |
+    /// | Other resources | Kept as they were (scores you didn't reflect, tuning loaded with [`load_resource`](crate::Assets::load_resource), a baked navigation mesh). |
+    /// | Components that aren't reflected | Gone with their entities; [`save_scene`](crate::Assets::save_scene) reports them under `"not_saved"`. |
     /// | [`commands`](Self::commands) | Commands queued earlier in the running system are dropped: they were meant for the old entities. Commands queued after the load apply as usual. |
     /// | [`events`](Self::events) | Kept: events sent before the load can still be read for their usual lifetime. Entity ids inside them (such as [`CollisionStarted`](crate::CollisionStarted)) refer to the old world. |
     /// | 2D and 3D physics | Bodies, characters and joints are removed at once (queries find nothing), then built from the new components at the next physics step, from rest unless the scene has a velocity component. Gravity, collision meshes, contact hooks and settings are kept. |
@@ -96,7 +96,7 @@ impl Ctx {
     /// # use ponko::*;
     /// # fn next_level(ctx: &mut Ctx) {
     /// // A simulation system: every peer reaches tick 600 with the same world.
-    /// if ctx.sim_tick() == 600 {
+    /// if ctx.time.sim_tick() == 600 {
     ///     ctx.load_scene_lockstep("levels/two.json").expect("level");
     /// }
     /// # }
@@ -110,7 +110,7 @@ impl Ctx {
     }
 
     fn read_and_replace(&mut self, path: &str) -> Result<(), String> {
-        let (_, text) = self.read_asset_text(path)?;
+        let (_, text) = self.assets.read_text(path)?;
         let scene: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
         self.replace_world_now(&scene).map_err(|e| format!("{path}: {e}"))
     }
@@ -161,30 +161,12 @@ impl Ctx {
         {
             // Keyboard focus named an entity of the old world: the same id
             // may be another panel now, which nobody clicked.
-            self.ui.panels.forget_focus();
+            self.ui_state.panels.forget_focus();
             // Motion history is keyed by entity id: a same-id model of the
             // new scene has no past in the old one.
-            self.reset_temporal_history();
+            self.gfx.reset_temporal_history();
         }
         Ok(())
-    }
-
-    /// Saves the world (its reflected components and resources) as a scene
-    /// in `assets/<path>`, over the file if it exists. Not in web builds.
-    ///
-    /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// ctx.save_scene("levels/beach.json").expect("saved");
-    /// # }
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// If the file can't be written.
-    pub fn save_scene(&mut self, path: &str) -> Result<(), String> {
-        let text = serde_json::to_string_pretty(&self.world.save()).map_err(|e| e.to_string())?;
-        assets::write(path, text.as_bytes()).map(|_| ())
     }
 
     /// Spawns the prefab in `assets/<path>` with its position at `at` (its
@@ -204,49 +186,23 @@ impl Ctx {
     /// If the file is missing or isn't a prefab, or a component isn't
     /// reflected or doesn't fit; nothing is spawned then.
     pub fn spawn_prefab(&mut self, path: &str, at: Vec2) -> Result<Entity, String> {
-        if !self.prefabs.contains_key(path) {
-            let (_, text) = self.read_asset_text(path)?;
+        if !self.assets.prefabs.contains_key(path) {
+            let (_, text) = self.assets.read_text(path)?;
             let prefab: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
             let components = components_of(&prefab).map_err(|e| format!("{path}: {e}"))?;
             self.load_scene_assets(&components)
                 .map_err(|e| format!("{path}: {e}"))?;
-            self.prefabs.insert(path.to_string(), components);
+            self.assets.prefabs.insert(path.to_string(), components);
         }
-        let components = self.prefabs[path].clone();
+        let components = self.assets.prefabs[path].clone();
         spawn_at(&mut self.world, components, at).map_err(|e| format!("{path}: {e}"))
-    }
-
-    /// Saves entity `e` (its reflected components) as a prefab in
-    /// `assets/<path>`, for [`spawn_prefab`](Self::spawn_prefab). Its
-    /// position isn't kept: each spawn says where. Not in web builds.
-    ///
-    /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, palm: Entity) {
-    /// ctx.save_prefab(palm, "prefabs/palm.json").expect("saved");
-    /// # }
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// If `e` is dead or the file can't be written.
-    pub fn save_prefab(&mut self, e: Entity, path: &str) -> Result<(), String> {
-        let mut components = self.world.entity_json(e).map_err(|e| e.to_string())?;
-        if let Some(t) = components.get_mut("Transform2D") {
-            t["position"] = json!([0.0, 0.0]);
-        }
-        let prefab = json!({ "format": PREFAB_FORMAT, "version": PREFAB_VERSION, "components": components });
-        let text = serde_json::to_string_pretty(&prefab).map_err(|e| e.to_string())?;
-        assets::write(path, text.as_bytes())?;
-        self.prefabs.insert(path.to_string(), components);
-        Ok(())
     }
 }
 
-impl Ctx {
+impl crate::Assets {
     /// Says that field `field` of reflected component `T` names an asset,
     /// and how to load it: before a scene or prefab is spawned
-    /// ([`load_scene`](Self::load_scene), [`spawn_prefab`](Self::spawn_prefab),
+    /// ([`load_scene`](Ctx::load_scene), [`spawn_prefab`](Ctx::spawn_prefab),
     /// the editor and the control endpoint), `load` is called with every
     /// name found there, the way the textures of `Sprite`s and meshes of
     /// `Model`s are loaded first.
@@ -255,9 +211,9 @@ impl Ctx {
     /// them), not a handle: scenes save it as written, and a system gets
     /// the handle by loading the name again, which returns the cached one.
     /// `load` decides what the name means, so it covers your own asset
-    /// types too ([`load_asset_with`](Self::load_asset_with) into a
+    /// types too ([`load_with`](Self::load_with) into a
     /// resource). Names are found through the [asset
-    /// sources](Self::add_asset_source) like any other load.
+    /// sources](Self::add_source) like any other load.
     ///
     /// The field may hold a name or a list of names; other values are
     /// skipped (the component's own deserialization reports them). A
@@ -279,13 +235,13 @@ impl Ctx {
     /// #     .unwrap();
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     ctx.world.reflect::<ShopItem>();
-    ///     ctx.scene_asset_field::<ShopItem>("icon", |ctx, name| {
-    ///         ctx.try_load_texture(name).map(|_| ()).map_err(|e| e.to_string())
+    ///     ctx.assets.scene_asset_field::<ShopItem>("icon", |ctx, name| {
+    ///         ctx.gfx.try_load_texture(name).map(|_| ()).map_err(|e| e.to_string())
     ///     });
     ///     // A scene with one shop item, kept in memory with its icon.
     ///     ctx.world.spawn((ShopItem { icon: "icons/apple.png".into() },));
     ///     let shop = serde_json::to_string(&ctx.world.save()).unwrap();
-    ///     ctx.add_asset_source(MemorySource::new("shop").with("shop.json", shop).with("icons/apple.png", red));
+    ///     ctx.assets.add_source(MemorySource::new("shop").with("shop.json", shop).with("icons/apple.png", red));
     ///
     ///     ctx.load_scene("shop.json").unwrap(); // loads "icons/apple.png" first
     ///     let item = ctx.world.query::<&ShopItem>().iter().next().unwrap().clone();
@@ -313,12 +269,14 @@ impl Ctx {
             None => self.scene_asset_fields.push(entry),
         }
     }
+}
 
+impl Ctx {
     /// Loads the assets that fields registered with
-    /// [`scene_asset_field`](Self::scene_asset_field) name anywhere in `json`.
+    /// [`scene_asset_field`](crate::Assets::scene_asset_field) name anywhere in `json`.
     pub(crate) fn load_scene_asset_fields(&mut self, json: &Value) -> Result<(), String> {
-        for i in 0..self.scene_asset_fields.len() {
-            let f = &self.scene_asset_fields[i];
+        for i in 0..self.assets.scene_asset_fields.len() {
+            let f = &self.assets.scene_asset_fields[i];
             let (component, field, load) = (f.component.clone(), f.field.clone(), f.load.clone());
             let mut names = Vec::new();
             field_names(json, &component, &field, &mut names);
@@ -448,7 +406,7 @@ mod lockstep_tests {
             let extra = ctx.world.spawn((Tag(100),));
             assert!(editor.stop(ctx).unwrap_err().contains("lockstep session"));
             assert!(editor.playing(), "Stop can be retried");
-            ctx.resume();
+            ctx.time.resume();
             ctx.world.despawn(extra);
         }
         assert_eq!(WorldReflect::save(&ctx.world), before, "nothing changed");
@@ -469,9 +427,9 @@ mod lockstep_tests {
                     let mut world = Game::new("t", 1, 1)
                         .lockstep(net.checksum_every(5))
                         .sim_system(move |ctx: &mut Ctx| {
-                            ctx.net.set_input(&(ctx.sim_tick() as u32));
+                            ctx.net.set_input(&(ctx.time.sim_tick() as u32));
                             tick(ctx, &f1);
-                            if ctx.sim_tick() + 1 == ticks {
+                            if ctx.time.sim_tick() + 1 == ticks {
                                 let desync = ctx.net.desync().cloned();
                                 ctx.world.insert_resource(Some(desync));
                             }
@@ -500,7 +458,7 @@ mod lockstep_tests {
             20,
             |_, _| {},
             |ctx, files| {
-                if ctx.sim_tick() == 8 {
+                if ctx.time.sim_tick() == 8 {
                     assert_eq!(ctx.net.state(), NetState::Running);
                     // As in a frame, late or draw system, or a tool between ticks.
                     ctx.set_in_sim(false);
@@ -551,7 +509,7 @@ mod lockstep_tests {
                 ctx.world.query::<&mut Tag>().for_each(|t| t.0 = 2);
             },
             |ctx, files| {
-                if ctx.sim_tick() == 8 {
+                if ctx.time.sim_tick() == 8 {
                     assert_eq!(tags(ctx), [2]);
                     ctx.load_scene(files.asset).unwrap();
                 }

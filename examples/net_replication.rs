@@ -13,7 +13,7 @@ fn main() {
         // In a game this is a decoded packet from `NetMessages::events()`:
         let (entity, stamp) = (7u64, UpdateStamp { epoch: 0, seq: n });
         let sender_time = 5000.0 + f64::from(n) * 0.05; // on the sender's clock
-        let arrived = f64::from(n) * 0.05 + 0.03; // on yours, e.g. ctx.time()
+        let arrived = f64::from(n) * 0.05 + 0.03; // on yours, e.g. ctx.time.elapsed()
         let pose = Pose::at(vec3(n as f32, 0.0, 0.0)).moving(vec3(20.0, 0.0, 0.0));
         if newest.accept(entity, stamp) {
             car.push(sender_time, arrived, pose);

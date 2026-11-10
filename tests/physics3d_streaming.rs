@@ -35,9 +35,9 @@ fn a_ball_rests_on_a_turned_and_scaled_terrain_tile_at_the_drawn_height_and_fall
     let radius = 0.3;
     let (mut ball, mut over_hole) = (None, None);
     let mut world = Game::new("t", 1, 1).physics3d(GRAVITY).run_headless(150, |ctx| {
-        let material = ctx.default_material();
+        let material = ctx.gfx.default_material();
         let data = TerrainTileData::new(&heights, size);
-        let tile = ctx.upload_terrain_tile(&data, material);
+        let tile = ctx.gfx.upload_terrain_tile(&data, material);
         let mesh = ctx.physics3d.heightfield(&heights, size);
         ctx.world
             .spawn((tile_transform, tile, TerrainCollider::new(mesh).friction(1.0)));
@@ -79,7 +79,7 @@ fn collision_meshes_build_on_a_worker_thread() {
     Game::new("t", 1, 1)
         .physics3d(Vec3::ZERO)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 let hit = ctx
                     .physics3d
                     .cast_ray(vec3(5.0, 10.0, 5.0), Vec3::NEG_Y, 20.0, QueryFilter3D::default());
@@ -109,7 +109,7 @@ fn editing_a_tile_swaps_its_collider_and_despawning_removes_it() {
                 .cast_ray(vec3(3.0, 50.0, 3.0), Vec3::NEG_Y, 100.0, QueryFilter3D::default());
             out.borrow_mut().push(ray.map(|h| h.point.y));
             let e = tile_in.borrow().unwrap();
-            match ctx.sim_tick() {
+            match ctx.time.sim_tick() {
                 0 => {
                     // Dig the ground down to 1 m: a new mesh, the old one freed.
                     let lower = ctx.physics3d.heightfield(&[1.0; 4 * 4], 6.0);
@@ -144,7 +144,7 @@ fn boxes_in_as_the_focus_moves(path: &'static [f32], max_new: usize) -> Vec<Vec<
     Game::new("t", 1, 1)
         .physics3d(Vec3::ZERO)
         .sim_system(move |ctx: &mut Ctx| {
-            let tick = ctx.sim_tick() as usize;
+            let tick = ctx.time.sim_tick() as usize;
             let row: Vec<bool> = boxes_in
                 .borrow()
                 .iter()
@@ -208,7 +208,7 @@ fn ground_stays_under_a_body_left_behind_and_queries_only_see_colliders_that_are
         .physics3d(GRAVITY)
         .sim_system(move |ctx: &mut Ctx| {
             let (focus, under_crate, empty, crate_body) = ids_in.borrow().unwrap();
-            match ctx.sim_tick() {
+            match ctx.time.sim_tick() {
                 // Settled: walk away, 1 km.
                 60 => ctx.world.get_mut::<Transform3D>(focus).unwrap().position.x = 1000.0,
                 150 => {
@@ -264,7 +264,7 @@ fn turning_streaming_off_brings_every_collider_back() {
         .sim_system(move |ctx: &mut Ctx| {
             let e = far_in.borrow().unwrap();
             out.borrow_mut().push(ctx.physics3d.is_collider_active(e));
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 ctx.physics3d.stream_colliders(None);
             }
         })
@@ -294,7 +294,7 @@ fn build_tile(heights: Vec<f32>) -> Job<(TerrainTileData, CollisionMeshData)> {
 /// tile goes (`ctx.free_terrain_tile`, `ctx.physics3d.free_mesh`).
 fn place_tile(ctx: &mut Ctx, corner: Vec3, built: (TerrainTileData, CollisionMeshData), ground: Material) -> Entity {
     let (drawn, solid) = built;
-    let tile = ctx.upload_terrain_tile(&drawn, ground);
+    let tile = ctx.gfx.upload_terrain_tile(&drawn, ground);
     let mesh = ctx.physics3d.add_mesh(&solid);
     ctx.world
         .spawn((Transform3D::at(corner), tile, TerrainCollider::new(mesh)))
@@ -318,7 +318,7 @@ fn the_guide_tiles_are_solid_only_near_the_player_and_the_car() {
     Game::new("t", 1, 1)
         .physics3d(GRAVITY)
         .sim_system(move |ctx: &mut Ctx| {
-            if ctx.sim_tick() == 5 {
+            if ctx.time.sim_tick() == 5 {
                 let active: Vec<bool> = tiles_in
                     .borrow()
                     .iter()
@@ -328,7 +328,7 @@ fn the_guide_tiles_are_solid_only_near_the_player_and_the_car() {
             }
         })
         .run_headless(6, |ctx| {
-            let ground = ctx.default_material();
+            let ground = ctx.gfx.default_material();
             // Tiles every 128 m along X, out to 1 km.
             for k in 0..8 {
                 let built = build_tile(vec![0.0; 33 * 33]).wait();

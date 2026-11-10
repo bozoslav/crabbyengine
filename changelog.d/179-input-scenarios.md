@@ -8,8 +8,9 @@
 - A small versioned JSON scenario format (`InputScenario::from_json`,
   `from_value`, `to_json`) that refuses unknown fields, newer versions and
   oversized files.
-- `Ctx::start_input_scenario`, `Ctx::cancel_input_scenario` and
-  `Ctx::input_scenario_report`. Cancelling, replacing or failing a scenario
+- `Input::start_scenario`, `Input::cancel_scenario` and
+  `Input::scenario_report` (on `ctx.input`; they take the world and the clock,
+  `ctx.input.start_scenario(&mut ctx.world, &mut ctx.time, scenario)`). Cancelling, replacing or failing a scenario
   releases the keys, buttons and axes it still held.
 - Control endpoint methods `input.scenario.load`, `input.scenario.status` and
   `input.scenario.cancel`, and the MCP tools `run_input_scenario` and

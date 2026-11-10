@@ -132,7 +132,7 @@ impl Rig {
     fn material(&mut self, desc: MaterialDesc) -> Material {
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
-        self.ctx.create_material(desc)
+        self.ctx.gfx.create_material(desc)
     }
 
     /// The GPU half of a mesh the `Ctx` made (meshes are numbered in the
@@ -144,7 +144,7 @@ impl Rig {
 
     /// A mesh of `data` with `material`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, material: Material) -> Mesh {
-        let mesh = self.ctx.create_mesh(data, material);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.upload(data, material);
         mesh
     }
@@ -164,7 +164,7 @@ impl Rig {
         frame.lod = ctx.lod;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,

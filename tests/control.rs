@@ -77,7 +77,7 @@ fn a_paused_headless_game_is_driven_over_tcp() {
             .sim_system(count)
             .run_headless(u64::MAX, move |ctx| {
                 ctx.world.reflect::<Counter>();
-                ctx.pause();
+                ctx.time.pause();
                 addr_tx.send(ctx.control_addr().unwrap()).unwrap();
             })
     });
@@ -195,7 +195,7 @@ fn two_instances_get_their_own_endpoints() {
             Game::new("twin", 1, 1)
                 .control_endpoint(true)
                 .run_headless(u64::MAX, move |ctx| {
-                    ctx.pause();
+                    ctx.time.pause();
                     tx.send(ctx.control_addr().unwrap()).unwrap();
                 })
         });
@@ -221,7 +221,7 @@ fn a_paused_game_reports_its_capabilities_before_any_tick() {
         let game = game.physics(vec2(0.0, 0.0));
         game.run_headless(u64::MAX, move |ctx| {
             ctx.world.reflect::<Counter>();
-            ctx.pause();
+            ctx.time.pause();
             tx.send(ctx.control_addr().unwrap()).unwrap();
         })
     });
@@ -292,7 +292,7 @@ fn reflected_resources_are_read_and_written_over_tcp() {
                 ctx.world.reflect_resource::<Score>();
                 ctx.world.reflect_resource::<Weather>();
                 ctx.world.insert_resource(Score { red: 0, blue: 0 });
-                ctx.pause();
+                ctx.time.pause();
                 addr_tx.send(ctx.control_addr().unwrap()).unwrap();
             })
     });
@@ -368,12 +368,12 @@ fn subscribers_get_reflected_events_with_their_ticks() {
         Game::new("events-test", 1, 1)
             .control_endpoint(true)
             .sim_system(|ctx| {
-                let tick = ctx.sim_tick();
+                let tick = ctx.time.sim_tick();
                 ctx.events.send(Ping { tick });
             })
             .run_headless(u64::MAX, move |ctx| {
                 ctx.events.reflect::<Ping>();
-                ctx.pause();
+                ctx.time.pause();
                 addr_tx.send(ctx.control_addr().unwrap()).unwrap();
             })
     });
@@ -441,10 +441,10 @@ fn the_game_output_is_kept_for_tools() {
             .control_endpoint(true)
             .sim_system(|ctx: &mut Ctx| {
                 // Straight to the file descriptors, past the test harness's capture.
-                writeln!(std::io::stdout(), "logs-test tick {}", ctx.sim_tick()).unwrap();
+                writeln!(std::io::stdout(), "logs-test tick {}", ctx.time.sim_tick()).unwrap();
             })
             .run_headless(u64::MAX, move |ctx| {
-                ctx.pause();
+                ctx.time.pause();
                 writeln!(std::io::stderr(), "logs-test setup on stderr").unwrap();
                 addr_tx.send(ctx.control_addr().unwrap()).unwrap();
             })
@@ -544,7 +544,7 @@ fn scenes_and_prefabs_are_saved_and_loaded_over_tcp() {
         Game::new("scenes-test", 1, 1)
             .control_endpoint(true)
             .run_headless(u64::MAX, move |ctx| {
-                ctx.pause();
+                ctx.time.pause();
                 addr_tx.send(ctx.control_addr().unwrap()).unwrap();
             })
     });
@@ -602,7 +602,7 @@ struct Jumps(u32);
 fn watch_space(ctx: &mut Ctx) {
     let held = ctx.key_down(Key::Space);
     ctx.world.resource_mut::<SpaceHeld>().0 = held;
-    if ctx.action_pressed("jump") {
+    if ctx.input.action_pressed("jump") {
         ctx.world.resource_mut::<Jumps>().0 += 1;
     }
 }
@@ -622,8 +622,8 @@ fn scenario_game(injection: bool) -> (Client, thread::JoinHandle<World>) {
                 ctx.world.insert_resource(Jumps::default());
                 let mut map = ActionMap::default();
                 map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
-                ctx.set_actions(map);
-                ctx.pause();
+                ctx.input.set_actions(map);
+                ctx.time.pause();
                 addr_tx.send(ctx.control_addr().unwrap()).unwrap();
             })
     });

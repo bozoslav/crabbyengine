@@ -41,10 +41,10 @@ fn game_without_scenario() -> (Game, Ctx) {
         .remove_system(draw_sprites)
         .sim_system(|ctx: &mut Ctx| {
             let s = Seen {
-                tick: ctx.sim_tick(),
-                pressed: ctx.action_pressed("jump"),
-                down: ctx.action_down("jump"),
-                released: ctx.action_released("jump"),
+                tick: ctx.time.sim_tick(),
+                pressed: ctx.input.action_pressed("jump"),
+                down: ctx.input.action_down("jump"),
+                released: ctx.input.action_released("jump"),
             };
             ctx.world.resource_mut::<Trace>().0.push(s);
         });
@@ -52,7 +52,7 @@ fn game_without_scenario() -> (Game, Ctx) {
     ctx.world.insert_resource(Trace::default());
     let mut map = ActionMap::default();
     map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
-    ctx.set_actions(map);
+    ctx.input.set_actions(map);
     (game, ctx)
 }
 
@@ -140,7 +140,7 @@ fn checks_see_the_state_of_their_own_tick_in_a_multi_tick_frame() {
     let (mut game, mut ctx) = game(scenario);
     frame(&mut game, &mut ctx, 3);
     frame(&mut game, &mut ctx, 3);
-    let report = ctx.input_scenario_report().unwrap();
+    let report = ctx.input.scenario_report(&ctx.world).unwrap();
     assert_eq!(report.status, ScenarioStatus::Failed);
     let failure = report.failure.as_ref().unwrap();
     assert_eq!((failure.step, failure.tick), (3, 5));
@@ -155,7 +155,7 @@ fn a_scenario_ending_mid_frame_stops_applying_for_the_rest_of_the_frame() {
         .release_when_done();
     let (mut game, mut ctx) = game(scenario);
     frame(&mut game, &mut ctx, 4);
-    let report = ctx.input_scenario_report().unwrap();
+    let report = ctx.input.scenario_report(&ctx.world).unwrap();
     assert_eq!((report.status, report.ticks_run), (ScenarioStatus::Passed, 2));
     assert_eq!(report.released, 0, "already released by its own step");
 }
@@ -167,12 +167,14 @@ fn a_failed_check_takes_back_only_the_steps_the_scenario_queued_itself() {
         .expect(1, ScenarioCheck::count("Nothing", 0)) // fails on tick 1
         .duration(10);
     let (mut game, mut ctx) = game_without_scenario();
-    ctx.pause();
+    ctx.time.pause();
     // Another client queued three ticks, then a tool queued the run's ten.
     for _ in 0..3 {
-        ctx.step();
+        ctx.time.step();
     }
-    ctx.install_scenario(
+    ctx.input.install_scenario(
+        &mut ctx.world,
+        &mut ctx.time,
         scenario,
         0,
         RunOrigin {
@@ -186,7 +188,7 @@ fn a_failed_check_takes_back_only_the_steps_the_scenario_queued_itself() {
         assert!(ctx.take_one_step());
         frame(&mut game, &mut ctx, 1);
     }
-    let report = ctx.input_scenario_report().unwrap();
+    let report = ctx.input.scenario_report(&ctx.world).unwrap();
     assert_eq!(report.status, ScenarioStatus::Failed);
     // 13 queued - 2 run = 11; the 8 unrun ticks of the scenario are gone, the 3 others stay.
     assert_eq!(ctx.take_pending_steps(), 3);
@@ -196,9 +198,11 @@ fn a_failed_check_takes_back_only_the_steps_the_scenario_queued_itself() {
 fn cancelling_takes_back_the_unrun_ticks_the_scenario_queued() {
     use crate::scenario::RunOrigin;
     let (mut game, mut ctx) = game_without_scenario();
-    ctx.pause();
-    ctx.step();
-    ctx.install_scenario(
+    ctx.time.pause();
+    ctx.time.step();
+    ctx.input.install_scenario(
+        &mut ctx.world,
+        &mut ctx.time,
         InputScenario::new().duration(10),
         0,
         RunOrigin {
@@ -209,6 +213,6 @@ fn cancelling_takes_back_the_unrun_ticks_the_scenario_queued() {
     );
     assert!(ctx.take_one_step());
     frame(&mut game, &mut ctx, 1);
-    assert!(ctx.cancel_input_scenario());
+    assert!(ctx.input.cancel_scenario(&mut ctx.world, &mut ctx.time));
     assert_eq!(ctx.take_pending_steps(), 1, "only the other client's step is left");
 }

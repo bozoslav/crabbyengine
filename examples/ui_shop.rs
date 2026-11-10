@@ -4,7 +4,7 @@ use ponko::*;
 fn main() {
     Game::new("Shop", 900, 700).run(|ctx| {
         // ANCHOR: shop_tree
-        let ui = &mut ctx.ui_retained;
+        let ui = &mut ctx.ui;
         let root = ui.root().layout(UiLayout::fill().padding(24.0).gap(12.0)).id();
         let title = ui
             .label(root, "General store — choose an item")
@@ -56,7 +56,7 @@ fn main() {
         move |ctx: &mut Ctx| {
             // UI input/layout ran before this closure. Drain first, then mutate.
             let mut clicked = None;
-            for event in ctx.ui_retained.events() {
+            for event in ctx.ui.events() {
                 if let UiEvent::Clicked(id) = event {
                     clicked = Some(id);
                 }
@@ -64,23 +64,22 @@ fn main() {
             if let Some(id) = clicked {
                 if let Some(index) = items.iter().position(|&item| item == id) {
                     selected = Some(index);
-                    ctx.ui_retained.set_enabled(buy, true);
-                    ctx.ui_retained.set_text(buy, format!("Buy item {}", index + 1));
+                    ctx.ui.set_enabled(buy, true);
+                    ctx.ui.set_text(buy, format!("Buy item {}", index + 1));
                 } else if id == buy {
-                    ctx.ui_retained
-                        .set_text(message, format!("Buy item {}?", selected.unwrap() + 1));
-                    ctx.ui_retained.push_screen(dialog, true);
+                    ctx.ui.set_text(message, format!("Buy item {}?", selected.unwrap() + 1));
+                    ctx.ui.push_screen(dialog, true);
                 } else if id == confirm || id == cancel {
-                    ctx.ui_retained.pop_screen();
+                    ctx.ui.pop_screen();
                     if id == confirm {
-                        ctx.ui_retained.set_text(title, "Purchase complete!");
+                        ctx.ui.set_text(title, "Purchase complete!");
                     }
                 }
             }
             // Tab/arrows or d-pad navigate; Enter/South confirms; Escape/East
             // pops the top screen. A modal screen also owns the outside pointer.
-            if !ctx.mouse_over_ui() { /* world pointer actions */ }
-            if !ctx.ui_wants_keyboard() { /* world keyboard/gamepad actions */ }
+            if !ctx.ui.wants_pointer() { /* world pointer actions */ }
+            if !ctx.ui.wants_keyboard() { /* world keyboard/gamepad actions */ }
         }
         // ANCHOR_END: shop_events
     });

@@ -141,8 +141,8 @@ impl Rig {
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(size.0 as f32, size.1 as f32));
         ctx.sky.atmosphere = false;
-        ctx.assets3d.decals_supported = supports_decals(&device);
-        ctx.assets3d.gi_supported = true;
+        ctx.gfx.assets3d.decals_supported = supports_decals(&device);
+        ctx.gfx.assets3d.gi_supported = true;
         Some(Self {
             device,
             queue,
@@ -157,8 +157,8 @@ impl Rig {
 
     /// A mesh of `data` with `desc`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
-        let material = self.ctx.create_material(desc);
-        let mesh = self.ctx.create_mesh(data, material);
+        let material = self.ctx.gfx.create_material(desc);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         self.renderer
@@ -184,10 +184,10 @@ impl Rig {
         }
         {
             let ctx = &mut self.ctx;
-            ctx.frame3d.lod = ctx.lod;
-            ctx.frame3d.collect(
+            ctx.gfx.frame3d.lod = ctx.lod;
+            ctx.gfx.frame3d.collect(
                 &mut ctx.world,
-                &ctx.assets3d,
+                &ctx.gfx.assets3d,
                 &SkinFrame::default(),
                 &ctx.camera3d,
                 &ctx.lighting,
@@ -197,7 +197,7 @@ impl Rig {
                 Vec3::new(r, g, b)
             };
             let scene = Scene3D {
-                frame: &ctx.frame3d,
+                frame: &ctx.gfx.frame3d,
                 lighting: &ctx.lighting,
                 sky: &ctx.sky,
                 light: SkyLight {
@@ -373,7 +373,7 @@ fn without_the_texture_slot_bounced_light_is_skipped() {
     let Some(mut on) = Rig::red_wall_room(true, false) else {
         return;
     };
-    on.ctx.assets3d.gi_supported = true; // even if the engine asked for it
+    on.ctx.gfx.assets3d.gi_supported = true; // even if the engine asked for it
     assert_eq!(off.draw(1), on.draw(3));
 }
 
@@ -456,7 +456,7 @@ fn gi_cost() {
             for _ in 0..30 {
                 frame.collect(
                     &mut rig.ctx.world,
-                    &rig.ctx.assets3d,
+                    &rig.ctx.gfx.assets3d,
                     &SkinFrame::default(),
                     &rig.ctx.camera3d,
                     &rig.ctx.lighting,

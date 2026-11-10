@@ -133,6 +133,12 @@
       "category": "public migration",
       "reason": "Explains retained native, saved-format, registry, embedding or historical contracts."
     },
+    "changelog.d/195-ctx-services.md": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
+    },
     "crates/ponko_bench/README.md": {
       "occurrences": 2,
       "path_occurrences": 0,

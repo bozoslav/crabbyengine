@@ -78,7 +78,7 @@ Things that break determinism, and what to do instead:
 | `rand::thread_rng()`, time-based randomness in systems | `ctx.random()` |
 | frame systems (`system`) changing simulation state | do it in a `sim_system` |
 | iterating a `HashMap` to decide things | `BTreeMap`, or sort first |
-| reading wall-clock time in sim systems | `ctx.sim_tick()`, `ctx.sim_time()` |
+| reading wall-clock time in sim systems | `ctx.time.sim_tick()`, `ctx.time.sim_time()` |
 
 Floating point is deterministic on one machine and build. Across CPU
 architectures, transcendental functions (`sin`, `exp`) can differ in the

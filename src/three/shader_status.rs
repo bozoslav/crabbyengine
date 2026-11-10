@@ -1,7 +1,7 @@
 //! What happened to each of the game's shaders: compiled, reloaded or
-//! rejected, and where in its WGSL an error is ([`Ctx::shader_status`]).
+//! rejected, and where in its WGSL an error is ([`Graphics::shader_status`](crate::Graphics::shader_status)).
 
-use crate::Ctx;
+use crate::gfx::Graphics;
 
 /// What a screen effect that can't be built draws instead: the frame as it is.
 pub(crate) const EFFECT_STAND_IN: &str = "fn effect(p: Pixel) -> vec3<f32> { return p.color; }";
@@ -12,11 +12,11 @@ pub(crate) const COMPUTE_STAND_IN: &str = "fn compute(c: Cell) -> vec4<f32> { re
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ShaderKind {
-    /// A material shader ([`Ctx::create_shader`], [`Ctx::load_shader`]).
+    /// A material shader ([`Graphics::create_shader`](crate::Graphics::create_shader), [`Graphics::load_shader`](crate::Graphics::load_shader)).
     Material,
-    /// A screen effect ([`Ctx::create_effect`], [`Ctx::load_effect`]).
+    /// A screen effect ([`Graphics::create_effect`](crate::Graphics::create_effect), [`Graphics::load_effect`](crate::Graphics::load_effect)).
     Effect,
-    /// A compute pass ([`Ctx::create_compute`], [`Ctx::load_compute`]).
+    /// A compute pass ([`Graphics::create_compute`](crate::Graphics::create_compute), [`Graphics::load_compute`](crate::Graphics::load_compute)).
     Compute,
 }
 
@@ -106,7 +106,7 @@ pub enum ShaderOutcome {
 }
 
 /// The latest result of compiling one of the game's shaders, from
-/// [`Ctx::shader_status`].
+/// [`Graphics::shader_status`](crate::Graphics::shader_status).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ShaderStatus {
@@ -118,7 +118,7 @@ pub struct ShaderStatus {
     pub outcome: ShaderOutcome,
     /// How many times an edit of its file was reloaded successfully.
     pub reloads: u32,
-    /// The frame ([`Ctx::frame`]) this happened in.
+    /// The frame ([`Time::frame`](crate::Time::frame)) this happened in.
     pub frame: u64,
     /// The errors of the last compile; empty when it worked.
     pub diagnostics: Vec<ShaderDiagnostic>,
@@ -132,7 +132,7 @@ impl ShaderStatus {
     }
 }
 
-impl Ctx {
+impl Graphics {
     /// What happened to each of the game's shaders (material shaders,
     /// screen effects, compute passes) the last time it was compiled: one
     /// entry per name and kind, oldest first. A coding agent or tool can
@@ -142,7 +142,7 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// for status in ctx.shader_status() {
+    /// for status in ctx.gfx.shader_status() {
     ///     for error in &status.diagnostics {
     ///         eprintln!("{error}"); // water.wgsl:4:5: error: ...
     ///     }
@@ -154,7 +154,7 @@ impl Ctx {
         &self.assets3d.shader_status
     }
 
-    /// [`Ctx::shader_status`] as JSON, the same as the `shaders.status`
+    /// [`shader_status`](Self::shader_status) as JSON, the same as the `shaders.status`
     /// control method returns (for the C API).
     #[doc(hidden)]
     #[must_use]
@@ -170,7 +170,7 @@ impl Ctx {
         reload: bool,
         result: Result<(), Box<ShaderDiagnostic>>,
     ) -> Result<(), String> {
-        let frame = self.frame();
+        let frame = self.frame;
         let list = &mut self.assets3d.shader_status;
         let at = match list.iter().position(|s| s.shader == name && s.kind == kind) {
             Some(at) => at,
@@ -214,11 +214,11 @@ impl Ctx {
     }
 }
 
-impl Ctx {
+impl Graphics {
     /// Whether a shader file that fails when loaded from `origin` gets a
     /// stand-in and stays watched (hot reload on, a file on disk).
     pub(crate) fn keeps_failed_load(&self, origin: &crate::assets::Origin) -> bool {
-        self.watcher.on && matches!(origin, crate::assets::Origin::File(_))
+        self.watcher.on() && matches!(origin, crate::assets::Origin::File(_))
     }
 
     /// Says that `path` failed to compile and uses a stand-in until fixed.
@@ -250,7 +250,7 @@ impl Ctx {
     /// A shader recorded as compiled turned out to be rejected by the GPU.
     #[cfg(feature = "window")]
     pub(crate) fn record_rejected(&mut self, reload: bool, diagnostic: ShaderDiagnostic) {
-        let frame = self.frame();
+        let frame = self.frame;
         let Some(status) = self
             .assets3d
             .shader_status
@@ -286,32 +286,35 @@ mod tests {
     #[test]
     fn late_gpu_rejections_turn_compiles_into_failures_and_undo_the_reload_count() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
-            ctx.create_shader("new.wgsl", "");
-            ctx.create_shader("reloaded.wgsl", "");
-            ctx.record_shader("reloaded.wgsl", ShaderKind::Material, true, Ok(()))
+            ctx.gfx.create_shader("new.wgsl", "");
+            ctx.gfx.create_shader("reloaded.wgsl", "");
+            ctx.gfx
+                .record_shader("reloaded.wgsl", ShaderKind::Material, true, Ok(()))
                 .unwrap();
-            assert_eq!(ctx.shader_status()[1].reloads, 1);
+            assert_eq!(ctx.gfx.shader_status()[1].reloads, 1);
 
-            ctx.record_rejected(false, rejected("new.wgsl"));
-            ctx.record_rejected(true, rejected("reloaded.wgsl"));
-            let s = ctx.shader_status();
+            ctx.gfx.record_rejected(false, rejected("new.wgsl"));
+            ctx.gfx.record_rejected(true, rejected("reloaded.wgsl"));
+            let s = ctx.gfx.shader_status();
             assert_eq!(s[0].outcome, ShaderOutcome::Failed);
             assert_eq!(s[1].outcome, ShaderOutcome::ReloadFailed);
             assert_eq!(s[1].reloads, 0, "the reload didn't take effect after all");
             assert!(s[1].diagnostics[0].message.contains("rejected"));
             // Unknown names are ignored.
-            ctx.record_rejected(true, rejected("gone.wgsl"));
-            assert_eq!(ctx.shader_status().len(), 2);
+            ctx.gfx.record_rejected(true, rejected("gone.wgsl"));
+            assert_eq!(ctx.gfx.shader_status().len(), 2);
         });
     }
 
     #[test]
     fn a_failed_reload_of_a_shader_that_never_compiled_stays_failed() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
-            assert!(ctx.try_create_shader("x.wgsl", "fn surface(").is_err());
-            let again = ctx.record_shader("x.wgsl", ShaderKind::Material, true, Err(Box::new(rejected("x.wgsl"))));
+            assert!(ctx.gfx.try_create_shader("x.wgsl", "fn surface(").is_err());
+            let again = ctx
+                .gfx
+                .record_shader("x.wgsl", ShaderKind::Material, true, Err(Box::new(rejected("x.wgsl"))));
             assert!(again.is_err());
-            assert_eq!(ctx.shader_status()[0].outcome, ShaderOutcome::Failed);
+            assert_eq!(ctx.gfx.shader_status()[0].outcome, ShaderOutcome::Failed);
         });
     }
 }

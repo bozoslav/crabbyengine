@@ -50,15 +50,16 @@ fn run(setup: impl FnOnce(&mut Ctx) + 'static, steps: Vec<Step>) {
 
 /// The texture's GPU resolution, from the diagnostics.
 fn gpu_size(ctx: &Ctx, name: &str) -> [u32; 2] {
-    ctx.streamed_assets()
+    ctx.gfx
+        .streamed_assets()
         .into_iter()
         .find(|a| a.kind == ResidencyKind::Texture && a.name == name)
         .map_or([0, 0], |a| a.size)
 }
 
 fn setup_deterministic(ctx: &mut Ctx) {
-    ctx.add_asset_source(images(4));
-    ctx.set_deterministic_uploads(true);
+    ctx.assets.add_source(images(4));
+    ctx.gfx.set_deterministic_uploads(true);
 }
 
 /// The state and GPU size of `t0.png` after each frame of asking for it.
@@ -74,7 +75,7 @@ fn texture_timeline() -> Vec<(AssetState, [u32; 2])> {
                 assert!(ctx.is_live(t));
             }
             log.borrow_mut().push((
-                ctx.asset_state(ResidencyKind::Texture, "t0.png"),
+                ctx.gfx.asset_state(ResidencyKind::Texture, "t0.png"),
                 gpu_size(ctx, "t0.png"),
             ));
         }));
@@ -110,11 +111,15 @@ fn deterministic_uploads_change_states_in_the_same_frames_every_run() {
 #[test]
 fn stream_texture_returns_at_once_and_decodes_elsewhere() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("big").with("big.png", png(2048, 2048, 7)));
+        ctx.assets
+            .add_source(MemorySource::new("big").with("big.png", png(2048, 2048, 7)));
         let start = std::time::Instant::now();
         assert_eq!(ctx.stream_texture("big.png"), None);
         let asked = start.elapsed();
-        assert_eq!(ctx.asset_state(ResidencyKind::Texture, "big.png"), AssetState::Loading);
+        assert_eq!(
+            ctx.gfx.asset_state(ResidencyKind::Texture, "big.png"),
+            AssetState::Loading
+        );
         ctx.finish_uploads();
         let big = ctx.stream_texture("big.png").unwrap();
         assert_eq!(big.width(), 2048);
@@ -130,7 +135,7 @@ fn uploads_stay_within_the_per_frame_budget() {
     for _ in 0..20 {
         let max = max.clone();
         steps.push(Box::new(move |ctx| {
-            let stats = ctx.upload_stats();
+            let stats = ctx.gfx.upload_stats();
             let seen = *max.borrow();
             *max.borrow_mut() = seen.max(stats.frame_bytes);
             for i in 0..4 {
@@ -141,11 +146,11 @@ fn uploads_stay_within_the_per_frame_budget() {
     steps.push(Box::new(|ctx| {
         for i in 0..4 {
             assert_eq!(
-                ctx.asset_state(ResidencyKind::Texture, &format!("t{i}.png")),
+                ctx.gfx.asset_state(ResidencyKind::Texture, &format!("t{i}.png")),
                 AssetState::Resident
             );
         }
-        let stats = ctx.upload_stats();
+        let stats = ctx.gfx.upload_stats();
         assert_eq!(stats.pending, 0);
         assert_eq!(stats.oversized, 0);
         assert_eq!(stats.total_bytes, 4 * (bytes(32) + bytes(64) + bytes(128) + bytes(256)));
@@ -153,7 +158,7 @@ fn uploads_stay_within_the_per_frame_budget() {
     run(
         |ctx| {
             setup_deterministic(ctx);
-            ctx.set_upload_budget(Some(bytes(256)));
+            ctx.gfx.set_upload_budget(Some(bytes(256)));
         },
         steps,
     );
@@ -172,7 +177,7 @@ fn an_upload_larger_than_the_budget_goes_alone() {
             // One stand-in per frame: t0's in this one, t1's in the next.
             assert_eq!(gpu_size(ctx, "t0.png"), [32, 32]);
             assert_eq!(gpu_size(ctx, "t1.png"), [0, 0]);
-            let stats = ctx.upload_stats();
+            let stats = ctx.gfx.upload_stats();
             assert_eq!((stats.frame_uploads, stats.frame_bytes), (1, bytes(32)));
             assert_eq!(stats.oversized, 1);
         }),
@@ -181,7 +186,7 @@ fn an_upload_larger_than_the_budget_goes_alone() {
     run(
         |ctx| {
             setup_deterministic(ctx);
-            ctx.set_upload_budget(Some(1));
+            ctx.gfx.set_upload_budget(Some(1));
         },
         steps,
     );
@@ -201,33 +206,36 @@ fn the_texture_budget_drops_the_least_recently_used_to_its_stand_in() {
         }),
         Box::new(move |ctx| {
             ctx.resident_texture("t2.png"); // evicts t0, the least recently used
-            assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Evicted);
-            assert!(!ctx.is_resident(ResidencyKind::Texture, "t0.png"));
+            assert_eq!(
+                ctx.gfx.asset_state(ResidencyKind::Texture, "t0.png"),
+                AssetState::Evicted
+            );
+            assert!(!ctx.gfx.is_resident(ResidencyKind::Texture, "t0.png"));
             assert_eq!(gpu_size(ctx, "t0.png"), [32, 32]);
             let t0 = held.borrow().unwrap();
             assert!(ctx.is_live(t0), "an evicted texture keeps its handle");
             assert_eq!(t0.width(), 256);
-            let s = ctx.residency(ResidencyKind::Texture);
+            let s = ctx.gfx.residency(ResidencyKind::Texture);
             assert_eq!((s.resident, s.resident_bytes, s.evictions), (2, 2 * bytes(256), 1));
             assert_eq!(s.evicted_bytes, bytes(256));
             // Asking for it again brings it back under the same handle.
             assert_eq!(ctx.resident_texture("t0.png"), t0);
             assert_eq!(gpu_size(ctx, "t0.png"), [256, 256]);
-            assert_eq!(ctx.residency(ResidencyKind::Texture).reloads, 1);
+            assert_eq!(ctx.gfx.residency(ResidencyKind::Texture).reloads, 1);
         }),
     ];
-    run(|ctx| ctx.add_asset_source(images(3)), steps);
+    run(|ctx| ctx.assets.add_source(images(3)), steps);
 }
 
 #[test]
 fn textures_asked_for_in_the_same_tick_stay_and_the_overflow_is_reported() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.add_asset_source(images(3));
+        ctx.assets.add_source(images(3));
         ctx.set_residency_budget(ResidencyKind::Texture, Some(2 * bytes(256)));
         for i in 0..3 {
             ctx.resident_texture(&format!("t{i}.png"));
         }
-        let s = ctx.residency(ResidencyKind::Texture);
+        let s = ctx.gfx.residency(ResidencyKind::Texture);
         assert_eq!((s.resident, s.evictions), (3, 0));
         assert_eq!(s.over_budget_bytes(), bytes(256));
     });
@@ -249,20 +257,32 @@ fn textures_sprites_show_and_pinned_ones_are_kept() {
         }),
         Box::new(|ctx| {
             ctx.resident_texture("t3.png"); // only t2 can go
-            assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Resident);
-            assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t1.png"), AssetState::Resident);
-            assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t2.png"), AssetState::Evicted);
-            let s = ctx.residency(ResidencyKind::Texture);
+            assert_eq!(
+                ctx.gfx.asset_state(ResidencyKind::Texture, "t0.png"),
+                AssetState::Resident
+            );
+            assert_eq!(
+                ctx.gfx.asset_state(ResidencyKind::Texture, "t1.png"),
+                AssetState::Resident
+            );
+            assert_eq!(
+                ctx.gfx.asset_state(ResidencyKind::Texture, "t2.png"),
+                AssetState::Evicted
+            );
+            let s = ctx.gfx.residency(ResidencyKind::Texture);
             assert_eq!(s.pinned, 1);
             assert_eq!(s.over_budget_bytes(), 2 * bytes(256));
             ctx.unpin_resident_texture("t1.png");
         }),
         Box::new(|ctx| {
             ctx.resident_texture("t3.png");
-            assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t1.png"), AssetState::Evicted);
+            assert_eq!(
+                ctx.gfx.asset_state(ResidencyKind::Texture, "t1.png"),
+                AssetState::Evicted
+            );
         }),
     ];
-    run(|ctx| ctx.add_asset_source(images(4)), steps);
+    run(|ctx| ctx.assets.add_source(images(4)), steps);
 }
 
 #[test]
@@ -274,19 +294,25 @@ fn the_texture_budget_holds_streaming_at_the_resolution_that_fits() {
         }));
     }
     steps.push(Box::new(|ctx| {
-        assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Streaming);
+        assert_eq!(
+            ctx.gfx.asset_state(ResidencyKind::Texture, "t0.png"),
+            AssetState::Streaming
+        );
         assert_eq!(gpu_size(ctx, "t0.png"), [128, 128]);
-        let s = ctx.residency(ResidencyKind::Texture);
+        let s = ctx.gfx.residency(ResidencyKind::Texture);
         assert!(s.resident_bytes <= bytes(200), "{s}");
         assert_eq!(s.over_budget_bytes(), 0);
-        assert!(ctx.upload_stats().held_by_budget > 0);
-        assert_eq!(ctx.upload_stats().pending, 0, "held textures leave the queue");
+        assert!(ctx.gfx.upload_stats().held_by_budget > 0);
+        assert_eq!(ctx.gfx.upload_stats().pending, 0, "held textures leave the queue");
         // A bigger budget lets it go on.
         ctx.set_residency_budget(ResidencyKind::Texture, None);
         ctx.stream_texture("t0.png");
     }));
     steps.push(Box::new(|ctx| {
-        assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Resident);
+        assert_eq!(
+            ctx.gfx.asset_state(ResidencyKind::Texture, "t0.png"),
+            AssetState::Resident
+        );
     }));
     run(
         |ctx| {
@@ -306,7 +332,10 @@ fn an_evicted_streamed_texture_streams_back_up_under_the_same_handle() {
     })];
     steps.push(Box::new(|ctx| {
         ctx.resident_texture("t1.png"); // evicts t0
-        assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Evicted);
+        assert_eq!(
+            ctx.gfx.asset_state(ResidencyKind::Texture, "t0.png"),
+            AssetState::Evicted
+        );
     }));
     steps.push(Box::new(move |ctx| {
         let back = ctx.stream_texture("t0.png");
@@ -318,7 +347,10 @@ fn an_evicted_streamed_texture_streams_back_up_under_the_same_handle() {
         }));
     }
     steps.push(Box::new(|ctx| {
-        assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Resident);
+        assert_eq!(
+            ctx.gfx.asset_state(ResidencyKind::Texture, "t0.png"),
+            AssetState::Resident
+        );
         assert_eq!(gpu_size(ctx, "t0.png"), [256, 256]);
     }));
     run(
@@ -335,12 +367,15 @@ fn a_missing_texture_fails_once_with_its_error() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         assert_eq!(ctx.stream_texture("nope.png"), None);
         ctx.finish_uploads();
-        assert_eq!(ctx.asset_state(ResidencyKind::Texture, "nope.png"), AssetState::Failed);
-        let error = ctx.asset_error(ResidencyKind::Texture, "nope.png").unwrap();
+        assert_eq!(
+            ctx.gfx.asset_state(ResidencyKind::Texture, "nope.png"),
+            AssetState::Failed
+        );
+        let error = ctx.gfx.asset_error(ResidencyKind::Texture, "nope.png").unwrap();
         assert_eq!(error.kind(), ErrorKind::NotFound);
         assert_eq!(ctx.stream_texture("nope.png"), None);
-        assert_eq!(ctx.upload_stats().pending, 0, "not retried");
-        assert_eq!(ctx.upload_stats().failures, 1);
+        assert_eq!(ctx.gfx.upload_stats().pending, 0, "not retried");
+        assert_eq!(ctx.gfx.upload_stats().failures, 1);
         assert_eq!(
             ctx.try_resident_texture("nope.png").unwrap_err().kind(),
             ErrorKind::NotFound
@@ -351,10 +386,11 @@ fn a_missing_texture_fails_once_with_its_error() {
 #[test]
 fn a_broken_texture_fails_with_a_decode_error() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.add_asset_source(MemorySource::new("m").with("bad.png", b"not a png".to_vec()));
+        ctx.assets
+            .add_source(MemorySource::new("m").with("bad.png", b"not a png".to_vec()));
         ctx.stream_texture("bad.png");
         ctx.finish_uploads();
-        let error = ctx.asset_error(ResidencyKind::Texture, "bad.png").unwrap();
+        let error = ctx.gfx.asset_error(ResidencyKind::Texture, "bad.png").unwrap();
         assert_eq!(error.kind(), ErrorKind::Decode);
     });
 }
@@ -367,13 +403,16 @@ fn a_freed_streamed_texture_is_forgotten_and_loads_afresh() {
         ctx.finish_uploads();
         let old = ctx.stream_texture("t0.png").unwrap();
         ctx.free(old);
-        assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Unknown);
-        assert!(!ctx.is_resident(ResidencyKind::Texture, "t0.png"));
+        assert_eq!(
+            ctx.gfx.asset_state(ResidencyKind::Texture, "t0.png"),
+            AssetState::Unknown
+        );
+        assert!(!ctx.gfx.is_resident(ResidencyKind::Texture, "t0.png"));
         ctx.stream_texture("t0.png");
         ctx.finish_uploads();
         let new = ctx.stream_texture("t0.png").unwrap();
         assert_ne!(new.id(), old.id());
-        assert_eq!(ctx.residency(ResidencyKind::Texture).resident, 1);
+        assert_eq!(ctx.gfx.residency(ResidencyKind::Texture).resident, 1);
     });
 }
 
@@ -385,10 +424,13 @@ fn updating_a_streamed_texture_gives_it_full_resolution() {
     steps.push(Box::new(|ctx| {
         let t = ctx.stream_texture("t0.png").unwrap();
         assert_eq!(gpu_size(ctx, "t0.png"), [32, 32]);
-        ctx.update_texture(&t, &vec![255; 256 * 256 * 4]);
+        ctx.gfx.update_texture(&t, &vec![255; 256 * 256 * 4]);
         assert_eq!(gpu_size(ctx, "t0.png"), [256, 256]);
-        assert_eq!(ctx.asset_state(ResidencyKind::Texture, "t0.png"), AssetState::Resident);
-        assert_eq!(ctx.residency(ResidencyKind::Texture).resident_bytes, bytes(256));
+        assert_eq!(
+            ctx.gfx.asset_state(ResidencyKind::Texture, "t0.png"),
+            AssetState::Resident
+        );
+        assert_eq!(ctx.gfx.residency(ResidencyKind::Texture).resident_bytes, bytes(256));
     }));
     run(setup_deterministic, steps);
 }
@@ -399,7 +441,7 @@ fn diagnostics_list_every_streamed_asset_with_its_state() {
         setup_deterministic(ctx);
         ctx.resident_texture("t1.png");
         ctx.stream_texture("t0.png");
-        let assets = ctx.streamed_assets();
+        let assets = ctx.gfx.streamed_assets();
         let names: Vec<(&str, AssetState)> = assets.iter().map(|a| (a.name.as_str(), a.state)).collect();
         assert_eq!(
             names,
@@ -442,9 +484,9 @@ fn hot_reload_gives_a_streamed_texture_the_edited_pixels_at_full_resolution() {
     Game::new("hot", 1, 1)
         .hot_reload(true)
         .sim_system(move |ctx: &mut Ctx| {
-            ctx.set_deterministic_uploads(true);
+            ctx.gfx.set_deterministic_uploads(true);
             let t = ctx.stream_texture(&name);
-            match ctx.sim_tick() {
+            match ctx.time.sim_tick() {
                 1 => assert_eq!(gpu_size(ctx, &name), [32, 32]),
                 2 => {
                     std::thread::sleep(std::time::Duration::from_millis(50));
@@ -452,11 +494,11 @@ fn hot_reload_gives_a_streamed_texture_the_edited_pixels_at_full_resolution() {
                     std::thread::sleep(std::time::Duration::from_millis(400));
                 }
                 3 => {
-                    assert_eq!(ctx.reloaded_textures(), &[t.unwrap()]);
+                    assert_eq!(ctx.assets.reloaded_textures(), &[t.unwrap()]);
                     assert_eq!(gpu_size(ctx, &name), [256, 256]);
-                    assert_eq!(ctx.asset_state(ResidencyKind::Texture, &name), AssetState::Resident);
-                    assert_eq!(ctx.residency(ResidencyKind::Texture).resident_bytes, bytes(256));
-                    log.borrow_mut().push(ctx.sim_tick());
+                    assert_eq!(ctx.gfx.asset_state(ResidencyKind::Texture, &name), AssetState::Resident);
+                    assert_eq!(ctx.gfx.residency(ResidencyKind::Texture).resident_bytes, bytes(256));
+                    log.borrow_mut().push(ctx.time.sim_tick());
                 }
                 _ => {}
             }
@@ -485,7 +527,7 @@ mod meshes {
     }
 
     fn deterministic(ctx: &mut Ctx) {
-        ctx.set_deterministic_uploads(true);
+        ctx.gfx.set_deterministic_uploads(true);
     }
 
     #[test]
@@ -495,14 +537,14 @@ mod meshes {
         let steps: Vec<Step> = vec![
             Box::new(move |ctx| {
                 assert_eq!(ctx.stream_mesh(&p1[0]), None);
-                assert_eq!(ctx.asset_state(ResidencyKind::Mesh, &p1[0]), AssetState::Loading);
+                assert_eq!(ctx.gfx.asset_state(ResidencyKind::Mesh, &p1[0]), AssetState::Loading);
             }),
             Box::new(move |ctx| {
                 let mesh = ctx.stream_mesh(&p2[0]).expect("uploaded at the start of this frame");
                 assert!(ctx.is_live(mesh));
-                assert_eq!(ctx.asset_state(ResidencyKind::Mesh, &p2[0]), AssetState::Resident);
-                assert_eq!(ctx.residency(ResidencyKind::Mesh).loads, 1);
-                assert!(ctx.upload_stats().total_bytes > 0);
+                assert_eq!(ctx.gfx.asset_state(ResidencyKind::Mesh, &p2[0]), AssetState::Resident);
+                assert_eq!(ctx.gfx.residency(ResidencyKind::Mesh).loads, 1);
+                assert!(ctx.gfx.upload_stats().total_bytes > 0);
             }),
         ];
         run(deterministic, steps);
@@ -517,7 +559,7 @@ mod meshes {
         let steps: Vec<Step> = vec![
             Box::new(move |ctx| {
                 let one = ctx.resident_mesh(&p1[0]);
-                let b = ctx.residency(ResidencyKind::Mesh).resident_bytes;
+                let b = ctx.gfx.residency(ResidencyKind::Mesh).resident_bytes;
                 ctx.set_residency_budget(ResidencyKind::Mesh, Some(b));
                 *h1.borrow_mut() = one; // kept outside any entity
             }),
@@ -525,10 +567,10 @@ mod meshes {
                 ctx.resident_mesh(&p2[1]); // evicts the held one
                 let held = *h2.borrow();
                 assert!(!ctx.is_live(held), "an evicted mesh reads as not live");
-                assert_eq!(ctx.asset_state(ResidencyKind::Mesh, &p2[0]), AssetState::Evicted);
+                assert_eq!(ctx.gfx.asset_state(ResidencyKind::Mesh, &p2[0]), AssetState::Evicted);
                 // Meshes made meanwhile never take its id.
-                let material = ctx.default_material();
-                let other = ctx.create_mesh(&MeshData::cube(1.0), material);
+                let material = ctx.gfx.default_material();
+                let other = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
                 assert_ne!(other.id(), held.id());
                 // Showing it is harmless: it draws nothing.
                 ctx.world.spawn((Transform3D::default(), Model::new(held)));
@@ -551,7 +593,7 @@ mod meshes {
         let steps: Vec<Step> = vec![
             Box::new(move |ctx| {
                 let one = ctx.resident_mesh(&p1[0]);
-                let b = ctx.residency(ResidencyKind::Mesh).resident_bytes;
+                let b = ctx.gfx.residency(ResidencyKind::Mesh).resident_bytes;
                 ctx.set_residency_budget(ResidencyKind::Mesh, Some(b));
                 *h1.borrow_mut() = one;
             }),
@@ -563,7 +605,7 @@ mod meshes {
             }),
             Box::new(move |ctx| {
                 assert_eq!(ctx.stream_mesh(&p4[0]), Some(*h2.borrow()));
-                assert_eq!(ctx.residency(ResidencyKind::Mesh).reloads, 1);
+                assert_eq!(ctx.gfx.residency(ResidencyKind::Mesh).reloads, 1);
             }),
         ];
         run(deterministic, steps);
@@ -575,22 +617,22 @@ mod meshes {
             assert_eq!(ctx.stream_mesh("models/nope.glb"), None);
             ctx.finish_uploads();
             assert_eq!(
-                ctx.asset_state(ResidencyKind::Mesh, "models/nope.glb"),
+                ctx.gfx.asset_state(ResidencyKind::Mesh, "models/nope.glb"),
                 AssetState::Failed
             );
-            let error = ctx.asset_error(ResidencyKind::Mesh, "models/nope.glb").unwrap();
+            let error = ctx.gfx.asset_error(ResidencyKind::Mesh, "models/nope.glb").unwrap();
             assert_eq!(error.kind(), ErrorKind::NotFound);
             assert_eq!(ctx.stream_mesh("models/nope.glb"), None);
-            assert_eq!(ctx.upload_stats().pending, 0);
+            assert_eq!(ctx.gfx.upload_stats().pending, 0);
         });
     }
 
     #[test]
     fn a_mesh_the_game_loaded_streams_at_once() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
-            let house = ctx.load_mesh("models/house.glb");
+            let house = ctx.gfx.load_mesh("models/house.glb");
             assert_eq!(ctx.stream_mesh("models/house.glb"), Some(house));
-            assert_eq!(ctx.residency(ResidencyKind::Mesh).pinned, 1, "the game holds it");
+            assert_eq!(ctx.gfx.residency(ResidencyKind::Mesh).pinned, 1, "the game holds it");
         });
     }
 
@@ -630,8 +672,8 @@ mod meshes {
                 let e = e2.borrow().unwrap();
                 // Both asked for last frame; uploaded at the start of this one,
                 // and shown from the next pump.
-                assert_eq!(ctx.asset_state(ResidencyKind::Mesh, &p1[0]), AssetState::Resident);
-                assert_eq!(ctx.asset_state(ResidencyKind::Mesh, &p1[1]), AssetState::Resident);
+                assert_eq!(ctx.gfx.asset_state(ResidencyKind::Mesh, &p1[0]), AssetState::Resident);
+                assert_eq!(ctx.gfx.asset_state(ResidencyKind::Mesh, &p1[1]), AssetState::Resident);
                 let _ = level_meshes(ctx, e);
             }),
             Box::new(move |ctx| {
@@ -660,7 +702,7 @@ mod meshes {
                 let e = e2.borrow().unwrap();
                 assert!(level_meshes(ctx, e).iter().all(|&m| ctx.is_live(m)));
                 ctx.camera3d.position = vec3(0.0, 0.0, 500.0);
-                let b = ctx.residency(ResidencyKind::Mesh).resident_bytes;
+                let b = ctx.gfx.residency(ResidencyKind::Mesh).resident_bytes;
                 ctx.set_residency_budget(ResidencyKind::Mesh, Some(b / 2));
             }),
             Box::new(|_| {}),
@@ -669,8 +711,8 @@ mod meshes {
                 let m = level_meshes(ctx, e);
                 // The fine level shows the coarse mesh, so the fine one was evicted.
                 assert_eq!(m[0], m[1]);
-                assert_eq!(ctx.asset_state(ResidencyKind::Mesh, &p1[0]), AssetState::Evicted);
-                assert_eq!(ctx.asset_state(ResidencyKind::Mesh, &p2[1]), AssetState::Resident);
+                assert_eq!(ctx.gfx.asset_state(ResidencyKind::Mesh, &p1[0]), AssetState::Evicted);
+                assert_eq!(ctx.gfx.asset_state(ResidencyKind::Mesh, &p2[1]), AssetState::Resident);
             }),
         ];
         run(deterministic, steps);
@@ -684,7 +726,7 @@ fn the_guide_streaming_example_runs() {
         // Memory caps for what loads by name, and bytes sent to the GPU per frame.
         ctx.set_residency_budget(ResidencyKind::Texture, Some(256 << 20));
         ctx.set_residency_budget(ResidencyKind::Mesh, Some(512 << 20));
-        ctx.set_upload_budget(Some(8 << 20));
+        ctx.gfx.set_upload_budget(Some(8 << 20));
     }
 
     fn draw_ground(ctx: &mut Ctx) {
@@ -693,8 +735,8 @@ fn the_guide_streaming_example_runs() {
         if let Some(ground) = ctx.stream_texture("cells/ground.png") {
             ctx.draw(&ground, vec2(0.0, 0.0));
         }
-        if ctx.asset_state(ResidencyKind::Texture, "cells/ground.png") == AssetState::Failed {
-            let why = ctx.asset_error(ResidencyKind::Texture, "cells/ground.png");
+        if ctx.gfx.asset_state(ResidencyKind::Texture, "cells/ground.png") == AssetState::Failed {
+            let why = ctx.gfx.asset_error(ResidencyKind::Texture, "cells/ground.png");
             eprintln!("no ground: {why:?}");
         }
     }
@@ -705,11 +747,12 @@ fn the_guide_streaming_example_runs() {
         .sim_system(draw_ground)
         .sim_system(move |ctx: &mut Ctx| {
             log.borrow_mut()
-                .push(ctx.asset_state(ResidencyKind::Texture, "cells/ground.png"));
+                .push(ctx.gfx.asset_state(ResidencyKind::Texture, "cells/ground.png"));
         })
         .run_headless(8, |ctx| {
-            ctx.add_asset_source(MemorySource::new("cells").with("cells/ground.png", png(256, 256, 90)));
-            ctx.set_deterministic_uploads(true);
+            ctx.assets
+                .add_source(MemorySource::new("cells").with("cells/ground.png", png(256, 256, 90)));
+            ctx.gfx.set_deterministic_uploads(true);
             setup(ctx);
         });
     assert_eq!(states.borrow().last(), Some(&AssetState::Resident));

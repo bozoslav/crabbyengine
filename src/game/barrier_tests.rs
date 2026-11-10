@@ -51,7 +51,7 @@ fn read_pings(ctx: &mut Ctx) -> Vec<u64> {
 fn frame_systems_see_events_and_commands_from_every_tick_of_their_frame() {
     let mut game = bare(Game::new("t", 1, 1))
         .sim_system(|ctx: &mut Ctx| {
-            ctx.events.send(Ping(ctx.sim_tick()));
+            ctx.events.send(Ping(ctx.time.sim_tick()));
             ctx.commands.spawn((Marker,));
         })
         .system(|ctx: &mut Ctx| {
@@ -78,11 +78,11 @@ fn sim_systems_see_frame_events_on_the_next_frames_first_tick() {
     let mut game = bare(Game::new("t", 1, 1))
         .sim_system(|ctx: &mut Ctx| {
             let pings = read_pings(ctx);
-            log(ctx, format!("tick {} {pings:?}", ctx.sim_tick()));
+            log(ctx, format!("tick {} {pings:?}", ctx.time.sim_tick()));
         })
         .system(|ctx: &mut Ctx| {
             // Stamped with the next tick: the frame's ticks already ran.
-            ctx.events.send(Ping(100 + ctx.sim_tick()));
+            ctx.events.send(Ping(100 + ctx.time.sim_tick()));
         });
     let mut ctx = ctx();
     frame(&mut game, &mut ctx, 2);
@@ -98,9 +98,9 @@ fn frame_events_wait_for_sim_readers_while_the_sim_is_paused() {
     let mut game = bare(Game::new("t", 1, 1))
         .sim_system(|ctx: &mut Ctx| {
             let pings = read_pings(ctx);
-            log(ctx, format!("tick {} {pings:?}", ctx.sim_tick()));
+            log(ctx, format!("tick {} {pings:?}", ctx.time.sim_tick()));
         })
-        .system(|ctx: &mut Ctx| ctx.events.send(Ping(ctx.frame())));
+        .system(|ctx: &mut Ctx| ctx.events.send(Ping(ctx.time.frame())));
     let mut ctx = ctx();
     frame(&mut game, &mut ctx, 1);
     for _ in 0..5 {
@@ -119,7 +119,7 @@ fn frame_events_wait_for_sim_readers_while_the_sim_is_paused() {
 #[test]
 fn sim_events_live_at_least_one_whole_frame_for_frame_readers() {
     let mut game = bare(Game::new("t", 1, 1))
-        .sim_system(|ctx: &mut Ctx| ctx.events.send(Ping(ctx.sim_tick())))
+        .sim_system(|ctx: &mut Ctx| ctx.events.send(Ping(ctx.time.sim_tick())))
         .system(|ctx: &mut Ctx| {
             let kept = ctx.events.peek::<Ping>().len();
             log(ctx, format!("kept {kept}"));

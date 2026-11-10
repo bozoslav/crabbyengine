@@ -21,7 +21,7 @@
 - In a browser with WebGPU, which answers GPU error scopes a frame or so
   later, shader pipelines the GPU rejects are replaced by the previous
   ones (or a stand-in) on the next frame and reported in
-  `Ctx::shader_status`. Before, the web only caught compiler errors.
+  `Graphics::shader_status`. Before, the web only caught compiler errors.
 
 ### Fixed
 - A failed reload of a shader file that never compiled stays `Failed`

@@ -1,6 +1,6 @@
 //! Skinned meshes from C: skeletons on entities, posed joint by joint
-//! (Rust `Skeleton`, `SkinOf`, `AttachToJoint`, `Ctx::create_skinned_mesh`,
-//! `Ctx::load_skeleton`).
+//! (Rust `Skeleton`, `SkinOf`, `AttachToJoint`, `Graphics::create_skinned_mesh`,
+//! `Graphics::load_skeleton`).
 
 use std::ffi::{CStr, c_char};
 
@@ -171,7 +171,7 @@ pub unsafe extern "C" fn crabby_ctx_set_skeleton(
 }
 
 /// Puts the skeleton of a glTF file with skins on `entity`, at rest (Rust
-/// `Ctx::load_skeleton`), loading the file's mesh if it isn't yet.
+/// `Graphics::load_skeleton`), loading the file's mesh if it isn't yet.
 /// # Safety
 /// `ctx` null or live; `path` a C string.
 /// ```
@@ -188,7 +188,10 @@ pub unsafe extern "C" fn crabby_ctx_load_skeleton(
         ctx_access(ctx, |c| {
             let e = entity(c, entity_bits)?;
             let path = text(path)?;
-            let s = c.try_load_skeleton(path).map_err(|e| invalid_owned(e.to_string()))?;
+            let s = c
+                .gfx
+                .try_load_skeleton(path)
+                .map_err(|e| invalid_owned(e.to_string()))?;
             c.world.insert(e, s);
             Ok(())
         })
@@ -196,7 +199,7 @@ pub unsafe extern "C" fn crabby_ctx_load_skeleton(
 }
 
 /// Makes a mesh that bends with the skeleton on `skeleton_entity` (Rust
-/// `Ctx::create_skinned_mesh`): `data`'s joints index that skeleton's
+/// `Graphics::create_skinned_mesh`): `data`'s joints index that skeleton's
 /// joints, and it's modelled with the skeleton at rest.
 /// # Safety
 /// `ctx` null or live; `data` null or live; output writable.
@@ -225,7 +228,7 @@ pub unsafe extern "C" fn crabby_ctx_create_skinned_mesh(
             if data.0.joints.is_empty() {
                 return Err(invalid("the mesh data has no joints (use crabby_ctx_create_mesh)"));
             }
-            if !c.has_material(to_c(material)) {
+            if !c.gfx.has_material(to_c(material)) {
                 return Err(invalid("that material wasn't made by this game"));
             }
             let s = skeleton(c, skeleton_entity)?.clone();
@@ -233,7 +236,7 @@ pub unsafe extern "C" fn crabby_ctx_create_skinned_mesh(
             if let Some(bad) = data.0.joints.iter().flatten().find(|&&j| usize::from(j) >= n) {
                 return Err(invalid_owned(format!("joint {bad} is past the skeleton's {n} joints")));
             }
-            out(out_mesh, to_c(c.create_skinned_mesh(&data.0, to_c(material), &s)))
+            out(out_mesh, to_c(c.gfx.create_skinned_mesh(&data.0, to_c(material), &s)))
         })
     })
 }
@@ -454,7 +457,7 @@ pub unsafe extern "C" fn crabby_ctx_attach_to_joint(
 pub struct CrabbyClip(pub(crate) ponko::AnimationClip);
 
 /// Loads the clip called `name` of a glTF file with skins (Rust
-/// `Ctx::load_clip`); free it with `crabby_clip_free`.
+/// `Graphics::load_clip`); free it with `crabby_clip_free`.
 /// `CRABBY_NOT_FOUND` when the file has no clip of that name.
 /// # Safety
 /// `ctx` null or live; `path` and `name` C strings; output writable.
@@ -475,7 +478,7 @@ pub unsafe extern "C" fn crabby_ctx_load_clip(
             if out_clip.is_null() {
                 return Err(invalid("output is null"));
             }
-            let clips = c.try_load_clips(path).map_err(invalid_owned)?;
+            let clips = c.gfx.try_load_clips(path).map_err(invalid_owned)?;
             let clip = clips
                 .into_iter()
                 .find(|clip| clip.name() == name)
@@ -537,7 +540,7 @@ pub unsafe extern "C" fn crabby_ctx_sample_clip(
             };
             let s = skeleton_mut(c, entity_bits)?;
             clip.0.sample_blended(time, weight, s);
-            c.write_animated_morphs();
+            c.gfx.write_animated_morphs(&mut c.world);
             Ok(())
         })
     })

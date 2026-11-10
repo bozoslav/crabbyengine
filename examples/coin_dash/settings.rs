@@ -2,7 +2,7 @@
 //! `settings.json` next to the progress file, and the settings screen that
 //! edits them.
 //!
-//! The screen is the engine's retained UI (`ctx.ui_retained`), so it is the
+//! The screen is the engine's retained UI (`ctx.ui`), so it is the
 //! reference for three things the engine already offers:
 //!
 //! - **Navigation.** Tab and Shift-Tab, the arrow keys or the d-pad move the
@@ -656,7 +656,7 @@ pub fn settings_ui(ctx: &mut Ctx) {
             return;
         }
         let settings = ctx.world.resource::<Settings>().clone();
-        let built = SettingsUi::build(&mut ctx.ui_retained, &settings);
+        let built = SettingsUi::build(&mut ctx.ui, &settings);
         ctx.world.insert_resource(built);
     }
     let mut state = ctx.world.remove_resource::<SettingsUi>().expect("built above");
@@ -669,8 +669,8 @@ fn drive(ctx: &mut Ctx, state: &mut SettingsUi, on_screen: bool) {
     if !on_screen {
         if state.open {
             // Left through the Back button (or `Intent`): take the screens off the stack.
-            while ctx.ui_retained.top_screen().is_some() {
-                ctx.ui_retained.pop_screen();
+            while ctx.ui.top_screen().is_some() {
+                ctx.ui.pop_screen();
             }
             state.open = false;
             state.capture = None;
@@ -679,19 +679,19 @@ fn drive(ctx: &mut Ctx, state: &mut SettingsUi, on_screen: bool) {
     }
     if !state.open {
         let settings = ctx.world.resource::<Settings>().clone();
-        state.refresh(&mut ctx.ui_retained, &settings);
-        ctx.ui_retained.set_text(state.status, "");
-        ctx.ui_retained.push_screen(state.root, false);
+        state.refresh(&mut ctx.ui, &settings);
+        ctx.ui.set_text(state.status, "");
+        ctx.ui.push_screen(state.root, false);
         state.open = true;
     }
 
     // Drain first, then change the tree (the events borrow it).
-    let events: Vec<UiEvent> = ctx.ui_retained.events().collect();
+    let events: Vec<UiEvent> = ctx.ui.events().collect();
     for event in events {
         match event {
             UiEvent::Clicked(id) => click(ctx, state, id),
             UiEvent::Changed(id) if id == state.volume => {
-                let volume = ctx.ui_retained.value(id).unwrap_or(0.8).clamp(0.0, 1.0);
+                let volume = ctx.ui.value(id).unwrap_or(0.8).clamp(0.0, 1.0);
                 ctx.world.resource_mut::<Settings>().volume = volume;
             }
             UiEvent::ScreenPopped(id) if id == state.prompt => state.capture = None,
@@ -715,14 +715,14 @@ fn click(ctx: &mut Ctx, state: &mut SettingsUi, id: UiId) {
         let settings = ctx.world.resource_mut::<Settings>();
         settings.ui_scale = step_scale(settings.ui_scale, if id == state.scale_up { 1 } else { -1 });
         let settings = settings.clone();
-        ctx.ui_retained.set_scale(settings.ui_scale);
-        state.refresh(&mut ctx.ui_retained, &settings);
+        ctx.ui.set_scale(settings.ui_scale);
+        state.refresh(&mut ctx.ui, &settings);
     } else if id == state.reset {
         let settings = Settings::default();
         apply(ctx, &settings);
-        state.refresh(&mut ctx.ui_retained, &settings);
+        state.refresh(&mut ctx.ui, &settings);
         ctx.world.insert_resource(settings);
-        ctx.ui_retained.set_text(state.status, "Defaults restored");
+        ctx.ui.set_text(state.status, "Defaults restored");
     } else if let Some((control, device)) = state.rows.iter().find_map(|row| {
         if row.key == id {
             Some((row.control, Device::Key))
@@ -736,11 +736,11 @@ fn click(ctx: &mut Ctx, state: &mut SettingsUi, id: UiId) {
             Device::Key => "key",
             Device::Pad => "gamepad button",
         };
-        ctx.ui_retained.set_text(
+        ctx.ui.set_text(
             state.prompt_text,
             format!("Press the new {what} for \"{}\".\nEscape cancels.", control.label()),
         );
-        ctx.ui_retained.push_screen(state.prompt, true);
+        ctx.ui.push_screen(state.prompt, true);
         state.capture = Some(Capture {
             control,
             device,
@@ -751,8 +751,8 @@ fn click(ctx: &mut Ctx, state: &mut SettingsUi, id: UiId) {
 
 /// Installs the bindings and scale of `settings`.
 fn apply(ctx: &mut Ctx, settings: &Settings) {
-    ctx.set_actions(bindings_for(&settings.controls));
-    ctx.ui_retained.set_scale(settings.ui_scale);
+    ctx.input.set_actions(bindings_for(&settings.controls));
+    ctx.ui.set_scale(settings.ui_scale);
 }
 
 /// What the player pressed while the prompt was open, if anything.
@@ -766,7 +766,7 @@ fn pressed(ctx: &Ctx, device: Device) -> Option<(String, Result<Key, GamepadButt
         Device::Pad => (0..).map_while(Gamepad::from_slot).find_map(|pad| {
             PAD_BUTTONS
                 .into_iter()
-                .find(|&b| ctx.gamepad_pressed(pad, b))
+                .find(|&b| ctx.input.gamepad_pressed(pad, b))
                 .map(|b| (format!("{b:?}"), Err(b)))
         }),
     }
@@ -788,17 +788,17 @@ fn capture_press(ctx: &mut Ctx, state: &mut SettingsUi, capture: Capture) {
     match result {
         Ok(()) => {
             apply(ctx, &settings);
-            state.refresh(&mut ctx.ui_retained, &settings);
+            state.refresh(&mut ctx.ui, &settings);
             let message = format!("\"{}\" is now {name}", capture.control.label());
             ctx.world.insert_resource(settings);
-            ctx.ui_retained.set_text(state.status, message);
-            ctx.ui_retained.pop_screen(); // the prompt
+            ctx.ui.set_text(state.status, message);
+            ctx.ui.pop_screen(); // the prompt
             state.capture = None;
         }
         // Stay in the prompt and say why: pressing Escape still cancels.
         Err(refused) => {
             let message = refusal(refused, &name, &settings.controls);
-            ctx.ui_retained.set_text(state.prompt_text, message);
+            ctx.ui.set_text(state.prompt_text, message);
         }
     }
 }

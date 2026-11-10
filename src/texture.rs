@@ -7,7 +7,7 @@ use crate::color::Color;
 /// A loaded image on the GPU. Cheap to copy: it's just an id plus its size.
 ///
 /// Get one from [`Ctx::load_texture`](crate::Ctx::load_texture) or
-/// [`Ctx::create_texture`](crate::Ctx::create_texture).
+/// [`Graphics::create_texture`](crate::Graphics::create_texture).
 ///
 /// ```
 /// # use ponko::*;
@@ -70,7 +70,7 @@ impl Texture {
 }
 
 /// How a texture looks when drawn bigger or smaller than its pixels:
-/// [`Ctx::set_texture_filter`](crate::Ctx::set_texture_filter).
+/// [`Graphics::set_texture_filter`](crate::Graphics::set_texture_filter).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextureFilter {
     /// Smooth blending between pixels (default): photos, painted art.
@@ -80,13 +80,13 @@ pub enum TextureFilter {
     Nearest,
 }
 
-/// Optional settings for [`Ctx::draw_ex`](crate::Ctx::draw_ex).
+/// Optional settings for [`Graphics::draw_ex`](crate::Graphics::draw_ex).
 /// Start from `DrawParams::default()` and change what you need.
 ///
 /// ```
 /// # use ponko::*;
 /// # fn update(ctx: &mut Ctx, tex: Texture) {
-/// ctx.draw_ex(&tex, vec2(100.0, 100.0), DrawParams {
+/// ctx.gfx.draw_ex(&tex, vec2(100.0, 100.0), DrawParams {
 ///     rotation: 0.5,
 ///     scale: vec2(2.0, 2.0),
 ///     color: Color::RED,

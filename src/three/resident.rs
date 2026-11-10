@@ -11,7 +11,7 @@ impl Ctx {
     /// frame you need it (cell streaming, a level's props): asking marks it
     /// used, and when resident meshes go over the budget, the least recently
     /// used ones are freed until they fit. A freed one loads again, from
-    /// where [`load_mesh`](Self::load_mesh) finds it, the next time it's
+    /// where [`load_mesh`](crate::Graphics::load_mesh) finds it, the next time it's
     /// asked for, as the same [`Mesh`] (its id is kept for it while it is
     /// out: a handle the game kept reads as not [live](Self::is_live) and
     /// models showing it draw nothing until then); its materials and
@@ -29,7 +29,7 @@ impl Ctx {
     ///     ctx.set_residency_budget(ResidencyKind::Mesh, Some(256 << 20));
     ///     let house = ctx.resident_mesh("models/house.glb");
     ///     ctx.world.spawn((Transform3D::default(), Model::new(house))); // kept while shown
-    ///     println!("meshes: {}", ctx.residency(ResidencyKind::Mesh));
+    ///     println!("meshes: {}", ctx.gfx.residency(ResidencyKind::Mesh));
     /// });
     /// ```
     ///
@@ -51,7 +51,7 @@ impl Ctx {
     /// As `resident_mesh`.
     pub fn pin_resident_mesh(&mut self, path: &str) -> Mesh {
         let mesh = self.resident_mesh(path);
-        self.residency.set_mut(ResidencyKind::Mesh).set_pinned(path, true);
+        self.gfx.residency.set_mut(ResidencyKind::Mesh).set_pinned(path, true);
         mesh
     }
 
@@ -59,12 +59,12 @@ impl Ctx {
     /// evicts what the budget needs gone. Does nothing for one that isn't
     /// resident.
     pub fn unpin_resident_mesh(&mut self, path: &str) {
-        self.residency.set_mut(ResidencyKind::Mesh).set_pinned(path, false);
+        self.gfx.residency.set_mut(ResidencyKind::Mesh).set_pinned(path, false);
         self.enforce_residency(ResidencyKind::Mesh);
     }
 
     /// [`resident_mesh`](Self::resident_mesh) with errors as values, the
-    /// same ones [`try_load_mesh`](Self::try_load_mesh) returns. A failed
+    /// same ones [`try_load_mesh`](crate::Graphics::try_load_mesh) returns. A failed
     /// load changes nothing resident.
     ///
     /// ```
@@ -72,7 +72,7 @@ impl Ctx {
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let hat = ctx.try_resident_mesh("models/hat.glb");
     ///     assert_eq!(hat.unwrap_err().kind(), ErrorKind::NotFound);
-    ///     assert!(!ctx.is_resident(ResidencyKind::Mesh, "models/hat.glb"));
+    ///     assert!(!ctx.gfx.is_resident(ResidencyKind::Mesh, "models/hat.glb"));
     /// });
     /// ```
     ///
@@ -81,17 +81,17 @@ impl Ctx {
     /// As `try_load_mesh`.
     pub fn try_resident_mesh(&mut self, path: &str) -> Result<Mesh, crate::Error> {
         let now = self.residency_now();
-        if let Some(mesh) = self.live_resident_mesh(path) {
-            self.residency.set_mut(ResidencyKind::Mesh).touch(path, now);
+        if let Some(mesh) = self.gfx.live_resident_mesh(path) {
+            self.gfx.residency.set_mut(ResidencyKind::Mesh).touch(path, now);
             return Ok(mesh);
         }
         // Freed by the game (or never loaded): load it, noting whether the
         // game already holds it from `load_mesh`.
-        self.residency.set_mut(ResidencyKind::Mesh).forget(path);
+        self.gfx.residency.set_mut(ResidencyKind::Mesh).forget(path);
         // Already in the load cache: the game holds it from `load_mesh`.
-        let cached = self.assets3d.loaded.len();
-        let (mesh, file) = self.load_reserved(path, |ctx| ctx.load_mesh_from(path))?;
-        let shared = self.assets3d.loaded.len() == cached;
+        let cached = self.gfx.assets3d.loaded.len();
+        let (mesh, file) = self.load_reserved(path, |ctx| ctx.gfx.load_mesh_from(path))?;
+        let shared = self.gfx.assets3d.loaded.len() == cached;
         self.add_resident_mesh(path, mesh, file, shared);
         Ok(mesh)
     }
@@ -100,8 +100,9 @@ impl Ctx {
     /// meshes and evicts what the budget needs gone.
     pub(crate) fn add_resident_mesh(&mut self, path: &str, mesh: Mesh, file: crate::assets::Origin, shared: bool) {
         let now = self.residency_now();
-        let bytes = self.assets3d.mesh_bytes.get(mesh.id as usize).copied().unwrap_or(0);
-        self.residency
+        let bytes = self.gfx.assets3d.mesh_bytes.get(mesh.id as usize).copied().unwrap_or(0);
+        self.gfx
+            .residency
             .set_mut(ResidencyKind::Mesh)
             .insert(path, (mesh.id, file), bytes, shared, now);
         self.enforce_residency(ResidencyKind::Mesh);
@@ -115,48 +116,41 @@ impl Ctx {
         path: &str,
         load: impl FnOnce(&mut Self) -> Result<T, crate::Error>,
     ) -> Result<T, crate::Error> {
-        let reserved = self.residency.reserved_meshes.get(path).copied();
-        self.assets3d.reuse_mesh_id = reserved;
+        let reserved = self.gfx.residency.reserved_meshes.get(path).copied();
+        self.gfx.assets3d.reuse_mesh_id = reserved;
         let result = load(self);
-        let unused = self.assets3d.reuse_mesh_id.take();
+        let unused = self.gfx.assets3d.reuse_mesh_id.take();
         if result.is_ok()
             && let Some(id) = reserved
         {
-            self.residency.reserved_meshes.remove(path);
+            self.gfx.residency.reserved_meshes.remove(path);
             if unused.is_some() {
-                self.assets3d.free_meshes.push(id);
+                self.gfx.assets3d.free_meshes.push(id);
             }
         }
         result
-    }
-
-    /// The resident mesh called `path`, unless it was evicted or the game
-    /// freed it (then the load cache no longer maps its file to it).
-    pub(crate) fn live_resident_mesh(&self, path: &str) -> Option<Mesh> {
-        let entry = self.residency.set(ResidencyKind::Mesh).get(path)?;
-        let mesh = Mesh { id: entry.handle };
-        (self.assets3d.loaded.get(&entry.file) == Some(&mesh)).then_some(mesh)
     }
 
     /// Frees the meshes the budget needs gone (`enforce_residency`).
     pub(crate) fn evict_meshes(&mut self, now: (u64, u64)) {
         let shown = self.shown_meshes();
         let evicted = self
+            .gfx
             .residency
             .set_mut(ResidencyKind::Mesh)
             .evict(now, |id| shown.contains(&id));
         for (name, entry) in evicted {
             let mesh = Mesh { id: entry.handle };
             // Freed elsewhere since: its id may be another mesh's now.
-            if self.assets3d.loaded.get(&entry.file) == Some(&mesh) {
-                self.free_mesh(mesh);
+            if self.gfx.assets3d.loaded.get(&entry.file) == Some(&mesh) {
+                self.gfx.free_mesh(mesh);
                 // Keep the id for this name: a handle the game kept reads
                 // as not live (models showing it draw nothing) until the
                 // mesh is asked for again and comes back under it.
-                if let Some(i) = self.assets3d.free_meshes.iter().rposition(|&id| id == mesh.id) {
-                    self.assets3d.free_meshes.swap_remove(i);
+                if let Some(i) = self.gfx.assets3d.free_meshes.iter().rposition(|&id| id == mesh.id) {
+                    self.gfx.assets3d.free_meshes.swap_remove(i);
                 }
-                self.residency.reserved_meshes.insert(name, mesh.id);
+                self.gfx.residency.reserved_meshes.insert(name, mesh.id);
             }
         }
     }
@@ -184,5 +178,15 @@ impl Ctx {
             }
         });
         ids
+    }
+}
+
+impl crate::Graphics {
+    /// The resident mesh called `path`, unless it was evicted or the game
+    /// freed it (then the load cache no longer maps its file to it).
+    pub(crate) fn live_resident_mesh(&self, path: &str) -> Option<Mesh> {
+        let entry = self.residency.set(ResidencyKind::Mesh).get(path)?;
+        let mesh = Mesh { id: entry.handle };
+        (self.assets3d.loaded.get(&entry.file) == Some(&mesh)).then_some(mesh)
     }
 }

@@ -229,7 +229,7 @@ impl<'p> Importer<'p> {
     /// meshes keep their vertex colors and UV set 1 (as Unity has it, not
     /// flipped: shaders read it as `s.uv1`), and [`finish`](Self::finish)
     /// writes `materials.json`: each such material by name (the name its
-    /// glTF material has, for `Ctx::loaded_materials`), with its shader and
+    /// glTF material has, for `Graphics::loaded_materials`), with its shader and
     /// every number, color and texture it sets, the textures written as
     /// PNGs beside the others:
     ///

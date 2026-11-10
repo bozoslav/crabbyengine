@@ -226,8 +226,8 @@ fn fight() -> impl FnMut(&mut Ctx) {
     let mut far = [SpatialGrid::new(SIGHT), SpatialGrid::new(SIGHT)];
     let mut positions: Vec<(Entity, Vec2, Team)> = Vec::new();
     move |ctx: &mut Ctx| {
-        let (dt, random, look) = (ctx.dt(), ctx.random(), ctx.turns(4));
-        let crowding = ctx.sim_tick().is_multiple_of(2);
+        let (dt, random, look) = (ctx.dt(), ctx.random(), ctx.time.turns(4));
+        let crowding = ctx.time.sim_tick().is_multiple_of(2);
         ctx.world
             .query::<(Entity, &Transform2D, &Unit)>()
             .par_collect_into(&mut positions, |(e, t, u)| (e, t.position, u.team));
@@ -471,7 +471,7 @@ fn setup(ctx: &mut Ctx, units: usize, seed: u64, sprite: Option<Texture>) {
 
 /// Both armies at full strength around their bases, bases repaired.
 fn start_round(ctx: &mut Ctx) {
-    let mut rng = ctx.random().stream(ctx.sim_tick());
+    let mut rng = ctx.random().stream(ctx.time.sim_tick());
     let cmds = &mut ctx.commands;
     ctx.world.query::<(Entity, &Unit)>().for_each(|(e, _)| cmds.despawn(e));
     ctx.world.query::<&mut Base>().for_each(|b| b.hp = b.max_hp);
@@ -516,7 +516,7 @@ fn keep_neighbors_close(ctx: &mut Ctx) {
 
 fn controls(ctx: &mut Ctx) {
     let home = ctx.world.resource::<Battle>().bases;
-    let rally = if ctx.mouse_pressed(MouseButton::Left) && !ctx.mouse_over_ui() {
+    let rally = if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.ui.wants_pointer() {
         Some(ctx.mouse_world())
     } else if ctx.key_pressed(Key::A) {
         Some(home[1])
@@ -535,11 +535,15 @@ fn controls(ctx: &mut Ctx) {
         start_round(ctx);
     }
     if ctx.key_pressed(Key::Space) {
-        if ctx.is_paused() { ctx.resume() } else { ctx.pause() }
+        if ctx.time.is_paused() {
+            ctx.time.resume()
+        } else {
+            ctx.time.pause()
+        }
     }
     for (key, speed) in [(Key::Num1, 1.0), (Key::Num2, 2.0), (Key::Num3, 4.0)] {
         if ctx.key_pressed(key) {
-            ctx.set_sim_speed(speed);
+            ctx.time.set_speed(speed);
         }
     }
     if ctx.key_pressed(Key::Escape) {
@@ -567,12 +571,12 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
             }
         }
     }
-    let tex = ctx.create_texture(size.x, size.y, &pixels);
-    ctx.set_texture_filter(&tex, TextureFilter::Nearest);
+    let tex = ctx.gfx.create_texture(size.x, size.y, &pixels);
+    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
     move |ctx: &mut Ctx| {
-        ctx.clear(Color::BLACK);
+        ctx.gfx.clear(Color::BLACK);
         let world = size.as_vec2() * CELL;
-        ctx.draw_ex(
+        ctx.gfx.draw_ex(
             &tex,
             world / 2.0,
             DrawParams {
@@ -587,16 +591,16 @@ fn draw_map(ctx: &mut Ctx) -> impl FnMut(&mut Ctx) + use<> {
             bases[b.team.index()] = (t.position, b.hp / b.max_hp, b.team);
         });
         for (at, health, team) in bases {
-            ctx.draw_circle(at, BASE_RADIUS, team.color().with_alpha(0.35));
-            ctx.draw_circle(at, BASE_RADIUS * 0.4, team.color());
+            ctx.gfx.draw_circle(at, BASE_RADIUS, team.color().with_alpha(0.35));
+            ctx.gfx.draw_circle(at, BASE_RADIUS * 0.4, team.color());
             let bar = Rect::new(at.x - BASE_RADIUS, at.y - BASE_RADIUS - 8.0, BASE_RADIUS * 2.0, 3.0);
-            ctx.draw_rect(bar, Color::rgba(0.0, 0.0, 0.0, 0.6));
-            ctx.draw_rect(
+            ctx.gfx.draw_rect(bar, Color::rgba(0.0, 0.0, 0.0, 0.6));
+            ctx.gfx.draw_rect(
                 Rect::new(bar.min.x, bar.min.y, bar.size().x * health, 3.0),
                 team.color(),
             );
         }
-        ctx.draw_circle(rally, 5.0, Color::rgba(1.0, 0.9, 0.3, 0.9));
+        ctx.gfx.draw_circle(rally, 5.0, Color::rgba(1.0, 0.9, 0.3, 0.9));
     }
 }
 
@@ -604,24 +608,30 @@ fn hud(ctx: &mut Ctx) {
     let field_ms = ctx.world.resource::<Battle>().field_ms;
     let s = ctx.world.resource::<Score>();
     let (alive, won, winner) = (s.alive, s.rounds_won, s.winner);
-    let sim_ms: f32 = ctx.system_timings().iter().filter(|t| t.sim).map(|t| t.avg_ms).sum();
-    let speed = if ctx.is_paused() {
+    let sim_ms: f32 = ctx
+        .perf
+        .system_timings()
+        .iter()
+        .filter(|t| t.sim)
+        .map(|t| t.avg_ms)
+        .sum();
+    let speed = if ctx.time.is_paused() {
         "paused".to_string()
     } else {
-        format!("{}x", ctx.sim_speed())
+        format!("{}x", ctx.time.speed())
     };
     let panel = Rect::new(12.0, 12.0, 300.0, 150.0);
-    ctx.ui_panel(panel);
-    let at = panel.min + ctx.ui_style.padding;
+    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+    let at = panel.min + ctx.ui.immediate.style.padding;
     let text = format!(
         "red {} vs blue {}   (rounds {}-{})\nsim {sim_ms:.2} ms/tick, {:.0} FPS, {speed}\nfield {field_ms:.2} ms\nclick: rally  A: attack  D: defend\nR: restart  1-3: speed",
         alive[0],
         alive[1],
         won[0],
         won[1],
-        ctx.fps()
+        ctx.time.fps()
     );
-    ctx.ui_label(at, &text);
+    ctx.ui.immediate.label(&mut ctx.gfx, at, &text);
     if let Some(team) = winner {
         let msg = if team == Team::Red {
             "Red wins! R for another round"
@@ -629,7 +639,7 @@ fn hud(ctx: &mut Ctx) {
             "Blue wins. R to try again"
         };
         let center = ctx.window_size() / 2.0;
-        let size = ctx.measure_text(msg, 32.0);
+        let size = ctx.gfx.measure_text(msg, 32.0);
         ctx.draw_text(msg, center - size / 2.0, 32.0, team.color());
     }
 }
@@ -646,9 +656,10 @@ fn main() {
                 if ctx.world.resource::<Score>().winner.is_some() {
                     start_round(ctx);
                 }
-                if ctx.sim_tick().is_multiple_of(120) {
+                if ctx.time.sim_tick().is_multiple_of(120) {
                     let b = ctx.world.resource::<Score>();
                     let timings: Vec<String> = ctx
+                        .perf
                         .system_timings()
                         .iter()
                         .filter(|t| t.sim && t.avg_ms >= 0.01)
@@ -656,7 +667,7 @@ fn main() {
                         .collect();
                     println!(
                         "tick {}: red {} blue {}, rounds {}-{}  [{}]",
-                        ctx.sim_tick(),
+                        ctx.time.sim_tick(),
                         b.alive[0],
                         b.alive[1],
                         b.rounds_won[0],
@@ -686,7 +697,7 @@ fn main() {
         .system(camera_controls)
         .system(hud)
         .run(move |ctx| {
-            let dot = ctx.create_texture(2, 2, &[255; 2 * 2 * 4]);
+            let dot = ctx.gfx.create_texture(2, 2, &[255; 2 * 2 * 4]);
             setup(ctx, units, seed, Some(dot));
             let world = ctx.world.resource::<Battle>().nav.size().as_vec2() * CELL;
             ctx.camera.zoom = (ctx.camera.viewport() / world).min_element();

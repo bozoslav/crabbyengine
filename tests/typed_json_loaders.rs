@@ -30,13 +30,19 @@ fn typed_component_and_resource_loaders_match_the_string_forms() {
         let e = ctx.world.spawn((Stats { hp: 1.0, armor: 5.0 },));
         let e2 = ctx.world.spawn((Stats { hp: 1.0, armor: 5.0 },));
 
-        ctx.load_component_json::<Stats>(stats.name(), e).unwrap();
-        ctx.load_component_json_named(stats.name(), e2, "Stats").unwrap();
+        ctx.assets
+            .load_component_json::<Stats>(&mut ctx.world, stats.name(), e)
+            .unwrap();
+        ctx.assets
+            .load_component_json_named(&mut ctx.world, stats.name(), e2, "Stats")
+            .unwrap();
         // Object fields merge: hp from the file, armor kept.
         assert_eq!(ctx.world.get::<Stats>(e), Some(&Stats { hp: 7.0, armor: 5.0 }));
         assert_eq!(ctx.world.get::<Stats>(e2), ctx.world.get::<Stats>(e));
 
-        ctx.load_resource_json::<Tuning>(tuning.name()).unwrap();
+        ctx.assets
+            .load_resource_json::<Tuning>(&mut ctx.world, tuning.name())
+            .unwrap();
         assert_eq!(
             *ctx.world.resource::<Tuning>(),
             Tuning {
@@ -52,9 +58,15 @@ fn a_type_that_was_not_reflected_is_an_error_not_a_panic() {
     let stats = TempAsset::with_contents("test-typed-unreflected.json", r#"{"hp": 7.0}"#);
     Game::new("typed", 1, 1).run_headless(0, |ctx| {
         let e = ctx.world.spawn((Stats::default(),));
-        let error = ctx.load_component_json::<Stats>(stats.name(), e).unwrap_err();
+        let error = ctx
+            .assets
+            .load_component_json::<Stats>(&mut ctx.world, stats.name(), e)
+            .unwrap_err();
         assert!(error.contains("Stats"), "{error}");
-        let error = ctx.load_resource_json::<Tuning>(stats.name()).unwrap_err();
+        let error = ctx
+            .assets
+            .load_resource_json::<Tuning>(&mut ctx.world, stats.name())
+            .unwrap_err();
         assert!(error.contains("Tuning"), "{error}");
     });
 }

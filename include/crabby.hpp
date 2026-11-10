@@ -3146,7 +3146,7 @@ public:
         for (const joint& j : joints) raw.push_back(CrabbyJoint{j.name.c_str(), j.parent, j.rest});
         detail::check(crabby_ctx_set_skeleton(raw_, e, raw.data(), raw.size()));
     }
-    /// Puts the skeleton of a glTF file with skins on `e`, at rest (Rust `Ctx::load_skeleton`).
+    /// Puts the skeleton of a glTF file with skins on `e`, at rest (Rust `Graphics::load_skeleton`).
     void load_skeleton(entity e, const char* path) { detail::check(crabby_ctx_load_skeleton(raw_, e, path)); }
     /// A mesh that bends with the skeleton on `skeleton`: `data`'s joints
     /// (mesh_data::set_skin) index its joints; modelled with it at rest.
@@ -3172,7 +3172,7 @@ public:
     /// Writes manually sampled skeleton morph channels to models.
     void write_animated_morphs() { detail::check(crabby_ctx_write_animated_morphs(raw_)); }
     /// The index of mesh `m`'s morph target called `name` (Rust
-    /// `Ctx::morph_target`), for set_morph_weight and morph_weight.
+    /// `Graphics::morph_target`), for set_morph_weight and morph_weight.
     std::optional<std::size_t> morph_target(mesh m, const char* name) const {
         std::size_t result = 0;
         const CrabbyStatus status = crabby_ctx_morph_target(raw_, m, name, &result);
@@ -3199,7 +3199,7 @@ public:
     /// Takes `e`'s morph weights away, so its model shows its mesh's
     /// default weights again (Rust `MorphWeights` removed).
     void clear_morph_weights(entity e) { detail::check(crabby_ctx_clear_morph_weights(raw_, e)); }
-    /// The clip called `name` of a glTF file with skins (Rust `Ctx::load_clip`).
+    /// The clip called `name` of a glTF file with skins (Rust `Graphics::load_clip`).
     crabby::clip load_clip(const char* path, const char* name) {
         CrabbyClip* c = nullptr; detail::check(crabby_ctx_load_clip(raw_, path, name, &c)); return crabby::clip(c);
     }
@@ -3308,7 +3308,7 @@ public:
         detail::check(crabby_ctx_set_line3d(raw_, e, &c));
     }
     void remove_line3d(entity e) { detail::check(crabby_ctx_remove_line3d(raw_, e)); }
-    /// A glTF file's mesh on the CPU (Rust `Ctx::load_mesh_data`), all its
+    /// A glTF file's mesh on the CPU (Rust `Graphics::load_mesh_data`), all its
     /// parts in one, without making anything on the GPU: to cut decals from.
     /// Loads the file each call; keep the result.
     mesh_data load_mesh_data(const char* path) {
@@ -3411,7 +3411,7 @@ public:
     void set_residency_budget(residency_kind kind, std::optional<std::uint64_t> bytes) {
         detail::check(crabby_ctx_set_residency_budget(raw_, static_cast<std::uint32_t>(kind), bytes.has_value(), bytes.value_or(0)));
     }
-    /// `kind`'s budget and counters (Rust `Ctx::residency`).
+    /// `kind`'s budget and counters (Rust `Graphics::residency`).
     crabby::residency_stats residency(residency_kind kind) const {
         crabby::residency_stats r{}; detail::check(crabby_ctx_residency(raw_, static_cast<std::uint32_t>(kind), &r)); return r;
     }
@@ -3448,13 +3448,13 @@ public:
         if (!ready) return std::nullopt;
         return m;
     }
-    /// Where the asset of `kind` called `name` is (Rust `Ctx::asset_state`).
+    /// Where the asset of `kind` called `name` is (Rust `Graphics::asset_state`).
     crabby::asset_state asset_state(residency_kind kind, const char* name) const {
         std::uint32_t s = 0;
         detail::check(crabby_ctx_asset_state(raw_, static_cast<std::uint32_t>(kind), name, &s));
         return static_cast<crabby::asset_state>(s);
     }
-    /// Why loading it failed; empty if it didn't (Rust `Ctx::asset_error`).
+    /// Why loading it failed; empty if it didn't (Rust `Graphics::asset_error`).
     std::string asset_error(residency_kind kind, const char* name) const {
         std::size_t len = 0;
         detail::check(crabby_ctx_asset_error(raw_, static_cast<std::uint32_t>(kind), name, nullptr, 0, &len));
@@ -3467,7 +3467,7 @@ public:
     void set_upload_budget(std::optional<std::uint64_t> bytes) {
         detail::check(crabby_ctx_set_upload_budget(raw_, bytes.has_value(), bytes.value_or(0)));
     }
-    /// Asset states change in the same frames every run (Rust `Ctx::set_deterministic_uploads`).
+    /// Asset states change in the same frames every run (Rust `Graphics::set_deterministic_uploads`).
     void set_deterministic_uploads(bool on) { detail::check(crabby_ctx_set_deterministic_uploads(raw_, on)); }
     /// The upload queue's budget and counters.
     crabby::upload_stats upload_stats() const {

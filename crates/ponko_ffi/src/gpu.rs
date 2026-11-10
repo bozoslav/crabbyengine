@@ -85,7 +85,8 @@ unsafe fn with_caps<R>(ctx: *const CrabbyCtx, f: impl FnOnce(&GpuCapabilities) -
     // SAFETY: forwarded caller contract.
     unsafe {
         ctx_access(ctx, |c| {
-            c.gpu_capabilities()
+            c.gfx
+                .gpu_capabilities()
                 .map(f)
                 .ok_or_else(|| error(CRABBY_NOT_FOUND, "no GPU is open (headless, or before the window)"))
         })
@@ -111,7 +112,7 @@ unsafe fn json_out(
     Ok(())
 }
 
-/// The GPU report as JSON (Rust `ctx.gpu_capabilities()`): the adapter, its
+/// The GPU report as JSON (Rust `ctx.gfx.gpu_capabilities()`): the adapter, its
 /// limits, `tier`, `forced_tier`, and one `{feature, available, fallback,
 /// reason}` entry per feature. Writes its length to `out_len` and, when
 /// `capacity` is larger, the NUL-terminated text to `buffer` (call with a

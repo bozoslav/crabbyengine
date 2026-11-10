@@ -13,7 +13,7 @@ fn fall(ctx: &mut Ctx) {
 }
 
 fn record_tick(ctx: &mut Ctx) {
-    let t = ctx.sim_tick();
+    let t = ctx.time.sim_tick();
     ctx.world.resource_mut::<Ticks>().0.push(t);
 }
 
@@ -41,7 +41,7 @@ fn dt_is_the_fixed_step() {
 fn sim_time_counts_ticks() {
     struct Seen(f64);
     fn see(ctx: &mut Ctx) {
-        let t = ctx.sim_time();
+        let t = ctx.time.sim_time();
         ctx.world.resource_mut::<Seen>().0 = t;
     }
     let world = Game::new("t", 1, 1)
@@ -58,7 +58,7 @@ fn sim_time_counts_ticks() {
 fn quit_stops_early() {
     fn quit_at_3(ctx: &mut Ctx) {
         record_tick(ctx);
-        if ctx.sim_tick() == 3 {
+        if ctx.time.sim_tick() == 3 {
             ctx.quit();
         }
     }
@@ -99,7 +99,7 @@ fn textures_load_without_a_gpu() {
     let world = Game::new("t", 1, 1).run_headless(1, |ctx| {
         let crab = ctx.load_texture("crab.png");
         assert!(crab.width() > 0 && crab.height() > 0);
-        let made = ctx.create_texture(2, 3, &[255; 24]);
+        let made = ctx.gfx.create_texture(2, 3, &[255; 24]);
         assert_eq!((made.width(), made.height()), (2, 3));
         assert_ne!(crab, made);
         ctx.world.spawn((Transform2D::default(), Sprite::new(crab)));
@@ -110,7 +110,7 @@ fn textures_load_without_a_gpu() {
 #[test]
 fn sim_speed_rejects_negative() {
     let result = std::panic::catch_unwind(|| {
-        Game::new("t", 1, 1).run_headless(0, |ctx| ctx.set_sim_speed(-1.0));
+        Game::new("t", 1, 1).run_headless(0, |ctx| ctx.time.set_speed(-1.0));
     });
     assert!(result.is_err());
 }
@@ -122,7 +122,7 @@ struct Log(Vec<(&'static str, u64, f32)>);
 
 fn logger(name: &'static str) -> impl FnMut(&mut Ctx) {
     move |ctx| {
-        let (tick, dt) = (ctx.sim_tick(), ctx.dt());
+        let (tick, dt) = (ctx.time.sim_tick(), ctx.dt());
         ctx.world.resource_mut::<Log>().0.push((name, tick, dt));
     }
 }
@@ -175,7 +175,7 @@ fn every_zero_ticks_panics() {
 struct Turned(u32);
 
 fn take_turns(ctx: &mut Ctx) {
-    let turn = ctx.turns(5);
+    let turn = ctx.time.turns(5);
     ctx.world.query::<(Entity, &mut Turned)>().par_for_each(|(e, t)| {
         if turn.includes(e) {
             t.0 += 1;
@@ -195,7 +195,7 @@ fn each_entity_takes_one_turn_per_interval() {
 #[should_panic(expected = "`every` must be at least 1")]
 fn turns_of_zero_panics() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.turns(0);
+        ctx.time.turns(0);
     });
 }
 
@@ -204,8 +204,8 @@ fn turns_of_zero_panics() {
 #[test]
 fn update_texture_works_headless() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let tex = ctx.create_texture(2, 2, &[0; 16]);
-        ctx.update_texture(&tex, &[255; 16]);
+        let tex = ctx.gfx.create_texture(2, 2, &[0; 16]);
+        ctx.gfx.update_texture(&tex, &[255; 16]);
     });
 }
 
@@ -213,8 +213,8 @@ fn update_texture_works_headless() {
 #[should_panic(expected = "a 2 x 2 texture needs 16 bytes of RGBA, got 4")]
 fn update_texture_checks_the_size() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let tex = ctx.create_texture(2, 2, &[0; 16]);
-        ctx.update_texture(&tex, &[0; 4]);
+        let tex = ctx.gfx.create_texture(2, 2, &[0; 16]);
+        ctx.gfx.update_texture(&tex, &[0; 4]);
     });
 }
 
@@ -226,9 +226,9 @@ fn headless_runs_have_no_render_stats_or_screenshots() {
     let r = ran.clone();
     Game::new("t", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
-            ctx.save_screenshot(&p);
-            assert_eq!(ctx.render_stats(), RenderStats::default());
-            assert!(ctx.gpu_capabilities().is_none(), "no GPU is opened headless");
+            ctx.gfx.save_screenshot(&p);
+            assert_eq!(ctx.perf.render_stats(), RenderStats::default());
+            assert!(ctx.gfx.gpu_capabilities().is_none(), "no GPU is opened headless");
             r.set(r.get() + 1);
         })
         .run_headless(3, |_| {});
@@ -249,6 +249,10 @@ fn loading_a_texture_twice_gives_the_same_handle() {
         let a = ctx.load_texture("crab.png");
         let b = ctx.load_texture("crab.png");
         assert_eq!(a, b);
-        assert_ne!(a, ctx.create_texture(1, 1, &[0; 4]), "created textures are their own");
+        assert_ne!(
+            a,
+            ctx.gfx.create_texture(1, 1, &[0; 4]),
+            "created textures are their own"
+        );
     });
 }

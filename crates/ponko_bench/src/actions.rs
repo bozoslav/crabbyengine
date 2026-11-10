@@ -20,7 +20,7 @@ fn install(ctx: &mut Ctx, names: &[String]) {
     for name in names {
         map.set(name.clone(), Action::Button(vec![ButtonBinding::Key(Key::Space)]));
     }
-    ctx.set_actions(map);
+    ctx.input.set_actions(map);
 }
 
 /// Times `op` like [`Bench::steady`], inside a headless game (a `Ctx` can't leave it).
@@ -34,7 +34,7 @@ fn timed(b: &mut Bench, name: &str, mut op: impl FnMut(&Ctx, &[String], &[ponko:
     let mut times = Vec::new();
     Game::new("bench", 1, 1).run_headless(0, |ctx| {
         install(ctx, &names);
-        let ids: Vec<_> = names.iter().map(|n| ctx.action_id(n)).collect();
+        let ids: Vec<_> = names.iter().map(|n| ctx.input.action_id(n)).collect();
         for _ in 0..WARMUP {
             black_box(op(ctx, &names, &ids));
         }
@@ -52,14 +52,14 @@ pub fn run(b: &mut Bench) {
     timed(b, "actions/down-str-100k", |ctx, names, _| {
         let mut held = 0;
         for i in 0..CALLS {
-            held += usize::from(ctx.action_down(names[i % ACTIONS].as_str()));
+            held += usize::from(ctx.input.action_down(names[i % ACTIONS].as_str()));
         }
         held
     });
     timed(b, "actions/down-id-100k", |ctx, _, ids| {
         let mut held = 0;
         for i in 0..CALLS {
-            held += usize::from(ctx.action_down(ids[i % ACTIONS]));
+            held += usize::from(ctx.input.action_down(ids[i % ACTIONS]));
         }
         held
     });

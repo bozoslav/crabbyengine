@@ -13,11 +13,11 @@ pub fn setup(ctx: &mut Ctx, count: usize) {
     ctx.lighting.ambient_intensity = 0.015;
     ctx.sky.atmosphere = false;
     ctx.post.bloom = 0.0;
-    let stone = ctx.create_material(MaterialDesc {
+    let stone = ctx.gfx.create_material(MaterialDesc {
         roughness: 0.5,
         ..Default::default()
     });
-    let [floor, cube] = geometry().map(|data| ctx.create_mesh(&data, stone));
+    let [floor, cube] = geometry().map(|data| ctx.gfx.create_mesh(&data, stone));
     ctx.world
         .spawn((Transform3D::at(vec3(0.0, -1.0, -25.0)), Model::new(floor)));
     for z in 0..10 {

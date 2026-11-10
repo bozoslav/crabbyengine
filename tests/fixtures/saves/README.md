@@ -59,7 +59,7 @@ default to a built-in component does not fail it; removing or renaming one does.
 
 ## Prefab fixtures
 
-`prefab_v1.json` is written by `Ctx::save_prefab`. Its generator is the
+`prefab_v1.json` is written by `Assets::save_prefab`. Its generator is the
 `#[ignore]`d `write_prefab_v1_fixture` in `tests/prefab_compat.rs`, with the
 same rules as above (never edited by hand, never regenerated, refuses to
 overwrite):

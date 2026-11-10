@@ -29,24 +29,24 @@ fn main() {
         .sim_system(move |_ctx| sim_ticks.set(sim_ticks.get() + 1))
         .run(move |ctx| {
             let mut smoke = smoke::Smoke::new("web_smoke_3d");
-            ctx.clear(Color::hex(0x9CC4E4));
+            ctx.gfx.clear(Color::hex(0x9CC4E4));
             ctx.lighting.sun_direction = vec3(-0.8, -0.6, -0.4);
-            let ground_material = ctx.create_material(MaterialDesc {
+            let ground_material = ctx.gfx.create_material(MaterialDesc {
                 roughness: 0.95,
                 ..MaterialDesc::color(Color::hex(0x5E8C4A))
             });
-            let ground = ctx.create_mesh(&MeshData::plane(60.0), ground_material);
+            let ground = ctx.gfx.create_mesh(&MeshData::plane(60.0), ground_material);
             ctx.world.spawn((Transform3D::default(), Model::new(ground)));
 
             // The fetched asset: a model with its own materials and textures.
-            let house = ctx.load_mesh("models/house.glb");
+            let house = ctx.gfx.load_mesh("models/house.glb");
             ctx.world
                 .spawn((Transform3D::at(vec3(0.0, 0.0, -3.0)), Model::new(house)));
 
-            let white = ctx.default_material();
-            let ball = ctx.create_mesh(&MeshData::sphere(0.45, 24), white);
+            let white = ctx.gfx.default_material();
+            let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.45, 24), white);
             for i in 0..6 {
-                let material = ctx.create_material(MaterialDesc {
+                let material = ctx.gfx.create_material(MaterialDesc {
                     roughness: 0.1 + i as f32 * 0.17,
                     metallic: (i % 2) as f32,
                     ..MaterialDesc::color(Color::hex(0xD8453B))
@@ -67,7 +67,7 @@ fn main() {
                 smoke.frame(
                     ctx,
                     ticks.get(),
-                    json!({ "triangles": ctx.render_stats().triangles, "models_drawn": ctx.models_drawn() }),
+                    json!({ "triangles": ctx.perf.render_stats().triangles, "models_drawn": ctx.gfx.models_drawn() }),
                 );
             }
         });

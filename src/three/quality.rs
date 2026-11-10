@@ -7,7 +7,8 @@ use super::{
     MAX_SHADOW_RESOLUTION, MIN_LIGHT_SHADOW_ATLAS, MIN_LIGHT_SHADOW_RESOLUTION, MIN_RENDER_SCALE,
     MIN_SHADOW_RESOLUTION,
 };
-use crate::Ctx;
+use crate::gfx::Graphics;
+use crate::{Lighting, Post};
 
 /// Which of the [`GraphicsQuality`] presets some settings are.
 /// ```
@@ -55,11 +56,11 @@ impl QualityLevel {
 /// reflections, global illumination and antialiasing.
 /// [`low`](Self::low), [`medium`](Self::medium), [`high`](Self::high) and
 /// [`ultra`](Self::ultra) are ready-made sets; apply one with
-/// [`Ctx::set_graphics_quality`] and read the current one back with
-/// [`Ctx::graphics_quality`].
+/// [`Graphics::set_quality`] and read the current one back with
+/// [`Graphics::quality`].
 ///
 /// A `GraphicsQuality` holds no state of its own: applying it writes the
-/// matching fields of [`Ctx::post`] and [`Ctx::lighting`], and reading it
+/// matching fields of [`Ctx::post`](crate::Ctx::post) and [`Ctx::lighting`](crate::Ctx::lighting), and reading it
 /// gathers them again. So a game can change any of those fields afterwards
 /// (the AO radius, `shadow_distance`, ...), and
 /// [`level`](Self::level) then says [`Custom`](QualityLevel::Custom).
@@ -85,11 +86,11 @@ impl QualityLevel {
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// ctx.set_graphics_quality(GraphicsQuality::medium());
+/// ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::medium());
 /// // Then change one thing: sharper shadows, the rest as it was.
-/// let mut q = ctx.graphics_quality();
+/// let mut q = ctx.gfx.quality(&ctx.post, &ctx.lighting);
 /// q.shadow_resolution = 4096;
-/// ctx.set_graphics_quality(q);
+/// ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, q);
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -343,9 +344,9 @@ impl GraphicsQuality {
     /// ```
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// if let Some(caps) = ctx.gpu_capabilities() {
+    /// if let Some(caps) = ctx.gfx.gpu_capabilities() {
     ///     let q = GraphicsQuality::recommended(caps);
-    ///     ctx.set_graphics_quality(q);
+    ///     ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, q);
     /// }
     /// # }
     /// ```
@@ -360,7 +361,7 @@ impl GraphicsQuality {
     /// where they're unavailable; shadow maps and the light shadow atlas
     /// shrink to the largest texture the GPU allows. Asking for more is
     /// never a GPU error (the renderer falls back by itself); fitting makes
-    /// [`Ctx::graphics_quality`] say what is drawn, for an options menu.
+    /// [`Graphics::quality`](crate::Graphics::quality) say what is drawn, for an options menu.
     /// ```
     /// use ponko::*;
     /// let q = GraphicsQuality::ultra().fitted_to(&GpuTier::WebGl2.report());
@@ -417,7 +418,7 @@ impl GraphicsQuality {
     }
 
     /// These settings with every value brought into its allowed range (as
-    /// [`Ctx::set_graphics_quality`] applies them); a NaN becomes the
+    /// [`Graphics::set_quality`] applies them); a NaN becomes the
     /// [default](Self::default).
     /// ```
     /// use ponko::*;
@@ -459,80 +460,80 @@ impl GraphicsQuality {
     }
 }
 
-impl Ctx {
-    /// The current graphics quality, gathered from [`Ctx::post`] and
-    /// [`Ctx::lighting`]. Use [`GraphicsQuality::level`] to see which
-    /// preset it is.
+impl Graphics {
+    /// The current graphics quality, gathered from the post-processing and
+    /// lighting settings (`ctx.post`, `ctx.lighting`). Use
+    /// [`GraphicsQuality::level`] to see which preset it is.
     ///
     /// ```
     /// use ponko::*;
     /// Game::new("quality", 64, 64).run_headless(0, |ctx| {
-    ///     ctx.set_graphics_quality(GraphicsQuality::medium());
-    ///     assert_eq!(ctx.graphics_quality().level(), QualityLevel::Medium);
+    ///     ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::medium());
+    ///     assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::Medium);
     /// });
     /// ```
     #[must_use]
-    pub fn graphics_quality(&self) -> GraphicsQuality {
+    pub fn quality(&self, post: &Post, lighting: &Lighting) -> GraphicsQuality {
         GraphicsQuality {
-            render_scale: self.post.render_scale,
-            sharpen: self.post.sharpen,
-            shadows: self.lighting.shadows,
-            shadow_distance: self.lighting.shadow_distance,
-            shadow_cascades: self.lighting.shadow_cascades,
-            shadow_resolution: self.lighting.shadow_resolution,
-            shadow_refresh: self.lighting.shadow_refresh,
-            shadow_filter: self.lighting.shadow_filter,
-            light_shadow_views: self.lighting.light_shadow_views,
-            light_shadow_resolution: self.lighting.light_shadow_resolution,
-            light_shadow_atlas: self.lighting.light_shadow_atlas,
-            ambient_occlusion: self.post.ambient_occlusion.enabled,
-            ao_half_resolution: self.post.ao_half_resolution,
-            ao_temporal: self.post.ao_temporal,
-            ao_slices: self.post.ambient_occlusion.slices,
-            ao_steps: self.post.ambient_occlusion.steps,
-            ssr: self.post.ssr,
-            gi: self.lighting.gi.enabled,
-            anti_aliasing: self.post.anti_aliasing,
+            render_scale: post.render_scale,
+            sharpen: post.sharpen,
+            shadows: lighting.shadows,
+            shadow_distance: lighting.shadow_distance,
+            shadow_cascades: lighting.shadow_cascades,
+            shadow_resolution: lighting.shadow_resolution,
+            shadow_refresh: lighting.shadow_refresh,
+            shadow_filter: lighting.shadow_filter,
+            light_shadow_views: lighting.light_shadow_views,
+            light_shadow_resolution: lighting.light_shadow_resolution,
+            light_shadow_atlas: lighting.light_shadow_atlas,
+            ambient_occlusion: post.ambient_occlusion.enabled,
+            ao_half_resolution: post.ao_half_resolution,
+            ao_temporal: post.ao_temporal,
+            ao_slices: post.ambient_occlusion.slices,
+            ao_steps: post.ambient_occlusion.steps,
+            ssr: post.ssr,
+            gi: lighting.gi.enabled,
+            anti_aliasing: post.anti_aliasing,
         }
         .clamped()
     }
 
     /// Switches the 3D picture to `quality` (values outside their ranges are
     /// clamped, see [`GraphicsQuality::clamped`]), from any frame, without
-    /// restarting. It writes the matching fields of [`Ctx::post`] and
-    /// [`Ctx::lighting`] and leaves the others (AO radius, tone mapping,
-    /// ...) alone. The next frame draws the scene at the new resolution and
-    /// with new shadow maps where their size or count changed: nothing is
-    /// drawn from stale targets.
+    /// restarting. It writes the matching fields of `post` and `lighting`
+    /// (the game's are `ctx.post` and `ctx.lighting`) and leaves the others
+    /// (AO radius, tone mapping, ...) alone. The next frame draws the scene
+    /// at the new resolution and with new shadow maps where their size or
+    /// count changed: nothing is drawn from stale targets.
     ///
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// ctx.set_graphics_quality(GraphicsQuality::low());
+    /// ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::low());
     /// ctx.post.ambient_occlusion.radius = 2.0; // a tweak on top
     /// # }
     /// ```
-    pub fn set_graphics_quality(&mut self, quality: GraphicsQuality) {
+    pub fn set_quality(&mut self, post: &mut Post, lighting: &mut Lighting, quality: GraphicsQuality) {
         let q = quality.clamped();
-        self.post.render_scale = q.render_scale;
-        self.post.sharpen = q.sharpen;
-        self.post.anti_aliasing = q.anti_aliasing;
-        self.post.ambient_occlusion.enabled = q.ambient_occlusion;
-        self.post.ao_half_resolution = q.ao_half_resolution;
-        self.post.ao_temporal = q.ao_temporal;
-        self.post.ambient_occlusion.slices = q.ao_slices;
-        self.post.ambient_occlusion.steps = q.ao_steps;
-        self.post.ssr = q.ssr;
-        self.lighting.gi.enabled = q.gi;
-        self.lighting.shadows = q.shadows;
-        self.lighting.shadow_distance = q.shadow_distance;
-        self.lighting.shadow_cascades = q.shadow_cascades;
-        self.lighting.shadow_resolution = q.shadow_resolution;
-        self.lighting.shadow_refresh = q.shadow_refresh;
-        self.lighting.shadow_filter = q.shadow_filter;
-        self.lighting.light_shadow_views = q.light_shadow_views;
-        self.lighting.light_shadow_resolution = q.light_shadow_resolution;
-        self.lighting.light_shadow_atlas = q.light_shadow_atlas;
+        post.render_scale = q.render_scale;
+        post.sharpen = q.sharpen;
+        post.anti_aliasing = q.anti_aliasing;
+        post.ambient_occlusion.enabled = q.ambient_occlusion;
+        post.ao_half_resolution = q.ao_half_resolution;
+        post.ao_temporal = q.ao_temporal;
+        post.ambient_occlusion.slices = q.ao_slices;
+        post.ambient_occlusion.steps = q.ao_steps;
+        post.ssr = q.ssr;
+        lighting.gi.enabled = q.gi;
+        lighting.shadows = q.shadows;
+        lighting.shadow_distance = q.shadow_distance;
+        lighting.shadow_cascades = q.shadow_cascades;
+        lighting.shadow_resolution = q.shadow_resolution;
+        lighting.shadow_refresh = q.shadow_refresh;
+        lighting.shadow_filter = q.shadow_filter;
+        lighting.light_shadow_views = q.light_shadow_views;
+        lighting.light_shadow_resolution = q.light_shadow_resolution;
+        lighting.light_shadow_atlas = q.light_shadow_atlas;
     }
 }
 
@@ -685,7 +686,7 @@ mod tests {
     #[test]
     fn applying_a_preset_and_reading_it_back_round_trips() {
         crate::Game::new("quality", 64, 64).run_headless(0, |ctx| {
-            assert_eq!(ctx.graphics_quality(), GraphicsQuality::default());
+            assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting), GraphicsQuality::default());
             for l in [
                 QualityLevel::Ultra,
                 QualityLevel::Low,
@@ -693,9 +694,9 @@ mod tests {
                 QualityLevel::Medium,
             ] {
                 let q = l.quality().unwrap();
-                ctx.set_graphics_quality(q);
-                assert_eq!(ctx.graphics_quality(), q);
-                assert_eq!(ctx.graphics_quality().level(), l);
+                ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, q);
+                assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting), q);
+                assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), l);
                 assert_eq!(ctx.post.render_scale, q.render_scale);
                 assert_eq!(ctx.lighting.shadow_resolution, q.shadow_resolution);
                 assert_eq!(ctx.post.ambient_occlusion.enabled, q.ambient_occlusion);
@@ -711,17 +712,22 @@ mod tests {
     fn tweaks_after_a_preset_stick_and_make_it_custom() {
         crate::Game::new("quality", 64, 64).run_headless(0, |ctx| {
             ctx.post.ambient_occlusion.radius = 3.5;
-            ctx.set_graphics_quality(GraphicsQuality::high());
+            ctx.gfx
+                .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::high());
             assert_eq!(
                 ctx.post.ambient_occlusion.radius, 3.5,
                 "settings outside the struct stay"
             );
             ctx.lighting.shadow_cascades = 2;
-            assert_eq!(ctx.graphics_quality().level(), QualityLevel::Custom);
-            ctx.set_graphics_quality(GraphicsQuality {
-                render_scale: 5.0,
-                ..GraphicsQuality::high()
-            });
+            assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::Custom);
+            ctx.gfx.set_quality(
+                &mut ctx.post,
+                &mut ctx.lighting,
+                GraphicsQuality {
+                    render_scale: 5.0,
+                    ..GraphicsQuality::high()
+                },
+            );
             assert_eq!(ctx.post.render_scale, MAX_RENDER_SCALE, "clamped when applied");
         });
     }

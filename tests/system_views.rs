@@ -278,7 +278,7 @@ fn with_sound(access: SystemAccess, system: impl FnMut(&mut SystemView) + 'stati
         .add_view(Phase::AfterPhysics, access, system)
         .run_headless(1, |ctx| {
             setup(ctx);
-            let sound = ctx.create_sound(8000, &[0.0; 80]);
+            let sound = ctx.audio.create(8000, &[0.0; 80]);
             ctx.world.insert_resource(Click(sound));
         })
 }

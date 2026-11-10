@@ -28,7 +28,7 @@ struct Outcome {
 
 /// Inputs vary with tick and player, as if someone were playing.
 fn play_along(ctx: &mut Ctx) {
-    let t = ctx.sim_tick() as f32 * 0.05 + ctx.net.player() as f32;
+    let t = ctx.time.sim_tick() as f32 * 0.05 + ctx.net.player() as f32;
     ctx.net.set_input(&Steer {
         dir: vec2(t.cos(), t.sin()),
     });
@@ -100,7 +100,7 @@ fn play(nets: Vec<Net>, ticks: u64, units: usize, tweak: fn(&mut Ctx)) -> Vec<(V
                     .sim_system(crowd)
                     .sim_system(tweak)
                     .sim_system(move |ctx: &mut Ctx| {
-                        if ctx.sim_tick() + 1 == ticks {
+                        if ctx.time.sim_tick() + 1 == ticks {
                             let outcome = Outcome {
                                 desync: ctx.net.desync().cloned(),
                                 player: ctx.net.player(),
@@ -162,7 +162,7 @@ fn peers_over_udp_stay_in_sync() {
 
 /// Player 1 alone nudges one unit: a bug that only shows on one machine.
 fn diverge(ctx: &mut Ctx) {
-    if ctx.net.player() == 1 && ctx.sim_tick() == 100 {
+    if ctx.net.player() == 1 && ctx.time.sim_tick() == 100 {
         let e = ctx.world.query::<Entity>().with::<Unit>().iter().next().unwrap();
         ctx.world.get_mut::<Unit>(e).unwrap().vel.x += 0.001;
     }
@@ -204,7 +204,7 @@ fn offline_input_applies_on_the_next_tick() {
     Game::new("t", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
             log.borrow_mut().push(ctx.net.input::<u64>(0));
-            ctx.net.set_input(&ctx.sim_tick());
+            ctx.net.set_input(&ctx.time.sim_tick());
         })
         .run_headless(3, |ctx| {
             assert_eq!((ctx.net.player(), ctx.net.players()), (0, 1));

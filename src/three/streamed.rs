@@ -71,7 +71,7 @@ impl StreamedLod {
 impl Ctx {
     /// Mesh file `path`, streamed in without waiting: `None` the first time
     /// (it starts reading and decoding on a worker thread) and until it is
-    /// uploaded, within the [upload budget](Self::set_upload_budget), at
+    /// uploaded, within the [upload budget](crate::Graphics::set_upload_budget), at
     /// the start of a later frame; then the same [`Mesh`] as
     /// [`resident_mesh`](Self::resident_mesh) gives, under the same
     /// [mesh budget](Self::set_residency_budget). Ask for it each tick or
@@ -79,7 +79,7 @@ impl Ctx {
     /// handle.
     ///
     /// Files that refer to other files (a `.gltf` with its `.bin` and
-    /// images) from added [asset sources](Self::add_asset_source) are
+    /// images) from added [asset sources](crate::Assets::add_source) are
     /// decoded on the game thread: those sources can only be read there. A
     /// failed load gives [`AssetState::Failed`] and isn't retried by
     /// asking again; `resident_mesh` loads it again.
@@ -89,22 +89,23 @@ impl Ctx {
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     assert_eq!(ctx.stream_mesh("models/missing.glb"), None);
     ///     ctx.finish_uploads();
-    ///     assert_eq!(ctx.asset_state(ResidencyKind::Mesh, "models/missing.glb"), AssetState::Failed);
+    ///     assert_eq!(ctx.gfx.asset_state(ResidencyKind::Mesh, "models/missing.glb"), AssetState::Failed);
     /// });
     /// ```
     pub fn stream_mesh(&mut self, path: &str) -> Option<Mesh> {
-        if let Some(mesh) = self.live_resident_mesh(path) {
+        if let Some(mesh) = self.gfx.live_resident_mesh(path) {
             let now = self.residency_now();
-            self.residency.set_mut(ResidencyKind::Mesh).touch(path, now);
+            self.gfx.residency.set_mut(ResidencyKind::Mesh).touch(path, now);
             return Some(mesh);
         }
-        if self.streaming.meshes.contains_key(path) {
+        if self.gfx.streaming.meshes.contains_key(path) {
             return None;
         }
-        self.residency.set_mut(ResidencyKind::Mesh).forget(path);
+        self.gfx.residency.set_mut(ResidencyKind::Mesh).forget(path);
         let lookup = self
+            .gfx
             .asset_sources
-            .lookup(path, |origin| self.assets3d.loaded.get(origin).copied());
+            .lookup(path, |origin| self.gfx.assets3d.loaded.get(origin).copied());
         let job = match lookup {
             // The game loaded it already: it holds the handle.
             Ok(assets::Lookup::Cached(origin, mesh)) => {
@@ -115,7 +116,7 @@ impl Ctx {
                 let origin = found.origin.clone();
                 let name = path.to_string();
                 match origin {
-                    Origin::File(_) if self.asset_sources.is_empty() => Job::spawn(move || {
+                    Origin::File(_) if self.gfx.asset_sources.is_empty() => Job::spawn(move || {
                         let bytes = found.into_bytes().map_err(|e| e.with_path(&name))?;
                         let mut read = |file: &str| assets::Sources::default().read(file);
                         let loaded = gltf::load(&name, &bytes, &mut read, &|_| false)
@@ -130,7 +131,7 @@ impl Ctx {
             }
             Err(e) => Job::spawn(move || Err(e)),
         };
-        self.streaming.meshes.insert(
+        self.gfx.streaming.meshes.insert(
             path.to_string(),
             StreamedMesh {
                 job: Some(job),
@@ -138,62 +139,26 @@ impl Ctx {
                 state: AssetState::Loading,
             },
         );
-        self.streaming.queue_mesh(path);
+        self.gfx.streaming.queue_mesh(path);
         None
-    }
-
-    /// Where mesh `name` is (`asset_state`).
-    pub(crate) fn mesh_state(&self, name: &str) -> AssetState {
-        if self.live_resident_mesh(name).is_some() {
-            return AssetState::Resident;
-        }
-        if let Some(m) = self.streaming.meshes.get(name) {
-            return m.state;
-        }
-        if self.residency.reserved_meshes.contains_key(name) {
-            return AssetState::Evicted;
-        }
-        AssetState::Unknown
-    }
-
-    /// Adds the streamed and resident meshes to `out` (`streamed_assets`).
-    pub(crate) fn list_streamed_meshes(&self, out: &mut Vec<StreamedAsset>) {
-        let mut names: Vec<&String> = self.streaming.meshes.keys().collect();
-        names.extend(self.residency.reserved_meshes.keys());
-        names.extend(self.residency.set(ResidencyKind::Mesh).names());
-        names.sort_unstable();
-        names.dedup();
-        for name in names {
-            let id = self
-                .live_resident_mesh(name)
-                .map(|m| m.id)
-                .or_else(|| self.residency.reserved_meshes.get(name).copied());
-            out.push(StreamedAsset {
-                kind: ResidencyKind::Mesh,
-                name: name.clone(),
-                state: self.mesh_state(name),
-                id,
-                size: [0, 0],
-            });
-        }
     }
 
     /// One upload of streamed mesh `name`: making it on the GPU.
     pub(crate) fn mesh_step(&mut self, name: &str, room: u64, first: bool) -> crate::streaming::Step {
         use crate::streaming::Step;
-        let Some(m) = self.streaming.meshes.get_mut(name) else {
+        let Some(m) = self.gfx.streaming.meshes.get_mut(name) else {
             return Step::Dropped;
         };
         if m.ready.is_none() {
             let mut job = m.job.take();
             let decoded = self.take_decoded(&mut job);
-            let m = self.streaming.meshes.get_mut(name).expect("still there");
+            let m = self.gfx.streaming.meshes.get_mut(name).expect("still there");
             m.job = job;
             match decoded {
                 None => return Step::NotReady,
                 Some(Err(e)) => {
                     m.state = AssetState::Failed;
-                    self.streaming.fail(ResidencyKind::Mesh, name, e);
+                    self.gfx.streaming.fail(ResidencyKind::Mesh, name, e);
                     return Step::Dropped;
                 }
                 Some(Ok(ready)) => {
@@ -202,7 +167,7 @@ impl Ctx {
                 }
             }
         }
-        let m = self.streaming.meshes.get(name).expect("still there");
+        let m = self.gfx.streaming.meshes.get(name).expect("still there");
         let bytes = match &m.ready {
             Some((_, LoadedFile::Parsed(loaded))) => {
                 super::mesh_gpu_bytes(&loaded.data)
@@ -219,25 +184,26 @@ impl Ctx {
             return Step::NotReady;
         }
         let (origin, file) = self
+            .gfx
             .streaming
             .meshes
             .remove(name)
             .and_then(|m| m.ready)
             .expect("decoded");
         // Loaded by the game meanwhile: it holds that one.
-        if let Some(&mesh) = self.assets3d.loaded.get(&origin) {
+        if let Some(&mesh) = self.gfx.assets3d.loaded.get(&origin) {
             self.add_resident_mesh(name, mesh, origin, true);
             return Step::Uploaded { bytes: 0, again: false };
         }
         let made = self.load_reserved(name, |ctx| {
             let (loaded, image_keys) = match file {
                 LoadedFile::Parsed(loaded) => {
-                    let keys = ctx.image_keys(&loaded);
+                    let keys = ctx.gfx.image_keys(&loaded);
                     (*loaded, keys)
                 }
-                LoadedFile::Bytes(bytes) => ctx.decode_gltf(name, &bytes)?,
+                LoadedFile::Bytes(bytes) => ctx.gfx.decode_gltf(name, &bytes)?,
             };
-            Ok(ctx.mesh_from_loaded(name, origin.clone(), loaded, image_keys))
+            Ok(ctx.gfx.mesh_from_loaded(name, origin.clone(), loaded, image_keys))
         });
         match made {
             Ok(mesh) => {
@@ -245,7 +211,7 @@ impl Ctx {
                 Step::Uploaded { bytes, again: false }
             }
             Err(e) => {
-                self.streaming.meshes.insert(
+                self.gfx.streaming.meshes.insert(
                     name.to_string(),
                     StreamedMesh {
                         job: None,
@@ -253,7 +219,7 @@ impl Ctx {
                         state: AssetState::Failed,
                     },
                 );
-                self.streaming.fail(ResidencyKind::Mesh, name, e);
+                self.gfx.streaming.fail(ResidencyKind::Mesh, name, e);
                 Step::Dropped
             }
         }
@@ -262,7 +228,7 @@ impl Ctx {
     /// Asks for the levels each [`StreamedLod`] group needs and shows what
     /// is in (`pump_streaming`).
     pub(crate) fn stream_lod_levels(&mut self) {
-        let mut groups = std::mem::take(&mut self.streaming.lod_scratch);
+        let mut groups = std::mem::take(&mut self.gfx.streaming.lod_scratch);
         groups.clear();
         {
             let (camera, settings) = (&self.camera3d, &self.lod);
@@ -318,6 +284,44 @@ impl Ctx {
                 }
             }
         }
-        self.streaming.lod_scratch = groups;
+        self.gfx.streaming.lod_scratch = groups;
+    }
+}
+
+impl crate::Graphics {
+    /// Where mesh `name` is (`asset_state`).
+    pub(crate) fn mesh_state(&self, name: &str) -> AssetState {
+        if self.live_resident_mesh(name).is_some() {
+            return AssetState::Resident;
+        }
+        if let Some(m) = self.streaming.meshes.get(name) {
+            return m.state;
+        }
+        if self.residency.reserved_meshes.contains_key(name) {
+            return AssetState::Evicted;
+        }
+        AssetState::Unknown
+    }
+
+    /// Adds the streamed and resident meshes to `out` (`streamed_assets`).
+    pub(crate) fn list_streamed_meshes(&self, out: &mut Vec<StreamedAsset>) {
+        let mut names: Vec<&String> = self.streaming.meshes.keys().collect();
+        names.extend(self.residency.reserved_meshes.keys());
+        names.extend(self.residency.set(ResidencyKind::Mesh).names());
+        names.sort_unstable();
+        names.dedup();
+        for name in names {
+            let id = self
+                .live_resident_mesh(name)
+                .map(|m| m.id)
+                .or_else(|| self.residency.reserved_meshes.get(name).copied());
+            out.push(StreamedAsset {
+                kind: ResidencyKind::Mesh,
+                name: name.clone(),
+                state: self.mesh_state(name),
+                id,
+                size: [0, 0],
+            });
+        }
     }
 }

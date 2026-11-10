@@ -30,15 +30,15 @@ with `reflect_resource`, and the file's fields merge into it, so the file
 may list only some of them (C: `ponko_ctx_load_resource_json`). C++ can
 also load a file into a component of one entity: `ctx.load_json<T>(path, e)`.
 Rust has the same merging forms for reflected types, with the name taken from
-the type: `ctx.load_resource_json::<T>(path)` and
-`ctx.load_component_json::<T>(path, entity)`.
+the type: `ctx.assets.load_resource_json::<T>(&mut ctx.world, path)` and
+`ctx.assets.load_component_json::<T>(&mut ctx.world, path, entity)`.
 
 - Loading fails with a clear message: a missing file lists the folders
   searched, and bad JSON says the line and column.
 - A file that doesn't parse while the game runs (often one caught halfway
   through saving) keeps the old values and prints why; the next good save
   applies.
-- `ctx.reloaded_files()` names the files reloaded this frame, textures
+- `ctx.assets.reloaded_files()` names the files reloaded this frame, textures
   included, for work that depends on them (rebuilding a map, say). In C++,
   `ctx.was_reloaded("map.json")` (C: `ponko_ctx_was_reloaded`).
 - Headless runs reload too, so an agent or a test can change a file
