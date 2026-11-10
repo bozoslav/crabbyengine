@@ -639,11 +639,8 @@ fn derive(source: Source<'_>, assets: &Assets3D, overrides: &Overrides<'_>) -> D
     let caster_bounds = caster.and_then(|c| assets.live_bounds(c));
     let t = source.transform;
     let widest = t.scale.abs().max_element();
-    let world = |(center, radius): (Vec3, f32)| {
-        (t.position + t.rotation * (t.scale * center))
-            .extend(radius * widest)
-            .to_array()
-    };
+    let matrix = t.matrix();
+    let world = |(center, radius): (Vec3, f32)| matrix.transform_point3(center).extend(radius * widest).to_array();
     // The model's own mesh, wherever it is drawn (not a separate
     // `ShadowMesh`), takes the override.
     let own = if source.material == NONE {
@@ -707,9 +704,9 @@ const DEAD: u64 = u64::MAX;
 const MANY_NEW: usize = 512;
 /// While most models change every frame (see `Tracked::rush`), one model
 /// in this many is still compared with its digest, to tell when they stop.
-const SAMPLE: u32 = 16;
+const SAMPLE: u32 = 64;
 /// Fewer tracked models than this never rush: there is nothing to gain.
-const RUSH_MIN: usize = 1024;
+const RUSH_MIN: usize = 4096;
 /// A rush ends when fewer models than this are sampled: too few to tell.
 const SAMPLE_MIN: usize = 16;
 
