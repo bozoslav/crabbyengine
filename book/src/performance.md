@@ -171,12 +171,14 @@ goes, in a running game:
   the camera and, separately, for the shadow maps; and the render CPU
   time split into culling (`collect_ms`), recording (`record_ms`, all
   cores) and submitting. `uploads` counts the bytes sent to the GPU that
-  frame, by kind (model transforms, uniforms, lights, ...), and the
-  buffers created: in a scene where nothing changes it should stay at a
-  few kilobytes of uniforms and no buffers. Models that stand still cost
-  no uploads, also while the camera moves; only the models that changed,
-  or entered or left a view, are sent (see
-  [Models between frames](#models-between-frames)).
+  frame, by kind (model transforms, uniforms, lights, ...), the buffers
+  created, and the `reallocations` (buffers and textures replaced because
+  they were outgrown; the new buffers also count as created): in a scene where nothing changes it should stay at the
+  clock's few bytes and no buffers. Models that stand still cost no
+  uploads, also while the camera moves; only the models that changed, or
+  entered or left a view, are sent (see
+  [Models between frames](#models-between-frames) and
+  [What a frame sends the GPU](#what-a-frame-sends-the-gpu)).
 - **`ctx.gfx.mesh_costs()`**: per mesh, how many models and triangles it drew
   for the camera and the shadows last frame, heaviest first.
 - **Traces**: `ctx.perf.record_trace(path, frames)` (or `PONKO_TRACE=path`)
@@ -336,6 +338,105 @@ What it costs:
 
 `ctx.perf.render_stats().uploads.instances` shows what a frame uploaded: with a
 moving camera it should be a small part of the instances drawn.
+
+### What a frame sends the GPU
+
+The renderer keeps a copy of what each per-frame buffer holds on the GPU
+and uploads only the parts that changed since the last frame: the
+models' records, their motion records (temporal antialiasing), the frame
+settings of the camera and of every shadow view, the post-processing and
+effect settings, skeletons' joints and morph weights, instance batches'
+view settings, particles, ribbons, lines and 3D text, and 2D sprites. A
+model that slides without turning changes 32 of its 144 motion bytes,
+and only those go. A buffer that outgrows its contents is made anew at
+the next power of two, so a world that keeps growing replaces it a
+logarithmic number of times, and one that stays the same size replaces
+none; the new buffer is written whole, and everything that referred to
+the old one (bind groups, the copy of its contents) is made again with
+it. Buffers never grow past what the device allows: a frame that needs
+more is reported once on stderr (`ponko: ... more than this GPU's
+buffers hold`), and what doesn't fit is not drawn (particles, ribbons
+and text past the limit; with too many models or sprites, the frame's 3D
+scene or its sprites) instead of failing.
+
+Each write costs more than its bytes: `wgpu` makes and maps a staging
+buffer for every one, about 2 µs of CPU time on an M4 Max, as much as
+copying about 30 KB more. So a buffer whose changes can be scattered
+(one record per model, sprite, particle or joint) is written in at most
+16 writes a frame: when more parts changed, the narrowest gaps between
+them are uploaded along. That sends more bytes than the changes alone,
+never more than the whole buffer, and keeps the CPU time bounded however
+the changes fall.
+
+The copies cost CPU memory: as much as their buffers hold at most, which
+for most games is small. Each model's record is 80 bytes in every list
+it is drawn in (the camera, each shadow cascade, each target view): 1,024
+models in a camera and four cascades keep about 400 KB. Particles keep
+48 bytes each, a skeleton 64 bytes a joint, and every view's frame
+settings about 3 KB. The copies grow with their buffers and, like them,
+never shrink.
+
+`RenderStats::uploads` (`ctx.gpu_uploads()` in C++) counts what was sent,
+the buffers made and the buffers and textures replaced:
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/profiling.rs:uploads}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:uploads}}
+```
+
+</div>
+</div>
+
+Measured offscreen on an M4 Max (Metal), release build, 128×128 target,
+sun shadows with four cascades, 1,024 cubes (256 for the particles), the
+clock running, averages over 120 frames after 10 warm-up ones; before is
+the renderer before this change, which uploaded every per-frame buffer
+whole:
+
+| Scene | Bytes uploaded per frame, before | After | `prepare` CPU p50, before | After |
+|---|---:|---:|---:|---:|
+| Nothing moves | 15,616 | 80 | 0.085 ms | 0.053 ms |
+| 1% of the models move, temporal antialiasing | 20,640 | 99,019 | 0.157 ms | 0.155 ms |
+| The camera pans | 17,498 | 4,994 | 0.079 ms | 0.098 ms |
+| 5% of the models despawned and spawned again a frame | 39,715 | 24,243 | 0.098 ms | 0.097 ms |
+| 2,000 still particles and 8 lines | 113,440 | 80 | 0.065 ms | 0.049 ms |
+
+The 80 bytes left in a still scene are the clock: one vec4 in the frame
+settings of the camera and of each of the four cascades. No scene made a
+buffer in its measured frames. With temporal antialiasing, the 11 moving
+models' records are spread over the lists of the camera and the
+cascades, in more runs than a list's 16 writes (below): without that
+limit the frame took 67 writes and 4,331 bytes, with it 48 writes and
+99,019 bytes, and no more CPU time (0.155 ms, against 0.160 to 0.212 ms
+in runs without the limit). The
+byte counts are exact and the same on every run. The CPU times are from
+runs on a machine busy with other builds (load 10 to 80), and the same
+build moved by up to 0.02 ms between runs: the panning camera took 0.080
+and 0.098 ms in two runs of one build, so it shows no clear change.
+
+Changes scattered all over the buffers (every 17th of the 1,024 models
+moving and every other of 200 particle emitters), by the most writes a
+buffer takes per frame:
+
+| Writes per buffer | Writes per frame | Bytes per frame | `prepare` CPU p50 |
+|---|---:|---:|---:|
+| No limit | 241 | 98,080 | 0.56 ms |
+| 64 | 133 | 207,520 | 0.37 to 0.41 ms |
+| 32 | 69 | 263,840 | 0.27 ms |
+| 16 (the renderer's) | 37 | 292,000 | 0.17 ms |
+
+Run it with
+`cargo test --release --lib --features 3d upload_bench -- --ignored --nocapture`;
+it also prints what writes cost on the machine it runs on.
 
 ## 3D: Ponko vs Unity
 

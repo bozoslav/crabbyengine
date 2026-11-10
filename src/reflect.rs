@@ -14,6 +14,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
+mod builtin_schemas;
+
 use crate::schema::{SchemaSource, ValueSchema, schema_json};
 
 /// Why a reflection call failed.
@@ -897,6 +899,9 @@ impl WorldReflect for World {
             );
             return;
         }
+        if let Some(schema) = builtin_schemas::builtin::<T>() {
+            reg.schemas.insert(name.clone(), (schema, SchemaSource::Described));
+        }
         reg.by_name.insert(name.clone(), reg.list.len());
         reg.list.push(Reflected {
             name,
@@ -1470,6 +1475,8 @@ pub(crate) fn reflect_sprite(world: &mut World) {
     if reg.by_name.contains_key("Sprite") {
         return;
     }
+    reg.schemas
+        .insert("Sprite".into(), (builtin_schemas::sprite(), SchemaSource::Described));
     reg.by_name.insert("Sprite".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "Sprite".into(),
@@ -1574,6 +1581,183 @@ fn shadow_mesh_from_json(world: &World, value: Value) -> Result<crate::ShadowMes
         .and_then(|t| t.get(&name))
         .ok_or_else(|| format!("mesh \"{name}\" isn't loaded: ctx.gfx.load_mesh(\"{name}\") first"))?;
     Ok(crate::ShadowMesh(Some(mesh)))
+}
+
+/// The materials of meshes loaded from files (`Ctx::load_mesh`), so a
+/// [`ModelMaterial`](crate::ModelMaterial) is saved as the file and the
+/// material's name in it. One table shared by the world (a resource) and
+/// the graphics service, like [`Names`].
+#[cfg(feature = "3d")]
+#[derive(Default, Clone)]
+pub(crate) struct MaterialNames(Arc<std::sync::Mutex<MaterialTable>>);
+
+#[cfg(feature = "3d")]
+#[derive(Default)]
+struct MaterialTable {
+    /// A material's file and its number in that file's list.
+    by_id: HashMap<u32, (String, usize)>,
+    /// Each file's materials, in the file's order, with their names
+    /// (empty: unnamed).
+    by_file: HashMap<String, Vec<(crate::Material, String)>>,
+}
+
+#[cfg(feature = "3d")]
+impl MaterialNames {
+    fn table(&self) -> std::sync::MutexGuard<'_, MaterialTable> {
+        // A panic while holding the lock leaves the maps as they were.
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Records the materials of mesh file `file`.
+    pub(crate) fn add(&self, file: &str, materials: impl Iterator<Item = (crate::Material, String)>) {
+        let list: Vec<_> = materials.collect();
+        let mut table = self.table();
+        for (i, (material, _)) in list.iter().enumerate() {
+            // A material shared by two files keeps its first name.
+            table.by_id.entry(material.id).or_insert_with(|| (file.to_string(), i));
+        }
+        table.by_file.insert(file.to_string(), list);
+    }
+
+    /// Forgets freed material `id`.
+    pub(crate) fn remove(&self, id: u32) {
+        let mut table = self.table();
+        table.by_id.remove(&id);
+        for list in table.by_file.values_mut() {
+            list.retain(|(m, _)| m.id != id);
+        }
+    }
+
+    /// How `material` is written in a scene file, if it came from a file:
+    /// by its name when the file has that name once, else by its number.
+    fn named(&self, material: crate::Material) -> Option<MaterialJson> {
+        let table = self.table();
+        let (file, _) = table.by_id.get(&material.id)?;
+        let list = table.by_file.get(file)?;
+        let at = list.iter().position(|(m, _)| *m == material)?;
+        let name = &list[at].1;
+        let unique = !name.is_empty() && list.iter().filter(|(_, n)| n == name).count() == 1;
+        Some(MaterialJson {
+            mesh: file.clone(),
+            material: if unique {
+                MaterialRef::Name(name.clone())
+            } else {
+                MaterialRef::Index(at)
+            },
+        })
+    }
+
+    /// The material a scene file names, or an error saying what's missing.
+    fn find(&self, json: &MaterialJson) -> Result<crate::Material, String> {
+        let file = &json.mesh;
+        let table = self.table();
+        let list = table
+            .by_file
+            .get(file)
+            .ok_or_else(|| format!("mesh \"{file}\" isn't loaded: ctx.load_mesh(\"{file}\") first"))?;
+        let found = match &json.material {
+            MaterialRef::Name(name) => list.iter().find(|(_, n)| n == name),
+            MaterialRef::Index(i) => list.get(*i),
+        };
+        found.map(|(m, _)| *m).ok_or_else(|| {
+            let names: Vec<_> = list.iter().map(|(_, n)| format!("\"{n}\"")).collect();
+            let wanted = match &json.material {
+                MaterialRef::Name(name) => format!("\"{name}\""),
+                MaterialRef::Index(i) => i.to_string(),
+            };
+            format!(
+                "mesh \"{file}\" has no material {wanted}: it has {} ({})",
+                list.len(),
+                names.join(", ")
+            )
+        })
+    }
+}
+
+/// A material of a loaded mesh file: `{ "mesh": "rocks.glb", "material":
+/// "Wet" }`, or its number in the file instead of the name.
+#[cfg(feature = "3d")]
+#[derive(Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MaterialJson {
+    mesh: String,
+    material: MaterialRef,
+}
+
+#[cfg(feature = "3d")]
+#[derive(Serialize, serde::Deserialize)]
+#[serde(untagged)]
+enum MaterialRef {
+    Name(String),
+    Index(usize),
+}
+
+/// `None` for a material made in code: it has no file to name, so the
+/// override isn't saved (the rest of the entity is).
+#[cfg(feature = "3d")]
+fn model_material_json(world: &World, m: &crate::ModelMaterial) -> Option<Result<Value, String>> {
+    let json = world.get_resource::<MaterialNames>()?.named(m.0)?;
+    Some(serde_json::to_value(json).map_err(|err| err.to_string()))
+}
+
+#[cfg(feature = "3d")]
+fn model_material_from_json(world: &World, value: Value) -> Result<crate::ModelMaterial, String> {
+    let json: MaterialJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
+    let names = world.get_resource::<MaterialNames>();
+    let material = names.map_or_else(|| MaterialNames::default().find(&json), |n| n.find(&json))?;
+    Ok(crate::ModelMaterial(material))
+}
+
+/// [`ModelMaterials`](crate::ModelMaterials) as JSON: `{ "parts": [{ "part":
+/// 1, "mesh": "door.glb", "material": "Glass" }] }`.
+#[cfg(feature = "3d")]
+#[derive(Serialize, serde::Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct ModelMaterialsJson {
+    parts: Vec<PartMaterialJson>,
+}
+
+#[cfg(feature = "3d")]
+#[derive(Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PartMaterialJson {
+    part: usize,
+    mesh: String,
+    material: MaterialRef,
+}
+
+/// `None` when one of its materials was made in code: a list saved in part
+/// would draw something else when loaded.
+#[cfg(feature = "3d")]
+fn model_materials_json(world: &World, m: &crate::ModelMaterials) -> Option<Result<Value, String>> {
+    let names = world.get_resource::<MaterialNames>()?;
+    let parts = m
+        .parts()
+        .map(|(part, material)| {
+            let MaterialJson { mesh, material } = names.named(material)?;
+            Some(PartMaterialJson { part, mesh, material })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(serde_json::to_value(ModelMaterialsJson { parts }).map_err(|err| err.to_string()))
+}
+
+#[cfg(feature = "3d")]
+fn model_materials_from_json(world: &World, value: Value) -> Result<crate::ModelMaterials, String> {
+    let json: ModelMaterialsJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
+    let none = MaterialNames::default();
+    let names = world.get_resource::<MaterialNames>().unwrap_or(&none);
+    let parts = json
+        .parts
+        .into_iter()
+        .map(|p| {
+            let named = MaterialJson {
+                mesh: p.mesh,
+                material: p.material,
+            };
+            Ok((p.part, names.find(&named)?))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(crate::ModelMaterials::new(&parts))
 }
 
 /// A mesh's file name, or an error naming what to load first.
@@ -1711,8 +1895,8 @@ fn lod_group_from_json(world: &World, value: Value) -> Result<crate::LodGroup, S
     Ok(crate::LodGroup::new(json.size, levels).with_center(json.center))
 }
 
-/// Every `"mesh"` named inside `"LodGroup"` objects anywhere in `json`, for
-/// loading them first.
+/// Every `"mesh"` named inside `"LodGroup"`, `"ModelMaterial"` and
+/// `"ModelMaterials"` objects anywhere in `json`, for loading them first.
 #[cfg(feature = "3d")]
 pub(crate) fn lod_mesh_names(json: &Value, out: &mut Vec<String>) {
     fn meshes(json: &Value, out: &mut Vec<String>) {
@@ -1732,7 +1916,7 @@ pub(crate) fn lod_mesh_names(json: &Value, out: &mut Vec<String>) {
     match json {
         Value::Object(map) => {
             for (k, value) in map {
-                if k == "LodGroup" {
+                if matches!(k.as_str(), "LodGroup" | "ModelMaterial" | "ModelMaterials") {
                     meshes(value, out);
                 } else {
                     lod_mesh_names(value, out);
@@ -1747,11 +1931,16 @@ pub(crate) fn lod_mesh_names(json: &Value, out: &mut Vec<String>) {
 /// Reflects [`Model`](crate::Model) as `"Model"`,
 /// [`ShadowMesh`](crate::ShadowMesh) as `"ShadowMesh"` and
 /// [`LodGroup`](crate::LodGroup) as `"LodGroup"`, their meshes saved by file
-/// name (see [`MeshNames`]).
+/// name (see [`MeshNames`]), and [`ModelMaterial`](crate::ModelMaterial) and
+/// [`ModelMaterials`](crate::ModelMaterials), their materials saved by file
+/// and name (see [`MaterialNames`]).
 #[cfg(feature = "3d")]
 pub(crate) fn reflect_model(world: &mut World) {
     if world.get_resource::<MeshNames>().is_none() {
         world.insert_resource(MeshNames::default());
+    }
+    if world.get_resource::<MaterialNames>().is_none() {
+        world.insert_resource(MaterialNames::default());
     }
     if world.get_resource::<Registry>().is_none() {
         world.insert_resource(Registry::default());
@@ -1760,6 +1949,8 @@ pub(crate) fn reflect_model(world: &mut World) {
     if reg.by_name.contains_key("Model") {
         return;
     }
+    reg.schemas
+        .insert("Model".into(), (builtin_schemas::model(), SchemaSource::Described));
     reg.by_name.insert("Model".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "Model".into(),
@@ -1781,6 +1972,10 @@ pub(crate) fn reflect_model(world: &mut World) {
         check: Arc::new(check::<ModelJson>),
         remove: Arc::new(remove::<crate::Model>),
     });
+    reg.schemas.insert(
+        "ShadowMesh".into(),
+        (builtin_schemas::shadow(), SchemaSource::Described),
+    );
     reg.by_name.insert("ShadowMesh".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "ShadowMesh".into(),
@@ -1802,6 +1997,61 @@ pub(crate) fn reflect_model(world: &mut World) {
         check: Arc::new(check::<ShadowMeshJson>),
         remove: Arc::new(remove::<crate::ShadowMesh>),
     });
+    reg.schemas.insert(
+        "ModelMaterial".into(),
+        (builtin_schemas::model_material(), SchemaSource::Described),
+    );
+    reg.by_name.insert("ModelMaterial".into(), reg.list.len());
+    reg.list.push(Reflected {
+        name: "ModelMaterial".into(),
+        type_name: std::any::type_name::<crate::ModelMaterial>().into(),
+        get: Arc::new(|w: &World, e| w.get::<crate::ModelMaterial>(e).and_then(|m| model_material_json(w, m))),
+        set: Arc::new(|w: &mut World, e, v| {
+            let material = model_material_from_json(w, v)?;
+            w.insert(e, material);
+            Ok(())
+        }),
+        spawn: Arc::new(|w: &mut World, v| {
+            let material = model_material_from_json(w, v)?;
+            Ok(w.spawn((material,)))
+        }),
+        spawn_at: Arc::new(|w: &mut World, e, v| {
+            let material = model_material_from_json(w, v)?;
+            Ok(w.spawn_at(e, (material,)))
+        }),
+        check: Arc::new(check::<MaterialJson>),
+        remove: Arc::new(remove::<crate::ModelMaterial>),
+    });
+    reg.schemas.insert(
+        "ModelMaterials".into(),
+        (builtin_schemas::model_materials(), SchemaSource::Described),
+    );
+    reg.by_name.insert("ModelMaterials".into(), reg.list.len());
+    reg.list.push(Reflected {
+        name: "ModelMaterials".into(),
+        type_name: std::any::type_name::<crate::ModelMaterials>().into(),
+        get: Arc::new(|w: &World, e| {
+            w.get::<crate::ModelMaterials>(e)
+                .and_then(|m| model_materials_json(w, m))
+        }),
+        set: Arc::new(|w: &mut World, e, v| {
+            let materials = model_materials_from_json(w, v)?;
+            w.insert(e, materials);
+            Ok(())
+        }),
+        spawn: Arc::new(|w: &mut World, v| {
+            let materials = model_materials_from_json(w, v)?;
+            Ok(w.spawn((materials,)))
+        }),
+        spawn_at: Arc::new(|w: &mut World, e, v| {
+            let materials = model_materials_from_json(w, v)?;
+            Ok(w.spawn_at(e, (materials,)))
+        }),
+        check: Arc::new(check::<ModelMaterialsJson>),
+        remove: Arc::new(remove::<crate::ModelMaterials>),
+    });
+    reg.schemas
+        .insert("LodGroup".into(), (builtin_schemas::lod(), SchemaSource::Described));
     reg.by_name.insert("LodGroup".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "LodGroup".into(),
@@ -1891,6 +2141,13 @@ pub(crate) fn reflect_collider(world: &mut World) {
     if reg.by_name.contains_key("Collider3D") {
         return;
     }
+    reg.schemas.insert(
+        "Collider3D".into(),
+        (
+            builtin_schemas::builtin::<crate::Collider3D>().unwrap(),
+            SchemaSource::Described,
+        ),
+    );
     reg.by_name.insert("Collider3D".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "Collider3D".into(),

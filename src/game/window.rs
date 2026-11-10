@@ -32,24 +32,7 @@ where
         .unwrap_or_else(|e| panic!("ponko: could not start the event loop: {e}"));
 
     let clock = Clock::new(game.fixed_hz);
-    let mut ctx = Ctx::new(clock.fixed_dt(), Vec2::new(game.width as f32, game.height as f32));
-    ctx.seed = game.seed;
-    ctx.assets.watcher.set_on(crate::hot_reload::enabled(game.hot_reload));
-    if let Some(cell) = game.spatial_cell {
-        ctx.spatial = crate::SpatialGrid::new(cell);
-    }
-    #[cfg(feature = "physics")]
-    if let Some(gravity) = game.gravity {
-        crate::physics::start(&mut ctx, gravity);
-    }
-    #[cfg(feature = "physics3d")]
-    if let Some(gravity) = game.gravity3d {
-        crate::physics3d::start(&mut ctx, gravity);
-    }
-    if let Some(net) = game.net.take() {
-        ctx.net = net;
-    }
-    ctx.net.begin(ctx.seed);
+    let mut ctx = game.build_ctx(false);
     let control = game.start_control(&mut ctx, false);
     ctx.perf.profiler = crate::profiler::Profiler::from_env();
     // A benchmark measures how fast the game can run, not the display.
@@ -203,8 +186,7 @@ where
         if let Some(pads) = &mut self.gamepads {
             pads.poll(&mut self.ctx.input);
         }
-        self.ctx.reload_changed_assets();
-        self.ctx.pump_streaming();
+        self.ctx.frame_prepare_services();
         #[cfg(feature = "3d")]
         self.ctx.gfx.apply_shader_checks();
         let systems_start = Instant::now();
@@ -316,6 +298,7 @@ where
                         phase: 0,
                         id,
                         access: None,
+                        last: false,
                         changes_seen: Default::default(),
                         enforced: false,
                     },

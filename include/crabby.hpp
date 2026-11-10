@@ -167,6 +167,9 @@ inline terrain_material_desc terrain_material_of(texture_array layers, texture_a
 using mesh = CrabbyMesh;
 /// Frame timing over the last few seconds, in ms (`gpu_ms` -1 where the GPU can't time itself).
 using frame_stats = CrabbyFrameStats;
+/// Bytes the renderer uploaded over the last drawn frame, by kind, and the
+/// buffers it made (`reallocations`: buffers and textures replaced because outgrown).
+using gpu_uploads = CrabbyGpuUploads;
 using material = CrabbyMaterial;
 using material_desc = CrabbyMaterialDesc;
 /// A material shader in WGSL (ctx::load_shader, ctx::create_shader).
@@ -276,6 +279,32 @@ enum class phase : uint32_t {
     late = CRABBY_PHASE_LATE,
     draw = CRABBY_PHASE_DRAW,
 };
+/// A system's removal handle (Rust `SystemId`): from game::add_system, or a
+/// constant in `systems` for a built-in. Ids are never reused.
+struct system_id {
+    std::uint32_t bits = 0;
+    friend bool operator==(system_id a, system_id b) { return a.bits == b.bits; }
+    friend bool operator!=(system_id a, system_id b) { return a.bits != b.bits; }
+};
+/// The built-in systems' ids (Rust `Systems`), for game::remove. Removing
+/// one that isn't installed does nothing.
+namespace systems {
+inline constexpr system_id physics{CRABBY_SYSTEM_PHYSICS};
+inline constexpr system_id physics3d{CRABBY_SYSTEM_PHYSICS3D};
+inline constexpr system_id interpolate_physics3d{CRABBY_SYSTEM_INTERPOLATE_PHYSICS3D};
+inline constexpr system_id rebuild_spatial_grid{CRABBY_SYSTEM_REBUILD_SPATIAL_GRID};
+inline constexpr system_id animate_sprites{CRABBY_SYSTEM_ANIMATE_SPRITES};
+inline constexpr system_id draw_tilemaps{CRABBY_SYSTEM_DRAW_TILEMAPS};
+inline constexpr system_id draw_sprites{CRABBY_SYSTEM_DRAW_SPRITES};
+inline constexpr system_id follow_attachments{CRABBY_SYSTEM_FOLLOW_ATTACHMENTS};
+inline constexpr system_id step_navmesh3d{CRABBY_SYSTEM_STEP_NAVMESH3D};
+/// Animators posing skeletons; stays at the end of phase::animate.
+inline constexpr system_id update_animators{CRABBY_SYSTEM_UPDATE_ANIMATORS};
+/// Particle emitters and trails; stays at the end of phase::animate.
+inline constexpr system_id update_particles{CRABBY_SYSTEM_UPDATE_PARTICLES};
+/// Positional audio; stays at the end of phase::draw, after the drawing systems.
+inline constexpr system_id update_audio3d{CRABBY_SYSTEM_UPDATE_AUDIO3D};
+} // namespace systems
 /// Engine services an access declaration can name (see crabby::access).
 enum class service : uint32_t {
     input = CRABBY_SERVICE_INPUT,
@@ -1352,6 +1381,20 @@ public:
     /// same ids. On error (an exception) the world is unchanged.
     void load(const std::string& json) { valid(); detail::check(crabby_world_load(raw_, json.c_str())); }
 
+    /// Describes reflected component `name`'s JSON shape for discovery (the
+    /// `capabilities` answer, see ctx::capabilities_json), encoded as Rust's
+    /// ValueSchema: `{"Object":[["hp","Number"]]}`. Throws for invalid JSON or
+    /// a name that isn't reflected; saving and loading don't change.
+    void describe_component(const char* name, const char* schema) {
+        valid();
+        detail::check(crabby_world_describe_component(raw_, name, schema));
+    }
+    /// describe_component() for reflected resource `name`.
+    void describe_resource(const char* name, const char* schema) {
+        valid();
+        detail::check(crabby_world_describe_resource(raw_, name, schema));
+    }
+
     // ---- the rest ----
     /// Gives `e` an empty `width` x `height` tilemap (its Transform2D is the top-left).
     tilemap_ref add_tilemap(entity e, const sprite_sheet& sheet, std::uint32_t width, std::uint32_t height);
@@ -2176,6 +2219,9 @@ class layout {
     }
     static CrabbyUiSides sides(length top, length right, length bottom, length left) { return {top, right, bottom, left}; }
 public:
+    layout() = default;
+    /// Starts from a C layout, such as a preset (`ui::row(30)`, `ui::fixed(220, 40)`).
+    explicit layout(const CrabbyUiLayout& c) : c_(c) {}
     layout& display(ui::display d) { c_.display = static_cast<std::uint32_t>(d); return *this; }
     layout& position(ui::position p) { c_.position = static_cast<std::uint32_t>(p); return *this; }
     /// Out of flow, placed by `inset` inside the closest relative ancestor.
@@ -2208,6 +2254,20 @@ public:
     layout& inset(length top, length right, length bottom, length left) { c_.inset = sides(top, right, bottom, left); return *this; }
     layout& gap(length columns, length rows) { c_.gap = {columns, rows}; return *this; }
     layout& gap(float both) { return gap(points(both), points(both)); }
+    /// Puts its top edge `y` points below its parent's top instead of where
+    /// the preset put it (a `centered` dialog near the top); in a row or
+    /// column it is a margin above it.
+    layout& top(float y) {
+        if (c_.position == static_cast<std::uint32_t>(ui::position::absolute)) { c_.inset.top = points(y); c_.margin.top = points(0); }
+        else c_.margin.top = points(y);
+        return *this;
+    }
+    /// Puts its left edge `x` points right of its parent's left; see `top`.
+    layout& left(float x) {
+        if (c_.position == static_cast<std::uint32_t>(ui::position::absolute)) { c_.inset.left = points(x); c_.margin.left = points(0); }
+        else c_.margin.left = points(x);
+        return *this;
+    }
     layout& align_items(align a) { c_.align_items = static_cast<std::uint32_t>(a); return *this; }
     layout& align_self(align a) { c_.align_self = static_cast<std::uint32_t>(a); return *this; }
     layout& justify_items(align a) { c_.justify_items = static_cast<std::uint32_t>(a); return *this; }
@@ -2279,6 +2339,26 @@ public:
     CrabbyUiPaint raw() const { return c_; }
 };
 
+// Layout presets (Rust `UiLayout`): the common shapes, so no screen needs
+// its own helpers. Refine them by chaining: `ui::fill().padding(24).gap(12)`.
+/// A full-width row `height` points tall; its children go left to right.
+inline layout row(float height) { return layout(crabby_ui_layout_row(height)); }
+/// A full-height column `width` points wide; its children stack.
+inline layout column(float width) { return layout(crabby_ui_layout_column(width)); }
+/// All of the parent (the window for a screen root), shrinking to what its siblings leave.
+inline layout fill() { return layout(crabby_ui_layout_fill()); }
+/// Exactly `width` x `height` points, never shrunk.
+inline layout fixed(float width, float height) { return layout(crabby_ui_layout_fixed(width, height)); }
+/// Out of the flow at `x`, `y`, `width` x `height` in fractions of the parent.
+inline layout anchored(float x, float y, float width, float height) { return layout(crabby_ui_layout_anchored(x, y, width, height)); }
+/// `width` x `height` points in the middle of the parent: a dialog.
+inline layout centered(float width, float height) { return layout(crabby_ui_layout_centered(width, height)); }
+
+/// The colors and text defaults of a tree (Rust `UiTheme`): new nodes take
+/// their paint from it, and the screen's immediate widgets follow it.
+using theme = CrabbyUiTheme;
+inline theme default_theme() { return crabby_ui_theme_default(); }
+
 enum class event_kind : std::uint32_t { clicked = 0, changed = 1, submitted = 2, screen_popped = 3 };
 /// Something that happened: a button was clicked, a value changed, Enter was
 /// pressed in an input (`submitted`), or Cancel popped a screen (`node` is its root).
@@ -2338,6 +2418,11 @@ public:
         id n = none; const CrabbyUiLayout c = l.raw();
         detail::check(crabby_ctx_ui_add_slider(raw_, target_, parent, value, &c, &n)); return n;
     }
+    /// A title: a label in the theme's title color and size, which it keeps following.
+    id add_title(id parent, const char* text, const layout& l = {}) {
+        id n = none; const CrabbyUiLayout c = l.raw();
+        detail::check(crabby_ctx_ui_add_title(raw_, target_, parent, text, &c, &n)); return n;
+    }
     /// Removes a node and everything under it; their ids stay invalid.
     void remove(id node) { detail::check(crabby_ctx_ui_remove(raw_, target_, node)); }
 
@@ -2354,6 +2439,25 @@ public:
         detail::check(crabby_ctx_ui_text(raw_, target_, node, nullptr, 0, &len));
         std::string out(len + 1, '\0');
         detail::check(crabby_ctx_ui_text(raw_, target_, node, &out[0], out.size(), &len));
+        out.resize(len);
+        return out;
+    }
+    /// The node's paint as drawn: the theme's, plus what was set on it.
+    CrabbyUiPaint resolved_paint(id node) const { CrabbyUiPaint p = crabby_ui_paint_default(); detail::check(crabby_ctx_ui_paint(raw_, target_, node, &p)); return p; }
+    ui::theme theme() const { ui::theme t = default_theme(); detail::check(crabby_ctx_ui_theme(raw_, target_, &t)); return t; }
+    /// Replaces the theme; nodes keep the paint fields set on them.
+    void set_theme(const ui::theme& t) { detail::check(crabby_ctx_ui_set_theme(raw_, target_, &t)); }
+    /// Names a node, so code that didn't build it finds it: no list of ids to keep.
+    /// A name belongs to one node; an empty name takes it off.
+    void set_name(id node, const char* name) { detail::check(crabby_ctx_ui_set_name(raw_, target_, node, name)); }
+    /// The node with this name, if any.
+    std::optional<id> find(const char* name) const { id n = none; detail::check(crabby_ctx_ui_find(raw_, target_, name, &n)); return maybe(n); }
+    /// A node's name (empty without one).
+    std::string name(id node) const {
+        std::size_t len = 0;
+        detail::check(crabby_ctx_ui_name(raw_, target_, node, nullptr, 0, &len));
+        std::string out(len + 1, '\0');
+        detail::check(crabby_ctx_ui_name(raw_, target_, node, &out[0], out.size(), &len));
         out.resize(len);
         return out;
     }
@@ -2389,6 +2493,9 @@ public:
         detail::check(status);
         return event{static_cast<event_kind>(e.kind), e.id};
     }
+    /// Takes the queued events and gives the last click's node, if any: for
+    /// screens that react only to clicks (the other events are dropped).
+    std::optional<id> take_click() { id n = none; detail::check(crabby_ctx_ui_take_click(raw_, target_, &n)); return maybe(n); }
     /// Takes every queued event.
     std::vector<event> events() {
         std::vector<event> all;
@@ -2916,6 +3023,8 @@ public:
     float fps() const noexcept { return crabby_ctx_fps(raw_); }
     /// fps, frame-time percentiles, CPU and GPU time over the last few seconds.
     crabby::frame_stats frame_stats() const { crabby::frame_stats s{}; detail::check(crabby_ctx_frame_stats(raw_, &s)); return s; }
+    /// What the renderer uploaded to the GPU over the last drawn frame (all zero headless).
+    crabby::gpu_uploads gpu_uploads() const { crabby::gpu_uploads u{}; detail::check(crabby_ctx_gpu_uploads(raw_, &u)); return u; }
     /// Shows or hides the on-screen performance overlay.
     void set_perf_hud(bool on) { detail::check(crabby_ctx_set_perf_hud(raw_, on)); }
     /// Turns on scope timing (CRABBY_PROFILE_SCOPE) and allocation counting;
@@ -3094,6 +3203,12 @@ public:
     std::string shader_status_json() const {
         return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_json(raw_, b, c, n); });
     }
+    /// What this running game can do, as JSON: the control endpoint's
+    /// `capabilities` answer (features, mode, subsystems, methods, and every
+    /// reflected type with its described schema). Reading it changes nothing.
+    std::string capabilities_json() const {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_capabilities_json(raw_, b, c, n); });
+    }
     crabby::shader load_shader(const char* path) { crabby::shader x{}; detail::check(crabby_ctx_load_shader(raw_, path, &x)); return x; }
     /// Makes a material shader from WGSL source; `name` is for error messages.
     crabby::shader create_shader(const char* name, const char* source) {
@@ -3207,6 +3322,10 @@ public:
     /// Puts triangles on the GPU as a mesh of one material; draw it with
     /// entities that have a transform3d and a model_of(it).
     mesh create_mesh(const mesh_data& data, material m) { mesh x{}; detail::check(crabby_ctx_create_mesh(raw_, data.raw(), m, &x)); return x; }
+    /// A mesh with no material of its own (Rust `Ctx::create_plain_mesh`):
+    /// create_mesh with the default material, for meshes whose look comes from
+    /// each model (set_model_material).
+    mesh create_plain_mesh(const mesh_data& data) { mesh x{}; detail::check(crabby_ctx_create_plain_mesh(raw_, data.raw(), &x)); return x; }
     /// Loads a glTF model (.glb, or .gltf with its files) from assets/ as
     /// one mesh with its materials; the same file again gives the same mesh.
     mesh load_mesh(const char* path) { mesh x{}; detail::check(crabby_ctx_load_mesh(raw_, path, &x)); return x; }
@@ -3258,6 +3377,40 @@ public:
     void load_reflection_probe(entity e, const std::string& name) { detail::check(crabby_ctx_load_reflection_probe(raw_, e, name.c_str())); }
     /// Whether models showing `m` cast shadows (on at first); off suits grass and pebbles.
     void set_mesh_shadows(mesh m, bool casts) { detail::check(crabby_ctx_set_mesh_shadows(raw_, m, casts)); }
+    /// Draws `e`'s model with `m` instead of the materials its mesh was made
+    /// with, every part (Rust `ModelMaterial`): one uploaded mesh in several
+    /// materials. For plain, skinned and morphing models, LOD groups and
+    /// terrain tiles.
+    void set_model_material(entity e, material m) { detail::check(crabby_ctx_set_model_material(raw_, e, m, true)); }
+    /// `e`'s model draws with its mesh's own materials again.
+    void clear_model_material(entity e) { detail::check(crabby_ctx_set_model_material(raw_, e, material{}, false)); }
+    /// The material set with set_model_material, if any.
+    std::optional<material> model_material(entity e) const {
+        material m{}; bool has = false;
+        detail::check(crabby_ctx_model_material(raw_, e, &m, &has));
+        return has ? std::optional<material>(m) : std::nullopt;
+    }
+    /// Draws the listed parts of `e`'s model with other materials (Rust
+    /// `ModelMaterials`): `{part, material}` pairs, parts numbered from 0 in
+    /// the order the mesh was made with. Parts not listed keep the material of
+    /// set_model_material, or the mesh's own. An empty list takes it off.
+    void set_model_part_materials(entity e, const std::vector<std::pair<std::uint32_t, material>>& parts) {
+        std::vector<std::uint32_t> numbers;
+        std::vector<material> materials;
+        for (const auto& [part, m] : parts) { numbers.push_back(part); materials.push_back(m); }
+        detail::check(crabby_ctx_set_model_part_materials(raw_, e, numbers.data(), materials.data(), parts.size()));
+    }
+    /// The list set with set_model_part_materials, by part number (empty: none).
+    std::vector<std::pair<std::uint32_t, material>> model_part_materials(entity e) const {
+        std::size_t n = 0;
+        detail::check(crabby_ctx_model_part_materials(raw_, e, nullptr, nullptr, 0, &n));
+        std::vector<std::uint32_t> numbers(n);
+        std::vector<material> materials(n);
+        detail::check(crabby_ctx_model_part_materials(raw_, e, numbers.data(), materials.data(), n, &n));
+        std::vector<std::pair<std::uint32_t, material>> parts;
+        for (std::size_t i = 0; i < n && i < numbers.size(); ++i) parts.emplace_back(numbers[i], materials[i]);
+        return parts;
+    }
     /// Draws `m` into the shadow maps for `e` instead of its model (Rust `ShadowMesh`);
     /// without a model, `e` casts only that shadow.
     void set_shadow_mesh(entity e, mesh m) { detail::check(crabby_ctx_set_shadow_mesh(raw_, e, m, true)); }
@@ -4158,6 +4311,13 @@ public:
     void clear(ctx& c) { detail::check(crabby_far_terrain_clear(raw_.get(), c.raw())); }
 };
 
+namespace detail {
+/// Whether plugin type `P` has a `setup(ctx&)` member.
+template<class P, class = void> struct has_setup : std::false_type {};
+template<class P>
+struct has_setup<P, std::void_t<decltype(std::declval<P&>().setup(std::declval<ctx&>()))>> : std::true_type {};
+} // namespace detail
+
 /// The game builder (Rust `Game`). Add systems, then run() or run_headless().
 class game {
     struct state {
@@ -4283,8 +4443,38 @@ public:
     template<class F> game& late_system(F fn, const char* name = nullptr) {
         return check(crabby_game_late_system(raw_, name, trampoline, keep(std::move(fn))));
     }
-    /// Removes systems by name, e.g. "ponko::ecs::draw_sprites".
+    /// Like add(), and returns the system's id for remove(). Two systems
+    /// made from the same function get different ids.
+    template<class F> system_id add_system(phase p, F fn, const char* name = nullptr, std::uint32_t every = 1) {
+        system_id id;
+        check(crabby_game_add_system_id(raw_, static_cast<std::uint32_t>(p), name, every, trampoline,
+                                        keep(std::move(fn)), &id.bits));
+        return id;
+    }
+    /// Removes systems by id: one from add_system, or a built-in such as
+    /// systems::draw_sprites (every instance of it). An id that names
+    /// nothing is not an error.
+    game& remove(system_id id) { return check(crabby_game_remove(raw_, id.bits)); }
+    /// Removes systems by name, e.g. "ponko::ecs::draw_sprites". Kept for
+    /// existing code: prefer remove(systems::draw_sprites).
     game& remove_system(const char* name) { return check(crabby_game_remove_system(raw_, name)); }
+    /// A startup callback, `setup(ctx&)`: runs once after the engine started
+    /// and before any system (also with zero ticks). Callbacks and plugin
+    /// setups run in the order they were added, before the one passed to
+    /// run(); commands are applied after each.
+    template<class S> game& setup(S fn) { return check(crabby_game_setup(raw_, trampoline, keep(std::move(fn)))); }
+    /// Adds a module of the game (Rust `Plugin`): any object with
+    /// `void build(ponko::game&)`, which adds its systems and settings now,
+    /// and optionally `void setup(ponko::ctx&)`, queued like setup(). Each
+    /// system names its phase, so the order plugins are added in only
+    /// matters between systems of the same phase.
+    template<class P> game& plugin(P p) {
+        if (!raw_) throw std::logic_error("game was already run");
+        auto shared = std::make_shared<P>(std::move(p));
+        shared->build(*this);
+        if constexpr (detail::has_setup<P>::value) setup([shared](ctx& c) { shared->setup(c); });
+        return *this;
+    }
 
     /// Opens the window and runs until quit. `setup(ctx&)` runs once first.
     template<class S> void run(S setup) {

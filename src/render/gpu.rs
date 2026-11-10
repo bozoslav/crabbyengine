@@ -1,6 +1,6 @@
 //! wgpu setup, textures, and the instanced sprite pass.
 
-use crate::render::traffic::{Counted, NewBuffer, Upload};
+use crate::render::traffic::{self, Counted, MAX_WRITES, NewBuffer, Upload};
 use std::sync::Arc;
 
 use glam::Mat4;
@@ -39,6 +39,9 @@ pub(crate) struct Renderer {
 
     pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
+    /// What `camera_buffer` and `ui_camera_buffer` hold: a camera that
+    /// didn't move isn't uploaded again.
+    camera_mirrors: [traffic::Mirror; 2],
     camera_bind_group: wgpu::BindGroup,
     /// Window-pixel projection for screen-space drawing (UI, text).
     ui_camera_buffer: wgpu::Buffer,
@@ -63,6 +66,12 @@ pub(crate) struct Renderer {
     instance_buffer: wgpu::Buffer,
     /// Capacity of `instance_buffer`, in sprites.
     instance_capacity: usize,
+    /// The last frame had more sprites than the device's largest buffer
+    /// holds (reported once): none were drawn.
+    too_many_sprites: bool,
+    /// What `instance_buffer` holds: sprites that didn't change aren't
+    /// uploaded again. Forgotten with the buffer it mirrors.
+    sprite_mirror: traffic::Mirror,
 
     timer: Option<GpuTimer>,
     /// What this GPU can do and the fallbacks used (fixed once opened).
@@ -115,7 +124,7 @@ pub(crate) struct Renderer {
 }
 
 /// The sprite pipeline, drawing into `format`.
-fn sprite_pipeline(
+pub(super) fn sprite_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
     shader: &wgpu::ShaderModule,
@@ -161,14 +170,14 @@ fn sprite_pipeline(
 }
 
 /// What one sprite pass draws with.
-struct SpritePass<'a> {
-    viewport: [u32; 2],
-    scale: f32,
-    pipeline: &'a wgpu::RenderPipeline,
-    instances: &'a wgpu::Buffer,
-    textures: &'a [GpuTexture],
+pub(super) struct SpritePass<'a> {
+    pub(super) viewport: [u32; 2],
+    pub(super) scale: f32,
+    pub(super) pipeline: &'a wgpu::RenderPipeline,
+    pub(super) instances: &'a wgpu::Buffer,
+    pub(super) textures: &'a [GpuTexture],
     /// Camera, batches, and where the layer's instances start in `instances`.
-    layers: &'a [(&'a wgpu::BindGroup, &'a [batch::Batch], u32)],
+    pub(super) layers: &'a [(&'a wgpu::BindGroup, &'a [batch::Batch], u32)],
 }
 
 /// An offscreen copy of one frame on its way back to the CPU.
@@ -260,6 +269,9 @@ impl Capture {
     }
 }
 
+/// Two changed sprites with up to this many unchanged ones between go in
+/// one upload.
+const SPRITE_BRIDGE: usize = 15;
 const INITIAL_INSTANCE_CAPACITY: usize = 1024;
 
 impl Renderer {
@@ -567,6 +579,7 @@ impl Renderer {
             image_view_formats,
             pipeline,
             camera_buffer,
+            camera_mirrors: Default::default(),
             camera_bind_group,
             ui_camera_buffer,
             ui_camera_bind_group,
@@ -583,6 +596,8 @@ impl Renderer {
             freed_textures: Default::default(),
             instance_buffer,
             instance_capacity: INITIAL_INSTANCE_CAPACITY,
+            too_many_sprites: false,
+            sprite_mirror: traffic::Mirror::default(),
             timer,
             capabilities,
             draw_hidden: false,
@@ -1380,32 +1395,54 @@ impl Renderer {
             self.stats.collect_ms = self.collect_ms;
         }
 
-        if total > self.instance_capacity {
-            self.instance_capacity = total.next_power_of_two();
+        let size = size_of::<SpriteInstance>();
+        let most = traffic::most_bytes(&self.device, wgpu::BufferUsages::VERTEX) / size;
+        if traffic::outgrown(&mut self.instance_capacity, total, most) {
             self.instance_buffer = Self::create_instance_buffer(&self.device, self.instance_capacity);
+            self.sprite_mirror.forget();
         }
-        if !world.is_empty() {
-            self.queue
-                .uploading(Upload::Sprites)
-                .write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(world));
+        // More sprites than the device's largest buffer holds: reported,
+        // and none drawn.
+        let too_many = total > self.instance_capacity;
+        if too_many && !self.too_many_sprites {
+            traffic::too_big("sprites", total * size, most * size, "no sprites are drawn");
         }
-        if !ui.is_empty() {
-            let offset = std::mem::size_of_val(world) as u64;
-            self.queue
-                .uploading(Upload::Sprites)
-                .write_buffer(&self.instance_buffer, offset, bytemuck::cast_slice(ui));
-        }
+        self.too_many_sprites = too_many;
+        let (world, world_batches, ui, ui_batches, panels) = if too_many {
+            (&[][..], &[][..], &[][..], &[][..], Vec::new())
+        } else {
+            (world, world_batches, ui, ui_batches, panels)
+        };
+        // Only the sprites that changed since the last frame are uploaded,
+        // with the few unchanged ones between two of them, in at most
+        // `MAX_WRITES` writes a list.
+        let page = size_of::<SpriteInstance>();
+        let mut upload_sprites = |at: usize, sprites: &[SpriteInstance]| {
+            let (buffer, uploads) = (&self.instance_buffer, self.queue.uploading(Upload::Sprites));
+            let bytes = bytemuck::cast_slice(sprites);
+            self.sprite_mirror
+                .sync_capped(at, bytes, (page, SPRITE_BRIDGE), MAX_WRITES, |at, bytes| {
+                    uploads.write_buffer(buffer, at as u64, bytes);
+                });
+        };
+        upload_sprites(0, world);
+        upload_sprites(std::mem::size_of_val(world), ui);
         // World-space UI panels' sprites go after the screen's, each panel
         // with a camera of its own pixels.
         let mut panel_base = (world.len() + ui.len()) as u32;
         let mut panel_starts = Vec::with_capacity(panels.len());
         for (i, (_, size, (sprites, _))) in panels.iter().enumerate() {
             if !sprites.is_empty() {
-                let offset = u64::from(panel_base) * size_of::<SpriteInstance>() as u64;
-                self.queue.uploading(Upload::Sprites).write_buffer(
-                    &self.instance_buffer,
+                let offset = panel_base as usize * page;
+                let (buffer, uploads) = (&self.instance_buffer, self.queue.uploading(Upload::Sprites));
+                self.sprite_mirror.sync_capped(
                     offset,
                     bytemuck::cast_slice(sprites),
+                    (page, SPRITE_BRIDGE),
+                    MAX_WRITES,
+                    |at, bytes| {
+                        uploads.write_buffer(buffer, at as u64, bytes);
+                    },
                 );
             }
             if i == self.panel_cameras.len() {
@@ -1433,15 +1470,22 @@ impl Renderer {
                 format,
             ));
         }
-        self.queue.uploading(Upload::Uniforms).write_buffer(
+        let [world_mirror, ui_mirror] = &mut self.camera_mirrors;
+        let world_camera = world_view.to_cols_array();
+        world_mirror.upload(
+            &self.queue,
+            Upload::Uniforms,
             &self.camera_buffer,
             0,
-            bytemuck::cast_slice(&world_view.to_cols_array()),
+            bytemuck::cast_slice(&world_camera),
         );
-        self.queue.uploading(Upload::Uniforms).write_buffer(
+        let ui_camera = ui_view.to_cols_array();
+        ui_mirror.upload(
+            &self.queue,
+            Upload::Uniforms,
             &self.ui_camera_buffer,
             0,
-            bytemuck::cast_slice(&ui_view.to_cols_array()),
+            bytemuck::cast_slice(&ui_camera),
         );
         // World sprites first, then the UI on top.
         let layers = [
@@ -1677,7 +1721,7 @@ impl Renderer {
         (buffer, bind_group)
     }
 
-    fn sprite_pass(
+    pub(super) fn sprite_pass(
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
         clear: Option<Color>,

@@ -17,6 +17,7 @@ struct Run {
     /// The report as the last tick read it.
     report: String,
     stats: Option<CrabbyFrameStats>,
+    uploads: Option<CrabbyGpuUploads>,
     /// Whether the buffer rules held.
     checked_buffers: bool,
     trace: Option<CString>,
@@ -59,6 +60,16 @@ unsafe extern "C" fn work(ctx: *mut CrabbyCtx, user: *mut c_void) {
         run.stats = Some(stats);
         assert_eq!(crabby_ctx_frame_stats(ctx, null_mut()), BAD);
         assert_eq!(crabby_ctx_frame_stats(null(), &mut stats), BAD);
+
+        let mut uploads = CrabbyGpuUploads {
+            bytes: 7,
+            reallocations: 7,
+            ..Default::default()
+        };
+        assert_eq!(crabby_ctx_gpu_uploads(ctx, &mut uploads), OK);
+        run.uploads = Some(uploads);
+        assert_eq!(crabby_ctx_gpu_uploads(ctx, null_mut()), BAD);
+        assert_eq!(crabby_ctx_gpu_uploads(null(), &mut uploads), BAD);
 
         // A buffer that is too small gets an empty string and the length it needs.
         let mut len = 0;
@@ -176,6 +187,47 @@ fn headless_frame_stats_have_no_gpu_time() {
     let stats = run.stats.expect("read at the last tick");
     assert_eq!(stats.gpu_ms, -1.0, "no GPU, so no GPU time");
     assert!(stats.avg_ms >= 0.0 && stats.max_ms >= stats.p50_ms);
+}
+
+#[test]
+fn headless_runs_upload_nothing_to_the_gpu() {
+    let run = run(profiling_on);
+    let uploads = run.uploads.expect("read at the last tick");
+    assert_eq!(
+        uploads,
+        CrabbyGpuUploads::default(),
+        "no renderer, so nothing uploaded or made"
+    );
+}
+
+#[test]
+fn gpu_upload_counts_mirror_the_rust_ones_field_for_field() {
+    // `GpuUploads` is `#[non_exhaustive]`: set every field there is now.
+    let mut rust = ponko::GpuUploads::default();
+    rust.instances = 1;
+    rust.sprites = 2;
+    rust.static_batches = 3;
+    rust.uniforms = 4;
+    rust.lights = 5;
+    rust.materials = 6;
+    rust.skins = 7;
+    rust.meshes = 8;
+    rust.textures = 9;
+    rust.other = 10;
+    rust.buffers_created = 11;
+    rust.reallocations = 12;
+    rust.buffer_bytes_created = 13;
+    let c = CrabbyGpuUploads::from(rust);
+    assert_eq!(c.bytes, rust.bytes());
+    assert_eq!(
+        [c.instances, c.sprites, c.static_batches, c.uniforms, c.lights],
+        [1, 2, 3, 4, 5]
+    );
+    assert_eq!([c.materials, c.skins, c.meshes, c.textures, c.other], [6, 7, 8, 9, 10]);
+    assert_eq!(
+        (c.buffers_created, c.reallocations, c.buffer_bytes_created),
+        (11, 12, 13)
+    );
 }
 
 #[test]

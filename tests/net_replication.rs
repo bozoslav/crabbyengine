@@ -423,7 +423,8 @@ fn interest_decides_what_each_peer_is_sent() {
 #[cfg(feature = "3d")]
 #[test]
 fn net_pose_moves_a_transform_from_buffered_snapshots() {
-    use ponko::{Game, NetPose, Transform3D, apply_net_poses};
+    use ponko::systems::apply_net_poses;
+    use ponko::{Game, NetPose, Transform3D};
     // Snapshots a second apart; the headless run's clock advances 1/60 s per tick.
     let mut world = Game::new("remote", 1, 1)
         .fixed_hz(60)

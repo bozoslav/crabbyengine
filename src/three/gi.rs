@@ -425,8 +425,8 @@ impl GiFrame {
             let mesh = mesh & !FADED;
             let mesh = mesh
                 .checked_sub(capture.override_base)
-                .and_then(|k| capture.material_overrides.get(k as usize))
-                .map_or(mesh, |o| o.0);
+                .and_then(|k| capture.material_overrides.list.get(k as usize))
+                .map_or(mesh, |o| o.mesh);
             let Some((center, radius)) = assets.live_bounds(mesh).filter(|_| mesh < real) else {
                 continue;
             };

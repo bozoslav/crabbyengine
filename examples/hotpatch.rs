@@ -49,12 +49,13 @@ fn main() {
         .sim_system(spin)
         .sim_system(wobble)
         .sim_system(report)
-        .run(|ctx| {
+        .setup(|ctx| {
             let crab = ctx.load_texture("crab.png");
             for i in 0..12 {
                 let at = vec2(160.0 + (i % 6) as f32 * 190.0, 220.0 + (i / 6) as f32 * 280.0);
                 ctx.world
                     .spawn((Transform2D::at(at), Sprite::new(crab), Crab(i as f32 * 0.7)));
             }
-        });
+        })
+        .run();
 }

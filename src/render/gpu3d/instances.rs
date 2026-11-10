@@ -16,6 +16,8 @@ pub(crate) struct BatchView {
     _visibility: wgpu::Buffer,
     pub args: wgpu::Buffer,
     uniform: wgpu::Buffer,
+    /// What `uniform` holds: a view that didn't move isn't uploaded again.
+    uniform_mirror: crate::render::traffic::Mirror,
     compute: wgpu::BindGroup,
     slot: usize,
     level: usize,
@@ -61,6 +63,10 @@ pub(super) struct Culling {
     layout: wgpu::BindGroupLayout,
     pipeline: wgpu::ComputePipeline,
     occlusion: wgpu::Buffer,
+    /// What `occlusion` holds: its header, and the depth grid after it
+    /// (only what changed is uploaded).
+    header_mirror: crate::render::traffic::Mirror,
+    grid_mirror: crate::render::traffic::Mirror,
     /// One attribute marker, shared by all batch draws with zero instance stride.
     pub(super) marker: wgpu::Buffer,
 }
@@ -106,7 +112,7 @@ impl Culling {
         let occlusion = device.new_buffer(&wgpu::BufferDescriptor {
             label: Some("static occlusion grid"),
             size: ((device.limits().max_texture_dimension_2d as u64 / 8 + 1) * 160 + 32) * 4,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | crate::render::traffic::MIRRORED,
             mapped_at_creation: false,
         });
         let mut marker = Instance3D::default();
@@ -122,6 +128,8 @@ impl Culling {
             layout,
             pipeline,
             occlusion,
+            header_mirror: Default::default(),
+            grid_mirror: Default::default(),
             marker,
         }
     }
@@ -229,7 +237,7 @@ impl Renderer3D {
             self.static_shadowless.clear();
             self.static_shadowless.extend_from_slice(&frame.static_shadowless);
         }
-        if let Some(cull) = &self.static_culling {
+        if let Some(cull) = &mut self.static_culling {
             let grid = frame
                 .occlusion
                 .as_ref()
@@ -239,13 +247,13 @@ impl Renderer3D {
             if let Some((g, (w, h, depth))) = grid {
                 header[0..4].copy_from_slice(&[*w as f32, *h as f32, g.camera.distance(camera), 1.0]);
                 header[4..20].copy_from_slice(&g.view_proj.to_cols_array());
-                queue
-                    .uploading(Upload::StaticBatches)
-                    .write_buffer(&cull.occlusion, 96, bytemuck::cast_slice(depth));
+                let depth = bytemuck::cast_slice(depth);
+                cull.grid_mirror
+                    .upload(queue, Upload::StaticBatches, &cull.occlusion, 96, depth);
             }
-            queue
-                .uploading(Upload::StaticBatches)
-                .write_buffer(&cull.occlusion, 0, bytemuck::cast_slice(&header));
+            let header = bytemuck::cast_slice(&header);
+            cull.header_mirror
+                .upload(queue, Upload::StaticBatches, &cull.occlusion, 0, header);
         }
         for batch in self.static_batches.iter_mut().flatten() {
             for view in &mut batch.views {
@@ -339,7 +347,9 @@ impl Renderer3D {
                                 let uniform = device.new_buffer(&wgpu::BufferDescriptor {
                                     label: Some("static cull view"),
                                     size: size_of::<View>() as u64,
-                                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                                    usage: wgpu::BufferUsages::UNIFORM
+                                        | wgpu::BufferUsages::COPY_DST
+                                        | crate::render::traffic::MIRRORED,
                                     mapped_at_creation: false,
                                 });
                                 let read = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -374,6 +384,7 @@ impl Renderer3D {
                                     _visibility: visibility,
                                     args,
                                     uniform,
+                                    uniform_mirror: Default::default(),
                                     compute,
                                     slot,
                                     level,
@@ -384,16 +395,15 @@ impl Renderer3D {
                         };
                         let view = &mut batch.views[index];
                         view.active = true;
-                        queue.uploading(Upload::StaticBatches).write_buffer(
-                            &view.uniform,
-                            0,
-                            bytemuck::bytes_of(&View {
-                                planes: planes.map(|p| p.to_array()),
-                                camera: eye.extend(far).to_array(),
-                                occlusion: [if slot == 0 && occlusion { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
-                                band: [near, far, if batch.legacy_distance { 1.0 } else { 0.0 }, 0.0],
-                            }),
-                        );
+                        let settings = View {
+                            planes: planes.map(|p| p.to_array()),
+                            camera: eye.extend(far).to_array(),
+                            occlusion: [if slot == 0 && occlusion { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0],
+                            band: [near, far, if batch.legacy_distance { 1.0 } else { 0.0 }, 0.0],
+                        };
+                        let settings = bytemuck::bytes_of(&settings);
+                        view.uniform_mirror
+                            .upload(queue, Upload::StaticBatches, &view.uniform, 0, settings);
                     } else {
                         let visible = &mut batch.visible[slot * batch.levels.len() + level];
                         if visible.capacity() < batch.cells.len() {
@@ -475,4 +485,23 @@ impl Renderer3D {
 }
 fn count_visibility(count: u32) -> usize {
     count as usize + 1
+}
+
+#[cfg(test)]
+impl Renderer3D {
+    /// The static batches' and their culling's part of `check_mirrors`.
+    pub(super) fn check_batch_mirrors(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        for batch in self.static_batches.iter().flatten() {
+            for view in &batch.views {
+                view.uniform_mirror
+                    .check(device, queue, &view.uniform, 0, "static batch view");
+            }
+        }
+        if let Some(cull) = &self.static_culling {
+            cull.header_mirror
+                .check(device, queue, &cull.occlusion, 0, "static culling header");
+            cull.grid_mirror
+                .check(device, queue, &cull.occlusion, 96, "static culling depth grid");
+        }
+    }
 }

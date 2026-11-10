@@ -183,6 +183,8 @@ fn games_reflect_the_builtin_components_by_default() {
             "LodGroup",
             "LodHysteresis",
             "Model",
+            "ModelMaterial",
+            "ModelMaterials",
             "PointLight3D",
             "ReceivesDecals",
             "ShadowMesh",

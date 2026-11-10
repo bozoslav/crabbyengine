@@ -57,5 +57,9 @@ pub unsafe extern "C" fn crabby_attached_component(world: *mut CrabbyWorld, out_
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_follow_attachments(game: *mut CrabbyGame) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    unsafe { crate::game::build(game, |g| crate::game::ok(g.sim_system(ponko::follow_attachments))) }
+    unsafe {
+        crate::game::build(game, |g| {
+            crate::game::ok(g.sim_system(ponko::systems::follow_attachments))
+        })
+    }
 }

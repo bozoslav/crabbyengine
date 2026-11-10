@@ -56,9 +56,10 @@ fn fall(ctx: &mut Ctx) {
 fn things_fall_ten_units_per_second() {
     let mut world = Game::new("test", 800, 600)
         .sim_system(fall)
-        .run_headless(60, |ctx| {
+        .setup(|ctx| {
             ctx.world.spawn((Pos(100.0),));
-        });
+        })
+        .run_headless(60);
     let y = world.query::<&Pos>().iter().next().unwrap().0;
     assert!((y - 90.0).abs() < 1e-3);
 }

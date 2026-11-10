@@ -64,6 +64,7 @@ fn ids_distinguish_instances_of_the_same_closure_and_do_not_recycle() {
 }
 
 #[test]
+#[allow(deprecated)] // the legacy spellings are what this pins
 fn builtin_ids_and_legacy_removal_coexist() {
     let game = Game::new("ids", 1, 1)
         .remove(Systems::DRAW_SPRITES)
@@ -90,12 +91,15 @@ fn stable_physics_id_removes_step_after_repeated_configuration() {
 }
 
 #[test]
+#[allow(deprecated)] // the legacy spellings are what this pins
 fn builtin_registrations_have_individual_handles_and_named_removal_stays_exact() {
     let mut game = Game::new("ids", 1, 1);
-    let first = game.add_system(Phase::Input, ponko::rebuild_spatial_grid);
-    let second = game.add_system(Phase::Input, ponko::rebuild_spatial_grid);
+    let first = game.add_system(Phase::Input, ponko::systems::rebuild_spatial_grid);
+    let second = game.add_system(Phase::Input, ponko::systems::rebuild_spatial_grid);
     assert_ne!(first, second);
-    let mut game = game.remove(first).named_system("custom sprites", ponko::draw_sprites);
+    let mut game = game
+        .remove(first)
+        .named_system("custom sprites", ponko::systems::draw_sprites);
     assert_eq!(game.remove_named_system("custom sprites"), 1);
     // The default registration must remain removable by its original spelling.
     game.remove_system(ponko::draw_sprites).run_headless(0, |_| {});

@@ -419,13 +419,13 @@ own clock and the state; every frame, `sample` your clock:
   (snapshots kept; at least twice `delay` × your send rate).
 
 With the `3d` feature, the `NetPose` component holds a stream and the system
-`apply_net_poses` sets the `Transform3D` position and rotation of every entity
+`systems::apply_net_poses` sets the `Transform3D` position and rotation of every entity
 that has one, from `ctx.time.elapsed()`; add it with `Game::system` so entities move
 every frame:
 
 ```rust
 # let mut game = Game::new("t", 800, 600);
-game.system(apply_net_poses);
+game.system(systems::apply_net_poses);
 // from the message handler:
 //   world.get_mut::<NetPose>(entity).unwrap().stream.push(sender_time, ctx.time.elapsed(), pose);
 ```

@@ -132,12 +132,13 @@ fn main() {
         .system(move_keyboard_player)
         .system(spin)
         .system(hud)
-        .run(|ctx| {
+        .setup(|ctx| {
             let crab = ctx.load_texture("crab.png");
             ctx.world.spawn((
                 Transform2D::at(vec2(640.0, 560.0)),
                 Sprite::new(crab),
                 Player { slot: None, spin: 0.0 },
             ));
-        });
+        })
+        .run();
 }

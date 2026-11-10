@@ -2,6 +2,7 @@
 //! and world save/load.
 use std::ffi::{CStr, c_char};
 
+use crate::ctx::{ctx_access, text};
 use ponko::{Field, FieldType, WorldReflect};
 
 use crate::{CrabbyStatus, CrabbyWorld, Failure, access, boundary, component, invalid, invalid_owned};
@@ -253,5 +254,85 @@ pub unsafe extern "C" fn crabby_world_load(world: *mut CrabbyWorld, json: *const
                 w.load(&save).map_err(|e| crate::invalid_owned(e.to_string()))
             })
         }
+    })
+}
+
+/// Attach opt-in schema metadata to an already reflected component.
+/// `schema` is JSON encoding of Rust's ValueSchema: e.g. `"Number"`,
+/// `{"Object":[["health","Number"]]}`, `{"Optional":"String"}`.
+/// This describes discovery only; it does not change serialization or validate values.
+/// Invalid JSON or an unknown name fails without changing the previous schema.
+/// # Safety
+/// `world` must be null or live. `name` and `schema` must be null or valid
+/// NUL-terminated UTF-8 strings for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_describe_component(
+    world: *mut CrabbyWorld,
+    name: *const c_char,
+    schema: *const c_char,
+) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: caller promises live strings; text checks null and UTF-8.
+        let (name, schema) = unsafe { (text(name)?, text(schema)?) };
+        let schema = serde_json::from_str::<ponko::ValueSchema>(schema).map_err(|e| invalid_owned(e.to_string()))?;
+        // SAFETY: access checks the handle and guards its world borrow.
+        unsafe {
+            access(world, |w, _| {
+                w.describe_component(name, schema)
+                    .map_err(|e| invalid_owned(e.to_string()))
+            })
+        }
+    })
+}
+
+/// Attach opt-in schema metadata to an already reflected resource.
+/// Uses the same schema encoding as `crabby_world_describe_component`.
+/// # Safety
+/// `world` must be null or live; strings must be null or valid NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_describe_resource(
+    world: *mut CrabbyWorld,
+    name: *const c_char,
+    schema: *const c_char,
+) -> CrabbyStatus {
+    boundary(|| {
+        // SAFETY: caller promises live strings; text checks null and UTF-8.
+        let (name, schema) = unsafe { (text(name)?, text(schema)?) };
+        let schema = serde_json::from_str::<ponko::ValueSchema>(schema).map_err(|e| invalid_owned(e.to_string()))?;
+        // SAFETY: access checks the handle and guards its world borrow.
+        unsafe {
+            access(world, |w, _| {
+                w.describe_resource(name, schema)
+                    .map_err(|e| invalid_owned(e.to_string()))
+            })
+        }
+    })
+}
+
+/// What this running game can do, as JSON: the control endpoint's
+/// `capabilities` answer (Rust `Ctx::capabilities_json`), including every
+/// reflected component and resource with the schema described for it.
+/// Writes into `buffer` as `crabby_ctx_perf_report` does: the length goes
+/// to `out_len`, and the text (NUL-terminated) only if it fits.
+/// # Safety
+/// `ctx` null or live; `buffer` holds `capacity` bytes (or is null with
+/// capacity 0); `out_len` writable.
+/// ```
+/// let mut len = 0usize;
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_capabilities_json(std::ptr::null(), std::ptr::null_mut(), 0, &mut len) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_capabilities_json(
+    ctx: *const crate::CrabbyCtx,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        crate::shader_status::text_output(buffer, capacity, out_len)?;
+        let json = ctx_access(ctx, |c| Ok(c.capabilities_json()))?;
+        crate::perf::write_text(buffer, capacity, out_len, &json);
+        Ok(())
     })
 }

@@ -90,7 +90,7 @@ fn compiled_out(feature: &str) -> Value {
     })
 }
 
-fn subsystems(ctx: &Ctx) -> Value {
+fn subsystems(ctx: &Ctx, gpu: Option<&crate::GpuCapabilities>) -> Value {
     let windowed = !ctx.headless;
     let renderer = if !cfg!(feature = "window") {
         compiled_out("window")
@@ -102,9 +102,9 @@ fn subsystems(ctx: &Ctx) -> Value {
             "compiled": true,
             "active": true,
             "3d": cfg!(feature = "3d"),
-            // Not recorded by the renderer yet; reported as unknown rather than guessed.
-            "adapter": null,
-            "adapter_reason": "adapter and backend details are not reported yet",
+            "adapter": gpu.map(|g| &g.adapter),
+            "gpu": gpu,
+            "adapter_reason": if gpu.is_none() { Some("the renderer has not opened a GPU device") } else { None },
         })
     };
     let windowed_only = |feature: &str, compiled: bool| {
@@ -117,11 +117,19 @@ fn subsystems(ctx: &Ctx) -> Value {
         }
     };
     #[cfg(feature = "physics")]
-    let physics = stepped(ctx, "physics", std::any::type_name_of_val(&crate::step_physics));
+    let physics = stepped(
+        ctx,
+        "physics",
+        std::any::type_name_of_val(&crate::systems::step_physics),
+    );
     #[cfg(not(feature = "physics"))]
     let physics = compiled_out("physics");
     #[cfg(feature = "physics3d")]
-    let physics3d = stepped(ctx, "physics3d", std::any::type_name_of_val(&crate::step_physics3d));
+    let physics3d = stepped(
+        ctx,
+        "physics3d",
+        std::any::type_name_of_val(&crate::systems::step_physics3d),
+    );
     #[cfg(not(feature = "physics3d"))]
     let physics3d = compiled_out("physics3d");
     let audio = if cfg!(feature = "audio") {
@@ -158,6 +166,10 @@ fn subsystems(ctx: &Ctx) -> Value {
 
 /// The `capabilities` answer.
 pub(super) fn report(ctx: &Ctx) -> Value {
+    report_with_gpu(ctx, ctx.gfx.gpu_capabilities())
+}
+
+fn report_with_gpu(ctx: &Ctx, gpu: Option<&crate::GpuCapabilities>) -> Value {
     let methods: Vec<Value> = METHODS
         .iter()
         .map(|(name, about)| {
@@ -178,7 +190,7 @@ pub(super) fn report(ctx: &Ctx) -> Value {
         "engine_version": env!("CARGO_PKG_VERSION"),
         "mode": if ctx.headless { "headless" } else { "windowed" },
         "features": FEATURES.iter().map(|&(f, on)| (f.to_string(), json!(on))).collect::<serde_json::Map<_, _>>(),
-        "subsystems": subsystems(ctx),
+        "subsystems": subsystems(ctx, gpu),
         "methods": methods,
         "reflection": {
             "components": components,
@@ -270,6 +282,62 @@ mod tests {
         }
     }
 
+    /// The method names `handle` matches on, read from its source.
+    fn handled_methods() -> Vec<&'static str> {
+        // Line by line, so a checkout with CRLF endings (Windows) reads the
+        // same: from the `handle` line to the first line that is just `}`.
+        let methods: Vec<_> = include_str!("../control.rs")
+            .lines()
+            .skip_while(|line| !line.starts_with("pub(crate) fn handle("))
+            .take_while(|line| line.trim_end() != "}")
+            .filter_map(|line| {
+                let (name, rest) = line.trim_start().strip_prefix('"')?.split_once('"')?;
+                rest.trim_start().starts_with("=>").then_some(name)
+            })
+            .collect();
+        assert!(!methods.is_empty(), "no methods found in control.rs's handle");
+        methods
+    }
+
+    #[test]
+    fn every_handled_method_is_listed_and_every_listed_one_handled() {
+        let handled = handled_methods();
+        assert!(handled.len() > 30, "the source scan found too few arms: {handled:?}");
+        for name in &handled {
+            assert!(
+                METHODS.iter().any(|(m, _)| m == name),
+                "`{name}` is handled but not in METHODS, so `methods` and `capabilities` don't list it"
+            );
+        }
+        for (name, _) in METHODS {
+            assert!(handled.contains(name), "`{name}` is listed but has no arm in handle");
+        }
+    }
+
+    #[test]
+    fn every_method_reported_available_answers_in_both_modes() {
+        for headless in [true, false] {
+            let mut ctx = ctx(headless);
+            let report = report(&ctx);
+            // In METHODS order: events.subscribe comes before events.take.
+            for m in report["methods"].as_array().unwrap() {
+                let name = m["name"].as_str().unwrap();
+                if m["available"] == false {
+                    continue;
+                }
+                let Err(e) = super::super::handle(&mut ctx, name, &json!({})) else {
+                    continue;
+                };
+                // A windowed screenshot is answered after the next frame.
+                let deferred = name == "screenshot" && !headless;
+                assert!(
+                    e.starts_with("missing param") || deferred,
+                    "{name} is reported available (headless: {headless}) but refused an empty call: {e}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn feature_list_matches_cargo_toml() {
         let toml = include_str!("../../Cargo.toml");
@@ -333,7 +401,7 @@ mod tests {
         assert_eq!(report(&ctx)["subsystems"]["physics"]["active"], false);
         ctx.perf
             .timings
-            .push(timing(std::any::type_name_of_val(&crate::step_physics)));
+            .push(timing(std::any::type_name_of_val(&crate::systems::step_physics)));
         assert_eq!(report(&ctx)["subsystems"]["physics"]["active"], true);
     }
 
@@ -382,7 +450,7 @@ mod tests {
             ctx.world
                 .reflect_fields(id, &[crate::Field::new("hp", crate::FieldType::F32, 0)]);
         }
-        let r = report(&ctx);
+        let r = crate::control::handle(&mut ctx, "capabilities", &json!({})).unwrap();
         let comp = |name: &str| {
             r["reflection"]["components"]
                 .as_array()
@@ -421,3 +489,7 @@ mod tests {
         assert!(matches!(e, Err(crate::ReflectError::UnknownResource(_))));
     }
 }
+
+#[cfg(test)]
+#[path = "capabilities_completion_tests.rs"]
+mod completion_tests;

@@ -36,9 +36,9 @@ fn game(scenario: InputScenario) -> (Game, Ctx) {
 /// Like [`game`], with no scenario installed by the game itself.
 fn game_without_scenario() -> (Game, Ctx) {
     let game = Game::new("t", 1, 1)
-        .remove_system(animate_sprites)
-        .remove_system(draw_tilemaps)
-        .remove_system(draw_sprites)
+        .remove(Systems::ANIMATE_SPRITES)
+        .remove(Systems::DRAW_TILEMAPS)
+        .remove(Systems::DRAW_SPRITES)
         .sim_system(|ctx: &mut Ctx| {
             let s = Seen {
                 tick: ctx.time.sim_tick(),

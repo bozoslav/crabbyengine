@@ -27,8 +27,9 @@ fn main() {
     Game::new("Ponko: 3D web smoke", 800, 600)
         .fixed_hz(60)
         .sim_system(move |_ctx| sim_ticks.set(sim_ticks.get() + 1))
-        .run(move |ctx| {
-            let mut smoke = smoke::Smoke::new("web_smoke_3d");
+        .system(frame(ticks))
+        .setup(|ctx| {
+            let smoke = smoke::Smoke::new("web_smoke_3d");
             ctx.gfx.clear(Color::hex(0x9CC4E4));
             ctx.lighting.sun_direction = vec3(-0.8, -0.6, -0.4);
             let ground_material = ctx.gfx.create_material(MaterialDesc {
@@ -72,20 +73,31 @@ fn main() {
             let bumpy_ball = ctx.gfx.create_mesh(&MeshData::sphere(0.9, 32), bumpy);
             ctx.world
                 .spawn((Transform3D::at(vec3(3.0, 0.9, -1.0)), Model::new(bumpy_ball)));
+            ctx.world.insert_resource(Fixture(smoke));
+        })
+        .run();
+}
 
-            move |ctx: &mut Ctx| {
-                // The camera orbits on the simulation clock, so a stalled
-                // simulation also freezes the picture.
-                let angle = ticks.get() as f32 / 240.0;
-                ctx.camera3d.position = vec3(angle.sin() * 12.0, 6.0, angle.cos() * 12.0);
-                ctx.camera3d.look_at(vec3(0.0, 1.0, 0.0));
-                smoke.frame(
-                    ctx,
-                    ticks.get(),
-                    json!({ "triangles": ctx.perf.render_stats().triangles, "models_drawn": ctx.gfx.models_drawn() }),
-                );
-            }
-        });
+/// The fixture's counters, made in setup for the frame system.
+struct Fixture(smoke::Smoke);
+
+/// The frame system: moves the camera and publishes the state.
+fn frame(ticks: Rc<Cell<u64>>) -> impl FnMut(&mut Ctx) {
+    move |ctx: &mut Ctx| {
+        // The camera orbits on the simulation clock, so a stalled
+        // simulation also freezes the picture.
+        let angle = ticks.get() as f32 / 240.0;
+        ctx.camera3d.position = vec3(angle.sin() * 12.0, 6.0, angle.cos() * 12.0);
+        ctx.camera3d.look_at(vec3(0.0, 1.0, 0.0));
+        // Taken out while it runs, as `Smoke::frame` needs all of `ctx`.
+        let mut fixture = ctx.world.remove_resource::<Fixture>().expect("made in setup");
+        fixture.0.frame(
+            ctx,
+            ticks.get(),
+            json!({ "triangles": ctx.perf.render_stats().triangles, "models_drawn": ctx.gfx.models_drawn() }),
+        );
+        ctx.world.insert_resource(fixture);
+    }
 }
 
 /// A 16x16 tangent-space normal map of a grid of round bumps, and an ORM map

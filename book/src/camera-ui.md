@@ -166,7 +166,9 @@ draw through `ctx.gfx`, and a button also reads the mouse from `ctx.input`
 - `button(&mut ctx.gfx, &ctx.input, rect, label)`: `true` on the frame it's
   clicked.
 - `ctx.ui.immediate.style` sets colors, text size and padding (C++: `ui_style()`,
-  `set_ui_style(s)`).
+  `set_ui_style(s)`). It follows the screen UI's theme: `ctx.ui.set_theme(..)`
+  styles the retained tree and these widgets together, and keeps the fields
+  set here by hand ([Retained game UI](ui.md)).
 - `ctx.ui.wants_pointer()` says whether the mouse is over UI, so a click on a
   button doesn't also act on the world behind it. `camera_controls` checks
   it before zooming.

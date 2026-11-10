@@ -11,8 +11,9 @@ use super::occlusion::OcclusionGrid;
 use super::retained::SERIAL;
 use super::skin::{MeshSkin, SkinDraw};
 use super::{
-    Assets3D, Camera3D, Lighting, LodGroup, LodLevel, LodRenderer, Material, Mesh, Model, ModelMaterial, PointLight3D,
-    ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, SpotLight3D, TERRAIN_LODS, TerrainTile, Transform3D,
+    Assets3D, Camera3D, Lighting, LodGroup, LodLevel, LodRenderer, Material, Mesh, Model, ModelMaterial,
+    ModelMaterials, PointLight3D, ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, SpotLight3D, TERRAIN_LODS,
+    TerrainTile, Transform3D,
 };
 use crate::{Color, Entity, World};
 
@@ -312,6 +313,25 @@ fn every_kind_of_edit_draws_what_a_frame_built_from_nothing_draws() {
     scene.world.remove::<ModelMaterial>(c);
     scene.world.remove::<ModelMaterial>(a);
     scene.check("overrides removed");
+    // Per-part lists: told apart by what they hold, also next to a
+    // whole-mesh material.
+    let list = |parts: &[(usize, u32)]| {
+        let parts: Vec<_> = parts.iter().map(|&(part, id)| (part, Material { id })).collect();
+        ModelMaterials::new(&parts)
+    };
+    scene.world.insert(a, list(&[(0, 4)]));
+    scene.world.insert(c, list(&[(0, 4)]));
+    scene.check("a part list");
+    scene.world.insert(a, list(&[(0, 5)]));
+    scene.check("another material in the list");
+    scene.world.insert(a, list(&[(0, 5), (1, 2)]));
+    scene.check("a longer list");
+    scene.world.insert(c, list(&[]));
+    scene.check("an empty list is none");
+    scene.world.remove::<ModelMaterials>(c);
+    scene.world.remove::<ModelMaterials>(a);
+    scene.world.remove::<ModelMaterial>(b);
+    scene.check("lists removed");
 
     // Models that leave the plain path, and come back.
     scene.world.insert(b, SkinOf(a));
@@ -942,6 +962,8 @@ fn skinned_models_keep_up_as_their_number_changes() {
             first: 0,
             morph_first: 0,
             morph_count: 0,
+            material: u32::MAX,
+            parts: (0, 0),
         }
     };
     let plain = scene.check("no skinned model");

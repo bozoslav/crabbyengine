@@ -4,12 +4,13 @@
 use glam::{Mat4, Vec3, Vec4};
 
 use super::lights::MAX_LIGHT_SHADOW_VIEWS;
-use super::retained::{self, Lists, Overrides, Tracked, Transients};
+use super::retained::{self, Lists, OverrideIds, Tracked, Transients};
 use super::{
     Assets3D, Camera3D, Lighting, LodGroup, LodHysteresis, LodPick, LodRenderer, LodSettings, LodShadow, Model,
-    ModelMaterial, ReceivesDecals, ShadowMesh, SkinFrame, TERRAIN_LODS, TerrainTile, Transform3D, linear,
+    ModelMaterial, ModelMaterials, ReceivesDecals, ShadowMesh, SkinFrame, TERRAIN_LODS, TerrainTile, Transform3D,
+    linear,
 };
-use crate::World;
+use crate::{Or, With, World};
 
 /// Default width and height of each of the sun's shadow maps, in texels.
 pub(crate) const SHADOW_MAP_SIZE: u32 = 2048;
@@ -154,17 +155,16 @@ pub(crate) struct Frame3D {
     /// Global illumination's probes and what they draw, when it's on (only
     /// the main frame has this).
     pub gi: Option<Box<super::gi::GiFrame>>,
-    /// The (mesh, material) pairs of models with a [`ModelMaterial`], each
-    /// once, in the world's order. In `runs`, pair `k` is mesh id
-    /// `override_base + k`: its mesh drawn with that material. Every frame
-    /// collected from the same world numbers them alike, so target cameras
-    /// and probe views share the main frame's.
-    pub material_overrides: Vec<(u32, u32)>,
+    /// The meshes drawn with other materials than their own (a
+    /// [`ModelMaterial`], [`ModelMaterials`] or both), each combination
+    /// once, in the world's order. In `runs`, entry `k` is mesh id
+    /// `override_base + k`. Every frame collected from the same world
+    /// numbers them alike, so target cameras and probe views share the main
+    /// frame's.
+    pub material_overrides: Overrides,
     /// The first mesh id of `material_overrides`: past the meshes and the
     /// skinned models.
     pub override_base: u32,
-    /// Where each pair is in `material_overrides`.
-    override_index: std::collections::HashMap<(u32, u32), u32>,
     /// Each view's instances, and what they were collected from.
     lists: Lists,
     tracked: Tracked,
@@ -178,6 +178,158 @@ pub(crate) struct Frame3D {
     /// last frame, for [`LodHysteresis`]. Each frame (main camera, render
     /// target) keeps its own.
     lod_held: Vec<(Option<crate::Entity>, LodPick)>,
+}
+
+/// A mesh drawn with other materials than its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MaterialOverride {
+    pub mesh: u32,
+    /// The material of every part ([`ModelMaterial`]), or `u32::MAX`: each
+    /// part's own.
+    pub material: u32,
+    /// Its per-part materials ([`ModelMaterials`]), which win over
+    /// `material`: where they start in [`Overrides::parts`], and how many.
+    pub parts: (u32, u32),
+}
+
+impl MaterialOverride {
+    /// No override: every part's own material.
+    pub const NONE: (u32, (u32, u32)) = (u32::MAX, (0, 0));
+
+    /// The material `part` is drawn with: its entry in `parts` (this
+    /// override's slice of the per-part list, sorted by part), else the
+    /// whole-mesh `material`, else its `own`. An id that isn't one of the
+    /// `materials` made falls through the same way.
+    pub fn resolve(material: u32, parts: &[(u32, u32)], part: usize, own: u32, materials: u32) -> u32 {
+        let listed = parts
+            .binary_search_by_key(&(part as u32), |&(p, _)| p)
+            .ok()
+            .map(|at| parts[at].1);
+        [listed, Some(material)]
+            .into_iter()
+            .flatten()
+            .find(|&m| m < materials)
+            .unwrap_or(own)
+    }
+}
+
+/// A frame's [`MaterialOverride`]s. Keeps its tables between frames, so a
+/// warm frame doesn't allocate.
+#[derive(Default)]
+pub(crate) struct Overrides {
+    pub list: Vec<MaterialOverride>,
+    /// `(part, material)` of every distinct per-part list, each sorted by
+    /// part.
+    pub parts: Vec<(u32, u32)>,
+    /// Each distinct per-part list's place in `parts`.
+    sets: Vec<(u32, u32)>,
+    /// A list's hash to its number in `sets` (a clash takes the next hash).
+    set_index: std::collections::HashMap<u64, u32>,
+    /// (mesh, material, list number) to its place in `list`.
+    index: std::collections::HashMap<(u32, u32, u32), u32>,
+}
+
+impl Overrides {
+    fn clear(&mut self) {
+        self.list.clear();
+        self.parts.clear();
+        self.sets.clear();
+        self.set_index.clear();
+        self.index.clear();
+    }
+
+    pub(crate) fn hash(parts: &[(u32, crate::Material)]) -> u64 {
+        // FNV-1a: the lists are a few entries long.
+        let mut h = 0xcbf2_9ce4_8422_2325u64;
+        for &(part, material) in parts {
+            for v in [part, material.id] {
+                h = (h ^ u64::from(v)).wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        h
+    }
+
+    fn same(&self, set: u32, parts: &[(u32, crate::Material)]) -> bool {
+        let (start, len) = self.sets[set as usize];
+        let mine = &self.parts[start as usize..(start + len) as usize];
+        mine.len() == parts.len() && mine.iter().zip(parts).all(|(a, b)| *a == (b.0, b.1.id))
+    }
+
+    /// The number of per-part list `parts`, if it was added.
+    fn set_of(&self, parts: &[(u32, crate::Material)]) -> Option<u32> {
+        let mut h = Self::hash(parts);
+        loop {
+            let &set = self.set_index.get(&h)?;
+            if self.same(set, parts) {
+                return Some(set);
+            }
+            h = h.wrapping_add(1);
+        }
+    }
+
+    /// Its number, adding it if it's new.
+    fn add_set(&mut self, parts: &[(u32, crate::Material)]) -> u32 {
+        let mut h = Self::hash(parts);
+        while let Some(&set) = self.set_index.get(&h) {
+            if self.same(set, parts) {
+                return set;
+            }
+            h = h.wrapping_add(1);
+        }
+        let set = self.sets.len() as u32;
+        self.sets.push((self.parts.len() as u32, parts.len() as u32));
+        self.parts.extend(parts.iter().map(|&(part, m)| (part, m.id)));
+        self.set_index.insert(h, set);
+        set
+    }
+
+    /// Notes that `mesh` is drawn with these overrides (at least one).
+    fn add(&mut self, mesh: u32, material: Option<&ModelMaterial>, parts: Option<&ModelMaterials>) {
+        let parts = parts.map(ModelMaterials::raw).filter(|p| !p.is_empty());
+        if material.is_none() && parts.is_none() {
+            return;
+        }
+        let set = parts.map_or(u32::MAX, |p| self.add_set(p));
+        let material = material.map_or(u32::MAX, |m| m.0.id);
+        let next = self.list.len() as u32;
+        if let std::collections::hash_map::Entry::Vacant(slot) = self.index.entry((mesh, material, set)) {
+            slot.insert(next);
+            self.list.push(MaterialOverride {
+                mesh,
+                material,
+                parts: if set == u32::MAX {
+                    (0, 0)
+                } else {
+                    self.sets[set as usize]
+                },
+            });
+        }
+    }
+
+    /// Where `mesh` with these overrides is in `list`, if it has any.
+    fn find(&self, mesh: u32, material: Option<&ModelMaterial>, parts: Option<&ModelMaterials>) -> Option<u32> {
+        self.find_ids(mesh, material.map_or(u32::MAX, |m| m.0.id), parts)
+    }
+
+    /// [`find`](Self::find) with the whole-mesh material by its id
+    /// (`u32::MAX`: none).
+    pub(crate) fn find_ids(&self, mesh: u32, material: u32, parts: Option<&ModelMaterials>) -> Option<u32> {
+        let parts = parts.map(ModelMaterials::raw).filter(|p| !p.is_empty());
+        if material == u32::MAX && parts.is_none() {
+            return None;
+        }
+        let set = match parts {
+            Some(p) => self.set_of(p)?,
+            None => u32::MAX,
+        };
+        self.index.get(&(mesh, material, set)).copied()
+    }
+
+    /// The per-part list of entry `o`.
+    #[cfg(test)]
+    pub fn parts_of(&self, o: &MaterialOverride) -> &[(u32, u32)] {
+        &self.parts[o.parts.0 as usize..(o.parts.0 + o.parts.1) as usize]
+    }
 }
 
 /// What one target camera draws this frame.
@@ -393,21 +545,43 @@ impl Frame3D {
         transients.begin();
         motion.begin();
         let all_decals = super::projected::receiver_mask(None);
-        // Material overrides: each (mesh, material) pair gets a mesh id of
-        // its own past the skinned models, so its models batch together
-        // and the rest keep the plain per-mesh path.
+        // Material overrides: each mesh with its overriding materials
+        // gets a mesh id of its own past the skinned models, so its models
+        // batch together and the rest keep the plain per-mesh path. Only
+        // the entities that have an override are visited.
         let real_meshes = assets.bounds.len() as u32;
         let override_base = real_meshes + skins.draws.len() as u32;
         self.override_base = override_base;
-        self.material_overrides.clear();
-        self.override_index.clear();
-        let (overrides, override_index) = (&mut self.material_overrides, &mut self.override_index);
-        world.query::<(&Model, &ModelMaterial)>().for_each(|(m, o)| {
-            override_index.entry((m.mesh.id, o.0.id)).or_insert_with(|| {
-                overrides.push((m.mesh.id, o.0.id));
-                overrides.len() as u32 - 1
+        let overrides = &mut self.material_overrides;
+        overrides.clear();
+        world
+            .query::<(&Model, &ModelMaterial)>()
+            .without::<ModelMaterials>()
+            .for_each(|(m, o)| overrides.add(m.mesh.id, Some(o), None));
+        world
+            .query::<(&Model, &ModelMaterials, Option<&ModelMaterial>)>()
+            .for_each(|(m, parts, o)| overrides.add(m.mesh.id, o, Some(parts)));
+        world
+            .query::<(&LodGroup, Option<&ModelMaterial>, Option<&ModelMaterials>)>()
+            .filter::<Or<(With<ModelMaterial>, With<ModelMaterials>)>>()
+            .for_each(|(g, o, parts)| {
+                for r in g.levels.iter().flat_map(|l| &l.renderers) {
+                    overrides.add(r.mesh.id, o, parts);
+                }
             });
-        });
+        world
+            .query::<(&TerrainTile, Option<&ModelMaterial>, Option<&ModelMaterials>)>()
+            .filter::<Or<(With<ModelMaterial>, With<ModelMaterials>)>>()
+            .for_each(|(tile, o, parts)| {
+                for lod in tile.lods {
+                    overrides.add(lod.id, o, parts);
+                }
+            });
+        let overrides = &self.material_overrides;
+        // A mesh id as the entity draws it: its override's, if it has one.
+        let overridden = |mesh: u32, o: Option<&ModelMaterial>, parts: Option<&ModelMaterials>| {
+            overrides.find(mesh, o, parts).map_or(mesh, |k| override_base + k)
+        };
         // Models: each compared with what it was last frame, culled again
         // when it or the views changed (on all cores), and only then are its
         // instances written again.
@@ -415,10 +589,9 @@ impl Frame3D {
             world,
             assets,
             &culler,
-            &Overrides {
-                index: &self.override_index,
+            &OverrideIds {
+                table: overrides,
                 base: override_base,
-                pairs: &self.material_overrides,
             },
             &mut lists,
             &mut arena,
@@ -517,8 +690,10 @@ impl Frame3D {
                 &LodGroup,
                 Option<&ReceivesDecals>,
                 Option<&LodHysteresis>,
+                Option<&ModelMaterial>,
+                Option<&ModelMaterials>,
             )>()
-            .for_each(|(entity, t, g, decals, hysteresis)| {
+            .for_each(|(entity, t, g, decals, hysteresis, material, parts)| {
                 let (mut pick, mut seen) = picks[at];
                 // Hysteresis: when the pick changes, hold last frame's
                 // instead while near its thresholds (the same entity at the
@@ -555,12 +730,20 @@ impl Frame3D {
                                 model,
                                 color: linear(r.color),
                             };
+                            // The group's renderers take its override; a
+                            // level's separate shadow casters keep theirs.
+                            // (The cheap test first: most groups have no override.)
+                            let mesh = if drawn && (material.is_some() || parts.is_some()) {
+                                overridden(r.mesh.id, material, parts)
+                            } else {
+                                r.mesh.id
+                            };
                             // No motion of their own for temporal antialiasing: they
                             // reproject with the camera (scenery stays put).
                             touch(
                                 (entity.to_bits(), renderer),
                                 super::motion::NO_KEY,
-                                [r.mesh.id; 1 + MAX_CASCADES],
+                                [mesh; 1 + MAX_CASCADES],
                                 instance.with_fade(fade),
                                 f,
                             );
@@ -574,8 +757,15 @@ impl Frame3D {
         // for finer detail to show.
         // A `ShadowMesh(None)` on the tile turns its shadow off.
         world
-            .query::<(crate::Entity, &Transform3D, &TerrainTile, Option<&ShadowMesh>)>()
-            .for_each(|(e, t, tile, shadow)| {
+            .query::<(
+                crate::Entity,
+                &Transform3D,
+                &TerrainTile,
+                Option<&ShadowMesh>,
+                Option<&ModelMaterial>,
+                Option<&ModelMaterials>,
+            )>()
+            .for_each(|(e, t, tile, shadow, material, parts)| {
                 let Some((center, radius)) = assets.live_bounds(tile.lods[0].id) else {
                     return;
                 };
@@ -594,6 +784,12 @@ impl Frame3D {
                     let casts = !matches!(shadow, Some(ShadowMesh(None)));
                     let f = classify(t, (center, radius), casts.then_some((center, radius)));
                     if f != 0 {
+                        // Most tiles have no override: skip the lookup.
+                        let meshes = if material.is_some() || parts.is_some() {
+                            meshes.map(|mesh| overridden(mesh, material, parts))
+                        } else {
+                            meshes
+                        };
                         touch(
                             (e.to_bits(), retained::TERRAIN),
                             e.to_bits(),
@@ -1057,7 +1253,12 @@ mod tests {
         // Past the two meshes (no skinned models): one id per pair, in the
         // world's order (archetypes as made: wet, dry, then wet with a shadow mesh).
         assert_eq!(frame.override_base, 2);
-        assert_eq!(frame.material_overrides, vec![(0, 7), (0, 3)]);
+        let pair = |mesh, material| MaterialOverride {
+            mesh,
+            material,
+            parts: (0, 0),
+        };
+        assert_eq!(frame.material_overrides.list, vec![pair(0, 7), pair(0, 3)]);
         assert_eq!(frame.visible, 6);
         // Wet rocks batch into one run, apart from the plain and dry ones.
         assert_eq!(frame.runs, vec![(0, 0, 1), (1, 1, 1), (2, 2, 3), (3, 5, 1)]);
@@ -1068,9 +1269,83 @@ mod tests {
         let mut view = Frame3D::default();
         view.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
         assert_eq!(
-            (view.override_base, &view.material_overrides),
-            (2, &frame.material_overrides)
+            (view.override_base, &view.material_overrides.list),
+            (2, &frame.material_overrides.list)
         );
+    }
+
+    #[test]
+    fn part_lists_lod_groups_and_terrain_get_override_ids() {
+        use crate::{LodLevel, LodRenderer, Material, ModelMaterial, ModelMaterials};
+        let mut world = World::new();
+        let assets = Assets3D {
+            bounds: vec![(Vec3::ZERO, 1.0); 4],
+            ..Default::default()
+        };
+        let mut camera = camera();
+        camera.position = Vec3::new(0.0, 5.0, 10.0);
+        camera.look_at(Vec3::ZERO);
+        let lighting = Lighting {
+            shadows: false,
+            ..Default::default()
+        };
+        let m = |id| Material { id };
+        let rock = Model::new(Mesh { id: 0 });
+        let at = |x: f32| Transform3D::at(Vec3::new(x, 0.0, 0.0));
+        // The same list written two ways is one entry; with a whole-mesh
+        // material as well it's another.
+        world.spawn((at(0.0), rock, ModelMaterials::new(&[(1, m(5)), (0, m(6))])));
+        world.spawn((at(1.0), rock, ModelMaterials::new(&[(0, m(6)), (1, m(4)), (1, m(5))])));
+        world.spawn((at(2.0), rock, ModelMaterials::new(&[(1, m(5))]), ModelMaterial(m(9))));
+        // An empty list is no override.
+        world.spawn((at(3.0), rock, ModelMaterials::new(&[])));
+        // A group's renderers and a tile's levels take theirs.
+        let group = LodGroup::new(1.0, vec![LodLevel::new(0.0, vec![LodRenderer::new(Mesh { id: 1 })])]);
+        world.spawn((at(-1.0), group.clone(), ModelMaterial(m(9))));
+        world.spawn((at(-2.0), group));
+        let tile = TerrainTile {
+            lods: [Mesh { id: 2 }, Mesh { id: 3 }, Mesh { id: 3 }, Mesh { id: 3 }],
+            lod_distance: 1000.0,
+        };
+        world.spawn((at(-3.0), tile, ModelMaterials::new(&[(0, m(8))])));
+        let mut frame = Frame3D::default();
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
+        let o = &frame.material_overrides;
+        let listed: Vec<_> = (o.list.iter())
+            .map(|e| (e.mesh, e.material, o.parts_of(e).to_vec()))
+            .collect();
+        let none = u32::MAX;
+        assert_eq!(
+            listed,
+            vec![
+                (0, none, vec![(0, 6), (1, 5)]),
+                (0, 9, vec![(1, 5)]),
+                (1, 9, vec![]),
+                (2, none, vec![(0, 8)]),
+                (3, none, vec![(0, 8)]),
+            ]
+        );
+        // Ids 4.. are the entries. The plain rock and the plain group keep
+        // their meshes; the tile draws its finest level.
+        assert_eq!(frame.override_base, 4);
+        let meshes: Vec<_> = frame.runs.iter().map(|&(mesh, _, count)| (mesh, count)).collect();
+        assert_eq!(meshes, vec![(0, 1), (1, 1), (4, 2), (5, 1), (6, 1), (7, 1)]);
+        // A warm frame keeps its tables: the same entries again.
+        frame.collect(&mut world, &assets, &SkinFrame::default(), &camera, &lighting);
+        assert_eq!(frame.material_overrides.list.len(), 5);
+        // Three distinct lists: the tile's two meshes share theirs.
+        assert_eq!(frame.material_overrides.parts.len(), 4);
+    }
+
+    #[test]
+    fn a_part_resolves_to_its_listed_material_then_the_whole_mesh_one_then_its_own() {
+        let parts = [(1, 5), (3, 99)];
+        let r = |material, part| MaterialOverride::resolve(material, &parts, part, 2, 10);
+        assert_eq!(r(u32::MAX, 0), 2); // not listed, no whole-mesh material
+        assert_eq!(r(7, 0), 7); // the whole-mesh material
+        assert_eq!(r(7, 1), 5); // listed
+        assert_eq!(r(7, 3), 7); // listed with a material that doesn't exist
+        assert_eq!(r(50, 3), 2); // neither exists
     }
 
     #[test]

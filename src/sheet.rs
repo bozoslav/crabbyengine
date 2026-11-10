@@ -196,12 +196,12 @@ impl Animation {
 
 /// Built-in system: advances every [`Animation`] and shows its frame on the
 /// entity's [`Sprite`]. [`Game`](crate::Game) runs it every frame, before
-/// [`draw_sprites`](crate::draw_sprites).
+/// [`draw_sprites`](crate::systems::draw_sprites).
 ///
 /// ```no_run
 /// # use ponko::*;
 /// // Animations driven by your own clock instead:
-/// Game::new("t", 800, 600).remove_system(animate_sprites).run(|_| {});
+/// Game::new("t", 800, 600).remove(Systems::ANIMATE_SPRITES).run(|_| {});
 /// ```
 pub fn animate_sprites(ctx: &mut Ctx) {
     let dt = ctx.dt();

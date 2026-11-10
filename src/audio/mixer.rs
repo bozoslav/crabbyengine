@@ -212,11 +212,8 @@ impl Audio {
     /// ```
     pub fn try_load_stream(&mut self, path: &str) -> Result<Sound, crate::Error> {
         use crate::assets::{Lookup, Origin};
-        let kind = crate::ctx::AssetKind::Stream;
-        let found = match self.asset_sources.lookup(path, |origin| {
-            let key = (origin.clone(), kind);
-            self.loaded.get(&key).map(|&i| self.cached_sounds[i as usize])
-        })? {
+        let kind = crate::asset_cache::AssetKind::Stream;
+        let found = match self.loaded.lookup(&self.asset_sources, path, kind)? {
             Lookup::Cached(_, sound) => return Ok(sound),
             Lookup::Found(found) => found,
         };
@@ -234,8 +231,7 @@ impl Audio {
         })?;
         let sound = Sound { id, seconds };
         self.sounds_live.insert(id);
-        self.loaded.insert((origin, kind), self.cached_sounds.len() as u64);
-        self.cached_sounds.push(sound);
+        self.loaded.insert(origin, kind, sound);
         Ok(sound)
     }
 }

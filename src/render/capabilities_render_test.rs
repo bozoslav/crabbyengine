@@ -303,6 +303,8 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
         queue.submit(buffers);
         pixels = read(&device, &queue, &output);
     }
+    // Every effect's settings were written only where they changed.
+    renderer.check_mirrors(&device, &queue);
 
     // The renderer's own choices, against the report.
     let on = |f| report.available(f);

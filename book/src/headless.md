@@ -1,6 +1,8 @@
 # Headless runs and testing
 
-`Game::run_headless(ticks, setup)` (C++: `ponko::game::run_headless`) runs the simulation with no window and no
+`run_headless(ticks)` after [`Game::setup`](getting-started.md#setup-on-the-builder),
+or `Game::run_headless(ticks, setup)` in one call (C++: `ponko::game::run_headless`,
+both forms), runs the simulation with no window and no
 GPU, as fast as the CPU allows, then hands you the `World`.
 
 Use it for:
@@ -27,9 +29,10 @@ fn fall(ctx: &mut Ctx) {
 fn things_fall_ten_units_per_second() {
     let mut world = Game::new("test", 800, 600)
         .sim_system(fall)
-        .run_headless(60, |ctx| {
+        .setup(|ctx| {
             ctx.world.spawn((Pos(100.0),));
-        });
+        })
+        .run_headless(60);
     let y = world.query::<&Pos>().iter().next().unwrap().0;
     assert!((y - 90.0).abs() < 1e-3);
 }
@@ -47,7 +50,9 @@ fn things_fall_ten_units_per_second() {
 
 ## What runs
 
-- `setup` runs once. If it returns a frame closure, that closure is dropped.
+- The setup callbacks run once, in the order they were added, also when
+  `ticks` is 0. If the `setup` passed to `run_headless(ticks, setup)`
+  returns a frame closure, that closure is dropped.
 - Each tick runs every **sim system** once. Frame systems and drawing don't
   run, because there are no frames.
 - Pause and sim speed are ignored; `ctx.quit()` stops early.
@@ -64,13 +69,18 @@ simulates a million agents this way.
 is a small complete game (title, settings, pause and result screens, win, lose,
 restart, saved progress, keyboard and gamepad; one picture file, everything else
 made in code) built so that a test can play it. Packaging it, the settings and the
-web build are in [A complete game, packaged](packaging.md). It has three layers:
+web build are in [A complete game, packaged](packaging.md). It has three layers,
+each a [plugin](systems.md#plugins):
 
-1. `read_input`, a frame system, turns the named [actions](actions.md) into
-   an `Intent` resource (below).
-2. `rules`, a sim system, is the whole game. It reads only the `Intent` and the
-   world, never the keyboard.
-3. Drawing is the built-in sprite drawing plus a `hud` frame system.
+1. `Controls`: `read_input`, a frame system, turns the named
+   [actions](actions.md) into an `Intent` resource (below).
+2. `Rules`: `rules`, a sim system, is the whole game. It reads only the
+   `Intent` and the world, never the keyboard.
+3. `Drawing`: the built-in sprite drawing plus a `hud` frame system.
+
+```rust
+{{#include ../../examples/coin_dash/game.rs:plugins}}
+```
 
 `read_input` resolves the action names once, at startup, into `ActionId`s, so
 a name that `bindings` doesn't define is logged once instead of reading false on
@@ -86,7 +96,7 @@ every frame:
 
 Because `rules` reads only the `Intent`, [`tests/coin_dash.rs`](https://github.com/ponkoengine/ponko/blob/main/tests/coin_dash.rs)
 replaces step 1 with a scripted player: a sim system added before the game's
-own, which writes the `Intent` each tick. The game's systems are installed
+own, which writes the `Intent` each tick. The game's plugin is added
 unchanged:
 
 ```rust

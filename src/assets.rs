@@ -404,11 +404,6 @@ impl SharedSources {
         self.0.borrow_mut().add(source);
     }
 
-    /// As [`Sources::origins`], collected.
-    pub(crate) fn origins(&self, name: &str) -> Vec<Origin> {
-        self.0.borrow().origins(name).collect()
-    }
-
     /// As [`Sources::lookup`].
     pub(crate) fn lookup<T>(
         &self,

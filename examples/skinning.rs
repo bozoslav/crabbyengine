@@ -200,51 +200,54 @@ fn layers_and_root_motion(skeleton: &Skeleton, wave: AnimationClip) -> Animator 
 }
 
 fn main() {
-    Game::new("Ponko: skinned meshes", 1000, 700).system(sway).run(|ctx| {
-        ctx.gfx.clear(Color::hex(0xABCBDD));
-        ctx.camera3d.position = vec3(6.0, 4.0, 9.0);
-        ctx.camera3d.look_at(vec3(0.0, 1.7, 0.0));
-        let green = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x398F79)));
-        let gold = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0xF2BD50)));
-        let white = ctx.gfx.default_material();
-        let ground = ctx.gfx.create_mesh(&MeshData::plane(20.0), white);
-        ctx.world.spawn((Transform3D::default(), Model::new(ground)));
-        // ANCHOR: skin_create
-        let skeleton = chain();
-        let mesh = ctx.gfx.create_skinned_mesh(&tube(0.0, 3.5, 0.22), green, &skeleton);
-        // A separate skeleton with matching names demonstrates name binding.
-        let band = ctx.gfx.create_skinned_mesh(&tube(2.2, 2.5, 0.25), gold, &chain());
-        // ANCHOR_END: skin_create
-        let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.18, 16), gold);
-        let bend = bend_clip(&skeleton);
-        for i in 0..3 {
-            let tentacle = ctx.world.spawn((
-                Transform3D::at(vec3((i as f32 - 1.0) * 2.5, 0.0, 0.0)),
-                Model::new(mesh),
-                skeleton.clone(),
-                Sway(i as f32 * 1.8),
-                Bend(bend.clone()),
-            ));
-            if i == 2 {
-                ctx.world.insert(tentacle, bend_animator(&skeleton));
-            }
-            if i == 0 {
-                // ANCHOR: skin_parts
-                ctx.world.spawn((Model::new(band), SkinOf(tentacle)));
-                let tip = skeleton.find("joint_7").unwrap();
-                ctx.world.spawn((
-                    Transform3D::default(),
-                    Model::new(ball),
-                    AttachToJoint {
-                        skeleton: tentacle,
-                        joint: tip,
-                        offset: Transform3D::at(vec3(0.0, 0.12, 0.0)),
-                    },
+    Game::new("Ponko: skinned meshes", 1000, 700)
+        .system(sway)
+        .setup(|ctx| {
+            ctx.gfx.clear(Color::hex(0xABCBDD));
+            ctx.camera3d.position = vec3(6.0, 4.0, 9.0);
+            ctx.camera3d.look_at(vec3(0.0, 1.7, 0.0));
+            let green = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x398F79)));
+            let gold = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0xF2BD50)));
+            let white = ctx.gfx.default_material();
+            let ground = ctx.gfx.create_mesh(&MeshData::plane(20.0), white);
+            ctx.world.spawn((Transform3D::default(), Model::new(ground)));
+            // ANCHOR: skin_create
+            let skeleton = chain();
+            let mesh = ctx.gfx.create_skinned_mesh(&tube(0.0, 3.5, 0.22), green, &skeleton);
+            // A separate skeleton with matching names demonstrates name binding.
+            let band = ctx.gfx.create_skinned_mesh(&tube(2.2, 2.5, 0.25), gold, &chain());
+            // ANCHOR_END: skin_create
+            let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.18, 16), gold);
+            let bend = bend_clip(&skeleton);
+            for i in 0..3 {
+                let tentacle = ctx.world.spawn((
+                    Transform3D::at(vec3((i as f32 - 1.0) * 2.5, 0.0, 0.0)),
+                    Model::new(mesh),
+                    skeleton.clone(),
+                    Sway(i as f32 * 1.8),
+                    Bend(bend.clone()),
                 ));
-                // ANCHOR_END: skin_parts
+                if i == 2 {
+                    ctx.world.insert(tentacle, bend_animator(&skeleton));
+                }
+                if i == 0 {
+                    // ANCHOR: skin_parts
+                    ctx.world.spawn((Model::new(band), SkinOf(tentacle)));
+                    let tip = skeleton.find("joint_7").unwrap();
+                    ctx.world.spawn((
+                        Transform3D::default(),
+                        Model::new(ball),
+                        AttachToJoint {
+                            skeleton: tentacle,
+                            joint: tip,
+                            offset: Transform3D::at(vec3(0.0, 0.12, 0.0)),
+                        },
+                    ));
+                    // ANCHOR_END: skin_parts
+                }
             }
-        }
-    });
+        })
+        .run();
 }
 
 // ANCHOR: skin_ik

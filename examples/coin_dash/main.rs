@@ -16,7 +16,8 @@
 //!
 //! The rules live in `game.rs`, which `tests/coin_dash.rs` also drives without
 //! a window (`cargo test --test coin_dash`), so the whole loop (title, play,
-//! pause, result, settings, saving) is checked in CI. This file only opens the
+//! pause, result, settings, saving) is checked in CI. The game is a plugin
+//! (`CoinDash`, made of one plugin per layer); this file only opens the
 //! window, and offers the walk-through that the packaged smoke test uses:
 //!
 //!   `coin_dash --smoke headless [--report report.json]`   no window, no GPU
@@ -30,14 +31,16 @@ mod game;
 
 #[cfg(target_arch = "wasm32")]
 fn main() {
-    game::build().system(game::smoke::publish_web_state).run(game::setup);
+    // Everything, startup included, is in the game's plugins.
+    game::build().system(game::smoke::publish_web_state).configured().run();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
-        [] => game::build().run(game::setup),
+        // Everything, startup included, is in the game's plugins.
+        [] => game::build().configured().run(),
         ["--smoke", mode, rest @ ..] if matches!(*mode, "headless" | "window") => {
             let report = match rest {
                 [] => None,
@@ -61,11 +64,11 @@ fn usage() -> ! {
 fn smoke(mode: &str, report: Option<std::path::PathBuf>) {
     use game::smoke::*;
     let name = mode.to_string();
-    let setup = move |ctx: &mut ponko::Ctx| setup_smoke(ctx, game::save_path(), report, &name);
+    let setup = move |ctx: &mut ponko::Ctx| setup_smoke(ctx, report, &name);
     if mode == "window" {
-        build_smoke().run(setup);
+        build_smoke(game::save_path()).setup(setup).run();
     } else {
-        let world = build_smoke().run_headless(MAX_TICKS + 1, setup);
+        let world = build_smoke(game::save_path()).setup(setup).run_headless(MAX_TICKS + 1);
         if !world.resource::<Smoke>().finished() {
             eprintln!("coin_dash: the walk-through did not finish");
             std::process::exit(1);

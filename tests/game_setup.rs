@@ -42,3 +42,29 @@ fn stored_setup_is_used_by_headless_profiling() {
         .profile_headless(0, 1);
     assert_eq!(*world.resource::<usize>(), 42);
 }
+
+#[test]
+fn a_game_of_plugins_and_systems_runs_without_a_setup_closure() {
+    struct Ticks(u32);
+    struct Counting;
+    impl ponko::Plugin for Counting {
+        fn build(&self, game: Game) -> Game {
+            game.sim_system(|ctx| ctx.world.resource_mut::<Ticks>().0 += 1)
+        }
+        fn setup(&self, ctx: &mut ponko::Ctx) {
+            ctx.world.insert_resource(Ticks(0));
+        }
+    }
+    let world = Game::new("plugins", 1, 1)
+        .plugin(Counting)
+        .sim_system(|ctx| ctx.world.resource_mut::<Ticks>().0 += 10)
+        .configured()
+        .run_headless(2);
+    assert_eq!(world.resource::<Ticks>().0, 22);
+    // A plain game with nothing to set up runs too, and setups can follow.
+    let world = Game::new("empty", 1, 1)
+        .configured()
+        .setup(|ctx| ctx.world.insert_resource(Ticks(5)))
+        .run_headless(1);
+    assert_eq!(world.resource::<Ticks>().0, 5);
+}

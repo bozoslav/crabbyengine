@@ -9,7 +9,7 @@
 //! Dynamic AABBs conservatively disable overlapping polygon bounds (expanded by
 //! the baked agent clearance). Opt-in carving (`NavBakeSettings::carving`, then
 //! `NavObstacle3D::carve`) rebuilds cached heightfield layers.
-//! Register `step_navmesh3d` as a sim system, including on headless servers.
+//! Register `systems::step_navmesh3d` as a sim system, including on headless servers.
 //! Agents directly own their Transform3D: do not also attach a physics body or
 //! character controller. Crowd avoidance is opt-in. Bake for the largest
 //! agent radius/height; agents larger than that radius are stopped.
@@ -693,7 +693,7 @@ impl Default for NavAgent3D {
 /// Stalled agents retry when those inputs change. No window/GPU is required.
 /// ```
 /// use ponko::*;
-/// Game::new("server", 1, 1).sim_system(step_navmesh3d).run_headless(1, |ctx| {
+/// Game::new("server", 1, 1).sim_system(systems::step_navmesh3d).run_headless(1, |ctx| {
 ///     let source = NavSource::from_mesh(&MeshData::plane(20.0), Transform3D::default());
 ///     ctx.world.insert_resource(NavMesh3D::bake(&[source], NavBakeSettings::default()).unwrap());
 ///     ctx.world.spawn((Transform3D::default(), NavAgent3D::default()));

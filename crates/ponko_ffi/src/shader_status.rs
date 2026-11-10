@@ -138,7 +138,7 @@ pub unsafe extern "C" fn crabby_ctx_shader_status(
 }
 
 /// Checks a text output's pointers.
-fn text_output(buffer: *mut c_char, capacity: usize, out_len: *mut usize) -> Result<(), crate::Failure> {
+pub(crate) fn text_output(buffer: *mut c_char, capacity: usize, out_len: *mut usize) -> Result<(), crate::Failure> {
     if out_len.is_null() {
         return Err(invalid("output is null"));
     }

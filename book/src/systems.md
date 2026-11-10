@@ -1,9 +1,19 @@
 # Systems and the frame
 
 A **system** is a function `fn(&mut Ctx)` (or a closure); in C++, anything
-callable as `void(ponko::ctx&)`, with an optional name for timings and tools. You add systems to
-the `Game`; each runs in a [phase](#phases), and systems in the same phase run
-in the order you added them.
+callable as `void(ponko::ctx&)`, with an optional name for timings and tools.
+A game is built from two things:
+
+- **[Phases](#phases)** say *when* a system runs. Every system is in one
+  phase; the phases run in a fixed order, and systems in the same phase run
+  in the order you added them.
+- **[Plugins](#plugins)** say *which* systems belong together. A plugin is
+  one area of the game (the player, the HUD, the shop): its systems and its
+  startup work, added with one call.
+
+The engine's own work (physics, animation, drawing) is made of
+[ordinary systems](#built-in-systems) in the same phases, so you can see,
+time, remove and replace every step of the frame.
 
 <div class="lang-pair">
 <div>
@@ -14,7 +24,8 @@ Game::new("Sim", 1280, 720)
     .sim_system(steer)      // fixed rate: game logic
     .sim_system(movement)
     .system(camera)         // once per frame: input, camera, UI
-    .run(|ctx| { /* spawn things */ });
+    .setup(|ctx| { /* spawn things */ })
+    .run();
 ```
 
 </div>
@@ -44,19 +55,20 @@ also takes the interval of `sim_system_every`.
 Every system belongs to a `Phase`. Phases always run in this order, whatever
 order the builder calls come in; within a phase, systems run in the order
 you added them. `Game::add(phase, f)` (C++: `game::add(ponko::phase::..., f)`,
-C: `ponko_game_add_system`) puts a system in any phase.
+C: `ponko_game_add_system`) puts a system in any phase; `sim_system`,
+`system` and `late_system` are short for the three most common ones.
 
-| Phase | Runs | Filled by |
-|---|---|---|
-| `Input` | each fixed tick, first | `spatial_grid`'s rebuild |
-| `BeforePhysics` | each fixed tick | your systems that feed the physics step (forces, velocities, wheel inputs) |
-| `Physics` | each fixed tick | `physics` / `physics3d`'s step |
-| `AfterPhysics` | each fixed tick | `sim_system`, `sim_system_every` |
-| `SimLast` | each fixed tick, last | |
-| `Frame` | each rendered frame | `system`, the closure returned from setup |
-| `Animate` | each rendered frame | |
-| `Late` | each rendered frame | `late_system` |
-| `Draw` | each rendered frame | built-in draw systems such as `draw_sprites` |
+| Phase | Runs | Your systems | The engine's systems |
+|---|---|---|---|
+| `Input` | each fixed tick, first | | the spatial grid's rebuild |
+| `BeforePhysics` | each fixed tick | what feeds the physics step: forces, velocities, wheel inputs | |
+| `Physics` | each fixed tick | | the `physics` / `physics3d` step |
+| `AfterPhysics` | each fixed tick | `sim_system`, `sim_system_every` | |
+| `SimLast` | each fixed tick, last | bookkeeping that must see the whole tick | |
+| `Frame` | each rendered frame | `system`, the closure returned from `run`'s setup | interpolated physics transforms |
+| `Animate` | each rendered frame | pose work, before the engine's | animators, then particles (`3d`) |
+| `Late` | each rendered frame | `late_system`: cameras and anything that follows a final pose | |
+| `Draw` | each rendered frame | your own drawing | sprite animation, tilemaps, sprites; positional audio last (`3d`) |
 
 Headless runs (`run_headless`) run the fixed-tick phases only.
 
@@ -70,25 +82,192 @@ Game::new("Drive", 1280, 720)
     .add(Phase::BeforePhysics, steer) // the step below sees this tick's input
     .physics3d(vec3(0.0, -9.81, 0.0))
     .sim_system(score)                // sees the result of the step
-    .run(|ctx| { /* spawn things */ });
+    .setup(|ctx| { /* spawn things */ })
+    .run();
 ```
 
 Code written when the step ran where `.physics()` was called, with
 simulation logic added before it, should move that logic to
 `.add(Phase::BeforePhysics, logic)`; otherwise it acts one tick late.
 
+The animators, the particles and positional audio stay at the **end** of
+their phase: a system you add to `Animate` runs before the engine poses
+the skeletons, and one you add to `Late` or `Draw` runs before sounds are
+placed, no matter when you add it. To run *after* the engine's pose, use the next
+phase (`Late` for a camera that follows a bone).
+
 ## One frame, in order
 
-1. Simulation systems, `ctx.time.fixed_steps()` times (each tick runs all of them
-   once, in phase order: `Input`, `BeforePhysics`, `Physics`,
-   `AfterPhysics`, `SimLast`).
-2. Frame systems (`Phase::Frame`), then the closure returned from `setup`,
-   if any.
-3. `Phase::Animate` systems, then, with `3d`, the built-in animator and
-   particle updates.
-4. Late systems (`Phase::Late`, `Game::late_system`), then draw systems
-   (`Phase::Draw`) such as the built-in `draw_sprites`.
-5. Spatial audio update, then rendering.
+1. The fixed-tick phases, `ctx.time.fixed_steps()` times: each tick runs
+   `Input`, `BeforePhysics`, `Physics`, `AfterPhysics`, `SimLast`.
+2. `Frame`.
+3. `Animate`.
+4. `Late`.
+5. `Draw`.
+6. The renderer draws what the frame queued.
+
+There is nothing else: every step between the ticks and the renderer is a
+system in one of these phases, and [`ctx.perf.system_timings()`](#timings) lists
+all of them.
+
+## Built-in systems
+
+The functions are in `ponko::systems`; the ids in `Systems` name them for
+`Game::remove` and `Game::system_count`.
+
+| Function in `ponko::systems` | Id | Added by | Phase |
+|---|---|---|---|
+| `rebuild_spatial_grid` | `Systems::REBUILD_SPATIAL_GRID` | `Game::spatial_grid` | `Input` |
+| `step_physics` | `Systems::PHYSICS` | `Game::physics` | `Physics` |
+| `step_physics3d` | `Systems::PHYSICS3D` | `Game::physics3d` | `Physics` |
+| `interpolate_physics3d` | `Systems::INTERPOLATE_PHYSICS3D` | `Game::physics3d` | `Frame` |
+| `update_animators` | `Systems::UPDATE_ANIMATORS` | always, with `3d` | end of `Animate` |
+| `update_particles` | `Systems::UPDATE_PARTICLES` | always, with `3d` | end of `Animate` |
+| `update_audio3d` | `Systems::UPDATE_AUDIO3D` | always, with `3d` | end of `Draw` |
+| `animate_sprites` | `Systems::ANIMATE_SPRITES` | always | `Draw` |
+| `draw_tilemaps` | `Systems::DRAW_TILEMAPS` | always | `Draw` |
+| `draw_sprites` | `Systems::DRAW_SPRITES` | always | `Draw` |
+| `follow_attachments` | `Systems::FOLLOW_ATTACHMENTS` | you | where you add it |
+| `step_navmesh3d` | `Systems::STEP_NAVMESH3D` | you | where you add it |
+| `apply_net_poses` | | you | where you add it |
+
+In C the ids are `PONKO_SYSTEM_DRAW_SPRITES` and so on; in C++,
+`ponko::systems::draw_sprites`.
+
+Before these functions had their own module they were at the crate root
+(`ponko::draw_sprites`). Those names still work and are deprecated; a
+system added under the old name is the same system, with the same id.
+
+### Replacing a built-in
+
+`Game::remove` takes a built-in out by its id. Add your own system, or the
+same function in another place:
+
+<div class="lang-pair">
+<div>
+
+```rust
+# fn my_draw(_: &mut Ctx) {}
+Game::new("t", 800, 600)
+    .remove(Systems::DRAW_SPRITES)   // draw your own way
+    .add(Phase::Draw, my_draw);
+
+// Tilemaps over the sprites instead of under them.
+Game::new("t", 800, 600)
+    .remove(Systems::DRAW_TILEMAPS)
+    .add(Phase::Draw, systems::draw_tilemaps);
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:remove_system}}
+```
+
+</div>
+</div>
+
+Removing an id that isn't installed does nothing, so a plugin can remove a
+built-in without knowing whether the game turned that feature on.
+
+Your own systems have ids too: `Game::add_system` returns one (C++:
+`game::add_system`; C: `ponko_game_add_system_id`). Two systems made from
+the same function get different ids, so each can be removed by itself:
+
+```rust
+# fn debug_overlay(_: &mut Ctx) {}
+let mut game = Game::new("t", 800, 600);
+let overlay = game.add_system(Phase::Draw, debug_overlay);
+// later, while still building the game:
+let game = game.remove(overlay);
+# let _ = game;
+```
+
+`remove_system(function)` and `remove_named_system(name)` are the older
+forms; they still work and are deprecated, because a function or a name
+can't tell two registrations apart.
+
+## Plugins
+
+A `Plugin` is one module of a game: `build` adds its systems (each in the
+phase it needs) and `setup` does its startup work once the game is
+running. `Game::plugin` adds it:
+
+<div class="lang-pair">
+<div>
+
+```rust
+# #[derive(Default)] struct Score(u32);
+struct Player { speed: f32 }
+
+impl Plugin for Player {
+    fn build(&self, game: Game) -> Game {
+        let speed = self.speed;
+        game.add(Phase::BeforePhysics, move |ctx| {
+            let dt = ctx.dt();
+            ctx.world.query::<&mut Transform2D>().for_each(|t| t.position.x += speed * dt);
+        })
+    }
+    fn setup(&self, ctx: &mut Ctx) {
+        ctx.world.spawn((Transform2D::default(),));
+    }
+}
+
+struct Hud;
+
+impl Plugin for Hud {
+    fn build(&self, game: Game) -> Game {
+        game.add(Phase::Draw, |ctx| {
+            let score = ctx.world.resource::<Score>().0;
+            ctx.draw_text(&format!("{score}"), vec2(16.0, 16.0), 24.0, Color::WHITE);
+        })
+    }
+    fn setup(&self, ctx: &mut Ctx) {
+        ctx.world.insert_resource(Score::default());
+    }
+}
+
+Game::new("Modules", 1280, 720)
+    .plugin(Player { speed: 4.0 })
+    .plugin(Hud)
+    .configured() // startup is in the plugins: no setup of its own
+    .run();
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:plugin}}
+
+{{#include ../../examples/cpp/guide.cpp:plugin_use}}
+```
+
+</div>
+</div>
+
+In C++ a plugin is any object with `build(ponko::game&)`; `setup(ponko::ctx&)`
+is optional. In C, `ponko_game_plugin(game, build, setup, user)` takes the
+two callbacks.
+
+What to rely on:
+
+- **`build` runs at once**, inside the `plugin` call. Everything it adds
+  names its phase, so the order of the `plugin` calls only matters between
+  two systems in the same phase.
+- **`setup` runs once**, when the game starts and the window and the
+  renderer exist (headless: before the first tick). Plugin setups and
+  [`Game::setup`](getting-started.md#setup-on-the-builder) callbacks run in the order they were
+  added; the setup passed to `run` comes last.
+- **Commands recorded in any setup** are applied before the first system
+  runs, so one plugin's systems can count on what another's setup spawned.
+- A plugin is plain data: there is no registry, no dependency list and
+  nothing to enable. A plugin that needs another one says so in its docs,
+  or adds it itself in `build` with `game.plugin(Other)`.
+
+A game built from several files usually ends up as one plugin per file
+and a `main` that lists them; `examples/coin_dash` is built this way.
 
 ## When changes become visible
 
@@ -189,34 +368,11 @@ Game::new("t", 800, 600).sim_system(spawner(30));
 </div>
 </div>
 
-## Replacing built-ins
-
-Everything the engine does by itself is an ordinary system, and
-`remove_system` takes it out (in C++, by name):
-
-<div class="lang-pair">
-<div>
-
-```rust
-# fn my_draw(_: &mut Ctx) {}
-Game::new("t", 800, 600)
-    .remove_system(draw_sprites)   // draw your own way
-    .system(my_draw);
-```
-
-</div>
-<div>
-
-```cpp
-{{#include ../../examples/cpp/guide.cpp:remove_system}}
-```
-
-</div>
-</div>
-
 ## Timings
 
 `ctx.perf.system_timings()` lists every system with its last and average time in
-milliseconds, so a game can show its own profiler overlay. For a full
+milliseconds, so a game can show its own profiler overlay. The engine's
+systems are in the list under their names (`ponko::systems::update_animators`,
+`ponko::ecs::draw_sprites`), next to yours, in the order they run. For a full
 timeline, build with `--features profiling` and open
 [puffin_viewer](https://github.com/EmbarkStudios/puffin) on `127.0.0.1:8585`.

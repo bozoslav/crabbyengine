@@ -182,7 +182,7 @@ fn main() {
                 ctx.quit();
             }
         })
-        .run(move |ctx| {
+        .setup(move |ctx| {
             ctx.post.bloom = 0.08;
             ctx.lighting.sun_direction = Sky::sun_direction_at(15.5);
             ctx.lighting.shadow_distance = 500.0;
@@ -192,5 +192,5 @@ fn main() {
             ctx.sky.fog_height = 40.0;
             ctx.sky.fog_falloff = 90.0;
             ctx.camera3d.position = vec3(0.0, height(0.0, 0.0) + 60.0, 0.0);
-        });
+        }).run();
 }

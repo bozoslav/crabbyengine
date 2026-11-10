@@ -147,7 +147,7 @@ fn play(net: Net) {
         .system(read_keys) // frame system: input out
         .sim_system(move_crabs) // sim system: everyone's input in
         .system(draw)
-        .run(|ctx| {
+        .setup(|ctx| {
             ctx.world.reflect::<Crab>(); // compared between peers
             for player in 0..2 {
                 ctx.world.spawn((
@@ -158,7 +158,8 @@ fn play(net: Net) {
                     },
                 ));
             }
-        });
+        })
+        .run();
     // ANCHOR_END: session
 }
 

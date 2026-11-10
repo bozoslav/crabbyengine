@@ -149,7 +149,7 @@ impl Sprite {
 /// fn my_draw(ctx: &mut Ctx) { /* ... */ }
 ///
 /// Game::new("Custom", 800, 600)
-///     .remove_system(draw_sprites)
+///     .remove(Systems::DRAW_SPRITES)
 ///     .system(my_draw)
 ///     .run(|_| {});
 /// ```

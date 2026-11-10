@@ -36,7 +36,7 @@ pub struct Smoke {
 }
 
 impl Smoke {
-    /// Starts a fixture's run; call it first in the setup closure. Panics
+    /// Starts a fixture's run; call it first in the setup callback. Panics
     /// right away when the case is `panic`.
     pub fn new(fixture: &'static str) -> Self {
         let case = smoke_case();
@@ -60,7 +60,7 @@ impl Smoke {
 
     /// Counts the frame and its click, applies a `stall` case, and publishes
     /// the state. `extra` is a JSON object whose fields join the state.
-    /// Call it once per frame, from the frame closure.
+    /// Call it once per frame, from a frame system.
     pub fn frame(&mut self, ctx: &mut Ctx, ticks: u64, extra: Value) {
         self.frames += 1;
         if self.case == "stall" && ticks >= STALL_AFTER && !ctx.time.is_paused() {
