@@ -39,7 +39,7 @@ The engine is integrated rather than a collection of independent service crates.
 
 [Game](src/game.rs) stores systems as `FnMut(&mut Ctx)` callbacks. `run_systems`, `run_sim_tick` and `run_one` define the current order:
 
-1. Update retained UI (`Ctx::frame_begin_services`) and begin frame timings.
+1. Poll the message endpoint if the game has one (`Networking::begin_frame`), update retained UI (`Ctx::frame_begin_services`) and begin frame timings.
 2. Run the due fixed simulation ticks. Lockstep can defer a tick until peer inputs are ready while the windowed frame continues.
 3. Run `Frame` systems, then `Animate` systems; with 3D, the built-in systems `update_animators` and `update_particles` end `Animate`.
 4. Run late systems, then drawing systems; with 3D, the built-in system `update_audio3d` (positional audio) ends `Draw`.
@@ -71,7 +71,7 @@ Rows follow `window.rs`'s frame (`run_frame`) and `run_headless_inner`'s tick.
 
 | Stage | Windowed run (`Game::run`) | Headless run (`Game::run_headless`) |
 |---|---|---|
-| Construct | `Game::build_ctx(false)`: `Ctx::new`, then seed, hot reload, spatial grid, physics worlds, lockstep session (`Net::begin`) | `Game::build_ctx(true)`: the same, with the headless flag set (size-only textures, silent audio, dropped draws) |
+| Construct | `Game::build_ctx(false)`: `Ctx::new`, then seed, hot reload, spatial grid, physics worlds, lockstep session and message endpoint (`Game::start_networking`, `Net::begin`) | `Game::build_ctx(true)`: the same, with the headless flag set (size-only textures, silent audio, dropped draws) |
 | Control endpoint | `Game::start_control` (the loop owns the `Control`, not `Ctx`) | The same, and, with the endpoint on, a paused game waits for tools to step it |
 | Renderer | `App::start` attaches `ctx.gfx.renderer` once the window and GPU exist; setup waits for it | None: `ctx.gfx.renderer` stays `None` |
 | Setup | `run_setups` (plugins and builder setups in order), then the `run` closure; `Ctx::set_in_setup`; commands applied when setup returns | The same; the closure's returned frame function is dropped (there are no frames) |
@@ -94,7 +94,7 @@ Every service is constructed by `Ctx::new` unless the row says otherwise. "Scope
 | `input` | game (gamepads: device) | Read by systems; scenario hooks `scenario_begin_tick` / `scenario_end_tick` in `run_sim_tick` | Window events and the gamepad poll feed it; `Input::end_frame` clears the frame's edges | Dropped with `Ctx` |
 | `spatial` | game | `rebuild_spatial_grid`, an `Input`-phase system added by `Game::spatial_grid`; cell size set in `build_ctx` | None | Dropped with `Ctx` |
 | `physics`, `physics3d` | game; body mapping is world | The step system in `Phase::Physics`; `physics::start` / `physics3d::start` in `build_ctx` | None | Dropped with `Ctx` |
-| `net` | game | `Net::ready` gates each tick, `Net::end_tick` after it; `Net::begin` in `build_ctx` | The frame runs on while a tick waits | `Drop for Net` (keeps resending the last inputs for a short time) |
+| `net` (lockstep session, message endpoint, snapshot streams, interest) | game | `Net::ready` gates each tick, `Net::end_tick` after it; `Net::begin` in `build_ctx` | `Networking::begin_frame` polls the message endpoint before any system, in both loops (headless: every pass, also while paused or while a tick waits). The frame runs on while a tick waits | `Drop for Net` (keeps resending the last inputs for a short time); a dropped message endpoint is noticed by its peers' timeout |
 | Render state: `camera`, `camera3d`, `lighting`, `sky`, `post`, `lod`, `effects`, `target_effects`, `target_cameras`, `compute_passes` | game | None | Read by `Ctx::render_frame` and `prepare_3d` | Dropped with `Ctx` |
 | `ui` (retained tree, immediate widgets) | game | None | `frame_begin_services` (`update_retained_ui`) before any system; the immediate widgets reset in `begin_frame`; drawn in `render_frame` (`draw_retained_ui`) | Dropped with `Ctx` |
 | `gfx` | device (renderer); game (caches, draw lists) | None; headless discards draws | `begin_frame` (text and frame number); `render_frame` submits and clears the lists | Dropped with `Ctx`; the renderer drops with it. `Ctx::free` releases one texture or font |
@@ -138,7 +138,7 @@ The intended evolution is smaller resource, pipeline, preparation and encoding r
 
 [2D physics](src/physics.rs) and [3D physics](src/physics3d) integrate Rapier behind features. `Game::physics` and `physics3d` install fixed-step systems; ECS components and physics state synchronize at that boundary. Characters, joints and vehicles extend the 3D integration. [Navigation](src/nav3d) uses optional Recast/Detour functionality. These services are not implemented by the ECS scheduler itself.
 
-[Net](src/net.rs) provides lockstep; [messages](src/net/messages.rs), [snapshots](src/net/snapshots.rs), [interest](src/net/interest.rs) and optional Steam transports provide additional networking building blocks. Peer coordination, authority and replication choices remain game-level responsibilities. Loopback tests do not prove internet, relay or live Steam-client behavior.
+`ctx.net` is the [Networking](src/net/service.rs) service: it owns the lockstep session ([Net](src/net.rs)), the optional [message](src/net/messages.rs) endpoint (polled by the engine once per frame), [snapshot](src/net/snapshots.rs) streams and [interest](src/net/interest.rs); optional Steam transports sit below lockstep and messages. The two transport seams are internal and stay separate; their contracts, and what they share, are written down next to their scripted conformance tests ([lockstep](src/net/lockstep_conformance.rs), [messages](src/net/message_conformance.rs)). Peer coordination, authority and replication choices remain game-level responsibilities. Loopback tests do not prove internet, relay or live Steam-client behavior.
 
 [Audio](src/audio.rs) uses Kira when enabled and a silent API otherwise. [Input](src/input.rs), [actions](src/actions.rs), [gamepad](src/gamepad.rs), [retained UI](src/ui) and [text](src/text.rs) form integrated game-facing services. Platform support for each backend must be checked separately; their presence does not establish accessibility completeness.
 

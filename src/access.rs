@@ -143,7 +143,7 @@ pub enum Service {
     Physics,
     /// The 3D physics world (`ctx.physics3d`). View: read and write.
     Physics3D,
-    /// Lockstep networking (`ctx.net`). View: read and write.
+    /// Lockstep networking (`ctx.net.lockstep`). View: read and write.
     Net,
 }
 

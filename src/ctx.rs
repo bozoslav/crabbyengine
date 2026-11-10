@@ -53,7 +53,7 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
 /// | [`assets`](Self::assets) | [`Assets`](crate::Assets): asset sources, data files, saving scenes and prefabs, hot reload. |
 /// | [`perf`](Self::perf) | [`Perf`](crate::perf::Perf): timings, the HUD, traces, profiling reports. |
 /// | [`camera`](Self::camera), `camera3d`, `lighting`, `sky`, `post`, `lod` | What the renderer reads when the frame is drawn. |
-/// | [`spatial`](Self::spatial), `physics`, `physics3d`, [`net`](Self::net) | Neighbor queries, the physics worlds, the lockstep session. |
+/// | [`spatial`](Self::spatial), `physics`, `physics3d`, [`net`](Self::net) | Neighbor queries, the physics worlds, [`Networking`](crate::Networking): lockstep, messages, snapshots. |
 ///
 /// The calls nearly every system makes are also methods here:
 /// [`dt`](Self::dt), [`key_down`](Self::key_down),
@@ -145,10 +145,13 @@ pub struct Ctx {
     /// [`Game::physics3d`](crate::Game::physics3d) (feature `physics3d`).
     #[cfg(feature = "physics3d")]
     pub physics3d: crate::d3::Physics,
-    /// Lockstep networking: this player's input out, everyone's in. Offline
-    /// (one player) unless the game was given a session with
-    /// [`Game::lockstep`](crate::Game::lockstep).
-    pub net: crate::net::Net,
+    /// Networking: the lockstep session (`ctx.net.lockstep`, which
+    /// `ctx.net.set_input(..)` and the other per-tick calls reach directly),
+    /// the message endpoint (`ctx.net.messages`), snapshot streams and
+    /// interest. Offline and empty unless the game was given a session with
+    /// [`Game::lockstep`](crate::Game::lockstep) or
+    /// [`Game::messages`](crate::Game::messages).
+    pub net: crate::net::Networking,
     /// Messages between systems: [`Events::send`] and [`Events::read`].
     /// A separate field, so you can read events while changing the world.
     ///
@@ -438,7 +441,7 @@ impl Ctx {
             physics: crate::d2::Physics::default(),
             #[cfg(feature = "physics3d")]
             physics3d: crate::d3::Physics::default(),
-            net: crate::net::Net::default(),
+            net: crate::net::Networking::default(),
             events: Events::default(),
             seed: crate::random::DEFAULT_SEED,
             system_index: 0,
