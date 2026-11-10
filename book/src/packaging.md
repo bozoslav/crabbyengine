@@ -95,7 +95,7 @@ GPU found" and the like); any other crash, such as a platform error, is a
 failure, and under GitHub Actions a skipped window run prints a warning
 annotation.
 
-CI (`package-smoke`, in the merge queue and with the `full-ci` label) runs both
+CI (`package-smoke`, on `main` and with the `full-ci` label) runs both
 modes on Linux, macOS and Windows, and the window run must open a window on
 all three: Linux under a virtual display with software Vulkan, Windows with
 DirectX 12 only (WARP, the software renderer) where the runner has no GPU. It

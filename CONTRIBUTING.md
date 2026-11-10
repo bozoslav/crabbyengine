@@ -121,9 +121,10 @@ Maintainers/agents use the full integration commands in
 Clippy, relevant native checks and Miri for affected unsafe ECS code. Required
 CI must pass before merge; focused local checks do not waive compatibility,
 correctness, privacy or leak checks. The exact platform/feature matrix is in
-[ci.yml](.github/workflows/ci.yml): a pull request runs the fast Linux jobs,
-and the full macOS/Windows/feature matrix runs in the merge queue before the
-change lands (maintainers can add the `full-ci` label to run it on the PR).
+[ci.yml](.github/workflows/ci.yml): a pull request runs quick Linux checks
+(no tests: run them locally), and the tests and the full macOS/Windows/feature
+matrix run on `main` after the change
+lands (maintainers can add the `full-ci` label to run it on the PR first).
 
 ### Performance changes
 
