@@ -284,16 +284,13 @@ impl World {
     fn spawn_in<B: Bundle>(&mut self, a: usize, bundle: B, e: Entity) -> Entity {
         let cols = &self.bundles[&TypeId::of::<B>()].columns;
         let arch = &mut self.archetypes[a];
-        arch.reserve(1);
+        arch.reserve_row(&self.changes);
         let row = arch.len();
         unsafe {
             bundle.write(&mut |i, src| {
                 let c = &arch.columns[cols[i]];
                 std::ptr::copy_nonoverlapping(src, c.ptr(row), c.size());
             });
-        }
-        if arch.tracked() {
-            arch.stamp_row(row, self.changes.stamp());
         }
         arch.entities.push(e);
         self.entities.set(
@@ -904,16 +901,13 @@ impl World {
     /// location yet, and each pointer points to a valid value of its component.
     unsafe fn write_dynamic(&mut self, a: usize, e: Entity, components: &[(ComponentId, *const u8)]) {
         let arch = &mut self.archetypes[a];
-        arch.reserve(1);
+        arch.reserve_row(&self.changes);
         let row = arch.len();
         for &(id, src) in components {
             let c = &arch.columns[arch.column_index(id).unwrap()];
             // SAFETY: the caller's value fits the column (same component), and
             // `row` is reserved spare capacity.
             unsafe { std::ptr::copy_nonoverlapping(src, c.ptr(row), c.size()) };
-        }
-        if arch.tracked() {
-            arch.stamp_row(row, self.changes.stamp());
         }
         arch.entities.push(e);
         self.entities.set(

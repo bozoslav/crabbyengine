@@ -464,6 +464,32 @@ impl Archetype {
         self.entities.reserve(new_cap - self.entities.len());
     }
 
+    /// Makes room for one more row and, if this archetype tracks changes,
+    /// stamps that row as added at `changes`' current tick: what a spawn
+    /// does before it writes the row.
+    ///
+    /// For an archetype that tracks nothing and has room, this is the one
+    /// comparison `reserve(1)` makes: the tracked flag is the sign bit of
+    /// `cap`, so a tracked archetype fails the signed comparison and takes
+    /// the second path together with a full one. (A length can't reach the
+    /// sign bit: a `Vec` holds at most `isize::MAX` bytes.)
+    pub(crate) fn reserve_row(&mut self, changes: &crate::change::Changes) {
+        if (self.len() + 1) as isize <= self.cap as isize {
+            return;
+        }
+        self.reserve_row_slow(changes.stamp());
+    }
+
+    /// The rare half of [`reserve_row`](Self::reserve_row): the archetype is
+    /// full, or it is tracked.
+    #[inline(never)]
+    fn reserve_row_slow(&mut self, stamp: u32) {
+        self.reserve(1);
+        if self.tracked() {
+            self.stamp_row(self.len(), stamp);
+        }
+    }
+
     /// Removes `row` by moving the last row into it, dropping the removed
     /// values. Returns the entity that moved into `row`, if any.
     pub(crate) unsafe fn swap_remove_drop(&mut self, row: usize) -> Option<Entity> {
