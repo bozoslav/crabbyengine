@@ -51,7 +51,12 @@ What a declaration can name:
 `sys.world` is a `WorldView`: queries, `get`, `get_mut`, resources, and
 entity checks (`is_alive`, `has`, `len`), all limited to the declaration. It
 has no `spawn`, `despawn`, `insert` or `remove`: structural changes go
-through commands, which apply after the system as usual. Every accessor
+through commands, which apply after the system as usual. Its writes count
+for [change detection](ecs.md#change-detection) like any others, but its
+queries take `with` and `without` only: a system that filters by
+`Changed<T>` or `Added<T>`, or reads `removed::<T>()`, keeps `&mut Ctx`
+(and may declare its access with `add_with_access`; a change filter on `T`
+counts as reading `T`). Every accessor
 checks the declaration **in every build** and panics with the system's
 name and what is missing:
 
@@ -300,6 +305,8 @@ allocation per run once its buffers have grown
 
 **Limits.** Query filters in a view are `with` and `without` (not the
 `filter::<F>()` combinators), and custom `QueryData` types must implement
-the shared lookup to be queried through a view. Change detection
-([#140](https://github.com/ponkoengine/ponko/issues/140)) will need its
-write marks applied from views too.
+the shared lookup to be queried through a view. Writes through a view
+count for [change detection](ecs.md#change-detection), but a view query
+can't filter by `Changed<T>` or `Added<T>` and a view has no
+`removed::<T>()` yet
+([#286](https://github.com/ponkoengine/ponko/issues/286)).

@@ -16,6 +16,12 @@
 //! into the view's state for the duration, and components are written
 //! through the columns' own pointers, which the declarations keep apart.
 //!
+//! Writes through a view count for [change detection](crate::World::track_changes)
+//! like any others: a query that fetches `&mut T` and [`WorldView::get_mut`]
+//! stamp what they borrow. A view query has no [`Added`](crate::Added) or
+//! [`Changed`](crate::Changed) filters; code that needs them queries the
+//! world itself.
+//!
 //! ```
 //! use ponko_ecs::*;
 //! struct Pos(f32);
@@ -39,6 +45,7 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::bundle::Component;
+use crate::change::{self, Clock};
 use crate::entity::Entity;
 use crate::query::{Archetypes, Filters, QueryData, QueryIter, check_aliasing};
 use crate::storage::ComponentId;
@@ -472,14 +479,19 @@ impl<'w> WorldView<'w> {
         Some(unsafe { &*ptr.cast::<T>() })
     }
 
-    // TODO(#140): writes through a view don't set change marks yet; apply
-    // them here (from the view's own state, not shared `&World`) once
-    // change detection lands.
     /// Component `T` of `e` to change (declared write).
     #[track_caller]
     pub fn get_mut<T: Component>(&mut self, e: Entity) -> Option<&mut T> {
         let id = self.id_of::<T>(true);
-        let ptr = self.world.locate(e, id)?;
+        let loc = self.world.entities.get(e)?;
+        let arch = &self.world.archetypes[loc.archetype as usize];
+        let col = arch.column_index(id)?;
+        if arch.tracked() {
+            // A mutable borrow counts as a change, as with `World::get_mut`.
+            // The stamps belong to the column this view may write.
+            arch.stamp(col, loc.row as usize, self.world.changes.stamp(), false);
+        }
+        let ptr = arch.columns[col].ptr(loc.row as usize);
         // SAFETY: `T` is declared written, so nothing else touches it (the
         // `view` contract); `&mut self` keeps this the only borrow from
         // this view. Columns are raw allocations, so writing through their
@@ -622,13 +634,19 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         }
     }
 
-    // TODO(#140): writes through a view don't set change marks yet; apply
-    // them here (from the view's own state, not shared `&World`) once
-    // change detection lands.
-    /// Runs `f` for every matching entity.
+    /// The window of this query's change stamps: writes are stamped with
+    /// the world's current tick.
+    fn clock(&self) -> Clock {
+        Clock::new(self.world.change_tick(), self.world.changes_since())
+    }
+
+    /// Runs `f` for every matching entity. As in [`World::query`], every
+    /// entity visited counts as changed for the tracked components `Q`
+    /// fetches mutably.
     #[inline]
     pub fn for_each(&mut self, mut f: impl FnMut(Q::Item<'_>)) {
         let filters = self.filters;
+        let tracking = self.world.tracks_changes();
         for arch in self.archetypes() {
             let len = arch.len();
             if len == 0 || !filters.matches(arch) {
@@ -637,6 +655,12 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
             let Some(state) = Q::state(arch, &self.ids) else {
                 continue;
             };
+            if tracking && arch.tracked() {
+                // A view query has no `Added`/`Changed` filters, so this
+                // stamps every row of the columns `Q` may write: columns
+                // this view declared, which no other view touches.
+                change::visit::<Q>(arch, &self.ids, &filters, self.clock());
+            }
             for row in 0..len {
                 // SAFETY: `row` is in bounds; the view checked that `Q` only
                 // touches declared components, with declared mutability.
@@ -645,9 +669,6 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         }
     }
 
-    // TODO(#140): writes through a view don't set change marks yet; apply
-    // them here (from the view's own state, not shared `&World`) once
-    // change detection lands.
     /// An iterator over the matching entities.
     pub fn iter(&mut self) -> QueryIter<'_, Q> {
         QueryIter {
@@ -657,6 +678,9 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
             state: None,
             row: 0,
             len: 0,
+            clock: self.clock(),
+            tracking: self.world.tracks_changes(),
+            filtered: None,
             _q: PhantomData,
         }
     }
@@ -670,9 +694,6 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
             .sum()
     }
 
-    // TODO(#140): writes through a view don't set change marks yet; apply
-    // them here (from the view's own state, not shared `&World`) once
-    // change detection lands.
     /// The item for `e`, or `None` if it's dead or doesn't match.
     pub fn get(&mut self, e: Entity) -> Option<Q::Item<'_>> {
         if self.empty {
@@ -684,6 +705,9 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
             return None;
         }
         let state = Q::state(arch, &self.ids)?;
+        if arch.tracked() {
+            change::visit_row::<Q>(arch, &self.ids, &self.filters, self.clock(), loc.row as usize);
+        }
         // SAFETY: the row is the live entity's; access was checked.
         Some(unsafe { Q::fetch(state, loc.row as usize) })
     }

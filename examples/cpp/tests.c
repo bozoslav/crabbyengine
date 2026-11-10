@@ -716,6 +716,84 @@ static void replication(void) {
     CHECK(ponko_interest_new(&config, &interest) == PONKO_INVALID_ARGUMENT);
 }
 
+typedef struct { size_t rows; uint64_t last; } Rows;
+static void count_rows(const PonkoChunk* chunk, void* user) {
+    Rows* r = user;
+    r->rows += chunk->count;
+    if (chunk->count) r->last = ponko_entity_bits(chunk->entities[chunk->count - 1]);
+}
+static void bump(const PonkoChunk* chunk, void* user) {
+    (void)user;
+    for (size_t i = 0; i < chunk->count; ++i) ((Position*)chunk->columns[0])[i].x += 1;
+}
+static size_t rows_of(PonkoWorld* w, uint32_t id, PonkoQueryOptions options, uint64_t* last) {
+    Rows rows = {0, 0};
+    CHECK(ponko_query_with(w, &id, 1, &options, count_rows, &rows) == PONKO_OK);
+    if (last) *last = rows.last;
+    return rows.rows;
+}
+static void change_detection(void) {
+    PonkoWorld* w = ponko_world_new(); CHECK(w);
+    uint32_t p, other;
+    CHECK(ponko_component_register(w, "Pos", sizeof(Position), _Alignof(Position), &p) == PONKO_OK);
+    CHECK(ponko_component_register(w, "Other", sizeof(Position), _Alignof(Position), &other) == PONKO_OK);
+    CHECK(ponko_component_track_changes(w, p) == PONKO_OK);
+    CHECK(ponko_component_track_changes(w, 99) == PONKO_INVALID_ARGUMENT);
+    Position value = {1}; PonkoValue pos = {p, &value, sizeof(value)};
+    uint64_t a, b, c, seen, tick, last;
+    CHECK(ponko_spawn(w, &pos, 1, &a) == PONKO_OK && ponko_spawn(w, &pos, 1, &b) == PONKO_OK);
+    CHECK(ponko_world_advance_change_tick(w, &seen) == PONKO_OK && seen == 1);
+    CHECK(ponko_world_change_tick(w, &tick) == PONKO_OK && tick == 2);
+
+    // The defaults are ponko_query: every column may be written.
+    PonkoQueryOptions read = ponko_query_options_default();
+    CHECK(read.writes == UINT32_MAX && !read.changed && !read.added && !read.any && !read.parallel);
+    CHECK(read.since == PONKO_SINCE_LAST_RUN);
+    read.writes = 0;
+    PonkoQueryOptions changed = read; changed.changed = 1; changed.since = seen;
+    PonkoQueryOptions added = read; added.added = 1; added.since = seen;
+    // A read-only query changes nothing.
+    CHECK(rows_of(w, p, read, NULL) == 2 && rows_of(w, p, changed, NULL) == 0);
+    // set and mark_changed do.
+    value.x = 5; CHECK(ponko_set(w, b, p, &value, sizeof(value)) == PONKO_OK);
+    CHECK(rows_of(w, p, changed, &last) == 1 && last == b && rows_of(w, p, added, NULL) == 0);
+    CHECK(ponko_mark_changed(w, a, p) == PONKO_OK && rows_of(w, p, changed, NULL) == 2);
+    CHECK(ponko_mark_changed(w, a, other) == PONKO_NOT_FOUND);
+    CHECK(ponko_mark_changed(w, a, 99) == PONKO_INVALID_ARGUMENT);
+    // The plain query marks every row it visits; a new entity is added.
+    CHECK(ponko_world_advance_change_tick(w, &seen) == PONKO_OK);
+    changed.since = added.since = seen;
+    CHECK(rows_of(w, p, changed, NULL) == 0);
+    CHECK(ponko_query(w, &p, 1, bump, NULL) == PONKO_OK && rows_of(w, p, changed, NULL) == 2);
+    CHECK(ponko_spawn(w, &pos, 1, &c) == PONKO_OK);
+    CHECK(rows_of(w, p, added, &last) == 1 && last == c && rows_of(w, p, changed, NULL) == 3);
+    // Writing through a filtered query, on all cores.
+    PonkoQueryOptions write_new = added; write_new.writes = 1; write_new.parallel = true;
+    CHECK(ponko_query_with(w, &p, 1, &write_new, bump, NULL) == PONKO_OK);
+    Position out;
+    CHECK(ponko_get(w, c, p, &out, sizeof(out)) == PONKO_OK && out.x == 6);
+    CHECK(ponko_get(w, a, p, &out, sizeof(out)) == PONKO_OK && out.x == 2);
+    // PONKO_SINCE_LAST_RUN reads the world's own tick (a game sets it per system).
+    changed.since = PONKO_SINCE_LAST_RUN;
+    CHECK(rows_of(w, p, changed, NULL) == 3);
+    CHECK(ponko_world_advance_change_tick(w, &seen) == PONKO_OK);
+    CHECK(ponko_world_set_changes_since(w, seen) == PONKO_OK);
+    CHECK(ponko_world_changes_since(w, &tick) == PONKO_OK && tick == seen);
+    CHECK(rows_of(w, p, changed, NULL) == 0);
+    // Removals: a removed component and a despawned entity.
+    uint64_t gone[2] = {0, 0}; size_t n = 9;
+    CHECK(ponko_removed(w, p, seen, NULL, 0, &n) == PONKO_OK && n == 0);
+    CHECK(ponko_remove(w, a, p) == PONKO_OK && ponko_despawn(w, b) == PONKO_OK);
+    CHECK(ponko_removed(w, p, PONKO_SINCE_LAST_RUN, gone, 1, &n) == PONKO_OK && n == 2 && gone[0] == a && gone[1] == 0);
+    CHECK(ponko_removed(w, p, seen, gone, 2, &n) == PONKO_OK && n == 2 && gone[1] == b);
+    CHECK(ponko_removed(w, other, 0, gone, 2, &n) == PONKO_INVALID_ARGUMENT);   // not tracked
+    CHECK(ponko_removed(w, p, 0, NULL, 2, &n) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_query_with(w, &p, 1, &read, NULL, NULL) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_query_with(w, &p, 1, NULL, count_rows, &(Rows){0, 0}) == PONKO_OK);
+    CHECK(ponko_world_change_tick(w, NULL) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+}
+
 static void profiling_c(void) {
     const PonkoProfileScope* scope = ponko_profile_scope("c scope");
     CHECK(scope && scope == ponko_profile_scope("c scope"));
@@ -910,6 +988,7 @@ static void declared_access(void) {
 }
 
 int main(void) {
+    change_detection();
     declared_access();
     steam_messages_validation();
     morph_clip_api();

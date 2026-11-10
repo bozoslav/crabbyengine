@@ -157,3 +157,64 @@ fn commands_from_frame_systems_apply_before_late_and_draw_phases() {
     frame(&mut game, &mut ctx, 0);
     assert_eq!(take(&mut ctx), ["animate 1", "late 2", "draw 3"]);
 }
+
+// ---- change detection -------------------------------------------------------------
+
+use crate::{Changed, Entity, Tick};
+
+struct Hp;
+
+fn changed_hp(ctx: &mut Ctx) -> usize {
+    ctx.world.query::<&Hp>().filter::<Changed<Hp>>().count()
+}
+
+#[test]
+fn frame_systems_see_the_changes_of_every_tick_since_their_last_frame() {
+    let mut game = bare(Game::new("t", 1, 1))
+        .sim_system(|ctx: &mut Ctx| {
+            // One new entity per tick; frame systems change nothing.
+            ctx.world.spawn((Hp,));
+            let n = changed_hp(ctx);
+            log(ctx, format!("sim {n}"));
+        })
+        .system(|ctx: &mut Ctx| {
+            let n = changed_hp(ctx);
+            log(ctx, format!("frame {n}"));
+        })
+        .late_system(|ctx: &mut Ctx| {
+            let removed = ctx.world.removed::<Hp>().len();
+            let first = ctx.world.query::<Entity>().with::<Hp>().iter().next();
+            if let Some(e) = first {
+                ctx.commands.despawn(e);
+            }
+            log(ctx, format!("late removed {removed}"));
+        });
+    let mut ctx = ctx();
+    ctx.world.track_changes::<Hp>();
+    frame(&mut game, &mut ctx, 3);
+    frame(&mut game, &mut ctx, 0);
+    frame(&mut game, &mut ctx, 1);
+    assert_eq!(
+        take(&mut ctx),
+        [
+            // A sim system sees what it changed earlier in the same run,
+            // but not its own spawn from the tick before.
+            "sim 1",
+            "sim 1",
+            "sim 1",
+            // The frame system sees all three ticks' spawns at once.
+            "frame 3",
+            "late removed 0",
+            "frame 0",
+            // The late system's own despawn isn't reported back to it.
+            "late removed 0",
+            "sim 1",
+            "frame 1",
+            "late removed 0",
+        ]
+    );
+    // Seen by every system (the sim system last, in the third frame's tick),
+    // the first two removals were dropped; the last one is still held for
+    // the systems that haven't run since.
+    assert_eq!(ctx.world.removed_since::<Hp>(Tick::default()).len(), 1);
+}

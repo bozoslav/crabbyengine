@@ -316,6 +316,7 @@ where
                         phase: 0,
                         id,
                         access: None,
+                        changes_seen: Default::default(),
                         enforced: false,
                     },
                 );

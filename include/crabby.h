@@ -52,6 +52,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define CRABBY_SINCE_LAST_RUN UINT64_MAX
+
 #define CRABBY_NAV_WALL 0
 
 #define CRABBY_HANDLE_NONE UINT32_MAX
@@ -711,6 +713,15 @@ typedef struct CrabbyAudioListener3D {
   struct CrabbyVec3 position;
   struct CrabbyQuat rotation;
 } CrabbyAudioListener3D;
+
+typedef struct CrabbyQueryOptions {
+  uint32_t writes;
+  uint32_t changed;
+  uint32_t added;
+  bool any;
+  bool parallel;
+  uint64_t since;
+} CrabbyQueryOptions;
 
 typedef struct CrabbyContactModifier3D {
   bool has_one_way;
@@ -2107,6 +2118,34 @@ enum CrabbyStatus crabby_ctx_set_audio_listener(struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_audio_listener(struct CrabbyCtx *ctx,
                                             struct CrabbyAudioListener3D *out_listener);
+
+struct CrabbyQueryOptions crabby_query_options_default(void);
+
+enum CrabbyStatus crabby_component_track_changes(struct CrabbyWorld *world, uint32_t id);
+
+enum CrabbyStatus crabby_world_change_tick(struct CrabbyWorld *world, uint64_t *out_tick);
+
+enum CrabbyStatus crabby_world_advance_change_tick(struct CrabbyWorld *world, uint64_t *out_tick);
+
+enum CrabbyStatus crabby_world_changes_since(struct CrabbyWorld *world, uint64_t *out_tick);
+
+enum CrabbyStatus crabby_world_set_changes_since(struct CrabbyWorld *world, uint64_t tick);
+
+enum CrabbyStatus crabby_mark_changed(struct CrabbyWorld *world, uint64_t entity, uint32_t id);
+
+enum CrabbyStatus crabby_removed(struct CrabbyWorld *world,
+                                 uint32_t id,
+                                 uint64_t since,
+                                 uint64_t *out_entities,
+                                 size_t capacity,
+                                 size_t *out_count);
+
+enum CrabbyStatus crabby_query_with(struct CrabbyWorld *world,
+                                    const uint32_t *components,
+                                    size_t count,
+                                    const struct CrabbyQueryOptions *options,
+                                    CrabbyQueryFn callback,
+                                    void *user);
 
 struct CrabbyContactModifier3D crabby_contact_modifier3d_default(void);
 

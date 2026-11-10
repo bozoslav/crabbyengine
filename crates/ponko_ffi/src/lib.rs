@@ -24,6 +24,7 @@ mod actions;
 mod animator;
 mod attach;
 mod audio3d;
+mod changes;
 mod contacts3d;
 mod ctx;
 mod flow;
@@ -74,6 +75,7 @@ static ALLOCATOR: ponko::CountingAllocator = ponko::CountingAllocator;
 
 pub use attach::*;
 pub use audio3d::*;
+pub use changes::*;
 pub use contacts3d::*;
 pub use ctx::*;
 pub use flow::*;
@@ -877,7 +879,7 @@ pub unsafe extern "C" fn crabby_world_sort_spatial(world: *mut CrabbyWorld, cell
 }
 
 /// Checks query ids and resolves them; also returns each column's stride.
-fn resolve(w: &World, input: &[u32]) -> Result<([ComponentId; 32], [usize; 32]), Failure> {
+pub(crate) fn resolve(w: &World, input: &[u32]) -> Result<([ComponentId; 32], [usize; 32]), Failure> {
     let mut resolved = [ComponentId::default(); 32];
     let mut sizes = [0; 32];
     for (i, &raw) in input.iter().enumerate() {
@@ -896,7 +898,7 @@ fn resolve(w: &World, input: &[u32]) -> Result<([ComponentId; 32], [usize; 32]),
     Ok((resolved, sizes))
 }
 
-fn query_input<'a>(components: *const u32, count: usize) -> Result<&'a [u32], Failure> {
+pub(crate) fn query_input<'a>(components: *const u32, count: usize) -> Result<&'a [u32], Failure> {
     if count > 32 || (components.is_null() && count != 0) {
         return Err(invalid("query requires at most 32 component ids and a valid array"));
     }
@@ -913,6 +915,10 @@ fn query_input<'a>(components: *const u32, count: usize) -> Result<&'a [u32], Fa
 /// allocates no memory. World operations (including reads/free) during a callback
 /// return `CRABBY_BUSY`; edit only the provided columns, and use the context's
 /// `*_later` commands to spawn or despawn.
+///
+/// The columns are writable, so every row of a column whose changes are
+/// tracked (`crabby_component_track_changes`) counts as changed. To read
+/// without that, or to visit only changed rows, use `crabby_query_with`.
 /// # Safety
 /// Live handle; readable ids; callback and user pointer remain valid.
 /// Callbacks must return normally and preserve valid POD values in all columns.
@@ -977,6 +983,58 @@ pub unsafe extern "C" fn crabby_query_par(
     callback: CrabbyQueryFn,
     user: *mut c_void,
 ) -> CrabbyStatus {
+    boundary(|| {
+        let input = query_input(components, count)?;
+        let callback = callback.ok_or_else(|| invalid("query callback is null"))?;
+        // SAFETY: caller supplies live handle, input ids and a thread-safe callback.
+        unsafe {
+            access(world, |w, handle| {
+                let (resolved, sizes) = resolve(w, input)?;
+                let _commands_off = ParallelQuery::begin(handle);
+                let threads = rayon::current_num_threads().max(1);
+                let mut first = 0;
+                w.for_each_chunk(&resolved[..count], |chunk| {
+                    chunk_in_parallel(&chunk, &sizes, first, threads, callback, user);
+                    first += chunk.entities.len();
+                });
+                Ok(())
+            })
+        }
+    })
+}
+
+/// Marks a world as running a parallel query until dropped: commands are
+/// off meanwhile (one queue, many threads).
+pub(crate) struct ParallelQuery<'a>(&'a AtomicBool);
+
+impl<'a> ParallelQuery<'a> {
+    pub(crate) fn begin(handle: &'a CrabbyWorld) -> Self {
+        handle.parallel.store(true, Ordering::Release);
+        ParallelQuery(&handle.parallel)
+    }
+}
+
+impl Drop for ParallelQuery<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+/// Splits one chunk into slices of rows and calls `callback` for them on all
+/// CPU cores. `first` is the chunk's position in the whole query, `sizes`
+/// the stride of each column, and `threads` the size of the thread pool.
+///
+/// # Safety
+/// `callback` and `user` must be safe to use from several threads at once,
+/// and `sizes` must hold the stride of every column of `chunk`.
+pub(crate) unsafe fn chunk_in_parallel(
+    chunk: &ponko_ecs::Chunk<'_>,
+    sizes: &[usize; 32],
+    first: usize,
+    threads: usize,
+    callback: unsafe extern "C" fn(*const CrabbyChunk, *mut c_void),
+    user: *mut c_void,
+) {
     use rayon::prelude::*;
     /// Raw pointers handed to worker threads. Each task gets a disjoint row range.
     #[derive(Clone, Copy)]
@@ -992,63 +1050,41 @@ pub unsafe extern "C" fn crabby_query_par(
     const MIN_ROWS: usize = if cfg!(miri) { 16 } else { 512 };
     const MAX_ROWS: usize = if cfg!(miri) { 16 } else { 8192 };
 
-    struct Reset<'a>(&'a AtomicBool);
-    impl Drop for Reset<'_> {
-        fn drop(&mut self) {
-            self.0.store(false, Ordering::Release);
+    let count = chunk.columns.len();
+    let len = chunk.entities.len();
+    let mut columns = [std::ptr::null_mut(); 32];
+    columns[..count].copy_from_slice(chunk.columns);
+    let shared = Shared {
+        columns,
+        entities: chunk.entities.as_ptr(),
+        user,
+    };
+    let sizes = *sizes;
+    let rows = (len / (threads * 4)).clamp(MIN_ROWS, MAX_ROWS);
+    let task = move |t: usize| {
+        let s = shared;
+        let start = t * rows;
+        let mut ptrs = [std::ptr::null_mut::<c_void>(); 32];
+        for i in 0..count {
+            // SAFETY: start < len, so the offset stays inside the column.
+            ptrs[i] = unsafe { s.columns[i].add(start * sizes[i]) }.cast();
         }
+        let view = CrabbyChunk {
+            count: rows.min(len - start),
+            column_count: count,
+            columns: ptrs.as_ptr(),
+            // SAFETY: start < len.
+            entities: unsafe { s.entities.add(start) }.cast(),
+            first: first + start,
+        };
+        // SAFETY: the caller's contract for `callback`; the view outlives the call.
+        unsafe { callback(&view, s.user) };
+    };
+    if len <= rows {
+        task(0);
+    } else {
+        (0..len.div_ceil(rows)).into_par_iter().for_each(task);
     }
-
-    boundary(|| {
-        let input = query_input(components, count)?;
-        let callback = callback.ok_or_else(|| invalid("query callback is null"))?;
-        // SAFETY: caller supplies live handle, input ids and a thread-safe callback.
-        unsafe {
-            access(world, |w, handle| {
-                let (resolved, sizes) = resolve(w, input)?;
-                handle.parallel.store(true, Ordering::Release);
-                let _reset = Reset(&handle.parallel);
-                let threads = rayon::current_num_threads().max(1);
-                let mut first = 0;
-                w.for_each_chunk(&resolved[..count], |chunk| {
-                    let len = chunk.entities.len();
-                    let base = first;
-                    first += len;
-                    let mut columns = [std::ptr::null_mut(); 32];
-                    columns[..count].copy_from_slice(chunk.columns);
-                    let shared = Shared {
-                        columns,
-                        entities: chunk.entities.as_ptr(),
-                        user,
-                    };
-                    let rows = (len / (threads * 4)).clamp(MIN_ROWS, MAX_ROWS);
-                    let task = move |t: usize| {
-                        let s = shared;
-                        let start = t * rows;
-                        let mut ptrs = [std::ptr::null_mut::<c_void>(); 32];
-                        for i in 0..count {
-                            // SAFETY: start < len, so the offset stays inside the column.
-                            ptrs[i] = s.columns[i].add(start * sizes[i]).cast();
-                        }
-                        let view = CrabbyChunk {
-                            count: rows.min(len - start),
-                            column_count: count,
-                            columns: ptrs.as_ptr(),
-                            entities: s.entities.add(start).cast(),
-                            first: base + start,
-                        };
-                        callback(&view, s.user);
-                    };
-                    if len <= rows {
-                        task(0);
-                    } else {
-                        (0..len.div_ceil(rows)).into_par_iter().for_each(task);
-                    }
-                });
-                Ok(())
-            })
-        }
-    })
 }
 
 #[cfg(test)]

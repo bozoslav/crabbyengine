@@ -294,8 +294,34 @@ struct System {
     id: u32,
     /// Declared access from `add_with_access` or `add_view`; `None` is exclusive.
     access: Option<crate::SystemAccess>,
+    /// Where this system last finished: its `Added` and `Changed` filters
+    /// and `removed` report what happened after it.
+    changes_seen: ChangesSeen,
     /// A view system (`add_view`): it can't reach anything undeclared.
     enforced: bool,
+}
+
+/// A system's place in the world's change history: the change tick at which
+/// it last finished, and the world that tick belongs to.
+#[derive(Clone, Copy, Default)]
+struct ChangesSeen {
+    /// [`World::id`] of the world the system last ran in; 0 before its first run.
+    world: u64,
+    tick: crate::Tick,
+}
+
+impl ChangesSeen {
+    /// The tick to compare `world`'s changes against. A system that last
+    /// ran in another world (the game replaced `ctx.world`) has seen
+    /// nothing of this one: the new world's ticks start over, so the old
+    /// tick would hide whatever was stamped before the new world reached it.
+    fn in_world(self, world: &crate::World) -> crate::Tick {
+        if self.world == world.id() {
+            self.tick
+        } else {
+            crate::Tick::default()
+        }
+    }
 }
 
 /// Ids for [`System::id`]; 0 means "outside any system".
@@ -321,6 +347,17 @@ fn end_timings(ctx: &mut Ctx) {
     }
 }
 
+/// Drops the removals of tracked components that every one of `systems` has
+/// already been shown (those logged before the oldest of their last runs),
+/// so the logs don't grow. A system that hasn't run in this world yet keeps
+/// everything: while one never runs (the simulation is paused, say), the
+/// removal logs of tracked components grow with every removal.
+fn forget_seen_removals<'a>(ctx: &mut Ctx, systems: impl Iterator<Item = &'a System>) {
+    if let Some(oldest) = systems.map(|s| s.changes_seen.in_world(&ctx.world)).min() {
+        ctx.world.forget_removed(oldest);
+    }
+}
+
 /// Runs one system, applies its commands, and records how long both took.
 #[inline]
 fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
@@ -330,6 +367,8 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     let start = Instant::now();
     ctx.system_index = timing_index;
     ctx.events.reader = s.id;
+    // Change filters in this system report what happened since it last ran.
+    ctx.world.set_changes_since(s.changes_seen.in_world(&ctx.world));
     ctx.sync_services();
     // View systems can't reach anything undeclared; only `Ctx` systems
     // with a declaration need the recorder.
@@ -346,6 +385,15 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     }
     ctx.events.reader = 0;
     ctx.apply_commands();
+    // The system's own changes (and its commands, just applied) belong to
+    // the tick that ends here, so it won't be shown them next time; every
+    // other system will. Code outside systems sees everything.
+    // If the system replaced the world, this is the new world's tick.
+    s.changes_seen = ChangesSeen {
+        world: ctx.world.id(),
+        tick: ctx.world.advance_change_tick(),
+    };
+    ctx.world.set_changes_since(crate::Tick::default());
     ctx.perf.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
     if let Some(before) = allocs_before {
         let made = crate::alloc_counts().count.saturating_sub(before.count);
@@ -366,6 +414,7 @@ impl System {
             phase: 0,
             id,
             access: None,
+            changes_seen: ChangesSeen::default(),
             enforced: false,
         }
     }
@@ -1313,6 +1362,8 @@ impl Game {
         #[cfg(feature = "3d")]
         crate::audio::update_audio3d(ctx);
         end_timings(ctx);
+        let frame = self.systems.iter().chain(&self.late_systems).chain(&self.draw_systems);
+        forget_seen_removals(ctx, self.sim_systems.iter().chain(frame));
     }
 
     /// One simulation tick: every sim system once, then the tick counter.
@@ -1548,6 +1599,8 @@ impl Game {
             self.run_sim_tick(&mut ctx);
             ctx.set_in_sim(false);
             end_timings(&mut ctx);
+            // Only simulation systems run headless, so only they hold removals back.
+            forget_seen_removals(&mut ctx, self.sim_systems.iter());
             ctx.gfx.discard_draws();
             ctx.input.end_frame();
             if ctx.perf.state.on {
