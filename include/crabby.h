@@ -3006,6 +3006,8 @@ enum CrabbyStatus crabby_resource_reflect(struct CrabbyWorld *world,
 
 enum CrabbyStatus crabby_ctx_load_scene(struct CrabbyCtx *ctx, const char *path);
 
+enum CrabbyStatus crabby_ctx_load_scene_lockstep(struct CrabbyCtx *ctx, const char *path);
+
 enum CrabbyStatus crabby_ctx_save_scene(struct CrabbyCtx *ctx, const char *path);
 
 enum CrabbyStatus crabby_ctx_spawn_prefab(struct CrabbyCtx *ctx,

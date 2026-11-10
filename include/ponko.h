@@ -678,6 +678,7 @@
 #define ponko_ctx_load_reflection_probe crabby_ctx_load_reflection_probe
 #define ponko_ctx_load_resource_json crabby_ctx_load_resource_json
 #define ponko_ctx_load_scene crabby_ctx_load_scene
+#define ponko_ctx_load_scene_lockstep crabby_ctx_load_scene_lockstep
 #define ponko_ctx_load_shader crabby_ctx_load_shader
 #define ponko_ctx_load_skeleton crabby_ctx_load_skeleton
 #define ponko_ctx_load_sound crabby_ctx_load_sound

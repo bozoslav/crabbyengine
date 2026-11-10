@@ -1339,8 +1339,10 @@ impl Game {
             ctx.net = net;
         }
         ctx.net.begin(ctx.seed);
+        ctx.set_in_setup(true);
         run_setups(std::mem::take(&mut self.setups), &mut ctx);
         drop(setup(&mut ctx).into_frame_fn()); // no frames, so no frame closure
+        ctx.set_in_setup(false);
         ctx.apply_commands();
         ctx.discard_draws();
 
