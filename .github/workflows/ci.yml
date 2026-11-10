@@ -2,9 +2,9 @@
 # even after an earlier step failed, and --no-fail-fast runs every suite.
 #
 # Two tiers keep pull requests fast and runners free:
-# - pull_request: only quick, high-signal Linux jobs (leaks, format, clippy,
-#   Linux tests, feature contracts, docs, book). Authors run the tests on
-#   their own machine before opening the pull request.
+# - pull_request: only quick Linux checks (leaks, format, clippy, feature
+#   contracts, docs, book), no tests. Authors run the tests on their own
+#   machine before opening the pull request.
 # - push to main and workflow_dispatch: the full matrix (macOS, Windows,
 #   feature tests, Miri, MSRV, C/C++, web), after the merge.
 # A pull request labelled `full-ci` runs the full matrix too (for risky
@@ -181,12 +181,14 @@ jobs:
   # and archived unit-test shards run separately to shorten the critical path.
   test:
     name: Test (${{ matrix.os }})
+    # Full tier only: authors run the tests locally before the pull request.
+    # (Most of this job is building and linking ~155 test binaries.)
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # Pull requests test on Linux; the full tier adds macOS and Windows.
-        os: ${{ fromJSON((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
