@@ -421,9 +421,10 @@ fn a_change_to_a_mesh_reaches_the_models_that_use_it() {
 }
 
 fn random_edits_always_draw_what_a_frame_built_from_nothing_draws() {
-    // Enough models that they are compared on several cores.
-    let mut scene = Scene::new(3000);
-    let side = 55;
+    // Enough models that they are compared on several cores, and that one
+    // core stops comparing them while most move.
+    let mut scene = Scene::new(6000);
+    let side = 78;
     let mut rng = Rng(7);
     scene.check("first");
     let mut bare: Vec<(Entity, Model)> = Vec::new();
@@ -544,7 +545,7 @@ fn bob(scene: &mut Scene, frame: usize) {
 }
 
 fn while_most_models_move_every_edit_is_still_followed() {
-    let mut scene = Scene::new(2500);
+    let mut scene = Scene::new(6000);
     let seen = scene.check("first");
     let near = |scene: &Scene, k: usize| {
         let mut close: Vec<Entity> = scene.models.clone();
@@ -620,7 +621,7 @@ fn while_most_models_move_every_edit_is_still_followed() {
 }
 
 fn a_collection_can_change_between_one_core_and_several() {
-    let mut scene = Scene::new(2500);
+    let mut scene = Scene::new(6000);
     let mine = SERIAL.get().unwrap();
     for frame in 0..60 {
         // Every few frames the other way, also while most models move.
@@ -631,7 +632,7 @@ fn a_collection_can_change_between_one_core_and_several() {
         if frame % 4 == 0 {
             let e = scene.models[frame * 37 % scene.models.len()];
             scene.world.despawn(e);
-            let at = place(frame * 53 % 2500, 50) + Vec3::Y;
+            let at = place(frame * 53 % 6000, 78) + Vec3::Y;
             let i = scene.models.iter().position(|&m| m == e).unwrap();
             scene.models[i] = scene.world.spawn((Transform3D::at(at), Model::new(mesh(frame))));
         }
