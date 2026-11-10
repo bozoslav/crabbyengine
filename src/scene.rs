@@ -406,7 +406,7 @@ mod lockstep_tests {
             let extra = ctx.world.spawn((Tag(100),));
             assert!(editor.stop(ctx).unwrap_err().contains("lockstep session"));
             assert!(editor.playing(), "Stop can be retried");
-            ctx.time.resume();
+            assert!(!ctx.time.is_paused(), "a refused Stop doesn't pause the simulation");
             ctx.world.despawn(extra);
         }
         assert_eq!(WorldReflect::save(&ctx.world), before, "nothing changed");
