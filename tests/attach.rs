@@ -65,7 +65,7 @@ fn attachments_go_when_their_entity_goes_down_the_whole_chain() {
     let mut ids = None;
     let world = Game::new("attach", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 let doomed = ctx.world.resource::<Doomed>().0;
                 ctx.world.despawn(doomed);
             }

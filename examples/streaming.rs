@@ -132,14 +132,14 @@ fn main() {
                 // A job still building is dropped with its result.
                 if let Some(Tile::Live(entity, tile)) = tiles.remove(cell) {
                     ctx.world.despawn(entity);
-                    ctx.free_terrain_tile(tile);
+                    ctx.gfx.free_terrain_tile(tile);
                     freed += 1;
                 }
             }
             // Finished tiles go on the GPU, a few a frame.
             let ground = *ground.get_or_insert_with(|| {
-                let shader = ctx.create_shader("ground", GROUND);
-                ctx.create_material(MaterialDesc {
+                let shader = ctx.gfx.create_shader("ground", GROUND);
+                ctx.gfx.create_material(MaterialDesc {
                     shader: Some(shader),
                     ..MaterialDesc::color(Color::WHITE)
                 })
@@ -153,7 +153,7 @@ fn main() {
                     && let Some(data) = job.take()
                 {
                     let start = Instant::now();
-                    let made = ctx.upload_terrain_tile(&data, ground);
+                    let made = ctx.gfx.upload_terrain_tile(&data, ground);
                     let entity = ctx.world.spawn((Transform3D::at(cells.corner(cell)), made));
                     let took = start.elapsed().as_secs_f64() * 1000.0;
                     upload_time += took;
@@ -164,20 +164,20 @@ fn main() {
                 }
             }
 
-            if ctx.frame() == 400
+            if ctx.time.frame() == 400
                 && let Some(path) = &shot
             {
-                ctx.save_screenshot(path);
+                ctx.gfx.save_screenshot(path);
             }
-            if ctx.frame() == 402 && shot.is_some() {
+            if ctx.time.frame() == 402 && shot.is_some() {
                 ctx.quit();
             }
-            if bench && ctx.frame() == 3000 {
+            if bench && ctx.time.frame() == 3000 {
                 let live = tiles.values().filter(|t| matches!(t, Tile::Live(..))).count();
                 println!(
                     "{uploaded} tiles uploaded ({:.2} ms each, worst {worst_upload:.2} ms), {freed} freed, {live} live; {:?}",
                     upload_time / uploaded.max(1) as f64,
-                    ctx.render_stats()
+                    ctx.perf.render_stats()
                 );
                 ctx.quit();
             }

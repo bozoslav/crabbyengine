@@ -1,21 +1,74 @@
-//! Finding and decoding asset files.
+//! [`Assets`]: asset files, as `ctx.assets`.
 //!
-//! Loading a named asset has three steps, kept apart here and in
-//! [`Ctx`](crate::Ctx):
+//! **What lives here.** Where named assets are read from
+//! ([`Assets::add_source`], [`AssetSource`], [`MemorySource`]), your own
+//! asset types ([`Assets::load_with`]), data files that fill resources and
+//! components and follow their files ([`Assets::load_resource`] and the
+//! `load_*_json` calls), saving scenes and prefabs
+//! ([`Assets::save_scene`], [`Assets::save_prefab`]), and what hot reload
+//! changed this frame ([`Assets::reloaded_files`],
+//! [`Assets::reloaded_textures`]). Textures, fonts, meshes and shaders load
+//! through `ctx.gfx` and sounds through `ctx.audio`; they read the same
+//! sources and are watched by the same hot reload.
+//! [`Ctx::load_scene`](crate::Ctx::load_scene) and
+//! [`Ctx::spawn_prefab`](crate::Ctx::spawn_prefab) stay on `Ctx`: they
+//! replace or extend the world, load through every service and reset
+//! commands and physics.
+//!
+//! **When to call it.** Add sources first, in setup, before loading what
+//! they hold. Load data files in setup too; with hot reload on they are
+//! applied again when their files change, at the start of a frame. Ask for
+//! the reloaded files from a frame or simulation system. Save from any
+//! system.
+//!
+//! **What it needs.** No window, no GPU and no audio device. Files come
+//! from the added sources, then the `assets/` folders on desktop (the
+//! files fetched from `assets/index.json` in a browser); saving writes to
+//! `assets/` and isn't available in web builds. The calls that read or
+//! write entities and resources take the world (`&mut ctx.world`), so
+//! `ctx.assets` borrows apart from it.
+//!
+//! ```
+//! use ponko::*;
+//!
+//! #[derive(serde::Deserialize)]
+//! struct Rules {
+//!     speed: f32,
+//! }
+//!
+//! Game::new("assets", 1, 1).run_headless(0, |ctx| {
+//!     ctx.assets
+//!         .add_source(MemorySource::new("built-in").with("rules.json", r#"{"speed": 30}"#));
+//!     ctx.assets.load_resource::<Rules>(&mut ctx.world, "rules.json");
+//!     assert_eq!(ctx.world.resource::<Rules>().speed, 30.0);
+//! });
+//! ```
+//!
+//! # Finding and decoding
+//!
+//! Loading a named asset has three steps, kept apart here and in the
+//! services that load:
 //! 1. **Acquire** its bytes by name: from the [`AssetSource`]s a game added,
 //!    in order, then from the default source (the `assets/` folders on
 //!    desktop, the files fetched from `assets/index.json` in a browser).
 //! 2. **Decode** them on the CPU ([`decode_image`]): no GPU, any thread.
-//! 3. **Create** the GPU resource on the game thread (`Ctx::create_texture`).
+//! 3. **Create** the GPU resource on the game thread (`Graphics::create_texture`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use ponko_ecs::{Entity, World};
+use serde_json::{Value, json};
+
+use crate::hot_reload::Asset;
+use crate::reflect::WorldReflect;
+use crate::scene::{PREFAB_FORMAT, PREFAB_VERSION};
+
 /// A place named assets can be read from, other than the `assets/` folder:
 /// bytes embedded in the game, a pack file, a test fixture in memory.
 ///
-/// Add one with [`Ctx::add_asset_source`](crate::Ctx::add_asset_source).
+/// Add one with [`Assets::add_source`].
 /// Sources are asked in the order they were added, before the default
 /// `assets/` search; a source that doesn't have a name says so with an
 /// error of kind [`std::io::ErrorKind::NotFound`], and the next one is
@@ -31,8 +84,19 @@ use std::sync::Arc;
 /// [`id`](Self::id) and its name, so the same name in two sources is two
 /// assets, and loading a name again returns the first handle without
 /// reading the source again. This holds for every kind of asset: textures,
-/// fonts, data, scenes, prefabs, sounds and (with the `3d` feature) meshes,
-/// skeletons, animation clips, shaders, screen effects and compute passes.
+/// fonts, data, scenes, prefabs, sounds, streamed music and (with the `3d`
+/// feature) meshes, skeletons, animation clips, shaders, screen effects and
+/// compute passes. Images a glTF file refers to are shared between models
+/// by the source they were found in, so two sources with the same image
+/// name give two images. Texture arrays, reflection probe images and
+/// [`load_asset_with`](crate::Assets::load_with) read their source on
+/// every call (they aren't cached).
+///
+/// # In a browser
+///
+/// Added sources work the same in web builds: they are asked first, and
+/// what they have is never fetched. The default source there is the files
+/// listed in `assets/index.json`, fetched before setup.
 ///
 /// # Hot reload
 ///
@@ -58,6 +122,18 @@ pub trait AssetSource: 'static {
     /// `NotFound` lets the next source try; any other error is reported to
     /// the caller of the load.
     fn read(&self, name: &str) -> std::io::Result<Vec<u8>>;
+
+    /// Whether this source has asset `name`, without handing over its
+    /// bytes. Used to tell which source a file a model refers to comes
+    /// from, so it is shared with what was loaded from that source before
+    /// instead of read again.
+    ///
+    /// The default reads it and checks the error is not
+    /// [`NotFound`](std::io::ErrorKind::NotFound); override it when that is
+    /// cheaper to answer (an index lookup).
+    fn contains(&self, name: &str) -> bool {
+        !matches!(self.read(name), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    }
 }
 
 /// An [`AssetSource`] holding its files in memory: assets embedded with
@@ -70,7 +146,7 @@ pub trait AssetSource: 'static {
 ///     image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]))
 ///         .write_to(&mut std::io::Cursor::new(&mut pixel), image::ImageFormat::Png)
 ///         .unwrap();
-///     ctx.add_asset_source(MemorySource::new("embedded").with("red.png", pixel));
+///     ctx.assets.add_source(MemorySource::new("embedded").with("red.png", pixel));
 ///     let red = ctx.load_texture("red.png");
 ///     assert_eq!((red.width(), red.height()), (1, 1));
 /// });
@@ -106,6 +182,10 @@ impl MemorySource {
 impl AssetSource for MemorySource {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.files.contains_key(name)
     }
 
     fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
@@ -195,6 +275,12 @@ pub(crate) struct Sources {
 }
 
 impl Sources {
+    /// Whether no source was added (only the default one is searched).
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+
     /// Adds `source` after the others.
     ///
     /// # Panics
@@ -250,6 +336,20 @@ impl Sources {
         Ok(self.find(name)?.into_bytes()?)
     }
 
+    /// Where asset `name` would be found, without reading it: the first
+    /// added source that [has](AssetSource::contains) it, else the default
+    /// source's file. `None` if nothing has it.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn locate(&self, name: &str) -> Option<Origin> {
+        match self.list.iter().find(|s| s.contains(name)) {
+            Some(source) => Some(Origin::Source {
+                source: source.id().to_string(),
+                name: name.to_string(),
+            }),
+            None => resolve(name).ok().map(Origin::File),
+        }
+    }
+
     /// Finds asset `name`: in the added sources in order, then the default one.
     ///
     /// # Errors
@@ -289,6 +389,56 @@ impl Sources {
                 Err(crate::Error::not_found(name, message))
             }
         }
+    }
+}
+
+/// The asset [`Sources`] of a game, shared by every service that loads
+/// files (`ctx.assets` adds to them; `ctx.gfx` and `ctx.audio` read through
+/// them). One game thread uses them, so a `RefCell` is enough.
+#[derive(Clone, Default)]
+pub(crate) struct SharedSources(std::rc::Rc<std::cell::RefCell<Sources>>);
+
+impl SharedSources {
+    /// As [`Sources::add`].
+    pub(crate) fn add(&self, source: Box<dyn AssetSource>) {
+        self.0.borrow_mut().add(source);
+    }
+
+    /// As [`Sources::origins`], collected.
+    pub(crate) fn origins(&self, name: &str) -> Vec<Origin> {
+        self.0.borrow().origins(name).collect()
+    }
+
+    /// As [`Sources::lookup`].
+    pub(crate) fn lookup<T>(
+        &self,
+        name: &str,
+        cached: impl Fn(&Origin) -> Option<T>,
+    ) -> Result<Lookup<T>, crate::Error> {
+        self.0.borrow().lookup(name, cached)
+    }
+
+    /// As [`Sources::read`].
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn read(&self, name: &str) -> Result<Vec<u8>, String> {
+        self.0.borrow().read(name)
+    }
+
+    /// As [`Sources::find`].
+    pub(crate) fn find(&self, name: &str) -> Result<Found, crate::Error> {
+        self.0.borrow().find(name)
+    }
+
+    /// As [`Sources::locate`].
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn locate(&self, name: &str) -> Option<Origin> {
+        self.0.borrow().locate(name)
+    }
+
+    /// As [`Sources::is_empty`].
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.0.borrow().is_empty()
     }
 }
 
@@ -462,6 +612,373 @@ pub(crate) fn decode_image(bytes: &[u8]) -> Result<Image, String> {
     })
 }
 
+/// How to apply a loaded data file's text to the world (kept for reloads).
+pub(crate) type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), String>>;
+
+/// Asset files: `ctx.assets`.
+///
+/// - **What lives here:** where named assets are read from
+///   ([`add_source`](Self::add_source)), your own asset types
+///   ([`load_with`](Self::load_with)), data files that fill resources and
+///   components and follow their files, saving scenes and prefabs, and
+///   what hot reload changed this frame. Textures, fonts, meshes and
+///   shaders load through `ctx.gfx` and sounds through `ctx.audio`, from
+///   the same sources. [`Ctx::load_scene`](crate::Ctx::load_scene) and
+///   [`Ctx::spawn_prefab`](crate::Ctx::spawn_prefab) stay on `Ctx`: they
+///   load through every service.
+/// - **When to call it:** add sources first, in setup; load data files in
+///   setup too (with hot reload on they are applied again when their files
+///   change, at the start of a frame). Read what was reloaded from any
+///   system, and save from any system.
+/// - **What it needs:** no window, GPU or audio device. Saving writes to
+///   `assets/` and isn't available in web builds. The calls that read or
+///   write entities and resources take the world (`&mut ctx.world`), so
+///   `ctx.assets` borrows apart from it.
+#[derive(Default)]
+pub struct Assets {
+    /// Asset sources added with `add_source`, asked before `assets/`.
+    /// Shared with the services that load files.
+    pub(crate) asset_sources: SharedSources,
+    /// Asset hot reload: which files loaded assets came from. Shared too.
+    pub(crate) watcher: crate::hot_reload::SharedWatcher,
+    /// Textures reloaded at the start of this frame.
+    pub(crate) reloaded_textures: Vec<crate::Texture>,
+    /// Names of every file reloaded at the start of this frame.
+    pub(crate) reloaded_files: Vec<String>,
+    /// Scratch for the watcher's changes, kept so checks don't allocate.
+    pub(crate) reload_pending: Vec<(Asset, PathBuf, String)>,
+    /// How to apply each loaded data file's text (`load_resource`).
+    pub(crate) data_loaders: Vec<DataLoader>,
+    /// Parsed prefab files, by name (`Ctx::spawn_prefab`).
+    pub(crate) prefabs: HashMap<String, Value>,
+    /// Fields of reflected components that name assets, and how to load
+    /// them before a scene or prefab is spawned (`scene_asset_field`).
+    pub(crate) scene_asset_fields: Vec<crate::scene::SceneAssetField>,
+}
+
+impl Assets {
+    /// Whether files loaded from `assets/` are watched and reloaded when
+    /// they change (see [`Game::hot_reload`](crate::Game::hot_reload)).
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).hot_reload(false).run_headless(0, |ctx| {
+    ///     assert!(!ctx.assets.hot_reload());
+    /// });
+    /// ```
+    #[must_use]
+    pub fn hot_reload(&self) -> bool {
+        self.watcher.on()
+    }
+
+    /// Adds a place to load named assets from. Added sources are asked in
+    /// the order they were added, all before the `assets/` folder.
+    ///
+    /// Every load by name goes through it: [`load_texture`](crate::Graphics::load_texture),
+    /// [`load_font`](crate::Graphics::load_font), [`load_resource`](Self::load_resource),
+    /// [`load_scene`](crate::Ctx::load_scene), [`spawn_prefab`](crate::Ctx::spawn_prefab)
+    /// (and the textures their scenes name), [`load_sound`](crate::Audio::load),
+    /// [`load_with`](Self::load_with) and, with the `3d` feature,
+    /// meshes, skeletons and animation clips (and the files a glTF refers to),
+    /// shaders, screen effects and compute passes.
+    ///
+    /// Not covered yet: [`load_stream`](crate::Audio::load_stream) (music streamed
+    /// from a file), texture arrays and reflection probe images still come
+    /// only from `assets/`.
+    ///
+    /// Assets from sources are never hot reloaded: only files found in
+    /// `assets/` are watched. See [`AssetSource`](crate::AssetSource) for
+    /// names, caching and hot reload.
+    ///
+    /// Add sources in setup, before loading what they hold: assets loaded
+    /// earlier stay cached where they were found.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// #[derive(serde::Deserialize)]
+    /// struct Rules {
+    ///     speed: f32,
+    /// }
+    ///
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     ctx.assets.add_source(MemorySource::new("built-in").with("rules.json", r#"{"speed": 30}"#));
+    ///     ctx.assets.load_resource::<Rules>(&mut ctx.world, "rules.json");
+    ///     assert_eq!(ctx.world.resource::<Rules>().speed, 30.0);
+    /// });
+    /// ```
+    ///
+    /// # Panics
+    /// If the source's id is empty or a source with that id was already added.
+    pub fn add_source(&mut self, source: impl crate::AssetSource) {
+        self.asset_sources.add(Box::new(source));
+    }
+
+    /// Reads asset `name` (from the added sources, then `assets/`) and
+    /// decodes it with `decode` on the CPU: your own asset type, with no
+    /// registration. Nothing is cached and nothing is watched: it reads and
+    /// decodes each call, so keep the result.
+    ///
+    /// `decode` gets the bytes and returns your value, or an error message
+    /// that is reported with the asset's name and source.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// /// A level in a tiny made-up format: one row of tiles per line.
+    /// struct Tiles(Vec<Vec<u8>>);
+    ///
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     ctx.assets.add_source(MemorySource::new("built-in").with("levels/one.tiles", "##.\n#..\n"));
+    ///     let level = ctx
+    ///         .assets
+    ///         .load_with("levels/one.tiles", |bytes| {
+    ///             let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+    ///             Ok(Tiles(text.lines().map(|row| row.bytes().collect()).collect()))
+    ///         })
+    ///         .unwrap();
+    ///     assert_eq!(level.0.len(), 2);
+    ///     assert_eq!(level.0[0], b"##.");
+    /// });
+    /// ```
+    ///
+    /// # Errors
+    /// If no source has the asset (the message says where it looked), reading
+    /// it fails, or `decode` returns an error.
+    pub fn load_with<T>(&self, name: &str, decode: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
+        let found = self.asset_sources.find(name)?;
+        let origin = found.origin.clone();
+        let bytes = found.into_bytes()?;
+        decode(&bytes).map_err(|e| format!("{} could not be decoded: {e}", origin.describe(name)))
+    }
+
+    /// Reads asset `name` as UTF-8 text from the first source that has it.
+    pub(crate) fn read_text(&self, name: &str) -> Result<(Origin, String), String> {
+        let found = self.asset_sources.find(name)?;
+        let origin = found.origin.clone();
+        Ok((origin, found.into_text(name)?))
+    }
+
+    /// Loads resource `R` from a JSON file in `assets/`. With [hot
+    /// reload](crate::Game::hot_reload) on, editing the file replaces the
+    /// resource while the game runs: tune numbers without restarting. A file
+    /// that doesn't parse keeps the old values and prints why.
+    ///
+    /// # Panics
+    /// If the file is missing or isn't valid JSON for `R` (with the line and
+    /// column).
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// #[derive(serde::Deserialize)]
+    /// struct Rules {
+    ///     speed: f32,
+    ///     damage: f32,
+    /// }
+    ///
+    /// Game::new("Tuning", 800, 600).run(|ctx| {
+    ///     ctx.assets.load_resource::<Rules>(&mut ctx.world, "rules.json"); // {"speed": 30, "damage": 2}
+    ///     |ctx: &mut Ctx| {
+    ///         let speed = ctx.world.resource::<Rules>().speed;
+    ///         // ...
+    ///     }
+    /// });
+    /// ```
+    pub fn load_resource<R: Send + Sync + 'static + serde::de::DeserializeOwned>(
+        &mut self,
+        world: &mut World,
+        path: &str,
+    ) {
+        let loaded = self.load_data(
+            world,
+            path,
+            Box::new(|world: &mut World, text: &str| {
+                let value: R = serde_json::from_str(text).map_err(|e| e.to_string())?;
+                world.insert_resource(value);
+                Ok(())
+            }),
+        );
+        loaded.unwrap_or_else(|e| panic!("ponko: {e}"));
+    }
+
+    /// Loads a JSON file into the reflected component `T` of `entity` (object
+    /// fields merge), reloading it when the file changes. `T` must be
+    /// registered with `World::reflect`; the name the file is applied under
+    /// comes from the type, so it can't drift from it.
+    /// ```
+    /// # use ponko::*;
+    /// # #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+    /// # struct Stats { hp: f32 }
+    /// # fn f(ctx: &mut Ctx, e: Entity) -> Result<(), String> {
+    /// ctx.assets.load_component_json::<Stats>(&mut ctx.world, "stats.json", e)?;
+    /// # Ok(()) }
+    /// ```
+    pub fn load_component_json<T: 'static>(
+        &mut self,
+        world: &mut World,
+        path: &str,
+        entity: Entity,
+    ) -> Result<(), String> {
+        self.load_component_json_named(
+            world,
+            path,
+            entity,
+            &crate::reflect::short_name(std::any::type_name::<T>()),
+        )
+    }
+
+    /// Loads a JSON file into the reflected component `component` of `entity`
+    /// by name: the C and C++ way, and for components registered by name.
+    /// Rust code that has the type uses
+    /// [`load_component_json`](Self::load_component_json).
+    #[doc(hidden)]
+    pub fn load_component_json_named(
+        &mut self,
+        world: &mut World,
+        path: &str,
+        entity: Entity,
+        component: &str,
+    ) -> Result<(), String> {
+        let component = component.to_string();
+        self.load_data(
+            world,
+            path,
+            Box::new(move |world: &mut World, text: &str| {
+                let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+                world.set_json(entity, &component, value).map_err(|e| e.to_string())
+            }),
+        )
+    }
+
+    /// Loads a JSON file into the reflected resource `T` (object fields
+    /// merge; it's added if missing), reloading it when the file changes.
+    /// `T` must be registered with `World::reflect_resource`; the name comes
+    /// from the type. Unlike [`load_resource`](Self::load_resource) this
+    /// merges into the existing value instead of replacing it.
+    /// ```
+    /// # use ponko::*;
+    /// # #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+    /// # struct Rules { speed: f32 }
+    /// # fn f(ctx: &mut Ctx) -> Result<(), String> {
+    /// ctx.assets.load_resource_json::<Rules>(&mut ctx.world, "rules.json")?;
+    /// # Ok(()) }
+    /// ```
+    pub fn load_resource_json<T: 'static>(&mut self, world: &mut World, path: &str) -> Result<(), String> {
+        self.load_resource_json_named(world, path, &crate::reflect::short_name(std::any::type_name::<T>()))
+    }
+
+    /// Loads a JSON file into the reflected resource `name` by name: the C
+    /// and C++ way. Rust code that has the type uses
+    /// [`load_resource_json`](Self::load_resource_json).
+    #[doc(hidden)]
+    pub fn load_resource_json_named(&mut self, world: &mut World, path: &str, name: &str) -> Result<(), String> {
+        let name = name.to_string();
+        self.load_data(
+            world,
+            path,
+            Box::new(move |world: &mut World, text: &str| {
+                let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+                world.set_resource_json(&name, value).map_err(|e| e.to_string())
+            }),
+        )
+    }
+
+    fn load_data(&mut self, world: &mut World, path: &str, apply: DataLoader) -> Result<(), String> {
+        let (origin, text) = self.read_text(path)?;
+        apply(world, &text).map_err(|e| format!("{path}: {e}"))?;
+        self.data_loaders.push(apply);
+        if let Origin::File(file) = origin {
+            self.watcher.watch(path, file, Asset::Data(self.data_loaders.len() - 1));
+        }
+        Ok(())
+    }
+
+    /// Saves the world (its reflected components and resources) as a scene
+    /// in `assets/<path>`, over the file if it exists. Not in web builds.
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.assets.save_scene(&ctx.world, "levels/beach.json").expect("saved");
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// If the file can't be written.
+    pub fn save_scene(&self, world: &World, path: &str) -> Result<(), String> {
+        let text = serde_json::to_string_pretty(&world.save()).map_err(|e| e.to_string())?;
+        write(path, text.as_bytes()).map(|_| ())
+    }
+
+    /// Saves entity `e` (its reflected components) as a prefab in
+    /// `assets/<path>`, for [`spawn_prefab`](crate::Ctx::spawn_prefab). Its
+    /// position isn't kept: each spawn says where. Not in web builds.
+    ///
+    /// ```no_run
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx, palm: Entity) {
+    /// ctx.assets.save_prefab(&ctx.world, palm, "prefabs/palm.json").expect("saved");
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// If `e` is dead or the file can't be written.
+    pub fn save_prefab(&mut self, world: &World, e: Entity, path: &str) -> Result<(), String> {
+        let mut components = world.entity_json(e).map_err(|e| e.to_string())?;
+        if let Some(t) = components.get_mut("Transform2D") {
+            t["position"] = json!([0.0, 0.0]);
+        }
+        let prefab = json!({ "format": PREFAB_FORMAT, "version": PREFAB_VERSION, "components": components });
+        let text = serde_json::to_string_pretty(&prefab).map_err(|e| e.to_string())?;
+        write(path, text.as_bytes())?;
+        self.prefabs.insert(path.to_string(), components);
+        Ok(())
+    }
+
+    /// Names of the files (as you loaded them) that changed and were
+    /// reloaded at the start of this frame, textures and data alike. Use it
+    /// to redo work that depends on them.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// if ctx.assets.reloaded_files().iter().any(|f| f == "map.json") {
+    ///     println!("map changed: rebuilding the flow fields");
+    /// }
+    /// # }
+    /// ```
+    pub fn reloaded_files(&self) -> &[String] {
+        &self.reloaded_files
+    }
+
+    /// Textures whose files changed and were reloaded at the start of this
+    /// frame (with [hot reload](crate::Game::hot_reload) on). They keep their
+    /// handles, so sprites show the new image by themselves; use this to redo
+    /// anything you computed from an image, such as a level read from its pixels.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx, level: Texture) {
+    /// if ctx.assets.reloaded_textures().contains(&level) {
+    ///     println!("level image changed: rebuilding the map");
+    /// }
+    /// # }
+    /// ```
+    pub fn reloaded_textures(&self) -> &[crate::Texture] {
+        &self.reloaded_textures
+    }
+
+    pub(crate) fn report_reload(&mut self, name: String, applied: Result<(), String>) {
+        match applied {
+            Ok(()) => {
+                eprintln!("ponko: reloaded {name}");
+                self.reloaded_files.push(name);
+            }
+            Err(e) => eprintln!("ponko: could not reload {name} (keeping the old one): {e}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -498,6 +1015,40 @@ mod tests {
             err.message().ends_with("Asset sources searched first: \"a\", \"b\""),
             "{err}"
         );
+    }
+
+    /// A source that only implements `read`: `contains` falls back to it.
+    struct ReadOnly;
+    impl AssetSource for ReadOnly {
+        fn id(&self) -> &str {
+            "read-only"
+        }
+        fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
+            match name {
+                "here" => Ok(b"x".to_vec()),
+                "broken" => Err(std::io::Error::other("disk on fire")),
+                _ => Err(std::io::ErrorKind::NotFound.into()),
+            }
+        }
+    }
+
+    #[test]
+    fn locate_names_the_first_source_that_has_a_name_without_reading_memory() {
+        let mut sources = Sources::default();
+        sources.add(Box::new(ReadOnly));
+        sources.add(Box::new(
+            MemorySource::new("mem").with("here", *b"y").with("only-mem", *b"z"),
+        ));
+        let in_source = |source: &str, name: &str| Origin::Source {
+            source: source.into(),
+            name: name.into(),
+        };
+        assert_eq!(sources.locate("here"), Some(in_source("read-only", "here")));
+        assert_eq!(sources.locate("only-mem"), Some(in_source("mem", "only-mem")));
+        // A source that has it but fails to read it still has it: the
+        // load reports the error.
+        assert_eq!(sources.locate("broken"), Some(in_source("read-only", "broken")));
+        assert_eq!(sources.locate("definitely-not-here.png"), None);
     }
 
     #[test]

@@ -32,9 +32,9 @@
 //! - `inspector` (default): the in-game inspector overlay (egui), opened
 //!   with the backquote key. On in debug builds; see `Game::inspector`.
 //! - `gamepad` (default): gamepads through gilrs; without it
-//!   `Ctx::gamepads` is always empty. On Linux it needs libudev headers.
+//!   `Input::gamepads` is always empty. On Linux it needs libudev headers.
 //! - `profiling`: per-system scopes for `puffin_viewer`. (Not needed for
-//!   [`profile_scope!`], [`Ctx::perf_report`] or [`CountingAllocator`], which
+//!   [`profile_scope!`], [`Perf::report`] or [`CountingAllocator`], which
 //!   are always built in and cost one atomic load while profiling is off.)
 //! - `hotpatch`: change system code while the game runs, with
 //!   `dx serve --hot-patch --features hotpatch`.
@@ -62,6 +62,7 @@ mod collision;
 mod color;
 mod control;
 mod ctx;
+mod ctx_compat;
 mod diagnostics;
 mod ecs;
 #[cfg(feature = "inspector")]
@@ -72,15 +73,16 @@ mod flow;
 mod game;
 #[cfg(feature = "gamepad")]
 mod gamepad;
+mod gfx;
 mod handle;
 mod hot_reload;
 mod input;
 mod inventory;
-pub use access::{AccessConflict, AccessReport, ReportedPair, ReportedSystem, SystemAccess};
+pub use access::{AccessConflict, AccessReport, ReportedPair, ReportedSystem, Service, SystemAccess};
 pub use actions::{
-    Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario,
-    UnknownAction,
+    Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, UnknownAction,
 };
+pub use system_view::{SystemView, ViewEvents};
 #[cfg(feature = "inspector")]
 mod inspector;
 mod logs;
@@ -89,6 +91,7 @@ mod nav3d;
 mod net;
 #[cfg(feature = "navmesh")]
 pub use nav3d::{NavAgent3D, NavBakeError, NavBakeSettings, NavMesh3D, NavObstacle3D, NavSource, step_navmesh3d};
+mod perf;
 mod perf_report;
 #[cfg(feature = "physics")]
 mod physics;
@@ -101,12 +104,15 @@ mod random;
 mod reflect;
 mod render;
 mod residency;
+mod scenario;
 mod scene;
 mod schema;
 mod scope;
 mod sheet;
 mod spatial;
 mod stream;
+mod streaming;
+mod system_view;
 mod text;
 mod texture;
 #[cfg(feature = "3d")]
@@ -118,16 +124,16 @@ mod ui;
 mod web;
 
 pub use alloc_count::{AllocCounts, CountingAllocator, alloc_counts, note_allocation};
-pub use assets::{AssetSource, MemorySource};
+pub use assets::{AssetSource, Assets, MemorySource};
 pub use attach::{Attached, follow_attachments};
-pub use audio::{AudioBus, AudioEffects, Playing, Sound, SoundParams};
+pub use audio::{Audio, AudioBus, AudioEffects, Playing, Sound, SoundParams};
 #[cfg(feature = "3d")]
 pub use audio::{AudioListener3D, AudioRolloff, AudioSettings3D, AudioSource3D};
 pub use camera::{Camera2D, Rect, camera_controls};
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 pub use collision::{BodyKind, CollisionStarted, CollisionStopped};
 pub use color::Color;
-pub use ctx::{Ctx, SystemTiming, Turns};
+pub use ctx::Ctx;
 pub use diagnostics::{
     ArchetypeDiagnostics, ComponentDiagnostics, ECS_DIAGNOSTICS_VERSION, EcsDiagnostics, MatchCount, SystemDiagnostics,
 };
@@ -138,8 +144,9 @@ pub use events::Events;
 pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
 pub use game::{ConfiguredGame, Game, Phase, Plugin, SetupResult, SystemId, Systems};
+pub use gfx::Graphics;
 pub use handle::{Handle, LiveCounts};
-pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Key, MAX_GAMEPADS, MouseButton};
+pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Input, Key, MAX_GAMEPADS, MouseButton};
 pub use inventory::{AssetClass, AssetCount, AssetGrowth, AssetInventory, GpuResidency};
 pub use net::{
     Authority, AuthorityCheck, ClockSync, Interest, InterestChange, InterestChangeKind, InterestConfig, InterestEntity,
@@ -154,6 +161,7 @@ pub use net::{
 pub use net::{NetPose, apply_net_poses};
 #[cfg(feature = "steam")]
 pub use net::{SteamLobby, SteamLobbyVisibility, steam_lobby_from_args, steam_wait_for_invite};
+pub use perf::{Perf, SystemTiming};
 pub use perf_report::{
     AllocReport, Budget, BudgetViolation, Contributor, FrameTimes, PassReport, PerfReport, PerfWarning, Regression,
     RenderReport, ScopeReport, SystemReport, WarningKind, WorstFrame,
@@ -170,8 +178,15 @@ pub use physics3d::{
 pub use profiler::{FrameStats, GpuPass};
 pub use random::{DEFAULT_SEED, Random, Rng};
 pub use reflect::{Field, FieldType, ReflectError, WorldReflect};
-pub use render::{GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuUploads, RenderStats};
+pub use render::{
+    GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuTier, GpuUploads, PipelineStats,
+    RenderStats,
+};
 pub use residency::{ResidencyKind, ResidencyStats};
+pub use scenario::{
+    InputScenario, MAX_SCENARIO_STEPS, MAX_SCENARIO_TICKS, SCENARIO_VERSION, ScenarioCheck, ScenarioError,
+    ScenarioFailure, ScenarioReport, ScenarioStatus,
+};
 pub use schema::ValueSchema;
 pub use scope::{ProfileScope, ScopeGuard, ScopeTiming, scope_named};
 pub use sheet::{Animation, SpriteSheet, animate_sprites};
@@ -186,6 +201,7 @@ pub use steamworks;
 #[cfg(feature = "3d")]
 pub use stream::CellStreamer;
 pub use stream::Job;
+pub use streaming::{AssetState, DEFAULT_UPLOAD_BUDGET, StreamedAsset, UploadStats};
 /// Flex/grid/absolute layout types used by retained UI.
 /// ```
 /// use ponko::ui_layout::Style;
@@ -194,6 +210,8 @@ pub use stream::Job;
 pub use taffy as ui_layout;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
+#[cfg(feature = "3d")]
+pub use three::StreamedLod;
 #[cfg(feature = "3d")]
 pub use three::{
     AmbientOcclusion, AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer,
@@ -211,16 +229,23 @@ pub use three::{
     TerrainTileData, Text3D, TextAlign3D, TextureArray, TextureKind, Tonemap, Trail3D, Transform3D, look_at_joint,
     two_bone_ik,
 };
+#[cfg(feature = "3d")]
+#[doc(hidden)]
+pub use three::{ExtractionBench, ExtractionSample};
 pub use tilemap::{TileMap, draw_tilemaps};
+pub use time::{Time, Turns};
 #[cfg(feature = "3d")]
 pub use ui::UiPanel3D;
 pub use ui::{
-    Ui, UiAccessNode, UiAccessTree, UiAccessValue, UiBuilder, UiEvent, UiId, UiInput, UiLayout, UiPaint, UiRole,
-    UiStyle, UiTextAlign, UiTheme, UiWidget,
+    Ui, UiAccessNode, UiAccessTree, UiAccessValue, UiBuilder, UiEvent, UiId, UiImmediate, UiInput, UiLayout, UiPaint,
+    UiRole, UiStyle, UiTextAlign, UiTheme, UiWidget,
 };
 
 /// The ECS: entities, components, queries, resources, commands.
-pub use ponko_ecs::{Commands, Component, ComponentId, Entity, Or, Query, QueryFilter, With, Without, World};
+pub use ponko_ecs::{
+    Added, Changed, Commands, Component, ComponentId, Entity, Or, Query, QueryFilter, Tick, ViewQuery, With, Without,
+    World, WorldView,
+};
 
 /// The full ECS crate, for advanced use (C path, chunks, archetypes).
 pub use ponko_ecs as ecs_core;

@@ -28,14 +28,20 @@ mod draw_order;
 use crate::render::traffic::{Counted, NewBuffer, Upload};
 mod instances;
 mod passes;
+mod pipeline_cache;
+mod shader_checks;
 mod shadow_cache;
 mod variants;
 use super::capabilities::GpuLimits;
 pub(crate) use draw_order::StateChanges;
 use instances::{Culling, StaticBatch};
+use pipeline_cache::{Features, MaterialCache, ModuleKey, TargetKey};
+pub(crate) use shader_checks::LateShaderError;
+use shader_checks::{Swap, end_scope, rejected};
 use shadow_cache::ShadowCache;
 use std::ops::Range;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 pub(crate) use variants::{Instancing, Pass, PipelineRole, ShaderVariant, Sides};
 
 use glam::{Mat4, Vec3};
@@ -127,15 +133,12 @@ use crate::Material;
 use crate::three::gi::GI_SHADOW_SIZE;
 use crate::three::motion::MovedInstance;
 use crate::three::{
-    FADED, GpuMaterialDesc, Instance3D, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS, MaterialTextures,
-    MeshData, PostUniform, linear, scaled_size, shadow_views,
+    FADED, GpuMaterialDesc, INSTANCE_BRIDGE, Instance3D, MAX_CASCADES, MAX_LIGHT_SHADOW_VIEWS, MAX_SHADOW_VIEWS,
+    MaterialTextures, MeshData, PostUniform, linear, scaled_size, shadow_views,
 };
 use crate::three::{Frame3D, Scene3D};
 use crate::three::{ShaderDiagnostic, ShaderKind};
 
-/// Models per page of the instance buffer: a frame uploads the pages
-/// whose records changed (32 × 80 bytes).
-const INSTANCE_PAGE: usize = 32;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// The lit frame before tone mapping: light brighter than white survives.
 pub(super) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -149,6 +152,28 @@ pub(crate) fn multisamples(adapter: &wgpu::Adapter, samples: u32) -> bool {
             .flags
             .sample_count_supported(samples)
     })
+}
+
+/// Whether `backend` is the browser's WebGL2, which wgpu can't give
+/// multisampled textures (`texStorage2DMultisample` is missing from WebGL2, and
+/// glow's browser binding panics on it). The 3D frame then uses one sample.
+pub(crate) fn browser_gl_has_no_multisampled_textures(backend: wgpu::Backend) -> bool {
+    cfg!(target_arch = "wasm32") && backend == wgpu::Backend::Gl
+}
+
+/// The shader source for a frame of `samples` per pixel. Sources are written
+/// for the multisampled frame; with one sample the scene depth the mesh
+/// prelude declares is an ordinary depth texture (`textureLoad` takes a mip
+/// level there instead of a sample index, and the engine's shaders pass 0 for
+/// both). A game's own shader must read the scene depth at index 0 (or through
+/// `scene_position`), the only value that means the same in both: the book's
+/// shader section says so.
+fn for_samples(source: &str, samples: u32) -> std::borrow::Cow<'_, str> {
+    if samples > 1 {
+        std::borrow::Cow::Borrowed(source)
+    } else {
+        std::borrow::Cow::Owned(source.replace("texture_depth_multisampled_2d", "texture_depth_2d"))
+    }
 }
 
 /// The frame's camera and light, as the shader reads them.
@@ -290,6 +315,11 @@ struct ShaderPipelines {
     /// built when first drawn (or by [`Renderer3D::warm_pipelines`]).
     shared: [std::sync::OnceLock<Pipelines>; 2],
     builder: SideBuilder,
+    /// The cache's counters: builds, misses, and the sets this one drops.
+    counters: Arc<pipeline_cache::Counters>,
+    /// Whether shaders draw with it: sets built for code the GPU then
+    /// rejected were never used, so dropping them invalidates nothing.
+    in_use: bool,
     /// Whether it reads the scene behind it (`scene_color`, `scene_position`,
     /// `scene_distance`): its transparent surfaces then need a copy of it.
     reads_scene: bool,
@@ -298,7 +328,13 @@ struct ShaderPipelines {
 impl ShaderPipelines {
     /// The pipelines of `variant`. One not built yet is built now, and
     /// counted in `built`.
-    fn variant(&self, variant: ShaderVariant, built: &AtomicUsize) -> &Pipelines {
+    fn variant(&self, variant: ShaderVariant) -> &Pipelines {
+        self.lookup(variant, true)
+    }
+
+    /// The pipelines of `variant`, built now if needed; `drawing`: a
+    /// frame needs them (a miss), not warming.
+    fn lookup(&self, variant: ShaderVariant, drawing: bool) -> &Pipelines {
         let side = variant.sides.index();
         let lazy = match variant.instancing {
             Instancing::Plain => return &self.sides[side],
@@ -306,13 +342,14 @@ impl ShaderPipelines {
             Instancing::Shared => &self.shared[side],
         };
         lazy.get_or_init(|| {
-            built.fetch_add(1, Ordering::Relaxed);
-            self.builder.build(variant)
+            if drawing {
+                self.counters.missed();
+            }
+            self.builder.timed_build(variant, &self.counters)
         })
     }
 
     /// Whether `variant` is built.
-    #[cfg(test)]
     fn built(&self, variant: ShaderVariant) -> bool {
         let side = variant.sides.index();
         match variant.instancing {
@@ -324,9 +361,29 @@ impl ShaderPipelines {
 
     /// Builds every variant not built yet.
     fn warm(&self) {
-        let none = AtomicUsize::new(0);
         for variant in ShaderVariant::ALL {
-            self.variant(variant, &none);
+            self.lookup(variant, false);
+        }
+    }
+
+    /// How many of its variant sets are built.
+    fn built_count(&self) -> usize {
+        ShaderVariant::ALL.iter().filter(|&&v| self.built(v)).count()
+    }
+
+    /// Render pipelines in each of its sets: one per [`PipelineRole`] some
+    /// pass draws with at its sample count.
+    fn pipelines_per_set(&self) -> usize {
+        PipelineRole::per_set(self.builder.samples > 1)
+    }
+}
+
+impl Drop for ShaderPipelines {
+    /// The last shader using these let go (a reload or a replaced shader):
+    /// its built sets are invalidated, no other shader's.
+    fn drop(&mut self) {
+        if self.in_use {
+            self.counters.invalidated(self.built_count() as u64);
         }
     }
 }
@@ -524,6 +581,7 @@ pub(crate) fn compose_compute(user: &str) -> String {
 
 /// Checks a composed shader, with an error message that points at the
 /// line, as WGSL compilers print them.
+#[cfg(test)]
 pub(crate) fn check_shader(name: &str, source: &str) -> Result<(), String> {
     use wgpu::naga;
     let module = naga::front::wgsl::parse_str(source).map_err(|e| e.emit_to_string_with_path(source, name))?;
@@ -770,13 +828,14 @@ pub(crate) struct Renderer3D {
     /// shadow pass (which can't read the shadow map it draws into).
     layout: wgpu::PipelineLayout,
     shadow_pipeline_layout: wgpu::PipelineLayout,
-    /// Each shader's pipelines; 0 is the built-in shader.
-    shaders: Vec<ShaderPipelines>,
+    /// Each shader's pipelines; 0 is the built-in shader. Shaders with the
+    /// same code share one set (see `pipeline_cache.rs`).
+    shaders: Vec<Arc<ShaderPipelines>>,
+    /// The sets by key, and the counters behind `PipelineStats`.
+    cache: MaterialCache,
     /// Whether every shader builds all its variants up front (after
     /// [`Renderer3D::warm_pipelines`]), instead of when first drawn.
     warm_variants: bool,
-    /// Variants built while drawing, since [`Renderer3D::take_pipelines_built`].
-    pipelines_built: AtomicUsize,
     material_sampler: wgpu::Sampler,
     scene_layout: wgpu::BindGroupLayout,
     /// The scene bind group of passes that can't see the scene.
@@ -829,6 +888,9 @@ pub(crate) struct Renderer3D {
     gi_face_runs: Vec<Run>,
     gi_faces: Vec<(u32, u32)>,
     dummy_depth: wgpu::TextureView,
+    /// Whether a texture made for sprites can also be read through its
+    /// linear (non-sRGB) format: not on WebGL2, which has no view formats.
+    linear_views: bool,
     post_layout: wgpu::BindGroupLayout,
     bloom_prefilter: wgpu::RenderPipeline,
     bloom_down: wgpu::RenderPipeline,
@@ -926,6 +988,15 @@ pub(crate) struct Renderer3D {
     white: u32,
     /// Screen effect pipelines, by effect id.
     effect_pipelines: Vec<wgpu::RenderPipeline>,
+    /// The game's shader pipelines in use before the GPU checked them (a
+    /// browser's WebGPU answers later; see `shader_checks.rs`).
+    shader_checks: Vec<shader_checks::PendingCheck>,
+    /// How many times each game shader's pipelines were put in use, by
+    /// kind and id: tells a late GPU rejection whether newer code runs.
+    shader_versions: std::collections::HashMap<(ShaderKind, u32), u64>,
+    /// Tests: treat every GPU check as one that answers later.
+    #[cfg(test)]
+    pub(crate) defer_checks: bool,
     /// This frame's effects, in order: (effect, material).
     effects: Vec<(u32, u32)>,
     /// Each effect's compiled shader, for building its target pipeline.
@@ -953,6 +1024,12 @@ pub(crate) struct Renderer3D {
     solid_runs: Vec<Run>,
     /// Scratch space for sorting runs.
     sort_keys: Vec<((u32, u32, u32), Run)>,
+    /// The camera's runs that blend, each drawing a copy of its instances
+    /// sorted far to near (see `sort_blended`): the copies, which follow
+    /// every other instance in the instance buffer, and scratch space.
+    blended_runs: Vec<Run>,
+    blended: Vec<Instance3D>,
+    blend_keys: Vec<(f32, u32)>,
     /// Whether order-independent passes draw their runs sorted by state
     /// (on; off draws them in mesh order, for comparing).
     pub(crate) group_draws: bool,
@@ -1072,7 +1149,7 @@ impl Renderer3D {
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
                         view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: true,
+                        multisampled: samples > 1,
                     },
                     count: None,
                 },
@@ -1186,13 +1263,35 @@ impl Renderer3D {
             anisotropy_clamp: 8,
             ..Default::default()
         });
-        let builtin = build_pipelines(
+        let mut cache = MaterialCache::new(TargetKey {
+            color: HDR_FORMAT,
+            depth: DEPTH_FORMAT,
+            velocity: taa::VELOCITY_FORMAT,
+            samples,
+        });
+        let mut builtin = build_pipelines(
             device,
             &layout,
             &shadow_pipeline_layout,
             "built-in",
             &compose_shader_storage("", decals, gi, storage_supported),
             samples,
+            &cache.counters,
+        );
+        builtin.in_use = true;
+        // wgpu objects aren't `Send` on wasm (one thread): the `Arc` only shares them.
+        #[allow(clippy::arc_with_non_send_sync)]
+        let builtin = Arc::new(builtin);
+        cache.insert(
+            cache.key(ModuleKey {
+                source: "".into(),
+                features: Features {
+                    decals,
+                    gi,
+                    storage: storage_supported,
+                },
+            }),
+            &builtin,
         );
         let post_shader = device.create_shader_module(wgpu::include_wgsl!("post.wgsl"));
         let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
@@ -1401,7 +1500,11 @@ impl Renderer3D {
         });
         let sky_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("3d sky"),
-            source: wgpu::ShaderSource::Wgsl(format!("{MESH_PRELUDE}\n{SKY}").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                for_samples(&format!("{MESH_PRELUDE}\n{SKY}"), samples)
+                    .into_owned()
+                    .into(),
+            ),
         });
         let sky_pipeline = |label, layout: &wgpu::PipelineLayout, entry_point, samples, depth| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1630,8 +1733,8 @@ impl Renderer3D {
             layout,
             shadow_pipeline_layout,
             shaders: vec![builtin],
+            cache,
             warm_variants: false,
-            pipelines_built: AtomicUsize::new(0),
             material_sampler,
             scene_layout,
             no_scene,
@@ -1666,6 +1769,7 @@ impl Renderer3D {
             gi_face_runs: Vec::new(),
             gi_faces: Vec::new(),
             dummy_depth,
+            linear_views: true,
             post_layout,
             bloom_prefilter,
             bloom_down,
@@ -1726,6 +1830,10 @@ impl Renderer3D {
             targets: None,
             white,
             effect_pipelines: Vec::new(),
+            shader_checks: Vec::new(),
+            shader_versions: std::collections::HashMap::new(),
+            #[cfg(test)]
+            defer_checks: false,
             effects: Vec::new(),
             effect_modules: Vec::new(),
             effect_target_pipelines: Vec::new(),
@@ -1738,6 +1846,9 @@ impl Renderer3D {
             shadow_runs: Default::default(),
             solid_runs: Vec::new(),
             sort_keys: Vec::new(),
+            blended_runs: Vec::new(),
+            blended: Vec::new(),
+            blend_keys: Vec::new(),
             group_draws: true,
             state_counters: Default::default(),
             skin_drawn: Vec::new(),
@@ -1749,26 +1860,92 @@ impl Renderer3D {
     }
 
     /// Compiles a screen effect from the game's WGSL; returns its id.
-    pub fn create_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
-        let source = compose_effect(user);
-        check_shader(name, &source)?;
-        let (module, pipeline) = build_effect(device, &self.layout, name, &source);
+    pub fn create_effect(
+        &mut self,
+        device: &wgpu::Device,
+        name: &str,
+        user: &str,
+    ) -> Result<u32, Box<ShaderDiagnostic>> {
+        let start = crate::Instant::now();
+        let made = self.compile_effect(device, name, user);
+        self.cache.counters.compiled(start.elapsed());
+        made
+    }
+
+    fn compile_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, Box<ShaderDiagnostic>> {
+        let (module, pipeline, verdict) = self.checked_effect(device, name, user)?;
+        let id = self.effect_pipelines.len() as u32;
+        self.installed(ShaderKind::Effect, id);
+        if let Some(verdict) = verdict {
+            let swap = Swap::Effect {
+                new: pipeline.clone(),
+                old: None,
+            };
+            self.wait_for_verdict(id, name, EFFECT_VARIANT, swap, verdict);
+        }
         self.effect_pipelines.push(pipeline);
         self.effect_modules.push(module);
         self.effect_target_pipelines.push(None);
-        Ok(self.effect_pipelines.len() as u32 - 1)
+        Ok(id)
+    }
+
+    /// Checks an effect's WGSL (with its place in the game's code) and
+    /// builds its pipeline in a GPU error scope; the verdict comes with it
+    /// if the GPU answers later.
+    fn checked_effect(
+        &self,
+        device: &wgpu::Device,
+        name: &str,
+        user: &str,
+    ) -> Result<(wgpu::ShaderModule, wgpu::RenderPipeline, Option<shader_checks::Verdict>), Box<ShaderDiagnostic>> {
+        let source = compose_effect(user);
+        super::diagnose(name, ShaderKind::Effect, EFFECT_VARIANT, &source)?;
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let (module, pipeline) = build_effect(device, &self.layout, name, &for_samples(&source, self.samples));
+        match end_scope(scope, self.defer_checks()) {
+            Ok(None) => Ok((module, pipeline, None)),
+            Ok(Some(error)) => Err(rejected(name, ShaderKind::Effect, EFFECT_VARIANT, &error)),
+            Err(verdict) => Ok((module, pipeline, Some(verdict))),
+        }
     }
 
     /// Recompiles effect `id` (hot reload). On an error the old one stays.
-    pub fn replace_effect(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
-        let source = compose_effect(user);
-        check_shader(name, &source)?;
-        if let Some(pipeline) = self.effect_pipelines.get_mut(id as usize) {
-            let (module, new) = build_effect(device, &self.layout, name, &source);
-            *pipeline = new;
-            self.effect_modules[id as usize] = module;
-            // Rebuilt from the new shader when next used.
-            self.effect_target_pipelines[id as usize] = None;
+    pub fn replace_effect(
+        &mut self,
+        device: &wgpu::Device,
+        id: u32,
+        name: &str,
+        user: &str,
+    ) -> Result<(), Box<ShaderDiagnostic>> {
+        let start = crate::Instant::now();
+        let made = self.recompile_effect(device, id, name, user);
+        self.cache.counters.compiled(start.elapsed());
+        made
+    }
+
+    fn recompile_effect(
+        &mut self,
+        device: &wgpu::Device,
+        id: u32,
+        name: &str,
+        user: &str,
+    ) -> Result<(), Box<ShaderDiagnostic>> {
+        let (module, new, verdict) = self.checked_effect(device, name, user)?;
+        let i = id as usize;
+        if i >= self.effect_pipelines.len() {
+            return Ok(());
+        }
+        let old_pipeline = std::mem::replace(&mut self.effect_pipelines[i], new.clone());
+        let old_module = std::mem::replace(&mut self.effect_modules[i], module);
+        // Rebuilt from the new shader when next used.
+        self.effect_target_pipelines[i] = None;
+        self.installed(ShaderKind::Effect, id);
+        if let Some(verdict) = verdict {
+            let swap = Swap::Effect {
+                new,
+                old: Some((old_module, old_pipeline)),
+            };
+            self.wait_for_verdict(id, name, EFFECT_VARIANT, swap, verdict);
         }
         Ok(())
     }
@@ -2006,9 +2183,21 @@ impl Renderer3D {
         }
     }
     /// Compiles a compute pass from the game's WGSL; returns its id.
-    pub fn create_compute(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, String> {
+    pub fn create_compute(
+        &mut self,
+        device: &wgpu::Device,
+        name: &str,
+        user: &str,
+    ) -> Result<u32, Box<ShaderDiagnostic>> {
+        let start = crate::Instant::now();
+        let made = self.compile_compute(device, name, user);
+        self.cache.counters.compiled(start.elapsed());
+        made
+    }
+
+    fn compile_compute(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, Box<ShaderDiagnostic>> {
         let source = compose_compute(user);
-        check_shader(name, &source)?;
+        super::diagnose(name, ShaderKind::Compute, COMPUTE_VARIANT, &source)?;
         let layouts = if defines(user, "update") {
             &self.storage_write
         } else {
@@ -2020,20 +2209,69 @@ impl Renderer3D {
             return Ok(self.compute_pipelines.len() as u32 - 1);
         }
         let Some((_, layout)) = layouts else {
-            return Err(format!(
-                "{name}: this GPU can't run compute passes (WebGL2 has no compute shaders)"
+            return Err(super::without_location(
+                name,
+                ShaderKind::Compute,
+                COMPUTE_VARIANT,
+                "this GPU can't run compute passes (WebGL2 has no compute shaders)".to_string(),
             ));
         };
-        let pipeline = build_compute(device, layout, name, &source);
+        let (pipeline, verdict) = self.checked_compute(device, layout, name, &source)?;
+        let id = self.compute_pipelines.len() as u32;
+        self.installed(ShaderKind::Compute, id);
+        if let Some(verdict) = verdict {
+            let swap = Swap::Compute {
+                new: pipeline.clone(),
+                old: None,
+            };
+            self.wait_for_verdict(id, name, COMPUTE_VARIANT, swap, verdict);
+        }
         self.buffer_computes.push(defines(user, "update"));
         self.compute_pipelines.push(Some(pipeline));
-        Ok(self.compute_pipelines.len() as u32 - 1)
+        Ok(id)
+    }
+
+    /// Builds a compute pass's pipeline from its checked `source` in a GPU
+    /// error scope; the verdict comes with it if the GPU answers later.
+    fn checked_compute(
+        &self,
+        device: &wgpu::Device,
+        layout: &wgpu::PipelineLayout,
+        name: &str,
+        source: &str,
+    ) -> Result<(wgpu::ComputePipeline, Option<shader_checks::Verdict>), Box<ShaderDiagnostic>> {
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let pipeline = build_compute(device, layout, name, source);
+        match end_scope(scope, self.defer_checks()) {
+            Ok(None) => Ok((pipeline, None)),
+            Ok(Some(error)) => Err(rejected(name, ShaderKind::Compute, COMPUTE_VARIANT, &error)),
+            Err(verdict) => Ok((pipeline, Some(verdict))),
+        }
     }
 
     /// Recompiles compute pass `id` (hot reload). On an error the old one stays.
-    pub fn replace_compute(&mut self, device: &wgpu::Device, id: u32, name: &str, user: &str) -> Result<(), String> {
+    pub fn replace_compute(
+        &mut self,
+        device: &wgpu::Device,
+        id: u32,
+        name: &str,
+        user: &str,
+    ) -> Result<(), Box<ShaderDiagnostic>> {
+        let start = crate::Instant::now();
+        let made = self.recompile_compute(device, id, name, user);
+        self.cache.counters.compiled(start.elapsed());
+        made
+    }
+
+    fn recompile_compute(
+        &mut self,
+        device: &wgpu::Device,
+        id: u32,
+        name: &str,
+        user: &str,
+    ) -> Result<(), Box<ShaderDiagnostic>> {
         let source = compose_compute(user);
-        check_shader(name, &source)?;
+        super::diagnose(name, ShaderKind::Compute, COMPUTE_VARIANT, &source)?;
         let layouts = if defines(user, "update") {
             &self.storage_write
         } else {
@@ -2042,10 +2280,20 @@ impl Renderer3D {
         let Some((_, layout)) = layouts else {
             return Ok(());
         };
-        let pipeline = build_compute(device, layout, name, &source);
-        if let Some(old) = self.compute_pipelines.get_mut(id as usize) {
-            *old = Some(pipeline);
-            self.buffer_computes[id as usize] = defines(user, "update");
+        let (pipeline, verdict) = self.checked_compute(device, layout, name, &source)?;
+        let i = id as usize;
+        if i >= self.compute_pipelines.len() {
+            return Ok(());
+        }
+        let old = self.compute_pipelines[i].replace(pipeline.clone());
+        let old_buffer = std::mem::replace(&mut self.buffer_computes[i], defines(user, "update"));
+        self.installed(ShaderKind::Compute, id);
+        if let Some(verdict) = verdict {
+            let swap = Swap::Compute {
+                new: pipeline,
+                old: Some((old, old_buffer)),
+            };
+            self.wait_for_verdict(id, name, COMPUTE_VARIANT, swap, verdict);
         }
         Ok(())
     }
@@ -2081,13 +2329,24 @@ impl Renderer3D {
         name: &str,
         user: &str,
     ) -> Result<u32, Box<ShaderDiagnostic>> {
-        let pipelines = self.material_pipelines(device, name, user)?;
+        let (pipelines, verdict) = self.material_pipelines(device, name, user, None)?;
+        let id = self.shaders.len() as u32;
+        self.installed(ShaderKind::Material, id);
+        if let Some((variant, verdict)) = verdict {
+            let swap = Swap::Material {
+                new: pipelines.clone(),
+                old: None,
+            };
+            self.wait_for_verdict(id, name, &variant, swap, verdict);
+        }
         self.shaders.push(pipelines);
         self.shadow_cache.shaders.push(ShadowCache::shader_traits(user));
-        Ok(self.shaders.len() as u32 - 1)
+        Ok(id)
     }
 
     /// Recompiles shader `id` (hot reload). On an error the old one stays.
+    /// Only `id`'s pipelines change: its old set is dropped (unless another
+    /// shader shares it), and every other shader keeps its own.
     pub fn replace_shader(
         &mut self,
         device: &wgpu::Device,
@@ -2095,22 +2354,77 @@ impl Renderer3D {
         name: &str,
         user: &str,
     ) -> Result<(), Box<ShaderDiagnostic>> {
-        let pipelines = self.material_pipelines(device, name, user)?;
-        self.shaders[id as usize] = pipelines;
-        self.shadow_cache.shaders[id as usize] = ShadowCache::shader_traits(user);
+        let (pipelines, verdict) = self.material_pipelines(device, name, user, Some(id))?;
+        let old = std::mem::replace(&mut self.shaders[id as usize], pipelines.clone());
+        let old_traits = std::mem::replace(
+            &mut self.shadow_cache.shaders[id as usize],
+            ShadowCache::shader_traits(user),
+        );
         self.shadow_cache.invalidate();
+        self.installed(ShaderKind::Material, id);
+        if let Some((variant, verdict)) = verdict {
+            let swap = Swap::Material {
+                new: pipelines,
+                old: Some((old, old_traits)),
+            };
+            self.wait_for_verdict(id, name, &variant, swap, verdict);
+        }
         Ok(())
     }
 
     /// Checks and builds a material shader's pipelines for this device's
-    /// variant. Pipeline errors (a binding the layout doesn't have) come
-    /// back as an error instead of breaking the device.
+    /// variant, or shares the ones a shader with the same code already
+    /// built (see `pipeline_cache.rs`). Pipeline errors (a binding the
+    /// layout doesn't have) come back as an error instead of breaking the
+    /// device.
     fn material_pipelines(
+        &mut self,
+        device: &wgpu::Device,
+        name: &str,
+        user: &str,
+        replacing: Option<u32>,
+    ) -> Result<(Arc<ShaderPipelines>, shader_checks::LaterVerdict), Box<ShaderDiagnostic>> {
+        let storage = self.storage_read.is_some();
+        let (decals, gi) = (self.frame_sources.decals, self.frame_sources.gi);
+        let key = self.cache.key(ModuleKey {
+            source: user.into(),
+            features: Features { decals, gi, storage },
+        });
+        if let Some(shared) = self.cache.get(&key) {
+            // A reload with unchanged code finds its own set: nothing shared.
+            let own = replacing
+                .and_then(|id| self.shaders.get(id as usize))
+                .is_some_and(|current| Arc::ptr_eq(current, &shared));
+            if !own {
+                self.cache.counters.shared();
+            }
+            if self.warm_variants {
+                shared.warm();
+            }
+            return Ok((shared, None));
+        }
+        let start = crate::Instant::now();
+        let built = self.compile_material(device, name, user);
+        self.cache.counters.compiled(start.elapsed());
+        let (mut built, verdict) = built?;
+        // Its builds count once the GPU accepted it; rejected code's don't.
+        self.cache.counters.add_builds(&built.counters);
+        built.counters = self.cache.counters.clone();
+        built.in_use = true;
+        // wgpu objects aren't `Send` on wasm (one thread): the `Arc` only shares them.
+        #[allow(clippy::arc_with_non_send_sync)]
+        let built = Arc::new(built);
+        self.cache.insert(key, &built);
+        Ok((built, verdict))
+    }
+
+    /// Compiles a material shader that no other shader shares.
+    fn compile_material(
         &self,
         device: &wgpu::Device,
         name: &str,
         user: &str,
-    ) -> Result<ShaderPipelines, Box<ShaderDiagnostic>> {
+    ) -> Result<(ShaderPipelines, shader_checks::LaterVerdict), Box<ShaderDiagnostic>> {
         let storage = self.storage_read.is_some();
         let (decals, gi) = (self.frame_sources.decals, self.frame_sources.gi);
         let variant = material_variant(decals, gi, storage);
@@ -2120,7 +2434,6 @@ impl Renderer3D {
             compose_shader_storage(user, decals, gi, storage)
         };
         super::diagnose(name, ShaderKind::Material, &variant, &source)?;
-        #[cfg(not(target_arch = "wasm32"))]
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pipelines = build_pipelines(
             device,
@@ -2129,21 +2442,18 @@ impl Renderer3D {
             name,
             &source,
             self.samples,
+            // Its own until the GPU accepts it (see `material_pipelines`).
+            &Arc::default(),
         );
         pipelines.reads_scene = reads_scene(user);
         if self.warm_variants {
             pipelines.warm();
         }
-        #[cfg(not(target_arch = "wasm32"))]
-        if let Some(error) = pollster::block_on(scope.pop()) {
-            return Err(super::without_location(
-                name,
-                ShaderKind::Material,
-                &variant,
-                format!("the GPU rejected its pipelines: {error}"),
-            ));
+        match end_scope(scope, self.defer_checks()) {
+            Ok(None) => Ok((pipelines, None)),
+            Ok(Some(error)) => Err(rejected(name, ShaderKind::Material, &variant, &error)),
+            Err(verdict) => Ok((pipelines, Some((variant, verdict)))),
         }
-        Ok(pipelines)
     }
 
     fn material_texture<'a>(&self, map: Option<u32>, textures: &'a [GpuTexture]) -> &'a wgpu::Texture {
@@ -2191,6 +2501,11 @@ impl Renderer3D {
             if material.shader == id {
                 material.shader = 0;
             }
+        }
+        // Its pipelines go too, unless another shader shares them.
+        let builtin = self.shaders[0].clone();
+        if let Some(slot) = self.shaders.get_mut(id as usize) {
+            *slot = builtin;
         }
     }
 
@@ -2261,6 +2576,24 @@ impl Renderer3D {
         }
     }
 
+    /// Binds the materials that read texture `texture` again, keeping their
+    /// maps on: its pixels moved to a new GPU texture (a streamed texture
+    /// at another resolution). `rebind_materials` is for freed ones.
+    pub fn texture_replaced(&mut self, device: &wgpu::Device, textures: &[GpuTexture], texture: u32) {
+        for i in 0..self.materials.len() {
+            let material = &self.materials[i];
+            let (maps, array_ids) = (material.bindings.maps, material.bindings.array_ids);
+            if !maps.contains(&Some(texture)) {
+                continue;
+            }
+            let bindings = self.bindings_for(maps, array_ids, textures);
+            let bind_group = self.material_bind_group(device, &material.buffer, &bindings);
+            let material = &mut self.materials[i];
+            material.bind_group = bind_group;
+            material.bindings = bindings;
+        }
+    }
+
     fn material_bindings_match(
         &self,
         bindings: &MaterialBindings,
@@ -2297,7 +2630,7 @@ impl Renderer3D {
                 // Render targets (HDR) are read as they are.
                 let image = texture.format() == wgpu::TextureFormat::Rgba8UnormSrgb;
                 texture.create_view(&wgpu::TextureViewDescriptor {
-                    format: image.then_some(if linear {
+                    format: image.then_some(if linear && self.linear_views {
                         wgpu::TextureFormat::Rgba8Unorm
                     } else {
                         wgpu::TextureFormat::Rgba8UnormSrgb
@@ -2386,15 +2719,24 @@ impl Renderer3D {
         variant: ShaderVariant,
         role: PipelineRole,
     ) -> Option<&wgpu::RenderPipeline> {
-        self.shaders[id as usize]
-            .variant(variant, &AtomicUsize::new(0))
-            .role(role)
+        self.shaders[id as usize].lookup(variant, false).role(role)
     }
 
     /// How many pipeline variants frames built while drawing since the last
     /// call (each one a hitch; see [`Renderer3D::warm_pipelines`]).
     pub fn take_pipelines_built(&self) -> usize {
-        self.pipelines_built.swap(0, Ordering::Relaxed)
+        self.cache.counters.frame_misses.swap(0, Ordering::Relaxed) as usize
+    }
+
+    /// The pipeline cache's counters and what it holds now.
+    pub fn pipeline_stats(&self) -> crate::PipelineStats {
+        self.cache.stats()
+    }
+
+    /// Every material pipeline key built so far (tests).
+    #[cfg(test)]
+    pub(crate) fn built_pipeline_keys(&self) -> Vec<pipeline_cache::PipelineKey> {
+        self.cache.built_keys()
     }
 
     /// Changes material `id` in place: every model using it changes.
@@ -2812,6 +3154,10 @@ impl Renderer3D {
         );
         self.skin_drawn = drawn;
         self.order_runs();
+        // Blended models are drawn from sorted copies of their instances,
+        // which follow all the others.
+        self.sort_blended(&frame.instances, camera, total as u32);
+        let total = total + self.blended.len();
         if self.static_batches.iter().all(Option::is_none)
             && total == 0
             && frame.particles.instances.is_empty()
@@ -2830,15 +3176,19 @@ impl Renderer3D {
         let uploads = queue.uploading(Upload::Instances);
         let buffer = &self.instances;
         let mut upload = |at: usize, bytes: &[u8]| uploads.write_buffer(buffer, at as u64, bytes);
-        let page = INSTANCE_PAGE * size_of::<Instance3D>();
+        // A frame uploads the instances that changed, with the few
+        // unchanged ones between two of them.
+        let page = size_of::<Instance3D>();
         let mut at = 0;
         let views = frame.views.iter().map(|v| &v.frame.instances);
         for instances in std::iter::once(&frame.instances)
             .chain(views)
             .chain(gi_frame.map(|g| &g.capture.instances))
+            .chain(std::iter::once(&self.blended))
         {
             let bytes = bytemuck::cast_slice(instances);
-            self.instance_mirror.sync(at, bytes, page, &mut upload);
+            self.instance_mirror
+                .sync_bridged(at, bytes, page, INSTANCE_BRIDGE, &mut upload);
             at += bytes.len();
         }
         if self.velocity_on && !frame.motion.runs.is_empty() {
@@ -3355,6 +3705,30 @@ impl Renderer3D {
     /// Starts reading this frame's occlusion depth back. Call after submitting.
     pub fn submitted(&mut self) {
         self.occlusion.submitted();
+    }
+
+    /// For a device without view formats (WebGL2): a sprite texture is read
+    /// as it is, in its own (sRGB) format, in the material slots that
+    /// otherwise read it linearly. Data textures (normal, ORM maps) aren't
+    /// affected: they are remade as linear textures when a material first
+    /// uses them (`Gpu::ensure_mips`). What is still read decoded there is the
+    /// default white image (the same either way) and a texture that was first
+    /// used as a color and then as data.
+    pub(super) fn without_linear_views(mut self) -> Self {
+        self.linear_views = false;
+        self
+    }
+
+    /// Where the lit frame's color pass draws, and what it resolves into:
+    /// the multisampled color target resolving into the lit image, or with
+    /// one sample the lit image itself.
+    fn frame_color<'a>(&self, targets: &'a Targets) -> (&'a wgpu::TextureView, Option<&'a wgpu::TextureView>) {
+        let lit = targets.lit_view(self.taa_on);
+        if self.samples > 1 {
+            (&targets.color, Some(lit))
+        } else {
+            (lit, None)
+        }
     }
 
     /// Records the occlusion depth grid's reduction, timed as a compute pass.
@@ -3980,13 +4354,14 @@ impl Renderer3D {
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d opaque"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &targets.color,
+                            view: self.frame_color(targets).0,
                             depth_slice: None,
-                            resolve_target: Some(targets.lit_view(self.taa_on)),
+                            resolve_target: self.frame_color(targets).1,
                             ops: wgpu::Operations {
                                 // Alpha 0 marks the background for the post pass.
                                 load: wgpu::LoadOp::Clear(wgpu::Color { a: 0.0, ..clear }),
-                                store: if split {
+                                // Without multisampling this is the lit frame itself.
+                                store: if split || self.samples <= 1 {
                                     wgpu::StoreOp::Store
                                 } else {
                                     wgpu::StoreOp::Discard
@@ -4028,7 +4403,7 @@ impl Renderer3D {
                         pass.set_bind_group(2, opaque_scene, &[]);
                     }
                     if !split {
-                        self.draw_models(&mut pass, &self.runs, Kind::Transparent, &self.instances);
+                        self.draw_models(&mut pass, &self.blended_runs, Kind::Transparent, &self.instances);
                         self.particles.draw(&mut pass, textures, self.white);
                     }
                 }
@@ -4050,12 +4425,16 @@ impl Renderer3D {
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d transparent"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &targets.color,
+                            view: self.frame_color(targets).0,
                             depth_slice: None,
-                            resolve_target: Some(targets.lit_view(self.taa_on)),
+                            resolve_target: self.frame_color(targets).1,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Discard,
+                                store: if self.samples <= 1 {
+                                    wgpu::StoreOp::Store
+                                } else {
+                                    wgpu::StoreOp::Discard
+                                },
                             },
                         })],
                         // Read-only depth: the shaders sample it at the same time.
@@ -4070,7 +4449,7 @@ impl Renderer3D {
                     });
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
                     pass.set_bind_group(2, &targets.scene, &[]);
-                    self.draw_models(&mut pass, &self.runs, Kind::Transparent, &self.instances);
+                    self.draw_models(&mut pass, &self.blended_runs, Kind::Transparent, &self.instances);
                     self.particles.draw(&mut pass, textures, self.white);
                 }
             }
@@ -4406,12 +4785,20 @@ impl Renderer3D {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("3d target camera"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &target.color,
+                view: if self.samples > 1 {
+                    &target.color
+                } else {
+                    &target.resolve
+                },
                 depth_slice: None,
-                resolve_target: Some(&target.resolve),
+                resolve_target: (self.samples > 1).then_some(&target.resolve),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(clear),
-                    store: wgpu::StoreOp::Discard,
+                    store: if self.samples > 1 {
+                        wgpu::StoreOp::Discard
+                    } else {
+                        wgpu::StoreOp::Store
+                    },
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -4665,6 +5052,8 @@ impl Renderer3D {
         batch: Option<(&StaticBatch, usize, usize)>,
     ) {
         let mut n = StateChanges::default();
+        // Pipeline lookups, added to the cache's counters once at the end.
+        let mut lookups = 0;
         pass.set_vertex_buffer(1, instances.slice(..));
         n.vertex_buffers += 1;
         if let Some(dummy) = &self.storage_dummy {
@@ -4728,7 +5117,8 @@ impl Renderer3D {
                     Sides::of(m.double_sided),
                     Instancing::of(fading, storage.is_some() || batch.is_some_and(|(b, _, _)| b.compute)),
                 );
-                let Some(pipeline) = shader.variant(variant, &self.pipelines_built).role(role) else {
+                lookups += 1;
+                let Some(pipeline) = shader.variant(variant).role(role) else {
                     continue;
                 };
                 if bound != Some(pipeline as *const _) {
@@ -4813,6 +5203,7 @@ impl Renderer3D {
             }
         }
         self.state_counters.add(&n);
+        self.cache.counters.looked_up(lookups);
     }
 }
 
@@ -5049,10 +5440,11 @@ fn build_pipelines(
     name: &str,
     source: &str,
     samples: u32,
+    counters: &Arc<pipeline_cache::Counters>,
 ) -> ShaderPipelines {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(name),
-        source: wgpu::ShaderSource::Wgsl(source.into()),
+        source: wgpu::ShaderSource::Wgsl(for_samples(source, samples).into_owned().into()),
     });
     let builder = SideBuilder {
         device: device.clone(),
@@ -5062,10 +5454,12 @@ fn build_pipelines(
         samples,
     };
     ShaderPipelines {
-        sides: Sides::ALL.map(|sides| builder.build(ShaderVariant::new(sides, Instancing::Plain))),
+        sides: Sides::ALL.map(|sides| builder.timed_build(ShaderVariant::new(sides, Instancing::Plain), counters)),
         fade: Default::default(),
         shared: Default::default(),
         builder,
+        counters: counters.clone(),
+        in_use: false,
         reads_scene: false,
     }
 }
@@ -5077,7 +5471,7 @@ fn build_pipelines(
 /// agree.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct HistoryReset {
-    /// The game asked (`Ctx::reset_temporal_history`): a teleport or a new
+    /// The game asked (`Graphics::reset_temporal_history`): a teleport or a new
     /// scene the camera can't tell apart from motion.
     pub requested: bool,
     /// The targets are made again (a resize, a render scale change or an
@@ -5134,6 +5528,14 @@ struct SideBuilder {
 }
 
 impl SideBuilder {
+    /// [`SideBuilder::build`], timed into `counters`.
+    fn timed_build(&self, variant: ShaderVariant, counters: &pipeline_cache::Counters) -> Pipelines {
+        let start = crate::Instant::now();
+        let pipelines = self.build(variant);
+        counters.built(start.elapsed());
+        pipelines
+    }
+
     /// The pipeline set of `variant`: its sides pick the culling, its
     /// instancing the instance buffer's stride and (crossfading) the
     /// dithering fragment entry points; each role's entry points come from

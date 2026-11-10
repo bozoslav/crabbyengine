@@ -98,12 +98,12 @@ pub enum Action {
 }
 
 /// An action resolved once, so a query is an array index instead of a string
-/// lookup. Get one from [`Ctx::action_id`](crate::Ctx::action_id) (or
+/// lookup. Get one from [`Input::action_id`](crate::Input::action_id) (or
 /// [`actions!`](crate::actions!) for a set), keep it, and pass it where the
 /// `&str` forms take a name.
 ///
 /// An id stays valid when bindings are replaced with
-/// [`Ctx::set_actions`](crate::Ctx::set_actions) (rebinding, loading a file):
+/// [`Input::set_actions`](crate::Input::set_actions) (rebinding, loading a file):
 /// the name keeps its slot. [`ActionId::NONE`] is what resolving an unknown
 /// name gives; it reads false/zero. An id belongs to the context it came from.
 /// ```
@@ -111,10 +111,10 @@ pub enum Action {
 /// Game::new("ids", 1, 1).run_headless(0, |ctx| {
 ///     let mut map = ActionMap::default();
 ///     map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
-///     ctx.set_actions(map);
-///     let jump = ctx.action_id("jump");
-///     ctx.feed_input(InputEvent::Key(Key::Space, true));
-///     assert!(ctx.action_down(jump));
+///     ctx.input.set_actions(map);
+///     let jump = ctx.input.action_id("jump");
+///     ctx.input.feed(InputEvent::Key(Key::Space, true));
+///     assert!(ctx.input.action_down(jump));
 /// });
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -161,7 +161,7 @@ impl std::error::Error for UnknownAction {}
 
 /// Something that names an action in a query: an [`ActionId`] (resolved once,
 /// the fast form) or a `&str` name (a lookup per call). Implemented for
-/// both so `ctx.action_down("jump")` and `ctx.action_down(jump)` work.
+/// both so `ctx.input.action_down("jump")` and `ctx.input.action_down(jump)` work.
 pub trait ActionRef: sealed::Sealed + Copy {
     #[doc(hidden)]
     fn slot(self, map: &ActionMap) -> Option<usize>;
@@ -206,9 +206,9 @@ impl ActionRef for &String {
 ///     for name in Act::NAMES {
 ///         map.set(*name, Action::Button(vec![]));
 ///     }
-///     ctx.set_actions(map);
+///     ctx.input.set_actions(map);
 ///     let act = Act::resolve(ctx);
-///     assert!(!ctx.action_down(act.jump));
+///     assert!(!ctx.input.action_down(act.jump));
 /// });
 /// ```
 #[macro_export]
@@ -231,7 +231,7 @@ macro_rules! actions {
             /// Resolves every action once; each unknown name logs an error
             /// and reads false/zero.
             $vis fn resolve(ctx: &$crate::Ctx) -> Self {
-                Self { $($field: ctx.action_id($text)),+ }
+                Self { $($field: ctx.input.action_id($text)),+ }
             }
         }
     };
@@ -248,7 +248,7 @@ struct State {
 
 /// Serializable bindings, ordered by name. Runtime state is never serialized.
 /// Unknown names and queries of the wrong kind return false/zero; resolve a
-/// name once with [`ActionMap::resolve`] or `Ctx::action_id` to learn of a typo.
+/// name once with [`ActionMap::resolve`] or `Input::action_id` to learn of a typo.
 /// ```
 /// use ponko::{ActionMap, Action, ButtonBinding, Key};
 /// let mut map = ActionMap::default();
@@ -467,63 +467,4 @@ pub enum InputEvent {
     FocusLost,
     /// Release a controller's buttons and center its axes.
     GamepadDisconnected(Gamepad),
-}
-
-/// Raw input scheduled by simulation tick, for reproducible headless tests.
-///
-/// Install it with [`Game::input_scenario`](crate::Game::input_scenario).
-/// Before the simulation systems of tick `t` run, every step scheduled at or
-/// before `t` goes through [`Ctx::feed_input`](crate::Ctx::feed_input), the
-/// same path as live input, so actions see ordinary pressed, held and
-/// released states. Steps keep the order they were added in within a tick.
-/// Ticks are [`Ctx::sim_tick`](crate::Ctx::sim_tick) values; the first tick
-/// after setup is 0. Pausing does not move a step, because paused games don't
-/// advance the tick.
-///
-/// Building a scenario allocates; applying it does not.
-/// ```
-/// use ponko::{InputEvent, InputScenario, Key};
-/// // Hold Space on ticks 2, 3 and 4; it is released on tick 5.
-/// let jump = InputScenario::new()
-///     .at(2, InputEvent::Key(Key::Space, true))
-///     .at(5, InputEvent::Key(Key::Space, false));
-/// ```
-#[derive(Debug, Clone, Default)]
-pub struct InputScenario {
-    /// Sorted by tick; equal ticks keep insertion order.
-    steps: Vec<(u64, InputEvent)>,
-    /// Index of the first step not yet applied.
-    next: usize,
-}
-
-impl InputScenario {
-    /// An empty scenario.
-    /// ```
-    /// let scenario = ponko::InputScenario::new();
-    /// ```
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Adds `event` at simulation tick `tick`. Steps may be added in any order.
-    /// ```
-    /// use ponko::{InputEvent, InputScenario, Key};
-    /// let scenario = InputScenario::new().at(10, InputEvent::Key(Key::Enter, true));
-    /// ```
-    pub fn at(mut self, tick: u64, event: InputEvent) -> Self {
-        let index = self.steps.partition_point(|&(t, _)| t <= tick);
-        self.steps.insert(index, (tick, event));
-        self
-    }
-
-    /// Feeds every remaining step scheduled at or before `tick`.
-    pub(crate) fn apply(&mut self, ctx: &mut crate::Ctx, tick: u64) {
-        while let Some(&(t, event)) = self.steps.get(self.next) {
-            if t > tick {
-                break;
-            }
-            ctx.feed_input(event);
-            self.next += 1;
-        }
-    }
 }

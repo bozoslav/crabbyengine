@@ -7,6 +7,7 @@
 
 mod actions;
 mod archetypes;
+mod extraction;
 mod membership;
 mod nav3d;
 mod net;
@@ -16,6 +17,7 @@ mod physics;
 mod physics3d;
 mod query_cache;
 mod report;
+mod streaming;
 
 use bevy_ecs::component::Component;
 use std::hint::black_box;
@@ -169,9 +171,11 @@ fn main() {
     physics::run(&mut b);
     physics3d::run(&mut b);
     nav3d::run(&mut b);
+    extraction::run(&mut b);
     net::run(&mut b);
     actions::run(&mut b);
     query_cache::run(&mut b);
+    streaming::run(&mut b);
 
     // Resource scoping versus the previous public take/put workaround.
     for scoped in [false, true] {
@@ -461,6 +465,179 @@ fn main() {
                 p.x += v.x * dt;
                 p.y += v.y * dt;
             });
+        },
+    );
+    // Change detection (opt-in): what tracking one component costs. The
+    // `untracked` entries are the same loops without it, for the same run.
+    for (name, tracked) in [
+        ("changes/ponko-iter-mut-untracked", false),
+        ("changes/ponko-iter-mut-tracked", true),
+    ] {
+        b.steady_with_bytes(
+            name,
+            200,
+            || {
+                let mut w = ponko_ecs::World::new();
+                if tracked {
+                    w.track_changes::<Pos>();
+                }
+                w.spawn_batch((0..N).map(ent));
+                w
+            },
+            |w| {
+                let dt = black_box(DT);
+                w.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| {
+                    p.x += v.x * dt;
+                    p.y += v.y * dt;
+                });
+            },
+            |w| Some(w.allocated_bytes()),
+        );
+    }
+    // Reading a tracked component marks nothing.
+    for (name, tracked) in [
+        ("changes/ponko-iter-read-untracked", false),
+        ("changes/ponko-iter-read-tracked", true),
+    ] {
+        b.steady(
+            name,
+            200,
+            || {
+                let mut w = ponko_ecs::World::new();
+                if tracked {
+                    w.track_changes::<Pos>();
+                }
+                w.spawn_batch((0..N).map(ent));
+                w
+            },
+            |w| {
+                let mut sum = 0.0;
+                w.query::<(&Pos, &Vel)>().for_each(|(p, v)| sum += p.x + v.x);
+                black_box(sum);
+            },
+        );
+    }
+    // A `Changed` filter over a world where nothing, 1% or everything changed
+    // since the reader last looked.
+    for (name, every) in [
+        ("changes/ponko-filter-0pct", 0),
+        ("changes/ponko-filter-1pct", 100),
+        ("changes/ponko-filter-100pct", 1),
+    ] {
+        b.steady(
+            name,
+            200,
+            || {
+                let mut w = ponko_ecs::World::new();
+                w.track_changes::<Pos>();
+                let es: Vec<_> = (0..N).map(|i| w.spawn(ent(i))).collect();
+                let seen = w.advance_change_tick();
+                if every > 0 {
+                    for e in es.iter().step_by(every) {
+                        w.mark_changed::<Pos>(*e);
+                    }
+                }
+                (w, seen)
+            },
+            |(w, seen)| {
+                let mut sum = 0.0;
+                w.query::<&Pos>()
+                    .filter::<ponko_ecs::Changed<Pos>>()
+                    .since(*seen)
+                    .for_each(|p| sum += p.x);
+                black_box(sum);
+            },
+        );
+    }
+    b.run(
+        "changes/ponko-spawn-tracked",
+        10,
+        || {
+            let mut w = ponko_ecs::World::new();
+            w.track_changes::<Pos>();
+            w
+        },
+        |w| {
+            for i in 0..N {
+                w.spawn(ent(i));
+            }
+        },
+    );
+    b.run(
+        "changes/ponko-spawn-batch-tracked",
+        10,
+        || {
+            let mut w = ponko_ecs::World::new();
+            w.track_changes::<Pos>();
+            w
+        },
+        |w| w.spawn_batch((0..N).map(ent)),
+    );
+    b.run(
+        "changes/ponko-get-mut-random-tracked",
+        10,
+        || {
+            let mut w = ponko_ecs::World::new();
+            w.track_changes::<Pos>();
+            let es: Vec<_> = (0..N).map(|i| w.spawn(ent(i))).collect();
+            let es: Vec<_> = shuffled(N).iter().map(|&i| es[i]).collect();
+            (w, es)
+        },
+        |(w, es)| {
+            for &e in es.iter() {
+                w.get_mut::<Pos>(e).unwrap().x += 1.0;
+            }
+        },
+    );
+    b.run(
+        "changes/ponko-get-mut-random-untracked",
+        10,
+        || {
+            let mut w = ponko_ecs::World::new();
+            let es: Vec<_> = (0..N).map(|i| w.spawn(ent(i))).collect();
+            let es: Vec<_> = shuffled(N).iter().map(|&i| es[i]).collect();
+            (w, es)
+        },
+        |(w, es)| {
+            for &e in es.iter() {
+                w.get_mut::<Pos>(e).unwrap().x += 1.0;
+            }
+        },
+    );
+    // Moving rows between archetypes carries the stamps of `Pos`; the tracked
+    // `Tag` also logs 100k removals.
+    b.run(
+        "changes/ponko-add-remove-tracked",
+        10,
+        || {
+            let mut w = ponko_ecs::World::new();
+            w.track_changes::<Pos>();
+            w.track_changes::<Tag>();
+            let es: Vec<_> = (0..ADD_REMOVE_N).map(|i| w.spawn(ent(i))).collect();
+            (w, es)
+        },
+        |(w, es)| {
+            for &e in es.iter() {
+                w.insert(e, Tag);
+            }
+            for &e in es.iter() {
+                w.remove::<Tag>(e);
+            }
+        },
+    );
+    b.run(
+        "changes/ponko-despawn-tracked",
+        10,
+        || {
+            let mut w = ponko_ecs::World::new();
+            w.track_changes::<Pos>();
+            let es: Vec<_> = (0..N).map(|i| w.spawn(ent(i))).collect();
+            (w, es)
+        },
+        |(w, es)| {
+            for &e in es.iter() {
+                w.despawn(e);
+            }
         },
     );
     b.steady(

@@ -37,7 +37,7 @@ pub const MAX_DECALS_PER_CLUSTER: usize = 64;
 /// Parent a decal to a model (see `Attached`) to carry it along.
 ///
 /// Images come from the texture array set with
-/// [`Ctx::set_decal_textures`](crate::Ctx::set_decal_textures); without
+/// [`Graphics::set_decal_textures`](crate::Graphics::set_decal_textures); without
 /// one a decal is a flat `color` rectangle. Surfaces whose model has no
 /// matching [`ReceivesDecals`] layer are skipped, as are transparent
 /// materials.

@@ -17,8 +17,9 @@ struct BundleInfo {
     columns: Box<[usize]>,
 }
 
-/// One chunk of entities handed to [`World::for_each_chunk`]: `len` entities
-/// and one column pointer per requested component, in request order.
+/// One chunk of entities handed to [`World::for_each_chunk`] or
+/// [`World::query_chunks`]: `len` entities and one column pointer per
+/// requested component, in request order.
 pub struct Chunk<'a> {
     /// The entities in this chunk; row `i` of each column belongs to `entities[i]`.
     pub entities: &'a [Entity],
@@ -62,7 +63,7 @@ impl Chunk<'_> {
 /// assert!(world.get::<Pos>(crab).is_none());
 /// ```
 pub struct World {
-    infos: Vec<ComponentInfo>,
+    pub(crate) infos: Vec<ComponentInfo>,
     by_type: TypeMap<ComponentId>,
     by_name: HashMap<String, ComponentId>,
     // Append-only: query matching caches use indices and len() as a generation.
@@ -77,6 +78,11 @@ pub struct World {
     scratch_ids: Vec<ComponentId>,
     /// Access recording for declared-access checks (debug builds only).
     pub(crate) recorder: Recorder,
+    /// Change detection: the tick counter and the removal logs.
+    pub(crate) changes: crate::change::Changes,
+    /// Unique per world, so a [`ViewState`](crate::ViewState) prepared on
+    /// one world is never used to view another.
+    pub(crate) uid: u64,
 }
 
 // Own the existing box so scoped access needs neither unsafe code nor a new
@@ -144,6 +150,24 @@ impl Default for World {
 }
 
 impl World {
+    /// A number no other world of this process has. Code that remembers
+    /// something about a world, such as a [`Tick`](crate::Tick) it last
+    /// looked at, keeps this next to it to notice that the world was
+    /// replaced: the new world's ticks start over and mean something else.
+    ///
+    /// ```
+    /// use ponko_ecs::World;
+    ///
+    /// let (a, b) = (World::new(), World::new());
+    /// assert_ne!(a.id(), b.id());
+    /// assert_eq!(a.id(), a.id());
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn id(&self) -> u64 {
+        self.uid
+    }
+
     /// An empty world.
     #[must_use]
     pub fn new() -> Self {
@@ -160,6 +184,8 @@ impl World {
             dynamic_resources: HashMap::new(),
             scratch_ids: Vec::new(),
             recorder: Recorder::default(),
+            changes: Default::default(),
+            uid: crate::view::next_world_uid(),
         };
         w.archetype_for(&[]); // archetype 0: entities with no components
         w
@@ -280,7 +306,7 @@ impl World {
     fn spawn_in<B: Bundle>(&mut self, a: usize, bundle: B, e: Entity) -> Entity {
         let cols = &self.bundles[&TypeId::of::<B>()].columns;
         let arch = &mut self.archetypes[a];
-        arch.reserve(1);
+        arch.reserve_row(&self.changes);
         let row = arch.len();
         unsafe {
             bundle.write(&mut |i, src| {
@@ -306,6 +332,10 @@ impl World {
         let Some(loc) = self.entities.get(e) else { return false };
         // Free the slot first: if a component's drop panics, the entity is already gone.
         self.entities.free(e);
+        if self.archetypes[loc.archetype as usize].tracked() {
+            self.changes
+                .log_despawn(&self.infos, &self.archetypes[loc.archetype as usize], e);
+        }
         let moved = unsafe { self.archetypes[loc.archetype as usize].swap_remove_drop(loc.row as usize) };
         if let Some(moved) = moved {
             self.entities.set_row(moved, loc.row as usize);
@@ -367,7 +397,14 @@ impl World {
     pub fn get_mut<T: Component>(&mut self, e: Entity) -> Option<&mut T> {
         let id = self.component_id::<T>()?;
         self.recorder.note(|l| l.component(id, true));
-        let ptr = self.locate(e, id)?;
+        let loc = self.entities.get(e)?;
+        let arch = &self.archetypes[loc.archetype as usize];
+        let col = arch.column_index(id)?;
+        if arch.tracked() {
+            // A mutable borrow counts as a change.
+            arch.stamp(col, loc.row as usize, self.changes.stamp(), false);
+        }
+        let ptr = arch.columns[col].ptr(loc.row as usize);
         Some(unsafe { &mut *ptr.cast::<T>() })
     }
 
@@ -611,6 +648,16 @@ impl World {
         self.dynamic_resources.remove(name).is_some()
     }
 
+    /// Moves a typed resource out of the map, unrecorded (for views).
+    pub(crate) fn lend_resource(&mut self, id: TypeId) -> Option<Box<dyn Any + Send + Sync>> {
+        self.resources.remove(&id)
+    }
+
+    /// Puts a resource moved out by `lend_resource` back.
+    pub(crate) fn return_resource(&mut self, id: TypeId, value: Box<dyn Any + Send + Sync>) {
+        self.resources.insert(id, value);
+    }
+
     /// Records resource `R` as read or written, while recording.
     #[inline]
     fn note_resource<R: 'static>(&self, write: bool) {
@@ -679,6 +726,7 @@ impl World {
             layout: Layout::new::<T>(),
             drop,
             type_id: Some(TypeId::of::<T>()),
+            tracked: false,
         });
         self.by_type.insert(TypeId::of::<T>(), id);
         id
@@ -717,6 +765,7 @@ impl World {
             layout,
             drop,
             type_id: None,
+            tracked: false,
         })
     }
 
@@ -806,7 +855,7 @@ impl World {
     }
 
     /// Where component `id` of `e` lives, without recording an access.
-    fn locate(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
+    pub(crate) fn locate(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
         let loc = self.entities.get(e)?;
         let arch = &self.archetypes[loc.archetype as usize];
         let col = arch.column_index(id)?;
@@ -884,7 +933,7 @@ impl World {
     /// location yet, and each pointer points to a valid value of its component.
     unsafe fn write_dynamic(&mut self, a: usize, e: Entity, components: &[(ComponentId, *const u8)]) {
         let arch = &mut self.archetypes[a];
-        arch.reserve(1);
+        arch.reserve_row(&self.changes);
         let row = arch.len();
         for &(id, src) in components {
             let c = &arch.columns[arch.column_index(id).unwrap()];
@@ -909,17 +958,33 @@ impl World {
     /// `value` must point to a valid value of component `id`; on success the
     /// world takes ownership of it.
     pub unsafe fn insert_dynamic(&mut self, e: Entity, id: ComponentId, value: *const u8) -> bool {
-        self.recorder.note(|l| l.structural = true);
-        let Some(loc) = self.entities.get(e) else { return false };
+        let Some(loc) = self.entities.get(e) else {
+            self.recorder.note(|l| l.structural = true);
+            return false;
+        };
         let src = loc.archetype as usize;
+        // Replacing a component in place is a write, not a structural change.
+        // (Looked up inside, so release builds, which don't record, skip it.)
+        self.recorder.note(|l| {
+            if self.archetypes[src].column_index(id).is_some() {
+                l.component(id, true);
+            } else {
+                l.structural = true;
+            }
+        });
         if let Some(col) = self.archetypes[src].column_index(id) {
-            let c = &self.archetypes[src].columns[col];
+            let arch = &self.archetypes[src];
+            let c = &arch.columns[col];
             let dst = c.ptr(loc.row as usize);
             unsafe {
                 if let Some(d) = c.drop_fn() {
                     d(dst);
                 }
                 std::ptr::copy_nonoverlapping(value, dst, c.size());
+            }
+            if arch.tracked() {
+                // Replacing a value changes it; it was added when it first arrived.
+                arch.stamp(col, loc.row as usize, self.changes.stamp(), false);
             }
             return true;
         }
@@ -937,8 +1002,12 @@ impl World {
         };
         let row = self.move_row(e, loc, dst);
         let arch = &self.archetypes[dst];
-        let c = &arch.columns[arch.column_index(id).unwrap()];
+        let col = arch.column_index(id).unwrap();
+        let c = &arch.columns[col];
         unsafe { std::ptr::copy_nonoverlapping(value, c.ptr(row), c.size()) };
+        if arch.tracked() {
+            arch.stamp(col, row, self.changes.stamp(), true);
+        }
         true
     }
 
@@ -984,6 +1053,10 @@ impl World {
                     Some(p) => ptrs[i] = p,
                     None => continue 'arch,
                 }
+            }
+            if arch.tracked() {
+                // The column pointers allow writing: every row counts as changed.
+                crate::change::mark_columns(arch, ids, self.changes.stamp());
             }
             f(Chunk {
                 entities: &arch.entities,
@@ -1034,6 +1107,9 @@ impl World {
     /// is forgotten: the caller must have read or copied it out.
     fn move_without(&mut self, e: Entity, loc: Location, id: ComponentId) {
         let src = loc.archetype as usize;
+        if self.archetypes[src].tracked() && self.infos[id.index()].tracked {
+            self.changes.log_removal(id, e);
+        }
         let dst = match self.archetypes[src].remove_edges.get(&id) {
             Some(&d) => d,
             None => {
@@ -1069,6 +1145,11 @@ impl World {
                 unsafe { std::ptr::copy_nonoverlapping(col.ptr(row), d.columns[j].ptr(new_row), col.size()) };
             }
             unsafe { col.swap_remove_forget(row, last) };
+        }
+        if s.tracked() {
+            // The components the entity keeps take their stamps along.
+            s.copy_stamps_to(row, d, new_row);
+            s.swap_remove_stamps(row, last);
         }
         s.entities.swap_remove(row);
         if row != last {

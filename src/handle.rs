@@ -42,7 +42,7 @@ mod sealed {
 /// ```
 /// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-///     let pixel = ctx.create_texture(1, 1, &[255; 4]);
+///     let pixel = ctx.gfx.create_texture(1, 1, &[255; 4]);
 ///     assert!(ctx.is_live(pixel));
 ///     ctx.free(pixel);
 ///     assert!(!ctx.is_live(pixel));
@@ -66,8 +66,8 @@ pub trait Handle: Copy + Eq + Hash + std::fmt::Debug + sealed::Sealed {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let a = ctx.create_texture(1, 1, &[255; 4]);
-    ///     let b = ctx.create_texture(1, 1, &[255; 4]);
+    ///     let a = ctx.gfx.create_texture(1, 1, &[255; 4]);
+    ///     let b = ctx.gfx.create_texture(1, 1, &[255; 4]);
     ///     assert_ne!(a.id(), b.id());
     /// });
     /// ```
@@ -81,7 +81,7 @@ pub trait Handle: Copy + Eq + Hash + std::fmt::Debug + sealed::Sealed {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let t = ctx.create_texture(2, 2, &[255; 16]);
+    ///     let t = ctx.gfx.create_texture(2, 2, &[255; 16]);
     ///     assert!(ctx.is_live(Texture::from_id(t.id())));
     /// });
     /// ```
@@ -104,7 +104,7 @@ pub trait Handle: Copy + Eq + Hash + std::fmt::Debug + sealed::Sealed {
 /// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     let before = ctx.live_counts();
-///     let t = ctx.create_texture(1, 1, &[255; 4]);
+///     let t = ctx.gfx.create_texture(1, 1, &[255; 4]);
 ///     assert_eq!(ctx.live_counts().textures, before.textures + 1);
 ///     ctx.free(t);
 ///     assert_eq!(ctx.live_counts(), before);
@@ -174,10 +174,10 @@ impl Ctx {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let beep = ctx.create_sound(8_000, &[0.0; 800]);
+    ///     let beep = ctx.audio.create(8_000, &[0.0; 800]);
     ///     ctx.free(beep);
     ///     assert!(!ctx.is_live(beep));
-    ///     let again = ctx.create_sound(8_000, &[0.0; 800]);
+    ///     let again = ctx.audio.create(8_000, &[0.0; 800]);
     ///     assert_ne!(again.id(), beep.id()); // ids are never reused
     /// });
     /// ```
@@ -197,13 +197,13 @@ impl Ctx {
     pub fn live_counts(&self) -> LiveCounts {
         #[cfg_attr(not(feature = "3d"), allow(unused_mut))]
         let mut counts = LiveCounts {
-            textures: self.textures_live.len(),
-            sounds: self.sounds_live.len(),
-            fonts: self.text.loaded_fonts(),
+            textures: self.gfx.textures_live.len(),
+            sounds: self.audio.sounds_live.len(),
+            fonts: self.gfx.text.loaded_fonts(),
             ..LiveCounts::default()
         };
         #[cfg(feature = "3d")]
-        self.count_live_3d(&mut counts);
+        self.gfx.count_live_3d(&mut counts);
         counts
     }
 }
@@ -296,10 +296,10 @@ impl Handle for crate::Texture {
         crate::Texture::new(id, 0, 0)
     }
     fn live_in(self, ctx: &Ctx) -> bool {
-        ctx.textures_live.contains(self.id)
+        ctx.gfx.textures_live.contains(self.id)
     }
     fn free_in(self, ctx: &mut Ctx) {
-        ctx.free_texture_id(self.id);
+        ctx.gfx.free_texture_id(self.id);
     }
 }
 
@@ -313,10 +313,10 @@ impl Handle for crate::Sound {
         crate::Sound::new(id, 0.0)
     }
     fn live_in(self, ctx: &Ctx) -> bool {
-        ctx.sounds_live.contains(self.id)
+        ctx.audio.sounds_live.contains(self.id)
     }
     fn free_in(self, ctx: &mut Ctx) {
-        ctx.free_sound_id(self.id);
+        ctx.audio.free_id(self.id);
     }
 }
 
@@ -330,10 +330,10 @@ impl Handle for crate::Font {
         crate::Font(id)
     }
     fn live_in(self, ctx: &Ctx) -> bool {
-        ctx.text.has_font(self)
+        ctx.gfx.text.has_font(self)
     }
     fn free_in(self, ctx: &mut Ctx) {
-        ctx.free_font_id(self.0);
+        ctx.gfx.free_font_id(self.0);
     }
 }
 
@@ -342,37 +342,44 @@ mod three {
     use super::*;
     use crate::{Compute, Effect, GpuBuffer, InstanceBatch, Material, Mesh, Shader, TextureArray};
 
-    id_handle!(Mesh, |c: &Ctx, h: Mesh| c.is_mesh_live(h), |c: &mut Ctx, h| c
+    id_handle!(Mesh, |c: &Ctx, h: Mesh| c.gfx.is_mesh_live(h), |c: &mut Ctx, h| c
+        .gfx
         .free_mesh(h));
     id_handle!(
         Material,
-        |c: &Ctx, h: Material| c.assets3d.materials_live.contains(h.id),
-        |c: &mut Ctx, h: Material| c.free_material_id(h.id)
+        |c: &Ctx, h: Material| c.gfx.assets3d.materials_live.contains(h.id),
+        |c: &mut Ctx, h: Material| c.gfx.free_material_id(h.id)
     );
     id_handle!(
         Shader,
-        |c: &Ctx, h: Shader| c.assets3d.shaders_live.contains(h.id),
-        |c: &mut Ctx, h: Shader| c.free_shader_id(h.id)
+        |c: &Ctx, h: Shader| c.gfx.assets3d.shaders_live.contains(h.id),
+        |c: &mut Ctx, h: Shader| c.gfx.free_shader_id(h.id)
     );
     id_handle!(
         Compute,
-        |c: &Ctx, h: Compute| c.assets3d.computes_live.contains(h.id),
-        |c: &mut Ctx, h: Compute| c.free_compute_id(h.id)
+        |c: &Ctx, h: Compute| c.gfx.assets3d.computes_live.contains(h.id),
+        |c: &mut Ctx, h: Compute| c.gfx.free_compute_id(h.id)
     );
     id_handle!(
         Effect,
-        |c: &Ctx, h: Effect| c.assets3d.effects_live.contains(h.id),
-        |c: &mut Ctx, h: Effect| c.free_effect_id(h.id)
+        |c: &Ctx, h: Effect| c.gfx.assets3d.effects_live.contains(h.id),
+        |c: &mut Ctx, h: Effect| c.gfx.free_effect_id(h.id)
     );
     id_handle!(
         GpuBuffer,
-        |c: &Ctx, h: GpuBuffer| c.gpu_buffer_len(h).is_some(),
-        |c: &mut Ctx, h| c.free_gpu_buffer(h)
+        |c: &Ctx, h: GpuBuffer| c.gfx.gpu_buffer_len(h).is_some(),
+        |c: &mut Ctx, h: GpuBuffer| {
+            // Clear what pointed at it, so the id's next buffer starts clean.
+            if c.gfx.gpu_buffer_len(h).is_some() {
+                c.compute_passes.retain(|p| p.buffer != Some(h));
+            }
+            c.gfx.free_gpu_buffer(h);
+        }
     );
     id_handle!(
         InstanceBatch,
-        |c: &Ctx, h: InstanceBatch| c.instance_batch_len(h).is_some(),
-        |c: &mut Ctx, h| c.free_instance_batch(h)
+        |c: &Ctx, h: InstanceBatch| c.gfx.instance_batch_len(h).is_some(),
+        |c: &mut Ctx, h| c.gfx.free_instance_batch(h)
     );
 
     impl sealed::Sealed for TextureArray {}
@@ -395,10 +402,10 @@ mod three {
             }
         }
         fn live_in(self, ctx: &Ctx) -> bool {
-            ctx.assets3d.arrays_live.contains(self.id)
+            ctx.gfx.assets3d.arrays_live.contains(self.id)
         }
         fn free_in(self, ctx: &mut Ctx) {
-            ctx.free_texture_array_id(self.id);
+            ctx.gfx.free_texture_array_id(self.id);
         }
     }
 }

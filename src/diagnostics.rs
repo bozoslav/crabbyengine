@@ -7,8 +7,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ctx::{Ctx, SystemTiming};
+use crate::ctx::Ctx;
 use crate::game::Phase;
+use crate::perf::SystemTiming;
 
 /// The schema version of [`EcsDiagnostics`]. Field names are stable; new
 /// fields may be added without a bump. Renaming or removing one bumps it.
@@ -152,7 +153,7 @@ impl EcsDiagnostics {
 }
 
 /// Where a system sits in the schedule, recorded when the game lists its
-/// systems (parallel to [`Ctx::system_timings`]).
+/// systems (parallel to [`Perf::system_timings`]).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ScheduleSlot {
     pub phase: Phase,
@@ -226,7 +227,7 @@ pub(crate) fn snapshot(ctx: &Ctx) -> EcsDiagnostics {
         allocated_bytes: world.allocated_bytes(),
         archetypes,
         components,
-        systems: systems(&ctx.timings, &ctx.schedule),
+        systems: systems(&ctx.perf.timings, &ctx.perf.schedule),
     }
 }
 

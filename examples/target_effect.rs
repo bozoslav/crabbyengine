@@ -32,12 +32,12 @@ fn main() {
             if ctx.key_pressed(Key::Escape) {
                 ctx.quit();
             }
-            if ctx.frame() == 60
+            if ctx.time.frame() == 60
                 && let Ok(path) = std::env::var("SHOT")
             {
-                ctx.save_screenshot(path);
+                ctx.gfx.save_screenshot(path);
             }
-            if ctx.frame() == 62 && std::env::var("SHOT").is_ok() {
+            if ctx.time.frame() == 62 && std::env::var("SHOT").is_ok() {
                 ctx.quit();
             }
         })
@@ -47,35 +47,35 @@ fn main() {
             ctx.lighting.sun_direction = Sky::sun_direction_at(15.0);
 
             // The quarter-size copy, written by the target effect each frame.
-            let soft = ctx.create_render_target(320, 180);
-            let copy = ctx.create_effect("copy", COPY);
+            let soft = ctx.gfx.create_render_target(320, 180);
+            let copy = ctx.gfx.create_effect("copy", COPY);
             ctx.target_effects.push(TargetEffect::new(copy, soft));
 
             // The screen effect reads it in the same frame.
-            let focus = ctx.create_effect("focus", FOCUS);
-            let settings = ctx.create_material(MaterialDesc {
+            let focus = ctx.gfx.create_effect("focus", FOCUS);
+            let settings = ctx.gfx.create_material(MaterialDesc {
                 custom: [vec4(6.0, 8.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
                 custom_textures: [Some(soft), None],
                 ..Default::default()
             });
             ctx.effects.push(ScreenEffect::new(focus).with_material(settings));
 
-            let stone = ctx.create_material(MaterialDesc {
+            let stone = ctx.gfx.create_material(MaterialDesc {
                 roughness: 0.7,
                 ..MaterialDesc::color(Color::hex(0xC0A080))
             });
-            let block = ctx.create_mesh(&MeshData::cube(1.0), stone);
+            let block = ctx.gfx.create_mesh(&MeshData::cube(1.0), stone);
             for i in 0..12 {
                 let z = -(i as f32) * 2.5;
                 for x in [-1.5, 1.5] {
                     ctx.world.spawn((Transform3D::at(vec3(x, 0.5, z)), Model::new(block)));
                 }
             }
-            let grass = ctx.create_material(MaterialDesc {
+            let grass = ctx.gfx.create_material(MaterialDesc {
                 roughness: 0.95,
                 ..MaterialDesc::color(Color::hex(0x4E6B33))
             });
-            let ground = ctx.create_mesh(&MeshData::plane(200.0), grass);
+            let ground = ctx.gfx.create_mesh(&MeshData::plane(200.0), grass);
             ctx.world.spawn((Transform3D::default(), Model::new(ground)));
         });
 }

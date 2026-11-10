@@ -27,11 +27,13 @@ impl Fixture {
     fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -123,11 +125,11 @@ impl Fixture {
             roughness: 1.0,
             ..Default::default()
         };
-        let material = ctx.create_material(matte);
+        let material = ctx.gfx.create_material(matte);
         let ground = MeshData::plane(20.0);
         let cube = MeshData::cube(1.0);
-        let ground_mesh = ctx.create_mesh(&ground, material);
-        let cube_mesh = ctx.create_mesh(&cube, material);
+        let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+        let cube_mesh = ctx.gfx.create_mesh(&cube, material);
         ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
         ctx.world
             .spawn((Transform3D::at(vec3(0.0, 0.5, 0.0)), Model::new(cube_mesh)));
@@ -171,7 +173,7 @@ impl Fixture {
         frame.size_limit = device.limits().max_texture_dimension_2d;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -282,7 +284,7 @@ fn switching_presets_back_and_forth_renders_clean_full_size_frames() {
         GraphicsQuality::medium(),
     ];
     for (round, quality) in levels.into_iter().enumerate() {
-        f.ctx.set_graphics_quality(quality);
+        f.ctx.gfx.set_quality(&mut f.ctx.post, &mut f.ctx.lighting, quality);
         let first = f.draw();
         let second = f.draw();
         assert_eq!(
@@ -312,7 +314,9 @@ fn switching_presets_back_and_forth_renders_clean_full_size_frames() {
         assert_eq!(f.renderer.scales_output(), quality.render_scale != 1.0);
     }
     // Back to where it started: the same picture as the first time.
-    f.ctx.set_graphics_quality(GraphicsQuality::default());
+    f.ctx
+        .gfx
+        .set_quality(&mut f.ctx.post, &mut f.ctx.lighting, GraphicsQuality::default());
     let again = f.draw();
     assert_eq!(again, reference, "switching away and back changes nothing");
 }
@@ -371,15 +375,17 @@ fn a_scaled_scene_is_the_same_picture_at_the_windows_size() {
 fn shadow_maps_are_made_again_at_the_new_resolution_and_count() {
     let Some(mut f) = Fixture::new() else { return };
     f.draw();
+    // The default 4096² atlas, or the largest texture the device allows.
+    let atlas = Some(4096.min(f.device.limits().max_texture_dimension_2d));
     assert_eq!(f.renderer.shadow_map(), (2048, 4), "the engine's defaults");
-    assert_eq!(f.renderer.light_shadow_map(), Some(4096), "one 4096² atlas");
+    assert_eq!(f.renderer.light_shadow_map(), atlas, "one 4096² atlas");
 
     f.ctx.lighting.shadow_resolution = 512;
     f.draw();
     assert_eq!(f.renderer.shadow_map(), (512, 4));
     assert_eq!(
         f.renderer.light_shadow_map(),
-        Some(4096),
+        atlas,
         "the light shadow map is left alone"
     );
 
@@ -391,7 +397,7 @@ fn shadow_maps_are_made_again_at_the_new_resolution_and_count() {
     f.ctx.lighting.light_shadow_resolution = 256;
     f.ctx.lighting.light_shadow_views = 4;
     f.draw();
-    assert_eq!(f.renderer.light_shadow_map(), Some(4096));
+    assert_eq!(f.renderer.light_shadow_map(), atlas);
     f.ctx.lighting.light_shadow_atlas = 2048;
     f.draw();
     assert_eq!(f.renderer.light_shadow_map(), Some(2048));
@@ -439,11 +445,15 @@ fn a_bigger_shadow_map_changes_the_picture_less_than_it_changes_the_map() {
     // Presets differ in shadow detail but the lit ground and the box's
     // shadow stay: the picture is about the same.
     let Some(mut f) = Fixture::new() else { return };
-    f.ctx.set_graphics_quality(GraphicsQuality {
-        anti_aliasing: AntiAliasing::None,
-        ambient_occlusion: false,
-        ..GraphicsQuality::medium()
-    });
+    f.ctx.gfx.set_quality(
+        &mut f.ctx.post,
+        &mut f.ctx.lighting,
+        GraphicsQuality {
+            anti_aliasing: AntiAliasing::None,
+            ambient_occlusion: false,
+            ..GraphicsQuality::medium()
+        },
+    );
     let medium = f.draw();
     f.ctx.lighting.shadow_resolution = 4096;
     let sharp = f.draw();

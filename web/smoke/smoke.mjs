@@ -2,9 +2,10 @@
 // Browser smoke test for a Ponko web build (see README.md).
 //
 //   node web/smoke/smoke.mjs --dir target/web/web_smoke --backend webgl2
+//   node web/smoke/smoke.mjs --fixture web_smoke_3d --build --browser firefox
 //
-// Serves the built folder over HTTP, opens it in headless Chromium and checks
-// that the game starts, fetches its assets, keeps simulating, reacts to a
+// Serves the built folder over HTTP, opens it in a headless browser (Chromium,
+// Firefox or WebKit) and checks that the game starts, fetches its assets, keeps simulating, reacts to a
 // click and draws a nonblank canvas. Exit codes:
 //
 //   0  passed (for a --case self-test: the expected failure was detected)
@@ -12,61 +13,41 @@
 //   2  unsupported: the browser could not start, or lacks the backend asked for
 //   3  bad arguments or a missing build
 //
-// Every run writes report.json (browser, backend, adapter, timings, console)
-// and screenshots to --out.
+// Every run writes report.json (browser, backend, adapter, timings, console),
+// screenshots, and a Playwright trace (trace.zip) to --out.
 
+import { spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { extname, join, normalize, resolve, sep } from "node:path";
-import { chromium } from "playwright-core";
+import { dirname, extname, join, normalize, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { chromium, firefox, webkit } from "playwright-core";
+import {
+  CASES,
+  EXIT,
+  MIN_PROGRESS_TICKS,
+  USAGE,
+  UsageError,
+  backendAvailable,
+  checkEngineGpu,
+  checkMinimums,
+  launchConfig,
+  launchFailureKind,
+  parseArgs,
+  parseFixtures,
+  unsupportedReason,
+} from "./lib.mjs";
 
 // The canvas web/index.html gives the engine (its CANVAS_ID in src/web.rs).
 const GAME_CANVAS = "canvas#crabby";
 
-const EXIT = { pass: 0, app: 1, unsupported: 2, usage: 3 };
-const BACKENDS = ["auto", "webgpu", "webgl2"];
-// Self-tests: each makes the fixture fail in one way that must be caught.
-const CASES = {
-  ok: null,
-  "missing-asset": "asset",
-  panic: "panic",
-  stall: "stall",
-};
-// Ticks the simulation must advance in the 3 s progress window (step 3).
-const MIN_PROGRESS_TICKS = 60;
+const HERE = dirname(fileURLToPath(import.meta.url));
+const LAUNCHERS = { chromium, firefox, webkit };
 
 function usage(message) {
   console.error(`smoke: ${message}`);
-  console.error(
-    "usage: smoke.mjs --dir <built site> [--backend auto|webgpu|webgl2] [--case ok|missing-asset|panic|stall]\n" +
-      "                 [--out <artifacts dir>] [--timeout <startup seconds>] [--allow-unsupported]\n" +
-      "                 [--browser-arg <flag>]...",
-  );
+  console.error(USAGE);
   process.exit(EXIT.usage);
-}
-
-function parseArgs(argv) {
-  const args = { backend: "auto", case: "ok", timeout: 90, allowUnsupported: false, browserArgs: [] };
-  for (let i = 0; i < argv.length; i++) {
-    const flag = argv[i];
-    const value = () => argv[++i] ?? usage(`${flag} needs a value`);
-    switch (flag) {
-      case "--dir": args.dir = value(); break;
-      case "--backend": args.backend = value(); break;
-      case "--case": args.case = value(); break;
-      case "--out": args.out = value(); break;
-      case "--timeout": args.timeout = Number(value()); break;
-      case "--allow-unsupported": args.allowUnsupported = true; break;
-      case "--browser-arg": args.browserArgs.push(value()); break;
-      default: usage(`unknown argument ${flag}`);
-    }
-  }
-  if (!args.dir) usage("--dir is required");
-  if (!BACKENDS.includes(args.backend)) usage(`--backend must be one of ${BACKENDS.join(", ")}`);
-  if (!(args.case in CASES)) usage(`--case must be one of ${Object.keys(CASES).join(", ")}`);
-  if (!(args.timeout > 0)) usage("--timeout must be a positive number of seconds");
-  args.out ??= join("target", "web-smoke", `${args.backend}-${args.case}`);
-  return args;
 }
 
 const MIME = {
@@ -76,6 +57,7 @@ const MIME = {
   ".wasm": "application/wasm",
   ".json": "application/json",
   ".png": "image/png",
+  ".glb": "model/gltf-binary",
   ".wgsl": "text/plain",
 };
 
@@ -108,13 +90,26 @@ async function serve(root) {
 
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
-/** What the browser offers, probed on a blank page before the game loads. */
-async function probe(context, url) {
+/**
+ * What the browser offers, probed on a blank page before the game loads.
+ * WebGL2 is asked for first, and a WebGL2 run skips the WebGPU canvas test:
+ * on a GPU-less runner that test (a software WebGPU device presenting a
+ * canvas) can leave the browser without WebGL2 for the pages that follow.
+ */
+async function probe(context, url, backend) {
   const page = await context.newPage();
   try {
     await page.goto(new URL(PROBE_PATH, url).href);
-    return await page.evaluate(async () => {
-      const result = { webgpu: null, webgl2: null };
+    return await page.evaluate(async (webgpuCanvasTest) => {
+      const result = { webgpu: null, webgl2: null, hasNavigatorGpu: Boolean(navigator.gpu) };
+      const gl = document.createElement("canvas").getContext("webgl2");
+      if (gl) {
+        const debug = gl.getExtension("WEBGL_debug_renderer_info");
+        result.webgl2 = {
+          vendor: gl.getParameter(debug ? debug.UNMASKED_VENDOR_WEBGL : gl.VENDOR),
+          renderer: gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER),
+        };
+      }
       if (navigator.gpu) {
         try {
           const adapter = await navigator.gpu.requestAdapter();
@@ -126,6 +121,7 @@ async function probe(context, url) {
               description: info.description ?? "",
               fallback: Boolean(adapter.isFallbackAdapter ?? info.isFallbackAdapter),
             };
+            if (!webgpuCanvasTest) return result;
             // Can this browser show a WebGPU canvas at all? Clear one to
             // red without the engine and copy it back. (Some headless
             // setups have an adapter but no canvas presentation.)
@@ -144,8 +140,9 @@ async function probe(context, url) {
               })
               .end();
             device.queue.submit([encoder.finish()]);
-            await device.queue.onSubmittedWorkDone();
-            await new Promise((ok) => requestAnimationFrame(() => setTimeout(ok, 0)));
+            // Read it back in the same task as the submit: a WebGPU canvas's
+            // texture expires when its frame is presented, and a copy taken
+            // after that reads transparent black even on a working GPU.
             const copy = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
             copy.canvas.width = copy.canvas.height = 16;
             copy.drawImage(canvas, 0, 0);
@@ -162,16 +159,8 @@ async function probe(context, url) {
           }
         }
       }
-      const gl = document.createElement("canvas").getContext("webgl2");
-      if (gl) {
-        const debug = gl.getExtension("WEBGL_debug_renderer_info");
-        result.webgl2 = {
-          vendor: gl.getParameter(debug ? debug.UNMASKED_VENDOR_WEBGL : gl.VENDOR),
-          renderer: gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER),
-        };
-      }
       return result;
-    });
+    }, backend !== "webgl2");
   } finally {
     await page.close();
   }
@@ -191,14 +180,24 @@ async function canvasStats(page, png) {
       await image.decode();
     } else {
       image = document.querySelector(selector);
-      // Copy right after the game's next frame, while it's current.
-      await new Promise((ok) => requestAnimationFrame(() => setTimeout(ok, 0)));
     }
     const canvas = document.createElement("canvas");
     canvas.width = image.width;
     canvas.height = image.height;
     const ctx = canvas.getContext("2d");
-    ctx.drawImage(image, 0, 0);
+    if (base64) {
+      ctx.drawImage(image, 0, 0);
+    } else {
+      // Copy inside an animation frame, in the same task as the game's own
+      // frame callback: a WebGPU canvas is only readable until its frame is
+      // presented.
+      await new Promise((ok) =>
+        requestAnimationFrame(() => {
+          ctx.drawImage(image, 0, 0);
+          ok();
+        }),
+      );
+    }
     const { data } = ctx.getImageData(0, 0, image.width, image.height);
     const counts = new Map();
     for (let i = 0; i < data.length; i += 4) {
@@ -216,8 +215,10 @@ async function smokeState(page) {
   return page.evaluate(() => {
     const raw = document.documentElement.getAttribute("data-smoke");
     const status = document.getElementById("status");
+    const gpu = document.documentElement.getAttribute("data-smoke-gpu");
     return {
       state: raw ? JSON.parse(raw) : null,
+      gpu: gpu ? JSON.parse(gpu) : null,
       status: status && status.className === "error" ? status.textContent : null,
     };
   });
@@ -241,27 +242,47 @@ class Failure extends Error {
   }
 }
 
+/** `--build`: builds the fixture's example the way the fixture says (its Cargo features). */
+function build(args) {
+  const buildArgs = [join(HERE, "..", "build.sh")];
+  if (args.features.length) buildArgs.push("--features", args.features.join(","));
+  buildArgs.push(args.example, args.dir);
+  console.log(`smoke: web/build.sh ${buildArgs.slice(1).join(" ")}`);
+  const built = spawnSync("bash", buildArgs, { stdio: "inherit" });
+  if (built.status !== 0) usage(`building ${args.example} failed`);
+}
+
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2), parseFixtures(await readFile(join(HERE, "fixtures.json"), "utf8")));
+  } catch (e) {
+    if (e instanceof UsageError) usage(e.message);
+    throw e;
+  }
+  if (args.build) build(args);
   const root = resolve(args.dir);
   try {
     await stat(join(root, "index.html"));
   } catch {
-    usage(`${root}/index.html not found: build it first, e.g. web/build.sh web_smoke`);
+    usage(`${root}/index.html not found: build it first, e.g. web/build.sh web_smoke (or pass --fixture <name> --build)`);
   }
   await mkdir(args.out, { recursive: true });
   // Don't leave an earlier run's artifacts beside this one's.
-  for (const name of ["report.json", "console.log", "canvas.png", "page.png"]) {
+  for (const name of ["report.json", "console.log", "canvas.png", "page.png", "trace.zip", "chrome-trace.json"]) {
     await rm(join(args.out, name), { force: true });
   }
 
   const started = Date.now();
   const elapsed = () => (Date.now() - started) / 1000;
   const report = {
+    fixture: args.fixture ?? null,
     case: args.case,
+    requestedBrowser: args.browser,
     requestedBackend: args.backend,
     platform: `${process.platform}-${process.arch}`,
     startupTimeoutSeconds: args.timeout,
+    traces: { playwright: args.trace ? "trace.zip" : null, chromium: args.chromeTrace && args.browser === "chromium" ? "chrome-trace.json" : null },
     console: [],
     pageErrors: [],
     requests: [],
@@ -283,48 +304,44 @@ async function main() {
   const server = await serve(root);
   const url = `http://127.0.0.1:${server.address().port}/`;
   let browser;
+  let gameContext;
+  let chromeTracing = false;
   try {
-    // Software fallbacks so a GPU-less CI runner can still draw; Linux
-    // needs Vulkan turned on for WebGPU.
-    const browserArgs = ["--enable-unsafe-swiftshader", "--enable-unsafe-webgpu", ...args.browserArgs];
-    if (process.platform === "linux") browserArgs.push("--enable-features=Vulkan");
-    report.browserArgs = browserArgs;
+    const { options } = launchConfig(args.browser, process.platform, args);
+    report.launchOptions = options;
     try {
-      browser = await chromium.launch({ headless: true, args: browserArgs });
+      browser = await LAUNCHERS[args.browser].launch(options);
     } catch (e) {
-      throw new Failure("unsupported", `could not launch headless Chromium: ${e.message.split("\n")[0]}`);
+      // A browser that isn't installed is "unsupported" here; one that is
+      // installed and won't start is a failure, never a quiet pass.
+      const kind = launchFailureKind(e.message, process.env);
+      throw new Failure(kind, `could not launch headless ${args.browser}: ${e.message.split("\n").slice(0, 6).join(" | ")}`);
     }
-    report.browser = `chromium ${browser.version()}`;
+    report.browser = `${args.browser} ${browser.version()}`;
     log(`${report.browser}, ${report.platform}`);
 
     // Software GL contexts occasionally fail to start; ask again before
     // calling a backend unsupported.
-    const wanted = (c) =>
-      args.backend === "webgl2" ? c.webgl2 : args.backend === "webgpu" ? c.webgpu?.canvas : c.webgl2 || c.webgpu;
     for (let attempt = 1; ; attempt++) {
       const probeContext = await browser.newContext();
-      report.capabilities = await probe(probeContext, url);
+      report.capabilities = await probe(probeContext, url, args.backend);
       await probeContext.close();
       report.probeAttempts = attempt;
-      if (wanted(report.capabilities) || attempt === 3) break;
+      if (backendAvailable(report.capabilities, args.backend) || attempt === 3) break;
       log(`probe ${attempt} lacked the backend: ${JSON.stringify(report.capabilities)}; retrying`);
       await sleep(1000);
     }
     log(`WebGPU adapter: ${JSON.stringify(report.capabilities.webgpu)}; WebGL2: ${JSON.stringify(report.capabilities.webgl2)}`);
-    if (args.backend === "webgpu" && !report.capabilities.webgpu) {
-      throw new Failure("unsupported", "this browser has no WebGPU adapter here");
-    }
-    if (args.backend === "webgpu" && !report.capabilities.webgpu.canvas) {
-      throw new Failure("unsupported", `this browser can't show a WebGPU canvas here: ${report.capabilities.webgpu.canvasProblem}`);
-    }
-    if (args.backend !== "webgpu" && !report.capabilities.webgl2 && !report.capabilities.webgpu) {
-      throw new Failure("unsupported", "this browser has neither WebGPU nor WebGL2 here");
-    }
-    if (args.backend === "webgl2" && !report.capabilities.webgl2) {
-      throw new Failure("unsupported", "this browser has no WebGL2 here");
-    }
+    const reason = unsupportedReason(report.capabilities, args.backend, args.browser);
+    if (reason) throw new Failure("unsupported", reason);
 
     const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    gameContext = context;
+    if (args.trace) {
+      // Every action, request and (as screenshots) the page over time, for
+      // `npx playwright show-trace trace.zip`.
+      await context.tracing.start({ screenshots: true, snapshots: false, sources: false, title: `${args.fixture ?? "site"} ${args.browser} ${args.backend}` });
+    }
     if (args.backend === "webgl2") {
       // Hide WebGPU so the engine takes its WebGL2 fallback.
       await context.addInitScript(() => {
@@ -332,7 +349,7 @@ async function main() {
       });
     }
     if (args.case === "missing-asset") {
-      await context.route("**/assets/crab.png", (route) => route.fulfill({ status: 404, body: "gone" }));
+      await context.route(`**/assets/${args.asset}`, (route) => route.fulfill({ status: 404, body: "gone" }));
     }
     const page = await context.newPage();
     page.on("console", (m) => report.console.push({ type: m.type(), text: m.text(), at: elapsed() }));
@@ -344,6 +361,15 @@ async function main() {
     page.on("requestfailed", (r) =>
       report.requests.push({ path: new URL(r.url()).pathname, status: "failed", error: r.failure()?.errorText }),
     );
+
+    if (args.chromeTrace && args.browser === "chromium") {
+      // Chromium's own trace of the GPU process and compositor frames.
+      await browser.startTracing(page, {
+        categories: ["-*", "gpu", "viz", "disabled-by-default-gpu.service", "benchmark", "cc"],
+        screenshots: false,
+      });
+      chromeTracing = true;
+    }
 
     const query = args.case === "panic" || args.case === "stall" ? `?smoke_case=${args.case}` : "";
     log(`loading ${url}${query}`);
@@ -381,14 +407,45 @@ async function main() {
       throw new Failure("backend", `asked for ${args.backend} but the canvas uses ${report.backend}`);
     }
 
-    // 2. Assets: the index and the texture were fetched and decoded.
-    for (const path of ["/assets/index.json", "/assets/crab.png"]) {
+    // 1b. The engine's own account of the GPU it opened (Ctx::gpu_capabilities,
+    //     published by the fixture): the adapter, the backend, the limits and
+    //     what the renderer falls back on. It must agree with the canvas.
+    report.engine = { gpu: snapshot.gpu };
+    if (snapshot.gpu) {
+      const { adapter, limits } = snapshot.gpu;
+      const missing = snapshot.gpu.features.filter((f) => !f.available).map((f) => `${f.feature}: ${f.fallback ?? "-"}`);
+      report.engine.summary = { adapter, limits, unavailable: missing };
+      log(`engine GPU: ${adapter.backend} ${adapter.device_type} "${adapter.name}"; ${missing.length} features fall back`);
+    }
+    const mismatch = checkEngineGpu(snapshot.gpu, report.backend, args.engineGpu === "required");
+    if (mismatch) throw new Failure("backend", mismatch);
+
+    // 2. Assets: the index and the file were fetched (and a texture decoded).
+    for (const path of ["/assets/index.json", `/assets/${args.asset}`]) {
       if (!report.requests.some((r) => r.path === path && r.status === 200)) {
         throw new Failure("asset", `${path} was never fetched`);
       }
     }
-    if (JSON.stringify(snapshot.state.asset) !== "[32,32]") {
-      throw new Failure("asset", `crab.png decoded as ${JSON.stringify(snapshot.state.asset)}, not 32x32`);
+    if (args.assetSize !== "none") {
+      const [assetWidth, assetHeight] = args.assetSize.split("x").map(Number);
+      if (JSON.stringify(snapshot.state.asset) !== JSON.stringify([assetWidth, assetHeight])) {
+        throw new Failure("asset", `${args.asset} decoded as ${JSON.stringify(snapshot.state.asset)}, not ${args.assetSize}`);
+      }
+    }
+    // Assets from the game's in-memory asset source load by name in the
+    // browser too, and are never fetched (fixtures with `assetSource`).
+    if (args.assetSource !== "none") {
+      const [sourceWidth, sourceHeight] = args.assetSource.split("x").map(Number);
+      if (JSON.stringify(snapshot.state.source) !== JSON.stringify([sourceWidth, sourceHeight])) {
+        throw new Failure("asset", `the asset source's image decoded as ${JSON.stringify(snapshot.state.source)}, not ${args.assetSource}`);
+      }
+      if (snapshot.state.stream !== true) {
+        throw new Failure("asset", "streamed music from the asset source did not load");
+      }
+      const fetchedSource = report.requests.find((r) => r.path.includes("/assets/embedded/"));
+      if (fetchedSource) {
+        throw new Failure("asset", `${fetchedSource.path} was fetched, but it comes from an asset source`);
+      }
     }
 
     // 3. Progress: the fixed-step simulation keeps ticking. The bound is
@@ -415,11 +472,37 @@ async function main() {
     const clickDeadline = Date.now() + 10_000;
     for (;;) {
       snapshot = await smokeState(page);
+      failure = appFailure(snapshot.status);
+      if (failure) throw failure;
       if (snapshot.state.clicks >= 1) break;
       if (Date.now() > clickDeadline) throw new Failure("input", "the game never saw the click");
       await sleep(100);
     }
     log(`click seen: ${JSON.stringify(snapshot.state)}`);
+
+    // 4b. Keys: each --press key reaches the game and changes the state it
+    //     reports (a game with screens: Enter starts a round, Escape pauses).
+    for (const { key, field, value } of args.presses) {
+      await page.keyboard.press(key);
+      const pressDeadline = Date.now() + 10_000;
+      for (;;) {
+        snapshot = await smokeState(page);
+        failure = appFailure(snapshot.status);
+        if (failure) throw failure;
+        if (String(snapshot.state[field]) === value) break;
+        if (Date.now() > pressDeadline) {
+          throw new Failure("input", `after ${key}, ${field} is ${JSON.stringify(snapshot.state[field])}, not ${value}`);
+        }
+        await sleep(100);
+      }
+      log(`${key} seen: ${field} is ${value}`);
+    }
+
+    // 4c. Fields the fixture must report at least (--min): a 3D scene that
+    //     loaded but draws no models and no triangles is not running.
+    snapshot = await smokeState(page);
+    const tooLow = checkMinimums(snapshot.state, args.mins);
+    if (tooLow) throw new Failure("state", tooLow);
 
     // 5. Rendering: the canvas shows the background and the sprites.
     const png = await page.locator(GAME_CANVAS).screenshot();
@@ -432,7 +515,7 @@ async function main() {
     log(`canvas: ${JSON.stringify(report.canvas)}`);
     if (Object.values(report.canvas).every(blank)) {
       if (report.backend === "webgpu" && report.capabilities.webgpu?.canvas !== true) {
-        throw new Failure("unsupported", `blank WebGPU canvas, but a plain WebGPU canvas fails here too: ${report.capabilities.webgpu.canvasProblem}`);
+        throw new Failure("unsupported", `blank WebGPU canvas, but a plain WebGPU canvas fails here too: ${report.capabilities.webgpu?.canvasProblem ?? "the browser found no WebGPU adapter"}`);
       }
       throw new Failure("blank", `the canvas looks blank: ${JSON.stringify(report.canvas)}`);
     }
@@ -463,6 +546,13 @@ async function main() {
       await finish(EXIT.app, kind, message);
     }
   } finally {
+    if (chromeTracing) {
+      const trace = await browser.stopTracing().catch(() => null);
+      if (trace) await writeFile(join(args.out, "chrome-trace.json"), trace);
+    }
+    if (gameContext && args.trace) {
+      await gameContext.tracing.stop({ path: join(args.out, "trace.zip") }).catch(() => {});
+    }
     await browser?.close().catch(() => {});
     server.close();
   }

@@ -38,3 +38,6 @@ rustc-ice-*.txt
 # Temporary asset files the integration tests write (tests/common); a killed
 # test run can leave them behind
 /assets/test-*
+
+# Python bytecode (scripts/)
+__pycache__/

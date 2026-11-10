@@ -32,24 +32,34 @@ fn regen(ctx: &mut Ctx) {
     ctx.world
         .query::<&mut Health>()
         .for_each(|h| h.current = (h.current + 1.0).min(h.max));
-    let tick = ctx.sim_tick();
+    let tick = ctx.time.sim_tick();
     ctx.events.send(Regen { tick });
     ctx.world.resource_mut::<Rules>().round += 1;
 }
 
 /// Starts a paused headless game; returns its port and the thread.
 fn start_game(name: &'static str) -> (u16, thread::JoinHandle<World>) {
+    start_game_with(name, false)
+}
+
+/// Like [`start_game`], and with a "jump" action on Space; `injection` lets
+/// tools start input scenarios.
+fn start_game_with(name: &'static str, injection: bool) -> (u16, thread::JoinHandle<World>) {
     let (tx, rx) = mpsc::channel();
     let h = thread::spawn(move || {
         Game::new(name, 1, 1)
             .control_endpoint(true)
+            .input_injection(injection)
             .sim_system(regen)
             .run_headless(u64::MAX, move |ctx| {
                 ctx.world.reflect::<Health>();
                 ctx.events.reflect::<Regen>();
                 ctx.world.reflect_resource::<Rules>();
                 ctx.world.insert_resource(Rules { regen: 1.0, round: 0 });
-                ctx.pause();
+                let mut actions = ActionMap::default();
+                actions.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
+                ctx.input.set_actions(actions);
+                ctx.time.pause();
                 tx.send(ctx.control_addr().unwrap().port()).unwrap();
             })
     });
@@ -353,11 +363,11 @@ fn agents_drive_several_games_through_mcp() {
         .unwrap();
     assert_eq!(spawn["available"], false);
     assert!(spawn["reason"].as_str().unwrap().contains("read-only"));
-    assert!(
-        !names
-            .iter()
-            .any(|n| n == "spawn_entity" || n == "launch" || n == "run_ticks" || n == "watch")
-    );
+    assert!(!names.iter().any(|n| n == "spawn_entity"
+        || n == "launch"
+        || n == "run_ticks"
+        || n == "watch"
+        || n == "run_input_scenario"));
     let listed = viewer
         .tool("list_entities", json!({ "instance": port_a, "with": ["Health"] }))
         .unwrap();
@@ -462,6 +472,125 @@ fn agents_drive_several_games_through_mcp() {
         .map(|e| e["data"]["tick"].as_u64().unwrap())
         .collect();
     assert_eq!(ticks, [start, start + 1, start + 2]);
+
+    // Input scenarios: refused unless the game allows injection, then run to
+    // a report; a failed check names its step and tick and releases the input.
+    let (_, plain) = start_game_with("plain", false);
+    let scenario = json!({ "version": 1, "steps": [{ "tick": 0, "type": "key", "key": "Space", "down": true }] });
+    let refused = agent
+        .tool(
+            "run_input_scenario",
+            json!({ "instance": "plain", "scenario": scenario }),
+        )
+        .unwrap_err();
+    assert!(refused.contains("input injection is off"), "{refused}");
+    agent.tool("quit_instance", json!({ "instance": "plain" })).unwrap();
+    plain.join().unwrap();
+
+    let (_, pad) = start_game_with("pad", true);
+    let passing = json!({
+        "version": 1,
+        "id": "hold-then-release",
+        "steps": [
+            { "tick": 1, "type": "key", "key": "Space", "down": true },
+            { "tick": 1, "type": "expect_resource", "resource": "Rules", "pointer": "/round", "equals": 2 },
+            { "tick": 3, "type": "key", "key": "Space", "down": false },
+            { "tick": 3, "type": "expect_action", "action": "jump", "released": true }
+        ]
+    });
+    let run = agent
+        .tool("run_input_scenario", json!({ "instance": "pad", "scenario": passing }))
+        .unwrap();
+    assert_eq!(run["passed"], true, "{run}");
+    assert_eq!(
+        (
+            run["report"]["ticks_run"].clone(),
+            run["report"]["checks_passed"].clone()
+        ),
+        (json!(4), json!(2))
+    );
+    let failing = json!({
+        "version": 1,
+        "duration": 500,
+        "steps": [
+            { "tick": 0, "type": "key", "key": "Space", "down": true },
+            { "tick": 2, "type": "expect_resource", "resource": "Rules", "pointer": "/round", "equals": 99 }
+        ]
+    });
+    let run = agent
+        .tool("run_input_scenario", json!({ "instance": "pad", "scenario": failing }))
+        .unwrap();
+    assert_eq!(run["passed"], false);
+    let failure = &run["report"]["failure"];
+    assert_eq!((failure["step"].clone(), failure["tick"].clone()), (json!(1), json!(2)));
+    assert_eq!(
+        (failure["expected"].clone(), failure["actual"].clone()),
+        (json!(99), json!(7))
+    );
+    assert_eq!(run["report"]["released"], 1, "the failed run let go of Space");
+    let info = agent.tool("instance_info", json!({ "instance": "pad" })).unwrap();
+    assert_eq!(
+        info["tick"],
+        4 + 3,
+        "the run stopped at the failing tick, not at its 500 ticks"
+    );
+    let too_long = agent
+        .tool(
+            "run_input_scenario",
+            json!({ "instance": "pad", "scenario": failing, "max_ticks": 100 }),
+        )
+        .unwrap_err();
+    assert!(too_long.contains("more than `max_ticks`"), "{too_long}");
+    // The refused (too long) scenario never touched the running state, and a
+    // huge timeout is clamped instead of crashing the server.
+    let hold =
+        json!({ "version": 1, "duration": 2, "steps": [{ "tick": 0, "type": "key", "key": "Space", "down": true }] });
+    let run = agent
+        .tool(
+            "run_input_scenario",
+            json!({ "instance": "pad", "scenario": hold, "timeout_secs": u64::MAX }),
+        )
+        .unwrap();
+    assert_eq!(run["passed"], true);
+    assert_eq!(
+        (run["report"]["released"].clone(), run["report"]["still_held"].clone()),
+        (json!(1), json!(0)),
+        "a finished run lets go of its keys"
+    );
+    agent
+        .tool(
+            "run_ticks",
+            json!({ "instance": "pad", "ticks": 1, "timeout_secs": u64::MAX }),
+        )
+        .unwrap();
+    // Opting out keeps the key held and owned: cancelling releases it.
+    let kept = agent
+        .tool(
+            "run_input_scenario",
+            json!({ "instance": "pad", "scenario": hold, "keep_input_when_done": true }),
+        )
+        .unwrap();
+    assert_eq!(
+        (kept["report"]["released"].clone(), kept["report"]["still_held"].clone()),
+        (json!(0), json!(1))
+    );
+    let cancelled = agent
+        .tool("cancel_input_scenario", json!({ "instance": "pad" }))
+        .unwrap();
+    assert_eq!(cancelled["cancelled"], true, "it releases what the finished run kept");
+    assert_eq!(cancelled["report"]["released"], 1);
+    let cancelled = agent
+        .tool("cancel_input_scenario", json!({ "instance": "pad" }))
+        .unwrap();
+    assert_eq!(cancelled["cancelled"], false, "nothing left");
+    assert!(
+        viewer
+            .tool("run_input_scenario", json!({ "instance": "pad", "scenario": passing }))
+            .unwrap_err()
+            .contains("read-only")
+    );
+    agent.tool("quit_instance", json!({ "instance": "pad" })).unwrap();
+    pad.join().unwrap();
 
     agent.tool("quit_instance", json!({ "instance": "alpha" })).unwrap();
     agent.tool("quit_instance", json!({ "instance": b })).unwrap();

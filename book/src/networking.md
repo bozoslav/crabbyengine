@@ -410,7 +410,7 @@ own clock and the state; every frame, `sample` your clock:
   the last 32, so jitter and late packets don't move it, and neither do a few
   freakishly fast ones) and smooths that, so it also follows clock drift.
   A clock that jumps (the sender restarted) is noticed after 8 packets and
-  the estimate starts over. Use any clock you like for yours (`ctx.time()`),
+  the estimate starts over. Use any clock you like for yours (`ctx.time.elapsed()`),
   the same one for `push` and `sample`.
 - **Teleports:** `clear()` the stream when something respawns or teleports,
   or it slides across the map. `reset()` on a new connection.
@@ -420,14 +420,14 @@ own clock and the state; every frame, `sample` your clock:
 
 With the `3d` feature, the `NetPose` component holds a stream and the system
 `apply_net_poses` sets the `Transform3D` position and rotation of every entity
-that has one, from `ctx.time()`; add it with `Game::system` so entities move
+that has one, from `ctx.time.elapsed()`; add it with `Game::system` so entities move
 every frame:
 
 ```rust
 # let mut game = Game::new("t", 800, 600);
 game.system(apply_net_poses);
 // from the message handler:
-//   world.get_mut::<NetPose>(entity).unwrap().stream.push(sender_time, ctx.time(), pose);
+//   world.get_mut::<NetPose>(entity).unwrap().stream.push(sender_time, ctx.time.elapsed(), pose);
 ```
 
 ### Who may update what: authority epochs and sequence numbers

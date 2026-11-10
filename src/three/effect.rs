@@ -2,16 +2,17 @@
 //! bloom and tone mapping (sun shafts, underwater, heat haze, outlines).
 
 use super::Material;
-use crate::{Ctx, Texture};
+use crate::Texture;
+use crate::gfx::Graphics;
 
-/// A screen effect shader, made with [`Ctx::load_effect`] or
-/// [`Ctx::create_effect`]; a cheap handle. Run it by adding a
+/// A screen effect shader, made with [`Graphics::load_effect`](crate::Graphics::load_effect) or
+/// [`Graphics::create_effect`](crate::Graphics::create_effect); a cheap handle. Run it by adding a
 /// [`ScreenEffect`] to [`Ctx::effects`](crate::Ctx::effects).
 ///
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let underwater = ctx.load_effect("effects/underwater.wgsl");
+/// let underwater = ctx.gfx.load_effect("effects/underwater.wgsl");
 /// ctx.effects.push(ScreenEffect::new(underwater));
 /// # }
 /// ```
@@ -29,7 +30,7 @@ impl Effect {
         self.id
     }
 
-    /// An effect handle from an id (for the C API; check it with `Ctx::has_effect`).
+    /// An effect handle from an id (for the C API; check it with `Graphics::has_effect`).
     #[doc(hidden)]
     #[must_use]
     pub fn from_id(id: u32) -> Self {
@@ -44,7 +45,7 @@ impl Effect {
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx, tint: Effect) {
-/// let strength = ctx.create_material(MaterialDesc { custom: [vec4(0.5, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO], ..Default::default() });
+/// let strength = ctx.gfx.create_material(MaterialDesc { custom: [vec4(0.5, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO], ..Default::default() });
 /// ctx.effects.push(ScreenEffect::new(tint).with_material(strength));
 /// # }
 /// ```
@@ -72,7 +73,7 @@ impl ScreenEffect {
     }
 
     /// The same, reading its values and textures from `material`; change
-    /// them with [`Ctx::update_material`] to animate the effect.
+    /// them with [`Graphics::update_material`](crate::Graphics::update_material) to animate the effect.
     ///
     /// ```no_run
     /// # use ponko::*;
@@ -107,7 +108,7 @@ impl ScreenEffect {
 /// - materials, target cameras and compute passes, which run earlier, see the
 ///   one from the frame before (all 0 at first).
 ///
-/// **Resources.** `target` must be made by [`Ctx::create_render_target`];
+/// **Resources.** `target` must be made by [`Graphics::create_render_target`](crate::Graphics::create_render_target);
 /// other textures are skipped. Its whole contents are replaced each frame. The
 /// game owns it and keeps it until it stops using it; the engine only writes
 /// it. An entry whose material samples its own `target` can't run (one pass
@@ -118,8 +119,8 @@ impl ScreenEffect {
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
 /// // A quarter-size map of how far each pixel is, for a later effect to blur.
-/// let far = ctx.create_effect("far", "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(p.distance); }");
-/// let depth = ctx.create_render_target(320, 180);
+/// let far = ctx.gfx.create_effect("far", "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(p.distance); }");
+/// let depth = ctx.gfx.create_render_target(320, 180);
 /// ctx.target_effects.push(TargetEffect::new(far, depth));
 /// # }
 /// ```
@@ -127,7 +128,7 @@ impl ScreenEffect {
 pub struct TargetEffect {
     /// The shader, made like a screen effect's.
     pub effect: Effect,
-    /// What it writes: made by [`Ctx::create_render_target`].
+    /// What it writes: made by [`Graphics::create_render_target`](crate::Graphics::create_render_target).
     pub target: Texture,
     /// Where its values and textures come from. `None`: the default
     /// material (all custom values 0).
@@ -169,9 +170,9 @@ impl TargetEffect {
     }
 }
 
-impl Ctx {
+impl Graphics {
     /// Loads a screen effect shader (WGSL) from an [added asset
-    /// source](Ctx::add_asset_source) or `assets/`. It defines
+    /// source](crate::Assets::add_source) or `assets/`. It defines
     /// `fn effect(p: Pixel) -> vec3<f32>`: the new light at each pixel of
     /// the 3D frame, from what's there (`p.color`, `p.world`, `p.distance`,
     /// `p.sky`, `p.screen`, `p.uv`). It can call `scene_color(screen)` and
@@ -183,7 +184,7 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let haze = ctx.load_effect("effects/haze.wgsl");
+    /// let haze = ctx.gfx.load_effect("effects/haze.wgsl");
     /// ctx.effects.push(ScreenEffect::new(haze));
     /// # }
     /// ```
@@ -191,11 +192,14 @@ impl Ctx {
     /// # Panics
     ///
     /// If the file can't be read or doesn't compile (the message says where).
+    /// With hot reload on, a file that doesn't compile doesn't panic: it
+    /// gets a stand-in and stays watched until a saved fix compiles
+    /// ([`ShaderOutcome::Failed`](crate::ShaderOutcome::Failed), [`Graphics::shader_status`](crate::Graphics::shader_status)).
     pub fn load_effect(&mut self, path: &str) -> Effect {
         self.try_load_effect(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Ctx::load_effect`] that returns errors (for the C API).
+    /// [`Graphics::load_effect`](crate::Graphics::load_effect) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_load_effect(&mut self, path: &str) -> Result<Effect, String> {
         let found = match self
@@ -207,7 +211,20 @@ impl Ctx {
         };
         let origin = found.origin.clone();
         let source = found.into_text(path)?;
-        let effect = self.try_create_effect(path, &source)?;
+        let effect = match self.try_create_effect(path, &source) {
+            Ok(effect) => effect,
+            // With hot reload on, it shows the frame as it is until a saved
+            // fix compiles; its status says what's wrong.
+            Err(e) if self.keeps_failed_load(&origin) => {
+                Self::report_stand_in(path, &e);
+                let id = self.assets3d.effects;
+                self.compile_effect(path, super::EFFECT_STAND_IN, None).map_err(|_| e)?;
+                self.assets3d.effects += 1;
+                self.assets3d.effects_live.insert(id);
+                Effect { id }
+            }
+            Err(e) => return Err(e),
+        };
         self.assets3d.loaded_effects.insert(origin.clone(), effect);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher
@@ -217,12 +234,12 @@ impl Ctx {
     }
 
     /// Makes a screen effect shader from WGSL source; `name` is for error
-    /// messages. See [`Ctx::load_effect`] for what it defines.
+    /// messages. See [`Graphics::load_effect`](crate::Graphics::load_effect) for what it defines.
     ///
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let grey = ctx.create_effect("grey", "
+    /// let grey = ctx.gfx.create_effect("grey", "
     ///     fn effect(p: Pixel) -> vec3<f32> {
     ///         return vec3<f32>(dot(p.color, vec3<f32>(0.2126, 0.7152, 0.0722)));
     ///     }");
@@ -238,7 +255,7 @@ impl Ctx {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Ctx::create_effect`] that returns errors (for the C API).
+    /// [`Graphics::create_effect`](crate::Graphics::create_effect) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_effect(&mut self, name: &str, source: &str) -> Result<Effect, String> {
         let id = self.assets3d.effects;
@@ -272,12 +289,7 @@ impl Ctx {
                     .create_effect(name, source)
                     .map(|gpu_id| debug_assert_eq!(gpu_id, self.assets3d.effects)),
             };
-            #[cfg(feature = "window")]
-            built.map_err(|e| {
-                crate::render::without_location(name, super::ShaderKind::Effect, crate::render::EFFECT_VARIANT, e)
-            })?;
-            #[cfg(not(feature = "window"))]
-            let _ = built;
+            built?;
         }
         let _ = (name, source, replace);
         Ok(())
@@ -293,15 +305,15 @@ impl Ctx {
     }
 
     /// Whether this game made `effect` and hasn't freed it (for the C API,
-    /// which takes ids): [`Ctx::is_live`].
+    /// which takes ids): [`Ctx::is_live`](crate::Ctx::is_live).
     #[doc(hidden)]
     #[must_use]
     pub fn has_effect(&self, effect: Effect) -> bool {
-        self.is_live(effect)
+        self.assets3d.effects_live.contains(effect.id)
     }
 
-    /// Frees screen effect `id` (see [`Ctx::free`]): entries of
-    /// [`Ctx::effects`] showing it are skipped from now on.
+    /// Frees screen effect `id` (see [`Ctx::free`](crate::Ctx::free)): entries of
+    /// [`Ctx::effects`](crate::Ctx::effects) showing it are skipped from now on.
     pub(crate) fn free_effect_id(&mut self, id: u32) {
         if !self.assets3d.effects_live.remove(id) {
             return;

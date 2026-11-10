@@ -95,7 +95,7 @@ pub unsafe extern "C" fn crabby_ctx_set_text3d(
             let v = value.as_ref().ok_or_else(|| invalid("settings is null"))?;
             let string = text(string)?;
             let font = font_from_c(v.font);
-            if !c.has_font(font) {
+            if !c.gfx.has_font(font) {
                 return Err(invalid("unknown font"));
             }
             let align = match v.align {

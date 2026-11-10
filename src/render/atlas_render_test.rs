@@ -24,11 +24,13 @@ impl Rig {
     fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -128,8 +130,8 @@ impl Rig {
 
     /// A mesh of `data` with `desc`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
-        let material = self.ctx.create_material(desc);
-        let mesh = self.ctx.create_mesh(data, material);
+        let material = self.ctx.gfx.create_material(desc);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         self.renderer
@@ -143,9 +145,11 @@ impl Rig {
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
         frame.lod = ctx.lod;
+        // As the engine does: shadow maps no larger than the device allows.
+        frame.size_limit = self.device.limits().max_texture_dimension_2d;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -272,7 +276,10 @@ fn lights_with_small_and_large_atlas_tiles_both_cast_their_shadows() {
     // (spot, point) hints: a large spot tile beside six of the smallest
     // point tiles, then the other way around (a point light asking for
     // more than fits shrinks to fit).
-    for (spot_hint, point_hint, sides) in [(1024, 64, [64, 1024]), (64, 2048, [1024, 64])] {
+    // The point light's faces shrink to a quarter of the atlas, which is
+    // 4096² or the largest texture the device allows.
+    let quarter = 4096.min(rig.device.limits().max_texture_dimension_2d) / 4;
+    for (spot_hint, point_hint, sides) in [(1024, 64, [64, 1024]), (64, 2048, [quarter.min(1024), 64])] {
         rig.ctx.world.get_mut::<SpotLight3D>(spot).unwrap().shadow_resolution = spot_hint;
         rig.ctx.world.get_mut::<PointLight3D>(point).unwrap().shadow_resolution = point_hint;
         for light in [spot, point] {

@@ -75,10 +75,10 @@ pub fn run(variant: Variant, seed: u64) -> Run {
         .seed(seed)
         .sim_system(move |ctx: &mut Ctx| {
             let dt = ctx.dt();
-            let tick = ctx.sim_tick();
+            let tick = ctx.time.sim_tick();
             let want_jump = match variant {
-                Variant::Fixed => ctx.action_pressed("jump"),
-                Variant::Buggy => ctx.action_down("jump"),
+                Variant::Fixed => ctx.input.action_pressed("jump"),
+                Variant::Buggy => ctx.input.action_down("jump"),
             };
             let drift = ctx.random().stream(0).range(-0.01, 0.01);
             ctx.world.query::<&mut Body>().for_each(|b| {
@@ -94,8 +94,8 @@ pub fn run(variant: Variant, seed: u64) -> Run {
             });
         })
         .sim_system(move |ctx: &mut Ctx| {
-            let tick = ctx.sim_tick();
-            let (pressed, down) = (ctx.action_pressed("jump"), ctx.action_down("jump"));
+            let tick = ctx.time.sim_tick();
+            let (pressed, down) = (ctx.input.action_pressed("jump"), ctx.input.action_down("jump"));
             let body = *ctx.world.query::<&Body>().iter().next().expect("the body exists");
             trace_sink.borrow_mut().push(Row {
                 tick,
@@ -110,7 +110,7 @@ pub fn run(variant: Variant, seed: u64) -> Run {
         .run_headless(TICKS, |ctx| {
             let mut map = ActionMap::default();
             map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
-            ctx.set_actions(map);
+            ctx.input.set_actions(map);
             ctx.world.spawn((Body {
                 y: 0.0,
                 vy: 0.0,

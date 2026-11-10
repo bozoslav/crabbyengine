@@ -199,7 +199,7 @@ impl crate::Ctx {
             };
             let a = self.camera.screen_to_world(screen(a));
             let b = self.camera.screen_to_world(screen(b));
-            self.draw_line(a, b, 1.0, color);
+            self.gfx.draw_line(a, b, 1.0, color);
         }
     }
 }

@@ -278,7 +278,7 @@ pub unsafe extern "C" fn crabby_ctx_set_actions(ctx: *mut CrabbyCtx, map: *mut C
     // SAFETY: caller supplies callback context and independent map.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_actions(map_mut(map)?.clone());
+            c.input.set_actions(map_mut(map)?.clone());
             Ok(())
         })
     })
@@ -295,7 +295,7 @@ pub unsafe extern "C" fn crabby_ctx_actions(ctx: *mut CrabbyCtx, map: *mut Crabb
     // SAFETY: caller supplies callback context and independent map.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            *map_mut(map)? = c.actions().clone();
+            *map_mut(map)? = c.input.actions().clone();
             Ok(())
         })
     })
@@ -319,7 +319,7 @@ pub unsafe extern "C" fn crabby_ctx_feed_input(
     // SAFETY: caller supplies callback context.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.feed_input(match kind {
+            c.input.feed(match kind {
                 0 => InputEvent::Key(key(input)?, value != 0.0),
                 1 => InputEvent::Mouse(mouse(input)?, value != 0.0),
                 2 => InputEvent::GamepadButton(pad(slot)?, button(input)?, value != 0.0),
@@ -349,7 +349,7 @@ pub unsafe extern "C" fn crabby_ctx_action_down(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let name = text(name)?;
-            out(value, c.action_down(name))
+            out(value, c.input.action_down(name))
         })
     })
 }
@@ -370,7 +370,7 @@ pub unsafe extern "C" fn crabby_ctx_action_pressed(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let name = text(name)?;
-            out(value, c.action_pressed(name))
+            out(value, c.input.action_pressed(name))
         })
     })
 }
@@ -391,7 +391,7 @@ pub unsafe extern "C" fn crabby_ctx_action_released(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let name = text(name)?;
-            out(value, c.action_released(name))
+            out(value, c.input.action_released(name))
         })
     })
 }
@@ -412,7 +412,7 @@ pub unsafe extern "C" fn crabby_ctx_action_axis(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let name = text(name)?;
-            out(value, c.action_axis(name))
+            out(value, c.input.action_axis(name))
         })
     })
 }
@@ -433,7 +433,7 @@ pub unsafe extern "C" fn crabby_ctx_action_axis2(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let name = text(name)?;
-            out(value, to_c(c.action_axis2(name)))
+            out(value, to_c(c.input.action_axis2(name)))
         })
     })
 }

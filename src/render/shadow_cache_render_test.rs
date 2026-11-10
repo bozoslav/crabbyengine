@@ -31,7 +31,10 @@ impl Rig {
     fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(
+            &wgpu::DeviceDescriptor::default(),
+        )))
+        .ok()?;
         eprintln!("adapter: {:?}", adapter.get_info());
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -141,7 +144,7 @@ impl Rig {
     fn draw(&self, renderer: &mut Renderer3D, frame: &mut Frame3D, ctx: &mut Ctx) -> Vec<u8> {
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -200,7 +203,7 @@ impl Rig {
 #[test]
 fn kept_shadow_views_draw_the_same_image_as_redrawing_them() {
     let Some(rig) = Rig::new() else {
-        eprintln!("no GPU: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter or device");
         return;
     };
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
@@ -209,11 +212,11 @@ fn kept_shadow_views_draw_the_same_image_as_redrawing_them() {
         roughness: 1.0,
         ..Default::default()
     };
-    let material = ctx.create_material(matte);
+    let material = ctx.gfx.create_material(matte);
     let ground = MeshData::plane(20.0);
     let cube = MeshData::cube(1.0);
-    let ground_mesh = ctx.create_mesh(&ground, material);
-    let cube_mesh = ctx.create_mesh(&cube, material);
+    let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+    let cube_mesh = ctx.gfx.create_mesh(&cube, material);
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
     let mover = ctx
         .world
@@ -357,7 +360,7 @@ fn kept_shadow_views_draw_the_same_image_as_redrawing_them() {
 #[test]
 fn views_with_shader_moved_vertices_are_always_drawn() {
     let Some(rig) = Rig::new() else {
-        eprintln!("no GPU: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter or device");
         return;
     };
     const WAVE: &str = "fn vertex(v: Vertex) -> Vertex { return v; }";
@@ -368,15 +371,15 @@ fn views_with_shader_moved_vertices_are_always_drawn() {
         ..Default::default()
     };
     let waving = MaterialDesc {
-        shader: Some(ctx.create_shader("wave", WAVE)),
+        shader: Some(ctx.gfx.create_shader("wave", WAVE)),
         ..matte
     };
-    let material = ctx.create_material(matte);
-    let wave_material = ctx.create_material(waving);
+    let material = ctx.gfx.create_material(matte);
+    let wave_material = ctx.gfx.create_material(waving);
     let ground = MeshData::plane(20.0);
     let cube = MeshData::cube(1.0);
-    let ground_mesh = ctx.create_mesh(&ground, material);
-    let cube_mesh = ctx.create_mesh(&cube, wave_material);
+    let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+    let cube_mesh = ctx.gfx.create_mesh(&cube, wave_material);
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
     ctx.world
         .spawn((Transform3D::at(vec3(0.0, 1.0, 0.0)), Model::new(cube_mesh)));
@@ -430,7 +433,7 @@ fn views_with_shader_moved_vertices_are_always_drawn() {
 #[test]
 fn a_changed_material_override_redraws_its_shadows() {
     let Some(rig) = Rig::new() else {
-        eprintln!("no GPU: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter or device");
         return;
     };
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
@@ -444,13 +447,13 @@ fn a_changed_material_override_redraws_its_shadows() {
         color: Color::rgba(1.0, 1.0, 1.0, 0.3),
         ..matte
     };
-    let material = ctx.create_material(matte);
-    let solid = ctx.create_material(matte);
-    let see_through = ctx.create_material(glass);
+    let material = ctx.gfx.create_material(matte);
+    let solid = ctx.gfx.create_material(matte);
+    let see_through = ctx.gfx.create_material(glass);
     let ground = MeshData::plane(20.0);
     let cube = MeshData::cube(1.0);
-    let ground_mesh = ctx.create_mesh(&ground, material);
-    let cube_mesh = ctx.create_mesh(&cube, material);
+    let ground_mesh = ctx.gfx.create_mesh(&ground, material);
+    let cube_mesh = ctx.gfx.create_mesh(&cube, material);
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
     let rock = ctx.world.spawn((
         Transform3D::at(vec3(0.0, 1.0, 0.0)),
@@ -500,7 +503,7 @@ fn a_changed_material_override_redraws_its_shadows() {
 #[test]
 fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
     let Some(rig) = Rig::new() else {
-        eprintln!("no GPU: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter or device");
         return;
     };
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::splat(SIZE as f32));
@@ -516,13 +519,13 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
         color: Color::WHITE,
         ..Default::default()
     };
-    let material = ctx.create_material(desc);
+    let material = ctx.gfx.create_material(desc);
     let ground = MeshData::plane(120.0);
     let cube = MeshData::cube(2.0);
-    let floor = ctx.create_mesh(&ground, material);
-    let proxy = ctx.create_mesh(&cube, material);
+    let floor = ctx.gfx.create_mesh(&ground, material);
+    let proxy = ctx.gfx.create_mesh(&cube, material);
     ctx.world.spawn((Transform3D::default(), Model::new(floor)));
-    let b = ctx.create_instance_batch_levels(
+    let b = ctx.gfx.create_instance_batch_levels(
         &[
             InstanceLevel {
                 mesh: proxy,
@@ -545,7 +548,7 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
     );
     // This caster lies in a deferred far cascade and crosses its own band
     // during the same half-unit camera move as the nearby caster.
-    let far_batch = ctx.create_instance_batch_levels(
+    let far_batch = ctx.gfx.create_instance_batch_levels(
         &[InstanceLevel {
             mesh: proxy,
             min_distance: 0.0,
@@ -575,7 +578,7 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
             r.set_instance_batch(
                 &rig.device,
                 batch.id(),
-                ctx.assets3d.instance_batches[batch.id() as usize].as_ref(),
+                ctx.gfx.assets3d.instance_batches[batch.id() as usize].as_ref(),
             );
         }
     }
@@ -606,14 +609,14 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
         redrawn, 0,
         "stationary content redraws no cascades in either cache layer"
     );
-    ctx.set_mesh_shadows(proxy, false);
+    ctx.gfx.set_mesh_shadows(proxy, false);
     let (without_proxy, _, redrawn, _) = compare(&mut ctx, true);
     assert_eq!(redrawn, 4, "mesh shadow flags invalidate cached cascades");
     assert_ne!(
         with_proxy, without_proxy,
         "shadow-only geometry must cast a visible sun shadow"
     );
-    ctx.set_mesh_shadows(proxy, true);
+    ctx.gfx.set_mesh_shadows(proxy, true);
     compare(&mut ctx, true);
     ctx.camera3d.position.z = 6.5;
     ctx.camera3d.look_at(Vec3::ZERO);

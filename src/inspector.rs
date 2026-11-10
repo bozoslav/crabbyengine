@@ -119,6 +119,9 @@ pub(crate) struct Panels {
     prefab_path: String,
     /// What the last scene or prefab action did.
     status: Option<String>,
+    /// `Ctx::scene_loads` when the panels last ran: a load since then
+    /// replaced the entities, so the selection may name another one.
+    scene_loads: u64,
 }
 
 /// An entity being moved with the mouse.
@@ -134,7 +137,7 @@ struct Drag {
 impl Panels {
     /// Draws the inspector into `ui` and applies what was changed in it to `ctx`.
     pub fn show(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
-        self.editing = ctx.is_paused();
+        self.editing = ctx.time.is_paused();
         self.record_frame(ctx.dt() * 1000.0);
         self.reflected.clear();
         self.reflected
@@ -144,6 +147,11 @@ impl Panels {
             if let Some(e) = pick(ctx, at) {
                 self.selected = Some(e);
             }
+        }
+        if self.scene_loads != ctx.scene_loads {
+            self.scene_loads = ctx.scene_loads;
+            self.selected = None;
+            self.drag = None;
         }
         if self.selected.is_some_and(|e| !ctx.world.is_alive(e)) {
             self.selected = None;
@@ -359,7 +367,10 @@ impl Panels {
             }
             .to_owned();
             if ui.button("Save").clicked() {
-                let saved = ctx.save_scene(&path).map(|()| format!("saved {path}"));
+                let saved = ctx
+                    .assets
+                    .save_scene(&ctx.world, &path)
+                    .map(|()| format!("saved {path}"));
                 self.status = self.report(saved);
             }
             if ui
@@ -392,7 +403,10 @@ impl Panels {
                 && save.on_hover_text("Saves the selected entity as this prefab").clicked()
             {
                 let path = self.prefab_path.clone();
-                let saved = ctx.save_prefab(e, &path).map(|()| format!("saved {path}"));
+                let saved = ctx
+                    .assets
+                    .save_prefab(&ctx.world, e, &path)
+                    .map(|()| format!("saved {path}"));
                 self.status = self.report(saved);
                 self.prefabs = None;
             }
@@ -434,7 +448,7 @@ impl Panels {
 
     fn sim_controls(&mut self, ui: &mut Ui, ctx: &mut Ctx) {
         ui.horizontal(|ui| {
-            if ctx.is_paused() {
+            if ctx.time.is_paused() {
                 let tip = if self.editor.playing() {
                     "Resume"
                 } else {
@@ -444,7 +458,7 @@ impl Panels {
                     self.editor.play(ctx);
                 }
             } else if ui.button("Pause").clicked() {
-                ctx.pause();
+                ctx.time.pause();
             }
             if self.editor.playing() {
                 let stop = ui
@@ -464,19 +478,19 @@ impl Panels {
                 }
             }
             if ui.button("Step").on_hover_text("Run one tick (pauses)").clicked() {
-                ctx.pause();
-                ctx.step();
+                ctx.time.pause();
+                ctx.time.step();
             }
-            let mut speed = ctx.sim_speed();
+            let mut speed = ctx.time.speed();
             let drag = DragValue::new(&mut speed).range(0.0..=16.0).speed(0.02).suffix("×");
             if ui.add(drag).on_hover_text("Simulation speed").changed() {
-                ctx.set_sim_speed(speed);
+                ctx.time.set_speed(speed);
             }
         });
         ui.label(format!(
             "tick {}   {:.0} fps   {} entities",
-            ctx.sim_tick(),
-            ctx.fps(),
+            ctx.time.sim_tick(),
+            ctx.time.fps(),
             ctx.world.len()
         ));
     }
@@ -842,7 +856,7 @@ fn edit_number(ui: &mut Ui, n: &mut serde_json::Number) -> bool {
 
 /// Each system's time this frame, slowest first.
 fn systems(ui: &mut Ui, ctx: &Ctx) {
-    let timings = ctx.system_timings();
+    let timings = ctx.perf.system_timings();
     if timings.is_empty() {
         ui.label(RichText::new("no systems").weak());
         return;
@@ -956,7 +970,7 @@ impl Inspector {
         ctx.ui.overlay_has_pointer = self.egui.is_pointer_over_egui();
         self.input.handle_platform_output(window, output.platform_output);
         let primitives = self.egui.tessellate(output.shapes, output.pixels_per_point);
-        if let Some(renderer) = ctx.renderer.as_mut() {
+        if let Some(renderer) = ctx.gfx.renderer.as_mut() {
             renderer.set_overlay(Overlay {
                 primitives,
                 textures: output.textures_delta,
@@ -1049,7 +1063,7 @@ mod tests {
     }
     fn edit_scene() -> (egui::Context, Panels, Ctx, Entity) {
         let (mut ctx, _) = game();
-        ctx.pause();
+        ctx.time.pause();
         let e = ctx.world.spawn((
             Transform2D::at(Vec2::new(300.0, 300.0)),
             Health { current: 1.0, max: 1 },
@@ -1111,7 +1125,7 @@ mod tests {
     #[test]
     fn running_the_world_clicks_go_to_the_game() {
         let (egui, mut panels, mut ctx, e) = edit_scene();
-        ctx.resume();
+        ctx.time.resume();
         frame(
             &egui,
             &mut panels,
@@ -1124,6 +1138,23 @@ mod tests {
         assert_eq!(panels.selected, None);
         assert!(!panels.editing);
         let _ = e;
+    }
+
+    #[test]
+    fn a_scene_load_clears_the_selection() {
+        let (egui, mut panels, mut ctx, e) = edit_scene();
+        panels.selected = Some(e);
+        frame(&egui, &mut panels, &mut ctx, vec![]);
+        assert_eq!(panels.selected, Some(e));
+        // The same ids again, from a load: `e` may be another entity now.
+        let save = WorldReflect::save(&ctx.world);
+        ctx.replace_world(&save).unwrap();
+        assert!(ctx.world.is_alive(e));
+        frame(&egui, &mut panels, &mut ctx, vec![]);
+        assert_eq!(panels.selected, None, "the selection named the old world's entity");
+        panels.selected = Some(e);
+        frame(&egui, &mut panels, &mut ctx, vec![]);
+        assert_eq!(panels.selected, Some(e), "a new selection stays");
     }
 
     #[test]

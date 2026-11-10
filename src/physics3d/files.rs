@@ -54,7 +54,7 @@ impl Ctx {
                 _ => Vec3::ONE,
             };
             let convex = file["convex"].as_bool().unwrap_or(false);
-            let data = self.load_mesh_data(path)?;
+            let data = self.gfx.load_mesh_data(path)?;
             let points: Vec<Vec3> = data.positions.iter().map(|&p| p * scale).collect();
             let mesh = if convex {
                 self.physics3d.convex_hull(&points)

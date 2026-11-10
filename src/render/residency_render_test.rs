@@ -8,12 +8,14 @@ use crate::*;
 fn renderer() -> Option<(wgpu::Device, Renderer3D)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        eprintln!("no GPU adapter: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter");
         return None;
     };
     eprintln!("residency test adapter: {:?}", adapter.get_info());
-    let Ok((device, _queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-        eprintln!("no GPU device: skipped");
+    let Ok((device, _queue)) = pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(
+        &wgpu::DeviceDescriptor::default(),
+    ))) else {
+        crate::render::render_test_support::no_gpu("no GPU device");
         return None;
     };
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

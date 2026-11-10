@@ -7,7 +7,8 @@ use super::{
     MAX_SHADOW_RESOLUTION, MIN_LIGHT_SHADOW_ATLAS, MIN_LIGHT_SHADOW_RESOLUTION, MIN_RENDER_SCALE,
     MIN_SHADOW_RESOLUTION,
 };
-use crate::Ctx;
+use crate::gfx::Graphics;
+use crate::{Lighting, Post};
 
 /// Which of the [`GraphicsQuality`] presets some settings are.
 /// ```
@@ -55,11 +56,11 @@ impl QualityLevel {
 /// reflections, global illumination and antialiasing.
 /// [`low`](Self::low), [`medium`](Self::medium), [`high`](Self::high) and
 /// [`ultra`](Self::ultra) are ready-made sets; apply one with
-/// [`Ctx::set_graphics_quality`] and read the current one back with
-/// [`Ctx::graphics_quality`].
+/// [`Graphics::set_quality`] and read the current one back with
+/// [`Graphics::quality`].
 ///
 /// A `GraphicsQuality` holds no state of its own: applying it writes the
-/// matching fields of [`Ctx::post`] and [`Ctx::lighting`], and reading it
+/// matching fields of [`Ctx::post`](crate::Ctx::post) and [`Ctx::lighting`](crate::Ctx::lighting), and reading it
 /// gathers them again. So a game can change any of those fields afterwards
 /// (the AO radius, `shadow_distance`, ...), and
 /// [`level`](Self::level) then says [`Custom`](QualityLevel::Custom).
@@ -85,11 +86,11 @@ impl QualityLevel {
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// ctx.set_graphics_quality(GraphicsQuality::medium());
+/// ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::medium());
 /// // Then change one thing: sharper shadows, the rest as it was.
-/// let mut q = ctx.graphics_quality();
+/// let mut q = ctx.gfx.quality(&ctx.post, &ctx.lighting);
 /// q.shadow_resolution = 4096;
-/// ctx.set_graphics_quality(q);
+/// ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, q);
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -311,6 +312,90 @@ impl GraphicsQuality {
         }
     }
 
+    /// The preset meant for a [`GpuTier`](crate::GpuTier), already
+    /// [fitted](Self::fitted_to) to that tier's floor: `WebGl2` gets
+    /// [`low`](Self::low) with FXAA, `Baseline` [`medium`](Self::medium) and
+    /// `Desktop` [`high`](Self::high). None of them asks for a feature the
+    /// tier lacks or a shadow map larger than its textures may be.
+    /// [`ultra`](Self::ultra) is never picked: it is for GPUs with memory
+    /// to spare, a choice for the player to make.
+    /// ```
+    /// use ponko::*;
+    /// assert_eq!(GraphicsQuality::for_tier(GpuTier::Desktop), GraphicsQuality::high());
+    /// assert_eq!(GraphicsQuality::for_tier(GpuTier::Baseline), GraphicsQuality::medium());
+    /// let web = GraphicsQuality::for_tier(GpuTier::WebGl2);
+    /// assert_eq!((web.anti_aliasing, web.ambient_occlusion), (AntiAliasing::Fxaa, false));
+    /// ```
+    #[must_use]
+    pub fn for_tier(tier: crate::GpuTier) -> Self {
+        let preset = match tier {
+            crate::GpuTier::WebGl2 => Self {
+                anti_aliasing: AntiAliasing::Fxaa,
+                ..Self::low()
+            },
+            crate::GpuTier::Baseline => Self::medium(),
+            crate::GpuTier::Desktop => Self::high(),
+        };
+        preset.fitted_to(&tier.report())
+    }
+
+    /// The preset for the GPU in `caps` ([`for_tier`](Self::for_tier) of its
+    /// tier), fitted to everything it has.
+    /// ```
+    /// # use ponko::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// if let Some(caps) = ctx.gfx.gpu_capabilities() {
+    ///     let q = GraphicsQuality::recommended(caps);
+    ///     ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, q);
+    /// }
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn recommended(caps: &crate::GpuCapabilities) -> Self {
+        Self::for_tier(caps.tier).fitted_to(caps)
+    }
+
+    /// These settings with what the GPU in `caps` can't do taken out, as
+    /// the renderer would draw them anyway: TAA becomes FXAA, and ambient
+    /// occlusion, screen-space reflections and global illumination go off
+    /// where they're unavailable; shadow maps and the light shadow atlas
+    /// shrink to the largest texture the GPU allows. Asking for more is
+    /// never a GPU error (the renderer falls back by itself); fitting makes
+    /// [`Graphics::quality`](crate::Graphics::quality) say what is drawn, for an options menu.
+    /// ```
+    /// use ponko::*;
+    /// let q = GraphicsQuality::ultra().fitted_to(&GpuTier::WebGl2.report());
+    /// assert_eq!((q.anti_aliasing, q.ambient_occlusion, q.ssr, q.gi), (AntiAliasing::Smaa, false, 0.0, false));
+    /// assert_eq!((q.shadow_resolution, q.light_shadow_atlas), (2048, 2048));
+    /// ```
+    #[must_use]
+    pub fn fitted_to(&self, caps: &crate::GpuCapabilities) -> Self {
+        use crate::GpuFeature as F;
+        let mut q = self.clamped();
+        if q.anti_aliasing == AntiAliasing::Taa && !caps.available(F::TemporalAntialiasing) {
+            q.anti_aliasing = AntiAliasing::Fxaa;
+        }
+        if !caps.available(F::AmbientOcclusion) {
+            q.ambient_occlusion = false;
+            q.ao_half_resolution = false;
+            q.ao_temporal = false;
+        }
+        if !caps.available(F::ScreenSpaceReflections) {
+            q.ssr = 0.0;
+        }
+        if !caps.available(F::GlobalIllumination) {
+            q.gi = false;
+        }
+        let max = caps.limits.max_texture_dimension_2d;
+        if max > 0 {
+            q.shadow_resolution = q.shadow_resolution.min(max.max(MIN_SHADOW_RESOLUTION));
+            q.light_shadow_resolution = q.light_shadow_resolution.min(max.max(MIN_LIGHT_SHADOW_RESOLUTION));
+            q.light_shadow_atlas =
+                super::shadow_atlas::floor_pow2(q.light_shadow_atlas.min(max.max(MIN_LIGHT_SHADOW_ATLAS)));
+        }
+        q
+    }
+
     /// Which preset these are, or [`Custom`](QualityLevel::Custom). Values
     /// outside the allowed ranges are compared as they would be applied.
     /// ```
@@ -333,7 +418,7 @@ impl GraphicsQuality {
     }
 
     /// These settings with every value brought into its allowed range (as
-    /// [`Ctx::set_graphics_quality`] applies them); a NaN becomes the
+    /// [`Graphics::set_quality`] applies them); a NaN becomes the
     /// [default](Self::default).
     /// ```
     /// use ponko::*;
@@ -375,80 +460,80 @@ impl GraphicsQuality {
     }
 }
 
-impl Ctx {
-    /// The current graphics quality, gathered from [`Ctx::post`] and
-    /// [`Ctx::lighting`]. Use [`GraphicsQuality::level`] to see which
-    /// preset it is.
+impl Graphics {
+    /// The current graphics quality, gathered from the post-processing and
+    /// lighting settings (`ctx.post`, `ctx.lighting`). Use
+    /// [`GraphicsQuality::level`] to see which preset it is.
     ///
     /// ```
     /// use ponko::*;
     /// Game::new("quality", 64, 64).run_headless(0, |ctx| {
-    ///     ctx.set_graphics_quality(GraphicsQuality::medium());
-    ///     assert_eq!(ctx.graphics_quality().level(), QualityLevel::Medium);
+    ///     ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::medium());
+    ///     assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::Medium);
     /// });
     /// ```
     #[must_use]
-    pub fn graphics_quality(&self) -> GraphicsQuality {
+    pub fn quality(&self, post: &Post, lighting: &Lighting) -> GraphicsQuality {
         GraphicsQuality {
-            render_scale: self.post.render_scale,
-            sharpen: self.post.sharpen,
-            shadows: self.lighting.shadows,
-            shadow_distance: self.lighting.shadow_distance,
-            shadow_cascades: self.lighting.shadow_cascades,
-            shadow_resolution: self.lighting.shadow_resolution,
-            shadow_refresh: self.lighting.shadow_refresh,
-            shadow_filter: self.lighting.shadow_filter,
-            light_shadow_views: self.lighting.light_shadow_views,
-            light_shadow_resolution: self.lighting.light_shadow_resolution,
-            light_shadow_atlas: self.lighting.light_shadow_atlas,
-            ambient_occlusion: self.post.ambient_occlusion.enabled,
-            ao_half_resolution: self.post.ao_half_resolution,
-            ao_temporal: self.post.ao_temporal,
-            ao_slices: self.post.ambient_occlusion.slices,
-            ao_steps: self.post.ambient_occlusion.steps,
-            ssr: self.post.ssr,
-            gi: self.lighting.gi.enabled,
-            anti_aliasing: self.post.anti_aliasing,
+            render_scale: post.render_scale,
+            sharpen: post.sharpen,
+            shadows: lighting.shadows,
+            shadow_distance: lighting.shadow_distance,
+            shadow_cascades: lighting.shadow_cascades,
+            shadow_resolution: lighting.shadow_resolution,
+            shadow_refresh: lighting.shadow_refresh,
+            shadow_filter: lighting.shadow_filter,
+            light_shadow_views: lighting.light_shadow_views,
+            light_shadow_resolution: lighting.light_shadow_resolution,
+            light_shadow_atlas: lighting.light_shadow_atlas,
+            ambient_occlusion: post.ambient_occlusion.enabled,
+            ao_half_resolution: post.ao_half_resolution,
+            ao_temporal: post.ao_temporal,
+            ao_slices: post.ambient_occlusion.slices,
+            ao_steps: post.ambient_occlusion.steps,
+            ssr: post.ssr,
+            gi: lighting.gi.enabled,
+            anti_aliasing: post.anti_aliasing,
         }
         .clamped()
     }
 
     /// Switches the 3D picture to `quality` (values outside their ranges are
     /// clamped, see [`GraphicsQuality::clamped`]), from any frame, without
-    /// restarting. It writes the matching fields of [`Ctx::post`] and
-    /// [`Ctx::lighting`] and leaves the others (AO radius, tone mapping,
-    /// ...) alone. The next frame draws the scene at the new resolution and
-    /// with new shadow maps where their size or count changed: nothing is
-    /// drawn from stale targets.
+    /// restarting. It writes the matching fields of `post` and `lighting`
+    /// (the game's are `ctx.post` and `ctx.lighting`) and leaves the others
+    /// (AO radius, tone mapping, ...) alone. The next frame draws the scene
+    /// at the new resolution and with new shadow maps where their size or
+    /// count changed: nothing is drawn from stale targets.
     ///
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// ctx.set_graphics_quality(GraphicsQuality::low());
+    /// ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::low());
     /// ctx.post.ambient_occlusion.radius = 2.0; // a tweak on top
     /// # }
     /// ```
-    pub fn set_graphics_quality(&mut self, quality: GraphicsQuality) {
+    pub fn set_quality(&mut self, post: &mut Post, lighting: &mut Lighting, quality: GraphicsQuality) {
         let q = quality.clamped();
-        self.post.render_scale = q.render_scale;
-        self.post.sharpen = q.sharpen;
-        self.post.anti_aliasing = q.anti_aliasing;
-        self.post.ambient_occlusion.enabled = q.ambient_occlusion;
-        self.post.ao_half_resolution = q.ao_half_resolution;
-        self.post.ao_temporal = q.ao_temporal;
-        self.post.ambient_occlusion.slices = q.ao_slices;
-        self.post.ambient_occlusion.steps = q.ao_steps;
-        self.post.ssr = q.ssr;
-        self.lighting.gi.enabled = q.gi;
-        self.lighting.shadows = q.shadows;
-        self.lighting.shadow_distance = q.shadow_distance;
-        self.lighting.shadow_cascades = q.shadow_cascades;
-        self.lighting.shadow_resolution = q.shadow_resolution;
-        self.lighting.shadow_refresh = q.shadow_refresh;
-        self.lighting.shadow_filter = q.shadow_filter;
-        self.lighting.light_shadow_views = q.light_shadow_views;
-        self.lighting.light_shadow_resolution = q.light_shadow_resolution;
-        self.lighting.light_shadow_atlas = q.light_shadow_atlas;
+        post.render_scale = q.render_scale;
+        post.sharpen = q.sharpen;
+        post.anti_aliasing = q.anti_aliasing;
+        post.ambient_occlusion.enabled = q.ambient_occlusion;
+        post.ao_half_resolution = q.ao_half_resolution;
+        post.ao_temporal = q.ao_temporal;
+        post.ambient_occlusion.slices = q.ao_slices;
+        post.ambient_occlusion.steps = q.ao_steps;
+        post.ssr = q.ssr;
+        lighting.gi.enabled = q.gi;
+        lighting.shadows = q.shadows;
+        lighting.shadow_distance = q.shadow_distance;
+        lighting.shadow_cascades = q.shadow_cascades;
+        lighting.shadow_resolution = q.shadow_resolution;
+        lighting.shadow_refresh = q.shadow_refresh;
+        lighting.shadow_filter = q.shadow_filter;
+        lighting.light_shadow_views = q.light_shadow_views;
+        lighting.light_shadow_resolution = q.light_shadow_resolution;
+        lighting.light_shadow_atlas = q.light_shadow_atlas;
     }
 }
 
@@ -601,7 +686,7 @@ mod tests {
     #[test]
     fn applying_a_preset_and_reading_it_back_round_trips() {
         crate::Game::new("quality", 64, 64).run_headless(0, |ctx| {
-            assert_eq!(ctx.graphics_quality(), GraphicsQuality::default());
+            assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting), GraphicsQuality::default());
             for l in [
                 QualityLevel::Ultra,
                 QualityLevel::Low,
@@ -609,9 +694,9 @@ mod tests {
                 QualityLevel::Medium,
             ] {
                 let q = l.quality().unwrap();
-                ctx.set_graphics_quality(q);
-                assert_eq!(ctx.graphics_quality(), q);
-                assert_eq!(ctx.graphics_quality().level(), l);
+                ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, q);
+                assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting), q);
+                assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), l);
                 assert_eq!(ctx.post.render_scale, q.render_scale);
                 assert_eq!(ctx.lighting.shadow_resolution, q.shadow_resolution);
                 assert_eq!(ctx.post.ambient_occlusion.enabled, q.ambient_occlusion);
@@ -627,18 +712,77 @@ mod tests {
     fn tweaks_after_a_preset_stick_and_make_it_custom() {
         crate::Game::new("quality", 64, 64).run_headless(0, |ctx| {
             ctx.post.ambient_occlusion.radius = 3.5;
-            ctx.set_graphics_quality(GraphicsQuality::high());
+            ctx.gfx
+                .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::high());
             assert_eq!(
                 ctx.post.ambient_occlusion.radius, 3.5,
                 "settings outside the struct stay"
             );
             ctx.lighting.shadow_cascades = 2;
-            assert_eq!(ctx.graphics_quality().level(), QualityLevel::Custom);
-            ctx.set_graphics_quality(GraphicsQuality {
-                render_scale: 5.0,
-                ..GraphicsQuality::high()
-            });
+            assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::Custom);
+            ctx.gfx.set_quality(
+                &mut ctx.post,
+                &mut ctx.lighting,
+                GraphicsQuality {
+                    render_scale: 5.0,
+                    ..GraphicsQuality::high()
+                },
+            );
             assert_eq!(ctx.post.render_scale, MAX_RENDER_SCALE, "clamped when applied");
         });
+    }
+
+    #[test]
+    fn tier_presets_ask_for_nothing_their_tier_lacks() {
+        use crate::{GpuFeature, GpuTier};
+        for tier in GpuTier::ALL {
+            let floor = tier.report();
+            let q = GraphicsQuality::for_tier(tier);
+            assert_eq!(q, q.fitted_to(&floor), "{tier}: already fitted");
+            assert!(q.anti_aliasing != AntiAliasing::Taa || floor.available(GpuFeature::TemporalAntialiasing));
+            assert!(!q.ambient_occlusion || floor.available(GpuFeature::AmbientOcclusion));
+            assert!(q.ssr == 0.0 || floor.available(GpuFeature::ScreenSpaceReflections));
+            assert!(!q.gi || floor.available(GpuFeature::GlobalIllumination));
+            assert!(q.shadow_resolution <= floor.limits.max_texture_dimension_2d);
+            assert!(q.light_shadow_atlas <= floor.limits.max_texture_dimension_2d);
+        }
+        assert_eq!(
+            GraphicsQuality::for_tier(GpuTier::Baseline).level(),
+            QualityLevel::Medium
+        );
+        assert_eq!(GraphicsQuality::for_tier(GpuTier::Desktop).level(), QualityLevel::High);
+    }
+
+    #[test]
+    fn fitting_takes_out_only_what_the_gpu_lacks() {
+        use crate::GpuTier;
+        let ultra = GraphicsQuality::ultra();
+        assert_eq!(ultra.fitted_to(&GpuTier::Desktop.report()), ultra);
+        let taa = GraphicsQuality {
+            anti_aliasing: AntiAliasing::Taa,
+            ..ultra
+        };
+        let on_baseline = taa.fitted_to(&GpuTier::Baseline.report());
+        assert_eq!(on_baseline.anti_aliasing, AntiAliasing::Taa, "baseline has TAA");
+        assert!(on_baseline.ambient_occlusion && on_baseline.ssr == 1.0);
+        assert!(!on_baseline.gi, "no room for the GI probes at the baseline floor");
+        assert_eq!(on_baseline.shadow_resolution, 2048);
+        let on_webgl2 = taa.fitted_to(&GpuTier::WebGl2.report());
+        assert_eq!(on_webgl2.anti_aliasing, AntiAliasing::Fxaa);
+        assert!(!on_webgl2.ambient_occlusion && !on_webgl2.ao_temporal && !on_webgl2.ao_half_resolution);
+        assert_eq!((on_webgl2.ssr, on_webgl2.gi), (0.0, false));
+        assert_eq!(on_webgl2.light_shadow_atlas, 2048);
+        assert_eq!(on_webgl2.shadow_cascades, ultra.shadow_cascades, "untouched");
+    }
+
+    #[test]
+    fn recommended_follows_the_reported_tier() {
+        use crate::GpuTier;
+        for tier in GpuTier::ALL {
+            assert_eq!(
+                GraphicsQuality::recommended(&tier.report()),
+                GraphicsQuality::for_tier(tier)
+            );
+        }
     }
 }

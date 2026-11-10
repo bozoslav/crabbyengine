@@ -31,11 +31,13 @@ impl Rig {
     fn new(solid_prepass: bool) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -136,8 +138,8 @@ impl Rig {
 
     /// A mesh of `data` with `desc`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, desc: MaterialDesc) -> Mesh {
-        let material = self.ctx.create_material(desc);
-        let mesh = self.ctx.create_mesh(data, material);
+        let material = self.ctx.gfx.create_material(desc);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         self.renderer
@@ -152,7 +154,7 @@ impl Rig {
         frame.lod = ctx.lod;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -369,13 +371,21 @@ fn warmed_pipelines_build_nothing_while_drawing_a_crossfade() {
     };
     two_level_scene(&mut rig);
     camera_at(&mut rig.ctx, distance_for(0.475));
+    let before = rig.renderer.pipeline_stats();
     rig.draw();
     assert!(
         rig.renderer.take_pipelines_built() > 0,
         "a cold crossfade builds variants"
     );
+    let cold = rig.renderer.pipeline_stats();
+    assert!(cold.misses > before.misses, "the cache saw the misses");
+    assert_eq!(cold.builds - before.builds, cold.misses - before.misses);
+    assert!(cold.slowest_build_ms > 0.0 && cold.build_ms >= cold.slowest_build_ms);
     rig.draw();
     assert_eq!(rig.renderer.take_pipelines_built(), 0, "once built, they're kept");
+    let warm = rig.renderer.pipeline_stats();
+    assert_eq!(warm.misses, cold.misses, "the second frame only hits");
+    assert!(warm.hits > cold.hits);
 
     // Warmed while loading: the same crossfade draws the same pixels and
     // builds nothing, and shaders made afterwards come warm too.

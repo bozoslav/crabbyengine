@@ -1,7 +1,8 @@
 //! [`TextureArray`]: several images of the same size as one texture, for
 //! 3D materials that pick between many (terrain layers, foliage variants).
 
-use crate::{Ctx, assets};
+use crate::assets;
+use crate::gfx::Graphics;
 
 /// What a [`TextureArray`]'s pixels hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -17,7 +18,7 @@ pub enum TextureKind {
 
 /// Several images of the same size in one texture, for materials that use
 /// many: terrain layers, foliage variants. Made with
-/// [`Ctx::create_texture_array`] or [`Ctx::load_texture_array`]; a cheap
+/// [`Graphics::create_texture_array`](crate::Graphics::create_texture_array) or [`Graphics::load_texture_array`](crate::Graphics::load_texture_array); a cheap
 /// handle. Custom shaders read one through
 /// [`MaterialDesc::custom_arrays`](crate::MaterialDesc::custom_arrays), and
 /// it gets mipmaps.
@@ -25,7 +26,7 @@ pub enum TextureKind {
 /// ```no_run
 /// # use ponko::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let ground = ctx.load_texture_array(&["grass.png", "dirt.png", "rock.png"], TextureKind::Color);
+/// let ground = ctx.gfx.load_texture_array(&["grass.png", "dirt.png", "rock.png"], TextureKind::Color);
 /// assert_eq!(ground.layers(), 3);
 /// # }
 /// ```
@@ -73,7 +74,7 @@ impl TextureArray {
     }
 }
 
-impl Ctx {
+impl Graphics {
     /// Makes a [`TextureArray`] from images of `width` × `height` RGBA
     /// pixels (4 bytes each), one per layer.
     ///
@@ -82,7 +83,7 @@ impl Ctx {
     /// # fn f(ctx: &mut Ctx) {
     /// let red = [255, 0, 0, 255].repeat(4);
     /// let blue = [0, 0, 255, 255].repeat(4);
-    /// let tints = ctx.create_texture_array(2, 2, &[&red, &blue], TextureKind::Color);
+    /// let tints = ctx.gfx.create_texture_array(2, 2, &[&red, &blue], TextureKind::Color);
     /// assert_eq!(tints.layers(), 2);
     /// # }
     /// ```
@@ -102,7 +103,7 @@ impl Ctx {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Ctx::create_texture_array`] that returns errors (for the C API).
+    /// [`Graphics::create_texture_array`](crate::Graphics::create_texture_array) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_texture_array(
         &mut self,
@@ -151,14 +152,15 @@ impl Ctx {
         Ok(array)
     }
 
-    /// Loads images from `assets/` (PNG, JPEG, ...) into a
+    /// Loads images (PNG, JPEG, ...) from the [added asset
+    /// sources](crate::Assets::add_source) or `assets/` into a
     /// [`TextureArray`], one layer each, in order. They must all be the
     /// same size. Each call makes a new array.
     ///
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let normals = ctx.load_texture_array(&["grass_n.png", "rock_n.png"], TextureKind::Data);
+    /// let normals = ctx.gfx.load_texture_array(&["grass_n.png", "rock_n.png"], TextureKind::Data);
     /// # }
     /// ```
     ///
@@ -171,13 +173,17 @@ impl Ctx {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Ctx::load_texture_array`] that returns errors (for the C API).
+    /// [`Graphics::load_texture_array`](crate::Graphics::load_texture_array) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_load_texture_array(&mut self, paths: &[&str], kind: TextureKind) -> Result<TextureArray, String> {
         let mut images = Vec::with_capacity(paths.len());
         for path in paths {
-            let file = assets::resolve(path)?;
-            images.push(assets::load_image_at(&file, path)?);
+            let found = self.asset_sources.find(path)?;
+            let origin = found.origin.clone();
+            let bytes = found.into_bytes()?;
+            let image = assets::decode_image(&bytes)
+                .map_err(|e| format!("{} is not a valid image: {e}", origin.describe(path)))?;
+            images.push(image);
         }
         let Some(first) = images.first() else {
             return Err("load_texture_array: no files given".into());
@@ -198,15 +204,15 @@ impl Ctx {
     }
 
     /// Whether this game made `array`, as it is, and hasn't freed it (for
-    /// the C API, which takes ids and sizes): [`Ctx::is_live`], with the
+    /// the C API, which takes ids and sizes): [`Ctx::is_live`](crate::Ctx::is_live), with the
     /// size checked too.
     #[doc(hidden)]
     #[must_use]
     pub fn has_texture_array(&self, array: TextureArray) -> bool {
-        self.is_live(array) && self.assets3d.arrays.get(array.id as usize) == Some(&array)
+        self.assets3d.arrays_live.contains(array.id) && self.assets3d.arrays.get(array.id as usize) == Some(&array)
     }
 
-    /// Frees texture array `id` (see [`Ctx::free`]): materials reading it
+    /// Frees texture array `id` (see [`Ctx::free`](crate::Ctx::free)): materials reading it
     /// see a white one, and decals lose their images if it was theirs.
     pub(crate) fn free_texture_array_id(&mut self, id: u32) {
         if !self.assets3d.arrays_live.remove(id) {
@@ -237,8 +243,8 @@ impl Ctx {
     /// ```no_run
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let images = ctx.load_texture_array(&["blood.png", "tyre.png", "tyre_n.png"], TextureKind::Data);
-    /// ctx.set_decal_textures(Some(images));
+    /// let images = ctx.gfx.load_texture_array(&["blood.png", "tyre.png", "tyre_n.png"], TextureKind::Data);
+    /// ctx.gfx.set_decal_textures(Some(images));
     /// # }
     /// ```
     ///
@@ -250,7 +256,7 @@ impl Ctx {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Ctx::set_decal_textures`] that returns errors (for the C API).
+    /// [`Graphics::set_decal_textures`](crate::Graphics::set_decal_textures) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_set_decal_textures(&mut self, array: Option<TextureArray>) -> Result<(), String> {
         if let Some(a) = array {
@@ -271,7 +277,7 @@ impl Ctx {
     ///
     /// ```
     /// # use ponko::*;
-    /// # fn f(ctx: &Ctx) { assert!(ctx.decal_textures().is_none()); }
+    /// # fn f(ctx: &Ctx) { assert!(ctx.gfx.decal_textures().is_none()); }
     /// ```
     #[must_use]
     pub fn decal_textures(&self) -> Option<TextureArray> {
@@ -285,7 +291,7 @@ impl Ctx {
     ///
     /// ```
     /// # use ponko::*;
-    /// # fn f(ctx: &Ctx) { let _ = ctx.supports_decals(); }
+    /// # fn f(ctx: &Ctx) { let _ = ctx.gfx.supports_decals(); }
     /// ```
     #[must_use]
     pub fn supports_decals(&self) -> bool {

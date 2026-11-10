@@ -13,9 +13,9 @@ fn textures_and_sounds_are_counted_with_their_bytes() {
     headless(|ctx| {
         let before = ctx.asset_inventory();
         assert!(before.gpu.is_none(), "headless runs have no GPU to count");
-        let _a = ctx.create_texture(4, 2, &[0; 4 * 2 * 4]);
-        let _b = ctx.create_texture(1, 1, &[0; 4]);
-        let _beep = ctx.create_sound(1000, &[0.0; 100]);
+        let _a = ctx.gfx.create_texture(4, 2, &[0; 4 * 2 * 4]);
+        let _b = ctx.gfx.create_texture(1, 1, &[0; 4]);
+        let _beep = ctx.audio.create(1000, &[0.0; 100]);
         let after = ctx.asset_inventory();
         let textures = after.get(AssetClass::Texture);
         assert_eq!(textures.live, before.get(AssetClass::Texture).live + 2);
@@ -57,11 +57,11 @@ mod three {
     #[test]
     fn mesh_create_free_cycles_return_to_baseline() {
         headless(|ctx| {
-            let material = ctx.default_material();
+            let material = ctx.gfx.default_material();
             let base = ctx.asset_inventory();
             for round in 0..200 {
                 let meshes: Vec<Mesh> = (0..5)
-                    .map(|i| ctx.create_mesh(&MeshData::cube(1.0 + i as f32), material))
+                    .map(|i| ctx.gfx.create_mesh(&MeshData::cube(1.0 + i as f32), material))
                     .collect();
                 let during = ctx.asset_inventory();
                 assert_eq!(during.get(AssetClass::Mesh).live, base.get(AssetClass::Mesh).live + 5);
@@ -70,8 +70,8 @@ mod three {
                     base.get(AssetClass::Mesh).bytes + 5 * cube_bytes()
                 );
                 for mesh in meshes {
-                    ctx.free_mesh(mesh);
-                    ctx.free_mesh(mesh); // twice: still freed once
+                    ctx.gfx.free_mesh(mesh);
+                    ctx.gfx.free_mesh(mesh); // twice: still freed once
                 }
                 let growth = ctx.asset_inventory().growth_since(&base);
                 assert!(growth.is_empty(), "round {round}: {growth:?}");
@@ -83,12 +83,12 @@ mod three {
     #[test]
     fn a_leak_names_the_class_that_grows() {
         headless(|ctx| {
-            let material = ctx.default_material();
+            let material = ctx.gfx.default_material();
             let base = ctx.asset_inventory();
             for _ in 0..3 {
-                let kept = ctx.create_mesh(&MeshData::cube(1.0), material);
-                let freed = ctx.create_mesh(&MeshData::cube(1.0), material);
-                ctx.free_mesh(freed);
+                let kept = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+                let freed = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+                ctx.gfx.free_mesh(freed);
                 let _ = kept; // never freed: the leak
             }
             let growth = ctx.asset_inventory().growth_since(&base);
@@ -104,17 +104,17 @@ mod three {
         headless(|ctx| {
             // The first load makes the file's textures and materials; they
             // are kept for the next load of the same file.
-            let house = ctx.load_mesh("models/house.glb");
-            ctx.free_mesh(house);
+            let house = ctx.gfx.load_mesh("models/house.glb");
+            ctx.gfx.free_mesh(house);
             let base = ctx.asset_inventory();
             for round in 0..20 {
-                let house = ctx.load_mesh("models/house.glb");
-                assert!(ctx.is_mesh_live(house));
+                let house = ctx.gfx.load_mesh("models/house.glb");
+                assert!(ctx.gfx.is_mesh_live(house));
                 let during = ctx.asset_inventory();
                 assert_eq!(during.get(AssetClass::Mesh).live, base.get(AssetClass::Mesh).live + 1);
                 assert_eq!(during.get(AssetClass::Material), base.get(AssetClass::Material));
                 assert_eq!(during.get(AssetClass::Texture), base.get(AssetClass::Texture));
-                ctx.free_mesh(house);
+                ctx.gfx.free_mesh(house);
                 let growth = ctx.asset_inventory().growth_since(&base);
                 assert!(growth.is_empty(), "round {round}: {growth:?}");
             }
@@ -126,10 +126,10 @@ mod three {
         headless(|ctx| {
             let base = ctx.asset_inventory();
             for len in 1..100u32 {
-                let buffer = ctx.create_gpu_buffer(len, &[]);
+                let buffer = ctx.gfx.create_gpu_buffer(len, &[]);
                 let during = ctx.asset_inventory().get(AssetClass::GpuBuffer);
                 assert_eq!((during.live, during.bytes), (1, u64::from(len) * 16));
-                ctx.free_gpu_buffer(buffer);
+                ctx.free(buffer);
             }
             assert!(ctx.asset_inventory().growth_since(&base).is_empty());
         });
@@ -139,9 +139,11 @@ mod three {
     fn never_freed_classes_count_what_was_made() {
         headless(|ctx| {
             let base = ctx.asset_inventory();
-            let _ = ctx.create_material(MaterialDesc::default());
-            let _ = ctx.create_render_target(16, 8);
-            let _ = ctx.create_texture_array(2, 2, &[&[0; 16], &[0; 16]], TextureKind::Color);
+            let _ = ctx.gfx.create_material(MaterialDesc::default());
+            let _ = ctx.gfx.create_render_target(16, 8);
+            let _ = ctx
+                .gfx
+                .create_texture_array(2, 2, &[&[0; 16], &[0; 16]], TextureKind::Color);
             let now = ctx.asset_inventory();
             assert_eq!(
                 now.get(AssetClass::Material).live,
@@ -161,8 +163,8 @@ fn freed_handles_leave_the_inventory() {
     headless(|ctx| {
         let base = ctx.asset_inventory();
         for _ in 0..3 {
-            let texture = ctx.create_texture(4, 4, &[0; 4 * 4 * 4]);
-            let beep = ctx.create_sound(1000, &[0.0; 100]);
+            let texture = ctx.gfx.create_texture(4, 4, &[0; 4 * 4 * 4]);
+            let beep = ctx.audio.create(1000, &[0.0; 100]);
             assert_eq!(
                 ctx.asset_inventory().get(AssetClass::Texture).live,
                 base.get(AssetClass::Texture).live + 1

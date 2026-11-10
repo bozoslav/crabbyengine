@@ -49,9 +49,9 @@ impl Rig {
             emissive: Color::WHITE,
             ..Default::default()
         };
-        let material = ctx.create_material(glow);
+        let material = ctx.gfx.create_material(glow);
         let cube_data = MeshData::cube(1.0);
-        let cube = ctx.create_mesh(&cube_data, material);
+        let cube = ctx.gfx.create_mesh(&cube_data, material);
         let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         renderer.create_material(&device, &GpuMaterialDesc::new(&glow), &textures);
         renderer.create_mesh(
@@ -113,7 +113,7 @@ impl Rig {
             ctx.post.anti_aliasing == AntiAliasing::Taa || (ctx.post.ao_temporal && ctx.post.ambient_occlusion.enabled);
         self.frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -236,6 +236,9 @@ fn a_still_diagonal_edge_converges_smoother_than_without_it() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+        return;
+    }
     rig.slab(0.37);
     let none = rig.draw();
     // The truth: the same picture at 8 times the size, averaged down.
@@ -286,6 +289,9 @@ fn a_moved_model_writes_its_motion_and_a_still_one_does_not() {
     let Some(mut rig) = Rig::new(SIZE * 2, false) else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+        return;
+    }
     rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
     // The world holds one entity; moving it keeps it the same entity.
     rig.ctx.world.spawn((Transform3D::at(Vec3::ZERO), Model::new(rig.cube)));
@@ -332,24 +338,24 @@ impl Rig {
             color: Color::BLACK,
             roughness: 1.0,
             emissive: Color::WHITE,
-            shader: Some(self.ctx.create_shader("offsets", OFFSETS)),
+            shader: Some(self.ctx.gfx.create_shader("offsets", OFFSETS)),
             ..Default::default()
         };
         self.renderer.create_shader(&self.device, "offsets", OFFSETS).unwrap();
-        let material = self.ctx.create_material(glow);
+        let material = self.ctx.gfx.create_material(glow);
         let data = MeshData::cube(1.0);
-        let mesh = self.ctx.create_mesh(&data, material);
+        let mesh = self.ctx.gfx.create_mesh(&data, material);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&glow), &self.textures);
         self.renderer
             .create_mesh(&self.device, &data, &[(0..data.indices.len() as u32, material)], true);
         let len = offsets.len() as u32;
-        let b = self.ctx.create_gpu_buffer(len, offsets);
+        let b = self.ctx.gfx.create_gpu_buffer(len, offsets);
         self.renderer.create_gpu_buffer(&self.device, b.id, len, offsets);
-        self.ctx.set_mesh_gpu_buffer(mesh, b, len);
+        self.ctx.gfx.set_mesh_gpu_buffer(mesh, b, len);
         self.renderer.set_mesh_gpu_buffer(mesh.id, b.id, len);
         // The offsets reach beyond the entity's own bounds.
-        self.ctx.set_mesh_gpu_bounds(mesh, vec3(0.0, 1.0, 0.0), 2.0);
+        self.ctx.gfx.set_mesh_gpu_bounds(mesh, vec3(0.0, 1.0, 0.0), 2.0);
         Some(mesh)
     }
 }
@@ -359,6 +365,9 @@ impl Rig {
 /// `buffered` draws the cubes from a GPU buffer; `None` without a GPU.
 fn trail(disabled: bool, buffered: bool) -> Option<f32> {
     let mut rig = Rig::new(SIZE, false)?;
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+        return None;
+    }
     rig.disable_motion = disabled;
     rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
     // Two cubes a unit apart when buffered, else one: both rows are checked.
@@ -435,6 +444,9 @@ fn resetting_the_history_starts_over_from_the_current_frame() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+        return;
+    }
     rig.slab(0.37);
     let mut big = Rig::new(SIZE * 8, false).unwrap();
     big.slab(0.37);
@@ -478,6 +490,9 @@ fn temporal_ao_tracks_objects_without_taa_and_reset_discards_history() {
     let Some(mut rig) = Rig::new(SIZE * 2, false) else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::AmbientOcclusion) {
+        return;
+    }
     rig.ctx.post.ambient_occlusion.enabled = true;
     rig.ctx.post.ao_temporal = true;
     rig.ctx.world.spawn((Transform3D::default(), Model::new(rig.cube)));
@@ -568,6 +583,9 @@ fn rotation_animation_writes_motion_away_from_the_pivot() {
     let Some(mut rig) = Rig::new(256, false) else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+        return;
+    }
     rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
     rig.ctx.world.spawn((Transform3D::default(), Model::new(rig.cube)));
     rig.draw();
@@ -599,6 +617,9 @@ fn each_history_trigger_resets_once_and_steady_frames_keep_the_history() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+        return;
+    }
     rig.slab(0.37);
     rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
     rig.ctx.post.ssr = 1.0;
@@ -656,6 +677,9 @@ fn a_reset_frame_reports_no_motion_for_a_teleported_model() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+        return;
+    }
     rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
     rig.ctx
         .world
@@ -686,6 +710,9 @@ fn a_reset_requested_on_a_frame_that_draws_nothing_still_applies() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+        return;
+    }
     rig.slab(0.37);
     let mut big = Rig::new(SIZE * 8, false).unwrap();
     big.slab(0.37);
@@ -771,6 +798,9 @@ fn slab_truth(size: u32) -> Vec<f32> {
 /// then the next frame (red channel, linear). `None` without a GPU.
 fn frame_after(step: impl FnOnce(&mut Rig)) -> Option<Vec<f32>> {
     let mut rig = Rig::new(SIZE, false)?;
+    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::TemporalAntialiasing) {
+        return None;
+    }
     rig.slab(0.37);
     rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
     for _ in 0..40 {

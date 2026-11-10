@@ -860,12 +860,12 @@ fn material_from_c(c: &ponko::Ctx, d: &CrabbyMaterialDesc) -> Result<MaterialDes
         _ => return Err(invalid("blend must be 0 (opaque), 1 (transparent) or 2 (cut out)")),
     };
     let shader = d.has_shader.then_some(Shader::from_id(d.shader.id));
-    if shader.is_some_and(|s| !c.has_shader(s)) {
+    if shader.is_some_and(|s| !c.gfx.has_shader(s)) {
         return Err(invalid("that shader wasn't made by this game"));
     }
     let map = |has: bool, t: CrabbyTexture| has.then(|| texture_from_c(t));
     let arrays = std::array::from_fn(|i| d.has_custom_arrays[i].then(|| array_from_c(d.custom_arrays[i])));
-    if arrays.iter().flatten().any(|a| !c.has_texture_array(*a)) {
+    if arrays.iter().flatten().any(|a| !c.gfx.has_texture_array(*a)) {
         return Err(invalid("that texture array wasn't made by this game"));
     }
     let v = |i: usize| {
@@ -943,7 +943,7 @@ pub extern "C" fn crabby_terrain_material_desc(
 }
 
 /// Makes a texture array of `width` x `height` images (Rust
-/// `Ctx::create_texture_array`): `rgba` holds them one after another, 4
+/// `Graphics::create_texture_array`): `rgba` holds them one after another, 4
 /// bytes a pixel, `len` bytes in all (a whole number of images). `kind` is
 /// `CRABBY_TEXTURE_COLOR` or `CRABBY_TEXTURE_DATA`.
 /// # Safety
@@ -977,6 +977,7 @@ pub unsafe extern "C" fn crabby_ctx_create_texture_array(
             let bytes = std::slice::from_raw_parts(rgba, len);
             let layers: Vec<&[u8]> = bytes.chunks_exact(image).collect();
             let array = c
+                .gfx
                 .try_create_texture_array(width, height, &layers, kind)
                 .map_err(invalid_owned)?;
             out(out_array, array_to_c(array))
@@ -985,7 +986,7 @@ pub unsafe extern "C" fn crabby_ctx_create_texture_array(
 }
 
 /// Loads `count` images from assets/, all the same size, into a texture
-/// array, one layer each (Rust `Ctx::load_texture_array`). `kind` is
+/// array, one layer each (Rust `Graphics::load_texture_array`). `kind` is
 /// `CRABBY_TEXTURE_COLOR` or `CRABBY_TEXTURE_DATA`.
 /// # Safety
 /// `ctx` null or live; `paths` holds `count` NUL-terminated strings; output writable.
@@ -1011,7 +1012,7 @@ pub unsafe extern "C" fn crabby_ctx_load_texture_array(
                 .iter()
                 .map(|&p| text(p))
                 .collect::<Result<Vec<&str>, _>>()?;
-            let array = c.try_load_texture_array(&names, kind).map_err(invalid_owned)?;
+            let array = c.gfx.try_load_texture_array(&names, kind).map_err(invalid_owned)?;
             out(out_array, array_to_c(array))
         })
     })
@@ -1027,7 +1028,7 @@ fn kind_from_c(kind: u32) -> Result<TextureKind, crate::Failure> {
     }
 }
 
-/// Makes a terrain material (Rust `Ctx::create_terrain_material`): an
+/// Makes a terrain material (Rust `Graphics::create_terrain_material`): an
 /// ordinary material, for `crabby_ctx_create_terrain_tile` or any mesh.
 /// # Safety
 /// `ctx` null or live; `desc` readable; output writable.
@@ -1059,7 +1060,7 @@ pub unsafe extern "C" fn crabby_ctx_create_terrain_material(
                 layer_size: d.layer_size,
                 roughness: d.roughness,
             };
-            let material = c.try_create_terrain_material(&rust).map_err(invalid_owned)?;
+            let material = c.gfx.try_create_terrain_material(&rust).map_err(invalid_owned)?;
             out(out_material, to_c(material))
         })
     })
@@ -1382,7 +1383,7 @@ pub unsafe extern "C" fn crabby_ctx_create_material(
                 return Err(invalid("output is null"));
             }
             let desc = material_from_c(c, d)?;
-            out(out_material, to_c(c.create_material(desc)))
+            out(out_material, to_c(c.gfx.create_material(desc)))
         })
     })
 }
@@ -1407,18 +1408,18 @@ pub unsafe extern "C" fn crabby_ctx_update_material(
                 return Err(invalid("material desc is null"));
             };
             let material: Material = to_c(material);
-            if !c.has_material(material) {
+            if !c.gfx.has_material(material) {
                 return Err(invalid("that material wasn't made by this game"));
             }
             let desc = material_from_c(c, d)?;
-            c.update_material(material, desc);
+            c.gfx.update_material(material, desc);
             Ok(())
         })
     })
 }
 
 /// The materials loaded from glTF files so far that the files call `name`,
-/// with what each was made from (Rust `Ctx::loaded_materials`): to give
+/// with what each was made from (Rust `Graphics::loaded_materials`): to give
 /// them a shader of your own with `crabby_ctx_update_material`. Writes up
 /// to `capacity` of them to `out_materials` and `out_descs` (either may be
 /// null to only count), and how many there are to `out_count`.
@@ -1443,7 +1444,7 @@ pub unsafe extern "C" fn crabby_ctx_loaded_materials(
             if out_count.is_null() {
                 return Err(invalid("output is null"));
             }
-            let found = c.loaded_materials(name);
+            let found = c.gfx.loaded_materials(name);
             for (i, (material, desc)) in found.iter().take(capacity).enumerate() {
                 if !out_materials.is_null() {
                     out_materials.add(i).write(to_c(*material));
@@ -1459,7 +1460,10 @@ pub unsafe extern "C" fn crabby_ctx_loaded_materials(
 
 /// Loads a material shader (WGSL) from `assets/`; with hot reload on,
 /// saving the file updates the game. A file that can't be read or doesn't
-/// compile is an error; `crabby_last_error` says where.
+/// compile is an error; `crabby_last_error` says where. With hot reload on,
+/// a file that doesn't compile still gives a shader, drawing with the
+/// built-in look until a saved fix compiles (`crabby_ctx_shader_status`
+/// says what's wrong).
 /// # Safety
 /// `ctx` null or live; `path` a C string; output writable.
 /// ```
@@ -1478,7 +1482,7 @@ pub unsafe extern "C" fn crabby_ctx_load_shader(
             if out_shader.is_null() {
                 return Err(invalid("output is null"));
             }
-            let shader = c.try_load_shader(path).map_err(invalid_owned)?;
+            let shader = c.gfx.try_load_shader(path).map_err(invalid_owned)?;
             out(out_shader, CrabbyShader { id: shader.id() })
         })
     })
@@ -1506,7 +1510,7 @@ pub unsafe extern "C" fn crabby_ctx_create_shader(
             if out_shader.is_null() {
                 return Err(invalid("output is null"));
             }
-            let shader = c.try_create_shader(name, source).map_err(invalid_owned)?;
+            let shader = c.gfx.try_create_shader(name, source).map_err(invalid_owned)?;
             out(out_shader, CrabbyShader { id: shader.id() })
         })
     })
@@ -1514,7 +1518,9 @@ pub unsafe extern "C" fn crabby_ctx_create_shader(
 
 /// Loads a compute pass shader (WGSL, defining `fn compute(c: Cell) ->
 /// vec4<f32>`) from assets/, hot reloaded; the same file again gives the
-/// same compute pass (Rust `Ctx::load_compute`).
+/// same compute pass (Rust `Graphics::load_compute`). With hot reload on, a
+/// file that doesn't compile still gives a compute pass, skipped until a
+/// saved fix compiles (`crabby_ctx_shader_status` says what's wrong).
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
 /// ```
@@ -1533,14 +1539,14 @@ pub unsafe extern "C" fn crabby_ctx_load_compute(
             if out_compute.is_null() {
                 return Err(invalid("output is null"));
             }
-            let compute = c.try_load_compute(path).map_err(invalid_owned)?;
+            let compute = c.gfx.try_load_compute(path).map_err(invalid_owned)?;
             out(out_compute, CrabbyCompute { id: compute.id() })
         })
     })
 }
 
 /// Makes a compute pass shader from WGSL source; `name` is for error
-/// messages (Rust `Ctx::create_compute`).
+/// messages (Rust `Graphics::create_compute`).
 /// # Safety
 /// `ctx` null or live; `name` and `source` NUL-terminated strings; output writable.
 /// ```
@@ -1561,7 +1567,7 @@ pub unsafe extern "C" fn crabby_ctx_create_compute(
             if out_compute.is_null() {
                 return Err(invalid("output is null"));
             }
-            let compute = c.try_create_compute(name, source).map_err(invalid_owned)?;
+            let compute = c.gfx.try_create_compute(name, source).map_err(invalid_owned)?;
             out(out_compute, CrabbyCompute { id: compute.id() })
         })
     })
@@ -1594,19 +1600,19 @@ pub unsafe extern "C" fn crabby_ctx_set_compute_passes(
             let mut list = Vec::with_capacity(count);
             for p in given {
                 let compute = Compute::from_id(p.compute.id);
-                if !c.has_compute(compute) {
+                if !c.gfx.has_compute(compute) {
                     return Err(invalid("that compute pass wasn't made by this game"));
                 }
                 let target = texture_from_c(p.target);
                 let buffer = p.has_buffer.then(|| GpuBuffer::from_id(p.buffer.id));
-                if buffer.is_some_and(|b| c.gpu_buffer_len(b).is_none()) {
+                if buffer.is_some_and(|b| c.gfx.gpu_buffer_len(b).is_none()) {
                     return Err(invalid("invalid GPU buffer"));
                 }
-                if buffer.is_none() && !c.is_render_target(target) {
+                if buffer.is_none() && !c.gfx.is_render_target(target) {
                     return Err(invalid("that texture isn't a render target of this game"));
                 }
                 let material = p.has_material.then(|| to_c(p.material));
-                if material.is_some_and(|m| !c.has_material(m)) {
+                if material.is_some_and(|m| !c.gfx.has_material(m)) {
                     return Err(invalid("that material wasn't made by this game"));
                 }
                 list.push(ComputePass {
@@ -1663,7 +1669,9 @@ pub unsafe extern "C" fn crabby_ctx_compute_passes(
 
 /// Loads a screen effect shader (WGSL, defining `fn effect(p: Pixel) ->
 /// vec3<f32>`) from assets/, hot reloaded; the same file again gives the
-/// same effect (Rust `Ctx::load_effect`).
+/// same effect (Rust `Graphics::load_effect`). With hot reload on, a file that
+/// doesn't compile still gives an effect, showing the frame as it is until
+/// a saved fix compiles (`crabby_ctx_shader_status` says what's wrong).
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
 /// ```
@@ -1682,14 +1690,14 @@ pub unsafe extern "C" fn crabby_ctx_load_effect(
             if out_effect.is_null() {
                 return Err(invalid("output is null"));
             }
-            let effect = c.try_load_effect(path).map_err(invalid_owned)?;
+            let effect = c.gfx.try_load_effect(path).map_err(invalid_owned)?;
             out(out_effect, CrabbyEffect { id: effect.id() })
         })
     })
 }
 
 /// Makes a screen effect shader from WGSL source; `name` is for error
-/// messages (Rust `Ctx::create_effect`).
+/// messages (Rust `Graphics::create_effect`).
 /// # Safety
 /// `ctx` null or live; `name` and `source` NUL-terminated strings; output writable.
 /// ```
@@ -1710,7 +1718,7 @@ pub unsafe extern "C" fn crabby_ctx_create_effect(
             if out_effect.is_null() {
                 return Err(invalid("output is null"));
             }
-            let effect = c.try_create_effect(name, source).map_err(invalid_owned)?;
+            let effect = c.gfx.try_create_effect(name, source).map_err(invalid_owned)?;
             out(out_effect, CrabbyEffect { id: effect.id() })
         })
     })
@@ -1743,11 +1751,11 @@ pub unsafe extern "C" fn crabby_ctx_set_effects(
             let mut list = Vec::with_capacity(count);
             for e in given {
                 let effect = Effect::from_id(e.effect.id);
-                if !c.has_effect(effect) {
+                if !c.gfx.has_effect(effect) {
                     return Err(invalid("that effect wasn't made by this game"));
                 }
                 let material = e.has_material.then(|| to_c(e.material));
-                if material.is_some_and(|m| !c.has_material(m)) {
+                if material.is_some_and(|m| !c.gfx.has_material(m)) {
                     return Err(invalid("that material wasn't made by this game"));
                 }
                 list.push(ScreenEffect { effect, material });
@@ -1803,7 +1811,7 @@ pub unsafe extern "C" fn crabby_ctx_default_material(
     out_material: *mut CrabbyMaterial,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_material, to_c(c.default_material()))) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_material, to_c(c.gfx.default_material()))) })
 }
 
 /// Puts mesh data on the GPU as a mesh of one material. The data can be
@@ -1831,17 +1839,17 @@ pub unsafe extern "C" fn crabby_ctx_create_mesh(
             }
             // Checked here so bad input is an error, not a panic.
             data.0.check().map_err(invalid_owned)?;
-            if !c.has_material(to_c(material)) {
+            if !c.gfx.has_material(to_c(material)) {
                 return Err(invalid("that material wasn't made by this game"));
             }
-            out(out_mesh, to_c(c.create_mesh(&data.0, to_c(material))))
+            out(out_mesh, to_c(c.gfx.create_mesh(&data.0, to_c(material))))
         })
     })
 }
 
 /// Makes a terrain tile `size` wide from `count` heights (n x n, row after
 /// row along +Z, NaN for a hole) drawn with `material` (Rust
-/// `Ctx::create_terrain_tile`). Spawn it with a `CrabbyTransform3D` at the
+/// `Graphics::create_terrain_tile`). Spawn it with a `CrabbyTransform3D` at the
 /// tile's corner.
 /// # Safety
 /// `ctx` null or live; `heights` holds `count` floats; output writable.
@@ -1870,11 +1878,11 @@ pub unsafe extern "C" fn crabby_ctx_create_terrain_tile(
             if !(size > 0.0 && size.is_finite()) {
                 return Err(invalid("size must be above 0"));
             }
-            if !c.has_material(to_c(material)) {
+            if !c.gfx.has_material(to_c(material)) {
                 return Err(invalid("that material wasn't made by this game"));
             }
             let heights = std::slice::from_raw_parts(heights, count);
-            out(out_tile, to_c(c.create_terrain_tile(heights, size, to_c(material))))
+            out(out_tile, to_c(c.gfx.create_terrain_tile(heights, size, to_c(material))))
         })
     })
 }
@@ -1900,7 +1908,7 @@ pub unsafe extern "C" fn crabby_ctx_load_mesh(
             if out_mesh.is_null() {
                 return Err(invalid("output is null"));
             }
-            out(out_mesh, to_c(c.load_mesh(path)))
+            out(out_mesh, to_c(c.gfx.load_mesh(path)))
         })
     })
 }
@@ -1914,7 +1922,7 @@ pub unsafe extern "C" fn crabby_ctx_load_mesh(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_models_drawn(ctx: *mut CrabbyCtx, out_count: *mut usize) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, c.models_drawn())) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, c.gfx.models_drawn())) })
 }
 
 fn camera_to_c(c: &Camera3D) -> CrabbyCamera3D {
@@ -1958,7 +1966,7 @@ fn target_camera_to_c(t: &TargetCamera) -> CrabbyTargetCamera {
 }
 
 /// Makes a texture of `width` x `height` pixels that target cameras draw
-/// the 3D world into (Rust `Ctx::create_render_target`); materials use it
+/// the 3D world into (Rust `Graphics::create_render_target`); materials use it
 /// like any texture.
 /// # Safety
 /// `ctx` null or live; output writable.
@@ -1978,7 +1986,7 @@ pub unsafe extern "C" fn crabby_ctx_create_render_target(
             if out_texture.is_null() {
                 return Err(invalid("output is null"));
             }
-            let texture = c.try_create_render_target(width, height).map_err(invalid_owned)?;
+            let texture = c.gfx.try_create_render_target(width, height).map_err(invalid_owned)?;
             out(out_texture, texture_to_c(texture))
         })
     })
@@ -2048,7 +2056,7 @@ pub unsafe extern "C" fn crabby_ctx_set_target_cameras(
             let mut list = Vec::with_capacity(count);
             for t in given {
                 let target = texture_from_c(t.target);
-                if !c.is_render_target(target) {
+                if !c.gfx.is_render_target(target) {
                     return Err(invalid("that texture isn't a render target of this game"));
                 }
                 let plane = Vec4::from_array(t.clip_plane);
@@ -2652,7 +2660,7 @@ pub struct CrabbyGraphicsQuality {
     pub gi: bool,
 }
 
-fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
+pub(crate) fn quality_to_c(q: GraphicsQuality) -> CrabbyGraphicsQuality {
     CrabbyGraphicsQuality {
         render_scale: q.render_scale,
         sharpen: q.sharpen,
@@ -2798,7 +2806,7 @@ pub unsafe extern "C" fn crabby_graphics_quality_level(
     })
 }
 
-/// Reads the current graphics quality (Rust `ctx.graphics_quality()`),
+/// Reads the current graphics quality (Rust `ctx.gfx.quality(&ctx.post, &ctx.lighting)`),
 /// gathered from the post and lighting settings.
 /// # Safety
 /// `ctx` null or live; output writable.
@@ -2808,11 +2816,15 @@ pub unsafe extern "C" fn crabby_ctx_graphics_quality(
     out_quality: *mut CrabbyGraphicsQuality,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_quality, quality_to_c(c.graphics_quality()))) })
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            out(out_quality, quality_to_c(c.gfx.quality(&c.post, &c.lighting)))
+        })
+    })
 }
 
 /// Switches the 3D picture to `quality` without a restart (Rust
-/// `ctx.set_graphics_quality`): writes the matching post and lighting
+/// `ctx.gfx.set_quality`): writes the matching post and lighting
 /// settings; the next frame draws at the new resolution and shadow map
 /// sizes. Fields outside their ranges (see `CrabbyGraphicsQuality`) are
 /// `CRABBY_INVALID_ARGUMENT` and change nothing.
@@ -2832,7 +2844,7 @@ pub unsafe extern "C" fn crabby_ctx_set_graphics_quality(
             let Some(q) = quality.as_ref() else {
                 return Err(invalid("quality is null"));
             };
-            c.set_graphics_quality(quality_from_c(q)?);
+            c.gfx.set_quality(&mut c.post, &mut c.lighting, quality_from_c(q)?);
             Ok(())
         })
     })
@@ -2851,7 +2863,7 @@ pub unsafe extern "C" fn crabby_ctx_reset_temporal_history(ctx: *mut CrabbyCtx) 
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.reset_temporal_history();
+            c.gfx.reset_temporal_history();
             Ok(())
         })
     })
@@ -3000,7 +3012,7 @@ pub unsafe extern "C" fn crabby_ctx_set_shadow_mesh(
 }
 
 /// Whether models showing `mesh` cast shadows (Rust
-/// `Ctx::set_mesh_shadows`): on for every mesh at first. Off suits small
+/// `Graphics::set_mesh_shadows`): on for every mesh at first. Off suits small
 /// things crowding the ground, such as grass.
 /// # Safety
 /// `ctx` null or live.
@@ -3016,7 +3028,7 @@ pub unsafe extern "C" fn crabby_ctx_set_mesh_shadows(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_mesh_shadows(to_c(mesh), casts);
+            c.gfx.set_mesh_shadows(to_c(mesh), casts);
             Ok(())
         })
     })
@@ -3036,7 +3048,7 @@ pub unsafe extern "C" fn crabby_ctx_mesh_shadows(
     out_casts: *mut bool,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_casts, c.mesh_shadows(to_c(mesh)))) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_casts, c.gfx.mesh_shadows(to_c(mesh)))) })
 }
 
 same_layout!(
@@ -3274,7 +3286,7 @@ pub unsafe extern "C" fn crabby_receives_decals_component(world: *mut CrabbyWorl
 }
 
 /// Sets the texture array decals take their images from (Rust
-/// `Ctx::set_decal_textures`). It must have been made with
+/// `Graphics::set_decal_textures`). It must have been made with
 /// `CRABBY_TEXTURE_DATA`: decals decode color layers from sRGB themselves.
 /// # Safety
 /// `ctx` null or live.
@@ -3287,7 +3299,8 @@ pub unsafe extern "C" fn crabby_ctx_set_decal_textures(ctx: *mut CrabbyCtx, arra
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.try_set_decal_textures(Some(array_from_c(array)))
+            c.gfx
+                .try_set_decal_textures(Some(array_from_c(array)))
                 .map_err(invalid_owned)
         })
     })
@@ -3304,13 +3317,13 @@ pub unsafe extern "C" fn crabby_ctx_clear_decal_textures(ctx: *mut CrabbyCtx) ->
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_decal_textures(None);
+            c.gfx.set_decal_textures(None);
             Ok(())
         })
     })
 }
 
-/// Whether this GPU draws projected decals (Rust `Ctx::supports_decals`);
+/// Whether this GPU draws projected decals (Rust `Graphics::supports_decals`);
 /// false in headless runs and on WebGL2.
 /// # Safety
 /// `ctx` null or live; output writable.
@@ -3321,11 +3334,11 @@ pub unsafe extern "C" fn crabby_ctx_clear_decal_textures(ctx: *mut CrabbyCtx) ->
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_supports_decals(ctx: *mut CrabbyCtx, out_supported: *mut bool) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_supported, c.supports_decals())) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_supported, c.gfx.supports_decals())) })
 }
 
 /// Build, now, the 3D pipeline variants frames would build the first time
-/// they draw them (Rust `Ctx::warm_render_pipelines`); call it at the end of
+/// they draw them (Rust `Graphics::warm_render_pipelines`); call it at the end of
 /// loading. Does nothing in headless runs.
 /// # Safety
 /// `ctx` null or live.
@@ -3337,7 +3350,7 @@ pub unsafe extern "C" fn crabby_ctx_warm_render_pipelines(ctx: *mut CrabbyCtx) -
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.warm_render_pipelines();
+            c.gfx.warm_render_pipelines();
             Ok(())
         })
     })
@@ -3354,7 +3367,8 @@ pub unsafe extern "C" fn crabby_ctx_bake_reflection_probe(ctx: *mut CrabbyCtx, e
     // SAFETY: forwarded context contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.bake_reflection_probe(ponko::Entity::from_bits(entity))
+            c.gfx
+                .bake_reflection_probe(&mut c.world, ponko::Entity::from_bits(entity))
                 .map_err(invalid_owned)
         })
     })
@@ -3375,7 +3389,8 @@ pub unsafe extern "C" fn crabby_ctx_load_reflection_probe(
     // SAFETY: forwarded context and string contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.load_reflection_probe(ponko::Entity::from_bits(entity), text(name)?)
+            c.gfx
+                .load_reflection_probe(&mut c.world, ponko::Entity::from_bits(entity), text(name)?)
                 .map_err(invalid_owned)
         })
     })
@@ -3694,7 +3709,7 @@ pub unsafe extern "C" fn crabby_ctx_create_gpu_buffer(
                     .map(|v| Vec4::from_array(*v))
                     .collect()
             };
-            let b = c.create_gpu_buffer(len, &data);
+            let b = c.gfx.create_gpu_buffer(len, &data);
             out(output, CrabbyGpuBuffer { id: b.id() })
         })
     })
@@ -3714,7 +3729,7 @@ pub unsafe extern "C" fn crabby_ctx_write_gpu_buffer(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let b = GpuBuffer::from_id(buffer.id);
-            let len = c.gpu_buffer_len(b).ok_or_else(|| invalid("invalid GPU buffer"))?;
+            let len = c.gfx.gpu_buffer_len(b).ok_or_else(|| invalid("invalid GPU buffer"))?;
             if offset > len || count > (len - offset) as usize || (count > 0 && data.is_null()) {
                 return Err(invalid("invalid GPU buffer write"));
             }
@@ -3726,7 +3741,7 @@ pub unsafe extern "C" fn crabby_ctx_write_gpu_buffer(
                     .map(|v| Vec4::from_array(*v))
                     .collect()
             };
-            c.write_gpu_buffer(b, offset, &data);
+            c.gfx.write_gpu_buffer(b, offset, &data);
             Ok(())
         })
     })
@@ -3743,10 +3758,10 @@ pub unsafe extern "C" fn crabby_ctx_free_gpu_buffer(ctx: *mut CrabbyCtx, buffer:
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let b = GpuBuffer::from_id(buffer.id);
-            if c.gpu_buffer_len(b).is_none() {
+            if c.gfx.gpu_buffer_len(b).is_none() {
                 return Err(invalid("invalid GPU buffer"));
             }
-            c.free_gpu_buffer(b);
+            c.free(b);
             Ok(())
         })
     })
@@ -3767,10 +3782,10 @@ pub unsafe extern "C" fn crabby_ctx_set_mesh_gpu_bounds(
         ctx_access(ctx, |c| {
             let mesh = to_c(mesh);
             let center = to_c(center);
-            if !c.is_mesh_live(mesh) || !(radius >= 0.0 && radius.is_finite() && center.is_finite()) {
+            if !c.gfx.is_mesh_live(mesh) || !(radius >= 0.0 && radius.is_finite() && center.is_finite()) {
                 return Err(invalid("invalid mesh bounds arguments"));
             }
-            c.set_mesh_gpu_bounds(mesh, center, radius);
+            c.gfx.set_mesh_gpu_bounds(mesh, center, radius);
             Ok(())
         })
     })
@@ -3791,10 +3806,10 @@ pub unsafe extern "C" fn crabby_ctx_set_mesh_gpu_buffer(
         ctx_access(ctx, |c| {
             let mesh = to_c(mesh);
             let b = GpuBuffer::from_id(buffer.id);
-            if !c.is_mesh_live(mesh) || c.gpu_buffer_len(b).is_none_or(|len| count > len) {
+            if !c.gfx.is_mesh_live(mesh) || c.gfx.gpu_buffer_len(b).is_none_or(|len| count > len) {
                 return Err(invalid("invalid GPU instance arguments"));
             }
-            c.set_mesh_gpu_buffer(mesh, b, count);
+            c.gfx.set_mesh_gpu_buffer(mesh, b, count);
             Ok(())
         })
     })
@@ -3836,7 +3851,7 @@ pub unsafe extern "C" fn crabby_ctx_create_instance_batch(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             if output.is_null()
-                || !c.is_mesh_live(to_c(mesh))
+                || !c.gfx.is_mesh_live(to_c(mesh))
                 || !options.cell_size.is_finite()
                 || options.cell_size <= 0.0
                 || (options.max_distance.is_nan() || options.max_distance < 0.0)
@@ -3856,7 +3871,7 @@ pub unsafe extern "C" fn crabby_ctx_create_instance_batch(
             if data.iter().any(|m| !m.is_finite() || m.row(3) != ponko::Vec4::W) {
                 return Err(invalid("invalid instance transform"));
             }
-            let b = c.create_instance_batch(
+            let b = c.gfx.create_instance_batch(
                 to_c(mesh),
                 &data,
                 ponko::InstanceBatchOptions {
@@ -3884,7 +3899,7 @@ pub unsafe extern "C" fn crabby_ctx_update_instance_batch(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let b = ponko::InstanceBatch::from_id(batch.id);
-            if c.instance_batch_len(b).is_none() || count > 16_777_216 || (count > 0 && matrices.is_null()) {
+            if c.gfx.instance_batch_len(b).is_none() || count > 16_777_216 || (count > 0 && matrices.is_null()) {
                 return Err(invalid("invalid instance batch update"));
             }
             let data = if count == 0 {
@@ -3898,7 +3913,7 @@ pub unsafe extern "C" fn crabby_ctx_update_instance_batch(
             if data.iter().any(|m| !m.is_finite() || m.row(3) != ponko::Vec4::W) {
                 return Err(invalid("invalid instance transform"));
             }
-            if !c.update_instance_batch(b, &data) {
+            if !c.gfx.update_instance_batch(b, &data) {
                 return Err(invalid("invalid instance mesh"));
             }
             Ok(())
@@ -3916,7 +3931,7 @@ pub unsafe extern "C" fn crabby_ctx_free_instance_batch(
     // SAFETY: forwarded context contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.free_instance_batch(ponko::InstanceBatch::from_id(batch.id));
+            c.gfx.free_instance_batch(ponko::InstanceBatch::from_id(batch.id));
             Ok(())
         })
     })
@@ -3969,7 +3984,7 @@ pub unsafe extern "C" fn crabby_ctx_create_instance_batch_levels(
             }
             let levels = std::slice::from_raw_parts(levels, level_count);
             if levels.iter().any(|l| {
-                !c.is_mesh_live(to_c(l.mesh))
+                !c.gfx.is_mesh_live(to_c(l.mesh))
                     || !l.min_distance.is_finite()
                     || l.min_distance < 0.0
                     || l.max_distance <= l.min_distance
@@ -3988,7 +4003,7 @@ pub unsafe extern "C" fn crabby_ctx_create_instance_batch_levels(
                 })
                 .collect();
             let (transforms, colors) = instance_arrays(matrices, count, colors, color_count)?;
-            let b = c.create_instance_batch_levels(
+            let b = c.gfx.create_instance_batch_levels(
                 &levels,
                 &transforms,
                 &colors,
@@ -4020,7 +4035,10 @@ pub unsafe extern "C" fn crabby_ctx_update_instance_batch_colors(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let (transforms, colors) = instance_arrays(matrices, count, colors, color_count)?;
-            if !c.update_instance_batch_colors(ponko::InstanceBatch::from_id(batch.id), &transforms, &colors) {
+            if !c
+                .gfx
+                .update_instance_batch_colors(ponko::InstanceBatch::from_id(batch.id), &transforms, &colors)
+            {
                 return Err(invalid("invalid instance batch or level mesh"));
             }
             Ok(())

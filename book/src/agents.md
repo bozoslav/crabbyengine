@@ -57,6 +57,8 @@ ctx.world.reflect::<Health>();
 | `set_camera` | | move or zoom the camera (`look_at`, `zoom`, `position`), e.g. before a screenshot |
 | `run_ticks` | ✓ | run exactly N ticks of a paused sim and wait |
 | `watch` | ✓ | run N ticks and sample every K: tick, resources, entity counts, time per tick |
+| `run_input_scenario` | ✓ | run a tick-indexed [input scenario](actions.md#input-scenarios) (key, mouse and gamepad steps plus checks) on a paused sim; returns the report, with the failing step, tick, expected and actual for a failed check. The keys it holds are released when it ends (`keep_input_when_done` keeps them until `cancel_input_scenario`). Needs a game that allows input injection (`launch` sets it) |
+| `cancel_input_scenario` | ✓ | end a scenario and release the input it holds |
 | `pause` / `resume` / `set_speed` | ✓ | sim clock |
 | `spawn_entity` / `despawn_entity` | ✓ | |
 | `set_component` / `remove_component` | ✓ | change values; object fields merge |

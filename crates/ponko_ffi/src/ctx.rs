@@ -39,11 +39,11 @@ pub struct CrabbyCtx {
 pub(crate) fn with_ctx<R>(ctx: &mut Ctx, f: impl FnOnce(*mut CrabbyCtx) -> R) -> R {
     let snapshot = (
         ctx.dt(),
-        ctx.sim_tick(),
-        ctx.sim_time(),
-        ctx.time(),
-        ctx.frame(),
-        ctx.fps(),
+        ctx.time.sim_tick(),
+        ctx.time.sim_time(),
+        ctx.time.elapsed(),
+        ctx.time.frame(),
+        ctx.time.fps(),
         ctx.random().to_bits(),
         to_c(ctx.window_size()),
     );
@@ -342,7 +342,7 @@ pub unsafe extern "C" fn crabby_ctx_pause(ctx: *mut CrabbyCtx) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.pause();
+            c.time.pause();
             Ok(())
         })
     })
@@ -358,7 +358,7 @@ pub unsafe extern "C" fn crabby_ctx_resume(ctx: *mut CrabbyCtx) -> CrabbyStatus 
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.resume();
+            c.time.resume();
             Ok(())
         })
     })
@@ -374,7 +374,7 @@ pub unsafe extern "C" fn crabby_ctx_step(ctx: *mut CrabbyCtx) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.step();
+            c.time.step();
             Ok(())
         })
     })
@@ -393,7 +393,7 @@ pub unsafe extern "C" fn crabby_ctx_set_sim_speed(ctx: *mut CrabbyCtx, speed: f3
             if !speed.is_finite() || speed < 0.0 {
                 return Err(invalid("speed must be finite and not negative"));
             }
-            c.set_sim_speed(speed);
+            c.time.set_speed(speed);
             Ok(())
         })
     })
@@ -407,7 +407,7 @@ pub unsafe extern "C" fn crabby_ctx_set_sim_speed(ctx: *mut CrabbyCtx, speed: f3
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_sim_speed(ctx: *mut CrabbyCtx, out_speed: *mut f32) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_speed, c.sim_speed())) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_speed, c.time.speed())) })
 }
 /// Whether the simulation is paused.
 /// ```
@@ -418,7 +418,7 @@ pub unsafe extern "C" fn crabby_ctx_sim_speed(ctx: *mut CrabbyCtx, out_speed: *m
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_is_paused(ctx: *mut CrabbyCtx, out_paused: *mut bool) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_paused, c.is_paused())) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_paused, c.time.is_paused())) })
 }
 
 /// Whether a key (`CrabbyKey`) is held.
@@ -485,7 +485,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_down(ctx: *mut CrabbyCtx, input: u32, 
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let input = button_from_c(input).ok_or_else(|| invalid("unknown key or mouse button"))?;
-            out(out_state, c.mouse_down(input))
+            out(out_state, c.input.mouse_down(input))
         })
     })
 }
@@ -505,7 +505,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_pressed(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let input = button_from_c(input).ok_or_else(|| invalid("unknown key or mouse button"))?;
-            out(out_state, c.mouse_pressed(input))
+            out(out_state, c.input.mouse_pressed(input))
         })
     })
 }
@@ -525,7 +525,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_released(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let input = button_from_c(input).ok_or_else(|| invalid("unknown key or mouse button"))?;
-            out(out_state, c.mouse_released(input))
+            out(out_state, c.input.mouse_released(input))
         })
     })
 }
@@ -538,7 +538,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_released(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_gamepad_count(ctx: *mut CrabbyCtx, out_count: *mut u32) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, c.gamepads().len() as u32)) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_count, c.input.gamepads().len() as u32)) })
 }
 /// The slot of the `index`th connected gamepad (`0..count`), by slot order:
 /// the number every other gamepad call takes as `pad`.
@@ -553,6 +553,7 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_at(ctx: *mut CrabbyCtx, index: u32, 
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let pad = c
+                .input
                 .gamepads()
                 .get(index as usize)
                 .ok_or_else(|| invalid("no gamepad at that index"))?;
@@ -584,7 +585,7 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_down(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let (pad, button) = gamepad_args(pad, button)?;
-            out(out_state, c.gamepad_down(pad, button))
+            out(out_state, c.input.gamepad_down(pad, button))
         })
     })
 }
@@ -605,7 +606,7 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_pressed(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let (pad, button) = gamepad_args(pad, button)?;
-            out(out_state, c.gamepad_pressed(pad, button))
+            out(out_state, c.input.gamepad_pressed(pad, button))
         })
     })
 }
@@ -626,7 +627,7 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_released(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let (pad, button) = gamepad_args(pad, button)?;
-            out(out_state, c.gamepad_released(pad, button))
+            out(out_state, c.input.gamepad_released(pad, button))
         })
     })
 }
@@ -649,7 +650,7 @@ pub unsafe extern "C" fn crabby_ctx_gamepad_axis(
         ctx_access(ctx, |c| {
             let pad = Gamepad::from_slot(pad as usize).ok_or_else(|| invalid("gamepad slot out of range"))?;
             let axis = gamepad_axis_from_c(axis).ok_or_else(|| invalid("unknown gamepad axis"))?;
-            out(out_value, c.gamepad_axis(pad, axis))
+            out(out_value, c.input.gamepad_axis(pad, axis))
         })
     })
 }
@@ -684,7 +685,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_world(ctx: *mut CrabbyCtx, out_pos: *m
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_mouse_wheel(ctx: *mut CrabbyCtx, out_wheel: *mut CrabbyVec2) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_wheel, to_c(c.mouse_wheel()))) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_wheel, to_c(c.input.mouse_wheel()))) })
 }
 /// How far the mouse moved this frame, in raw device units (+y = down),
 /// even while the cursor is locked: for mouse look.
@@ -696,7 +697,7 @@ pub unsafe extern "C" fn crabby_ctx_mouse_wheel(ctx: *mut CrabbyCtx, out_wheel: 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_mouse_motion(ctx: *mut CrabbyCtx, out_motion: *mut CrabbyVec2) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_motion, to_c(c.mouse_motion()))) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_motion, to_c(c.input.mouse_motion()))) })
 }
 /// Locks (hides and holds) the cursor in the window, or lets it go. Takes
 /// effect after this frame.
@@ -710,7 +711,7 @@ pub unsafe extern "C" fn crabby_ctx_set_cursor_locked(ctx: *mut CrabbyCtx, locke
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_cursor_locked(locked);
+            c.input.set_cursor_locked(locked);
             Ok(())
         })
     })
@@ -724,7 +725,7 @@ pub unsafe extern "C" fn crabby_ctx_set_cursor_locked(ctx: *mut CrabbyCtx, locke
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_cursor_locked(ctx: *mut CrabbyCtx, out_locked: *mut bool) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_locked, c.cursor_locked())) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_locked, c.input.cursor_locked())) })
 }
 
 /// Loads a PNG/JPEG texture (cached by path). Headless runs return a
@@ -784,7 +785,8 @@ pub unsafe extern "C" fn crabby_ctx_load_json(
             } else {
                 full.rsplit("::").next().unwrap_or(full).to_string()
             };
-            c.load_component_json_named(path, Entity::from_bits(entity), &name)
+            c.assets
+                .load_component_json_named(&mut c.world, path, Entity::from_bits(entity), &name)
                 .map_err(crate::invalid_owned)
         })
     })
@@ -810,7 +812,9 @@ pub unsafe extern "C" fn crabby_ctx_load_resource_json(
         ctx_access(ctx, |c| {
             let path = text(path)?;
             let name = text(name)?;
-            c.load_resource_json_named(path, name).map_err(crate::invalid_owned)
+            c.assets
+                .load_resource_json_named(&mut c.world, path, name)
+                .map_err(crate::invalid_owned)
         })
     })
 }
@@ -832,7 +836,7 @@ pub unsafe extern "C" fn crabby_ctx_was_reloaded(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let path = text(path)?;
-            out(out_reloaded, c.reloaded_files().iter().any(|f| f == path))
+            out(out_reloaded, c.assets.reloaded_files().iter().any(|f| f == path))
         })
     })
 }
@@ -858,7 +862,7 @@ pub unsafe extern "C" fn crabby_ctx_create_texture(
             if out_texture.is_null() {
                 return Err(invalid("output is null"));
             }
-            out(out_texture, texture_to_c(c.create_texture(width, height, pixels)))
+            out(out_texture, texture_to_c(c.gfx.create_texture(width, height, pixels)))
         })
     })
 }
@@ -881,7 +885,7 @@ pub unsafe extern "C" fn crabby_ctx_update_texture(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let pixels = pixels(texture.width, texture.height, rgba, len)?;
-            c.update_texture(&texture_from_c(texture), pixels);
+            c.gfx.update_texture(&texture_from_c(texture), pixels);
             Ok(())
         })
     })
@@ -911,7 +915,7 @@ pub unsafe extern "C" fn crabby_ctx_clear(ctx: *mut CrabbyCtx, color: CrabbyColo
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.clear(to_c(color));
+            c.gfx.clear(to_c(color));
             Ok(())
         })
     })
@@ -955,7 +959,8 @@ pub unsafe extern "C" fn crabby_ctx_draw_ex(
             if params.is_null() {
                 return Err(invalid("params is null"));
             }
-            c.draw_ex(&texture_from_c(texture), to_c(pos), draw_params_from_c(&*params));
+            c.gfx
+                .draw_ex(&texture_from_c(texture), to_c(pos), draw_params_from_c(&*params));
             Ok(())
         })
     })
@@ -1004,7 +1009,7 @@ pub unsafe extern "C" fn crabby_ctx_measure_text(
             if out_size.is_null() {
                 return Err(invalid("output is null"));
             }
-            out(out_size, to_c(c.measure_text(string, size)))
+            out(out_size, to_c(c.gfx.measure_text(string, size)))
         })
     })
 }

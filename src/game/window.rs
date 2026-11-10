@@ -34,7 +34,7 @@ where
     let clock = Clock::new(game.fixed_hz);
     let mut ctx = Ctx::new(clock.fixed_dt(), Vec2::new(game.width as f32, game.height as f32));
     ctx.seed = game.seed;
-    ctx.watcher.on = crate::hot_reload::enabled(game.hot_reload);
+    ctx.assets.watcher.set_on(crate::hot_reload::enabled(game.hot_reload));
     if let Some(cell) = game.spatial_cell {
         ctx.spatial = crate::SpatialGrid::new(cell);
     }
@@ -51,9 +51,9 @@ where
     }
     ctx.net.begin(ctx.seed);
     let control = game.start_control(&mut ctx, false);
-    ctx.profiler = crate::profiler::Profiler::from_env();
+    ctx.perf.profiler = crate::profiler::Profiler::from_env();
     // A benchmark measures how fast the game can run, not the display.
-    if ctx.profiler.benchmarking() {
+    if ctx.perf.profiler.benchmarking() {
         game.vsync = false;
     }
     match crate::environment::var("PONKO_VSYNC").as_deref() {
@@ -104,7 +104,7 @@ fn start_profiler() -> Option<puffin_http::Server> {
 /// The end of a benchmark report: the meshes that cost the most triangles.
 #[cfg(feature = "3d")]
 fn print_mesh_costs(ctx: &Ctx) {
-    let costs = ctx.mesh_costs();
+    let costs = ctx.gfx.mesh_costs();
     if costs.is_empty() {
         return;
     }
@@ -204,6 +204,9 @@ where
             pads.poll(&mut self.ctx.input);
         }
         self.ctx.reload_changed_assets();
+        self.ctx.pump_streaming();
+        #[cfg(feature = "3d")]
+        self.ctx.gfx.apply_shader_checks();
         let systems_start = Instant::now();
         self.config.run_systems(&mut self.ctx, timing.fixed_steps);
         let systems_ms = systems_start.elapsed().as_secs_f32() * 1000.0;
@@ -217,11 +220,11 @@ where
             event_loop.exit();
             return;
         }
-        if self.ctx.cursor_lock_changed
+        if self.ctx.input.cursor_lock_changed
             && let Some(window) = &self.window
         {
-            self.ctx.cursor_lock_changed = false;
-            apply_cursor_lock(window, self.ctx.cursor_locked());
+            self.ctx.input.cursor_lock_changed = false;
+            apply_cursor_lock(window, self.ctx.input.cursor_locked());
         }
 
         // With vsync, presenting blocks until the display is ready, which
@@ -240,8 +243,8 @@ where
             systems_ms,
             render_start_ms: since_start(render_start),
             render_ms,
-            wait_ms: self.ctx.display_wait_ms(),
-            gpu_ms: self.ctx.last_render_stats.gpu_ms,
+            wait_ms: self.ctx.perf.display_wait_ms(),
+            gpu_ms: self.ctx.perf.last_render_stats.gpu_ms,
             presented: matches!(status, FrameStatus::Presented | FrameStatus::Offscreen),
         };
         if self.ctx.record_frame(sample) {
@@ -274,14 +277,14 @@ where
         // refresh, so above that rate presenting stalls now and then.
         // PONKO_BENCH_PRESENT=1 draws to the window when it can take a frame.
         let present = crate::environment::var("PONKO_BENCH_PRESENT").is_ok_and(|v| v == "1");
-        let benchmarking = self.ctx.profiler.benchmarking();
+        let benchmarking = self.ctx.perf.profiler.benchmarking();
         renderer.set_draw_hidden(benchmarking, benchmarking && !present);
-        self.ctx.renderer = Some(renderer);
+        self.ctx.gfx.renderer = Some(renderer);
         self.ctx.set_window_size(Self::logical_window_size(&window));
         self.ctx.set_scale_factor(window.scale_factor() as f32);
         #[cfg(feature = "inspector")]
         if let (true, open) = crate::inspector::enabled(self.config.inspector) {
-            let max_side = self.ctx.renderer.as_ref().map_or(2048, Renderer::max_texture_size);
+            let max_side = self.ctx.gfx.renderer.as_ref().map_or(2048, Renderer::max_texture_size);
             let mut inspector = crate::inspector::Inspector::new(&window, max_side as usize);
             inspector.open = open;
             self.inspector = Some(inspector);
@@ -293,8 +296,10 @@ where
         }
 
         if let Some(setup) = self.setup.take() {
+            self.ctx.set_in_setup(true);
             run_setups(std::mem::take(&mut self.config.setups), &mut self.ctx);
             let frame_fn = setup(&mut self.ctx).into_frame_fn();
+            self.ctx.set_in_setup(false);
             self.ctx.apply_commands();
             if let Some(f) = frame_fn {
                 let index = self.config.systems.partition_point(|s| s.stage <= Phase::Frame);
@@ -311,6 +316,8 @@ where
                         phase: 0,
                         id,
                         access: None,
+                        changes_seen: Default::default(),
+                        enforced: false,
                     },
                 );
             }
@@ -401,7 +408,7 @@ where
 
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                 let size = window.inner_size();
-                if let Some(renderer) = self.ctx.renderer.as_mut() {
+                if let Some(renderer) = self.ctx.gfx.renderer.as_mut() {
                     renderer.resize(size.width, size.height);
                 }
                 self.ctx.set_window_size(Self::logical_window_size(&window));
@@ -411,7 +418,7 @@ where
 
             WindowEvent::Occluded(occluded) => {
                 // A benchmark draws offscreen while hidden and keeps going.
-                self.occluded = occluded && !self.ctx.profiler.benchmarking();
+                self.occluded = occluded && !self.ctx.perf.profiler.benchmarking();
                 if !occluded {
                     window.request_redraw();
                 }
@@ -420,7 +427,7 @@ where
             WindowEvent::Focused(false) => self.ctx.input.release_all(),
 
             // The system lets go of the cursor while the window is away.
-            WindowEvent::Focused(true) if self.ctx.cursor_locked() => apply_cursor_lock(&window, true),
+            WindowEvent::Focused(true) if self.ctx.input.cursor_locked() => apply_cursor_lock(&window, true),
 
             WindowEvent::Ime(winit::event::Ime::Commit(text)) => self.ctx.input.add_text(&text),
             WindowEvent::KeyboardInput { event, .. } => {

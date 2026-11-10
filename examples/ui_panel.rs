@@ -9,13 +9,13 @@ struct Terminal {
 fn setup(ctx: &mut Ctx) {
     ctx.camera3d.position = vec3(0.0, 1.6, 1.0);
     ctx.camera3d.look_at(vec3(0.0, 1.5, -2.0));
-    let floor_material = ctx.create_material(MaterialDesc::color(Color::hex(0x6B7B58)));
-    let floor = ctx.create_mesh(&MeshData::plane(12.0), floor_material);
+    let floor_material = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x6B7B58)));
+    let floor = ctx.gfx.create_mesh(&MeshData::plane(12.0), floor_material);
     ctx.world.spawn((Transform3D::default(), Model::new(floor)));
 
     // ANCHOR: panel_create
     // A 1.2 x 0.8 m terminal, 600 x 400 pixels, with a button.
-    let (mut panel, model) = ctx.create_ui_panel(600, 400, vec2(1.2, 0.8));
+    let (mut panel, model) = ctx.gfx.create_ui_panel(600, 400, vec2(1.2, 0.8));
     let root = panel.ui.root().layout(UiLayout::fill().padding(20.0).gap(12.0)).id();
     let buy = panel.ui.button(root, "Buy").layout(UiLayout::fixed(200.0, 60.0)).id();
     panel.ui.push_screen(root, false);
@@ -29,7 +29,7 @@ fn terminal(ctx: &mut Ctx) {
     // Aim with the middle of the screen instead of the mouse (for a locked
     // cursor, or a controller in VR).
     let (eye, forward) = (ctx.camera3d.position, ctx.camera3d.forward());
-    ctx.set_ui_pointer_ray(Some((eye, forward)));
+    ctx.ui.set_pointer_ray(Some((eye, forward)));
     ctx.world
         .query::<(&mut UiPanel3D, &Terminal)>()
         .for_each(|(panel, terminal)| {

@@ -10,13 +10,13 @@ use glam::Vec2;
 
 use crate::color::Color;
 
-/// A loaded font. Get one from [`Ctx::load_font`](crate::Ctx::load_font);
+/// A loaded font. Get one from [`Graphics::load_font`](crate::Graphics::load_font);
 /// [`Font::DEFAULT`] is always there.
 ///
 /// ```
 /// # use ponko::*;
 /// # fn hud(ctx: &mut Ctx) {
-/// ctx.draw_text_ex("Score: 120", vec2(16.0, 16.0), TextParams {
+/// ctx.gfx.draw_text_ex("Score: 120", vec2(16.0, 16.0), TextParams {
 ///     font: Font::DEFAULT,
 ///     size: 24.0,
 ///     ..Default::default()
@@ -33,7 +33,7 @@ impl Font {
     pub const DEFAULT: Font = Font(0);
 }
 
-/// Optional settings for [`Ctx::draw_text_ex`](crate::Ctx::draw_text_ex).
+/// Optional settings for [`Graphics::draw_text_ex`](crate::Graphics::draw_text_ex).
 ///
 /// ```
 /// # use ponko::*;

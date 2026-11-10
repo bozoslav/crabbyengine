@@ -5,7 +5,7 @@ use ponko::*;
 struct Orbiting;
 
 fn fly(ctx: &mut Ctx) {
-    let t = ctx.time() as f32;
+    let t = ctx.time.elapsed() as f32;
     ctx.world.query::<(&mut Transform3D, &Orbiting)>().for_each(|(at, _)| {
         at.position = vec3(t.cos() * 3.0, 1.0 + (t * 2.0).sin() * 0.5, t.sin() * 3.0);
     });
@@ -14,9 +14,9 @@ fn fly(ctx: &mut Ctx) {
 fn setup(ctx: &mut Ctx) {
     ctx.camera3d.position = vec3(0.0, 4.0, 9.0);
     ctx.camera3d.look_at(vec3(0.0, 0.5, 0.0));
-    let floor_material = ctx.create_material(MaterialDesc::color(Color::hex(0x6B7B58)));
+    let floor_material = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x6B7B58)));
     let floor_data = MeshData::plane(12.0);
-    let floor = ctx.create_mesh(&floor_data, floor_material);
+    let floor = ctx.gfx.create_mesh(&floor_data, floor_material);
     ctx.world.spawn((Transform3D::default(), Model::new(floor)));
 
     // ANCHOR: trail
@@ -28,8 +28,8 @@ fn setup(ctx: &mut Ctx) {
         (1.0, Color::rgba(1.0, 0.3, 0.0, 0.0)),
     ]);
     tracer.blend = ParticleBlend3D::Additive;
-    let white = ctx.default_material();
-    let ball = ctx.create_mesh(&MeshData::sphere(0.15, 16), white);
+    let white = ctx.gfx.default_material();
+    let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.15, 16), white);
     ctx.world
         .spawn((Transform3D::default(), Model::new(ball), tracer, Orbiting));
     // After a teleport: ctx.world.get_mut::<Trail3D>(entity).unwrap().clear();
@@ -51,15 +51,15 @@ fn setup(ctx: &mut Ctx) {
     let projector = Mat4::from_scale_rotation_translation(vec3(1.0, 1.0, 0.4), up, vec3(1.0, 0.0, -1.0));
     let mark = floor_data.decal(projector, 0.003);
     if !mark.indices.is_empty() {
-        let scorch = ctx.create_material(MaterialDesc {
+        let scorch = ctx.gfx.create_material(MaterialDesc {
             blend: Blend::Transparent,
             ..MaterialDesc::color(Color::rgba(0.05, 0.04, 0.03, 0.8))
         });
-        let mark = ctx.create_mesh(&mark, scorch);
+        let mark = ctx.gfx.create_mesh(&mark, scorch);
         // Drawn where the floor is.
         ctx.world.spawn((Transform3D::default(), Model::new(mark)));
     }
-    // A mesh from a glTF file works the same: ctx.load_mesh_data("models/wall.glb")?.decal(..)
+    // A mesh from a glTF file works the same: ctx.gfx.load_mesh_data("models/wall.glb")?.decal(..)
     // ANCHOR_END: decal
 }
 

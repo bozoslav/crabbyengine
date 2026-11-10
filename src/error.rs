@@ -9,7 +9,7 @@ use std::fmt;
 /// ```
 /// # use ponko::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-///     let err = ctx.try_load_texture("no/such/file.png").unwrap_err();
+///     let err = ctx.gfx.try_load_texture("no/such/file.png").unwrap_err();
 ///     assert_eq!(err.kind(), ErrorKind::NotFound);
 /// });
 /// ```
@@ -49,7 +49,7 @@ pub enum ErrorKind {
 /// ```
 /// # use ponko::*;
 /// fn load_optional(ctx: &mut Ctx) -> Result<Texture, Box<dyn std::error::Error>> {
-///     let texture = ctx.try_load_texture("maybe.png")?;
+///     let texture = ctx.gfx.try_load_texture("maybe.png")?;
 ///     Ok(texture)
 /// }
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {

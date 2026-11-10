@@ -12,14 +12,14 @@ use ponko::*;
 struct Spin(f32);
 
 fn village(ctx: &mut Ctx) {
-    let grass = ctx.create_material(MaterialDesc {
+    let grass = ctx.gfx.create_material(MaterialDesc {
         roughness: 0.9,
         ..MaterialDesc::color(Color::hex(0x5E8C4A))
     });
-    let ground = ctx.create_mesh(&MeshData::plane(100.0), grass);
+    let ground = ctx.gfx.create_mesh(&MeshData::plane(100.0), grass);
     ctx.world.spawn((Transform3D::default(), Model::new(ground)));
 
-    let house = ctx.load_mesh("models/house.glb"); // its walls and roof keep their materials
+    let house = ctx.gfx.load_mesh("models/house.glb"); // its walls and roof keep their materials
     for i in 0..5 {
         let at = vec3(i as f32 * 4.0 - 8.0, 0.0, -6.0);
         ctx.world.spawn((Transform3D::at(at), Model::new(house), Spin(0.5)));
@@ -68,7 +68,7 @@ fn misty_morning(ctx: &mut Ctx) {
 // ANCHOR: mesh_shadows
 /// A meadow: thousands of grass tufts, too small for their shadows to show.
 fn plant_meadow(ctx: &mut Ctx, tuft: Mesh) {
-    ctx.set_mesh_shadows(tuft, false); // no shadow map work for grass
+    ctx.gfx.set_mesh_shadows(tuft, false); // no shadow map work for grass
     for i in 0..1000 {
         let at = vec3((i % 40) as f32 * 0.5, 0.0, (i / 40) as f32 * 0.5);
         ctx.world.spawn((Transform3D::at(at), Model::new(tuft)));
@@ -79,13 +79,13 @@ fn plant_meadow(ctx: &mut Ctx, tuft: Mesh) {
 #[test]
 fn grass_can_cast_no_shadow() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {
-        let material = ctx.default_material();
-        let tuft = ctx.create_mesh(&MeshData::cube(0.1), material);
-        assert!(ctx.mesh_shadows(tuft), "meshes cast shadows at first");
+        let material = ctx.gfx.default_material();
+        let tuft = ctx.gfx.create_mesh(&MeshData::cube(0.1), material);
+        assert!(ctx.gfx.mesh_shadows(tuft), "meshes cast shadows at first");
         plant_meadow(ctx, tuft);
-        assert!(!ctx.mesh_shadows(tuft));
-        ctx.set_mesh_shadows(tuft, true);
-        assert!(ctx.mesh_shadows(tuft));
+        assert!(!ctx.gfx.mesh_shadows(tuft));
+        ctx.gfx.set_mesh_shadows(tuft, true);
+        assert!(ctx.gfx.mesh_shadows(tuft));
     });
 }
 
@@ -111,8 +111,8 @@ fn yard(ctx: &mut Ctx, tree: Mesh, blob: Mesh, sign: Mesh, fence: Mesh, fence_sh
 #[test]
 fn shadow_meshes_round_trip_through_scenes() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {
-        let material = ctx.default_material();
-        let mesh = ctx.create_mesh(&MeshData::cube(1.0), material);
+        let material = ctx.gfx.default_material();
+        let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
         yard(ctx, mesh, mesh, mesh, mesh, mesh);
         let only_shadows = ctx.world.query::<&ShadowMesh>().without::<Model>().iter().count();
         assert_eq!(only_shadows, 1);
@@ -273,7 +273,7 @@ fn post_settings_stay_as_set() {
         golden_hour(ctx);
         assert_eq!(ctx.post.tonemap, Tonemap::AgX);
         let (w, h, pixels) = Post::neutral_lut(16);
-        ctx.post.lut = Some(ctx.create_texture(w, h, &pixels));
+        ctx.post.lut = Some(ctx.gfx.create_texture(w, h, &pixels));
         assert_eq!(ctx.post.lut.map(|t| (t.width(), t.height())), Some((256, 16)));
     });
 }
@@ -295,14 +295,14 @@ fn vertex(v: Vertex) -> Vertex {
 }";
 
 fn meadow(ctx: &mut Ctx) {
-    let wind = ctx.create_shader("wind", WIND);
-    let grass = ctx.create_material(MaterialDesc {
+    let wind = ctx.gfx.create_shader("wind", WIND);
+    let grass = ctx.gfx.create_material(MaterialDesc {
         shader: Some(wind),
         double_sided: true,
         custom: [vec4(0.2, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
         ..MaterialDesc::color(Color::hex(0x7FA83C))
     });
-    let blade = ctx.create_mesh(&MeshData::plane(0.5), grass);
+    let blade = ctx.gfx.create_mesh(&MeshData::plane(0.5), grass);
     ctx.world.spawn((Transform3D::default(), Model::new(blade)));
 }
 // ANCHOR_END: shader
@@ -311,14 +311,14 @@ fn meadow(ctx: &mut Ctx) {
 fn shaders_and_their_materials_are_made() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {
         meadow(ctx);
-        let water = ctx.load_shader("shaders/water.wgsl");
-        assert_eq!(ctx.load_shader("shaders/water.wgsl"), water, "loaded once");
-        let lake = ctx.create_material(MaterialDesc {
+        let water = ctx.gfx.load_shader("shaders/water.wgsl");
+        assert_eq!(ctx.gfx.load_shader("shaders/water.wgsl"), water, "loaded once");
+        let lake = ctx.gfx.create_material(MaterialDesc {
             shader: Some(water),
             blend: Blend::Transparent,
             ..Default::default()
         });
-        ctx.update_material(
+        ctx.gfx.update_material(
             lake,
             MaterialDesc {
                 roughness: 0.1,
@@ -331,7 +331,7 @@ fn shaders_and_their_materials_are_made() {
 #[test]
 fn transparent_shaders_can_read_the_scene_behind_them() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {
-        let glass = ctx.create_shader(
+        let glass = ctx.gfx.create_shader(
             "glass",
             "fn surface(s: Surface) -> Surface {
                 var out = s;
@@ -341,7 +341,7 @@ fn transparent_shaders_can_read_the_scene_behind_them() {
                 return out;
             }",
         );
-        ctx.create_material(MaterialDesc {
+        ctx.gfx.create_material(MaterialDesc {
             shader: Some(glass),
             blend: Blend::Transparent,
             ..Default::default()
@@ -353,7 +353,8 @@ fn transparent_shaders_can_read_the_scene_behind_them() {
 #[should_panic(expected = "fix.wgsl")]
 fn shader_errors_say_which_shader() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.create_shader("fix.wgsl", "fn surface(s: Surface) -> Surface { return 1.0; }");
+        ctx.gfx
+            .create_shader("fix.wgsl", "fn surface(s: Surface) -> Surface { return 1.0; }");
     });
 }
 
@@ -362,8 +363,8 @@ fn shader_errors_say_which_shader() {
 fn materials_only_take_this_games_shaders() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let mut shader = None;
-        Game::new("v", 1, 1).run_headless(0, |c| shader = Some(c.create_shader("s", "")));
-        ctx.create_material(MaterialDesc {
+        Game::new("v", 1, 1).run_headless(0, |c| shader = Some(c.gfx.create_shader("s", "")));
+        ctx.gfx.create_material(MaterialDesc {
             shader,
             ..Default::default()
         });
@@ -373,25 +374,25 @@ fn materials_only_take_this_games_shaders() {
 #[test]
 fn loaded_materials_are_found_by_name_and_can_be_changed() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        assert!(ctx.loaded_materials("walls").is_empty(), "nothing loaded yet");
-        let _ = ctx.load_mesh("models/house.glb");
-        let walls = ctx.loaded_materials("walls");
+        assert!(ctx.gfx.loaded_materials("walls").is_empty(), "nothing loaded yet");
+        let _ = ctx.gfx.load_mesh("models/house.glb");
+        let walls = ctx.gfx.loaded_materials("walls");
         assert_eq!(walls.len(), 1);
-        let roof = ctx.loaded_materials("roof");
+        let roof = ctx.gfx.loaded_materials("roof");
         assert_eq!(roof.len(), 1);
         assert_ne!(walls[0].0, roof[0].0);
         // Loading the file again makes no new materials.
-        let _ = ctx.load_mesh("models/house.glb");
-        assert_eq!(ctx.loaded_materials("walls").len(), 1);
+        let _ = ctx.gfx.load_mesh("models/house.glb");
+        assert_eq!(ctx.gfx.loaded_materials("walls").len(), 1);
         // ANCHOR: loaded_materials
         // The house's walls, drawn with a shader of our own: keep what they
         // were made from (textures, colors) and change the shader.
-        let weathered = ctx.create_shader(
+        let weathered = ctx.gfx.create_shader(
             "weathered.wgsl",
             "fn surface(s: Surface) -> Surface { var o = s; o.albedo *= 0.8; o.roughness = 0.95; return o; }",
         );
-        for (walls, desc) in ctx.loaded_materials("walls") {
-            ctx.update_material(
+        for (walls, desc) in ctx.gfx.loaded_materials("walls") {
+            ctx.gfx.update_material(
                 walls,
                 MaterialDesc {
                     shader: Some(weathered),
@@ -400,18 +401,18 @@ fn loaded_materials_are_found_by_name_and_can_be_changed() {
             );
         }
         // ANCHOR_END: loaded_materials
-        assert!(ctx.loaded_materials("no such material").is_empty());
+        assert!(ctx.gfx.loaded_materials("no such material").is_empty());
     });
 }
 
 #[test]
 fn loading_a_model_twice_gives_the_same_mesh() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let a = ctx.load_mesh("models/house.glb");
-        let b = ctx.load_mesh("models/house.glb");
+        let a = ctx.gfx.load_mesh("models/house.glb");
+        let b = ctx.gfx.load_mesh("models/house.glb");
         assert_eq!(a, b);
-        let white = ctx.default_material();
-        let cube = ctx.create_mesh(&MeshData::cube(1.0), white);
+        let white = ctx.gfx.default_material();
+        let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
         assert_ne!(a, cube);
     });
 }
@@ -420,7 +421,7 @@ fn loading_a_model_twice_gives_the_same_mesh() {
 #[should_panic(expected = "models/no-such-model.glb")]
 fn a_missing_model_names_the_file() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let _ = ctx.load_mesh("models/no-such-model.glb");
+        let _ = ctx.gfx.load_mesh("models/no-such-model.glb");
     });
 }
 
@@ -428,7 +429,7 @@ fn a_missing_model_names_the_file() {
 #[should_panic(expected = "roughness and metallic go from 0 to 1")]
 fn materials_check_their_numbers() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let _ = ctx.create_material(MaterialDesc {
+        let _ = ctx.gfx.create_material(MaterialDesc {
             metallic: 1.5,
             ..Default::default()
         });
@@ -445,8 +446,8 @@ fn vertex_colors_come_one_per_corner() {
             colors: vec![Color::RED, Color::WHITE],
             ..Default::default()
         };
-        let white = ctx.default_material();
-        let _ = ctx.create_mesh(&tri, white);
+        let white = ctx.gfx.default_material();
+        let _ = ctx.gfx.create_mesh(&tri, white);
     });
 }
 
@@ -459,8 +460,8 @@ fn meshes_check_their_triangles() {
             indices: vec![0, 1],
             ..Default::default()
         };
-        let white = ctx.default_material();
-        let _ = ctx.create_mesh(&broken, white);
+        let white = ctx.gfx.default_material();
+        let _ = ctx.gfx.create_mesh(&broken, white);
     });
 }
 
@@ -482,7 +483,7 @@ fn hills(ctx: &mut Ctx) {
                     if hole { f32::NAN } else { height(x, z) }
                 })
                 .collect();
-            let tile = ctx.create_terrain_tile(&heights, size, ground);
+            let tile = ctx.gfx.create_terrain_tile(&heights, size, ground);
             ctx.world.spawn((Transform3D::at(corner), tile));
         }
     }
@@ -509,8 +510,8 @@ fn plant_trees(ctx: &mut Ctx, heights: &[f32], corner: Vec3, tree: Mesh) {
 #[test]
 fn the_guide_trees_stand_on_the_ground() {
     let mut world = Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let material = ctx.default_material();
-        let tree = ctx.create_mesh(&MeshData::cube(1.0), material);
+        let material = ctx.gfx.default_material();
+        let tree = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
         // Flat at 3 m, with the first cell's corner cut out.
         let mut heights = vec![3.0; 65 * 65];
         heights[0] = f32::NAN;
@@ -544,7 +545,9 @@ fn hill_ground(ctx: &mut Ctx, height: impl Fn(f32, f32) -> f32) -> Material {
         speckled([110, 85, 60]),
         speckled([120, 120, 115]),
     );
-    let layers = ctx.create_texture_array(64, 64, &[&grass, &dirt, &rock], TextureKind::Color);
+    let layers = ctx
+        .gfx
+        .create_texture_array(64, 64, &[&grass, &dirt, &rock], TextureKind::Color);
     let (cells, area) = (96, 384.0); // 4 m a pixel, from (-128, -128)
     let weights: Vec<u8> = (0..cells * cells)
         .flat_map(|i| {
@@ -557,12 +560,14 @@ fn hill_ground(ctx: &mut Ctx, height: impl Fn(f32, f32) -> f32) -> Material {
             [grass, dirt, rock, 0.0].map(|w| (w * 255.0) as u8)
         })
         .collect();
-    let weights = ctx.create_texture_array(cells, cells, &[&weights], TextureKind::Data);
+    let weights = ctx
+        .gfx
+        .create_texture_array(cells, cells, &[&weights], TextureKind::Data);
     let desc = TerrainMaterialDesc {
         layer_size: [6.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 4.0],
         ..TerrainMaterialDesc::new(layers, weights, vec2(-128.0, -128.0), vec2(area, area))
     };
-    ctx.create_terrain_material(&desc)
+    ctx.gfx.create_terrain_material(&desc)
 }
 // ANCHOR_END: terrain_material
 
@@ -591,8 +596,8 @@ fn effect(p: Pixel) -> vec3<f32> {
 }";
 
 fn dive(ctx: &mut Ctx) {
-    let underwater = ctx.create_effect("underwater.wgsl", UNDERWATER);
-    let lake = ctx.create_material(MaterialDesc {
+    let underwater = ctx.gfx.create_effect("underwater.wgsl", UNDERWATER);
+    let lake = ctx.gfx.create_material(MaterialDesc {
         custom: [vec4(2.0, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO], // water at y = 2
         ..Default::default()
     });
@@ -614,14 +619,14 @@ fn surface(s: Surface) -> Surface {
 
 fn pond(ctx: &mut Ctx) {
     let size = ctx.window_size();
-    let reflection = ctx.create_render_target(size.x as u32 / 2, size.y as u32 / 2);
-    let mirror = ctx.create_shader("mirror", MIRROR);
-    let water = ctx.create_material(MaterialDesc {
+    let reflection = ctx.gfx.create_render_target(size.x as u32 / 2, size.y as u32 / 2);
+    let mirror = ctx.gfx.create_shader("mirror", MIRROR);
+    let water = ctx.gfx.create_material(MaterialDesc {
         shader: Some(mirror),
         custom_textures: [Some(reflection), None],
         ..Default::default()
     });
-    let surface = ctx.create_mesh(&MeshData::plane(20.0), water);
+    let surface = ctx.gfx.create_mesh(&MeshData::plane(20.0), water);
     ctx.world.spawn((Transform3D::default(), Model::new(surface)));
     ctx.target_cameras
         .push(TargetCamera::reflection(ctx.camera3d, reflection, 0.0));
@@ -654,9 +659,9 @@ fn compute(c: Cell) -> vec4<f32> {
 /// The simulated heights, for a water material to read, and the material
 /// that drops stones into them.
 fn ripples(ctx: &mut Ctx) -> (Texture, Material) {
-    let heights = ctx.create_render_target(256, 256);
-    let ripples = ctx.create_compute("ripples", RIPPLES);
-    let stones = ctx.create_material(MaterialDesc::default());
+    let heights = ctx.gfx.create_render_target(256, 256);
+    let ripples = ctx.gfx.create_compute("ripples", RIPPLES);
+    let stones = ctx.gfx.create_material(MaterialDesc::default());
     ctx.compute_passes
         .push(ComputePass::new(ripples, heights).with_material(stones));
     (heights, stones)
@@ -666,7 +671,7 @@ fn ripples(ctx: &mut Ctx) -> (Texture, Material) {
 /// 0 drops none.
 fn drop_stone(ctx: &mut Ctx, stones: Material, uv: Vec2, strength: f32) {
     let stone = uv.extend(strength).extend(0.0);
-    ctx.update_material(
+    ctx.gfx.update_material(
         stones,
         MaterialDesc {
             custom: [stone, Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
@@ -681,7 +686,7 @@ fn the_guide_ripples_run_on_a_render_target() {
     Game::new("ripples", 64, 64).run_headless(1, |ctx| {
         let (heights, stones) = ripples(ctx);
         drop_stone(ctx, stones, vec2(0.5, 0.5), 1.0);
-        assert!(ctx.is_render_target(heights));
+        assert!(ctx.gfx.is_render_target(heights));
         assert_eq!(ctx.compute_passes.len(), 1);
         assert_eq!(ctx.compute_passes[0].material, Some(stones));
     });
@@ -691,7 +696,8 @@ fn the_guide_ripples_run_on_a_render_target() {
 #[should_panic(expected = "ripples.wgsl")]
 fn compute_errors_say_which_pass() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.create_compute("ripples.wgsl", "fn compute(c: Cell) -> f32 { return 1.0; }");
+        ctx.gfx
+            .create_compute("ripples.wgsl", "fn compute(c: Cell) -> f32 { return 1.0; }");
     });
 }
 
@@ -702,7 +708,7 @@ fn the_guide_pond_mirrors_the_camera() {
         ctx.camera3d.position = vec3(3.0, 5.0, 1.0);
         follow_reflections(ctx);
         let below = ctx.target_cameras[0];
-        assert!(ctx.is_render_target(below.target));
+        assert!(ctx.gfx.is_render_target(below.target));
         assert_eq!(below.target.width(), 32);
         assert_eq!(below.camera.position, vec3(3.0, -5.0, 1.0));
         assert_eq!(below.clip_plane, Some(vec4(0.0, 1.0, 0.0, 0.0)));
@@ -713,7 +719,7 @@ fn the_guide_pond_mirrors_the_camera() {
 #[should_panic(expected = "render target size must not be zero")]
 fn render_targets_need_a_size() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.create_render_target(0, 16);
+        ctx.gfx.create_render_target(0, 16);
     });
 }
 
@@ -721,8 +727,8 @@ fn render_targets_need_a_size() {
 #[should_panic(expected = "not updated with pixels")]
 fn render_targets_take_no_pixels() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let target = ctx.create_render_target(1, 1);
-        ctx.update_texture(&target, &[0; 4]);
+        let target = ctx.gfx.create_render_target(1, 1);
+        ctx.gfx.update_texture(&target, &[0; 4]);
     });
 }
 
@@ -741,7 +747,9 @@ fn the_guide_effect_is_added_once() {
 fn effect_errors_say_which_effect() {
     let err = std::panic::catch_unwind(|| {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
-            let _ = ctx.create_effect("broken.wgsl", "fn effect(p: Pixel) -> vec3<f32> { return p; }");
+            let _ = ctx
+                .gfx
+                .create_effect("broken.wgsl", "fn effect(p: Pixel) -> vec3<f32> { return p; }");
         });
     })
     .unwrap_err();
@@ -752,7 +760,7 @@ fn effect_errors_say_which_effect() {
 #[test]
 fn effects_read_every_pixel_field() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let all = ctx.create_effect(
+        let all = ctx.gfx.create_effect(
             "all.wgsl",
             "fn effect(p: Pixel) -> vec3<f32> {
                 let far = select(p.distance, 0.0, p.sky);
@@ -762,7 +770,8 @@ fn effects_read_every_pixel_field() {
         );
         assert_ne!(
             all,
-            ctx.create_effect("other.wgsl", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }")
+            ctx.gfx
+                .create_effect("other.wgsl", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }")
         );
     });
 }
@@ -772,15 +781,15 @@ fn texture_arrays_hold_one_image_per_layer() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let red = [255, 0, 0, 255].repeat(4);
         let blue = [0, 0, 255, 255].repeat(4);
-        let tints = ctx.create_texture_array(2, 2, &[&red, &blue], TextureKind::Color);
+        let tints = ctx.gfx.create_texture_array(2, 2, &[&red, &blue], TextureKind::Color);
         assert_eq!((tints.width(), tints.height(), tints.layers()), (2, 2, 2));
-        let wind = ctx.create_shader(
+        let wind = ctx.gfx.create_shader(
             "layers.wgsl",
             "fn surface(s: Surface) -> Surface { var o = s; o.albedo = textureSample(custom_array0, material_sampler, s.uv, 1).rgb; return o; }",
         );
         let mut custom_arrays = [None; 3];
         custom_arrays[0] = Some(tints);
-        let _ = ctx.create_material(MaterialDesc { shader: Some(wind), custom_arrays, ..Default::default() });
+        let _ = ctx.gfx.create_material(MaterialDesc { shader: Some(wind), custom_arrays, ..Default::default() });
     });
 }
 
@@ -788,7 +797,9 @@ fn texture_arrays_hold_one_image_per_layer() {
 #[should_panic(expected = "layer 1 of a 2 x 2 texture array needs 16 bytes")]
 fn texture_array_layers_are_all_one_size() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let _ = ctx.create_texture_array(2, 2, &[&[0; 16], &[0; 12]], TextureKind::Data);
+        let _ = ctx
+            .gfx
+            .create_texture_array(2, 2, &[&[0; 16], &[0; 12]], TextureKind::Data);
     });
 }
 
@@ -796,12 +807,12 @@ fn texture_array_layers_are_all_one_size() {
 fn terrain_materials_check_their_layers() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let image = [128u8; 16];
-        let five = ctx.create_texture_array(2, 2, &[&image[..]; 5], TextureKind::Color);
-        let one_weight = ctx.create_texture_array(2, 2, &[&image], TextureKind::Data);
-        let two_weights = ctx.create_texture_array(2, 2, &[&image[..]; 2], TextureKind::Data);
-        let nine = ctx.create_texture_array(2, 2, &[&image[..]; 9], TextureKind::Color);
+        let five = ctx.gfx.create_texture_array(2, 2, &[&image[..]; 5], TextureKind::Color);
+        let one_weight = ctx.gfx.create_texture_array(2, 2, &[&image], TextureKind::Data);
+        let two_weights = ctx.gfx.create_texture_array(2, 2, &[&image[..]; 2], TextureKind::Data);
+        let nine = ctx.gfx.create_texture_array(2, 2, &[&image[..]; 9], TextureKind::Color);
         let desc = |layers, weights| TerrainMaterialDesc::new(layers, weights, Vec2::ZERO, vec2(10.0, 10.0));
-        let err = |ctx: &mut Ctx, d: TerrainMaterialDesc| ctx.try_create_terrain_material(&d).unwrap_err();
+        let err = |ctx: &mut Ctx, d: TerrainMaterialDesc| ctx.gfx.try_create_terrain_material(&d).unwrap_err();
         assert!(err(ctx, desc(five, one_weight)).contains("need 2 weight images"));
         assert!(err(ctx, desc(nine, two_weights)).contains("at most 8 layers"));
         let no_size = TerrainMaterialDesc {
@@ -815,8 +826,8 @@ fn terrain_materials_check_their_layers() {
         };
         assert!(err(ctx, few_normals).contains("need 5 normal maps"));
         // Two terrain materials share the one built-in shader.
-        let a = ctx.create_terrain_material(&desc(five, two_weights));
-        let b = ctx.create_terrain_material(&desc(five, two_weights));
+        let a = ctx.gfx.create_terrain_material(&desc(five, two_weights));
+        let b = ctx.gfx.create_terrain_material(&desc(five, two_weights));
         assert_ne!(a, b);
     });
 }
@@ -825,8 +836,8 @@ fn terrain_materials_check_their_layers() {
 #[should_panic(expected = "size must be above 0")]
 fn terrain_tiles_need_a_size() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let white = ctx.default_material();
-        let _ = ctx.create_terrain_tile(&[0.0; 4], 0.0, white);
+        let white = ctx.gfx.default_material();
+        let _ = ctx.gfx.create_terrain_tile(&[0.0; 4], 0.0, white);
     });
 }
 
@@ -897,7 +908,7 @@ impl Ground {
         for cell in self.cells.to_drop() {
             if let Some(Tile::Live(entity, tile)) = self.tiles.remove(cell) {
                 ctx.world.despawn(entity);
-                ctx.free_terrain_tile(tile);
+                ctx.gfx.free_terrain_tile(tile);
                 self.far.uncut(*cell);
             }
         }
@@ -907,7 +918,7 @@ impl Ground {
                 && uploads < 2
                 && let Some(data) = job.take()
             {
-                let made = ctx.upload_terrain_tile(&data, self.material);
+                let made = ctx.gfx.upload_terrain_tile(&data, self.material);
                 let entity = ctx.world.spawn((Transform3D::at(self.cells.corner(cell)), made));
                 *tile = Tile::Live(entity, made);
                 // Shown now: cut the far ground away under it.
@@ -923,7 +934,7 @@ impl Ground {
 #[test]
 fn the_guide_ground_streams_in_and_out() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let material = ctx.default_material();
+        let material = ctx.gfx.default_material();
         let mut ground = Ground::new(material);
         let live = |g: &Ground| g.tiles.values().filter(|t| matches!(t, Tile::Live(..))).count();
         // Until everything around the start is in.
@@ -958,21 +969,21 @@ fn models_of_loaded_meshes_save_and_load_by_file_name() {
     let temp = TempAsset::new("three-scene.json");
     let file = temp.name();
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let house = ctx.load_mesh("models/house.glb");
+        let house = ctx.gfx.load_mesh("models/house.glb");
         let red = Color::rgb(1.0, 0.0, 0.0);
         let e = ctx
             .world
             .spawn((Transform3D::at(vec3(1.0, 2.0, 3.0)), Model::new(house).with_color(red)));
         assert_eq!(ctx.world.get_json(e, "Model").unwrap()["mesh"], "models/house.glb");
-        let white = ctx.default_material();
-        let cube = ctx.create_mesh(&MeshData::cube(1.0), white);
+        let white = ctx.gfx.default_material();
+        let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
         ctx.world.spawn((Transform3D::default(), Model::new(cube)));
-        ctx.save_scene(file).unwrap();
+        ctx.assets.save_scene(&ctx.world, file).unwrap();
     });
     let result = std::panic::catch_unwind(|| {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             ctx.load_scene(file).unwrap();
-            let house = ctx.load_mesh("models/house.glb");
+            let house = ctx.gfx.load_mesh("models/house.glb");
             let models: Vec<(Transform3D, Model)> = ctx
                 .world
                 .query::<(&Transform3D, &Model)>()
@@ -1000,7 +1011,7 @@ fn models_name_meshes_that_must_be_files() {
         let err = ctx
             .world
             .set_json(e, "Model", serde_json::json!({ "mesh": "nope.glb" }));
-        assert!(err.unwrap_err().to_string().contains("ctx.load_mesh(\"nope.glb\")"));
+        assert!(err.unwrap_err().to_string().contains("ctx.gfx.load_mesh(\"nope.glb\")"));
     });
 }
 
@@ -1013,12 +1024,12 @@ fn occlusion_culling_is_off_until_turned_on() {
         ctx.camera3d.occlusion_culling = true;
         // ANCHOR_END: occlusion
         // Headless, there's no depth to cull with: everything in view is drawn.
-        let white = ctx.default_material();
-        let mesh = ctx.create_mesh(&MeshData::cube(1.0), white);
+        let white = ctx.gfx.default_material();
+        let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
         ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
         ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
         ctx.camera3d.look_at(Vec3::ZERO);
-        assert_eq!(ctx.render_stats().occluded, 0);
+        assert_eq!(ctx.perf.render_stats().occluded, 0);
     });
 }
 
@@ -1040,9 +1051,9 @@ fn a_three_color_ambient_is_set_on_the_lighting() {
 #[test]
 fn lod_groups_pick_levels_by_screen_height() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let white = ctx.default_material();
-        let high = ctx.create_mesh(&MeshData::sphere(1.0, 32), white);
-        let low = ctx.create_mesh(&MeshData::cube(2.0), white);
+        let white = ctx.gfx.default_material();
+        let high = ctx.gfx.create_mesh(&MeshData::sphere(1.0, 32), white);
+        let low = ctx.gfx.create_mesh(&MeshData::cube(2.0), white);
         // ANCHOR: lod
         // A 2 m object: the sphere until it's 25% of the screen's height,
         // the cube down to 3%, then nothing. The sphere crossfades into the
@@ -1104,21 +1115,21 @@ fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
         .with_center(vec3(0.0, 4.0, 0.0))
     };
     Game::new("t", 1, 1).run_headless(0, move |ctx| {
-        let house = ctx.load_mesh("models/house.glb");
+        let house = ctx.gfx.load_mesh("models/house.glb");
         ctx.world.spawn((Transform3D::at(vec3(1.0, 2.0, 3.0)), group(house)));
         // A group with a mesh made in code has no file to name: not saved.
-        let white = ctx.default_material();
-        let cube = ctx.create_mesh(&MeshData::cube(1.0), white);
+        let white = ctx.gfx.default_material();
+        let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
         ctx.world.spawn((
             Transform3D::default(),
             LodGroup::new(1.0, vec![LodLevel::new(0.1, vec![LodRenderer::new(cube)])]),
         ));
-        ctx.save_scene(file).unwrap();
+        ctx.assets.save_scene(&ctx.world, file).unwrap();
     });
     let result = std::panic::catch_unwind(move || {
         Game::new("t", 1, 1).run_headless(0, move |ctx| {
             ctx.load_scene(file).unwrap();
-            let house = ctx.load_mesh("models/house.glb");
+            let house = ctx.gfx.load_mesh("models/house.glb");
             let groups: Vec<LodGroup> = ctx.world.query::<&LodGroup>().iter().cloned().collect();
             assert_eq!(groups, vec![group(house)], "loaded with the scene, its mesh with it");
         });
@@ -1129,7 +1140,7 @@ fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
         let e = ctx.world.spawn((Transform3D::default(),));
         let level = serde_json::json!({ "levels": [{ "screen_height": 0.1, "renderers": [{ "mesh": "nope.glb" }] }] });
         let err = ctx.world.set_json(e, "LodGroup", level);
-        assert!(err.unwrap_err().to_string().contains("ctx.load_mesh(\"nope.glb\")"));
+        assert!(err.unwrap_err().to_string().contains("ctx.gfx.load_mesh(\"nope.glb\")"));
     });
 }
 
@@ -1142,7 +1153,7 @@ fn temporal_antialiasing_is_a_setting_and_can_forget_its_history() {
         ctx.post.taa_sharpness = 0.3; // it softens the image a little
         // After teleporting the camera (or an object), forget the old view:
         ctx.camera3d.position = vec3(400.0, 3.0, 0.0);
-        ctx.reset_temporal_history();
+        ctx.gfx.reset_temporal_history();
         // ANCHOR_END: taa
         assert_eq!(ctx.post.anti_aliasing, AntiAliasing::Taa);
     });
@@ -1191,9 +1202,11 @@ fn screen_space_reflections_are_off_until_turned_on() {
             (ctx.post.ssr, ctx.post.ssr_max_distance, wet.roughness),
             (1.0, 40.0, 0.1)
         );
-        ctx.set_graphics_quality(GraphicsQuality::medium());
+        ctx.gfx
+            .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::medium());
         assert_eq!(ctx.post.ssr, 0.0, "medium turns them off");
-        ctx.set_graphics_quality(GraphicsQuality::high());
+        ctx.gfx
+            .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::high());
         assert_eq!(ctx.post.ssr, 1.0, "high turns them on");
     });
 }
@@ -1213,9 +1226,11 @@ fn global_illumination_is_off_until_turned_on() {
         };
         // ANCHOR_END: gi
         assert_eq!(ctx.lighting.gi.probe_counts(), [25, 9, 25]);
-        ctx.set_graphics_quality(GraphicsQuality::high());
+        ctx.gfx
+            .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::high());
         assert!(!ctx.lighting.gi.enabled, "high turns it off");
-        ctx.set_graphics_quality(GraphicsQuality::ultra());
+        ctx.gfx
+            .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::ultra());
         assert!(ctx.lighting.gi.enabled, "ultra turns it on");
         assert_eq!(ctx.lighting.gi.extent, vec3(48.0, 16.0, 48.0), "and keeps the rest");
     });
@@ -1226,16 +1241,17 @@ fn quality_presets_switch_at_run_time() {
     Game::new("quality", 64, 64).run_headless(0, |ctx| {
         // ANCHOR: quality
         // An options menu: pick a preset ...
-        ctx.set_graphics_quality(GraphicsQuality::medium());
+        ctx.gfx
+            .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::medium());
         // ... then change single settings on top of it.
-        let mut quality = ctx.graphics_quality();
+        let mut quality = ctx.gfx.quality(&ctx.post, &ctx.lighting);
         quality.render_scale = 0.8; // draw the 3D scene at 80% and scale it up
         quality.sharpen = 0.3;
         quality.shadow_resolution = 4096;
-        ctx.set_graphics_quality(quality);
+        ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, quality);
         // The settings are the ordinary ones in ctx.post and ctx.lighting.
         ctx.post.ambient_occlusion.radius = 2.0;
-        let level = ctx.graphics_quality().level(); // QualityLevel::Custom
+        let level = ctx.gfx.quality(&ctx.post, &ctx.lighting).level(); // QualityLevel::Custom
         // ANCHOR_END: quality
         assert_eq!(level, QualityLevel::Custom);
         assert_eq!(ctx.post.render_scale, 0.8);
@@ -1244,11 +1260,49 @@ fn quality_presets_switch_at_run_time() {
     });
 }
 
+/// The guide's GPU tier example: the preset for the GPU, and what a tier
+/// lacks without such a GPU.
+#[test]
+fn quality_follows_the_gpu_tier() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        // ANCHOR: gpu_tiers
+        // At startup: the preset for this GPU's tier, fitted to what it has.
+        let quality = match ctx.gfx.gpu_capabilities() {
+            Some(caps) => GraphicsQuality::recommended(caps),
+            None => GraphicsQuality::for_tier(GpuTier::Desktop), // no GPU opened (headless)
+        };
+        ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, quality);
+        // What a weaker GPU lacks, with no such GPU at hand: the report of
+        // the tier's floor, each missing feature with its fallback and reason.
+        let baseline = GpuTier::Baseline.report();
+        for f in baseline.features.iter().filter(|f| !f.available) {
+            println!(
+                "{:?}: {} ({})",
+                f.feature,
+                f.fallback.as_deref().unwrap_or("-"),
+                f.reason.as_deref().unwrap_or("-")
+            );
+        }
+        // ANCHOR_END: gpu_tiers
+        assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::High);
+        assert!(!baseline.available(GpuFeature::Decals));
+        assert_eq!(
+            GpuTier::Baseline.unavailable_features(),
+            [
+                GpuFeature::Timestamps,
+                GpuFeature::GpuSkinning,
+                GpuFeature::GlobalIllumination,
+                GpuFeature::Decals
+            ]
+        );
+    });
+}
+
 /// The scene format the Unity importer writes for a LOD group loads.
 #[test]
 fn lod_groups_in_the_importers_json_shape_load() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        ctx.load_mesh("models/house.glb");
+        ctx.gfx.load_mesh("models/house.glb");
         let part = |y: f32| {
             serde_json::json!({
                 "mesh": "models/house.glb",
@@ -1285,21 +1339,23 @@ fn lod_hysteresis_is_a_scene_component() {
 
 // ANCHOR: gpu_buffers
 fn gpu_particles(ctx: &mut Ctx) -> GpuBuffer {
-    let items = ctx.create_gpu_buffer(128, &[]);
-    let update = ctx.create_compute("particles", "fn update(i: u32) { items[i].y += frame.time.y; }");
+    let items = ctx.gfx.create_gpu_buffer(128, &[]);
+    let update = ctx
+        .gfx
+        .create_compute("particles", "fn update(i: u32) { items[i].y += frame.time.y; }");
     ctx.compute_passes.push(ComputePass::for_buffer(update, items));
-    let shader = ctx.create_shader(
+    let shader = ctx.gfx.create_shader(
         "particles",
         "fn vertex(v: Vertex) -> Vertex { var o = v; o.position += items[v.instance_index].xyz; return o; }",
     );
-    let material = ctx.create_material(MaterialDesc {
+    let material = ctx.gfx.create_material(MaterialDesc {
         shader: Some(shader),
         ..Default::default()
     });
-    let mesh = ctx.create_mesh(&MeshData::cube(0.05), material);
-    ctx.set_mesh_gpu_buffer(mesh, items, 128);
+    let mesh = ctx.gfx.create_mesh(&MeshData::cube(0.05), material);
+    ctx.gfx.set_mesh_gpu_buffer(mesh, items, 128);
     // The emitter's extent around its entity, for culling.
-    ctx.set_mesh_gpu_bounds(mesh, Vec3::ZERO, 20.0);
+    ctx.gfx.set_mesh_gpu_bounds(mesh, Vec3::ZERO, 20.0);
     ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
     items
 }
@@ -1308,46 +1364,46 @@ fn gpu_particles(ctx: &mut Ctx) -> GpuBuffer {
 fn gpu_buffers_support_headless_setup_and_writes() {
     Game::new("buffers", 1, 1).run_headless(1, |ctx| {
         let b = gpu_particles(ctx);
-        assert_eq!(ctx.gpu_buffer_len(b), Some(128));
-        ctx.write_gpu_buffer(b, 127, &[Vec4::ONE]);
-        ctx.write_gpu_buffer(b, 128, &[]);
+        assert_eq!(ctx.gfx.gpu_buffer_len(b), Some(128));
+        ctx.gfx.write_gpu_buffer(b, 127, &[Vec4::ONE]);
+        ctx.gfx.write_gpu_buffer(b, 128, &[]);
         assert_eq!(ctx.compute_passes[0].buffer, Some(b));
     });
 }
 #[test]
 fn freed_gpu_buffers_reuse_ids_and_drop_their_passes() {
     Game::new("buffers", 1, 1).run_headless(0, |ctx| {
-        let b = ctx.create_gpu_buffer(4, &[]);
-        let other = ctx.create_gpu_buffer(2, &[]);
-        let update = ctx.create_compute("up", "fn update(i: u32) { items[i].x += 1.0; }");
+        let b = ctx.gfx.create_gpu_buffer(4, &[]);
+        let other = ctx.gfx.create_gpu_buffer(2, &[]);
+        let update = ctx.gfx.create_compute("up", "fn update(i: u32) { items[i].x += 1.0; }");
         ctx.compute_passes.push(ComputePass::for_buffer(update, b));
         ctx.compute_passes.push(ComputePass::for_buffer(update, other));
-        ctx.free_gpu_buffer(b);
-        assert_eq!(ctx.gpu_buffer_len(b), None);
+        ctx.free(b);
+        assert_eq!(ctx.gfx.gpu_buffer_len(b), None);
         assert_eq!(ctx.compute_passes.len(), 1, "only the other buffer's pass is left");
         assert_eq!(ctx.compute_passes[0].buffer, Some(other));
-        ctx.free_gpu_buffer(b); // again: nothing
-        let again = ctx.create_gpu_buffer(8, &[]);
+        ctx.free(b); // again: nothing
+        let again = ctx.gfx.create_gpu_buffer(8, &[]);
         assert_eq!(again, b);
-        assert_eq!(ctx.gpu_buffer_len(again), Some(8));
-        assert_eq!(ctx.create_gpu_buffer(1, &[]).id(), 2, "then a new id");
+        assert_eq!(ctx.gfx.gpu_buffer_len(again), Some(8));
+        assert_eq!(ctx.gfx.create_gpu_buffer(1, &[]).id(), 2, "then a new id");
     });
 }
 #[test]
 #[should_panic(expected = "invalid GPU buffer")]
 fn a_freed_gpu_buffer_rejects_writes() {
     Game::new("buffers", 1, 1).run_headless(0, |ctx| {
-        let b = ctx.create_gpu_buffer(1, &[]);
-        ctx.free_gpu_buffer(b);
-        ctx.write_gpu_buffer(b, 0, &[Vec4::ONE]);
+        let b = ctx.gfx.create_gpu_buffer(1, &[]);
+        ctx.free(b);
+        ctx.gfx.write_gpu_buffer(b, 0, &[Vec4::ONE]);
     });
 }
 #[test]
 #[should_panic(expected = "out of bounds")]
 fn gpu_buffer_writes_validate_ranges() {
     Game::new("buffers", 1, 1).run_headless(0, |ctx| {
-        let b = ctx.create_gpu_buffer(1, &[]);
-        ctx.write_gpu_buffer(b, 1, &[Vec4::ONE]);
+        let b = ctx.gfx.create_gpu_buffer(1, &[]);
+        ctx.gfx.write_gpu_buffer(b, 1, &[Vec4::ONE]);
     });
 }
 
@@ -1356,7 +1412,7 @@ fn persistent_instances(ctx: &mut Ctx, mesh: Mesh) {
     let transforms = (0..100_000)
         .map(|i| Mat4::from_translation(vec3((i % 1000) as f32, 0.0, (i / 1000) as f32)))
         .collect::<Vec<_>>();
-    let batch = ctx.create_instance_batch(
+    let batch = ctx.gfx.create_instance_batch(
         mesh,
         &transforms,
         InstanceBatchOptions {
@@ -1364,19 +1420,19 @@ fn persistent_instances(ctx: &mut Ctx, mesh: Mesh) {
             ..Default::default()
         },
     );
-    assert_eq!(ctx.instance_batch_len(batch), Some(100_000));
-    assert!(ctx.update_instance_batch(batch, &[Mat4::IDENTITY]));
-    ctx.free_instance_batch(batch);
-    assert_eq!(ctx.instance_batch_len(batch), None);
-    assert!(!ctx.update_instance_batch(batch, &[]));
-    ctx.free_instance_batch(batch);
+    assert_eq!(ctx.gfx.instance_batch_len(batch), Some(100_000));
+    assert!(ctx.gfx.update_instance_batch(batch, &[Mat4::IDENTITY]));
+    ctx.gfx.free_instance_batch(batch);
+    assert_eq!(ctx.gfx.instance_batch_len(batch), None);
+    assert!(!ctx.gfx.update_instance_batch(batch, &[]));
+    ctx.gfx.free_instance_batch(batch);
 }
 // ANCHOR_END: gpu_instances
 #[test]
 fn hundred_thousand_static_instances_need_no_entities() {
     Game::new("static instances", 1, 1).run_headless(0, |ctx| {
-        let material = ctx.create_material(MaterialDesc::default());
-        let mesh = ctx.create_mesh(&MeshData::cube(1.0), material);
+        let material = ctx.gfx.create_material(MaterialDesc::default());
+        let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
         persistent_instances(ctx, mesh);
         assert_eq!(ctx.world.len(), 0);
     });
@@ -1387,9 +1443,11 @@ fn target_effects_run_headless_and_keep_their_settings() {
     let mut kept = Vec::new();
     Game::new("t", 64, 64).run_headless(2, |ctx| {
         if ctx.target_effects.is_empty() {
-            let copy = ctx.create_effect("copy", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }");
-            let target = ctx.create_render_target(16, 16);
-            let image = ctx.create_texture(1, 1, &[255; 4]);
+            let copy = ctx
+                .gfx
+                .create_effect("copy", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }");
+            let target = ctx.gfx.create_render_target(16, 16);
+            let image = ctx.gfx.create_texture(1, 1, &[255; 4]);
             ctx.target_effects.push(TargetEffect::new(copy, target));
             // Not a render target: skipped, not an error.
             ctx.target_effects.push(TargetEffect::new(copy, image));
@@ -1425,25 +1483,30 @@ fn leveled_instances(ctx: &mut Ctx, near: Mesh, far: Mesh) {
             shadows: true,
         },
     ];
-    let batch = ctx.create_instance_batch_levels(&levels, &[Mat4::IDENTITY], &[Color::RED], Default::default());
-    assert_eq!(ctx.instance_batch_len(batch), Some(1));
+    let batch = ctx
+        .gfx
+        .create_instance_batch_levels(&levels, &[Mat4::IDENTITY], &[Color::RED], Default::default());
+    assert_eq!(ctx.gfx.instance_batch_len(batch), Some(1));
     assert!(ctx.is_live(batch));
-    assert!(ctx.update_instance_batch_colors(batch, &[Mat4::IDENTITY; 2], &[Color::BLUE; 2]));
-    assert_eq!(ctx.instance_batch_len(batch), Some(2));
-    assert!(ctx.update_instance_batch(batch, &[Mat4::IDENTITY]));
-    ctx.free_instance_batch(batch);
+    assert!(
+        ctx.gfx
+            .update_instance_batch_colors(batch, &[Mat4::IDENTITY; 2], &[Color::BLUE; 2])
+    );
+    assert_eq!(ctx.gfx.instance_batch_len(batch), Some(2));
+    assert!(ctx.gfx.update_instance_batch(batch, &[Mat4::IDENTITY]));
+    ctx.gfx.free_instance_batch(batch);
     assert!(!ctx.is_live(batch));
-    assert!(!ctx.update_instance_batch_colors(batch, &[], &[]));
-    assert_eq!(ctx.instance_batch_len(batch), None);
-    ctx.free_instance_batch(batch);
+    assert!(!ctx.gfx.update_instance_batch_colors(batch, &[], &[]));
+    assert_eq!(ctx.gfx.instance_batch_len(batch), None);
+    ctx.gfx.free_instance_batch(batch);
 }
 // ANCHOR_END: instance_levels
 
 #[test]
 fn multilevel_batches_keep_handle_lifecycle_without_entities() {
     Game::new("levels", 1, 1).run_headless(0, |ctx| {
-        let material = ctx.create_material(MaterialDesc::default());
-        let mesh = ctx.create_mesh(&MeshData::cube(1.0), material);
+        let material = ctx.gfx.create_material(MaterialDesc::default());
+        let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
         leveled_instances(ctx, mesh, mesh);
         assert_eq!(ctx.world.len(), 0);
     });
@@ -1453,9 +1516,9 @@ fn multilevel_batches_keep_handle_lifecycle_without_entities() {
 #[should_panic(expected = "instance colors must be empty or match transform count")]
 fn instance_colors_reject_mismatched_lengths() {
     Game::new("levels", 1, 1).run_headless(0, |ctx| {
-        let material = ctx.create_material(MaterialDesc::default());
-        let mesh = ctx.create_mesh(&MeshData::cube(1.0), material);
-        ctx.create_instance_batch_levels(
+        let material = ctx.gfx.create_material(MaterialDesc::default());
+        let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+        ctx.gfx.create_instance_batch_levels(
             &[InstanceLevel {
                 mesh,
                 min_distance: 0.0,

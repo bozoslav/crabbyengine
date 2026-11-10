@@ -39,7 +39,7 @@ pub struct MeshData {
     /// layers, masks). The built-in shading doesn't use it. Empty: all zero.
     pub uvs1: Vec<Vec2>,
     /// For skinned meshes: up to four joints per corner that move it (see
-    /// [`Ctx::create_skinned_mesh`](crate::Ctx::create_skinned_mesh)). Empty
+    /// [`Graphics::create_skinned_mesh`](crate::Graphics::create_skinned_mesh)). Empty
     /// for meshes that don't bend.
     pub joints: Vec<[u16; 4]>,
     /// How much each of `joints` moves the corner; they're scaled to add
@@ -70,7 +70,7 @@ pub struct MeshData {
 /// ```
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct MorphTarget {
-    /// What it's called, to find it by name ([`Ctx::morph_target`](crate::Ctx::morph_target)).
+    /// What it's called, to find it by name ([`Graphics::morph_target`](crate::Graphics::morph_target)).
     pub name: String,
     /// One offset per corner.
     pub positions: Vec<Vec3>,

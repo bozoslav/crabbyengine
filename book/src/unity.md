@@ -240,12 +240,12 @@ ready for a [terrain tile](3d.md), and the layers painted on it with
 their weight maps.
 
 ```rust
-# let ground = ctx.default_material();
+# let ground = ctx.gfx.default_material();
 let file = ponko_unity::UnityFile::read("MyUnityGame/Assets/Terrain/Hills.asset")?;
 let data = file.of_class(156).next().expect("a TerrainData");
 let hills = ponko_unity::UnityTerrain::from_object(data)?;
 // In the game (or written to a file the game reads):
-let tile = ctx.create_terrain_tile(&hills.heights, hills.size, ground);
+let tile = ctx.gfx.create_terrain_tile(&hills.heights, hills.size, ground);
 let [x, y, z] = hills.corner([0.0, 0.0, 0.0]); // the Unity Terrain's position
 ctx.world.spawn((Transform3D::at(vec3(x, y, z)), tile));
 ```

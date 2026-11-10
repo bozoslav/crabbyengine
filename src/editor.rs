@@ -51,18 +51,26 @@ impl Editor {
         if self.played_from.is_none() {
             self.played_from = Some((ctx.world.save(), self.undo.len()));
         }
-        ctx.resume();
+        ctx.time.resume();
     }
 
     /// Pauses and puts the world back as it was when Play was pressed.
     /// Components that aren't reflected can't be saved, so aren't put back.
+    /// If the world can't be put back (a lockstep session is running), the
+    /// Play snapshot and the undo history are kept and the simulation keeps
+    /// running, so Stop can be retried.
     pub fn stop(&mut self, ctx: &mut Ctx) -> Result<(), String> {
-        ctx.pause();
-        let Some((save, steps)) = self.played_from.take() else {
+        let Some((save, steps)) = &self.played_from else {
+            ctx.time.pause();
             return Ok(());
         };
+        let steps = *steps;
+        // Pause only once the world is back: a refused Stop changes nothing.
+        ctx.replace_world(save)?;
+        ctx.time.pause();
+        self.played_from = None;
         self.undo.truncate(steps);
-        ctx.replace_world(&save)
+        Ok(())
     }
 
     /// Keeps the world as it is now: Stop won't go back.
@@ -266,15 +274,15 @@ mod tests {
         let mut ed = Editor::default();
         let e = ed.spawn_empty(&mut ctx, vec2(1.0, 2.0));
         ed.play(&mut ctx);
-        assert!(ed.playing() && !ctx.is_paused());
+        assert!(ed.playing() && !ctx.time.is_paused());
         // The game runs: things move, spawn and die; the editor edits too.
         ctx.world.get_mut::<Transform2D>(e).unwrap().position = vec2(50.0, 50.0);
         ctx.world.spawn((Transform2D::default(),));
         ed.set(&mut ctx, e, "Hp", json!(1.0)).unwrap();
-        ctx.pause();
+        ctx.time.pause();
         ed.play(&mut ctx); // resume: still from the first Play
         ed.stop(&mut ctx).unwrap();
-        assert!(ctx.is_paused() && !ed.playing());
+        assert!(ctx.time.is_paused() && !ed.playing());
         assert_eq!(ctx.world.len(), 1);
         assert_eq!((at(&ctx, e), ctx.world.get::<Hp>(e)), (vec2(1.0, 2.0), None));
         // Undo steps from before Play still apply; those from playing are gone.
@@ -302,5 +310,32 @@ mod tests {
         assert!(ed.set(&mut ctx, e, "Hp", json!("not a number")).is_err());
         assert!(ed.add(&mut ctx, e, "NoSuchThing").is_err());
         assert!(!ed.can_undo());
+    }
+
+    #[test]
+    fn a_refused_stop_keeps_the_play_snapshot_and_undo_for_a_retry() {
+        let mut ctx = ctx();
+        let mut ed = Editor::default();
+        let a = ed.spawn_empty(&mut ctx, vec2(1.0, 1.0));
+        ed.set(&mut ctx, a, "Hp", json!(5.0)).unwrap();
+        ed.play(&mut ctx);
+        ed.set(&mut ctx, a, "Hp", json!(9.0)).unwrap(); // while playing
+        ctx.world.spawn((Hp(1.0),));
+        // A lockstep session: Stop would put the world back on this peer only.
+        let session = std::mem::replace(&mut ctx.net, crate::Net::loopback(2).remove(0));
+        drop(session);
+        let err = ed.stop(&mut ctx).unwrap_err();
+        assert!(err.contains("lockstep"), "{err}");
+        assert!(ed.playing(), "the Play snapshot is kept");
+        assert!(!ctx.time.is_paused(), "a refused Stop doesn't pause the simulation");
+        assert_eq!(ed.undo.len(), 3, "and the undo history");
+        assert_eq!(ctx.world.len(), 2, "the world is unchanged");
+        assert_eq!(ctx.world.get::<Hp>(a), Some(&Hp(9.0)));
+        // The session ended: Stop works now.
+        ctx.net = crate::Net::default();
+        ed.stop(&mut ctx).unwrap();
+        assert!(!ed.playing() && ctx.time.is_paused());
+        assert_eq!(ed.undo.len(), 2, "edits made while playing are dropped");
+        assert_eq!((ctx.world.len(), ctx.world.get::<Hp>(a)), (1, Some(&Hp(5.0))));
     }
 }

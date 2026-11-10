@@ -21,6 +21,8 @@ struct Rig {
     renderer: Renderer3D,
     ctx: Ctx,
     frame: Frame3D,
+    /// Uncaptured GPU errors and device loss, so a wrong frame names its cause.
+    gpu_errors: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl Rig {
@@ -28,13 +30,26 @@ impl Rig {
     fn new(solid_prepass: bool) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
+        let gpu_errors = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = gpu_errors.clone();
+        device.on_uncaptured_error(std::sync::Arc::new(move |e: wgpu::Error| {
+            sink.lock().unwrap().push(format!("GPU error: {e}"));
+        }));
+        let sink = gpu_errors.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            sink.lock()
+                .unwrap()
+                .push(format!("device lost ({reason:?}): {message}"));
+        });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[
@@ -130,12 +145,43 @@ impl Rig {
             renderer,
             ctx,
             frame: Frame3D::default(),
+            gpu_errors,
         })
+    }
+
+    /// Panics naming `what` if the device reported an error or was lost.
+    fn assert_healthy(&self, what: &str) {
+        let errors = self.gpu_errors.lock().unwrap();
+        assert!(errors.is_empty(), "{what}: the GPU failed: {errors:?}");
+    }
+
+    /// Asserts that two frames are identical; on a mismatch, says how many
+    /// pixels differ and how many of each are black (a lost or failed
+    /// frame), instead of printing every byte.
+    fn assert_same_frame(&self, a: &[u8], b: &[u8], what: &str) {
+        self.assert_healthy(what);
+        if a == b {
+            return;
+        }
+        let black = |p: &[u8]| p.as_chunks::<4>().0.iter().filter(|p| p[..3] == [0, 0, 0]).count();
+        let differ = a
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(b.as_chunks::<4>().0)
+            .filter(|(p, q)| p != q)
+            .count();
+        panic!(
+            "{what}: {differ} of {} pixels differ; black pixels: {} in the first frame, {} in the second",
+            a.len() / 4,
+            black(a),
+            black(b)
+        );
     }
 
     /// A material on the CPU and the GPU.
     fn material(&mut self, desc: MaterialDesc) -> Material {
-        let material = self.ctx.create_material(desc);
+        let material = self.ctx.gfx.create_material(desc);
         self.renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
         material
@@ -143,14 +189,14 @@ impl Rig {
 
     /// A material shader on the CPU and the GPU.
     fn shader(&mut self, name: &str, source: &str) -> Shader {
-        let shader = self.ctx.create_shader(name, source);
+        let shader = self.ctx.gfx.create_shader(name, source);
         self.renderer.create_shader(&self.device, name, source).unwrap();
         shader
     }
 
     /// A mesh of `data` with `material`, on the CPU and the GPU.
     fn mesh(&mut self, data: &MeshData, material: Material) -> Mesh {
-        let mesh = self.ctx.create_mesh(data, material);
+        let mesh = self.ctx.gfx.create_mesh(data, material);
         self.renderer
             .create_mesh(&self.device, data, &[(0..data.indices.len() as u32, material)], true);
         mesh
@@ -171,7 +217,7 @@ impl Rig {
         frame.lod = ctx.lod;
         frame.collect(
             &mut ctx.world,
-            &ctx.assets3d,
+            &ctx.gfx.assets3d,
             &SkinFrame::default(),
             &ctx.camera3d,
             &ctx.lighting,
@@ -346,7 +392,11 @@ fn sorted_runs_draw_the_same_pixels_with_fewer_state_changes() {
         rig.ctx.lighting.shadow_refresh = 1;
         let (before, unsorted) = rig.settled(false);
         let (again, _) = rig.settled(false);
-        assert_eq!(before, again, "a settled frame repeats");
+        rig.assert_same_frame(
+            &before,
+            &again,
+            &format!("a settled frame repeats (prepass {solid_prepass})"),
+        );
         let (after, sorted) = rig.settled(true);
         eprintln!("prepass {solid_prepass}: mesh order {unsorted:?}, sorted {sorted:?}");
         let lit = before
@@ -357,6 +407,7 @@ fn sorted_runs_draw_the_same_pixels_with_fewer_state_changes() {
             .count();
         assert!(lit > (SIZE * SIZE / 2) as usize, "the scene fills the view ({lit} lit)");
         let differ = before.iter().zip(&after).filter(|(a, b)| a != b).count();
+        rig.assert_healthy("sorted runs");
         assert_eq!(differ, 0, "the same pixels (prepass {solid_prepass})");
         assert_eq!(sorted.draws, unsorted.draws, "the same draws");
         assert!(
@@ -385,7 +436,7 @@ fn a_one_material_scene_draws_as_before() {
     rig.ctx.camera3d.look_at(Vec3::ZERO);
     let (before, unsorted) = rig.settled(false);
     let (after, sorted) = rig.settled(true);
-    assert_eq!(before, after);
+    rig.assert_same_frame(&before, &after, "sorted and unsorted runs");
     assert_eq!(sorted, unsorted);
 }
 
@@ -513,6 +564,7 @@ fn sorted_runs_draw_model_material_overrides_the_same() {
         let (after, sorted) = rig.settled(true);
         eprintln!("prepass {solid_prepass}: mesh order {unsorted:?}, sorted {sorted:?}");
         let differ = before.iter().zip(&after).filter(|(a, b)| a != b).count();
+        rig.assert_healthy("sorted runs");
         assert_eq!(differ, 0, "the same pixels (prepass {solid_prepass})");
         assert_eq!(sorted.draws, unsorted.draws, "the same draws");
         // Overridden runs sort by the material they draw with, not the

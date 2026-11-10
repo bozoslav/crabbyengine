@@ -82,7 +82,7 @@ With a window, 20k units run at the display's 120 FPS with 1.2 ms of
 simulation per frame.
 
 How it stays fast, in case your game needs the same tricks:
-- Marching units look for enemies only on their turn (`ctx.turns(4)`),
+- Marching units look for enemies only on their turn (`ctx.time.turns(4)`),
   units in a fight every tick.
 - Separation uses a fine grid of friends, every other tick; enemy search
   a coarse grid of enemies, at melee reach first and full sight only if
@@ -129,12 +129,12 @@ What keeps the CPU side small:
 
 ### Is it the CPU or the GPU?
 
-`ctx.render_stats()` tells you what drawing the last frame cost:
+`ctx.perf.render_stats()` tells you what drawing the last frame cost:
 
 ```rust
 # use ponko::*;
 fn report(ctx: &mut Ctx) {
-    let r = ctx.render_stats();
+    let r = ctx.perf.render_stats();
     println!(
         "{} sprites in {} draw calls: {:.2} ms CPU, GPU {:?} ms",
         r.sprites, r.draw_calls, r.cpu_ms, r.gpu_ms
@@ -146,7 +146,7 @@ fn report(ctx: &mut Ctx) {
 the window shows (which the compositor can cap or smooth) can't fool it.
 If `gpu_ms` is close to the frame time, the GPU is the limit: draw fewer
 or smaller sprites. If `cpu_ms` plus your systems' time
-(`ctx.system_timings()`) is close to it, the CPU is. Agents
+(`ctx.perf.system_timings()`) is close to it, the CPU is. Agents
 get the same numbers from the control endpoint's `info` method.
 
 ## Profiling a frame
@@ -157,27 +157,29 @@ A frame takes about as long as the slower of the CPU (systems, then
 recording draws) and the GPU. The profiler shows which, and where the time
 goes, in a running game:
 
-- **The overlay** (`ctx.set_perf_hud(true)`, or `PONKO_HUD=1`): fps,
+- **The overlay** (`ctx.perf.set_hud(true)`, or `PONKO_HUD=1`): fps,
   frame-time percentiles, CPU and GPU time, and the slowest GPU passes.
-- **`ctx.frame_stats()`**: the same numbers over the last few seconds:
+- **`ctx.perf.frame_stats()`**: the same numbers over the last few seconds:
   fps, average, p50, p95, p99 and worst frame time, CPU time in systems,
   in rendering and waiting on the display, and GPU time. Display wait
   includes pacing; use measured GPU/CPU work to identify the bottleneck.
-- **`ctx.gpu_passes()`**: GPU time per pass (each shadow cascade, depth
+- **`ctx.perf.gpu_passes()`**: GPU time per pass (each shadow cascade, depth
   prepass, opaque, transparent, screen effects, bloom, post), measured
   with timestamp queries. On GPUs that draw in tiles, passes overlap, so
   each is counted from the end of the one before.
-- **`ctx.render_stats()`**: draw calls; 3D models and triangles drawn for
+- **`ctx.perf.render_stats()`**: draw calls; 3D models and triangles drawn for
   the camera and, separately, for the shadow maps; and the render CPU
   time split into culling (`collect_ms`), recording (`record_ms`, all
   cores) and submitting. `uploads` counts the bytes sent to the GPU that
   frame, by kind (model transforms, uniforms, lights, ...), and the
   buffers created: in a scene where nothing changes it should stay at a
   few kilobytes of uniforms and no buffers. Models that stand still cost
-  no uploads; only the changed parts of the model list are sent.
-- **`ctx.mesh_costs()`**: per mesh, how many models and triangles it drew
+  no uploads, also while the camera moves; only the models that changed,
+  or entered or left a view, are sent (see
+  [Models between frames](#models-between-frames)).
+- **`ctx.gfx.mesh_costs()`**: per mesh, how many models and triangles it drew
   for the camera and the shadows last frame, heaviest first.
-- **Traces**: `ctx.record_trace(path, frames)` (or `PONKO_TRACE=path`)
+- **Traces**: `ctx.perf.record_trace(path, frames)` (or `PONKO_TRACE=path`)
   writes the next frames as a Chrome trace: every system, rendering,
   display waits and the GPU passes on a timeline. Open it in
   [Perfetto](https://ui.perfetto.dev) to see what's in a hitch.
@@ -261,6 +263,79 @@ costs a frame nothing.
   `mesh_costs` shows which meshes cost the most.
 - **Pixels**: on a large Retina screen, `Game::msaa(2)` costs about a
   third less GPU time for the 3D passes than the default 4x.
+
+### Models between frames
+
+The 3D frame remembers the models it collected: each model's place in the
+list its mesh is drawn from, in the camera's view and in every shadow map,
+and what it was collected from. A frame then pays for what changed:
+
+- **Nothing changed**: one compare per model. Nothing is culled, written
+  or uploaded.
+- **The camera or the sun moved**: every model is culled again, from the
+  bounding sphere kept for it. Models that stay in view keep their place,
+  so only the ones that entered or left a view are written and uploaded.
+- **A model changed** (its `Transform3D`, mesh, tint, `ShadowMesh`,
+  `ModelMaterial` or `ReceivesDecals`): that model is worked out again
+  and its instances rewritten. Changes are found by value, whichever way a
+  component is written: a system that sets the same transform every frame
+  changes nothing.
+- **Models spawned or despawned, or got or lost a component**: the new
+  ones are worked out, the gone ones leave their lists.
+- **A mesh changed** (new data with other bounds, `set_mesh_shadows`): the
+  models of that mesh are worked out again.
+
+`LodGroup` renderers, terrain tiles, skinned models and shadow-only casters
+are still worked out every frame (what they draw depends on the camera or
+a pose), but keep their places in the lists as well.
+
+While more than half the models change every frame, comparing them costs
+more than it saves. The frame then works every model out from its
+components alone, as it did before any were kept, and only looks up the
+ones a view draws; it compares one model in 64 to notice when they settle.
+
+Collecting 100,000 models of 64 meshes, a tenth of them in view, with sun
+shadows (`cargo run --release -p ponko_bench -- extract-100k`: the median
+of 120 frames after 30 warm-up frames, then the median of 8 runs on all 14
+cores and of 5 runs on one core with `RAYON_NUM_THREADS=1`; M4 Max, while
+other builds were running on the machine, so the 14-core times are a
+little high on both sides):
+
+| Each frame | 14 cores: before | now | One core: before | now | Instances uploaded: before | now |
+|---|---|---|---|---|---|---|
+| nothing changes | 0.45 ms | 0.20 ms | 1.21 ms | 0.41 ms | 11 KiB | 0 |
+| the camera flies | 0.44 ms | 0.29 ms | 1.20 ms | 0.85 ms | 789 KiB | 25 KiB |
+| it flies, 1% of the models move | 0.44 ms | 0.30 ms | 1.20 ms | 0.87 ms | 791 KiB | 73 KiB |
+| it flies, every model moves | 0.45 ms | 0.45 ms | 1.20 ms | 1.31 ms | 831 KiB | 906 KiB |
+| it flies, 100 models despawn and 100 spawn | 0.48 ms | 0.47 ms | 1.40 ms | 1.13 ms | 795 KiB | 27 KiB |
+| the first frame (nothing remembered) | 0.49 ms | 1.33 ms | 1.25 ms | 2.66 ms | all | all |
+
+What it costs:
+
+- **Every model moving, on one core** (the web): about 9% slower than
+  before (1.31 ms against 1.20 ms above). The models are culled as before;
+  each drawn one is then looked up and written to its place in every view
+  that draws it, which costs more than appending it to a list that is
+  sorted afterwards. On 14 cores it costs the same as before.
+- **The first frame**, and a frame that spawns many models at once, builds
+  what later frames keep: two to three times a frame of before for those
+  models, once.
+- **Memory**: for every model in the world, in view or not, about 150
+  bytes on one core and 210 on several (14 and 21 MiB for the 100,000
+  above, with their instances; a frame's scratch lists took 3.5 MiB
+  before). Every view that collects models keeps its own: a target camera
+  with a 3D view, and global illumination's capture, each cost that again
+  for every model in the world.
+- **Order**: models of one mesh are kept in no particular order, and it
+  changes as models enter and leave the view. `Blend::Transparent` models
+  of one mesh are drawn far to near by their origins every frame, whatever
+  that order is. Opaque models drawn in another order can differ in a few
+  edge pixels, by a little.
+- **`ctx.gfx.models_drawn()`** counts each model once, including models
+  in a shadow cascade whose map is kept this frame.
+
+`ctx.perf.render_stats().uploads.instances` shows what a frame uploaded: with a
+moving camera it should be a small part of the instances drawn.
 
 ## 3D: Ponko vs Unity
 
@@ -353,7 +428,7 @@ component set costs. Agents get both from the control endpoint's
 - Prefer `for_each`/`par_for_each` over `iter()` for big queries.
 - Spawn with `spawn_batch`.
 - Run expensive logic at a reduced rate with `sim_system_every(n, system)`,
-  or spread per-entity work over ticks with `ctx.turns(n)` (see
+  or spread per-entity work over ticks with `ctx.time.turns(n)` (see
   [The simulation clock](sim-clock.md)).
 
 ## C++

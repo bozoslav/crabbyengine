@@ -36,7 +36,7 @@ fn moving_the_transform_teleports_the_body() {
     let mut world = Game::new("t", 1, 1)
         .physics(Vec2::ZERO)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 5 {
+            if ctx.time.sim_tick() == 5 {
                 ctx.world
                     .query::<&mut Transform2D>()
                     .with::<RigidBody>()
@@ -82,7 +82,7 @@ fn body_counts_follow_the_world() {
     Game::new("t", 1, 1)
         .add(Phase::BeforePhysics, |ctx: &mut Ctx| {
             let bodies: Vec<Entity> = ctx.world.query::<Entity>().with::<RigidBody>().iter().collect();
-            match ctx.sim_tick() {
+            match ctx.time.sim_tick() {
                 1 => {
                     ctx.world.despawn(bodies[0]);
                 }
@@ -162,7 +162,7 @@ fn rays_and_overlap_queries_find_entities() {
         .physics(Vec2::ZERO)
         .sim_system(|ctx: &mut Ctx| {
             // Queries see the bodies once they have been stepped.
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 let mut found = Found {
                     ray: ctx.physics.cast_ray(vec2(0.0, 0.0), vec2(1.0, 0.0), 1000.0),
                     behind: ctx.physics.cast_ray(vec2(0.0, 0.0), vec2(-1.0, 0.0), 1000.0),
@@ -201,7 +201,7 @@ fn impulses_push_dynamic_bodies() {
     let mut world = Game::new("t", 1, 1)
         .physics(Vec2::ZERO)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 1 {
+            if ctx.time.sim_tick() == 1 {
                 let e = ctx.world.query::<Entity>().with::<RigidBody>().iter().next().unwrap();
                 let mass = ctx.physics.mass(e).unwrap();
                 assert!(
@@ -264,7 +264,7 @@ fn changing_a_collider_rebuilds_it() {
     let mut world = Game::new("t", 1, 1)
         .physics(GRAVITY)
         .sim_system(|ctx: &mut Ctx| {
-            if ctx.sim_tick() == 10 {
+            if ctx.time.sim_tick() == 10 {
                 // The ball turns into a sensor and falls through the ground.
                 ctx.world.query::<&mut Collider>().with::<RigidBody>().for_each(|c| {
                     if matches!(c.shape, Shape::Circle { .. }) {

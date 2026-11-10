@@ -1,5 +1,5 @@
 //! Retained UI on surfaces in the 3D world from C (Rust `UiPanel3D`,
-//! `Ctx::create_ui_panel`, `Ctx::set_ui_pointer_ray`).
+//! `Graphics::create_ui_panel`, `Ui::set_pointer_ray`).
 //!
 //! `crabby_ctx_create_ui_panel` gives an entity a panel: its own UI, drawn
 //! every frame into a render target that a glowing quad shows. Build that UI
@@ -49,7 +49,7 @@ pub unsafe extern "C" fn crabby_ctx_create_ui_panel(
             let e = entity(c, entity_bits)?;
             let size: ponko::Vec2 = to_c(size);
             let (panel, model): (UiPanel3D, Model) =
-                c.try_create_ui_panel(width, height, size).map_err(invalid_owned)?;
+                c.gfx.try_create_ui_panel(width, height, size).map_err(invalid_owned)?;
             let texture = panel.texture;
             c.world.insert(e, panel);
             c.world.insert(e, model);
@@ -157,7 +157,7 @@ pub unsafe extern "C" fn crabby_ctx_set_ui_pointer_ray(
             return Err(invalid("ray needs a finite origin and a nonzero, finite direction"));
         }
         ctx_access(ctx, |c| {
-            c.set_ui_pointer_ray(Some((origin, direction)));
+            c.ui.set_pointer_ray(Some((origin, direction)));
             Ok(())
         })
     })
@@ -174,7 +174,7 @@ pub unsafe extern "C" fn crabby_ctx_clear_ui_pointer_ray(ctx: *mut CrabbyCtx) ->
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_ui_pointer_ray(None);
+            c.ui.set_pointer_ray(None);
             Ok(())
         })
     })

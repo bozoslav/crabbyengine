@@ -52,14 +52,65 @@ it (and its folders). Web builds can't save files.
 
 ```rust
 # let palm = ctx.world.spawn((Transform2D::default(),));
-ctx.save_scene("levels/beach.json")?;
-ctx.save_prefab(palm, "prefabs/palm.json")?;
+ctx.assets.save_scene(&ctx.world, "levels/beach.json")?;
+ctx.assets.save_prefab(&ctx.world, palm, "prefabs/palm.json")?;
 ```
 
 C++: `ctx.save_scene(path)` and `ctx.save_prefab(e, path)`, which throw on
 errors like the rest of the wrapper. C: `ponko_ctx_load_scene`,
 `ponko_ctx_save_scene`, `ponko_ctx_spawn_prefab` and
 `ponko_ctx_save_prefab`.
+
+## What a load replaces and what it keeps
+
+A scene is a snapshot of the world, not a whole save of the game: it holds
+entities with reflected components and reflected resources. Everything
+else belongs to the game and lives outside the world, so a load treats it
+by a fixed rule (the full table is on `Ctx::load_scene` in the API docs):
+
+| State | After `load_scene` |
+|---|---|
+| Entities | The scene's, with the scene's ids. An old `Entity` may now name a different entity of the new scene. |
+| Reflected resources | The scene's values; reflected ones it doesn't name, and every other resource (scores, tuning, a baked navigation mesh), stay. |
+| Commands and events | Commands queued earlier in the running system are dropped; events stay readable (their entity ids are the old world's). |
+| 2D and 3D physics | Old bodies leave at once; the scene's are built at the next physics step, from rest. Gravity and settings stay. |
+| Crowd agents, 3D UI panels, skeletons, joint attachments | Components that aren't saved: gone with their entities. Old crowd slots are freed at the next navigation step, and the keyboard focus of a 3D panel is forgotten. |
+| `Attached` | Reflected: the scene's attachments follow the scene's entities. |
+| Assets and prefabs | Stay cached; a load never unloads anything. |
+| Positional sounds | A sound playing from a replaced entity stops; music and other sounds play on. |
+| Camera, screen UI, lighting, input, time, random seed | Kept. Temporal effects (TAA) forget their history, and the inspector its selection. |
+| Lockstep networking | Not synchronized: in a session, load in setup or a simulation system; other loads are refused (see below). |
+
+A failed load (a missing file, a component that isn't reflected, an image
+that can't be loaded) changes none of this; only images and meshes that
+did load before the failure stay cached.
+
+### Loading scenes in lockstep
+
+In a [lockstep session](networking.md) every peer runs the same
+simulation, so a load must happen on every peer at the same tick. Two
+places guarantee that: setup, which every peer runs before the first tick,
+and simulation systems, which every peer runs at the same ticks from the
+same inputs. Load there with `load_scene`, or with `load_scene_lockstep`,
+the same call named so the call site says it is part of the shared
+simulation:
+
+```rust
+// In a simulation system: every peer reaches this tick with the same world.
+if ctx.time.sim_tick() == 600 {
+    ctx.load_scene_lockstep("levels/two.json")?;
+}
+```
+
+Everywhere else a load would change one peer only, so while a session
+connects or runs it is refused with an error and changes nothing: loads
+from frame, late and draw systems, the inspector's Load button, the
+editor's Stop, and the control endpoint's `scene.load` and `world.load`.
+Offline, and after a session is lost, every load works as usual. The peers
+still compare their worlds, so a load that only some peers make (one
+behind an `if` on local state) shows up as a desync. C++:
+`ctx.load_scene_lockstep(path)`; C: `ponko_ctx_load_scene_lockstep`, with
+the same rules as `ponko_ctx_load_scene`.
 
 ## The files
 

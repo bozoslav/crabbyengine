@@ -338,11 +338,13 @@ mod tests {
     fn particles_additive_brightens_pixels_offscreen() {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return;
         };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
+            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
+        )) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -436,9 +438,9 @@ mod tests {
         let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let draw = |ctx: &mut Ctx, renderer: &mut Renderer3D| -> Vec<u8> {
             let mut skins = SkinFrame::default();
-            skins.collect(&mut ctx.world, &ctx.assets3d);
+            skins.collect(&mut ctx.world, &ctx.gfx.assets3d);
             let mut frame = Frame3D::default();
-            frame.collect(&mut ctx.world, &ctx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+            frame.collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
             frame.skins = skins;
             let scene = Scene3D {
                 frame: &frame,
@@ -546,17 +548,17 @@ mod tests {
 
         // A scene-reading transparent model exercises the separate transparent pass.
         let source = "fn surface(s: Surface) -> Surface { var o = s; o.emissive = scene_color(s.screen); o.alpha = 0.0; return o; }";
-        let shader = ctx.create_shader("particle test glass", source);
+        let shader = ctx.gfx.create_shader("particle test glass", source);
         renderer.create_shader(&device, "particle test glass", source).unwrap();
         let desc = MaterialDesc {
             shader: Some(shader),
             blend: Blend::Transparent,
             ..Default::default()
         };
-        let mat = ctx.create_material(desc);
+        let mat = ctx.gfx.create_material(desc);
         renderer.create_material(&device, &GpuMaterialDesc::new(&desc), &textures);
         let cube = MeshData::cube(0.5);
-        let mesh = ctx.create_mesh(&cube, mat);
+        let mesh = ctx.gfx.create_mesh(&cube, mat);
         renderer.create_mesh(&device, &cube, &[(0..cube.indices.len() as u32, mat)], false);
         ctx.world
             .spawn((Transform3D::at(vec3(1.2, 0.0, 0.0)), Model::new(mesh)));
@@ -572,10 +574,10 @@ mod tests {
             color: Color::BLACK,
             ..Default::default()
         };
-        let mat = ctx.create_material(desc);
+        let mat = ctx.gfx.create_material(desc);
         renderer.create_material(&device, &GpuMaterialDesc::new(&desc), &textures);
         let cube = MeshData::cube(1.0);
-        let mesh = ctx.create_mesh(&cube, mat);
+        let mesh = ctx.gfx.create_mesh(&cube, mat);
         renderer.create_mesh(&device, &cube, &[(0..cube.indices.len() as u32, mat)], false);
         ctx.world
             .spawn((Transform3D::at(vec3(0.0, 0.0, 1.0)), Model::new(mesh)));

@@ -67,7 +67,7 @@ fn main() {
             worst_ms = worst_ms.max(frame_ms);
             frames_since += 1;
 
-            if ctx.mouse_down(MouseButton::Left) {
+            if ctx.input.mouse_down(MouseButton::Left) {
                 spawn(&mut crabs, 1000, ctx.mouse_pos());
             }
 
@@ -82,11 +82,11 @@ fn main() {
                 if c.pos.x > bounds.x { c.pos.x = bounds.x; c.vel.x = -c.vel.x.abs(); }
                 if c.pos.y > bounds.y { c.pos.y = bounds.y; c.vel.y = -c.vel.y.abs() * 0.85; }
                 if c.pos.y < 0.0 { c.pos.y = 0.0; c.vel.y = 0.0; }
-                ctx.draw_ex(&crab, c.pos, DrawParams { color: c.color, ..Default::default() });
+                ctx.gfx.draw_ex(&crab, c.pos, DrawParams { color: c.color, ..Default::default() });
             }
             update_ms_sum += update_start.elapsed().as_secs_f64() * 1000.0;
 
-            if ctx.time() >= report_at {
+            if ctx.time.elapsed() >= report_at {
                 println!(
                     "crabs: {:>8}  fps: {:>6.1}  avg frame: {:>6.2} ms  worst: {:>6.2} ms  update+draw calls: {:>6.2} ms",
                     crabs.len(),
@@ -101,7 +101,7 @@ fn main() {
                 update_ms_sum = 0.0;
             }
 
-            if ctx.key_pressed(Key::Escape) || (quit_after > 0.0 && ctx.time() >= quit_after) {
+            if ctx.key_pressed(Key::Escape) || (quit_after > 0.0 && ctx.time.elapsed() >= quit_after) {
                 ctx.quit();
             }
         }

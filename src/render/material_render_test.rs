@@ -13,12 +13,14 @@ impl Rig {
     fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&Default::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
         eprintln!("material test adapter: {:?}", adapter.get_info());
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&Default::default())) else {
-            eprintln!("no GPU device: skipped");
+        let Ok((device, queue)) = pollster::block_on(
+            adapter.request_device(&crate::render::render_test_support::forced(&Default::default())),
+        ) else {
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

@@ -49,7 +49,7 @@ pub enum AntiAliasing {
     /// have no motion of their own (they reproject with the camera and what's
     /// behind them, and may smear a little when they move).
     /// Needs compute-capable devices: WebGL2 draws with FXAA instead. See
-    /// [`Post::taa_sharpness`] and `Ctx::reset_temporal_history`.
+    /// [`Post::taa_sharpness`] and `Graphics::reset_temporal_history`.
     Taa = 3,
 }
 
@@ -259,7 +259,7 @@ impl Post {
     /// # use ponko::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let (w, h, pixels) = Post::neutral_lut(32);
-    /// ctx.post.lut = Some(ctx.create_texture(w, h, &pixels));
+    /// ctx.post.lut = Some(ctx.gfx.create_texture(w, h, &pixels));
     /// # }
     /// ```
     ///

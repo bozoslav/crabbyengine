@@ -80,7 +80,7 @@ fn before_physics_feeds_the_same_tick_and_sim_system_sees_the_result() {
         ctx.world.resource_mut::<Seen>().0.push((who, x));
     }
     fn kick(ctx: &mut Ctx) {
-        if ctx.sim_tick() == 0 {
+        if ctx.time.sim_tick() == 0 {
             ctx.world
                 .query::<&mut Velocity3D>()
                 .for_each(|v| v.linear = vec3(5.0, 0.0, 0.0));

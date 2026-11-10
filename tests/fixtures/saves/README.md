@@ -1,14 +1,17 @@
-# Retained world saves
+# Retained world, scene and prefab files
 
 Saves written by `World::save` at a recorded engine revision, kept so that
 later revisions are tested against bytes they did not write themselves.
 [STABILITY.md](../../../STABILITY.md#saved-worlds) promises that saves from
 earlier releases keep loading; `tests/save_compat.rs` checks that promise
-against these files.
+against the world file, and `tests/prefab_compat.rs` loads the world file as a
+scene (a scene is the saved-world format) and spawns the prefab through the
+game-facing loaders, `Ctx::load_scene` and `Ctx::spawn_prefab`.
 
 | Fixture | Format | Save version | Engine revision | Provenance |
 |---|---|---|---|---|
 | `world_v1.json` | `crabby-world` | 1 | `51323ef` (ponko 0.0.1) | `world_v1.provenance.json` |
+| `prefab_v1.json` | `crabby-prefab` | 1 | `b3799f6` (ponko 0.0.1) | `prefab_v1.provenance.json` |
 
 `world_v1.json` is a baseline taken from the engine's `main` branch, not from
 a published release: it shows that the current loader reads what that revision
@@ -53,3 +56,19 @@ default to a built-in component does not fail it; removing or renaming one does.
    the date.
 4. Add loader tests for it that assert the decoded state, and keep the tests
    for every older fixture.
+
+## Prefab fixtures
+
+`prefab_v1.json` is written by `Assets::save_prefab`. Its generator is the
+`#[ignore]`d `write_prefab_v1_fixture` in `tests/prefab_compat.rs`, with the
+same rules as above (never edited by hand, never regenerated, refuses to
+overwrite):
+
+```sh
+PONKO_PREFAB_FIXTURE_OUT=$PWD/tests/fixtures/saves/prefab_v<N>.json \
+  cargo test -p ponko --no-default-features --test prefab_compat -- --ignored --exact write_prefab_v<N>_fixture
+```
+
+The tests check that the position is the spawner's while rotation, scale and
+every other component come from the file, and that unsupported versions, other
+formats and empty prefabs fail with a message and spawn nothing.

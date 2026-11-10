@@ -219,7 +219,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_rect(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.draw_rect(to_c(rect), to_c(color));
+            c.gfx.draw_rect(to_c(rect), to_c(color));
             Ok(())
         })
     })
@@ -245,7 +245,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_line(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.draw_line(to_c(a), to_c(b), width, to_c(color));
+            c.gfx.draw_line(to_c(a), to_c(b), width, to_c(color));
             Ok(())
         })
     })
@@ -269,7 +269,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_circle(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.draw_circle(to_c(center), radius, to_c(color));
+            c.gfx.draw_circle(to_c(center), radius, to_c(color));
             Ok(())
         })
     })
@@ -286,7 +286,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_circle(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_ui_style(ctx: *mut CrabbyCtx, out_style: *mut CrabbyUiStyle) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_style, style_to_c(c.ui_style))) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_style, style_to_c(c.ui.immediate.style))) })
 }
 
 /// Changes the UI style for widgets drawn after this call.
@@ -304,7 +304,7 @@ pub unsafe extern "C" fn crabby_ctx_set_ui_style(ctx: *mut CrabbyCtx, style: *co
                 return Err(invalid("style is null"));
             }
             let s = *style;
-            c.ui_style = UiStyle {
+            c.ui.immediate.style = UiStyle {
                 panel: to_c(s.panel),
                 button: to_c(s.button),
                 button_hovered: to_c(s.button_hovered),
@@ -329,7 +329,7 @@ pub unsafe extern "C" fn crabby_ctx_set_ui_style(ctx: *mut CrabbyCtx, style: *co
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_ctx_mouse_over_ui(ctx: *mut CrabbyCtx, out_over: *mut bool) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_over, c.mouse_over_ui())) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_over, c.ui.wants_pointer())) })
 }
 
 /// Draws a panel background in screen space (window pixels).
@@ -343,7 +343,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_panel(ctx: *mut CrabbyCtx, rect: CrabbyRe
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.ui_panel(to_c(rect));
+            c.ui.immediate.panel(&mut c.gfx, to_c(rect));
             Ok(())
         })
     })
@@ -366,7 +366,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_label(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let size = c.ui_label(to_c(pos), text(string)?);
+            let size = c.ui.immediate.label(&mut c.gfx, to_c(pos), text(string)?);
             if !out_size.is_null() {
                 out_size.write(to_c(size));
             }
@@ -395,7 +395,10 @@ pub unsafe extern "C" fn crabby_ctx_ui_button(
             if out_clicked.is_null() {
                 return Err(invalid("output is null"));
             }
-            out(out_clicked, c.ui_button(to_c(rect), label))
+            out(
+                out_clicked,
+                c.ui.immediate.button(&mut c.gfx, &c.input, to_c(rect), label),
+            )
         })
     })
 }
@@ -421,7 +424,7 @@ pub unsafe extern "C" fn crabby_ctx_load_font(
             if out_font.is_null() {
                 return Err(invalid("output is null"));
             }
-            out(out_font, font_to_c(c.load_font(path)))
+            out(out_font, font_to_c(c.gfx.load_font(path)))
         })
     })
 }
@@ -449,10 +452,10 @@ pub unsafe extern "C" fn crabby_ctx_draw_text_ex(
                 return Err(invalid("params is null"));
             }
             let p = *params;
-            if !c.has_font(font_from_c(p.font)) {
+            if !c.gfx.has_font(font_from_c(p.font)) {
                 return Err(invalid("unknown or freed font"));
             }
-            c.draw_text_ex(
+            c.gfx.draw_text_ex(
                 string,
                 to_c(pos),
                 TextParams {
@@ -489,10 +492,10 @@ pub unsafe extern "C" fn crabby_ctx_measure_text_ex(
             if out_size.is_null() {
                 return Err(invalid("output is null"));
             }
-            if !c.has_font(font_from_c(font)) {
+            if !c.gfx.has_font(font_from_c(font)) {
                 return Err(invalid("unknown or freed font"));
             }
-            out(out_size, to_c(c.measure_text_ex(string, font_from_c(font), size)))
+            out(out_size, to_c(c.gfx.measure_text_ex(string, font_from_c(font), size)))
         })
     })
 }
@@ -554,7 +557,7 @@ pub unsafe extern "C" fn crabby_ctx_create_sound(
             } else {
                 std::slice::from_raw_parts(samples, len)
             };
-            out(out_sound, sound_to_c(c.create_sound(sample_rate, samples)))
+            out(out_sound, sound_to_c(c.audio.create(sample_rate, samples)))
         })
     })
 }
@@ -582,7 +585,7 @@ pub unsafe extern "C" fn crabby_ctx_play_sound(
             } else {
                 *params
             };
-            let playing = c.play_sound_ex(
+            let playing = c.audio.play_ex(
                 &sound_from_c(sound),
                 SoundParams {
                     volume: p.volume,
@@ -609,7 +612,7 @@ pub unsafe extern "C" fn crabby_ctx_stop_sound(ctx: *mut CrabbyCtx, playing: Cra
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.stop_sound(playing_from_c(playing));
+            c.audio.stop(playing_from_c(playing));
             Ok(())
         })
     })
@@ -628,7 +631,7 @@ pub unsafe extern "C" fn crabby_ctx_save_screenshot(ctx: *mut CrabbyCtx, path: *
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.save_screenshot(text(path)?);
+            c.gfx.save_screenshot(text(path)?);
             Ok(())
         })
     })
@@ -657,7 +660,7 @@ pub unsafe extern "C" fn crabby_ctx_reloaded_textures(
         // SAFETY: forwarded caller contract; outputs checked non-null.
         unsafe {
             ctx_access(ctx, |c| {
-                let list = c.reloaded_textures();
+                let list = c.assets.reloaded_textures();
                 // Texture and CrabbyTexture have the same layout (types.rs).
                 out_textures.write(list.as_ptr().cast());
                 out_count.write(list.len());

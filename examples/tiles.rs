@@ -40,8 +40,8 @@ fn tileset(ctx: &mut Ctx) -> SpriteSheet {
             rgba.push(255);
         }
     }
-    let tex = ctx.create_texture(w, h, &rgba);
-    ctx.set_texture_filter(&tex, TextureFilter::Nearest);
+    let tex = ctx.gfx.create_texture(w, h, &rgba);
+    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
     SpriteSheet::new(tex, TILE, TILE)
 }
 
@@ -62,8 +62,8 @@ fn creature(ctx: &mut Ctx) -> SpriteSheet {
             }
         }
     }
-    let tex = ctx.create_texture(frames * size, size, &rgba);
-    ctx.set_texture_filter(&tex, TextureFilter::Nearest);
+    let tex = ctx.gfx.create_texture(frames * size, size, &rgba);
+    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
     SpriteSheet::new(tex, size, size)
 }
 
@@ -123,7 +123,7 @@ fn wander(ctx: &mut Ctx) {
 
 // ANCHOR: paint
 fn paint(ctx: &mut Ctx) {
-    if !ctx.mouse_down(MouseButton::Left) || ctx.mouse_over_ui() {
+    if !ctx.input.mouse_down(MouseButton::Left) || ctx.ui.wants_pointer() {
         return;
     }
     let at = ctx.mouse_world();
@@ -136,18 +136,20 @@ fn paint(ctx: &mut Ctx) {
 // ANCHOR_END: paint
 
 fn hud(ctx: &mut Ctx) {
-    let r = ctx.render_stats();
+    let r = ctx.perf.render_stats();
     let text = format!(
         "{} sprites drawn ({} draw calls)\nzoom {:.2}x, {:.0} FPS\nleft mouse: paint, right drag: pan, wheel: zoom",
         r.sprites,
         r.draw_calls,
         ctx.camera.zoom,
-        ctx.fps()
+        ctx.time.fps()
     );
-    let size = ctx.measure_text(&text, ctx.ui_style.text_size) + 2.0 * ctx.ui_style.padding;
+    let size = ctx.gfx.measure_text(&text, ctx.ui.immediate.style.text_size) + 2.0 * ctx.ui.immediate.style.padding;
     let panel = Rect::new(12.0, 12.0, size.x, size.y);
-    ctx.ui_panel(panel);
-    ctx.ui_label(panel.min + ctx.ui_style.padding, &text);
+    ctx.ui.immediate.panel(&mut ctx.gfx, panel);
+    ctx.ui
+        .immediate
+        .label(&mut ctx.gfx, panel.min + ctx.ui.immediate.style.padding, &text);
 }
 
 fn main() {

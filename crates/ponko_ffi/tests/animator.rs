@@ -519,6 +519,31 @@ unsafe fn layers(ctx: *mut CrabbyCtx, run: &Run, idle: *const CrabbyClip, slide:
         assert_eq!(crabby_ctx_animator_layer_set_bool(ctx, e, 5, 1, true), BAD);
         assert_eq!(crabby_ctx_animator_layer_set_trigger(ctx, e, 5, 2, true), BAD);
         assert_eq!(crabby_ctx_animator_layer_crossfade(ctx, e, 5, 0, 0.0, 0.0), BAD);
+        // A parameter of the wrong kind or index, and bad crossfade values,
+        // are invalid arguments (not engine panics) for a layer too.
+        assert_eq!(crabby_ctx_animator_layer_set_float(ctx, e, 0, 1, 1.0), BAD, "a bool");
+        assert_eq!(
+            crabby_ctx_animator_layer_set_float(ctx, e, 0, 9, 1.0),
+            BAD,
+            "no such parameter"
+        );
+        assert_eq!(crabby_ctx_animator_layer_set_float(ctx, e, 0, 0, f32::NAN), BAD);
+        assert_eq!(crabby_ctx_animator_layer_set_bool(ctx, e, 0, 0, true), BAD, "a float");
+        assert_eq!(crabby_ctx_animator_layer_set_bool(ctx, e, 0, 2, true), BAD, "a trigger");
+        assert_eq!(crabby_ctx_animator_layer_set_trigger(ctx, e, 0, 1, true), BAD, "a bool");
+        assert_eq!(crabby_ctx_animator_layer_set_trigger(ctx, e, 0, 9, true), BAD);
+        assert_eq!(
+            crabby_ctx_animator_layer_crossfade(ctx, e, 0, 7, 0.0, 0.0),
+            BAD,
+            "no state 7"
+        );
+        assert_eq!(crabby_ctx_animator_layer_crossfade(ctx, e, 0, 0, -1.0, 0.0), BAD);
+        assert_eq!(crabby_ctx_animator_layer_crossfade(ctx, e, 0, 0, f32::NAN, 0.0), BAD);
+        assert_eq!(crabby_ctx_animator_layer_crossfade(ctx, e, 0, 0, 0.1, -0.5), BAD);
+        assert_eq!(
+            crabby_ctx_animator_layer_crossfade(ctx, e, 0, 0, 0.1, f32::INFINITY),
+            BAD
+        );
 
         crabby_animation_graph_free(top);
         crabby_animation_graph_free(base_graph);
@@ -715,6 +740,43 @@ unsafe fn bad_arguments(ctx: *mut CrabbyCtx, run: &Run, idle: *const CrabbyClip,
         assert_eq!(crabby_ctx_animator_next_event(ctx, e, null_mut(), 0, null_mut()), BAD);
         let mut found = false;
         assert_eq!(crabby_ctx_animator_next_event(ctx, e, null_mut(), 4, &mut found), BAD);
+        // A parameter of the wrong kind or index, and bad crossfade values,
+        // are invalid arguments: the animator is left as it was and the
+        // engine never panics. The graph has a float 0, a bool 1, a trigger 2.
+        assert_eq!(crabby_ctx_animator_set_float(ctx, e, 1, 1.0), BAD, "a bool");
+        assert_eq!(crabby_ctx_animator_set_float(ctx, e, 9, 1.0), BAD, "no such parameter");
+        assert_eq!(crabby_ctx_animator_set_float(ctx, e, 0, f32::NAN), BAD);
+        assert_eq!(crabby_ctx_animator_set_float(ctx, e, 0, f32::INFINITY), BAD);
+        assert_eq!(crabby_ctx_animator_set_bool(ctx, e, 0, true), BAD, "a float");
+        assert_eq!(crabby_ctx_animator_set_bool(ctx, e, 2, true), BAD, "a trigger");
+        assert_eq!(crabby_ctx_animator_set_bool(ctx, e, 9, true), BAD);
+        assert_eq!(crabby_ctx_animator_set_trigger(ctx, e, 0, true), BAD, "a float");
+        assert_eq!(crabby_ctx_animator_set_trigger(ctx, e, 1, true), BAD, "a bool");
+        assert_eq!(crabby_ctx_animator_set_trigger(ctx, e, 9, true), BAD);
+        assert_eq!(crabby_ctx_animator_crossfade(ctx, e, 7, 0.0, 0.0), BAD, "no state 7");
+        assert_eq!(crabby_ctx_animator_crossfade(ctx, e, 0, -0.1, 0.0), BAD);
+        assert_eq!(crabby_ctx_animator_crossfade(ctx, e, 0, f32::NAN, 0.0), BAD);
+        assert_eq!(crabby_ctx_animator_crossfade(ctx, e, 0, 0.1, -1.0), BAD);
+        assert_eq!(crabby_ctx_animator_crossfade(ctx, e, 0, 0.1, f32::NAN), BAD);
+        // A time step that isn't a time is refused too, before the animator
+        // or its skeleton is touched.
+        let before = (state_of(ctx, e), root_x(ctx, e));
+        assert_eq!(crabby_ctx_animator_update(ctx, e, f32::NAN), BAD);
+        assert_eq!(crabby_ctx_animator_update(ctx, e, f32::INFINITY), BAD);
+        assert_eq!(crabby_ctx_animator_update(ctx, e, -0.1), BAD);
+        assert_eq!(
+            (state_of(ctx, e), root_x(ctx, e)),
+            before,
+            "a refused update poses nothing"
+        );
+        assert_eq!(
+            crabby_ctx_animator_update(ctx, bare, f32::NAN),
+            CRABBY_NOT_FOUND,
+            "no animator"
+        );
+        assert_eq!(crabby_ctx_animator_update(ctx, e, 0.0), OK, "zero is a valid step");
+        assert_eq!(crabby_ctx_animator_update(ctx, e, 0.1), OK);
+        assert_eq!(state_of(ctx, e).0, 0, "refused calls changed nothing");
         // Setting an animator again starts over.
         assert_eq!(crabby_ctx_animator_set_trigger(ctx, e, 2, true), OK);
         assert_eq!(crabby_ctx_animator_update(ctx, e, 0.1), OK);

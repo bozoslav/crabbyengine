@@ -49,7 +49,8 @@ fn input_events_and_action_queries_allocate_nothing_after_installation() {
     Game::new("allocations", 1, 1)
         .sim_system(move |ctx: &mut Ctx| {
             // Resolved once (it may allocate), before tracking starts.
-            let [jump, throttle, movement] = *ids.get_or_insert_with(|| ctx.action_ids(&["jump", "throttle", "move"]));
+            let [jump, throttle, movement] =
+                *ids.get_or_insert_with(|| ctx.input.action_ids(&["jump", "throttle", "move"]));
             if frames == 0 {
                 ALLOCS.set(0);
                 TRACK.set(true);
@@ -57,18 +58,19 @@ fn input_events_and_action_queries_allocate_nothing_after_installation() {
             // Tracking remains enabled between systems, including frame resets.
             let pad = Gamepad::from_slot(0).unwrap();
             for i in 0..128 {
-                ctx.feed_input(InputEvent::Key(Key::Space, i % 2 == 0));
-                ctx.feed_input(InputEvent::GamepadAxis(pad, GamepadAxis::LeftStickX, 0.6));
-                std::hint::black_box(ctx.action_down("jump"));
-                std::hint::black_box(ctx.action_pressed("jump"));
-                std::hint::black_box(ctx.action_released("jump"));
-                std::hint::black_box(ctx.action_axis("throttle"));
-                std::hint::black_box(ctx.action_axis2("move"));
-                std::hint::black_box(ctx.action_down(jump));
-                std::hint::black_box(ctx.action_pressed(jump));
-                std::hint::black_box(ctx.action_released(jump));
-                std::hint::black_box(ctx.action_axis(throttle));
-                std::hint::black_box(ctx.action_axis2(movement));
+                ctx.input.feed(InputEvent::Key(Key::Space, i % 2 == 0));
+                ctx.input
+                    .feed(InputEvent::GamepadAxis(pad, GamepadAxis::LeftStickX, 0.6));
+                std::hint::black_box(ctx.input.action_down("jump"));
+                std::hint::black_box(ctx.input.action_pressed("jump"));
+                std::hint::black_box(ctx.input.action_released("jump"));
+                std::hint::black_box(ctx.input.action_axis("throttle"));
+                std::hint::black_box(ctx.input.action_axis2("move"));
+                std::hint::black_box(ctx.input.action_down(jump));
+                std::hint::black_box(ctx.input.action_pressed(jump));
+                std::hint::black_box(ctx.input.action_released(jump));
+                std::hint::black_box(ctx.input.action_axis(throttle));
+                std::hint::black_box(ctx.input.action_axis2(movement));
             }
             frames += 1;
             if frames == 3 {
@@ -96,6 +98,6 @@ fn input_events_and_action_queries_allocate_nothing_after_installation() {
                     deadzone: 0.2,
                 }]),
             );
-            ctx.set_actions(map);
+            ctx.input.set_actions(map);
         });
 }
