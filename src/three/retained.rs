@@ -416,32 +416,28 @@ fn room(n: usize) -> usize {
     n + n / 2 + 1
 }
 
-/// What a [`Model`] is collected from. A 64-bit digest of it is kept per
-/// model, to tell when it changed.
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Source {
-    rotation: [f32; 4],
-    position: [f32; 3],
-    scale: [f32; 3],
-    /// The model's tint, as set (not yet linear).
-    color: [f32; 4],
+/// What a [`Model`] is collected from: its components, read where they
+/// are (copying them into one value first costs more than the compare). A
+/// 64-bit digest of them is kept per model, to tell when it changed.
+#[derive(Clone, Copy)]
+struct Source<'a> {
+    transform: &'a Transform3D,
+    /// Its mesh and its tint, as set (not yet linear).
+    model: &'a Model,
     /// The decal layers it takes (see `projected::receiver_mask`).
     receives: f32,
-    mesh: u32,
     /// Its [`ShadowMesh`]: [`OWN_SHADOW`] without one, [`NO_SHADOW`] for
     /// `ShadowMesh(None)`.
     shadow: u32,
     /// Its [`ModelMaterial`], or [`NONE`].
     material: u32,
     /// Whether it has a [`Skeleton`].
-    skeleton: u32,
+    skeleton: bool,
 }
 
-/// The first words of a [`Source`]: what its instance is made from
-/// (rotation, position, scale, tint, decal layers).
+/// What a model's instance is made from: rotation, position, scale, tint,
+/// decal layers.
 const KEPT: usize = 15;
-const SOURCE_WORDS: usize = size_of::<Source>() / size_of::<u32>();
 
 const OWN_SHADOW: u32 = u32::MAX;
 const NO_SHADOW: u32 = u32::MAX - 1;
@@ -456,34 +452,58 @@ type ModelItem<'a> = (
     Option<&'a ModelMaterial>,
 );
 
-impl Source {
+impl<'a> Source<'a> {
+    #[inline]
     fn of(
-        t: &Transform3D,
-        m: &Model,
+        transform: &'a Transform3D,
+        model: &'a Model,
         shadow: Option<&ShadowMesh>,
         skeleton: Option<&Skeleton>,
         receives: Option<&ReceivesDecals>,
         material: Option<&ModelMaterial>,
     ) -> Self {
         Self {
-            rotation: t.rotation.to_array(),
-            position: t.position.to_array(),
-            scale: t.scale.to_array(),
-            color: [m.color.r, m.color.g, m.color.b, m.color.a],
+            transform,
+            model,
             receives: super::projected::receiver_mask(receives),
-            mesh: m.mesh.id,
             shadow: match shadow {
                 None => OWN_SHADOW,
                 Some(ShadowMesh(None)) => NO_SHADOW,
                 Some(ShadowMesh(Some(mesh))) => mesh.id,
             },
             material: material.map_or(NONE, |o| o.0.id),
-            skeleton: u32::from(skeleton.is_some()),
+            skeleton: skeleton.is_some(),
         }
     }
 
-    fn words(&self) -> &[u32; SOURCE_WORDS] {
-        bytemuck::cast_ref(self)
+    fn mesh(&self) -> u32 {
+        self.model.mesh.id
+    }
+
+    /// What its instance is made from.
+    #[inline]
+    fn kept(&self) -> [f32; KEPT] {
+        let t = self.transform;
+        let ([qx, qy, qz, qw], [px, py, pz], [sx, sy, sz]) =
+            (t.rotation.to_array(), t.position.to_array(), t.scale.to_array());
+        let c = self.model.color;
+        [
+            qx,
+            qy,
+            qz,
+            qw,
+            px,
+            py,
+            pz,
+            sx,
+            sy,
+            sz,
+            c.r,
+            c.g,
+            c.b,
+            c.a,
+            self.receives,
+        ]
     }
 
     /// A digest of every field, never zero. Two sources that differ have
@@ -491,6 +511,7 @@ impl Source {
     /// was drawn until it changes again. Each pair of 64-bit words is mixed
     /// on its own (a 128-bit product folded in half), so the pairs don't
     /// wait for each other.
+    #[inline]
     fn digest(&self) -> u64 {
         const KEYS: [u64; 10] = [
             0x9E37_79B9_7F4A_7C15,
@@ -504,12 +525,9 @@ impl Source {
             0x5899_65CC_7537_4CC3,
             0x1D8E_4E27_C47D_124F,
         ];
-        // The words are joined from the fields' values (not read back from
-        // the struct's memory, which would wait for it to be written).
         let join = |a: u32, b: u32| u64::from(a) | u64::from(b) << 32;
         let pair = |a: f32, b: f32| join(a.to_bits(), b.to_bits());
-        let ([qx, qy, qz, qw], [px, py, pz], [sx, sy, sz]) = (self.rotation, self.position, self.scale);
-        let [r, g, b, a] = self.color;
+        let [qx, qy, qz, qw, px, py, pz, sx, sy, sz, r, g, b, a, receives] = self.kept();
         let words = [
             pair(qx, qy),
             pair(qz, qw),
@@ -518,7 +536,7 @@ impl Source {
             pair(sy, sz),
             pair(r, g),
             pair(b, a),
-            join(self.receives.to_bits(), self.mesh),
+            join(receives.to_bits(), self.mesh()),
             join(self.shadow, self.material),
             u64::from(self.skeleton),
         ];
@@ -534,16 +552,21 @@ impl Source {
         h | 1
     }
 
-    /// The model as the GPU reads it.
+    /// The model as the GPU reads it: what [`instance_of`] makes of
+    /// [`kept`](Self::kept).
+    #[inline]
     fn instance(&self) -> Instance3D {
-        let ([qx, qy, qz, qw], [px, py, pz], [sx, sy, sz]) = (self.rotation, self.position, self.scale);
-        let [r, g, b, a] = self.color;
-        instance_of([qx, qy, qz, qw, px, py, pz, sx, sy, sz, r, g, b, a, self.receives])
+        let mut model = self.transform.matrix().to_cols_array_2d();
+        model[0][3] = self.receives;
+        Instance3D {
+            model,
+            color: linear(self.model.color),
+        }
     }
 }
 
-/// The model as the GPU reads it, from the first [`KEPT`] words of its
-/// [`Source`]. The matrix's fourth row is always (0, 0, 0, 1): its first
+/// The model as the GPU reads it, from what was kept to make its instance
+/// (see [`Source::kept`]). The matrix's fourth row is always (0, 0, 0, 1): its first
 /// slot holds the decal layers the model takes.
 fn instance_of(kept: [f32; KEPT]) -> Instance3D {
     let [qx, qy, qz, qw, px, py, pz, sx, sy, sz, r, g, b, a, receives] = kept;
@@ -595,49 +618,50 @@ pub(crate) struct Overrides<'a> {
     pub pairs: &'a [(u32, u32)],
 }
 
-fn derive(source: &Source, assets: &Assets3D, overrides: &Overrides<'_>) -> Derived {
+#[inline]
+fn derive(source: Source<'_>, assets: &Assets3D, overrides: &Overrides<'_>) -> Derived {
+    let mesh = source.mesh();
     // Skinned models posed by a skeleton are drawn from the skins instead.
     // So are meshes with morph targets that aren't skinned.
-    let posed = match assets.skin(source.mesh) {
-        Some(_) => source.skeleton != 0,
-        None => assets.morph(source.mesh).is_some(),
+    let posed = match assets.skin(mesh) {
+        Some(_) => source.skeleton,
+        None => assets.morph(mesh).is_some(),
     };
-    let Some(bounds) = assets.live_bounds(source.mesh).filter(|_| !posed) else {
+    let Some(bounds) = assets.live_bounds(mesh).filter(|_| !posed) else {
         return NOTHING;
     };
     let caster = match source.shadow {
-        OWN_SHADOW => Some(source.mesh),
+        OWN_SHADOW => Some(mesh),
         NO_SHADOW => None,
-        mesh => Some(mesh),
+        other => Some(other),
     }
     .filter(|&c| assets.casts_shadows(c));
     let caster_bounds = caster.and_then(|c| assets.live_bounds(c));
-    let (rotation, position) = (Quat::from_array(source.rotation), Vec3::from_array(source.position));
-    let scale = Vec3::from_array(source.scale);
-    let widest = scale.abs().max_element();
+    let t = source.transform;
+    let widest = t.scale.abs().max_element();
     let world = |(center, radius): (Vec3, f32)| {
-        (position + rotation * (scale * center))
+        (t.position + t.rotation * (t.scale * center))
             .extend(radius * widest)
             .to_array()
     };
     // The model's own mesh, wherever it is drawn (not a separate
     // `ShadowMesh`), takes the override.
     let own = if source.material == NONE {
-        source.mesh
+        mesh
     } else {
-        (overrides.index.get(&(source.mesh, source.material))).map_or(source.mesh, |k| overrides.base + k)
+        (overrides.index.get(&(mesh, source.material))).map_or(mesh, |k| overrides.base + k)
     };
     let sphere = world(bounds);
     Derived {
         sphere,
         caster_sphere: match caster_bounds {
-            Some(_) if caster == Some(source.mesh) => sphere,
+            Some(_) if caster == Some(mesh) => sphere,
             Some(bounds) => world(bounds),
             None => NOTHING.caster_sphere,
         },
         mesh: own,
         caster: match caster.filter(|_| caster_bounds.is_some()) {
-            Some(c) if c != source.mesh => c,
+            Some(c) if c != mesh => c,
             _ => own,
         },
     }
@@ -704,12 +728,12 @@ struct How<'a> {
 
 impl How<'_> {
     /// Whether a model whose source didn't change is worked out again.
-    fn reworks(&self, source: &Source) -> bool {
+    fn reworks(&self, source: Source<'_>) -> bool {
         let stale = |mesh: u32| {
             self.stale
                 .is_some_and(|s| s.get(mesh as usize).copied().unwrap_or(false))
         };
-        self.force || stale(source.mesh) || stale(source.shadow) || (self.renumbered && source.material != NONE)
+        self.force || stale(source.mesh()) || stale(source.shadow) || (self.renumbered && source.material != NONE)
     }
 }
 
@@ -795,13 +819,13 @@ impl Pass<'_> {
         let digest = source.digest();
         let (cold, was) = (&self.cold[k], hot.applied.load(Ordering::Relaxed));
         let keep = || {
-            for (kept, &word) in self.kept[k].iter().zip(source.words()) {
-                kept.store(word, Ordering::Relaxed);
+            for (kept, value) in self.kept[k].iter().zip(source.kept()) {
+                kept.store(value.to_bits(), Ordering::Relaxed);
             }
         };
         // With ECS change ticks, this compare is what a tick test replaces.
-        if hot.digest.load(Ordering::Relaxed) != digest || self.how.reworks(&source) {
-            let derived = derive(&source, self.assets, self.overrides);
+        if hot.digest.load(Ordering::Relaxed) != digest || self.how.reworks(source) {
+            let derived = derive(source, self.assets, self.overrides);
             let spheres = derived.sphere.into_iter().chain(derived.caster_sphere);
             for (kept, value) in self.spheres[k].iter().zip(spheres) {
                 kept.store(value.to_bits(), Ordering::Relaxed);
@@ -952,13 +976,13 @@ impl Tracked {
                 let before = std::mem::replace(hot.digest.get_mut(), digest);
                 compared += usize::from(before != 0);
                 differed += usize::from(before != 0 && before != digest);
-                before != digest || (reworks && how.reworks(&source))
+                before != digest || (reworks && how.reworks(source))
             } else {
                 true
             };
             let (flags, mesh, caster);
             if changed {
-                let derived = derive(&source, assets, overrides);
+                let derived = derive(source, assets, overrides);
                 if exact {
                     let spheres = derived.sphere.into_iter().chain(derived.caster_sphere);
                     for (kept, value) in self.spheres[k].iter_mut().zip(spheres) {
