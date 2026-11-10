@@ -903,7 +903,7 @@ mod parallel {
         let mut touched = Vec::new();
         for (i, &e) in es.iter().enumerate() {
             let in_arch = i % n;
-            if in_arch < 2 * CHUNK + 9 || in_arch % 7 == 0 || in_arch == n - 1 {
+            if in_arch < 2 * CHUNK + 9 || in_arch.is_multiple_of(7) || in_arch == n - 1 {
                 w.get_mut::<Health>(e).unwrap().0 += 1_000_000;
                 touched.push(e);
             }
@@ -1337,14 +1337,14 @@ fn generated_sequences_report_exactly_what_the_model_changed() {
                 0 | 1 => {
                     let (e, m) = match rng.below(3) {
                         0 => (
-                            w.spawn((Health(op as i32),)),
+                            w.spawn((Health(op),)),
                             ModelEntity {
                                 health: Some(stamp),
                                 ..Default::default()
                             },
                         ),
                         1 => (
-                            w.spawn((Health(op as i32), Armor(0))),
+                            w.spawn((Health(op), Armor(0))),
                             ModelEntity {
                                 health: Some(stamp),
                                 armor: Some(stamp),
