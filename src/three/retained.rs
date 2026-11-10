@@ -1025,36 +1025,15 @@ impl Tracked {
         now.clear();
         models.for_each(|(entity, t, m, shadow, skeleton, receives, material)| {
             let source = Source::of(t, m, shadow, skeleton, receives, material);
-            let mut tracked = |tracked: &mut Self, lists: &mut Lists| {
-                tracked.find(entity).unwrap_or_else(|| {
-                    new += 1;
-                    tracked.admit(entity, lists)
-                })
-            };
             if sampled(entity) {
-                let k = tracked(self, lists);
-                self.settle(k, source, &frame, &mut tally, lists, arena, motion);
-                if *self.hot[k].applied.get_mut() != 0 {
-                    self.mark(k, &mut now);
-                }
+                new += self.rush_sampled(entity, source, &frame, &mut tally, &mut now, lists, arena, motion);
                 return;
             }
             let derived = derive(source, assets, overrides);
             let flags = culler.classify_spheres(derived.sphere, derived.caster_sphere);
             if flags != 0 {
-                let k = tracked(self, lists);
-                self.mark(k, &mut now);
-                self.draw(
-                    k,
-                    source,
-                    flags,
-                    derived.mesh,
-                    derived.caster,
-                    &frame,
-                    lists,
-                    arena,
-                    motion,
-                );
+                let seen = (flags, derived.mesh, derived.caster);
+                new += self.rush_drawn(entity, source, seen, &frame, &mut now, lists, arena, motion);
             }
         });
         // The models drawn before that this frame didn't find drawn left
@@ -1079,6 +1058,53 @@ impl Tracked {
         }
         // Which tracked models are gone is found when the rush ends.
         (self.live, new)
+    }
+
+    /// In a rush: a sampled model, compared as in any other frame.
+    /// Returns 1 if it wasn't tracked. (Out of line, like `rush_drawn`:
+    /// most models need neither, and the loop over them stays small.)
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn rush_sampled(
+        &mut self,
+        entity: crate::Entity,
+        source: Source<'_>,
+        frame: &Serial<'_>,
+        tally: &mut Tally,
+        now: &mut Vec<u32>,
+        lists: &mut Lists,
+        arena: &mut Vec<Instance3D>,
+        motion: &mut Motion,
+    ) -> usize {
+        let found = self.find(entity);
+        let k = found.unwrap_or_else(|| self.admit(entity, lists));
+        self.settle(k, source, frame, tally, lists, arena, motion);
+        if *self.hot[k].applied.get_mut() != 0 {
+            self.mark(k, now);
+        }
+        usize::from(found.is_none())
+    }
+
+    /// In a rush: a model that some view draws (`seen`: the views, its
+    /// mesh and its caster's). Returns 1 if it wasn't tracked.
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn rush_drawn(
+        &mut self,
+        entity: crate::Entity,
+        source: Source<'_>,
+        (flags, mesh, caster): (u32, u32, u32),
+        frame: &Serial<'_>,
+        now: &mut Vec<u32>,
+        lists: &mut Lists,
+        arena: &mut Vec<Instance3D>,
+        motion: &mut Motion,
+    ) -> usize {
+        let found = self.find(entity);
+        let k = found.unwrap_or_else(|| self.admit(entity, lists));
+        self.mark(k, now);
+        self.draw(k, source, flags, mesh, caster, frame, lists, arena, motion);
+        usize::from(found.is_none())
     }
 
     /// The object of `entity`, if it is tracked.
