@@ -471,8 +471,9 @@ jobs:
             flags: ""
           # The parallel path. rayon's dependency crossbeam-epoch trips Stacked
           # Borrows (not our code), and its global pool outlives main.
+          # `changes` holds the parallel loops over rows picked by change filters.
           - name: par_for_each, tree borrows
-            args: --test parallel
+            args: --test parallel --test changes
             flags: -Zmiri-tree-borrows -Zmiri-ignore-leaks
     env:
       MIRIFLAGS: ${{ matrix.flags }}

@@ -268,10 +268,21 @@ What counts, for a tracked component:
   system.
 - **Removals** list each entity that lost `T` since the system last ran,
   in the order it happened, despawned entities included (check
-  `world.is_alive(e)` before using one).
+  `world.is_alive(e)` before using one). The engine drops a removal once
+  every system has been shown it, so a system that doesn't run holds
+  removals back: while the simulation is paused, the removals that frame
+  systems make stay in the logs until the simulation systems run again.
 - **Saving and loading**: stamps and removals are not part of a saved
   world. Loading a save removes every entity and spawns the saved ones, so
   every system sees them as removed and then added.
+- **Replacing the world** (`ctx.world = World::new()`) starts every system
+  over: the new world has its own history, so on its next run each system
+  sees everything in the new world as added and changed, and the removals
+  logged there so far, however rarely it runs. Nothing is reported for the
+  old world's entities; they were not removed, their world is gone. A
+  `Tick` you kept yourself belongs to the world it came from: keep
+  `world.id()` next to it and start again from `Tick::default()` when the
+  id differs.
 - **The tick counter doesn't run out.** The world counts ticks in 64 bits
   and stores 32 bits per stamp. A stamp older than two billion ticks is
   kept at that age, so a very old change is never mistaken for a new one;

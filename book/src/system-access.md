@@ -307,4 +307,6 @@ allocation per run once its buffers have grown
 `filter::<F>()` combinators), and custom `QueryData` types must implement
 the shared lookup to be queried through a view. Writes through a view
 count for [change detection](ecs.md#change-detection), but a view query
-can't filter by `Changed<T>` or `Added<T>`.
+can't filter by `Changed<T>` or `Added<T>` and a view has no
+`removed::<T>()` yet
+([#286](https://github.com/ponkoengine/ponko/issues/286)).
