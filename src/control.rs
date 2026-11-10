@@ -17,7 +17,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -38,6 +38,8 @@ use query::{Condition, FieldPath, FieldStats};
 
 /// Environment variable that turns the endpoint on (`1`).
 pub(crate) const ENV_CONTROL: &str = "PONKO_CONTROL";
+/// Environment variable that lets tools start input scenarios (`1`).
+pub(crate) const ENV_INPUT_INJECTION: &str = "PONKO_INPUT_INJECTION";
 /// Environment variable that starts the simulation paused (`1`).
 pub(crate) const ENV_START_PAUSED: &str = "PONKO_START_PAUSED";
 /// Environment variable overriding where instances register themselves.
@@ -220,6 +222,22 @@ fn accept_loop(listener: TcpListener, token: Arc<str>, tx: Sender<Request>, shut
 }
 
 fn serve_connection(stream: TcpStream, token: &str, tx: &Sender<Request>) {
+    static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
+    let connection = NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed);
+    let mut bound_scenario = false;
+    serve_lines(stream, token, tx, connection, &mut bound_scenario);
+    if bound_scenario {
+        // The client that started the scenario is gone: let go of its input.
+        let (reply, _) = mpsc::channel();
+        let _ = tx.send(Request {
+            method: "input.scenario.cancel".into(),
+            params: json!({ "reason": "the client that started it disconnected", "connection": connection }),
+            reply,
+        });
+    }
+}
+
+fn serve_lines(stream: TcpStream, token: &str, tx: &Sender<Request>, connection: u64, bound_scenario: &mut bool) {
     let _ = stream.set_nonblocking(false);
     let Ok(mut writer) = stream.try_clone() else {
         return;
@@ -231,14 +249,17 @@ fn serve_connection(stream: TcpStream, token: &str, tx: &Sender<Request>) {
         if line.trim().is_empty() {
             continue;
         }
-        let reply = handle_line(&line, token, tx);
+        let reply = handle_line(&line, token, tx, connection);
+        if reply["result"]["bound_to_connection"] == true {
+            *bound_scenario = true;
+        }
         if writeln!(writer, "{reply}").and_then(|()| writer.flush()).is_err() {
             return;
         }
     }
 }
 
-fn handle_line(line: &str, token: &str, tx: &Sender<Request>) -> Value {
+fn handle_line(line: &str, token: &str, tx: &Sender<Request>, connection: u64) -> Value {
     let msg: Value = match serde_json::from_str(line) {
         Ok(v) => v,
         Err(e) => return json!({ "id": null, "error": format!("invalid JSON: {e}") }),
@@ -260,9 +281,14 @@ fn handle_line(line: &str, token: &str, tx: &Sender<Request>) -> Value {
         return reply(logs_get(msg.get("params").unwrap_or(&Value::Null)));
     }
     let (reply_tx, reply_rx) = mpsc::channel();
+    let mut params = msg.get("params").cloned().unwrap_or(Value::Null);
+    if let Some(map) = params.as_object_mut() {
+        // Set by the server, never by the client: which connection is asking.
+        map.insert("_connection".into(), json!(connection));
+    }
     let req = Request {
         method: method.to_string(),
-        params: msg.get("params").cloned().unwrap_or(Value::Null),
+        params,
         reply: reply_tx,
     };
     if tx.send(req).is_err() {
@@ -468,6 +494,18 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ("sim.resume", "resume simulation systems"),
     ("sim.step", "run extra simulation ticks; params: ticks? (default 1)"),
     ("sim.speed", "set simulation speed; params: speed"),
+    (
+        "input.scenario.load",
+        "start a tick-indexed input scenario (versioned JSON: input steps fed through the real input path, and checks), replacing a running one; its tick 0 is the next simulation tick; params: scenario (the object), bind_connection? (cancel it when this connection closes), keep_input_when_done? (by default the keys it holds are released when it ends; with this they stay held, owned by the scenario's owner until cancelled), max_ticks? (refuse a longer scenario before touching the running one), queue_ticks? (paused games: queue the scenario's own ticks as steps; a failed check or a cancel takes back only those that haven't run). Refused unless the game allows input injection (PONKO_INPUT_INJECTION=1 or Game::input_injection). Returns the report",
+    ),
+    (
+        "input.scenario.status",
+        "the latest input scenario's report (status pending/running/passed/failed/cancelled, ticks run, checks passed, the failing step and tick with expected and actual), or null",
+    ),
+    (
+        "input.scenario.cancel",
+        "end the running input scenario and release the keys, buttons and axes it holds; params: reason? Returns the report",
+    ),
     ("systems.timings", "each system's last and average time in ms"),
     (
         "ecs.diagnostics",
@@ -943,6 +981,61 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             ctx.set_sim_speed(speed as f32);
             json!({ "speed": ctx.sim_speed() })
         }
+        "input.scenario.load" => {
+            let mut scenario =
+                crate::InputScenario::from_value(param(params, "scenario")?).map_err(|e| e.to_string())?;
+            let flag = |name: &str| -> Result<bool, String> {
+                match params.get(name) {
+                    None | Some(Value::Null) => Ok(false),
+                    Some(v) => v.as_bool().ok_or_else(|| format!("`{name}` must be true or false")),
+                }
+            };
+            let (bind, keep, queue) = (
+                flag("bind_connection")?,
+                flag("keep_input_when_done")?,
+                flag("queue_ticks")?,
+            );
+            // Checked before anything is installed: a refused scenario leaves a running one alone.
+            let ticks = scenario.ticks();
+            if ticks == 0 {
+                return Err("the scenario has no steps, so there is nothing to run".into());
+            }
+            if let Some(max) = params.get("max_ticks").filter(|v| !v.is_null()) {
+                let max = max.as_u64().ok_or("`max_ticks` must be a whole number")?;
+                if ticks > max {
+                    return Err(format!(
+                        "the scenario runs {ticks} ticks, more than `max_ticks` ({max})"
+                    ));
+                }
+            }
+            if queue && !ctx.is_paused() {
+                return Err("`queue_ticks` needs a paused game (call sim.pause first)".into());
+            }
+            // A tool's scenario lets go of its input when it ends, unless told to keep it.
+            scenario.release_unless_kept(keep);
+            let owner = params.get("_connection").and_then(Value::as_u64).filter(|_| bind);
+            let start = ctx.sim_tick();
+            ctx.install_scenario(
+                scenario,
+                start,
+                crate::scenario::RunOrigin {
+                    owner,
+                    tool: true,
+                    queue_ticks: queue,
+                },
+            );
+            json!({ "report": ctx.input_scenario_report(), "bound_to_connection": owner.is_some() })
+        }
+        "input.scenario.status" => json!(ctx.input_scenario_report()),
+        "input.scenario.cancel" => {
+            let reason = params
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("cancelled by a tool");
+            let owner = params.get("connection").and_then(Value::as_u64);
+            let cancelled = ctx.cancel_scenario(reason, owner);
+            json!({ "cancelled": cancelled, "report": ctx.input_scenario_report() })
+        }
         "systems.timings" => Value::Array(
             ctx.system_timings()
                 .iter()
@@ -1067,7 +1160,8 @@ mod tests {
             let r = handle(&mut ctx, name, &json!({}));
             if let Err(e) = r {
                 let uncaptured = *name == "logs.get" && e.contains("captured");
-                assert!(e.starts_with("missing param") || uncaptured, "{name}: {e}");
+                let refused = *name == "input.scenario.load" && e.contains("input injection is off");
+                assert!(e.starts_with("missing param") || uncaptured || refused, "{name}: {e}");
             }
         }
         assert!(

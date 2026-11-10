@@ -194,6 +194,8 @@ pub struct Ctx {
     pub(crate) headless: bool,
     /// Where the control endpoint listens, if it's on.
     pub(crate) control_addr: Option<std::net::SocketAddr>,
+    /// Running input scenario and whether tools may start one.
+    pub(crate) scenarios: crate::scenario::Scenarios,
     pub(crate) headless_textures: u32,
     /// The game's textures (not the engine's own), by id, live or freed.
     pub(crate) textures_live: crate::handle::LiveSet,
@@ -453,6 +455,7 @@ impl Ctx {
             },
             headless: false,
             control_addr: None,
+            scenarios: Default::default(),
             headless_textures: 0,
             textures_live: Default::default(),
             sounds_live: Default::default(),
@@ -936,6 +939,18 @@ impl Ctx {
     /// ```
     pub fn control_addr(&self) -> Option<std::net::SocketAddr> {
         self.control_addr
+    }
+
+    /// Queues `n` single steps for a paused game.
+    pub(crate) fn queue_steps(&mut self, n: u64) {
+        let n = u32::try_from(n).unwrap_or(u32::MAX);
+        self.sim.pending_steps = self.sim.pending_steps.saturating_add(n);
+    }
+
+    /// Takes back up to `n` queued steps.
+    pub(crate) fn drop_pending_steps(&mut self, n: u64) {
+        let n = u32::try_from(n).unwrap_or(u32::MAX);
+        self.sim.pending_steps = self.sim.pending_steps.saturating_sub(n);
     }
 
     pub(crate) fn take_pending_steps(&mut self) -> u32 {
