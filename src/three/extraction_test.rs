@@ -4,14 +4,15 @@
 
 use std::sync::Arc;
 
-use glam::{Quat, Vec2, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 
-use super::collect::{Frame3D, Instance3D};
+use super::collect::{FADED, Frame3D, Instance3D};
+use super::occlusion::OcclusionGrid;
 use super::retained::SERIAL;
-use super::skin::MeshSkin;
+use super::skin::{MeshSkin, SkinDraw};
 use super::{
-    Assets3D, Camera3D, Lighting, Material, Mesh, Model, ModelMaterial, ReceivesDecals, ShadowMesh, Skeleton,
-    SkinFrame, SkinOf, Transform3D,
+    Assets3D, Camera3D, Lighting, LodGroup, LodLevel, LodRenderer, Material, Mesh, Model, ModelMaterial, PointLight3D,
+    ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, SpotLight3D, TERRAIN_LODS, TerrainTile, Transform3D,
 };
 use crate::{Color, Entity, World};
 
@@ -27,6 +28,8 @@ struct Scene {
     lighting: Lighting,
     frame: Frame3D,
     models: Vec<Entity>,
+    /// The skinned models, posed for this frame.
+    skins: SkinFrame,
 }
 
 /// What a frame draws: per view (the camera, then each shadow view) and
@@ -91,13 +94,13 @@ impl Scene {
             },
             frame: Frame3D::default(),
             models,
+            skins: SkinFrame::default(),
         }
     }
 
     fn collect(&mut self) -> Drawn {
-        let skins = SkinFrame::default();
         self.frame
-            .collect(&mut self.world, &self.assets, &skins, &self.camera, &self.lighting);
+            .collect(&mut self.world, &self.assets, &self.skins, &self.camera, &self.lighting);
         drawn(&self.frame)
     }
 
@@ -105,10 +108,11 @@ impl Scene {
     /// other way (on all cores if this test runs on one, and the reverse).
     fn fresh(&mut self) -> Frame3D {
         let mut fresh = Frame3D::default();
-        let skins = SkinFrame::default();
+        // It hides models behind the same earlier depth.
+        fresh.occlusion = self.frame.occlusion.clone();
         let mine = SERIAL.get();
         SERIAL.set(mine.map(|serial| !serial));
-        fresh.collect(&mut self.world, &self.assets, &skins, &self.camera, &self.lighting);
+        fresh.collect(&mut self.world, &self.assets, &self.skins, &self.camera, &self.lighting);
         SERIAL.set(mine);
         fresh
     }
@@ -129,6 +133,14 @@ impl Scene {
             kept == drawn(&fresh),
             "{what}: not what a frame built from nothing draws"
         );
+        // Nor do the views around global illumination's probes.
+        assert_eq!(now.gi.is_some(), new.gi.is_some(), "{what}: probes");
+        if let (Some(now), Some(new)) = (&now.gi, &new.gi) {
+            assert!(
+                drawn(&now.capture) == drawn(&new.capture),
+                "{what}: not what the probes of a frame built from nothing see"
+            );
+        }
         now.visible
     }
 
@@ -776,6 +788,258 @@ fn what_is_kept_per_model_is_bounded_and_stops_growing() {
     }
 }
 
+/// Moves the camera along a path that comes close to the middle of the
+/// world and goes far from it.
+fn swoop(scene: &mut Scene, step: usize) {
+    let angle = step as f32 * 0.21;
+    let away = 6.0 + (1.0 + (step as f32 * 0.37).sin()) * 28.0;
+    scene.camera.position = Vec3::new(angle.cos() * away, 3.0 + away * 0.4, angle.sin() * away);
+    scene.camera.look_at(Vec3::new(0.0, 1.0, 0.0));
+}
+
+fn lod_groups_keep_up_with_the_camera_and_edits() {
+    let mut scene = Scene::new(300);
+    scene.camera.far = 400.0;
+    let group = |i: usize| {
+        LodGroup::new(
+            3.0,
+            vec![
+                LodLevel::new(0.3, vec![LodRenderer::new(mesh(i)), LodRenderer::new(mesh(i + 1))]).with_fade(0.6),
+                LodLevel::new(0.1, vec![LodRenderer::new(mesh(i + 2))]).with_fade(0.4),
+                LodLevel::new(0.02, vec![LodRenderer::new(mesh(i + 3))]),
+            ],
+        )
+    };
+    let groups: Vec<Entity> = (0..40)
+        .map(|i| {
+            let at = Vec3::new((i % 8) as f32 * 4.0 - 14.0, 1.5, (i / 8) as f32 * 5.0 - 10.0);
+            scene.world.spawn((Transform3D::at(at), group(i)))
+        })
+        .collect();
+    let (mut fading, mut whole) = (0, 0);
+    for step in 0..48 {
+        swoop(&mut scene, step);
+        match step {
+            10 => scene.world.get_mut::<Transform3D>(groups[3]).unwrap().position.y = 4.0,
+            14 => drop(scene.world.despawn(groups[5])),
+            18 => drop(scene.world.insert(groups[7], ReceivesDecals(0b11))),
+            22 => *scene.world.get_mut::<LodGroup>(groups[9]).unwrap() = group(2),
+            26 => scene.world.get_mut::<Transform3D>(groups[11]).unwrap().scale = Vec3::splat(2.5),
+            30 => drop(scene.world.remove::<LodGroup>(groups[13])),
+            34 => scene.lighting.shadows = false,
+            38 => scene.lighting.shadows = true,
+            _ => {}
+        }
+        scene.check(&format!("step {step}"));
+        let faded = scene.frame.runs.iter().any(|r| r.0 & FADED != 0);
+        fading += usize::from(faded);
+        whole += usize::from(!faded);
+    }
+    assert!(fading > 5 && whole > 0, "{fading} steps crossfaded, {whole} didn't");
+}
+
+fn terrain_tiles_keep_up_with_the_camera_and_edits() {
+    assert!(TERRAIN_LODS <= MESHES as usize);
+    let mut scene = Scene::new(200);
+    scene.camera.far = 400.0;
+    // Tiles big enough to see, finer meshes near the camera.
+    scene.assets.bounds = vec![(Vec3::ZERO, 6.0); MESHES as usize];
+    let tile = TerrainTile {
+        lods: std::array::from_fn(|level| Mesh { id: level as u32 }),
+        lod_distance: 12.0,
+    };
+    let tiles: Vec<Entity> = (0..25)
+        .map(|i| {
+            let at = Vec3::new((i % 5) as f32 * 10.0 - 20.0, 0.0, (i / 5) as f32 * 10.0 - 20.0);
+            scene.world.spawn((Transform3D::at(at), tile))
+        })
+        .collect();
+    let mut levels = std::collections::BTreeSet::new();
+    for step in 0..40 {
+        swoop(&mut scene, step);
+        match step {
+            8 => drop(scene.world.insert(tiles[12], ShadowMesh(None))),
+            12 => drop(scene.world.remove::<ShadowMesh>(tiles[12])),
+            16 => drop(scene.world.despawn(tiles[6])),
+            20 => scene.world.get_mut::<TerrainTile>(tiles[7]).unwrap().lod_distance = 40.0,
+            24 => scene.world.get_mut::<Transform3D>(tiles[8]).unwrap().position.y = -2.0,
+            28 => scene.assets.bounds[1] = (Vec3::ZERO, -1.0), // a level's mesh freed
+            32 => scene.assets.bounds[1] = (Vec3::ZERO, 6.0),
+            _ => {}
+        }
+        scene.check(&format!("step {step}"));
+        levels.extend(scene.frame.runs.iter().map(|r| r.0));
+    }
+    assert!(levels.len() >= 3, "the tiles went through their levels: {levels:?}");
+}
+
+fn skinned_models_keep_up_as_their_number_changes() {
+    let mut scene = Scene::new(400);
+    // Models with a material override: their mesh ids follow the skinned
+    // models', so they are numbered again whenever those change in number.
+    for &e in &scene.models[190..196] {
+        scene.world.insert(e, ModelMaterial(Material { id: 2 }));
+    }
+    let draw = |i: usize, y: f32| {
+        let matrix = Mat4::from_translation(Vec3::new(i as f32 * 2.0 - 6.0, y, 1.0));
+        SkinDraw {
+            mesh: i as u32 % MESHES,
+            instance: Instance3D {
+                model: matrix.to_cols_array_2d(),
+                color: [1.0; 4],
+            },
+            entity: 1 << 40 | i as u64,
+            matrix,
+            scale: 1.0,
+            // Every third one has nothing to draw this frame.
+            bounds: (Vec3::ZERO, if i % 3 == 2 { -1.0 } else { 1.0 }),
+            first: 0,
+            morph_first: 0,
+            morph_count: 0,
+        }
+    };
+    let plain = scene.check("no skinned model");
+    let mut most = 0;
+    for (step, n) in [3, 6, 6, 2, 5, 0, 4, 4, 7, 1].into_iter().enumerate() {
+        scene.skins.draws = (0..n).map(|i| draw(i, step as f32 * 0.2)).collect();
+        if step == 6 {
+            scene.camera.position.x += 3.0;
+        }
+        most = most.max(scene.check(&format!("step {step}: {n} skinned models")));
+    }
+    assert!(most > plain, "skinned models were drawn");
+}
+
+fn point_and_spot_light_shadows_keep_up_with_their_lights() {
+    let mut scene = Scene::new(900);
+    let shadowed = PointLight3D {
+        shadows: true,
+        range: 12.0,
+        ..Default::default()
+    };
+    let lamp = scene.world.spawn((Transform3D::at(Vec3::new(0.0, 3.0, 0.0)), shadowed));
+    let cone = SpotLight3D {
+        shadows: true,
+        range: 15.0,
+        ..Default::default()
+    };
+    let spot = scene
+        .world
+        .spawn((Transform3D::at(Vec3::new(6.0, 5.0, 2.0)).looking_at(Vec3::ZERO), cone));
+    scene.check("a lamp and a spot");
+    assert_eq!(
+        scene.frame.light_views, 7,
+        "six views around the lamp, one for the spot"
+    );
+    let in_light_views = |scene: &Scene| -> usize {
+        let views = &scene.frame.shadow_runs[super::collect::MAX_CASCADES..];
+        views.iter().flatten().map(|r| r.2 as usize).sum()
+    };
+    let lit = in_light_views(&scene);
+    assert!(lit > 0, "the lights' views draw casters");
+    scene.world.get_mut::<Transform3D>(lamp).unwrap().position = Vec3::new(-8.0, 2.0, 4.0);
+    scene.check("the lamp moved");
+    let e = scene.models[450];
+    scene.world.get_mut::<Transform3D>(e).unwrap().position = Vec3::new(-8.0, 0.5, 5.0);
+    scene.check("a model moved next to it");
+    scene.world.get_mut::<PointLight3D>(lamp).unwrap().shadows = false;
+    scene.check("the lamp casts none");
+    assert_eq!(scene.frame.light_views, 1);
+    assert!(in_light_views(&scene) < lit);
+    scene.world.despawn(spot);
+    scene.check("the spot is gone");
+    assert_eq!((scene.frame.light_views, in_light_views(&scene)), (0, 0));
+    scene.world.get_mut::<PointLight3D>(lamp).unwrap().shadows = true;
+    scene.check("the lamp casts again");
+    scene.lighting.light_shadow_views = 0;
+    scene.check("no light shadows allowed");
+    assert_eq!(scene.frame.light_views, 0);
+    scene.lighting.light_shadow_views = 12;
+    scene.camera.position.x -= 5.0;
+    scene.check("allowed again, from another place");
+    assert_eq!(scene.frame.light_views, 6);
+}
+
+fn models_hidden_behind_an_earlier_frames_depth_keep_up_with_it() {
+    let mut scene = Scene::new(900);
+    scene.camera.occlusion_culling = true;
+    let open = scene.check("nothing to hide behind");
+    // The depth of an earlier frame: something near covers the left half of
+    // the view, then the right half.
+    let wall = |scene: &Scene, left: bool| {
+        let depth = (0..64).map(|i| if (i % 8 < 4) == left { 0.05 } else { 1.0 }).collect();
+        OcclusionGrid::new(scene.camera.view_proj(), scene.camera.position, 8, 8, depth)
+    };
+    scene.frame.occlusion = Some(wall(&scene, true));
+    let behind_left = scene.check("the left half is hidden");
+    assert!(
+        behind_left < open && scene.frame.occluded > 0,
+        "{behind_left} of {open}"
+    );
+    let e = scene.models[450];
+    scene.world.get_mut::<Transform3D>(e).unwrap().position.y = 1.0;
+    assert_eq!(scene.check("a model moved"), behind_left);
+    scene.frame.occlusion = Some(wall(&scene, false));
+    assert!(scene.check("the right half is hidden") < open);
+    scene.camera.position.x += 4.0;
+    scene.frame.occlusion = Some(wall(&scene, false));
+    scene.check("from another place");
+    scene.frame.occlusion = None;
+    assert!(scene.check("no depth") > behind_left);
+    assert_eq!(scene.frame.occluded, 0);
+}
+
+fn a_target_cameras_view_keeps_up() {
+    // A target camera's frame: its own lens and viewport, no shadows and no
+    // probes of its own.
+    let mut scene = Scene::new(1500);
+    scene.lighting.shadows = false;
+    scene.camera.set_viewport(Vec2::new(256.0, 256.0));
+    scene.camera.fov_y = 0.6;
+    for step in 0..30 {
+        swoop(&mut scene, step);
+        let e = scene.models[step * 47 % scene.models.len()];
+        match step % 5 {
+            0 => scene.world.get_mut::<Transform3D>(e).unwrap().position.y += 1.0,
+            1 => scene.world.get_mut::<Model>(e).unwrap().mesh = mesh(step),
+            2 => {
+                scene.world.despawn(e);
+                scene.models.retain(|&m| m != e);
+            }
+            _ => {}
+        }
+        scene.check(&format!("step {step}"));
+        assert_eq!(scene.frame.drawn, scene.frame.visible, "no shadow casters");
+    }
+}
+
+fn the_views_around_the_probes_keep_up() {
+    let mut scene = Scene::new(1500);
+    scene.assets.gi_supported = true;
+    scene.lighting.gi.enabled = true;
+    scene.check("first");
+    let seen = |scene: &Scene| scene.frame.gi.as_ref().map_or(0, |gi| gi.capture.visible);
+    assert!(seen(&scene) > 0, "the probes' views see models");
+    for step in 0..24 {
+        // The probes' grid follows the camera.
+        swoop(&mut scene, step);
+        let e = scene.models[step * 61 % scene.models.len()];
+        match step % 4 {
+            0 => scene.world.get_mut::<Transform3D>(e).unwrap().position.y += 2.0,
+            1 => scene.world.get_mut::<Model>(e).unwrap().color = Color::rgb(0.3, 0.6, 0.9),
+            2 => {
+                scene.world.despawn(e);
+                scene.models.retain(|&m| m != e);
+            }
+            _ => {}
+        }
+        scene.check(&format!("step {step}"));
+    }
+    scene.lighting.gi.enabled = false;
+    scene.check("no probes");
+    assert!(scene.frame.gi.is_none());
+}
+
 /// Runs every test twice: with the models collected in one pass on this
 /// thread (as with one core, or in a browser), and compared on all cores.
 macro_rules! both_ways {
@@ -812,4 +1076,11 @@ both_ways!(
     what_is_kept_per_model_is_bounded_and_stops_growing,
     while_most_models_move_every_edit_is_still_followed,
     a_collection_can_change_between_one_core_and_several,
+    lod_groups_keep_up_with_the_camera_and_edits,
+    terrain_tiles_keep_up_with_the_camera_and_edits,
+    skinned_models_keep_up_as_their_number_changes,
+    point_and_spot_light_shadows_keep_up_with_their_lights,
+    models_hidden_behind_an_earlier_frames_depth_keep_up_with_it,
+    a_target_cameras_view_keeps_up,
+    the_views_around_the_probes_keep_up,
 );
