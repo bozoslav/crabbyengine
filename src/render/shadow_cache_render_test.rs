@@ -203,7 +203,7 @@ impl Rig {
 #[test]
 fn kept_shadow_views_draw_the_same_image_as_redrawing_them() {
     let Some(rig) = Rig::new() else {
-        eprintln!("no GPU: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter or device");
         return;
     };
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
@@ -360,7 +360,7 @@ fn kept_shadow_views_draw_the_same_image_as_redrawing_them() {
 #[test]
 fn views_with_shader_moved_vertices_are_always_drawn() {
     let Some(rig) = Rig::new() else {
-        eprintln!("no GPU: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter or device");
         return;
     };
     const WAVE: &str = "fn vertex(v: Vertex) -> Vertex { return v; }";
@@ -433,7 +433,7 @@ fn views_with_shader_moved_vertices_are_always_drawn() {
 #[test]
 fn a_changed_material_override_redraws_its_shadows() {
     let Some(rig) = Rig::new() else {
-        eprintln!("no GPU: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter or device");
         return;
     };
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
@@ -503,7 +503,7 @@ fn a_changed_material_override_redraws_its_shadows() {
 #[test]
 fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
     let Some(rig) = Rig::new() else {
-        eprintln!("no GPU: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter or device");
         return;
     };
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::splat(SIZE as f32));

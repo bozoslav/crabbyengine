@@ -397,7 +397,8 @@ impl Renderer {
                 required_features: forced_tier.map_or(required_features, |t| t.device_features(required_features)),
                 // The defaults ask for more than WebGL2 has; we need little.
                 required_limits: if let Some(tier) = forced_tier {
-                    tier.device_limits(wgpu::Limits {
+                    // The tier's limits, but a surface as large as the window.
+                    tier.window_limits(wgpu::Limits {
                         max_sampled_textures_per_shader_stage: adapter
                             .limits()
                             .max_sampled_textures_per_shader_stage
