@@ -10,9 +10,10 @@
 
 ### Changed
 - `Graphics::has_material`, `has_shader`, `has_compute`, `has_effect`,
-  `has_font`, `has_texture_array`, `is_mesh_live`, `free_mesh` and
-  `free_instance_batch` are deprecated in favor of `ctx.gfx.is_live` and
-  `ctx.gfx.free`; the flat `Ctx` versions now point there too.
+  `has_font`, `is_mesh_live`, `free_mesh` and `free_instance_batch` are
+  deprecated in favor of `ctx.gfx.is_live` and `ctx.gfx.free`; the flat
+  `Ctx` versions now point there too. `has_texture_array` stays: it also
+  checks the array's size and layer count.
 - A freed GPU buffer's id goes back to the pool only after the compute
   passes writing to it are removed (right away through `ctx.free`, at the
   next frame through `ctx.gfx.free`), so a stale pass never writes into the

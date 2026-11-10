@@ -208,9 +208,8 @@ impl Graphics {
     /// size checked too.
     #[doc(hidden)]
     #[must_use]
-    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
     pub fn has_texture_array(&self, array: TextureArray) -> bool {
-        self.is_live(array)
+        self.assets3d.arrays_live.contains(array.id) && self.assets3d.arrays.get(array.id as usize) == Some(&array)
     }
 
     /// Frees texture array `id` (see [`Ctx::free`](crate::Ctx::free)): materials reading it
@@ -261,7 +260,7 @@ impl Graphics {
     #[doc(hidden)]
     pub fn try_set_decal_textures(&mut self, array: Option<TextureArray>) -> Result<(), String> {
         if let Some(a) = array {
-            if !self.is_live(a) {
+            if !self.has_texture_array(a) {
                 return Err("decal textures: that texture array wasn't made by this context".into());
             }
             if !self.assets3d.array_data.get(a.id as usize).copied().unwrap_or(false) {

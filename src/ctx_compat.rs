@@ -433,10 +433,10 @@ impl Ctx {
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.is_live(..)`")]
+    #[deprecated(note = "use `ctx.gfx.has_texture_array`")]
     #[cfg(feature = "3d")]
     pub fn has_texture_array(&self, array: TextureArray) -> bool {
-        self.is_live(array)
+        self.gfx.has_texture_array(array)
     }
 
     #[doc(hidden)]

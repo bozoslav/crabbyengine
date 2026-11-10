@@ -104,8 +104,8 @@ material. The control endpoint's `perf.get` includes it as `assets`.
 The per-kind calls (`free_mesh`, `free_instance_batch`, `has_material`,
 `has_shader`, `has_font`, `is_mesh_live`, ...) still work and do the same as
 `free` and `is_live`, but are deprecated: use `ctx.gfx.free(h)` and
-`ctx.gfx.is_live(h)`. `gpu_buffer_len`, `instance_batch_len` and
-`is_render_target` stay: they answer more than whether a handle is live.
+`ctx.gfx.is_live(h)`. `gpu_buffer_len`, `instance_batch_len`,
+`has_texture_array` (which also checks the size) and `is_render_target` stay: they answer more than whether a handle is live.
 
 ## Not handles
 

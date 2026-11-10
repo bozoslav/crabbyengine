@@ -865,7 +865,7 @@ fn material_from_c(c: &ponko::Ctx, d: &CrabbyMaterialDesc) -> Result<MaterialDes
     }
     let map = |has: bool, t: CrabbyTexture| has.then(|| texture_from_c(t));
     let arrays = std::array::from_fn(|i| d.has_custom_arrays[i].then(|| array_from_c(d.custom_arrays[i])));
-    if arrays.iter().flatten().any(|a| !c.gfx.is_live(*a)) {
+    if arrays.iter().flatten().any(|a| !c.gfx.has_texture_array(*a)) {
         return Err(invalid("that texture array wasn't made by this game"));
     }
     let v = |i: usize| {
