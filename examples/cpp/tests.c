@@ -461,6 +461,58 @@ static void lod_helpers(void) {
     PonkoLodLevel level = {0.1f, 0, &r, 1, false, NULL, 0};
     CHECK(ponko_ctx_set_lod_group(NULL, 0, 1, (PonkoVec3){0, 0, 0}, &level, 1) == PONKO_INVALID_ARGUMENT);
 }
+static void streaming_setup(PonkoCtx* ctx, void* user) {
+    (void)user;
+    CHECK(ponko_ctx_set_deterministic_uploads(ctx, true) == PONKO_OK);
+    CHECK(ponko_ctx_set_upload_budget(ctx, true, 1 << 20) == PONKO_OK);
+    PonkoTexture t = {0};
+    bool ready = true;
+    CHECK(ponko_ctx_stream_texture(ctx, "crab.png", &t, &ready) == PONKO_OK && !ready);
+    uint32_t state = 0;
+    CHECK(ponko_ctx_asset_state(ctx, PONKO_RESIDENCY_TEXTURE, "crab.png", &state) == PONKO_OK);
+    CHECK(state == PONKO_ASSET_LOADING);
+    PonkoMesh m = {0};
+    CHECK(ponko_ctx_stream_mesh(ctx, "models/house.glb", &m, &ready) == PONKO_OK && !ready);
+    CHECK(ponko_ctx_finish_uploads(ctx) == PONKO_OK);
+    CHECK(ponko_ctx_stream_texture(ctx, "crab.png", &t, &ready) == PONKO_OK && ready && t.width > 0);
+    CHECK(ponko_ctx_asset_state(ctx, PONKO_RESIDENCY_TEXTURE, "crab.png", &state) == PONKO_OK);
+    CHECK(state == PONKO_ASSET_RESIDENT);
+    CHECK(ponko_ctx_stream_mesh(ctx, "models/house.glb", &m, &ready) == PONKO_OK && ready);
+    PonkoUploadStats uploads;
+    CHECK(ponko_ctx_upload_stats(ctx, &uploads) == PONKO_OK);
+    CHECK(uploads.has_budget && uploads.budget == 1 << 20 && uploads.pending == 0 && uploads.total_uploads >= 2);
+    /* Budgets: the mesh is pinned, so a zero budget can't evict it. */
+    PonkoMesh pinned = {0};
+    CHECK(ponko_ctx_resident_mesh(ctx, "models/house.glb", true, &pinned) == PONKO_OK && pinned.id == m.id);
+    CHECK(ponko_ctx_set_residency_budget(ctx, PONKO_RESIDENCY_MESH, true, 0) == PONKO_OK);
+    PonkoResidencyStats stats;
+    CHECK(ponko_ctx_residency(ctx, PONKO_RESIDENCY_MESH, &stats) == PONKO_OK);
+    CHECK(stats.has_budget && stats.resident == 1 && stats.pinned == 1 && stats.over_budget_bytes > 0);
+    bool resident = false;
+    CHECK(ponko_ctx_is_resident(ctx, PONKO_RESIDENCY_MESH, "models/house.glb", &resident) == PONKO_OK && resident);
+    CHECK(ponko_ctx_unpin_resident(ctx, PONKO_RESIDENCY_MESH, "models/house.glb") == PONKO_OK);
+    PonkoTexture crab = {0};
+    CHECK(ponko_ctx_resident_texture(ctx, "crab.png", false, &crab) == PONKO_OK && crab.id == t.id);
+    /* A missing file fails with a message. */
+    CHECK(ponko_ctx_stream_texture(ctx, "nope.png", &t, &ready) == PONKO_OK && !ready);
+    CHECK(ponko_ctx_finish_uploads(ctx) == PONKO_OK);
+    CHECK(ponko_ctx_asset_state(ctx, PONKO_RESIDENCY_TEXTURE, "nope.png", &state) == PONKO_OK);
+    CHECK(state == PONKO_ASSET_FAILED);
+    char message[256];
+    size_t len = 0;
+    CHECK(ponko_ctx_asset_error(ctx, PONKO_RESIDENCY_TEXTURE, "nope.png", message, sizeof message, &len) == PONKO_OK);
+    CHECK(len > 0 && strstr(message, "nope.png"));
+    CHECK(ponko_ctx_asset_state(ctx, 7, "nope.png", &state) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_resident_texture(ctx, "nope.png", false, &crab) == PONKO_INVALID_ARGUMENT);
+}
+
+static void asset_streaming(void) {
+    PonkoGame* game = ponko_game_new("streaming", 1, 1); CHECK(game);
+    PonkoWorld* w = NULL;
+    CHECK(ponko_game_run_headless(game, 0, streaming_setup, NULL, &w) == PONKO_OK);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+}
+
 static void steam_messages_validation(void) {
     PonkoNetMessages* endpoint = NULL;
     PonkoSteamLobby* lobby = NULL;
@@ -823,6 +875,7 @@ int main(void) {
     ribbons_and_decals();
     lod_helpers();
     streamed_worlds();
+    asset_streaming();
     profiling_c();
     animation_graphs();
     return 0;

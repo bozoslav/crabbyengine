@@ -222,6 +222,12 @@ pub(crate) struct Sources {
 }
 
 impl Sources {
+    /// Whether no source was added (only the default one is searched).
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+
     /// Adds `source` after the others.
     ///
     /// # Panics

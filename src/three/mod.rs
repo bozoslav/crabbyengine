@@ -44,6 +44,9 @@ pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
 mod quality;
 mod resident;
+mod streamed;
+pub(crate) use streamed::LoadedFile;
+pub use streamed::StreamedLod;
 mod skin;
 pub(crate) mod strips;
 pub use strips::{Line3D, Trail3D};
@@ -849,6 +852,9 @@ pub(crate) struct Assets3D {
     pub bounds: Vec<(Vec3, f32)>,
     /// Freed meshes' ids, for the next meshes made.
     pub free_meshes: Vec<u32>,
+    /// The id the next mesh made takes instead (a resident mesh reloaded
+    /// after eviction; see `three::resident`).
+    pub reuse_mesh_id: Option<u32>,
     /// Each mesh's estimated GPU bytes (`asset_inventory`), by id; 0 once freed.
     pub mesh_bytes: Vec<u64>,
     pub probes: probe::ProbeAssets,

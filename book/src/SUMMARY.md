@@ -26,6 +26,7 @@
 - [3D navigation meshes](navigation3d.md)
 - [Sound](audio.md)
 - [Handles: freeing what you made](handles.md)
+- [Streaming: memory budgets and loading without waiting](streaming.md)
 - [Data files: tune without restarting](data-files.md)
 - [Asset sources: assets that don't live in `assets/`](asset-sources.md)
 - [Scenes and prefabs](scenes.md)

@@ -1440,6 +1440,7 @@ impl Game {
             let tick_start = Instant::now();
             ctx.begin_frame(timing);
             ctx.reload_changed_assets();
+            ctx.pump_streaming();
             self.begin_timings(&mut ctx);
             ctx.set_in_sim(true);
             self.run_sim_tick(&mut ctx);

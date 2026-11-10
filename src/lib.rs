@@ -107,6 +107,7 @@ mod scope;
 mod sheet;
 mod spatial;
 mod stream;
+mod streaming;
 mod text;
 mod texture;
 #[cfg(feature = "3d")]
@@ -192,6 +193,7 @@ pub use steamworks;
 #[cfg(feature = "3d")]
 pub use stream::CellStreamer;
 pub use stream::Job;
+pub use streaming::{AssetState, DEFAULT_UPLOAD_BUDGET, StreamedAsset, UploadStats};
 /// Flex/grid/absolute layout types used by retained UI.
 /// ```
 /// use ponko::ui_layout::Style;
@@ -200,6 +202,8 @@ pub use stream::Job;
 pub use taffy as ui_layout;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
+#[cfg(feature = "3d")]
+pub use three::StreamedLod;
 #[cfg(feature = "3d")]
 pub use three::{
     AmbientOcclusion, AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer,
