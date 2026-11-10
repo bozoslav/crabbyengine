@@ -1,5 +1,24 @@
-//! Deterministic lockstep networking for 2–8 players: every peer runs the
-//! same simulation from the same inputs, so only inputs cross the network.
+//! Networking: three ways to keep players in step, behind one entry,
+//! [`ctx.net`](crate::Ctx::net) ([`Networking`]).
+//!
+//! | Pick | For | Start with | Example |
+//! |---|---|---|---|
+//! | **Lockstep** ([`Net`]) | Deterministic simulations with 2–8 players (strategy, fighting, co-op puzzles): every peer runs the same ticks from the same inputs, so only inputs cross the network | [`Game::lockstep`](crate::Game::lockstep), then `ctx.net.set_input` / `ctx.net.input` | [`examples/lockstep.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/lockstep.rs) |
+//! | **Messages** ([`NetMessages`]) | Everything else: your own packets on reliable and unreliable lanes between a host and its clients (chat, lobbies, events, your own replication) | [`Game::messages`](crate::Game::messages), then `ctx.net.messages` | [`examples/net_messages.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/net_messages.rs) |
+//! | **Snapshots** ([`NetSnapshots`], [`SnapshotStream`], [`Interest`], [`Authority`]) | Server-authoritative worlds on top of messages: the owner sends timestamped states, everyone else shows them a little in the past | `ctx.net.snapshots` and `ctx.net.interest` | [`examples/net_replication.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/net_replication.rs) |
+//!
+//! Lockstep and messages are independent and can run side by side: lockstep
+//! for the simulation, messages for a chat that must not hold ticks back.
+//! The engine drives what is there (see the table on [`Networking`]); a
+//! single-player game has an offline lockstep session and nothing else.
+//! Feature `steam` adds Steam relays and lobbies for both transports.
+//!
+//! Everything here is also exported from the crate root (`use ponko::*`).
+//!
+//! # Lockstep
+//!
+//! Every peer runs the same simulation from the same inputs, so only
+//! inputs cross the network.
 //!
 //! The host (player 0) relays inputs in a star. Tick `t` runs once every
 //! player's input for `t` is in; your own input is scheduled
@@ -36,12 +55,14 @@ pub use messages::{Lane, MAX_MESSAGE_BYTES, MessageEvent, MessageStats, NetMessa
 
 mod interest;
 mod sequence;
+mod service;
 mod snapshots;
 pub use interest::{
     Interest, InterestChange, InterestChangeKind, InterestConfig, InterestEntity, InterestEntry, InterestTier,
     InterestViewer, MAX_INTEREST_TIERS,
 };
 pub use sequence::{Authority, AuthorityCheck, LatestWins, UpdateStamp, seq_diff, seq_newer};
+pub use service::{NetSnapshots, Networking};
 pub use snapshots::{
     ClockSync, Interpolate, Pose, SnapshotBuffer, SnapshotConfig, SnapshotPush, SnapshotSample, SnapshotState,
     SnapshotStream,
@@ -158,9 +179,9 @@ pub struct NetStats {
     pub bytes_sent: u64,
 }
 
-/// A lockstep session: `ctx.net`. Start one with [`Net::host`],
-/// [`Net::join`] or [`Net::loopback`] and pass it to
-/// [`Game::lockstep`](crate::Game::lockstep). Without one, `ctx.net` is
+/// A lockstep session: `ctx.net.lockstep`, which `ctx.net` dereferences
+/// to. Start one with [`Net::host`], [`Net::join`] or [`Net::loopback`] and
+/// pass it to [`Game::lockstep`](crate::Game::lockstep). Without one, it is
 /// offline: one player whose input applies on the next tick, so the same
 /// game code runs alone and online.
 ///

@@ -185,10 +185,26 @@ Try it: `cargo run --example lockstep -- host 7777` in one terminal and
 `cargo run --example lockstep -- join 127.0.0.1:7777` in another.
 
 
+## Which transport
+
+Everything networking is behind `ctx.net` (and in the `ponko::net` module):
+
+| Pick | For | Start with |
+|---|---|---|
+| Lockstep (above) | Deterministic simulations with 2–8 players: only inputs cross the network | `Game::lockstep(net)`, then `ctx.net.set_input` and `ctx.net.input` (`ctx.net.lockstep`) |
+| [Messages](#application-messages-rust) | Everything else: your own packets on reliable and unreliable lanes | `Game::messages(endpoint)`, then `ctx.net.messages` |
+| [Snapshots](#replicating-state-over-messages) | Server-authoritative worlds on top of messages | `ctx.net.snapshots` and `ctx.net.interest` |
+
+Lockstep and messages are independent and can run side by side. A
+single-player game has an offline lockstep session and nothing else.
+
 ## Application messages (Rust)
 
-For client/server games with their own packet format, own a `NetMessages`
-endpoint and call `poll()` once per frame. This is independent of `ctx.net`:
+For client/server games with their own packet format, give the game a
+`NetMessages` endpoint with `Game::messages` (or set `ctx.net.messages`
+later, from a menu). The engine polls it once per frame before any system
+runs, also while the simulation is paused, so systems only read events and
+send. This is independent of lockstep:
 there is no simulation barrier and the engine does not synchronize worlds.
 A host accepts up to `max_clients` remote clients. Joining clients address
 `PeerId::HOST`; hosts use the identifiers from `MessageEvent::Connected`.
@@ -219,8 +235,18 @@ an unreliable fragmented message is lost if any fragment is missing.
 </div>
 </div>
 
+`main` hosts in one game and joins from another:
+
+```rust
+{{#include ../../examples/net_messages.rs:play}}
+```
+
 Run the self-contained UDP example with
 `cargo run --example net_messages --no-default-features`.
+If the engine's poll fails (a socket error, or events left unread),
+`ctx.net.message_error()` says why until a poll works again. An endpoint
+outside a game (a lobby server, a test) is polled by hand with `poll()`
+once per frame; the C and C++ endpoint is polled by hand too.
 `send(peer, lane, bytes)` copies the payload into a bounded channel queue;
 `send_serde` encodes JSON and `MessageEvent::decode::<T>()` decodes it.
 `send_to_all` targets connected peers and can partially succeed if a later
@@ -229,8 +255,9 @@ schema, authority and version negotiation. The [replication
 helpers](#replicating-state-over-messages) below cover the common pieces
 without dictating a format.
 
-Drain `events()` after each poll, then apply any sends after dropping the
-iterator (it borrows the endpoint). Events include connections, complete
+Drain `events()` every frame, then apply any sends after dropping the
+iterator (it borrows the endpoint); `next_event()` takes one at a time and
+lets you send in between. Events include connections, complete
 messages, and disconnections with diagnostic reasons. The default silence
 and connection timeout is ten seconds; configure it with `.timeout(duration)`.
 `disconnect(peer)` discards pending messages, sends three best-effort leave
@@ -360,6 +387,12 @@ rewrites, **without imposing a wire format**: they take decoded values and
 return decisions. You keep your own packet codec. None of them touches the
 network, so they're plain data structures that work (and test) without a
 session, in Rust and from C and C++.
+
+In a Rust game they have a home on `ctx.net`: `ctx.net.snapshots` keeps one
+`SnapshotStream<Pose>` per entity id with its duplicate filter (`accept`,
+`stream(id).push`, `sample(id, now)`, `remove`), and `ctx.net.interest`
+holds the `Interest` you update on your send tick. The engine drives
+neither: only the game knows when a packet arrived and who is looking.
 
 ### Showing remote things smoothly: snapshot interpolation
 

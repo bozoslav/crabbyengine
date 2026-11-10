@@ -257,6 +257,8 @@ pub struct Game {
     gravity3d: Option<crate::Vec3>,
     /// The lockstep session from `lockstep`, moved into `ctx.net` at start.
     net: Option<crate::net::Net>,
+    /// The message endpoint from `messages`, moved into `ctx.net` at start.
+    messages: Option<crate::net::NetMessages>,
     /// Open the control endpoint (also on with `PONKO_CONTROL=1`).
     control: bool,
     /// Reload asset and data files when they change (`PONKO_HOT_RELOAD` overrides).
@@ -573,6 +575,7 @@ impl Game {
             #[cfg(feature = "physics3d")]
             gravity3d: None,
             net: None,
+            messages: None,
             control: control::env_flag(control::ENV_CONTROL),
             hot_reload: cfg!(debug_assertions),
             inspector: cfg!(debug_assertions),
@@ -885,7 +888,7 @@ impl Game {
     /// [`Net::loopback`](crate::net::Net::loopback). Ticks then run only once
     /// every player's input for them is in, and the setup and simulation
     /// systems must be deterministic (same seed, no wall clock, no frame
-    /// systems changing the world). Without it, `ctx.net` is offline.
+    /// systems changing the world). Without it, `ctx.net.lockstep` is offline.
     ///
     /// ```
     /// use ponko::prelude::*;
@@ -906,6 +909,50 @@ impl Game {
     pub fn lockstep(mut self, net: crate::net::Net) -> Self {
         self.net = Some(net);
         self
+    }
+
+    /// Gives the game a byte-message endpoint: `net` from
+    /// [`NetMessages::host`](crate::NetMessages::host),
+    /// [`NetMessages::join`](crate::NetMessages::join) or
+    /// [`NetMessages::loopback`](crate::NetMessages::loopback). It becomes
+    /// [`ctx.net.messages`](crate::Networking::messages), and the engine
+    /// polls it once per frame before any system runs (once per tick in
+    /// headless runs), also while the simulation is paused. Systems send
+    /// and read its events; they never call `poll`. See
+    /// [`Networking`](crate::Networking) for a complete session.
+    ///
+    /// Independent of [`lockstep`](Self::lockstep): messages don't hold
+    /// ticks back and the worlds aren't compared.
+    ///
+    /// ```
+    /// use ponko::*;
+    ///
+    /// let host = NetMessages::loopback(2).remove(0);
+    /// let world = Game::new("t", 1, 1)
+    ///     .messages(host)
+    ///     .sim_system(|ctx: &mut Ctx| {
+    ///         let messages = ctx.net.messages.as_mut().expect("the endpoint");
+    ///         for event in messages.events() {
+    ///             println!("{event:?}");
+    ///         }
+    ///     })
+    ///     .run_headless(3, |_| {});
+    /// # let _ = world;
+    /// ```
+    pub fn messages(mut self, net: crate::NetMessages) -> Self {
+        self.messages = Some(net);
+        self
+    }
+
+    /// Moves the sessions from the builder into `ctx.net`, before setup.
+    fn start_networking(&mut self, ctx: &mut Ctx) {
+        if let Some(net) = self.net.take() {
+            ctx.net.lockstep = net;
+        }
+        if let Some(messages) = self.messages.take() {
+            ctx.net.messages = Some(messages);
+        }
+        ctx.net.lockstep.begin(ctx.seed);
     }
 
     /// Adds a per-frame system after automatic animation and before drawing.
@@ -1381,7 +1428,7 @@ impl Game {
 
     /// Constructs the context both loops run: the services from the game's
     /// configuration (seed, hot reload, spatial grid, physics worlds, the
-    /// lockstep session), before setup and before the control endpoint
+    /// lockstep session and message endpoint), before setup and before the control endpoint
     /// starts. `headless` is a run without a window or GPU.
     ///
     /// Window and headless runs differ only in what `ctx.gfx` and
@@ -1406,10 +1453,7 @@ impl Game {
         if let Some(gravity) = self.gravity3d {
             crate::physics3d::start(&mut ctx, gravity);
         }
-        if let Some(net) = self.net.take() {
-            ctx.net = net;
-        }
-        ctx.net.begin(ctx.seed);
+        self.start_networking(&mut ctx);
         ctx
     }
 
@@ -1524,12 +1568,13 @@ impl Game {
     /// a system: animators and particles end `Animate`, positional audio ends
     /// `Draw`. Commands are applied after every system.
     fn run_systems(&mut self, ctx: &mut Ctx, fixed_steps: u32) {
+        ctx.net.begin_frame();
         ctx.frame_begin_services();
         self.begin_timings(ctx);
         ctx.set_in_sim(true);
         for _ in 0..fixed_steps {
             // Lockstep: a tick waits for everyone's input; the frame goes on.
-            if !ctx.net.ready(ctx.time.sim_tick()) {
+            if !ctx.net.lockstep.ready(ctx.time.sim_tick()) {
                 break;
             }
             self.run_sim_tick(ctx);
@@ -1573,7 +1618,7 @@ impl Game {
         }
         ctx.set_sim_steps(1);
         ctx.scenario_end_tick();
-        ctx.net.end_tick(&ctx.world, tick);
+        ctx.net.lockstep.end_tick(&ctx.world, tick);
         ctx.advance_tick();
     }
 
@@ -1742,6 +1787,9 @@ impl Game {
         // Lists the systems before the first tick, for tools asking a paused game.
         self.begin_timings(&mut ctx);
         while ran < total && !ctx.quit_requested() {
+            // Messages are polled every pass: while paused, and while
+            // lockstep waits for inputs.
+            ctx.net.begin_frame();
             if let Some(control) = &control {
                 control.poll(&mut ctx);
                 if ctx.quit_requested() {
@@ -1753,8 +1801,8 @@ impl Game {
                     continue;
                 }
             }
-            if !ctx.net.ready(ctx.time.sim_tick()) {
-                if !ctx.net.wait() {
+            if !ctx.net.lockstep.ready(ctx.time.sim_tick()) {
+                if !ctx.net.lockstep.wait() {
                     break;
                 }
                 continue;

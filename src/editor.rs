@@ -323,7 +323,7 @@ mod tests {
         ed.set(&mut ctx, a, "Hp", json!(9.0)).unwrap(); // while playing
         ctx.world.spawn((Hp(1.0),));
         // A lockstep session: Stop would put the world back on this peer only.
-        let session = std::mem::replace(&mut ctx.net, crate::net::Net::loopback(2).remove(0));
+        let session = std::mem::replace(&mut ctx.net.lockstep, crate::net::Net::loopback(2).remove(0));
         drop(session);
         let err = ed.stop(&mut ctx).unwrap_err();
         assert!(err.contains("lockstep"), "{err}");
@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(ctx.world.len(), 2, "the world is unchanged");
         assert_eq!(ctx.world.get::<Hp>(a), Some(&Hp(9.0)));
         // The session ended: Stop works now.
-        ctx.net = crate::net::Net::default();
+        ctx.net.lockstep = crate::net::Net::default();
         ed.stop(&mut ctx).unwrap();
         assert!(!ed.playing() && ctx.time.is_paused());
         assert_eq!(ed.undo.len(), 2, "edits made while playing are dropped");

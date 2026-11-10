@@ -500,7 +500,7 @@ where
         let physics = &mut ctx.physics;
         #[cfg(feature = "physics3d")]
         let physics3d = &mut ctx.physics3d;
-        let net = &mut ctx.net;
+        let net = &mut ctx.net.lockstep;
         let access = &access;
         state.run(&mut ctx.world, |world| {
             let mut view = SystemView {
