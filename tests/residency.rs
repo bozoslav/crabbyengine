@@ -223,13 +223,14 @@ fn meshes_entities_show_are_kept() {
             ctx.resident_mesh(&other);
         }),
         Box::new(move |ctx| {
-            // Over budget, but all three are shown: only nothing else could go.
+            // Over budget, but all three are shown: the budget, enforced at
+            // the start of each frame, could only evict the fourth.
             for path in &kept {
                 assert!(ctx.is_resident(ResidencyKind::Mesh, path), "{path}");
             }
             let s = stats(ctx);
-            assert_eq!(s.evictions, 0, "the fourth was asked for last tick, so it is newest");
-            assert_eq!(s.over_budget_bytes(), 3 * b);
+            assert_eq!(s.evictions, 1, "only the fourth, which nothing shows, could go");
+            assert_eq!(s.over_budget_bytes(), 2 * b);
             // Despawned, they can go: the oldest first, down to the budget.
             let shown: Vec<Entity> = ctx
                 .world
@@ -242,7 +243,7 @@ fn meshes_entities_show_are_kept() {
             }
             ctx.set_residency_budget(ResidencyKind::Mesh, Some(b));
             let s = stats(ctx);
-            assert_eq!((s.evictions, s.resident), (3, 1));
+            assert_eq!((s.evictions, s.resident), (3, 1), "two more");
             assert!(!ctx.is_resident(ResidencyKind::Mesh, &kept[0]));
         }),
     ]);

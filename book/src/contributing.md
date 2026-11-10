@@ -13,6 +13,18 @@ In short:
   required from every contributor. Maintainers coordinate that coverage and
   own follow-ups. Preserve existing compatibility and describe behavior and tests.
 
+## Testing the C API
+
+Every function the C library exports (`extern "C" fn` in `crates/ponko_ffi/src`)
+needs a test that calls it, in `crates/ponko_ffi/tests/` or a native suite in
+`examples/cpp/`: a doctest that passes a null pointer proves argument checking,
+not that the function works. CI runs `python3 scripts/check-ffi-coverage.py`,
+which fails for an export no test calls. The only exceptions are listed, each
+with the reason it can't run on a machine without a window or a Steam client,
+in `scripts/ffi-coverage-allowlist.txt`. Test the function instead of adding to
+that list; the check also fails when a listed function gets a test, so the
+list only shrinks.
+
 ## Editing this book
 
 The book is plain Markdown in `book/src/`, built with

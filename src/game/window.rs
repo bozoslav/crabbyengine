@@ -204,6 +204,9 @@ where
             pads.poll(&mut self.ctx.input);
         }
         self.ctx.reload_changed_assets();
+        self.ctx.pump_streaming();
+        #[cfg(feature = "3d")]
+        self.ctx.apply_shader_checks();
         let systems_start = Instant::now();
         self.config.run_systems(&mut self.ctx, timing.fixed_steps);
         let systems_ms = systems_start.elapsed().as_secs_f32() * 1000.0;
@@ -293,8 +296,10 @@ where
         }
 
         if let Some(setup) = self.setup.take() {
+            self.ctx.set_in_setup(true);
             run_setups(std::mem::take(&mut self.config.setups), &mut self.ctx);
             let frame_fn = setup(&mut self.ctx).into_frame_fn();
+            self.ctx.set_in_setup(false);
             self.ctx.apply_commands();
             if let Some(f) = frame_fn {
                 let index = self.config.systems.partition_point(|s| s.stage <= Phase::Frame);

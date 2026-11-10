@@ -72,6 +72,25 @@ static void setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_lighting(ctx, &lit) == PONKO_OK && lit.has_equator && lit.equator_color.g == 1);
     light.has_equator = false;
     CHECK(ponko_ctx_set_lighting(ctx, &light) == PONKO_OK);
+    /* Shader status: what compiled, and where an error is in the game's WGSL. */
+    size_t shaders_before = 0;
+    CHECK(ponko_ctx_shader_status_count(ctx, &shaders_before) == PONKO_OK);
+    PonkoShader broken_shader;
+    CHECK(ponko_ctx_create_shader(ctx, "broken.wgsl", "// tint\nfn surface(s: Surface) -> Surface {\n    return 1.0;\n}", &broken_shader) == PONKO_INVALID_ARGUMENT);
+    size_t shaders = 0;
+    CHECK(ponko_ctx_shader_status_count(ctx, &shaders) == PONKO_OK && shaders == shaders_before + 1);
+    PonkoShaderStatus shader_status;
+    CHECK(ponko_ctx_shader_status(ctx, shaders - 1, &shader_status) == PONKO_OK);
+    CHECK(shader_status.kind == PONKO_SHADER_MATERIAL && shader_status.outcome == PONKO_SHADER_FAILED && !shader_status.ok);
+    CHECK(shader_status.line == 3 && shader_status.column == 12 && !shader_status.in_engine_code);
+    char shader_text[1024];
+    size_t shader_len = 0;
+    CHECK(ponko_ctx_shader_status_name(ctx, shaders - 1, shader_text, sizeof shader_text, &shader_len) == PONKO_OK);
+    CHECK(strcmp(shader_text, "broken.wgsl") == 0 && shader_len == 11);
+    CHECK(ponko_ctx_shader_status_text(ctx, shaders - 1, shader_text, sizeof shader_text, &shader_len) == PONKO_OK);
+    CHECK(strncmp(shader_text, "broken.wgsl:3:12: error: ", 25) == 0);
+    CHECK(ponko_ctx_shader_status_json(ctx, NULL, 0, &shader_len) == PONKO_OK && shader_len > 0);
+    CHECK(ponko_ctx_shader_status(ctx, shaders, &shader_status) == PONKO_INVALID_ARGUMENT);
     /* Global illumination: off by default, its settings checked when on. */
     CHECK(!light.gi_enabled && light.gi_spacing == 2 && light.gi_probes_per_frame == 4);
     light.gi_enabled = true;
@@ -461,6 +480,58 @@ static void lod_helpers(void) {
     PonkoLodLevel level = {0.1f, 0, &r, 1, false, NULL, 0};
     CHECK(ponko_ctx_set_lod_group(NULL, 0, 1, (PonkoVec3){0, 0, 0}, &level, 1) == PONKO_INVALID_ARGUMENT);
 }
+static void streaming_setup(PonkoCtx* ctx, void* user) {
+    (void)user;
+    CHECK(ponko_ctx_set_deterministic_uploads(ctx, true) == PONKO_OK);
+    CHECK(ponko_ctx_set_upload_budget(ctx, true, 1 << 20) == PONKO_OK);
+    PonkoTexture t = {0};
+    bool ready = true;
+    CHECK(ponko_ctx_stream_texture(ctx, "crab.png", &t, &ready) == PONKO_OK && !ready);
+    uint32_t state = 0;
+    CHECK(ponko_ctx_asset_state(ctx, PONKO_RESIDENCY_TEXTURE, "crab.png", &state) == PONKO_OK);
+    CHECK(state == PONKO_ASSET_LOADING);
+    PonkoMesh m = {0};
+    CHECK(ponko_ctx_stream_mesh(ctx, "models/house.glb", &m, &ready) == PONKO_OK && !ready);
+    CHECK(ponko_ctx_finish_uploads(ctx) == PONKO_OK);
+    CHECK(ponko_ctx_stream_texture(ctx, "crab.png", &t, &ready) == PONKO_OK && ready && t.width > 0);
+    CHECK(ponko_ctx_asset_state(ctx, PONKO_RESIDENCY_TEXTURE, "crab.png", &state) == PONKO_OK);
+    CHECK(state == PONKO_ASSET_RESIDENT);
+    CHECK(ponko_ctx_stream_mesh(ctx, "models/house.glb", &m, &ready) == PONKO_OK && ready);
+    PonkoUploadStats uploads;
+    CHECK(ponko_ctx_upload_stats(ctx, &uploads) == PONKO_OK);
+    CHECK(uploads.has_budget && uploads.budget == 1 << 20 && uploads.pending == 0 && uploads.total_uploads >= 2);
+    /* Budgets: the mesh is pinned, so a zero budget can't evict it. */
+    PonkoMesh pinned = {0};
+    CHECK(ponko_ctx_resident_mesh(ctx, "models/house.glb", true, &pinned) == PONKO_OK && pinned.id == m.id);
+    CHECK(ponko_ctx_set_residency_budget(ctx, PONKO_RESIDENCY_MESH, true, 0) == PONKO_OK);
+    PonkoResidencyStats stats;
+    CHECK(ponko_ctx_residency(ctx, PONKO_RESIDENCY_MESH, &stats) == PONKO_OK);
+    CHECK(stats.has_budget && stats.resident == 1 && stats.pinned == 1 && stats.over_budget_bytes > 0);
+    bool resident = false;
+    CHECK(ponko_ctx_is_resident(ctx, PONKO_RESIDENCY_MESH, "models/house.glb", &resident) == PONKO_OK && resident);
+    CHECK(ponko_ctx_unpin_resident(ctx, PONKO_RESIDENCY_MESH, "models/house.glb") == PONKO_OK);
+    PonkoTexture crab = {0};
+    CHECK(ponko_ctx_resident_texture(ctx, "crab.png", false, &crab) == PONKO_OK && crab.id == t.id);
+    /* A missing file fails with a message. */
+    CHECK(ponko_ctx_stream_texture(ctx, "nope.png", &t, &ready) == PONKO_OK && !ready);
+    CHECK(ponko_ctx_finish_uploads(ctx) == PONKO_OK);
+    CHECK(ponko_ctx_asset_state(ctx, PONKO_RESIDENCY_TEXTURE, "nope.png", &state) == PONKO_OK);
+    CHECK(state == PONKO_ASSET_FAILED);
+    char message[256];
+    size_t len = 0;
+    CHECK(ponko_ctx_asset_error(ctx, PONKO_RESIDENCY_TEXTURE, "nope.png", message, sizeof message, &len) == PONKO_OK);
+    CHECK(len > 0 && strstr(message, "nope.png"));
+    CHECK(ponko_ctx_asset_state(ctx, 7, "nope.png", &state) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_resident_texture(ctx, "nope.png", false, &crab) == PONKO_INVALID_ARGUMENT);
+}
+
+static void asset_streaming(void) {
+    PonkoGame* game = ponko_game_new("streaming", 1, 1); CHECK(game);
+    PonkoWorld* w = NULL;
+    CHECK(ponko_game_run_headless(game, 0, streaming_setup, NULL, &w) == PONKO_OK);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+}
+
 static void steam_messages_validation(void) {
     PonkoNetMessages* endpoint = NULL;
     PonkoSteamLobby* lobby = NULL;
@@ -702,6 +773,117 @@ static void declared_access(void) {
     CHECK(ponko_world_free(w) == PONKO_OK);
 }
 
+/* A two-joint skin with one clip, "rise": the arm goes up 2 over 1 second. */
+static const char RISE_GLTF[] =
+    "{\"asset\": {\"version\": \"2.0\"}, \"scene\": 0, \"scenes\": [{\"nodes\": [0]}],"
+    "\"nodes\": [{\"name\": \"root\", \"children\": [1]}, {\"name\": \"arm\", \"mesh\": 0}],"
+    "\"meshes\": [{\"primitives\": [{\"attributes\": {\"POSITION\": 2}}]}],"
+    "\"skins\": [{\"joints\": [0, 1]}],"
+    "\"animations\": [{\"name\": \"rise\", \"samplers\": [{\"input\": 0, \"output\": 1}],"
+    "\"channels\": [{\"sampler\": 0, \"target\": {\"node\": 1, \"path\": \"translation\"}}]}],"
+    "\"buffers\": [{\"byteLength\": 68, \"uri\": \"data:application/octet-stream;base64,"
+    "AAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAA=\"}],"
+    "\"bufferViews\": [{\"buffer\": 0, \"byteLength\": 8}, {\"buffer\": 0, \"byteOffset\": 8, \"byteLength\": 24},"
+    "{\"buffer\": 0, \"byteOffset\": 32, \"byteLength\": 36}],"
+    "\"accessors\": [{\"bufferView\": 0, \"componentType\": 5126, \"count\": 2, \"type\": \"SCALAR\", \"min\": [0], \"max\": [1]},"
+    "{\"bufferView\": 1, \"componentType\": 5126, \"count\": 2, \"type\": \"VEC3\"},"
+    "{\"bufferView\": 2, \"componentType\": 5126, \"count\": 3, \"type\": \"VEC3\", \"min\": [0, 0, 0], \"max\": [1, 1, 0]}]}";
+
+static const char* temp_dir(void) {
+    const char* dir = getenv("TMPDIR");
+    if (!dir) dir = getenv("TEMP");
+    if (!dir) dir = getenv("TMP");
+    return dir ? dir : "/tmp";
+}
+
+typedef struct { char path[1024]; } AnimatorRun;
+
+/* A graph with a float parameter, a resting state and a "rise" state with an
+   event half way, then an animator on a skeleton, run with manual updates. */
+static void animator_setup(PonkoCtx* ctx, void* user) {
+    const AnimatorRun* run = user;
+    PonkoClip* rise = NULL;
+    CHECK(ponko_ctx_load_clip(ctx, run->path, "rise", &rise) == PONKO_OK && rise);
+    CHECK(fabsf(ponko_clip_duration(rise) - 1.0f) < 1e-5f);
+    PonkoClip* missing = NULL;
+    CHECK(ponko_ctx_load_clip(ctx, run->path, "no such clip", &missing) != PONKO_OK && !missing);
+
+    PonkoAnimationGraphBuilder* b = ponko_animation_graph_builder_new();
+    size_t speed = 99, still = 99, up = 99, go = 99;
+    CHECK(ponko_animation_graph_add_float(b, 0.0f, &speed) == PONKO_OK && speed == 0);
+    PonkoMotion* motion = NULL;
+    CHECK(ponko_motion_clip(rise, &motion) == PONKO_OK);
+    CHECK(ponko_animation_graph_add_state(b, motion, 0.0f, -1, true, &still) == PONKO_OK && still == 0);
+    CHECK(ponko_motion_clip(rise, &motion) == PONKO_OK);
+    CHECK(ponko_animation_graph_add_state(b, motion, 1.0f, -1, false, &up) == PONKO_OK && up == 1);
+    CHECK(ponko_animation_graph_add_event(b, up, 0.5f, "half") == PONKO_OK);
+    CHECK(ponko_animation_graph_add_event(b, 9, 0.5f, "nowhere") == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_animation_graph_add_transition(b, (int64_t)still, up, -1.0f, 0.0f, 0.0f, &go) == PONKO_OK);
+    CHECK(ponko_animation_graph_add_condition(b, go, PONKO_CONDITION_GREATER, speed, 0.5f) == PONKO_OK);
+    PonkoAnimationGraph* graph = NULL;
+    CHECK(ponko_animation_graph_build(b, still, &graph) == PONKO_OK && graph);
+    /* A graph without states does not build; the builder is used up either way. */
+    PonkoAnimationGraphBuilder* empty = ponko_animation_graph_builder_new();
+    PonkoAnimationGraph* none = NULL;
+    CHECK(ponko_animation_graph_build(empty, 3, &none) != PONKO_OK && !none);
+
+    PonkoWorld* world = ponko_ctx_world(ctx);
+    uint32_t transform_id;
+    CHECK(ponko_transform3d_component(world, &transform_id) == PONKO_OK);
+    PonkoTransform3D at = ponko_transform3d_at((PonkoVec3){0, 0, 0});
+    PonkoValue part = {transform_id, &at, sizeof at};
+    uint64_t e;
+    CHECK(ponko_spawn(world, &part, 1, &e) == PONKO_OK);
+    CHECK(ponko_ctx_set_animator(ctx, e, graph) != PONKO_OK); /* no skeleton yet */
+    CHECK(ponko_ctx_load_skeleton(ctx, e, run->path) == PONKO_OK);
+    CHECK(ponko_ctx_set_animator(ctx, e, graph) == PONKO_OK);
+    CHECK(ponko_ctx_animator_set_manual(ctx, e, true) == PONKO_OK);
+
+    size_t state = 99; float time = -1;
+    CHECK(ponko_ctx_animator_update(ctx, e, 0.1f) == PONKO_OK);
+    CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && state == still);
+    CHECK(ponko_ctx_animator_set_float(ctx, e, speed, 1.0f) == PONKO_OK);
+    /* A wrong kind or index, or bad values, are invalid arguments. */
+    CHECK(ponko_ctx_animator_set_bool(ctx, e, speed, true) == PONKO_INVALID_ARGUMENT); /* it is a float */
+    CHECK(ponko_ctx_animator_set_float(ctx, e, 9, 1.0f) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_animator_set_float(ctx, e, speed, NAN) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_animator_set_trigger(ctx, e, speed, true) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_animator_update(ctx, e, 0.0f) == PONKO_OK); /* takes the transition */
+    CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && state == up);
+    CHECK(ponko_ctx_animator_update(ctx, e, 0.75f) == PONKO_OK);
+    CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && fabsf(time - 0.75f) < 1e-4f);
+    PonkoTransform3D arm;
+    CHECK(ponko_ctx_joint_pose(ctx, e, 1, &arm) == PONKO_OK && fabsf(arm.position.y - 1.5f) < 1e-4f);
+
+    char name[64]; bool found = false;
+    CHECK(ponko_ctx_animator_next_event(ctx, e, name, sizeof name, &found) == PONKO_OK && found);
+    CHECK(strcmp(name, "half") == 0);
+    CHECK(ponko_ctx_animator_next_event(ctx, e, name, sizeof name, &found) == PONKO_OK && !found);
+    CHECK(ponko_ctx_animator_crossfade(ctx, e, still, 0.0f, 0.0f) == PONKO_OK);
+    CHECK(ponko_ctx_animator_update(ctx, e, 0.0f) == PONKO_OK);
+    CHECK(ponko_ctx_animator_state(ctx, e, &state, &time) == PONKO_OK && state == still);
+    CHECK(ponko_ctx_animator_crossfade(ctx, e, 7, 0.0f, 0.0f) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_animator_crossfade(ctx, e, still, -1.0f, 0.0f) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_animator_crossfade(ctx, e, still, 0.0f, NAN) == PONKO_INVALID_ARGUMENT);
+
+    ponko_animation_graph_free(graph);
+    ponko_clip_free(rise);
+}
+
+static void animation_graphs(void) {
+    AnimatorRun run;
+    snprintf(run.path, sizeof run.path, "%s/ponko-c-animator.gltf", temp_dir());
+    FILE* file = fopen(run.path, "wb");
+    CHECK(file);
+    CHECK(fputs(RISE_GLTF, file) >= 0);
+    CHECK(fclose(file) == 0);
+    PonkoGame* game = ponko_game_new("animator", 1, 1);
+    PonkoWorld* world = NULL;
+    CHECK(ponko_game_run_headless(game, 0, animator_setup, &run, &world) == PONKO_OK);
+    CHECK(ponko_world_free(world) == PONKO_OK);
+    remove(run.path);
+}
+
 int main(void) {
     declared_access();
     steam_messages_validation();
@@ -774,6 +956,8 @@ int main(void) {
     ribbons_and_decals();
     lod_helpers();
     streamed_worlds();
+    asset_streaming();
     profiling_c();
+    animation_graphs();
     return 0;
 }

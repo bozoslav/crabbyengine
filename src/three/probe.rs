@@ -189,7 +189,8 @@ pub(crate) struct ProbeUniform {
 }
 
 impl Ctx {
-    /// Load an HDR/EXR latitude-longitude image as a probe's baked content.
+    /// Load an HDR/EXR latitude-longitude image, from the [added asset
+    /// sources](Ctx::add_asset_source) or `assets/`, as a probe's baked content.
     /// Pixels are linear radiance, with +Y at the top and +X at the center.
     /// The file must have a 2:1 aspect ratio. Filtering runs next rendered frame.
     /// ```no_run
@@ -199,10 +200,11 @@ impl Ctx {
     /// # Ok(()) }
     /// ```
     pub fn load_reflection_probe(&mut self, entity: Entity, name: &str) -> Result<(), String> {
-        let path = crate::assets::resolve(name)?;
-        let bytes = crate::assets::read(&path).map_err(|e| e.to_string())?;
+        let found = self.asset_sources.find(name)?;
+        let origin = found.origin.clone();
+        let bytes = found.into_bytes()?;
         let image = image::load_from_memory(&bytes)
-            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("{} is not a valid image: {e}", origin.describe(name)))?
             .into_rgb32f();
         let (width, height) = image.dimensions();
         if width != height.saturating_mul(2) || height == 0 {

@@ -38,6 +38,10 @@ pub(super) fn unavailable(ctx: &Ctx, method: &str) -> Option<String> {
             Some("headless games have no window to capture; launch the game with a window".into())
         }
         "perf.trace" if ctx.headless => Some("headless games have no frames to trace".into()),
+        "input.scenario.load" if !ctx.input_injection_allowed() => Some(
+            "input injection is off: start the game with PONKO_INPUT_INJECTION=1 or call Game::input_injection(true)"
+                .into(),
+        ),
         // Asks for no lines: errors only when output isn't captured.
         "logs.get" => crate::logs::get(None, 0).err(),
         _ => None,

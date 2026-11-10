@@ -75,6 +75,87 @@ unsafe extern "C" fn setup(ctx: *mut CrabbyCtx, user: *mut c_void) {
             crabby_ctx_create_instance_batch(ctx, ids.mesh, bad.as_ptr(), 1, options, &mut batch),
             CRABBY_INVALID_ARGUMENT
         );
+        let levels = [
+            CrabbyInstanceLevel {
+                mesh: ids.mesh,
+                min_distance: 0.0,
+                max_distance: 10.0,
+                camera: true,
+                shadows: false,
+            },
+            CrabbyInstanceLevel {
+                mesh: ids.mesh,
+                min_distance: 10.0,
+                max_distance: f32::INFINITY,
+                camera: false,
+                shadows: true,
+            },
+        ];
+        let colors = [WHITE];
+        assert_eq!(
+            crabby_ctx_create_instance_batch_levels(
+                ctx,
+                levels.as_ptr(),
+                2,
+                matrices.as_ptr(),
+                1,
+                colors.as_ptr(),
+                1,
+                options,
+                &mut batch
+            ),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_ctx_update_instance_batch_colors(ctx, batch, matrices.as_ptr(), 1, null(), 0),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_ctx_update_instance_batch_colors(ctx, batch, matrices.as_ptr(), 1, colors.as_ptr(), 1),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_ctx_update_instance_batch_colors(ctx, batch, matrices.as_ptr(), 1, colors.as_ptr(), 2),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_update_instance_batch_colors(ctx, batch, matrices.as_ptr(), 1, null(), 1),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_update_instance_batch_colors(ctx, batch, bad.as_ptr(), 1, null(), 0),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(crabby_ctx_free_instance_batch(ctx, batch), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_update_instance_batch_colors(ctx, batch, null(), 0, null(), 0),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_create_instance_batch_levels(ctx, null(), 0, null(), 0, null(), 0, options, &mut batch),
+            CRABBY_INVALID_ARGUMENT
+        );
+        let mut invalid_levels = levels;
+        invalid_levels[0].max_distance = 0.0;
+        assert_eq!(
+            crabby_ctx_create_instance_batch_levels(
+                ctx,
+                invalid_levels.as_ptr(),
+                2,
+                null(),
+                0,
+                null(),
+                0,
+                options,
+                &mut batch
+            ),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_ctx_create_instance_batch_levels(ctx, levels.as_ptr(), 2, null(), 0, null(), 0, options, &mut batch),
+            CRABBY_OK
+        );
+        assert_eq!(crabby_ctx_free_instance_batch(ctx, batch), CRABBY_OK);
         let mut b = CrabbyGpuBuffer::default();
         assert_eq!(
             crabby_ctx_create_gpu_buffer(ctx, 2, std::ptr::null(), 0, &mut b),

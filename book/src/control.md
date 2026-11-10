@@ -92,6 +92,9 @@ headless game waits for requests and runs only the ticks you step.
 | `sim.pause` / `sim.resume` | | |
 | `sim.step` | `ticks?` (1) | ticks queued |
 | `sim.speed` | `speed` | |
+| `input.scenario.load` | `scenario`, `bind_connection?`, `keep_input_when_done?`, `max_ticks?`, `queue_ticks?` | starts a tick-indexed [input scenario](actions.md#input-scenarios) on the next tick, replacing a running one; refused unless the game allows input injection (`Game::input_injection(true)` or `PONKO_INPUT_INJECTION=1`). The keys it holds are released when it ends unless `keep_input_when_done`. With `bind_connection`, it is cancelled when this connection closes. `max_ticks` and an empty scenario are refused before anything running is touched; `queue_ticks` (paused games) queues the scenario's own ticks as steps. Returns `{report, bound_to_connection}` |
+| `input.scenario.status` | | the latest scenario's report (`status`, `ticks_run`, `checks_passed`, `released`, `still_held`, and for a failed check its `step`, `tick`, `expected` and `actual`), or `null` |
+| `input.scenario.cancel` | `reason?` | ends the running scenario, or releases what a finished one kept held, and releases the input; returns `{cancelled, report}`. A failed check or a cancel takes back only the steps the scenario queued itself (`queue_ticks`), not ticks queued with `sim.step` |
 | `systems.timings` | | each system's last and average ms |
 | `ecs.diagnostics` | `with?`, `limit?` (100) | archetypes, component storage and the schedule (see [ECS diagnostics](agents.md#ecs-diagnostics)); with `with`, also `matching` |
 | `events.list` | | reflected [event](events.md) types and how many are kept now |

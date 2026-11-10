@@ -151,7 +151,8 @@ impl Ctx {
         Ok(array)
     }
 
-    /// Loads images from `assets/` (PNG, JPEG, ...) into a
+    /// Loads images (PNG, JPEG, ...) from the [added asset
+    /// sources](Ctx::add_asset_source) or `assets/` into a
     /// [`TextureArray`], one layer each, in order. They must all be the
     /// same size. Each call makes a new array.
     ///
@@ -176,8 +177,12 @@ impl Ctx {
     pub fn try_load_texture_array(&mut self, paths: &[&str], kind: TextureKind) -> Result<TextureArray, String> {
         let mut images = Vec::with_capacity(paths.len());
         for path in paths {
-            let file = assets::resolve(path)?;
-            images.push(assets::load_image_at(&file, path)?);
+            let found = self.asset_sources.find(path)?;
+            let origin = found.origin.clone();
+            let bytes = found.into_bytes()?;
+            let image = assets::decode_image(&bytes)
+                .map_err(|e| format!("{} is not a valid image: {e}", origin.describe(path)))?;
+            images.push(image);
         }
         let Some(first) = images.first() else {
             return Err("load_texture_array: no files given".into());

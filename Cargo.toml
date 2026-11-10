@@ -154,6 +154,10 @@ required-features = ["3d"]
 name = "target_effect"
 required-features = ["3d"]
 
+[[example]]
+name = "web_smoke_3d"
+required-features = ["3d"]
+
 [workspace]
 members = [".", "crates/ponko_ecs", "crates/ponko_bench", "crates/ponko_mcp", "crates/ponko_ffi", "crates/ponko_unity"]
 
