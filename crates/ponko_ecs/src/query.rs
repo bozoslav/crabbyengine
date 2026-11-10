@@ -7,6 +7,7 @@ use crate::bundle::Component;
 use crate::change::{self, Clock, RowFilter, Tick};
 use crate::entity::Entity;
 use crate::storage::{Archetype, ComponentId};
+use crate::view::SharedFilters;
 use crate::world::World;
 
 /// What a query fetches per entity: `&T`, `&mut T`, `Option<&T>`,
@@ -313,7 +314,7 @@ impl Filters {
 
     /// Adds a term to the `Or` clause being built: the terms after the last
     /// closed clause.
-    fn add_or_term(&mut self, id: ComponentId, has: bool) {
+    pub(crate) fn add_or_term(&mut self, id: ComponentId, has: bool) {
         let n = self.n_terms as usize;
         assert!(
             n < MAX_OR_TERMS,
@@ -397,8 +398,24 @@ impl Filters {
         (!rows.is_empty()).then_some(rows)
     }
 
+    /// How many `Or` terms were added so far: where the clause being
+    /// built starts, for [`truncate_terms`](Self::truncate_terms).
+    pub(crate) fn or_terms(&self) -> u8 {
+        self.n_terms
+    }
+
+    /// Drops the `Or` terms from `start` on: the clause being built holds
+    /// for every entity, so it filters nothing.
+    pub(crate) fn truncate_terms(&mut self, start: u8) {
+        let keep = 1u16.checked_shl(u32::from(start)).map_or(u16::MAX, |bit| bit - 1);
+        self.any_has &= keep;
+        self.any_added &= keep;
+        self.any_changed &= keep;
+        self.n_terms = start;
+    }
+
     /// Closes the `Or` clause being built.
-    fn close_or(&mut self) {
+    pub(crate) fn close_or(&mut self) {
         assert!(
             (self.n_any as usize) < MAX_OR,
             "at most {MAX_OR} `Or` filters per query"
@@ -480,6 +497,11 @@ impl<'a> Iterator for Archetypes<'a> {
 pub trait QueryFilter {
     #[doc(hidden)]
     fn add(world: &mut World, filters: &mut Filters);
+
+    /// Adds the filter for a [`ViewQuery`](crate::ViewQuery): from a
+    /// shared world, checked against the view's declaration.
+    #[doc(hidden)]
+    fn add_shared(cx: &mut SharedFilters<'_>);
 }
 
 /// A term of an [`Or`] filter: [`With<T>`], [`Without<T>`],
@@ -487,12 +509,18 @@ pub trait QueryFilter {
 pub trait OrTerm {
     #[doc(hidden)]
     fn add_term(world: &mut World, filters: &mut Filters);
+
+    #[doc(hidden)]
+    fn add_shared_term(cx: &mut SharedFilters<'_>);
 }
 
 /// The terms of an [`Or`] filter: a tuple of 1 to 8 [`OrTerm`]s.
 pub trait OrTerms {
     #[doc(hidden)]
     fn add_terms(world: &mut World, filters: &mut Filters);
+
+    #[doc(hidden)]
+    fn add_shared_terms(cx: &mut SharedFilters<'_>);
 }
 
 /// Filter: the entity has component `T` (it isn't fetched).
@@ -524,11 +552,17 @@ impl<T: Component> QueryFilter for With<T> {
     fn add(world: &mut World, filters: &mut Filters) {
         filters.add_with(world.register::<T>());
     }
+    fn add_shared(cx: &mut SharedFilters<'_>) {
+        cx.with(cx.world.component_id::<T>());
+    }
 }
 
 impl<T: Component> QueryFilter for Without<T> {
     fn add(world: &mut World, filters: &mut Filters) {
         filters.add_without(world.register::<T>());
+    }
+    fn add_shared(cx: &mut SharedFilters<'_>) {
+        cx.without(cx.world.component_id::<T>());
     }
 }
 
@@ -537,11 +571,19 @@ impl<T: OrTerms> QueryFilter for Or<T> {
         T::add_terms(world, filters);
         filters.close_or();
     }
+    fn add_shared(cx: &mut SharedFilters<'_>) {
+        let start = cx.begin_or();
+        T::add_shared_terms(cx);
+        cx.end_or(start);
+    }
 }
 
 impl<T: Component> OrTerm for With<T> {
     fn add_term(world: &mut World, filters: &mut Filters) {
         filters.add_or_term(world.register::<T>(), true);
+    }
+    fn add_shared_term(cx: &mut SharedFilters<'_>) {
+        cx.or_with(cx.world.component_id::<T>());
     }
 }
 
@@ -549,11 +591,17 @@ impl<T: Component> OrTerm for Without<T> {
     fn add_term(world: &mut World, filters: &mut Filters) {
         filters.add_or_term(world.register::<T>(), false);
     }
+    fn add_shared_term(cx: &mut SharedFilters<'_>) {
+        cx.or_without(cx.world.component_id::<T>());
+    }
 }
 
 impl<T: OrTerms> OrTerm for Or<T> {
     fn add_term(world: &mut World, filters: &mut Filters) {
         T::add_terms(world, filters);
+    }
+    fn add_shared_term(cx: &mut SharedFilters<'_>) {
+        T::add_shared_terms(cx);
     }
 }
 
@@ -563,10 +611,16 @@ macro_rules! filter_tuple {
             fn add(world: &mut World, filters: &mut Filters) {
                 $($t::add(world, filters);)*
             }
+            fn add_shared(cx: &mut SharedFilters<'_>) {
+                $($t::add_shared(cx);)*
+            }
         }
         impl<$($t: OrTerm),*> OrTerms for ($($t,)*) {
             fn add_terms(world: &mut World, filters: &mut Filters) {
                 $($t::add_term(world, filters);)*
+            }
+            fn add_shared_terms(cx: &mut SharedFilters<'_>) {
+                $($t::add_shared_term(cx);)*
             }
         }
     };

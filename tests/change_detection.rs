@@ -154,6 +154,102 @@ fn a_view_system_writes_are_changes_for_the_other_systems() {
     assert_eq!(lines(&world), ["0 [10, 20, 30, 101]", "1 [102]", "2 [103]"]);
 }
 
+/// The `Health` values a view is shown as changed, sorted, logged with
+/// `label` and the tick.
+fn view_logs_changes(sys: &mut SystemView, label: &str) {
+    let mut seen: Vec<i32> = sys
+        .world
+        .query::<&Health>()
+        .filter::<Changed<Health>>()
+        .iter()
+        .map(|h| h.0)
+        .collect();
+    seen.sort();
+    let tick = sys.sim_tick();
+    sys.world
+        .resource_mut::<Log>()
+        .0
+        .push(format!("{label} {tick} {seen:?}"));
+}
+
+#[test]
+fn every_view_system_sees_each_change_once_before_or_after_the_writer() {
+    let access = || {
+        SystemAccess::new()
+            .read::<Health>()
+            .write_resource::<Log>()
+            .read_service(Service::Time)
+    };
+    let world = Game::new("changes", 1, 1)
+        .add_view(Phase::AfterPhysics, access(), |sys: &mut SystemView| {
+            view_logs_changes(sys, "before");
+        })
+        .sim_system(hurt_one)
+        .add_view(Phase::AfterPhysics, access(), |sys: &mut SystemView| {
+            view_logs_changes(sys, "after");
+        })
+        .run_headless(5, setup);
+    // The same as `Ctx` systems see (every_system_sees_each_change_once_...).
+    assert_eq!(
+        lines(&world),
+        [
+            "before 0 [10, 20, 30]",
+            "after 0 [11, 20, 30]",
+            "before 1 [11]",
+            "after 1 [21]",
+            "before 2 [21]",
+            "after 2 [31]",
+            "before 3 [31]",
+            "after 3 []",
+            "before 4 []",
+            "after 4 []",
+        ]
+    );
+}
+
+#[test]
+fn every_view_system_is_shown_each_removal_once() {
+    let access = || {
+        SystemAccess::new()
+            .read::<Health>()
+            .write_resource::<Log>()
+            .read_service(Service::Time)
+    };
+    fn log_removed(sys: &mut SystemView, label: &str) {
+        let n = sys.world.removed::<Health>().len();
+        let tick = sys.sim_tick();
+        sys.world.resource_mut::<Log>().0.push(format!("{label} {tick} {n}"));
+    }
+    let world = Game::new("changes", 1, 1)
+        .add_view(Phase::AfterPhysics, access(), |sys: &mut SystemView| {
+            log_removed(sys, "before");
+        })
+        .sim_system(|ctx: &mut Ctx| {
+            if let Some(e) = ctx.world.query::<Entity>().with::<Health>().iter().next() {
+                ctx.world.despawn(e);
+            }
+        })
+        .add_view(Phase::AfterPhysics, access(), |sys: &mut SystemView| {
+            log_removed(sys, "after");
+        })
+        .run_headless(4, setup);
+    assert_eq!(
+        lines(&world),
+        [
+            "before 0 0",
+            "after 0 1",
+            "before 1 1",
+            "after 1 1",
+            "before 2 1",
+            "after 2 1",
+            "before 3 1",
+            "after 3 0",
+        ]
+    );
+    // View systems hold removals back like `Ctx` systems, and let them go.
+    assert!(world.removed_since::<Health>(Tick::default()).is_empty());
+}
+
 #[test]
 fn a_mutable_query_in_one_system_is_a_change_for_the_others() {
     let world = Game::new("changes", 1, 1)

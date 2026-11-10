@@ -209,7 +209,7 @@ impl Graphics {
     pub fn try_create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Result<Material, String> {
         desc.check()?;
         let arrays = [Some(desc.layers), desc.normals, Some(desc.weights)];
-        if arrays.into_iter().flatten().any(|a| !self.is_live(a)) {
+        if arrays.into_iter().flatten().any(|a| !self.has_texture_array(a)) {
             return Err("that texture array wasn't made by this game".into());
         }
         let shader = match self.assets3d.terrain_shader {

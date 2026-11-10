@@ -18,9 +18,14 @@
 //!
 //! Writes through a view count for [change detection](crate::World::track_changes)
 //! like any others: a query that fetches `&mut T` and [`WorldView::get_mut`]
-//! stamp what they borrow. A view query has no [`Added`](crate::Added) or
-//! [`Changed`](crate::Changed) filters; code that needs them queries the
-//! world itself.
+//! stamp what they borrow. A view query takes the same typed filters as a
+//! world query ([`ViewQuery::filter`]): [`Added<T>`](crate::Added) and
+//! [`Changed<T>`](crate::Changed) need declared access to `T` (they read the
+//! stamps its writers leave), and [`WorldView::removed`] lists removals.
+//! A view can't start tracking a component (that reallocates its columns),
+//! so track it beforehand with [`World::track_changes`] (in a game: in
+//! setup, or from a `&mut Ctx` system); a change filter on an untracked
+//! component panics.
 //!
 //! ```
 //! use ponko_ecs::*;
@@ -45,9 +50,9 @@ use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::bundle::Component;
-use crate::change::{self, Clock};
+use crate::change::{self, Clock, Tick};
 use crate::entity::Entity;
-use crate::query::{Archetypes, Filters, QueryData, QueryIter, check_aliasing};
+use crate::query::{Archetypes, Filters, QueryData, QueryFilter, QueryIter, check_aliasing};
 use crate::storage::ComponentId;
 use crate::world::World;
 
@@ -408,27 +413,134 @@ pub struct WorldView<'w> {
     lent: &'w mut [Lent],
 }
 
-impl<'w> WorldView<'w> {
+/// Panics unless `decl` allows `write` (or reading) component `id`.
+#[track_caller]
+fn check_declared(world: &World, label: &str, decl: &[(ComponentId, bool)], id: ComponentId, write: bool) {
+    if !decl.iter().any(|&(c, w)| c == id && (w || !write)) {
+        let verb = if write { "write" } else { "read" };
+        panic!(
+            "{label} doesn't declare that it may {verb} component `{}`; add it to its declared access",
+            world.component_info(id).name()
+        );
+    }
+}
+
+#[cold]
+#[track_caller]
+fn undeclared<T>(label: &str, what: &str, write: bool) -> ! {
+    let verb = if write { "write" } else { "read" };
+    panic!(
+        "{label} doesn't declare that it may {verb} {what} `{}`; add it to its declared access",
+        std::any::type_name::<T>()
+    );
+}
+
+/// Builds a [`ViewQuery`]'s filters from a shared world: nothing is
+/// registered or starts being tracked, and change filters are checked
+/// against the view's declaration.
+///
+/// Public but not exported, like [`Filters`]: it seals the filter traits.
+#[doc(hidden)]
+pub struct SharedFilters<'a> {
+    pub(crate) world: &'a World,
+    label: &'static str,
+    decl: &'a [(ComponentId, bool)],
+    filters: Filters,
+    /// A filter can never hold: a `with` component no entity ever had.
+    empty: bool,
+    /// The `Or` clause being built holds for every entity (a `without`
+    /// term names a component no entity ever had).
+    always: bool,
+}
+
+impl SharedFilters<'_> {
+    pub(crate) fn with(&mut self, id: Option<ComponentId>) {
+        match id {
+            Some(id) => self.filters.add_with(id),
+            None => self.empty = true,
+        }
+    }
+
+    pub(crate) fn without(&mut self, id: Option<ComponentId>) {
+        if let Some(id) = id {
+            self.filters.add_without(id);
+        }
+    }
+
+    /// `T`'s id for an `Added`/`Changed` filter named `filter`: declared
+    /// (read is enough) and already tracked.
     #[track_caller]
-    fn check(&self, id: ComponentId, write: bool) {
-        if !self.ids.iter().any(|&(c, w)| c == id && (w || !write)) {
-            let verb = if write { "write" } else { "read" };
+    fn tracked<T: Component>(&self, filter: &str) -> ComponentId {
+        let Some(id) = self.world.component_id::<T>() else {
+            undeclared::<T>(self.label, "component", false)
+        };
+        check_declared(self.world, self.label, self.decl, id, false);
+        if !self.world.component_info(id).tracks_changes() {
+            let name = std::any::type_name::<T>();
             panic!(
-                "{} doesn't declare that it may {verb} component `{}`; add it to its declared access",
-                self.label,
-                self.world.component_info(id).name()
+                "{}: `{filter}<{name}>` needs `{name}`'s changes tracked, and a view can't start tracking; \
+                 call `world.track_changes::<{name}>()` before (in a game: in setup or a `&mut Ctx` system)",
+                self.label
             );
+        }
+        id
+    }
+
+    #[track_caller]
+    pub(crate) fn tick<T: Component>(&mut self, filter: &str, added: bool) {
+        let id = self.tracked::<T>(filter);
+        self.filters.add_tick(id, added);
+    }
+
+    /// Starts an `Or` clause; pass the result to [`end_or`](Self::end_or).
+    pub(crate) fn begin_or(&mut self) -> (u8, bool) {
+        let outer = self.always;
+        self.always = false;
+        (self.filters.or_terms(), outer)
+    }
+
+    pub(crate) fn or_with(&mut self, id: Option<ComponentId>) {
+        // A component no entity ever had: the term never holds.
+        if let Some(id) = id {
+            self.filters.add_or_term(id, true);
+        }
+    }
+
+    pub(crate) fn or_without(&mut self, id: Option<ComponentId>) {
+        match id {
+            Some(id) => self.filters.add_or_term(id, false),
+            None => self.always = true,
         }
     }
 
     #[track_caller]
+    pub(crate) fn or_tick<T: Component>(&mut self, filter: &str, added: bool) {
+        let id = self.tracked::<T>(filter);
+        self.filters.add_or_tick(id, added);
+    }
+
+    pub(crate) fn end_or(&mut self, (start, outer): (u8, bool)) {
+        if self.always {
+            self.filters.truncate_terms(start);
+        } else if self.filters.or_terms() == start {
+            // Every term named a component no entity ever had.
+            self.empty = true;
+        } else {
+            self.filters.close_or();
+        }
+        self.always = outer;
+    }
+}
+
+impl<'w> WorldView<'w> {
+    #[track_caller]
+    fn check(&self, id: ComponentId, write: bool) {
+        check_declared(self.world, self.label, self.ids, id, write);
+    }
+
+    #[track_caller]
     fn undeclared<T>(&self, what: &str, write: bool) -> ! {
-        let verb = if write { "write" } else { "read" };
-        panic!(
-            "{} doesn't declare that it may {verb} {what} `{}`; add it to its declared access",
-            self.label,
-            std::any::type_name::<T>()
-        );
+        undeclared::<T>(self.label, what, write)
     }
 
     /// The declared id of `T`, checked for `write`.
@@ -460,11 +572,47 @@ impl<'w> WorldView<'w> {
         Q::access(&ids, &mut |id, write, _| self.check(id, write));
         ViewQuery {
             world: self.world,
+            label: self.label,
+            decl: self.ids,
             ids,
             filters: Filters::default(),
             empty: false,
+            since: None,
             _borrow: PhantomData,
         }
+    }
+
+    /// The entities that lost component `T` (declared read or write)
+    /// since the world's [`changes_since`](World::changes_since), oldest
+    /// first: [`World::removed`] through the view. In a game, that is since
+    /// this system last ran.
+    ///
+    /// # Panics
+    /// If `T` is undeclared or isn't tracked.
+    #[track_caller]
+    #[must_use]
+    pub fn removed<T: Component>(&self) -> &'w [Entity] {
+        self.removed_since::<T>(self.world.changes_since())
+    }
+
+    /// [`removed`](Self::removed) after a tick the caller kept.
+    ///
+    /// # Panics
+    /// If `T` is undeclared or isn't tracked.
+    #[track_caller]
+    #[must_use]
+    pub fn removed_since<T: Component>(&self, since: Tick) -> &'w [Entity] {
+        let world: &'w World = self.world;
+        let _ = self.id_of::<T>(false);
+        world.removed_since::<T>(since)
+    }
+
+    /// The world's current change tick (see [`World::change_tick`]): keep
+    /// it to pass to [`ViewQuery::since`] or
+    /// [`removed_since`](Self::removed_since) next time.
+    #[must_use]
+    pub fn change_tick(&self) -> Tick {
+        self.world.change_tick()
     }
 
     /// Component `T` of `e` (declared read or write), or `None` if `e` is
@@ -596,14 +744,22 @@ impl<'w> WorldView<'w> {
 
 /// A query from a [`WorldView`]: [`for_each`](Self::for_each),
 /// [`iter`](Self::iter), [`count`](Self::count) and [`get`](Self::get), with
-/// [`with`](Self::with) and [`without`](Self::without) filters.
+/// [`with`](Self::with), [`without`](Self::without) and typed
+/// [`filter`](Self::filter)s, [`Added`](crate::Added) and
+/// [`Changed`](crate::Changed) included.
 #[must_use = "a query does nothing until iterated"]
 pub struct ViewQuery<'v, Q: QueryData> {
     world: &'v World,
+    label: &'static str,
+    /// The view's declared components (with `write`), for change filters.
+    decl: &'v [(ComponentId, bool)],
     ids: Q::Ids,
     filters: Filters,
-    /// A `with` filter names a component no entity ever had.
+    /// A filter can never hold: it names a component no entity ever had.
     empty: bool,
+    /// What `Added`/`Changed` filters compare against, if not the world's
+    /// [`changes_since`](World::changes_since).
+    since: Option<Tick>,
     /// Borrows the view mutably: one query at a time, like `World::query`.
     _borrow: PhantomData<&'v mut ()>,
 }
@@ -626,6 +782,65 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         self
     }
 
+    /// Only entities that pass the typed filter `F`, as
+    /// [`Query::filter`](crate::Query::filter): [`With`](crate::With),
+    /// [`Without`](crate::Without), [`Or`](crate::Or),
+    /// [`Added`](crate::Added), [`Changed`](crate::Changed), or a tuple of
+    /// them that must all hold.
+    ///
+    /// `With`, `Without` and `Or` need no declaration. `Added<T>` and
+    /// `Changed<T>` read the stamps that writers of `T` leave, so they need
+    /// `T` declared (read is enough), and `T` must already be tracked: a
+    /// view can't start tracking it. They report what changed since the
+    /// world's [`changes_since`](World::changes_since) (in a game: since
+    /// this system last ran) unless [`since`](Self::since) says otherwise.
+    ///
+    /// ```
+    /// use ponko_ecs::*;
+    /// struct Health(i32);
+    ///
+    /// let mut world = World::new();
+    /// world.track_changes::<Health>();
+    /// world.spawn((Health(10),));
+    /// let seen = world.advance_change_tick();
+    /// let hurt = world.spawn((Health(10),));
+    /// world.get_mut::<Health>(hurt).unwrap().0 = 5;
+    /// world.set_changes_since(seen);
+    ///
+    /// let mut state = ViewState::new(ViewAccess::new().read::<Health>());
+    /// let changed = state.run(&mut world, |mut view| {
+    ///     view.query::<Entity>().filter::<Changed<Health>>().iter().collect::<Vec<_>>()
+    /// });
+    /// assert_eq!(changed, [hurt]);
+    /// ```
+    ///
+    /// # Panics
+    /// If `Added<T>`/`Changed<T>` names an undeclared or untracked `T`, and
+    /// on the same limits as [`Query::filter`](crate::Query::filter).
+    #[track_caller]
+    pub fn filter<F: QueryFilter>(mut self) -> Self {
+        let mut cx = SharedFilters {
+            world: self.world,
+            label: self.label,
+            decl: self.decl,
+            filters: self.filters,
+            empty: self.empty,
+            always: false,
+        };
+        F::add_shared(&mut cx);
+        self.filters = cx.filters;
+        self.empty = cx.empty;
+        self
+    }
+
+    /// Makes [`Added`](crate::Added) and [`Changed`](crate::Changed)
+    /// filters report what happened after `tick` (see
+    /// [`Query::since`](crate::Query::since)).
+    pub fn since(mut self, tick: Tick) -> Self {
+        self.since = Some(tick);
+        self
+    }
+
     fn archetypes(&self) -> Archetypes<'v> {
         Archetypes {
             all: if self.empty { &[] } else { &self.world.archetypes },
@@ -637,16 +852,20 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
     /// The window of this query's change stamps: writes are stamped with
     /// the world's current tick.
     fn clock(&self) -> Clock {
-        Clock::new(self.world.change_tick(), self.world.changes_since())
+        Clock::new(
+            self.world.change_tick(),
+            self.since.unwrap_or(self.world.changes_since()),
+        )
     }
 
     /// Runs `f` for every matching entity. As in [`World::query`], every
     /// entity visited counts as changed for the tracked components `Q`
-    /// fetches mutably.
+    /// fetches mutably (only the rows a change filter lets through).
     #[inline]
     pub fn for_each(&mut self, mut f: impl FnMut(Q::Item<'_>)) {
         let filters = self.filters;
         let tracking = self.world.tracks_changes();
+        let clock = self.clock();
         for arch in self.archetypes() {
             let len = arch.len();
             if len == 0 || !filters.matches(arch) {
@@ -655,16 +874,32 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
             let Some(state) = Q::state(arch, &self.ids) else {
                 continue;
             };
-            if tracking && arch.tracked() {
-                // A view query has no `Added`/`Changed` filters, so this
-                // stamps every row of the columns `Q` may write: columns
-                // this view declared, which no other view touches.
-                change::visit::<Q>(arch, &self.ids, &filters, self.clock());
-            }
-            for row in 0..len {
-                // SAFETY: `row` is in bounds; the view checked that `Q` only
-                // touches declared components, with declared mutability.
-                f(unsafe { Q::fetch(state, row) });
+            // Stamps only go to the columns `Q` may write: columns this
+            // view declared written, which no other view touches. Change
+            // filters read the stamps of declared components, which no
+            // other view writes.
+            let mut runs = if tracking && arch.tracked() {
+                change::visit::<Q>(arch, &self.ids, &filters, clock)
+            } else {
+                None
+            };
+            let (mut start, mut end) = (0, len);
+            loop {
+                if let Some(runs) = &mut runs {
+                    match runs.next::<Q>(&self.ids) {
+                        Some(run) => (start, end) = run,
+                        None => break,
+                    }
+                }
+                for row in start..end {
+                    // SAFETY: `row` is in bounds; the view checked that `Q`
+                    // only touches declared components, with declared
+                    // mutability.
+                    f(unsafe { Q::fetch(state, row) });
+                }
+                if runs.is_none() {
+                    break;
+                }
             }
         }
     }
@@ -685,12 +920,20 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         }
     }
 
-    /// Number of matching entities.
+    /// Number of matching entities. Doesn't count as a change to anything.
     pub fn count(&mut self) -> usize {
         let filters = self.filters;
+        let tracking = self.world.tracks_changes();
+        let clock = self.clock();
         self.archetypes()
             .filter(|a| !a.is_empty() && filters.matches(a) && Q::state(a, &self.ids).is_some())
-            .map(|a| a.len())
+            .map(|a| {
+                if tracking && a.tracked() {
+                    change::count(a, &filters, clock)
+                } else {
+                    a.len()
+                }
+            })
             .sum()
     }
 
@@ -705,8 +948,8 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
             return None;
         }
         let state = Q::state(arch, &self.ids)?;
-        if arch.tracked() {
-            change::visit_row::<Q>(arch, &self.ids, &self.filters, self.clock(), loc.row as usize);
+        if arch.tracked() && !change::visit_row::<Q>(arch, &self.ids, &self.filters, self.clock(), loc.row as usize) {
+            return None;
         }
         // SAFETY: the row is the live entity's; access was checked.
         Some(unsafe { Q::fetch(state, loc.row as usize) })
