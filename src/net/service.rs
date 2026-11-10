@@ -243,7 +243,7 @@ impl From<Net> for Networking {
 /// The wire format stays yours.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::{net::{NetSnapshots, Pose, UpdateStamp}, prelude::*};
 /// let mut snapshots = NetSnapshots::default();
 /// // From a decoded packet: entity 7, its stamp, the sender's clock, yours.
 /// for n in 0u16..10 {
@@ -272,7 +272,7 @@ impl NetSnapshots {
     /// and packets that arrive late.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::{net::{NetSnapshots, Pose, UpdateStamp}, prelude::*};
     /// let mut snapshots = NetSnapshots::default();
     /// assert!(snapshots.accept(1, UpdateStamp { epoch: 0, seq: 5 }));
     /// assert!(!snapshots.accept(1, UpdateStamp { epoch: 0, seq: 5 }));
@@ -285,7 +285,7 @@ impl NetSnapshots {
     /// into it with [`SnapshotStream::push`].
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::{net::{NetSnapshots, Pose, UpdateStamp}, prelude::*};
     /// let mut snapshots = NetSnapshots::default();
     /// snapshots.stream(1).push(0.0, 0.0, Pose::default());
     /// assert_eq!(snapshots.len(), 1);
@@ -297,7 +297,7 @@ impl NetSnapshots {
     /// The stream of `id`, if it has one.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::{net::{NetSnapshots, Pose, UpdateStamp}, prelude::*};
     /// assert!(NetSnapshots::default().get(1).is_none());
     /// ```
     #[must_use]
@@ -309,7 +309,7 @@ impl NetSnapshots {
     /// `None` if nothing arrived for it yet.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::{net::{NetSnapshots, Pose, UpdateStamp}, prelude::*};
     /// let mut snapshots = NetSnapshots::default();
     /// snapshots.stream(1).push(0.0, 0.0, Pose::at(vec3(2.0, 0.0, 0.0)));
     /// assert_eq!(snapshots.sample(1, 1.0).unwrap().value.position.x, 2.0);
@@ -322,7 +322,7 @@ impl NetSnapshots {
     /// Forgets `id`: its stream and its newest stamp. True if it had a stream.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::{net::{NetSnapshots, Pose, UpdateStamp}, prelude::*};
     /// let mut snapshots = NetSnapshots::default();
     /// snapshots.stream(1);
     /// assert!(snapshots.remove(1) && !snapshots.remove(1));
@@ -335,7 +335,7 @@ impl NetSnapshots {
     /// Forgets every entity (leaving a session).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::{net::{NetSnapshots, Pose, UpdateStamp}, prelude::*};
     /// let mut snapshots = NetSnapshots::default();
     /// snapshots.stream(1);
     /// snapshots.clear();
@@ -349,7 +349,7 @@ impl NetSnapshots {
     /// The ids that have a stream, in no particular order.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::{net::{NetSnapshots, Pose, UpdateStamp}, prelude::*};
     /// let mut snapshots = NetSnapshots::default();
     /// snapshots.stream(4);
     /// assert_eq!(snapshots.ids().collect::<Vec<_>>(), [4]);
@@ -361,7 +361,7 @@ impl NetSnapshots {
     /// How many entities have a stream.
     ///
     /// ```
-    /// assert_eq!(ponko::NetSnapshots::default().len(), 0);
+    /// assert_eq!(ponko::net::NetSnapshots::default().len(), 0);
     /// ```
     #[must_use]
     pub fn len(&self) -> usize {
@@ -371,7 +371,7 @@ impl NetSnapshots {
     /// Whether no entity has a stream.
     ///
     /// ```
-    /// assert!(ponko::NetSnapshots::default().is_empty());
+    /// assert!(ponko::net::NetSnapshots::default().is_empty());
     /// ```
     #[must_use]
     pub fn is_empty(&self) -> bool {
