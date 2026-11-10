@@ -93,7 +93,7 @@ can't pass as WebGPU. A 2D fixture, a 3D fixture (built with `--features 3d`:
 a glTF model fetched and parsed in the browser, with a sun and shadows) and
 the complete-game reference `coin_dash` ([A complete game,
 packaged](packaging.md#the-web-build)) are built and checked there. CI runs
-WebGL2 in all three browsers in the merge queue; WebGPU is tried too, and a
+WebGL2 in all three browsers on `main`; WebGPU is tried too, and a
 browser that can't show a WebGPU canvas is reported as unsupported, with the
 reason, never as a pass. Each run leaves a report, a trace and a screenshot.
 See its

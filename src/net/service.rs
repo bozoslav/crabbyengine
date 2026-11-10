@@ -31,7 +31,8 @@ use super::{
 /// `&ctx.net` passes where a `&Net` is expected.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::net::*;
+/// use ponko::prelude::*;
 /// use std::time::Duration;
 ///
 /// // Two games in one process; over a network it's NetMessages::host / join.
@@ -110,7 +111,8 @@ impl Networking {
     /// [`NetMessages::events`] every frame. The next poll that works clears it.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::net::*;
+    /// # use ponko::prelude::*;
     /// let world = Game::new("t", 1, 1).run_headless(1, |ctx| {
     ///     assert!(ctx.net.message_error().is_none());
     /// });
@@ -127,7 +129,8 @@ impl Networking {
     /// here, so `ctx.net.set_input(..)` is `ctx.net.lockstep.set_input(..)`.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::net::*;
+    /// # use ponko::prelude::*;
     /// let world = Game::new("t", 1, 1).run_headless(1, |ctx| {
     ///     // Reading and writing in one call works, as it does on `Net`.
     ///     ctx.net.set_input(&(ctx.net.player(), ctx.net.players()));
