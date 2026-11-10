@@ -2388,7 +2388,25 @@ static std::size_t report_shader_errors(ponko::ctx& ctx) {
 }
 // ANCHOR_END: shader_errors
 
+// ANCHOR: declared_access
+struct Speed { float value; };
+static void move_forward(ponko::ctx& ctx) {
+    const float dt = ctx.dt();
+    ctx.world().each([&](Pos& p, const Speed& s) { p.y += s.value * dt; });
+}
+
+static void declared_access_guide() {
+    auto world = ponko::game("declared", 320, 240)
+        .add(ponko::phase::after_physics,
+             ponko::access().write<Pos>().read<Speed>().read_service(ponko::service::time),
+             move_forward, "move_forward")
+        .run_headless(2, [](ponko::ctx& ctx) { ctx.world().spawn(Pos{0}, Speed{60}); });
+    if (world.size() != 1) { std::fprintf(stderr, "declared access guide failed\n"); std::abort(); }
+}
+// ANCHOR_END: declared_access
+
 int main() {
+    declared_access_guide();
     steering_stays_within_budget();
     navigation_guide();
     ponko::game("shop guide", 900, 700).run_headless(0, shop_guide);

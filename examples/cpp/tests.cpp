@@ -2090,7 +2090,50 @@ static void shader_files() {
     for (auto& f : {surface, effect, compute}) std::filesystem::remove(f);
 }
 
+static void declared_access() {
+    // A system declares what it reads and writes; debug builds of the
+    // library stop the game if it uses anything else (tests/system_access.rs).
+    struct Score { int value; };
+    auto mover = ponko::access().write<Pos>().read<Vel>().read_service(ponko::service::time);
+    auto scorer = ponko::access().write_resource<Score>().read_events<Died>();
+    auto killer = ponko::access().read<Hp>().send_events<Died>().commands();
+    CHECK(mover.conflicts_before(scorer) == 0);
+    // The scorer would see the killer's events and applied commands.
+    CHECK(killer.conflicts_before(scorer) == 2);
+    CHECK(scorer.conflicts_before(killer) == 0);
+    CHECK(scorer.conflicts_before(killer, false) == 2);
+    ponko::access copy = killer;
+    CHECK(copy.conflicts_before(scorer) == 2);
+    copy = mover;
+    CHECK(copy.conflicts_before(mover) == 1);
+    int scored = 0;
+    auto g = ponko::game("t", 1, 1);
+    g.add(ponko::phase::after_physics, mover, [](ponko::ctx& ctx) {
+         ctx.world().each([](Pos& p, const Vel& v) { p.x += v.x; });
+     }, "mover")
+     .add(ponko::phase::after_physics, killer, [](ponko::ctx& ctx) {
+         ctx.world().each([&](ponko::entity e, const Hp& hp) {
+             if (hp.value <= 0) { ctx.send(Died{e, ctx.sim_tick()}); ctx.despawn_later(e); }
+         });
+     }, "killer")
+     .add(ponko::phase::after_physics, scorer, [&](ponko::ctx& ctx) {
+         scored += static_cast<int>(ctx.read<Died>().size());
+     }, "scorer");
+    const std::string report = g.access_report();
+    CHECK(report.find("mover + killer: could run together") == std::string::npos);
+    CHECK(report.find("mover + killer: no conflict, but a `Ctx` system stays sequential") != std::string::npos);
+    CHECK(report.find("killer + scorer: conflict on events") != std::string::npos);
+    auto w = g.run_headless(2, [](ponko::ctx& ctx) {
+        ctx.world().set_resource(Score{0});
+        ctx.world().spawn(Pos{0, 0}, Vel{1, 0});
+        ctx.world().spawn(Hp{0});
+    });
+    CHECK(scored == 1);
+    CHECK(w.size() == 1);
+}
+
 int main() {
+    declared_access();
     worlds();
     names_and_reflection();
     resources();
