@@ -102,7 +102,9 @@ DirectX 12 only (WARP, the software renderer) where the runner has no GPU. It
 packages the dev
 profile (same layout and notices, and the dependencies the other jobs already
 built); a release package is the command above. Locally, the window mode needs
-a display, and the headless mode is what runs anywhere.
+a display, and the headless mode is what runs anywhere. On Linux under X11
+a window also needs the system's X11 libraries at run time, among them
+`libxkbcommon-x11` (a minimal install, like CI's runner, may lack it).
 
 ## Your files
 

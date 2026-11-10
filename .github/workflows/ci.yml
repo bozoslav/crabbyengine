@@ -716,9 +716,9 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
-      - name: Install ALSA and udev headers (audio, gamepads), a virtual display and software Vulkan
+      - name: Install ALSA and udev headers (audio, gamepads), a virtual display with the X11 libraries a window loads, and software Vulkan
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev xvfb mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev xvfb mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libxinerama1 libx11-xcb1
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/windows-linker
         if: runner.os == 'Windows'
