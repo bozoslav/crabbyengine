@@ -1,12 +1,16 @@
 //! One lifecycle for every GPU and audio resource handle: [`Handle`],
-//! [`Ctx::is_live`], [`Ctx::free`] and [`Ctx::live_counts`].
+//! `is_live`, `free` and `live_counts`, on the service that holds the
+//! handle ([`Graphics`](crate::Graphics) for everything drawn,
+//! [`Audio`](crate::Audio) for sounds) and on [`Ctx`] for any kind.
 //!
 //! A handle is a small `Copy` value naming something the engine holds for
 //! the game: a texture, a mesh, a sound. Each kind answers the same three
 //! questions the same way:
 //!
-//! - Is it still valid? [`Ctx::is_live`].
-//! - Release it: [`Ctx::free`]. Ids are never reused within a run, so a
+//! - Is it still valid? [`Graphics::is_live`](crate::Graphics::is_live),
+//!   [`Audio::is_live`](crate::Audio::is_live), or [`Ctx::is_live`] for any kind.
+//! - Release it: [`Graphics::free`](crate::Graphics::free),
+//!   [`Audio::free`](crate::Audio::free), or [`Ctx::free`]. Ids are never reused within a run, so a
 //!   freed handle stays dead; freeing it again does nothing. Meshes and GPU
 //!   buffers are the exception: streamed worlds make and free them all the
 //!   time, so the next one made takes a freed id. Drop those handles once
@@ -24,6 +28,7 @@
 use std::hash::Hash;
 
 use crate::ctx::Ctx;
+use crate::gfx::Graphics;
 
 mod sealed {
     pub trait Sealed {}
@@ -94,6 +99,19 @@ pub trait Handle: Copy + Eq + Hash + std::fmt::Debug + sealed::Sealed {
     /// Releases this resource in `ctx` (see [`Ctx::free`]).
     #[doc(hidden)]
     fn free_in(self, ctx: &mut Ctx);
+}
+
+/// A [`Handle`] the graphics service holds: every kind except
+/// [`Sound`](crate::Sound). Check one with [`Graphics::is_live`] and release
+/// it with [`Graphics::free`]. Implemented by the engine's handle types only.
+pub trait GfxHandle: Handle {
+    /// Whether `gfx` holds this resource (see [`Graphics::is_live`]).
+    #[doc(hidden)]
+    fn live_in_gfx(self, gfx: &Graphics) -> bool;
+
+    /// Releases this resource in `gfx` (see [`Graphics::free`]).
+    #[doc(hidden)]
+    fn free_in_gfx(self, gfx: &mut Graphics);
 }
 
 /// How many handles of each kind are live, from [`Ctx::live_counts`]: for
@@ -183,6 +201,8 @@ impl Ctx {
     /// ```
     pub fn free<H: Handle>(&mut self, handle: H) {
         handle.free_in(self);
+        #[cfg(feature = "3d")]
+        self.unlink_freed_gpu_buffers();
     }
 
     /// How many handles of each kind are live now (see [`LiveCounts`]).
@@ -195,16 +215,111 @@ impl Ctx {
     /// ```
     #[must_use]
     pub fn live_counts(&self) -> LiveCounts {
+        LiveCounts {
+            sounds: self.audio.live_count(),
+            ..self.gfx.live_counts()
+        }
+    }
+
+    /// Returns freed GPU buffer ids to the pool once the compute passes
+    /// that wrote to them are gone, so a pass never reaches the next buffer
+    /// given the same id. Runs from [`Ctx::free`] and before each frame's
+    /// passes are collected.
+    #[cfg(feature = "3d")]
+    pub(crate) fn unlink_freed_gpu_buffers(&mut self) {
+        let unlinking = &mut self.gfx.assets3d.unlinking_gpu_buffers;
+        if unlinking.is_empty() {
+            return;
+        }
+        self.compute_passes
+            .retain(|p| p.buffer.is_none_or(|b| !unlinking.contains(&b.id)));
+        self.gfx.assets3d.free_gpu_buffers.append(unlinking);
+    }
+}
+
+impl Graphics {
+    /// Whether `handle` names something this game made and hasn't freed:
+    /// a texture (render targets included), font, mesh, material, shader,
+    /// compute pass, effect, GPU buffer, instance batch or texture array.
+    /// False for [`Handle::NONE`] and for handles from another game.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let t = ctx.gfx.create_texture(1, 1, &[255; 4]);
+    ///     assert!(ctx.gfx.is_live(t) && ctx.gfx.is_live(Font::DEFAULT));
+    ///     assert!(!ctx.gfx.is_live(Texture::NONE));
+    /// });
+    /// ```
+    #[must_use]
+    pub fn is_live<H: GfxHandle>(&self, handle: H) -> bool {
+        handle.live_in_gfx(self)
+    }
+
+    /// Releases what `handle` names, as [`Ctx::free`] describes: whatever
+    /// still uses it draws with the default. Freeing it again, or freeing
+    /// [`Handle::NONE`], does nothing. Meshes and GPU buffers give their
+    /// ids to the next ones made (streamed worlds make and free them all
+    /// the time), so drop those handles once freed; a freed buffer's
+    /// [compute passes](crate::Ctx::compute_passes) are removed before its
+    /// id is reused.
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let t = ctx.gfx.create_texture(1, 1, &[255; 4]);
+    ///     ctx.gfx.free(t);
+    ///     assert!(!ctx.gfx.is_live(t));
+    /// });
+    /// ```
+    pub fn free<H: GfxHandle>(&mut self, handle: H) {
+        handle.free_in_gfx(self);
+    }
+
+    /// How many graphics handles of each kind are live now (see
+    /// [`LiveCounts`]; `sounds` reads 0 here, [`Ctx::live_counts`] fills it).
+    #[must_use]
+    pub fn live_counts(&self) -> LiveCounts {
         #[cfg_attr(not(feature = "3d"), allow(unused_mut))]
         let mut counts = LiveCounts {
-            textures: self.gfx.textures_live.len(),
-            sounds: self.audio.sounds_live.len(),
-            fonts: self.gfx.text.loaded_fonts(),
+            textures: self.textures_live.len(),
+            fonts: self.text.loaded_fonts(),
             ..LiveCounts::default()
         };
         #[cfg(feature = "3d")]
-        self.gfx.count_live_3d(&mut counts);
+        self.count_live_3d(&mut counts);
         counts
+    }
+}
+
+impl crate::Audio {
+    /// Whether `sound` names a sound this game made or loaded and hasn't
+    /// freed. False for [`Handle::NONE`](crate::Handle::NONE).
+    ///
+    /// ```
+    /// # use ponko::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let beep = ctx.audio.create(8_000, &[0.0; 80]);
+    ///     assert!(ctx.audio.is_live(beep));
+    ///     ctx.audio.free(beep);
+    ///     assert!(!ctx.audio.is_live(beep));
+    /// });
+    /// ```
+    #[must_use]
+    pub fn is_live(&self, sound: crate::Sound) -> bool {
+        self.sounds_live.contains(sound.id)
+    }
+
+    /// Releases `sound`'s decoded audio and stops its voices; playing it
+    /// again does nothing. Its id is never reused. Freeing it again does
+    /// nothing.
+    pub fn free(&mut self, sound: crate::Sound) {
+        self.free_id(sound.id);
+    }
+
+    /// How many sounds are live.
+    pub(crate) fn live_count(&self) -> usize {
+        self.sounds_live.len()
     }
 }
 
@@ -275,12 +390,20 @@ macro_rules! id_handle {
                 Self { id }
             }
             fn live_in(self, ctx: &Ctx) -> bool {
-                #[allow(clippy::redundant_closure_call)]
-                ($live)(ctx, self)
+                ctx.gfx.is_live(self)
             }
             fn free_in(self, ctx: &mut Ctx) {
+                ctx.gfx.free(self)
+            }
+        }
+        impl GfxHandle for $ty {
+            fn live_in_gfx(self, gfx: &Graphics) -> bool {
                 #[allow(clippy::redundant_closure_call)]
-                ($free)(ctx, self)
+                ($live)(gfx, self)
+            }
+            fn free_in_gfx(self, gfx: &mut Graphics) {
+                #[allow(clippy::redundant_closure_call)]
+                ($free)(gfx, self)
             }
         }
     };
@@ -296,10 +419,18 @@ impl Handle for crate::Texture {
         crate::Texture::new(id, 0, 0)
     }
     fn live_in(self, ctx: &Ctx) -> bool {
-        ctx.gfx.textures_live.contains(self.id)
+        ctx.gfx.is_live(self)
     }
     fn free_in(self, ctx: &mut Ctx) {
-        ctx.gfx.free_texture_id(self.id);
+        ctx.gfx.free(self);
+    }
+}
+impl GfxHandle for crate::Texture {
+    fn live_in_gfx(self, gfx: &Graphics) -> bool {
+        gfx.textures_live.contains(self.id)
+    }
+    fn free_in_gfx(self, gfx: &mut Graphics) {
+        gfx.free_texture_id(self.id);
     }
 }
 
@@ -313,10 +444,10 @@ impl Handle for crate::Sound {
         crate::Sound::new(id, 0.0)
     }
     fn live_in(self, ctx: &Ctx) -> bool {
-        ctx.audio.sounds_live.contains(self.id)
+        ctx.audio.is_live(self)
     }
     fn free_in(self, ctx: &mut Ctx) {
-        ctx.audio.free_id(self.id);
+        ctx.audio.free(self);
     }
 }
 
@@ -330,10 +461,18 @@ impl Handle for crate::Font {
         crate::Font(id)
     }
     fn live_in(self, ctx: &Ctx) -> bool {
-        ctx.gfx.text.has_font(self)
+        ctx.gfx.is_live(self)
     }
     fn free_in(self, ctx: &mut Ctx) {
-        ctx.gfx.free_font_id(self.0);
+        ctx.gfx.free(self);
+    }
+}
+impl GfxHandle for crate::Font {
+    fn live_in_gfx(self, gfx: &Graphics) -> bool {
+        gfx.text.has_font(self)
+    }
+    fn free_in_gfx(self, gfx: &mut Graphics) {
+        gfx.free_font_id(self.0);
     }
 }
 
@@ -342,44 +481,42 @@ mod three {
     use super::*;
     use crate::{Compute, Effect, GpuBuffer, InstanceBatch, Material, Mesh, Shader, TextureArray};
 
-    id_handle!(Mesh, |c: &Ctx, h: Mesh| c.gfx.is_mesh_live(h), |c: &mut Ctx, h| c
-        .gfx
-        .free_mesh(h));
+    id_handle!(
+        Mesh,
+        |g: &Graphics, h: Mesh| g.assets3d.live_bounds(h.id).is_some(),
+        |g: &mut Graphics, h: Mesh| g.free_mesh_id(h.id)
+    );
     id_handle!(
         Material,
-        |c: &Ctx, h: Material| c.gfx.assets3d.materials_live.contains(h.id),
-        |c: &mut Ctx, h: Material| c.gfx.free_material_id(h.id)
+        |g: &Graphics, h: Material| g.assets3d.materials_live.contains(h.id),
+        |g: &mut Graphics, h: Material| g.free_material_id(h.id)
     );
     id_handle!(
         Shader,
-        |c: &Ctx, h: Shader| c.gfx.assets3d.shaders_live.contains(h.id),
-        |c: &mut Ctx, h: Shader| c.gfx.free_shader_id(h.id)
+        |g: &Graphics, h: Shader| g.assets3d.shaders_live.contains(h.id),
+        |g: &mut Graphics, h: Shader| g.free_shader_id(h.id)
     );
     id_handle!(
         Compute,
-        |c: &Ctx, h: Compute| c.gfx.assets3d.computes_live.contains(h.id),
-        |c: &mut Ctx, h: Compute| c.gfx.free_compute_id(h.id)
+        |g: &Graphics, h: Compute| g.assets3d.computes_live.contains(h.id),
+        |g: &mut Graphics, h: Compute| g.free_compute_id(h.id)
     );
     id_handle!(
         Effect,
-        |c: &Ctx, h: Effect| c.gfx.assets3d.effects_live.contains(h.id),
-        |c: &mut Ctx, h: Effect| c.gfx.free_effect_id(h.id)
+        |g: &Graphics, h: Effect| g.assets3d.effects_live.contains(h.id),
+        |g: &mut Graphics, h: Effect| g.free_effect_id(h.id)
     );
+    // The buffer's id waits in `unlinking_gpu_buffers` until the compute
+    // passes writing to it are removed (`Ctx::unlink_freed_gpu_buffers`).
     id_handle!(
         GpuBuffer,
-        |c: &Ctx, h: GpuBuffer| c.gfx.gpu_buffer_len(h).is_some(),
-        |c: &mut Ctx, h: GpuBuffer| {
-            // Clear what pointed at it, so the id's next buffer starts clean.
-            if c.gfx.gpu_buffer_len(h).is_some() {
-                c.compute_passes.retain(|p| p.buffer != Some(h));
-            }
-            c.gfx.free_gpu_buffer(h);
-        }
+        |g: &Graphics, h: GpuBuffer| g.gpu_buffer_len(h).is_some(),
+        |g: &mut Graphics, h: GpuBuffer| g.free_gpu_buffer(h)
     );
     id_handle!(
         InstanceBatch,
-        |c: &Ctx, h: InstanceBatch| c.gfx.instance_batch_len(h).is_some(),
-        |c: &mut Ctx, h| c.gfx.free_instance_batch(h)
+        |g: &Graphics, h: InstanceBatch| g.instance_batch_len(h).is_some(),
+        |g: &mut Graphics, h: InstanceBatch| g.free_instance_batch_id(h.id)
     );
 
     impl sealed::Sealed for TextureArray {}
@@ -402,10 +539,18 @@ mod three {
             }
         }
         fn live_in(self, ctx: &Ctx) -> bool {
-            ctx.gfx.assets3d.arrays_live.contains(self.id)
+            ctx.gfx.is_live(self)
         }
         fn free_in(self, ctx: &mut Ctx) {
-            ctx.gfx.free_texture_array_id(self.id);
+            ctx.gfx.free(self);
+        }
+    }
+    impl GfxHandle for TextureArray {
+        fn live_in_gfx(self, gfx: &Graphics) -> bool {
+            gfx.assets3d.arrays_live.contains(self.id)
+        }
+        fn free_in_gfx(self, gfx: &mut Graphics) {
+            gfx.free_texture_array_id(self.id);
         }
     }
 }

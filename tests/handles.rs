@@ -83,11 +83,31 @@ fn textures_sounds_and_fonts_free_and_stay_dead() {
 }
 
 #[test]
+fn the_services_answer_for_their_own_kinds() {
+    let file = font_file("services.ttf");
+    Game::new("t", 1, 1).run_headless(0, move |ctx| {
+        let t = ctx.gfx.create_texture(1, 1, &[255; 4]);
+        let font = ctx.gfx.load_font(&file);
+        let beep = ctx.audio.create(8_000, &[0.0; 80]);
+        assert!(ctx.gfx.is_live(t) && ctx.gfx.is_live(font) && ctx.audio.is_live(beep));
+        assert_eq!(ctx.live_counts().sounds, 1);
+        assert_eq!(ctx.gfx.live_counts().sounds, 0, "sounds belong to the audio service");
+        ctx.gfx.free(t);
+        ctx.gfx.free(font);
+        ctx.audio.free(beep);
+        assert!(!ctx.is_live(t) && !ctx.is_live(font) && !ctx.is_live(beep));
+        ctx.audio.free(beep); // twice does nothing
+        ctx.gfx.free(Texture::NONE);
+        assert_eq!(ctx.live_counts().sounds, 0);
+    });
+}
+
+#[test]
 fn the_built_in_font_is_never_freed() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         ctx.free(Font::DEFAULT);
         assert!(ctx.is_live(Font::DEFAULT));
-        assert!(ctx.gfx.has_font(Font::DEFAULT));
+        assert!(ctx.gfx.is_live(Font::DEFAULT));
     });
 }
 
@@ -98,7 +118,7 @@ fn text_in_a_freed_font_uses_the_built_in_one() {
         let font = ctx.gfx.load_font(&file);
         let size = ctx.gfx.measure_text_ex("Freed", font, 20.0);
         ctx.free(font);
-        assert!(!ctx.gfx.has_font(font));
+        assert!(!ctx.gfx.is_live(font));
         assert_eq!(
             ctx.gfx.measure_text_ex("Freed", font, 20.0),
             size,
@@ -191,6 +211,7 @@ mod three {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn the_old_names_agree_with_is_live() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             let material = ctx.gfx.create_material(MaterialDesc::default());
@@ -199,17 +220,88 @@ mod three {
             let effect = ctx.gfx.create_effect("e", EFFECT);
             let array = ctx.gfx.create_texture_array(1, 1, &[&[255; 4]], TextureKind::Color);
             let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            let batch = ctx
+                .gfx
+                .create_instance_batch(mesh, &[], InstanceBatchOptions::default());
             assert!(ctx.gfx.has_material(material) && ctx.gfx.has_shader(shader) && ctx.gfx.has_compute(compute));
             assert!(ctx.gfx.has_effect(effect) && ctx.gfx.has_texture_array(array) && ctx.gfx.is_mesh_live(mesh));
+            assert!(ctx.has_material(material) && ctx.is_mesh_live(mesh) && ctx.gfx.has_font(Font::DEFAULT));
             ctx.free(material);
             ctx.free(shader);
             ctx.free(compute);
             ctx.free(effect);
             ctx.free(array);
-            ctx.free(mesh);
+            ctx.gfx.free_mesh(mesh);
+            ctx.gfx.free_instance_batch(batch);
             assert!(!ctx.gfx.has_material(material) && !ctx.gfx.has_shader(shader) && !ctx.gfx.has_compute(compute));
             assert!(!ctx.gfx.has_effect(effect) && !ctx.gfx.has_texture_array(array) && !ctx.gfx.is_mesh_live(mesh));
+            assert!(!ctx.is_live(mesh) && !ctx.is_live(batch));
         });
+    }
+
+    #[test]
+    fn the_graphics_service_frees_every_3d_kind() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let before = ctx.gfx.live_counts();
+            let material = ctx.gfx.create_material(MaterialDesc::default());
+            let shader = ctx.gfx.create_shader("s", SHADER);
+            let compute = ctx.gfx.create_compute("c", COMPUTE);
+            let effect = ctx.gfx.create_effect("e", EFFECT);
+            let array = ctx.gfx.create_texture_array(1, 1, &[&[255; 4]], TextureKind::Color);
+            let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            let batch = ctx
+                .gfx
+                .create_instance_batch(mesh, &[], InstanceBatchOptions::default());
+            let buffer = ctx.gfx.create_gpu_buffer(4, &[]);
+            let target = ctx.gfx.create_render_target(4, 4);
+            assert!(ctx.gfx.is_live(material) && ctx.gfx.is_live(shader) && ctx.gfx.is_live(compute));
+            assert!(ctx.gfx.is_live(effect) && ctx.gfx.is_live(array) && ctx.gfx.is_live(mesh));
+            assert!(ctx.gfx.is_live(batch) && ctx.gfx.is_live(buffer) && ctx.gfx.is_live(target));
+            ctx.gfx.free(material);
+            ctx.gfx.free(shader);
+            ctx.gfx.free(compute);
+            ctx.gfx.free(effect);
+            ctx.gfx.free(array);
+            ctx.gfx.free(batch);
+            ctx.gfx.free(mesh);
+            ctx.gfx.free(buffer);
+            ctx.gfx.free(target);
+            assert!(!ctx.gfx.is_live(material) && !ctx.gfx.is_live(shader) && !ctx.gfx.is_live(compute));
+            assert!(!ctx.gfx.is_live(effect) && !ctx.gfx.is_live(array) && !ctx.gfx.is_live(mesh));
+            assert!(!ctx.gfx.is_live(batch) && !ctx.gfx.is_live(buffer) && !ctx.gfx.is_live(target));
+            // The default material is made lazily by `create_mesh`'s callers
+            // only when asked; this test made its own, so counts match.
+            assert_eq!(ctx.gfx.live_counts(), before);
+        });
+    }
+
+    /// A buffer freed through the service keeps its id out of the pool
+    /// until the compute passes writing to it are gone, so a stale pass
+    /// never writes into the next buffer that takes the id.
+    #[test]
+    fn a_buffer_freed_through_the_service_loses_its_passes_before_its_id_is_reused() {
+        let checked = std::rc::Rc::new(std::cell::Cell::new(false));
+        let seen = checked.clone();
+        Game::new("t", 1, 1)
+            .sim_system(move |ctx: &mut Ctx| {
+                if !seen.get() {
+                    assert!(ctx.compute_passes.is_empty(), "the next frame removed the stale pass");
+                    let made = ctx.gfx.create_gpu_buffer(4, &[]);
+                    assert_eq!(made.id(), 0, "and the id is back in the pool");
+                    seen.set(true);
+                }
+            })
+            .run_headless(3, |ctx| {
+                let compute = ctx.gfx.create_compute("c", COMPUTE);
+                let old = ctx.gfx.create_gpu_buffer(4, &[]);
+                assert_eq!(old.id(), 0);
+                ctx.compute_passes.push(ComputePass::for_buffer(compute, old));
+                ctx.gfx.free(old);
+                let next = ctx.gfx.create_gpu_buffer(4, &[]);
+                assert_ne!(next.id(), old.id(), "the id waits until its passes are removed");
+                assert_eq!(ctx.compute_passes.len(), 1, "the service can't reach Ctx's passes");
+            });
+        assert!(checked.get());
     }
 
     /// Spawns models that use one of each kind, frees them all, and keeps
@@ -218,7 +310,7 @@ mod three {
     #[test]
     fn models_whose_resources_were_freed_still_step() {
         Game::new("t", 64, 64)
-            .system(|ctx: &mut Ctx| {
+            .sim_system(|ctx: &mut Ctx| {
                 let models = ctx.world.query::<&Model>().iter().count();
                 assert_eq!(models, 2);
                 ctx.draw_text("still here", vec2(0.0, 0.0), 16.0, Color::WHITE);

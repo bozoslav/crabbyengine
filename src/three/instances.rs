@@ -11,7 +11,7 @@ use crate::{Color, Mat4, Vec3};
 ///     let mat = ctx.gfx.create_material(MaterialDesc::default());
 ///     let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), mat);
 ///     let batch = ctx.gfx.create_instance_batch(mesh, &[Mat4::IDENTITY], InstanceBatchOptions::default());
-///     ctx.gfx.free_instance_batch(batch);
+///     ctx.gfx.free(batch);
 /// });
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -291,8 +291,15 @@ impl Graphics {
         self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);
         true
     }
-    /// Releases a region's CPU and GPU resources. See [`InstanceBatch`].
+    /// Releases a region's CPU and GPU resources: [`Graphics::free`](crate::Graphics::free)
+    /// with a batch. See [`InstanceBatch`].
+    #[deprecated(note = "use `ctx.gfx.free(batch)`")]
     pub fn free_instance_batch(&mut self, batch: InstanceBatch) {
+        self.free(batch);
+    }
+    /// Frees instance batch `id`: the engine side of [`Graphics::free`](crate::Graphics::free).
+    pub(crate) fn free_instance_batch_id(&mut self, id: u32) {
+        let batch = InstanceBatch { id };
         if let Some(slot) = self.assets3d.instance_batches.get_mut(batch.id as usize) {
             *slot = None;
             self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);

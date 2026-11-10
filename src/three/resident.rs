@@ -148,7 +148,7 @@ impl Ctx {
             let mesh = Mesh { id: entry.handle };
             // Freed elsewhere since: its id may be another mesh's now.
             if self.gfx.assets3d.loaded.get(&entry.file) == Some(&mesh) {
-                self.gfx.free_mesh(mesh);
+                self.gfx.free(mesh);
                 // Keep the id for this name: a handle the game kept reads
                 // as not live (models showing it draw nothing) until the
                 // mesh is asked for again and comes back under it.

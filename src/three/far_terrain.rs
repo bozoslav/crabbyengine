@@ -228,7 +228,7 @@ impl FarTerrain {
             let data = self.block_data(b);
             let old = self.blocks[b].shown.take();
             if let Some((_, mesh)) = old {
-                ctx.gfx.free_mesh(mesh);
+                ctx.gfx.free(mesh);
             }
             if data.indices.is_empty() {
                 if let Some((entity, _)) = old {
@@ -271,7 +271,7 @@ impl FarTerrain {
         for block in &mut self.blocks {
             if let Some((entity, mesh)) = block.shown.take() {
                 ctx.world.despawn(entity);
-                ctx.gfx.free_mesh(mesh);
+                ctx.gfx.free(mesh);
             }
             block.dirty = true;
         }

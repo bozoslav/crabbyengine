@@ -252,7 +252,7 @@ impl Mesh {
     ///     let material = ctx.gfx.default_material();
     ///     let bush = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
     ///     ctx.world.spawn((Transform3D::default(), Model::new(Mesh::NONE)));
-    ///     assert!(!ctx.gfx.is_mesh_live(Mesh::NONE));
+    ///     assert!(!ctx.gfx.is_live(Mesh::NONE));
     ///     assert_ne!(bush, Mesh::NONE);
     /// });
     /// ```
@@ -912,6 +912,9 @@ pub(crate) struct Assets3D {
     pub instance_batch_revision: u64,
     /// Freed GPU buffers' ids, for the next buffers made.
     pub free_gpu_buffers: Vec<u32>,
+    /// Freed GPU buffers' ids whose compute passes haven't been removed yet;
+    /// they join `free_gpu_buffers` then.
+    pub unlinking_gpu_buffers: Vec<u32>,
     /// Buffer-driven meshes' own bounds (before `set_mesh_gpu_bounds`
     /// grew them), by mesh id.
     pub gpu_mesh_bounds: std::collections::HashMap<u32, (Vec3, f32)>,

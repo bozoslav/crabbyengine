@@ -321,7 +321,7 @@ pub unsafe extern "C" fn crabby_ctx_upload_terrain_tile(
             let Some(data) = data.as_ref() else {
                 return Err(invalid("tile data is null"));
             };
-            if !c.gfx.has_material(to_c(material)) {
+            if !c.gfx.is_live(to_c(material)) {
                 return Err(invalid("that material wasn't made by this game"));
             }
             out(out_tile, to_c(c.gfx.upload_terrain_tile(&data.0, to_c(material))))
@@ -341,7 +341,7 @@ pub unsafe extern "C" fn crabby_ctx_free_mesh(ctx: *mut CrabbyCtx, mesh: CrabbyM
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.gfx.free_mesh(to_c(mesh));
+            c.gfx.free(to_c(mesh));
             Ok(())
         })
     })
@@ -361,7 +361,7 @@ pub unsafe extern "C" fn crabby_ctx_is_mesh_live(
     out_live: *mut bool,
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_live, c.gfx.is_mesh_live(to_c(mesh)))) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_live, c.gfx.is_live(to_c(mesh)))) })
 }
 
 /// Frees every detail level of `tile` (Rust `Graphics::free_terrain_tile`);
@@ -534,7 +534,7 @@ pub unsafe extern "C" fn crabby_far_terrain_update(far: *mut CrabbyFarTerrain, c
         // SAFETY: forwarded caller contract.
         unsafe {
             ctx_access(ctx, |c| {
-                if !c.gfx.has_material(f.material) {
+                if !c.gfx.is_live(f.material) {
                     return Err(invalid("that material wasn't made by this game"));
                 }
                 f.far.update(c);

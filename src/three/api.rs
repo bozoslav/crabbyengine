@@ -433,16 +433,18 @@ impl Graphics {
     /// API, which takes ids): [`Ctx::is_live`].
     #[doc(hidden)]
     #[must_use]
+    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
     pub fn has_material(&self, material: Material) -> bool {
-        self.assets3d.materials_live.contains(material.id)
+        self.is_live(material)
     }
 
     /// Whether this game made `shader` and hasn't freed it (for the C API,
     /// which takes ids): [`Ctx::is_live`].
     #[doc(hidden)]
     #[must_use]
+    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
     pub fn has_shader(&self, shader: Shader) -> bool {
-        self.assets3d.shaders_live.contains(shader.id)
+        self.is_live(shader)
     }
 
     /// A plain white material, made once and shared.
@@ -984,23 +986,9 @@ impl Graphics {
         self.assets3d.loaded_materials.get(name).cloned().unwrap_or_default()
     }
 
-    /// Frees `mesh`'s GPU memory, for worlds streamed in and out. Models
-    /// still showing it draw nothing; despawn them too. Drop the handle: the
-    /// next mesh made takes its id, so streaming doesn't grow the mesh
-    /// tables, and an old handle would reach that one. A mesh loaded from a file loads
-    /// afresh next time. Freeing it again does nothing. The same as
-    /// [`Ctx::free`] with a mesh.
-    ///
-    /// ```
-    /// # use ponko::*;
-    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let material = ctx.gfx.default_material();
-    ///     let rock = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
-    ///     ctx.gfx.free_mesh(rock);
-    ///     assert!(!ctx.gfx.is_mesh_live(rock));
-    /// });
-    /// ```
-    pub fn free_mesh(&mut self, mesh: Mesh) {
+    /// Frees mesh `id`: the engine side of [`Graphics::free`] with a mesh.
+    pub(crate) fn free_mesh_id(&mut self, id: u32) {
+        let mesh = Mesh { id };
         let Some(&(_, radius)) = self.assets3d.bounds.get(mesh.id as usize) else {
             return;
         };
@@ -1099,12 +1087,19 @@ impl Graphics {
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.gfx.default_material();
     ///     let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
-    ///     assert!(ctx.gfx.is_mesh_live(cube));
+    ///     assert!(ctx.gfx.is_live(cube));
     /// });
     /// ```
     #[must_use]
+    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
     pub fn is_mesh_live(&self, mesh: Mesh) -> bool {
-        self.assets3d.live_bounds(mesh.id).is_some()
+        self.is_live(mesh)
+    }
+
+    /// Frees `mesh`: [`Graphics::free`] with a mesh.
+    #[deprecated(note = "use `ctx.gfx.free(mesh)`")]
+    pub fn free_mesh(&mut self, mesh: Mesh) {
+        self.free(mesh);
     }
 
     /// How many 3D models were drawn last frame: those the camera could
@@ -1421,6 +1416,7 @@ impl Ctx {
     /// materials, `fallback` for none): freed ones, and passes into a freed
     /// target or buffer, are left out.
     pub(crate) fn collect_passes(&mut self, fallback: Option<Material>) {
+        self.unlink_freed_gpu_buffers();
         self.gfx.frame3d.effects.clear();
         let effects_live = &self.gfx.assets3d.effects_live;
         self.gfx.frame3d.effects.extend(self.effects.iter().filter_map(|e| {

@@ -70,8 +70,8 @@ mod three {
                     base.get(AssetClass::Mesh).bytes + 5 * cube_bytes()
                 );
                 for mesh in meshes {
-                    ctx.gfx.free_mesh(mesh);
-                    ctx.gfx.free_mesh(mesh); // twice: still freed once
+                    ctx.gfx.free(mesh);
+                    ctx.gfx.free(mesh); // twice: still freed once
                 }
                 let growth = ctx.asset_inventory().growth_since(&base);
                 assert!(growth.is_empty(), "round {round}: {growth:?}");
@@ -88,7 +88,7 @@ mod three {
             for _ in 0..3 {
                 let kept = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
                 let freed = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
-                ctx.gfx.free_mesh(freed);
+                ctx.gfx.free(freed);
                 let _ = kept; // never freed: the leak
             }
             let growth = ctx.asset_inventory().growth_since(&base);
@@ -105,16 +105,16 @@ mod three {
             // The first load makes the file's textures and materials; they
             // are kept for the next load of the same file.
             let house = ctx.gfx.load_mesh("models/house.glb");
-            ctx.gfx.free_mesh(house);
+            ctx.gfx.free(house);
             let base = ctx.asset_inventory();
             for round in 0..20 {
                 let house = ctx.gfx.load_mesh("models/house.glb");
-                assert!(ctx.gfx.is_mesh_live(house));
+                assert!(ctx.gfx.is_live(house));
                 let during = ctx.asset_inventory();
                 assert_eq!(during.get(AssetClass::Mesh).live, base.get(AssetClass::Mesh).live + 1);
                 assert_eq!(during.get(AssetClass::Material), base.get(AssetClass::Material));
                 assert_eq!(during.get(AssetClass::Texture), base.get(AssetClass::Texture));
-                ctx.gfx.free_mesh(house);
+                ctx.gfx.free(house);
                 let growth = ctx.asset_inventory().growth_since(&base);
                 assert!(growth.is_empty(), "round {round}: {growth:?}");
             }
@@ -181,5 +181,100 @@ fn freed_handles_leave_the_inventory() {
             );
         }
         assert!(after.growth_since(&base).is_empty());
+    });
+}
+
+/// The inventory and `live_counts` read the same handle tables: every class
+/// but textures (which add the engine's own) agrees, before and after frees.
+#[test]
+fn the_inventory_agrees_with_live_counts() {
+    fn agree(ctx: &Ctx) {
+        let inv = ctx.asset_inventory();
+        let live = ctx.live_counts();
+        assert_eq!(inv.get(AssetClass::Sound).live, live.sounds);
+        assert!(inv.get(AssetClass::Texture).live >= live.textures - live.render_targets);
+        #[cfg(feature = "3d")]
+        {
+            assert_eq!(inv.get(AssetClass::RenderTarget).live, live.render_targets);
+            assert_eq!(inv.get(AssetClass::TextureArray).live, live.texture_arrays);
+            assert_eq!(inv.get(AssetClass::Material).live, live.materials);
+            assert_eq!(inv.get(AssetClass::Shader).live, live.shaders);
+            assert_eq!(inv.get(AssetClass::Mesh).live, live.meshes);
+            assert_eq!(inv.get(AssetClass::GpuBuffer).live, live.gpu_buffers);
+            assert_eq!(inv.get(AssetClass::Effect).live, live.effects);
+            assert_eq!(inv.get(AssetClass::Compute).live, live.computes);
+        }
+    }
+    headless(|ctx| {
+        let t = ctx.gfx.create_texture(1, 1, &[0; 4]);
+        let s = ctx.audio.create(1000, &[0.0; 10]);
+        #[cfg(feature = "3d")]
+        let made = {
+            let material = ctx.gfx.create_material(MaterialDesc::default());
+            let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            let buffer = ctx.gfx.create_gpu_buffer(4, &[]);
+            let target = ctx.gfx.create_render_target(4, 4);
+            (material, mesh, buffer, target)
+        };
+        agree(ctx);
+        ctx.gfx.free(t);
+        ctx.audio.free(s);
+        #[cfg(feature = "3d")]
+        {
+            ctx.gfx.free(made.0);
+            ctx.gfx.free(made.1);
+            ctx.gfx.free(made.2);
+            ctx.gfx.free(made.3);
+        }
+        agree(ctx);
+    });
+}
+
+#[test]
+fn sprites_showing_a_freed_texture_are_listed_as_dangling() {
+    headless(|ctx| {
+        let kept = ctx.gfx.create_texture(1, 1, &[0; 4]);
+        let freed = ctx.gfx.create_texture(1, 1, &[0; 4]);
+        ctx.world.spawn((Sprite::new(kept),));
+        let holder = ctx.world.spawn((Sprite::new(freed),));
+        ctx.world.spawn((Sprite::new(Texture::NONE),));
+        assert!(ctx.asset_inventory().dangling.is_empty());
+        ctx.free(freed);
+        let dangling = ctx.asset_inventory().dangling;
+        assert_eq!(dangling.len(), 1, "{dangling:?}");
+        assert_eq!(dangling[0].entity, holder.to_bits());
+        assert_eq!(
+            (dangling[0].component, dangling[0].class),
+            ("Sprite", AssetClass::Texture)
+        );
+        assert_eq!(dangling[0].id, freed.id());
+        ctx.world.despawn(holder);
+        assert!(ctx.asset_inventory().dangling.is_empty());
+    });
+}
+
+#[cfg(feature = "3d")]
+#[test]
+fn models_showing_a_freed_mesh_or_material_are_listed_as_dangling() {
+    headless(|ctx| {
+        let material = ctx.gfx.create_material(MaterialDesc::default());
+        let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+        let other = ctx.gfx.create_material(MaterialDesc::default());
+        let e = ctx
+            .world
+            .spawn((Transform3D::default(), Model::new(mesh), ModelMaterial(other)));
+        ctx.world.spawn((Transform3D::default(), Model::new(Mesh::NONE)));
+        assert!(ctx.asset_inventory().dangling.is_empty());
+        ctx.free(other);
+        ctx.free(mesh);
+        let found: Vec<_> = ctx
+            .asset_inventory()
+            .dangling
+            .iter()
+            .map(|d| (d.entity, d.component, d.class))
+            .collect();
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(found.contains(&(e.to_bits(), "Model", AssetClass::Mesh)));
+        assert!(found.contains(&(e.to_bits(), "ModelMaterial", AssetClass::Material)));
     });
 }

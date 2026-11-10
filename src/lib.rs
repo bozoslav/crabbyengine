@@ -145,9 +145,9 @@ pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
 pub use game::{ConfiguredGame, Game, Phase, Plugin, SetupResult, SystemId, Systems};
 pub use gfx::Graphics;
-pub use handle::{Handle, LiveCounts};
+pub use handle::{GfxHandle, Handle, LiveCounts};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Input, Key, MAX_GAMEPADS, MouseButton};
-pub use inventory::{AssetClass, AssetCount, AssetGrowth, AssetInventory, GpuResidency};
+pub use inventory::{AssetClass, AssetCount, AssetGrowth, AssetInventory, DanglingHandle, GpuResidency};
 pub use net::{
     Authority, AuthorityCheck, ClockSync, Interest, InterestChange, InterestChangeKind, InterestConfig, InterestEntity,
     InterestEntry, InterestTier, InterestViewer, Interpolate, LatestWins, MAX_INTEREST_TIERS, Pose, SnapshotBuffer,
