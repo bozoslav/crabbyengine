@@ -19,6 +19,7 @@
 //! | `insert`, `insert_dynamic` replacing a value | no | yes |
 //! | `get_mut` | no | yes |
 //! | a query fetching `&mut T` or `Option<&mut T>` | no | yes, every entity it visits |
+//! | the same in a `WorldView` query, and its `get_mut` | no | yes |
 //! | `for_each_chunk` | no | yes, every requested column of every chunk |
 //! | `mark_changed`, `mark_changed_dynamic` | no | yes |
 //! | `get`, `has`, `&T` in a query, `count`, `sort_by` | no | no |
@@ -116,27 +117,36 @@ pub struct Added<T>(PhantomData<fn() -> T>);
 /// ```
 pub struct Changed<T>(PhantomData<fn() -> T>);
 
+/// The id of `T` for an [`Added`] or [`Changed`] filter: starts tracking it,
+/// and records the filter as reading `T` for declared-access checks (its
+/// stamps are written by whoever writes `T`).
+fn filtered<T: Component>(world: &mut World) -> ComponentId {
+    let id = world.track_changes::<T>();
+    world.recorder.note(|l| l.component(id, false));
+    id
+}
+
 impl<T: Component> QueryFilter for Added<T> {
     fn add(world: &mut World, filters: &mut Filters) {
-        filters.add_tick(world.track_changes::<T>(), true);
+        filters.add_tick(filtered::<T>(world), true);
     }
 }
 
 impl<T: Component> QueryFilter for Changed<T> {
     fn add(world: &mut World, filters: &mut Filters) {
-        filters.add_tick(world.track_changes::<T>(), false);
+        filters.add_tick(filtered::<T>(world), false);
     }
 }
 
 impl<T: Component> OrTerm for Added<T> {
     fn add_term(world: &mut World, filters: &mut Filters) {
-        filters.add_or_tick(world.track_changes::<T>(), true);
+        filters.add_or_tick(filtered::<T>(world), true);
     }
 }
 
 impl<T: Component> OrTerm for Changed<T> {
     fn add_term(world: &mut World, filters: &mut Filters) {
-        filters.add_or_tick(world.track_changes::<T>(), false);
+        filters.add_or_tick(filtered::<T>(world), false);
     }
 }
 
@@ -349,8 +359,9 @@ fn mark<Q: QueryData>(arch: &Archetype, ids: &Q::Ids, stamp: u32, start: usize, 
 }
 
 /// Stamps rows `start..end` of component `id` in `arch` as changed, if the
-/// component is there and tracked. The rows must be live, and the caller
-/// must hold the world mutably (nothing else reads the stamps meanwhile).
+/// component is there and tracked. The rows must be live, and nothing else
+/// may read or write these stamps meanwhile: the caller holds the world
+/// mutably, or is a view that declared writing the component.
 fn mark_rows(arch: &Archetype, id: ComponentId, stamp: u32, start: usize, end: usize) {
     debug_assert!(start <= end && end <= arch.len());
     if let Some(changed) = arch.changed_stamps(id) {
@@ -510,6 +521,7 @@ impl World {
     /// | `insert`, `insert_dynamic` replacing a value | no | yes |
     /// | [`get_mut`](Self::get_mut) | no | yes |
     /// | a query fetching `&mut T` or `Option<&mut T>` | no | yes, for every entity it visits |
+    /// | the same in a [`WorldView`](crate::WorldView) query, and its `get_mut` | no | yes |
     /// | [`for_each_chunk`](Self::for_each_chunk) | no | yes, every requested column of every chunk |
     /// | [`mark_changed`](Self::mark_changed), [`mark_changed_dynamic`](Self::mark_changed_dynamic) | no | yes |
     /// | [`get`](Self::get), [`has`](Self::has), `&T` in a query, [`Query::count`](crate::Query::count), [`sort_by`](Self::sort_by) | no | no |

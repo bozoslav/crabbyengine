@@ -130,6 +130,31 @@ fn a_system_is_not_shown_its_own_changes_or_commands() {
 }
 
 #[test]
+fn a_view_system_writes_are_changes_for_the_other_systems() {
+    fn shield_up(sys: &mut SystemView) {
+        // Only entities with a `Shield` are borrowed mutably.
+        sys.world
+            .query::<(&mut Health, &Shield)>()
+            .for_each(|(h, s)| h.0 += s.0);
+    }
+    let world = Game::new("changes", 1, 1)
+        .add_view(
+            Phase::AfterPhysics,
+            SystemAccess::new().write::<Health>().read::<Shield>(),
+            shield_up,
+        )
+        .sim_system(|ctx: &mut Ctx| {
+            let seen = changed(ctx);
+            log(ctx, format!("{} {seen:?}", ctx.sim_tick()));
+        })
+        .run_headless(3, |ctx| {
+            setup(ctx);
+            ctx.world.spawn((Health(100), Shield(1)));
+        });
+    assert_eq!(lines(&world), ["0 [10, 20, 30, 101]", "1 [102]", "2 [103]"]);
+}
+
+#[test]
 fn a_mutable_query_in_one_system_is_a_change_for_the_others() {
     let world = Game::new("changes", 1, 1)
         .sim_system(|ctx: &mut Ctx| {

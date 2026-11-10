@@ -1516,3 +1516,118 @@ fn generated_sequences_report_exactly_what_the_model_changed() {
         }
     }
 }
+
+// ---- world views --------------------------------------------------------------
+
+#[test]
+fn a_view_marks_what_it_borrows_mutably_like_a_world_query() {
+    let (mut w, [a, b, c], _) = three();
+    w.insert(c, Armor(1));
+    let seen = w.advance_change_tick();
+    let mut state = ViewState::new(ViewAccess::new().write::<Health>().read::<Armor>());
+
+    // Reading marks nothing.
+    state.run(&mut w, |mut view| {
+        assert_eq!(view.query::<&Health>().count(), 3);
+        view.query::<&Health>().for_each(|_| {});
+        assert_eq!(view.query::<&Health>().iter().count(), 3);
+        assert!(view.get::<Health>(a).is_some());
+        assert_eq!(view.query::<&mut Health>().count(), 3, "count borrows nothing");
+    });
+    assert_eq!(changed::<Health>(&mut w, seen), []);
+
+    // `get_mut` marks one entity, a query `get` the one it fetches.
+    state.run(&mut w, |mut view| {
+        view.get_mut::<Health>(a).unwrap().0 += 1;
+    });
+    assert_eq!(changed::<Health>(&mut w, seen), [a]);
+    let seen = w.advance_change_tick();
+    state.run(&mut w, |mut view| {
+        assert!(view.query::<&mut Health>().get(b).is_some());
+    });
+    assert_eq!(changed::<Health>(&mut w, seen), [b]);
+
+    // A mutable loop marks every entity it visits, in each archetype.
+    let seen = w.advance_change_tick();
+    state.run(&mut w, |mut view| {
+        view.query::<(&mut Health, &Armor)>().for_each(|(h, _)| h.0 += 1);
+    });
+    assert_eq!(changed::<Health>(&mut w, seen), [c]);
+    let seen = w.advance_change_tick();
+    state.run(&mut w, |mut view| {
+        view.query::<&mut Health>().for_each(|h| h.0 += 1);
+    });
+    assert_eq!(changed::<Health>(&mut w, seen), [a, b, c]);
+
+    // An iterator marks the archetypes it reached.
+    let seen = w.advance_change_tick();
+    state.run(&mut w, |mut view| {
+        assert_eq!(view.query::<&mut Health>().iter().count(), 3);
+    });
+    assert_eq!(changed::<Health>(&mut w, seen), [a, b, c]);
+    assert_eq!(added::<Health>(&mut w, seen), [], "a write never counts as added");
+}
+
+#[test]
+fn views_on_two_threads_stamp_their_own_components() {
+    let mut w = World::new();
+    w.track_changes::<Health>();
+    w.track_changes::<Armor>();
+    let n = if cfg!(miri) { 40 } else { 2000 };
+    let es: Vec<Entity> = (0..n).map(|i| w.spawn((Health(i), Armor(i)))).collect();
+    let only_health = w.spawn((Health(-1),));
+    let seen = w.advance_change_tick();
+
+    let mut heal = ViewState::new(ViewAccess::new().write::<Health>());
+    let mut plate = ViewState::new(ViewAccess::new().write::<Armor>());
+    heal.prepare(&mut w);
+    plate.prepare(&mut w);
+    {
+        let shared = &w;
+        // SAFETY: both states are prepared for `w`, their declarations
+        // don't overlap, and nothing uses `&mut World` until they are done.
+        let (mut a, mut b) = unsafe { (heal.view(shared), plate.view(shared)) };
+        let first = es[0];
+        std::thread::scope(|s| {
+            s.spawn(move || a.query::<&mut Health>().for_each(|h| h.0 += 1));
+            s.spawn(move || {
+                b.get_mut::<Armor>(first).unwrap().0 += 1;
+            });
+        });
+    }
+    heal.finish(&mut w);
+    plate.finish(&mut w);
+
+    let mut all = es.clone();
+    all.push(only_health);
+    assert_eq!(changed::<Health>(&mut w, seen), sorted(all));
+    assert_eq!(changed::<Armor>(&mut w, seen), [es[0]]);
+}
+
+// ---- declared access ------------------------------------------------------------
+
+/// A change filter depends on the stamps that writers of the component
+/// leave, so it is recorded as reading the component.
+#[cfg(debug_assertions)]
+#[test]
+fn a_change_filter_is_recorded_as_reading_its_component() {
+    let (mut w, _, _) = three();
+    w.spawn((Armor(1), Health(1)));
+    let (health, armor) = (w.component_id::<Health>().unwrap(), w.component_id::<Armor>().unwrap());
+    w.track_changes::<Armor>();
+
+    w.record_access();
+    let _ = w.query::<Entity>().filter::<Changed<Health>>().count();
+    assert_eq!(w.take_access_log().unwrap().components, [(health, false)]);
+
+    w.record_access();
+    let _ = w
+        .query::<Entity>()
+        .filter::<Or<(Added<Armor>, Changed<Health>)>>()
+        .count();
+    let mut read = w.take_access_log().unwrap().components;
+    read.sort_by_key(|&(id, _)| id.index());
+    let mut expected = vec![(health, false), (armor, false)];
+    expected.sort_by_key(|&(id, _)| id.index());
+    assert_eq!(read, expected);
+}

@@ -244,6 +244,7 @@ What counts, for a tracked component:
 | `insert` replacing a value | no | yes |
 | `get_mut` | no | yes |
 | `&mut T` or `Option<&mut T>` in a query | no | yes, for every entity the query visits |
+| the same in a view system (`sys.world`), and its `get_mut` | no | yes |
 | `mark_changed::<T>(e)` | no | yes |
 | `get`, `has`, `&T` in a query, `count()`, `sort_by` | no | no |
 | `remove`, `despawn`, `clear` | goes to `removed::<T>()`; the entity's other components keep their state |
