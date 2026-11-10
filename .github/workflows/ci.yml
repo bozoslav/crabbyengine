@@ -569,7 +569,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: npm ci --prefix web/smoke --no-audit --no-fund
-      - run: node --test web/smoke
+      - run: node --test web/smoke/*.test.mjs
 
   # Runs web builds in headless browsers (web/smoke/README.md): startup,
   # asset fetch, fixed-step progress, a click, a nonblank canvas, and the
@@ -612,7 +612,7 @@ jobs:
           npm ci --prefix web/smoke --no-audit --no-fund
           node web/smoke/node_modules/playwright-core/cli.js install --with-deps chromium firefox webkit
       - name: Runner tests
-        run: node --test web/smoke
+        run: node --test web/smoke/*.test.mjs
       - name: Build the fixtures (2D, 3D with --features 3d, the complete game)
         run: |
           web/build.sh web_smoke
