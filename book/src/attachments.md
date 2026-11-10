@@ -2,7 +2,7 @@
 
 Health bars over units, turrets on tanks, selection rings, a carried flag:
 entities that should stay at some place relative to another entity. Give
-them an `Attached` component and add the built-in `follow_attachments`
+them an `Attached` component and add the built-in `systems::follow_attachments`
 system after the systems that move things:
 
 <div class="lang-pair">

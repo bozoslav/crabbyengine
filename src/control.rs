@@ -822,6 +822,11 @@ fn usize_param(params: &Value, name: &str, default: usize) -> Result<usize, Stri
     }
 }
 
+/// The `capabilities` answer as JSON text (see `Ctx::capabilities_json`).
+pub(crate) fn capabilities_json(ctx: &Ctx) -> String {
+    capabilities::report(ctx).to_string()
+}
+
 pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Value, String> {
     let err = |e: crate::ReflectError| e.to_string();
     if let Some(reason) = capabilities::unavailable(ctx, method) {
@@ -1306,6 +1311,28 @@ mod tests {
         handle(&mut ctx, "sim.speed", &json!({ "speed": 4.0 })).unwrap();
         assert_eq!(ctx.time.speed(), 4.0);
         assert!(handle(&mut ctx, "sim.speed", &json!({ "speed": -1.0 })).is_err());
+    }
+
+    #[test]
+    fn perf_reports_list_the_frames_gpu_uploads_and_reallocations() {
+        let mut ctx = ctx();
+        ctx.perf.last_render_stats.uploads = crate::GpuUploads {
+            instances: 640,
+            uniforms: 80,
+            buffers_created: 3,
+            reallocations: 2,
+            buffer_bytes_created: 4096,
+            ..Default::default()
+        };
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        let u = &perf["render"]["uploads"];
+        assert_eq!(u["bytes"], 720, "{u}");
+        assert_eq!(u["instances"], 640, "{u}");
+        assert_eq!(u["buffers_created"], 3, "{u}");
+        assert_eq!(u["reallocations"], 2, "{u}");
+        assert_eq!(u["buffer_bytes_created"], 4096, "{u}");
+        // Every count, by the name it has in Rust.
+        assert_eq!(u.as_object().unwrap().len(), 14, "{u}");
     }
 
     #[test]

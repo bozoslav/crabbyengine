@@ -21,7 +21,7 @@ use crate::{Ctx, Entity, Transform2D, World};
 ///     .sim_system(|ctx: &mut Ctx| {
 ///         ctx.world.query::<(&mut Transform2D, &Tank)>().for_each(|(t, _)| t.position.x += 1.0);
 ///     })
-///     .sim_system(follow_attachments) // after the systems that move things
+///     .sim_system(systems::follow_attachments) // after the systems that move things
 ///     .run_headless(10, |ctx| {
 ///         let tank = ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)), Tank));
 ///         let on_top = Attached::to(tank).offset(vec2(0.0, -4.0));

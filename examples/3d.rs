@@ -118,7 +118,7 @@ fn main() {
     } else {
         game.sim_system(spin)
     };
-    game.run(move |ctx| {
+    game.setup(move |ctx| {
         ctx.gfx.clear(Color::hex(0x9CC4E4)); // sky
         ctx.camera3d.far = 2000.0;
         ctx.lighting.sun_direction = vec3(-0.8, -0.6, -0.4); // late afternoon: long shadows
@@ -149,8 +149,7 @@ fn main() {
 
         // Spheres: rough to smooth left to right, plastic in front, metal behind.
         // One mesh, uploaded once; each sphere draws it with its own material.
-        let white = ctx.gfx.default_material();
-        let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.45, 32), white);
+        let ball = ctx.gfx.create_plain_mesh(&MeshData::sphere(0.45, 32));
         for row in 0..2 {
             for col in 0..6 {
                 let material = ctx.gfx.create_material(MaterialDesc {
@@ -169,7 +168,7 @@ fn main() {
         }
 
         // A field of spinning cubes, one mesh, tinted per cube.
-        let cube = ctx.gfx.create_mesh(&MeshData::cube(0.6), white);
+        let cube = ctx.gfx.create_plain_mesh(&MeshData::cube(0.6));
         let side = (cubes as f32).sqrt().ceil() as usize;
         let mut rng = Rng::new(3);
         for i in 0..cubes {
@@ -182,5 +181,6 @@ fn main() {
                 Spin(rng.range(-2.0, 2.0)),
             ));
         }
-    });
+    })
+    .run();
 }

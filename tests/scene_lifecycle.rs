@@ -419,7 +419,7 @@ fn attachments_follow_the_new_scenes_entities() {
                 ctx.load_scene("test-lifecycle-attach-b.json").unwrap();
             }
         })
-        .sim_system(follow_attachments)
+        .sim_system(systems::follow_attachments)
         .run_headless(4, |ctx| {
             let tank = ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)),));
             let other = ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)),));
@@ -533,7 +533,7 @@ mod navigation {
                     }
                 }
             })
-            .sim_system(step_navmesh3d)
+            .sim_system(systems::step_navmesh3d)
             .sim_system(|ctx: &mut Ctx| {
                 let z = ctx
                     .world

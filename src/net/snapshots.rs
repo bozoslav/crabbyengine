@@ -826,7 +826,7 @@ impl<T: Interpolate> SnapshotStream<T> {
 /// ```
 /// use ponko::*;
 /// let world = Game::new("remote", 1, 1)
-///     .system(apply_net_poses)
+///     .system(systems::apply_net_poses)
 ///     .run_headless(60, |ctx| {
 ///         let mut pose = NetPose::default();
 ///         pose.stream.push(0.0, 0.0, Pose::at(vec3(0.0, 0.0, 0.0)));
@@ -851,7 +851,7 @@ pub struct NetPose {
 ///
 /// ```
 /// use ponko::*;
-/// let _ = Game::new("remote", 1, 1).system(apply_net_poses);
+/// let _ = Game::new("remote", 1, 1).system(systems::apply_net_poses);
 /// ```
 #[cfg(feature = "3d")]
 pub fn apply_net_poses(ctx: &mut crate::Ctx) {

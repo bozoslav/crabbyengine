@@ -69,6 +69,9 @@ pub struct World {
     // Append-only: query matching caches use indices and len() as a generation.
     pub(crate) archetypes: Vec<Archetype>,
     pub(crate) query_matches: crate::query::MatchCache,
+    /// Reused work-plan storage of parallel queries.
+    #[cfg(feature = "parallel")]
+    pub(crate) par_plan: crate::query::ParPlan,
     archetype_by_ids: HashMap<Box<[ComponentId]>, usize>,
     pub(crate) entities: Entities,
     bundles: TypeMap<BundleInfo>,
@@ -177,6 +180,8 @@ impl World {
             by_name: HashMap::new(),
             archetypes: Vec::new(),
             query_matches: Default::default(),
+            #[cfg(feature = "parallel")]
+            par_plan: Default::default(),
             archetype_by_ids: HashMap::new(),
             entities: Entities::default(),
             bundles: TypeMap::default(),
@@ -414,6 +419,44 @@ impl World {
         self.component_id::<T>().is_some_and(|id| self.locate(e, id).is_some())
     }
 
+    /// Component `T` of several entities at once, all mutable: for work on
+    /// a pair (or a few) entities that needs both sides, such as resolving a
+    /// hit between two of them.
+    ///
+    /// `None` if any of them is dead or has no `T`, or if the same entity is
+    /// named twice (two `&mut` to one value can't exist).
+    ///
+    /// ```
+    /// use ponko_ecs::World;
+    ///
+    /// struct Health(i32);
+    /// let mut world = World::new();
+    /// let a = world.spawn((Health(10),));
+    /// let b = world.spawn((Health(4),));
+    ///
+    /// if let Some([a, b]) = world.get_many_mut::<Health, 2>([a, b]) {
+    ///     std::mem::swap(&mut a.0, &mut b.0);
+    /// }
+    /// assert_eq!(world.get::<Health>(a).unwrap().0, 4);
+    /// assert!(world.get_many_mut::<Health, 2>([a, a]).is_none());
+    /// ```
+    pub fn get_many_mut<T: Component, const N: usize>(&mut self, entities: [Entity; N]) -> Option<[&mut T; N]> {
+        let id = self.component_id::<T>()?;
+        for (i, &e) in entities.iter().enumerate() {
+            if entities[..i].contains(&e) {
+                return None;
+            }
+            self.locate(e, id)?;
+        }
+        let mut ptrs = [std::ptr::null_mut::<T>(); N];
+        for (ptr, e) in ptrs.iter_mut().zip(entities) {
+            *ptr = self.get_mut::<T>(e)?;
+        }
+        // SAFETY: the entities are alive and all different, so each pointer
+        // is to its own row; they stay valid while `self` is borrowed.
+        Some(ptrs.map(|ptr| unsafe { &mut *ptr }))
+    }
+
     /// Adds component `value` to `e`, replacing any existing `T`.
     /// Returns `false` (and drops `value`) if `e` is dead.
     pub fn insert<T: Component>(&mut self, e: Entity, value: T) -> bool {
@@ -566,6 +609,33 @@ impl World {
         f(scope.world, scope.value.as_mut().unwrap().downcast_mut::<R>().unwrap())
     }
 
+    /// Several resources at once, all mutable: `R` is a tuple of 1 to 8
+    /// different resource types, and the result is one `&mut` per type.
+    ///
+    /// ```
+    /// use ponko_ecs::World;
+    ///
+    /// struct Menu(Vec<&'static str>);
+    /// struct Session(&'static str);
+    /// let mut world = World::new();
+    /// world.insert_resource(Menu(Vec::new()));
+    /// world.insert_resource(Session("lobby"));
+    ///
+    /// let (menu, session) = world.resources_mut::<(Menu, Session)>();
+    /// menu.0.push(session.0);
+    /// session.0 = "playing";
+    /// assert_eq!(world.resource::<Menu>().0, ["lobby"]);
+    /// ```
+    ///
+    /// It doesn't allocate.
+    ///
+    /// # Panics
+    /// If a resource is missing, or `R` names the same type twice.
+    #[track_caller]
+    pub fn resources_mut<R: crate::borrow::ResourceTuple>(&mut self) -> R::Refs<'_> {
+        R::fetch(self)
+    }
+
     /// The resource of type `R`, if there is one.
     #[must_use]
     pub fn get_resource<R: Send + Sync + 'static>(&self) -> Option<&R> {
@@ -663,6 +733,70 @@ impl World {
     fn note_resource<R: 'static>(&self, write: bool) {
         self.recorder
             .note(|l| l.resource(TypeId::of::<R>(), std::any::type_name::<R>(), write));
+    }
+
+    /// The boxes of the typed resources `ids` (`names` are their type
+    /// names, for the panic messages of `caller`), all at once.
+    #[track_caller]
+    pub(crate) fn resource_boxes<const N: usize>(
+        &mut self,
+        caller: &str,
+        ids: [TypeId; N],
+        names: [&'static str; N],
+    ) -> [&mut (dyn Any + Send + Sync); N] {
+        for i in 0..N {
+            if ids[..i].contains(&ids[i]) {
+                resource_named_twice(caller, names[i]);
+            }
+            self.recorder.note(|l| l.resource(ids[i], names[i], true));
+        }
+        let mut i = 0;
+        self.resources.get_disjoint_mut(ids.each_ref()).map(|found| {
+            i += 1;
+            match found {
+                Some(found) => &mut **found,
+                None => missing_resource_named(names[i - 1]),
+            }
+        })
+    }
+
+    /// Checks that every resource of `R` is present and named once, and
+    /// records the access.
+    #[track_caller]
+    pub(crate) fn check_resources<R: crate::borrow::ResourceSet>(&self, caller: &str) {
+        // A tuple holds 8; nested tuples can name more.
+        const MAX: usize = 32;
+        let mut seen = [TypeId::of::<()>(); MAX];
+        let mut n = 0;
+        R::declare(&mut |id, name, write| {
+            if seen[..n].contains(&id) {
+                resource_named_twice(caller, name);
+            }
+            if !self.resources.contains_key(&id) {
+                missing_resource_named(name);
+            }
+            assert!(n < MAX, "{caller}: at most {MAX} resources");
+            seen[n] = id;
+            n += 1;
+            self.recorder.note(|l| l.resource(id, name, write));
+        });
+    }
+
+    /// Moves resource `R` out of the world, keeping its allocation.
+    #[track_caller]
+    pub(crate) fn take_resource_box<R: Send + Sync + 'static>(&mut self) -> Box<R> {
+        let value = self
+            .resources
+            .remove(&TypeId::of::<R>())
+            .unwrap_or_else(|| missing_resource::<R>());
+        value
+            .downcast()
+            .unwrap_or_else(|_| unreachable!("resources are stored by their type"))
+    }
+
+    /// Puts back a resource taken with [`take_resource_box`](Self::take_resource_box).
+    pub(crate) fn put_resource_box<R: Send + Sync + 'static>(&mut self, value: Box<R>) {
+        self.resources.insert(TypeId::of::<R>(), value);
     }
 
     // ---- access recording ---------------------------------------------------------
@@ -1185,6 +1319,18 @@ fn missing_resource<R>() -> ! {
         "no resource of type `{0}`; add one first with `world.insert_resource(...)`",
         std::any::type_name::<R>()
     )
+}
+
+#[cold]
+#[track_caller]
+fn missing_resource_named(name: &str) -> ! {
+    panic!("no resource of type `{name}`; add one first with `world.insert_resource(...)`")
+}
+
+#[cold]
+#[track_caller]
+fn resource_named_twice(caller: &str, name: &str) -> ! {
+    panic!("{caller}: resource `{name}` is named twice; each resource can be borrowed once")
 }
 
 fn two_mut<T>(v: &mut [T], a: usize, b: usize) -> (&mut T, &mut T) {

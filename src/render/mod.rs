@@ -103,7 +103,11 @@ pub struct RenderStats {
 
 /// Bytes the renderer uploaded to the GPU, by kind, and the buffers it
 /// created, over one frame: [`RenderStats::uploads`].
+///
+/// `#[non_exhaustive]`: new counts can arrive in a minor release. Read the
+/// fields; to make one (in a test), start from `GpuUploads::default()`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GpuUploads {
     /// 3D models' per-frame records (transforms and colors), for the
     /// camera, target cameras and probe views.
@@ -128,6 +132,13 @@ pub struct GpuUploads {
     pub other: u64,
     /// Buffers created (a buffer outgrown is replaced by a new one).
     pub buffers_created: u32,
+    /// Buffers and textures replaced by bigger ones because they were
+    /// outgrown (instances, sprites, particles, skinning, light grids and
+    /// the like). The new buffers are also in `buffers_created`; the
+    /// textures are not. They grow to the next power of two, so a scene
+    /// that keeps growing reallocates a logarithmic number of times, and a
+    /// steady one none.
+    pub reallocations: u32,
     /// The bytes of the buffers created.
     pub buffer_bytes_created: u64,
 }
@@ -145,6 +156,7 @@ impl GpuUploads {
         textures: 0,
         other: 0,
         buffers_created: 0,
+        reallocations: 0,
         buffer_bytes_created: 0,
     };
 
@@ -163,6 +175,7 @@ impl GpuUploads {
             "textures": self.textures,
             "other": self.other,
             "buffers_created": self.buffers_created,
+            "reallocations": self.reallocations,
             "buffer_bytes_created": self.buffer_bytes_created,
         })
     }
@@ -245,7 +258,7 @@ mod model_material_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod occlusion_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
-mod render_test_support;
+pub(crate) mod render_test_support;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod shadow_cache_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
@@ -260,6 +273,10 @@ mod ssr_render_test;
 mod target_effect_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod text3d_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod ui_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod upload_bench;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod upload_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]

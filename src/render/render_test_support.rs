@@ -59,7 +59,7 @@ use super::gpu::GpuTexture;
 use std::path::PathBuf;
 
 /// A device for one test, and what it runs on.
-pub(super) struct TestGpu {
+pub(crate) struct TestGpu {
     pub info: wgpu::AdapterInfo,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -129,7 +129,7 @@ pub(super) fn needs(device: &wgpu::Device, feature: crate::GpuFeature) -> bool {
 
 /// A device with default limits and no optional features, or `None` (the
 /// test returns early; see the module docs).
-pub(super) fn gpu() -> Option<TestGpu> {
+pub(crate) fn gpu() -> Option<TestGpu> {
     gpu_with(|_| Ok(wgpu::DeviceDescriptor::default()))
 }
 
@@ -492,7 +492,7 @@ fn fixtures() -> PathBuf {
 }
 
 /// Where failing comparisons leave their images.
-fn output_dir() -> PathBuf {
+pub(super) fn output_dir() -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target"))

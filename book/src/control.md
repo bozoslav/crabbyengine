@@ -126,7 +126,7 @@ supports, so a tool can check before sending a request that would fail:
 - `subsystems`: `renderer`, `inspector`, `gamepad`, `physics`, `physics3d`,
   `audio`, `networking`, `profiling`, `control`. Each says whether it's
   compiled in and active, with a `reason` when it isn't. What isn't known
-  is `null` with a reason (the GPU adapter isn't reported yet; physics
+  is `null` with a reason (the GPU adapter before a GPU opens; physics
   before the game loop starts), never a guess.
 - `methods`: every method with `available` and, when it would be refused
   here (`screenshot` in a headless game), the same `reason` the refusal
@@ -144,16 +144,27 @@ ctx.world.describe_component("Health", ValueSchema::object([
     ("max", ValueSchema::Number),
 ])).unwrap();
 // capabilities → { "name": "Health", "schema": { "status": "described",
-//   "json_schema": { "type": "object", "properties": { "current": { "type": "number" }, ... } } } }
+//   "json_schema": { "type": "object", "properties": { "current": { "type": "number" }, ... },
+//                    "required": ["current", "max"] } } }
 ```
+
+`ValueSchema` has a constructor for each kind of shape: `object` (fields
+not marked `optional` are `required`), `strict_object` (an object that
+refuses other fields: `"additionalProperties": false`), `enum_of` (one of
+some strings), `any_of` (one of some shapes, like an enum's variants that
+carry data), `array`, `optional`, and scalars such as `Number`, `Vec2` and
+`Entity`. The game itself can read the same answer with
+`ctx.capabilities_json()`.
 
 The MCP tool `instance_capabilities` returns this plus `mcp.tools`: each
 tool's availability for that game and server (a read-only server marks the
 tools that change games unavailable). Against an engine from before this
 method it reports `"supported": false` instead of guessing.
 
-The C and C++ APIs have no `describe_component` yet; their field-described
-components get schemas from `reflect_fields`.
+Components reflected from C and C++ with fields get schemas from those
+fields. `ponko_world_describe_component` / `world.describe_component`
+describe any other shape, and `ponko_ctx_capabilities_json` /
+`ctx.capabilities_json()` return the answer (see [Agents](agents.md)).
 
 ## Questions about many entities
 

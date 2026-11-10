@@ -32,8 +32,9 @@ fn main() {
     Game::new("Ponko: web smoke", 800, 600)
         .fixed_hz(60)
         .sim_system(move |_ctx| sim_ticks.set(sim_ticks.get() + 1))
-        .run(move |ctx| {
-            let mut smoke = smoke::Smoke::new("web_smoke");
+        .system(frame(ticks))
+        .setup(|ctx| {
+            let smoke = smoke::Smoke::new("web_smoke");
             // The one fetched asset; a missing file panics with its name.
             let crab = ctx.load_texture("crab.png");
             // Assets from a source the game adds: found by name, never fetched.
@@ -44,37 +45,60 @@ fn main() {
             );
             let dot = ctx.load_texture("embedded/dot.png");
             let stream = ctx.audio.try_load_stream("embedded/beep.wav").is_ok();
-            move |ctx: &mut Ctx| {
-                smoke.frame(
-                    ctx,
-                    ticks.get(),
-                    json!({
-                        "asset": [crab.width(), crab.height()],
-                        "source": [dot.width(), dot.height()],
-                        "stream": stream,
-                    }),
-                );
-                // The background changes with each click, so a click shows.
-                ctx.gfx.clear(if smoke.clicks().is_multiple_of(2) {
-                    Color::hex(0x1E2A38)
-                } else {
-                    Color::hex(0x2E4A28)
-                });
-                let size = ctx.window_size();
-                let t = ticks.get() as f32 / 60.0;
-                for i in 0..8 {
-                    let angle = t + i as f32 * std::f32::consts::TAU / 8.0;
-                    ctx.gfx.draw_ex(
-                        &crab,
-                        size / 2.0 + Vec2::from_angle(angle) * size.min_element() * 0.3,
-                        DrawParams {
-                            scale: Vec2::splat(3.0),
-                            ..Default::default()
-                        },
-                    );
-                }
-            }
+            ctx.world.insert_resource(Fixture {
+                smoke,
+                crab,
+                dot,
+                stream,
+            });
+        })
+        .run();
+}
+
+/// What setup made, for the frame system.
+struct Fixture {
+    smoke: smoke::Smoke,
+    crab: Texture,
+    dot: Texture,
+    stream: bool,
+}
+
+/// The frame system: publishes the state and draws.
+fn frame(ticks: Rc<Cell<u64>>) -> impl FnMut(&mut Ctx) {
+    move |ctx: &mut Ctx| {
+        // Taken out while it runs, as `Smoke::frame` needs all of `ctx`.
+        let mut fixture = ctx.world.remove_resource::<Fixture>().expect("made in setup");
+        let (crab, dot) = (fixture.crab, fixture.dot);
+        fixture.smoke.frame(
+            ctx,
+            ticks.get(),
+            json!({
+                "asset": [crab.width(), crab.height()],
+                "source": [dot.width(), dot.height()],
+                "stream": fixture.stream,
+            }),
+        );
+        // The background changes with each click, so a click shows.
+        ctx.gfx.clear(if fixture.smoke.clicks().is_multiple_of(2) {
+            Color::hex(0x1E2A38)
+        } else {
+            Color::hex(0x2E4A28)
         });
+        ctx.world.insert_resource(fixture);
+        let size = ctx.window_size();
+        let t = ticks.get() as f32 / 60.0;
+        for i in 0..8 {
+            let angle = t + i as f32 * std::f32::consts::TAU / 8.0;
+            ctx.gfx.draw_ex(
+                &crab,
+                size / 2.0 + Vec2::from_angle(angle) * size.min_element() * 0.3,
+                DrawParams {
+                    scale: Vec2::splat(3.0),
+                    ..Default::default()
+                },
+            );
+        }
+    }
 }
 
 /// A `width` x `height` PNG, made in memory.

@@ -594,10 +594,9 @@ pub struct Audio {
     pub(crate) backend: Backend,
     /// The game's sounds, by id, live or freed.
     pub(crate) sounds_live: crate::handle::LiveSet,
-    /// Sounds loaded from files, indexed by `loaded` values.
-    pub(crate) cached_sounds: Vec<Sound>,
-    /// Sounds already loaded, by origin: loading one again returns the same handle.
-    pub(crate) loaded: std::collections::HashMap<(crate::assets::Origin, crate::ctx::AssetKind), u64>,
+    /// Sounds and streams loaded from files, by origin: loading one again
+    /// returns the same handle.
+    pub(crate) loaded: crate::asset_cache::AssetCache<Sound>,
     /// Where named assets come from, shared with the other loading services.
     pub(crate) asset_sources: crate::assets::SharedSources,
     /// Hot reload: which files sounds came from.
@@ -643,10 +642,10 @@ impl Audio {
     /// });
     /// ```
     pub fn try_load(&mut self, path: &str) -> Result<Sound, crate::Error> {
-        let found = match self.asset_sources.lookup(path, |origin| {
-            let key = (origin.clone(), crate::ctx::AssetKind::Sound);
-            self.loaded.get(&key).map(|&i| self.cached_sounds[i as usize])
-        })? {
+        let found = match self
+            .loaded
+            .lookup(&self.asset_sources, path, crate::asset_cache::AssetKind::Sound)?
+        {
             crate::assets::Lookup::Cached(_, sound) => return Ok(sound),
             crate::assets::Lookup::Found(found) => found,
         };
@@ -660,11 +659,8 @@ impl Audio {
         })?;
         let sound = Sound { id, seconds };
         self.sounds_live.insert(id);
-        self.loaded.insert(
-            (origin.clone(), crate::ctx::AssetKind::Sound),
-            self.cached_sounds.len() as u64,
-        );
-        self.cached_sounds.push(sound);
+        self.loaded
+            .insert(origin.clone(), crate::asset_cache::AssetKind::Sound, sound);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher.watch(path, file, crate::hot_reload::Asset::Sound(id));
         }
@@ -736,11 +732,10 @@ impl Audio {
         if !self.sounds_live.remove(id) {
             return;
         }
-        let cached = &self.cached_sounds;
-        self.loaded.retain(|(_, kind), i| {
-            !matches!(kind, crate::ctx::AssetKind::Sound | crate::ctx::AssetKind::Stream)
-                || cached[*i as usize].id != id
-        });
+        {
+            use crate::asset_cache::AssetKind::{Sound, Stream};
+            self.loaded.release(&[Sound, Stream], |s| s.id == id);
+        }
         self.watcher
             .forget(|a| matches!(a, crate::hot_reload::Asset::Sound(s) if *s == id));
         self.backend.free(id);

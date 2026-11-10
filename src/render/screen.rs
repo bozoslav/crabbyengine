@@ -26,6 +26,8 @@ pub(super) struct Ao {
     /// Denoising into the screen-space reflections' image.
     blur_wide_pipeline: wgpu::RenderPipeline,
     uniform: wgpu::Buffer,
+    /// What `uniform` holds: only what changed is uploaded.
+    uniform_mirror: crate::render::traffic::Mirror,
     previous: Option<Mat4>,
     frame: u32,
     pub half: bool,
@@ -125,7 +127,7 @@ impl Ao {
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("GTAO"),
                 contents: bytemuck::bytes_of(&Settings::zeroed()),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | crate::render::traffic::MIRRORED,
             });
         Self {
             layout,
@@ -135,6 +137,7 @@ impl Ao {
             spatial_wide_pipeline,
             blur_wide_pipeline,
             uniform,
+            uniform_mirror: Default::default(),
             previous: None,
             frame: 0,
             half: false,
@@ -172,7 +175,9 @@ impl Ao {
         );
         let valid = self.signature == Some(signature);
         self.signature = Some(signature);
-        queue.uploading(Upload::Uniforms).write_buffer(
+        self.uniform_mirror.upload(
+            queue,
+            Upload::Uniforms,
             &self.uniform,
             0,
             bytemuck::bytes_of(&Settings {
@@ -336,3 +341,12 @@ impl Ao {
     }
 }
 use bytemuck::Zeroable;
+
+#[cfg(test)]
+impl Ao {
+    /// See `Renderer3D::check_mirrors`.
+    pub fn check_mirrors(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.uniform_mirror
+            .check(device, queue, &self.uniform, 0, "ambient occlusion settings");
+    }
+}

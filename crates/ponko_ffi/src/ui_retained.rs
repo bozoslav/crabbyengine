@@ -24,7 +24,7 @@ use ponko::ui_layout::{
     Position, Rect as Edges, RepetitionCount, Size, Style, TrackSizingFunction,
     style_helpers::{TaffyGridLine, TaffyGridSpan},
 };
-use ponko::{Color, Entity, Ui, UiEvent, UiId, UiPaint, UiPanel3D, UiTextAlign, UiWidget};
+use ponko::{Color, Entity, Ui, UiEvent, UiId, UiPaint, UiPanel3D, UiTextAlign, UiTheme, UiWidget};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::media::{font_from_c, font_to_c};
@@ -1804,21 +1804,12 @@ pub unsafe extern "C" fn crabby_ctx_ui_text(
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        if out_len.is_null() || (buffer.is_null() && capacity != 0) {
-            return Err(invalid("output is null"));
-        }
+        // Outputs first: a bad output is refused before the tree is touched,
+        // whatever the node.
+        check_output(buffer, capacity, out_len)?;
         with_ui(ctx, target, |ui| {
             let id = existing(ui, id)?;
-            let value = ui.text(id).unwrap_or("");
-            // SAFETY: validated non-null outputs; the caller supplies the stated capacity.
-            out_len.write(value.len());
-            if value.len() < capacity {
-                std::ptr::copy_nonoverlapping(value.as_ptr(), buffer.cast(), value.len());
-                buffer.add(value.len()).write(0);
-            } else if capacity != 0 {
-                buffer.write(0);
-            }
-            Ok(())
+            copy_string(ui.text(id).unwrap_or(""), buffer, capacity, out_len)
         })
     })
 }
@@ -2236,6 +2227,458 @@ pub unsafe extern "C" fn crabby_ctx_ui_insert_text(ctx: *mut CrabbyCtx, text: *c
     })
 }
 
+// ---- layout presets (Rust `UiLayout`) ------------------------------------------
+
+const fn points(value: f32) -> CrabbyUiLength {
+    length(CrabbyUiLengthKind::CRABBY_UI_LENGTH_POINTS, value)
+}
+const fn fraction(value: f32) -> CrabbyUiLength {
+    length(CrabbyUiLengthKind::CRABBY_UI_LENGTH_PERCENT, value)
+}
+fn column_layout() -> CrabbyUiLayout {
+    CrabbyUiLayout {
+        flex_direction: CrabbyUiFlexDirection::CRABBY_UI_FLEX_COLUMN as u32,
+        ..crabby_ui_layout_default()
+    }
+}
+
+/// A full-width row `height` units tall that keeps its height; its children
+/// go left to right (Rust `UiLayout::row`). Change `gap`, `padding` or
+/// `flex_grow` on the result as needed.
+/// ```
+/// let l = ponko_ffi::crabby_ui_layout_row(30.0);
+/// assert_eq!((l.height.value, l.width.value, l.flex_shrink), (30.0, 1.0, 0.0));
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_ui_layout_row(height: f32) -> CrabbyUiLayout {
+    CrabbyUiLayout {
+        width: fraction(1.0),
+        height: points(height),
+        flex_shrink: 0.0,
+        ..crabby_ui_layout_default()
+    }
+}
+
+/// A full-height column `width` units wide that keeps its width; its
+/// children stack top to bottom (Rust `UiLayout::column`).
+/// ```
+/// let l = ponko_ffi::crabby_ui_layout_column(200.0);
+/// assert_eq!((l.width.value, l.height.value), (200.0, 1.0));
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_ui_layout_column(width: f32) -> CrabbyUiLayout {
+    CrabbyUiLayout {
+        width: points(width),
+        height: fraction(1.0),
+        flex_shrink: 0.0,
+        ..column_layout()
+    }
+}
+
+/// All of the parent (the window, for a screen root), shrinking to the
+/// space its siblings leave; children stack top to bottom (Rust
+/// `UiLayout::fill`).
+/// ```
+/// let l = ponko_ffi::crabby_ui_layout_fill();
+/// assert_eq!((l.width.value, l.height.value), (1.0, 1.0));
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_ui_layout_fill() -> CrabbyUiLayout {
+    CrabbyUiLayout {
+        width: fraction(1.0),
+        height: fraction(1.0),
+        min_width: points(0.0),
+        min_height: points(0.0),
+        flex_shrink: 1.0,
+        ..column_layout()
+    }
+}
+
+/// Exactly `width` x `height` units, never shrunk; children stack top to
+/// bottom (Rust `UiLayout::fixed`).
+/// ```
+/// let l = ponko_ffi::crabby_ui_layout_fixed(220.0, 40.0);
+/// assert_eq!((l.width.value, l.height.value, l.flex_shrink), (220.0, 40.0, 0.0));
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_ui_layout_fixed(width: f32, height: f32) -> CrabbyUiLayout {
+    CrabbyUiLayout {
+        width: points(width),
+        height: points(height),
+        flex_shrink: 0.0,
+        ..column_layout()
+    }
+}
+
+/// Out of the flow, at `x`, `y` and `width` x `height` in fractions of the
+/// parent (of the window, for a screen root): a minimap in a corner, a HUD
+/// strip (Rust `UiLayout::anchored`).
+/// ```
+/// let l = ponko_ffi::crabby_ui_layout_anchored(0.75, 0.0, 0.25, 0.25);
+/// assert_eq!((l.inset.left.value, l.width.value), (0.75, 0.25));
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_ui_layout_anchored(x: f32, y: f32, width: f32, height: f32) -> CrabbyUiLayout {
+    CrabbyUiLayout {
+        position: CrabbyUiPosition::CRABBY_UI_POSITION_ABSOLUTE as u32,
+        inset: CrabbyUiSides {
+            top: fraction(y),
+            right: AUTO,
+            bottom: AUTO,
+            left: fraction(x),
+        },
+        width: fraction(width),
+        height: fraction(height),
+        ..column_layout()
+    }
+}
+
+/// `width` x `height` units in the middle of the parent (of the window, for
+/// a screen root): a dialog (Rust `UiLayout::centered`). To move it to a
+/// distance from the top, set `inset.top` to that many points and
+/// `margin.top` to zero.
+/// ```
+/// let l = ponko_ffi::crabby_ui_layout_centered(360.0, 180.0);
+/// assert_eq!((l.inset.left.value, l.margin.left.value), (0.5, -180.0));
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_ui_layout_centered(width: f32, height: f32) -> CrabbyUiLayout {
+    CrabbyUiLayout {
+        position: CrabbyUiPosition::CRABBY_UI_POSITION_ABSOLUTE as u32,
+        inset: CrabbyUiSides {
+            top: fraction(0.5),
+            right: AUTO,
+            bottom: AUTO,
+            left: fraction(0.5),
+        },
+        margin: CrabbyUiSides {
+            top: points(-height * 0.5),
+            right: AUTO,
+            bottom: AUTO,
+            left: points(-width * 0.5),
+        },
+        width: points(width),
+        height: points(height),
+        ..column_layout()
+    }
+}
+
+// ---- theme (Rust `UiTheme`) ----------------------------------------------------
+
+/// The colors and text defaults of a UI tree (Rust `UiTheme`). Every new
+/// node takes its paint from it; paint set on a node overrides it. The screen
+/// UI's immediate widgets (`crabby_ctx_ui_style`) follow it too. Start from
+/// `crabby_ui_theme_default()` or `crabby_ctx_ui_theme`.
+/// ```
+/// let t = ponko_ffi::crabby_ui_theme_default();
+/// assert!(t.title_size > t.text_size);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrabbyUiTheme {
+    /// Background of panels and scroll areas.
+    pub panel: CrabbyColor,
+    /// Background of controls: buttons, inputs, toggles, sliders.
+    pub control: CrabbyColor,
+    /// Control background while hovered or focused.
+    pub hover: CrabbyColor,
+    /// Control background while held.
+    pub pressed: CrabbyColor,
+    /// Background while disabled.
+    pub disabled: CrabbyColor,
+    /// Borders, focus ring, slider fill, checked toggles.
+    pub accent: CrabbyColor,
+    /// Text.
+    pub text: CrabbyColor,
+    /// Text of titles (`crabby_ctx_ui_add_title`).
+    pub title: CrabbyColor,
+    /// Font, from `crabby_ctx_load_font`; `{0}` is the built-in font.
+    pub font: CrabbyFont,
+    /// Line height of text in logical units.
+    pub text_size: f32,
+    /// Line height of titles in logical units.
+    pub title_size: f32,
+    /// Border thickness of controls in logical units.
+    pub border_width: f32,
+}
+
+fn theme_to_c(t: &UiTheme) -> CrabbyUiTheme {
+    CrabbyUiTheme {
+        panel: to_c(t.panel),
+        control: to_c(t.control),
+        hover: to_c(t.hover),
+        pressed: to_c(t.pressed),
+        disabled: to_c(t.disabled),
+        accent: to_c(t.accent),
+        text: to_c(t.text),
+        title: to_c(t.title),
+        font: font_to_c(t.font),
+        text_size: t.text_size,
+        title_size: t.title_size,
+        border_width: t.border_width,
+    }
+}
+
+fn theme_from_c(t: &CrabbyUiTheme) -> Result<UiTheme, Failure> {
+    let (text_size, title_size, border_width) = (num(t.text_size)?, num(t.title_size)?, num(t.border_width)?);
+    if text_size < 0.0 || title_size < 0.0 || border_width < 0.0 {
+        return Err(invalid("UI text sizes and border width must not be negative"));
+    }
+    Ok(UiTheme {
+        panel: to_c(t.panel),
+        control: to_c(t.control),
+        hover: to_c(t.hover),
+        pressed: to_c(t.pressed),
+        disabled: to_c(t.disabled),
+        accent: to_c(t.accent),
+        text: to_c(t.text),
+        title: to_c(t.title),
+        font: font_from_c(t.font),
+        text_size,
+        title_size,
+        border_width,
+    })
+}
+
+/// The engine's default theme (Rust `UiTheme::default()`).
+/// ```
+/// assert_eq!(ponko_ffi::crabby_ui_theme_default().font.id, 0);
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_ui_theme_default() -> CrabbyUiTheme {
+    theme_to_c(&UiTheme::default())
+}
+
+/// Writes the theme of a UI to `out_theme`.
+/// ```
+/// let mut t = ponko_ffi::crabby_ui_theme_default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_theme(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, &mut t) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `out_theme` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_theme(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    out_theme: *mut CrabbyUiTheme,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe { with_ui(ctx, target, |ui| out(out_theme, theme_to_c(ui.theme()))) })
+}
+
+/// Replaces the theme of a UI. New nodes take their paint from it; existing
+/// nodes follow it in every paint field still equal to the old theme's value
+/// and keep the fields set on them. On the screen's UI the immediate widgets'
+/// style follows the same way. Fonts must come from `crabby_ctx_load_font`.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_theme(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, std::ptr::null()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `theme` readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_set_theme(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    theme: *const CrabbyUiTheme,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let Some(theme) = theme.as_ref() else {
+            return Err(invalid("theme is null"));
+        };
+        let theme = theme_from_c(theme)?;
+        ctx_access(ctx, |c| {
+            check_font(c, theme.font)?;
+            ui_of(c, target)?.set_theme(theme);
+            Ok(())
+        })
+    })
+}
+
+/// Writes a node's resolved paint (its theme's paint plus what was set on
+/// it) to `out_paint`.
+/// ```
+/// let mut p = ponko_ffi::crabby_ui_paint_default();
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_paint(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, &mut p) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `out_paint` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_paint(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    out_paint: *mut CrabbyUiPaint,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            out(out_paint, paint_to_c(&ui.paint(id).unwrap_or_default()))
+        })
+    })
+}
+
+/// Adds a title under `parent`: a label in the theme's title color and size,
+/// which it keeps following when the theme changes (Rust `Ui::title`). A
+/// title needs a parent. See `crabby_ctx_ui_add_panel` for `layout` and
+/// `out_id`.
+/// ```
+/// let status = unsafe { ponko_ffi::crabby_ctx_ui_add_title(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, c"Shop".as_ptr(), std::ptr::null(), std::ptr::null_mut()) };
+/// assert_eq!(status as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `text` null or NUL-terminated; `layout` null or readable; `out_id` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_add_title(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    parent: u64,
+    text: *const c_char,
+    layout: *const CrabbyUiLayout,
+    out_id: *mut u64,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        if out_id.is_null() {
+            return Err(invalid("output is null"));
+        }
+        let (text, style) = (optional_text(text)?, style_or_default(layout)?);
+        with_ui(ctx, target, |ui| {
+            if parent == CRABBY_UI_NONE {
+                return Err(invalid("a title needs a parent"));
+            }
+            let parent = existing(ui, parent)?;
+            out(out_id, ui.title(parent, text).layout(style).id().bits())
+        })
+    })
+}
+
+// ---- names and clicks ----------------------------------------------------------
+
+/// Names a node so code that didn't build it finds it with
+/// `crabby_ctx_ui_find` (Rust `Ui::set_name`). A name belongs to one node of
+/// a UI: naming another node the same moves it there. An empty or null name
+/// takes the node's name off.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_set_name(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, c"shop.buy".as_ptr()) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `name` null or NUL-terminated.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_set_name(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    name: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let name = optional_text(name)?;
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            ui.set_name(id, name);
+            Ok(())
+        })
+    })
+}
+
+/// Writes the node named `name` to `out_id`, or `CRABBY_UI_NONE` when no
+/// node has that name (Rust `Ui::find`).
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_find(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, c"shop.buy".as_ptr(), &mut 0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `name` NUL-terminated; `out_id` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_find(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    name: *const c_char,
+    out_id: *mut u64,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let name = text(name)?;
+        with_ui(ctx, target, |ui| out(out_id, id_to_c(ui.find(name))))
+    })
+}
+
+/// Reads a node's name into `buffer` the way `crabby_ctx_ui_text` reads its
+/// text; a node without a name gives an empty string.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_name(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, 0, std::ptr::null_mut(), 0, &mut 0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `buffer` writable for `capacity` bytes (or null with
+/// capacity 0); `out_len` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_name(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        check_output(buffer, capacity, out_len)?;
+        with_ui(ctx, target, |ui| {
+            let id = existing(ui, id)?;
+            copy_string(ui.name(id).unwrap_or(""), buffer, capacity, out_len)
+        })
+    })
+}
+
+/// Takes the queued events and writes the node of the last click among them
+/// to `out_id`, or `CRABBY_UI_NONE` without one (Rust `Ui::take_click`). For
+/// screens that react only to clicks: the other events are dropped, so use
+/// `crabby_ctx_ui_next_event` on a screen whose inputs matter.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_ctx_ui_take_click(std::ptr::null_mut(), ponko_ffi::CRABBY_UI_SCREEN, &mut 0) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` null or live; `out_id` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_take_click(ctx: *mut CrabbyCtx, target: u64, out_id: *mut u64) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        if out_id.is_null() {
+            return Err(invalid("output is null"));
+        }
+        with_ui(ctx, target, |ui| out(out_id, id_to_c(ui.take_click())))
+    })
+}
+
+/// Refuses a null `out_len`, or a null `buffer` with a capacity.
+fn check_output(buffer: *mut c_char, capacity: usize, out_len: *mut usize) -> Result<(), Failure> {
+    if out_len.is_null() || (buffer.is_null() && capacity != 0) {
+        return Err(invalid("output is null"));
+    }
+    Ok(())
+}
+
+/// Writes `value` NUL-terminated into `buffer` of `capacity` bytes and its
+/// length to `out_len` (see `crabby_ctx_ui_text`).
+///
+/// # Safety
+/// `buffer` writable for `capacity` bytes, or null with capacity 0; `out_len` null or writable.
+unsafe fn copy_string(value: &str, buffer: *mut c_char, capacity: usize, out_len: *mut usize) -> Result<(), Failure> {
+    check_output(buffer, capacity, out_len)?;
+    // SAFETY: validated non-null outputs; the caller supplies the stated capacity.
+    unsafe {
+        out_len.write(value.len());
+        if value.len() < capacity {
+            std::ptr::copy_nonoverlapping(value.as_ptr(), buffer.cast(), value.len());
+            buffer.add(value.len()).write(0);
+        } else if capacity != 0 {
+            buffer.write(0);
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2322,6 +2765,45 @@ mod tests {
         assert_eq!(style.grid_template_columns.len(), 2);
         assert_eq!(style.grid_auto_rows.len(), 1);
         assert_eq!(style.grid_column.end, GridPlacement::from_span(2));
+    }
+
+    #[test]
+    fn layout_presets_are_the_rust_presets() {
+        use ponko::UiLayout;
+        let pairs = [
+            (crabby_ui_layout_row(20.0), UiLayout::row(20.0)),
+            (crabby_ui_layout_column(150.0), UiLayout::column(150.0)),
+            (crabby_ui_layout_fill(), UiLayout::fill()),
+            (crabby_ui_layout_fixed(220.0, 40.0), UiLayout::fixed(220.0, 40.0)),
+            (
+                crabby_ui_layout_anchored(0.1, 0.2, 0.3, 0.4),
+                UiLayout::anchored(0.1, 0.2, 0.3, 0.4),
+            ),
+            (
+                crabby_ui_layout_centered(360.0, 180.0),
+                UiLayout::centered(360.0, 180.0),
+            ),
+        ];
+        for (c, rust) in pairs {
+            // SAFETY: presets hold no pointers.
+            let style = unsafe { layout_style(&c) }.ok().unwrap();
+            assert_eq!(style, rust.into_style());
+        }
+    }
+
+    #[test]
+    fn themes_round_trip_and_reject_negative_sizes() {
+        let theme = UiTheme {
+            accent: Color::GREEN,
+            title_size: 40.0,
+            ..UiTheme::default()
+        };
+        assert_eq!(theme_from_c(&theme_to_c(&theme)).ok(), Some(theme));
+        let bad = CrabbyUiTheme {
+            text_size: -1.0,
+            ..crabby_ui_theme_default()
+        };
+        assert!(theme_from_c(&bad).is_err());
     }
 
     #[test]

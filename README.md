@@ -111,12 +111,13 @@ fn movement(ctx: &mut Ctx) {
 fn main() {
     let world = Game::new("Simulation", 1, 1)
         .sim_system(movement)
-        .run_headless(600, |ctx| {
+        .setup(|ctx| {
             ctx.world.spawn_batch((0..1_000_000).map(|i| (
                 Transform2D::at(vec2(i as f32, 0.0)),
                 Velocity(vec2(1.0, 0.0)),
             )));
-        });
+        })
+        .run_headless(600);
     assert_eq!(world.len(), 1_000_000);
 }
 ```

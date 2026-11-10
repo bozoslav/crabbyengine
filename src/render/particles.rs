@@ -1,9 +1,11 @@
 //! Instanced camera-facing particles, and the ribbons and lines drawn with
 //! them (strips built on the CPU). GPU storage grows only at high-water
-//! marks.
+//! marks, and each frame uploads only the parts that changed: particles
+//! that stood still, ribbons and lines that kept their shape and text that
+//! stayed the same cost nothing.
 use super::gpu::GpuTexture;
 use crate::ParticleBlend3D;
-use crate::render::traffic::{Counted, NewBuffer, Upload};
+use crate::render::traffic::{MAX_WRITES, Synced, Upload};
 use crate::three::particles::{ParticleFrame, ParticleInstance, ParticleRun};
 use crate::three::strips::{StripRun, StripVertex};
 use crate::three::text3d::TextVertex;
@@ -21,31 +23,30 @@ struct Camera {
 pub(super) struct Particles {
     alpha: wgpu::RenderPipeline,
     additive: wgpu::RenderPipeline,
-    camera: wgpu::Buffer,
+    camera: Synced,
     group: wgpu::BindGroup,
-    instances: wgpu::Buffer,
-    capacity: usize,
+    instances: Synced,
     pub runs: Vec<ParticleRun>,
     strip_alpha: wgpu::RenderPipeline,
     strip_additive: wgpu::RenderPipeline,
-    strip_vertices: wgpu::Buffer,
-    strip_capacity: usize,
+    strip_vertices: Synced,
     strip_runs: Vec<StripRun>,
     text: wgpu::RenderPipeline,
-    text_vertices: wgpu::Buffer,
-    text_capacity: usize,
+    text_vertices: Synced,
     /// How many text vertices to draw this frame, and their atlas.
     text_count: u32,
     text_atlas: Option<u32>,
 }
 impl Particles {
     pub fn new(device: &wgpu::Device, texture_layout: &wgpu::BindGroupLayout, samples: u32) -> Self {
-        let camera = device.new_buffer(&wgpu::BufferDescriptor {
-            label: Some("particle camera"),
-            size: size_of::<Camera>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let camera = Synced::new(
+            device,
+            "particle camera",
+            wgpu::BufferUsages::UNIFORM,
+            size_of::<Camera>(),
+            Upload::Uniforms,
+            (16, 4, MAX_WRITES),
+        );
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("particle camera"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -64,7 +65,7 @@ impl Particles {
             layout: &layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: camera.as_entire_binding(),
+                resource: camera.buffer().as_entire_binding(),
             }],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -152,17 +153,14 @@ impl Particles {
             additive: pipeline(&module, &particle_layout, additive),
             camera,
             group,
-            instances: buffer(device, 1),
-            capacity: 1,
+            instances: vertices::<ParticleInstance>(device, "particle instances", 1),
             runs: Vec::new(),
             strip_alpha: pipeline(&strip_module, &strip_layout, alpha),
             strip_additive: pipeline(&strip_module, &strip_layout, additive),
-            strip_vertices: strip_buffer(device, 6),
-            strip_capacity: 6,
+            strip_vertices: vertices::<StripVertex>(device, "strip vertices", 6),
             strip_runs: Vec::new(),
             text: pipeline(&text_module, &text_layout, alpha),
-            text_vertices: vertex_buffer(device, "3d text vertices", 6 * size_of::<TextVertex>()),
-            text_capacity: 6,
+            text_vertices: vertices::<TextVertex>(device, "3d text vertices", 6),
             text_count: 0,
             text_atlas: None,
         }
@@ -184,45 +182,40 @@ impl Particles {
         if !self.has_draws() {
             return;
         }
-        if frame.instances.len() > self.capacity {
-            self.capacity = frame.instances.len().next_power_of_two();
-            self.instances = buffer(device, self.capacity);
+        // The buffers are bound when drawn, so a replaced one needs no
+        // other rebinding.
+        for (buffer, data) in [
+            (&mut self.instances, bytemuck::cast_slice(&frame.instances)),
+            (&mut self.strip_vertices, bytemuck::cast_slice(&frame.strips.vertices)),
+            (&mut self.text_vertices, bytemuck::cast_slice(texts)),
+        ] {
+            if !data.is_empty() {
+                buffer.reserve(device, data.len());
+                buffer.write(queue, 0, data);
+            }
         }
-        if !frame.instances.is_empty() {
-            queue
-                .uploading(Upload::Other)
-                .write_buffer(&self.instances, 0, bytemuck::cast_slice(&frame.instances));
-        }
-        let strips = &frame.strips.vertices;
-        if strips.len() > self.strip_capacity {
-            self.strip_capacity = strips.len().next_power_of_two();
-            self.strip_vertices = strip_buffer(device, self.strip_capacity);
-        }
-        if !strips.is_empty() {
-            queue
-                .uploading(Upload::Other)
-                .write_buffer(&self.strip_vertices, 0, bytemuck::cast_slice(strips));
-        }
-        if texts.len() > self.text_capacity {
-            self.text_capacity = texts.len().next_power_of_two();
-            self.text_vertices =
-                vertex_buffer(device, "3d text vertices", self.text_capacity * size_of::<TextVertex>());
-        }
-        if !texts.is_empty() {
-            queue
-                .uploading(Upload::Other)
-                .write_buffer(&self.text_vertices, 0, bytemuck::cast_slice(texts));
-        }
-        queue.uploading(Upload::Uniforms).write_buffer(
-            &self.camera,
-            0,
-            bytemuck::bytes_of(&Camera {
-                view_proj: view_proj.to_cols_array_2d(),
-                right: frame.right,
-                up: frame.up,
-            }),
-        );
+        // Past the most the device holds (reported), nothing is drawn.
+        let fits = |buffer: &Synced, size: usize| (buffer.fits() / size) as u32;
+        let instances = fits(&self.instances, size_of::<ParticleInstance>());
+        clip(&mut self.runs, instances, |r| (&mut r.first, &mut r.count));
+        let strips = fits(&self.strip_vertices, size_of::<StripVertex>());
+        clip(&mut self.strip_runs, strips, |r| (&mut r.first, &mut r.count));
+        self.text_count = self.text_count.min(fits(&self.text_vertices, size_of::<TextVertex>()));
+        let camera = Camera {
+            view_proj: view_proj.to_cols_array_2d(),
+            right: frame.right,
+            up: frame.up,
+        };
+        self.camera.write(queue, 0, bytemuck::bytes_of(&camera));
     }
+    /// See `Renderer3D::check_mirrors`.
+    #[cfg(test)]
+    pub fn check_mirrors(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        for buffer in [&self.camera, &self.instances, &self.strip_vertices, &self.text_vertices] {
+            buffer.check(device, queue);
+        }
+    }
+
     /// Whether there are particles, ribbons, lines or text to draw.
     pub fn has_draws(&self) -> bool {
         !self.runs.is_empty() || !self.strip_runs.is_empty() || self.text_count > 0
@@ -246,7 +239,7 @@ impl Particles {
         };
         pass.set_bind_group(0, &self.group, &[]);
         if !self.strip_runs.is_empty() {
-            pass.set_vertex_buffer(0, self.strip_vertices.slice(..));
+            pass.set_vertex_buffer(0, self.strip_vertices.buffer().slice(..));
             for run in &self.strip_runs {
                 let Some(texture) = texture(run.texture) else {
                     continue;
@@ -268,13 +261,13 @@ impl Particles {
         {
             pass.set_pipeline(&self.text);
             pass.set_bind_group(1, &atlas.bind_group, &[]);
-            pass.set_vertex_buffer(0, self.text_vertices.slice(..));
+            pass.set_vertex_buffer(0, self.text_vertices.buffer().slice(..));
             pass.draw(0..self.text_count, 0..1);
         }
     }
 
     fn draw_particles(&self, pass: &mut wgpu::RenderPass<'_>, textures: &[GpuTexture], white: u32) {
-        pass.set_vertex_buffer(0, self.instances.slice(..));
+        pass.set_vertex_buffer(0, self.instances.buffer().slice(..));
         for run in &self.runs {
             let Some(texture) = textures
                 .get(run.texture.unwrap_or(white) as usize)
@@ -292,31 +285,30 @@ impl Particles {
         }
     }
 }
-fn vertex_buffer(device: &wgpu::Device, label: &str, bytes: usize) -> wgpu::Buffer {
-    device.new_buffer(&wgpu::BufferDescriptor {
-        label: Some(label),
-        size: bytes as u64,
-        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
+/// Shortens `runs` (each `first` and `count` of items) to the first `fits`
+/// items.
+fn clip<R>(runs: &mut Vec<R>, fits: u32, range: impl Fn(&mut R) -> (&mut u32, &mut u32)) {
+    runs.retain_mut(|r| {
+        let (first, count) = range(r);
+        *count = (*count).min(fits.saturating_sub(*first));
+        *count > 0
+    });
 }
 
-fn strip_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-    device.new_buffer(&wgpu::BufferDescriptor {
-        label: Some("strip vertices"),
-        size: (capacity * size_of::<StripVertex>()) as u64,
-        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
-}
-
-fn buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-    device.new_buffer(&wgpu::BufferDescriptor {
-        label: Some("particle instances"),
-        size: (capacity * size_of::<ParticleInstance>()) as u64,
-        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    })
+/// A vertex buffer for `capacity` `T`s, written one changed `T` at a time
+/// (with up to four unchanged ones between two changed ones along, and in
+/// at most [`MAX_WRITES`] writes a frame).
+fn vertices<T>(device: &wgpu::Device, label: &'static str, capacity: usize) -> Synced {
+    let size = size_of::<T>();
+    let usage = wgpu::BufferUsages::VERTEX;
+    Synced::new(
+        device,
+        label,
+        usage,
+        capacity * size,
+        Upload::Other,
+        (size, 4, MAX_WRITES),
+    )
 }
 
 #[cfg(test)]

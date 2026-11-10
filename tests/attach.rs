@@ -13,7 +13,7 @@ fn move_right(ctx: &mut Ctx) {
 fn game() -> Game {
     Game::new("attach", 1, 1)
         .sim_system(move_right)
-        .sim_system(follow_attachments)
+        .sim_system(systems::follow_attachments)
 }
 
 fn position(world: &World, e: Entity) -> Vec2 {
@@ -70,7 +70,7 @@ fn attachments_go_when_their_entity_goes_down_the_whole_chain() {
                 ctx.world.despawn(doomed);
             }
         })
-        .sim_system(follow_attachments)
+        .sim_system(systems::follow_attachments)
         .run_headless(3, |ctx| {
             let unit = ctx.world.spawn((Transform2D::default(),));
             let ring = ctx.world.spawn((Transform2D::default(), Attached::to(unit)));
@@ -126,7 +126,7 @@ fn turrets_ride_on_tanks() {
     let mut turret = None;
     let world = Game::new("tanks", 800, 600)
         .sim_system(drive)
-        .sim_system(follow_attachments) // after the systems that move things
+        .sim_system(systems::follow_attachments) // after the systems that move things
         .run_headless(10, |ctx| {
             let tank = ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)), Tank { speed: 1.0 }));
             let on_top = Attached::to(tank).offset(vec2(0.0, -4.0));

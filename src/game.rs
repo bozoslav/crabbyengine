@@ -12,11 +12,8 @@ mod window;
 
 use crate::control::{self, Control};
 use crate::ctx::Ctx;
-use crate::ecs::draw_sprites;
 use crate::perf::SystemTiming;
-use crate::sheet::animate_sprites;
-use crate::spatial::rebuild_spatial_grid;
-use crate::tilemap::draw_tilemaps;
+use crate::systems::{animate_sprites, draw_sprites, draw_tilemaps, rebuild_spatial_grid};
 use crate::time::{Clock, DEFAULT_FIXED_HZ, FrameTiming};
 
 /// Trackpads report scrolling in pixels; this many logical pixels count as one
@@ -46,11 +43,17 @@ pub enum Phase {
     SimLast,
     /// Per-frame gameplay, after the due simulation ticks.
     Frame,
-    /// Per-frame pose work after frame gameplay.
+    /// Per-frame pose work after frame gameplay. With the `3d` feature, the
+    /// built-in animator and particle updates ([`Systems::UPDATE_ANIMATORS`],
+    /// [`Systems::UPDATE_PARTICLES`]) run at the end of this phase, after
+    /// your systems in it.
     Animate,
     /// Per-frame work after animation and before drawing.
     Late,
-    /// Per-frame drawing after final positions are available.
+    /// Per-frame drawing after final positions are available. With the `3d`
+    /// feature, positional audio ([`Systems::UPDATE_AUDIO3D`]) runs at the
+    /// end of this phase, after the drawing systems, so sound follows where
+    /// everything ended up this frame.
     Draw,
 }
 
@@ -114,37 +117,79 @@ impl Systems {
     pub const FOLLOW_ATTACHMENTS: SystemId = SystemId(8);
     /// Navigation update, when explicitly registered.
     pub const STEP_NAVMESH3D: SystemId = SystemId(9);
+    /// Advances every [`Animator`](crate::Animator) and poses its skeleton
+    /// (feature `3d`). Stays at the end of [`Phase::Animate`].
+    pub const UPDATE_ANIMATORS: SystemId = SystemId(10);
+    /// Advances particle emitters and trails (feature `3d`). Stays at the
+    /// end of [`Phase::Animate`], after the animators.
+    pub const UPDATE_PARTICLES: SystemId = SystemId(11);
+    /// Moves positional sounds to this frame's listener and emitters
+    /// (feature `3d`). Stays at the end of [`Phase::Draw`], after the
+    /// drawing systems.
+    pub const UPDATE_AUDIO3D: SystemId = SystemId(12);
 }
 
-fn builtin_id(name: &str) -> Option<SystemId> {
+impl SystemId {
+    /// The id as a plain number, for C/C++ and tools. The [`Systems`]
+    /// constants keep their numbers; other ids are only valid in this run.
+    #[must_use]
+    pub fn to_bits(self) -> u32 {
+        self.0
+    }
+
+    /// An id from its number, as returned by [`to_bits`](Self::to_bits).
+    #[must_use]
+    pub fn from_bits(bits: u32) -> Self {
+        SystemId(bits)
+    }
+}
+
+/// The id of built-in system function `name` (a type name), with the name
+/// it is listed under: the old crate-root spellings count as the same system.
+fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
+    /// The function in `ponko::systems` and its old crate-root spelling.
+    macro_rules! both {
+        ($name:ident) => {{
+            #[allow(deprecated)]
+            let root = std::any::type_name_of_val(&crate::systems::at_root::$name);
+            [std::any::type_name_of_val(&crate::systems::$name), root]
+        }};
+    }
+    #[cfg(feature = "3d")]
+    let one = |name: &'static str| [name, name];
     let entries = [
-        (std::any::type_name_of_val(&animate_sprites), Systems::ANIMATE_SPRITES),
-        (std::any::type_name_of_val(&draw_tilemaps), Systems::DRAW_TILEMAPS),
-        (std::any::type_name_of_val(&draw_sprites), Systems::DRAW_SPRITES),
-        (
-            std::any::type_name_of_val(&rebuild_spatial_grid),
-            Systems::REBUILD_SPATIAL_GRID,
-        ),
-        (
-            std::any::type_name_of_val(&crate::follow_attachments),
-            Systems::FOLLOW_ATTACHMENTS,
-        ),
+        (both!(animate_sprites), Systems::ANIMATE_SPRITES),
+        (both!(draw_tilemaps), Systems::DRAW_TILEMAPS),
+        (both!(draw_sprites), Systems::DRAW_SPRITES),
+        (both!(rebuild_spatial_grid), Systems::REBUILD_SPATIAL_GRID),
+        (both!(follow_attachments), Systems::FOLLOW_ATTACHMENTS),
         #[cfg(feature = "physics")]
-        (std::any::type_name_of_val(&crate::step_physics), Systems::PHYSICS),
+        (both!(step_physics), Systems::PHYSICS),
         #[cfg(feature = "physics3d")]
-        (std::any::type_name_of_val(&crate::step_physics3d), Systems::PHYSICS3D),
+        (both!(step_physics3d), Systems::PHYSICS3D),
         #[cfg(feature = "physics3d")]
-        (
-            std::any::type_name_of_val(&crate::interpolate_physics3d),
-            Systems::INTERPOLATE_PHYSICS3D,
-        ),
+        (both!(interpolate_physics3d), Systems::INTERPOLATE_PHYSICS3D),
         #[cfg(feature = "navmesh")]
+        (both!(step_navmesh3d), Systems::STEP_NAVMESH3D),
+        #[cfg(feature = "3d")]
         (
-            std::any::type_name_of_val(&crate::step_navmesh3d),
-            Systems::STEP_NAVMESH3D,
+            one(std::any::type_name_of_val(&crate::systems::update_animators)),
+            Systems::UPDATE_ANIMATORS,
+        ),
+        #[cfg(feature = "3d")]
+        (
+            one(std::any::type_name_of_val(&crate::systems::update_particles)),
+            Systems::UPDATE_PARTICLES,
+        ),
+        #[cfg(feature = "3d")]
+        (
+            one(std::any::type_name_of_val(&crate::systems::update_audio3d)),
+            Systems::UPDATE_AUDIO3D,
         ),
     ];
-    entries.into_iter().find_map(|(n, id)| (n == name).then_some(id))
+    entries
+        .into_iter()
+        .find_map(|(names, id)| names.contains(&name).then_some((id, names[0])))
 }
 
 /// A game: a window plus the loop that drives your code.
@@ -227,7 +272,8 @@ type SetupFn = Box<dyn FnOnce(&mut Ctx)>;
 
 /// A game with stored startup callbacks and closure-free run methods.
 ///
-/// Returned by [`Game::setup`]. Configure systems and window options on `Game`
+/// Returned by [`Game::setup`], or by [`Game::configured`] for a game with
+/// no setup of its own. Configure systems and window options on `Game`
 /// first, then register one or more setup callbacks. This separate type lets
 /// existing `Game::run(setup)` calls keep compiling: Rust cannot overload
 /// inherent methods by argument count.
@@ -294,6 +340,9 @@ struct System {
     id: u32,
     /// Declared access from `add_with_access` or `add_view`; `None` is exclusive.
     access: Option<crate::SystemAccess>,
+    /// Stays at the end of its phase: systems added later go before it.
+    /// Set for the built-ins that must see what the phase's other systems did.
+    last: bool,
     /// Where this system last finished: its `Added` and `Changed` filters
     /// and `removed` report what happened after it.
     changes_seen: ChangesSeen,
@@ -404,19 +453,29 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
 impl System {
     fn new<F: FnMut(&mut Ctx) + 'static>(f: F) -> Self {
         let id = next_system_id();
+        let builtin = builtin_id(std::any::type_name::<F>());
         System {
             key: SystemId(id),
-            builtin: builtin_id(std::any::type_name::<F>()),
-            name: std::any::type_name::<F>(),
+            builtin: builtin.map(|b| b.0),
+            name: builtin.map_or(std::any::type_name::<F>(), |b| b.1),
             stage: Phase::AfterPhysics,
             run: hot(f),
             every: 1,
             phase: 0,
             id,
             access: None,
+            last: false,
             changes_seen: ChangesSeen::default(),
             enforced: false,
         }
+    }
+
+    /// A built-in that stays at the end of its phase.
+    #[cfg(feature = "3d")]
+    fn last<F: FnMut(&mut Ctx) + 'static>(f: F) -> Self {
+        let mut s = System::new(f);
+        s.last = true;
+        s
     }
 }
 
@@ -488,7 +547,8 @@ impl Game {
     /// Game::new("Space Crab", 1280, 720).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn new(title: impl Into<String>, width: u32, height: u32) -> Self {
-        Self {
+        #[cfg_attr(not(feature = "3d"), allow(unused_mut))]
+        let mut game = Self {
             setups: Vec::new(),
             title: title.into(),
             width,
@@ -518,7 +578,14 @@ impl Game {
             inspector: cfg!(debug_assertions),
             input_scenario: None,
             input_injection: false,
+        };
+        #[cfg(feature = "3d")]
+        {
+            game.insert_system(Phase::Animate, System::last(crate::systems::update_animators));
+            game.insert_system(Phase::Animate, System::last(crate::systems::update_particles));
+            game.insert_system(Phase::Draw, System::last(crate::systems::update_audio3d));
         }
+        game
     }
 
     /// Registers a system in an explicit execution phase.
@@ -670,8 +737,31 @@ impl Game {
         ticks: u32,
         system: impl FnMut(&mut Ctx) + 'static,
     ) -> Self {
+        self.named_add_system(phase, name, ticks, system);
+        self
+    }
+
+    /// For language bindings (the C API): [`named_add`](Self::named_add)
+    /// that returns the system's removal handle, like `add_system`.
+    #[doc(hidden)]
+    #[track_caller]
+    pub fn named_add_system(
+        &mut self,
+        phase: Phase,
+        name: &'static str,
+        ticks: u32,
+        system: impl FnMut(&mut Ctx) + 'static,
+    ) -> SystemId {
         let s = self.build_named_system(phase, name, ticks, system);
-        self.insert_system(phase, s);
+        self.insert_system(phase, s)
+    }
+
+    /// For language bindings (the C API): a startup callback on the builder
+    /// itself. It joins the same ordered queue as [`setup`](Self::setup) and
+    /// plugin setup, and runs before the closure passed to `run`.
+    #[doc(hidden)]
+    pub fn add_setup(mut self, setup: impl FnOnce(&mut Ctx) + 'static) -> Self {
+        self.setups.push(Box::new(setup));
         self
     }
 
@@ -709,7 +799,9 @@ impl Game {
             Phase::Late => &mut self.late_systems,
             Phase::Draw => &mut self.draw_systems,
         };
-        let index = systems.partition_point(|s| s.stage <= phase);
+        // At the end of the phase; before the built-ins that stay last in it.
+        let last = s.last;
+        let index = systems.partition_point(|x| x.stage < phase || (x.stage == phase && (last || !x.last)));
         systems.insert(index, s);
         id
     }
@@ -738,6 +830,30 @@ impl Game {
     /// ```
     pub fn setup(mut self, setup: impl FnOnce(&mut Ctx) + 'static) -> ConfiguredGame {
         self.setups.push(Box::new(setup));
+        ConfiguredGame { game: self }
+    }
+
+    /// The game as it is, with the closure-free `.run()` and
+    /// `.run_headless(ticks)` of [`ConfiguredGame`], for a game whose startup
+    /// is all in its plugins and systems (or that needs none). It adds no
+    /// setup; [`setup`](Self::setup) does the same with one.
+    ///
+    /// ```
+    /// use ponko::{Ctx, Game, Plugin};
+    /// struct Score(u32);
+    /// struct Scoring;
+    /// impl Plugin for Scoring {
+    ///     fn build(&self, game: Game) -> Game {
+    ///         game.sim_system(|ctx| ctx.world.resource_mut::<Score>().0 += 1)
+    ///     }
+    ///     fn setup(&self, ctx: &mut Ctx) {
+    ///         ctx.world.insert_resource(Score(0));
+    ///     }
+    /// }
+    /// let world = Game::new("Plugins only", 1, 1).plugin(Scoring).configured().run_headless(3);
+    /// assert_eq!(world.resource::<Score>().0, 3);
+    /// ```
+    pub fn configured(self) -> ConfiguredGame {
         ConfiguredGame { game: self }
     }
 
@@ -887,7 +1003,7 @@ impl Game {
     pub fn named_late_system(mut self, name: &'static str, system: impl FnMut(&mut Ctx) + 'static) -> Self {
         let mut s = System::new(system);
         s.name = name;
-        self.late_systems.push(s);
+        self.insert_system(Phase::Late, s);
         self
     }
 
@@ -896,17 +1012,20 @@ impl Game {
     pub fn named_system(mut self, name: &'static str, system: impl FnMut(&mut Ctx) + 'static) -> Self {
         let mut s = System::new(system);
         s.name = name;
-        s.stage = Phase::Frame;
-        let index = self.systems.partition_point(|s| s.stage <= Phase::Frame);
-        self.systems.insert(index, s);
+        self.insert_system(Phase::Frame, s);
         self
     }
 
-    /// For language bindings (the C API): removes every system named `name`
-    /// (Rust systems are named by their path, e.g. `ponko::ecs::draw_sprites`).
-    /// Returns how many were removed.
+    /// Removes every system named `name` (Rust systems are named by their
+    /// path, e.g. `ponko::ecs::draw_sprites`). Returns how many were removed.
     #[doc(hidden)]
+    #[deprecated(note = "use `Game::remove` with a `SystemId`: a `Systems` constant for a built-in, \
+                         or the id `Game::add_system` returned")]
     pub fn remove_named_system(&mut self, name: &str) -> usize {
+        self.remove_named(name)
+    }
+
+    fn remove_named(&mut self, name: &str) -> usize {
         let ids: Vec<_> = self
             .sim_systems
             .iter()
@@ -923,6 +1042,26 @@ impl Game {
         count
     }
 
+    /// How many registrations `id` names: 1 for an id from
+    /// [`add_system`](Self::add_system) that is still registered, the number
+    /// of instances for a [`Systems`] constant, 0 if there is none.
+    ///
+    /// ```
+    /// use ponko::{Game, Systems};
+    /// let game = Game::new("t", 1, 1);
+    /// assert_eq!(game.system_count(Systems::DRAW_SPRITES), 1);
+    /// assert_eq!(game.remove(Systems::DRAW_SPRITES).system_count(Systems::DRAW_SPRITES), 0);
+    /// ```
+    #[must_use]
+    pub fn system_count(&self, id: SystemId) -> usize {
+        (self.sim_systems.iter())
+            .chain(&self.systems)
+            .chain(&self.late_systems)
+            .chain(&self.draw_systems)
+            .filter(|s| s.key == id || s.builtin == Some(id))
+            .count()
+    }
+
     /// Turns on 2D physics (feature `physics`): every entity with a
     /// [`RigidBody`](crate::RigidBody), a [`Collider`](crate::Collider) and a
     /// [`Transform2D`](crate::Transform2D) is simulated each tick, pulled by
@@ -930,7 +1069,7 @@ impl Game {
     /// [`CollisionStarted`](crate::CollisionStarted) events; `ctx.physics`
     /// casts rays and finds overlaps.
     ///
-    /// The step is the built-in [`step_physics`](crate::step_physics) sim
+    /// The step is the built-in [`step_physics`](crate::systems::step_physics) sim
     /// system in [`Phase::Physics`], independent of builder call order.
     /// Use [`Phase::BeforePhysics`] for work that must run before the step.
     ///
@@ -949,7 +1088,7 @@ impl Game {
     pub fn physics(mut self, gravity: Vec2) -> Self {
         self.gravity = Some(gravity);
         if !self.sim_systems.iter().any(|s| s.builtin == Some(Systems::PHYSICS)) {
-            self = self.add(Phase::Physics, crate::step_physics);
+            self = self.add(Phase::Physics, crate::systems::step_physics);
         }
         self
     }
@@ -965,9 +1104,9 @@ impl Game {
     /// The simulation runs at [`PHYSICS3D_HZ`](crate::PHYSICS3D_HZ) (50)
     /// ticks per second unless [`fixed_hz`](Self::fixed_hz) chose a rate;
     /// in a window, moving bodies are drawn blended between ticks
-    /// ([`interpolate_physics3d`](crate::interpolate_physics3d), a
+    /// ([`interpolate_physics3d`](crate::systems::interpolate_physics3d), a
     /// `Frame` system). The step is the built-in
-    /// [`step_physics3d`](crate::step_physics3d) sim system, removable and
+    /// [`step_physics3d`](crate::systems::step_physics3d) sim system, removable and
     /// registered in [`Phase::Physics`], independent of builder call order.
     /// Use [`Phase::BeforePhysics`] for work that must run before the step.
     ///
@@ -989,14 +1128,14 @@ impl Game {
             self.fixed_hz = crate::PHYSICS3D_HZ;
         }
         if !self.sim_systems.iter().any(|s| s.builtin == Some(Systems::PHYSICS3D)) {
-            self = self.add(Phase::Physics, crate::step_physics3d);
+            self = self.add(Phase::Physics, crate::systems::step_physics3d);
         }
         if !self
             .systems
             .iter()
             .any(|s| s.builtin == Some(Systems::INTERPOLATE_PHYSICS3D))
         {
-            self = self.add(Phase::Frame, crate::interpolate_physics3d);
+            self = self.add(Phase::Frame, crate::systems::interpolate_physics3d);
         }
         self
     }
@@ -1039,8 +1178,13 @@ impl Game {
         self.add(Phase::Frame, system)
     }
 
-    /// Removes a system that was added before, including the built-in
-    /// [`draw_sprites`]. Pass the same function you added.
+    /// Removes a system by the function that was added.
+    ///
+    /// Deprecated: remove by id instead. [`Game::remove`] takes a [`Systems`]
+    /// constant for a built-in (`Systems::DRAW_SPRITES`), or the
+    /// [`SystemId`] that [`Game::add_system`] returned for one of yours.
+    /// Unlike this method, it also tells apart two closures of the same
+    /// type, and removing an absent system is not an error.
     ///
     /// # Panics
     /// If no such system was added.
@@ -1048,17 +1192,24 @@ impl Game {
     /// ```no_run
     /// # use ponko::*;
     /// // A headless-style simulation that draws nothing by itself.
-    /// Game::new("Sim", 800, 600).remove_system(draw_sprites).run(|_| {});
+    /// Game::new("Sim", 800, 600).remove(Systems::DRAW_SPRITES).run(|_| {});
     /// ```
+    #[deprecated(note = "use `Game::remove` with a `SystemId`: a `Systems` constant for a built-in \
+                         (`Systems::DRAW_SPRITES`), or the id `Game::add_system` returned")]
     #[track_caller]
     pub fn remove_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
         drop(system);
         let name = std::any::type_name::<F>();
-        assert_ne!(
-            self.remove_named_system(name),
-            0,
-            "Game::remove_system: no system `{name}` was added"
-        );
+        // A built-in is found by its id, whichever spelling named it.
+        let removed = match builtin_id(name) {
+            Some((id, _)) => {
+                let n = self.system_count(id);
+                self.remove_id(id);
+                n
+            }
+            None => self.remove_named(name),
+        };
+        assert_ne!(removed, 0, "Game::remove_system: no system `{name}` was added");
         self
     }
 
@@ -1224,6 +1375,40 @@ impl Game {
         self
     }
 
+    /// Constructs the context both loops run: the services from the game's
+    /// configuration (seed, hot reload, spatial grid, physics worlds, the
+    /// lockstep session), before setup and before the control endpoint
+    /// starts. `headless` is a run without a window or GPU.
+    ///
+    /// Window and headless runs differ only in what `ctx.gfx` and
+    /// `ctx.audio` do with a missing device; every other service is built
+    /// the same way in both.
+    fn build_ctx(&mut self, headless: bool) -> Ctx {
+        let fixed_dt = Clock::new(self.fixed_hz).fixed_dt();
+        let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
+        ctx.seed = self.seed;
+        if headless {
+            ctx.set_headless(true);
+        }
+        ctx.assets.watcher.set_on(crate::hot_reload::enabled(self.hot_reload));
+        if let Some(cell) = self.spatial_cell {
+            ctx.spatial = crate::SpatialGrid::new(cell);
+        }
+        #[cfg(feature = "physics")]
+        if let Some(gravity) = self.gravity {
+            crate::physics::start(&mut ctx, gravity);
+        }
+        #[cfg(feature = "physics3d")]
+        if let Some(gravity) = self.gravity3d {
+            crate::physics3d::start(&mut ctx, gravity);
+        }
+        if let Some(net) = self.net.take() {
+            ctx.net = net;
+        }
+        ctx.net.begin(ctx.seed);
+        ctx
+    }
+
     /// Starts the control endpoint if it's enabled, and applies `PONKO_START_PAUSED`.
     fn start_control(&self, ctx: &mut Ctx, headless: bool) -> Option<Control> {
         if control::env_flag(control::ENV_START_PAUSED) {
@@ -1330,9 +1515,12 @@ impl Game {
     }
 
     /// One frame of game logic: simulation systems `fixed_steps` times, then
-    /// frame systems, then built-in drawing. Commands are applied after every system.
+    /// frame, late and draw systems. The retained UI updates first
+    /// (`Ctx::frame_begin_services`); every other engine step of a frame is
+    /// a system: animators and particles end `Animate`, positional audio ends
+    /// `Draw`. Commands are applied after every system.
     fn run_systems(&mut self, ctx: &mut Ctx, fixed_steps: u32) {
-        ctx.update_retained_ui();
+        ctx.frame_begin_services();
         self.begin_timings(ctx);
         ctx.set_in_sim(true);
         for _ in 0..fixed_steps {
@@ -1348,19 +1536,12 @@ impl Game {
         for (i, s) in self.systems.iter_mut().enumerate() {
             run_one(s, ctx, n_sim + i);
         }
-        #[cfg(feature = "3d")]
-        ctx.update_animators();
-        #[cfg(feature = "3d")]
-        ctx.update_particles();
         for (i, s) in self.late_systems.iter_mut().enumerate() {
             run_one(s, ctx, n_sim + n_frame + i);
         }
         for (i, s) in self.draw_systems.iter_mut().enumerate() {
             run_one(s, ctx, n_sim + n_frame + self.late_systems.len() + i);
         }
-        // Positional sound follows where everything ended up this frame.
-        #[cfg(feature = "3d")]
-        crate::audio::update_audio3d(ctx);
         end_timings(ctx);
         let frame = self.systems.iter().chain(&self.late_systems).chain(&self.draw_systems);
         forget_seen_removals(ctx, self.sim_systems.iter().chain(frame));
@@ -1470,8 +1651,11 @@ impl Game {
     /// let y = world.query::<&Pos>().iter().next().unwrap().0;
     /// assert!((y - 90.0).abs() < 1e-3);
     /// ```
-    /// For larger programs, prefer [`setup`](Self::setup) and the returned
-    /// [`ConfiguredGame::run_headless`] without a closure.
+    ///
+    /// For a game with systems, put the startup code on the builder with
+    /// [`setup`](Self::setup) and call [`ConfiguredGame::run_headless`],
+    /// which takes no closure. This form remains for short tests, and for a
+    /// setup that borrows a local variable, which a stored callback can't.
     pub fn run_headless<S, U>(self, ticks: u64, setup: S) -> World
     where
         S: FnOnce(&mut Ctx) -> U,
@@ -1531,26 +1715,8 @@ impl Game {
     {
         connect_hotpatch();
         let fixed_dt = Clock::new(self.fixed_hz).fixed_dt();
-        let mut ctx = Ctx::new(fixed_dt, Vec2::new(self.width as f32, self.height as f32));
-        ctx.seed = self.seed;
-        ctx.set_headless(true);
-        ctx.assets.watcher.set_on(crate::hot_reload::enabled(self.hot_reload));
-        if let Some(cell) = self.spatial_cell {
-            ctx.spatial = crate::SpatialGrid::new(cell);
-        }
-        #[cfg(feature = "physics")]
-        if let Some(gravity) = self.gravity {
-            crate::physics::start(&mut ctx, gravity);
-        }
-        #[cfg(feature = "physics3d")]
-        if let Some(gravity) = self.gravity3d {
-            crate::physics3d::start(&mut ctx, gravity);
-        }
+        let mut ctx = self.build_ctx(true);
         let control = self.start_control(&mut ctx, true);
-        if let Some(net) = self.net.take() {
-            ctx.net = net;
-        }
-        ctx.net.begin(ctx.seed);
         ctx.set_in_setup(true);
         run_setups(std::mem::take(&mut self.setups), &mut ctx);
         drop(setup(&mut ctx).into_frame_fn()); // no frames, so no frame closure
@@ -1592,8 +1758,7 @@ impl Game {
             ran += 1;
             let tick_start = Instant::now();
             ctx.begin_frame(timing);
-            ctx.reload_changed_assets();
-            ctx.pump_streaming();
+            ctx.frame_prepare_services();
             self.begin_timings(&mut ctx);
             ctx.set_in_sim(true);
             self.run_sim_tick(&mut ctx);
@@ -1622,8 +1787,9 @@ impl Game {
     /// are your game state; no structs or traits required.
     ///
     /// Each frame runs: simulation systems (`ctx.time.fixed_steps()` times), then
-    /// frame systems, then the closure from `setup`, then the built-in
-    /// [`draw_sprites`], then rendering.
+    /// frame systems, then the closure from `setup`, then the
+    /// [`Phase::Animate`], [`Phase::Late`] and [`Phase::Draw`] systems (the
+    /// built-in [`draw_sprites`] is one of the last), then rendering.
     ///
     /// ```no_run
     /// # use ponko::*;
@@ -1638,12 +1804,15 @@ impl Game {
     /// });
     /// ```
     ///
+    /// This form is for small programs. For a game with systems, put the
+    /// startup code on the builder with [`setup`](Self::setup) and call
+    /// [`ConfiguredGame::run`], which takes no closure: setup callbacks can
+    /// be chosen at run time and are ordered with [`Plugin`] setups.
+    ///
     /// # Panics
     /// If the operating system refuses to create the event loop or window,
     /// or no usable GPU is found, and always when the `window` feature is
     /// off.
-    /// For larger programs, prefer [`setup`](Self::setup) followed by
-    /// [`ConfiguredGame::run`] with no closure.
     pub fn run<S, U>(self, setup: S)
     where
         S: FnOnce(&mut Ctx) -> U,
@@ -1684,11 +1853,14 @@ mod tests {
         log(ctx, "sim_a");
     }
 
-    /// A game without the built-in drawing systems.
+    /// A game without the systems `Game::new` adds by itself.
     fn bare(game: Game) -> Game {
-        game.remove_system(animate_sprites)
-            .remove_system(draw_tilemaps)
-            .remove_system(draw_sprites)
+        game.remove(Systems::ANIMATE_SPRITES)
+            .remove(Systems::DRAW_TILEMAPS)
+            .remove(Systems::DRAW_SPRITES)
+            .remove(Systems::UPDATE_ANIMATORS)
+            .remove(Systems::UPDATE_PARTICLES)
+            .remove(Systems::UPDATE_AUDIO3D)
     }
     fn frame_b(ctx: &mut Ctx) {
         log(ctx, "frame_b");
@@ -1712,8 +1884,13 @@ mod tests {
         ));
         let mut ctx = ctx();
         let entity = ctx.world.spawn((skeleton, animator));
-        let mut game = bare(Game::new("t", 1, 1))
+        // Keeps the built-in animator system; it has nothing to draw.
+        let mut game = Game::new("t", 1, 1)
             .system(move |ctx| ctx.world.get_mut::<Skeleton>(entity).unwrap().pose[0].position.x = 7.0)
+            .add(Phase::Animate, move |ctx| {
+                // Before the built-in animators, although it was added after them.
+                assert_eq!(ctx.world.get::<Skeleton>(entity).unwrap().pose[0].position.x, 7.0);
+            })
             .late_system(move |ctx| {
                 let s = ctx.world.get_mut::<Skeleton>(entity).unwrap();
                 assert_eq!(s.pose[0].position.x, 0.0);
@@ -1741,6 +1918,7 @@ mod tests {
         );
         assert_eq!(ctx.perf.system_timings().len(), 3);
         assert!(ctx.perf.system_timings()[1].name.ends_with("::late"));
+        #[allow(deprecated)]
         let game = game.remove_system(late);
         assert!(game.late_systems.is_empty());
     }
@@ -1772,8 +1950,11 @@ mod tests {
             );
         }
         game.add_system(Phase::Draw, draw_sprites);
+        assert_eq!(game.system_count(Systems::DRAW_SPRITES), 2);
         game = game.remove(Systems::DRAW_SPRITES);
-        assert_eq!(game.draw_systems.len(), 2);
+        assert_eq!(game.system_count(Systems::DRAW_SPRITES), 0);
+        assert_eq!(game.system_count(Systems::ANIMATE_SPRITES), 1);
+        assert_eq!(game.system_count(Systems::DRAW_TILEMAPS), 1);
         let game = game
             .spatial_grid(32.0)
             .remove(Systems::REBUILD_SPATIAL_GRID)
@@ -1816,7 +1997,7 @@ mod tests {
         let mut game = Game::new("t", 1, 1)
             .sim_system(sim_a)
             .system(frame_b)
-            .remove_system(draw_sprites);
+            .remove(Systems::DRAW_SPRITES);
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 2);
         assert_eq!(
@@ -1842,15 +2023,121 @@ mod tests {
     }
 
     #[test]
-    fn remove_system_removes_builtin_and_user_systems() {
-        let game = bare(Game::new("t", 1, 1).sim_system(sim_a)).remove_system(sim_a);
-        assert!(game.systems.is_empty() && game.sim_systems.is_empty() && game.draw_systems.is_empty());
+    #[allow(deprecated)]
+    fn deprecated_remove_system_still_removes_builtin_and_user_systems() {
+        // Built-ins are found under their `ponko::systems` path and under
+        // the old crate-root spelling.
+        let game = Game::new("t", 1, 1)
+            .sim_system(sim_a)
+            .remove_system(sim_a)
+            .remove_system(crate::systems::animate_sprites)
+            .remove_system(crate::draw_tilemaps)
+            .remove_system(crate::draw_sprites);
+        assert!(game.sim_systems.is_empty());
+        // Only positional audio (feature `3d`) is left in `Draw`.
+        assert!(
+            game.draw_systems
+                .iter()
+                .all(|s| s.builtin == Some(Systems::UPDATE_AUDIO3D))
+        );
+        let mut game = Game::new("t", 1, 1);
+        assert_eq!(game.remove_named_system(std::any::type_name_of_val(&draw_sprites)), 1);
+        assert_eq!(game.system_count(Systems::DRAW_SPRITES), 0);
     }
 
     #[test]
+    #[allow(deprecated)]
     #[should_panic(expected = "no system")]
     fn removing_unknown_system_panics() {
         let _ = Game::new("t", 1, 1).remove_system(sim_a);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn a_builtin_added_by_its_old_root_name_is_the_same_system() {
+        let game = Game::new("t", 1, 1)
+            .remove(Systems::DRAW_SPRITES)
+            .add(Phase::Draw, crate::draw_sprites);
+        assert_eq!(game.system_count(Systems::DRAW_SPRITES), 1);
+        let listed = game
+            .draw_systems
+            .iter()
+            .find(|s| s.builtin == Some(Systems::DRAW_SPRITES));
+        assert_eq!(
+            listed.unwrap().name,
+            std::any::type_name_of_val(&crate::systems::draw_sprites)
+        );
+    }
+
+    /// The built-in frame steps are systems: listed, timed and removable.
+    #[cfg(feature = "3d")]
+    #[test]
+    fn animators_particles_and_positional_audio_are_listed_as_systems() {
+        fn user_draw(ctx: &mut Ctx) {
+            log(ctx, "draw");
+        }
+        fn late(ctx: &mut Ctx) {
+            log(ctx, "late");
+        }
+        // Added after the built-ins: they still end their phase.
+        let mut game = Game::new("t", 1, 1)
+            .late_system(late)
+            .add(Phase::Animate, |ctx| log(ctx, "animate"))
+            .add(Phase::Draw, user_draw);
+        let mut ctx = ctx();
+        game.run_systems(&mut ctx, 0);
+        let listed: Vec<&str> = ctx
+            .perf
+            .system_timings()
+            .iter()
+            .map(|t| t.name.rsplit("::").next().unwrap())
+            .collect();
+        // User systems of a phase run before the built-ins that end it.
+        let at = |name: &str| {
+            listed
+                .iter()
+                .position(|n| *n == name)
+                .unwrap_or_else(|| panic!("{name}: {listed:?}"))
+        };
+        let user_animate = listed.iter().position(|n| n.contains("closure")).unwrap();
+        assert!(user_animate < at("update_animators"));
+        assert!(at("update_animators") < at("update_particles"));
+        assert!(at("update_particles") < at("late"), "{listed:?}");
+        // Positional audio follows the late and the drawing systems.
+        assert!(at("late") < at("update_audio3d"), "{listed:?}");
+        assert!(at("draw_sprites") < at("update_audio3d"), "{listed:?}");
+        assert!(at("user_draw") < at("update_audio3d"), "{listed:?}");
+        assert_eq!(listed.last(), Some(&"update_audio3d"), "{listed:?}");
+        let phases: Vec<_> = (game.systems.iter().chain(&game.late_systems))
+            .map(|s| (s.stage, s.last))
+            .collect();
+        assert_eq!(
+            phases,
+            [
+                (Phase::Animate, false),
+                (Phase::Animate, true),
+                (Phase::Animate, true),
+                (Phase::Late, false),
+            ]
+        );
+        let last_draw = game.draw_systems.last().unwrap();
+        assert_eq!((last_draw.stage, last_draw.last), (Phase::Draw, true));
+        assert_eq!(last_draw.builtin, Some(Systems::UPDATE_AUDIO3D));
+        assert_eq!(
+            ctx.world.resource::<Log>().0,
+            ["animate dt=0.0000", "late dt=0.0000", "draw dt=0.0000"]
+        );
+
+        // Removed like any other system, and placed again where the game wants it.
+        let game = game
+            .remove(Systems::UPDATE_PARTICLES)
+            .remove(Systems::UPDATE_AUDIO3D)
+            .add(Phase::Late, crate::systems::update_audio3d);
+        assert_eq!(game.system_count(Systems::UPDATE_PARTICLES), 0);
+        assert_eq!(game.system_count(Systems::UPDATE_ANIMATORS), 1);
+        assert_eq!(game.system_count(Systems::UPDATE_AUDIO3D), 1);
+        assert_eq!(game.late_systems.last().unwrap().builtin, Some(Systems::UPDATE_AUDIO3D));
+        assert_ne!(game.draw_systems.last().unwrap().builtin, Some(Systems::UPDATE_AUDIO3D));
     }
 
     #[test]
@@ -1907,10 +2194,9 @@ mod tests {
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 0);
         let order: Vec<_> = ctx.perf.system_timings().iter().map(|t| t.name).collect();
-        assert!(
-            order[0].ends_with("move_right") && order.last().unwrap().ends_with("draw_sprites"),
-            "{order:?}"
-        );
+        let at = |name: &str| order.iter().position(|n| n.ends_with(name)).unwrap();
+        assert!(order[0].ends_with("move_right"), "{order:?}");
+        assert!(at("move_right") < at("draw_sprites"), "{order:?}");
     }
 
     #[test]
@@ -1930,5 +2216,7 @@ mod tests {
 
 #[cfg(test)]
 mod barrier_tests;
+#[cfg(test)]
+mod phase_order_tests;
 #[cfg(test)]
 mod scenario_tests;

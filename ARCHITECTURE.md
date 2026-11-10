@@ -39,20 +39,21 @@ The engine is integrated rather than a collection of independent service crates.
 
 [Game](src/game.rs) stores systems as `FnMut(&mut Ctx)` callbacks. `run_systems`, `run_sim_tick` and `run_one` define the current order:
 
-1. Update retained UI and begin frame timings.
+1. Update retained UI (`Ctx::frame_begin_services`) and begin frame timings.
 2. Run the due fixed simulation ticks. Lockstep can defer a tick until peer inputs are ready while the windowed frame continues.
-3. Run `Frame` systems, then explicitly registered `Animate` systems.
-4. Update built-in animation and particles when 3D is enabled.
-5. Run late systems, then drawing systems; update positional audio.
-6. The windowed application prepares and submits rendering through [src/game](src/game) and [src/render](src/render).
+3. Run `Frame` systems, then `Animate` systems; with 3D, the built-in systems `update_animators` and `update_particles` end `Animate`.
+4. Run late systems, then drawing systems; with 3D, the built-in system `update_audio3d` (positional audio) ends `Draw`.
+5. The windowed application prepares and submits rendering through [src/game](src/game) and [src/render](src/render).
+
+Step 1, and the asset reload and streaming step before it (`Ctx::frame_prepare_services`, called by both loops), are the engine's own service steps: named methods of `Ctx` in [src/ctx.rs](src/ctx.rs), called only from the loops, so each one's place in the frame is one line. Built-in animation, particles and positional audio are ordinary systems ([src/systems.rs](src/systems.rs), ids in `Systems`): listed in timings, removable with `Game::remove` and re-addable elsewhere, and pinned at the end of their phase (`System::last`) so a game's own systems in that phase run before them whenever they were added. [Service ownership and lifecycle](#service-ownership-and-lifecycle) lists every service.
 
 `Game::add(Phase, system)` selects an explicit sequential bucket. Each fixed tick
 runs `Input`, `BeforePhysics`, `Physics`, `AfterPhysics`, then `SimLast`. Legacy
 `sim_system` registrations use `AfterPhysics`; installing physics always places
 the step in `Physics`, independent of builder order. Legacy `system` and
 `late_system` map to `Frame` and `Late`; built-in drawing uses `Draw`. Within a
-phase registration order is preserved. Automatic 3D animation, particles and
-positional audio remain hard-coded boundaries in this first phase API stage.
+phase registration order is preserved, except that the pinned built-ins above
+stay at the end of `Animate` and `Draw`.
 
 `run_one` applies deferred commands after each system. `sim_system_every` schedules a system at a tick interval and phase; it is simulation frequency control, not parallel scheduling. Events have reader/lifetime machinery in [src/events.rs](src/events.rs). Changes to barriers must preserve the currently observable command and event behavior.
 
@@ -60,13 +61,60 @@ positional audio remain hard-coded boundaries in this first phase API stage.
 
 Fixed steps and seeded random streams support repeatability, but deterministic gameplay also depends on user code, math and physics configuration. Follow [STABILITY.md](STABILITY.md), including its same-build lockstep and physics restrictions. A future scheduler must define ordering and reductions before claiming equivalent determinism.
 
+## Service ownership and lifecycle
+
+`Ctx` is one struct that holds the services as public fields; it is built once per run and lives until the loop ends. The loops (`Game::run_systems`, `run_sim_tick`, [window.rs](src/game/window.rs) and `run_headless_inner` in [game.rs](src/game.rs)) are the only callers of the engine steps below. Nothing here is a public registry: games reach services through the fields.
+
+### Lifecycle, in order
+
+Rows follow `window.rs`'s frame (`run_frame`) and `run_headless_inner`'s tick.
+
+| Stage | Windowed run (`Game::run`) | Headless run (`Game::run_headless`) |
+|---|---|---|
+| Construct | `Game::build_ctx(false)`: `Ctx::new`, then seed, hot reload, spatial grid, physics worlds, lockstep session (`Net::begin`) | `Game::build_ctx(true)`: the same, with the headless flag set (size-only textures, silent audio, dropped draws) |
+| Control endpoint | `Game::start_control` (the loop owns the `Control`, not `Ctx`) | The same, and, with the endpoint on, a paused game waits for tools to step it |
+| Renderer | `App::start` attaches `ctx.gfx.renderer` once the window and GPU exist; setup waits for it | None: `ctx.gfx.renderer` stays `None` |
+| Setup | `run_setups` (plugins and builder setups in order), then the `run` closure; `Ctx::set_in_setup`; commands applied when setup returns | The same; the closure's returned frame function is dropped (there are no frames) |
+| Fixed tick | `Game::run_sim_tick`, which ends with `Ctx::advance_tick` | The same, exactly one per loop iteration; sim speed ignored |
+| Frame start | `Ctx::begin_frame`, gamepad poll, `Ctx::frame_prepare_services` (asset reload, streaming), then `Graphics::apply_shader_checks` (3D) | `Ctx::begin_frame` and `frame_prepare_services` each tick; no gamepad poll, no shader checks |
+| Frame | `Game::run_systems`: UI, ticks, frame and animate systems (ending with animation and particles), late, draw (ending with positional audio) | Not run: no UI update, no frame, animate, late or draw systems, so no animation, particles or positional audio |
+| End of systems | `Input::end_frame`, then the inspector overlay; a quit request or cursor-lock change is handled here | `end_timings`, `Graphics::discard_draws`, `Input::end_frame` |
+| Render | `Ctx::draw_perf_hud`, `Ctx::render_frame`, `Ctx::record_frame` | None: no renderer, nothing to draw or time |
+| Teardown | The event loop returns; `App` and its `Ctx` drop | `run_headless` returns the world (`std::mem::take(&mut ctx.world)`); the rest of the `Ctx` drops |
+
+### Who owns each service
+
+Every service is constructed by `Ctx::new` unless the row says otherwise. "Scope" is the state's lifetime: **world** state is replaced when a scene or world is loaded (`Ctx::replace_world_now` in [scene.rs](src/scene.rs): the world and its commands, the physics body mapping, 3D panel focus and temporal history); **game** state lives for the whole run; **device** state belongs to the window, GPU or sound output and is absent headless.
+
+| `Ctx` field | Scope | Tick entry | Frame entry | Teardown owner |
+|---|---|---|---|---|
+| `world`, `commands` | world | Systems through `run_one`; `Ctx::apply_commands` after each system | The same for frame, late and draw systems; `draw_world_sprites` queues sprites | Headless: returned by `run_headless`. Windowed: dropped with `Ctx` |
+| `events` | game | `Ctx::advance_tick` sets the tick | `Ctx::begin_frame` (`Events::begin_frame`) | Dropped with `Ctx` |
+| `time` | game | `Ctx::advance_tick`; `set_in_sim` and `set_sim_steps` around systems | `frame_timing`, then `Ctx::begin_frame` | Dropped with `Ctx` |
+| `input` | game (gamepads: device) | Read by systems; scenario hooks `scenario_begin_tick` / `scenario_end_tick` in `run_sim_tick` | Window events and the gamepad poll feed it; `Input::end_frame` clears the frame's edges | Dropped with `Ctx` |
+| `spatial` | game | `rebuild_spatial_grid`, an `Input`-phase system added by `Game::spatial_grid`; cell size set in `build_ctx` | None | Dropped with `Ctx` |
+| `physics`, `physics3d` | game; body mapping is world | The step system in `Phase::Physics`; `physics::start` / `physics3d::start` in `build_ctx` | None | Dropped with `Ctx` |
+| `net` | game | `Net::ready` gates each tick, `Net::end_tick` after it; `Net::begin` in `build_ctx` | The frame runs on while a tick waits | `Drop for Net` (keeps resending the last inputs for a short time) |
+| Render state: `camera`, `camera3d`, `lighting`, `sky`, `post`, `lod`, `effects`, `target_effects`, `target_cameras`, `compute_passes` | game | None | Read by `Ctx::render_frame` and `prepare_3d` | Dropped with `Ctx` |
+| `ui` (retained tree, immediate widgets) | game | None | `frame_begin_services` (`update_retained_ui`) before any system; the immediate widgets reset in `begin_frame`; drawn in `render_frame` (`draw_retained_ui`) | Dropped with `Ctx` |
+| `gfx` | device (renderer); game (caches, draw lists) | None; headless discards draws | `begin_frame` (text and frame number); `render_frame` submits and clears the lists | Dropped with `Ctx`; the renderer drops with it. `Ctx::free` releases one texture or font |
+| `audio` | device (backend); game (loaded sounds) | None | Positional update by the `update_audio3d` system at the end of `Draw` (3D only); the backend opens its device on first load or play | Dropped with `Ctx`; headless and the no-`audio` build never open a device |
+| `assets` (sources, hot reload) | game | `frame_prepare_services` each tick, headless included | The same, each frame | Dropped with `Ctx` |
+| `perf` | game | `begin_timings`, `end_timings` | The same, plus `record_frame` and `end_perf_frame` | `Drop for PerfState` stops scope collection |
+
+`gfx` and `audio` keep what they have loaded in one private owner, `AssetCache` ([asset_cache.rs](src/asset_cache.rs)): handles by where a name was found (`Origin`) and which loader ran (`AssetKind`), so loading a name again returns the same handle and never reads an asset source again. The services pass in the shared asset sources and the hot-reload watch list; the cache owns neither. Freed handles are forgotten through `AssetCache::release`.
+
+Services share state through values the constructor hands them (the asset sources and the watch list are shared handles; sprite and mesh file names are shared with the world) and through `Ctx::sync_services`, which runs before each system and hands services what they answer from: the camera for the 3D listener, the mouse for the UI pointer, the tick for residency. A service never borrows `Ctx`, so game code can hold several fields at once.
+
+Out of scope here: the loops' own state (`Clock`, `Control`, the window and the inspector overlay live in the loop, not in `Ctx`), a parallel scheduler ([#138](https://github.com/ponkoengine/ponko/issues/138)) and command or event barriers ([#137](https://github.com/ponkoengine/ponko/issues/137), [#146](https://github.com/ponkoengine/ponko/issues/146)).
+
 ## ECS storage and queries
 
 [World](crates/ponko_ecs/src/world.rs) manages generational entity locations and archetypes. [Storage](crates/ponko_ecs/src/storage.rs) holds type-erased component columns; structural changes move entities between layouts. This custom storage remains the baseline, rather than a candidate for replacement without measurements.
 
 [Typed queries](crates/ponko_ecs/src/query.rs) resolve component IDs, validate aliasing, match archetypes and fetch row references. They support shared/mutable references, optional components, entity IDs, tuples up to eight elements and bounded `with`/`without` filtering. Matching scans archetypes by default. `Query::cached()` opts into world-owned matching indices with incremental generation invalidation; small worlds and saturated signature caches fall back to scanning. Column pointers are resolved under each live query borrow. [Change detection](crates/ponko_ecs/src/change.rs) is opt-in per component: a tracked column keeps two tick stamps per row behind its values, `Added`/`Changed` filters pick rows inside matching archetypes, and removals go to a per-component log. A world that tracks nothing keeps no stamps and runs the same loops as before.
 
-Rayon-backed query methods partition disjoint rows. Indexed parallel operations preserve their documented output ordering, but callers must make per-entity work safe and avoid nondeterministic external effects. `par_collect_into` currently documents leaked initialized results when its mapper panics; [#142](https://github.com/ponkoengine/ponko/issues/142) tracks cleanup and structural panic safety. See [queries tests](crates/ponko_ecs/tests/queries.rs), [parallel tests](crates/ponko_ecs/tests/parallel.rs), and [#133](https://github.com/ponkoengine/ponko/issues/133) for the broader proposed differential/Miri suite.
+Rayon-backed query methods partition disjoint rows: the calling thread lines up the matching rows of every archetype in query order (a reused, world-owned work plan), then one parallel pass runs chunks of it, so many small archetypes share chunks and big ones split. Indexed parallel operations preserve their documented output ordering, but callers must make per-entity work safe and avoid nondeterministic external effects. If the mapper of `par_collect_into` panics, the results already written are dropped and the output is left empty with its allocation kept ([#142](https://github.com/ponkoengine/ponko/issues/142)). For queries over small archetypes only, the choice between the calling thread and the pool depends on the measured time of the first rows, so the threads and order that run per-entity side effects are not reproducible; indexed positions and collected order are. See [queries tests](crates/ponko_ecs/tests/queries.rs), [parallel tests](crates/ponko_ecs/tests/parallel.rs), and [#133](https://github.com/ponkoengine/ponko/issues/133) for the broader proposed differential/Miri suite.
 
 ## Scene preparation and renderer
 
@@ -82,7 +130,7 @@ The intended evolution is smaller resource, pipeline, preparation and encoding r
 
 ## Assets, scenes and lifetime
 
-[assets.rs](src/assets.rs) resolves native files relative to asset roots; web startup prefetches an asset index into memory. [Textures](src/texture.rs), [3D assets](src/three/api.rs), [glTF](src/three/gltf.rs), and [hot reload](src/hot_reload.rs) connect decoded data and handles to runtime resources. [Scenes and prefabs](src/scene.rs) use reflected JSON components; [reflection](src/reflect.rs) is also shared by inspection and world serialization. Saving an ECS world is not a promise to serialize every external service or GPU allocation automatically.
+[assets.rs](src/assets.rs) resolves native files relative to asset roots; [asset_cache.rs](src/asset_cache.rs) remembers what each name loaded as; web startup prefetches an asset index into memory. [Textures](src/texture.rs), [3D assets](src/three/api.rs), [glTF](src/three/gltf.rs), and [hot reload](src/hot_reload.rs) connect decoded data and handles to runtime resources. [Scenes and prefabs](src/scene.rs) use reflected JSON components; [reflection](src/reflect.rs) is also shared by inspection and world serialization. Saving an ECS world is not a promise to serialize every external service or GPU allocation automatically.
 
 [Job and CellStreamer](src/stream.rs) support background CPU work and cell load/drop decisions. GPU creation belongs on the game's thread after preparation. Browser jobs execute synchronously in the current implementation. These helpers are useful building blocks, but do not constitute automatic texture mip/mesh residency management with a GPU memory budget; that remains [#154](https://github.com/ponkoengine/ponko/issues/154). Ownership/leak diagnostics remain an audit area in [#161](https://github.com/ponkoengine/ponko/issues/161).
 
@@ -96,7 +144,7 @@ The intended evolution is smaller resource, pipeline, preparation and encoding r
 
 ## Headless execution and AI observation
 
-`Game::run_headless` creates a context, runs setup and fixed simulation ticks, and returns the world. Frame, late and drawing systems do not run. With default features disabled, [render/none.rs](src/render/none.rs) supplies the no-GPU path; the audio API can remain silent. Headless behavior tests therefore complement GPU tests rather than substitute for them.
+`Game::run_headless` creates a context, runs setup and fixed simulation ticks, and returns the world. Frame, late and drawing systems do not run, and neither do the retained-UI update or positional audio, which belong to frames. Changed asset files and streaming still run each tick. The lifecycle table above compares both loops stage by stage. With default features disabled, [render/none.rs](src/render/none.rs) supplies the no-GPU path; the audio API can remain silent. Headless behavior tests therefore complement GPU tests rather than substitute for them.
 
 The opt-in [control endpoint](src/control.rs) exposes runtime operations at engine-controlled boundaries. [MCP tools](crates/ponko_mcp/src/lib.rs) discover instances, launch games, inspect/edit reflected state, operate scenes, pause/step, capture screenshots, retrieve logs and performance information. Reflection registration determines what component data tools can understand. [Profiling](src/perf_report.rs), [scope instrumentation](src/scope.rs) and [GPU timers](src/render/timer.rs) provide existing evidence sources.
 

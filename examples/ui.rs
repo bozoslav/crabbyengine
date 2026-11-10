@@ -117,7 +117,7 @@ fn main() {
         .system(camera_controls)
         .system(scene)
         .system(hud)
-        .run(|ctx| {
+        .setup(|ctx| {
             let crab = ctx.load_texture("crab.png");
             let plop = plop(ctx);
             ctx.world.insert_resource(Scene {
@@ -126,5 +126,6 @@ fn main() {
                 follow: false,
                 dropped: 0,
             });
-        });
+        })
+        .run();
 }

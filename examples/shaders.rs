@@ -68,7 +68,7 @@ fn main() {
                 ctx.quit();
             }
         })
-        .run(|ctx| {
+        .setup(|ctx| {
             ctx.gfx.clear(Color::hex(0x9CC4E4));
             ctx.camera3d.position = vec3(0.0, 4.0, 11.0);
             ctx.camera3d.look_at(vec3(0.0, 0.5, 0.0));
@@ -159,7 +159,8 @@ fn main() {
             let ball = ctx.gfx.create_mesh(&MeshData::sphere(1.0, 48), ball);
             ctx.world
                 .spawn((Transform3D::at(vec3(3.5, 1.0, 1.0)), Model::new(ball)));
-        });
+        })
+        .run();
 }
 
 /// Splits every triangle into four, `times` times.

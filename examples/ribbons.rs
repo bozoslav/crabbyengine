@@ -64,5 +64,5 @@ fn setup(ctx: &mut Ctx) {
 }
 
 fn main() {
-    Game::new("Ribbons", 960, 640).system(fly).run(setup);
+    Game::new("Ribbons", 960, 640).system(fly).setup(setup).run();
 }

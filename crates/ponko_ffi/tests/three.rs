@@ -1311,3 +1311,159 @@ fn lod_groups_are_set_and_picked_from_c() {
     }
     assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 5]);
 }
+
+unsafe extern "C" fn overrides(ctx: *mut CrabbyCtx, user: *mut c_void) {
+    unsafe {
+        let errors = &mut *user.cast::<Vec<CrabbyStatus>>();
+        let w = crabby_ctx_world(ctx);
+        let (mut transform, mut model) = (0, 0);
+        assert_eq!(crabby_transform3d_component(w, &mut transform), CRABBY_OK);
+        assert_eq!(crabby_model_component(w, &mut model), CRABBY_OK);
+        let desc = crabby_material_desc(WHITE);
+        let (mut gold, mut wood) = (CrabbyMaterial::default(), CrabbyMaterial::default());
+        assert_eq!(crabby_ctx_create_material(ctx, &desc, &mut gold), CRABBY_OK);
+        assert_eq!(crabby_ctx_create_material(ctx, &desc, &mut wood), CRABBY_OK);
+
+        // A mesh with no material of its own.
+        let cube = crabby_mesh_data_cube(1.0);
+        let mut mesh = CrabbyMesh::default();
+        assert_eq!(crabby_ctx_create_plain_mesh(ctx, cube, &mut mesh), CRABBY_OK);
+        let mut live = false;
+        assert_eq!(crabby_ctx_is_mesh_live(ctx, mesh, &mut live), CRABBY_OK);
+        assert!(live);
+        errors.push(crabby_ctx_create_plain_mesh(ctx, null(), &mut mesh));
+        errors.push(crabby_ctx_create_plain_mesh(ctx, cube, null_mut()));
+        crabby_mesh_data_free(cube);
+
+        let t = crabby_transform3d_at(v3(0.0, 0.0, 0.0));
+        let m = crabby_model(mesh);
+        let parts = [value(transform, &t), value(model, &m)];
+        let mut e = 0;
+        assert_eq!(crabby_spawn(w, parts.as_ptr(), 2, &mut e), CRABBY_OK);
+
+        // The whole-model material: set, read, taken off.
+        let (mut found, mut has) = (CrabbyMaterial::default(), true);
+        assert_eq!(crabby_ctx_model_material(ctx, e, &mut found, &mut has), CRABBY_OK);
+        assert!(!has);
+        assert_eq!(crabby_ctx_set_model_material(ctx, e, gold, true), CRABBY_OK);
+        assert_eq!(crabby_ctx_model_material(ctx, e, &mut found, &mut has), CRABBY_OK);
+        assert!(has && found.id == gold.id);
+        assert_eq!(crabby_ctx_model_material(ctx, e, null_mut(), &mut has), CRABBY_OK);
+        assert!(has);
+        assert_eq!(crabby_ctx_set_model_material(ctx, e, gold, false), CRABBY_OK);
+        assert_eq!(crabby_ctx_model_material(ctx, e, &mut found, &mut has), CRABBY_OK);
+        assert!(!has);
+        // Taking it off needs no live material.
+        assert_eq!(
+            crabby_ctx_set_model_material(ctx, e, CrabbyMaterial { id: 99 }, false),
+            CRABBY_OK
+        );
+        errors.push(crabby_ctx_set_model_material(ctx, e, CrabbyMaterial { id: 99 }, true));
+        errors.push(crabby_ctx_set_model_material(ctx, u64::MAX, gold, true));
+        errors.push(crabby_ctx_model_material(ctx, u64::MAX, &mut found, &mut has));
+        errors.push(crabby_ctx_model_material(ctx, e, &mut found, null_mut()));
+
+        // The per-part list: the last of a part listed twice, sorted by part.
+        let numbers = [3u32, 0, 3];
+        let materials = [gold, wood, wood];
+        assert_eq!(
+            crabby_ctx_set_model_part_materials(ctx, e, numbers.as_ptr(), materials.as_ptr(), 3),
+            CRABBY_OK
+        );
+        let mut n = 0;
+        assert_eq!(
+            crabby_ctx_model_part_materials(ctx, e, null_mut(), null_mut(), 0, &mut n),
+            CRABBY_OK
+        );
+        assert_eq!(n, 2);
+        let (mut got_parts, mut got) = ([9u32; 2], [CrabbyMaterial::default(); 2]);
+        assert_eq!(
+            crabby_ctx_model_part_materials(ctx, e, got_parts.as_mut_ptr(), got.as_mut_ptr(), 2, &mut n),
+            CRABBY_OK
+        );
+        assert_eq!((n, got_parts, got[0].id, got[1].id), (2, [0, 3], wood.id, wood.id));
+        // A short buffer gets the first ones and the whole count.
+        let (mut one_part, mut one) = ([9u32; 1], [CrabbyMaterial::default(); 1]);
+        assert_eq!(
+            crabby_ctx_model_part_materials(ctx, e, one_part.as_mut_ptr(), one.as_mut_ptr(), 1, &mut n),
+            CRABBY_OK
+        );
+        assert_eq!((n, one_part), (2, [0]));
+        let stale = [gold, CrabbyMaterial { id: 99 }];
+        errors.push(crabby_ctx_set_model_part_materials(
+            ctx,
+            e,
+            numbers.as_ptr(),
+            stale.as_ptr(),
+            2,
+        ));
+        errors.push(crabby_ctx_set_model_part_materials(
+            ctx,
+            e,
+            null(),
+            materials.as_ptr(),
+            2,
+        ));
+        errors.push(crabby_ctx_set_model_part_materials(ctx, e, numbers.as_ptr(), null(), 2));
+        errors.push(crabby_ctx_set_model_part_materials(
+            ctx,
+            u64::MAX,
+            numbers.as_ptr(),
+            materials.as_ptr(),
+            2,
+        ));
+        errors.push(crabby_ctx_model_part_materials(
+            ctx,
+            u64::MAX,
+            null_mut(),
+            null_mut(),
+            0,
+            &mut n,
+        ));
+        errors.push(crabby_ctx_model_part_materials(
+            ctx,
+            e,
+            null_mut(),
+            null_mut(),
+            0,
+            null_mut(),
+        ));
+        // The failed calls changed nothing; an empty list takes it off.
+        assert_eq!(
+            crabby_ctx_model_part_materials(ctx, e, null_mut(), null_mut(), 0, &mut n),
+            CRABBY_OK
+        );
+        assert_eq!(n, 2);
+        assert_eq!(
+            crabby_ctx_set_model_part_materials(ctx, e, null(), null(), 0),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_ctx_model_part_materials(ctx, e, null_mut(), null_mut(), 0, &mut n),
+            CRABBY_OK
+        );
+        assert_eq!(n, 0);
+        // Left on for the frames after setup: both kinds draw without error.
+        assert_eq!(crabby_ctx_set_model_material(ctx, e, gold, true), CRABBY_OK);
+        assert_eq!(
+            crabby_ctx_set_model_part_materials(ctx, e, numbers.as_ptr(), materials.as_ptr(), 1),
+            CRABBY_OK
+        );
+    }
+}
+
+#[test]
+fn model_material_overrides_are_set_read_and_cleared_from_c() {
+    let mut errors: Vec<CrabbyStatus> = Vec::new();
+    unsafe {
+        let g = crabby_game_new(c"overrides".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        let user = (&raw mut errors).cast();
+        assert_eq!(
+            crabby_game_run_headless(g, 2, Some(overrides), user, &mut world),
+            CRABBY_OK
+        );
+        crabby_world_free(world);
+    }
+    assert_eq!(errors, vec![CRABBY_INVALID_ARGUMENT; 12]);
+}

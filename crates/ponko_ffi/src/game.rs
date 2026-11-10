@@ -2,7 +2,7 @@
 //! pointers plus a `user` pointer; they get a `CrabbyCtx`.
 use std::ffi::{CStr, c_char, c_void};
 
-use ponko::{Ctx, Game, Phase};
+use ponko::{Ctx, Game, Phase, SystemId};
 
 use crate::ctx::{CrabbyCtx, with_ctx};
 use crate::{CrabbyStatus, CrabbyWorld, Failure, boundary, error, invalid, owned_world};
@@ -383,6 +383,181 @@ pub unsafe extern "C" fn crabby_game_add_system(
     }
 }
 
+/// Like `crabby_game_add_system`, and writes the new system's id to
+/// `*out_id`, for `crabby_game_remove` (Rust's `Game::add_system`). Ids are
+/// never 0 and never reused. On failure `*out_id` is 0.
+/// # Safety
+/// Live game; writable `out_id`; `system` and `user` must stay valid while
+/// the game runs.
+/// ```
+/// let mut id = 7;
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_add_system_id(std::ptr::null_mut(), 1, std::ptr::null(), 1, None, std::ptr::null_mut(), &mut id) } as u32, 1);
+/// assert_eq!(id, 0);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_add_system_id(
+    game: *mut CrabbyGame,
+    phase: u32,
+    name: *const c_char,
+    every: u32,
+    system_fn: CrabbySystemFn,
+    user: *mut c_void,
+    out_id: *mut u32,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        if out_id.is_null() {
+            return boundary(|| Err(invalid("out_id is null")));
+        }
+        out_id.write(0);
+        let checked = (|| {
+            let f = system_fn.ok_or_else(|| invalid("system is null"))?;
+            let phase = self::phase(phase)?;
+            if every == 0 {
+                return Err(invalid("every must be at least 1"));
+            }
+            if every > 1 && phase > Phase::SimLast {
+                return Err(invalid("only fixed-tick phases take an interval"));
+            }
+            Ok((f, phase, system_name(name, "C system")?))
+        })();
+        build(game, |mut g| match checked {
+            Ok((f, phase, name)) => {
+                let id = g.named_add_system(phase, name, every, system(f, user));
+                out_id.write(id.to_bits());
+                ok(g)
+            }
+            Err(e) => (g, Err(e)),
+        })
+    }
+}
+
+/// Fixed-tick 2D physics step (`crabby_game_physics`), for `crabby_game_remove`.
+pub const CRABBY_SYSTEM_PHYSICS: u32 = 1;
+/// Fixed-tick 3D physics step (`crabby_game_physics3d`).
+pub const CRABBY_SYSTEM_PHYSICS3D: u32 = 2;
+/// Per-frame blending of 3D physics transforms between steps.
+pub const CRABBY_SYSTEM_INTERPOLATE_PHYSICS3D: u32 = 3;
+/// Spatial grid rebuild (`crabby_game_spatial_grid`).
+pub const CRABBY_SYSTEM_REBUILD_SPATIAL_GRID: u32 = 4;
+/// Sprite animation.
+pub const CRABBY_SYSTEM_ANIMATE_SPRITES: u32 = 5;
+/// Tilemap drawing.
+pub const CRABBY_SYSTEM_DRAW_TILEMAPS: u32 = 6;
+/// Sprite drawing.
+pub const CRABBY_SYSTEM_DRAW_SPRITES: u32 = 7;
+/// Attachment transforms (`crabby_game_follow_attachments`).
+pub const CRABBY_SYSTEM_FOLLOW_ATTACHMENTS: u32 = 8;
+/// Navigation agents (`crabby_game_navmesh3d`).
+pub const CRABBY_SYSTEM_STEP_NAVMESH3D: u32 = 9;
+/// Animators posing skeletons, at the end of `CRABBY_PHASE_ANIMATE`.
+pub const CRABBY_SYSTEM_UPDATE_ANIMATORS: u32 = 10;
+/// Particle emitters and trails, at the end of `CRABBY_PHASE_ANIMATE`.
+pub const CRABBY_SYSTEM_UPDATE_PARTICLES: u32 = 11;
+/// Positional audio, at the end of `CRABBY_PHASE_DRAW` (after the drawing systems).
+pub const CRABBY_SYSTEM_UPDATE_AUDIO3D: u32 = 12;
+
+/// Removes systems by id (Rust's `Game::remove`): an id from
+/// `crabby_game_add_system_id`, or a `CRABBY_SYSTEM_*` constant for a
+/// built-in, which removes every instance of it. An id that names nothing
+/// (already removed, or a built-in that isn't installed) is not an error.
+/// # Safety
+/// `game` must be null or a live game.
+/// ```
+/// use ponko_ffi::*;
+/// unsafe {
+///     let g = crabby_game_new(c"t".as_ptr(), 1, 1);
+///     assert_eq!(crabby_game_remove(g, CRABBY_SYSTEM_DRAW_SPRITES), CrabbyStatus::CRABBY_OK);
+///     assert_eq!(crabby_game_remove(g, CRABBY_SYSTEM_DRAW_SPRITES), CrabbyStatus::CRABBY_OK);
+///     crabby_game_free(g);
+/// }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_remove(game: *mut CrabbyGame, system_id: u32) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { build(game, |g| ok(g.remove(SystemId::from_bits(system_id)))) }
+}
+
+/// Adds a startup callback (Rust's `Game::setup`): it runs once, after the
+/// engine started and before any system, also with zero ticks. Callbacks run
+/// in the order they were added, together with plugin setups, and before the
+/// `setup` passed to `crabby_game_run` and friends; commands are applied
+/// after each one.
+/// # Safety
+/// Live game; `setup` and `user` must stay valid until the game ran them.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_setup(std::ptr::null_mut(), None, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_setup(
+    game: *mut CrabbyGame,
+    setup: CrabbySystemFn,
+    user: *mut c_void,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        build(game, |g| match setup {
+            Some(_) => ok(g.add_setup(setup_fn(setup, user))),
+            None => reject(g, "setup is null"),
+        })
+    }
+}
+
+/// The build step of a plugin: adds systems and settings to `game`.
+/// ```
+/// let none: ponko_ffi::CrabbyPluginBuildFn = None;
+/// assert!(none.is_none());
+/// ```
+pub type CrabbyPluginBuildFn = Option<unsafe extern "C" fn(game: *mut CrabbyGame, user: *mut c_void)>;
+
+/// Adds a plugin (Rust's `Plugin`): one module of the game, as a `build`
+/// callback and a `setup` callback (either may be null, not both). `build`
+/// runs now, with `game`, to add the module's systems and settings; `setup`
+/// is queued like `crabby_game_setup`, so plugins start in the order they
+/// were added. Each system names its phase, so the order plugins are added
+/// in only matters between systems of the same phase.
+/// # Safety
+/// Live game; `setup` and `user` must stay valid until the game ran them.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::crabby_game_plugin(std::ptr::null_mut(), None, None, std::ptr::null_mut()) } as u32, 1);
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_plugin(
+    game: *mut CrabbyGame,
+    build_fn: CrabbyPluginBuildFn,
+    setup: CrabbySystemFn,
+    user: *mut c_void,
+) -> CrabbyStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe {
+        // Check before `build_fn` runs: it must not see a null or spent game.
+        let status = build(game, |g| {
+            if build_fn.is_none() && setup.is_none() {
+                reject(g, "a plugin needs a build or a setup callback")
+            } else {
+                ok(g)
+            }
+        });
+        if status != CrabbyStatus::CRABBY_OK {
+            return status;
+        }
+        if let Some(f) = build_fn {
+            // The game is back in its box: `f` adds to it through the C API.
+            let status = boundary(|| {
+                f(game, user);
+                Ok(())
+            });
+            if status != CrabbyStatus::CRABBY_OK {
+                return status;
+            }
+        }
+        match setup {
+            Some(_) => build(game, |g| ok(g.add_setup(setup_fn(setup, user)))),
+            None => CrabbyStatus::CRABBY_OK,
+        }
+    }
+}
+
 /// Adds a late system: runs once per frame after the engine posed animated
 /// skeletons and before drawing, for IK, look-at and other pose fixes. Not
 /// run by `crabby_game_run_headless`.
@@ -444,6 +619,9 @@ pub unsafe extern "C" fn crabby_game_system(
 
 /// Removes systems by name: your own, or a built-in such as
 /// `"ponko::ecs::draw_sprites"`. `CRABBY_NOT_FOUND` if none matched.
+/// Kept for existing code; new code removes by id with `crabby_game_remove`
+/// (`CRABBY_SYSTEM_DRAW_SPRITES`), which also tells apart two systems that
+/// share a name.
 /// # Safety
 /// Live game; NUL-terminated name.
 /// ```
@@ -458,6 +636,8 @@ pub unsafe extern "C" fn crabby_game_remove_system(game: *mut CrabbyGame, name_p
     // SAFETY: forwarded caller contract.
     unsafe {
         let checked = name(name_ptr);
+        // Name removal stays in ABI version 2; Rust deprecated its spelling.
+        #[allow(deprecated)]
         build(game, |mut g| match checked {
             Ok(name) if g.remove_named_system(name) > 0 => ok(g),
             Ok(_) => (

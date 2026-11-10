@@ -113,6 +113,13 @@ impl AudioSource3D {
             playing: None,
         }
     }
+
+    /// Whether the positional update has started this source, for tests of
+    /// when in the frame that update runs.
+    #[cfg(test)]
+    pub(crate) fn started(&self) -> bool {
+        self.playing.is_some()
+    }
 }
 
 struct Voice {
@@ -139,6 +146,13 @@ pub(crate) struct SpatialState {
 impl SpatialState {
     pub(super) fn remove(&mut self, id: Playing) {
         self.voices.retain(|voice| voice.id != id);
+    }
+
+    /// Where each positional voice was at the last update, for tests of
+    /// when in the frame that update runs.
+    #[cfg(test)]
+    pub(crate) fn voice_positions(&self) -> Vec<Vec3> {
+        self.voices.iter().map(|v| v.position).collect()
     }
 }
 

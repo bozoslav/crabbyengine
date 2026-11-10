@@ -74,7 +74,7 @@ route leaves the agent stopped.
 </div>
 </div>
 
-Register `step_navmesh3d` with `Game::sim_system` (C++: `game::navmesh3d()`), like an exposed physics step.
+Register `systems::step_navmesh3d` with `Game::sim_system` (C++: `game::navmesh3d()`), like an exposed physics step.
 There is no automatic navigation update. Insert a `NavMesh3D` resource, then spawn
 entities with `Transform3D` and `NavAgent3D`. This works in `run_headless` and obeys
 the simulation clock. Put destination/obstacle systems before the navigation step.

@@ -416,6 +416,10 @@ pub(super) struct Node {
     pub anchor: usize,
     /// Accessible name override; empty means "derive it from the text".
     pub access_name: String,
+    /// The name it is found by ([`Ui::find`]); empty: none.
+    pub name: String,
+    /// A title ([`Ui::title`]): painted from the theme's title color and size.
+    pub title: bool,
 }
 pub(super) struct Screen {
     pub root: UiId,
@@ -472,6 +476,8 @@ pub struct Ui {
     external_fonts: bool,
     consumed: bool,
     pub(super) theme: super::UiTheme,
+    /// The named nodes ([`Ui::find`]).
+    pub(super) names: std::collections::HashMap<String, UiId>,
     /// The immediate widgets (a panel, a label, a button drawn the frame
     /// they are called) and their style. Only the screen's UI (`ctx.ui`)
     /// shows them; a [`UiPanel3D`](crate::UiPanel3D)'s tree leaves it unused.
@@ -508,6 +514,7 @@ impl Default for Ui {
             external_fonts: false,
             consumed: false,
             theme: super::UiTheme::default(),
+            names: std::collections::HashMap::new(),
             immediate: super::UiImmediate::default(),
             overlay_has_pointer: false,
             #[cfg(feature = "3d")]
@@ -554,6 +561,8 @@ impl Ui {
             caret: 0,
             anchor: 0,
             access_name: String::new(),
+            name: String::new(),
+            title: false,
         }));
         id
     }
@@ -591,6 +600,9 @@ impl Ui {
                 parent.children.retain(|&c| c != id);
             }
             let _ = self.tree.remove(n.layout);
+            if self.names.get(&n.name) == Some(&id) {
+                self.names.remove(&n.name);
+            }
         }
         self.screens.retain(|s| s.root != id);
         self.visible.retain(|&n| n != id);
@@ -800,11 +812,15 @@ impl Ui {
     pub fn set_scale(&mut self, scale: f32) {
         self.scale = if scale.is_finite() { scale.clamp(0.25, 8.0) } else { 1.0 };
     }
-    /// Resolved rectangle in logical window coordinates (including user scale).
+    /// The node's rectangle in logical window coordinates (including user
+    /// scale) as of the last layout: [`Ui::frame`] (run by the engine before
+    /// the frame's systems) or [`Ui::layout`]. It is a zero rectangle until the
+    /// first layout, and changes made since then show only after the next
+    /// one. `None` for an id not in the tree.
     /// ```
     /// use ponko::*;
     /// let mut ui = Ui::default(); let id = ui.add(UiWidget::Panel, ui_layout::Style::default());
-    /// assert!(ui.rect(id).is_some());
+    /// assert_eq!(ui.rect(id), Some(Rect::default()), "no layout yet");
     /// ```
     pub fn rect(&self, id: UiId) -> Option<Rect> {
         Some(self.node(id)?.rect)
@@ -834,6 +850,40 @@ impl Ui {
     /// ```
     pub fn next_event(&mut self) -> Option<UiEvent> {
         (!self.events.is_empty()).then(|| self.events.remove(0))
+    }
+    /// The node clicked since the last call, if any: takes the queued events
+    /// and returns the last click's node. For screens that react only to
+    /// clicks; the other events it takes are dropped, so read
+    /// [`events`](Self::events) instead on a screen whose inputs matter.
+    /// ```
+    /// use ponko::*;
+    /// let mut ui = Ui::default();
+    /// let root = ui.root().layout(UiLayout::fill()).id();
+    /// let ok = ui.button(root, "OK").layout(UiLayout::fixed(100.0, 40.0)).id();
+    /// ui.push_screen(root, false);
+    /// let at = |pressed, held, released| UiInput {
+    ///     pointer: vec2(50.0, 20.0),
+    ///     pressed,
+    ///     held,
+    ///     released,
+    ///     ..Default::default()
+    /// };
+    /// ui.frame(vec2(800.0, 600.0), &at(false, false, false));
+    /// assert_eq!(ui.take_click(), None);
+    /// ui.frame(vec2(800.0, 600.0), &at(true, true, false));
+    /// ui.frame(vec2(800.0, 600.0), &at(false, false, true));
+    /// assert_eq!(ui.take_click(), Some(ok));
+    /// assert_eq!(ui.take_click(), None);
+    /// ```
+    pub fn take_click(&mut self) -> Option<UiId> {
+        self.events
+            .drain(..)
+            .filter_map(|e| match e {
+                UiEvent::Clicked(id) => Some(id),
+                _ => None,
+            })
+            // Dropping the drain removes the events before the last click too.
+            .next_back()
     }
     /// The pointer belongs to UI: it is over a widget of the tree or an
     /// [immediate](Self::immediate) one drawn this frame or the previous
@@ -1014,15 +1064,46 @@ impl Ui {
             );
         }
         for i in 0..self.screens.len() {
+            let root = self.screens[i].root;
             self.place(
-                self.screens[i].root,
-                Vec2::ZERO,
+                root,
+                self.root_offset(root),
                 Rect::new(0.0, 0.0, viewport.x, viewport.y),
             );
         }
         if self.focus.is_some_and(|id| !self.focusable(id)) {
             self.focus = None;
         }
+    }
+    /// Where a screen root's `auto` margins move it: they take the window's
+    /// free space, as they do for a child of a flex container (both sides
+    /// `auto` centers it, one side pushes it to the other edge). Taffy gives
+    /// a root's auto margins nothing, because a root has no container. Roots
+    /// out of the flow are placed by their insets instead.
+    fn root_offset(&self, root: UiId) -> Vec2 {
+        let Some(node) = self.node(root) else { return Vec2::ZERO };
+        let (Ok(style), Ok(layout)) = (self.tree.style(node.layout), self.tree.layout(node.layout)) else {
+            return Vec2::ZERO;
+        };
+        if matches!(style.position, Position::Absolute | Position::Fixed) {
+            return Vec2::ZERO;
+        }
+        let (margin, own) = (&style.margin, layout.margin);
+        let share = |start: bool, end: bool, free: f32| match (start, end) {
+            (true, true) => free * 0.5,
+            (true, false) => free,
+            _ => 0.0,
+        };
+        let free = self.viewport / self.scale
+            - vec2(
+                layout.size.width + own.left + own.right,
+                layout.size.height + own.top + own.bottom,
+            );
+        let free = free.max(Vec2::ZERO);
+        vec2(
+            share(margin.left.is_auto(), margin.right.is_auto(), free.x),
+            share(margin.top.is_auto(), margin.bottom.is_auto(), free.y),
+        ) * self.scale
     }
     fn place(&mut self, id: UiId, origin: Vec2, clip: Rect) {
         let layout = *self.tree.layout(self.node(id).unwrap().layout).unwrap();

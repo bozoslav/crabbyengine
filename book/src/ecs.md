@@ -140,7 +140,14 @@ Ways to run a query:
 
 - `for_each(f)`: the fastest loop; use this by default.
 - `par_for_each(f)`: same, split over all CPU cores. Use it for per-entity
-  work on many entities.
+  work on many entities. Many small archetypes share the cores too; a query
+  over small archetypes only times its first rows and stays on the calling
+  thread when the whole loop would be quick (under about 50 µs). Because
+  that choice depends on measured time, which threads run which entities,
+  and in what order, can change from run to run even on small worlds: side
+  effects that depend on order (pushing into a shared `Vec`, summing floats
+  into shared state) aren't reproducible. Per-entity results, the positions
+  of `par_for_each_indexed` and the order of `par_collect_into` are.
 - `par_collect_into(&mut vec, f)`: fills `vec` with `f` of every match, on
   all cores, in `for_each` order. The vector keeps its memory, so doing it
   every tick allocates nothing.
@@ -342,9 +349,46 @@ if the world has none), `try_resource<T>()`, `set_resource(value)` and
 world is borrowed while the loop runs). In C: `ponko_resource_set`,
 `ponko_resource_get` and `ponko_resource_remove`, by name.
 
-For Rust, use `resource_scope` when a non-Copy resource must be mutated while
-querying components or accessing other resources. This avoids manually removing
-and reinserting it:
+## Borrowing several things at once
+
+A query borrows the whole world while it loops, and so does `resource_mut`.
+You don't need to copy values out first, take a resource out and put it
+back, or collect entities to change them after the loop. Say up front what
+else the code needs, and the world hands it over together. These calls are
+checked once, when the borrow is made, and none of them allocates.
+
+**Resources inside a query loop.** `with_resources` carries resources into
+the loop: `&T` to read one, `&mut T` to change it, or a tuple of those.
+
+```rust
+# struct Speed(f32);
+# struct Score(u32);
+# ctx.world.insert_resource(Speed(2.0));
+# ctx.world.insert_resource(Score(0));
+ctx.world
+    .query::<&mut Transform2D>()
+    .with_resources::<(&Speed, &mut Score)>()
+    .for_each(|t, (speed, score)| {
+        t.position.x += speed.0;
+        score.0 += 1;
+    });
+```
+
+**Several resources together.** `resources_mut` gives one `&mut` per type
+of a tuple (up to 8 different types):
+
+```rust
+# struct Menu(Vec<String>);
+# struct Session(String);
+# ctx.world.insert_resource(Menu(Vec::new()));
+# ctx.world.insert_resource(Session(String::new()));
+let (menu, session) = ctx.world.resources_mut::<(Menu, Session)>();
+menu.0.push(session.0.clone());
+```
+
+**A resource and the rest of the world.** `resource_scope` hands you one
+resource and the world next to it, for code that queries, spawns or reads
+other resources while it changes that one:
 
 ```rust
 struct Total(u32);
@@ -354,12 +398,65 @@ ctx.world.resource_scope::<Total, _>(|world, total| {
 });
 ```
 
-The scoped resource is temporarily absent from world lookups. Its original box
-and any mutations are restored on return (including early returns) or panic
-unwinding. Any same-type replacement inserted inside the callback is discarded
-on exit. Different resource types can be scoped inside one another. Scoping
-itself reuses storage without steady-state allocations. This API is Rust-only;
-native bindings retain their existing resource operations.
+Inside the scope the resource is not in the world (looking it up finds
+nothing). It is back, with your changes, when the scope ends, also on an
+early return or a panic. Scopes for different resources can be nested.
+
+**Other entities inside a query loop.** `with_lookup` gives the loop a way
+to reach entities by handle: `get` reads, `get_mut` changes. Write what to
+fetch from them like a query:
+
+```rust
+# struct Health(f32);
+struct Bullet {
+    target: Entity,
+    damage: f32,
+}
+
+ctx.world
+    .query::<&Bullet>()
+    .with_lookup::<&mut Health>()
+    .for_each(|bullet, others| {
+        if let Some(health) = others.get_mut(bullet.target) {
+            health.0 -= bullet.damage;
+        }
+    });
+```
+
+The lookup may read what the query reads (follow a leader's `Transform2D`
+while writing your own `Velocity`). It can't touch a component the query
+writes, or write one the query reads: that would be two references to one
+value, and it panics when the query is built. A lookup ignores the query's
+filters. A write through `get_mut` counts as a change, as with
+`world.get_mut`, so a later `Changed<T>` query sees it; for that reason a
+lookup can't write a component the query itself filters on with `Added` or
+`Changed` (it panics when the query is built).
+
+**A few entities together.** `get_many_mut` borrows the same component of
+several entities, for work on a pair that needs both sides. It returns
+`None` if one of them is dead or lacks the component, or if you name the
+same entity twice:
+
+```rust
+# struct Health(f32);
+# let a = ctx.world.spawn((Health(1.0),));
+# let b = ctx.world.spawn((Health(2.0),));
+if let Some([a, b]) = ctx.world.get_many_mut::<Health, 2>([a, b]) {
+    std::mem::swap(&mut a.0, &mut b.0);
+}
+```
+
+| You need | Use |
+|---|---|
+| a resource in a query loop | `query.with_resources::<(&A, &mut B)>()` |
+| several resources | `world.resources_mut::<(A, B)>()` |
+| one resource and the whole world | `world.resource_scope::<A, _>(\|world, a\| ...)` |
+| another entity in a query loop | `query.with_lookup::<&mut T>()` |
+| the same component of a few entities | `world.get_many_mut::<T, N>([a, b])` |
+| to spawn, despawn, add or remove in a loop | `ctx.commands` (above) |
+
+These are Rust calls. C and C++ work on whole columns and copy resources in
+and out, so they keep their existing calls (see [C and C++](c-cpp.md)).
 
 ## Sorting for cache locality
 

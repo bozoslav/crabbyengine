@@ -107,7 +107,7 @@ pub fn run(variant: Variant, seed: u64) -> Run {
             });
         })
         .input_scenario(scenario())
-        .run_headless(TICKS, |ctx| {
+        .setup(|ctx| {
             let mut map = ActionMap::default();
             map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
             ctx.input.set_actions(map);
@@ -116,7 +116,8 @@ pub fn run(variant: Variant, seed: u64) -> Run {
                 vy: 0.0,
                 jumps: 0,
             },));
-        });
+        })
+        .run_headless(TICKS);
 
     let trace = Rc::try_unwrap(trace).expect("systems dropped").into_inner();
     let mut log = Rc::try_unwrap(log).expect("systems dropped").into_inner();

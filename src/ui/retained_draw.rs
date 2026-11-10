@@ -66,7 +66,7 @@ impl Ctx {
     }
 
     /// Draws `ui`, laid out in `viewport`, into `ui_list`.
-    pub(super) fn draw_ui_tree(&mut self, ui: &mut crate::Ui, viewport: Vec2) {
+    pub(crate) fn draw_ui_tree(&mut self, ui: &mut crate::Ui, viewport: Vec2) {
         // Mutations made by game systems (including screen pushes) show now.
         ui.layout_with_text(viewport, &mut self.gfx.text);
         let scale = ui.scale();

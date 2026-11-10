@@ -9,6 +9,8 @@ pub(super) struct Environment {
     source_group: wgpu::BindGroup,
     sky_group: wgpu::BindGroup,
     buffers: Vec<wgpu::Buffer>,
+    /// What `buffers[0]` (the sky settings) holds: only changes are uploaded.
+    settings_mirror: crate::render::traffic::Mirror,
     groups: Vec<wgpu::BindGroup>,
     cube: wgpu::RenderPipeline,
     filter: wgpu::RenderPipeline,
@@ -135,7 +137,9 @@ impl Environment {
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("IBL config"),
                         contents: bytemuck::cast_slice(&[[slot as f32, 0.0, 1.0, 0.0], [0.0; 4], [0.0; 4], [0.0; 4]]),
-                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        usage: wgpu::BufferUsages::UNIFORM
+                            | wgpu::BufferUsages::COPY_DST
+                            | crate::render::traffic::MIRRORED,
                     })
             })
             .collect();
@@ -214,6 +218,7 @@ impl Environment {
             source_group,
             sky_group,
             buffers,
+            settings_mirror: Default::default(),
             groups,
             brdf_pending: AtomicBool::new(true),
             dirty: AtomicBool::new(true),
@@ -238,11 +243,10 @@ impl Environment {
             self.dirty.store(true, Ordering::Relaxed);
             self.key = Some(key);
         }
-        queue.uploading(Upload::Uniforms).write_buffer(
-            &self.buffers[0],
-            0,
-            bytemuck::cast_slice(&[[0.0, f32::from(atmosphere), intensity, 0.0], sky, ground, equator]),
-        );
+        let settings = [[0.0, f32::from(atmosphere), intensity, 0.0], sky, ground, equator];
+        let settings = bytemuck::cast_slice(&settings);
+        self.settings_mirror
+            .upload(queue, Upload::Uniforms, &self.buffers[0], 0, settings);
     }
     fn draw(
         encoder: &mut wgpu::CommandEncoder,
@@ -397,6 +401,15 @@ impl Environment {
             }
             self.filter(encoder, *slot);
         }
+    }
+}
+
+#[cfg(test)]
+impl Environment {
+    /// See `Renderer3D::check_mirrors`.
+    pub fn check_mirrors(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.settings_mirror
+            .check(device, queue, &self.buffers[0], 0, "environment settings");
     }
 }
 

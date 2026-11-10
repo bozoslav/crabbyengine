@@ -115,6 +115,191 @@ fn bad_settings_are_errors_and_keep_the_game_usable() {
     }
 }
 
+// ---- system ids, setup callbacks and plugins -----------------------------------
+
+/// What ran, in order: a letter per callback.
+#[derive(Default)]
+struct Order(String);
+
+macro_rules! mark {
+    ($name:ident, $letter:literal) => {
+        unsafe extern "C" fn $name(_: *mut CrabbyCtx, user: *mut c_void) {
+            unsafe { (*user.cast::<Order>()).0.push($letter) }
+        }
+    };
+}
+mark!(mark_a, 'a');
+mark!(mark_b, 'b');
+mark!(mark_c, 'c');
+mark!(mark_s, 's');
+mark!(mark_t, 't');
+mark!(mark_r, 'r');
+
+#[test]
+fn systems_are_removed_by_the_id_adding_them_returned() {
+    let mut order = Order::default();
+    let user = user(&mut order);
+    unsafe {
+        let g = game();
+        let (mut a, mut b, mut c) = (0, 0, 0);
+        let after = CrabbyPhase::CRABBY_PHASE_AFTER_PHYSICS as u32;
+        // The same function twice: only ids tell the two apart.
+        assert_eq!(
+            crabby_game_add_system_id(g, after, c"same".as_ptr(), 1, Some(mark_a), user, &mut a),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_game_add_system_id(g, after, c"same".as_ptr(), 1, Some(mark_b), user, &mut b),
+            CRABBY_OK
+        );
+        assert_eq!(
+            crabby_game_add_system_id(g, after, null(), 1, Some(mark_c), user, &mut c),
+            CRABBY_OK
+        );
+        assert!(a != 0 && b != 0 && c != 0 && a != b && b != c);
+        assert_eq!(crabby_game_remove(g, a), CRABBY_OK);
+        // Removing again, or an id that names nothing, is not an error.
+        assert_eq!(crabby_game_remove(g, a), CRABBY_OK);
+        assert_eq!(crabby_game_remove(g, CRABBY_SYSTEM_STEP_NAVMESH3D), CRABBY_OK);
+        crabby_world_free(run(g, 2, None, null_mut()));
+    }
+    assert_eq!(order.0, "bcbc");
+}
+
+#[test]
+fn built_in_systems_are_removed_by_their_constants() {
+    unsafe {
+        let g = game();
+        for id in [
+            CRABBY_SYSTEM_ANIMATE_SPRITES,
+            CRABBY_SYSTEM_DRAW_TILEMAPS,
+            CRABBY_SYSTEM_DRAW_SPRITES,
+            CRABBY_SYSTEM_UPDATE_ANIMATORS,
+            CRABBY_SYSTEM_UPDATE_PARTICLES,
+            CRABBY_SYSTEM_UPDATE_AUDIO3D,
+        ] {
+            assert_eq!(crabby_game_remove(g, id), CRABBY_OK);
+        }
+        // Gone: the name no longer finds the sprite drawing.
+        assert_eq!(
+            crabby_game_remove_system(g, c"ponko::ecs::draw_sprites".as_ptr()),
+            CRABBY_NOT_FOUND
+        );
+        assert_eq!(crabby_game_remove(null_mut(), 1), CRABBY_INVALID_ARGUMENT);
+        crabby_game_free(g);
+    }
+    // The constants are Rust's `Systems` ids.
+    use ponko::Systems;
+    let pairs = [
+        (CRABBY_SYSTEM_PHYSICS, Systems::PHYSICS),
+        (CRABBY_SYSTEM_PHYSICS3D, Systems::PHYSICS3D),
+        (CRABBY_SYSTEM_INTERPOLATE_PHYSICS3D, Systems::INTERPOLATE_PHYSICS3D),
+        (CRABBY_SYSTEM_REBUILD_SPATIAL_GRID, Systems::REBUILD_SPATIAL_GRID),
+        (CRABBY_SYSTEM_ANIMATE_SPRITES, Systems::ANIMATE_SPRITES),
+        (CRABBY_SYSTEM_DRAW_TILEMAPS, Systems::DRAW_TILEMAPS),
+        (CRABBY_SYSTEM_DRAW_SPRITES, Systems::DRAW_SPRITES),
+        (CRABBY_SYSTEM_FOLLOW_ATTACHMENTS, Systems::FOLLOW_ATTACHMENTS),
+        (CRABBY_SYSTEM_STEP_NAVMESH3D, Systems::STEP_NAVMESH3D),
+        (CRABBY_SYSTEM_UPDATE_ANIMATORS, Systems::UPDATE_ANIMATORS),
+        (CRABBY_SYSTEM_UPDATE_PARTICLES, Systems::UPDATE_PARTICLES),
+        (CRABBY_SYSTEM_UPDATE_AUDIO3D, Systems::UPDATE_AUDIO3D),
+    ];
+    for (c, rust) in pairs {
+        assert_eq!(c, rust.to_bits());
+    }
+}
+
+#[test]
+fn adding_with_an_id_rejects_what_adding_rejects() {
+    unsafe {
+        let g = game();
+        let mut id = 9;
+        let frame = CrabbyPhase::CRABBY_PHASE_FRAME as u32;
+        assert_eq!(
+            crabby_game_add_system_id(g, frame, null(), 2, Some(mark_a), null_mut(), &mut id),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(id, 0);
+        assert_eq!(
+            crabby_game_add_system_id(g, 99, null(), 1, Some(mark_a), null_mut(), &mut id),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_game_add_system_id(g, frame, null(), 1, None, null_mut(), &mut id),
+            CRABBY_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            crabby_game_add_system_id(g, frame, null(), 1, Some(mark_a), null_mut(), null_mut()),
+            CRABBY_INVALID_ARGUMENT
+        );
+        crabby_game_free(g);
+    }
+}
+
+#[test]
+fn setup_callbacks_run_once_in_order_before_the_run_setup() {
+    let mut order = Order::default();
+    let user = user(&mut order);
+    unsafe {
+        let g = game();
+        assert_eq!(crabby_game_setup(g, Some(mark_s), user), CRABBY_OK);
+        assert_eq!(crabby_game_sim_system(g, null(), 1, Some(mark_a), user), CRABBY_OK);
+        assert_eq!(crabby_game_setup(g, Some(mark_t), user), CRABBY_OK);
+        assert_eq!(crabby_game_setup(g, None, user), CRABBY_INVALID_ARGUMENT);
+        crabby_world_free(run(g, 2, Some(mark_r), user));
+    }
+    assert_eq!(order.0, "straa");
+
+    // With zero ticks the setups still run.
+    let mut order = Order::default();
+    let user = self::user(&mut order);
+    unsafe {
+        let g = game();
+        assert_eq!(crabby_game_setup(g, Some(mark_s), user), CRABBY_OK);
+        crabby_world_free(run(g, 0, None, null_mut()));
+    }
+    assert_eq!(order.0, "s");
+}
+
+/// A plugin's build step: one system per phase it cares about.
+unsafe extern "C" fn build_area(game: *mut CrabbyGame, user: *mut c_void) {
+    unsafe {
+        let before = CrabbyPhase::CRABBY_PHASE_BEFORE_PHYSICS as u32;
+        assert_eq!(
+            crabby_game_add_system(game, before, null(), 1, Some(mark_b), user),
+            CRABBY_OK
+        );
+    }
+}
+unsafe extern "C" fn build_score(game: *mut CrabbyGame, user: *mut c_void) {
+    unsafe {
+        assert_eq!(crabby_game_sim_system(game, null(), 1, Some(mark_a), user), CRABBY_OK);
+    }
+}
+
+#[test]
+fn plugins_build_at_once_and_set_up_in_the_order_they_were_added() {
+    let mut order = Order::default();
+    let user = user(&mut order);
+    unsafe {
+        let g = game();
+        // `score` is added first, but its system is in a later phase.
+        assert_eq!(crabby_game_plugin(g, Some(build_score), Some(mark_s), user), CRABBY_OK);
+        assert_eq!(crabby_game_setup(g, Some(mark_c), user), CRABBY_OK);
+        assert_eq!(crabby_game_plugin(g, Some(build_area), Some(mark_t), user), CRABBY_OK);
+        // Setup only, and build only.
+        assert_eq!(crabby_game_plugin(g, None, Some(mark_r), user), CRABBY_OK);
+        assert_eq!(crabby_game_plugin(g, Some(build_score), None, user), CRABBY_OK);
+        assert_eq!(crabby_game_plugin(g, None, None, user), CRABBY_INVALID_ARGUMENT);
+        assert_eq!(
+            crabby_game_plugin(null_mut(), Some(build_area), None, user),
+            CRABBY_INVALID_ARGUMENT
+        );
+        crabby_world_free(run(g, 1, None, null_mut()));
+    }
+    assert_eq!(order.0, "sctrbaa");
+}
+
 // ---- commands and busy rules ---------------------------------------------------
 
 struct Ids {

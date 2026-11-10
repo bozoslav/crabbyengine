@@ -1,6 +1,7 @@
 //! 3D navigation: agents walking across a baked navmesh (`step_navmesh3d`
 //! registered as a sim system), path following without crowd avoidance.
-use ponko::{Game, MeshData, NavAgent3D, NavBakeSettings, NavMesh3D, NavSource, Transform3D, step_navmesh3d, vec3};
+use ponko::systems::step_navmesh3d;
+use ponko::{Game, MeshData, NavAgent3D, NavBakeSettings, NavMesh3D, NavSource, Transform3D, vec3};
 
 use crate::Bench;
 

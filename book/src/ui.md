@@ -6,9 +6,12 @@ scene sprites. The retained tree is the game's UI: menus, HUDs, shops, dialogs.
 The immediate widgets, `ctx.ui.immediate.panel`, `label` and `button`
 ([Camera and UI](camera-ui.md#ui)), are for debug overlays and quick prototypes.
 
-In C++ the tree is `ctx.ui()`, a `ponko::ui::tree`; layouts and paints are
-built by chaining (`ui::layout().column().size(...)`, `ui::paint().wrap()`). In C it
-is the `ponko_ctx_ui_*` functions with a flat `PonkoUiLayout` and `PonkoUiPaint`
+In C++ the tree is `ctx.ui_retained()`, a `ponko::ui::tree`; layouts start from
+a preset (`ui::fill()`, `ui::row(40)`, `ui::fixed(220, 40)`, `ui::centered(360, 180)`)
+or `ui::layout()` and are refined by chaining (`.padding(24).gap(12)`), and
+paints are chained too (`ui::paint().wrap()`). In C it is the `ponko_ctx_ui_*`
+functions with a flat `PonkoUiLayout` (from `ponko_ui_layout_row`, `_column`,
+`_fill`, `_fixed`, `_anchored`, `_centered` or `_default`) and `PonkoUiPaint`
 (see [C and C++](c-cpp.md) and below).
 
 The tree is owned by `Ui`, independently of ECS entities. Stable `UiId` handles
@@ -39,7 +42,7 @@ opening a window with `cargo build --example ui_shop`.
 </div>
 </div>
 
-In Rust, `ui.label(parent, text)`, `ui.button(...)`, `ui.panel(...)`,
+In Rust, `ui.label(parent, text)`, `ui.title(...)`, `ui.button(...)`, `ui.panel(...)`,
 `ui.scroll_area(...)`, `ui.text_input(...)`, `ui.toggle(...)`, `ui.slider(...)`
 and `ui.image(...)` add a node and return a builder; chain its layout, text and
 paint, and end with `.id()` when you need the id again. `ui.root()` makes a
@@ -51,7 +54,9 @@ plus the setters, which keep working.
 `anchored(x, y, w, h)` in fractions of the parent (of the window for a screen
 root), `centered(w, h)` for dialogs and `grid(columns, row_height)` for
 inventories, refined with `gap`, `padding`, `grow`, `horizontal`/`vertical` and
-`width`/`height`. Children stack top to bottom, except in a row. Any Taffy
+`width`/`height`, and placed in points with `top(y)` and `left(x)` (a
+centered dialog near the top: `UiLayout::centered(360.0, 180.0).top(180.0)`).
+Children stack top to bottom, except in a row. Any Taffy
 `ui_layout::Style` is still accepted, and `UiLayout::custom(style)` wraps one.
 Give a scroll view a bounded size; `fill()` shrinks to the space its siblings
 leave. `UiWidget::Scroll` clips descendants and supports wheel scrolling,
@@ -60,11 +65,30 @@ units and clamps offsets during layout. Nested scroll views intersect clips.
 Navigation scrolls the focused widget into view.
 
 Colors and text defaults come from the tree's theme:
-`ui.set_theme(UiTheme { panel, control, accent, text, text_size, .. })`. Every
-new node takes its `UiPaint` from the theme for its widget; paint set on a node
-(`.color(..)`, `.size(..)`, `set_paint`) overrides it, and a later `set_theme`
-changes only the fields a node didn't set. `ctx.ui.immediate.style` still styles only the
-immediate-mode widgets.
+`ui.set_theme(UiTheme { panel, control, accent, text, title, text_size, title_size, .. })`.
+Every new node takes its `UiPaint` from the theme for its widget, and a title
+(`ui.title(parent, text)`) takes the theme's title color and size; paint set on
+a node (`.color(..)`, `.size(..)`, `set_paint`) overrides it, and a later
+`set_theme` changes only the fields a node didn't set. The screen's theme also
+styles the immediate widgets: `set_theme` updates `ctx.ui.immediate.style`
+the same way (`UiTheme::style()` is the style it gives them), keeping fields
+set there by hand. C++: `tree.theme()`, `tree.set_theme(t)` with a `ui::theme`;
+C: `ponko_ctx_ui_theme`, `ponko_ctx_ui_set_theme` with a `PonkoUiTheme`.
+`ui.paint(id)` (C++: `resolved_paint(id)`, C: `ponko_ctx_ui_paint`) reads what
+a node is drawn with.
+
+### Finding nodes by name
+
+A system that didn't build a screen finds its nodes by name, so no resource
+of ids is needed: `.name("shop.buy")` on a builder (or `ui.set_name(id, ..)`)
+names a node, and `ui.find("shop.buy")` returns its id; `ui.name(id)` reads it
+back. A name belongs to one node of the tree: naming another node the same
+moves it, an empty name takes it off, and removing the node frees it. Dotted
+names are only a convention. For a screen that reacts only to clicks,
+`ui.take_click()` takes the queued events and returns the last clicked node.
+C++: `set_name`, `find`, `name`, `take_click` on the tree; C:
+`ponko_ctx_ui_set_name`, `ponko_ctx_ui_find`, `ponko_ctx_ui_name`,
+`ponko_ctx_ui_take_click`.
 
 `UiPaint` supplies background colors for normal/hover/pressed/disabled states,
 borders, font, line height, text color, wrapping and horizontal alignment.

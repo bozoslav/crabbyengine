@@ -48,6 +48,8 @@ pub(super) struct Ssr {
     blur_layout: wgpu::BindGroupLayout,
     blur_pipeline: wgpu::ComputePipeline,
     uniform: wgpu::Buffer,
+    /// What `uniform` holds: only what changed is uploaded.
+    uniform_mirror: crate::render::traffic::Mirror,
     sampler: wgpu::Sampler,
     /// The camera the image in the history was drawn with, while it holds
     /// the last frame's.
@@ -219,7 +221,7 @@ impl Ssr {
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("screen reflections"),
                 contents: bytemuck::bytes_of(&<Settings as bytemuck::Zeroable>::zeroed()),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST | crate::render::traffic::MIRRORED,
             });
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("screen reflections"),
@@ -234,6 +236,7 @@ impl Ssr {
             blur_layout,
             blur_pipeline,
             uniform,
+            uniform_mirror: Default::default(),
             sampler,
             previous: None,
             frame: 0,
@@ -253,7 +256,9 @@ impl Ssr {
     pub fn prepare(&mut self, queue: &wgpu::Queue, view_proj: Mat4, camera: Vec3, strength: f32, longest: f32) {
         let previous = self.previous.replace(view_proj);
         self.frame = self.frame.wrapping_add(1);
-        queue.uploading(Upload::Uniforms).write_buffer(
+        self.uniform_mirror.upload(
+            queue,
+            Upload::Uniforms,
             &self.uniform,
             0,
             bytemuck::bytes_of(&Settings {
@@ -527,5 +532,14 @@ impl Ssr {
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, group, &[]);
         pass.draw(0..3, 0..1);
+    }
+}
+
+#[cfg(test)]
+impl Ssr {
+    /// See `Renderer3D::check_mirrors`.
+    pub fn check_mirrors(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.uniform_mirror
+            .check(device, queue, &self.uniform, 0, "reflection settings");
     }
 }

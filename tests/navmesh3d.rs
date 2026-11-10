@@ -68,7 +68,7 @@ fn obstacles_block_and_removal_restores_paths() {
 fn agent_reaches_destination_headless() {
     let mut world = Game::new("navigation", 1, 1)
         .fixed_hz(60)
-        .sim_system(step_navmesh3d)
+        .sim_system(systems::step_navmesh3d)
         .run_headless(360, |ctx| {
             ctx.world.insert_resource(bake(&[floor()]));
             let mut agent = NavAgent3D::default();
@@ -131,7 +131,7 @@ fn agent_follows_detour_without_entering_solid_box() {
     }
     let mut world = Game::new("navigation", 1, 1)
         .fixed_hz(60)
-        .sim_system(step_navmesh3d)
+        .sim_system(systems::step_navmesh3d)
         .sim_system(check)
         .run_headless(600, |ctx| {
             ctx.world
@@ -160,7 +160,7 @@ fn mesh_replacement_invalidates_an_existing_agent_path() {
     let mut world = Game::new("navigation", 1, 1)
         .fixed_hz(60)
         .sim_system(replace)
-        .sim_system(step_navmesh3d)
+        .sim_system(systems::step_navmesh3d)
         .run_headless(300, |ctx| {
             ctx.world.insert_resource(Tick(0));
             ctx.world.insert_resource(bake(&[floor()]));
@@ -197,7 +197,7 @@ fn obstacle_components_stop_agents_then_removal_replans_deterministically() {
         let mut world = Game::new("navigation", 1, 1)
             .fixed_hz(60)
             .sim_system(update)
-            .sim_system(step_navmesh3d)
+            .sim_system(systems::step_navmesh3d)
             .run_headless(500, |ctx| {
                 ctx.world.insert_resource(bake(&[floor()]));
                 let obstacle = ctx
@@ -222,7 +222,7 @@ fn agents_follow_steps_and_keep_their_floor_in_stacked_geometry() {
         let level = if upper { 4.0 } else { 0.0 };
         let mut world = Game::new("navigation", 1, 1)
             .fixed_hz(60)
-            .sim_system(step_navmesh3d)
+            .sim_system(systems::step_navmesh3d)
             .run_headless(360, |ctx| {
                 let sources = [
                     source(MeshData::plane(8.0), vec3(-4.0, level, 0.0)),
@@ -268,7 +268,7 @@ fn crowd_head_on_corridor_passes_and_arrives_repeatably() {
     let run = || {
         let mut world = Game::new("crowd", 1, 1)
             .fixed_hz(60)
-            .sim_system(step_navmesh3d)
+            .sim_system(systems::step_navmesh3d)
             .sim_system(check_crowd)
             .run_headless(600, |ctx| {
                 let floor = NavSource::from_mesh(
@@ -301,7 +301,7 @@ fn crowd_head_on_corridor_passes_and_arrives_repeatably() {
 fn crowd_walks_around_a_stopped_agent() {
     let mut world = Game::new("crowd", 1, 1)
         .fixed_hz(60)
-        .sim_system(step_navmesh3d)
+        .sim_system(systems::step_navmesh3d)
         .sim_system(check_crowd)
         .run_headless(600, |ctx| {
             ctx.world.insert_resource(bake(&[floor()]));
@@ -320,7 +320,7 @@ fn crowd_walks_around_a_stopped_agent() {
 fn fifty_agents_reach_a_shared_goal_region_without_overlaps() {
     let mut world = Game::new("crowd", 1, 1)
         .fixed_hz(60)
-        .sim_system(step_navmesh3d)
+        .sim_system(systems::step_navmesh3d)
         .sim_system(check_crowd)
         .run_headless(1800, |ctx| {
             ctx.world.insert_resource(bake(&[floor()]));
@@ -343,7 +343,7 @@ fn five_hundred_agents_step_within_a_coarse_budget() {
     let start = std::time::Instant::now();
     let mut world = Game::new("crowd", 1, 1)
         .fixed_hz(60)
-        .sim_system(step_navmesh3d)
+        .sim_system(systems::step_navmesh3d)
         .run_headless(60, |ctx| {
             ctx.world
                 .insert_resource(bake(&[source(MeshData::plane(20.0), Vec3::ZERO)]));
@@ -405,7 +405,7 @@ fn crowd_slots_survive_changes_without_reusing_another_agents_state() {
     let mut world = Game::new("crowd", 1, 1)
         .fixed_hz(60)
         .sim_system(edit)
-        .sim_system(step_navmesh3d)
+        .sim_system(systems::step_navmesh3d)
         .sim_system(check_crowd)
         .run_headless(600, |ctx| {
             ctx.world.insert_resource(bake(&[floor()]));
@@ -494,7 +494,7 @@ fn crowd_reroutes_when_a_hole_is_carved_across_its_path() {
         let mut w = Game::new("carving", 1, 1)
             .fixed_hz(60)
             .sim_system(drop_box)
-            .sim_system(step_navmesh3d)
+            .sim_system(systems::step_navmesh3d)
             .sim_system(check_crowd)
             .run_headless(600, |ctx| {
                 ctx.world.insert_resource(Tick(0));

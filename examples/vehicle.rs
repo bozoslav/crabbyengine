@@ -261,10 +261,11 @@ fn headless() {
         .add(Phase::BeforePhysics, drive)
         .physics3d(vec3(0.0, -9.81, 0.0))
         .sim_system(record)
-        .run_headless(500, |ctx| {
+        .setup(|ctx| {
             build_world(ctx, false);
             ctx.world.insert_resource(Log::default());
-        });
+        })
+        .run_headless(500);
     let log = &world.resource::<Log>().0;
     for (second, (speed, facing)) in log.iter().enumerate() {
         println!("{:2} s: {speed:5.2} m/s, facing {facing:.2}", second + 1);
@@ -291,8 +292,9 @@ fn main() {
         .system(place_wheels)
         .system(chase)
         // ANCHOR_END: setup
-        .run(|ctx| {
+        .setup(|ctx| {
             ctx.gfx.clear(Color::hex(0x9CC4E4));
             build_world(ctx, true);
-        });
+        })
+        .run();
 }

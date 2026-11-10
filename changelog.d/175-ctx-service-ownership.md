@@ -1,0 +1,3 @@
+### Changed
+- The engine's own frame steps that are not systems now have names on `Ctx` (asset reload and streaming, then retained UI before any system; animation, particles and positional audio are built-in systems), and the windowed and headless runs build their context in one place. Order and behavior are unchanged. ARCHITECTURE.md gains a lifecycle table and a service ownership table: constructor, tick and frame entry points, headless behavior and teardown owner of each service, and what is per world versus per game or device.
+- Loaded textures, fonts, sounds and streams are remembered by one private owner instead of a map plus a handle vector in each of `ctx.gfx` and `ctx.audio`. No public `Ctx` field, method or example changed.

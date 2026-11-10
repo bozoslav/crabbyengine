@@ -3,7 +3,7 @@
 //! through a small ring of buffers so the CPU never waits for the GPU (the
 //! grid arrives one to three frames late, like the GPU timer's results).
 
-use crate::render::traffic::{Counted, NewBuffer, Upload};
+use crate::render::traffic::{self, Counted, NewBuffer, Upload};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -180,6 +180,9 @@ impl Occlusion {
         let bytes = u64::from(grid.0 * grid.1) * 4;
         let fits = |b: &Option<wgpu::Buffer>| b.as_ref().is_some_and(|b| b.size() >= bytes);
         if !fits(&self.farthest) {
+            if self.farthest.is_some() {
+                traffic::reallocated();
+            }
             self.farthest = Some(device.new_buffer(&wgpu::BufferDescriptor {
                 label: Some("3d occlusion depth"),
                 size: bytes,
@@ -188,6 +191,9 @@ impl Occlusion {
             }));
         }
         if !fits(&self.slots[i].buffer) {
+            if self.slots[i].buffer.is_some() {
+                traffic::reallocated();
+            }
             self.slots[i].buffer = Some(device.new_buffer(&wgpu::BufferDescriptor {
                 label: Some("3d occlusion readback"),
                 size: bytes,

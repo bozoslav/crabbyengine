@@ -220,7 +220,7 @@ fn an_agent_stands_still_when_a_carving_obstacle_cuts_its_corridor() {
     let mut world = Game::new("blocked", 1, 1)
         .fixed_hz(60)
         .sim_system(drop_wall)
-        .sim_system(step_navmesh3d)
+        .sim_system(systems::step_navmesh3d)
         .run_headless(600, |ctx| {
             let settings = NavBakeSettings {
                 carving: true,
