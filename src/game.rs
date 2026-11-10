@@ -912,14 +912,14 @@ impl Game {
     }
 
     /// Gives the game a byte-message endpoint: `net` from
-    /// [`NetMessages::host`](crate::NetMessages::host),
-    /// [`NetMessages::join`](crate::NetMessages::join) or
-    /// [`NetMessages::loopback`](crate::NetMessages::loopback). It becomes
-    /// [`ctx.net.messages`](crate::Networking::messages), and the engine
+    /// [`NetMessages::host`](crate::net::NetMessages::host),
+    /// [`NetMessages::join`](crate::net::NetMessages::join) or
+    /// [`NetMessages::loopback`](crate::net::NetMessages::loopback). It becomes
+    /// [`ctx.net.messages`](crate::net::Networking::messages), and the engine
     /// polls it once per frame before any system runs (once per tick in
     /// headless runs), also while the simulation is paused. Systems send
     /// and read its events; they never call `poll`. See
-    /// [`Networking`](crate::Networking) for a complete session.
+    /// [`Networking`](crate::net::Networking) for a complete session.
     ///
     /// Independent of [`lockstep`](Self::lockstep): messages don't hold
     /// ticks back and the worlds aren't compared.
@@ -939,7 +939,7 @@ impl Game {
     ///     .run_headless(3, |_| {});
     /// # let _ = world;
     /// ```
-    pub fn messages(mut self, net: crate::NetMessages) -> Self {
+    pub fn messages(mut self, net: crate::net::NetMessages) -> Self {
         self.messages = Some(net);
         self
     }
