@@ -289,32 +289,50 @@ and what it was collected from. A frame then pays for what changed:
 are still worked out every frame (what they draw depends on the camera or
 a pose), but keep their places in the lists as well.
 
-Collecting 100,000 models of 64 meshes, a tenth of them in view, with sun
-shadows (`cargo run --release -p ponko_bench -- extract-100k`; median of
-120 frames after 30, 14 cores, and on one core with `RAYON_NUM_THREADS=1`):
+While more than half the models change every frame, comparing them costs
+more than it saves. The frame then works every model out from its
+components alone, as it did before any were kept, and only looks up the
+ones a view draws; it compares one model in 64 to notice when they settle.
 
-| Each frame | Before | Now | One core: before | now | Instances uploaded: before | now |
+Collecting 100,000 models of 64 meshes, a tenth of them in view, with sun
+shadows (`cargo run --release -p ponko_bench -- extract-100k`: the median
+of 120 frames after 30 warm-up frames, then the median of 8 runs on all 14
+cores and of 5 runs on one core with `RAYON_NUM_THREADS=1`; M4 Max, while
+other builds were running on the machine, so the 14-core times are a
+little high on both sides):
+
+| Each frame | 14 cores: before | now | One core: before | now | Instances uploaded: before | now |
 |---|---|---|---|---|---|---|
-| nothing changes | 0.61 ms | 0.16 ms | 1.19 ms | 0.65 ms | 11 KiB | 0 |
-| the camera flies | 0.62 ms | 0.31 ms | 1.18 ms | 1.28 ms | 789 KiB | 25 KiB |
-| it flies, 1% of the models move | 0.61 ms | 0.32 ms | 1.19 ms | 1.30 ms | 791 KiB | 73 KiB |
-| it flies, every model moves | 0.61 ms | 0.50 ms | 1.19 ms | 1.72 ms | 831 KiB | 904 KiB |
-| it flies, 100 models despawn and 100 spawn | 0.63 ms | 0.45 ms | 1.38 ms | 1.60 ms | 795 KiB | 27 KiB |
-| the first frame (nothing remembered) | 0.48 ms | 1.3 ms | 1.22 ms | 2.5 ms | all | all |
+| nothing changes | 0.45 ms | 0.20 ms | 1.21 ms | 0.41 ms | 11 KiB | 0 |
+| the camera flies | 0.44 ms | 0.29 ms | 1.20 ms | 0.85 ms | 789 KiB | 25 KiB |
+| it flies, 1% of the models move | 0.44 ms | 0.30 ms | 1.20 ms | 0.87 ms | 791 KiB | 73 KiB |
+| it flies, every model moves | 0.45 ms | 0.45 ms | 1.20 ms | 1.31 ms | 831 KiB | 906 KiB |
+| it flies, 100 models despawn and 100 spawn | 0.48 ms | 0.47 ms | 1.40 ms | 1.13 ms | 795 KiB | 27 KiB |
+| the first frame (nothing remembered) | 0.49 ms | 1.33 ms | 1.25 ms | 2.66 ms | all | all |
 
 What it costs:
 
-- **Memory**: about 200 bytes per model in the world, in view or not
-  (21 MiB for the 100,000 above, where a frame's scratch lists took
-  3.5 MiB before), and the drawn instances with room to grow.
+- **Every model moving, on one core** (the web): about 9% slower than
+  before (1.31 ms against 1.20 ms above). The models are culled as before;
+  each drawn one is then looked up and written to its place in every view
+  that draws it, which costs more than appending it to a list that is
+  sorted afterwards. On 14 cores it costs the same as before.
 - **The first frame**, and a frame that spawns many models at once, builds
   what later frames keep: two to three times a frame of before for those
   models, once.
-- **One core** (the web): a world where every model moves every frame
-  collects about 45% slower than before, because each model is compared
-  and then kept. Worlds where most models stand still are faster there too.
-- **Order**: models of one mesh are drawn in no particular order, and it
-  changes as models enter and leave the view.
+- **Memory**: for every model in the world, in view or not, about 150
+  bytes on one core and 210 on several (14 and 21 MiB for the 100,000
+  above, with their instances; a frame's scratch lists took 3.5 MiB
+  before). Every view that collects models keeps its own: a target camera
+  with a 3D view, and global illumination's capture, each cost that again
+  for every model in the world.
+- **Order**: models of one mesh are kept in no particular order, and it
+  changes as models enter and leave the view. `Blend::Transparent` models
+  of one mesh are drawn far to near by their origins every frame, whatever
+  that order is. Opaque models drawn in another order can differ in a few
+  edge pixels, by a little.
+- **`ctx.gfx.models_drawn()`** counts each model once, including models
+  in a shadow cascade whose map is kept this frame.
 
 `ctx.perf.render_stats().uploads.instances` shows what a frame uploaded: with a
 moving camera it should be a small part of the instances drawn.
