@@ -1133,7 +1133,7 @@ impl Tracked {
     /// One core: object `k` is compared with its digest, worked out again
     /// if it differs, culled again if it or the views changed, and its
     /// instances written if they changed.
-    #[inline]
+    #[inline(always)]
     #[allow(clippy::too_many_arguments)]
     fn settle(
         &mut self,
