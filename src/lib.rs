@@ -78,8 +78,7 @@ mod input;
 mod inventory;
 pub use access::{AccessConflict, AccessReport, ReportedPair, ReportedSystem, SystemAccess};
 pub use actions::{
-    Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, InputScenario,
-    UnknownAction,
+    Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, InputEvent, UnknownAction,
 };
 #[cfg(feature = "inspector")]
 mod inspector;
@@ -101,12 +100,14 @@ mod random;
 mod reflect;
 mod render;
 mod residency;
+mod scenario;
 mod scene;
 mod schema;
 mod scope;
 mod sheet;
 mod spatial;
 mod stream;
+mod streaming;
 mod text;
 mod texture;
 #[cfg(feature = "3d")]
@@ -175,6 +176,10 @@ pub use render::{
     RenderStats,
 };
 pub use residency::{ResidencyKind, ResidencyStats};
+pub use scenario::{
+    InputScenario, MAX_SCENARIO_STEPS, MAX_SCENARIO_TICKS, SCENARIO_VERSION, ScenarioCheck, ScenarioError,
+    ScenarioFailure, ScenarioReport, ScenarioStatus,
+};
 pub use schema::ValueSchema;
 pub use scope::{ProfileScope, ScopeGuard, ScopeTiming, scope_named};
 pub use sheet::{Animation, SpriteSheet, animate_sprites};
@@ -189,6 +194,7 @@ pub use steamworks;
 #[cfg(feature = "3d")]
 pub use stream::CellStreamer;
 pub use stream::Job;
+pub use streaming::{AssetState, DEFAULT_UPLOAD_BUDGET, StreamedAsset, UploadStats};
 /// Flex/grid/absolute layout types used by retained UI.
 /// ```
 /// use ponko::ui_layout::Style;
@@ -198,11 +204,13 @@ pub use taffy as ui_layout;
 pub use text::{Font, TextParams};
 pub use texture::{DrawParams, Texture, TextureFilter};
 #[cfg(feature = "3d")]
+pub use three::StreamedLod;
+#[cfg(feature = "3d")]
 pub use three::{
     AmbientOcclusion, AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer,
     AnimationParameter, AnimationState, AnimationTrack, AnimationTransition, Animator, AntiAliasing, AttachToJoint,
     Blend, Camera3D, Compute, ComputePass, Decal3D, Effect, FarTerrain, GlobalIllumination, GpuBuffer, GraphicsQuality,
-    Heightfield, InstanceBatch, InstanceBatchOptions, Interpolation, Joint, JointAnimation, JointMask,
+    Heightfield, InstanceBatch, InstanceBatchOptions, InstanceLevel, Interpolation, Joint, JointAnimation, JointMask,
     LIGHT_SHADOW_ATLAS_SIZE, LIGHT_SHADOW_SIZE, LayerBlend, Lighting, Line3D, LodGroup, LodHysteresis, LodLevel,
     LodPick, LodRenderer, LodSettings, LodShadow, MAX_DECALS, MAX_DECALS_PER_CLUSTER, MAX_GI_PROBES,
     MAX_GI_PROBES_PER_FRAME, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh,

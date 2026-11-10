@@ -5,7 +5,8 @@ use std::ops::Range;
 use glam::Vec3;
 
 use super::{
-    AnimationClip, Blend, Material, MaterialDesc, Mesh, MeshData, MeshMorph, MeshSkin, Shader, Skeleton, gltf, linear,
+    AnimationClip, Blend, Material, MaterialDesc, Mesh, MeshData, MeshMorph, MeshSkin, Shader, SharedImage, Skeleton,
+    gltf, linear,
 };
 use crate::{Ctx, assets};
 
@@ -312,6 +313,9 @@ impl Ctx {
     /// # Panics
     ///
     /// If the file can't be read or doesn't compile (the message says where).
+    /// With hot reload on, a file that doesn't compile doesn't panic: it
+    /// gets a stand-in and stays watched until a saved fix compiles
+    /// ([`ShaderOutcome::Failed`](crate::ShaderOutcome::Failed), [`Ctx::shader_status`]).
     pub fn load_shader(&mut self, path: &str) -> Shader {
         self.try_load_shader(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
@@ -328,7 +332,20 @@ impl Ctx {
         };
         let origin = found.origin.clone();
         let source = found.into_text(path)?;
-        let shader = self.try_create_shader(path, &source)?;
+        let shader = match self.try_create_shader(path, &source) {
+            Ok(shader) => shader,
+            // With hot reload on, it draws with the built-in look until a
+            // saved fix compiles; its status says what's wrong.
+            Err(e) if self.keeps_failed_load(&origin) => {
+                Self::report_stand_in(path, &e);
+                let id = self.assets3d.shaders;
+                self.compile_shader(path, "", None).map_err(|_| e)?;
+                self.assets3d.shaders += 1;
+                self.assets3d.shaders_live.insert(id);
+                Shader { id }
+            }
+            Err(e) => return Err(e),
+        };
         self.assets3d.loaded_shaders.insert(origin.clone(), shader);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher
@@ -712,25 +729,79 @@ impl Ctx {
         };
         let file = found.origin.clone();
         let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
+        let (loaded, image_keys) = self.decode_gltf(path, &bytes)?;
+        Ok((self.mesh_from_loaded(path, file.clone(), loaded, image_keys), file))
+    }
+
+    /// Decodes the glTF file `path` from `bytes` on the game thread, without
+    /// the pixels of images another model already shares, and works out
+    /// each image's key (see [`image_keys`](Self::image_keys)).
+    pub(crate) fn decode_gltf(
+        &self,
+        path: &str,
+        bytes: &[u8],
+    ) -> Result<(gltf::Loaded, Vec<Option<SharedImage>>), crate::Error> {
         let shared = &self.assets3d.shared_images;
         let sources = &self.asset_sources;
-        let loaded = gltf::load(path, &bytes, &mut |name| sources.read(name), &|source| {
-            shared.contains_key(source)
+        // Each image file's key: where it is found, so the same name in two
+        // sources is two images. Worked out once per file.
+        let keys = std::cell::RefCell::new(std::collections::HashMap::<String, Option<SharedImage>>::new());
+        let key_of = |source: &str| {
+            keys.borrow_mut()
+                .entry(source.to_string())
+                .or_insert_with(|| SharedImage::of(sources, source))
+                .clone()
+        };
+        let loaded = gltf::load(path, bytes, &mut |name| sources.read(name), &|source| {
+            key_of(source).is_some_and(|key| shared.contains_key(&key))
         })
         .map_err(|e| crate::Error::decode(path, e))?;
+        let image_keys = loaded
+            .image_sources
+            .iter()
+            .map(|source| source.as_deref().and_then(key_of))
+            .collect();
+        Ok((loaded, image_keys))
+    }
+
+    /// The shared-image key of each image of a decoded glTF file (a file
+    /// decoded on a worker, which can't look at the asset sources).
+    pub(crate) fn image_keys(&self, loaded: &gltf::Loaded) -> Vec<Option<SharedImage>> {
+        loaded
+            .image_sources
+            .iter()
+            .map(|source| {
+                source
+                    .as_deref()
+                    .and_then(|source| SharedImage::of(&self.asset_sources, source))
+            })
+            .collect()
+    }
+
+    /// Makes the mesh, materials and textures of a decoded glTF file
+    /// `path` found at `file`, and caches it (the game-thread half of
+    /// `load_mesh_from`; streaming decodes on a worker first). `image_keys`
+    /// has the shared-image key of each of the file's images.
+    pub(crate) fn mesh_from_loaded(
+        &mut self,
+        path: &str,
+        file: assets::Origin,
+        loaded: gltf::Loaded,
+        image_keys: Vec<Option<SharedImage>>,
+    ) -> Mesh {
         let materials = if let Some(materials) = self.assets3d.file_materials.get(&file) {
             materials.clone()
         } else {
             let textures: Vec<crate::Texture> = loaded
                 .images
                 .iter()
-                .zip(&loaded.image_sources)
-                .map(|((w, h, rgba), source)| match source {
-                    Some(s) => match self.assets3d.shared_images.get(s) {
+                .zip(image_keys)
+                .map(|((w, h, rgba), key)| match key {
+                    Some(key) => match self.assets3d.shared_images.get(&key) {
                         Some(&t) => t,
                         None => {
                             let t = self.create_texture(*w, *h, rgba);
-                            self.assets3d.shared_images.insert(s.clone(), t);
+                            self.assets3d.shared_images.insert(key, t);
                             t
                         }
                     },
@@ -793,7 +864,7 @@ impl Ctx {
             names.by_id.insert(mesh.id, path.to_string());
             names.by_name.insert(path.to_string(), mesh);
         }
-        Ok((mesh, file))
+        mesh
     }
 
     /// A glTF file's mesh on the CPU (all its parts in one, placed as in
@@ -831,7 +902,14 @@ impl Ctx {
     ) -> Mesh {
         // A freed mesh's id first, so streaming meshes in and out doesn't
         // grow the tables (and the per-frame sort, which spans every id).
-        let id = match self.assets3d.free_meshes.pop() {
+        // A resident mesh coming back after eviction takes its old id, so
+        // handles the game kept stay good.
+        let id = match self
+            .assets3d
+            .reuse_mesh_id
+            .take()
+            .or_else(|| self.assets3d.free_meshes.pop())
+        {
             Some(id) => {
                 self.assets3d.gpu_mesh_bounds.remove(&id);
                 self.assets3d.bounds[id as usize] = data.bounds();

@@ -57,6 +57,27 @@ impl Default for InstanceBatchOptions {
         }
     }
 }
+/// A mesh drawn in a half-open distance band, measured to the instance origin.
+/// Overlapping bands draw both levels. Sun views use the main camera; local
+/// shadows use the light position. Mesh shadow settings still apply.
+#[derive(Clone, Copy, Debug)]
+pub struct InstanceLevel {
+    /// Mesh and materials for this level. Must outlive the batch.
+    pub mesh: Mesh,
+    /// Inclusive, finite, nonnegative lower distance.
+    pub min_distance: f32,
+    /// Exclusive upper distance; positive infinity is allowed.
+    pub max_distance: f32,
+    /// Draw in the main camera and target cameras.
+    pub camera: bool,
+    /// Cast sun and local-light shadows (also requires `cast_shadows`).
+    pub shadows: bool,
+}
+impl InstanceLevel {
+    pub(crate) fn contains(&self, distance: f32) -> bool {
+        distance >= self.min_distance && distance < self.max_distance
+    }
+}
 #[derive(Clone, Debug)]
 pub(crate) struct Cell {
     pub min: Vec3,
@@ -65,7 +86,10 @@ pub(crate) struct Cell {
     pub count: u32,
 }
 pub(crate) struct Batch {
-    pub mesh: Mesh,
+    pub levels: Vec<InstanceLevel>,
+    pub legacy_distance: bool,
+    pub min: Vec3,
+    pub max: Vec3,
     pub options: InstanceBatchOptions,
     pub instances: Vec<Instance3D>,
     pub spheres: Vec<[f32; 4]>,
@@ -73,6 +97,33 @@ pub(crate) struct Batch {
 }
 impl Batch {
     fn new(mesh: Mesh, transforms: &[Mat4], options: InstanceBatchOptions, bounds: (Vec3, f32)) -> Self {
+        Self::levels(
+            &[InstanceLevel {
+                mesh,
+                min_distance: 0.0,
+                max_distance: options.max_distance,
+                camera: true,
+                shadows: true,
+            }],
+            transforms,
+            &[],
+            options,
+            bounds,
+            true,
+        )
+    }
+    fn levels(
+        levels: &[InstanceLevel],
+        transforms: &[Mat4],
+        colors: &[Color],
+        options: InstanceBatchOptions,
+        bounds: (Vec3, f32),
+        legacy_distance: bool,
+    ) -> Self {
+        assert!(
+            colors.is_empty() || colors.len() == transforms.len(),
+            "instance colors must be empty or match transform count"
+        );
         assert!(
             options.cell_size.is_finite() && options.cell_size > 0.0,
             "invalid cell size"
@@ -81,7 +132,8 @@ impl Batch {
         assert!(transforms.len() <= 16_777_216, "too many instances");
         let mut sorted: Vec<_> = transforms
             .iter()
-            .map(|&m| {
+            .enumerate()
+            .map(|(index, &m)| {
                 assert!(
                     m.is_finite() && m.row(3) == crate::Vec4::W,
                     "instances require finite affine transforms"
@@ -89,19 +141,28 @@ impl Batch {
                 let center = m.transform_point3(bounds.0);
                 let radius = bounds.1 * Vec3::new(m.x_axis.length(), m.y_axis.length(), m.z_axis.length()).length();
                 let key = (center / options.cell_size).floor().as_ivec3().to_array();
-                (key, m, center, radius)
+                (
+                    key,
+                    m,
+                    center,
+                    radius,
+                    colors.get(index).copied().unwrap_or(options.tint),
+                )
             })
             .collect();
         sorted.sort_by_key(|e| e.0);
         let mut batch = Self {
-            mesh,
+            levels: levels.to_vec(),
+            legacy_distance,
+            min: Vec3::splat(f32::INFINITY),
+            max: Vec3::splat(f32::NEG_INFINITY),
             options,
             instances: Vec::with_capacity(sorted.len()),
             spheres: Vec::with_capacity(sorted.len()),
             cells: Vec::new(),
         };
         let mut previous = None;
-        for (key, matrix, center, radius) in sorted {
+        for (key, matrix, center, radius, color) in sorted {
             if previous != Some(key) || batch.cells.last().is_some_and(|c| c.count == 256) {
                 batch.cells.push(Cell {
                     min: center - radius,
@@ -114,12 +175,20 @@ impl Batch {
             let cell = batch.cells.last_mut().unwrap();
             cell.min = cell.min.min(center - radius);
             cell.max = cell.max.max(center + radius);
+            if !legacy_distance {
+                // Origin bounds keep broad distance rejection conservative even
+                // for off-centre meshes and shadow proxies.
+                cell.min = cell.min.min(matrix.w_axis.truncate());
+                cell.max = cell.max.max(matrix.w_axis.truncate());
+            }
+            batch.min = batch.min.min(cell.min);
+            batch.max = batch.max.max(cell.max);
             cell.count += 1;
             let mut model = matrix.to_cols_array_2d();
             model[0][3] = super::projected::receiver_mask(None);
             batch.instances.push(Instance3D {
                 model,
-                color: super::linear(options.tint),
+                color: super::linear(color),
             });
             batch.spheres.push(center.extend(radius).to_array());
         }
@@ -142,28 +211,90 @@ impl Ctx {
             r.set_instance_batch(id, Some(&batch));
         }
         self.assets3d.instance_batches.push(Some(batch));
+        self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);
         InstanceBatch { id }
+    }
+    /// Creates levels sharing one transform/colour population. Bands use origin
+    /// distance, independently of `options.max_distance` (legacy API only).
+    /// Empty colours use `options.tint`; otherwise one sRGB colour is required
+    /// per transform. Cell width and `cast_shadows` apply to every level.
+    pub fn create_instance_batch_levels(
+        &mut self,
+        levels: &[InstanceLevel],
+        transforms: &[Mat4],
+        colors: &[Color],
+        options: InstanceBatchOptions,
+    ) -> InstanceBatch {
+        let bounds = self.instance_level_bounds(levels).expect("invalid instance level mesh");
+        let batch = Batch::levels(levels, transforms, colors, options, bounds, false);
+        let id = self.assets3d.instance_batches.len() as u32;
+        if let Some(r) = self.renderer.as_mut() {
+            r.set_instance_batch(id, Some(&batch));
+        }
+        self.assets3d.instance_batches.push(Some(batch));
+        self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);
+        InstanceBatch { id }
+    }
+    fn instance_level_bounds(&self, levels: &[InstanceLevel]) -> Option<(Vec3, f32)> {
+        assert!(!levels.is_empty(), "instance batch requires at least one level");
+        let mut lo = Vec3::splat(f32::INFINITY);
+        let mut hi = Vec3::splat(f32::NEG_INFINITY);
+        for level in levels {
+            assert!(
+                level.min_distance.is_finite() && level.min_distance >= 0.0 && level.max_distance > level.min_distance,
+                "invalid instance distance band"
+            );
+            let (center, radius) = self.assets3d.live_bounds(level.mesh.id)?;
+            lo = lo.min(center - radius);
+            hi = hi.max(center + radius);
+        }
+        Some(((lo + hi) * 0.5, (hi - lo).length() * 0.5))
     }
     /// Replaces transforms and rebuilds cells. Returns false for a freed handle.
     /// See [`InstanceBatch`].
     pub fn update_instance_batch(&mut self, batch: InstanceBatch, transforms: &[Mat4]) -> bool {
+        self.update_instance_batch_colors(batch, transforms, &[])
+    }
+    /// Replaces transforms and sRGB colours, rebuilding cells. Empty colours
+    /// restore the uniform tint, as does `update_instance_batch`.
+    /// Returns false for a freed batch or mesh.
+    pub fn update_instance_batch_colors(
+        &mut self,
+        batch: InstanceBatch,
+        transforms: &[Mat4],
+        colors: &[Color],
+    ) -> bool {
         let Some(Some(old)) = self.assets3d.instance_batches.get(batch.id as usize) else {
             return false;
         };
-        let Some(bounds) = self.assets3d.live_bounds(old.mesh.id) else {
+        let bounds = if old.legacy_distance {
+            self.assets3d.live_bounds(old.levels[0].mesh.id)
+        } else {
+            self.instance_level_bounds(&old.levels)
+        };
+        let Some(bounds) = bounds else {
             return false;
         };
-        let new = Batch::new(old.mesh, transforms, old.options, bounds);
+        let new = Batch::levels(
+            &old.levels,
+            transforms,
+            colors,
+            old.options,
+            bounds,
+            old.legacy_distance,
+        );
         if let Some(r) = self.renderer.as_mut() {
             r.set_instance_batch(batch.id, Some(&new));
         }
         self.assets3d.instance_batches[batch.id as usize] = Some(new);
+        self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);
         true
     }
     /// Releases a region's CPU and GPU resources. See [`InstanceBatch`].
     pub fn free_instance_batch(&mut self, batch: InstanceBatch) {
         if let Some(slot) = self.assets3d.instance_batches.get_mut(batch.id as usize) {
             *slot = None;
+            self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);
             if let Some(r) = self.renderer.as_mut() {
                 r.set_instance_batch(batch.id, None);
             }
@@ -205,5 +336,67 @@ mod tests {
                 assert!((p - s[3]).cmpge(c.min).all() && (p + s[3]).cmple(c.max).all());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod level_tests {
+    use super::*;
+    #[test]
+    fn half_open_bands_partition_overlap_and_leave_gaps() {
+        let level = |min_distance, max_distance| InstanceLevel {
+            mesh: Mesh { id: 0 },
+            min_distance,
+            max_distance,
+            camera: true,
+            shadows: true,
+        };
+        let levels = [level(0.0, 10.0), level(10.0, 20.0), level(15.0, 30.0)];
+        for (distance, expected) in [
+            (0.0, vec![0]),
+            (9.999, vec![0]),
+            (10.0, vec![1]),
+            (15.0, vec![1, 2]),
+            (20.0, vec![2]),
+            (30.0, vec![]),
+        ] {
+            assert_eq!(
+                levels
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, l)| l.contains(distance).then_some(i))
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
+    #[test]
+    fn batch_bounds_include_origins_and_every_transformed_proxy() {
+        let levels = [InstanceLevel {
+            mesh: Mesh { id: 0 },
+            min_distance: 0.0,
+            max_distance: 100.0,
+            camera: true,
+            shadows: true,
+        }];
+        let transform = Mat4::from_scale_rotation_translation(
+            Vec3::new(2.0, 3.0, 1.0),
+            crate::Quat::IDENTITY,
+            Vec3::new(-20.0, 3.0, 8.0),
+        );
+        let b = Batch::levels(
+            &levels,
+            &[transform],
+            &[Color::RED],
+            Default::default(),
+            (Vec3::new(10.0, 0.0, 0.0), 2.0),
+            false,
+        );
+        let origin = transform.w_axis.truncate();
+        assert!(origin.cmpge(b.min).all() && origin.cmple(b.max).all());
+        let sphere = b.spheres[0];
+        let center = Vec3::from_slice(&sphere);
+        assert!((center - sphere[3]).cmpge(b.min).all() && (center + sphere[3]).cmple(b.max).all());
+        assert_eq!(b.instances[0].color, super::super::linear(Color::RED));
     }
 }

@@ -19,7 +19,7 @@ pub(crate) mod gi;
 mod gltf;
 mod ik;
 pub(crate) mod instances;
-pub use instances::{InstanceBatch, InstanceBatchOptions};
+pub use instances::{InstanceBatch, InstanceBatchOptions, InstanceLevel};
 mod lod;
 pub(crate) mod occlusion;
 pub use gi::{GlobalIllumination, MAX_GI_PROBES, MAX_GI_PROBES_PER_FRAME};
@@ -44,6 +44,9 @@ pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
 mod quality;
 mod resident;
+mod streamed;
+pub(crate) use streamed::LoadedFile;
+pub use streamed::StreamedLod;
 mod skin;
 pub(crate) mod strips;
 pub use strips::{Line3D, Trail3D};
@@ -51,6 +54,7 @@ pub(crate) mod text3d;
 pub use text3d::{Text3D, TextAlign3D};
 mod far_terrain;
 mod shader_status;
+pub(crate) use shader_status::{COMPUTE_STAND_IN, EFFECT_STAND_IN};
 pub use shader_status::{ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus};
 mod sky;
 mod target;
@@ -849,6 +853,9 @@ pub(crate) struct Assets3D {
     pub bounds: Vec<(Vec3, f32)>,
     /// Freed meshes' ids, for the next meshes made.
     pub free_meshes: Vec<u32>,
+    /// The id the next mesh made takes instead (a resident mesh reloaded
+    /// after eviction; see `three::resident`).
+    pub reuse_mesh_id: Option<u32>,
     /// Each mesh's estimated GPU bytes (`asset_inventory`), by id; 0 once freed.
     pub mesh_bytes: Vec<u64>,
     pub probes: probe::ProbeAssets,
@@ -894,6 +901,7 @@ pub(crate) struct Assets3D {
     /// GPU buffers' lengths, by id; 0 for a freed one.
     pub gpu_buffers: Vec<u32>,
     pub instance_batches: Vec<Option<instances::Batch>>,
+    pub instance_batch_revision: u64,
     /// Freed GPU buffers' ids, for the next buffers made.
     pub free_gpu_buffers: Vec<u32>,
     /// Buffer-driven meshes' own bounds (before `set_mesh_gpu_bounds`
@@ -915,9 +923,10 @@ pub(crate) struct Assets3D {
     /// Material handles survive geometry eviction; reloading must preserve
     /// user shader edits and must not allocate another material/texture set.
     pub file_materials: std::collections::HashMap<crate::assets::Origin, Vec<Material>>,
-    /// Images that glTF files take from files of their own, by asset name
-    /// (see `gltf::Loaded::image_sources`): many models share them.
-    pub shared_images: std::collections::HashMap<String, crate::Texture>,
+    /// Images that glTF files take from files of their own, by where those
+    /// files were found (see `gltf::Loaded::image_sources`): many models
+    /// share them, and the same name in two asset sources is two images.
+    pub shared_images: std::collections::HashMap<SharedImage, crate::Texture>,
     /// Materials loaded from glTF files, by their name in the file, with
     /// what they were made from (`Ctx::loaded_materials`).
     pub loaded_materials: std::collections::HashMap<String, Vec<(Material, MaterialDesc)>>,
@@ -1032,5 +1041,40 @@ mod tests {
             ndc.x.abs() < 1e-4 && ndc.y.abs() < 1e-4 && (0.0..1.0).contains(&ndc.z),
             "{ndc}"
         );
+    }
+}
+
+/// Where a glTF image shared between models came from: the cache key of
+/// `Assets3d::shared_images`.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub(crate) enum SharedImage {
+    /// An image file of its own.
+    Image(crate::assets::Origin),
+    /// An ORM image made from a metallic-roughness and an occlusion image
+    /// (either can be missing).
+    Orm(Option<crate::assets::Origin>, Option<crate::assets::Origin>),
+}
+
+impl SharedImage {
+    /// The key of a glTF image source (`gltf::Loaded::image_sources`): an
+    /// asset name, or `orm:<name>|<name>` with an empty name for a missing
+    /// image. Each name is keyed by the source that has it, so a model from
+    /// one source shares images only with models whose images came from
+    /// the same place. `None` if a name is in no source.
+    pub(crate) fn of(sources: &crate::assets::Sources, image_source: &str) -> Option<Self> {
+        let locate = |name: &str| sources.locate(name);
+        match image_source.strip_prefix("orm:").and_then(|rest| rest.split_once('|')) {
+            Some((m, o)) => {
+                let part = |name: &str| {
+                    if name.is_empty() {
+                        Some(None)
+                    } else {
+                        locate(name).map(Some)
+                    }
+                };
+                Some(Self::Orm(part(m)?, part(o)?))
+            }
+            None => locate(image_source).map(Self::Image),
+        }
     }
 }

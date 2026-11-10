@@ -158,6 +158,12 @@ pub(crate) struct Panels {
 }
 
 impl Panels {
+    /// Forgets which panel has the keyboard (after a scene load: its entity
+    /// id may name another panel now).
+    pub fn forget_focus(&mut self) {
+        self.active = None;
+    }
+
     /// This frame's drawing.
     pub fn frame_draws(&mut self) -> &mut [PanelDraw] {
         &mut self.draws[..self.used]
@@ -430,5 +436,25 @@ mod tests {
         ctx.set_ui_pointer_ray(Some((Vec3::ZERO, Vec3::X)));
         ctx.update_ui_panels();
         assert!(ctx.world.get::<UiPanel3D>(near).unwrap().pointer().is_none());
+    }
+
+    #[test]
+    fn a_scene_load_forgets_which_panel_has_the_keyboard() {
+        let mut ctx = Ctx::new(1.0 / 60.0, V2::new(800.0, 600.0));
+        let e = ctx.world.spawn((Transform3D::default(), panel()));
+        ctx.ui.panels.active = Some(e); // clicked last
+        // A scene with the same ids (transforms only: panels aren't saved).
+        let save = crate::WorldReflect::save(&ctx.world);
+        ctx.replace_world(&save).unwrap();
+        assert!(ctx.world.is_alive(e), "the scene has the same id");
+        assert_eq!(ctx.ui.panels.active, None, "the old panel's focus is gone");
+        // The game puts a new panel on it: no keyboard until it's clicked.
+        ctx.world.insert(e, panel());
+        ctx.update_ui_panels();
+        assert_eq!(ctx.ui.panels.active, None);
+        assert!(
+            ctx.frame3d.motion.reset,
+            "same-id models have no motion from the old scene"
+        );
     }
 }

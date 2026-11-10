@@ -12,7 +12,9 @@ impl Ctx {
     /// used, and when resident meshes go over the budget, the least recently
     /// used ones are freed until they fit. A freed one loads again, from
     /// where [`load_mesh`](Self::load_mesh) finds it, the next time it's
-    /// asked for, possibly as a different [`Mesh`]; its materials and
+    /// asked for, as the same [`Mesh`] (its id is kept for it while it is
+    /// out: a handle the game kept reads as not [live](Self::is_live) and
+    /// models showing it draw nothing until then); its materials and
     /// textures stay loaded.
     ///
     /// Never evicted: meshes asked for in the current frame and tick (so the
@@ -88,14 +90,44 @@ impl Ctx {
         self.residency.set_mut(ResidencyKind::Mesh).forget(path);
         // Already in the load cache: the game holds it from `load_mesh`.
         let cached = self.assets3d.loaded.len();
-        let (mesh, file) = self.load_mesh_from(path)?;
+        let (mesh, file) = self.load_reserved(path, |ctx| ctx.load_mesh_from(path))?;
         let shared = self.assets3d.loaded.len() == cached;
+        self.add_resident_mesh(path, mesh, file, shared);
+        Ok(mesh)
+    }
+
+    /// Adds `mesh`, just loaded from `file` as `path`, to the resident
+    /// meshes and evicts what the budget needs gone.
+    pub(crate) fn add_resident_mesh(&mut self, path: &str, mesh: Mesh, file: crate::assets::Origin, shared: bool) {
+        let now = self.residency_now();
         let bytes = self.assets3d.mesh_bytes.get(mesh.id as usize).copied().unwrap_or(0);
         self.residency
             .set_mut(ResidencyKind::Mesh)
             .insert(path, (mesh.id, file), bytes, shared, now);
         self.enforce_residency(ResidencyKind::Mesh);
-        Ok(mesh)
+    }
+
+    /// Runs `load` (which makes mesh `path` at most once) so that a mesh it
+    /// makes takes the id `path` had before it was evicted. The id is
+    /// released if `load` found the file cached instead.
+    pub(crate) fn load_reserved<T>(
+        &mut self,
+        path: &str,
+        load: impl FnOnce(&mut Self) -> Result<T, crate::Error>,
+    ) -> Result<T, crate::Error> {
+        let reserved = self.residency.reserved_meshes.get(path).copied();
+        self.assets3d.reuse_mesh_id = reserved;
+        let result = load(self);
+        let unused = self.assets3d.reuse_mesh_id.take();
+        if result.is_ok()
+            && let Some(id) = reserved
+        {
+            self.residency.reserved_meshes.remove(path);
+            if unused.is_some() {
+                self.assets3d.free_meshes.push(id);
+            }
+        }
+        result
     }
 
     /// The resident mesh called `path`, unless it was evicted or the game
@@ -113,11 +145,18 @@ impl Ctx {
             .residency
             .set_mut(ResidencyKind::Mesh)
             .evict(now, |id| shown.contains(&id));
-        for (_, entry) in evicted {
+        for (name, entry) in evicted {
             let mesh = Mesh { id: entry.handle };
             // Freed elsewhere since: its id may be another mesh's now.
             if self.assets3d.loaded.get(&entry.file) == Some(&mesh) {
                 self.free_mesh(mesh);
+                // Keep the id for this name: a handle the game kept reads
+                // as not live (models showing it draw nothing) until the
+                // mesh is asked for again and comes back under it.
+                if let Some(i) = self.assets3d.free_meshes.iter().rposition(|&id| id == mesh.id) {
+                    self.assets3d.free_meshes.swap_remove(i);
+                }
+                self.residency.reserved_meshes.insert(name, mesh.id);
             }
         }
     }

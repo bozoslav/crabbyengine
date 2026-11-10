@@ -225,8 +225,8 @@ impl Renderer3D {
                 .static_batches
                 .iter()
                 .flatten()
-                .filter(|b| b.options.cast_shadows)
-                .any(|b| mesh_volatile(b.mesh))
+                .filter(|b| b.casts())
+                .any(|b| b.levels.iter().any(|l| l.shadows && mesh_volatile(l.mesh.id)))
     }
 
     fn material_volatile(&self, material: u32) -> bool {
@@ -268,11 +268,7 @@ impl Renderer3D {
     pub(super) fn plan_shadows(&mut self, frame: &Frame3D, camera: Vec3) {
         self.shadow_cache.begin();
         // Static batches cull the cascades' casters by distance from the camera.
-        let by_distance = self
-            .static_batches
-            .iter()
-            .flatten()
-            .any(|b| b.options.cast_shadows && b.options.max_distance.is_finite());
+        let by_distance = self.static_batches.iter().flatten().any(|b| b.shadow_distance());
         for v in shadow_views(self.cascades, self.light_views) {
             let key = if v < MAX_CASCADES {
                 if self.redrawn & (1 << v) == 0 {
@@ -365,6 +361,11 @@ pub(super) fn tile_clear_pipeline(device: &wgpu::Device) -> wgpu::RenderPipeline
 
 #[cfg(test)]
 impl Renderer3D {
+    /// Number of sun cascade passes actually redrawn after both cache layers.
+    pub fn shadow_cascades_redrawn(&self) -> u32 {
+        self.redrawn.count_ones()
+    }
+
     /// The shadow views the last prepared frame kept (bit `v`: view `v`).
     pub fn shadow_views_kept(&self) -> u32 {
         self.shadow_cache.kept

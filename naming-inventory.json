@@ -146,7 +146,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/cbindgen.toml": {
-      "occurrences": 83,
+      "occurrences": 87,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -164,7 +164,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/src/animator.rs": {
-      "occurrences": 215,
+      "occurrences": 216,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -313,6 +313,12 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/src/residency.rs": {
+      "occurrences": 119,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/src/resources.rs": {
       "occurrences": 54,
       "path_occurrences": 0,
@@ -320,7 +326,13 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/src/scene.rs": {
-      "occurrences": 21,
+      "occurrences": 26,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/src/shader_status.rs": {
+      "occurrences": 64,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -362,7 +374,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/src/three.rs": {
-      "occurrences": 844,
+      "occurrences": 863,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -421,6 +433,12 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/tests/control_endpoint.rs": {
+      "occurrences": 14,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/tests/events.rs": {
       "occurrences": 54,
       "path_occurrences": 0,
@@ -439,6 +457,12 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/tests/game_setup.rs": {
+      "occurrences": 107,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/tests/gpu.rs": {
       "occurrences": 66,
       "path_occurrences": 0,
@@ -447,6 +471,12 @@
     },
     "crates/ponko_ffi/tests/handles.rs": {
       "occurrences": 58,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/headless_ctx.rs": {
+      "occurrences": 265,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -506,7 +536,13 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/tests/scenes.rs": {
-      "occurrences": 67,
+      "occurrences": 95,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/shader_files_and_probes.rs": {
+      "occurrences": 101,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -536,7 +572,13 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/tests/three.rs": {
-      "occurrences": 559,
+      "occurrences": 585,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/three_helpers.rs": {
+      "occurrences": 160,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -619,6 +661,12 @@
       "category": "public compatibility",
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
     },
+    "examples/coin_dash/CONTENT-NOTICES.txt": {
+      "occurrences": 2,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Pre-existing project instructions, README text, release history or legal attribution."
+    },
     "examples/cpp/CMakeLists.txt": {
       "occurrences": 4,
       "path_occurrences": 0,
@@ -644,19 +692,19 @@
       "reason": "Retained public format, ABI type, environment fallback, embedding or external output identifier."
     },
     "include/crabby.h": {
-      "occurrences": 3070,
+      "occurrences": 3183,
       "path_occurrences": 1,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "include/crabby.hpp": {
-      "occurrences": 1333,
+      "occurrences": 1380,
       "path_occurrences": 1,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "include/ponko.h": {
-      "occurrences": 1135,
+      "occurrences": 1180,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -667,8 +715,20 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "scripts/check-ffi-coverage.py": {
+      "occurrences": 2,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+    },
     "scripts/check-naming.py": {
       "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+    },
+    "scripts/ffi-coverage-allowlist.txt": {
+      "occurrences": 14,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
@@ -681,6 +741,12 @@
     },
     "scripts/leak-check.sh": {
       "occurrences": 3,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+    },
+    "scripts/package-coin-dash.py": {
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
@@ -955,6 +1021,12 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/tests/shader_status.rs": {
+      "occurrences": 42,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/tests/skin.rs": {
       "occurrences": 190,
       "path_occurrences": 0,
@@ -962,7 +1034,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/tests/animator.rs": {
-      "occurrences": 286,
+      "occurrences": 314,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -1023,6 +1095,12 @@
     },
     "crates/ponko_ffi/tests/fixtures/abi/layout_table.rs": {
       "occurrences": 428,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/residency.rs": {
+      "occurrences": 89,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."

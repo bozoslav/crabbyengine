@@ -75,6 +75,45 @@ fn nothing_reloads_with_hot_reload_off() {
     assert!(seen.is_empty());
 }
 
+#[test]
+fn a_file_overridden_by_an_asset_source_is_not_reloaded_but_the_folders_copy_is() {
+    // The same name from a source and from the folder: editing the file
+    // reloads only the folder's texture, loaded before the source was added.
+    let path = temp_png("both.png");
+    let name = path.to_str().unwrap().to_string();
+    let p = path.clone();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = seen.clone();
+    let mut loaded = None;
+    Game::new("hot", 1, 1)
+        .hot_reload(true)
+        .sim_system(move |ctx: &mut Ctx| {
+            log.lock().unwrap().extend(ctx.reloaded_textures().iter().copied());
+            if ctx.sim_tick() == 2 {
+                std::thread::sleep(Duration::from_millis(50));
+                write_png(&p, 4, 4, [0, 0, 255, 255]);
+                std::thread::sleep(Duration::from_millis(400));
+            }
+        })
+        .run_headless(5, |ctx| {
+            let from_folder = ctx.load_texture(&name);
+            let mut png = Vec::new();
+            image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 255, 0, 255]))
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            ctx.add_asset_source(MemorySource::new("pack").with(name.clone(), png));
+            let from_source = ctx.load_texture(&name);
+            loaded = Some((from_folder, from_source));
+        });
+    let (from_folder, from_source) = loaded.unwrap();
+    assert_ne!(from_folder, from_source);
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![from_folder],
+        "only the folder's copy reloads"
+    );
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
 struct Rules {
     speed: f32,

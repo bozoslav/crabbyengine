@@ -19,6 +19,11 @@
 # added, starts this workflow on the branch with workflow_dispatch. That
 # check isn't required, so the leaks job here re-reads the current PR text
 # in the merge queue: an edited-in leak still blocks the merge.
+#
+# Build caches are saved only by runs on main (`save-if`). Every other run
+# can restore those, and nothing can restore a cache saved from a merge
+# queue ref. Saving elsewhere fills the repository's 10 GB cache quota, and
+# GitHub then evicts main's caches: the next runs rebuild every dependency.
 
 name: CI
 
@@ -123,6 +128,9 @@ jobs:
           python3 scripts/generate-ponko-header.py --check
       - name: Changelog fragments
         run: python3 scripts/changelog.py --check
+      # Every C export needs a test, or a reasoned entry in the allowlist.
+      - name: C ABI test coverage
+        run: python3 scripts/check-ffi-coverage.py
       - run: cargo fmt --all --check
 
   # Reduced builds lint one package (`scope`), not the workspace: Cargo
@@ -222,12 +230,12 @@ jobs:
         if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
-          # PR caches are scoped by GitHub to that PR; keep new Windows
-          # linker artifacts so reruns do not repeat a cold dependency build.
-          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Linux also runs doctests. Windows unit tests have their own job;
       # --test '*' selects all integration targets without running unit tests
-      # a second time (--tests would include unit tests too).
+      # a second time (--tests would include unit tests too). No job passes
+      # --examples: the examples hold no tests, so it would only link each
+      # one a second time, as a test binary. They are built once, below.
       - name: Tests (default features)
         shell: bash
         run: |
@@ -236,7 +244,7 @@ jobs:
           elif [ "$RUNNER_OS" = "Windows" ]; then
             cargo test --workspace --no-fail-fast --bins --test '*'
           else
-            cargo test --workspace --no-fail-fast --lib --bins --tests --examples
+            cargo test --workspace --no-fail-fast --lib --bins --tests
           fi
       - name: Build examples
         if: ${{ !cancelled() && runner.os != 'Windows' }}
@@ -252,9 +260,7 @@ jobs:
       - uses: ./.github/actions/windows-linker
       - uses: Swatinem/rust-cache@v2
         with:
-          # PR caches are scoped by GitHub to that PR; keep new Windows
-          # linker artifacts so reruns do not repeat a cold dependency build.
-          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           # This narrower build has a different dependency feature graph;
           # keep its cache separate from the full-workspace jobs.
           shared-key: windows-unit-engine
@@ -274,13 +280,13 @@ jobs:
           if-no-files-found: error
 
   windows-unit:
-    name: Unit and render tests (Windows shard ${{ matrix.shard }}/3)
+    name: Unit and render tests (Windows shard ${{ matrix.shard }}/6)
     needs: windows-unit-build
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/nextest
@@ -289,11 +295,14 @@ jobs:
           name: windows-unit-tests
           path: target/ci-unit
       # Slices cover every test exactly once. Limit concurrent tests per
-      # runner so software-rendered GPU tests do not swamp the CPU.
+      # runner so software-rendered GPU tests do not swamp the CPU. A few
+      # render tests take two to three minutes each on the software adapter
+      # and set the floor for a shard; six shards keep the rest of a slice
+      # from adding much to that (three took over five minutes).
       - name: Run archived tests
         run: >-
           cargo nextest run --archive-file target/ci-unit/windows-unit.tar.zst
-          --workspace-remap . --partition slice:${{ matrix.shard }}/3
+          --workspace-remap . --partition slice:${{ matrix.shard }}/6
           --test-threads 2 --no-fail-fast
 
   windows-gpu-tiers:
@@ -333,13 +342,10 @@ jobs:
       - uses: ./.github/actions/windows-linker
       - uses: Swatinem/rust-cache@v2
         with:
-          save-if: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           shared-key: test
       - name: Test other library crates
         run: cargo test --workspace --exclude ponko --lib --no-fail-fast
-      - name: Test examples
-        if: ${{ !cancelled() }}
-        run: cargo test --workspace --examples --no-fail-fast
       - name: Build examples
         if: ${{ !cancelled() }}
         run: cargo build --workspace --examples
@@ -364,9 +370,7 @@ jobs:
         if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
-          # PR caches are scoped by GitHub to that PR; keep new Windows
-          # linker artifacts so reruns do not repeat a cold dependency build.
-          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           # Windows needs its complete feature graph cached separately:
           # the faster default job otherwise wins the immutable cache key.
           shared-key: ${{ runner.os == 'Windows' && 'test-features' || 'test' }}
@@ -483,9 +487,7 @@ jobs:
         if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
-          # PR caches are scoped by GitHub to that PR; keep new Windows
-          # linker artifacts so reruns do not repeat a cold dependency build.
-          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: native
       - name: Find the cbindgen version in Cargo.lock
         shell: bash
@@ -532,6 +534,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: web
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --examples
+      # The 3D examples (the 3D browser smoke fixture among them) need the feature.
+      - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features 3d --examples
       - name: Find the wasm-bindgen version in Cargo.lock
         run: echo "WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@v2
@@ -539,16 +543,34 @@ jobs:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
       - run: web/build.sh battle
 
-  # Runs a web build in headless Chromium (web/smoke/README.md): startup,
-  # asset fetch, fixed-step progress, a click and a nonblank canvas. GitHub's
-  # runners have no GPU: WebGL2 runs on SwiftShader and must pass; WebGPU
-  # is tried and reported, and passes as "unsupported" where the browser
-  # can't show a WebGPU canvas at all (checked without the engine).
+  # The browser runner's own tests (web/smoke/*.test.mjs): argument and
+  # fixture handling, the supported/unsupported decisions, and that a browser
+  # that can't start is reported as unsupported with its reason. No browser or
+  # wasm build, so it runs on every pull request.
+  web-smoke-runner:
+    name: Web smoke runner tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci --prefix web/smoke --no-audit --no-fund
+      - run: node --test web/smoke
+
+  # Runs web builds in headless browsers (web/smoke/README.md): startup,
+  # asset fetch, fixed-step progress, a click, a nonblank canvas, and the
+  # adapter the engine itself reports. Three builds, each fixture from
+  # web/smoke/fixtures.json: the 2D fixture, the 3D one (`--features 3d`) and
+  # the complete-game reference. Chromium, Firefox and WebKit run the WebGL2
+  # path, which must pass in each. GitHub's runners have no GPU, so WebGPU is
+  # tried (headless shell and the full browser's new headless mode) and
+  # reported: a browser that can't show a WebGPU canvas passes as
+  # "unsupported" with the reason in its report and in the job summary, never
+  # as a quiet pass; one that can must actually draw it.
   web-smoke:
-    name: Web smoke test (headless Chromium)
+    name: Web smoke test (headless browsers)
     if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -563,33 +585,159 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
-      - name: Install the runner and Chromium's headless shell
+      - name: Install the runner and the browsers (Chromium with its headless shell, Firefox, WebKit)
         run: |
           node --version
           npm ci --prefix web/smoke --no-audit --no-fund
-          node web/smoke/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
-      - run: web/build.sh web_smoke
-      - name: WebGL2 (WebGPU hidden, the fallback path)
-        run: node web/smoke/smoke.mjs --dir target/web/web_smoke --backend webgl2
-      - name: WebGPU (where the runner's browser can show it)
+          node web/smoke/node_modules/playwright-core/cli.js install --with-deps chromium firefox webkit
+      - name: Runner tests
+        run: node --test web/smoke
+      - name: Build the fixtures (2D, 3D with --features 3d, the complete game)
+        run: |
+          web/build.sh web_smoke
+          web/build.sh --features 3d web_smoke_3d
+          web/build.sh coin_dash
+      # Chromium, WebGL2 (WebGPU hidden, the fallback path).
+      - name: Chromium, WebGL2, 2D fixture
+        run: node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend webgl2 --chrome-trace
+      - name: Chromium, WebGL2, 3D fixture
         if: ${{ !cancelled() }}
-        run: node web/smoke/smoke.mjs --dir target/web/web_smoke --backend webgpu --allow-unsupported
-      - name: Whatever the engine picks
+        run: node web/smoke/smoke.mjs --fixture web_smoke_3d --browser chromium --backend webgl2
+      # The complete-game reference (examples/coin_dash): its coin picture is
+      # fetched and decoded, a click and keys reach it, and the screens it
+      # reports follow them (play, pause, title, the retained-UI settings
+      # screen, Escape closing it again; see fixtures.json). The web build
+      # keeps no progress yet (no files in a browser).
+      - name: Chromium, WebGL2, coin_dash (assets, a click, keys, screens)
         if: ${{ !cancelled() }}
-        run: node web/smoke/smoke.mjs --dir target/web/web_smoke --backend auto --allow-unsupported
+        run: node web/smoke/smoke.mjs --fixture coin_dash --browser chromium --backend webgl2
+      # WebGPU: the headless shell, then the full browser's new headless mode
+      # with software Vulkan (a WebGPU canvas is presented through its
+      # compositor). Each passes only if it draws or is reported unsupported.
+      - name: Chromium, WebGPU, headless shell
+        if: ${{ !cancelled() }}
+        run: node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend webgpu --allow-unsupported
+      - name: Chromium, WebGPU, new headless mode (2D and 3D fixtures)
+        if: ${{ !cancelled() }}
+        run: |
+          status=0
+          for fixture in web_smoke web_smoke_3d; do
+            node web/smoke/smoke.mjs --fixture "$fixture" --browser chromium --chromium-mode new --backend webgpu \
+              --browser-arg --use-webgpu-adapter=swiftshader --allow-unsupported || status=1
+          done
+          exit $status
+      - name: Chromium, whatever the engine picks
+        if: ${{ !cancelled() }}
+        run: node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend auto --allow-unsupported
+      # Firefox and WebKit: WebGL2 must pass; WebGPU is reported.
+      - name: Firefox, WebGL2 (2D and 3D fixtures)
+        if: ${{ !cancelled() }}
+        run: |
+          status=0
+          for fixture in web_smoke web_smoke_3d; do
+            node web/smoke/smoke.mjs --fixture "$fixture" --browser firefox --backend webgl2 || status=1
+          done
+          exit $status
+      - name: Firefox, WebGPU
+        if: ${{ !cancelled() }}
+        run: node web/smoke/smoke.mjs --fixture web_smoke --browser firefox --backend webgpu --allow-unsupported
+      - name: WebKit, WebGL2 (2D and 3D fixtures)
+        if: ${{ !cancelled() }}
+        run: |
+          status=0
+          for fixture in web_smoke web_smoke_3d; do
+            node web/smoke/smoke.mjs --fixture "$fixture" --browser webkit --backend webgl2 || status=1
+          done
+          exit $status
+      - name: WebKit, WebGPU
+        if: ${{ !cancelled() }}
+        run: node web/smoke/smoke.mjs --fixture web_smoke --browser webkit --backend webgpu --allow-unsupported
       # The runner itself: each broken build must be caught as that failure.
       - name: Self-tests (missing asset, startup panic, stalled simulation)
         if: ${{ !cancelled() }}
         run: |
           for case in missing-asset panic stall; do
-            node web/smoke/smoke.mjs --dir target/web/web_smoke --backend webgl2 --case "$case"
+            node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend webgl2 --case "$case"
           done
+      # Every run, with what it asked for, what ran, the adapter the engine
+      # reported and why anything was unsupported (also in the artifact).
+      - name: Summary of every run
+        if: ${{ !cancelled() }}
+        run: node web/smoke/summary.mjs target/web-smoke
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
           name: web-smoke
           path: target/web-smoke
           retention-days: 7
+
+  # The complete-game reference, packaged the way a player gets it and played
+  # from an unrelated folder (scripts/package-coin-dash.py, book/src/packaging.md):
+  # the program, its assets, the licenses and the content and third-party
+  # notices; then, on every OS, a headless walk-through (assets found outside
+  # the checkout, saves, damaged-save recovery, the OS's default save folder,
+  # missing assets failing loudly) and a walk-through in a real window. Linux
+  # has no display or GPU: a virtual display and software Vulkan (lavapipe)
+  # are installed and the window run must open a window there too. Windows
+  # runners have no GPU: the step before the window run restricts wgpu to
+  # DirectX 12 (WARP) when no real one is present. A window that can't open is a
+  # failure on every OS; only the local `--allow-unsupported` run passes it.
+  # The dev profile is packaged: the layout and notices are the release's, and
+  # the dependencies are the ones the test jobs already built.
+  package-smoke:
+    name: Packaged game (${{ matrix.os }})
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ALSA and udev headers (audio, gamepads), a virtual display and software Vulkan
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev xvfb mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/windows-linker
+        if: runner.os == 'Windows'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Linux and macOS read the `test` cache (same dev build, default
+          # features) and never write it here. Windows has no cache of that kind
+          # to share (`test-features` holds other feature builds), so it keeps
+          # its own and does not overwrite anyone else's.
+          save-if: ${{ github.ref == 'refs/heads/main' || runner.os == 'Windows' }}
+          shared-key: ${{ runner.os == 'Windows' && 'package-smoke' || 'test' }}
+      - name: The script's own checks (a crate without a license, window errors)
+        run: python scripts/package-coin-dash.py selftest
+      - name: Package
+        run: python scripts/package-coin-dash.py package --profile dev --out target/package
+      - name: Smoke test, headless (an unpacked copy, started from an unrelated folder)
+        if: ${{ !cancelled() }}
+        run: python scripts/package-coin-dash.py smoke --package target/package --mode headless
+      # The engine reads WGPU_BACKEND (not WGPU_ADAPTER_NAME). With only DirectX 12
+      # enabled, the one adapter left on a runner without a GPU is WARP, the
+      # software renderer, which the engine accepts.
+      - name: Windows without a GPU, use the software renderer (WARP) through DirectX 12
+        if: ${{ runner.os == 'Windows' && !cancelled() }}
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_VideoController | Select-Object Name | Format-Table
+          $real = Get-CimInstance Win32_VideoController | Where-Object { $_.Name -notmatch 'Basic Render|Remote Display|Hyper-V|Basic Display' }
+          if (-not $real) {
+            "WGPU_BACKEND=dx12" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Host "No GPU on this runner: DirectX 12 only, so wgpu picks WARP"
+          }
+      - name: Smoke test, in a window
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a python scripts/package-coin-dash.py smoke --package target/package --mode window
+          else
+            python scripts/package-coin-dash.py smoke --package target/package --mode window
+          fi
 
   # Single check for branch protection and the merge queue: passes only if
   # every job above passed. Requiring one job keeps the rule valid when jobs
@@ -599,7 +747,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, book, miri, native, web, web-smoke]
+    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job

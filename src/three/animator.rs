@@ -811,6 +811,29 @@ impl Animator {
     pub fn root_motion(&self) -> RootMotion {
         self.root_delta
     }
+    /// The current value of a parameter by index, or `None` for an invalid
+    /// index. Lets callers check an index and kind before a setter that panics.
+    /// ```
+    /// # use ponko::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// let a = Animator::new(AnimationGraph::new(vec![AnimationParameter::Bool(true)], vec![s], vec![], 0));
+    /// assert!(matches!(a.parameter(0), Some(AnimationParameter::Bool(true))));
+    /// assert!(a.parameter(1).is_none());
+    /// ```
+    pub fn parameter(&self, index: usize) -> Option<AnimationParameter> {
+        self.parameters.get(index).copied()
+    }
+    /// Number of states in the graph, so a state index can be checked before
+    /// [`crossfade`](Self::crossfade) or [`play`](Self::play) panic on it.
+    /// ```
+    /// # use ponko::*;
+    /// # let s = AnimationState::new(Motion::Clip(AnimationClip::new("idle", &Skeleton::new(vec![]), vec![])));
+    /// let a = Animator::new(AnimationGraph::new(vec![], vec![s], vec![], 0));
+    /// assert_eq!(a.state_count(), 1);
+    /// ```
+    pub fn state_count(&self) -> usize {
+        self.graph.states.len()
+    }
     /// Set a float by index. Panics on a wrong type/index or non-finite value.
     /// ```
     /// # use ponko::*;

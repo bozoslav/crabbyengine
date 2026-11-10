@@ -2318,6 +2318,22 @@ void persistent_instances(ponko::ctx& ctx, ponko::mesh mesh) {
 }
 // ANCHOR_END: gpu_instances
 
+// ANCHOR: instance_levels
+void leveled_instances(ponko::ctx& ctx, ponko::mesh near_mesh, ponko::mesh far_mesh) {
+    std::vector<ponko::instance_level> levels = {
+        {near_mesh, 0, 25, true, false},
+        {far_mesh, 25, 100, true, true},
+        {far_mesh, 0, 25, false, true},
+    };
+    std::vector<std::array<float,16>> transforms = {{
+        1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1
+    }};
+    auto batch = ctx.create_instance_batch_levels(levels, transforms, {ponko::colors::red});
+    ctx.update_instance_batch_colors(batch, transforms, {ponko::colors::blue});
+    ctx.free_instance_batch(batch);
+}
+// ANCHOR_END: instance_levels
+
 // ANCHOR: handles
 void stream_out(ponko::ctx& ctx) {
     auto before = ctx.live_counts();
@@ -2340,6 +2356,38 @@ void stream_out(ponko::ctx& ctx) {
 }
 // ANCHOR_END: handles
 
+// ANCHOR: streaming
+void streaming_setup(ponko::ctx& ctx) {
+    // Memory caps for what loads by name, and bytes sent to the GPU per frame.
+    ctx.set_residency_budget(ponko::residency_kind::texture, 256u << 20);
+    ctx.set_residency_budget(ponko::residency_kind::mesh, 512u << 20);
+    ctx.set_upload_budget(8u << 20);
+}
+
+void draw_crab(ponko::ctx& ctx) {
+    // Ask every frame you need it: never waits. Empty until a small
+    // stand-in is up, then the same texture, sharper each frame.
+    if (auto crab = ctx.stream_texture("crab.png")) ctx.draw(*crab, {0, 0});
+    if (ctx.asset_state(ponko::residency_kind::texture, "crab.png") == ponko::asset_state::failed) {
+        std::fprintf(stderr, "no crab: %s\n", ctx.asset_error(ponko::residency_kind::texture, "crab.png").c_str());
+    }
+}
+// ANCHOR_END: streaming
+
+// ANCHOR: shader_errors
+/// Prints every shader whose last compile or edit didn't take effect, with
+/// where in its WGSL the error is; returns how many there are.
+static std::size_t report_shader_errors(ponko::ctx& ctx) {
+    std::size_t broken = 0;
+    for (const auto& s : ctx.shader_status()) {
+        if (s.ok()) continue;
+        ++broken;
+        std::fprintf(stderr, "%s\n", s.errors.c_str());   // water.wgsl:3:12: error: ...
+    }
+    return broken;
+}
+// ANCHOR_END: shader_errors
+
 int main() {
     steering_stays_within_budget();
     navigation_guide();
@@ -2353,6 +2401,12 @@ int main() {
         sound3d(ctx);
         float silence[16] = {};
         buses_and_effects(ctx, ctx.create_sound(44100, silence, 16));
+    });
+    ponko::game("shader guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        try {
+            ctx.create_shader("water.wgsl", "// still\nfn surface(s: Surface) -> Surface {\n    return 1.0;\n}");
+        } catch (const std::exception&) {}
+        if (report_shader_errors(ctx) != 1 || ctx.shader_status()[0].info.line != 3) std::abort();
     });
     ponko::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
     ponko::game("morph guide", 1, 1).run_headless(0, morphed_sheet);
@@ -2484,6 +2538,13 @@ int main() {
     (void)&controls;
     ponko::game("gpu buffers", 1, 1).run_headless(0, gpu_particles);
     ponko::game("handles", 1, 1).run_headless(0, stream_out);
+    ponko::game("streaming", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        streaming_setup(ctx);
+        draw_crab(ctx);
+        ctx.finish_uploads();
+        draw_crab(ctx);
+        if (ctx.asset_state(ponko::residency_kind::texture, "crab.png") != ponko::asset_state::resident) std::abort();
+    });
     world_text_snippet();
     action_map_snippet();
     ponko::game("static instances",1,1).run_headless(0,[](ponko::ctx& ctx) {
