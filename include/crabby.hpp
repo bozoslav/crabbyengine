@@ -103,6 +103,18 @@ constexpr CrabbyMesh mesh_none{CRABBY_MESH_NONE};
 template<class H> constexpr H none() { H h{}; h.id = CRABBY_HANDLE_NONE; return h; }
 /// How many handles of each kind are live (Rust `LiveCounts`).
 using live_counts = CrabbyLiveCounts;
+/// A kind of asset with its own residency budget (Rust `ResidencyKind`).
+enum class residency_kind : std::uint32_t { mesh = CRABBY_RESIDENCY_MESH, texture = CRABBY_RESIDENCY_TEXTURE };
+/// Where a streamed asset is (Rust `AssetState`).
+enum class asset_state : std::uint32_t {
+    unknown = CRABBY_ASSET_UNKNOWN, loading = CRABBY_ASSET_LOADING, uploading = CRABBY_ASSET_UPLOADING,
+    streaming = CRABBY_ASSET_STREAMING, resident = CRABBY_ASSET_RESIDENT, evicted = CRABBY_ASSET_EVICTED,
+    failed = CRABBY_ASSET_FAILED,
+};
+/// A kind's residency budget and counters (Rust `ResidencyStats`).
+using residency_stats = CrabbyResidencyStats;
+/// The upload queue's budget and counters (Rust `UploadStats`).
+using upload_stats = CrabbyUploadStats;
 /// One mesh of a LOD level, placed and tinted (Rust `LodRenderer`).
 using lod_renderer = CrabbyLodRenderer;
 inline lod_renderer lod_renderer_of(CrabbyMesh m) { return crabby_lod_renderer(m); }
@@ -163,6 +175,7 @@ using shader = CrabbyShader;
 using compute = CrabbyCompute;
 using instance_batch = CrabbyInstanceBatch;
 using instance_batch_options = CrabbyInstanceBatchOptions;
+using instance_level = CrabbyInstanceLevel;
 using gpu_buffer = CrabbyGpuBuffer;
 /// One compute pass run each frame (Rust `ComputePass`); see compute_pass_of.
 using compute_pass = CrabbyComputePass;
@@ -170,6 +183,19 @@ using compute_pass = CrabbyComputePass;
 using effect = CrabbyEffect;
 /// One screen effect run over the lit 3D frame (Rust `ScreenEffect`); see screen_effect_of.
 using screen_effect = CrabbyScreenEffect;
+/// The latest compile or hot reload of one of the game's shaders (Rust
+/// `ShaderStatus`; ctx::shader_status). `info.kind` is CRABBY_SHADER_MATERIAL,
+/// _EFFECT or _COMPUTE; `info.outcome` CRABBY_SHADER_COMPILED, _RELOADED,
+/// _FAILED or _RELOAD_FAILED; `info.line` and `info.column` place the first
+/// error in the game's own WGSL (0: no place).
+struct shader_status {
+    /// The path it was loaded from, or the name given to create_*.
+    std::string shader;
+    CrabbyShaderStatus info;
+    /// Its errors as a compiler prints them (`water.wgsl:4:12: error: ...`); empty when it worked.
+    std::string errors;
+    bool ok() const noexcept { return info.ok; }
+};
 /// How a material covers what's behind it (`material_desc::blend`).
 enum class blend : uint32_t { opaque = 0, transparent = 1, cutout = 2 };
 using camera3d = CrabbyCamera3D;
@@ -2756,6 +2782,9 @@ public:
     // Scenes and prefabs: worlds and entities kept as JSON under assets/.
     /// Replaces the world with the scene in assets/`path`; ids are kept.
     void load_scene(const char* path) { detail::check(crabby_ctx_load_scene(raw_, path)); }
+    /// load_scene, named for a lockstep game: call it from a sim system or
+    /// setup, which every peer runs. Both throw from a frame system in a session.
+    void load_scene_lockstep(const char* path) { detail::check(crabby_ctx_load_scene_lockstep(raw_, path)); }
     /// Saves the world as a scene in assets/`path`.
     void save_scene(const char* path) { detail::check(crabby_ctx_save_scene(raw_, path)); }
     /// Spawns the prefab in assets/`path` with its position at `at`.
@@ -2796,6 +2825,24 @@ public:
     /// Loads a material shader (WGSL) from assets/: it may define
     /// `fn vertex(v: Vertex) -> Vertex` and `fn surface(s: Surface) -> Surface`.
     /// Hot reloaded; throws if it doesn't compile (the message says where).
+    /// What happened to each of the game's shaders the last time it was
+    /// compiled (oldest first): whether an edit took effect, and where an
+    /// error is in its own WGSL.
+    std::vector<crabby::shader_status> shader_status() const {
+        std::size_t count = 0;
+        detail::check(crabby_ctx_shader_status_count(raw_, &count));
+        std::vector<crabby::shader_status> list(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            detail::check(crabby_ctx_shader_status(raw_, i, &list[i].info));
+            list[i].shader = detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_name(raw_, i, b, c, n); });
+            list[i].errors = detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_text(raw_, i, b, c, n); });
+        }
+        return list;
+    }
+    /// shader_status() as JSON, as the `shaders.status` control method returns it.
+    std::string shader_status_json() const {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return crabby_ctx_shader_status_json(raw_, b, c, n); });
+    }
     crabby::shader load_shader(const char* path) { crabby::shader x{}; detail::check(crabby_ctx_load_shader(raw_, path, &x)); return x; }
     /// Makes a material shader from WGSL source; `name` is for error messages.
     crabby::shader create_shader(const char* name, const char* source) {
@@ -2827,6 +2874,19 @@ public:
     }
     void update_instance_batch(instance_batch b, const std::vector<std::array<float,16>>& matrices) {
         detail::check(crabby_ctx_update_instance_batch(raw_,b,reinterpret_cast<const float (*)[16]>(matrices.data()),matrices.size()));
+    }
+    instance_batch create_instance_batch_levels(const std::vector<instance_level>& levels,
+        const std::vector<std::array<float,16>>& matrices, const std::vector<color>& colors = {},
+        instance_batch_options options = {32.0f, std::numeric_limits<float>::infinity(), true, colors::white}) {
+        instance_batch b{};
+        detail::check(crabby_ctx_create_instance_batch_levels(raw_, levels.data(), levels.size(),
+            reinterpret_cast<const float (*)[16]>(matrices.data()), matrices.size(), colors.data(), colors.size(), options, &b));
+        return b;
+    }
+    void update_instance_batch_colors(instance_batch b, const std::vector<std::array<float,16>>& matrices,
+        const std::vector<color>& colors = {}) {
+        detail::check(crabby_ctx_update_instance_batch_colors(raw_, b,
+            reinterpret_cast<const float (*)[16]>(matrices.data()), matrices.size(), colors.data(), colors.size()));
     }
     void free_instance_batch(instance_batch b) { detail::check(crabby_ctx_free_instance_batch(raw_,b)); }
     gpu_buffer create_gpu_buffer(uint32_t len, const std::vector<std::array<float, 4>>& data = {}) {
@@ -3234,6 +3294,80 @@ public:
     /// How many handles of each kind are live now (Rust `Ctx::live_counts`).
     crabby::live_counts live_counts() const {
         crabby::live_counts c{}; detail::check(crabby_ctx_live_counts(raw_, &c)); return c;
+    }
+    /// Sets `kind`'s residency budget in bytes; std::nullopt for no limit
+    /// (Rust `Ctx::set_residency_budget`).
+    void set_residency_budget(residency_kind kind, std::optional<std::uint64_t> bytes) {
+        detail::check(crabby_ctx_set_residency_budget(raw_, static_cast<std::uint32_t>(kind), bytes.has_value(), bytes.value_or(0)));
+    }
+    /// `kind`'s budget and counters (Rust `Ctx::residency`).
+    crabby::residency_stats residency(residency_kind kind) const {
+        crabby::residency_stats r{}; detail::check(crabby_ctx_residency(raw_, static_cast<std::uint32_t>(kind), &r)); return r;
+    }
+    /// Whether the asset of `kind` called `name` is resident.
+    bool is_resident(residency_kind kind, const char* name) const {
+        bool r = false; detail::check(crabby_ctx_is_resident(raw_, static_cast<std::uint32_t>(kind), name, &r)); return r;
+    }
+    /// Texture `path` at full resolution under the texture budget, loaded
+    /// now if it isn't; with `pin`, never evicted until unpinned (Rust
+    /// `Ctx::resident_texture`, `pin_resident_texture`).
+    texture resident_texture(const char* path, bool pin = false) {
+        texture t{}; detail::check(crabby_ctx_resident_texture(raw_, path, pin, &t)); return t;
+    }
+    /// Mesh `path` under the mesh budget (Rust `Ctx::resident_mesh`, `pin_resident_mesh`).
+    mesh resident_mesh(const char* path, bool pin = false) {
+        mesh m{}; detail::check(crabby_ctx_resident_mesh(raw_, path, pin, &m)); return m;
+    }
+    /// Lets a pinned asset be evicted again.
+    void unpin_resident(residency_kind kind, const char* path) {
+        detail::check(crabby_ctx_unpin_resident(raw_, static_cast<std::uint32_t>(kind), path));
+    }
+    /// Texture `path` streamed in without waiting (Rust `Ctx::stream_texture`):
+    /// std::nullopt until its stand-in is uploaded.
+    std::optional<texture> stream_texture(const char* path) {
+        texture t{}; bool ready = false;
+        detail::check(crabby_ctx_stream_texture(raw_, path, &t, &ready));
+        if (!ready) return std::nullopt;
+        return t;
+    }
+    /// Mesh `path` streamed in without waiting (Rust `Ctx::stream_mesh`).
+    std::optional<mesh> stream_mesh(const char* path) {
+        mesh m{}; bool ready = false;
+        detail::check(crabby_ctx_stream_mesh(raw_, path, &m, &ready));
+        if (!ready) return std::nullopt;
+        return m;
+    }
+    /// Where the asset of `kind` called `name` is (Rust `Ctx::asset_state`).
+    crabby::asset_state asset_state(residency_kind kind, const char* name) const {
+        std::uint32_t s = 0;
+        detail::check(crabby_ctx_asset_state(raw_, static_cast<std::uint32_t>(kind), name, &s));
+        return static_cast<crabby::asset_state>(s);
+    }
+    /// Why loading it failed; empty if it didn't (Rust `Ctx::asset_error`).
+    std::string asset_error(residency_kind kind, const char* name) const {
+        std::size_t len = 0;
+        detail::check(crabby_ctx_asset_error(raw_, static_cast<std::uint32_t>(kind), name, nullptr, 0, &len));
+        std::string text(len + 1, '\0');
+        detail::check(crabby_ctx_asset_error(raw_, static_cast<std::uint32_t>(kind), name, text.data(), text.size(), &len));
+        text.resize(len);
+        return text;
+    }
+    /// Bytes the upload step may send each frame; std::nullopt for no limit.
+    void set_upload_budget(std::optional<std::uint64_t> bytes) {
+        detail::check(crabby_ctx_set_upload_budget(raw_, bytes.has_value(), bytes.value_or(0)));
+    }
+    /// Asset states change in the same frames every run (Rust `Ctx::set_deterministic_uploads`).
+    void set_deterministic_uploads(bool on) { detail::check(crabby_ctx_set_deterministic_uploads(raw_, on)); }
+    /// The upload queue's budget and counters.
+    crabby::upload_stats upload_stats() const {
+        crabby::upload_stats u{}; detail::check(crabby_ctx_upload_stats(raw_, &u)); return u;
+    }
+    /// Waits until everything streamed so far is loaded (loading screens, tests).
+    void finish_uploads() { detail::check(crabby_ctx_finish_uploads(raw_)); }
+    /// Streams the levels of `e`'s LOD group in from `files`, one per level
+    /// (Rust `StreamedLod`).
+    void set_streamed_lod(entity e, const std::vector<const char*>& files) {
+        detail::check(crabby_ctx_set_streamed_lod(raw_, e, files.data(), files.size()));
     }
     /// How many 3D models were drawn last frame.
     std::size_t models_drawn() const { std::size_t n = 0; detail::check(crabby_ctx_models_drawn(raw_, &n)); return n; }

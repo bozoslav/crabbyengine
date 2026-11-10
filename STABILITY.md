@@ -152,6 +152,9 @@ What gives the same world from the same seed and inputs:
 
 Tested in CI on every change: Linux x86-64, macOS (Apple Silicon) and
 Windows x86-64. Built in CI on every change: the web (wasm32, WebGPU with a
-WebGL2 fallback); a small web build is also run in headless Chromium with
-WebGL2 (`web/smoke/`; WebGPU on real GPUs isn't tested in CI). Other targets that wgpu and winit support usually work
+WebGL2 fallback); small web builds (2D, 3D and the complete-game reference)
+are also run in headless Chromium, Firefox and WebKit with WebGL2 in the merge
+queue (`web/smoke/`). WebGPU is tried there too and reported, but a runner
+without a GPU usually can't show it, so WebGPU is verified on real GPUs by hand,
+not gated in CI. Other targets that wgpu and winit support usually work
 but aren't tested.

@@ -1,7 +1,7 @@
 struct Cell { lo:vec4<f32>, hi:vec4<f32> };
-struct View { planes:array<vec4<f32>,6>, camera:vec4<f32>, occlusion:vec4<f32> };
-@group(0) @binding(0) var<storage,read_write> data:array<vec4<f32>>;
-@group(0) @binding(1) var<storage,read> cells:array<Cell>;
+struct View { planes:array<vec4<f32>,6>, camera:vec4<f32>, occlusion:vec4<f32>, band:vec4<f32> };
+@group(0) @binding(0) var<storage,read> data:array<vec4<f32>>;
+@group(0) @binding(1) var<storage,read_write> indices:array<u32>;
 @group(0) @binding(2) var<storage,read_write> args:array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> view:View;
 @group(0) @binding(4) var<storage,read> depth:array<f32>;
@@ -24,23 +24,35 @@ fn hidden(center:vec3<f32>, radius:f32) -> bool {
     return true;
 }
 fn visible(center:vec3<f32>, radius:f32) -> bool {
-    if distance(center,view.camera.xyz)-radius > view.camera.w {return false;}
+    if view.band.z != 0.0 && distance(center,view.camera.xyz)-radius > view.camera.w {return false;}
     for (var i=0u;i<6u;i++) {if dot(view.planes[i].xyz,center)+view.planes[i].w < -radius {return false;}}
     return !hidden(center,radius);
 }
 @compute @workgroup_size(64)
 fn main(@builtin(workgroup_id) group:vec3<u32>, @builtin(local_invocation_index) lane:u32) {
     let cell_index=group.x+group.y*256u;
-    if cell_index >= arrayLength(&cells) {return;}
-    let cell=cells[cell_index];
+    if cell_index >= u32(data[0].y) {return;}
+    let base=1u+u32(data[0].x)*6u+cell_index*2u;
+    let cell=Cell(data[base],data[base+1u]);
+    if view.band.z == 0.0 {
+        // Cell bounds include every origin as well as the mesh spheres.
+        // AABB distances therefore conservatively bound origin distances,
+        // including off-centre meshes and proxies.
+        let near=max(max(cell.lo.xyz-view.camera.xyz,view.camera.xyz-cell.hi.xyz),vec3<f32>(0.0));
+        let far=max(abs(cell.lo.xyz-view.camera.xyz),abs(cell.hi.xyz-view.camera.xyz));
+        if dot(near,near) >= view.band.y*view.band.y || dot(far,far) < view.band.x*view.band.x {return;}
+    }
     if !visible((cell.lo.xyz+cell.hi.xyz)*0.5,length(cell.hi.xyz-cell.lo.xyz)*0.5) {return;}
-    let count=u32(data[0].x);
     let start=bitcast<u32>(cell.lo.w); let end=start+bitcast<u32>(cell.hi.w);
     for(var i=start+lane;i<end;i+=64u) {
+        if view.band.z == 0.0 {
+            let d=distance(data[1u+i*6u+3u].xyz,view.camera.xyz);
+            if d < view.band.x || d >= view.band.y {continue;}
+        }
         let sphere=data[1u+i*6u+5u];
         if visible(sphere.xyz,sphere.w) {
             let slot=atomicAdd(&args[1],1u);
-            data[1u+count*6u+slot]=vec4<f32>(f32(i),0.0,0.0,0.0);
+            indices[1u+slot]=i;
             for(var part=1u;part<arrayLength(&args)/5u;part++) {atomicAdd(&args[part*5u+1u],1u);}
         }
     }

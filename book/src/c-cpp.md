@@ -186,8 +186,9 @@ Rust today; the chapters say so where they use them, and
 | Rust feature | Where | From C and C++ |
 |---|---|---|
 | `ActionId` and the `actions!` macro | [Named input actions](actions.md) | Query actions by name |
-| `InputScenario`, `Game::input_scenario` | [Named input actions](actions.md) | Feed events yourself with `feed_input` |
+| `InputScenario`, `Game::input_scenario`, `run_headless_scenario`, scenario checks and reports | [Input scenarios](actions.md#input-scenarios) | Feed events yourself with `feed_input`; tools can still load the JSON scenario file through the control endpoint |
 | `AssetSource`, `MemorySource`, `Ctx::add_asset_source` | [Asset sources](asset-sources.md) | Files in `assets/` only |
+| `Ctx::load_asset_with`, `Ctx::scene_asset_field` | [Asset sources](asset-sources.md) | Read the file and decode it yourself; load what a scene names before `load_scene` |
 | `UiTheme`, `ui.set_theme` | [Retained game UI](ui.md) | Set each node's paint |
 | Named grid spans in UI layouts | [Retained game UI](ui.md) | Named lines and areas, no named spans |
 | `World::resource_scope` | [Entities, components, queries](ecs.md) | The existing resource calls |

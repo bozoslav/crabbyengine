@@ -191,6 +191,9 @@ impl Ctx {
     /// # Panics
     ///
     /// If the file can't be read or doesn't compile (the message says where).
+    /// With hot reload on, a file that doesn't compile doesn't panic: it
+    /// gets a stand-in and stays watched until a saved fix compiles
+    /// ([`ShaderOutcome::Failed`](crate::ShaderOutcome::Failed), [`Ctx::shader_status`]).
     pub fn load_effect(&mut self, path: &str) -> Effect {
         self.try_load_effect(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
@@ -207,7 +210,20 @@ impl Ctx {
         };
         let origin = found.origin.clone();
         let source = found.into_text(path)?;
-        let effect = self.try_create_effect(path, &source)?;
+        let effect = match self.try_create_effect(path, &source) {
+            Ok(effect) => effect,
+            // With hot reload on, it shows the frame as it is until a saved
+            // fix compiles; its status says what's wrong.
+            Err(e) if self.keeps_failed_load(&origin) => {
+                Self::report_stand_in(path, &e);
+                let id = self.assets3d.effects;
+                self.compile_effect(path, super::EFFECT_STAND_IN, None).map_err(|_| e)?;
+                self.assets3d.effects += 1;
+                self.assets3d.effects_live.insert(id);
+                Effect { id }
+            }
+            Err(e) => return Err(e),
+        };
         self.assets3d.loaded_effects.insert(origin.clone(), effect);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher
@@ -272,12 +288,7 @@ impl Ctx {
                     .create_effect(name, source)
                     .map(|gpu_id| debug_assert_eq!(gpu_id, self.assets3d.effects)),
             };
-            #[cfg(feature = "window")]
-            built.map_err(|e| {
-                crate::render::without_location(name, super::ShaderKind::Effect, crate::render::EFFECT_VARIANT, e)
-            })?;
-            #[cfg(not(feature = "window"))]
-            let _ = built;
+            built?;
         }
         let _ = (name, source, replace);
         Ok(())

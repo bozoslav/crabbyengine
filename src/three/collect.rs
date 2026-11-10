@@ -71,6 +71,8 @@ pub(crate) const FADED: u32 = 1 << 31;
 /// [`retained`](super::retained)), without allocating once warm.
 #[derive(Default)]
 pub(crate) struct Frame3D {
+    pub static_shadowless: Vec<u32>,
+    pub(crate) instance_batch_revision: u64,
     /// The instances the runs point into. Between the blocks (and past a
     /// block's instances, where it has room to grow) are instances no run
     /// draws.
@@ -199,6 +201,21 @@ impl Frame3D {
         camera: &Camera3D,
         lighting: &Lighting,
     ) {
+        let batches_changed = self.instance_batch_revision != assets.instance_batch_revision;
+        self.instance_batch_revision = assets.instance_batch_revision;
+        let static_shadow_changed = self.static_shadowless.iter().copied().ne(assets
+            .shadowless
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &off)| off.then_some(i as u32)));
+        self.static_shadowless.clear();
+        self.static_shadowless.extend(
+            assets
+                .shadowless
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &off)| off.then_some(i as u32)),
+        );
         self.view_proj = camera.view_proj();
         self.particles.collect(world, camera);
         self.shadow_size = lighting.shadow_size(self.size_limit);
@@ -259,6 +276,8 @@ impl Frame3D {
                 let turn = (self.frame_number + i as u32).is_multiple_of(refresh);
                 let kept = self.cascade_cache[i].filter(|c| {
                     !turn
+                        && !static_shadow_changed
+                        && !batches_changed
                         && c.size == self.shadow_size
                         && c.cascades == self.cascades
                         && c.sun == lighting.sun_direction

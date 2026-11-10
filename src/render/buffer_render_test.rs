@@ -30,6 +30,7 @@ impl Rig {
             eprintln!("no GPU adapter: skipped");
             return None;
         };
+        eprintln!("adapter: {:?}", adapter.get_info());
         let limits = if compute {
             wgpu::Limits::default()
         } else {
@@ -348,6 +349,9 @@ fn persistent_batch_draw(compute: bool) {
         rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
     );
     let image = rig.draw();
+    if let Ok(path) = std::env::var("PONKO_TEST_IMAGE") {
+        image::save_buffer(path, &image, SIZE, SIZE, image::ColorType::Rgba8).unwrap();
+    }
     let vp = rig.ctx.camera3d.view_proj();
     let (x, y) = pixel(vp, at[0]);
     assert!(
@@ -593,6 +597,15 @@ fn batches_draw_into_target_textures() {
     batch_target(false, true);
 }
 fn batch_target(compute: bool, reflection: bool) {
+    batch_target_levels(compute, reflection, false);
+}
+#[test]
+fn instance_levels_use_target_camera_distance() {
+    for compute in [true, false] {
+        batch_target_levels(compute, false, true);
+    }
+}
+fn batch_target_levels(compute: bool, reflection: bool, levels: bool) {
     let Some(mut rig) = Rig::with_compute(compute) else {
         return;
     };
@@ -604,15 +617,39 @@ fn batch_target(compute: bool, reflection: bool) {
             ..Default::default()
         },
     );
-    let b = rig.ctx.create_instance_batch(
-        mesh,
-        &[Mat4::from_translation(vec3(0.0, 1.0, 0.0))],
-        InstanceBatchOptions {
-            cast_shadows: false,
-            max_distance: 10.0,
-            ..Default::default()
-        },
-    );
+    let b = if levels {
+        rig.ctx.create_instance_batch_levels(
+            &[
+                InstanceLevel {
+                    mesh,
+                    min_distance: 0.0,
+                    max_distance: 10.0,
+                    camera: true,
+                    shadows: false,
+                },
+                InstanceLevel {
+                    mesh,
+                    min_distance: 10.0,
+                    max_distance: 1000.0,
+                    camera: false,
+                    shadows: true,
+                },
+            ],
+            &[Mat4::from_translation(vec3(0.0, 1.0, 0.0))],
+            &[],
+            Default::default(),
+        )
+    } else {
+        rig.ctx.create_instance_batch(
+            mesh,
+            &[Mat4::from_translation(vec3(0.0, 1.0, 0.0))],
+            InstanceBatchOptions {
+                cast_shadows: false,
+                max_distance: 10.0,
+                ..Default::default()
+            },
+        )
+    };
     rig.renderer.set_instance_batch(
         &rig.device,
         b.id(),
@@ -679,4 +716,233 @@ fn batch_target(compute: bool, reflection: bool) {
         u16::from_le_bytes([bytes[center], bytes[center + 1]]) >= 0x3800,
         "target batch absent (compute={compute}, reflection={reflection})"
     );
+}
+
+#[test]
+fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
+    for compute in [true, false] {
+        let Some(mut rig) = Rig::with_compute(compute) else {
+            continue;
+        };
+        let source = "fn surface(s: Surface) -> Surface { var o=s; o.emissive=s.albedo*4.0; return o; }";
+        let shader = rig.ctx.create_shader("instance colours", source);
+        rig.renderer
+            .create_shader(&rig.device, "instance colours", source)
+            .unwrap();
+        let mesh = |rig: &mut Rig, color| {
+            rig.mesh(
+                &MeshData::cube(1.0),
+                MaterialDesc {
+                    color,
+                    shader: Some(shader),
+                    ..Default::default()
+                },
+            )
+        };
+        let near = mesh(&mut rig, Color::RED);
+        let far = mesh(&mut rig, Color::BLUE);
+        rig.ctx.camera3d.position = Vec3::ZERO;
+        rig.ctx.camera3d.look_at(-Vec3::Z);
+        rig.ctx.lighting.shadows = false;
+        let levels = [
+            InstanceLevel {
+                mesh: near,
+                min_distance: 0.0,
+                max_distance: 10.0,
+                camera: true,
+                shadows: false,
+            },
+            InstanceLevel {
+                mesh: far,
+                min_distance: 10.0,
+                max_distance: 20.0,
+                camera: true,
+                shadows: false,
+            },
+        ];
+        let batch = rig.ctx.create_instance_batch_levels(
+            &levels,
+            &[Mat4::from_translation(vec3(0.0, 0.0, -10.0))],
+            &[],
+            Default::default(),
+        );
+        rig.renderer.set_instance_batch(
+            &rig.device,
+            batch.id(),
+            rig.ctx.assets3d.instance_batches[batch.id() as usize].as_ref(),
+        );
+        for (z, channel) in [(-0.125, 0), (0.0, 2), (0.125, 2)] {
+            rig.ctx.camera3d.position.z = z;
+            let pixels = rig.draw();
+            let p = ((SIZE / 2 * SIZE + SIZE / 2) * 4) as usize;
+            assert!(
+                pixels[p + channel] > 150 && pixels[p + 2 - channel] < 50,
+                "wrong band at camera z={z}, compute={compute}: {:?}",
+                &pixels[p..p + 4]
+            );
+        }
+        let b = rig.renderer.static_batches[batch.id() as usize].as_ref().unwrap();
+        assert!(b.views.len() <= 2, "camera-only levels allocated shadow slots");
+        rig.ctx.camera3d.position.z = 15.0;
+        assert!(
+            rig.draw().as_chunks::<4>().0.iter().all(|p| p[0] < 50 && p[2] < 50),
+            "no band must draw nothing"
+        );
+        rig.renderer.set_instance_batch(&rig.device, batch.id(), None);
+        let white = mesh(&mut rig, Color::WHITE);
+        rig.ctx.camera3d.position = Vec3::ZERO;
+        let at = [vec3(-1.0, 0.0, -5.0), vec3(1.0, 0.0, -5.0)];
+        let b = rig.ctx.create_instance_batch_levels(
+            &[InstanceLevel {
+                mesh: white,
+                min_distance: 0.0,
+                max_distance: 20.0,
+                camera: true,
+                shadows: false,
+            }],
+            &at.map(Mat4::from_translation),
+            &[Color::RED, Color::GREEN],
+            Default::default(),
+        );
+        rig.renderer.set_instance_batch(
+            &rig.device,
+            b.id(),
+            rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+        );
+        let pixels = rig.draw();
+        let vp = rig.ctx.camera3d.view_proj();
+        for (position, c) in at.into_iter().zip([0, 1]) {
+            let (x, y) = pixel(vp, position);
+            let i = ((y * SIZE + x) * 4) as usize;
+            assert!(
+                pixels[i + c] > 150 && pixels[i + 2] < 50,
+                "instance colour absent: {:?}",
+                &pixels[i..i + 4]
+            );
+        }
+        if let Ok(path) = std::env::var("PONKO_LEVEL_IMAGE") {
+            image::save_buffer(
+                format!("{path}-{compute}.png"),
+                &pixels,
+                SIZE,
+                SIZE,
+                image::ColorType::Rgba8,
+            )
+            .unwrap();
+        }
+    }
+}
+
+#[test]
+fn instance_levels_overlap_exactly_without_copying_source_records() {
+    let Some(mut rig) = Rig::new() else {
+        return;
+    };
+    let mesh = rig.mesh(
+        &MeshData::cube(1.0),
+        MaterialDesc {
+            emissive: Color::WHITE,
+            ..Default::default()
+        },
+    );
+    rig.ctx.camera3d.position = Vec3::ZERO;
+    rig.ctx.camera3d.look_at(-Vec3::Z);
+    rig.ctx.lighting.shadows = false;
+    let levels =
+        [(0.0, 10.0), (10.0, 20.0), (9.0, 11.0), (30.0, 40.0)].map(|(min_distance, max_distance)| InstanceLevel {
+            mesh,
+            min_distance,
+            max_distance,
+            camera: true,
+            shadows: false,
+        });
+    let b = rig.ctx.create_instance_batch_levels(
+        &levels,
+        &[Mat4::from_translation(vec3(0.0, 0.0, -10.0))],
+        &[],
+        Default::default(),
+    );
+    rig.renderer.set_instance_batch(
+        &rig.device,
+        b.id(),
+        rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+    );
+    rig.draw();
+    let batch = rig.renderer.static_batches[b.id() as usize].as_ref().unwrap();
+    assert_eq!(
+        batch.vertices.size(),
+        96 + 16 + 32,
+        "one shared source record, including bounds"
+    );
+    assert_eq!(batch.views.len(), 3, "distant level and shadow views allocate nothing");
+    let read = rig.device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 60,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = rig.device.create_command_encoder(&Default::default());
+    for (i, v) in batch.views.iter().enumerate() {
+        encoder.copy_buffer_to_buffer(&v.args, 0, &read, (i * 20) as u64, 20);
+    }
+    rig.queue.submit([encoder.finish()]);
+    read.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
+    rig.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let bytes = read.get_mapped_range(..).unwrap();
+    let counts: Vec<_> = (0..3)
+        .map(|i| u32::from_le_bytes(bytes[i * 20 + 4..i * 20 + 8].try_into().unwrap()))
+        .collect();
+    assert_eq!(
+        counts,
+        [0, 1, 1],
+        "the exclusive boundary and intentional overlap are evaluated per instance"
+    );
+}
+
+#[test]
+fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
+    let Some(mut rig) = Rig::new() else {
+        return;
+    };
+    let mut data = MeshData::cube(1.0);
+    for p in &mut data.positions {
+        *p += vec3(0.0, 0.0, -10.0);
+    }
+    let mesh = rig.mesh(
+        &data,
+        MaterialDesc {
+            emissive: Color::WHITE,
+            ..Default::default()
+        },
+    );
+    rig.ctx.camera3d.position = Vec3::ZERO;
+    rig.ctx.camera3d.look_at(-Vec3::Z);
+    rig.ctx.lighting.shadows = false;
+    for camera in [true, false] {
+        let b = rig.ctx.create_instance_batch_levels(
+            &[InstanceLevel {
+                mesh,
+                min_distance: 0.0,
+                max_distance: 1.0,
+                camera,
+                shadows: true,
+            }],
+            &[Mat4::IDENTITY],
+            &[],
+            Default::default(),
+        );
+        rig.renderer.set_instance_batch(
+            &rig.device,
+            b.id(),
+            rig.ctx.assets3d.instance_batches[b.id() as usize].as_ref(),
+        );
+        let pixels = rig.draw();
+        let i = ((SIZE / 2 * SIZE + SIZE / 2) * 4) as usize;
+        assert_eq!(
+            pixels[i] > 150,
+            camera,
+            "origin bands must ignore an off-centre mesh's sphere distance, and honour camera flags"
+        );
+        rig.renderer.set_instance_batch(&rig.device, b.id(), None);
+    }
 }

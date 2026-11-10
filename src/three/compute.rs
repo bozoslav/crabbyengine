@@ -148,6 +148,9 @@ impl Ctx {
     /// # Panics
     ///
     /// If the file can't be read or doesn't compile (the message says where).
+    /// With hot reload on, a file that doesn't compile doesn't panic: it
+    /// gets a stand-in and stays watched until a saved fix compiles
+    /// ([`ShaderOutcome::Failed`](crate::ShaderOutcome::Failed), [`Ctx::shader_status`]).
     pub fn load_compute(&mut self, path: &str) -> Compute {
         self.try_load_compute(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
@@ -164,7 +167,26 @@ impl Ctx {
         };
         let origin = found.origin.clone();
         let source = found.into_text(path)?;
-        let compute = self.try_create_compute(path, &source)?;
+        let compute = match self.try_create_compute(path, &source) {
+            Ok(compute) => compute,
+            // With hot reload on, it is skipped until a saved fix compiles;
+            // its status says what's wrong.
+            Err(e) if self.keeps_failed_load(&origin) => {
+                Self::report_stand_in(path, &e);
+                let id = self.assets3d.computes;
+                self.compile_compute(path, super::COMPUTE_STAND_IN, None)
+                    .map_err(|_| e)?;
+                if let Some(renderer) = self.renderer.as_mut()
+                    && !self.headless
+                {
+                    renderer.free_compute(id);
+                }
+                self.assets3d.computes += 1;
+                self.assets3d.computes_live.insert(id);
+                Compute { id }
+            }
+            Err(e) => return Err(e),
+        };
         self.assets3d.loaded_computes.insert(origin.clone(), compute);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher
@@ -231,12 +253,7 @@ impl Ctx {
                     .create_compute(name, source)
                     .map(|gpu_id| debug_assert_eq!(gpu_id, self.assets3d.computes)),
             };
-            #[cfg(feature = "window")]
-            built.map_err(|e| {
-                crate::render::without_location(name, super::ShaderKind::Compute, crate::render::COMPUTE_VARIANT, e)
-            })?;
-            #[cfg(not(feature = "window"))]
-            let _ = built;
+            built?;
         }
         let _ = (name, source, replace);
         Ok(())

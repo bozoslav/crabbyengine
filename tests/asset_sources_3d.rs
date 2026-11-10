@@ -36,6 +36,9 @@ impl AssetSource for Counting {
         self.reads.set(self.reads.get() + 1);
         Ok(self.bytes.clone())
     }
+    fn contains(&self, name: &str) -> bool {
+        name == self.name
+    }
 }
 
 #[test]
@@ -207,5 +210,162 @@ fn assets_without_sources_still_say_where_they_looked() {
             "{err}"
         );
         assert!(!err.contains("Asset sources searched first"), "{err}");
+    });
+}
+
+/// A one-triangle `.gltf` whose material `material` shows image file
+/// `tex.png` and whose geometry is in `tri.bin`, both next to it.
+fn textured_gltf(material: &str) -> String {
+    format!(
+        r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],"nodes":[{{"mesh":0}}],
+        "meshes":[{{"primitives":[{{"attributes":{{"POSITION":0,"TEXCOORD_0":1}},"indices":2,"material":0}}]}}],
+        "materials":[{{"name":"{material}","pbrMetallicRoughness":{{"baseColorTexture":{{"index":0}}}}}}],
+        "textures":[{{"source":0}}],"images":[{{"uri":"tex.png"}}],
+        "buffers":[{{"uri":"tri.bin","byteLength":66}}],
+        "bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":36}},{{"buffer":0,"byteOffset":36,"byteLength":24}},
+            {{"buffer":0,"byteOffset":60,"byteLength":6}}],
+        "accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]}},
+            {{"bufferView":1,"componentType":5126,"count":3,"type":"VEC2"}},
+            {{"bufferView":2,"componentType":5123,"count":3,"type":"SCALAR"}}]}}"#
+    )
+}
+
+/// `tri.bin` for [`textured_gltf`]: three corners, their UVs, three indices.
+fn triangle_bin() -> Vec<u8> {
+    let mut bin = Vec::new();
+    for v in [
+        0.0f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0,
+    ] {
+        bin.extend_from_slice(&v.to_le_bytes());
+    }
+    for i in [0u16, 1, 2] {
+        bin.extend_from_slice(&i.to_le_bytes());
+    }
+    bin
+}
+
+fn png(size: u32) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::RgbaImage::from_pixel(size, size, image::Rgba([0, 255, 0, 255]))
+        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    bytes
+}
+
+/// The image material `name` of a loaded glTF file shows.
+fn image_of(ctx: &Ctx, name: &str) -> Texture {
+    let materials = ctx.loaded_materials(name);
+    assert_eq!(materials.len(), 1, "{name}");
+    materials[0].1.texture.expect("the material has an image")
+}
+
+#[test]
+fn gltf_images_are_shared_within_a_source_and_read_once() {
+    let reads = Rc::new(Cell::new(0));
+    let counted = reads.clone();
+    game().run_headless(0, move |ctx| {
+        ctx.add_asset_source(Counting {
+            id: "images",
+            reads: counted.clone(),
+            name: "props/tex.png",
+            bytes: png(2),
+        });
+        ctx.add_asset_source(
+            MemorySource::new("models")
+                .with("props/a.gltf", textured_gltf("a"))
+                .with("props/b.gltf", textured_gltf("b"))
+                .with("props/tri.bin", triangle_bin()),
+        );
+        ctx.load_mesh("props/a.gltf");
+        ctx.load_mesh("props/b.gltf");
+        let image = image_of(ctx, "a");
+        assert_eq!(image_of(ctx, "b"), image, "both models show one texture");
+        assert_eq!((image.width(), image.height()), (2, 2));
+    });
+    assert_eq!(reads.get(), 1, "the shared image file is read once");
+}
+
+#[test]
+fn the_same_gltf_image_name_in_two_sources_is_two_images() {
+    // A model and its image in the default source (a temporary folder,
+    // named by absolute path)...
+    let dir = std::env::temp_dir().join(format!("ponko-gltf-images-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("one.gltf"), textured_gltf("from-folder")).unwrap();
+    std::fs::write(dir.join("tri.bin"), triangle_bin()).unwrap();
+    std::fs::write(dir.join("tex.png"), png(1)).unwrap();
+    let folder = format!("{}/", dir.to_str().unwrap());
+    let in_folder = |file: &str| format!("{folder}{file}");
+    game().run_headless(0, |ctx| {
+        ctx.load_mesh(&in_folder("one.gltf"));
+        let from_folder = image_of(ctx, "from-folder");
+        assert_eq!(from_folder.width(), 1);
+        // ...then a source with another image under the same name, and a
+        // model naming it: it shows the source's image, not the folder's.
+        ctx.add_asset_source(
+            MemorySource::new("pack")
+                .with(in_folder("two.gltf"), textured_gltf("from-pack"))
+                .with(in_folder("tex.png"), png(4)),
+        );
+        ctx.load_mesh(&in_folder("two.gltf"));
+        let from_pack = image_of(ctx, "from-pack");
+        assert_ne!(from_pack, from_folder, "same name, other source: another image");
+        assert_eq!(from_pack.width(), 4);
+    });
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn texture_arrays_load_their_layers_from_sources() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(
+            MemorySource::new("pack")
+                .with("layers/a.png", png(4))
+                .with("layers/b.png", png(4))
+                .with("layers/small.png", png(2))
+                .with("layers/bad.png", b"nope".to_vec()),
+        );
+        ctx.load_texture_array(&["layers/a.png", "layers/b.png"], TextureKind::Color);
+        let err = ctx
+            .try_load_texture_array(&["layers/a.png", "layers/small.png"], TextureKind::Color)
+            .unwrap_err();
+        assert!(err.contains("every layer must be the same size"), "{err}");
+        let err = ctx
+            .try_load_texture_array(&["layers/bad.png"], TextureKind::Color)
+            .unwrap_err();
+        assert!(
+            err.contains("\"layers/bad.png\" (from asset source \"pack\") is not a valid image"),
+            "{err}"
+        );
+        let err = ctx
+            .try_load_texture_array(&["layers/none.png"], TextureKind::Color)
+            .unwrap_err();
+        assert!(err.contains("Asset sources searched first: \"pack\""), "{err}");
+    });
+}
+
+fn exr(width: u32, height: u32) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(width, height, image::Rgb([1.0; 3])))
+        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::OpenExr)
+        .unwrap();
+    bytes
+}
+
+#[test]
+fn reflection_probe_images_load_from_sources() {
+    game().run_headless(0, |ctx| {
+        ctx.add_asset_source(
+            MemorySource::new("pack")
+                .with("sky/room.exr", exr(64, 32))
+                .with("sky/bad.exr", b"nope".to_vec()),
+        );
+        let probe = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
+        let err = ctx.load_reflection_probe(probe, "sky/bad.exr").unwrap_err();
+        assert!(err.contains("\"sky/bad.exr\" (from asset source \"pack\")"), "{err}");
+        let err = ctx.load_reflection_probe(probe, "sky/none.exr").unwrap_err();
+        assert!(err.contains("Asset sources searched first: \"pack\""), "{err}");
+        ctx.load_reflection_probe(probe, "sky/room.exr").unwrap();
+        assert_ne!(ctx.world.get::<ReflectionProbe3D>(probe).unwrap().content, 0);
     });
 }

@@ -3,6 +3,11 @@
 
 use crate::Ctx;
 
+/// What a screen effect that can't be built draws instead: the frame as it is.
+pub(crate) const EFFECT_STAND_IN: &str = "fn effect(p: Pixel) -> vec3<f32> { return p.color; }";
+/// The compute pass a file that doesn't compile gets (it is skipped).
+pub(crate) const COMPUTE_STAND_IN: &str = "fn compute(c: Cell) -> vec4<f32> { return c.value; }";
+
 /// Which kind of WGSL the game gave the engine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -89,6 +94,11 @@ pub enum ShaderOutcome {
     /// Its file changed and the new code is in use.
     Reloaded,
     /// It could not be made (`create_*` returned an error or panicked).
+    /// With hot reload on, a shader file that doesn't compile when loaded
+    /// still gets its handle: a stand-in (the built-in look for a material
+    /// shader, the frame as it is for a screen effect, skipped for a
+    /// compute pass) is used, and its file is watched; it stays `Failed`
+    /// until a saved fix compiles, which makes it `Reloaded`.
     Failed,
     /// Its file changed, but the new code has errors: the last good
     /// version stays in use.
@@ -144,6 +154,14 @@ impl Ctx {
         &self.assets3d.shader_status
     }
 
+    /// [`Ctx::shader_status`] as JSON, the same as the `shaders.status`
+    /// control method returns (for the C API).
+    #[doc(hidden)]
+    #[must_use]
+    pub fn shader_status_json(&self) -> String {
+        crate::control::shader_status_json(self).to_string()
+    }
+
     /// Records how compiling shader `name` went; `reload`: a changed file.
     pub(crate) fn record_shader(
         &mut self,
@@ -183,7 +201,8 @@ impl Ctx {
             }
             Err(diagnostic) => {
                 let message = diagnostic.to_string();
-                status.outcome = if reload {
+                // A file that never compiled has no good version to keep.
+                status.outcome = if reload && status.outcome != ShaderOutcome::Failed {
                     ShaderOutcome::ReloadFailed
                 } else {
                     ShaderOutcome::Failed
@@ -192,5 +211,107 @@ impl Ctx {
                 Err(message)
             }
         }
+    }
+}
+
+impl Ctx {
+    /// Whether a shader file that fails when loaded from `origin` gets a
+    /// stand-in and stays watched (hot reload on, a file on disk).
+    pub(crate) fn keeps_failed_load(&self, origin: &crate::assets::Origin) -> bool {
+        self.watcher.on && matches!(origin, crate::assets::Origin::File(_))
+    }
+
+    /// Says that `path` failed to compile and uses a stand-in until fixed.
+    pub(crate) fn report_stand_in(path: &str, error: &str) {
+        eprintln!("ponko: {error}");
+        eprintln!("ponko: {path} uses a stand-in until it compiles; hot reload is watching it");
+    }
+
+    /// Records shaders whose pipelines the GPU rejected after they were
+    /// put in use (a browser's WebGPU answers a frame or so later): the
+    /// renderer has put the previous ones back.
+    #[cfg(feature = "window")]
+    pub(crate) fn apply_shader_checks(&mut self) {
+        if self.headless {
+            return;
+        }
+        let Some(renderer) = self.renderer.as_mut() else {
+            return;
+        };
+        // Allocates only when something was rejected.
+        let mut late = Vec::new();
+        renderer.poll_shader_checks(&mut late);
+        for error in late {
+            eprintln!("ponko: {} (keeping the previous version)", error.diagnostic);
+            self.record_rejected(error.reload, *error.diagnostic);
+        }
+    }
+
+    /// A shader recorded as compiled turned out to be rejected by the GPU.
+    #[cfg(feature = "window")]
+    pub(crate) fn record_rejected(&mut self, reload: bool, diagnostic: ShaderDiagnostic) {
+        let frame = self.frame();
+        let Some(status) = self
+            .assets3d
+            .shader_status
+            .iter_mut()
+            .find(|s| s.shader == diagnostic.shader && s.kind == diagnostic.kind)
+        else {
+            return;
+        };
+        status.frame = frame;
+        if reload {
+            if status.outcome == ShaderOutcome::Reloaded {
+                status.reloads = status.reloads.saturating_sub(1);
+            }
+            if status.outcome != ShaderOutcome::Failed {
+                status.outcome = ShaderOutcome::ReloadFailed;
+            }
+        } else {
+            status.outcome = ShaderOutcome::Failed;
+        }
+        status.diagnostics = vec![diagnostic];
+    }
+}
+
+#[cfg(all(test, feature = "window"))]
+mod tests {
+    use super::*;
+    use crate::Game;
+
+    fn rejected(name: &str) -> ShaderDiagnostic {
+        *crate::render::without_location(name, ShaderKind::Material, "v", "the GPU rejected its pipelines".into())
+    }
+
+    #[test]
+    fn late_gpu_rejections_turn_compiles_into_failures_and_undo_the_reload_count() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            ctx.create_shader("new.wgsl", "");
+            ctx.create_shader("reloaded.wgsl", "");
+            ctx.record_shader("reloaded.wgsl", ShaderKind::Material, true, Ok(()))
+                .unwrap();
+            assert_eq!(ctx.shader_status()[1].reloads, 1);
+
+            ctx.record_rejected(false, rejected("new.wgsl"));
+            ctx.record_rejected(true, rejected("reloaded.wgsl"));
+            let s = ctx.shader_status();
+            assert_eq!(s[0].outcome, ShaderOutcome::Failed);
+            assert_eq!(s[1].outcome, ShaderOutcome::ReloadFailed);
+            assert_eq!(s[1].reloads, 0, "the reload didn't take effect after all");
+            assert!(s[1].diagnostics[0].message.contains("rejected"));
+            // Unknown names are ignored.
+            ctx.record_rejected(true, rejected("gone.wgsl"));
+            assert_eq!(ctx.shader_status().len(), 2);
+        });
+    }
+
+    #[test]
+    fn a_failed_reload_of_a_shader_that_never_compiled_stays_failed() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            assert!(ctx.try_create_shader("x.wgsl", "fn surface(").is_err());
+            let again = ctx.record_shader("x.wgsl", ShaderKind::Material, true, Err(Box::new(rejected("x.wgsl"))));
+            assert!(again.is_err());
+            assert_eq!(ctx.shader_status()[0].outcome, ShaderOutcome::Failed);
+        });
     }
 }
