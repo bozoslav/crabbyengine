@@ -551,6 +551,8 @@ impl Ctx {
         self.gfx.frame = self.time.frame();
         self.gfx.text.begin_frame();
         self.ui.immediate.begin_frame();
+        #[cfg(feature = "3d")]
+        self.unlink_freed_gpu_buffers();
     }
 
     pub(crate) fn set_scale_factor(&mut self, scale: f32) {

@@ -290,7 +290,7 @@ fn the_graphics_service_owns_textures_and_the_shortcuts_reach_it() {
         assert_eq!(ctx.gfx.sprite_count(), 2);
         ctx.draw_text("headless text is measured, not drawn", Vec2::ZERO, 16.0, Color::WHITE);
         assert!(ctx.gfx.measure_text("wide", 16.0).x > 0.0);
-        assert!(ctx.gfx.has_font(Font::DEFAULT));
+        assert!(ctx.gfx.is_live(Font::DEFAULT));
         assert!(ctx.gfx.try_load_texture("missing.png").is_err());
         assert!(ctx.gfx.try_load_font("missing.ttf").is_err());
         assert!(ctx.gfx.gpu_capabilities().is_none(), "no GPU in a headless run");
@@ -532,7 +532,7 @@ mod three {
             for b in ctx.world.query::<&mut Box3>().iter() {
                 // The world is borrowed by the query; `ctx.gfx` is free.
                 let bigger = ctx.gfx.create_mesh(&MeshData::cube(2.0), material);
-                ctx.gfx.free_mesh(b.0);
+                ctx.gfx.free(b.0);
                 b.0 = bigger;
             }
         }
@@ -600,11 +600,11 @@ mod three {
             let material = ctx.gfx.create_material(MaterialDesc::default());
             let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
             assert!(ctx.is_live(material) && ctx.is_live(mesh));
-            assert!(ctx.gfx.has_material(material) && ctx.gfx.is_mesh_live(mesh));
+            assert!(ctx.gfx.is_live(material) && ctx.gfx.is_live(mesh));
             ctx.free(mesh);
             ctx.free(material);
             assert!(!ctx.is_live(material) && !ctx.is_live(mesh));
-            assert!(!ctx.gfx.has_material(material));
+            assert!(!ctx.gfx.is_live(material));
         });
     }
 }

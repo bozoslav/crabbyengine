@@ -308,8 +308,9 @@ impl Graphics {
     /// which takes ids): [`Ctx::is_live`](crate::Ctx::is_live).
     #[doc(hidden)]
     #[must_use]
+    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
     pub fn has_effect(&self, effect: Effect) -> bool {
-        self.assets3d.effects_live.contains(effect.id)
+        self.is_live(effect)
     }
 
     /// Frees screen effect `id` (see [`Ctx::free`](crate::Ctx::free)): entries of

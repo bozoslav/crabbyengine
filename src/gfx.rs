@@ -473,12 +473,13 @@ impl Graphics {
     /// ```
     /// # use ponko::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     assert!(ctx.gfx.has_font(Font::DEFAULT));
+    ///     assert!(ctx.gfx.is_live(Font::DEFAULT));
     /// });
     /// ```
     #[must_use]
+    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
     pub fn has_font(&self, font: Font) -> bool {
-        self.text.has_font(font)
+        self.is_live(font)
     }
 
     /// Loads an image from the `assets/` folder (PNG for now).

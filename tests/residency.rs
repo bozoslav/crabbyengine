@@ -71,7 +71,7 @@ fn without_a_budget_nothing_is_evicted() {
     for path in paths.clone() {
         steps.push(Box::new(move |ctx| {
             let mesh = ctx.resident_mesh(&path);
-            assert!(ctx.gfx.is_mesh_live(mesh));
+            assert!(ctx.gfx.is_live(mesh));
         }));
     }
     steps.push(Box::new(move |ctx| {
@@ -156,7 +156,7 @@ fn evicted_meshes_load_again_when_asked_for() {
         gap(),
         Box::new(move |ctx| {
             let mesh = ctx.resident_mesh(&p3[0]); // evicts 1, loads 0 again
-            assert!(ctx.gfx.is_mesh_live(mesh));
+            assert!(ctx.gfx.is_live(mesh));
             assert!(ctx.gfx.is_resident(ResidencyKind::Mesh, &p3[0]));
             assert!(!ctx.gfx.is_resident(ResidencyKind::Mesh, &p3[1]));
             let s = stats(ctx);
@@ -179,7 +179,7 @@ fn pinned_meshes_are_never_evicted() {
     steps.push(Box::new(move |ctx| {
         ctx.set_residency_budget(ResidencyKind::Mesh, Some(2 * b));
         let mesh = ctx.pin_resident_mesh(&pin);
-        assert!(ctx.gfx.is_mesh_live(mesh));
+        assert!(ctx.gfx.is_live(mesh));
     }));
     for (i, path) in rest.clone().into_iter().enumerate() {
         if i > 0 {
@@ -272,7 +272,7 @@ fn meshes_asked_for_this_tick_stay_and_the_overflow_is_reported() {
             let first = ctx.resident_mesh(&a);
             let second = ctx.resident_mesh(&bb);
             // Both handles stay good for the rest of the tick.
-            assert!(ctx.gfx.is_mesh_live(first) && ctx.gfx.is_mesh_live(second));
+            assert!(ctx.gfx.is_live(first) && ctx.gfx.is_live(second));
             let s = stats(ctx);
             assert_eq!(s.evictions, 0);
             assert_eq!(s.over_budget_bytes(), b / 2 + b % 2);
@@ -308,7 +308,7 @@ fn a_mesh_asked_for_every_tick_stays_while_shown_ones_keep_the_budget_over() {
         let asked = asked.clone();
         steps.push(Box::new(move |ctx| {
             let mesh = ctx.resident_mesh(&asked);
-            assert!(ctx.gfx.is_mesh_live(mesh));
+            assert!(ctx.gfx.is_live(mesh));
             let s = stats(ctx);
             assert_eq!((s.loads, s.reloads, s.evictions), (2, 0, 0), "{s}");
             assert_eq!(s.over_budget_bytes(), b);
@@ -333,11 +333,11 @@ fn freeing_an_evicted_meshs_handle_releases_its_id_once() {
         Box::new(move |ctx| {
             ctx.resident_mesh(&second); // evicts the first; its id is kept
             let held = *h2.borrow();
-            assert!(!ctx.gfx.is_mesh_live(held));
+            assert!(!ctx.gfx.is_live(held));
             // The game lets the handle go: the id is free for new meshes,
             // and freeing it again doesn't free it twice.
-            ctx.gfx.free_mesh(held);
-            ctx.gfx.free_mesh(held);
+            ctx.gfx.free(held);
+            ctx.gfx.free(held);
             let material = ctx.gfx.default_material();
             let a = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
             let c = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
@@ -385,7 +385,7 @@ fn meshes_loaded_directly_are_never_evicted() {
             ctx.resident_mesh(&bb);
             assert!(ctx.gfx.is_resident(ResidencyKind::Mesh, &a2));
             let mesh = ctx.gfx.load_mesh(&a2);
-            assert!(ctx.gfx.is_mesh_live(mesh));
+            assert!(ctx.gfx.is_live(mesh));
             assert_eq!(stats(ctx).evictions, 0);
         }),
     ]);
@@ -397,10 +397,10 @@ fn a_resident_mesh_the_game_freed_loads_again() {
     let b = house_bytes();
     Game::new("t", 1, 1).run_headless(0, move |ctx| {
         let mesh = ctx.resident_mesh(&path);
-        ctx.gfx.free_mesh(mesh);
+        ctx.gfx.free(mesh);
         assert!(!ctx.gfx.is_resident(ResidencyKind::Mesh, &path));
         let again = ctx.resident_mesh(&path);
-        assert!(ctx.gfx.is_mesh_live(again));
+        assert!(ctx.gfx.is_live(again));
         let s = stats(ctx);
         assert_eq!((s.resident, s.resident_bytes), (1, b));
         assert_eq!((s.loads, s.reloads, s.evictions), (1, 1, 0));
