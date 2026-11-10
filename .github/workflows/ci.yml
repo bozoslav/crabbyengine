@@ -587,7 +587,7 @@ jobs:
           tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
       # The browsers are about 500 MB: Playwright downloads only what this
       # cache lacks (the version is pinned by the lockfile).
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('web/smoke/package-lock.json') }}
