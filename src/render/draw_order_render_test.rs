@@ -6,8 +6,14 @@
 use super::gpu::GpuTexture;
 use super::gpu3d::StateChanges;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::anim::Blend;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{Material, MaterialDesc, Mesh, MeshData, Model, ModelMaterial, Shader};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 256;
 

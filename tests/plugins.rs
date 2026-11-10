@@ -75,7 +75,17 @@ fn builtin_ids_and_legacy_removal_coexist() {
 #[cfg(feature = "physics")]
 #[test]
 fn stable_physics_id_removes_step_after_repeated_configuration() {
-    use ponko::*;
+    #[allow(unused_imports)]
+    #[cfg(feature = "physics")]
+    use ponko::d2::Collider;
+    #[allow(unused_imports)]
+    #[cfg(feature = "physics")]
+    use ponko::d2::RigidBody;
+    #[allow(unused_imports)]
+    use ponko::d2::Transform as Transform2D;
+    #[allow(unused_imports)]
+    use ponko::input::Input;
+    use ponko::prelude::*;
     let mut world = Game::new("physics ids", 1, 1)
         .physics(vec2(0.0, 980.0))
         .physics(vec2(0.0, 980.0))

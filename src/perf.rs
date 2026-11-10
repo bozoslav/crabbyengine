@@ -51,7 +51,7 @@ pub struct SystemTiming {
 ///   traces need a window; without one they are zero, empty or do nothing.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// fn report_slow_systems(ctx: &mut Ctx) {
 ///     for t in ctx.perf.system_timings() {
@@ -75,7 +75,7 @@ pub struct Perf {
     /// Scopes, allocation counts and the history behind `report`.
     pub(crate) state: crate::perf_report::PerfState,
     /// The renderer's per-pass GPU times, copied after every frame.
-    pub(crate) gpu_passes: Vec<crate::GpuPass>,
+    pub(crate) gpu_passes: Vec<crate::perf::GpuPass>,
     /// How long the last frame waited for the display, copied after every frame.
     pub(crate) display_wait_ms: f32,
     /// No window or GPU: there are no frames to trace or draw statistics for.
@@ -104,7 +104,7 @@ impl Perf {
     /// first). For finding what's slow; the inspector will graph these.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn print_slow_systems(ctx: &mut Ctx) {
     ///     for t in ctx.perf.system_timings() {
     ///         if t.avg_ms > 1.0 {
@@ -121,7 +121,7 @@ impl Perf {
     /// and GPU time. All zero (and `gpu_ms` is `None`) in headless runs.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn overlay(ctx: &mut Ctx) {
     ///     let stats = ctx.perf.render_stats();
     ///     if let Some(gpu) = stats.gpu_ms {
@@ -140,7 +140,7 @@ impl Perf {
     /// times a second. All zero in headless runs.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn report(ctx: &mut Ctx) {
     ///     let s = ctx.perf.frame_stats();
     ///     if s.p99_ms > 2.0 * s.p50_ms {
@@ -149,7 +149,7 @@ impl Perf {
     /// }
     /// # Game::new("t", 1, 1).system(report).run_headless(1, |_| {});
     /// ```
-    pub fn frame_stats(&self) -> crate::FrameStats {
+    pub fn frame_stats(&self) -> crate::perf::FrameStats {
         self.profiler.stats()
     }
 
@@ -159,7 +159,7 @@ impl Perf {
     /// queries.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn slowest_pass(ctx: &mut Ctx) {
     ///     if let Some(p) = ctx.perf.gpu_passes().iter().max_by(|a, b| a.ms.total_cmp(&b.ms)) {
     ///         println!("slowest GPU pass: {} ({:.2} ms)", p.name, p.ms);
@@ -167,7 +167,7 @@ impl Perf {
     /// }
     /// # Game::new("t", 1, 1).system(slowest_pass).run_headless(1, |_| {});
     /// ```
-    pub fn gpu_passes(&self) -> &[crate::GpuPass] {
+    pub fn gpu_passes(&self) -> &[crate::perf::GpuPass] {
         &self.gpu_passes
     }
 
@@ -184,7 +184,7 @@ impl Perf {
     /// `PONKO_HUD=1` shows it from the start.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn toggle_hud(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::F3) {
     ///         let on = ctx.perf.hud();
@@ -201,7 +201,7 @@ impl Perf {
     /// Whether the performance HUD is showing.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let on = ctx.perf.hud();
     /// # }
@@ -216,7 +216,7 @@ impl Perf {
     /// in headless runs.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn capture(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::F4) {
     ///         ctx.perf.record_trace("frames.json", 120);
@@ -232,13 +232,13 @@ impl Perf {
 
     /// Turns on the deeper profiling: your [`profile_scope!`](crate::profile_scope)
     /// scopes and [`Perf::scope`] calls are timed, allocations are counted
-    /// (if [`CountingAllocator`](crate::CountingAllocator) is installed), and
+    /// (if [`CountingAllocator`] is installed), and
     /// [`report`](Self::report) has numbers. The overlay
     /// ([`set_hud`](Self::set_hud)) and `PONKO_BENCH` switch it on by themselves. While
     /// it is off, scopes cost one atomic load.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn debug_keys(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::F5) {
     ///         let on = !ctx.perf.profiling();
@@ -255,7 +255,7 @@ impl Perf {
     /// Whether scopes are being timed and allocations counted right now.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// if ctx.perf.profiling() { /* build an expensive debug string */ }
     /// # }
@@ -271,25 +271,25 @@ impl Perf {
     /// all of `ctx`.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn ai(ctx: &mut Ctx) {
     ///     let _timing = ctx.perf.scope("ai/pathing");
-    ///     for _t in ctx.world.query::<&mut Transform2D>().iter() { /* ... */ }
+    ///     for _t in ctx.world.query::<&mut ponko::d2::Transform>().iter() { /* ... */ }
     /// }
     /// # Game::new("t", 1, 1).sim_system(ai).run_headless(1, |_| {});
     /// ```
-    pub fn scope(&self, name: &str) -> crate::ScopeGuard {
+    pub fn scope(&self, name: &str) -> crate::scope::ScopeGuard {
         if !crate::scope::active() {
-            return crate::ScopeGuard::off();
+            return crate::scope::ScopeGuard::off();
         }
-        crate::scope_named(name).enter()
+        crate::perf::scope_named(name).enter()
     }
 
     /// Each profiling scope's time in the last frame, in the order they
     /// first ran. Empty while profiling is off.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn report(ctx: &mut Ctx) {
     ///     for s in ctx.perf.scope_timings() {
     ///         println!("{}: {:.2} ms in {} calls", s.name, s.last_ms, s.calls);
@@ -297,7 +297,7 @@ impl Perf {
     /// }
     /// # Game::new("t", 1, 1).system(report).run_headless(1, |_| {});
     /// ```
-    pub fn scope_timings(&self) -> &[crate::ScopeTiming] {
+    pub fn scope_timings(&self) -> &[crate::scope::ScopeTiming] {
         &self.state.scopes.timings
     }
 
@@ -313,7 +313,7 @@ impl Perf {
     /// running system spawned straight into `ctx.world` aren't in it yet.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn dump(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::F6) {
     ///         println!("{}", ctx.perf.report());
@@ -321,7 +321,7 @@ impl Perf {
     /// }
     /// # Game::new("t", 1, 1).system(dump).run_headless(1, |_| {});
     /// ```
-    pub fn report(&self) -> crate::PerfReport {
+    pub fn report(&self) -> crate::perf::PerfReport {
         let mut report = self.state.collector.report();
         report.entities = self.entities;
         if !self.headless && report.frames > 0 {
@@ -330,13 +330,13 @@ impl Perf {
             let mut passes: Vec<_> = self
                 .gpu_passes
                 .iter()
-                .map(|p| crate::PassReport {
+                .map(|p| crate::perf::PassReport {
                     name: p.name.into(),
                     ms: p.ms,
                 })
                 .collect();
             passes.sort_by(|a, b| b.ms.total_cmp(&a.ms));
-            report.render = Some(crate::RenderReport {
+            report.render = Some(crate::perf::RenderReport {
                 systems_ms: f.systems_ms,
                 render_cpu_ms: f.render_cpu_ms,
                 display_wait_ms: f.display_wait_ms,
@@ -399,3 +399,27 @@ impl Perf {
         quit
     }
 }
+
+// Detailed reports live beside the frame service.
+pub use crate::alloc_count::{AllocCounts, CountingAllocator, alloc_counts, note_allocation};
+pub use crate::perf_report::*;
+pub use crate::profiler::{FrameStats, GpuPass};
+pub use crate::scope::{ProfileScope, ScopeGuard, ScopeTiming, scope_named};
+
+/// Named profiling scopes.
+pub use crate::profile_scope;
+
+/// A point in time for measuring how long something took, like
+/// `std::time::Instant` (which it is, on desktop), but also working in web
+/// builds, where `std::time::Instant::now()` panics. Re-exported from
+/// `web-time`.
+///
+/// ```
+/// use ponko::prelude::*;
+/// let nav = ponko::flow::NavGrid::new(256, 256, 8.0);
+/// let mut field = ponko::flow::FlowField::new();
+/// let start = ponko::perf::Instant::now();
+/// field.compute(&nav, &[vec2(40.0, 40.0)]);
+/// println!("flow field in {:.2} ms", start.elapsed().as_secs_f64() * 1000.0);
+/// ```
+pub use web_time::Instant;

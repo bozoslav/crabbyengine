@@ -8,7 +8,12 @@
 //! `SHOT=path.png` saves the second frame and quits; `HOUR=19` and `FOG=1`
 //! set the time and the fog.
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::prelude::*;
 
 /// One blade of grass: a thin quad, texture v from 0 at the root to 1 at the tip.
 fn blade() -> MeshData {
@@ -80,7 +85,7 @@ fn main() {
             };
             let ground = ctx.gfx.create_material(ground_look);
             let ground = ctx.gfx.create_mesh(&MeshData::plane(600.0), ground);
-            ctx.world.spawn((Transform3D::default(), Model::new(ground)));
+            ctx.world.spawn((Transform::default(), Model::new(ground)));
 
             let water = ctx.gfx.load_shader("shaders/water.wgsl");
             let lake = ctx.gfx.create_material(MaterialDesc {
@@ -94,7 +99,7 @@ fn main() {
             surface = subdivide(surface, 5);
             let lake = ctx.gfx.create_mesh(&surface, lake);
             ctx.world
-                .spawn((Transform3D::at(vec3(-3.0, 0.15, -4.0)), Model::new(lake)));
+                .spawn((Transform::at(vec3(-3.0, 0.15, -4.0)), Model::new(lake)));
 
             // The lake bed, under the water: sand sloping down, and stones.
             let sand = ctx.gfx.create_material(MaterialDesc {
@@ -104,9 +109,9 @@ fn main() {
             let bed = ctx.gfx.create_mesh(&MeshData::plane(12.0), sand);
             let tilt = Quat::from_rotation_x(0.12);
             ctx.world.spawn((
-                Transform3D {
+                Transform {
                     rotation: tilt,
-                    ..Transform3D::at(vec3(-3.0, -0.6, -4.0))
+                    ..Transform::at(vec3(-3.0, -0.6, -4.0))
                 },
                 Model::new(bed),
             ));
@@ -121,7 +126,7 @@ fn main() {
                     -0.3 - (i % 3) as f32 * 0.2,
                     -3.0 + (i % 4) as f32 * -1.5,
                 );
-                ctx.world.spawn((Transform3D::at(at), Model::new(pebble)));
+                ctx.world.spawn((Transform::at(at), Model::new(pebble)));
             }
 
             let wind = ctx.gfx.load_shader("shaders/wind.wgsl");
@@ -143,10 +148,10 @@ fn main() {
                 if at.x < 4.0 && at.z < 2.5 {
                     continue; // the lake
                 }
-                let t = Transform3D {
+                let t = Transform {
                     rotation: Quat::from_rotation_y(random() * 6.3),
                     scale: Vec3::splat(0.6 + random() * 0.8),
-                    ..Transform3D::at(at)
+                    ..Transform::at(at)
                 };
                 ctx.world.spawn((t, Model::new(blade)));
             }
@@ -157,8 +162,7 @@ fn main() {
                 ..Default::default()
             });
             let ball = ctx.gfx.create_mesh(&MeshData::sphere(1.0, 48), ball);
-            ctx.world
-                .spawn((Transform3D::at(vec3(3.5, 1.0, 1.0)), Model::new(ball)));
+            ctx.world.spawn((Transform::at(vec3(3.5, 1.0, 1.0)), Model::new(ball)));
         })
         .run();
 }

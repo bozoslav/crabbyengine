@@ -3,7 +3,15 @@
 //! whatever the order of systems, phases and intervals. Also saves and loads.
 //! The storage side is covered in `crates/ponko_ecs/tests/changes.rs`.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::access::SystemAccess;
+#[allow(unused_imports)]
+use ponko::d2::Transform as Transform2D;
+#[allow(unused_imports)]
+use ponko::input::Input;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::system_view::SystemView;
 use serde::{Deserialize, Serialize};
 
 /// What systems observed, in order.

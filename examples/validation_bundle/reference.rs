@@ -6,7 +6,11 @@
 //! body is on the ground, so it bounces again after landing.
 
 use crate::bundle::Assertion;
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::actions::InputEvent;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::scenario::InputScenario;
 use std::cell::RefCell;
 use std::rc::Rc;
 

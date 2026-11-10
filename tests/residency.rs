@@ -7,7 +7,15 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::Transform as Transform3D;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::{LodGroup, LodLevel, LodRenderer, Mesh, MeshData, Model};
+#[allow(unused_imports)]
+use ponko::residency::{ResidencyKind, ResidencyStats};
 
 /// `n` copies of the test house, each its own file (and so its own mesh),
 /// as absolute paths in a fresh temp folder.
@@ -229,7 +237,8 @@ fn meshes_entities_show_are_kept() {
         }),
         Box::new(move |ctx| {
             let m = ctx.resident_mesh(&shadow);
-            ctx.world.spawn((Transform3D::default(), ShadowMesh(Some(m))));
+            ctx.world
+                .spawn((Transform3D::default(), ponko::render::ShadowMesh(Some(m))));
         }),
         Box::new(move |ctx| {
             ctx.resident_mesh(&other);

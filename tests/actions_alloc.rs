@@ -3,7 +3,11 @@
 //! One test per binary, and a thread-local counter: only the thread running
 //! the game counts, so other threads in the process can't disturb the
 //! zero-allocation assertion.
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::actions::InputEvent;
+#[allow(unused_imports)]
+use ponko::input::{Gamepad, GamepadAxis, GamepadStick};
+use ponko::prelude::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 

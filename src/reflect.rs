@@ -16,16 +16,16 @@ use serde_json::{Value, json};
 
 mod builtin_schemas;
 
-use crate::schema::{SchemaSource, ValueSchema, schema_json};
+use crate::schema::{SchemaSource, schema_json};
 
 /// Why a reflection call failed.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// let world = World::new();
 /// let e = Entity::from_bits(0);
 /// let err = world.get_json(e, "Health").unwrap_err();
-/// assert_eq!(err, ReflectError::UnknownComponent("Health".into()));
+/// assert_eq!(err, ponko::reflect::ReflectError::UnknownComponent("Health".into()));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -236,8 +236,8 @@ fn merge(base: &mut Value, patch: Value) {
 /// in JSON.
 ///
 /// ```
-/// # use ponko::*;
-/// assert_eq!(FieldType::Vec2.size(), 8);
+/// # use ponko::prelude::*;
+/// assert_eq!(ponko::reflect::FieldType::Vec2.size(), 8);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u32)]
@@ -290,8 +290,8 @@ impl FieldType {
 /// One field of a component described with [`WorldReflect::reflect_fields`].
 ///
 /// ```
-/// # use ponko::*;
-/// let f = Field::new("speed", FieldType::F32, 8);
+/// # use ponko::prelude::*;
+/// let f = ponko::reflect::Field::new("speed", ponko::reflect::FieldType::F32, 8);
 /// assert_eq!((f.name.as_str(), f.offset), ("speed", 8));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -471,7 +471,7 @@ fn write_field(f: &Field, v: &Value, at: &mut [u8]) -> Result<(), String> {
 
 /// Reflection methods on [`World`]: read and write components by name as JSON.
 ///
-/// Comes in with `use ponko::*;`.
+/// Comes in with `use ponko::prelude::*;
 pub trait WorldReflect {
     /// Makes component `T` visible to reflection under its type name without
     /// the module path (`my_game::Health` becomes `"Health"`).
@@ -482,7 +482,7 @@ pub trait WorldReflect {
     /// `Transform3D` and `Model` too (a model with its mesh's file name).
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// use serde::{Deserialize, Serialize};
     ///
     /// #[derive(Serialize, Deserialize)]
@@ -505,7 +505,7 @@ pub trait WorldReflect {
     /// Describing the same component again replaces its fields.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     ///
     /// let mut world = World::new();
     /// // A C struct { float current; uint32_t max; }.
@@ -514,8 +514,8 @@ pub trait WorldReflect {
     /// // SAFETY: any values of these fields make a valid Health.
     /// unsafe {
     ///     world.reflect_fields(id, &[
-    ///         Field::new("current", FieldType::F32, 0),
-    ///         Field::new("max", FieldType::U32, 4),
+    ///         ponko::reflect::Field::new("current", ponko::reflect::FieldType::F32, 0),
+    ///         ponko::reflect::Field::new("max", ponko::reflect::FieldType::U32, 4),
     ///     ]);
     /// }
     /// let e = world.spawn_json(serde_json::json!({ "Health": { "current": 3.5, "max": 10 } })).unwrap();
@@ -535,9 +535,9 @@ pub trait WorldReflect {
     /// Names of all reflected components, in registration order.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut world = World::new();
-    /// world.reflect::<Transform2D>();
+    /// world.reflect::<ponko::d2::Transform>();
     /// assert_eq!(world.reflected_components(), ["Transform2D"]);
     /// ```
     fn reflected_components(&self) -> Vec<&str>;
@@ -545,10 +545,10 @@ pub trait WorldReflect {
     /// Component `name` of entity `e`, as JSON.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut world = World::new();
-    /// world.reflect::<Transform2D>();
-    /// let e = world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
+    /// world.reflect::<ponko::d2::Transform>();
+    /// let e = world.spawn((ponko::d2::Transform::at(vec2(1.0, 2.0)),));
     /// let t = world.get_json(e, "Transform2D").unwrap();
     /// assert_eq!(t["position"], serde_json::json!([1.0, 2.0]));
     /// ```
@@ -567,13 +567,13 @@ pub trait WorldReflect {
     /// give every field (or the ones the type has `#[serde(default)]` for).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # use serde_json::json;
     /// let mut world = World::new();
-    /// world.reflect::<Transform2D>();
-    /// let e = world.spawn((Transform2D::at(vec2(1.0, 2.0)).rotated(0.5),));
+    /// world.reflect::<ponko::d2::Transform>();
+    /// let e = world.spawn((ponko::d2::Transform::at(vec2(1.0, 2.0)).rotated(0.5),));
     /// world.set_json(e, "Transform2D", json!({ "position": [5.0, 5.0] })).unwrap();
-    /// let t = world.get::<Transform2D>(e).unwrap();
+    /// let t = world.get::<ponko::d2::Transform>(e).unwrap();
     /// assert_eq!((t.position, t.rotation), (vec2(5.0, 5.0), 0.5));
     /// ```
     ///
@@ -585,10 +585,10 @@ pub trait WorldReflect {
     /// Removes component `name` from entity `e`. Returns whether it had it.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut world = World::new();
-    /// world.reflect::<Transform2D>();
-    /// let e = world.spawn((Transform2D::default(),));
+    /// world.reflect::<ponko::d2::Transform>();
+    /// let e = world.spawn((ponko::d2::Transform::default(),));
     /// assert_eq!(world.remove_json(e, "Transform2D"), Ok(true));
     /// assert_eq!(world.remove_json(e, "Transform2D"), Ok(false));
     /// ```
@@ -602,10 +602,10 @@ pub trait WorldReflect {
     /// component name. Components that aren't reflected are left out.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut world = World::new();
-    /// world.reflect::<Transform2D>();
-    /// let e = world.spawn((Transform2D::default(),));
+    /// world.reflect::<ponko::d2::Transform>();
+    /// let e = world.spawn((ponko::d2::Transform::default(),));
     /// assert!(world.entity_json(e).unwrap().get("Transform2D").is_some());
     /// ```
     ///
@@ -619,14 +619,14 @@ pub trait WorldReflect {
     /// is left spawned.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # use serde_json::json;
     /// let mut world = World::new();
-    /// world.reflect::<Transform2D>();
+    /// world.reflect::<ponko::d2::Transform>();
     /// let e = world
     ///     .spawn_json(json!({ "Transform2D": { "position": [3.0, 4.0], "rotation": 0.0, "scale": [1.0, 1.0] } }))
     ///     .unwrap();
-    /// assert_eq!(world.get::<Transform2D>(e).unwrap().position, vec2(3.0, 4.0));
+    /// assert_eq!(world.get::<ponko::d2::Transform>(e).unwrap().position, vec2(3.0, 4.0));
     /// ```
     ///
     /// # Errors
@@ -642,10 +642,10 @@ pub trait WorldReflect {
     /// are saved under `"resources"`; others are not.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut world = World::new();
-    /// world.reflect::<Transform2D>();
-    /// world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
+    /// world.reflect::<ponko::d2::Transform>();
+    /// world.spawn((ponko::d2::Transform::at(vec2(1.0, 2.0)),));
     /// let save = world.save();
     /// assert_eq!(save["entities"].as_array().unwrap().len(), 1);
     /// ```
@@ -661,15 +661,15 @@ pub trait WorldReflect {
     /// take over), which is the point.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut world = World::new();
-    /// world.reflect::<Transform2D>();
-    /// let e = world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
+    /// world.reflect::<ponko::d2::Transform>();
+    /// let e = world.spawn((ponko::d2::Transform::at(vec2(1.0, 2.0)),));
     /// let save = world.save();
     ///
-    /// world.get_mut::<Transform2D>(e).unwrap().position = vec2(9.0, 9.0);
+    /// world.get_mut::<ponko::d2::Transform>(e).unwrap().position = vec2(9.0, 9.0);
     /// world.load(&save).unwrap();
-    /// assert_eq!(world.get::<Transform2D>(e).unwrap().position, vec2(1.0, 2.0));
+    /// assert_eq!(world.get::<ponko::d2::Transform>(e).unwrap().position, vec2(1.0, 2.0));
     /// ```
     ///
     /// # Errors
@@ -698,7 +698,7 @@ pub trait WorldReflect {
     /// Registering the same type again does nothing.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// use serde::{Deserialize, Serialize};
     ///
     /// #[derive(Serialize, Deserialize)]
@@ -718,7 +718,7 @@ pub trait WorldReflect {
     /// not they're in the world right now).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # #[derive(serde::Serialize, serde::Deserialize)] struct Score(u32);
     /// let mut world = World::new();
     /// world.reflect_resource::<Score>();
@@ -729,11 +729,11 @@ pub trait WorldReflect {
     /// A reflected resource as JSON.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # #[derive(serde::Serialize, serde::Deserialize)] struct Score(u32);
     /// let mut world = World::new();
     /// world.reflect_resource::<Score>();
-    /// assert_eq!(world.resource_json("Score"), Err(ReflectError::MissingResource("Score".into())));
+    /// assert_eq!(world.resource_json("Score"), Err(ponko::reflect::ReflectError::MissingResource("Score".into())));
     /// world.insert_resource(Score(7));
     /// assert_eq!(world.resource_json("Score").unwrap(), 7);
     /// ```
@@ -748,7 +748,7 @@ pub trait WorldReflect {
     /// has, like [`set_json`](Self::set_json).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # use serde_json::json;
     /// # #[derive(serde::Serialize, serde::Deserialize)] struct Score { red: u32, blue: u32 }
     /// let mut world = World::new();
@@ -771,7 +771,7 @@ pub trait WorldReflect {
     /// Describing it again replaces the fields.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// use std::alloc::Layout;
     ///
     /// let mut world = World::new();
@@ -780,8 +780,8 @@ pub trait WorldReflect {
     /// // SAFETY: any values of these fields make a valid Score.
     /// unsafe {
     ///     world.reflect_resource_fields("Score", layout, &[
-    ///         Field::new("red", FieldType::U32, 0),
-    ///         Field::new("blue", FieldType::U32, 4),
+    ///         ponko::reflect::Field::new("red", ponko::reflect::FieldType::U32, 0),
+    ///         ponko::reflect::Field::new("blue", ponko::reflect::FieldType::U32, 4),
     ///     ]);
     /// }
     /// world.set_resource_json("Score", serde_json::json!({ "red": 3, "blue": 1 })).unwrap();
@@ -807,14 +807,14 @@ pub trait WorldReflect {
     /// type: keep it accurate.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// # #[derive(serde::Serialize, serde::Deserialize)] struct Health { current: f32, max: f32 }
     /// let mut world = World::new();
     /// world.reflect::<Health>();
     /// world
-    ///     .describe_component("Health", ValueSchema::object([
-    ///         ("current", ValueSchema::Number),
-    ///         ("max", ValueSchema::Number),
+    ///     .describe_component("Health", ponko::reflect::ValueSchema::object([
+    ///         ("current", ponko::reflect::ValueSchema::Number),
+    ///         ("max", ponko::reflect::ValueSchema::Number),
     ///     ]))
     ///     .unwrap();
     /// ```
@@ -940,26 +940,26 @@ impl WorldReflect for World {
                 type_name: name.to_string(),
                 get: Arc::new(move |w: &World, e| {
                     // SAFETY: the pointer is to a live value of `id`, `size` bytes.
-                    w.get_dynamic(e, id).map(|p| Ok(unsafe { g.read(p) }))
+                    w.raw_ref().get_dynamic(e, id).map(|p| Ok(unsafe { g.read(p) }))
                 }),
                 set: Arc::new(move |w: &mut World, e, v| {
-                    let bytes = l.bytes(w.get_dynamic(e, id), &v)?;
+                    let bytes = l.bytes(w.raw_ref().get_dynamic(e, id), &v)?;
                     // SAFETY: `reflect_fields`' caller promised these bytes are a valid value.
-                    unsafe { w.insert_dynamic(e, id, bytes.as_ptr()) };
+                    unsafe { w.raw().insert_dynamic(e, id, bytes.as_ptr()) };
                     Ok(())
                 }),
                 spawn: Arc::new(move |w: &mut World, v| {
                     let bytes = st.bytes(None, &v)?;
                     // SAFETY: as above.
-                    Ok(unsafe { w.spawn_dynamic(&[(id, bytes.as_ptr())]) })
+                    Ok(unsafe { w.raw().spawn_dynamic(&[(id, bytes.as_ptr())]) })
                 }),
                 spawn_at: Arc::new(move |w: &mut World, e, v| {
                     let bytes = sa.bytes(None, &v)?;
                     // SAFETY: as above.
-                    Ok(unsafe { w.spawn_at_dynamic(e, &[(id, bytes.as_ptr())]) })
+                    Ok(unsafe { w.raw().spawn_at_dynamic(e, &[(id, bytes.as_ptr())]) })
                 }),
                 check: Arc::new(move |v: &Value| k.bytes(None, v).map(drop)),
-                remove: Arc::new(move |w: &mut World, e| w.remove_dynamic(e, id)),
+                remove: Arc::new(move |w: &mut World, e| w.raw().remove_dynamic(e, id)),
             }
         };
         match reg.by_name.get(&name) {
@@ -1128,13 +1128,15 @@ impl WorldReflect for World {
             type_name: name.to_string(),
             get: Arc::new(move |w: &World| {
                 // SAFETY: the pointer is to the live resource, `layout.size()` bytes.
-                w.get_resource_dynamic(&get_name).map(|p| Ok(unsafe { read.read(p) }))
+                w.raw_ref()
+                    .get_resource_dynamic(&get_name)
+                    .map(|p| Ok(unsafe { read.read(p) }))
             }),
             set: Arc::new(move |w: &mut World, v| {
-                let bytes = write.bytes(w.get_resource_dynamic(&set_name), &v)?;
+                let bytes = write.bytes(w.raw_ref().get_resource_dynamic(&set_name), &v)?;
                 // SAFETY: `bytes` holds `layout.size()` bytes, a valid value as
                 // `reflect_resource_fields`' caller promised.
-                unsafe { w.insert_resource_dynamic(&set_name, layout, bytes.as_ptr()) };
+                unsafe { w.raw().insert_resource_dynamic(&set_name, layout, bytes.as_ptr()) };
                 Ok(())
             }),
             check: Arc::new(move |v: &Value| check.bytes(None, v).map(drop)),
@@ -1178,7 +1180,7 @@ impl WorldReflect for World {
         let reflected = self.reflected_components();
         let mut entities = Vec::new();
         let mut not_saved: std::collections::BTreeMap<String, usize> = Default::default();
-        for a in self.archetypes().iter().filter(|a| !a.is_empty()) {
+        for a in self.raw_ref().archetypes().iter().filter(|a| !a.is_empty()) {
             for &id in a.component_ids() {
                 // Rust components are reflected under their short name, C ones
                 // under the name they were registered with ("game::Health").
@@ -1407,7 +1409,7 @@ impl<H: Copy> Names<H> {
 /// sprites are saved as `"texture": "crab.png"`. A resource of the game's world.
 pub(crate) type TextureNames = Names<crate::Texture>;
 
-/// A [`Sprite`](crate::Sprite) as JSON: the texture by its file name.
+/// A [`Sprite`](crate::d2::Sprite) as JSON: the texture by its file name.
 #[derive(Serialize, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct SpriteJson {
@@ -1432,7 +1434,7 @@ impl Default for SpriteJson {
 
 /// `None` for a texture made in code: it has no file to name, so the sprite
 /// isn't saved (the rest of the entity is).
-fn sprite_json(world: &World, s: &crate::Sprite) -> Option<Result<Value, String>> {
+fn sprite_json(world: &World, s: &crate::d2::Sprite) -> Option<Result<Value, String>> {
     let name = world.get_resource::<TextureNames>()?.name(s.texture.id)?;
     let json = SpriteJson {
         texture: Some(name),
@@ -1444,7 +1446,7 @@ fn sprite_json(world: &World, s: &crate::Sprite) -> Option<Result<Value, String>
     Some(serde_json::to_value(json).map_err(|err| err.to_string()))
 }
 
-fn sprite_from_json(world: &World, value: Value) -> Result<crate::Sprite, String> {
+fn sprite_from_json(world: &World, value: Value) -> Result<crate::d2::Sprite, String> {
     let json: SpriteJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
     let name = json
         .texture
@@ -1453,7 +1455,7 @@ fn sprite_from_json(world: &World, value: Value) -> Result<crate::Sprite, String
         .get_resource::<TextureNames>()
         .and_then(|t| t.get(&name))
         .ok_or_else(|| format!("texture \"{name}\" isn't loaded: ctx.load_texture(\"{name}\") first"))?;
-    Ok(crate::Sprite {
+    Ok(crate::d2::Sprite {
         texture,
         color: json.color,
         z: json.z,
@@ -1462,7 +1464,7 @@ fn sprite_from_json(world: &World, value: Value) -> Result<crate::Sprite, String
     })
 }
 
-/// Reflects [`Sprite`](crate::Sprite) as `"Sprite"`, its texture saved by
+/// Reflects [`Sprite`](crate::d2::Sprite) as `"Sprite"`, its texture saved by
 /// file name (see [`TextureNames`]).
 pub(crate) fn reflect_sprite(world: &mut World) {
     if world.get_resource::<TextureNames>().is_none() {
@@ -1480,8 +1482,8 @@ pub(crate) fn reflect_sprite(world: &mut World) {
     reg.by_name.insert("Sprite".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "Sprite".into(),
-        type_name: std::any::type_name::<crate::Sprite>().into(),
-        get: Arc::new(|w: &World, e| w.get::<crate::Sprite>(e).and_then(|s| sprite_json(w, s))),
+        type_name: std::any::type_name::<crate::d2::Sprite>().into(),
+        get: Arc::new(|w: &World, e| w.get::<crate::d2::Sprite>(e).and_then(|s| sprite_json(w, s))),
         set: Arc::new(|w: &mut World, e, v| {
             let sprite = sprite_from_json(w, v)?;
             w.insert(e, sprite);
@@ -1496,7 +1498,7 @@ pub(crate) fn reflect_sprite(world: &mut World) {
             Ok(w.spawn_at(e, (sprite,)))
         }),
         check: Arc::new(check::<SpriteJson>),
-        remove: Arc::new(remove::<crate::Sprite>),
+        remove: Arc::new(remove::<crate::d2::Sprite>),
     });
 }
 
@@ -1505,9 +1507,9 @@ pub(crate) fn reflect_sprite(world: &mut World) {
 /// The asset names of meshes loaded from files (`Graphics::load_mesh`), so
 /// models are saved as `"mesh": "tree.glb"`. A resource of the game's world.
 #[cfg(feature = "3d")]
-pub(crate) type MeshNames = Names<crate::Mesh>;
+pub(crate) type MeshNames = Names<crate::render::Mesh>;
 
-/// A [`Model`](crate::Model) as JSON: the mesh by its file name.
+/// A [`Model`](crate::render::Model) as JSON: the mesh by its file name.
 #[cfg(feature = "3d")]
 #[derive(Serialize, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -1529,7 +1531,7 @@ impl Default for ModelJson {
 /// `None` for a mesh made in code: it has no file to name, so the model
 /// isn't saved (the rest of the entity is).
 #[cfg(feature = "3d")]
-fn model_json(world: &World, m: &crate::Model) -> Option<Result<Value, String>> {
+fn model_json(world: &World, m: &crate::render::Model) -> Option<Result<Value, String>> {
     let name = world.get_resource::<MeshNames>()?.name(m.mesh.id)?;
     let json = ModelJson {
         mesh: Some(name),
@@ -1539,7 +1541,7 @@ fn model_json(world: &World, m: &crate::Model) -> Option<Result<Value, String>> 
 }
 
 #[cfg(feature = "3d")]
-fn model_from_json(world: &World, value: Value) -> Result<crate::Model, String> {
+fn model_from_json(world: &World, value: Value) -> Result<crate::render::Model, String> {
     let json: ModelJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
     let name = json
         .mesh
@@ -1548,7 +1550,7 @@ fn model_from_json(world: &World, value: Value) -> Result<crate::Model, String> 
         .get_resource::<MeshNames>()
         .and_then(|t| t.get(&name))
         .ok_or_else(|| format!("mesh \"{name}\" isn't loaded: ctx.gfx.load_mesh(\"{name}\") first"))?;
-    Ok(crate::Model {
+    Ok(crate::render::Model {
         mesh,
         color: json.color,
     })
@@ -1562,7 +1564,7 @@ struct ShadowMeshJson {
 }
 
 #[cfg(feature = "3d")]
-fn shadow_mesh_json(world: &World, s: &crate::ShadowMesh) -> Option<Result<Value, String>> {
+fn shadow_mesh_json(world: &World, s: &crate::render::ShadowMesh) -> Option<Result<Value, String>> {
     let mesh = match s.0 {
         Some(mesh) => Some(world.get_resource::<MeshNames>()?.name(mesh.id)?),
         None => None,
@@ -1571,20 +1573,20 @@ fn shadow_mesh_json(world: &World, s: &crate::ShadowMesh) -> Option<Result<Value
 }
 
 #[cfg(feature = "3d")]
-fn shadow_mesh_from_json(world: &World, value: Value) -> Result<crate::ShadowMesh, String> {
+fn shadow_mesh_from_json(world: &World, value: Value) -> Result<crate::render::ShadowMesh, String> {
     let json: ShadowMeshJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
     let Some(name) = json.mesh else {
-        return Ok(crate::ShadowMesh(None));
+        return Ok(crate::render::ShadowMesh(None));
     };
     let mesh = world
         .get_resource::<MeshNames>()
         .and_then(|t| t.get(&name))
         .ok_or_else(|| format!("mesh \"{name}\" isn't loaded: ctx.gfx.load_mesh(\"{name}\") first"))?;
-    Ok(crate::ShadowMesh(Some(mesh)))
+    Ok(crate::render::ShadowMesh(Some(mesh)))
 }
 
 /// The materials of meshes loaded from files (`Ctx::load_mesh`), so a
-/// [`ModelMaterial`](crate::ModelMaterial) is saved as the file and the
+/// [`ModelMaterial`](crate::render::ModelMaterial) is saved as the file and the
 /// material's name in it. One table shared by the world (a resource) and
 /// the graphics service, like [`Names`].
 #[cfg(feature = "3d")]
@@ -1598,7 +1600,7 @@ struct MaterialTable {
     by_id: HashMap<u32, (String, usize)>,
     /// Each file's materials, in the file's order, with their names
     /// (empty: unnamed).
-    by_file: HashMap<String, Vec<(crate::Material, String)>>,
+    by_file: HashMap<String, Vec<(crate::render::Material, String)>>,
 }
 
 #[cfg(feature = "3d")]
@@ -1609,7 +1611,7 @@ impl MaterialNames {
     }
 
     /// Records the materials of mesh file `file`.
-    pub(crate) fn add(&self, file: &str, materials: impl Iterator<Item = (crate::Material, String)>) {
+    pub(crate) fn add(&self, file: &str, materials: impl Iterator<Item = (crate::render::Material, String)>) {
         let list: Vec<_> = materials.collect();
         let mut table = self.table();
         for (i, (material, _)) in list.iter().enumerate() {
@@ -1630,7 +1632,7 @@ impl MaterialNames {
 
     /// How `material` is written in a scene file, if it came from a file:
     /// by its name when the file has that name once, else by its number.
-    fn named(&self, material: crate::Material) -> Option<MaterialJson> {
+    fn named(&self, material: crate::render::Material) -> Option<MaterialJson> {
         let table = self.table();
         let (file, _) = table.by_id.get(&material.id)?;
         let list = table.by_file.get(file)?;
@@ -1648,7 +1650,7 @@ impl MaterialNames {
     }
 
     /// The material a scene file names, or an error saying what's missing.
-    fn find(&self, json: &MaterialJson) -> Result<crate::Material, String> {
+    fn find(&self, json: &MaterialJson) -> Result<crate::render::Material, String> {
         let file = &json.mesh;
         let table = self.table();
         let list = table
@@ -1695,20 +1697,20 @@ enum MaterialRef {
 /// `None` for a material made in code: it has no file to name, so the
 /// override isn't saved (the rest of the entity is).
 #[cfg(feature = "3d")]
-fn model_material_json(world: &World, m: &crate::ModelMaterial) -> Option<Result<Value, String>> {
+fn model_material_json(world: &World, m: &crate::render::ModelMaterial) -> Option<Result<Value, String>> {
     let json = world.get_resource::<MaterialNames>()?.named(m.0)?;
     Some(serde_json::to_value(json).map_err(|err| err.to_string()))
 }
 
 #[cfg(feature = "3d")]
-fn model_material_from_json(world: &World, value: Value) -> Result<crate::ModelMaterial, String> {
+fn model_material_from_json(world: &World, value: Value) -> Result<crate::render::ModelMaterial, String> {
     let json: MaterialJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
     let names = world.get_resource::<MaterialNames>();
     let material = names.map_or_else(|| MaterialNames::default().find(&json), |n| n.find(&json))?;
-    Ok(crate::ModelMaterial(material))
+    Ok(crate::render::ModelMaterial(material))
 }
 
-/// [`ModelMaterials`](crate::ModelMaterials) as JSON: `{ "parts": [{ "part":
+/// [`ModelMaterials`](crate::render::ModelMaterials) as JSON: `{ "parts": [{ "part":
 /// 1, "mesh": "door.glb", "material": "Glass" }] }`.
 #[cfg(feature = "3d")]
 #[derive(Serialize, serde::Deserialize, Default)]
@@ -1729,7 +1731,7 @@ struct PartMaterialJson {
 /// `None` when one of its materials was made in code: a list saved in part
 /// would draw something else when loaded.
 #[cfg(feature = "3d")]
-fn model_materials_json(world: &World, m: &crate::ModelMaterials) -> Option<Result<Value, String>> {
+fn model_materials_json(world: &World, m: &crate::render::ModelMaterials) -> Option<Result<Value, String>> {
     let names = world.get_resource::<MaterialNames>()?;
     let parts = m
         .parts()
@@ -1742,7 +1744,7 @@ fn model_materials_json(world: &World, m: &crate::ModelMaterials) -> Option<Resu
 }
 
 #[cfg(feature = "3d")]
-fn model_materials_from_json(world: &World, value: Value) -> Result<crate::ModelMaterials, String> {
+fn model_materials_from_json(world: &World, value: Value) -> Result<crate::render::ModelMaterials, String> {
     let json: ModelMaterialsJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
     let none = MaterialNames::default();
     let names = world.get_resource::<MaterialNames>().unwrap_or(&none);
@@ -1757,25 +1759,25 @@ fn model_materials_from_json(world: &World, value: Value) -> Result<crate::Model
             Ok((p.part, names.find(&named)?))
         })
         .collect::<Result<Vec<_>, String>>()?;
-    Ok(crate::ModelMaterials::new(&parts))
+    Ok(crate::render::ModelMaterials::new(&parts))
 }
 
 /// A mesh's file name, or an error naming what to load first.
 #[cfg(feature = "3d")]
-fn mesh_by_name(world: &World, name: &str) -> Result<crate::Mesh, String> {
+fn mesh_by_name(world: &World, name: &str) -> Result<crate::render::Mesh, String> {
     world
         .get_resource::<MeshNames>()
         .and_then(|t| t.get(name))
         .ok_or_else(|| format!("mesh \"{name}\" isn't loaded: ctx.gfx.load_mesh(\"{name}\") first"))
 }
 
-/// A [`LodRenderer`](crate::LodRenderer) as JSON: the mesh by its file name.
+/// A [`LodRenderer`](crate::render::LodRenderer) as JSON: the mesh by its file name.
 #[cfg(feature = "3d")]
 #[derive(Serialize, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct LodRendererJson {
     mesh: Option<String>,
-    offset: crate::Transform3D,
+    offset: crate::d3::Transform,
     color: crate::Color,
 }
 
@@ -1784,7 +1786,7 @@ impl Default for LodRendererJson {
     fn default() -> Self {
         Self {
             mesh: None,
-            offset: crate::Transform3D::default(),
+            offset: crate::d3::Transform::default(),
             color: crate::Color::WHITE,
         }
     }
@@ -1809,7 +1811,7 @@ struct LodLevelJson {
     shadow: LodShadowJson,
 }
 
-/// A [`LodGroup`](crate::LodGroup) as JSON, its meshes by file name.
+/// A [`LodGroup`](crate::render::LodGroup) as JSON, its meshes by file name.
 #[cfg(feature = "3d")]
 #[derive(Serialize, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -1833,9 +1835,9 @@ impl Default for LodGroupJson {
 /// `None` if a mesh was made in code: it has no file to name, so the group
 /// isn't saved (the rest of the entity is).
 #[cfg(feature = "3d")]
-fn lod_group_json(world: &World, g: &crate::LodGroup) -> Option<Result<Value, String>> {
+fn lod_group_json(world: &World, g: &crate::render::LodGroup) -> Option<Result<Value, String>> {
     let names = world.get_resource::<MeshNames>()?;
-    let renderers = |list: &[crate::LodRenderer]| -> Option<Vec<LodRendererJson>> {
+    let renderers = |list: &[crate::render::LodRenderer]| -> Option<Vec<LodRendererJson>> {
         list.iter()
             .map(|r| {
                 Some(LodRendererJson {
@@ -1853,8 +1855,8 @@ fn lod_group_json(world: &World, g: &crate::LodGroup) -> Option<Result<Value, St
             fade_width: level.fade_width,
             renderers: renderers(&level.renderers)?,
             shadow: match &level.shadow {
-                crate::LodShadow::Same => LodShadowJson::Same,
-                crate::LodShadow::Casters(list) => LodShadowJson::Casters(renderers(list)?),
+                crate::render::LodShadow::Same => LodShadowJson::Same,
+                crate::render::LodShadow::Casters(list) => LodShadowJson::Casters(renderers(list)?),
             },
         });
     }
@@ -1867,15 +1869,15 @@ fn lod_group_json(world: &World, g: &crate::LodGroup) -> Option<Result<Value, St
 }
 
 #[cfg(feature = "3d")]
-fn lod_group_from_json(world: &World, value: Value) -> Result<crate::LodGroup, String> {
+fn lod_group_from_json(world: &World, value: Value) -> Result<crate::render::LodGroup, String> {
     let json: LodGroupJson = serde_json::from_value(value).map_err(|err| err.to_string())?;
-    let renderers = |list: Vec<LodRendererJson>| -> Result<Vec<crate::LodRenderer>, String> {
+    let renderers = |list: Vec<LodRendererJson>| -> Result<Vec<crate::render::LodRenderer>, String> {
         list.into_iter()
             .map(|r| {
                 let name = r
                     .mesh
                     .ok_or("a LOD renderer needs \"mesh\": a glTF file in assets/, like \"tree.glb\"")?;
-                Ok(crate::LodRenderer::new(mesh_by_name(world, &name)?)
+                Ok(crate::render::LodRenderer::new(mesh_by_name(world, &name)?)
                     .with_offset(r.offset)
                     .with_color(r.color))
             })
@@ -1884,15 +1886,15 @@ fn lod_group_from_json(world: &World, value: Value) -> Result<crate::LodGroup, S
     let mut levels = Vec::with_capacity(json.levels.len());
     for level in json.levels {
         levels.push(
-            crate::LodLevel::new(level.screen_height, renderers(level.renderers)?)
+            crate::render::LodLevel::new(level.screen_height, renderers(level.renderers)?)
                 .with_fade(level.fade_width)
                 .with_shadow(match level.shadow {
-                    LodShadowJson::Same => crate::LodShadow::Same,
-                    LodShadowJson::Casters(list) => crate::LodShadow::Casters(renderers(list)?),
+                    LodShadowJson::Same => crate::render::LodShadow::Same,
+                    LodShadowJson::Casters(list) => crate::render::LodShadow::Casters(renderers(list)?),
                 }),
         );
     }
-    Ok(crate::LodGroup::new(json.size, levels).with_center(json.center))
+    Ok(crate::render::LodGroup::new(json.size, levels).with_center(json.center))
 }
 
 /// Every `"mesh"` named inside `"LodGroup"`, `"ModelMaterial"` and
@@ -1928,11 +1930,11 @@ pub(crate) fn lod_mesh_names(json: &Value, out: &mut Vec<String>) {
     }
 }
 
-/// Reflects [`Model`](crate::Model) as `"Model"`,
-/// [`ShadowMesh`](crate::ShadowMesh) as `"ShadowMesh"` and
-/// [`LodGroup`](crate::LodGroup) as `"LodGroup"`, their meshes saved by file
-/// name (see [`MeshNames`]), and [`ModelMaterial`](crate::ModelMaterial) and
-/// [`ModelMaterials`](crate::ModelMaterials), their materials saved by file
+/// Reflects [`Model`](crate::render::Model) as `"Model"`,
+/// [`ShadowMesh`](crate::render::ShadowMesh) as `"ShadowMesh"` and
+/// [`LodGroup`](crate::render::LodGroup) as `"LodGroup"`, their meshes saved by file
+/// name (see [`MeshNames`]), and [`ModelMaterial`](crate::render::ModelMaterial) and
+/// [`ModelMaterials`](crate::render::ModelMaterials), their materials saved by file
 /// and name (see [`MaterialNames`]).
 #[cfg(feature = "3d")]
 pub(crate) fn reflect_model(world: &mut World) {
@@ -1954,8 +1956,8 @@ pub(crate) fn reflect_model(world: &mut World) {
     reg.by_name.insert("Model".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "Model".into(),
-        type_name: std::any::type_name::<crate::Model>().into(),
-        get: Arc::new(|w: &World, e| w.get::<crate::Model>(e).and_then(|m| model_json(w, m))),
+        type_name: std::any::type_name::<crate::render::Model>().into(),
+        get: Arc::new(|w: &World, e| w.get::<crate::render::Model>(e).and_then(|m| model_json(w, m))),
         set: Arc::new(|w: &mut World, e, v| {
             let model = model_from_json(w, v)?;
             w.insert(e, model);
@@ -1970,7 +1972,7 @@ pub(crate) fn reflect_model(world: &mut World) {
             Ok(w.spawn_at(e, (model,)))
         }),
         check: Arc::new(check::<ModelJson>),
-        remove: Arc::new(remove::<crate::Model>),
+        remove: Arc::new(remove::<crate::render::Model>),
     });
     reg.schemas.insert(
         "ShadowMesh".into(),
@@ -1979,8 +1981,11 @@ pub(crate) fn reflect_model(world: &mut World) {
     reg.by_name.insert("ShadowMesh".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "ShadowMesh".into(),
-        type_name: std::any::type_name::<crate::ShadowMesh>().into(),
-        get: Arc::new(|w: &World, e| w.get::<crate::ShadowMesh>(e).and_then(|s| shadow_mesh_json(w, s))),
+        type_name: std::any::type_name::<crate::render::ShadowMesh>().into(),
+        get: Arc::new(|w: &World, e| {
+            w.get::<crate::render::ShadowMesh>(e)
+                .and_then(|s| shadow_mesh_json(w, s))
+        }),
         set: Arc::new(|w: &mut World, e, v| {
             let shadow = shadow_mesh_from_json(w, v)?;
             w.insert(e, shadow);
@@ -1995,7 +2000,7 @@ pub(crate) fn reflect_model(world: &mut World) {
             Ok(w.spawn_at(e, (shadow,)))
         }),
         check: Arc::new(check::<ShadowMeshJson>),
-        remove: Arc::new(remove::<crate::ShadowMesh>),
+        remove: Arc::new(remove::<crate::render::ShadowMesh>),
     });
     reg.schemas.insert(
         "ModelMaterial".into(),
@@ -2004,8 +2009,11 @@ pub(crate) fn reflect_model(world: &mut World) {
     reg.by_name.insert("ModelMaterial".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "ModelMaterial".into(),
-        type_name: std::any::type_name::<crate::ModelMaterial>().into(),
-        get: Arc::new(|w: &World, e| w.get::<crate::ModelMaterial>(e).and_then(|m| model_material_json(w, m))),
+        type_name: std::any::type_name::<crate::render::ModelMaterial>().into(),
+        get: Arc::new(|w: &World, e| {
+            w.get::<crate::render::ModelMaterial>(e)
+                .and_then(|m| model_material_json(w, m))
+        }),
         set: Arc::new(|w: &mut World, e, v| {
             let material = model_material_from_json(w, v)?;
             w.insert(e, material);
@@ -2020,7 +2028,7 @@ pub(crate) fn reflect_model(world: &mut World) {
             Ok(w.spawn_at(e, (material,)))
         }),
         check: Arc::new(check::<MaterialJson>),
-        remove: Arc::new(remove::<crate::ModelMaterial>),
+        remove: Arc::new(remove::<crate::render::ModelMaterial>),
     });
     reg.schemas.insert(
         "ModelMaterials".into(),
@@ -2029,9 +2037,9 @@ pub(crate) fn reflect_model(world: &mut World) {
     reg.by_name.insert("ModelMaterials".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "ModelMaterials".into(),
-        type_name: std::any::type_name::<crate::ModelMaterials>().into(),
+        type_name: std::any::type_name::<crate::render::ModelMaterials>().into(),
         get: Arc::new(|w: &World, e| {
-            w.get::<crate::ModelMaterials>(e)
+            w.get::<crate::render::ModelMaterials>(e)
                 .and_then(|m| model_materials_json(w, m))
         }),
         set: Arc::new(|w: &mut World, e, v| {
@@ -2048,15 +2056,15 @@ pub(crate) fn reflect_model(world: &mut World) {
             Ok(w.spawn_at(e, (materials,)))
         }),
         check: Arc::new(check::<ModelMaterialsJson>),
-        remove: Arc::new(remove::<crate::ModelMaterials>),
+        remove: Arc::new(remove::<crate::render::ModelMaterials>),
     });
     reg.schemas
         .insert("LodGroup".into(), (builtin_schemas::lod(), SchemaSource::Described));
     reg.by_name.insert("LodGroup".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "LodGroup".into(),
-        type_name: std::any::type_name::<crate::LodGroup>().into(),
-        get: Arc::new(|w: &World, e| w.get::<crate::LodGroup>(e).and_then(|g| lod_group_json(w, g))),
+        type_name: std::any::type_name::<crate::render::LodGroup>().into(),
+        get: Arc::new(|w: &World, e| w.get::<crate::render::LodGroup>(e).and_then(|g| lod_group_json(w, g))),
         set: Arc::new(|w: &mut World, e, v| {
             let group = lod_group_from_json(w, v)?;
             w.insert(e, group);
@@ -2071,7 +2079,7 @@ pub(crate) fn reflect_model(world: &mut World) {
             Ok(w.spawn_at(e, (group,)))
         }),
         check: Arc::new(check::<LodGroupJson>),
-        remove: Arc::new(remove::<crate::LodGroup>),
+        remove: Arc::new(remove::<crate::render::LodGroup>),
     });
 }
 
@@ -2084,8 +2092,8 @@ pub(crate) fn reflect_model(world: &mut World) {
 #[cfg(feature = "physics3d")]
 #[derive(Default)]
 pub(crate) struct ColliderFiles {
-    pub(crate) by_mesh: HashMap<crate::CollisionMesh, Value>,
-    pub(crate) by_file: HashMap<String, crate::CollisionMesh>,
+    pub(crate) by_mesh: HashMap<crate::physics3d::CollisionMesh, Value>,
+    pub(crate) by_file: HashMap<String, crate::physics3d::CollisionMesh>,
 }
 
 /// A collider's mesh description as a lookup key.
@@ -2101,12 +2109,12 @@ pub(crate) fn collider_file(value: &Value) -> Option<&Value> {
 }
 
 #[cfg(feature = "physics3d")]
-fn collider_json(world: &World, c: &crate::Collider3D) -> Option<Result<Value, String>> {
+fn collider_json(world: &World, c: &crate::d3::Collider) -> Option<Result<Value, String>> {
     let mut value = match serde_json::to_value(c) {
         Ok(v) => v,
         Err(err) => return Some(Err(err.to_string())),
     };
-    if let crate::Shape3D::Mesh(mesh) = c.shape
+    if let crate::d3::Shape::Mesh(mesh) = c.shape
         && let Some(file) = world.get_resource::<ColliderFiles>().and_then(|f| f.by_mesh.get(&mesh))
     {
         value["shape"] = serde_json::json!({ "Mesh": file });
@@ -2115,7 +2123,7 @@ fn collider_json(world: &World, c: &crate::Collider3D) -> Option<Result<Value, S
 }
 
 #[cfg(feature = "physics3d")]
-fn collider_from_json(world: &World, mut value: Value) -> Result<crate::Collider3D, String> {
+fn collider_from_json(world: &World, mut value: Value) -> Result<crate::d3::Collider, String> {
     if let Some(file) = collider_file(&value) {
         let mesh = world
             .get_resource::<ColliderFiles>()
@@ -2127,7 +2135,7 @@ fn collider_from_json(world: &World, mut value: Value) -> Result<crate::Collider
     serde_json::from_value(value).map_err(|err| err.to_string())
 }
 
-/// Reflects [`Collider3D`](crate::Collider3D) as `"Collider3D"`; a mesh
+/// Reflects [`Collider3D`](crate::d3::Collider) as `"Collider3D"`; a mesh
 /// made from a file (by loading a scene) is saved by that file.
 #[cfg(feature = "physics3d")]
 pub(crate) fn reflect_collider(world: &mut World) {
@@ -2144,15 +2152,15 @@ pub(crate) fn reflect_collider(world: &mut World) {
     reg.schemas.insert(
         "Collider3D".into(),
         (
-            builtin_schemas::builtin::<crate::Collider3D>().unwrap(),
+            builtin_schemas::builtin::<crate::d3::Collider>().unwrap(),
             SchemaSource::Described,
         ),
     );
     reg.by_name.insert("Collider3D".into(), reg.list.len());
     reg.list.push(Reflected {
         name: "Collider3D".into(),
-        type_name: std::any::type_name::<crate::Collider3D>().into(),
-        get: Arc::new(|w: &World, e| w.get::<crate::Collider3D>(e).and_then(|c| collider_json(w, c))),
+        type_name: std::any::type_name::<crate::d3::Collider>().into(),
+        get: Arc::new(|w: &World, e| w.get::<crate::d3::Collider>(e).and_then(|c| collider_json(w, c))),
         set: Arc::new(|w: &mut World, e, v| {
             let c = collider_from_json(w, v)?;
             w.insert(e, c);
@@ -2169,11 +2177,11 @@ pub(crate) fn reflect_collider(world: &mut World) {
         check: Arc::new(|v: &Value| {
             let mut v = v.clone();
             if collider_file(&v).is_some() {
-                v["shape"] = serde_json::json!({ "Mesh": crate::CollisionMesh::default() });
+                v["shape"] = serde_json::json!({ "Mesh": crate::physics3d::CollisionMesh::default() });
             }
-            check::<crate::Collider3D>(&v)
+            check::<crate::d3::Collider>(&v)
         }),
-        remove: Arc::new(remove::<crate::Collider3D>),
+        remove: Arc::new(remove::<crate::d3::Collider>),
     });
 }
 
@@ -2197,3 +2205,7 @@ pub(crate) fn asset_names(json: &Value, key: &str, field: &str, out: &mut Vec<St
         _ => {}
     }
 }
+
+pub use crate::schema::ValueSchema;
+/// JSON representation used by reflection.
+pub use serde_json as json;

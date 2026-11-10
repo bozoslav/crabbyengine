@@ -43,7 +43,7 @@ component registration and parallel query iteration exist today in
 <div>
 
 ```rust
-use ponko::*;
+use ponko::prelude::*;
 
 struct Pos(f32);
 

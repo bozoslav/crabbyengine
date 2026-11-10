@@ -92,10 +92,10 @@ With [reflection](reflection.md), the whole world saves to JSON:
 <div>
 
 ```rust
-let save = ctx.world.save();            // serde_json::Value
+let save = ctx.world.save();            // ponko::reflect::json::Value
 std::fs::write("save.json", save.to_string())?;
 
-let save: Value = serde_json::from_str(&std::fs::read_to_string("save.json")?)?;
+let save: ponko::reflect::json::Value = ponko::reflect::json::from_str(&std::fs::read_to_string("save.json")?)?;
 ctx.world.load(&save)?;
 ```
 

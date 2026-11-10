@@ -6,7 +6,9 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::input::Input;
+use ponko::prelude::*;
 use ponko_mcp::{Config, Server};
 use serde_json::{Value, json};
 

@@ -2,7 +2,13 @@
 //! (`Game::physics3d`, components synced every tick) and through rapier3d
 //! directly, plus characters walking and cars driving over heightfield
 //! terrain.
-use ponko::{Character3D, Collider3D, Game, RigidBody3D, Transform3D, Vec3, Vehicle3D, Wheel3D, vec3};
+use ponko::d3::Character as Character3D;
+use ponko::d3::Collider as Collider3D;
+use ponko::d3::RigidBody as RigidBody3D;
+use ponko::d3::Transform as Transform3D;
+use ponko::d3::Vehicle as Vehicle3D;
+use ponko::d3::Wheel as Wheel3D;
+use ponko::{Game, Vec3, vec3};
 use rapier3d::prelude as rp;
 
 use crate::Bench;

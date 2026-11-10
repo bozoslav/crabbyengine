@@ -27,6 +27,7 @@ mod audio3d;
 mod changes;
 mod contacts3d;
 mod ctx;
+mod dimensions;
 mod flow;
 mod game;
 mod grid;
@@ -47,6 +48,7 @@ mod reflect;
 mod replicate;
 mod residency;
 mod resources;
+pub use dimensions::*;
 mod scene;
 mod shader_status;
 mod skin;
@@ -71,7 +73,7 @@ pub use animator::*;
 /// the engine makes. A Rust program that links this crate as a library and
 /// wants its own allocator should depend on the engine instead.
 #[global_allocator]
-static ALLOCATOR: ponko::CountingAllocator = ponko::CountingAllocator;
+static ALLOCATOR: ponko::alloc_count::CountingAllocator = ponko::alloc_count::CountingAllocator;
 
 pub use attach::*;
 pub use audio3d::*;
@@ -114,7 +116,9 @@ pub use ui_panel3d::*;
 pub use ui_retained::*;
 pub use vehicle3d::*;
 
-use ponko::{Sprite, Transform2D, spatial_key};
+use ponko::d2::Sprite;
+use ponko::d2::Transform as Transform2D;
+use ponko::spatial::spatial_key;
 use ponko_ecs::{ComponentId, Entity, World};
 use std::alloc::Layout;
 use std::any::TypeId;
@@ -389,28 +393,28 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         None if !info.needs_drop() => Kind::Plain,
         Some(t) if t == TypeId::of::<Transform2D>() => Kind::Plain,
         // repr(C), layout checked against CrabbyAttached; any bits are a valid value.
-        Some(t) if t == TypeId::of::<ponko::Attached>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::d2::Attached>() => Kind::Plain,
         // repr(C), layout checked against CrabbyAnimation; `looping` must be 0 or 1.
         Some(t) if t == TypeId::of::<ponko::Animation>() => Kind::Plain,
         Some(t) if t == TypeId::of::<Sprite>() => Kind::Mirror(&SPRITE),
         // repr(C), layout checked against CrabbyTransform3D / CrabbyModel;
         // any bits are a valid value (unknown meshes draw nothing).
-        Some(t) if t == TypeId::of::<ponko::Transform3D>() => Kind::Plain,
-        Some(t) if t == TypeId::of::<ponko::Model>() => Kind::Plain,
-        Some(t) if t == TypeId::of::<ponko::PointLight3D>() => Kind::Plain,
-        Some(t) if t == TypeId::of::<ponko::SpotLight3D>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::d3::Transform>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::render::Model>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::d3::PointLight>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::d3::SpotLight>() => Kind::Plain,
         // repr(C), layout checked against CrabbyReflectionProbe3D; `content`
         // is checked when a bake or the renderer uses it, and non-finite
         // sizes or intensities give the probe no influence.
-        Some(t) if t == TypeId::of::<ponko::ReflectionProbe3D>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::d3::ReflectionProbe>() => Kind::Plain,
         // repr(C), layouts checked against CrabbyDecal3D / CrabbyReceivesDecals;
         // any bits are valid (non-finite or empty values draw no decal, and
         // images outside the decal textures draw as flat color).
-        Some(t) if t == TypeId::of::<ponko::Decal3D>() => Kind::Plain,
-        Some(t) if t == TypeId::of::<ponko::ReceivesDecals>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::d3::Decal>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::render::ReceivesDecals>() => Kind::Plain,
         // repr(C), layout checked against CrabbyTerrainTile; unknown meshes
         // draw nothing and every level index is clamped.
-        Some(t) if t == TypeId::of::<ponko::TerrainTile>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::terrain::TerrainTile>() => Kind::Plain,
         Some(t) => match crate::physics::kind(t)
             .or_else(|| crate::physics3d::kind3d(t))
             .or_else(|| crate::physics3d_stream::stream_kind(t))
@@ -566,7 +570,7 @@ pub unsafe extern "C" fn crabby_component_register(
         // SAFETY: access validates null and guards the live caller-provided handle.
         unsafe {
             access(world, |w, _| {
-                if let Some(id) = w.component_by_name(name) {
+                if let Some(id) = w.raw_ref().component_by_name(name) {
                     let info = w.component_info(id);
                     if info.layout() != layout || info.type_id().is_some() || info.needs_drop() {
                         return Err(invalid("name is already registered with another layout or type"));
@@ -691,7 +695,7 @@ pub(crate) unsafe fn spawn_values(w: &mut World, values: &[CrabbyValue]) -> Resu
         components.push((id, ptr));
     }
     // SAFETY: every pointer refers to a value of the registered layout.
-    Ok(unsafe { w.spawn_dynamic(&components) })
+    Ok(unsafe { w.raw().spawn_dynamic(&components) })
 }
 
 /// Despawns an entity; stale or missing entities return `CRABBY_NOT_FOUND`.
@@ -776,6 +780,7 @@ pub unsafe extern "C" fn crabby_get(
         access(world, |w, _| {
             let (id, kind) = value_layout(w, id, out_data, size)?;
             let src = w
+                .raw_ref()
                 .get_dynamic(Entity::from_bits(entity), id)
                 .ok_or_else(|| error(CRABBY_NOT_FOUND, "entity or component not found"))?;
             match kind {
@@ -823,11 +828,11 @@ pub(crate) unsafe fn insert_value(
     // SAFETY: the caller validated the layout of `data`.
     unsafe {
         Ok(match kind {
-            Kind::Plain => w.insert_dynamic(e, id, data.cast()),
+            Kind::Plain => w.raw().insert_dynamic(e, id, data.cast()),
             Kind::Mirror(m) => {
                 let mut slot = Slot::new();
                 let value = m.convert(data, &mut slot)?;
-                w.insert_dynamic(e, id, value)
+                w.raw().insert_dynamic(e, id, value)
             }
         })
     }
@@ -846,7 +851,7 @@ pub unsafe extern "C" fn crabby_remove(world: *mut CrabbyWorld, entity: u64, id:
     boundary(|| unsafe {
         access(world, |w, _| {
             let (id, _) = component(w, id)?;
-            present(w.remove_dynamic(Entity::from_bits(entity), id))
+            present(w.raw().remove_dynamic(Entity::from_bits(entity), id))
         })
     })
 }
@@ -944,7 +949,7 @@ pub unsafe extern "C" fn crabby_query(
             access(world, |w, _| {
                 let (resolved, _) = resolve(w, input)?;
                 let mut first = 0;
-                w.for_each_chunk(&resolved[..count], |chunk| {
+                w.raw().for_each_chunk(&resolved[..count], |chunk| {
                     let view = CrabbyChunk {
                         count: chunk.entities.len(),
                         column_count: count,
@@ -993,7 +998,7 @@ pub unsafe extern "C" fn crabby_query_par(
                 let _commands_off = ParallelQuery::begin(handle);
                 let threads = rayon::current_num_threads().max(1);
                 let mut first = 0;
-                w.for_each_chunk(&resolved[..count], |chunk| {
+                w.raw().for_each_chunk(&resolved[..count], |chunk| {
                     chunk_in_parallel(&chunk, &sizes, first, threads, callback, user);
                     first += chunk.entities.len();
                 });

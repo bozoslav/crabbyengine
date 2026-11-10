@@ -19,7 +19,10 @@
 //! and reflection, so agents can inspect and save a running colony through
 //! `ponko-mcp`.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::*;
+use ponko::prelude::*;
+#[allow(unused_imports)]
 use serde::{Deserialize, Serialize};
 
 /// Ants per colony at the start; the world has one nest per this many ants.
@@ -504,7 +507,7 @@ fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
 
 fn main() {
     let ants = env_number("ANTS", ANTS_PER_NEST as f64) as usize;
-    let seed = env_number("SEED", DEFAULT_SEED as f64) as u64;
+    let seed = env_number("SEED", ponko::random::DEFAULT_SEED as f64) as u64;
     // One colony's worth of space per ANTS_PER_NEST ants.
     let nests = (ants as f32 / ANTS_PER_NEST as f32).max(1.0);
     let side = nests.sqrt().ceil();
@@ -512,11 +515,11 @@ fn main() {
 
     if env_number("HEADLESS", 0.0) != 0.0 {
         let ticks = env_number("TICKS", 600.0) as u64;
-        let mut start = Instant::now();
+        let mut start = ponko::perf::Instant::now();
         // The two-argument form may borrow a local, here the timer.
         let mut world = colonies(Game::new("ants", 1, 1).seed(seed), bounds).run_headless(ticks, |ctx| {
             setup(ctx, bounds, ants, None);
-            start = Instant::now();
+            start = ponko::perf::Instant::now();
         });
         let secs = start.elapsed().as_secs_f64();
         println!(
@@ -531,7 +534,7 @@ fn main() {
 
     colonies(Game::new("Ponko: ants", 1280, 720).seed(seed), bounds)
         .system(controls)
-        .system(camera_controls)
+        .system(ponko::camera::camera_controls)
         .system(draw_world(bounds))
         .system(hud)
         .system(report())

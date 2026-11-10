@@ -3,7 +3,9 @@ use crate::ctx::{ctx_access, out, text};
 use crate::media::{font_from_c, font_to_c};
 use crate::types::to_c;
 use crate::{CrabbyColor, CrabbyCtx, CrabbyFont, CrabbyStatus, boundary, error, invalid};
-use ponko::{Entity, Text3D, TextAlign3D};
+use ponko::Entity;
+use ponko::d3::Text as Text3D;
+use ponko::d3::TextAlign as TextAlign3D;
 use std::ffi::c_char;
 
 /// How lines line up inside a world text block.

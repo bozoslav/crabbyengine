@@ -4,7 +4,7 @@
 //! Counts come from the engine's own handle tables, the same ones that
 //! decide whether a handle is live ([`Ctx::is_live`], [`Ctx::live_counts`]),
 //! so they also work in headless runs. Every class agrees with
-//! [`LiveCounts`](crate::LiveCounts) except [`AssetClass::Texture`], which adds the engine's own
+//! [`LiveCounts`](crate::handle::LiveCounts) except [`AssetClass::Texture`], which adds the engine's own
 //! textures because it measures memory, not handles.
 //! A windowed game adds what the renderer actually holds on the GPU
 //! ([`GpuResidency`]), to cross-check the two.
@@ -20,29 +20,29 @@ use crate::ctx::Ctx;
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum AssetClass {
-    /// Images from [`Graphics::create_texture`](crate::Graphics::create_texture) and [`Ctx::load_texture`],
-    /// freed with [`Graphics::free`](crate::Graphics::free). Also counts the engine's own textures
+    /// Images from [`Graphics::create_texture`](crate::gfx::Graphics::create_texture) and [`Ctx::load_texture`],
+    /// freed with [`Graphics::free`](crate::gfx::Graphics::free). Also counts the engine's own textures
     /// (glyph atlases, UI images), which the game can't free, so it can read
-    /// more than [`LiveCounts::textures`](crate::LiveCounts::textures).
+    /// more than [`LiveCounts::textures`](crate::handle::LiveCounts::textures).
     Texture,
-    /// 3D: textures cameras draw into ([`Graphics::create_render_target`](crate::Graphics::create_render_target)),
-    /// freed with [`Graphics::free`](crate::Graphics::free).
+    /// 3D: textures cameras draw into ([`Graphics::create_render_target`](crate::gfx::Graphics::create_render_target)),
+    /// freed with [`Graphics::free`](crate::gfx::Graphics::free).
     RenderTarget,
-    /// 3D: [`TextureArray`](crate::TextureArray)s, freed with [`Graphics::free`](crate::Graphics::free).
+    /// 3D: [`TextureArray`](crate::terrain::TextureArray)s, freed with [`Graphics::free`](crate::gfx::Graphics::free).
     TextureArray,
-    /// 3D: [`Material`](crate::Material)s, freed with [`Graphics::free`](crate::Graphics::free).
+    /// 3D: [`Material`](crate::render::Material)s, freed with [`Graphics::free`](crate::gfx::Graphics::free).
     Material,
-    /// 3D: material [`Shader`](crate::Shader)s, freed with [`Graphics::free`](crate::Graphics::free).
+    /// 3D: material [`Shader`](crate::render::Shader)s, freed with [`Graphics::free`](crate::gfx::Graphics::free).
     Shader,
-    /// 3D: [`Mesh`](crate::Mesh)es, freed with [`Graphics::free`](crate::Graphics::free).
+    /// 3D: [`Mesh`](crate::render::Mesh)es, freed with [`Graphics::free`](crate::gfx::Graphics::free).
     Mesh,
-    /// 3D: [`GpuBuffer`](crate::GpuBuffer)s, freed with [`Graphics::free`](crate::Graphics::free).
+    /// 3D: [`GpuBuffer`](crate::render::GpuBuffer)s, freed with [`Graphics::free`](crate::gfx::Graphics::free).
     GpuBuffer,
-    /// 3D: screen [`Effect`](crate::Effect)s, freed with [`Graphics::free`](crate::Graphics::free).
+    /// 3D: screen [`Effect`](crate::render::Effect)s, freed with [`Graphics::free`](crate::gfx::Graphics::free).
     Effect,
-    /// 3D: [`Compute`](crate::Compute) passes, freed with [`Graphics::free`](crate::Graphics::free).
+    /// 3D: [`Compute`](crate::render::Compute) passes, freed with [`Graphics::free`](crate::gfx::Graphics::free).
     Compute,
-    /// [`Sound`](crate::Sound)s, loaded or made, freed with [`Audio::free`](crate::Audio::free).
+    /// [`Sound`](crate::Sound)s, loaded or made, freed with [`Audio::free`](crate::audio::Audio::free).
     Sound,
 }
 
@@ -146,14 +146,14 @@ pub struct DanglingHandle {
 /// and compare with [`growth_since`](Self::growth_since).
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     let before = ctx.asset_inventory();
 ///     let _sprite = ctx.gfx.create_texture(2, 2, &[255; 16]);
 ///     let after = ctx.asset_inventory();
-///     assert_eq!(after.get(AssetClass::Texture).live, before.get(AssetClass::Texture).live + 1);
+///     assert_eq!(after.get(ponko::inventory::AssetClass::Texture).live, before.get(ponko::inventory::AssetClass::Texture).live + 1);
 ///     let growth = after.growth_since(&before);
-///     assert_eq!(growth[0].class, AssetClass::Texture);
+///     assert_eq!(growth[0].class, ponko::inventory::AssetClass::Texture);
 ///     assert_eq!(growth[0].bytes, 2 * 2 * 4);
 /// });
 /// ```
@@ -305,19 +305,19 @@ impl Ctx {
         #[cfg(feature = "3d")]
         {
             let gfx = &self.gfx;
-            let freed_mesh = |m: crate::Mesh| m != crate::Mesh::NONE && !gfx.is_live(m);
+            let freed_mesh = |m: crate::render::Mesh| m != crate::render::Mesh::NONE && !gfx.is_live(m);
             each::<crate::Model>(world, |e, m| {
                 if freed_mesh(m.mesh) {
                     out.push(DanglingHandle::new(e, "Model", AssetClass::Mesh, m.mesh.id));
                 }
             });
-            each::<crate::ShadowMesh>(world, |e, m| {
+            each::<crate::render::ShadowMesh>(world, |e, m| {
                 if let Some(mesh) = m.0.filter(|&m| freed_mesh(m)) {
                     out.push(DanglingHandle::new(e, "ShadowMesh", AssetClass::Mesh, mesh.id));
                 }
             });
             let materials = &gfx.assets3d.materials_live;
-            each::<crate::ModelMaterial>(world, |e, m| {
+            each::<crate::render::ModelMaterial>(world, |e, m| {
                 if materials.was_made(m.0.id) && !materials.contains(m.0.id) {
                     out.push(DanglingHandle::new(e, "ModelMaterial", AssetClass::Material, m.0.id));
                 }
@@ -334,7 +334,7 @@ fn each<T: crate::Component>(world: &crate::World, mut f: impl FnMut(crate::Enti
     let Some(id) = world.component_id::<T>() else {
         return;
     };
-    for arch in world.archetypes().iter().filter(|a| a.has(id)) {
+    for arch in world.raw_ref().archetypes().iter().filter(|a| a.has(id)) {
         for &e in arch.entities() {
             if let Some(c) = world.get::<T>(e) {
                 f(e, c);

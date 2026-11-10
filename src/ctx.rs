@@ -47,11 +47,11 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
 /// | [`world`](Self::world), [`commands`](Self::commands), [`events`](Self::events) | Entities, components and resources; deferred changes; messages between systems. |
 /// | [`time`](Self::time) | [`Time`]: frame and simulation clocks, pause, speed. |
 /// | [`input`](Self::input) | [`Input`]: keyboard, mouse, gamepads, named actions, typed text. |
-/// | [`gfx`](Self::gfx) | [`Graphics`](crate::Graphics): drawing, textures, fonts, screenshots and, with `3d`, everything on the GPU. |
-/// | [`audio`](Self::audio) | [`Audio`](crate::Audio): sounds, music, buses, the 3D listener. |
-/// | [`ui`](Self::ui) | [`Ui`](crate::Ui): the retained widget tree and the immediate debug widgets. |
+/// | [`gfx`](Self::gfx) | [`Graphics`](crate::gfx::Graphics): drawing, textures, fonts, screenshots and, with `3d`, everything on the GPU. |
+/// | [`audio`](Self::audio) | [`Audio`](crate::audio::Audio): sounds, music, buses, the 3D listener. |
+/// | [`ui`](Self::ui) | [`Ui`](crate::ui::Ui): the retained widget tree and the immediate debug widgets. |
 /// | [`assets`](Self::assets) | [`Assets`](crate::Assets): asset sources, data files, saving scenes and prefabs, hot reload. |
-/// | [`perf`](Self::perf) | [`Perf`](crate::Perf): timings, the HUD, traces, profiling reports. |
+/// | [`perf`](Self::perf) | [`Perf`](crate::perf::Perf): timings, the HUD, traces, profiling reports. |
 /// | [`camera`](Self::camera), `camera3d`, `lighting`, `sky`, `post`, `lod` | What the renderer reads when the frame is drawn. |
 /// | [`spatial`](Self::spatial), `physics`, `physics3d`, [`net`](Self::net) | Neighbor queries, the physics worlds, the lockstep session. |
 ///
@@ -69,11 +69,11 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
 /// [`mouse_world`](Self::mouse_world) (the mouse through the camera).
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// fn spin(ctx: &mut Ctx) {
 ///     // `ctx.time` and `ctx.world` are separate fields: read the clock
 ///     // inside the query.
-///     for t in ctx.world.query::<&mut Transform2D>().iter() {
+///     for t in ctx.world.query::<&mut ponko::d2::Transform>().iter() {
 ///         t.rotation += ctx.time.dt();
 ///     }
 /// }
@@ -83,12 +83,12 @@ pub struct Ctx {
     /// All entities, components and resources.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// struct Vel(Vec2);
     ///
     /// fn movement(ctx: &mut Ctx) {
     ///     let dt = ctx.dt();
-    ///     ctx.world.query::<(&mut Transform2D, &Vel)>().for_each(|(t, v)| {
+    ///     ctx.world.query::<(&mut ponko::d2::Transform, &Vel)>().for_each(|(t, v)| {
     ///         t.position += v.0 * dt;
     ///     });
     /// }
@@ -119,7 +119,7 @@ pub struct Ctx {
     /// frame" chapter has the full contract with events.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// struct Health(i32);
     ///
     /// fn deaths(ctx: &mut Ctx) {
@@ -139,21 +139,21 @@ pub struct Ctx {
     /// Simulated once enabled with [`Game::physics`](crate::Game::physics)
     /// (feature `physics`).
     #[cfg(feature = "physics")]
-    pub physics: crate::Physics,
+    pub physics: crate::d2::Physics,
     /// The 3D physics world: ray and shape casts, overlaps, impulses,
     /// collision meshes, gravity. Simulated once enabled with
     /// [`Game::physics3d`](crate::Game::physics3d) (feature `physics3d`).
     #[cfg(feature = "physics3d")]
-    pub physics3d: crate::Physics3D,
+    pub physics3d: crate::d3::Physics,
     /// Lockstep networking: this player's input out, everyone's in. Offline
     /// (one player) unless the game was given a session with
     /// [`Game::lockstep`](crate::Game::lockstep).
-    pub net: crate::Net,
+    pub net: crate::net::Net,
     /// Messages between systems: [`Events::send`] and [`Events::read`].
     /// A separate field, so you can read events while changing the world.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// struct Scored(u32);
     /// struct Score(u32);
     ///
@@ -180,7 +180,7 @@ pub struct Ctx {
     /// Keyboard, mouse, gamepads and named actions: see [`Input`].
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// if ctx.input.mouse_pressed(MouseButton::Left) { /* ... */ }
     /// # }
@@ -189,7 +189,7 @@ pub struct Ctx {
     /// The frame and simulation clocks: see [`Time`].
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let seconds = ctx.time.elapsed();
     /// ctx.time.set_speed(2.0);
@@ -202,157 +202,157 @@ pub struct Ctx {
     /// it follow something; see [`Camera2D`].
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.camera.zoom = 2.0;
     /// ctx.camera.look_at(vec2(1000.0, 1000.0));
     /// # }
     /// ```
-    pub camera: Camera2D,
+    pub camera: crate::d2::Camera,
     /// The 3D camera (feature `3d`): position, rotation, field of view.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.camera3d.position = vec3(0.0, 5.0, 10.0);
     /// ctx.camera3d.look_at(Vec3::ZERO);
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub camera3d: crate::Camera3D,
+    pub camera3d: crate::d3::Camera,
     /// The 3D world's sun and ambient light (feature `3d`).
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.lighting.sun_intensity = 1.0; // overcast
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub lighting: crate::Lighting,
-    /// Global settings for [`LodGroup`](crate::LodGroup)s (feature `3d`):
+    pub lighting: crate::render::Lighting,
+    /// Global settings for [`LodGroup`](crate::render::LodGroup)s (feature `3d`):
     /// the bias that a graphics quality setting drives, and crossfades on
     /// or off.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.lod.bias = 1.5; // keep detail up to 50% farther
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub lod: crate::LodSettings,
+    pub lod: crate::render::LodSettings,
     /// What happens to the lit 3D frame on its way to the screen (feature
     /// `3d`): exposure, bloom, color grading, tone mapping.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.post.bloom = 0.2;
     /// ctx.post.vignette = 0.3;
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub post: crate::Post,
+    pub post: crate::render::Post,
     /// Screen effects run over the lit 3D frame each frame, in order,
     /// before bloom and tone mapping (feature `3d`). Each reads what the
     /// one before it left.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let haze = ctx.gfx.load_effect("effects/haze.wgsl");
-    /// ctx.effects.push(ScreenEffect::new(haze));
+    /// ctx.effects.push(ponko::render::ScreenEffect::new(haze));
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub effects: Vec<crate::ScreenEffect>,
+    pub effects: Vec<crate::render::ScreenEffect>,
     /// Effects run over the lit 3D frame each frame, in order, that write
     /// into render targets instead of the frame (feature `3d`): after the
     /// transparent surfaces, before [`effects`](Self::effects). See
-    /// [`TargetEffect`](crate::TargetEffect) for the ordering and resource
+    /// [`TargetEffect`](crate::render::TargetEffect) for the ordering and resource
     /// rules.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, glow: Effect) {
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, glow: ponko::render::Effect) {
     /// let mask = ctx.gfx.create_render_target(256, 256);
-    /// ctx.target_effects.push(TargetEffect::new(glow, mask));
+    /// ctx.target_effects.push(ponko::render::TargetEffect::new(glow, mask));
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub target_effects: Vec<crate::TargetEffect>,
+    pub target_effects: Vec<crate::render::TargetEffect>,
     /// Cameras drawing the 3D world into render targets each frame, before
     /// the main view (feature `3d`): mirrors, reflections, security
-    /// cameras. See [`TargetCamera`](crate::TargetCamera).
+    /// cameras. See [`TargetCamera`](crate::render::TargetCamera).
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let lake = ctx.gfx.create_render_target(960, 540);
-    /// ctx.target_cameras.push(TargetCamera::reflection(ctx.camera3d, lake, 0.0));
+    /// ctx.target_cameras.push(ponko::render::TargetCamera::reflection(ctx.camera3d, lake, 0.0));
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub target_cameras: Vec<crate::TargetCamera>,
+    pub target_cameras: Vec<crate::render::TargetCamera>,
     /// Compute passes run on the GPU each frame, in order, before anything
     /// is drawn (feature `3d`): each updates a render target texel by
-    /// texel. See [`ComputePass`](crate::ComputePass).
+    /// texel. See [`ComputePass`](crate::render::ComputePass).
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let ripples = ctx.gfx.load_compute("compute/ripples.wgsl");
     /// let water = ctx.gfx.create_render_target(256, 256);
-    /// ctx.compute_passes.push(ComputePass::new(ripples, water));
+    /// ctx.compute_passes.push(ponko::render::ComputePass::new(ripples, water));
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub compute_passes: Vec<crate::ComputePass>,
+    pub compute_passes: Vec<crate::render::ComputePass>,
     /// The sky behind the 3D world and the fog in front of it (feature
     /// `3d`): a physical sky lit by the sun, by default.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// ctx.lighting.sun_direction = Sky::sun_direction_at(7.0); // morning
+    /// ctx.lighting.sun_direction = ponko::render::Sky::sun_direction_at(7.0); // morning
     /// ctx.sky.fog_density = 0.01;
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub sky: crate::Sky,
+    pub sky: crate::render::Sky,
     /// Engine-side UI scratch: the spare tree, typed text, world panels.
     pub(crate) ui_state: UiState,
     /// The screen's UI: the retained widget tree and its screen stack
     /// (processed before the frame's systems), who has the pointer and the
     /// keyboard, and the immediate widgets (`ctx.ui.immediate`). See
-    /// [`Ui`](crate::Ui).
+    /// [`Ui`](crate::ui::Ui).
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
-    /// let root = ctx.ui.add(UiWidget::Panel, ui_layout::Style::default());
+    /// let root = ctx.ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
     /// ctx.ui.push_screen(root, false);
     /// # }
     /// ```
-    pub ui: crate::Ui,
+    pub ui: crate::ui::Ui,
     /// Drawing and everything on the GPU: sprites, text, shapes, textures,
     /// fonts, and with the `3d` feature meshes, materials, shaders and the
-    /// rest. See [`Graphics`](crate::Graphics).
+    /// rest. See [`Graphics`](crate::gfx::Graphics).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, crab: Texture) {
     /// ctx.gfx.draw_circle(vec2(100.0, 100.0), 20.0, Color::WHITE);
     /// ctx.gfx.draw(&crab, vec2(400.0, 300.0));
     /// # }
     /// ```
-    pub gfx: crate::Graphics,
+    pub gfx: crate::gfx::Graphics,
     /// Asset files: where they are read from, data files, saving scenes and
     /// prefabs, and what hot reload changed. See [`Assets`](crate::Assets).
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # #[derive(serde::Deserialize)]
     /// # struct Rules { speed: f32 }
     /// # fn f(ctx: &mut Ctx) {
@@ -361,10 +361,10 @@ pub struct Ctx {
     /// ```
     pub assets: crate::Assets,
     /// Sounds, playing handles, buses and the listener: see
-    /// [`Audio`](crate::Audio).
+    /// [`Audio`](crate::audio::Audio).
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let hit = ctx.audio.load("hit.ogg");
     /// ctx.audio.play(&hit);
@@ -372,16 +372,16 @@ pub struct Ctx {
     /// ```
     pub audio: Audio,
     /// Where the time goes: system timings, frame and render statistics,
-    /// GPU passes, the HUD, traces and the report. See [`Perf`](crate::Perf).
+    /// GPU passes, the HUD, traces and the report. See [`Perf`](crate::perf::Perf).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// ctx.perf.set_hud(true);
     /// let draw_calls = ctx.perf.render_stats().draw_calls;
     /// # }
     /// ```
-    pub perf: crate::Perf,
+    pub perf: crate::perf::Perf,
 }
 
 impl Ctx {
@@ -391,25 +391,25 @@ impl Ctx {
         let asset_sources = assets::SharedSources::default();
         let watcher = crate::hot_reload::SharedWatcher::default();
         let mut world = World::new();
-        crate::reflect::WorldReflect::reflect::<crate::Transform2D>(&mut world);
+        crate::reflect::WorldReflect::reflect::<crate::d2::Transform>(&mut world);
         crate::reflect::describe_transform2d(&mut world);
-        crate::reflect::WorldReflect::reflect::<crate::Attached>(&mut world);
+        crate::reflect::WorldReflect::reflect::<crate::d2::Attached>(&mut world);
         #[cfg(feature = "3d")]
-        crate::reflect::WorldReflect::reflect::<crate::Transform3D>(&mut world);
+        crate::reflect::WorldReflect::reflect::<crate::d3::Transform>(&mut world);
         #[cfg(feature = "3d")]
         crate::reflect::reflect_model(&mut world);
         #[cfg(feature = "3d")]
         {
-            crate::reflect::WorldReflect::reflect::<crate::PointLight3D>(&mut world);
-            crate::reflect::WorldReflect::reflect::<crate::SpotLight3D>(&mut world);
-            crate::reflect::WorldReflect::reflect::<crate::Decal3D>(&mut world);
-            crate::reflect::WorldReflect::reflect::<crate::ReceivesDecals>(&mut world);
-            crate::reflect::WorldReflect::reflect::<crate::LodHysteresis>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::d3::PointLight>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::d3::SpotLight>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::d3::Decal>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::render::ReceivesDecals>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::render::LodHysteresis>(&mut world);
         }
         crate::reflect::reflect_sprite(&mut world);
         // The file names behind sprites and models: the world saves by them,
         // the graphics service fills them in as files load.
-        let gfx = crate::Graphics::new(
+        let gfx = crate::gfx::Graphics::new(
             asset_sources.clone(),
             watcher.clone(),
             world.resource::<crate::reflect::TextureNames>().clone(),
@@ -435,10 +435,10 @@ impl Ctx {
             commands: Commands::new(),
             spatial: SpatialGrid::default(),
             #[cfg(feature = "physics")]
-            physics: crate::Physics::default(),
+            physics: crate::d2::Physics::default(),
             #[cfg(feature = "physics3d")]
-            physics3d: crate::Physics3D::default(),
-            net: crate::Net::default(),
+            physics3d: crate::d3::Physics::default(),
+            net: crate::net::Net::default(),
             events: Events::default(),
             seed: crate::random::DEFAULT_SEED,
             system_index: 0,
@@ -452,13 +452,13 @@ impl Ctx {
             quit_requested: false,
             camera: Camera2D::new(window_size),
             #[cfg(feature = "3d")]
-            camera3d: crate::Camera3D::new(window_size),
+            camera3d: crate::d3::Camera::new(window_size),
             #[cfg(feature = "3d")]
-            lighting: crate::Lighting::default(),
+            lighting: crate::render::Lighting::default(),
             #[cfg(feature = "3d")]
-            lod: crate::LodSettings::default(),
+            lod: crate::render::LodSettings::default(),
             #[cfg(feature = "3d")]
-            post: crate::Post::default(),
+            post: crate::render::Post::default(),
             #[cfg(feature = "3d")]
             effects: Vec::new(),
             #[cfg(feature = "3d")]
@@ -468,10 +468,10 @@ impl Ctx {
             #[cfg(feature = "3d")]
             compute_passes: Vec::new(),
             #[cfg(feature = "3d")]
-            sky: crate::Sky::default(),
+            sky: crate::render::Sky::default(),
             ui_state: UiState::default(),
-            ui: crate::Ui::default(),
-            perf: crate::Perf::new(),
+            ui: crate::ui::Ui::default(),
+            perf: crate::perf::Perf::new(),
         };
         #[cfg(feature = "3d")]
         ctx.sync_audio_camera();
@@ -598,7 +598,7 @@ impl Ctx {
     /// every frame. The control endpoint serves it as `ecs.diagnostics`.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// struct Pos(f32);
     /// fn report(ctx: &mut Ctx) {
     ///     let d = ctx.ecs_diagnostics();
@@ -610,7 +610,7 @@ impl Ctx {
     ///     ctx.world.spawn_batch([(Pos(0.0),), (Pos(1.0),)]);
     /// });
     /// ```
-    pub fn ecs_diagnostics(&self) -> crate::EcsDiagnostics {
+    pub fn ecs_diagnostics(&self) -> crate::diagnostics::EcsDiagnostics {
         crate::diagnostics::snapshot(self)
     }
 
@@ -618,7 +618,7 @@ impl Ctx {
     /// Tools find it in the instance registry; this is for tests and logs.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut addr = None;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| addr = ctx.control_addr());
     /// assert_eq!(addr, None); // off unless enabled
@@ -678,7 +678,7 @@ impl Ctx {
     /// [seed](crate::Game::seed) gives the same results.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     ///
     /// struct Pos(f32);
     ///
@@ -889,7 +889,7 @@ impl Ctx {
     #[cfg(feature = "3d")]
     #[inline]
     pub(crate) fn sync_audio_camera(&mut self) {
-        self.audio.backend.spatial.camera = crate::AudioListener3D {
+        self.audio.backend.spatial.camera = crate::d3::AudioListener {
             position: self.camera3d.position,
             rotation: self.camera3d.rotation,
         };
@@ -897,11 +897,11 @@ impl Ctx {
 
     /// Draws `texture` centered at `pos`, in world units (window pixels until
     /// you move or zoom [`camera`](Self::camera)). A shortcut for
-    /// [`ctx.gfx.draw`](crate::Graphics::draw), which has the details;
-    /// [`draw_ex`](crate::Graphics::draw_ex) scales, rotates and tints.
+    /// [`ctx.gfx.draw`](crate::gfx::Graphics::draw), which has the details;
+    /// [`draw_ex`](crate::gfx::Graphics::draw_ex) scales, rotates and tints.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, crab: Texture) {
     /// ctx.draw(&crab, vec2(400.0, 300.0));
     /// # }
@@ -912,10 +912,10 @@ impl Ctx {
 
     /// Draws `text` with its top-left corner at `pos`, in window pixels (on
     /// top of the world, ignoring the camera). `size` is the line height in
-    /// pixels. A shortcut for [`ctx.gfx.draw_text`](crate::Graphics::draw_text).
+    /// pixels. A shortcut for [`ctx.gfx.draw_text`](crate::gfx::Graphics::draw_text).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn hud(ctx: &mut Ctx) {
     /// let fps = ctx.time.fps();
     /// ctx.draw_text(&format!("{fps:.0} FPS"), vec2(10.0, 10.0), 18.0, Color::WHITE);
@@ -928,14 +928,14 @@ impl Ctx {
     /// Loads an image from an [added asset source](crate::Assets::add_source)
     /// or the `assets/` folder. Do this once in setup and keep the
     /// [`Texture`]; it's a cheap handle. A shortcut for
-    /// [`ctx.gfx.load_texture`](crate::Graphics::load_texture), which has
+    /// [`ctx.gfx.load_texture`](crate::gfx::Graphics::load_texture), which has
     /// the details.
     ///
     /// # Panics
     /// With a clear message if the file is missing or isn't a valid image.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Crabs", 800, 600).run(|ctx| {
     ///     let crab = ctx.load_texture("crab.png");
     ///     move |ctx: &mut Ctx| ctx.draw(&crab, vec2(400.0, 300.0))
@@ -947,14 +947,14 @@ impl Ctx {
 
     /// Loads a sound from an [added asset source](crate::Assets::add_source)
     /// or the `assets/` folder. A shortcut for
-    /// [`ctx.audio.load`](crate::Audio::load), which has the details.
+    /// [`ctx.audio.load`](crate::audio::Audio::load), which has the details.
     ///
     /// # Panics
     /// With a clear message if the file is missing or, with the `audio`
     /// feature, can't be decoded.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let hit = ctx.load_sound("hit.ogg");
     /// ctx.play_sound(&hit);
@@ -965,12 +965,12 @@ impl Ctx {
     }
 
     /// Plays a sound once at full volume. A shortcut for
-    /// [`ctx.audio.play`](crate::Audio::play); the other ways to play
+    /// [`ctx.audio.play`](crate::audio::Audio::play); the other ways to play
     /// (volume, pitch, looping, buses, positions) are on
     /// [`ctx.audio`](Self::audio).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, hit: Sound) {
     /// ctx.play_sound(&hit);
     /// # }
@@ -994,7 +994,7 @@ impl Ctx {
             return;
         }
         if self.perf.state.on && self.perf.state.hud_due() {
-            let before = crate::alloc_counts();
+            let before = crate::perf::alloc_counts();
             self.perf.entities = self.world.len();
             let report = self.perf.report();
             crate::perf_report::hud_lines(&mut self.perf.state.hud_extra, &report);
@@ -1042,7 +1042,7 @@ impl Ctx {
     /// [`ctx.time.sim_dt()`](crate::Time::sim_dt) is always the simulation's.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
     /// pos.x += 200.0 * ctx.dt(); // 200 pixels per second
     /// # }
@@ -1056,7 +1056,7 @@ impl Ctx {
     /// `true` while `key` is held down.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
     /// if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
     /// # }
@@ -1068,7 +1068,7 @@ impl Ctx {
     /// `true` only on the frame `key` went down. Good for jumps, menus, toggles.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, paused: &mut bool) {
     /// if ctx.key_pressed(Key::P) { *paused = !*paused; }
     /// # }
@@ -1080,7 +1080,7 @@ impl Ctx {
     /// `true` only on the frame `key` was let go.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, charging: &mut bool) {
     /// if ctx.key_released(Key::Space) { *charging = false; }
     /// # }
@@ -1095,7 +1095,7 @@ impl Ctx {
     /// `y` grows downward.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let target = ctx.mouse_pos();
     /// # }
@@ -1108,7 +1108,7 @@ impl Ctx {
     /// through the [`camera`](Self::camera).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// if ctx.input.mouse_pressed(MouseButton::Left) {
     ///     println!("clicked the world at {}", ctx.mouse_world());
@@ -1127,7 +1127,7 @@ impl Ctx {
     /// on high-DPI screens).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let center = ctx.window_size() / 2.0;
     /// # }
@@ -1139,7 +1139,7 @@ impl Ctx {
     /// Closes the window and ends the game after this frame.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// if ctx.key_pressed(Key::Escape) { ctx.quit(); }
     /// # }

@@ -1,7 +1,10 @@
 use super::*;
 
-pub fn geometry() -> [MeshData; 2] {
-    [MeshData::plane(160.0), MeshData::cube(2.0)]
+pub fn geometry() -> [ponko::render::MeshData; 2] {
+    [
+        ponko::render::MeshData::plane(160.0),
+        ponko::render::MeshData::cube(2.0),
+    ]
 }
 
 pub fn setup(ctx: &mut Ctx, count: usize) {
@@ -13,7 +16,7 @@ pub fn setup(ctx: &mut Ctx, count: usize) {
     ctx.lighting.ambient_intensity = 0.015;
     ctx.sky.atmosphere = false;
     ctx.post.bloom = 0.0;
-    let stone = ctx.gfx.create_material(MaterialDesc {
+    let stone = ctx.gfx.create_material(ponko::render::MaterialDesc {
         roughness: 0.5,
         ..Default::default()
     });
@@ -40,7 +43,7 @@ pub fn setup(ctx: &mut Ctx, count: usize) {
         if i % 4 == 0 {
             ctx.world.spawn((
                 t.looking_at(vec3(x + 2.0, -1.0, z - 3.0)),
-                SpotLight3D {
+                ponko::d3::SpotLight {
                     color,
                     intensity: 80.0,
                     range: 12.0,
@@ -52,7 +55,7 @@ pub fn setup(ctx: &mut Ctx, count: usize) {
         } else {
             ctx.world.spawn((
                 t,
-                PointLight3D {
+                ponko::d3::PointLight {
                     color,
                     intensity: 30.0,
                     range: 9.0,

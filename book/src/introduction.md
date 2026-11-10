@@ -26,7 +26,7 @@ moves it with the arrow keys, and quits on Escape:
 <div>
 
 ```rust
-use ponko::*;
+use ponko::prelude::*;
 
 fn main() {
     Game::new("My Game", 800, 600).run(|ctx| {

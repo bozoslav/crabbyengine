@@ -4,7 +4,9 @@
 //!   `cargo run --release --example headless`
 //!   `AGENTS=10000000 TICKS=300 cargo run --release --example headless`
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::*;
+use ponko::prelude::*;
 
 struct Agent {
     heading: f32,
@@ -35,8 +37,8 @@ fn main() {
     let agents = env_number("AGENTS", 1_000_000.0) as usize;
     let ticks = env_number("TICKS", 600.0) as u64;
 
-    let spawn_start = Instant::now();
-    let mut setup_done = Instant::now();
+    let spawn_start = ponko::perf::Instant::now();
+    let mut setup_done = ponko::perf::Instant::now();
     let world = Game::new("headless", 1280, 720)
         .sim_system(wander)
         // The two-argument form may borrow locals, here the timers.
@@ -57,7 +59,7 @@ fn main() {
                 "spawned {agents} agents in {:.0} ms",
                 spawn_start.elapsed().as_secs_f64() * 1e3
             );
-            setup_done = Instant::now();
+            setup_done = ponko::perf::Instant::now();
         });
     let secs = setup_done.elapsed().as_secs_f64();
     println!(

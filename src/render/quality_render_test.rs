@@ -4,8 +4,12 @@
 //! Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::d3::{SpotLight as SpotLight3D, Transform as Transform3D};
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{AntiAliasing, GraphicsQuality, MaterialDesc, MeshData, Model};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const W: u32 = 64;
 const H: u32 = 48;

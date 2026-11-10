@@ -19,7 +19,11 @@ use super::batch::SpriteInstance;
 use super::gpu::{GpuTexture, Renderer, SpritePass, sprite_pipeline};
 use super::render_test_support::{Image, TestGpu, gpu, output_dir, target};
 use crate::text::Text;
-use crate::{Color, Ctx, Ui, UiEvent, UiId, UiInput, UiPanel3D, Vec2, vec2};
+use crate::ui::Ui;
+use crate::ui::UiEvent;
+use crate::ui::UiId;
+use crate::ui::UiInput;
+use crate::{Color, Ctx, Vec2, d3::UiPanel as UiPanel3D, vec2};
 
 #[allow(dead_code)]
 #[path = "../../examples/ui_shop.rs"]
@@ -32,8 +36,11 @@ mod panel;
 /// The trees and event code the examples had before the builders, kept as
 /// they were (only `ctx.ui_retained` is `ui` here).
 mod before {
-    use ponko::*;
-    use ui_layout::prelude::*;
+    use crate::ui::layout::prelude::*;
+    #[allow(unused_imports)]
+    use ponko::prelude::*;
+    #[allow(unused_imports)]
+    use ponko::ui::{Ui, UiEvent, UiId, UiInput, UiLayout, UiPaint, UiWidget};
 
     fn fixed(width: f32, height: f32) -> Style {
         Style {
@@ -70,7 +77,7 @@ mod before {
                     height: percent(1.0),
                 },
                 flex_direction: FlexDirection::Column,
-                padding: ui_layout::Rect::length(24.0),
+                padding: crate::ui::layout::Rect::length(24.0),
                 gap: Size::length(12.0),
                 ..Default::default()
             },
@@ -115,7 +122,7 @@ mod before {
                 UiWidget::Button,
                 Style {
                     min_size: Size::length(0.0),
-                    padding: ui_layout::Rect::length(8.0),
+                    padding: crate::ui::layout::Rect::length(8.0),
                     ..Default::default()
                 },
             );
@@ -144,13 +151,13 @@ mod before {
                     width: length(360.0),
                     height: length(180.0),
                 },
-                margin: ui_layout::Rect {
+                margin: crate::ui::layout::Rect {
                     left: auto(),
                     right: auto(),
                     top: length(180.0),
                     bottom: auto(),
                 },
-                padding: ui_layout::Rect::length(20.0),
+                padding: crate::ui::layout::Rect::length(20.0),
                 flex_direction: FlexDirection::Column,
                 gap: Size::length(12.0),
                 ..Default::default()
@@ -209,7 +216,7 @@ mod before {
                     height: percent(1.0),
                 },
                 flex_direction: FlexDirection::Column,
-                padding: ui_layout::Rect::length(20.0),
+                padding: crate::ui::layout::Rect::length(20.0),
                 gap: Size::length(12.0),
                 ..Default::default()
             },

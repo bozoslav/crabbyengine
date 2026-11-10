@@ -1,8 +1,12 @@
 //! Accessibility semantics of the retained UI: roles, names, values, states
 //! and focus, read as a deterministic snapshot without a platform adapter.
 
+#[allow(unused_imports)]
+use ponko::input::Gamepad;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::ui::{Ui, UiAccessValue, UiId, UiInput, UiLayout, UiRole, UiWidget};
 use ponko::ui_layout::{Display, Style};
-use ponko::*;
 
 const VIEW: Vec2 = Vec2::new(800.0, 600.0);
 

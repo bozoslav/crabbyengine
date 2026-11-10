@@ -4,7 +4,12 @@
 
 use std::ffi::{CStr, c_char};
 
-use ponko::{AttachToJoint, Ctx, Entity, Joint, Skeleton, SkinOf, Transform3D};
+use ponko::anim::AttachToJoint;
+use ponko::anim::Joint;
+use ponko::anim::Skeleton;
+use ponko::anim::SkinOf;
+use ponko::d3::Transform as Transform3D;
+use ponko::{Ctx, Entity};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::three::{
@@ -454,7 +459,7 @@ pub unsafe extern "C" fn crabby_ctx_attach_to_joint(
 
 /// An animation clip (Rust `AnimationClip`): made with
 /// `crabby_ctx_load_clip`, freed with `crabby_clip_free`.
-pub struct CrabbyClip(pub(crate) ponko::AnimationClip);
+pub struct CrabbyClip(pub(crate) ponko::anim::AnimationClip);
 
 /// Loads the clip called `name` of a glTF file with skins (Rust
 /// `Graphics::load_clip`); free it with `crabby_clip_free`.
@@ -579,7 +584,7 @@ pub unsafe extern "C" fn crabby_ctx_two_bone_ik(
             for j in [upper, middle, end] {
                 joint_index(s, j)?;
             }
-            ponko::two_bone_ik(s, &model, [upper, middle, end], to_c(target), to_c(pole), weight);
+            ponko::anim::two_bone_ik(s, &model, [upper, middle, end], to_c(target), to_c(pole), weight);
             Ok(())
         })
     })
@@ -612,7 +617,7 @@ pub unsafe extern "C" fn crabby_ctx_look_at_joint(
             let model = c.world.get::<Transform3D>(e).copied().unwrap_or_default();
             let s = skeleton_mut(c, entity_bits)?;
             joint_index(s, joint)?;
-            ponko::look_at_joint(s, &model, joint, to_c(axis), to_c(target), max_angle, weight);
+            ponko::anim::look_at_joint(s, &model, joint, to_c(axis), to_c(target), max_angle, weight);
             Ok(())
         })
     })

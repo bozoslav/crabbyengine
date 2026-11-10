@@ -1,5 +1,5 @@
 //! Raycast-wheel vehicles: drive a box car over hilly terrain. The chassis
-//! is a dynamic body on four `Wheel3D`s; this file is the game's half:
+//! is a dynamic body on four `Wheel`s; this file is the game's half:
 //! throttle, brakes and steering turned into wheel torques and angles.
 //!
 //!   `cargo run --release --example vehicle --features physics3d`
@@ -10,7 +10,9 @@
 //! `HEADLESS=1` drives it by script instead, without a window, and checks
 //! that it speeds up, turns and stops.
 
-use ponko::*;
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
 
 const N: usize = 129;
 const SIZE: f32 = 512.0;
@@ -39,19 +41,17 @@ struct Player {
 /// A 1200 kg box car facing -Z, its center of mass low between the axles,
 /// front wheels first.
 fn spawn_car(ctx: &mut Ctx, at: Vec3) -> Entity {
-    let mut car = Vehicle3D::new();
+    let mut car = Vehicle::new();
     for (x, z) in [(-0.8, -1.3), (0.8, -1.3), (-0.8, 1.3), (0.8, 1.3)] {
-        let mut wheel = Wheel3D::new(vec3(x, -0.3, z), 0.35);
+        let mut wheel = Wheel::new(vec3(x, -0.3, z), 0.35);
         wheel.sideways_friction.stiffness = 1.3;
         car = car.with_wheel(wheel);
     }
     ctx.world.spawn((
-        Transform3D::at(at),
-        RigidBody3D::dynamic()
-            .mass(1200.0)
-            .center_of_mass(vec3(0.0, -0.35, 0.0)),
-        Collider3D::cuboid(vec3(1.8, 0.6, 4.2)),
-        Velocity3D::default(),
+        Transform::at(at),
+        RigidBody::dynamic().mass(1200.0).center_of_mass(vec3(0.0, -0.35, 0.0)),
+        Collider::cuboid(vec3(1.8, 0.6, 4.2)),
+        Velocity::default(),
         car,
     ))
 }
@@ -70,7 +70,7 @@ fn drive(ctx: &mut Ctx) {
     let player = ctx.world.resource_mut::<Player>();
     player.steer += (wanted - player.steer).clamp(-2.0 * dt, 2.0 * dt);
     let steer = player.steer;
-    let Some(vehicle) = ctx.world.get_mut::<Vehicle3D>(car) else {
+    let Some(vehicle) = ctx.world.get_mut::<Vehicle>(car) else {
         return;
     };
     // Pressing against the way it rolls brakes; from (almost) still it drives.
@@ -95,12 +95,12 @@ fn drive(ctx: &mut Ctx) {
 // ANCHOR_END: drive
 
 fn speed_of(world: &World, car: Entity) -> f32 {
-    world.get::<Velocity3D>(car).map_or(0.0, |v| v.linear.length())
+    world.get::<Velocity>(car).map_or(0.0, |v| v.linear.length())
 }
 
 /// Speed along where the car faces (negative backing up).
 fn forward_speed(world: &World, car: Entity) -> f32 {
-    match (world.get::<Velocity3D>(car), world.get::<Transform3D>(car)) {
+    match (world.get::<Velocity>(car), world.get::<Transform>(car)) {
         (Some(v), Some(t)) => v.linear.dot(t.forward()),
         _ => 0.0,
     }
@@ -117,9 +117,9 @@ fn keys(ctx: &mut Ctx) {
     *ctx.world.resource_mut::<Controls>() = controls;
     if ctx.key_pressed(Key::R) {
         let car = ctx.world.resource::<Player>().car;
-        if let Some(t) = ctx.world.get_mut::<Transform3D>(car) {
+        if let Some(t) = ctx.world.get_mut::<Transform>(car) {
             let p = t.position;
-            *t = Transform3D::at(vec3(p.x, height(p.x, p.z) + 1.5, p.z));
+            *t = Transform::at(vec3(p.x, height(p.x, p.z) + 1.5, p.z));
         }
     }
 }
@@ -130,14 +130,14 @@ fn keys(ctx: &mut Ctx) {
 fn place_wheels(ctx: &mut Ctx) {
     let player = ctx.world.resource::<Player>();
     let car = player.car;
-    let (Some(&vehicle), Some(&chassis)) = (ctx.world.get::<Vehicle3D>(car), ctx.world.get::<Transform3D>(car)) else {
+    let (Some(&vehicle), Some(&chassis)) = (ctx.world.get::<Vehicle>(car), ctx.world.get::<Transform>(car)) else {
         return;
     };
     for i in 0..player.wheels.len() {
         let e = ctx.world.resource::<Player>().wheels[i];
         let pose = vehicle.wheels()[i].pose(&chassis);
-        if let Some(t) = ctx.world.get_mut::<Transform3D>(e) {
-            *t = Transform3D { scale: t.scale, ..pose };
+        if let Some(t) = ctx.world.get_mut::<Transform>(e) {
+            *t = Transform { scale: t.scale, ..pose };
         }
     }
 }
@@ -146,14 +146,14 @@ fn place_wheels(ctx: &mut Ctx) {
 /// Every frame: the camera trails the car.
 fn chase(ctx: &mut Ctx) {
     let car = ctx.world.resource::<Player>().car;
-    let Some(t) = ctx.world.get::<Transform3D>(car).copied() else {
+    let Some(t) = ctx.world.get::<Transform>(car).copied() else {
         return;
     };
     let back = -t.forward().with_y(0.0).normalize_or(Vec3::Z);
     let eye = t.position + back * 9.0 + Vec3::Y * 3.5;
     let k = (ctx.dt() * 4.0).min(1.0);
     ctx.camera3d.position = ctx.camera3d.position.lerp(eye, k);
-    let look = Transform3D::at(ctx.camera3d.position).looking_at(t.position + Vec3::Y);
+    let look = Transform::at(ctx.camera3d.position).looking_at(t.position + Vec3::Y);
     ctx.camera3d.rotation = look.rotation;
 }
 
@@ -166,7 +166,7 @@ fn build_world(ctx: &mut Ctx, draw: bool) {
     let ground = ctx.physics3d.heightfield(&heights, SIZE);
     let terrain = ctx
         .world
-        .spawn((Transform3D::at(corner), RigidBody3D::fixed(), Collider3D::mesh(ground)));
+        .spawn((Transform::at(corner), RigidBody::fixed(), Collider::mesh(ground)));
     let car = spawn_car(ctx, vec3(0.0, height(0.0, 0.0) + 1.5, 0.0));
     ctx.world.insert_resource(Player {
         car,
@@ -182,7 +182,7 @@ fn build_world(ctx: &mut Ctx, draw: bool) {
     ctx.world.insert(terrain, tile);
     let paint = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0xC8402E)));
     let body = ctx.gfx.create_mesh(&MeshData::cube(1.0), paint);
-    if let Some(t) = ctx.world.get_mut::<Transform3D>(car) {
+    if let Some(t) = ctx.world.get_mut::<Transform>(car) {
         t.scale = vec3(1.8, 0.6, 4.2);
     }
     ctx.world.insert(car, Model::new(body));
@@ -190,9 +190,9 @@ fn build_world(ctx: &mut Ctx, draw: bool) {
     let tyre = ctx.gfx.create_mesh(&MeshData::cube(1.0), rubber);
     for _ in 0..4 {
         let wheel = ctx.world.spawn((
-            Transform3D {
+            Transform {
                 scale: vec3(0.3, 0.7, 0.7),
-                ..Transform3D::default()
+                ..Transform::default()
             },
             Model::new(tyre),
         ));
@@ -249,7 +249,7 @@ fn record(ctx: &mut Ctx) {
     if ctx.time.sim_tick().is_multiple_of(50) {
         let car = ctx.world.resource::<Player>().car;
         let speed = speed_of(&ctx.world, car);
-        let facing = ctx.world.get::<Transform3D>(car).map_or(Vec3::NEG_Z, |t| t.forward());
+        let facing = ctx.world.get::<Transform>(car).map_or(Vec3::NEG_Z, |t| t.forward());
         ctx.world.resource_mut::<Log>().0.push((speed, facing));
     }
 }

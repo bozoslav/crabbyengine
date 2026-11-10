@@ -2,7 +2,11 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::{Sprite, Transform as Transform2D};
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::render::RenderStats;
 
 struct Pos(f32);
 struct Ticks(Vec<u64>);

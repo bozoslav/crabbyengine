@@ -1,17 +1,23 @@
 //! Contact modification (feature `physics3d`): one-way surfaces, conveyor
 //! belts and the custom contact hook.
 #![cfg(feature = "physics3d")]
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::Transform;
+#[allow(unused_imports)]
+#[cfg(feature = "physics3d")]
+use ponko::d3::{Collider, ContactModifier, RigidBody, Velocity};
+use ponko::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const GRAVITY: Vec3 = Vec3::new(0.0, -9.81, 0.0);
 
-fn platform(ctx: &mut Ctx, at: Vec3, modifier: Option<ContactModifier3D>) -> Entity {
+fn platform(ctx: &mut Ctx, at: Vec3, modifier: Option<ContactModifier>) -> Entity {
     let e = ctx.world.spawn((
-        Transform3D::at(at),
-        RigidBody3D::fixed(),
-        Collider3D::cuboid(vec3(10.0, 0.2, 10.0)),
+        Transform::at(at),
+        RigidBody::fixed(),
+        Collider::cuboid(vec3(10.0, 0.2, 10.0)),
     ));
     if let Some(m) = modifier {
         ctx.world.insert(e, m);
@@ -21,10 +27,10 @@ fn platform(ctx: &mut Ctx, at: Vec3, modifier: Option<ContactModifier3D>) -> Ent
 
 fn ball(ctx: &mut Ctx, at: Vec3, velocity: Vec3) -> Entity {
     ctx.world.spawn((
-        Transform3D::at(at),
-        RigidBody3D::dynamic(),
-        Collider3D::sphere(0.25),
-        Velocity3D {
+        Transform::at(at),
+        RigidBody::dynamic(),
+        Collider::sphere(0.25),
+        Velocity {
             linear: velocity,
             angular: Vec3::ZERO,
         },
@@ -32,14 +38,14 @@ fn ball(ctx: &mut Ctx, at: Vec3, velocity: Vec3) -> Entity {
 }
 
 fn y(world: &mut World, e: Entity) -> f32 {
-    world.get::<Transform3D>(e).unwrap().position.y
+    world.get::<Transform>(e).unwrap().position.y
 }
 
 #[test]
 fn a_one_way_platform_lets_things_up_through_and_holds_them_on_top() {
     let (mut from_below, mut from_above, mut solid) = (None, None, None);
     let mut world = Game::new("t", 1, 1).physics3d(GRAVITY).run_headless(150, |ctx| {
-        platform(ctx, Vec3::ZERO, Some(ContactModifier3D::one_way(Vec3::Y)));
+        platform(ctx, Vec3::ZERO, Some(ContactModifier::one_way(Vec3::Y)));
         // Thrown up from 1 m below: it rises through and lands on top.
         from_below = Some(ball(ctx, vec3(0.0, -1.0, 0.0), vec3(0.0, 8.0, 0.0)));
         from_above = Some(ball(ctx, vec3(3.0, 2.0, 0.0), Vec3::ZERO));
@@ -62,15 +68,15 @@ fn a_conveyor_carries_things_along_whichever_body_comes_first() {
         let world = Game::new("t", 1, 1).physics3d(GRAVITY).run_headless(150, |ctx| {
             let crate_box = |ctx: &mut Ctx| {
                 ctx.world.spawn((
-                    Transform3D::at(vec3(0.0, 0.4, 0.0)),
-                    RigidBody3D::dynamic(),
-                    Collider3D::cuboid(Vec3::splat(0.5)),
+                    Transform::at(vec3(0.0, 0.4, 0.0)),
+                    RigidBody::dynamic(),
+                    Collider::cuboid(Vec3::splat(0.5)),
                 ))
             };
             // The belt is turned a quarter turn around Y: local +X is world -Z.
             let belt = |ctx: &mut Ctx| {
-                let e = platform(ctx, Vec3::ZERO, Some(ContactModifier3D::conveyor(vec3(2.0, 0.0, 0.0))));
-                ctx.world.get_mut::<Transform3D>(e).unwrap().rotation =
+                let e = platform(ctx, Vec3::ZERO, Some(ContactModifier::conveyor(vec3(2.0, 0.0, 0.0))));
+                ctx.world.get_mut::<Transform>(e).unwrap().rotation =
                     Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
             };
             if belt_first {
@@ -81,7 +87,7 @@ fn a_conveyor_carries_things_along_whichever_body_comes_first() {
                 belt(ctx);
             }
         });
-        let p = world.get::<Transform3D>(box_entity.unwrap()).unwrap().position;
+        let p = world.get::<Transform>(box_entity.unwrap()).unwrap().position;
         // Three seconds at up to 2 m/s, minus getting up to speed.
         assert!(
             p.z < -3.5 && p.z > -6.5,
@@ -97,7 +103,7 @@ fn the_contact_hook_sees_hooked_pairs_and_can_drop_them() {
     let seen = calls.clone();
     let (mut hooked_ball, mut plain_ball, mut hooked_floor) = (None, None, None);
     let mut world = Game::new("t", 1, 1).physics3d(GRAVITY).run_headless(100, |ctx| {
-        let floor = platform(ctx, Vec3::ZERO, Some(ContactModifier3D::hook()));
+        let floor = platform(ctx, Vec3::ZERO, Some(ContactModifier::hook()));
         hooked_floor = Some(floor);
         ctx.physics3d.set_contact_hook(move |pair| {
             seen.fetch_add(1, Ordering::Relaxed);
@@ -134,21 +140,21 @@ fn removing_the_modifier_makes_the_body_plain_again() {
             if ctx.time.sim_tick() == 5 {
                 let f = ctx
                     .world
-                    .query::<(Entity, &ContactModifier3D)>()
+                    .query::<(Entity, &ContactModifier)>()
                     .iter()
                     .next()
                     .map(|(e, _)| e);
                 if let Some(f) = f {
-                    ctx.world.remove::<ContactModifier3D>(f);
+                    ctx.world.remove::<ContactModifier>(f);
                 }
             }
         })
         .run_headless(100, |ctx| {
-            floor = Some(platform(ctx, Vec3::ZERO, Some(ContactModifier3D::hook())));
+            floor = Some(platform(ctx, Vec3::ZERO, Some(ContactModifier::hook())));
             ctx.physics3d.set_contact_hook(|pair| pair.ignore());
             falling = Some(ball(ctx, vec3(0.0, 1.0, 0.0), Vec3::ZERO));
         });
-    assert!(world.get::<ContactModifier3D>(floor.unwrap()).is_none());
+    assert!(world.get::<ContactModifier>(floor.unwrap()).is_none());
     assert!(y(&mut world, falling.unwrap()) > 0.3, "the plain floor holds it");
 }
 
@@ -158,29 +164,29 @@ fn guide_contacts_snippet_compiles_and_steps() {
         // ANCHOR: contacts
         // A platform to jump up through: solid only from above.
         ctx.world.spawn((
-            Transform3D::at(vec3(0.0, 3.0, 0.0)),
-            RigidBody3D::fixed(),
-            Collider3D::cuboid(vec3(4.0, 0.2, 4.0)),
-            ContactModifier3D::one_way(Vec3::Y),
+            Transform::at(vec3(0.0, 3.0, 0.0)),
+            RigidBody::fixed(),
+            Collider::cuboid(vec3(4.0, 0.2, 4.0)),
+            ContactModifier::one_way(Vec3::Y),
         ));
         // A belt carrying whatever stands on it along +X at 2 m/s.
         ctx.world.spawn((
-            Transform3D::at(vec3(10.0, 0.0, 0.0)),
-            RigidBody3D::fixed(),
-            Collider3D::cuboid(vec3(8.0, 0.2, 1.0)),
-            ContactModifier3D::conveyor(vec3(2.0, 0.0, 0.0)),
+            Transform::at(vec3(10.0, 0.0, 0.0)),
+            RigidBody::fixed(),
+            Collider::cuboid(vec3(8.0, 0.2, 1.0)),
+            ContactModifier::conveyor(vec3(2.0, 0.0, 0.0)),
         ));
         // A hook for the rest: the ghost walks through the hooked wall.
         let ghost = ctx.world.spawn((
-            Transform3D::at(vec3(-10.0, 1.0, 0.0)),
-            RigidBody3D::dynamic(),
-            Collider3D::sphere(0.5),
+            Transform::at(vec3(-10.0, 1.0, 0.0)),
+            RigidBody::dynamic(),
+            Collider::sphere(0.5),
         ));
         ctx.world.spawn((
-            Transform3D::at(vec3(-10.0, 1.0, 3.0)),
-            RigidBody3D::fixed(),
-            Collider3D::cuboid(vec3(4.0, 2.0, 0.2)),
-            ContactModifier3D::hook(),
+            Transform::at(vec3(-10.0, 1.0, 3.0)),
+            RigidBody::fixed(),
+            Collider::cuboid(vec3(4.0, 2.0, 0.2)),
+            ContactModifier::hook(),
         ));
         ctx.physics3d.set_contact_hook(move |pair| {
             if pair.a == ghost || pair.b == ghost {

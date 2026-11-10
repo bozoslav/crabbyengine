@@ -238,7 +238,7 @@ impl Overrides {
         self.index.clear();
     }
 
-    pub(crate) fn hash(parts: &[(u32, crate::Material)]) -> u64 {
+    pub(crate) fn hash(parts: &[(u32, crate::render::Material)]) -> u64 {
         // FNV-1a: the lists are a few entries long.
         let mut h = 0xcbf2_9ce4_8422_2325u64;
         for &(part, material) in parts {
@@ -249,14 +249,14 @@ impl Overrides {
         h
     }
 
-    fn same(&self, set: u32, parts: &[(u32, crate::Material)]) -> bool {
+    fn same(&self, set: u32, parts: &[(u32, crate::render::Material)]) -> bool {
         let (start, len) = self.sets[set as usize];
         let mine = &self.parts[start as usize..(start + len) as usize];
         mine.len() == parts.len() && mine.iter().zip(parts).all(|(a, b)| *a == (b.0, b.1.id))
     }
 
     /// The number of per-part list `parts`, if it was added.
-    fn set_of(&self, parts: &[(u32, crate::Material)]) -> Option<u32> {
+    fn set_of(&self, parts: &[(u32, crate::render::Material)]) -> Option<u32> {
         let mut h = Self::hash(parts);
         loop {
             let &set = self.set_index.get(&h)?;
@@ -268,7 +268,7 @@ impl Overrides {
     }
 
     /// Its number, adding it if it's new.
-    fn add_set(&mut self, parts: &[(u32, crate::Material)]) -> u32 {
+    fn add_set(&mut self, parts: &[(u32, crate::render::Material)]) -> u32 {
         let mut h = Self::hash(parts);
         while let Some(&set) = self.set_index.get(&h) {
             if self.same(set, parts) {
@@ -1122,7 +1122,8 @@ fn capsule_visible(planes: &[Vec4], a: Vec3, b: Vec3, radius: f32) -> bool {
 mod tests {
     use super::super::TERRAIN_LODS;
     use super::*;
-    use crate::{Color, Mesh};
+    use crate::Color;
+    use crate::render::Mesh;
     use glam::Vec2;
 
     fn camera() -> Camera3D {
@@ -1223,7 +1224,8 @@ mod tests {
 
     #[test]
     fn material_overrides_batch_by_mesh_and_material() {
-        use crate::{Material, ModelMaterial};
+        use crate::render::Material;
+        use crate::render::ModelMaterial;
         let mut world = World::new();
         let assets = Assets3D {
             bounds: vec![(Vec3::ZERO, 1.0); 2],
@@ -1276,7 +1278,11 @@ mod tests {
 
     #[test]
     fn part_lists_lod_groups_and_terrain_get_override_ids() {
-        use crate::{LodLevel, LodRenderer, Material, ModelMaterial, ModelMaterials};
+        use crate::render::LodLevel;
+        use crate::render::LodRenderer;
+        use crate::render::Material;
+        use crate::render::ModelMaterial;
+        use crate::render::ModelMaterials;
         let mut world = World::new();
         let assets = Assets3D {
             bounds: vec![(Vec3::ZERO, 1.0); 4],
@@ -1476,8 +1482,10 @@ mod tests {
 
     #[test]
     fn lod_instances_carry_their_decal_layers_and_fade_in_separate_slots() {
+        use crate::render::LodGroup;
+        use crate::render::LodLevel;
+        use crate::render::LodRenderer;
         use crate::three::projected::ReceivesDecals;
-        use crate::{LodGroup, LodLevel, LodRenderer};
         let mut world = World::new();
         let assets = Assets3D {
             bounds: vec![(Vec3::ZERO, 0.5), (Vec3::ZERO, 0.5)],

@@ -23,8 +23,8 @@ pub enum Tonemap {
 /// Antialiasing of the 3D frame. FXAA and SMAA work on the tone mapped image
 /// before sprites/UI; [`Taa`](Self::Taa) works on the lit HDR frame.
 /// ```
-/// use ponko::AntiAliasing;
-/// assert_eq!(AntiAliasing::default(), AntiAliasing::None);
+/// use ponko::render::AntiAliasing;
+/// assert_eq!(ponko::render::AntiAliasing::default(), ponko::render::AntiAliasing::None);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u32)]
@@ -45,7 +45,7 @@ pub enum AntiAliasing {
     ///
     /// Moving models are tracked per entity; skinned models move with their
     /// model matrix only (limbs bending between frames can ghost slightly),
-    /// and particles, transparent surfaces and [`LodGroup`](crate::LodGroup)s
+    /// and particles, transparent surfaces and [`LodGroup`](crate::render::LodGroup)s
     /// have no motion of their own (they reproject with the camera and what's
     /// behind them, and may smear a little when they move).
     /// Needs compute-capable devices: WebGL2 draws with FXAA instead. See
@@ -59,14 +59,14 @@ pub enum AntiAliasing {
 /// assert_eq!(ponko::MAX_RENDER_SCALE, 2.0);
 /// ```
 pub const MIN_RENDER_SCALE: f32 = 0.25;
-/// See [`MIN_RENDER_SCALE`].
+/// See [`GraphicsQuality::MIN_RENDER_SCALE`](crate::render::GraphicsQuality::MIN_RENDER_SCALE).
 pub const MAX_RENDER_SCALE: f32 = 2.0;
 
 /// Ground-truth ambient occlusion. Radius is in world units; quality controls
 /// angular slices and horizon steps. Disabled by default to preserve scenes.
 /// ```
-/// use ponko::AmbientOcclusion;
-/// let ao = AmbientOcclusion { enabled: true, radius: 1.0, ..Default::default() };
+/// use ponko::render::AmbientOcclusion;
+/// let ao = ponko::render::AmbientOcclusion { enabled: true, radius: 1.0, ..Default::default() };
 /// assert_eq!(ao.slices, 3);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -99,11 +99,11 @@ impl Default for AmbientOcclusion {
 /// and UI drawn on top are not changed.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// ctx.post.exposure = 0.5; // half a stop brighter
 /// ctx.post.bloom = 0.15;
-/// ctx.post.tonemap = Tonemap::Neutral;
+/// ctx.post.tonemap = ponko::render::Tonemap::Neutral;
 /// ctx.post.temperature = 0.2; // warmer
 /// # }
 /// ```
@@ -112,8 +112,8 @@ pub struct Post {
     /// The 3D scene is drawn at this fraction of the window's size in each
     /// direction, then scaled to the window before sprites and UI, which stay
     /// at the window's resolution: below 1 is cheaper and softer, above 1
-    /// (supersampling) sharper and costlier. From [`MIN_RENDER_SCALE`] to
-    /// [`MAX_RENDER_SCALE`]; anything else is clamped. Default 1 (no extra
+    /// (supersampling) sharper and costlier. From [`GraphicsQuality::MIN_RENDER_SCALE`](crate::render::GraphicsQuality::MIN_RENDER_SCALE) to
+    /// [`GraphicsQuality::MAX_RENDER_SCALE`](crate::render::GraphicsQuality::MAX_RENDER_SCALE); anything else is clamped. Default 1 (no extra
     /// pass).
     pub render_scale: f32,
     /// How much the scaled image is sharpened, 0 to 1 (an adaptive
@@ -151,9 +151,9 @@ pub struct Post {
     /// smooths its grain. Reflections use depth-aware filtered mips as roughness
     /// increases; the blur footprint is bounded in screen pixels. 0 (the default) is off.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(Post::default().ssr, 0.0);
-    /// let wet_street = Post { ssr: 1.0, ..Default::default() };
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::render::Post::default().ssr, 0.0);
+    /// let wet_street = ponko::render::Post { ssr: 1.0, ..Default::default() };
     /// assert_eq!(wet_street.ssr_max_distance, 30.0);
     /// ```
     pub ssr: f32,
@@ -187,9 +187,9 @@ pub struct Post {
     /// Color fringes toward the edges, as a cheap lens splits red, green
     /// and blue apart, 0 to 1. Default 0.
     /// ```
-    /// use ponko::*;
-    /// let speed = Post { chromatic_aberration: 0.8, lens_distortion: -0.26, lens_scale: 1.04, ..Default::default() };
-    /// assert_eq!(Post::default().chromatic_aberration, 0.0);
+    /// use ponko::prelude::*;
+    /// let speed = ponko::render::Post { chromatic_aberration: 0.8, lens_distortion: -0.26, lens_scale: 1.04, ..Default::default() };
+    /// assert_eq!(ponko::render::Post::default().chromatic_aberration, 0.0);
     /// # let _ = speed;
     /// ```
     pub chromatic_aberration: f32,
@@ -243,8 +243,8 @@ impl Post {
     /// as 1), at least 1 pixel and at most `limit` wide (0: no limit).
     ///
     /// ```
-    /// use ponko::*;
-    /// let post = Post { render_scale: 0.5, ..Default::default() };
+    /// use ponko::prelude::*;
+    /// let post = ponko::render::Post { render_scale: 0.5, ..Default::default() };
     /// assert_eq!(post.render_size((1920, 1080)), (960, 540));
     /// ```
     #[must_use]
@@ -256,9 +256,9 @@ impl Post {
     /// `n * n` wide and `n` high: the starting point for a [`Post::lut`].
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let (w, h, pixels) = Post::neutral_lut(32);
+    /// let (w, h, pixels) = ponko::render::Post::neutral_lut(32);
     /// ctx.post.lut = Some(ctx.gfx.create_texture(w, h, &pixels));
     /// # }
     /// ```

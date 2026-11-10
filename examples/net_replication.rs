@@ -1,7 +1,12 @@
 //! Replication helpers on top of byte messages: snapshot interpolation,
 //! authority epochs and interest by distance. Run with
 //! `cargo run --example net_replication --no-default-features`.
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::net::{
+    Authority, AuthorityCheck, Interest, InterestConfig, InterestEntity, InterestViewer, LatestWins, NetMessages,
+    PeerId, Pose, SnapshotState, SnapshotStream, UpdateStamp,
+};
+use ponko::prelude::*;
 
 fn main() {
     // ANCHOR: snapshots
@@ -37,7 +42,7 @@ fn main() {
     // epoch they were sent under, and the receiver checks it:
     assert_eq!(vehicle.check(host, 0), AuthorityCheck::Stale); // late, from before the handoff
     assert_eq!(vehicle.check(guest, epoch), AuthorityCheck::Accept);
-    assert!(seq_newer(2, 65535)); // sequence numbers wrap around
+    assert!(ponko::net::seq_newer(2, 65535)); // sequence numbers wrap around
     // ANCHOR_END: authority
 
     // ANCHOR: interest

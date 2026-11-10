@@ -1,5 +1,17 @@
 #![cfg(feature = "navmesh")]
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::Transform as Transform3D;
+#[allow(unused_imports)]
+#[cfg(feature = "navmesh")]
+use ponko::d3::{NavAgent as NavAgent3D, NavMesh as NavMesh3D, NavObstacle as NavObstacle3D};
+#[allow(unused_imports)]
+#[cfg(feature = "navmesh")]
+use ponko::nav::{NavBakeSettings, NavSource};
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::MeshData;
 
 fn source(mesh: MeshData, position: Vec3) -> NavSource {
     NavSource::from_mesh(&mesh, Transform3D::at(position))

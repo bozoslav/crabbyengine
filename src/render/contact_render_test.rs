@@ -3,8 +3,12 @@
 //! without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{GpuFeature, MaterialDesc, Mesh, MeshData, Model};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 128;
 
@@ -218,7 +222,7 @@ fn pixel(view_proj: Mat4, p: Vec3) -> (u32, u32) {
 #[test]
 fn contact_shadows_shade_what_something_close_blocks() {
     let Some(mut rig) = Rig::new() else { return };
-    if !crate::render::render_test_support::needs(&rig.device, crate::GpuFeature::ContactShadows) {
+    if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ContactShadows) {
         return;
     }
     let white = MaterialDesc::color(Color::WHITE);

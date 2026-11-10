@@ -11,12 +11,12 @@ use crate::Color;
 /// transform.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let trunk = ctx.gfx.load_mesh("trunk.glb");
 /// // A mesh 2 m up the group's own Y axis, tinted.
-/// let part = LodRenderer::new(trunk)
-///     .with_offset(Transform3D::at(vec3(0.0, 2.0, 0.0)))
+/// let part = ponko::render::LodRenderer::new(trunk)
+///     .with_offset(ponko::d3::Transform::at(vec3(0.0, 2.0, 0.0)))
 ///     .with_color(Color::hex(0xCCBBAA));
 /// # }
 /// ```
@@ -26,7 +26,7 @@ pub struct LodRenderer {
     pub mesh: Mesh,
     /// Where it sits in the group's space. Default: at the group's origin.
     pub offset: Transform3D,
-    /// Multiplied with the materials' colors, as [`Model::color`](crate::Model::color).
+    /// Multiplied with the materials' colors, as [`Model::color`](crate::render::Model::color).
     /// Default white.
     pub color: Color,
 }
@@ -35,9 +35,9 @@ impl LodRenderer {
     /// `mesh` at the group's origin.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let renderer = LodRenderer::new(ctx.gfx.load_mesh("tree.glb"));
+    /// let renderer = ponko::render::LodRenderer::new(ctx.gfx.load_mesh("tree.glb"));
     /// # }
     /// ```
     #[must_use]
@@ -52,9 +52,9 @@ impl LodRenderer {
     /// The same, placed at `offset` in the group's space.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(mesh: Mesh) {
-    /// let high = LodRenderer::new(mesh).with_offset(Transform3D::at(vec3(0.0, 1.0, 0.0)));
+    /// # use ponko::prelude::*;
+    /// # fn f(mesh: ponko::render::Mesh) {
+    /// let high = ponko::render::LodRenderer::new(mesh).with_offset(ponko::d3::Transform::at(vec3(0.0, 1.0, 0.0)));
     /// # }
     /// ```
     #[must_use]
@@ -65,9 +65,9 @@ impl LodRenderer {
     /// The same, tinted with `color`.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(mesh: Mesh) {
-    /// let red = LodRenderer::new(mesh).with_color(Color::rgb(1.0, 0.2, 0.2));
+    /// # use ponko::prelude::*;
+    /// # fn f(mesh: ponko::render::Mesh) {
+    /// let red = ponko::render::LodRenderer::new(mesh).with_color(Color::rgb(1.0, 0.2, 0.2));
     /// # }
     /// ```
     #[must_use]
@@ -80,7 +80,7 @@ impl LodRenderer {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum LodShadow {
     /// Its own meshes cast the shadow (those with shadows turned on, see
-    /// [`Graphics::set_mesh_shadows`](crate::Graphics::set_mesh_shadows)).
+    /// [`Graphics::set_mesh_shadows`](crate::gfx::Graphics::set_mesh_shadows)).
     #[default]
     Same,
     /// These meshes cast the shadow instead and are not drawn for the
@@ -94,11 +94,11 @@ pub enum LodShadow {
 /// least `screen_height` tall on screen.
 ///
 /// ```no_run
-/// # use ponko::*;
-/// # fn f(near: Mesh, far: Mesh) {
+/// # use ponko::prelude::*;
+/// # fn f(near: ponko::render::Mesh, far: ponko::render::Mesh) {
 /// let levels = [
-///     LodLevel::new(0.30, vec![LodRenderer::new(near)]),
-///     LodLevel::new(0.05, vec![LodRenderer::new(far)]),
+///     ponko::render::LodLevel::new(0.30, vec![ponko::render::LodRenderer::new(near)]),
+///     ponko::render::LodLevel::new(0.05, vec![ponko::render::LodRenderer::new(far)]),
 /// ];
 /// # }
 /// ```
@@ -125,8 +125,8 @@ impl LodLevel {
     /// at once to the next, casting its own shadow.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let level = LodLevel::new(0.25, vec![]);
+    /// # use ponko::prelude::*;
+    /// let level = ponko::render::LodLevel::new(0.25, vec![]);
     /// assert_eq!(level.fade_width, 0.0);
     /// ```
     #[must_use]
@@ -146,9 +146,9 @@ impl LodLevel {
     /// distance, as many games do.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// // Switches to the next level at 40 m, seen with a 60 degree lens.
-    /// let level = LodLevel::at_distance(40.0, 8.0, 60f32.to_radians(), vec![]);
+    /// let level = ponko::render::LodLevel::at_distance(40.0, 8.0, 60f32.to_radians(), vec![]);
     /// assert!((level.screen_height - 0.1732).abs() < 1e-3);
     /// ```
     #[must_use]
@@ -160,8 +160,8 @@ impl LodLevel {
     /// [`fade_width`](Self::fade_width)).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let level = LodLevel::new(0.25, vec![]).with_fade(0.3);
+    /// # use ponko::prelude::*;
+    /// let level = ponko::render::LodLevel::new(0.25, vec![]).with_fade(0.3);
     /// assert_eq!(level.fade_width, 0.3);
     /// ```
     #[must_use]
@@ -175,9 +175,9 @@ impl LodLevel {
     /// The same, with `shadow` casting the shadow.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let level = LodLevel::new(0.05, vec![]).with_shadow(LodShadow::Casters(vec![]));
-    /// assert_eq!(level.shadow, LodShadow::Casters(vec![]));
+    /// # use ponko::prelude::*;
+    /// let level = ponko::render::LodLevel::new(0.05, vec![]).with_shadow(ponko::render::LodShadow::Casters(vec![]));
+    /// assert_eq!(level.shadow, ponko::render::LodShadow::Casters(vec![]));
     /// ```
     #[must_use]
     pub fn with_shadow(self, shadow: LodShadow) -> Self {
@@ -189,7 +189,7 @@ impl LodLevel {
 /// a graphics quality setting changes.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// ctx.lod.bias = 0.5; // low quality: switch to cheaper levels twice as soon
 /// # }
@@ -251,18 +251,18 @@ pub enum LodPick {
 /// In scene files it's `"LodHysteresis": 0.1`.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// let mut world = World::new();
-/// let group = LodGroup::new(4.0, vec![LodLevel::new(0.2, vec![])]);
+/// let group = ponko::render::LodGroup::new(4.0, vec![ponko::render::LodLevel::new(0.2, vec![])]);
 /// // Hold each level until the group is 10% past its threshold.
-/// world.spawn((Transform3D::default(), group, LodHysteresis(0.1)));
+/// world.spawn((ponko::d3::Transform::default(), group, ponko::render::LodHysteresis(0.1)));
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct LodHysteresis(pub f32);
 
 /// Levels of detail: the meshes this entity draws depend on how much of the
 /// screen it covers. Goes on an entity with a [`Transform3D`] (and no
-/// [`Model`](crate::Model): the group draws instead).
+/// [`Model`](crate::render::Model): the group draws instead).
 ///
 /// How tall the group looks is the fraction of the screen's height its
 /// [`size`](Self::size) covers, which follows its distance, its scale and
@@ -283,20 +283,20 @@ pub struct LodHysteresis(pub f32);
 /// "renderers": [{ "mesh": "tree_high.glb" }] }, ...] }`.
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let high = ctx.gfx.load_mesh("tree_high.glb");
 /// let low = ctx.gfx.load_mesh("tree_low.glb");
 /// let billboard = ctx.gfx.load_mesh("tree_billboard.glb");
-/// let group = LodGroup::new(
+/// let group = ponko::render::LodGroup::new(
 ///     6.0, // about 6 m tall
 ///     vec![
-///         LodLevel::new(0.30, vec![LodRenderer::new(high)]).with_fade(0.25),
-///         LodLevel::new(0.08, vec![LodRenderer::new(low)]),
-///         LodLevel::new(0.02, vec![LodRenderer::new(billboard)]), // gone below 2%
+///         ponko::render::LodLevel::new(0.30, vec![ponko::render::LodRenderer::new(high)]).with_fade(0.25),
+///         ponko::render::LodLevel::new(0.08, vec![ponko::render::LodRenderer::new(low)]),
+///         ponko::render::LodLevel::new(0.02, vec![ponko::render::LodRenderer::new(billboard)]), // gone below 2%
 ///     ],
 /// );
-/// ctx.world.spawn((Transform3D::at(vec3(10.0, 0.0, -20.0)), group));
+/// ctx.world.spawn((ponko::d3::Transform::at(vec3(10.0, 0.0, -20.0)), group));
 /// # }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -316,8 +316,8 @@ impl LodGroup {
     /// A group of world `size` with `levels`.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let group = LodGroup::new(4.0, vec![LodLevel::new(0.1, vec![])]);
+    /// # use ponko::prelude::*;
+    /// let group = ponko::render::LodGroup::new(4.0, vec![ponko::render::LodLevel::new(0.1, vec![])]);
     /// assert_eq!(group.levels.len(), 1);
     /// ```
     #[must_use]
@@ -332,8 +332,8 @@ impl LodGroup {
     /// The same, measuring distance to `center` (in the group's space).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let group = LodGroup::new(4.0, vec![]).with_center(vec3(0.0, 2.0, 0.0));
+    /// # use ponko::prelude::*;
+    /// let group = ponko::render::LodGroup::new(4.0, vec![]).with_center(vec3(0.0, 2.0, 0.0));
     /// assert_eq!(group.center.y, 2.0);
     /// ```
     #[must_use]
@@ -347,9 +347,9 @@ impl LodGroup {
     /// To turn distances into thresholds.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// // At 10 m a 60 degree lens sees 11.5 m of height: 2 m is 17% of it.
-    /// let h = LodGroup::screen_height_at(2.0, 10.0, 60f32.to_radians());
+    /// let h = ponko::render::LodGroup::screen_height_at(2.0, 10.0, 60f32.to_radians());
     /// assert!((h - 0.1732).abs() < 1e-3);
     /// ```
     #[must_use]
@@ -361,9 +361,9 @@ impl LodGroup {
     /// the screen: the inverse of [`screen_height_at`](Self::screen_height_at).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let fov = 60f32.to_radians();
-    /// let d = LodGroup::distance_at(2.0, 0.1732, fov);
+    /// let d = ponko::render::LodGroup::distance_at(2.0, 0.1732, fov);
     /// assert!((d - 10.0).abs() < 0.01);
     /// ```
     #[must_use]
@@ -375,12 +375,12 @@ impl LodGroup {
     /// `camera` with the group at `transform`, before any bias.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let group = LodGroup::new(2.0, vec![]);
+    ///     let group = ponko::render::LodGroup::new(2.0, vec![]);
     ///     ctx.camera3d.position = vec3(0.0, 0.0, 10.0);
     ///     ctx.camera3d.look_at(Vec3::ZERO);
-    ///     let h = group.screen_height(&Transform3D::default(), &ctx.camera3d);
+    ///     let h = group.screen_height(&ponko::d3::Transform::default(), &ctx.camera3d);
     ///     assert!((h - 0.1732).abs() < 1e-3);
     /// });
     /// ```
@@ -395,12 +395,12 @@ impl LodGroup {
     /// `settings`.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let group = LodGroup::new(1.0, vec![LodLevel::new(0.5, vec![]), LodLevel::new(0.1, vec![])]);
-    /// let settings = LodSettings::default();
-    /// assert_eq!(group.pick(0.7, &settings), LodPick::Level(0));
-    /// assert_eq!(group.pick(0.2, &settings), LodPick::Level(1));
-    /// assert_eq!(group.pick(0.05, &settings), LodPick::Culled);
+    /// # use ponko::prelude::*;
+    /// let group = ponko::render::LodGroup::new(1.0, vec![ponko::render::LodLevel::new(0.5, vec![]), ponko::render::LodLevel::new(0.1, vec![])]);
+    /// let settings = ponko::render::LodSettings::default();
+    /// assert_eq!(group.pick(0.7, &settings), ponko::render::LodPick::Level(0));
+    /// assert_eq!(group.pick(0.2, &settings), ponko::render::LodPick::Level(1));
+    /// assert_eq!(group.pick(0.05, &settings), ponko::render::LodPick::Culled);
     /// ```
     #[must_use]
     pub fn pick(&self, height: f32, settings: &LodSettings) -> LodPick {
@@ -435,12 +435,12 @@ impl LodGroup {
     /// [`pick`](Self::pick) for this group at `transform`, seen from `camera`.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let group = LodGroup::new(2.0, vec![LodLevel::new(0.1, vec![])]);
+    ///     let group = ponko::render::LodGroup::new(2.0, vec![ponko::render::LodLevel::new(0.1, vec![])]);
     ///     // The camera starts 8 m from the origin, looking at it.
-    ///     let pick = group.pick_for(&Transform3D::default(), &ctx.camera3d, &ctx.lod);
-    ///     assert_eq!(pick, LodPick::Level(0));
+    ///     let pick = group.pick_for(&ponko::d3::Transform::default(), &ctx.camera3d, &ctx.lod);
+    ///     assert_eq!(pick, ponko::render::LodPick::Level(0));
     /// });
     /// ```
     #[must_use]

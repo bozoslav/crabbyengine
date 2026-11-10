@@ -12,9 +12,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::actions::InputEvent;
 use crate::ctx::Ctx;
+use crate::input::Gamepad;
+use crate::input::GamepadAxis;
+use crate::input::GamepadButton;
 use crate::reflect::WorldReflect;
-use crate::{Gamepad, GamepadAxis, GamepadButton, InputEvent, Key, MouseButton};
+use crate::{Key, MouseButton};
 use crate::{Time, World};
 
 /// The scenario file format this engine reads and writes.
@@ -64,8 +68,8 @@ impl ScenarioCheck {
     /// Checks an action's edges and held state; chain with `.pressed(true)`,
     /// `.down(true)` and `.released(false)`.
     /// ```
-    /// use ponko::ScenarioCheck;
-    /// let check = ScenarioCheck::action("jump").pressed(true).down(true);
+    /// use ponko::scenario::ScenarioCheck;
+    /// let check = ponko::scenario::ScenarioCheck::action("jump").pressed(true).down(true);
     /// ```
     pub fn action(name: impl Into<String>) -> Self {
         Self::Action {
@@ -105,8 +109,8 @@ impl ScenarioCheck {
 
     /// Checks a field of a reflected resource by JSON pointer.
     /// ```
-    /// use ponko::ScenarioCheck;
-    /// let check = ScenarioCheck::resource("Score", "/points", 3);
+    /// use ponko::scenario::ScenarioCheck;
+    /// let check = ponko::scenario::ScenarioCheck::resource("Score", "/points", 3);
     /// ```
     pub fn resource(name: impl Into<String>, pointer: impl Into<String>, equals: impl Into<Value>) -> Self {
         Self::Resource {
@@ -118,8 +122,8 @@ impl ScenarioCheck {
 
     /// Checks how many entities have a reflected component.
     /// ```
-    /// use ponko::ScenarioCheck;
-    /// let check = ScenarioCheck::count("Coin", 2);
+    /// use ponko::scenario::ScenarioCheck;
+    /// let check = ponko::scenario::ScenarioCheck::count("Coin", 2);
     /// ```
     pub fn count(component: impl Into<String>, equals: usize) -> Self {
         Self::Count {
@@ -134,10 +138,10 @@ impl ScenarioCheck {
 ///
 /// Install it with [`Game::input_scenario`](crate::Game::input_scenario)
 /// (ticks count from the start of the run) or start it mid-run with
-/// [`Input::start_scenario`](crate::Input::start_scenario) (ticks
+/// [`Input::start_scenario`](crate::input::Input::start_scenario) (ticks
 /// count from the tick it starts on). Before the simulation systems of tick
 /// `t` run, every input step scheduled at or before `t` goes through
-/// [`Input::feed`](crate::Input::feed), the same path as live input,
+/// [`Input::feed`](crate::input::Input::feed), the same path as live input,
 /// so actions see ordinary pressed, held and released states. After they
 /// ran, every check scheduled at or before `t` is evaluated. Steps keep the
 /// order they were added in within a tick. The first tick of a run is 0.
@@ -150,11 +154,13 @@ impl ScenarioCheck {
 ///
 /// Building a scenario allocates; applying input steps does not.
 /// ```
-/// use ponko::{InputEvent, InputScenario, Key};
+/// use ponko::prelude::*;
+/// use ponko::actions::InputEvent;
+/// use ponko::scenario::InputScenario;
 /// // Hold Space on ticks 2, 3 and 4; it is released on tick 5.
-/// let jump = InputScenario::new()
-///     .at(2, InputEvent::Key(Key::Space, true))
-///     .at(5, InputEvent::Key(Key::Space, false));
+/// let jump = ponko::scenario::InputScenario::new()
+///     .at(2, ponko::actions::InputEvent::Key(Key::Space, true))
+///     .at(5, ponko::actions::InputEvent::Key(Key::Space, false));
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct InputScenario {
@@ -172,7 +178,7 @@ pub struct InputScenario {
 impl InputScenario {
     /// An empty scenario.
     /// ```
-    /// let scenario = ponko::InputScenario::new();
+    /// let scenario = ponko::scenario::InputScenario::new();
     /// ```
     pub fn new() -> Self {
         Self::default()
@@ -180,8 +186,10 @@ impl InputScenario {
 
     /// Adds `event` at simulation tick `tick`. Steps may be added in any order.
     /// ```
-    /// use ponko::{InputEvent, InputScenario, Key};
-    /// let scenario = InputScenario::new().at(10, InputEvent::Key(Key::Enter, true));
+    /// use ponko::prelude::*;
+    /// use ponko::actions::InputEvent;
+    /// use ponko::scenario::InputScenario;
+    /// let scenario = ponko::scenario::InputScenario::new().at(10, ponko::actions::InputEvent::Key(Key::Enter, true));
     /// ```
     pub fn at(mut self, tick: u64, event: InputEvent) -> Self {
         let index = self.inputs.partition_point(|&(t, ..)| t <= tick);
@@ -194,10 +202,13 @@ impl InputScenario {
     /// simulation systems ran. A failure is reported with its step number
     /// (the order steps were added in, from 0) and tick.
     /// ```
-    /// use ponko::{InputEvent, InputScenario, Key, ScenarioCheck};
-    /// let scenario = InputScenario::new()
-    ///     .at(2, InputEvent::Key(Key::Space, true))
-    ///     .expect(2, ScenarioCheck::action("jump").pressed(true));
+    /// use ponko::prelude::*;
+    /// use ponko::actions::InputEvent;
+    /// use ponko::scenario::InputScenario;
+    /// use ponko::scenario::ScenarioCheck;
+    /// let scenario = ponko::scenario::InputScenario::new()
+    ///     .at(2, ponko::actions::InputEvent::Key(Key::Space, true))
+    ///     .expect(2, ponko::scenario::ScenarioCheck::action("jump").pressed(true));
     /// ```
     pub fn expect(mut self, tick: u64, check: ScenarioCheck) -> Self {
         let index = self.checks.partition_point(|&(t, ..)| t <= tick);
@@ -252,8 +263,10 @@ impl InputScenario {
     /// past the last step's tick (0 for an empty scenario). Use it as the
     /// tick count of a headless run.
     /// ```
-    /// use ponko::{InputEvent, InputScenario, Key};
-    /// let s = InputScenario::new().at(5, InputEvent::Key(Key::A, true));
+    /// use ponko::prelude::*;
+    /// use ponko::actions::InputEvent;
+    /// use ponko::scenario::InputScenario;
+    /// let s = ponko::scenario::InputScenario::new().at(5, ponko::actions::InputEvent::Key(Key::A, true));
     /// assert_eq!(s.ticks(), 6);
     /// assert_eq!(s.duration(10).ticks(), 10);
     /// ```
@@ -282,7 +295,7 @@ impl InputScenario {
     /// }
     /// ```
     ///
-    /// Input steps are `key` (`key`, `down`), `mouse` (`button`, `down`),
+    /// ponko::input::Input steps are `key` (`key`, `down`), `mouse` (`button`, `down`),
     /// `gamepad_button` (`pad`, `button`, `down`), `gamepad_axis` (`pad`,
     /// `axis`, `value`), `focus_lost` and `gamepad_disconnected` (`pad`).
     /// Check steps are `expect_action` (`action` and any of `pressed`, `down`,
@@ -290,11 +303,11 @@ impl InputScenario {
     /// `expect_count` (`component`, `equals`). Every step has a `tick`.
     /// Steps may come in any order; their step number is their position in
     /// the file, from 0. Unknown fields, a newer `version`, more than
-    /// [`MAX_SCENARIO_STEPS`] steps, a duration over [`MAX_SCENARIO_TICKS`]
+    /// [`crate::scenario::MAX_SCENARIO_STEPS`] steps, a duration over [`crate::scenario::MAX_SCENARIO_TICKS`]
     /// and steps at or after `duration` are errors, so a typo can't silently
     /// weaken a test.
     /// ```
-    /// use ponko::InputScenario;
+    /// use ponko::scenario::InputScenario;
     /// let scenario = InputScenario::from_json(r#"{
     ///     "version": 1,
     ///     "steps": [{ "tick": 3, "type": "key", "key": "Space", "down": true }]
@@ -367,9 +380,11 @@ impl InputScenario {
     /// The scenario in its JSON format, steps in step-number order, so
     /// `from_value(&s.to_json())` gives the same scenario back.
     /// ```
-    /// use ponko::{InputEvent, InputScenario, Key};
-    /// let s = InputScenario::new().at(2, InputEvent::Key(Key::Space, true)).named("tap");
-    /// let again = InputScenario::from_value(&s.to_json()).unwrap();
+    /// use ponko::prelude::*;
+    /// use ponko::actions::InputEvent;
+    /// use ponko::scenario::InputScenario;
+    /// let s = ponko::scenario::InputScenario::new().at(2, ponko::actions::InputEvent::Key(Key::Space, true)).named("tap");
+    /// let again = ponko::scenario::InputScenario::from_value(&s.to_json()).unwrap();
     /// assert_eq!(again.to_json(), s.to_json());
     /// ```
     pub fn to_json(&self) -> Value {
@@ -422,7 +437,7 @@ pub enum ScenarioStatus {
     Passed,
     /// A check failed; the run ended there.
     Failed,
-    /// Ended early by [`Input::cancel_scenario`](crate::Input::cancel_scenario), a tool, a client that
+    /// Ended early by [`crate::input::Input::cancel_scenario`], a tool, a client that
     /// disconnected, or a scenario that replaced it.
     Cancelled,
 }
@@ -447,7 +462,7 @@ pub struct ScenarioFailure {
 }
 
 /// The outcome of the latest scenario run, kept as a resource in the world
-/// (`world.get_resource::<ScenarioReport>()`), and what the control endpoint's
+/// (`world.get_resource::<ponko::scenario::ScenarioReport>()`), and what the control endpoint's
 /// `input.scenario.status` returns.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScenarioReport {
@@ -465,7 +480,7 @@ pub struct ScenarioReport {
     pub start_tick: u64,
     /// Steps in the scenario.
     pub steps: usize,
-    /// Input steps fed so far.
+    /// ponko::input::Input steps fed so far.
     pub inputs_applied: usize,
     /// Checks that held so far.
     pub checks_passed: usize,
@@ -508,8 +523,8 @@ impl ScenarioReport {
 
     /// Panics with the failing step and tick unless the run passed. For tests.
     /// ```
-    /// use ponko::*;
-    /// let scenario = InputScenario::new().at(1, InputEvent::Key(Key::Space, true));
+    /// use ponko::prelude::*;
+    /// let scenario = ponko::scenario::InputScenario::new().at(1, ponko::actions::InputEvent::Key(Key::Space, true));
     /// let (_world, report) = Game::new("t", 1, 1).run_headless_scenario(scenario, |_| {});
     /// report.assert_passed();
     /// ```
@@ -563,7 +578,7 @@ pub(crate) struct RunOrigin {
     pub(crate) queue_ticks: bool,
 }
 
-/// Input a finished tool scenario left held on purpose. It stays owned, so a
+/// ponko::input::Input a finished tool scenario left held on purpose. It stays owned, so a
 /// cancel or the owner's disconnect still releases it.
 #[derive(Debug, Clone)]
 pub(crate) struct Leftover {
@@ -571,7 +586,7 @@ pub(crate) struct Leftover {
     owner: Option<u64>,
 }
 
-/// What [`Input`](crate::Input) keeps for scenarios.
+/// What [`crate::input::Input`] keeps for scenarios.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Scenarios {
     pub(crate) run: Option<ScenarioRun>,
@@ -580,22 +595,22 @@ pub(crate) struct Scenarios {
     pub(crate) injection: bool,
 }
 
-impl crate::Input {
+impl crate::input::Input {
     /// Starts `scenario` on the next simulation tick, which is its tick 0,
     /// replacing (and cancelling) one that is running. Use it from systems and
     /// tests; [`Game::input_scenario`](crate::Game::input_scenario) starts one
-    /// with the game. The run's [`ScenarioReport`] is kept in `world` and
+    /// with the game. The run's [`crate::scenario::ScenarioReport`] is kept in `world` and
     /// its ticks are counted on `time` (the game's are `ctx.world` and
     /// `ctx.time`).
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// struct PressedOn(Option<u64>);
     ///
     /// let game = Game::new("t", 1, 1)
     ///     .sim_system(|ctx: &mut Ctx| {
     ///         if ctx.time.sim_tick() == 3 {
     ///             // Started during tick 3, so the scenario's tick 0 is tick 4.
-    ///             let scenario = InputScenario::new().at(0, InputEvent::Key(Key::Space, true));
+    ///             let scenario = ponko::scenario::InputScenario::new().at(0, ponko::actions::InputEvent::Key(Key::Space, true));
     ///             ctx.input.start_scenario(&mut ctx.world, &mut ctx.time, scenario);
     ///         }
     ///     })
@@ -606,7 +621,7 @@ impl crate::Input {
     ///         }
     ///     });
     /// let world = game.run_headless(6, |ctx| ctx.world.insert_resource(PressedOn(None)));
-    /// assert_eq!(world.resource::<ScenarioReport>().start_tick, 4);
+    /// assert_eq!(world.resource::<ponko::scenario::ScenarioReport>().start_tick, 4);
     /// assert_eq!(world.resource::<PressedOn>().0, Some(4), "fed before tick 4's systems");
     /// ```
     pub fn start_scenario(&mut self, world: &mut World, time: &mut Time, scenario: InputScenario) {
@@ -628,16 +643,16 @@ impl crate::Input {
     /// if a player is physically holding it too: it reads as up until its
     /// next key event. Only what the scenario itself left held is released.
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// let mut game = Game::new("t", 1, 1).sim_system(|ctx: &mut Ctx| {
     ///     if ctx.time.sim_tick() == 2 {
     ///         assert!(ctx.input.cancel_scenario(&mut ctx.world, &mut ctx.time));
     ///         assert!(!ctx.key_down(Key::Space)); // released
     ///     }
     /// });
-    /// let scenario = InputScenario::new().at(0, InputEvent::Key(Key::Space, true)).duration(10);
+    /// let scenario = ponko::scenario::InputScenario::new().at(0, ponko::actions::InputEvent::Key(Key::Space, true)).duration(10);
     /// let (world, report) = game.run_headless_scenario(scenario, |_| {});
-    /// assert_eq!(report.status, ScenarioStatus::Cancelled);
+    /// assert_eq!(report.status, ponko::scenario::ScenarioStatus::Cancelled);
     /// ```
     pub fn cancel_scenario(&mut self, world: &mut World, time: &mut Time) -> bool {
         self.cancel_scenario_for(world, time, "cancelled", None)
@@ -981,6 +996,7 @@ fn evaluate(ctx: &Ctx, check: &ScenarioCheck) -> Result<(), Box<ScenarioFailure>
             }
             let world = &ctx.world;
             let actual: usize = world
+                .raw_ref()
                 .archetypes()
                 .iter()
                 .filter(|a| {

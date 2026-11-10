@@ -2,7 +2,19 @@
 //! shown by weight.
 #![cfg(feature = "3d")]
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::anim::{
+    AnimationGraph, AnimationLayer, AnimationParameter, AnimationState, AnimationTrack, Animator, Interpolation,
+    LayerBlend, MorphAnimation, MorphFrame, MorphTarget, Motion, MotionChild, Skeleton, SkinOf,
+};
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::Transform;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::{MeshData, Model};
 
 // ANCHOR: morph
 // System or setup: everything here runs headless too.
@@ -38,16 +50,17 @@ fn morph(ctx: &mut Ctx) {
     let material = ctx.gfx.default_material();
     let mesh = ctx.gfx.create_mesh(&sheet, material);
     let dent = ctx.gfx.morph_target(mesh, "dent").unwrap();
-    let mut weights = MorphWeights::default();
+    let mut weights = ponko::anim::MorphWeights::default();
     weights.set(dent, 0.5); // halfway dented
     let mut skeleton = Skeleton::new(vec![]);
-    let expression = AnimationClip::new("expression", &skeleton, vec![]).with_morph_tracks(vec![MorphAnimation {
-        name: "dent".into(),
-        track: AnimationTrack::new(vec![0.0, 1.0], vec![Vec4::ZERO, Vec4::X], Interpolation::Linear),
-    }]);
+    let expression =
+        ponko::anim::AnimationClip::new("expression", &skeleton, vec![]).with_morph_tracks(vec![MorphAnimation {
+            name: "dent".into(),
+            track: AnimationTrack::new(vec![0.0, 1.0], vec![Vec4::ZERO, Vec4::X], Interpolation::Linear),
+        }]);
     expression.sample(0.5, &mut skeleton);
     ctx.world
-        .spawn((Transform3D::default(), Model::new(mesh), weights, skeleton));
+        .spawn((Transform::default(), Model::new(mesh), weights, skeleton));
     ctx.gfx.write_animated_morphs(&mut ctx.world);
 }
 // ANCHOR_END: morph
@@ -56,15 +69,17 @@ fn morph(ctx: &mut Ctx) {
 fn a_named_morph_target_is_weighted_on_a_model() {
     let mut world = Game::new("morph", 1, 1).run_headless(0, morph);
     let mut panels = 0;
-    world.query::<(&Model, &MorphWeights)>().for_each(|(_model, weights)| {
-        panels += 1;
-        assert_eq!(weights.0, [0.5], "halfway toward the target's offsets");
-    });
+    world
+        .query::<(&Model, &ponko::anim::MorphWeights)>()
+        .for_each(|(_model, weights)| {
+            panels += 1;
+            assert_eq!(weights.0, [0.5], "halfway toward the target's offsets");
+        });
     assert_eq!(panels, 1, "the sheet is the only weighted model");
 }
 
-fn morph_clip(s: &Skeleton, name: &str, value: f32) -> AnimationClip {
-    AnimationClip::new("face", s, vec![]).with_morph_tracks(vec![MorphAnimation {
+fn morph_clip(s: &Skeleton, name: &str, value: f32) -> ponko::anim::AnimationClip {
+    ponko::anim::AnimationClip::new("face", s, vec![]).with_morph_tracks(vec![MorphAnimation {
         name: name.into(),
         track: AnimationTrack::new(vec![0., 2.], vec![Vec4::splat(value); 2], Interpolation::Linear),
     }])
@@ -90,13 +105,13 @@ fn scalar_sampling_modes_preserve_unanimated_weights() {
         ),
     ] {
         let mut s = Skeleton::new(vec![]);
-        let clip = AnimationClip::new("face", &s, vec![]).with_morph_tracks(vec![MorphAnimation {
+        let clip = ponko::anim::AnimationClip::new("face", &s, vec![]).with_morph_tracks(vec![MorphAnimation {
             name: "smile".into(),
             track: AnimationTrack::new(vec![0., 2.], values, mode),
         }]);
         assert_eq!(clip.duration(), 2.);
         clip.sample(1., &mut s);
-        let mut w = MorphWeights(vec![0.7, 0.3]);
+        let mut w = ponko::anim::MorphWeights(vec![0.7, 0.3]);
         s.write_morph_weights(&names, &mut w);
         assert_eq!(w.0, [expected, 0.3]);
     }
@@ -128,7 +143,7 @@ fn morphs_blend_in_trees_crossfades_and_masked_additive_layers() {
     let mut animator = Animator::new(graph(vec![tree, Motion::Clip(b.clone()), Motion::Clip(a)]));
     let names = ["smile".into(), "untouched".into()];
     let read = |s: &Skeleton| {
-        let mut w = MorphWeights(vec![0., 0.3]);
+        let mut w = ponko::anim::MorphWeights(vec![0., 0.3]);
         s.write_morph_weights(&names, &mut w);
         w.0
     };
@@ -144,7 +159,7 @@ fn morphs_blend_in_trees_crossfades_and_masked_additive_layers() {
     let mut layer = AnimationLayer::new(graph(vec![Motion::Clip(b)]));
     layer.mode = LayerBlend::Additive;
     layer.weight = 0.5;
-    layer.mask = Some(JointMask::new(vec![]));
+    layer.mask = Some(ponko::anim::JointMask::new(vec![]));
     animator.add_layer(layer);
     animator.play(2, 0.);
     animator.update(0., &mut s);
@@ -167,23 +182,25 @@ fn automatic_morph_only_animation_writes_components_and_attachments_without_drif
         let material = ctx.gfx.default_material();
         let mesh = ctx.gfx.create_mesh(&mesh, material);
         let skeleton = Skeleton::new(vec![]);
-        let base = AnimationClip::new("idle", &skeleton, vec![]);
+        let base = ponko::anim::AnimationClip::new("idle", &skeleton, vec![]);
         let mut animator = Animator::new(graph(vec![Motion::Clip(base)]));
         let mut layer = AnimationLayer::new(graph(vec![Motion::Clip(morph_clip(&skeleton, "smile", 0.4))]));
         layer.mode = LayerBlend::Additive;
         layer.weight = 0.5;
         animator.add_layer(layer);
         let owner = ctx.world.spawn((skeleton, animator));
-        let model = ctx
-            .world
-            .spawn((Model::new(mesh), SkinOf(owner), MorphWeights(vec![0.2, 0.7])));
+        let model = ctx.world.spawn((
+            Model::new(mesh),
+            SkinOf(owner),
+            ponko::anim::MorphWeights(vec![0.2, 0.7]),
+        ));
         for _ in 0..3 {
             let mut q = ctx.world.query::<(&mut Animator, &mut Skeleton)>();
             let (a, s) = q.get(owner).unwrap();
             a.update(0., s);
             drop(q);
             ctx.gfx.write_animated_morphs(&mut ctx.world);
-            assert_eq!(ctx.world.get::<MorphWeights>(model).unwrap().0, [0.4, 0.7]);
+            assert_eq!(ctx.world.get::<ponko::anim::MorphWeights>(model).unwrap().0, [0.4, 0.7]);
         }
     });
 }
@@ -209,10 +226,10 @@ fn morphs_blend_in_2d_and_override_layers_without_touching_other_targets() {
     let mut animator = Animator::new(graph);
     let mut layer = AnimationLayer::new(crate::graph(vec![Motion::Clip(morph_clip(&skeleton, "smile", 1.))]));
     layer.weight = 0.5;
-    layer.mask = Some(JointMask::new(vec![]));
+    layer.mask = Some(ponko::anim::JointMask::new(vec![]));
     animator.add_layer(layer);
     animator.update(0., &mut skeleton);
-    let mut weights = MorphWeights(vec![0., 0.7]);
+    let mut weights = ponko::anim::MorphWeights(vec![0., 0.7]);
     skeleton.write_morph_weights(&["smile".into(), "other".into()], &mut weights);
     assert_eq!(weights.0, [0.75, 0.7]);
 }

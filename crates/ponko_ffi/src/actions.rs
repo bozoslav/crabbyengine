@@ -3,7 +3,10 @@ use crate::ctx::{ctx_access, out};
 use crate::keys::{button_from_c, gamepad_axis_from_c, gamepad_button_from_c, key_from_c};
 use crate::types::{CrabbyVec2, to_c};
 use crate::{CrabbyCtx, CrabbyStatus, Failure, boundary, invalid, invalid_owned};
-use ponko::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding, Gamepad, GamepadStick, InputEvent};
+use ponko::actions::InputEvent;
+use ponko::input::Gamepad;
+use ponko::input::GamepadStick;
+use ponko::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding};
 use std::ffi::{CStr, c_char};
 
 /// Owned binding configuration. Install a copy with `crabby_ctx_set_actions`.
@@ -85,10 +88,10 @@ fn key(value: u32) -> Result<ponko::Key, Failure> {
 fn mouse(value: u32) -> Result<ponko::MouseButton, Failure> {
     button_from_c(value).ok_or_else(|| invalid("unknown mouse button"))
 }
-fn button(value: u32) -> Result<ponko::GamepadButton, Failure> {
+fn button(value: u32) -> Result<ponko::input::GamepadButton, Failure> {
     gamepad_button_from_c(value).ok_or_else(|| invalid("unknown gamepad button"))
 }
-fn axis(value: u32) -> Result<ponko::GamepadAxis, Failure> {
+fn axis(value: u32) -> Result<ponko::input::GamepadAxis, Failure> {
     gamepad_axis_from_c(value).ok_or_else(|| invalid("unknown gamepad axis"))
 }
 

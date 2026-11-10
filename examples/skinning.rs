@@ -1,11 +1,17 @@
 //! Procedural tentacles: `cargo run --example skinning --features 3d`.
 //! Escape quits. All visible geometry is built in code.
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::anim::Joint;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
 
 const JOINTS: usize = 8;
 const STEP: f32 = 0.5;
 struct Sway(f32);
-struct Bend(AnimationClip);
+struct Bend(ponko::anim::AnimationClip);
 
 // ANCHOR: skin_chain
 fn chain() -> Skeleton {
@@ -14,7 +20,7 @@ fn chain() -> Skeleton {
             .map(|i| Joint {
                 name: format!("joint_{i}"),
                 parent: i.checked_sub(1),
-                rest: Transform3D::at(Vec3::Y * if i == 0 { 0.0 } else { STEP }),
+                rest: Transform::at(Vec3::Y * if i == 0 { 0.0 } else { STEP }),
             })
             .collect(),
     )
@@ -85,18 +91,18 @@ fn load_character(ctx: &mut Ctx) {
     let mesh = ctx.gfx.load_mesh("models/character.glb");
     let skeleton = ctx.gfx.load_skeleton("models/character.glb");
     let hand = skeleton.find("hand_r").expect("model needs hand_r");
-    let character = ctx.world.spawn((Transform3D::default(), Model::new(mesh), skeleton));
+    let character = ctx.world.spawn((Transform::default(), Model::new(mesh), skeleton));
     let skeleton = ctx.world.get_mut::<Skeleton>(character).unwrap();
     skeleton.pose[hand].rotation = Quat::from_rotation_y(0.3);
     let local_hand = skeleton.joint_matrix(hand);
-    let transform = ctx.world.get::<Transform3D>(character).unwrap();
+    let transform = ctx.world.get::<Transform>(character).unwrap();
     let world_hand = (transform.matrix() * local_hand).transform_point3(Vec3::ZERO);
     println!("Hand at {world_hand}");
     // ANCHOR_END: skin_load
 }
 
 // ANCHOR: clip_code
-fn bend_clip(skeleton: &Skeleton) -> AnimationClip {
+fn bend_clip(skeleton: &Skeleton) -> ponko::anim::AnimationClip {
     let rotation = AnimationTrack::new(
         vec![0.0, 1.0, 2.0],
         [0.0, 0.3, 0.0]
@@ -104,7 +110,7 @@ fn bend_clip(skeleton: &Skeleton) -> AnimationClip {
             .to_vec(),
         Interpolation::Linear,
     );
-    AnimationClip::new(
+    ponko::anim::AnimationClip::new(
         "bend",
         skeleton,
         vec![JointAnimation {
@@ -125,7 +131,7 @@ fn play_clips(ctx: &mut Ctx) {
     let walk = ctx.gfx.load_clip("models/character.glb", "walk");
     let run = ctx.gfx.load_clip("models/character.glb", "run");
     let time = ctx.time.elapsed() as f32;
-    let loop_time = |clip: &AnimationClip| {
+    let loop_time = |clip: &ponko::anim::AnimationClip| {
         if clip.duration() > 0.0 {
             time.rem_euclid(clip.duration())
         } else {
@@ -141,7 +147,7 @@ fn play_clips(ctx: &mut Ctx) {
 
 // ANCHOR: animator_graph
 fn bend_animator(skeleton: &Skeleton) -> Animator {
-    let idle = AnimationClip::new("idle", skeleton, vec![]);
+    let idle = ponko::anim::AnimationClip::new("idle", skeleton, vec![]);
     let bend = bend_clip(skeleton);
     let states = vec![
         AnimationState::new(Motion::Clip(idle)),
@@ -183,12 +189,12 @@ fn animate_now() {
 }
 
 #[allow(dead_code)]
-fn layers_and_root_motion(skeleton: &Skeleton, wave: AnimationClip) -> Animator {
+fn layers_and_root_motion(skeleton: &Skeleton, wave: ponko::anim::AnimationClip) -> Animator {
     // ANCHOR: animator_layers
     let mut animator = bend_animator(skeleton);
     let waving = AnimationGraph::new(vec![], vec![AnimationState::new(Motion::Clip(wave))], vec![], 0);
     let mut layer = AnimationLayer::new(waving);
-    layer.mask = JointMask::descendants(skeleton, "joint_3"); // that joint and its children
+    layer.mask = ponko::anim::JointMask::descendants(skeleton, "joint_3"); // that joint and its children
     layer.weight = 0.8;
     let wave = animator.add_layer(layer);
     animator.layer_mut(wave).weight = 0.5; // fade it any time; its graph has its own parameters
@@ -210,7 +216,7 @@ fn main() {
             let gold = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0xF2BD50)));
             let white = ctx.gfx.default_material();
             let ground = ctx.gfx.create_mesh(&MeshData::plane(20.0), white);
-            ctx.world.spawn((Transform3D::default(), Model::new(ground)));
+            ctx.world.spawn((Transform::default(), Model::new(ground)));
             // ANCHOR: skin_create
             let skeleton = chain();
             let mesh = ctx.gfx.create_skinned_mesh(&tube(0.0, 3.5, 0.22), green, &skeleton);
@@ -221,7 +227,7 @@ fn main() {
             let bend = bend_clip(&skeleton);
             for i in 0..3 {
                 let tentacle = ctx.world.spawn((
-                    Transform3D::at(vec3((i as f32 - 1.0) * 2.5, 0.0, 0.0)),
+                    Transform::at(vec3((i as f32 - 1.0) * 2.5, 0.0, 0.0)),
                     Model::new(mesh),
                     skeleton.clone(),
                     Sway(i as f32 * 1.8),
@@ -235,12 +241,12 @@ fn main() {
                     ctx.world.spawn((Model::new(band), SkinOf(tentacle)));
                     let tip = skeleton.find("joint_7").unwrap();
                     ctx.world.spawn((
-                        Transform3D::default(),
+                        Transform::default(),
                         Model::new(ball),
                         AttachToJoint {
                             skeleton: tentacle,
                             joint: tip,
-                            offset: Transform3D::at(vec3(0.0, 0.12, 0.0)),
+                            offset: Transform::at(vec3(0.0, 0.12, 0.0)),
                         },
                     ));
                     // ANCHOR_END: skin_parts
@@ -256,13 +262,13 @@ fn main() {
 fn procedural_pose(ctx: &mut Ctx) {
     let target = vec3(0.7, 0.6, 0.2);
     ctx.world
-        .query::<(&Transform3D, &mut Skeleton)>()
+        .query::<(&Transform, &mut Skeleton)>()
         .for_each(|(world, skeleton)| {
-            two_bone_ik(skeleton, world, [0, 1, 2], target, Vec3::Z, 1.0);
+            ponko::render::two_bone_ik(skeleton, world, [0, 1, 2], target, Vec3::Z, 1.0);
             // Apply parent first when distributing aim across spine/neck/head.
-            look_at_joint(skeleton, world, 5, Vec3::Y, target, 0.3, 0.2);
-            look_at_joint(skeleton, world, 6, Vec3::Y, target, 0.5, 0.5);
-            look_at_joint(skeleton, world, 7, Vec3::Y, target, 0.8, 1.0);
+            ponko::render::look_at_joint(skeleton, world, 5, Vec3::Y, target, 0.3, 0.2);
+            ponko::render::look_at_joint(skeleton, world, 6, Vec3::Y, target, 0.5, 0.5);
+            ponko::render::look_at_joint(skeleton, world, 7, Vec3::Y, target, 0.8, 1.0);
         });
 }
 

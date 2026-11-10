@@ -10,11 +10,11 @@ use glam::{Quat, Vec2, Vec3};
 /// implement it for your own state to use [`SnapshotBuffer`] with it.
 ///
 /// ```
-/// use ponko::{Interpolate, SnapshotBuffer};
+/// use ponko::net::{Interpolate, SnapshotBuffer};
 ///
 /// #[derive(Clone, Copy, Debug, PartialEq)]
 /// struct Health(f32);
-/// impl Interpolate for Health {
+/// impl ponko::net::Interpolate for Health {
 ///     fn interpolate(a: &Self, b: &Self, _span: f32, t: f32) -> Self {
 ///         Health(a.0 + (b.0 - a.0) * t)
 ///     }
@@ -22,7 +22,7 @@ use glam::{Quat, Vec2, Vec3};
 ///         *last // don't predict
 ///     }
 /// }
-/// let mut buffer = SnapshotBuffer::new();
+/// let mut buffer = ponko::net::SnapshotBuffer::new();
 /// buffer.push(0.0, Health(0.0));
 /// buffer.push(1.0, Health(10.0));
 /// assert_eq!(buffer.sample_at(0.5).unwrap().value, Health(5.0));
@@ -90,10 +90,11 @@ impl Interpolate for Quat {
 /// snapshots when there is none; rotation is held.
 ///
 /// ```
-/// use ponko::{Interpolate, Pose, vec3};
-/// let a = Pose::at(vec3(0.0, 0.0, 0.0));
-/// let b = Pose::at(vec3(10.0, 0.0, 0.0));
-/// let mid = Pose::interpolate(&a, &b, 1.0, 0.5);
+/// use ponko::net::{Interpolate, Pose};
+/// use ponko::prelude::*;
+/// let a = ponko::net::Pose::at(vec3(0.0, 0.0, 0.0));
+/// let b = ponko::net::Pose::at(vec3(10.0, 0.0, 0.0));
+/// let mid = ponko::net::Pose::interpolate(&a, &b, 1.0, 0.5);
 /// assert_eq!(mid.position, vec3(5.0, 0.0, 0.0));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -113,7 +114,7 @@ impl Default for Pose {
 impl Pose {
     /// At `position`, not rotated, without a velocity.
     /// ```
-    /// let p = ponko::Pose::at(ponko::vec3(1.0, 2.0, 3.0));
+    /// let p = ponko::net::Pose::at(ponko::vec3(1.0, 2.0, 3.0));
     /// assert!(p.velocity.is_none());
     /// ```
     pub const fn at(position: Vec3) -> Self {
@@ -126,8 +127,8 @@ impl Pose {
 
     /// The same pose facing `rotation`.
     /// ```
-    /// use ponko::*;
-    /// let p = Pose::at(Vec3::ZERO).facing(Quat::from_rotation_y(1.0));
+    /// use ponko::prelude::*;
+    /// let p = ponko::net::Pose::at(Vec3::ZERO).facing(Quat::from_rotation_y(1.0));
     /// assert_ne!(p.rotation, Quat::IDENTITY);
     /// ```
     #[must_use]
@@ -137,8 +138,8 @@ impl Pose {
 
     /// The same pose moving at `velocity`.
     /// ```
-    /// use ponko::*;
-    /// let p = Pose::at(Vec3::ZERO).moving(vec3(0.0, 0.0, 5.0));
+    /// use ponko::prelude::*;
+    /// let p = ponko::net::Pose::at(Vec3::ZERO).moving(vec3(0.0, 0.0, 5.0));
     /// assert_eq!(p.velocity, Some(vec3(0.0, 0.0, 5.0)));
     /// ```
     #[must_use]
@@ -187,7 +188,7 @@ impl Interpolate for Pose {
 
 /// How a [`SnapshotSample`] was produced.
 /// ```
-/// assert_ne!(ponko::SnapshotState::Interpolated, ponko::SnapshotState::Held);
+/// assert_ne!(ponko::net::SnapshotState::Interpolated, ponko::net::SnapshotState::Held);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapshotState {
@@ -203,11 +204,11 @@ pub enum SnapshotState {
 
 /// A state read from a [`SnapshotBuffer`] or [`SnapshotStream`].
 /// ```
-/// use ponko::*;
-/// let mut b = SnapshotBuffer::new();
+/// use ponko::prelude::*;
+/// let mut b = ponko::net::SnapshotBuffer::new();
 /// b.push(1.0, 5.0f32);
 /// let s = b.sample_at(0.0).unwrap();
-/// assert_eq!((s.value, s.state), (5.0, SnapshotState::Held));
+/// assert_eq!((s.value, s.state), (5.0, ponko::net::SnapshotState::Held));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SnapshotSample<T> {
@@ -219,7 +220,7 @@ pub struct SnapshotSample<T> {
 
 /// Tuning for [`SnapshotBuffer`] and [`SnapshotStream`].
 /// ```
-/// let c = ponko::SnapshotConfig::default();
+/// let c = ponko::net::SnapshotConfig::default();
 /// assert_eq!((c.delay, c.max_extrapolation, c.capacity), (0.1, 0.25, 64));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -248,9 +249,9 @@ impl SnapshotConfig {
     /// Checks the settings: `capacity` at least 2, and the times finite and
     /// not negative. The constructors panic with this message.
     /// ```
-    /// use ponko::SnapshotConfig;
-    /// assert!(SnapshotConfig::default().validate().is_ok());
-    /// assert!(SnapshotConfig { capacity: 1, ..Default::default() }.validate().is_err());
+    /// use ponko::net::SnapshotConfig;
+    /// assert!(ponko::net::SnapshotConfig::default().validate().is_ok());
+    /// assert!(ponko::net::SnapshotConfig { capacity: 1, ..Default::default() }.validate().is_err());
     /// ```
     pub fn validate(&self) -> Result<(), &'static str> {
         if self.capacity < 2 {
@@ -268,7 +269,7 @@ impl SnapshotConfig {
 
 /// What happened to a snapshot given to [`SnapshotBuffer::push`].
 /// ```
-/// assert_ne!(ponko::SnapshotPush::Added, ponko::SnapshotPush::Duplicate);
+/// assert_ne!(ponko::net::SnapshotPush::Added, ponko::net::SnapshotPush::Duplicate);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SnapshotPush {
@@ -291,19 +292,19 @@ pub enum SnapshotPush {
 /// Snapshots may arrive in any order and more than once.
 ///
 /// ```
-/// use ponko::*;
-/// let mut buffer = SnapshotBuffer::new();
+/// use ponko::prelude::*;
+/// let mut buffer = ponko::net::SnapshotBuffer::new();
 /// buffer.push(1.0, vec3(10.0, 0.0, 0.0));
 /// buffer.push(0.0, vec3(0.0, 0.0, 0.0)); // arrived late: still placed first
-/// assert_eq!(buffer.push(1.0, vec3(99.0, 0.0, 0.0)), SnapshotPush::Duplicate);
+/// assert_eq!(buffer.push(1.0, vec3(99.0, 0.0, 0.0)), ponko::net::SnapshotPush::Duplicate);
 ///
 /// let s = buffer.sample_at(0.25).unwrap();
 /// assert_eq!(s.value, vec3(2.5, 0.0, 0.0));
-/// assert_eq!(s.state, SnapshotState::Interpolated);
+/// assert_eq!(s.state, ponko::net::SnapshotState::Interpolated);
 /// // Packets stop: predict for up to 0.25 s, then hold.
-/// assert_eq!(buffer.sample_at(1.1).unwrap().state, SnapshotState::Extrapolated);
+/// assert_eq!(buffer.sample_at(1.1).unwrap().state, ponko::net::SnapshotState::Extrapolated);
 /// let held = buffer.sample_at(5.0).unwrap();
-/// assert_eq!(held.state, SnapshotState::Held);
+/// assert_eq!(held.state, ponko::net::SnapshotState::Held);
 /// assert_eq!(held.value, vec3(12.5, 0.0, 0.0));
 /// ```
 #[derive(Clone, Debug)]
@@ -319,7 +320,7 @@ impl<T: Interpolate> Default for SnapshotBuffer<T> {
 impl<T: Interpolate> SnapshotBuffer<T> {
     /// An empty buffer with the default [`SnapshotConfig`].
     /// ```
-    /// let b = ponko::SnapshotBuffer::<f32>::new();
+    /// let b = ponko::net::SnapshotBuffer::<f32>::new();
     /// assert!(b.is_empty());
     /// ```
     pub fn new() -> Self {
@@ -329,8 +330,8 @@ impl<T: Interpolate> SnapshotBuffer<T> {
     /// An empty buffer. Panics if `capacity` is below 2 or a time setting is
     /// negative or not finite.
     /// ```
-    /// use ponko::*;
-    /// let b = SnapshotBuffer::<f32>::with_config(SnapshotConfig { delay: 0.2, ..Default::default() });
+    /// use ponko::prelude::*;
+    /// let b = ponko::net::SnapshotBuffer::<f32>::with_config(ponko::net::SnapshotConfig { delay: 0.2, ..Default::default() });
     /// assert_eq!(b.config().delay, 0.2);
     /// ```
     pub fn with_config(config: SnapshotConfig) -> Self {
@@ -345,7 +346,7 @@ impl<T: Interpolate> SnapshotBuffer<T> {
 
     /// The settings it was made with.
     /// ```
-    /// assert_eq!(ponko::SnapshotBuffer::<f32>::new().config().delay, 0.1);
+    /// assert_eq!(ponko::net::SnapshotBuffer::<f32>::new().config().delay, 0.1);
     /// ```
     pub fn config(&self) -> SnapshotConfig {
         self.config
@@ -355,11 +356,11 @@ impl<T: Interpolate> SnapshotBuffer<T> {
     /// time; one with the same timestamp as a stored snapshot is ignored.
     /// When the buffer is full the oldest snapshot is dropped.
     /// ```
-    /// use ponko::*;
-    /// let mut b = SnapshotBuffer::new();
-    /// assert_eq!(b.push(1.0, 1.0f32), SnapshotPush::Added);
-    /// assert_eq!(b.push(1.0, 1.0f32), SnapshotPush::Duplicate);
-    /// assert_eq!(b.push(f64::NAN, 1.0f32), SnapshotPush::Invalid);
+    /// use ponko::prelude::*;
+    /// let mut b = ponko::net::SnapshotBuffer::new();
+    /// assert_eq!(b.push(1.0, 1.0f32), ponko::net::SnapshotPush::Added);
+    /// assert_eq!(b.push(1.0, 1.0f32), ponko::net::SnapshotPush::Duplicate);
+    /// assert_eq!(b.push(f64::NAN, 1.0f32), ponko::net::SnapshotPush::Invalid);
     /// ```
     pub fn push(&mut self, time: f64, value: T) -> SnapshotPush {
         if !time.is_finite() {
@@ -387,8 +388,8 @@ impl<T: Interpolate> SnapshotBuffer<T> {
     /// where the prediction ended; before the oldest, the oldest. `None`
     /// while the buffer is empty. Allocation free.
     /// ```
-    /// use ponko::*;
-    /// let mut b = SnapshotBuffer::new();
+    /// use ponko::prelude::*;
+    /// let mut b = ponko::net::SnapshotBuffer::new();
     /// assert!(b.sample_at(0.0).is_none());
     /// b.push(0.0, 0.0f32);
     /// b.push(1.0, 4.0);
@@ -438,8 +439,8 @@ impl<T: Interpolate> SnapshotBuffer<T> {
     /// The state to show at `now`, [`delay`](SnapshotConfig::delay) seconds
     /// in the past; for buffers filled with times from the clock `now` is on.
     /// ```
-    /// use ponko::*;
-    /// let mut b = SnapshotBuffer::new();
+    /// use ponko::prelude::*;
+    /// let mut b = ponko::net::SnapshotBuffer::new();
     /// b.push(0.0, 0.0f32);
     /// b.push(1.0, 10.0);
     /// assert_eq!(b.sample(0.6).unwrap().value, 5.0); // 0.6 - 0.1 s delay
@@ -450,7 +451,7 @@ impl<T: Interpolate> SnapshotBuffer<T> {
 
     /// Timestamp of the newest snapshot.
     /// ```
-    /// let mut b = ponko::SnapshotBuffer::new();
+    /// let mut b = ponko::net::SnapshotBuffer::new();
     /// b.push(2.0, 0.0f32);
     /// assert_eq!(b.latest_time(), Some(2.0));
     /// ```
@@ -460,7 +461,7 @@ impl<T: Interpolate> SnapshotBuffer<T> {
 
     /// Timestamp of the oldest snapshot kept.
     /// ```
-    /// let mut b = ponko::SnapshotBuffer::new();
+    /// let mut b = ponko::net::SnapshotBuffer::new();
     /// b.push(2.0, 0.0f32);
     /// assert_eq!(b.oldest_time(), Some(2.0));
     /// ```
@@ -470,7 +471,7 @@ impl<T: Interpolate> SnapshotBuffer<T> {
 
     /// Number of snapshots kept.
     /// ```
-    /// assert_eq!(ponko::SnapshotBuffer::<f32>::new().len(), 0);
+    /// assert_eq!(ponko::net::SnapshotBuffer::<f32>::new().len(), 0);
     /// ```
     pub fn len(&self) -> usize {
         self.samples.len()
@@ -478,7 +479,7 @@ impl<T: Interpolate> SnapshotBuffer<T> {
 
     /// Whether no snapshot is kept.
     /// ```
-    /// assert!(ponko::SnapshotBuffer::<f32>::new().is_empty());
+    /// assert!(ponko::net::SnapshotBuffer::<f32>::new().is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {
         self.samples.is_empty()
@@ -487,7 +488,7 @@ impl<T: Interpolate> SnapshotBuffer<T> {
     /// Drops every snapshot. Do this on a teleport, a respawn or a restart
     /// of the sender's clock, so the entity jumps instead of sliding across.
     /// ```
-    /// let mut b = ponko::SnapshotBuffer::new();
+    /// let mut b = ponko::net::SnapshotBuffer::new();
     /// b.push(0.0, 0.0f32);
     /// b.clear();
     /// assert!(b.is_empty());
@@ -499,7 +500,7 @@ impl<T: Interpolate> SnapshotBuffer<T> {
     /// Drops snapshots that can no longer be shown at `time` or later: all
     /// but the newest one at or before it.
     /// ```
-    /// let mut b = ponko::SnapshotBuffer::new();
+    /// let mut b = ponko::net::SnapshotBuffer::new();
     /// for i in 0..5 { b.push(i as f64, 0.0f32); }
     /// b.trim_before(3.5);
     /// assert_eq!(b.oldest_time(), Some(3.0));
@@ -526,8 +527,8 @@ const CLOCK_JUMP_CONFIRM: u32 = 8;
 /// trip time, which is what interpolation wants anyway.
 ///
 /// ```
-/// use ponko::ClockSync;
-/// let mut clock = ClockSync::new();
+/// use ponko::net::ClockSync;
+/// let mut clock = ponko::net::ClockSync::new();
 /// // The sender's clock runs 1000 s ahead of ours; packets take 30–80 ms.
 /// for i in 0..50 {
 ///     let sent = 1000.0 + i as f64 * 0.05;
@@ -557,7 +558,7 @@ impl Default for ClockSync {
 impl ClockSync {
     /// A clock with no samples yet.
     /// ```
-    /// assert!(ponko::ClockSync::new().offset().is_none());
+    /// assert!(ponko::net::ClockSync::new().offset().is_none());
     /// ```
     pub fn new() -> Self {
         Self {
@@ -576,7 +577,7 @@ impl ClockSync {
     /// arrived at `local_now` (our clock, seconds). Call it for every packet,
     /// including late and duplicate ones. Ignores non-finite numbers.
     /// ```
-    /// let mut c = ponko::ClockSync::new();
+    /// let mut c = ponko::net::ClockSync::new();
     /// c.observe(5.0, 105.0);
     /// assert_eq!(c.offset(), Some(100.0));
     /// ```
@@ -620,7 +621,7 @@ impl ClockSync {
 
     /// Local time minus remote time, once at least one packet was observed.
     /// ```
-    /// assert!(ponko::ClockSync::new().offset().is_none());
+    /// assert!(ponko::net::ClockSync::new().offset().is_none());
     /// ```
     pub fn offset(&self) -> Option<f64> {
         self.offset
@@ -628,7 +629,7 @@ impl ClockSync {
 
     /// The local time of a sender timestamp.
     /// ```
-    /// let mut c = ponko::ClockSync::new();
+    /// let mut c = ponko::net::ClockSync::new();
     /// c.observe(0.0, 50.0);
     /// assert_eq!(c.to_local(2.0), Some(52.0));
     /// ```
@@ -638,7 +639,7 @@ impl ClockSync {
 
     /// The sender's time at a local time.
     /// ```
-    /// let mut c = ponko::ClockSync::new();
+    /// let mut c = ponko::net::ClockSync::new();
     /// c.observe(0.0, 50.0);
     /// assert_eq!(c.to_remote(52.0), Some(2.0));
     /// ```
@@ -648,7 +649,7 @@ impl ClockSync {
 
     /// Packets in the estimate (at most 32).
     /// ```
-    /// assert_eq!(ponko::ClockSync::new().samples(), 0);
+    /// assert_eq!(ponko::net::ClockSync::new().samples(), 0);
     /// ```
     pub fn samples(&self) -> usize {
         self.filled
@@ -656,7 +657,7 @@ impl ClockSync {
 
     /// Forgets everything, for a new connection.
     /// ```
-    /// let mut c = ponko::ClockSync::new();
+    /// let mut c = ponko::net::ClockSync::new();
     /// c.observe(0.0, 1.0);
     /// c.reset();
     /// assert!(c.offset().is_none());
@@ -676,18 +677,18 @@ impl ClockSync {
 /// is cheap.
 ///
 /// ```
-/// use ponko::*;
-/// let mut stream = SnapshotStream::new();
+/// use ponko::prelude::*;
+/// let mut stream = ponko::net::SnapshotStream::new();
 /// // The sender stamps 20 snapshots per second with its own clock (which is
 /// // 500 s ahead); each takes 40 ms to arrive.
 /// for i in 0..10 {
 ///     let sent = 500.0 + i as f64 * 0.05;
 ///     let arrived = i as f64 * 0.05 + 0.04;
-///     stream.push(sent, arrived, Pose::at(vec3(i as f32, 0.0, 0.0)));
+///     stream.push(sent, arrived, ponko::net::Pose::at(vec3(i as f32, 0.0, 0.0)));
 /// }
 /// // Shown 100 ms in the past: x is 6.0 at local time 0.34 + 0.1 - 0.04.
 /// let s = stream.sample(0.4 + 0.04).unwrap();
-/// assert_eq!(s.state, SnapshotState::Interpolated);
+/// assert_eq!(s.state, ponko::net::SnapshotState::Interpolated);
 /// assert!((s.value.position.x - 6.0).abs() < 0.01);
 /// ```
 #[derive(Clone, Debug)]
@@ -703,7 +704,7 @@ impl<T: Interpolate> Default for SnapshotStream<T> {
 impl<T: Interpolate> SnapshotStream<T> {
     /// A stream with the default [`SnapshotConfig`].
     /// ```
-    /// assert!(ponko::SnapshotStream::<f32>::new().sample(0.0).is_none());
+    /// assert!(ponko::net::SnapshotStream::<f32>::new().sample(0.0).is_none());
     /// ```
     pub fn new() -> Self {
         Self::with_config(SnapshotConfig::default())
@@ -711,8 +712,8 @@ impl<T: Interpolate> SnapshotStream<T> {
 
     /// A stream with these settings (panics like [`SnapshotBuffer::with_config`]).
     /// ```
-    /// use ponko::*;
-    /// let s = SnapshotStream::<f32>::with_config(SnapshotConfig { delay: 0.05, ..Default::default() });
+    /// use ponko::prelude::*;
+    /// let s = ponko::net::SnapshotStream::<f32>::with_config(ponko::net::SnapshotConfig { delay: 0.05, ..Default::default() });
     /// assert_eq!(s.buffer().config().delay, 0.05);
     /// ```
     pub fn with_config(config: SnapshotConfig) -> Self {
@@ -725,10 +726,10 @@ impl<T: Interpolate> SnapshotStream<T> {
     /// Stores a snapshot stamped `remote_time` by the sender that arrived at
     /// our time `local_now`, and feeds the pair to the clock estimate.
     /// ```
-    /// use ponko::*;
-    /// let mut s = SnapshotStream::new();
-    /// assert_eq!(s.push(10.0, 0.5, 1.0f32), SnapshotPush::Added);
-    /// assert_eq!(s.push(10.0, 0.6, 1.0f32), SnapshotPush::Duplicate);
+    /// use ponko::prelude::*;
+    /// let mut s = ponko::net::SnapshotStream::new();
+    /// assert_eq!(s.push(10.0, 0.5, 1.0f32), ponko::net::SnapshotPush::Added);
+    /// assert_eq!(s.push(10.0, 0.6, 1.0f32), ponko::net::SnapshotPush::Duplicate);
     /// ```
     pub fn push(&mut self, remote_time: f64, local_now: f64, value: T) -> SnapshotPush {
         let result = self.buffer.push(remote_time, value);
@@ -741,8 +742,8 @@ impl<T: Interpolate> SnapshotStream<T> {
     /// The state to show at our time `now`: the sender's time at
     /// `now - delay`, read from the buffer. `None` until the first snapshot.
     /// ```
-    /// use ponko::*;
-    /// let mut s = SnapshotStream::new();
+    /// use ponko::prelude::*;
+    /// let mut s = ponko::net::SnapshotStream::new();
     /// s.push(0.0, 0.0, 0.0f32);
     /// s.push(1.0, 1.0, 10.0);
     /// assert_eq!(s.sample(0.6).unwrap().value, 5.0);
@@ -756,7 +757,7 @@ impl<T: Interpolate> SnapshotStream<T> {
     /// the link gets worse. Takes effect at once (the picture jumps).
     /// Panics if negative or not finite.
     /// ```
-    /// let mut s = ponko::SnapshotStream::<f32>::new();
+    /// let mut s = ponko::net::SnapshotStream::<f32>::new();
     /// s.set_delay(0.2);
     /// assert_eq!(s.buffer().config().delay, 0.2);
     /// ```
@@ -770,7 +771,7 @@ impl<T: Interpolate> SnapshotStream<T> {
 
     /// The clock estimate.
     /// ```
-    /// assert!(ponko::SnapshotStream::<f32>::new().clock().offset().is_none());
+    /// assert!(ponko::net::SnapshotStream::<f32>::new().clock().offset().is_none());
     /// ```
     pub fn clock(&self) -> &ClockSync {
         &self.clock
@@ -778,7 +779,7 @@ impl<T: Interpolate> SnapshotStream<T> {
 
     /// The stored snapshots, in the sender's time.
     /// ```
-    /// assert!(ponko::SnapshotStream::<f32>::new().buffer().is_empty());
+    /// assert!(ponko::net::SnapshotStream::<f32>::new().buffer().is_empty());
     /// ```
     pub fn buffer(&self) -> &SnapshotBuffer<T> {
         &self.buffer
@@ -786,7 +787,7 @@ impl<T: Interpolate> SnapshotStream<T> {
 
     /// Our time of the newest snapshot, if any.
     /// ```
-    /// let mut s = ponko::SnapshotStream::new();
+    /// let mut s = ponko::net::SnapshotStream::new();
     /// s.push(10.0, 0.5, 1.0f32);
     /// assert_eq!(s.latest_local_time(), Some(0.5));
     /// ```
@@ -796,7 +797,7 @@ impl<T: Interpolate> SnapshotStream<T> {
 
     /// Forgets all snapshots, keeping the clock estimate: a teleport or respawn.
     /// ```
-    /// let mut s = ponko::SnapshotStream::new();
+    /// let mut s = ponko::net::SnapshotStream::new();
     /// s.push(10.0, 0.5, 1.0f32);
     /// s.clear();
     /// assert!(s.sample(1.0).is_none());
@@ -807,7 +808,7 @@ impl<T: Interpolate> SnapshotStream<T> {
 
     /// Forgets snapshots and the clock estimate: a new connection.
     /// ```
-    /// let mut s = ponko::SnapshotStream::new();
+    /// let mut s = ponko::net::SnapshotStream::new();
     /// s.push(10.0, 0.5, 1.0f32);
     /// s.reset();
     /// assert!(s.clock().offset().is_none());
@@ -819,19 +820,19 @@ impl<T: Interpolate> SnapshotStream<T> {
 }
 
 /// Component: a remote entity's incoming [`Pose`] snapshots, applied to its
-/// [`Transform3D`](crate::Transform3D) by [`apply_net_poses`]. Push each
+/// [`Transform3D`](crate::d3::Transform) by [`apply_net_poses`]. Push each
 /// decoded update from your message handler with `ctx.time.elapsed()` as the
 /// arrival time.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// let world = Game::new("remote", 1, 1)
 ///     .system(systems::apply_net_poses)
 ///     .run_headless(60, |ctx| {
-///         let mut pose = NetPose::default();
-///         pose.stream.push(0.0, 0.0, Pose::at(vec3(0.0, 0.0, 0.0)));
-///         pose.stream.push(1.0, 1.0, Pose::at(vec3(100.0, 0.0, 0.0)));
-///         ctx.world.spawn((Transform3D::default(), pose));
+///         let mut pose = ponko::net::NetPose::default();
+///         pose.stream.push(0.0, 0.0, ponko::net::Pose::at(vec3(0.0, 0.0, 0.0)));
+///         pose.stream.push(1.0, 1.0, ponko::net::Pose::at(vec3(100.0, 0.0, 0.0)));
+///         ctx.world.spawn((ponko::d3::Transform::default(), pose));
 ///     });
 /// # let _ = world;
 /// ```
@@ -842,7 +843,7 @@ pub struct NetPose {
     pub stream: SnapshotStream<Pose>,
 }
 
-/// System: sets the [`Transform3D`](crate::Transform3D) position and rotation
+/// System: sets the [`Transform3D`](crate::d3::Transform) position and rotation
 /// of every entity with a [`NetPose`] from its stream, sampled at
 /// `ctx.time.elapsed()` (scale is left alone). Entities without snapshots stay
 /// where they are. Add it with [`Game::system`](crate::Game::system), so entities
@@ -850,14 +851,14 @@ pub struct NetPose {
 /// `ctx.time.elapsed()`, so push with that clock.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// let _ = Game::new("remote", 1, 1).system(systems::apply_net_poses);
 /// ```
 #[cfg(feature = "3d")]
 pub fn apply_net_poses(ctx: &mut crate::Ctx) {
     let now = ctx.time.elapsed();
     ctx.world
-        .query::<(&NetPose, &mut crate::Transform3D)>()
+        .query::<(&NetPose, &mut crate::d3::Transform)>()
         .for_each(|(pose, transform)| {
             if let Some(sample) = pose.stream.sample(now) {
                 transform.position = sample.value.position;

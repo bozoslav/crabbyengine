@@ -5,7 +5,10 @@
 use std::ffi::{CString, c_char};
 use std::time::Duration;
 
-use ponko::{Lane, MessageEvent, NetMessages, PeerId};
+use ponko::net::Lane;
+use ponko::net::MessageEvent;
+use ponko::net::NetMessages;
+use ponko::net::PeerId;
 
 use crate::ctx::{out, text};
 use crate::{CrabbyStatus, Failure, boundary, invalid, invalid_owned};

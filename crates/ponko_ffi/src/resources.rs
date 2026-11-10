@@ -31,7 +31,7 @@ fn resource_layout(size: usize, alignment: usize) -> Result<Layout, Failure> {
 }
 
 fn same_layout(world: &ponko::World, name: &str, layout: Layout) -> Result<(), Failure> {
-    match world.resource_layout_dynamic(name) {
+    match world.raw_ref().resource_layout_dynamic(name) {
         Some(existing) if existing != layout => Err(invalid("resource exists with a different size or alignment")),
         _ => Ok(()),
     }
@@ -74,7 +74,7 @@ pub unsafe extern "C" fn crabby_resource_set(
             access(world, |w, _| {
                 same_layout(w, name, layout)?;
                 // SAFETY: the layout matches, `data` holds `size` bytes of a plain value.
-                w.insert_resource_dynamic(name, layout, data.cast());
+                w.raw().insert_resource_dynamic(name, layout, data.cast());
                 Ok(())
             })
         }
@@ -112,12 +112,13 @@ pub unsafe extern "C" fn crabby_resource_get(
         unsafe {
             access(world, |w, _| {
                 let layout = w
+                    .raw_ref()
                     .resource_layout_dynamic(name)
                     .ok_or_else(|| error(CrabbyStatus::CRABBY_NOT_FOUND, "resource not found"))?;
                 if layout.size() != size {
                     return Err(invalid("resource copy size does not match"));
                 }
-                let from = w.get_resource_dynamic(name).expect("layout implies presence");
+                let from = w.raw_ref().get_resource_dynamic(name).expect("layout implies presence");
                 // SAFETY: both hold `size` bytes; the world's copy is separate memory.
                 std::ptr::copy_nonoverlapping(from, out.cast::<u8>(), size);
                 Ok(())
@@ -147,7 +148,7 @@ pub unsafe extern "C" fn crabby_resource_remove(world: *mut CrabbyWorld, name: *
         // SAFETY: access validates null and guards the live handle.
         unsafe {
             access(world, |w, _| {
-                if w.remove_resource_dynamic(name) {
+                if w.raw().remove_resource_dynamic(name) {
                     Ok(())
                 } else {
                     Err(error(CrabbyStatus::CRABBY_NOT_FOUND, "resource not found"))

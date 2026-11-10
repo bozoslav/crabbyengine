@@ -1,7 +1,10 @@
 //! Physics: the same pile of boxes stepped through Ponko (`Game::physics`,
 //! components synced every tick) and through rapier directly. The gap is
 //! what Ponko's sync costs.
-use ponko::{Collider, Game, RigidBody, Transform2D, vec2};
+use ponko::d2::Collider;
+use ponko::d2::RigidBody;
+use ponko::d2::Transform as Transform2D;
+use ponko::{Game, vec2};
 use rapier2d::prelude as rp;
 
 use crate::Bench;

@@ -22,7 +22,8 @@ use std::time::Duration;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::{Instant, World, WorldReflect};
+use crate::perf::Instant;
+use crate::{World, WorldReflect};
 
 #[cfg(test)]
 mod message_conformance;
@@ -45,13 +46,14 @@ pub use snapshots::{
 pub use snapshots::{NetPose, apply_net_poses};
 
 #[cfg(feature = "steam")]
-mod steam;
-#[cfg(feature = "steam")]
 mod steam_messages;
 #[cfg(feature = "steam")]
-pub use steam::{steam_lobby_from_args, steam_wait_for_invite};
+#[path = "net/steam.rs"]
+mod steam_transport;
 #[cfg(feature = "steam")]
 pub use steam_messages::{SteamLobby, SteamLobbyVisibility};
+#[cfg(feature = "steam")]
+pub use steam_transport::{steam_lobby_from_args, steam_wait_for_invite};
 
 /// The most players in one session.
 pub const MAX_PLAYERS: usize = 8;
@@ -101,8 +103,8 @@ pub enum NetState {
 /// The peers' worlds stopped matching: from `tick` on, they're different games.
 ///
 /// ```
-/// # use ponko::*;
-/// let d = Desync { tick: 120, player: 1, components: vec!["Transform2D".into()] };
+/// # use ponko::prelude::*;
+/// let d = ponko::net::Desync { tick: 120, player: 1, components: vec!["Transform2D".into()] };
 /// assert!(d.to_string().contains("Transform2D"));
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -130,8 +132,8 @@ impl std::fmt::Display for Desync {
 /// What a session has sent so far ([`Net::stats`]).
 ///
 /// ```
-/// # use ponko::*;
-/// assert_eq!(Net::default().stats().bytes_sent, 0);
+/// # use ponko::prelude::*;
+/// assert_eq!(ponko::net::Net::default().stats().bytes_sent, 0);
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct NetStats {
@@ -151,7 +153,7 @@ pub struct NetStats {
 /// and read everyone's with [`input`](Self::input) in simulation systems:
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// use serde::{Deserialize, Serialize};
 ///
 /// #[derive(Serialize, Deserialize)]
@@ -226,8 +228,8 @@ impl Net {
     /// [`local_addr`](Self::local_addr). The game starts once everyone joined.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let net = Net::host("127.0.0.1:0", 2).unwrap();
+    /// # use ponko::prelude::*;
+    /// let net = ponko::net::Net::host("127.0.0.1:0", 2).unwrap();
     /// assert!(net.local_addr().unwrap().port() != 0);
     /// ```
     ///
@@ -248,9 +250,9 @@ impl Net {
     /// sides must use the same [`Game::seed`](crate::Game::seed).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let net = Net::join("127.0.0.1:7777").unwrap();
-    /// assert_eq!(net.state(), NetState::Connecting);
+    /// # use ponko::prelude::*;
+    /// let net = ponko::net::Net::join("127.0.0.1:7777").unwrap();
+    /// assert_eq!(net.state(), ponko::net::NetState::Connecting);
     /// ```
     ///
     /// # Errors
@@ -274,8 +276,8 @@ impl Net {
     /// tests, or bots in one process. Run each in its own game (and thread).
     ///
     /// ```
-    /// # use ponko::*;
-    /// let nets = Net::loopback(2);
+    /// # use ponko::prelude::*;
+    /// let nets = ponko::net::Net::loopback(2);
     /// assert_eq!(nets.len(), 2);
     /// ```
     #[must_use]
@@ -328,8 +330,8 @@ impl Net {
     /// 50 ms round trip. Set on the host.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let net = Net::host("127.0.0.1:0", 2).unwrap().input_delay(5);
+    /// # use ponko::prelude::*;
+    /// let net = ponko::net::Net::host("127.0.0.1:0", 2).unwrap().input_delay(5);
     /// # let _ = net;
     /// ```
     ///
@@ -348,8 +350,8 @@ impl Net {
     /// number. Set on the host.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let net = Net::host("127.0.0.1:0", 2).unwrap().checksum_every(300);
+    /// # use ponko::prelude::*;
+    /// let net = ponko::net::Net::host("127.0.0.1:0", 2).unwrap().checksum_every(300);
     /// # let _ = net;
     /// ```
     #[must_use]
@@ -362,8 +364,8 @@ impl Net {
     /// becomes [`NetState::Lost`] and headless runs stop.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let net = Net::join("127.0.0.1:7777").unwrap().timeout(std::time::Duration::from_secs(3));
+    /// # use ponko::prelude::*;
+    /// let net = ponko::net::Net::join("127.0.0.1:7777").unwrap().timeout(std::time::Duration::from_secs(3));
     /// # let _ = net;
     /// ```
     #[must_use]
@@ -426,8 +428,8 @@ impl Net {
     /// Like [`set_input`](Self::set_input), with bytes you encode yourself.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut net = Net::default();
+    /// # use ponko::prelude::*;
+    /// let mut net = ponko::net::Net::default();
     /// net.set_input_bytes(&[1, 2, 3]);
     /// ```
     ///
@@ -454,8 +456,8 @@ impl Net {
     /// `player`'s input for the current tick as bytes (empty if none).
     ///
     /// ```
-    /// # use ponko::*;
-    /// assert!(Net::default().input_bytes(0).is_empty());
+    /// # use ponko::prelude::*;
+    /// assert!(ponko::net::Net::default().input_bytes(0).is_empty());
     /// ```
     pub fn input_bytes(&self, player: usize) -> &[u8] {
         self.current.get(player).map_or(&[], Vec::as_slice)
@@ -1218,6 +1220,10 @@ impl Transport for Local {
     }
 }
 
+/// Steamworks SDK used by Steam transports.
+#[cfg(feature = "steam")]
+pub use steamworks as steam;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1238,11 +1244,11 @@ mod tests {
     #[test]
     fn checks_name_the_components_that_differ() {
         let mut a = World::new();
-        a.reflect::<crate::Transform2D>();
-        a.spawn((crate::Transform2D::default(),));
+        a.reflect::<crate::d2::Transform>();
+        a.spawn((crate::d2::Transform::default(),));
         let mut b = World::new();
-        b.reflect::<crate::Transform2D>();
-        b.spawn((crate::Transform2D::at(crate::vec2(1.0, 0.0)),));
+        b.reflect::<crate::d2::Transform>();
+        b.spawn((crate::d2::Transform::at(crate::vec2(1.0, 0.0)),));
         let (ca, cb) = (Check::of(&a, 5), Check::of(&b, 5));
         assert!(ca.compare(&Check::of(&a, 5), 1).is_none());
         let d = ca.compare(&cb, 1).expect("different");

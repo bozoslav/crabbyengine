@@ -13,21 +13,21 @@ pub struct AudioBus(pub(super) usize);
 /// Per-voice Kira low-pass and shared reverb send settings. Invalid values
 /// become defaults; cutoff is clamped to 20–20,000 Hz and send to 0–1.
 /// ```
-/// use ponko::AudioEffects;
-/// let underwater = AudioEffects { low_pass_hz: 800.0, reverb: 0.3 };
+/// use ponko::audio::AudioEffects;
+/// let underwater = ponko::audio::AudioEffects { low_pass_hz: 800.0, reverb: 0.3 };
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AudioEffects {
     /// Low-pass cutoff in Hz. Default 20,000.
     /// ```
-    /// # use ponko::AudioEffects;
-    /// assert_eq!(AudioEffects::default().low_pass_hz, 20_000.0);
+    /// # use ponko::audio::AudioEffects;
+    /// assert_eq!(ponko::audio::AudioEffects::default().low_pass_hz, 20_000.0);
     /// ```
     pub low_pass_hz: f32,
     /// Linear send gain to a shared, fully wet Kira reverb. Default zero.
     /// ```
-    /// # use ponko::AudioEffects;
-    /// assert_eq!(AudioEffects::default().reverb, 0.0);
+    /// # use ponko::audio::AudioEffects;
+    /// assert_eq!(ponko::audio::AudioEffects::default().reverb, 0.0);
     /// ```
     pub reverb: f32,
 }
@@ -106,7 +106,7 @@ impl Audio {
     /// Gets or creates a named bus. Lookup allocates only for a new name;
     /// save the returned handle. This never opens an audio device.
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// Game::new("audio", 1, 1).run_headless(0, |ctx| {
     ///     assert_eq!(ctx.audio.bus("music"), ctx.audio.bus("music"));
     /// });
@@ -118,7 +118,7 @@ impl Audio {
     /// Changes a bus's linear gain, preserving its mute state. Negative or
     /// nonfinite values become silence. Finished reverb tails decay naturally.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let music = ctx.audio.bus("music");
     /// ctx.audio.set_bus_volume(music, 0.5);
@@ -134,7 +134,7 @@ impl Audio {
     /// Mutes or unmutes a bus without losing its configured volume. Existing
     /// reverb tails decay naturally; new input to reverb is muted immediately.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let music = ctx.audio.bus("music");
     /// ctx.audio.mute_bus(music, true);
@@ -150,10 +150,10 @@ impl Audio {
     /// Plays a decoded or streamed sound on a bus with per-voice effects.
     /// Ordinary `play_sound` and `play_sound_ex` use `sfx` and default effects.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, sound: Sound) {
     /// let music = ctx.audio.bus("music");
-    /// ctx.audio.play_on(&sound, SoundParams::default(), music, AudioEffects::default());
+    /// ctx.audio.play_on(&sound, SoundParams::default(), music, ponko::audio::AudioEffects::default());
     /// # }
     /// ```
     pub fn play_on(&mut self, sound: &Sound, params: SoundParams, bus: AudioBus, effects: AudioEffects) -> Playing {
@@ -165,9 +165,9 @@ impl Audio {
     /// Changes a playing voice's low-pass cutoff and reverb send with Kira
     /// smoothing. Does nothing for stopped or headless voices.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, voice: Playing) {
-    /// ctx.audio.set_effects(voice, AudioEffects { low_pass_hz: 700.0, reverb: 0.4 });
+    /// ctx.audio.set_effects(voice, ponko::audio::AudioEffects { low_pass_hz: 700.0, reverb: 0.4 });
     /// # }
     /// ```
     pub fn set_effects(&mut self, playing: Playing, effects: AudioEffects) {
@@ -187,7 +187,7 @@ impl Audio {
     /// If the asset is missing or its header cannot be decoded (with audio
     /// enabled); [`try_load_stream`](Self::try_load_stream) returns the error.
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let music = ctx.audio.load_stream("music.ogg");
     /// ctx.audio.play_ex(&music, SoundParams { looping: true, ..Default::default() });
@@ -204,7 +204,7 @@ impl Audio {
     /// can't be decoded.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let music = ctx.audio.try_load_stream("music/theme.ogg");
     ///     assert_eq!(music.unwrap_err().kind(), ErrorKind::NotFound);

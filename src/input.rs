@@ -193,7 +193,7 @@ impl GamepadAxis {
     pub(crate) const COUNT: usize = 6;
 }
 
-/// Which stick, for [`Input::gamepad_stick`](crate::Input::gamepad_stick).
+/// Which stick, for [`Input::gamepad_stick`](crate::input::Input::gamepad_stick).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum GamepadStick {
     /// The left stick.
@@ -202,7 +202,7 @@ pub enum GamepadStick {
     Right,
 }
 
-/// A connected gamepad, from [`Input::gamepads`](crate::Input::gamepads). It
+/// A connected gamepad, from [`Input::gamepads`](crate::input::Input::gamepads). It
 /// keeps its slot while connected, so `pads[0]` stays player one; a pad that
 /// reconnects takes the lowest free slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -224,7 +224,7 @@ impl Gamepad {
     /// The pad's slot, `0..MAX_GAMEPADS`: a stable number for "player 1, 2, ...".
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// for pad in ctx.input.gamepads() {
     ///     println!("player {} is connected", pad.slot() + 1);
@@ -241,10 +241,10 @@ impl Gamepad {
     /// [`MAX_GAMEPADS`].
     ///
     /// ```
-    /// # use ponko::*;
-    /// let player_two = Gamepad::from_slot(1).unwrap();
+    /// # use ponko::prelude::*;
+    /// let player_two = ponko::input::Gamepad::from_slot(1).unwrap();
     /// assert_eq!(player_two.slot(), 1);
-    /// assert_eq!(Gamepad::from_slot(MAX_GAMEPADS), None);
+    /// assert_eq!(ponko::input::Gamepad::from_slot(ponko::input::MAX_GAMEPADS), None);
     /// ```
     #[must_use]
     pub fn from_slot(slot: usize) -> Option<Gamepad> {
@@ -327,10 +327,10 @@ impl<const N: usize> ButtonStates<N> {
 ///   [`feed`](Self::feed) it, which is how tests and replays drive a game.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// Game::new("t", 1, 1).run_headless(1, |ctx| {
-///     ctx.input.feed(InputEvent::Key(Key::Space, true));
+///     ctx.input.feed(ponko::actions::InputEvent::Key(Key::Space, true));
 ///     assert!(ctx.input.key_pressed(Key::Space));
 ///     assert!(ctx.input.key_down(Key::Space));
 /// });
@@ -400,7 +400,7 @@ impl Input {
     /// Cleared with other input after frame systems. Does not include IME
     /// composition/preedit. Physical keys remain separate.
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let text = ctx.input.typed_text();
     /// # let _ = text;
@@ -483,7 +483,7 @@ impl Input {
     /// `true` while `key` is held down.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
     /// if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
     /// # }
@@ -496,7 +496,7 @@ impl Input {
     /// `true` only on the frame `key` went down. Good for jumps, menus, toggles.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, paused: &mut bool) {
     /// if ctx.key_pressed(Key::P) { *paused = !*paused; }
     /// # }
@@ -509,7 +509,7 @@ impl Input {
     /// `true` only on the frame `key` was let go.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, charging: &mut bool) {
     /// if ctx.key_released(Key::Space) { *charging = false; }
     /// # }
@@ -522,7 +522,7 @@ impl Input {
     /// `true` while `button` is held down.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let dragging = ctx.input.mouse_down(MouseButton::Left);
     /// # }
@@ -535,7 +535,7 @@ impl Input {
     /// `true` only on the frame `button` went down.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// if ctx.input.mouse_pressed(MouseButton::Left) { println!("click at {}", ctx.mouse_pos()); }
     /// # }
@@ -548,7 +548,7 @@ impl Input {
     /// `true` only on the frame `button` was let go.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// if ctx.input.mouse_released(MouseButton::Left) { println!("drop"); }
     /// # }
@@ -562,7 +562,7 @@ impl Input {
     /// `y` grows downward.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// let target = ctx.mouse_pos();
     /// # }
@@ -575,7 +575,7 @@ impl Input {
     /// How far the mouse moved since the previous frame, in window pixels.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, camera: &mut Vec2) {
     /// if ctx.input.mouse_down(MouseButton::Right) { *camera -= ctx.input.mouse_delta(); }
     /// # }
@@ -589,7 +589,7 @@ impl Input {
     /// the user. Roughly one unit per wheel notch.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, zoom: &mut f32) {
     /// *zoom *= 1.1_f32.powf(ctx.input.mouse_wheel().y);
     /// # }
@@ -605,7 +605,7 @@ impl Input {
     /// locked and at the window's edge: use it to turn a first-person camera.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn look(ctx: &mut Ctx, yaw: &mut f32, pitch: &mut f32) {
     /// let turn = ctx.input.mouse_motion() * 0.002; // radians per unit
     /// *yaw -= turn.x;
@@ -621,10 +621,10 @@ impl Input {
     /// are plugged in, in headless runs, and without the `gamepad` feature.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, pos: &mut Vec2) {
     /// if let Some(&pad) = ctx.input.gamepads().first() {
-    ///     *pos += ctx.input.gamepad_stick(pad, GamepadStick::Left) * 300.0 * ctx.dt();
+    ///     *pos += ctx.input.gamepad_stick(pad, ponko::input::GamepadStick::Left) * 300.0 * ctx.dt();
     /// }
     /// # }
     /// ```
@@ -636,9 +636,9 @@ impl Input {
     /// `true` while `button` is held on `pad`.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
-    /// let running = ctx.input.gamepad_down(pad, GamepadButton::West);
+    /// # use ponko::prelude::*;
+    /// # fn update(ctx: &mut Ctx, pad: ponko::input::Gamepad) {
+    /// let running = ctx.input.gamepad_down(pad, ponko::input::GamepadButton::West);
     /// # }
     /// ```
     #[must_use]
@@ -649,9 +649,9 @@ impl Input {
     /// `true` only on the frame `button` went down on `pad`.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
-    /// if ctx.input.gamepad_pressed(pad, GamepadButton::South) { println!("jump"); }
+    /// # use ponko::prelude::*;
+    /// # fn update(ctx: &mut Ctx, pad: ponko::input::Gamepad) {
+    /// if ctx.input.gamepad_pressed(pad, ponko::input::GamepadButton::South) { println!("jump"); }
     /// # }
     /// ```
     #[must_use]
@@ -663,9 +663,9 @@ impl Input {
     /// unplugged while it was held).
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
-    /// if ctx.input.gamepad_released(pad, GamepadButton::RightTrigger) { println!("fire!"); }
+    /// # use ponko::prelude::*;
+    /// # fn update(ctx: &mut Ctx, pad: ponko::input::Gamepad) {
+    /// if ctx.input.gamepad_released(pad, ponko::input::GamepadButton::RightTrigger) { println!("fire!"); }
     /// # }
     /// ```
     #[must_use]
@@ -678,9 +678,9 @@ impl Input {
     /// movements around the center read as `0.0`.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pad: Gamepad) {
-    /// let throttle = ctx.input.gamepad_axis(pad, GamepadAxis::RightTrigger);
+    /// # use ponko::prelude::*;
+    /// # fn update(ctx: &mut Ctx, pad: ponko::input::Gamepad) {
+    /// let throttle = ctx.input.gamepad_axis(pad, ponko::input::GamepadAxis::RightTrigger);
     /// # }
     /// ```
     #[must_use]
@@ -692,7 +692,7 @@ impl Input {
 impl Input {
     /// Current binding configuration.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.input.actions();
     /// # }
@@ -711,7 +711,7 @@ impl Input {
     /// The queries take an id or a `&str` name. They are meant to move to the
     /// `ctx.input` service of the API-friction work (#195).
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &Ctx) {
     /// let jump = ctx.input.action_id("jump");
     /// if ctx.input.action_pressed(jump) { /* ... */ }
@@ -730,19 +730,19 @@ impl Input {
     /// Like [`action_id`](Self::action_id), but returns the error instead of
     /// logging it.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &Ctx) {
     /// let jump = ctx.input.try_action_id("jump");
     /// # }
     /// ```
-    pub fn try_action_id(&self, name: &str) -> Result<crate::ActionId, crate::UnknownAction> {
+    pub fn try_action_id(&self, name: &str) -> Result<crate::ActionId, crate::actions::UnknownAction> {
         self.actions.resolve(name)
     }
 
     /// Resolves several actions at once; see also [`actions!`](crate::actions!),
     /// which keeps the names in one declaration.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &Ctx) {
     /// let [jump, fire] = ctx.input.action_ids(&["jump", "fire"]);
     /// # }
@@ -754,7 +754,7 @@ impl Input {
     /// Whether a named button is held. Takes a name or an
     /// [`ActionId`](crate::ActionId) from [`action_id`](Self::action_id).
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.input.action_down("move");
     /// # }
@@ -765,7 +765,7 @@ impl Input {
 
     /// Whether a named button became held this frame.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.input.action_pressed("move");
     /// # }
@@ -776,7 +776,7 @@ impl Input {
 
     /// Whether all sources of a named button were released this frame.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.input.action_released("move");
     /// # }
@@ -787,7 +787,7 @@ impl Input {
 
     /// A named scalar axis, or zero.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.input.action_axis("move");
     /// # }
@@ -798,7 +798,7 @@ impl Input {
 
     /// A named vector axis, or zero.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.input.action_axis2("move");
     /// # }
@@ -810,7 +810,7 @@ impl Input {
     /// Replace bindings at runtime. Held sources establish a baseline;
     /// rebinding itself generates no pressed/released edges.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &mut Ctx) {
     /// ctx.input.set_actions(ActionMap::default());
     /// # }
@@ -848,13 +848,13 @@ impl Input {
     /// Feed input by hand for tests/replay; live input uses the same state.
     /// Edges clear after each headless or windowed frame.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &mut Ctx) {
-    /// ctx.input.feed(InputEvent::Key(Key::Space, true));
+    /// ctx.input.feed(ponko::actions::InputEvent::Key(Key::Space, true));
     /// # }
     /// ```
-    pub fn feed(&mut self, event: crate::InputEvent) {
-        use crate::InputEvent;
+    pub fn feed(&mut self, event: crate::actions::InputEvent) {
+        use crate::actions::InputEvent;
         match event {
             InputEvent::Key(k, down) => self.set_key(k, down),
             InputEvent::Mouse(b, down) => self.set_mouse_button(b, down),
@@ -869,9 +869,9 @@ impl Input {
     /// add it to a position to move that way.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn update(ctx: &mut Ctx, pad: Gamepad, aim: &mut Vec2) {
-    /// let stick = ctx.input.gamepad_stick(pad, GamepadStick::Right);
+    /// # use ponko::prelude::*;
+    /// # fn update(ctx: &mut Ctx, pad: ponko::input::Gamepad, aim: &mut Vec2) {
+    /// let stick = ctx.input.gamepad_stick(pad, ponko::input::GamepadStick::Right);
     /// if stick.length() > 0.5 { *aim = stick.normalize(); }
     /// # }
     /// ```
@@ -890,7 +890,7 @@ impl Input {
     /// when focus comes back. Headless runs only remember the setting.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(1, |ctx| {
     ///     ctx.input.set_cursor_locked(true);
     ///     assert!(ctx.input.cursor_locked());
@@ -912,7 +912,7 @@ impl Input {
     /// Feed committed Unicode text from a custom host or headless test. Native
     /// hosts should forward character events, rather than mapping physical keys.
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// ctx.input.insert_text("Hello");
     /// # }

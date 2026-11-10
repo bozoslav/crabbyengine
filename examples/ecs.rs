@@ -7,7 +7,11 @@
 //! - Space: pause / resume.  Period: one tick while paused.
 //! - 1 / 2 / 3 / 4: simulation speed 1x / 4x / 16x / 64x.  Escape: quit.
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "physics")]
+use ponko::d2::*;
+#[allow(unused_imports)]
+use ponko::prelude::*;
 
 /// Velocity in pixels per second.
 struct Vel(Vec2);

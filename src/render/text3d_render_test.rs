@@ -4,9 +4,11 @@
 use super::gpu::GpuTexture;
 use super::gpu3d::HDR_FORMAT;
 use super::particles::Particles;
+#[allow(unused_imports)]
+use crate::d3::{Camera as Camera3D, Text as Text3D, Transform as Transform3D};
+use crate::prelude::*;
 use crate::text::Text;
 use crate::three::particles::ParticleFrame;
-use crate::*;
 
 const SIZE: u32 = 64;
 
@@ -50,7 +52,7 @@ fn draw(outline: Color) -> Option<Vec<[f32; 4]>> {
         outline_width: 0.1,
         ..Text3D::new("I")
     };
-    let mut camera = three::Camera3D::new(Vec2::splat(SIZE as f32));
+    let mut camera = crate::three::Camera3D::new(Vec2::splat(SIZE as f32));
     camera.rotation = Quat::IDENTITY;
     let mut frame = ParticleFrame::default();
     frame.texts.push(&label, &Transform3D::default(), &camera, &mut text);

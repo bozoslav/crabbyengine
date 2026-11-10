@@ -2,7 +2,29 @@
 //! scenes that reuse entity ids, pending commands and events, physics,
 //! resources and the failure contract.
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "physics")]
+use ponko::d2::{Collider, RigidBody};
+#[allow(unused_imports)]
+use ponko::d2::{Sprite, Transform as Transform2D};
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::Transform as Transform3D;
+#[allow(unused_imports)]
+#[cfg(feature = "physics3d")]
+use ponko::d3::{Collider as Collider3D, RigidBody as RigidBody3D};
+#[allow(unused_imports)]
+#[cfg(feature = "navmesh")]
+use ponko::d3::{NavAgent as NavAgent3D, NavMesh as NavMesh3D};
+#[allow(unused_imports)]
+#[cfg(feature = "navmesh")]
+use ponko::nav::{NavBakeSettings, NavSource};
+#[allow(unused_imports)]
+use ponko::net::{Desync, Net, NetState};
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::MeshData;
 use serde::{Deserialize, Serialize};
 
 /// A file under `assets/` that is deleted when the test ends, pass or fail.
@@ -423,15 +445,19 @@ fn attachments_follow_the_new_scenes_entities() {
         .run_headless(4, |ctx| {
             let tank = ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)),));
             let other = ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)),));
-            let turret = ctx
+            let turret = ctx.world.spawn((
+                Transform2D::default(),
+                ponko::d2::Attached::to(tank).offset(vec2(0.0, -4.0)),
+            ));
+            let ring = ctx
                 .world
-                .spawn((Transform2D::default(), Attached::to(tank).offset(vec2(0.0, -4.0))));
-            let ring = ctx.world.spawn((Transform2D::default(), Attached::to(other)));
+                .spawn((Transform2D::default(), ponko::d2::Attached::to(other)));
             ctx.assets.save_scene(&ctx.world, a.0).unwrap();
             // Scene B: the same ids; the tank moved, the turret sits elsewhere
             // on it, and the ring's entity isn't in it.
             ctx.world.get_mut::<Transform2D>(tank).unwrap().position = vec2(100.0, 0.0);
-            *ctx.world.get_mut::<Attached>(turret).unwrap() = Attached::to(tank).offset(vec2(10.0, 0.0));
+            *ctx.world.get_mut::<ponko::d2::Attached>(turret).unwrap() =
+                ponko::d2::Attached::to(tank).offset(vec2(10.0, 0.0));
             ctx.world.despawn(other);
             ctx.assets.save_scene(&ctx.world, b.0).unwrap();
             ctx.load_scene(a.0).unwrap();

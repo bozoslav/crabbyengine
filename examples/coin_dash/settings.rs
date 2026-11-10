@@ -120,14 +120,14 @@ pub enum Refused {
 
 /// The gamepad buttons the retained UI uses for navigation, which no control
 /// may take: the keyboard side reserves Escape, Tab and the arrow keys the same way.
-pub fn is_reserved_pad(button: GamepadButton) -> bool {
+pub fn is_reserved_pad(button: ponko::input::GamepadButton) -> bool {
     matches!(
         button,
-        GamepadButton::East
-            | GamepadButton::DPadUp
-            | GamepadButton::DPadDown
-            | GamepadButton::DPadLeft
-            | GamepadButton::DPadRight
+        ponko::input::GamepadButton::East
+            | ponko::input::GamepadButton::DPadUp
+            | ponko::input::GamepadButton::DPadDown
+            | ponko::input::GamepadButton::DPadLeft
+            | ponko::input::GamepadButton::DPadRight
     )
 }
 
@@ -138,7 +138,7 @@ pub fn is_reserved_pad(button: GamepadButton) -> bool {
 #[serde(default)]
 pub struct Controls {
     pub keys: [Key; 9],
-    pub pads: [Option<GamepadButton>; 9],
+    pub pads: [Option<ponko::input::GamepadButton>; 9],
 }
 
 impl Default for Controls {
@@ -160,11 +160,11 @@ impl Default for Controls {
                 None,
                 None,
                 None,
-                Some(GamepadButton::South),
-                Some(GamepadButton::West),
-                Some(GamepadButton::Start),
-                Some(GamepadButton::East),
-                Some(GamepadButton::North),
+                Some(ponko::input::GamepadButton::South),
+                Some(ponko::input::GamepadButton::West),
+                Some(ponko::input::GamepadButton::Start),
+                Some(ponko::input::GamepadButton::East),
+                Some(ponko::input::GamepadButton::North),
             ],
         }
     }
@@ -175,7 +175,7 @@ impl Controls {
         self.keys[control as usize]
     }
 
-    pub fn pad(&self, control: Control) -> Option<GamepadButton> {
+    pub fn pad(&self, control: Control) -> Option<ponko::input::GamepadButton> {
         self.pads[control as usize]
     }
 
@@ -233,7 +233,7 @@ impl Controls {
     // ANCHOR_END: set_key
 
     /// Gives `control` the gamepad button, unless it is not allowed.
-    pub fn set_pad(&mut self, control: Control, button: GamepadButton) -> Result<(), Refused> {
+    pub fn set_pad(&mut self, control: Control, button: ponko::input::GamepadButton) -> Result<(), Refused> {
         if control.is_movement() {
             return Err(Refused::NoButton);
         }
@@ -266,7 +266,8 @@ impl Controls {
                 // East is Back's default, so it is allowed there and nowhere else.
                 Some(button) => {
                     !c.is_movement()
-                        && (!is_reserved_pad(button) || (button == GamepadButton::East && c == Control::Back))
+                        && (!is_reserved_pad(button)
+                            || (button == ponko::input::GamepadButton::East && c == Control::Back))
                         && pads.insert(button)
                 }
             };
@@ -293,7 +294,7 @@ pub fn key_name(key: Key) -> String {
 /// The input bindings for `controls`: the chosen keys and buttons, the fixed
 /// alternates, and the left stick.
 pub fn bindings_for(controls: &Controls) -> ActionMap {
-    let pad = Gamepad::from_slot(0).expect("slot 0 exists");
+    let pad = ponko::input::Gamepad::from_slot(0).expect("slot 0 exists");
     let key = |c| controls.key(c);
     let mut map = ActionMap::default();
     map.set(
@@ -313,7 +314,7 @@ pub fn bindings_for(controls: &Controls) -> ActionMap {
             },
             Axis2Binding::Gamepad {
                 pad,
-                stick: GamepadStick::Left,
+                stick: ponko::input::GamepadStick::Left,
                 deadzone: 0.2,
             },
         ]),
@@ -517,23 +518,23 @@ fn candidate_keys() -> Vec<Key> {
 
 /// Every gamepad button the prompt listens for (all sixteen), so it can say
 /// "reserved" for the ones it refuses instead of ignoring them.
-pub const PAD_BUTTONS: [GamepadButton; 16] = [
-    GamepadButton::South,
-    GamepadButton::East,
-    GamepadButton::North,
-    GamepadButton::West,
-    GamepadButton::LeftBumper,
-    GamepadButton::RightBumper,
-    GamepadButton::LeftTrigger,
-    GamepadButton::RightTrigger,
-    GamepadButton::Select,
-    GamepadButton::Start,
-    GamepadButton::LeftStick,
-    GamepadButton::RightStick,
-    GamepadButton::DPadUp,
-    GamepadButton::DPadDown,
-    GamepadButton::DPadLeft,
-    GamepadButton::DPadRight,
+pub const PAD_BUTTONS: [ponko::input::GamepadButton; 16] = [
+    ponko::input::GamepadButton::South,
+    ponko::input::GamepadButton::East,
+    ponko::input::GamepadButton::North,
+    ponko::input::GamepadButton::West,
+    ponko::input::GamepadButton::LeftBumper,
+    ponko::input::GamepadButton::RightBumper,
+    ponko::input::GamepadButton::LeftTrigger,
+    ponko::input::GamepadButton::RightTrigger,
+    ponko::input::GamepadButton::Select,
+    ponko::input::GamepadButton::Start,
+    ponko::input::GamepadButton::LeftStick,
+    ponko::input::GamepadButton::RightStick,
+    ponko::input::GamepadButton::DPadUp,
+    ponko::input::GamepadButton::DPadDown,
+    ponko::input::GamepadButton::DPadLeft,
+    ponko::input::GamepadButton::DPadRight,
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -580,70 +581,97 @@ impl SettingsUi {
     fn build(ui: &mut Ui, settings: &Settings) -> SettingsUi {
         let root = ui
             .root()
-            .layout(UiLayout::fill().padding(16.0).gap(6.0))
+            .layout(ponko::ui::UiLayout::fill().padding(16.0).gap(6.0))
             .background(Color::hex(0x14181f))
             .id();
-        ui.label(root, "Settings").layout(UiLayout::row(40.0)).size(28.0);
+        ui.label(root, "Settings")
+            .layout(ponko::ui::UiLayout::row(40.0))
+            .size(28.0);
 
-        let strip = ui.panel(root).layout(UiLayout::row(34.0).gap(8.0)).id();
-        ui.label(strip, "UI scale").layout(UiLayout::fixed(150.0, 34.0));
+        let strip = ui.panel(root).layout(ponko::ui::UiLayout::row(34.0).gap(8.0)).id();
+        ui.label(strip, "UI scale")
+            .layout(ponko::ui::UiLayout::fixed(150.0, 34.0));
         let scale_down = ui
             .button(strip, "-")
-            .layout(UiLayout::fixed(40.0, 34.0))
+            .layout(ponko::ui::UiLayout::fixed(40.0, 34.0))
             .accessible_name("Smaller UI")
             .id();
-        let scale_label = ui.label(strip, "").layout(UiLayout::fixed(70.0, 34.0)).id();
+        let scale_label = ui.label(strip, "").layout(ponko::ui::UiLayout::fixed(70.0, 34.0)).id();
         let scale_up = ui
             .button(strip, "+")
-            .layout(UiLayout::fixed(40.0, 34.0))
+            .layout(ponko::ui::UiLayout::fixed(40.0, 34.0))
             .accessible_name("Larger UI")
             .id();
 
-        let strip = ui.panel(root).layout(UiLayout::row(34.0).gap(8.0)).id();
-        ui.label(strip, "Volume").layout(UiLayout::fixed(150.0, 34.0));
+        let strip = ui.panel(root).layout(ponko::ui::UiLayout::row(34.0).gap(8.0)).id();
+        ui.label(strip, "Volume")
+            .layout(ponko::ui::UiLayout::fixed(150.0, 34.0));
         let volume = ui
             .slider(strip)
-            .layout(UiLayout::fixed(240.0, 34.0))
+            .layout(ponko::ui::UiLayout::fixed(240.0, 34.0))
             .value(settings.volume)
             .accessible_name("Volume")
             .id();
 
-        ui.label(root, HINT).layout(UiLayout::row(52.0)).size(16.0).wrap();
-        let scroll = ui.scroll_area(root).layout(UiLayout::fill()).id();
+        ui.label(root, HINT)
+            .layout(ponko::ui::UiLayout::row(52.0))
+            .size(16.0)
+            .wrap();
+        let scroll = ui.scroll_area(root).layout(ponko::ui::UiLayout::fill()).id();
         let list = ui
             .panel(scroll)
-            .layout(UiLayout::auto().vertical().gap(4.0).width_fraction(0.95))
+            .layout(ponko::ui::UiLayout::auto().vertical().gap(4.0).width_fraction(0.95))
             .id();
         let mut rows = Vec::new();
         for control in Control::ALL {
-            let strip = ui.panel(list).layout(UiLayout::row(32.0).gap(8.0)).id();
-            ui.label(strip, control.label()).layout(UiLayout::fixed(150.0, 32.0));
-            let key = ui.button(strip, "").layout(UiLayout::fixed(120.0, 32.0)).id();
+            let strip = ui.panel(list).layout(ponko::ui::UiLayout::row(32.0).gap(8.0)).id();
+            ui.label(strip, control.label())
+                .layout(ponko::ui::UiLayout::fixed(150.0, 32.0));
+            let key = ui
+                .button(strip, "")
+                .layout(ponko::ui::UiLayout::fixed(120.0, 32.0))
+                .id();
             let pad = if control.is_movement() {
-                ui.label(strip, "left stick").layout(UiLayout::fixed(120.0, 32.0));
+                ui.label(strip, "left stick")
+                    .layout(ponko::ui::UiLayout::fixed(120.0, 32.0));
                 None
             } else {
-                Some(ui.button(strip, "").layout(UiLayout::fixed(120.0, 32.0)).id())
+                Some(
+                    ui.button(strip, "")
+                        .layout(ponko::ui::UiLayout::fixed(120.0, 32.0))
+                        .id(),
+                )
             };
             rows.push(Row { control, key, pad });
         }
 
-        let strip = ui.panel(root).layout(UiLayout::row(36.0).gap(8.0)).id();
+        let strip = ui.panel(root).layout(ponko::ui::UiLayout::row(36.0).gap(8.0)).id();
         let reset = ui
             .button(strip, "Reset to defaults")
-            .layout(UiLayout::fixed(190.0, 36.0))
+            .layout(ponko::ui::UiLayout::fixed(190.0, 36.0))
             .id();
-        let back = ui.button(strip, "Back").layout(UiLayout::fixed(120.0, 36.0)).id();
-        let status = ui.label(root, "").layout(UiLayout::row(24.0)).size(16.0).id();
+        let back = ui
+            .button(strip, "Back")
+            .layout(ponko::ui::UiLayout::fixed(120.0, 36.0))
+            .id();
+        let status = ui
+            .label(root, "")
+            .layout(ponko::ui::UiLayout::row(24.0))
+            .size(16.0)
+            .id();
 
         // The prompt: a modal screen with nothing to focus, so no key can press
         // a button behind it; Escape and East pop it (the engine does that).
         let prompt = ui
             .root()
-            .layout(UiLayout::centered(460.0, 110.0).padding(16.0).gap(8.0))
+            .layout(ponko::ui::UiLayout::centered(460.0, 110.0).padding(16.0).gap(8.0))
             .background(Color::hex(0x2b3240))
             .id();
-        let prompt_text = ui.label(prompt, "").layout(UiLayout::fixed(420.0, 78.0)).wrap().id();
+        let prompt_text = ui
+            .label(prompt, "")
+            .layout(ponko::ui::UiLayout::fixed(420.0, 78.0))
+            .wrap()
+            .id();
 
         SettingsUi {
             root,
@@ -749,17 +777,17 @@ fn drive(ctx: &mut Ctx, state: &mut SettingsUi, on_screen: bool) {
     }
 
     // Drain first, then change the tree (the events borrow it).
-    let events: Vec<UiEvent> = ctx.ui.events().collect();
+    let events: Vec<ponko::ui::UiEvent> = ctx.ui.events().collect();
     for event in events {
         match event {
-            UiEvent::Clicked(id) => click(ctx, state, id),
-            UiEvent::Changed(id) if id == state.volume => {
+            ponko::ui::UiEvent::Clicked(id) => click(ctx, state, id),
+            ponko::ui::UiEvent::Changed(id) if id == state.volume => {
                 let volume = ctx.ui.value(id).unwrap_or(0.8).clamp(0.0, 1.0);
                 ctx.world.resource_mut::<Settings>().volume = volume;
             }
-            UiEvent::ScreenPopped(id) if id == state.prompt => state.capture = None,
+            ponko::ui::UiEvent::ScreenPopped(id) if id == state.prompt => state.capture = None,
             // Escape (or East) on the settings screen: leave, as the Back button does.
-            UiEvent::ScreenPopped(id) if id == state.root => {
+            ponko::ui::UiEvent::ScreenPopped(id) if id == state.root => {
                 state.open = false;
                 ctx.world.resource_mut::<Intent>().close_settings = true;
             }
@@ -819,14 +847,14 @@ fn apply(ctx: &mut Ctx, settings: &Settings) {
 }
 
 /// What the player pressed while the prompt was open, if anything.
-fn pressed(ctx: &Ctx, device: Device) -> Option<(String, Result<Key, GamepadButton>)> {
+fn pressed(ctx: &Ctx, device: Device) -> Option<(String, Result<Key, ponko::input::GamepadButton>)> {
     match device {
         Device::Key => candidate_keys()
             .into_iter()
             .find(|&k| ctx.key_pressed(k))
             .map(|k| (format!("{k:?}"), Ok(k))),
         // Every slot, connected or not: an unplugged pad has nothing pressed.
-        Device::Pad => (0..).map_while(Gamepad::from_slot).find_map(|pad| {
+        Device::Pad => (0..).map_while(ponko::input::Gamepad::from_slot).find_map(|pad| {
             PAD_BUTTONS
                 .into_iter()
                 .find(|&b| ctx.input.gamepad_pressed(pad, b))

@@ -8,14 +8,15 @@ use super::{
     MIN_SHADOW_RESOLUTION,
 };
 use crate::gfx::Graphics;
-use crate::{Lighting, Post};
+use crate::render::Lighting;
+use crate::render::Post;
 
 /// Which of the [`GraphicsQuality`] presets some settings are.
 /// ```
-/// use ponko::*;
-/// assert_eq!(GraphicsQuality::high().level(), QualityLevel::High);
-/// let tweaked = GraphicsQuality { shadow_cascades: 2, ..GraphicsQuality::high() };
-/// assert_eq!(tweaked.level(), QualityLevel::Custom);
+/// use ponko::prelude::*;
+/// assert_eq!(ponko::render::GraphicsQuality::high().level(), ponko::render::QualityLevel::High);
+/// let tweaked = ponko::render::GraphicsQuality { shadow_cascades: 2, ..ponko::render::GraphicsQuality::high() };
+/// assert_eq!(tweaked.level(), ponko::render::QualityLevel::Custom);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u32)]
@@ -35,9 +36,9 @@ pub enum QualityLevel {
 impl QualityLevel {
     /// The preset's settings, or `None` for [`Custom`](Self::Custom).
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(QualityLevel::Low.quality(), Some(GraphicsQuality::low()));
-    /// assert_eq!(QualityLevel::Custom.quality(), None);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::render::QualityLevel::Low.quality(), Some(ponko::render::GraphicsQuality::low()));
+    /// assert_eq!(ponko::render::QualityLevel::Custom.quality(), None);
     /// ```
     #[must_use]
     pub fn quality(self) -> Option<GraphicsQuality> {
@@ -84,9 +85,9 @@ impl QualityLevel {
 /// | `anti_aliasing` | none | FXAA | SMAA | SMAA |
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::medium());
+/// ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, ponko::render::GraphicsQuality::medium());
 /// // Then change one thing: sharper shadows, the rest as it was.
 /// let mut q = ctx.gfx.quality(&ctx.post, &ctx.lighting);
 /// q.shadow_resolution = 4096;
@@ -95,55 +96,55 @@ impl QualityLevel {
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GraphicsQuality {
-    /// [`Post::render_scale`](crate::Post::render_scale): the 3D scene's
+    /// [`Post::render_scale`](crate::render::Post::render_scale): the 3D scene's
     /// resolution relative to the window, 0.25 to 2.
     pub render_scale: f32,
-    /// [`Post::sharpen`](crate::Post::sharpen): sharpening of the scaled
+    /// [`Post::sharpen`](crate::render::Post::sharpen): sharpening of the scaled
     /// image, 0 to 1.
     pub sharpen: f32,
-    /// [`Lighting::shadows`](crate::Lighting::shadows): every shadow on or off.
+    /// [`Lighting::shadows`](crate::render::Lighting::shadows): every shadow on or off.
     pub shadows: bool,
-    /// [`Lighting::shadow_distance`](crate::Lighting::shadow_distance).
+    /// [`Lighting::shadow_distance`](crate::render::Lighting::shadow_distance).
     pub shadow_distance: f32,
-    /// [`Lighting::shadow_cascades`](crate::Lighting::shadow_cascades), 1 to 4.
+    /// [`Lighting::shadow_cascades`](crate::render::Lighting::shadow_cascades), 1 to 4.
     pub shadow_cascades: u32,
-    /// [`Lighting::shadow_resolution`](crate::Lighting::shadow_resolution),
+    /// [`Lighting::shadow_resolution`](crate::render::Lighting::shadow_resolution),
     /// 256 to 4096.
     pub shadow_resolution: u32,
-    /// [`Lighting::shadow_refresh`](crate::Lighting::shadow_refresh): how
+    /// [`Lighting::shadow_refresh`](crate::render::Lighting::shadow_refresh): how
     /// often the far cascades are drawn again, in frames, 1 to 8.
     pub shadow_refresh: u32,
-    /// [`Lighting::shadow_filter`](crate::Lighting::shadow_filter): how soft
+    /// [`Lighting::shadow_filter`](crate::render::Lighting::shadow_filter): how soft
     /// the sun's shadow edges are, 1 (one lookup per pixel) to 3 (nine).
     pub shadow_filter: u32,
-    /// [`Lighting::light_shadow_views`](crate::Lighting::light_shadow_views):
+    /// [`Lighting::light_shadow_views`](crate::render::Lighting::light_shadow_views):
     /// how many shadow views point and spot lights share, 0 (no shadows
     /// from them) to 24.
     pub light_shadow_views: u32,
-    /// [`Lighting::light_shadow_resolution`](crate::Lighting::light_shadow_resolution):
+    /// [`Lighting::light_shadow_resolution`](crate::render::Lighting::light_shadow_resolution):
     /// the largest light shadow view, 128 to 2048.
     pub light_shadow_resolution: u32,
-    /// [`Lighting::light_shadow_atlas`](crate::Lighting::light_shadow_atlas):
+    /// [`Lighting::light_shadow_atlas`](crate::render::Lighting::light_shadow_atlas):
     /// the atlas the light shadow views share, 1024 to 8192 (a power of two).
     pub light_shadow_atlas: u32,
-    /// [`AmbientOcclusion::enabled`](crate::AmbientOcclusion::enabled).
+    /// [`AmbientOcclusion::enabled`](crate::render::AmbientOcclusion::enabled).
     pub ambient_occlusion: bool,
     /// Trace at half resolution, with full-resolution bilateral upsampling.
     pub ao_half_resolution: bool,
     /// Reproject and accumulate GTAO history independently of TAA.
     pub ao_temporal: bool,
-    /// [`AmbientOcclusion::slices`](crate::AmbientOcclusion::slices), 1 to 8.
+    /// [`AmbientOcclusion::slices`](crate::render::AmbientOcclusion::slices), 1 to 8.
     pub ao_slices: u32,
-    /// [`AmbientOcclusion::steps`](crate::AmbientOcclusion::steps), 1 to 16.
+    /// [`AmbientOcclusion::steps`](crate::render::AmbientOcclusion::steps), 1 to 16.
     pub ao_steps: u32,
-    /// [`Post::ssr`](crate::Post::ssr): screen-space reflections' strength,
+    /// [`Post::ssr`](crate::render::Post::ssr): screen-space reflections' strength,
     /// 0 (off) to 1.
     pub ssr: f32,
-    /// [`GlobalIllumination::enabled`](crate::GlobalIllumination::enabled)
-    /// at [`Lighting::gi`](crate::Lighting::gi): bounced light (its other
+    /// [`GlobalIllumination::enabled`](crate::render::GlobalIllumination::enabled)
+    /// at [`Lighting::gi`](crate::render::Lighting::gi): bounced light (its other
     /// settings stay as they are).
     pub gi: bool,
-    /// [`Post::anti_aliasing`](crate::Post::anti_aliasing).
+    /// [`Post::anti_aliasing`](crate::render::Post::anti_aliasing).
     pub anti_aliasing: AntiAliasing,
 }
 
@@ -182,8 +183,8 @@ impl GraphicsQuality {
     /// (the far one redrawn every fourth frame),
     /// point and spot lights cast no shadows, no AO, no post antialiasing.
     /// ```
-    /// use ponko::*;
-    /// let q = GraphicsQuality::low();
+    /// use ponko::prelude::*;
+    /// let q = ponko::render::GraphicsQuality::low();
     /// assert_eq!((q.render_scale, q.shadow_cascades, q.light_shadow_views), (0.67, 2, 0));
     /// ```
     #[must_use]
@@ -215,9 +216,9 @@ impl GraphicsQuality {
     /// views of up to 512² for point and spot lights in a 2048² atlas, FXAA,
     /// no AO.
     /// ```
-    /// use ponko::*;
-    /// let q = GraphicsQuality::medium();
-    /// assert_eq!((q.render_scale, q.anti_aliasing), (1.0, AntiAliasing::Fxaa));
+    /// use ponko::prelude::*;
+    /// let q = ponko::render::GraphicsQuality::medium();
+    /// assert_eq!((q.render_scale, q.anti_aliasing), (1.0, ponko::render::AntiAliasing::Fxaa));
     /// ```
     #[must_use]
     pub fn medium() -> Self {
@@ -248,9 +249,9 @@ impl GraphicsQuality {
     /// point and spot lights in a 4096² atlas, light AO (2 slices, 4
     /// steps), screen-space reflections, SMAA.
     /// ```
-    /// use ponko::*;
-    /// let q = GraphicsQuality::high();
-    /// assert!(q.ambient_occlusion && q.ssr == 1.0 && q.anti_aliasing == AntiAliasing::Smaa);
+    /// use ponko::prelude::*;
+    /// let q = ponko::render::GraphicsQuality::high();
+    /// assert!(q.ambient_occlusion && q.ssr == 1.0 && q.anti_aliasing == ponko::render::AntiAliasing::Smaa);
     /// ```
     #[must_use]
     pub fn high() -> Self {
@@ -283,8 +284,8 @@ impl GraphicsQuality {
     /// (another 256 MB), finer AO (4 slices, 8 steps), screen-space
     /// reflections, global illumination, SMAA.
     /// ```
-    /// use ponko::*;
-    /// let q = GraphicsQuality::ultra();
+    /// use ponko::prelude::*;
+    /// let q = ponko::render::GraphicsQuality::ultra();
     /// assert_eq!((q.shadow_resolution, q.ao_steps, q.gi), (4096, 8, true));
     /// ```
     #[must_use]
@@ -312,7 +313,7 @@ impl GraphicsQuality {
         }
     }
 
-    /// The preset meant for a [`GpuTier`](crate::GpuTier), already
+    /// The preset meant for a [`GpuTier`](crate::render::GpuTier), already
     /// [fitted](Self::fitted_to) to that tier's floor: `WebGl2` gets
     /// [`low`](Self::low) with FXAA, `Baseline` [`medium`](Self::medium) and
     /// `Desktop` [`high`](Self::high). None of them asks for a feature the
@@ -320,21 +321,21 @@ impl GraphicsQuality {
     /// [`ultra`](Self::ultra) is never picked: it is for GPUs with memory
     /// to spare, a choice for the player to make.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(GraphicsQuality::for_tier(GpuTier::Desktop), GraphicsQuality::high());
-    /// assert_eq!(GraphicsQuality::for_tier(GpuTier::Baseline), GraphicsQuality::medium());
-    /// let web = GraphicsQuality::for_tier(GpuTier::WebGl2);
-    /// assert_eq!((web.anti_aliasing, web.ambient_occlusion), (AntiAliasing::Fxaa, false));
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::render::GraphicsQuality::for_tier(ponko::render::GpuTier::Desktop), ponko::render::GraphicsQuality::high());
+    /// assert_eq!(ponko::render::GraphicsQuality::for_tier(ponko::render::GpuTier::Baseline), ponko::render::GraphicsQuality::medium());
+    /// let web = ponko::render::GraphicsQuality::for_tier(ponko::render::GpuTier::WebGl2);
+    /// assert_eq!((web.anti_aliasing, web.ambient_occlusion), (ponko::render::AntiAliasing::Fxaa, false));
     /// ```
     #[must_use]
-    pub fn for_tier(tier: crate::GpuTier) -> Self {
+    pub fn for_tier(tier: crate::render::GpuTier) -> Self {
         let preset = match tier {
-            crate::GpuTier::WebGl2 => Self {
+            crate::render::GpuTier::WebGl2 => Self {
                 anti_aliasing: AntiAliasing::Fxaa,
                 ..Self::low()
             },
-            crate::GpuTier::Baseline => Self::medium(),
-            crate::GpuTier::Desktop => Self::high(),
+            crate::render::GpuTier::Baseline => Self::medium(),
+            crate::render::GpuTier::Desktop => Self::high(),
         };
         preset.fitted_to(&tier.report())
     }
@@ -342,16 +343,16 @@ impl GraphicsQuality {
     /// The preset for the GPU in `caps` ([`for_tier`](Self::for_tier) of its
     /// tier), fitted to everything it has.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// if let Some(caps) = ctx.gfx.gpu_capabilities() {
-    ///     let q = GraphicsQuality::recommended(caps);
+    ///     let q = ponko::render::GraphicsQuality::recommended(caps);
     ///     ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, q);
     /// }
     /// # }
     /// ```
     #[must_use]
-    pub fn recommended(caps: &crate::GpuCapabilities) -> Self {
+    pub fn recommended(caps: &crate::render::GpuCapabilities) -> Self {
         Self::for_tier(caps.tier).fitted_to(caps)
     }
 
@@ -361,16 +362,16 @@ impl GraphicsQuality {
     /// where they're unavailable; shadow maps and the light shadow atlas
     /// shrink to the largest texture the GPU allows. Asking for more is
     /// never a GPU error (the renderer falls back by itself); fitting makes
-    /// [`Graphics::quality`](crate::Graphics::quality) say what is drawn, for an options menu.
+    /// [`Graphics::quality`](crate::gfx::Graphics::quality) say what is drawn, for an options menu.
     /// ```
-    /// use ponko::*;
-    /// let q = GraphicsQuality::ultra().fitted_to(&GpuTier::WebGl2.report());
-    /// assert_eq!((q.anti_aliasing, q.ambient_occlusion, q.ssr, q.gi), (AntiAliasing::Smaa, false, 0.0, false));
+    /// use ponko::prelude::*;
+    /// let q = ponko::render::GraphicsQuality::ultra().fitted_to(&ponko::render::GpuTier::WebGl2.report());
+    /// assert_eq!((q.anti_aliasing, q.ambient_occlusion, q.ssr, q.gi), (ponko::render::AntiAliasing::Smaa, false, 0.0, false));
     /// assert_eq!((q.shadow_resolution, q.light_shadow_atlas), (2048, 2048));
     /// ```
     #[must_use]
-    pub fn fitted_to(&self, caps: &crate::GpuCapabilities) -> Self {
-        use crate::GpuFeature as F;
+    pub fn fitted_to(&self, caps: &crate::render::GpuCapabilities) -> Self {
+        use crate::render::GpuFeature as F;
         let mut q = self.clamped();
         if q.anti_aliasing == AntiAliasing::Taa && !caps.available(F::TemporalAntialiasing) {
             q.anti_aliasing = AntiAliasing::Fxaa;
@@ -399,9 +400,9 @@ impl GraphicsQuality {
     /// Which preset these are, or [`Custom`](QualityLevel::Custom). Values
     /// outside the allowed ranges are compared as they would be applied.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(GraphicsQuality::ultra().level(), QualityLevel::Ultra);
-    /// assert_eq!(GraphicsQuality::default().level(), QualityLevel::Custom);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::render::GraphicsQuality::ultra().level(), ponko::render::QualityLevel::Ultra);
+    /// assert_eq!(ponko::render::GraphicsQuality::default().level(), ponko::render::QualityLevel::Custom);
     /// ```
     #[must_use]
     pub fn level(&self) -> QualityLevel {
@@ -421,8 +422,8 @@ impl GraphicsQuality {
     /// [`Graphics::set_quality`] applies them); a NaN becomes the
     /// [default](Self::default).
     /// ```
-    /// use ponko::*;
-    /// let q = GraphicsQuality { render_scale: 9.0, shadow_cascades: 0, ..Default::default() }.clamped();
+    /// use ponko::prelude::*;
+    /// let q = ponko::render::GraphicsQuality { render_scale: 9.0, shadow_cascades: 0, ..Default::default() }.clamped();
     /// assert_eq!((q.render_scale, q.shadow_cascades), (2.0, 1));
     /// ```
     #[must_use]
@@ -466,10 +467,10 @@ impl Graphics {
     /// [`GraphicsQuality::level`] to see which preset it is.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// Game::new("quality", 64, 64).run_headless(0, |ctx| {
-    ///     ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::medium());
-    ///     assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::Medium);
+    ///     ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, ponko::render::GraphicsQuality::medium());
+    ///     assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), ponko::render::QualityLevel::Medium);
     /// });
     /// ```
     #[must_use]
@@ -507,9 +508,9 @@ impl Graphics {
     /// count changed: nothing is drawn from stale targets.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::low());
+    /// ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, ponko::render::GraphicsQuality::low());
     /// ctx.post.ambient_occlusion.radius = 2.0; // a tweak on top
     /// # }
     /// ```
@@ -535,6 +536,13 @@ impl Graphics {
         lighting.light_shadow_resolution = q.light_shadow_resolution;
         lighting.light_shadow_atlas = q.light_shadow_atlas;
     }
+}
+
+impl GraphicsQuality {
+    /// Lowest supported internal resolution scale.
+    pub const MIN_RENDER_SCALE: f32 = super::MIN_RENDER_SCALE;
+    /// Highest supported internal resolution scale.
+    pub const MAX_RENDER_SCALE: f32 = super::MAX_RENDER_SCALE;
 }
 
 #[cfg(test)]
@@ -734,7 +742,8 @@ mod tests {
 
     #[test]
     fn tier_presets_ask_for_nothing_their_tier_lacks() {
-        use crate::{GpuFeature, GpuTier};
+        use crate::render::GpuFeature;
+        use crate::render::GpuTier;
         for tier in GpuTier::ALL {
             let floor = tier.report();
             let q = GraphicsQuality::for_tier(tier);
@@ -755,7 +764,7 @@ mod tests {
 
     #[test]
     fn fitting_takes_out_only_what_the_gpu_lacks() {
-        use crate::GpuTier;
+        use crate::render::GpuTier;
         let ultra = GraphicsQuality::ultra();
         assert_eq!(ultra.fitted_to(&GpuTier::Desktop.report()), ultra);
         let taa = GraphicsQuality {
@@ -777,7 +786,7 @@ mod tests {
 
     #[test]
     fn recommended_follows_the_reported_tier() {
-        use crate::GpuTier;
+        use crate::render::GpuTier;
         for tier in GpuTier::ALL {
             assert_eq!(
                 GraphicsQuality::recommended(&tier.report()),

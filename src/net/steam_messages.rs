@@ -8,7 +8,7 @@ use steamworks::networking_types::{NetworkingIdentity, SendFlags};
 use steamworks::{Client, LobbyId, LobbyType, SteamId};
 
 use super::messages::PacketTransport;
-use super::steam::{HOST, addr, steam_id};
+use super::steam_transport::{HOST, addr, steam_id};
 use super::{NetMessages, PeerId};
 
 const CHANNEL: u32 = 12701; // independent of lockstep's channel zero
@@ -34,7 +34,7 @@ fn complete(pending: &Pending, value: Result<LobbyId, String>, leave: impl FnOnc
 
 /// Visibility of a Steam lobby (feature `steam`).
 /// ```
-/// let visibility = ponko::SteamLobbyVisibility::FriendsOnly;
+/// let visibility = ponko::net::SteamLobbyVisibility::FriendsOnly;
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SteamLobbyVisibility {
@@ -130,9 +130,9 @@ impl SteamApi for Real {
 /// `id` is `None` until Steam completes the request. Drop or `leave` leaves it.
 /// Metadata is cached by Steam; remote changes become visible after callbacks.
 /// ```no_run
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// let client = steamworks::Client::init_app(480).unwrap();
-/// let mut lobby = SteamLobby::create(&client, SteamLobbyVisibility::FriendsOnly, 4).unwrap();
+/// let mut lobby = ponko::net::SteamLobby::create(&client, ponko::net::SteamLobbyVisibility::FriendsOnly, 4).unwrap();
 /// lobby.poll().unwrap();
 /// if lobby.id().is_some() { lobby.set_metadata("version", "1").unwrap(); }
 /// ```
@@ -157,9 +157,9 @@ impl SteamLobby {
     }
     /// Create a lobby for 1..=250 members, including its owner.
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # let client = steamworks::Client::init_app(480).unwrap();
-    /// let lobby = SteamLobby::create(&client, SteamLobbyVisibility::Private, 2)?;
+    /// let lobby = ponko::net::SteamLobby::create(&client, ponko::net::SteamLobbyVisibility::Private, 2)?;
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn create(client: &Client, visibility: SteamLobbyVisibility, max_members: u32) -> io::Result<Self> {
@@ -175,9 +175,9 @@ impl SteamLobby {
     }
     /// Join by lobby id; completion/errors arrive through `poll`.
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # let client = steamworks::Client::init_app(480).unwrap();
-    /// let lobby = SteamLobby::join(&client, steamworks::LobbyId::from_raw(1))?;
+    /// let lobby = ponko::net::SteamLobby::join(&client, steamworks::LobbyId::from_raw(1))?;
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn join(client: &Client, id: LobbyId) -> io::Result<Self> {
@@ -193,7 +193,7 @@ impl SteamLobby {
     }
     /// Run callbacks and report asynchronous errors. Never blocks.
     /// ```no_run
-    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.poll(); }
+    /// # fn f(lobby: &ponko::net::SteamLobby) { let _ = lobby.poll(); }
     /// ```
     pub fn poll(&self) -> io::Result<()> {
         self.api.pump();
@@ -204,7 +204,7 @@ impl SteamLobby {
     }
     /// Current id, or `None` while pending/after leaving.
     /// ```no_run
-    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.id(); }
+    /// # fn f(lobby: &ponko::net::SteamLobby) { let _ = lobby.id(); }
     /// ```
     pub fn id(&self) -> Option<LobbyId> {
         if self.left {
@@ -225,14 +225,14 @@ impl SteamLobby {
     }
     /// Current members, as Steam identities; empty while pending.
     /// ```no_run
-    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.members(); }
+    /// # fn f(lobby: &ponko::net::SteamLobby) { let _ = lobby.members(); }
     /// ```
     pub fn members(&self) -> Vec<SteamId> {
         self.id().map_or_else(Vec::new, |id| self.api.members(id))
     }
     /// Read cached lobby metadata; missing keys return `None`.
     /// ```no_run
-    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.metadata("version"); }
+    /// # fn f(lobby: &ponko::net::SteamLobby) { let _ = lobby.metadata("version"); }
     /// ```
     pub fn metadata(&self, key: &str) -> Option<String> {
         if !valid_key(key) {
@@ -243,7 +243,7 @@ impl SteamLobby {
     /// Set metadata (owner only). Keys are 1..=254 bytes, values at most
     /// 8191 bytes; neither may contain NUL. Check version compatibility before play.
     /// ```no_run
-    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.set_metadata("version", "1"); }
+    /// # fn f(lobby: &ponko::net::SteamLobby) { let _ = lobby.set_metadata("version", "1"); }
     /// ```
     pub fn set_metadata(&self, key: &str, value: &str) -> io::Result<()> {
         if !valid_key(key) || value.len() > 8191 || value.contains('\0') {
@@ -257,7 +257,7 @@ impl SteamLobby {
     /// Open the overlay invite dialog. Existing invite argument/wait helpers
     /// also work for these lobbies.
     /// ```no_run
-    /// # fn f(lobby: &ponko::SteamLobby) { let _ = lobby.invite(); }
+    /// # fn f(lobby: &ponko::net::SteamLobby) { let _ = lobby.invite(); }
     /// ```
     pub fn invite(&self) -> io::Result<()> {
         self.api.invite(self.ready()?);
@@ -265,7 +265,7 @@ impl SteamLobby {
     }
     /// Leave once. A pending request must finish first (returns `WouldBlock`).
     /// ```no_run
-    /// # fn f(lobby: &mut ponko::SteamLobby) { let _ = lobby.leave(); }
+    /// # fn f(lobby: &mut ponko::net::SteamLobby) { let _ = lobby.leave(); }
     /// ```
     pub fn leave(&mut self) -> io::Result<()> {
         self.poll()?;
@@ -378,9 +378,9 @@ impl NetMessages {
     /// lobby. `max_clients` is 1..=249 (Steam permits 250 lobby members).
     /// Use one message endpoint per Steam client; lockstep uses a separate channel.
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let client = steamworks::Client::init_app(480).unwrap();
-    /// let mut host = NetMessages::steam_host(&client, 3)?;
+    /// let mut host = ponko::net::NetMessages::steam_host(&client, 3)?;
     /// host.poll()?;
     /// # Ok::<(), std::io::Error>(())
     /// ```
@@ -394,9 +394,9 @@ impl NetMessages {
     /// Join a message host by lobby id. Poll until `Connected`; lobby failures
     /// are returned by `poll`. Host migration requires a new endpoint.
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # let client = steamworks::Client::init_app(480).unwrap();
-    /// let net = NetMessages::steam_join(&client, steamworks::LobbyId::from_raw(1))?;
+    /// let net = ponko::net::NetMessages::steam_join(&client, steamworks::LobbyId::from_raw(1))?;
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn steam_join(client: &Client, lobby: LobbyId) -> io::Result<Self> {
@@ -417,15 +417,15 @@ impl NetMessages {
     /// This endpoint's lobby, for metadata, membership and overlay invites.
     /// Returns `None` for UDP and loopback endpoints.
     /// ```
-    /// assert!(ponko::NetMessages::loopback(2)[0].steam_lobby().is_none());
+    /// assert!(ponko::net::NetMessages::loopback(2)[0].steam_lobby().is_none());
     /// ```
     pub fn steam_lobby(&self) -> Option<&SteamLobby> {
         self.transport_lobby()
     }
     /// Steam identity corresponding to a connected session-local peer.
     /// ```
-    /// # use ponko::*;
-    /// assert!(NetMessages::loopback(2)[0].steam_peer(PeerId::HOST).is_none());
+    /// # use ponko::prelude::*;
+    /// assert!(ponko::net::NetMessages::loopback(2)[0].steam_peer(ponko::net::PeerId::HOST).is_none());
     /// ```
     pub fn steam_peer(&self, peer: PeerId) -> Option<SteamId> {
         self.transport_peer_addr(peer).and_then(|a| {
@@ -442,7 +442,9 @@ impl NetMessages {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Lane, MAX_MESSAGE_BYTES, MessageEvent};
+    use crate::net::Lane;
+    use crate::net::MAX_MESSAGE_BYTES;
+    use crate::net::MessageEvent;
     use std::collections::BTreeMap;
     use std::time::Duration;
 

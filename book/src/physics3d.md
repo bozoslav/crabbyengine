@@ -11,6 +11,12 @@ on `3d`):
 ponko = { version = "0.0.1", features = ["physics3d"] }
 ```
 
+With `use ponko::d3::*;` the bodies, colliders and queries are `RigidBody`,
+`Collider`, `Velocity`, `Physics` and `Hit`, the same names as in
+`ponko::d2`; this chapter qualifies them as `d3::RigidBody` and so on. The
+`RigidBody3D`-style names still compile
+([Naming and compatibility](naming.md)).
+
 (The C library, `ponko_ffi`, has it on by default.)
 
 Turn it on with gravity in m/s² (+Y is up):
@@ -43,8 +49,8 @@ use `ctx.physics3d.position(e)`.
 
 ## Bodies, colliders and terrain
 
-An entity becomes a body with a `Transform3D`, a `RigidBody3D` and a
-`Collider3D` (in meters). Terrain gets a **heightfield** made from the same
+An entity becomes a body with a `d3::Transform`, a `d3::RigidBody` and a
+`d3::Collider` (in meters). Terrain gets a **heightfield** made from the same
 heights, size and corner as its [terrain tile](3d.md), so what you walk on
 is what you see:
 
@@ -67,17 +73,17 @@ is what you see:
 
 | Rust | C++ | Meaning |
 |---|---|---|
-| `RigidBody3D::dynamic()` | `ponko::dynamic_body3d()` | moved by gravity and collisions |
-| `RigidBody3D::fixed()` | `ponko::fixed_body3d()` | never moves: ground, walls, buildings |
-| `RigidBody3D::kinematic()` | `ponko::kinematic_body3d()` | moved only by you; pushes, isn't pushed |
-| `Collider3D::sphere(r)` | `ponko::sphere_collider(r)` | |
-| `Collider3D::cuboid(size)` | `ponko::box_collider(size)` | full width, height, depth |
-| `Collider3D::capsule(h, r)` | `ponko::capsule_collider3d(h, r)` | upright; `h` between the centers of its ends |
-| `Collider3D::mesh(m)` | `ponko::mesh_collider(m)` | a heightfield, convex hull or triangle mesh |
+| `d3::RigidBody::dynamic()` | `ponko::dynamic_body3d()` | moved by gravity and collisions |
+| `d3::RigidBody::fixed()` | `ponko::fixed_body3d()` | never moves: ground, walls, buildings |
+| `d3::RigidBody::kinematic()` | `ponko::kinematic_body3d()` | moved only by you; pushes, isn't pushed |
+| `d3::Collider::sphere(r)` | `ponko::sphere_collider(r)` | |
+| `d3::Collider::cuboid(size)` | `ponko::box_collider(size)` | full width, height, depth |
+| `d3::Collider::capsule(h, r)` | `ponko::capsule_collider3d(h, r)` | upright; `h` between the centers of its ends |
+| `d3::Collider::mesh(m)` | `ponko::mesh_collider(m)` | a heightfield, convex hull or triangle mesh |
 | `.density(d)`, `.friction(f)`, `.restitution(r)` | fields of the same name | kg/m³ (default 1000), 0 ice..1 rubber, bounciness |
 | `.sensor()` | `.sensor = true` | reports overlaps, doesn't push |
 | `.offset(v)`, `.groups(g)` | `.offset`, `.groups` | shape moved from the entity; who it touches |
-| `RigidBody3D::dynamic().mass(kg)` | `ponko::with_mass(body, kg)` | a mass of its own instead of density × volume |
+| `d3::RigidBody::dynamic().mass(kg)` | `ponko::with_mass(body, kg)` | a mass of its own instead of density × volume |
 | `.center_of_mass(v)` | `ponko::with_center_of_mass(body, v)` | center of mass in the body's frame (low for cars) |
 
 Collision meshes are made once and shared by any number of colliders:
@@ -103,12 +109,12 @@ same `Job` as the rest of a cell, then `ctx.physics3d.add_mesh(&data)` (C++
 A terrain tile is simplest to make solid with a **`TerrainCollider`** on
 the tile's own entity: `TerrainCollider::new(mesh)` (C++
 `ponko::solid_terrain(mesh)`) with the heightfield of the tile's heights.
-It sits at the tile's `Transform3D`, turned **and scaled** with it (a tile
+It sits at the tile's `d3::Transform`, turned **and scaled** with it (a tile
 drawn twice as high is solid twice as high), so it matches the drawn ground
 triangle for triangle, holes included. Despawning the tile removes it; to
 edit the ground (a crater), make a new heightfield, put it in the
 component's `mesh` and free the old one: the collider changes at the next
-step. Its `friction`, `restitution` and `groups` work as on a `Collider3D`.
+step. Its `friction`, `restitution` and `groups` work as on a `d3::Collider`.
 
 In a scene file, a mesh collider can name a mesh file instead, and
 `ctx.load_scene` makes the mesh (the [Unity importer](unity.md) writes
@@ -118,9 +124,9 @@ them this way):
 "Collider3D": { "shape": { "Mesh": { "file": "town/meshes/wall.glb", "scale": [1, 1, 1], "convex": false } } }
 ```
 
-**`Transform3D` stays the source of truth**, as in 2D: after each step,
+**`d3::Transform` stays the source of truth**, as in 2D: after each step,
 dynamic bodies write their pose into it; set a transform yourself and the
-body teleports there. A `Velocity3D` component reads and sets a body's
+body teleports there. A `d3::Velocity` component reads and sets a body's
 speed (in C++ a plain struct and a query column). Physics ignores a
 transform's scale: size the collider instead.
 
@@ -133,7 +139,7 @@ default) touches everything:
 const GROUND: u32 = 1;
 const DEBRIS: u32 = 2;
 // Debris lands on the ground but passes through other debris.
-let debris = CollisionGroups::new(DEBRIS, GROUND);
+let debris = ponko::physics3d::CollisionGroups::new(DEBRIS, GROUND);
 ```
 
 Collisions send `CollisionStarted` and `CollisionStopped` events, the same
@@ -141,10 +147,10 @@ ones as in 2D (C++: `ctx.collisions_started()`).
 
 ## A walking character
 
-`Character3D` is a kinematic capsule that walks: it slides along walls,
+`d3::Character` is a kinematic capsule that walks: it slides along walls,
 climbs slopes up to `max_slope`, steps up ledges up to `step_height`, stays
 on the ground going downhill (`snap_distance`), pushes light dynamic bodies
-(as if it weighed `push_mass`) and sets off sensors. Its `Transform3D`
+(as if it weighed `push_mass`) and sets off sensors. Its `d3::Transform`
 position is at its **feet**. Set `velocity` (x and z to walk, y to jump)
 and read `grounded`; the step adds gravity while it's in the air:
 
@@ -184,7 +190,7 @@ For mouse look, lock the cursor and turn the head by the raw mouse motion
 
 ## Vehicles
 
-`Vehicle3D` turns a dynamic body into a car (or a truck, a buggy, anything
+`d3::Vehicle` turns a dynamic body into a car (or a truck, a buggy, anything
 on up to 8 wheels) with **raycast wheels**, the classic wheel-collider
 model: each physics step, every wheel casts a ray down from its mount,
 pushes the chassis up with a spring and a damper, spins by the torques you
@@ -255,7 +261,7 @@ step, so its inputs would arrive one tick late:
 </div>
 </div>
 
-| `Wheel3D` field | Default | |
+| `d3::Wheel` field | Default | |
 |---|---|---|
 | `position` | | the wheel's center at full compression, in the chassis's frame |
 | `radius`, `mass` | 0.5 m, 20 kg | the mass sets how fast torque spins it up |
@@ -284,7 +290,7 @@ After each step, every wheel says what happened: `grounded`,
 `suspension_force`, `angular_velocity` (and `rpm()`), `forward_slip` and
 `sideways_slip` (for skid marks and tyre sounds). To draw a wheel, its
 `pose(chassis)` (C++ `ponko::wheel_pose`) is its center and turn: steer,
-spin and suspension travel. Pass the chassis's `Transform3D` from a frame
+spin and suspension travel. Pass the chassis's `d3::Transform` from a frame
 system and the wheels move as smoothly as the chassis:
 
 ```rust
@@ -293,7 +299,7 @@ system and the wheels move as smoothly as the chassis:
 
 The wheels are rays, so a car can't tunnel through the ground however
 fast it goes (a test drives one over a heightfield at 30 m/s), and they
-see only what `Vehicle3D::groups` touches. The road is pushed back too:
+see only what `d3::Vehicle::groups` touches. The road is pushed back too:
 a car on a dynamic raft pushes the raft. C++ sees the component as
 `ponko::vehicle3d`, a plain struct (and a query column): the wheels are
 `wheels[0..wheel_count]`.
@@ -342,7 +348,7 @@ Try it: `cargo run --release --example vehicle --features physics3d`.
   a push in kg × m/s (multiply by `mass(e)` for a speed change); at a point
   it also spins the body.
 
-Every query takes a `QueryFilter3D` (C++ `ponko::filter3d`):
+Every query takes a `d3::QueryFilter` (C++ `ponko::filter3d`):
 `.exclude(e)` looks through one entity (the one asking), `.groups(g)` sees
 what a collider in those groups would touch, and `.with_sensors()` sees
 sensors too (they're skipped by default). Lists go into a `Vec` you keep,
@@ -451,8 +457,8 @@ the game's thread under a microsecond.
 
 ## Joints
 
-A `Joint3D` component on a separate entity connects two body entities. Both
-endpoints need `Transform3D`, `RigidBody3D` and `Collider3D`. Connections join
+A `d3::Joint` component on a separate entity connects two body entities. Both
+endpoints need `d3::Transform`, `d3::RigidBody` and `d3::Collider`. Connections join
 at the next physics step; missing endpoints are retried. Despawning the
 connection, removing its component, or removing either endpoint's body removes
 the Rapier impulse joint on the next step. Several connections can share a body.
@@ -484,7 +490,7 @@ indices into `axes` and `drives`, and `swing_cone` is negative for none.
 `prismatic(a, b)` leaves only translation along local X free.
 `generic(a, b)` starts with all six axes free. Use `.motion(axis, Free)`,
 `.motion(axis, Locked)` or `.motion(axis, Limited(min, max))` to configure
-each axis. Names are qualified by `JointMotion3D`; axes by `JointAxis3D`.
+each axis. Names are qualified by `d3::JointMotion`; axes by `d3::JointAxis`.
 Distances are meters and angles radians. Limits must be finite and ordered;
 angular ranges must span less than a full turn.
 
@@ -495,8 +501,8 @@ local Y/Z angular motion into a circular cone around X. Local X remains the
 independent twist axis. The cone overrides the Y/Z limits and drives; it is
 not two independent rectangular angular limits.
 
-`.drive(axis, JointDrive3D::velocity(speed, damping))` sets a velocity motor.
-`JointDrive3D::spring(target, stiffness, damping)` drives toward an angle or
+`.drive(axis, d3::JointDrive::velocity(speed, damping))` sets a velocity motor.
+`d3::JointDrive::spring(target, stiffness, damping)` drives toward an angle or
 position. Set its `max_force` to cap force/torque. Drives use Rapier's default
 acceleration model; locked axes ignore drives. For an arbitrary target rotation,
 express the target in the joint's local angular coordinates and drive the
@@ -522,7 +528,7 @@ pose relative to the bone above them, so hands and fingers ride along.
 
 The bodies start where the skeleton is posed now and are linked to physics
 at once, so you can push them in the same frame: a hit, an explosion. From
-then on the bodies pose the skeleton after every step (`Ragdoll3D` on the
+then on the bodies pose the skeleton after every step (`d3::Ragdoll` on the
 entity holds them; `body(joint)` finds one) and its `Animator` waits.
 
 <div class="lang-pair">
@@ -544,7 +550,7 @@ entity holds them; `body(joint)` finds one) and its `Animator` waits.
 
 `ctx.stop_ragdoll(entity, seconds)` removes the bodies and joints and blends
 the skeleton from where it lies back to what the animator plays, over
-`seconds` (0 snaps). The entity's `Transform3D` doesn't move by itself: set
+`seconds` (0 snaps). The entity's `d3::Transform` doesn't move by itself: set
 it to where the ragdoll lies (its root bone's body) first if the animation
 should start from there. The bodies are entities of their own, so stop the
 ragdoll before despawning the character. Starting again replaces a running
@@ -555,10 +561,10 @@ the rest of the world and the rest of the body.
 
 ## Contact modification
 
-`ContactModifier3D` changes how one body's contacts behave. It is a component:
+`d3::ContactModifier` changes how one body's contacts behave. It is a component:
 put it on an entity that has a collider.
 
-- **One-way surfaces.** `ContactModifier3D::one_way(up)` makes a body solid
+- **One-way surfaces.** `d3::ContactModifier::one_way(up)` makes a body solid
   only from the side `up` points to. A ball thrown up from below passes
   through the platform and lands on top of it. `up` is in the body's own
   frame, so a tilted platform turns it with it. `one_way_angle` (radians,
@@ -566,16 +572,16 @@ put it on an entity that has a collider.
   from `up` and still count as "from above", so a steep slope of the
   surface still holds; narrow it to make only the flat top solid. Something already partly inside the platform
   keeps passing until it is out, so it is never pushed up from within.
-- **Conveyors.** `ContactModifier3D::conveyor(velocity)` makes the surface
+- **Conveyors.** `d3::ContactModifier::conveyor(velocity)` makes the surface
   carry whatever touches it at `velocity`, in metres per second. The
   velocity is in the body's frame, so a belt on a turning body turns its
   direction too. Only the part along the surface counts; the part into it is
   ignored. It works whether the belt or the thing on it comes first in the
   pair.
-- **A custom hook.** `ContactModifier3D::hook()` sends the body's contacts
+- **A custom hook.** `d3::ContactModifier::hook()` sends the body's contacts
   to the function you set with `ctx.physics3d.set_contact_hook(...)`
   (`ctx.set_contact_hook3d(...)` in C++; a null function clears it). The hook
-  gets a `ContactPair3D`: the two entities (`a` and `b`), the contact
+  gets a `d3::ContactPair`: the two entities (`a` and `b`), the contact
   `normal()` and its points, and it can `ignore()` the whole pair, drop one
   `remove_point(i)`, change `set_friction` and `set_restitution`, or
   `set_surface_velocity` in world space.
@@ -605,12 +611,12 @@ contact of every hooked body, every step. In C++ an exception thrown by the
 hook ends the run after that step and comes out of `run` or `run_headless`.
 
 Modified bodies cost a little: their contacts are rebuilt every step instead
-of being kept while the bodies rest. Bodies without a `ContactModifier3D`
+of being kept while the bodies rest. Bodies without a `d3::ContactModifier`
 are not affected, and removing the component makes a body plain again.
 
 ## One-way pushing
 
-A higher `RigidBody3D::dominance` group pushes lower groups without receiving
+A higher `d3::RigidBody::dominance` group pushes lower groups without receiving
 a contact impulse back. Equal groups react normally. Both bodies remain dynamic,
 so the higher body still responds to gravity, fixed walls and equal-group
 contacts. Groups default to zero and range from -128 to 127 (C++: `ponko::with_dominance`):

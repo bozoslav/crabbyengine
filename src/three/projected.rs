@@ -27,29 +27,29 @@ pub const MAX_DECALS_PER_CLUSTER: usize = 64;
 /// A box that paints an image onto the opaque surfaces inside it. The
 /// entity's [`Transform3D`] places the box (its scale multiplies `size`).
 /// The image is projected along the box's **-Z** (looking from +Z), its top
-/// along +Y, as with [`MeshData::decal`](crate::MeshData::decal); only
+/// along +Y, as with [`MeshData::decal`](crate::render::MeshData::decal); only
 /// surfaces turned towards +Z get it.
 ///
 /// Unlike a mesh decal, nothing is built: the decal is drawn onto whatever
 /// is inside the box each frame, so it follows moving and skinned models,
 /// costs the same however much geometry is under it, and is lit with the
-/// surface it lands on. Put hundreds on screen ([`MAX_DECALS`] at most).
+/// surface it lands on. Put hundreds on screen ([`Decal::MAX`](crate::d3::Decal::MAX) at most).
 /// Parent a decal to a model (see `Attached`) to carry it along.
 ///
 /// Images come from the texture array set with
-/// [`Graphics::set_decal_textures`](crate::Graphics::set_decal_textures); without
+/// [`Graphics::set_decal_textures`](crate::gfx::Graphics::set_decal_textures); without
 /// one a decal is a flat `color` rectangle. Surfaces whose model has no
 /// matching [`ReceivesDecals`] layer are skipped, as are transparent
 /// materials.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// // A 2 x 2 m mark, 1 m deep, from the first image of the decal textures.
-/// let mark = Decal3D { size: vec3(2.0, 2.0, 1.0), image: 0, ..Default::default() };
+/// let mark = ponko::d3::Decal { size: vec3(2.0, 2.0, 1.0), image: 0, ..Default::default() };
 /// let mut world = World::new();
 /// // Looking down: the box's +Z turned to point up.
 /// let down = Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-/// world.spawn((Transform3D::at(vec3(0.0, 0.5, 0.0)).rotated(down), mark));
+/// world.spawn((ponko::d3::Transform::at(vec3(0.0, 0.5, 0.0)).rotated(down), mark));
 /// ```
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -107,11 +107,6 @@ pub struct Decal3D {
     pub layers: u32,
 }
 
-impl Decal3D {
-    /// `image` and `normal_image` value that selects no image.
-    pub const NO_IMAGE: u32 = u32::MAX;
-}
-
 impl Default for Decal3D {
     fn default() -> Self {
         Self {
@@ -139,12 +134,12 @@ impl Default for Decal3D {
 /// without it take every decal. Only the low 16 bits count.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// let mut ctx_world = World::new();
 /// // A character that no decal lands on:
-/// let hero = ctx_world.spawn((Transform3D::default(), ReceivesDecals::NONE));
+/// let hero = ctx_world.spawn((ponko::d3::Transform::default(), ponko::render::ReceivesDecals::NONE));
 /// // Only blood (layer bit 1):
-/// let wall = ctx_world.spawn((Transform3D::default(), ReceivesDecals(0b10)));
+/// let wall = ctx_world.spawn((ponko::d3::Transform::default(), ponko::render::ReceivesDecals(0b10)));
 /// # let _ = (hero, wall);
 /// ```
 #[repr(C)]
@@ -473,6 +468,18 @@ fn visit(lo: [usize; 3], hi: [usize; 3], mut f: impl FnMut(usize)) {
             }
         }
     }
+}
+
+impl Decal3D {
+    /// Maximum decals in one frame.
+    pub const MAX: usize = MAX_DECALS;
+    /// Maximum decals affecting one cluster.
+    pub const MAX_PER_CLUSTER: usize = MAX_DECALS_PER_CLUSTER;
+}
+
+impl Decal3D {
+    /// `image` and `normal_image` value that selects no image.
+    pub const NO_IMAGE: u32 = u32::MAX;
 }
 
 #[cfg(test)]

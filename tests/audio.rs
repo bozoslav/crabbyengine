@@ -1,6 +1,6 @@
 //! Sounds, checked headless: loading and decoding work, playing is silent.
 
-use ponko::*;
+use ponko::prelude::*;
 
 fn in_tick(f: impl FnMut(&mut Ctx) + 'static) {
     Game::new("audio", 1, 1).sim_system(f).run_headless(1, |_| {});

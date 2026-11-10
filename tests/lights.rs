@@ -1,5 +1,8 @@
 #![cfg(feature = "3d")]
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::{PointLight as PointLight3D, SpotLight as SpotLight3D, Transform as Transform3D};
+use ponko::prelude::*;
 
 #[test]
 fn entity_lights_roundtrip_and_spots_follow_forward() {

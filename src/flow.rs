@@ -15,11 +15,11 @@ use rayon::prelude::*;
 /// `origin` in world units.
 ///
 /// ```
-/// use ponko::*;
-/// let mut nav = NavGrid::new(64, 64, 16.0); // 64 × 64 cells of 16 units
-/// nav.set_cost(10, 3, NavGrid::WALL);
+/// use ponko::prelude::*;
+/// let mut nav = ponko::flow::NavGrid::new(64, 64, 16.0); // 64 × 64 cells of 16 units
+/// nav.set_cost(10, 3, ponko::flow::NavGrid::WALL);
 /// nav.set_cost(11, 3, 4); // mud: 4 times slower
-/// assert_eq!(nav.cost(10, 3), Some(NavGrid::WALL));
+/// assert_eq!(nav.cost(10, 3), Some(ponko::flow::NavGrid::WALL));
 /// assert_eq!(nav.cell_at(vec2(170.0, 50.0)), Some(uvec2(10, 3)));
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -88,10 +88,10 @@ impl NavGrid {
     /// Every cell's cost, row by row, for filling a map at once.
     ///
     /// ```
-    /// # use ponko::*;
-    /// let mut nav = NavGrid::new(4, 4, 1.0);
-    /// nav.costs_mut()[..4].fill(NavGrid::WALL); // top row
-    /// assert_eq!(nav.cost(2, 0), Some(NavGrid::WALL));
+    /// # use ponko::prelude::*;
+    /// let mut nav = ponko::flow::NavGrid::new(4, 4, 1.0);
+    /// nav.costs_mut()[..4].fill(ponko::flow::NavGrid::WALL); // top row
+    /// assert_eq!(nav.cost(2, 0), Some(ponko::flow::NavGrid::WALL));
     /// ```
     pub fn costs_mut(&mut self) -> &mut [u8] {
         &mut self.costs
@@ -151,11 +151,11 @@ const UNREACHED: u32 = u32::MAX;
 /// cut through them.
 ///
 /// ```
-/// use ponko::*;
-/// let mut nav = NavGrid::new(32, 32, 10.0);
-/// for y in 0..30 { nav.set_cost(16, y, NavGrid::WALL); } // a wall with a gap at the bottom
+/// use ponko::prelude::*;
+/// let mut nav = ponko::flow::NavGrid::new(32, 32, 10.0);
+/// for y in 0..30 { nav.set_cost(16, y, ponko::flow::NavGrid::WALL); } // a wall with a gap at the bottom
 ///
-/// let mut flow = FlowField::new();
+/// let mut flow = ponko::flow::FlowField::new();
 /// flow.compute(&nav, &[vec2(300.0, 15.0)]); // goal on the right
 ///
 /// let dir = flow.direction_at(vec2(100.0, 15.0)); // left of the wall

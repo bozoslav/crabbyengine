@@ -17,7 +17,7 @@ use crate::reflect::{raw_json, short_name};
 /// Messages between systems, by type: [`Ctx::events`](crate::Ctx::events).
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// struct Died(Entity);
 /// struct Health(i32);
@@ -82,7 +82,7 @@ pub struct Events {
     /// What a tool subscribed to, collected between frames.
     pub(crate) feed: Option<Feed>,
     /// Debug builds: event types the running system used, while its
-    /// declared access is checked (see [`SystemAccess`](crate::SystemAccess)).
+    /// declared access is checked (see [`SystemAccess`](crate::access::SystemAccess)).
     #[cfg(debug_assertions)]
     pub(crate) used: std::cell::RefCell<Option<crate::access::EventUse>>,
 }
@@ -257,7 +257,7 @@ impl Events {
     /// JSON: list them and subscribe to them. Named by the type's short name.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// #[derive(serde::Serialize)]
     /// struct Died { who: Entity }
     ///
@@ -627,7 +627,8 @@ mod tests {
 
     #[test]
     fn feeds_collect_reflected_rust_and_c_events() {
-        use crate::{Field, FieldType, World, WorldReflect};
+        use crate::World;
+        use crate::reflect::{Field, FieldType, WorldReflect};
         #[derive(serde::Serialize)]
         struct Ping(u32);
         struct Hidden;

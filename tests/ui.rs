@@ -1,6 +1,6 @@
 //! Camera, shapes, text and UI, checked headless (no window or GPU).
 
-use ponko::*;
+use ponko::prelude::*;
 
 /// Runs `f` inside one headless tick.
 fn in_tick(f: impl FnMut(&mut Ctx) + 'static) {

@@ -117,7 +117,7 @@ impl Systems {
     pub const FOLLOW_ATTACHMENTS: SystemId = SystemId(8);
     /// Navigation update, when explicitly registered.
     pub const STEP_NAVMESH3D: SystemId = SystemId(9);
-    /// Advances every [`Animator`](crate::Animator) and poses its skeleton
+    /// Advances every [`Animator`](crate::anim::Animator) and poses its skeleton
     /// (feature `3d`). Stays at the end of [`Phase::Animate`].
     pub const UPDATE_ANIMATORS: SystemId = SystemId(10);
     /// Advances particle emitters and trails (feature `3d`). Stays at the
@@ -145,32 +145,32 @@ impl SystemId {
 }
 
 /// The id of built-in system function `name` (a type name), with the name
-/// it is listed under: the old crate-root spellings count as the same system.
+/// it is listed under. The old crate-root spellings re-export the same
+/// functions, so they have the same type name.
 fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
-    /// The function in `ponko::systems` and its old crate-root spelling.
-    macro_rules! both {
+    /// The function in `ponko::systems`, listed once under its own name.
+    macro_rules! builtin {
         ($name:ident) => {{
-            #[allow(deprecated)]
-            let root = std::any::type_name_of_val(&crate::systems::at_root::$name);
-            [std::any::type_name_of_val(&crate::systems::$name), root]
+            let path = std::any::type_name_of_val(&crate::systems::$name);
+            [path, path]
         }};
     }
     #[cfg(feature = "3d")]
     let one = |name: &'static str| [name, name];
     let entries = [
-        (both!(animate_sprites), Systems::ANIMATE_SPRITES),
-        (both!(draw_tilemaps), Systems::DRAW_TILEMAPS),
-        (both!(draw_sprites), Systems::DRAW_SPRITES),
-        (both!(rebuild_spatial_grid), Systems::REBUILD_SPATIAL_GRID),
-        (both!(follow_attachments), Systems::FOLLOW_ATTACHMENTS),
+        (builtin!(animate_sprites), Systems::ANIMATE_SPRITES),
+        (builtin!(draw_tilemaps), Systems::DRAW_TILEMAPS),
+        (builtin!(draw_sprites), Systems::DRAW_SPRITES),
+        (builtin!(rebuild_spatial_grid), Systems::REBUILD_SPATIAL_GRID),
+        (builtin!(follow_attachments), Systems::FOLLOW_ATTACHMENTS),
         #[cfg(feature = "physics")]
-        (both!(step_physics), Systems::PHYSICS),
+        (builtin!(step_physics), Systems::PHYSICS),
         #[cfg(feature = "physics3d")]
-        (both!(step_physics3d), Systems::PHYSICS3D),
+        (builtin!(step_physics3d), Systems::PHYSICS3D),
         #[cfg(feature = "physics3d")]
-        (both!(interpolate_physics3d), Systems::INTERPOLATE_PHYSICS3D),
+        (builtin!(interpolate_physics3d), Systems::INTERPOLATE_PHYSICS3D),
         #[cfg(feature = "navmesh")]
-        (both!(step_navmesh3d), Systems::STEP_NAVMESH3D),
+        (builtin!(step_navmesh3d), Systems::STEP_NAVMESH3D),
         #[cfg(feature = "3d")]
         (
             one(std::any::type_name_of_val(&crate::systems::update_animators)),
@@ -195,7 +195,7 @@ fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
 /// A game: a window plus the loop that drives your code.
 ///
 /// ```no_run
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// Game::new("My Game", 800, 600).run(|ctx| {
 ///     // Setup: runs once, after the window exists.
@@ -214,18 +214,18 @@ fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
 /// With the ECS, the game is entities plus systems:
 ///
 /// ```no_run
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// struct Vel(Vec2);
 ///
 /// fn movement(ctx: &mut Ctx) {
 ///     let dt = ctx.dt();
-///     ctx.world.query::<(&mut Transform2D, &Vel)>().for_each(|(t, v)| t.position += v.0 * dt);
+///     ctx.world.query::<(&mut ponko::d2::Transform, &Vel)>().for_each(|(t, v)| t.position += v.0 * dt);
 /// }
 ///
 /// Game::new("Crabs", 800, 600).sim_system(movement).run(|ctx| {
 ///     let crab = ctx.load_texture("crab.png");
-///     ctx.world.spawn((Transform2D::at(vec2(100.0, 100.0)), Sprite::new(crab), Vel(vec2(50.0, 0.0))));
+///     ctx.world.spawn((ponko::d2::Transform::at(vec2(100.0, 100.0)), ponko::d2::Sprite::new(crab), Vel(vec2(50.0, 0.0))));
 /// });
 /// ```
 #[must_use = "a Game does nothing until `.run()` or `.run_headless()`"]
@@ -256,14 +256,14 @@ pub struct Game {
     #[cfg(feature = "physics3d")]
     gravity3d: Option<crate::Vec3>,
     /// The lockstep session from `lockstep`, moved into `ctx.net` at start.
-    net: Option<crate::Net>,
+    net: Option<crate::net::Net>,
     /// Open the control endpoint (also on with `PONKO_CONTROL=1`).
     control: bool,
     /// Reload asset and data files when they change (`PONKO_HOT_RELOAD` overrides).
     hot_reload: bool,
     inspector: bool,
     /// Scheduled input from `input_scenario`, fed at the start of sim ticks.
-    input_scenario: Option<crate::InputScenario>,
+    input_scenario: Option<crate::scenario::InputScenario>,
     /// Whether tools may start input scenarios through the control endpoint.
     input_injection: bool,
 }
@@ -319,7 +319,7 @@ impl ConfiguredGame {
 
     /// Profiles fixed ticks using the stored setup callbacks.
     /// See [`Game::profile_headless`] for warmup and report semantics.
-    pub fn profile_headless(self, warmup: u64, ticks: u64) -> (World, crate::PerfReport) {
+    pub fn profile_headless(self, warmup: u64, ticks: u64) -> (World, crate::perf::PerfReport) {
         self.game.profile_headless(warmup, ticks, |_| {})
     }
 }
@@ -339,7 +339,7 @@ struct System {
     /// Unique per system: its read position for events.
     id: u32,
     /// Declared access from `add_with_access` or `add_view`; `None` is exclusive.
-    access: Option<crate::SystemAccess>,
+    access: Option<crate::access::SystemAccess>,
     /// Stays at the end of its phase: systems added later go before it.
     /// Set for the built-ins that must see what the phase's other systems did.
     last: bool,
@@ -412,7 +412,7 @@ fn forget_seen_removals<'a>(ctx: &mut Ctx, systems: impl Iterator<Item = &'a Sys
 fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     #[cfg(feature = "profiling")]
     puffin::profile_scope!("system", s.name);
-    let allocs_before = ctx.perf.state.on.then(crate::alloc_counts);
+    let allocs_before = ctx.perf.state.on.then(crate::perf::alloc_counts);
     let start = Instant::now();
     ctx.system_index = timing_index;
     ctx.events.reader = s.id;
@@ -445,7 +445,7 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     ctx.world.set_changes_since(crate::Tick::default());
     ctx.perf.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
     if let Some(before) = allocs_before {
-        let made = crate::alloc_counts().count.saturating_sub(before.count);
+        let made = crate::perf::alloc_counts().count.saturating_sub(before.count);
         ctx.perf.state.add_system_allocs(timing_index, made);
     }
 }
@@ -543,7 +543,7 @@ impl Game {
     /// Nothing opens until you call [`run`](Self::run).
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Space Crab", 1280, 720).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn new(title: impl Into<String>, width: u32, height: u32) -> Self {
@@ -620,11 +620,11 @@ impl Game {
     /// using anything beyond the declaration panics after the system runs.
     /// See [`SystemAccess`] and [`access_report`](Self::access_report).
     ///
-    /// [`SystemAccess`]: crate::SystemAccess
+    /// [`SystemAccess`]: crate::access::SystemAccess
     pub fn add_with_access(
         mut self,
         phase: Phase,
-        access: crate::SystemAccess,
+        access: crate::access::SystemAccess,
         system: impl FnMut(&mut Ctx) + 'static,
     ) -> Self {
         let mut s = System::new(system);
@@ -634,20 +634,20 @@ impl Game {
     }
 
     /// Registers a view system: it declares what it reads and writes, and
-    /// gets a [`SystemView`](crate::SystemView) that offers exactly that,
+    /// gets a [`SystemView`](crate::system_view::SystemView) that offers exactly that,
     /// instead of the whole `Ctx`. Anything undeclared is unreachable (its
     /// accessors panic, in every build), so the declaration is enforced by
     /// the view, not trusted. Systems still run one at a time, in order;
     /// view systems are the only ones a future parallel executor may run
-    /// together. See [`SystemAccess`](crate::SystemAccess) and the guide's
+    /// together. See [`SystemAccess`](crate::access::SystemAccess) and the guide's
     /// "Declared system access" chapter.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// struct Pos(f32);
     /// struct Vel(f32);
     ///
-    /// fn movement(sys: &mut SystemView) {
+    /// fn movement(sys: &mut ponko::system_view::SystemView) {
     ///     let dt = sys.dt();
     ///     sys.world.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| p.0 += v.0 * dt);
     /// }
@@ -655,7 +655,7 @@ impl Game {
     /// let world = Game::new("view", 1, 1)
     ///     .add_view(
     ///         Phase::AfterPhysics,
-    ///         SystemAccess::new().write::<Pos>().read::<Vel>().read_service(Service::Time),
+    ///         ponko::access::SystemAccess::new().write::<Pos>().read::<Vel>().read_service(ponko::access::Service::Time),
     ///         movement,
     ///     )
     ///     .run_headless(60, |ctx| {
@@ -673,8 +673,8 @@ impl Game {
     pub fn add_view(
         mut self,
         phase: Phase,
-        access: crate::SystemAccess,
-        system: impl FnMut(&mut crate::SystemView<'_>) + 'static,
+        access: crate::access::SystemAccess,
+        system: impl FnMut(&mut crate::system_view::SystemView<'_>) + 'static,
     ) -> Self {
         let name = crate::system_view::name_of(&system);
         if let Some(problem) = access.view_problem() {
@@ -698,7 +698,7 @@ impl Game {
         phase: Phase,
         name: &'static str,
         ticks: u32,
-        access: crate::SystemAccess,
+        access: crate::access::SystemAccess,
         system: impl FnMut(&mut Ctx) + 'static,
     ) -> Self {
         let mut s = self.build_named_system(phase, name, ticks, system);
@@ -710,7 +710,7 @@ impl Game {
     /// Every system in run order with its declared access, and which
     /// declared systems in the same phase could run together.
     #[must_use]
-    pub fn access_report(&self) -> crate::AccessReport {
+    pub fn access_report(&self) -> crate::access::AccessReport {
         let systems = (self.sim_systems.iter())
             .chain(&self.systems)
             .chain(&self.late_systems)
@@ -722,7 +722,7 @@ impl Game {
                 enforced: s.enforced,
             })
             .collect();
-        crate::AccessReport::new(systems)
+        crate::access::AccessReport::new(systems)
     }
 
     /// For language bindings (the C API): `add` with a name for timings and
@@ -881,18 +881,18 @@ impl Game {
     }
 
     /// Plays over the network in deterministic lockstep: `net` from
-    /// [`Net::host`](crate::Net::host), [`Net::join`](crate::Net::join) or
-    /// [`Net::loopback`](crate::Net::loopback). Ticks then run only once
+    /// [`Net::host`](crate::net::Net::host), [`Net::join`](crate::net::Net::join) or
+    /// [`Net::loopback`](crate::net::Net::loopback). Ticks then run only once
     /// every player's input for them is in, and the setup and simulation
     /// systems must be deterministic (same seed, no wall clock, no frame
     /// systems changing the world). Without it, `ctx.net` is offline.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// use std::thread;
     ///
-    /// // Two players in one process; over the network it's Net::host / Net::join.
-    /// let games: Vec<_> = Net::loopback(2)
+    /// // Two players in one process; over the network it's ponko::net::Net::host / ponko::net::Net::join.
+    /// let games: Vec<_> = ponko::net::Net::loopback(2)
     ///     .into_iter()
     ///     .map(|net| thread::spawn(move || {
     ///         let world = Game::new("t", 1, 1).lockstep(net).run_headless(30, |_| {});
@@ -903,7 +903,7 @@ impl Game {
     ///     assert_eq!(g.join().unwrap(), 0);
     /// }
     /// ```
-    pub fn lockstep(mut self, net: crate::Net) -> Self {
+    pub fn lockstep(mut self, net: crate::net::Net) -> Self {
         self.net = Some(net);
         self
     }
@@ -913,7 +913,7 @@ impl Game {
     /// Like frame systems, it does not run in `run_headless`.
     ///
     /// ```no_run
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// Game::new("Pose", 800, 600).late_system(|ctx| { let _ = ctx.dt(); }).run(|_| {});
     /// ```
     pub fn late_system<F: FnMut(&mut Ctx) + 'static>(self, system: F) -> Self {
@@ -928,7 +928,7 @@ impl Game {
     /// Systems run in `Phase::AfterPhysics`, in registration order.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn gravity(ctx: &mut Ctx) { /* ... */ }
     /// fn movement(ctx: &mut Ctx) { /* ... */ }
     ///
@@ -947,7 +947,7 @@ impl Game {
     /// so their cost doesn't land on the same frame.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     ///
     /// struct Hunger(f32);
     ///
@@ -1063,8 +1063,8 @@ impl Game {
     }
 
     /// Turns on 2D physics (feature `physics`): every entity with a
-    /// [`RigidBody`](crate::RigidBody), a [`Collider`](crate::Collider) and a
-    /// [`Transform2D`](crate::Transform2D) is simulated each tick, pulled by
+    /// [`RigidBody`](crate::d2::RigidBody), a [`Collider`](crate::d2::Collider) and a
+    /// [`Transform2D`](crate::d2::Transform) is simulated each tick, pulled by
     /// `gravity` (pixels/s²; y is down). Collisions arrive as
     /// [`CollisionStarted`](crate::CollisionStarted) events; `ctx.physics`
     /// casts rays and finds overlaps.
@@ -1074,14 +1074,14 @@ impl Game {
     /// Use [`Phase::BeforePhysics`] for work that must run before the step.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// let mut world = Game::new("Drop", 800, 600)
     ///     .physics(vec2(0.0, 980.0))
     ///     .run_headless(60, |ctx| {
-    ///         ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)), RigidBody::dynamic(), Collider::circle(8.0)));
+    ///         ctx.world.spawn((ponko::d2::Transform::at(vec2(0.0, 0.0)), ponko::d2::RigidBody::dynamic(), ponko::d2::Collider::circle(8.0)));
     ///     });
     /// // One second of free fall: about 490 pixels down.
-    /// let y = world.query::<&Transform2D>().iter().next().unwrap().position.y;
+    /// let y = world.query::<&ponko::d2::Transform>().iter().next().unwrap().position.y;
     /// assert!((y - 490.0).abs() < 10.0, "{y}");
     /// ```
     #[cfg(feature = "physics")]
@@ -1094,14 +1094,14 @@ impl Game {
     }
 
     /// Turns on 3D physics (feature `physics3d`): every entity with a
-    /// [`RigidBody3D`](crate::RigidBody3D), a [`Collider3D`](crate::Collider3D)
-    /// and a [`Transform3D`](crate::Transform3D) is simulated each tick, and
-    /// every [`Character3D`](crate::Character3D) walks, pulled by `gravity`
+    /// [`RigidBody3D`](crate::d3::RigidBody), a [`Collider3D`](crate::d3::Collider)
+    /// and a [`Transform3D`](crate::d3::Transform) is simulated each tick, and
+    /// every [`Character3D`](crate::d3::Character) walks, pulled by `gravity`
     /// (m/s²; +Y is up, so `vec3(0.0, -9.81, 0.0)`). Collisions arrive as
     /// [`CollisionStarted`](crate::CollisionStarted) events; `ctx.physics3d`
     /// casts rays and shapes and finds overlaps.
     ///
-    /// The simulation runs at [`PHYSICS3D_HZ`](crate::PHYSICS3D_HZ) (50)
+    /// The simulation runs at [`PHYSICS3D_HZ`](crate::physics3d::PHYSICS3D_HZ) (50)
     /// ticks per second unless [`fixed_hz`](Self::fixed_hz) chose a rate;
     /// in a window, moving bodies are drawn blended between ticks
     /// ([`interpolate_physics3d`](crate::systems::interpolate_physics3d), a
@@ -1111,21 +1111,21 @@ impl Game {
     /// Use [`Phase::BeforePhysics`] for work that must run before the step.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// let mut world = Game::new("Drop", 800, 600)
     ///     .physics3d(vec3(0.0, -9.81, 0.0))
     ///     .run_headless(50, |ctx| {
-    ///         ctx.world.spawn((Transform3D::at(vec3(0.0, 10.0, 0.0)), RigidBody3D::dynamic(), Collider3D::sphere(0.5)));
+    ///         ctx.world.spawn((ponko::d3::Transform::at(vec3(0.0, 10.0, 0.0)), ponko::d3::RigidBody::dynamic(), ponko::d3::Collider::sphere(0.5)));
     ///     });
     /// // One second of free fall: about 4.9 m down.
-    /// let y = world.query::<&Transform3D>().iter().next().unwrap().position.y;
+    /// let y = world.query::<&ponko::d3::Transform>().iter().next().unwrap().position.y;
     /// assert!((y - 5.1).abs() < 0.2, "{y}");
     /// ```
     #[cfg(feature = "physics3d")]
     pub fn physics3d(mut self, gravity: crate::Vec3) -> Self {
         self.gravity3d = Some(gravity);
         if !self.fixed_hz_set {
-            self.fixed_hz = crate::PHYSICS3D_HZ;
+            self.fixed_hz = crate::physics3d::PHYSICS3D_HZ;
         }
         if !self.sim_systems.iter().any(|s| s.builtin == Some(Systems::PHYSICS3D)) {
             self = self.add(Phase::Physics, crate::systems::step_physics3d);
@@ -1140,9 +1140,9 @@ impl Game {
         self
     }
 
-    /// Turns on the built-in [`SpatialGrid`](crate::SpatialGrid) with square
+    /// Turns on the built-in [`SpatialGrid`](crate::spatial::SpatialGrid) with square
     /// cells of `cell_size` world units: at the start of every simulation
-    /// tick, all entities with a [`Transform2D`](crate::Transform2D) are
+    /// tick, all entities with a [`Transform2D`](crate::d2::Transform) are
     /// indexed into `ctx.spatial` for radius, rectangle and nearest queries.
     ///
     /// Choose a cell size near your usual query radius. The rebuild is the
@@ -1152,7 +1152,7 @@ impl Game {
     /// If `cell_size` isn't a positive, finite number.
     #[track_caller]
     pub fn spatial_grid(mut self, cell_size: f32) -> Self {
-        self.spatial_cell = Some(crate::SpatialGrid::new(cell_size).cell_size());
+        self.spatial_cell = Some(crate::spatial::SpatialGrid::new(cell_size).cell_size());
         if !self
             .sim_systems
             .iter()
@@ -1167,7 +1167,7 @@ impl Game {
     /// simulation systems. Use it for input, camera and drawing.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// fn quit_on_escape(ctx: &mut Ctx) {
     ///     if ctx.key_pressed(Key::Escape) { ctx.quit(); }
     /// }
@@ -1190,7 +1190,7 @@ impl Game {
     /// If no such system was added.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// // A headless-style simulation that draws nothing by itself.
     /// Game::new("Sim", 800, 600).remove(Systems::DRAW_SPRITES).run(|_| {});
     /// ```
@@ -1216,12 +1216,12 @@ impl Game {
     /// Feeds scheduled input into the game by simulation tick, for
     /// reproducible tests (off unless called). Before the simulation systems
     /// of each tick run, the scenario's steps for that tick go through
-    /// [`Input::feed`](crate::Input::feed), so [named actions](crate::ActionMap) and raw input
+    /// [`Input::feed`](crate::input::Input::feed), so [named actions](crate::ActionMap) and raw input
     /// queries see them exactly like live input. Calling it again replaces
     /// the previous scenario.
     ///
     /// Check steps run after the tick's systems, and the outcome is the
-    /// [`ScenarioReport`](crate::ScenarioReport) resource; see
+    /// [`ScenarioReport`](crate::scenario::ScenarioReport) resource; see
     /// [`run_headless_scenario`](Self::run_headless_scenario) for a runner.
     ///
     /// Edges last until the end of the frame. Headless runs have one tick per
@@ -1230,7 +1230,7 @@ impl Game {
     /// live input. Live input is still read alongside the scenario.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     ///
     /// struct Jumps(u32);
     ///
@@ -1240,9 +1240,9 @@ impl Game {
     ///     }
     /// }
     ///
-    /// let scenario = InputScenario::new()
-    ///     .at(3, InputEvent::Key(Key::Space, true))
-    ///     .at(6, InputEvent::Key(Key::Space, false));
+    /// let scenario = ponko::scenario::InputScenario::new()
+    ///     .at(3, ponko::actions::InputEvent::Key(Key::Space, true))
+    ///     .at(6, ponko::actions::InputEvent::Key(Key::Space, false));
     /// let mut world = Game::new("test", 1, 1)
     ///     .sim_system(jump)
     ///     .input_scenario(scenario)
@@ -1254,24 +1254,24 @@ impl Game {
     ///     });
     /// assert_eq!(world.query::<&Jumps>().iter().next().unwrap().0, 1);
     /// ```
-    pub fn input_scenario(mut self, scenario: crate::InputScenario) -> Self {
+    pub fn input_scenario(mut self, scenario: crate::scenario::InputScenario) -> Self {
         self.input_scenario = Some(scenario);
         self
     }
 
-    /// Runs `scenario` headlessly for its [`ticks`](crate::InputScenario::ticks)
+    /// Runs `scenario` headlessly for its [`ticks`](crate::scenario::InputScenario::ticks)
     /// and returns the world with the scenario's report: the bounded runner
     /// for tests and CI. A failed check ends the run at that tick and the
-    /// report names its step and tick; [`ScenarioReport::assert_passed`](crate::ScenarioReport::assert_passed)
+    /// report names its step and tick; [`ScenarioReport::assert_passed`](crate::scenario::ScenarioReport::assert_passed)
     /// turns that into a panic.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     ///
-    /// let scenario = InputScenario::new()
-    ///     .at(2, InputEvent::Key(Key::Space, true))
-    ///     .expect(2, ScenarioCheck::action("jump").pressed(true))
-    ///     .expect(3, ScenarioCheck::action("jump").pressed(true)); // deliberately wrong
+    /// let scenario = ponko::scenario::InputScenario::new()
+    ///     .at(2, ponko::actions::InputEvent::Key(Key::Space, true))
+    ///     .expect(2, ponko::scenario::ScenarioCheck::action("jump").pressed(true))
+    ///     .expect(3, ponko::scenario::ScenarioCheck::action("jump").pressed(true)); // deliberately wrong
     /// let (_world, report) = Game::new("test", 1, 1).run_headless_scenario(scenario, |ctx| {
     ///     let mut actions = ActionMap::default();
     ///     actions.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
@@ -1280,15 +1280,19 @@ impl Game {
     /// let failure = report.failure.unwrap();
     /// assert_eq!((failure.step, failure.tick), (2, 3));
     /// ```
-    pub fn run_headless_scenario<S, U>(self, scenario: crate::InputScenario, setup: S) -> (World, crate::ScenarioReport)
+    pub fn run_headless_scenario<S, U>(
+        self,
+        scenario: crate::scenario::InputScenario,
+        setup: S,
+    ) -> (World, crate::scenario::ScenarioReport)
     where
         S: FnOnce(&mut Ctx) -> U,
         U: SetupResult,
     {
         let ticks = scenario.ticks();
-        let pending = crate::ScenarioReport::new(&scenario, 0);
+        let pending = crate::scenario::ScenarioReport::new(&scenario, 0);
         let world = self.input_scenario(scenario).run_headless(ticks, setup);
-        let report = world.get_resource::<crate::ScenarioReport>().cloned();
+        let report = world.get_resource::<crate::scenario::ScenarioReport>().cloned();
         (world, report.unwrap_or(pending))
     }
 
@@ -1300,7 +1304,7 @@ impl Game {
     /// installed with [`input_scenario`](Self::input_scenario) don't need it.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Dev build", 800, 600).control_endpoint(true).input_injection(true).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn input_injection(mut self, on: bool) -> Self {
@@ -1320,7 +1324,7 @@ impl Game {
     /// changes, and `PONKO_START_PAUSED=1` starts the simulation paused.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Colony", 1280, 720).control_endpoint(true).run(|_| {});
     /// ```
     pub fn control_endpoint(mut self, on: bool) -> Self {
@@ -1340,10 +1344,10 @@ impl Game {
     /// [`Assets::reloaded_textures`](crate::Assets::reloaded_textures) lists what was reloaded this frame.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Art test", 1280, 720).hot_reload(true).run(|ctx| {
     ///     let crab = ctx.load_texture("crab.png"); // edit crab.png while it runs
-    ///     ctx.world.spawn((Transform2D::at(vec2(640.0, 360.0)), Sprite::new(crab)));
+    ///     ctx.world.spawn((ponko::d2::Transform::at(vec2(640.0, 360.0)), ponko::d2::Sprite::new(crab)));
     /// });
     /// ```
     pub fn hot_reload(mut self, on: bool) -> Self {
@@ -1364,7 +1368,7 @@ impl Game {
     /// does nothing. While closed it costs nothing.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// // Ship a release build with the inspector, for playtesters.
     /// Game::new("Playtest", 1280, 720).inspector(true).run(|ctx| {
     ///     let _ = ctx;
@@ -1392,7 +1396,7 @@ impl Game {
         }
         ctx.assets.watcher.set_on(crate::hot_reload::enabled(self.hot_reload));
         if let Some(cell) = self.spatial_cell {
-            ctx.spatial = crate::SpatialGrid::new(cell);
+            ctx.spatial = crate::spatial::SpatialGrid::new(cell);
         }
         #[cfg(feature = "physics")]
         if let Some(gravity) = self.gravity {
@@ -1435,11 +1439,11 @@ impl Game {
     }
 
     /// Sets the seed for [`Ctx::random`]. Same seed, same simulation: runs
-    /// are reproducible by default ([`DEFAULT_SEED`](crate::DEFAULT_SEED)).
+    /// are reproducible by default ([`DEFAULT_SEED`](crate::random::DEFAULT_SEED)).
     /// For a different world each run, seed from the clock.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
     /// Game::new("Roguelike", 800, 600).seed(seed).run(|_| {});
     /// ```
@@ -1455,7 +1459,7 @@ impl Game {
     /// If `hz` is 0.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Physics", 800, 600).fixed_hz(120).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn fixed_hz(mut self, hz: u32) -> Self {
@@ -1470,7 +1474,7 @@ impl Game {
     /// the game *could* run.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Benchmark", 800, 600).vsync(false).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn vsync(mut self, on: bool) -> Self {
@@ -1484,7 +1488,7 @@ impl Game {
     /// can't take 2 everywhere (WebGL2, some mobile ones) keep 4.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Open world", 1280, 720).msaa(2).run(|_| |_: &mut Ctx| {});
     /// ```
     ///
@@ -1506,7 +1510,7 @@ impl Game {
     /// ignore it.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Benchmark", 1280, 720).fullscreen(true).vsync(false).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn fullscreen(mut self, on: bool) -> Self {
@@ -1632,7 +1636,7 @@ impl Game {
     /// sizes), but nothing is uploaded to a GPU.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     ///
     /// struct Pos(f32);
     ///
@@ -1665,36 +1669,36 @@ impl Game {
     }
 
     /// Like [`run_headless`](Self::run_headless), but times everything and
-    /// returns a [`PerfReport`](crate::PerfReport) next to the world: where
+    /// returns a [`PerfReport`](crate::perf::PerfReport) next to the world: where
     /// the time goes (systems, [`profile_scope!`](crate::profile_scope)
     /// scopes), allocations, the slowest ticks, and warnings with advice.
     /// The first `warmup` ticks run but aren't measured (caches fill, buffers
     /// grow); the report covers the next `ticks` ticks (at most the last
-    /// 50,000). Call it from a test or a CI job; see [`PerfReport::assert_within`](crate::PerfReport::assert_within).
+    /// 50,000). Call it from a test or a CI job; see [`PerfReport::assert_within`](crate::perf::PerfReport::assert_within).
     ///
-    /// Counting allocations needs [`CountingAllocator`](crate::CountingAllocator)
+    /// Counting allocations needs [`CountingAllocator`](crate::alloc_count::CountingAllocator)
     /// as the global allocator.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     ///
     /// fn movement(ctx: &mut Ctx) {
     ///     profile_scope!("movement/integrate");
-    ///     ctx.world.query::<&mut Transform2D>().for_each(|t| t.position.x += 1.0);
+    ///     ctx.world.query::<&mut ponko::d2::Transform>().for_each(|t| t.position.x += 1.0);
     /// }
     ///
     /// let (_world, report) = Game::new("bench", 1, 1)
     ///     .sim_system(movement)
     ///     .profile_headless(10, 100, |ctx| {
     ///         for _ in 0..1000 {
-    ///             ctx.world.spawn((Transform2D::default(),));
+    ///             ctx.world.spawn((ponko::d2::Transform::default(),));
     ///         }
     ///     });
     /// assert_eq!((report.frames, report.entities), (100, 1000));
     /// // Timings vary between machines: keep limits generous.
-    /// report.assert_within(&Budget::new().frame_p99_ms(100.0));
+    /// report.assert_within(&ponko::perf::Budget::new().frame_p99_ms(100.0));
     /// ```
-    pub fn profile_headless<S, U>(self, warmup: u64, ticks: u64, setup: S) -> (World, crate::PerfReport)
+    pub fn profile_headless<S, U>(self, warmup: u64, ticks: u64, setup: S) -> (World, crate::perf::PerfReport)
     where
         S: FnOnce(&mut Ctx) -> U,
         U: SetupResult,
@@ -1708,7 +1712,7 @@ impl Game {
         ticks: u64,
         warmup: Option<u64>,
         setup: S,
-    ) -> (World, Option<crate::PerfReport>)
+    ) -> (World, Option<crate::perf::PerfReport>)
     where
         S: FnOnce(&mut Ctx) -> U,
         U: SetupResult,
@@ -1792,7 +1796,7 @@ impl Game {
     /// built-in [`draw_sprites`] is one of the last), then rendering.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("Counter", 800, 600).run(|_ctx| {
     ///     let mut clicks = 0;
     ///     move |ctx: &mut Ctx| {
@@ -1869,7 +1873,14 @@ mod tests {
     #[cfg(feature = "3d")]
     #[test]
     fn late_system_sees_automatic_animation_pose() {
-        use crate::{AnimationClip, AnimationGraph, AnimationState, Animator, Joint, Motion, Skeleton, Transform3D};
+        use crate::anim::AnimationClip;
+        use crate::anim::AnimationGraph;
+        use crate::anim::AnimationState;
+        use crate::anim::Animator;
+        use crate::anim::Joint;
+        use crate::anim::Motion;
+        use crate::anim::Skeleton;
+        use crate::d3::Transform as Transform3D;
         let skeleton = Skeleton::new(vec![Joint {
             name: "root".into(),
             parent: None,
@@ -2187,7 +2198,7 @@ mod tests {
     fn drawing_sees_positions_from_frame_systems() {
         fn move_right(ctx: &mut Ctx) {
             ctx.world
-                .query::<&mut crate::Transform2D>()
+                .query::<&mut crate::d2::Transform>()
                 .for_each(|t| t.position.x += 1.0);
         }
         let mut game = Game::new("t", 1, 1).system(move_right);
@@ -2205,10 +2216,12 @@ mod tests {
         let mut ctx = ctx();
         let tex = crate::texture::Texture::new(0, 16, 16);
         for i in 0..10 {
-            ctx.world
-                .spawn((crate::Transform2D::at(Vec2::splat(i as f32)), crate::Sprite::new(tex)));
+            ctx.world.spawn((
+                crate::d2::Transform::at(Vec2::splat(i as f32)),
+                crate::d2::Sprite::new(tex),
+            ));
         }
-        ctx.world.spawn((crate::Transform2D::default(),)); // no sprite: not drawn
+        ctx.world.spawn((crate::d2::Transform::default(),)); // no sprite: not drawn
         game.run_systems(&mut ctx, 0);
         assert_eq!(ctx.gfx.sprite_count(), 10);
     }

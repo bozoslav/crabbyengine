@@ -188,7 +188,7 @@ pub unsafe extern "C" fn crabby_game_spatial_grid(game: *mut CrabbyGame, cell_si
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn crabby_game_camera_controls(game: *mut CrabbyGame) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
-    unsafe { build(game, |g| ok(g.system(ponko::camera_controls))) }
+    unsafe { build(game, |g| ok(g.system(ponko::camera::camera_controls))) }
 }
 /// Opens the control endpoint for tools and agents (ponko-mcp); also on
 /// with `CRABBY_CONTROL=1`.

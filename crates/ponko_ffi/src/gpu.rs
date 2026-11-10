@@ -4,7 +4,9 @@
 
 use std::ffi::c_char;
 
-use ponko::{GpuCapabilities, GpuFeature, GpuTier};
+use ponko::render::GpuCapabilities;
+use ponko::render::GpuFeature;
+use ponko::render::GpuTier;
 
 use crate::ctx::{ctx_access, out};
 use crate::perf::write_text;
@@ -239,7 +241,7 @@ pub unsafe extern "C" fn crabby_graphics_quality_for_tier(
     boundary(|| unsafe {
         out(
             out_quality,
-            quality_to_c(ponko::GraphicsQuality::for_tier(tier(tier_id)?)),
+            quality_to_c(ponko::render::GraphicsQuality::for_tier(tier(tier_id)?)),
         )
     })
 }
@@ -256,7 +258,7 @@ pub unsafe extern "C" fn crabby_ctx_recommended_graphics_quality(
 ) -> CrabbyStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        let q = with_caps(ctx, ponko::GraphicsQuality::recommended)?;
+        let q = with_caps(ctx, ponko::render::GraphicsQuality::recommended)?;
         out(out_quality, quality_to_c(q))
     })
 }

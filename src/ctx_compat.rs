@@ -10,7 +10,34 @@
 #[allow(unused_imports)]
 use std::path::{Path, PathBuf};
 
-use crate::*;
+#[allow(unused_imports)]
+use crate::actions::{InputEvent, UnknownAction};
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use crate::anim::{AnimationClip, Skeleton};
+#[allow(unused_imports)]
+use crate::audio::AudioEffects;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use crate::d3::{AudioListener as AudioListener3D, AudioSettings as AudioSettings3D, UiPanel as UiPanel3D};
+#[allow(unused_imports)]
+use crate::input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick};
+#[allow(unused_imports)]
+use crate::perf::{FrameStats, GpuPass, PerfReport, SystemTiming};
+use crate::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use crate::render::{
+    Compute, Effect, GpuBuffer, GraphicsQuality, InstanceBatch, InstanceBatchOptions, Material, MaterialDesc, Mesh,
+    MeshCost, MeshData, Model, Shader, ShaderStatus,
+};
+#[allow(unused_imports)]
+use crate::residency::{ResidencyKind, ResidencyStats};
+#[allow(unused_imports)]
+use crate::scope::ScopeTiming;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use crate::terrain::{TerrainMaterialDesc, TerrainTile, TerrainTileData, TextureArray, TextureKind};
 
 impl Ctx {
     #[doc(hidden)]
@@ -206,7 +233,7 @@ impl Ctx {
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.create_ui_panel`")]
     #[cfg(feature = "3d")]
-    pub fn create_ui_panel(&mut self, width: u32, height: u32, size: Vec2) -> (UiPanel3D, crate::Model) {
+    pub fn create_ui_panel(&mut self, width: u32, height: u32, size: Vec2) -> (UiPanel3D, crate::render::Model) {
         self.gfx.create_ui_panel(width, height, size)
     }
 
@@ -268,7 +295,7 @@ impl Ctx {
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.input.feed`")]
-    pub fn feed_input(&mut self, event: crate::InputEvent) {
+    pub fn feed_input(&mut self, event: crate::actions::InputEvent) {
         self.input.feed(event)
     }
 
@@ -304,7 +331,7 @@ impl Ctx {
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.perf.frame_stats`")]
-    pub fn frame_stats(&self) -> crate::FrameStats {
+    pub fn frame_stats(&self) -> crate::perf::FrameStats {
         self.perf.frame_stats()
     }
 
@@ -381,13 +408,13 @@ impl Ctx {
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.gpu_capabilities`")]
-    pub fn gpu_capabilities(&self) -> Option<&crate::GpuCapabilities> {
+    pub fn gpu_capabilities(&self) -> Option<&crate::render::GpuCapabilities> {
         self.gfx.gpu_capabilities()
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.perf.gpu_passes`")]
-    pub fn gpu_passes(&self) -> &[crate::GpuPass] {
+    pub fn gpu_passes(&self) -> &[crate::perf::GpuPass] {
         self.perf.gpu_passes()
     }
 
@@ -613,7 +640,7 @@ impl Ctx {
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.mesh_costs`")]
     #[cfg(feature = "3d")]
-    pub fn mesh_costs(&self) -> Vec<super::MeshCost> {
+    pub fn mesh_costs(&self) -> Vec<crate::render::MeshCost> {
         self.gfx.mesh_costs()
     }
 
@@ -701,7 +728,7 @@ impl Ctx {
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.perf.report`")]
-    pub fn perf_report(&self) -> crate::PerfReport {
+    pub fn perf_report(&self) -> crate::perf::PerfReport {
         // The flat method always counted the world as it is now, also for
         // entities this system spawned itself.
         let mut report = self.perf.report();
@@ -811,7 +838,7 @@ impl Ctx {
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.perf.scope_timings`")]
-    pub fn scope_timings(&self) -> &[crate::ScopeTiming] {
+    pub fn scope_timings(&self) -> &[crate::scope::ScopeTiming] {
         self.perf.scope_timings()
     }
 
@@ -857,14 +884,14 @@ impl Ctx {
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.set_mesh_gpu_bounds`")]
     #[cfg(feature = "3d")]
-    pub fn set_mesh_gpu_bounds(&mut self, mesh: super::Mesh, center: Vec3, radius: f32) {
+    pub fn set_mesh_gpu_bounds(&mut self, mesh: crate::render::Mesh, center: Vec3, radius: f32) {
         self.gfx.set_mesh_gpu_bounds(mesh, center, radius)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.set_mesh_gpu_buffer`")]
     #[cfg(feature = "3d")]
-    pub fn set_mesh_gpu_buffer(&mut self, mesh: super::Mesh, b: GpuBuffer, count: u32) {
+    pub fn set_mesh_gpu_buffer(&mut self, mesh: crate::render::Mesh, b: GpuBuffer, count: u32) {
         self.gfx.set_mesh_gpu_buffer(mesh, b, count)
     }
 
@@ -977,7 +1004,7 @@ impl Ctx {
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.input.try_action_id`")]
-    pub fn try_action_id(&self, name: &str) -> Result<crate::ActionId, crate::UnknownAction> {
+    pub fn try_action_id(&self, name: &str) -> Result<crate::ActionId, crate::actions::UnknownAction> {
         self.input.try_action_id(name)
     }
 
@@ -1051,7 +1078,7 @@ impl Ctx {
         width: u32,
         height: u32,
         size: Vec2,
-    ) -> Result<(UiPanel3D, crate::Model), String> {
+    ) -> Result<(UiPanel3D, crate::render::Model), String> {
         self.gfx.try_create_ui_panel(width, height, size)
     }
 
@@ -1228,3 +1255,5 @@ impl Ctx {
         self.gfx.write_gpu_buffer(b, offset, data)
     }
 }
+
+use crate::render::RenderStats;

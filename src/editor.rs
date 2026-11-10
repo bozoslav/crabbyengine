@@ -132,7 +132,7 @@ impl Editor {
 
     /// Spawns an entity with only a transform at `at`.
     pub fn spawn_empty(&mut self, ctx: &mut Ctx, at: Vec2) -> Entity {
-        let e = ctx.world.spawn((crate::Transform2D::at(at),));
+        let e = ctx.world.spawn((crate::d2::Transform::at(at),));
         self.record(Undo::Spawned(e));
         e
     }
@@ -205,7 +205,8 @@ impl Editor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Transform2D, vec2};
+    use crate::d2::Transform as Transform2D;
+    use crate::vec2;
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Debug)]
@@ -322,7 +323,7 @@ mod tests {
         ed.set(&mut ctx, a, "Hp", json!(9.0)).unwrap(); // while playing
         ctx.world.spawn((Hp(1.0),));
         // A lockstep session: Stop would put the world back on this peer only.
-        let session = std::mem::replace(&mut ctx.net, crate::Net::loopback(2).remove(0));
+        let session = std::mem::replace(&mut ctx.net, crate::net::Net::loopback(2).remove(0));
         drop(session);
         let err = ed.stop(&mut ctx).unwrap_err();
         assert!(err.contains("lockstep"), "{err}");
@@ -332,7 +333,7 @@ mod tests {
         assert_eq!(ctx.world.len(), 2, "the world is unchanged");
         assert_eq!(ctx.world.get::<Hp>(a), Some(&Hp(9.0)));
         // The session ended: Stop works now.
-        ctx.net = crate::Net::default();
+        ctx.net = crate::net::Net::default();
         ed.stop(&mut ctx).unwrap();
         assert!(!ed.playing() && ctx.time.is_paused());
         assert_eq!(ed.undo.len(), 2, "edits made while playing are dropped");

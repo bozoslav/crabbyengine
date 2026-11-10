@@ -15,13 +15,13 @@ use crate::sheet::SpriteSheet;
 /// draws the tiles the camera can see, so maps can be huge.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn setup(ctx: &mut Ctx, tiles: SpriteSheet) {
-/// let mut map = TileMap::new(tiles, 200, 100); // 200 × 100 tiles, all empty
+/// let mut map = ponko::d2::TileMap::new(tiles, 200, 100); // 200 × 100 tiles, all empty
 /// for x in 0..200 {
 ///     map.set(x, 99, Some(0)); // a floor of tile 0
 /// }
-/// ctx.world.spawn((Transform2D::at(vec2(0.0, 0.0)), map));
+/// ctx.world.spawn((ponko::d2::Transform::at(vec2(0.0, 0.0)), map));
 /// # }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -63,8 +63,8 @@ impl TileMap {
     /// Out-of-bounds positions are ignored.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(map: &mut TileMap) {
+    /// # use ponko::prelude::*;
+    /// # fn f(map: &mut ponko::d2::TileMap) {
     /// map.set(3, 4, Some(7));
     /// map.set(3, 5, None);
     /// # }
@@ -78,8 +78,8 @@ impl TileMap {
     /// The frame at tile `(x, y)`, or `None` if empty or out of bounds.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn f(map: &TileMap) {
+    /// # use ponko::prelude::*;
+    /// # fn f(map: &ponko::d2::TileMap) {
     /// let solid = map.get(10, 2).is_some();
     /// # }
     /// ```
@@ -96,8 +96,8 @@ impl TileMap {
     /// at `origin`; `None` outside the map.
     ///
     /// ```
-    /// # use ponko::*;
-    /// # fn paint(ctx: &mut Ctx, map: &mut TileMap) {
+    /// # use ponko::prelude::*;
+    /// # fn paint(ctx: &mut Ctx, map: &mut ponko::d2::TileMap) {
     /// if let Some(tile) = map.tile_at(Vec2::ZERO, ctx.mouse_world()) {
     ///     map.set(tile.x, tile.y, Some(1));
     /// }
@@ -116,7 +116,7 @@ impl TileMap {
 /// [`draw_sprites`](crate::systems::draw_sprites).
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("No maps here", 800, 600).remove(Systems::DRAW_TILEMAPS).run(|_| {});
 /// ```
 pub fn draw_tilemaps(ctx: &mut Ctx) {

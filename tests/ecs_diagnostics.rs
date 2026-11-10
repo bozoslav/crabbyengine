@@ -4,7 +4,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::diagnostics::EcsDiagnostics;
+#[allow(unused_imports)]
+use ponko::input::Input;
+use ponko::prelude::*;
 
 struct Pos(#[allow(dead_code)] [f32; 2]);
 struct Vel(#[allow(dead_code)] [f32; 2]);
@@ -36,7 +40,7 @@ fn archetypes_list_their_components_entities_and_storage() {
         ctx.world.spawn((Pos([0.0; 2]),));
         ctx.world.spawn((Tag,));
     });
-    assert_eq!(d.version, ECS_DIAGNOSTICS_VERSION);
+    assert_eq!(d.version, ponko::diagnostics::ECS_DIAGNOSTICS_VERSION);
     assert_eq!(d.entities, 5);
     let with = |names: &[&str]| {
         d.archetypes

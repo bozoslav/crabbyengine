@@ -9,7 +9,7 @@
 //! source) the next time they are asked for.
 //!
 //! Which cells of a world to ask for is up to the game, for example with a
-//! [`CellStreamer`](crate::CellStreamer); the budget then caps the memory
+//! [`CellStreamer`](crate::stream::CellStreamer); the budget then caps the memory
 //! however many cells are near.
 
 // Without the `3d` feature only textures use the sets.
@@ -54,14 +54,14 @@ impl ResidencyKind {
 }
 
 /// The budget, usage and eviction counters of one [`ResidencyKind`]
-/// ([`Graphics::residency`](crate::Graphics::residency)). Bytes are the engine's
+/// ([`Graphics::residency`](crate::gfx::Graphics::residency)). Bytes are the engine's
 /// estimates of GPU memory.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-///     ctx.set_residency_budget(ResidencyKind::Mesh, Some(64 << 20));
-///     let meshes = ctx.gfx.residency(ResidencyKind::Mesh);
+///     ctx.set_residency_budget(ponko::residency::ResidencyKind::Mesh, Some(64 << 20));
+///     let meshes = ctx.gfx.residency(ponko::residency::ResidencyKind::Mesh);
 ///     assert_eq!(meshes.budget, Some(64 << 20));
 ///     assert_eq!((meshes.resident, meshes.evictions), (0, 0));
 /// });
@@ -416,7 +416,7 @@ impl crate::Ctx {
     }
 }
 
-impl crate::Graphics {
+impl crate::gfx::Graphics {
     /// The budget, usage and eviction counters of `kind`.
     #[must_use]
     pub fn residency(&self, kind: ResidencyKind) -> ResidencyStats {

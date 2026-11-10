@@ -4,8 +4,14 @@
 //! the weights of an unskinned model's morph target. Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
+#[allow(unused_imports)]
+use crate::anim::{Joint, MorphTarget, MorphWeights, Skeleton};
+#[allow(unused_imports)]
+use crate::d3::Transform as Transform3D;
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{MaterialDesc, MeshData, Model};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
-use crate::*;
 
 const SIZE: u32 = 64;
 
@@ -193,12 +199,15 @@ fn draw_bent(morph: bool, mixed: bool, downlevel: bool, grow: bool) {
                 ctx.world.spawn((
                     Transform3D::at(vec3(1e6, 0.0, 0.0)),
                     Model::new(mesh),
-                    MorphWeights::default(),
+                    crate::anim::MorphWeights::default(),
                 ));
             }
         }
-        ctx.world
-            .spawn((Transform3D::default(), Model::new(mesh), MorphWeights::default()))
+        ctx.world.spawn((
+            Transform3D::default(),
+            Model::new(mesh),
+            crate::anim::MorphWeights::default(),
+        ))
     } else {
         let mesh = ctx.gfx.create_skinned_mesh(&bar, material, &skeleton);
         if mixed {
@@ -309,7 +318,10 @@ fn draw_bent(morph: bool, mixed: bool, downlevel: bool, grow: bool) {
         }
     }
     if morph {
-        ctx.world.get_mut::<MorphWeights>(entity).unwrap().set(0, 1.0);
+        ctx.world
+            .get_mut::<crate::anim::MorphWeights>(entity)
+            .unwrap()
+            .set(0, 1.0);
     } else {
         let s = ctx.world.get_mut::<Skeleton>(entity).unwrap();
         s.pose[1].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);

@@ -1,5 +1,10 @@
 //! Positional procedural audio. Build only in CI; running opens audio/window.
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::audio::{AudioEffects, AudioRolloff};
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
 
 // ANCHOR: sound3d
 fn setup(ctx: &mut Ctx) {
@@ -7,7 +12,7 @@ fn setup(ctx: &mut Ctx) {
         .map(|i| (i as f32 * 220.0 * std::f32::consts::TAU / 44100.0).sin() * 0.1)
         .collect();
     let hum = ctx.audio.create(44100, &samples);
-    let settings = AudioSettings3D {
+    let settings = AudioSettings {
         sound: SoundParams {
             volume: 0.4,
             looping: true,
@@ -19,9 +24,8 @@ fn setup(ctx: &mut Ctx) {
         ..Default::default()
     };
     ctx.world
-        .spawn((Transform3D::at(vec3(4.0, 0.0, 0.0)), AudioSource3D::new(hum, settings)));
-    ctx.audio
-        .play_at(&hum, vec3(-4.0, 0.0, 0.0), AudioSettings3D::default());
+        .spawn((Transform::at(vec3(4.0, 0.0, 0.0)), AudioSource::new(hum, settings)));
+    ctx.audio.play_at(&hum, vec3(-4.0, 0.0, 0.0), AudioSettings::default());
 }
 
 fn main() {
@@ -56,7 +60,7 @@ fn buses_and_effects(ctx: &mut Ctx, sound: Sound) {
     );
     ctx.audio.mute_bus(music, true);
     ctx.audio.mute_bus(music, false); // Restores the configured gain.
-    let settings = AudioSettings3D {
+    let settings = AudioSettings {
         bus: music,
         effects: AudioEffects {
             low_pass_hz: 2_000.0,

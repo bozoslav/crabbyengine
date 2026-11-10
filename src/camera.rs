@@ -6,7 +6,7 @@ use glam::{Mat4, Vec2, vec4};
 /// bottom-right (y grows downward, like window pixels).
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// let r = Rect::new(10.0, 20.0, 100.0, 50.0); // x, y, width, height
 /// assert_eq!(r.size(), vec2(100.0, 50.0));
 /// assert!(r.contains(vec2(50.0, 40.0)));
@@ -24,7 +24,7 @@ impl Rect {
     /// A rectangle from its top-left corner and its size.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let button = Rect::new(20.0, 20.0, 120.0, 32.0);
     /// # let _ = button;
     /// ```
@@ -39,7 +39,7 @@ impl Rect {
     /// Width and height.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// assert_eq!(Rect::new(0.0, 0.0, 4.0, 3.0).size(), vec2(4.0, 3.0));
     /// ```
     #[must_use]
@@ -50,7 +50,7 @@ impl Rect {
     /// The middle point.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// assert_eq!(Rect::new(0.0, 0.0, 4.0, 2.0).center(), vec2(2.0, 1.0));
     /// ```
     #[must_use]
@@ -61,7 +61,7 @@ impl Rect {
     /// `true` if `point` is inside (edges included).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &Ctx, button: Rect) {
     /// let hovered = button.contains(ctx.mouse_pos());
     /// # }
@@ -74,7 +74,7 @@ impl Rect {
     /// The same rectangle grown by `by` on every side (shrunk if negative).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let inner = Rect::new(0.0, 0.0, 100.0, 100.0).expand(-8.0);
     /// assert_eq!(inner.min, vec2(8.0, 8.0));
     /// ```
@@ -96,7 +96,7 @@ impl Rect {
 /// [`Ctx::draw_text`](crate::Ctx::draw_text) ignores the camera.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn follow(ctx: &mut Ctx, player: Vec2) {
 /// ctx.camera.look_at(player); // keep the player in the middle
 /// let under_mouse = ctx.camera.screen_to_world(ctx.mouse_pos());
@@ -132,7 +132,7 @@ impl Camera2D {
     /// The window size in pixels.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &Ctx) {
     /// let size = ctx.camera.viewport();
     /// # let _ = size;
@@ -146,11 +146,11 @@ impl Camera2D {
     /// The world point under window pixel `screen`.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn place(ctx: &mut Ctx, flag: Texture) {
     /// if ctx.input.mouse_pressed(MouseButton::Left) {
     ///     let at = ctx.camera.screen_to_world(ctx.mouse_pos());
-    ///     ctx.world.spawn((Transform2D::at(at), Sprite::new(flag)));
+    ///     ctx.world.spawn((ponko::d2::Transform::at(at), ponko::d2::Sprite::new(flag)));
     /// }
     /// # }
     /// ```
@@ -162,7 +162,7 @@ impl Camera2D {
     /// The window pixel where world point `world` appears.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn label(ctx: &mut Ctx, unit_at: Vec2) {
     /// let above = ctx.camera.world_to_screen(unit_at) - vec2(0.0, 20.0);
     /// ctx.draw_text("Worker", above, 14.0, Color::WHITE);
@@ -176,7 +176,7 @@ impl Camera2D {
     /// The world point in the middle of the window.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &Ctx) {
     /// let middle = ctx.camera.center();
     /// # let _ = middle;
@@ -191,7 +191,7 @@ impl Camera2D {
     /// every frame to follow something.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn follow(ctx: &mut Ctx, hero: Vec2) {
     /// ctx.camera.look_at(hero);
     /// # }
@@ -205,7 +205,7 @@ impl Camera2D {
     /// within [`ZOOM_LIMITS`](Self::ZOOM_LIMITS).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn wheel_zoom(ctx: &mut Ctx) {
     /// let wheel = ctx.input.mouse_wheel().y;
     /// if wheel != 0.0 {
@@ -224,7 +224,7 @@ impl Camera2D {
     /// The part of the world the window shows.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &Ctx, p: Vec2) {
     /// let on_screen = ctx.camera.visible_rect().contains(p);
     /// # }
@@ -254,10 +254,10 @@ impl Camera2D {
 /// or middle mouse button to pan, scroll to zoom toward the mouse.
 ///
 /// ```no_run
-/// use ponko::*;
+/// use ponko::prelude::*;
 ///
 /// Game::new("Colony", 1280, 720)
-///     .system(camera_controls)
+///     .system(ponko::camera::camera_controls)
 ///     .run(|_| {});
 /// ```
 pub fn camera_controls(ctx: &mut crate::Ctx) {

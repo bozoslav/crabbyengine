@@ -1,6 +1,6 @@
 //! Shared persistent instance records and sparse view/level visibility lists.
 use super::*;
-use crate::InstanceLevel;
+use crate::render::InstanceLevel;
 use crate::three::instances::{Batch, Cell};
 
 #[repr(C)]
@@ -35,7 +35,7 @@ pub(crate) struct StaticBatch {
     pub visible: Vec<Vec<(u32, u32)>>,
     pub(super) compute: bool,
     arguments: Vec<Vec<u32>>,
-    pub options: crate::InstanceBatchOptions,
+    pub options: crate::render::InstanceBatchOptions,
     legacy_distance: bool,
     pub count: u32,
 }

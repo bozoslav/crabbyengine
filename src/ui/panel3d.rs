@@ -6,9 +6,10 @@
 use glam::{Mat4, Vec2, Vec3};
 
 use super::retained::Ui;
+use crate::d3::Transform as Transform3D;
 use crate::gfx::Graphics;
 use crate::render::batch::PanelDraw;
-use crate::{Ctx, Entity, MouseButton, Texture, Transform3D};
+use crate::{Ctx, Entity, MouseButton, Texture};
 
 /// Retained UI shown on a quad in the world (Rust's [`Ui`] on a surface):
 /// a computer screen, a shop terminal, a sign with buttons. Build `ui` like
@@ -18,23 +19,23 @@ use crate::{Ctx, Entity, MouseButton, Texture, Transform3D};
 /// plane, centered on it, facing +Z (what [`mesh`](Self::mesh) makes). The
 /// mouse uses the nearest panel the camera ray through it hits, unless the
 /// screen's own UI has it; the panel clicked last also gets the keyboard.
-/// [`Graphics::create_ui_panel`](crate::Graphics::create_ui_panel) makes the texture, material and mesh at once.
+/// [`Graphics::create_ui_panel`](crate::gfx::Graphics::create_ui_panel) makes the texture, material and mesh at once.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     // A 1.2 x 0.8 m terminal, 600 x 400 pixels.
 ///     let (mut panel, model) = ctx.gfx.create_ui_panel(600, 400, vec2(1.2, 0.8));
-///     let buy = panel.ui.add(UiWidget::Button, Default::default());
+///     let buy = panel.ui.add(ponko::ui::UiWidget::Button, Default::default());
 ///     panel.ui.set_text(buy, "Buy");
-///     ctx.world.spawn((Transform3D::at(vec3(0.0, 1.5, -2.0)), model, panel));
+///     ctx.world.spawn((ponko::d3::Transform::at(vec3(0.0, 1.5, -2.0)), model, panel));
 /// });
 /// ```
 pub struct UiPanel3D {
     /// Its widgets, events, focus and screens.
     pub ui: Ui,
     /// What it's drawn into each frame: a render target
-    /// ([`Graphics::create_render_target`](crate::Graphics::create_render_target)) whose size is the panel's in pixels.
+    /// ([`Graphics::create_render_target`](crate::gfx::Graphics::create_render_target)) whose size is the panel's in pixels.
     pub texture: Texture,
     /// Its size in the world, in meters.
     pub size: Vec2,
@@ -59,10 +60,10 @@ impl UiPanel3D {
     /// A panel drawn into `texture` (a render target), `size` meters in the
     /// world. Show `texture` on [`mesh`](Self::mesh) with a material.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let screen = ctx.gfx.create_render_target(512, 256);
-    ///     let panel = UiPanel3D::new(screen, vec2(1.0, 0.5));
+    ///     let panel = ponko::d3::UiPanel::new(screen, vec2(1.0, 0.5));
     ///     assert!(panel.interactive && panel.pointer().is_none());
     /// });
     /// ```
@@ -80,18 +81,18 @@ impl UiPanel3D {
     /// The quad it's shown on: `size` in the XY plane, centered, facing +Z,
     /// with the texture's top-left corner at the top left.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(screen: Texture) {
-    /// let panel = UiPanel3D::new(screen, vec2(2.0, 1.0));
+    /// let panel = ponko::d3::UiPanel::new(screen, vec2(2.0, 1.0));
     /// let quad = panel.mesh();
     /// assert_eq!(quad.positions[0], vec3(-1.0, 0.5, 0.0));
     /// assert_eq!(quad.uvs[0], Vec2::ZERO);
     /// # }
     /// ```
     #[must_use]
-    pub fn mesh(&self) -> crate::MeshData {
+    pub fn mesh(&self) -> crate::render::MeshData {
         let (x, y) = (self.size.x * 0.5, self.size.y * 0.5);
-        crate::MeshData {
+        crate::render::MeshData {
             positions: vec![
                 Vec3::new(-x, y, 0.0),
                 Vec3::new(x, y, 0.0),
@@ -108,8 +109,8 @@ impl UiPanel3D {
     /// Where the mouse is on it this frame, in its pixels; `None` when it
     /// isn't over it.
     /// ```
-    /// # use ponko::*;
-    /// # fn f(panel: &UiPanel3D) {
+    /// # use ponko::prelude::*;
+    /// # fn f(panel: &ponko::d3::UiPanel) {
     /// if let Some(at) = panel.pointer() {
     ///     println!("hovering at {at}");
     /// }
@@ -171,15 +172,15 @@ impl Panels {
 
 impl Graphics {
     /// A [`UiPanel3D`] `width` x `height` pixels, `size` meters in the
-    /// world, and the [`Model`](crate::Model) that shows it: a quad with a
+    /// world, and the [`Model`](crate::render::Model) that shows it: a quad with a
     /// glowing, alpha-blended material, so it reads in the dark and its
     /// clear parts let the world through. Spawn both on one entity.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let (panel, model) = ctx.gfx.create_ui_panel(256, 256, vec2(0.5, 0.5));
     ///     assert_eq!(panel.texture.width(), 256);
-    ///     ctx.world.spawn((Transform3D::default(), model, panel));
+    ///     ctx.world.spawn((ponko::d3::Transform::default(), model, panel));
     /// });
     /// ```
     ///
@@ -187,34 +188,34 @@ impl Graphics {
     ///
     /// If a pixel dimension is zero, the world size is not positive and finite,
     /// or the GPU can't make a texture that large.
-    pub fn create_ui_panel(&mut self, width: u32, height: u32, size: Vec2) -> (UiPanel3D, crate::Model) {
+    pub fn create_ui_panel(&mut self, width: u32, height: u32, size: Vec2) -> (UiPanel3D, crate::render::Model) {
         self.try_create_ui_panel(width, height, size)
             .unwrap_or_else(|message| panic!("{message}"))
     }
 
-    /// [`Graphics::create_ui_panel`](crate::Graphics::create_ui_panel) that returns errors (for the C API).
+    /// [`Graphics::create_ui_panel`](crate::gfx::Graphics::create_ui_panel) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_ui_panel(
         &mut self,
         width: u32,
         height: u32,
         size: Vec2,
-    ) -> Result<(UiPanel3D, crate::Model), String> {
+    ) -> Result<(UiPanel3D, crate::render::Model), String> {
         if !size.is_finite() || size.x <= 0.0 || size.y <= 0.0 {
             return Err("panel size must be positive and finite".into());
         }
         let texture = self.try_create_render_target(width, height)?;
         let panel = UiPanel3D::new(texture, size);
-        let material = self.create_material(crate::MaterialDesc {
+        let material = self.create_material(crate::render::MaterialDesc {
             color: crate::Color::BLACK,
             texture: Some(texture),
             emissive: crate::Color::WHITE,
             emissive_map: Some(texture),
-            blend: crate::Blend::Transparent,
+            blend: crate::anim::Blend::Transparent,
             ..Default::default()
         });
         let mesh = self.create_mesh(&panel.mesh(), material);
-        Ok((panel, crate::Model::new(mesh)))
+        Ok((panel, crate::render::Model::new(mesh)))
     }
 }
 
@@ -265,7 +266,7 @@ impl Ctx {
                 full
             } else {
                 // Only the pointer: no keys, no typing.
-                crate::UiInput {
+                crate::ui::UiInput {
                     held: full.held,
                     released: full.released,
                     ..Default::default()
@@ -343,7 +344,9 @@ impl Ctx {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{UiEvent, UiWidget, Vec2 as V2, vec3};
+    use crate::ui::UiEvent;
+    use crate::ui::UiWidget;
+    use crate::{Vec2 as V2, vec3};
 
     fn panel() -> UiPanel3D {
         UiPanel3D::new(Texture::new(1, 200, 100), V2::new(2.0, 1.0))
@@ -380,7 +383,7 @@ mod tests {
     #[test]
     fn the_mouse_clicks_buttons_on_the_nearest_panel() {
         let mut ctx = Ctx::new(1.0 / 60.0, V2::new(800.0, 600.0));
-        ctx.camera3d = crate::Camera3D::new(V2::new(800.0, 600.0));
+        ctx.camera3d = crate::d3::Camera::new(V2::new(800.0, 600.0));
         ctx.camera3d.position = Vec3::ZERO;
         ctx.camera3d.look_at(-Vec3::Z);
         let mut spawn = |z: f32| {

@@ -5,7 +5,11 @@
 
 use std::ffi::c_char;
 
-use ponko::{AssetState, Handle, ResidencyKind, ResidencyStats, StreamedLod, UploadStats};
+use ponko::residency::ResidencyKind;
+use ponko::residency::ResidencyStats;
+use ponko::streaming::AssetState;
+use ponko::streaming::UploadStats;
+use ponko::{Handle, d3::StreamedLod};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::three::CrabbyMesh;

@@ -1,5 +1,5 @@
 //! Attachments from C: `CrabbyAttached` and the system that places them.
-use ponko::Attached;
+use ponko::d2::Attached;
 
 use crate::types::{CrabbyEntity, CrabbyVec2};
 use crate::{CrabbyGame, CrabbyStatus, CrabbyWorld, builtin};

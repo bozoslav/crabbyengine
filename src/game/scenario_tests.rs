@@ -4,7 +4,11 @@
 //! Headless runs, one tick per frame, are covered in `tests/input_scenario.rs`.
 
 use super::*;
-use crate::{Action, ActionMap, ButtonBinding, InputEvent, InputScenario, Key, ScenarioCheck, ScenarioStatus};
+use crate::actions::InputEvent;
+use crate::scenario::InputScenario;
+use crate::scenario::ScenarioCheck;
+use crate::scenario::ScenarioStatus;
+use crate::{Action, ActionMap, ButtonBinding, Key};
 
 /// What the "jump" action looked like to a sim system on one tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

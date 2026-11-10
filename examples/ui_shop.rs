@@ -1,5 +1,7 @@
 //! A retained shop: item grid, scrolling, input and modal confirmation.
-use ponko::*;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::ui::UiLayout;
 
 pub fn build(ctx: &mut Ctx) {
     // ANCHOR: shop_tree

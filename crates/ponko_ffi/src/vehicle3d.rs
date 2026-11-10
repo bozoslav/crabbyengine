@@ -301,7 +301,9 @@ pub unsafe extern "C" fn crabby_vehicle3d_component(world: *mut CrabbyWorld, out
 mod imp {
     use std::mem::offset_of;
 
-    use ponko::{FrictionCurve, Vehicle3D, Wheel3D};
+    use ponko::d3::Vehicle as Vehicle3D;
+    use ponko::d3::Wheel as Wheel3D;
+    use ponko::physics3d::FrictionCurve;
 
     use super::*;
     use crate::builtin;

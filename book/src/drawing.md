@@ -14,8 +14,8 @@ Give an entity a `Transform2D` and a `Sprite`, and the built-in
 ```rust
 let crab = ctx.load_texture("crab.png");
 ctx.world.spawn((
-    Transform2D::at(vec2(400.0, 300.0)).rotated(0.3).scaled(vec2(2.0, 2.0)),
-    Sprite::new(crab).with_color(Color::RED).with_z(1.0),
+    ponko::d2::Transform::at(vec2(400.0, 300.0)).rotated(0.3).scaled(vec2(2.0, 2.0)),
+    ponko::d2::Sprite::new(crab).with_color(Color::RED).with_z(1.0),
 ));
 ```
 

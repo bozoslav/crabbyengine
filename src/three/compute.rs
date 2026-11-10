@@ -6,16 +6,16 @@ use super::Material;
 use crate::gfx::Graphics;
 use crate::{Texture, Vec3};
 
-/// A compute pass shader, made with [`Graphics::load_compute`](crate::Graphics::load_compute) or
-/// [`Graphics::create_compute`](crate::Graphics::create_compute); a cheap handle. Run it by adding a
+/// A compute pass shader, made with [`Graphics::load_compute`](crate::gfx::Graphics::load_compute) or
+/// [`Graphics::create_compute`](crate::gfx::Graphics::create_compute); a cheap handle. Run it by adding a
 /// [`ComputePass`] to [`Ctx::compute_passes`](crate::Ctx::compute_passes).
 ///
 /// ```no_run
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let melt = ctx.gfx.load_compute("compute/melt.wgsl");
 /// let snow = ctx.gfx.create_render_target(512, 512);
-/// ctx.compute_passes.push(ComputePass::new(melt, snow));
+/// ctx.compute_passes.push(ponko::render::ComputePass::new(melt, snow));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -45,20 +45,20 @@ impl Compute {
 /// values and textures it reads.
 ///
 /// ```no_run
-/// # use ponko::*;
-/// # fn f(ctx: &mut Ctx, trails: Compute, snow: Texture, player: Vec3) {
-/// let feet = ctx.gfx.create_material(MaterialDesc {
+/// # use ponko::prelude::*;
+/// # fn f(ctx: &mut Ctx, trails: ponko::render::Compute, snow: Texture, player: Vec3) {
+/// let feet = ctx.gfx.create_material(ponko::render::MaterialDesc {
 ///     custom: [player.extend(0.5), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
 ///     ..Default::default()
 /// });
-/// ctx.compute_passes.push(ComputePass::new(trails, snow).with_material(feet));
+/// ctx.compute_passes.push(ponko::render::ComputePass::new(trails, snow).with_material(feet));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ComputePass {
     /// The shader.
     pub compute: Compute,
-    /// What it updates: made by [`Graphics::create_render_target`](crate::Graphics::create_render_target); other
+    /// What it updates: made by [`Graphics::create_render_target`](crate::gfx::Graphics::create_render_target); other
     /// textures are skipped.
     pub target: Texture,
     /// Storage buffer target, instead of `target`, when present.
@@ -72,10 +72,10 @@ impl ComputePass {
     /// Runs `fn update(i: u32)` once per buffer element, in groups of 64.
     /// The shader can read and write `items[i]` and read `frame` and `material`.
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, c: Compute) {
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, c: ponko::render::Compute) {
     /// let b = ctx.gfx.create_gpu_buffer(64, &[]);
-    /// ctx.compute_passes.push(ComputePass::for_buffer(c, b));
+    /// ctx.compute_passes.push(ponko::render::ComputePass::for_buffer(c, b));
     /// # }
     pub fn for_buffer(compute: Compute, buffer: GpuBuffer) -> Self {
         Self {
@@ -89,9 +89,9 @@ impl ComputePass {
     /// Runs `compute` on `target` with no values of its own.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, c: Compute, t: Texture) {
-    /// ctx.compute_passes.push(ComputePass::new(c, t));
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, c: ponko::render::Compute, t: Texture) {
+    /// ctx.compute_passes.push(ponko::render::ComputePass::new(c, t));
     /// # }
     /// ```
     #[must_use]
@@ -105,12 +105,12 @@ impl ComputePass {
     }
 
     /// The same, reading its values and textures from `material`; change
-    /// them with [`Graphics::update_material`](crate::Graphics::update_material) to steer the simulation.
+    /// them with [`Graphics::update_material`](crate::gfx::Graphics::update_material) to steer the simulation.
     ///
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(c: Compute, t: Texture, m: Material) {
-    /// let pass = ComputePass::new(c, t).with_material(m);
+    /// # use ponko::prelude::*;
+    /// # fn f(c: ponko::render::Compute, t: Texture, m: ponko::render::Material) {
+    /// let pass = ponko::render::ComputePass::new(c, t).with_material(m);
     /// # }
     /// ```
     #[must_use]
@@ -136,11 +136,11 @@ impl Graphics {
     ///
     /// For GPU buffers, define `fn update(i: u32)` instead, accessing the
     /// read-write `items: array<vec4<f32>>`. Schedule it with
-    /// [`ComputePass::for_buffer`]; it shares the texture passes' frame uniforms
+    /// [`crate::render::ComputePass::for_buffer`]; it shares the texture passes' frame uniforms
     /// and ordering. WebGL2 skips buffer passes and buffer-driven draws.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let ripples = ctx.gfx.load_compute("compute/ripples.wgsl");
     /// # }
@@ -151,12 +151,12 @@ impl Graphics {
     /// If the file can't be read or doesn't compile (the message says where).
     /// With hot reload on, a file that doesn't compile doesn't panic: it
     /// gets a stand-in and stays watched until a saved fix compiles
-    /// ([`ShaderOutcome::Failed`](crate::ShaderOutcome::Failed), [`Graphics::shader_status`](crate::Graphics::shader_status)).
+    /// ([`crate::render::ShaderOutcome::Failed`], [`Graphics::shader_status`](crate::gfx::Graphics::shader_status)).
     pub fn load_compute(&mut self, path: &str) -> Compute {
         self.try_load_compute(path).unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Graphics::load_compute`](crate::Graphics::load_compute) that returns errors (for the C API).
+    /// [`Graphics::load_compute`](crate::gfx::Graphics::load_compute) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_load_compute(&mut self, path: &str) -> Result<Compute, String> {
         let found = match self
@@ -197,10 +197,10 @@ impl Graphics {
     }
 
     /// Makes a compute pass shader from WGSL source; `name` is for error
-    /// messages. See [`Graphics::load_compute`](crate::Graphics::load_compute) for what it defines.
+    /// messages. See [`Graphics::load_compute`](crate::gfx::Graphics::load_compute) for what it defines.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     // Fades toward 0 by half a second.
     ///     let fade = ctx.gfx.create_compute("fade", "
@@ -208,7 +208,7 @@ impl Graphics {
     ///             return c.value * max(1.0 - 2.0 * frame.time.y, 0.0);
     ///         }");
     ///     let target = ctx.gfx.create_render_target(64, 64);
-    ///     ctx.compute_passes.push(ComputePass::new(fade, target));
+    ///     ctx.compute_passes.push(ponko::render::ComputePass::new(fade, target));
     /// });
     /// ```
     ///
@@ -220,7 +220,7 @@ impl Graphics {
             .unwrap_or_else(|e| panic!("ponko: {e}"))
     }
 
-    /// [`Graphics::create_compute`](crate::Graphics::create_compute) that returns errors (for the C API).
+    /// [`Graphics::create_compute`](crate::gfx::Graphics::create_compute) that returns errors (for the C API).
     #[doc(hidden)]
     pub fn try_create_compute(&mut self, name: &str, source: &str) -> Result<Compute, String> {
         let id = self.assets3d.computes;
@@ -297,7 +297,7 @@ impl Graphics {
 
 /// A GPU array of `vec4<f32>`. Empty initial data creates zeroed elements.
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("buffers", 1, 1).run_headless(0, |ctx| {
 ///     let b = ctx.gfx.create_gpu_buffer(128, &[]);
 ///     ctx.gfx.write_gpu_buffer(b, 0, &[Vec4::ONE]);
@@ -323,7 +323,7 @@ impl GpuBuffer {
 impl Graphics {
     /// Creates `len` elements. Initial data may be empty or exactly `len` elements.
     /// A freed buffer's id is reused first (see [`Ctx::free`](crate::Ctx::free)).
-    /// Panics for zero length or mismatched data. See [`GpuBuffer`].
+    /// Panics for zero length or mismatched data. See [`crate::render::GpuBuffer`].
     pub fn create_gpu_buffer(&mut self, len: u32, data: &[crate::Vec4]) -> GpuBuffer {
         assert!(
             len > 0 && (data.is_empty() || data.len() == len as usize),
@@ -348,7 +348,7 @@ impl Graphics {
     }
     /// Number of elements, or `None` for an invalid or freed handle.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("b", 1, 1).run_headless(0, |ctx| {
     /// let b = ctx.gfx.create_gpu_buffer(2, &[]); assert_eq!(ctx.gfx.gpu_buffer_len(b), Some(2));
     /// });
@@ -360,7 +360,7 @@ impl Graphics {
             .copied()
             .filter(|&len| len > 0)
     }
-    /// Frees `b`'s GPU memory: the engine side of [`Graphics::free`](crate::Graphics::free) with a
+    /// Frees `b`'s GPU memory: the engine side of [`Graphics::free`](crate::gfx::Graphics::free) with a
     /// buffer. The compute passes that write to it are removed before its id
     /// is given to another buffer.
     pub(crate) fn free_gpu_buffer(&mut self, b: GpuBuffer) {
@@ -381,7 +381,7 @@ impl Graphics {
         }
     }
     /// Updates a range before the next frame. Panics for invalid handles or ranges.
-    /// See [`GpuBuffer`] for an example.
+    /// See [`crate::render::GpuBuffer`] for an example.
     pub fn write_gpu_buffer(&mut self, b: GpuBuffer, offset: u32, data: &[crate::Vec4]) {
         let len = self.gpu_buffer_len(b).expect("invalid GPU buffer");
         assert!(
@@ -406,12 +406,12 @@ impl Graphics {
     /// The entity is culled by the mesh's bounds, which don't know where the
     /// shader puts the instances: give the whole simulation's extent (in the
     /// entity's space, around the entity) with
-    /// [`Graphics::set_mesh_gpu_bounds`](crate::Graphics::set_mesh_gpu_bounds). Disable occlusion culling for
+    /// [`Graphics::set_mesh_gpu_bounds`](crate::gfx::Graphics::set_mesh_gpu_bounds). Disable occlusion culling for
     /// shader-displaced geometry. Unsupported GPUs draw nothing. Panics for
     /// invalid handles or count.
     /// ```no_run
-    /// # use ponko::*;
-    /// # fn f(ctx: &mut Ctx, mesh: Mesh) {
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, mesh: ponko::render::Mesh) {
     /// let b = ctx.gfx.create_gpu_buffer(100, &[]);
     /// ctx.gfx.set_mesh_gpu_buffer(mesh, b, 100);
     /// ctx.gfx.set_mesh_gpu_bounds(mesh, Vec3::ZERO, 10.0);
@@ -431,15 +431,15 @@ impl Graphics {
     }
     /// Grows `mesh`'s culling bounds to also hold the sphere at `center`
     /// with `radius`, in the mesh's space: where a buffer-driven
-    /// simulation (see [`Graphics::set_mesh_gpu_buffer`](crate::Graphics::set_mesh_gpu_buffer)) can put its instances.
+    /// simulation (see [`Graphics::set_mesh_gpu_buffer`](crate::gfx::Graphics::set_mesh_gpu_buffer)) can put its instances.
     /// The result is the mesh's own bounds united with the sphere; calling it
     /// again replaces the sphere. Panics for a freed mesh or a negative or
     /// non-finite radius.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("b", 1, 1).run_headless(0, |ctx| {
     ///     let material = ctx.gfx.default_material();
-    ///     let mesh = ctx.gfx.create_mesh(&MeshData::cube(0.1), material);
+    ///     let mesh = ctx.gfx.create_mesh(&ponko::render::MeshData::cube(0.1), material);
     ///     ctx.gfx.set_mesh_gpu_bounds(mesh, Vec3::Y * 5.0, 6.0);
     /// });
     /// ```
@@ -481,7 +481,7 @@ mod tests {
     fn gpu_bounds_grow_the_culling_sphere_of_a_buffer_mesh() {
         crate::Game::new("bounds", 1, 1).run_headless(0, |ctx| {
             let material = ctx.gfx.default_material();
-            let mesh = ctx.gfx.create_mesh(&crate::MeshData::cube(0.5), material);
+            let mesh = ctx.gfx.create_mesh(&crate::render::MeshData::cube(0.5), material);
             let own = ctx.gfx.assets3d.bounds[mesh.id as usize];
             ctx.gfx.set_mesh_gpu_bounds(mesh, Vec3::Y * 10.0, 2.0);
             let grown = ctx.gfx.assets3d.bounds[mesh.id as usize];
@@ -491,7 +491,7 @@ mod tests {
             assert_eq!(ctx.gfx.assets3d.bounds[mesh.id as usize], grown);
             // A freed mesh's slot starts over.
             ctx.gfx.free(mesh);
-            let again = ctx.gfx.create_mesh(&crate::MeshData::cube(0.5), material);
+            let again = ctx.gfx.create_mesh(&crate::render::MeshData::cube(0.5), material);
             assert_eq!((again, ctx.gfx.assets3d.bounds[again.id as usize]), (mesh, own));
         });
     }

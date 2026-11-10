@@ -4,9 +4,12 @@
 
 use std::ffi::c_char;
 
-use ponko::{
-    AudioBus, AudioEffects, AudioListener3D, AudioRolloff, AudioSettings3D, AudioSource3D, Ctx, Entity, SoundParams,
-};
+use ponko::audio::AudioEffects;
+use ponko::audio::AudioRolloff;
+use ponko::d3::AudioListener as AudioListener3D;
+use ponko::d3::AudioSettings as AudioSettings3D;
+use ponko::d3::AudioSource as AudioSource3D;
+use ponko::{AudioBus, Ctx, Entity, SoundParams};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::media::{

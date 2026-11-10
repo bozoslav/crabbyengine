@@ -9,7 +9,9 @@
 //!   3 second warmup, prints the averages as JSON and quits (the same
 //!   measurement as the Unity version of this scene).
 
-use ponko::*;
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
 
 /// Turns around its own Y axis.
 struct Spin(f32);
@@ -23,7 +25,7 @@ struct Orbit {
 
 fn spin(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    ctx.world.query::<(&mut Transform3D, &Spin)>().for_each(|(t, s)| {
+    ctx.world.query::<(&mut Transform, &Spin)>().for_each(|(t, s)| {
         t.rotation *= Quat::from_rotation_y(s.0 * dt);
     });
 }
@@ -145,7 +147,7 @@ fn main() {
             ..MaterialDesc::color(Color::hex(0x5E8C4A))
         });
         let ground = ctx.gfx.create_mesh(&MeshData::plane(400.0), grass);
-        ctx.world.spawn((Transform3D::default(), Model::new(ground)));
+        ctx.world.spawn((Transform::default(), Model::new(ground)));
 
         // Spheres: rough to smooth left to right, plastic in front, metal behind.
         // One mesh, uploaded once; each sphere draws it with its own material.
@@ -163,7 +165,7 @@ fn main() {
                 });
                 let at = vec3(col as f32 * 1.1 - 2.75, 0.45, row as f32 * -1.2);
                 ctx.world
-                    .spawn((Transform3D::at(at), Model::new(ball), ModelMaterial(material)));
+                    .spawn((Transform::at(at), Model::new(ball), ModelMaterial(material)));
             }
         }
 
@@ -176,7 +178,7 @@ fn main() {
             let at = vec3((x - side as f32 / 2.0) * 1.6, 0.3, -6.0 - z * 1.6);
             let tint = Color::rgb(rng.range(0.3, 1.0), rng.range(0.3, 1.0), rng.range(0.3, 1.0));
             ctx.world.spawn((
-                Transform3D::at(at).rotated(Quat::from_rotation_y(rng.range(0.0, 6.3))),
+                Transform::at(at).rotated(Quat::from_rotation_y(rng.range(0.0, 6.3))),
                 Model::new(cube).with_color(tint),
                 Spin(rng.range(-2.0, 2.0)),
             ));

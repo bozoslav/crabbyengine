@@ -7,7 +7,11 @@
 //!
 //! Keys: R starts over, Escape quits.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d2::*;
+#[allow(unused_imports)]
+#[cfg(feature = "physics")]
+use ponko::prelude::*;
 
 const W: f32 = 1000.0;
 const H: f32 = 700.0;
@@ -88,7 +92,7 @@ fn blast(ctx: &mut Ctx) {
 }
 
 /// What's under the mouse, straight down: a laser from the cursor.
-fn laser(ctx: &mut Ctx) -> Option<RayHit> {
+fn laser(ctx: &mut Ctx) -> Option<Hit> {
     ctx.physics.cast_ray(ctx.mouse_world(), vec2(0.0, 1.0), H)
 }
 // ANCHOR_END: queries

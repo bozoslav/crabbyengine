@@ -5,7 +5,12 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ponko::*;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::{
+    Compute, ComputePass, Effect, Material, MaterialDesc, ScreenEffect, Shader, ShaderKind, ShaderOutcome, ShaderStatus,
+};
 
 /// A minimal invalid material shader: line 3 returns a number, not a `Surface`.
 const BROKEN: &str = "// tints everything red\nfn surface(s: Surface) -> Surface {\n    return 1.0;\n}\n";

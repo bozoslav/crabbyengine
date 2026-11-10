@@ -1,11 +1,17 @@
 //! Headless navigation: compile with `--no-default-features --features navmesh`.
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+#[allow(unused_imports)]
+#[cfg(feature = "navmesh")]
+use ponko::nav::{NavBakeSettings, NavSource};
+use ponko::prelude::*;
 
 // ANCHOR: bake
-fn navigation() -> NavMesh3D {
-    let floor = NavSource::from_mesh(&MeshData::plane(30.0), Transform3D::default());
-    let wall = NavSource::from_mesh(&MeshData::cube(4.0), Transform3D::at(vec3(0.0, 2.0, 0.0)));
-    NavMesh3D::bake(&[floor, wall], NavBakeSettings::default()).unwrap()
+fn navigation() -> NavMesh {
+    let floor = NavSource::from_mesh(&MeshData::plane(30.0), Transform::default());
+    let wall = NavSource::from_mesh(&MeshData::cube(4.0), Transform::at(vec3(0.0, 2.0, 0.0)));
+    NavMesh::bake(&[floor, wall], NavBakeSettings::default()).unwrap()
 }
 // ANCHOR_END: bake
 
@@ -24,15 +30,15 @@ fn main() {
         .sim_system(systems::step_navmesh3d)
         .setup(move |ctx| {
             ctx.world.insert_resource(nav);
-            let mut agent = NavAgent3D::default();
+            let mut agent = NavAgent::default();
             agent.destination = Some(destination);
-            ctx.world.spawn((Transform3D::at(start), agent));
+            ctx.world.spawn((Transform::at(start), agent));
             // World-space AABB; move its center or despawn it to reopen polygons.
             ctx.world
-                .spawn((NavObstacle3D::new(vec3(0.0, 1.0, 8.0), vec3(1.0, 1.0, 1.0)),));
+                .spawn((NavObstacle::new(vec3(0.0, 1.0, 8.0), vec3(1.0, 1.0, 1.0)),));
         })
         .run_headless(600);
-    let position = world.query::<&Transform3D>().iter().next().unwrap().position;
+    let position = world.query::<&Transform>().iter().next().unwrap().position;
     assert!(position.distance(destination) < 0.3);
     // ANCHOR_END: agents
 }

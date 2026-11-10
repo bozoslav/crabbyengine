@@ -551,6 +551,13 @@ inline float rpm(const wheel3d& w) { return w.angular_velocity * 60.0f / 6.28318
 inline float evaluate(const friction_curve& c, float slip) { return crabby_friction_curve_evaluate(c, slip); }
 /// In groups `memberships`, touching colliders in groups `filter`.
 inline collision_groups groups(std::uint32_t memberships, std::uint32_t filter) { return {memberships, filter}; }
+/// Filter for 2D queries: solids only by default, with optional entity exclusion.
+struct filter2d {
+    CrabbyQueryFilter2D raw{};
+    filter2d& exclude(entity e) { raw.exclude = true; raw.exclude_entity = e; return *this; }
+    filter2d& with_sensors() { raw.sensors = true; return *this; }
+};
+
 /// What a 3D query sees: every solid collider (no sensors) by default.
 struct filter3d {
     query_filter3d raw = crabby_query_filter3d();
@@ -3149,6 +3156,11 @@ public:
     void save_scene(const char* path) { detail::check(crabby_ctx_save_scene(raw_, path)); }
     /// Spawns the prefab in assets/`path` with its position at `at`.
     entity spawn_prefab(const char* path, vec2 at) { entity e = 0; detail::check(crabby_ctx_spawn_prefab(raw_, path, at, &e)); return e; }
+    /// Repositions a 3D prefab while preserving saved rotation and scale.
+    entity spawn_prefab3d(const char* path, vec3 at) { entity e = 0; detail::check(crabby_ctx_spawn_prefab3d(raw_, path, at, &e)); return e; }
+    /// Places a prefab with a complete transform. Separate names preserve old brace-init calls.
+    entity spawn_prefab_transform3d(const char* path, transform3d at) { entity e = 0; detail::check(crabby_ctx_spawn_prefab_transform3d(raw_, path, at, &e)); return e; }
+    entity spawn_prefab_transform2d(const char* path, transform2d at) { entity e = 0; detail::check(crabby_ctx_spawn_prefab_transform2d(raw_, path, at, &e)); return e; }
     /// Saves `e` as a prefab in assets/`path` (without its position).
     void save_prefab(entity e, const char* path) { detail::check(crabby_ctx_save_prefab(raw_, e, path)); }
     texture load_texture(const char* path) { texture t{}; detail::check(crabby_ctx_load_texture(raw_, path, &t)); return t; }
@@ -4035,6 +4047,25 @@ public:
         detail::check(crabby_ctx_cast_ray(raw_, origin, direction, max_distance, &found, &hit));
         if (!found) return std::nullopt;
         return hit;
+    }
+    /// Common explicit-filter spelling; the old cast_ray call is unchanged.
+    std::optional<ray_hit> cast_ray_filtered(vec2 origin, vec2 direction, float max_distance, filter2d filter) {
+        bool found = false; ray_hit hit{};
+        detail::check(crabby_ctx_cast_ray_filtered(raw_, origin, direction, max_distance, filter.raw, &found, &hit));
+        if (!found) return std::nullopt;
+        return hit;
+    }
+    std::optional<hit3d> cast_ray_filtered(vec3 origin, vec3 direction, float max_distance, filter3d filter) {
+        return cast_ray3d(origin, direction, max_distance, filter);
+    }
+    /// A circle in 2D and a sphere in 3D, with matching argument order.
+    void overlap_ball(vec2 center, float radius, filter2d filter, std::vector<CrabbyEntity>& out) {
+        overlap3d(out, [&](CrabbyEntity* data, std::size_t cap, std::size_t* n) {
+            return crabby_ctx_overlap_ball(raw_, center, radius, filter.raw, data, cap, n);
+        });
+    }
+    void overlap_ball(vec3 center, float radius, filter3d filter, std::vector<CrabbyEntity>& out) {
+        overlap_sphere3d(center, radius, out, filter);
     }
     /// Entities whose collider contains `point`, into `out`.
     void entities_at(vec2 point, std::vector<CrabbyEntity>& out) {

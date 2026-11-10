@@ -14,7 +14,8 @@ use rapier3d::prelude as rp;
 use serde::{Deserialize, Serialize};
 
 use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
-use crate::{Ctx, Entity, Events, Quat, Transform3D, Vec3, World};
+use crate::d3::Transform as Transform3D;
+use crate::{Ctx, Entity, Events, Quat, Vec3, World};
 
 mod character;
 mod contacts;
@@ -44,11 +45,11 @@ pub const PHYSICS3D_HZ: u32 = 50;
 /// [`Transform3D`].
 ///
 /// ```
-/// use ponko::*;
-/// let crate_body = RigidBody3D::dynamic();
-/// let ground = RigidBody3D::fixed();
+/// use ponko::prelude::*;
+/// let crate_body = ponko::d3::RigidBody::dynamic();
+/// let ground = ponko::d3::RigidBody::fixed();
 /// assert_eq!(crate_body.gravity_scale, 1.0);
-/// assert_eq!(ground.kind, BodyKind::Fixed);
+/// assert_eq!(ground.kind, ponko::d2::BodyKind::Fixed);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -57,8 +58,8 @@ pub struct RigidBody3D {
     pub kind: BodyKind,
     /// Higher groups push lower groups without contact reaction; equal groups react normally.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(RigidBody3D::dynamic().dominance(1).dominance, 1);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::d3::RigidBody::dynamic().dominance(1).dominance, 1);
     /// ```
     pub dominance: i8,
     /// 1 normal, 0 floats, negative falls up.
@@ -91,8 +92,8 @@ impl Default for RigidBody3D {
 impl RigidBody3D {
     /// Sets contact dominance (default zero). Does not change joint reactions.
     /// ```
-    /// use ponko::*;
-    /// let body = RigidBody3D::dynamic().dominance(10);
+    /// use ponko::prelude::*;
+    /// let body = ponko::d3::RigidBody::dynamic().dominance(10);
     /// assert_eq!(body.dominance, 10);
     /// ```
     #[must_use]
@@ -135,8 +136,8 @@ impl RigidBody3D {
     /// Weighing `kg`, whatever its collider's density.
     ///
     /// ```
-    /// use ponko::*;
-    /// let chassis = RigidBody3D::dynamic().mass(1200.0).center_of_mass(vec3(0.0, -0.4, 0.0));
+    /// use ponko::prelude::*;
+    /// let chassis = ponko::d3::RigidBody::dynamic().mass(1200.0).center_of_mass(vec3(0.0, -0.4, 0.0));
     /// assert_eq!(chassis.mass, Some(1200.0));
     /// ```
     #[must_use]
@@ -214,13 +215,13 @@ pub enum Shape3D {
 /// Queries use the same test against [`QueryFilter3D::groups`].
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// const PLAYER: u32 = 1 << 0;
 /// const DEBRIS: u32 = 1 << 1;
 /// // Debris hits everything except other debris.
-/// let debris = CollisionGroups::new(DEBRIS, !DEBRIS);
+/// let debris = ponko::physics3d::CollisionGroups::new(DEBRIS, !DEBRIS);
 /// assert!(!debris.touches(debris));
-/// assert!(debris.touches(CollisionGroups::new(PLAYER, u32::MAX)));
+/// assert!(debris.touches(ponko::physics3d::CollisionGroups::new(PLAYER, u32::MAX)));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[repr(C)]
@@ -266,9 +267,9 @@ impl CollisionGroups {
 /// what it touches.
 ///
 /// ```
-/// use ponko::*;
-/// let ball = Collider3D::sphere(0.5).restitution(0.8);
-/// let trigger = Collider3D::cuboid(vec3(4.0, 2.0, 4.0)).sensor();
+/// use ponko::prelude::*;
+/// let ball = ponko::d3::Collider::sphere(0.5).restitution(0.8);
+/// let trigger = ponko::d3::Collider::cuboid(vec3(4.0, 2.0, 4.0)).sensor();
 /// assert!(trigger.sensor);
 /// assert_eq!(ball.friction, 0.5);
 /// ```
@@ -335,10 +336,10 @@ impl Collider3D {
     /// A convex hull, triangle mesh or heightfield made by [`Physics3D`].
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(1, |ctx| {
     ///     let ground = ctx.physics3d.heightfield(&[0.0; 3 * 3], 10.0);
-    ///     ctx.world.spawn((Transform3D::default(), RigidBody3D::fixed(), Collider3D::mesh(ground)));
+    ///     ctx.world.spawn((ponko::d3::Transform::default(), ponko::d3::RigidBody::fixed(), ponko::d3::Collider::mesh(ground)));
     /// });
     /// ```
     #[must_use]
@@ -381,8 +382,8 @@ impl Collider3D {
 /// each axis. Read it after a step; write it to set the speed.
 ///
 /// ```
-/// use ponko::*;
-/// let thrown = Velocity3D::linear(vec3(0.0, 4.0, -10.0));
+/// use ponko::prelude::*;
+/// let thrown = ponko::d3::Velocity::linear(vec3(0.0, 4.0, -10.0));
 /// assert_eq!(thrown.angular, Vec3::ZERO);
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -611,8 +612,8 @@ impl Physics3D {
     /// physics step, so it sees only the [`ContactPair3D`]: capture what
     /// else it needs. Replaces an earlier hook.
     /// ```
-    /// use ponko::*;
-    /// let mut physics = Physics3D::new(Vec3::ZERO);
+    /// use ponko::prelude::*;
+    /// let mut physics = ponko::d3::Physics::new(Vec3::ZERO);
     /// // Ice: anything touching a hooked body slides.
     /// physics.set_contact_hook(|pair| pair.set_friction(0.0));
     /// physics.clear_contact_hook();
@@ -706,8 +707,8 @@ impl Physics3D {
     /// not finite.
     ///
     /// ```
-    /// use ponko::*;
-    /// let mut physics = Physics3D::default();
+    /// use ponko::prelude::*;
+    /// let mut physics = ponko::d3::Physics::default();
     /// let corners = [vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0)];
     /// assert!(physics.convex_hull(&corners).is_some());
     /// assert!(physics.convex_hull(&corners[..3]).is_none(), "flat");
@@ -722,8 +723,8 @@ impl Physics3D {
     /// bounding box.
     ///
     /// ```
-    /// use ponko::*;
-    /// let mut physics = Physics3D::default();
+    /// use ponko::prelude::*;
+    /// let mut physics = ponko::d3::Physics::default();
     /// let floor = physics.trimesh(
     ///     &[vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 1.0)],
     ///     &[[0, 2, 1], [1, 2, 3]],
@@ -738,7 +739,7 @@ impl Physics3D {
     }
 
     /// Ground for a terrain tile, from the same heights and size as
-    /// [`Graphics::create_terrain_tile`](crate::Graphics::create_terrain_tile) (n × n
+    /// [`Graphics::create_terrain_tile`](crate::gfx::Graphics::create_terrain_tile) (n × n
     /// heights, row by row along +Z, each row along +X; NaN for a hole), so
     /// the collider matches the drawn ground triangle for triangle. Give it
     /// to a [`TerrainCollider`] on the tile's entity (or a fixed body at the
@@ -746,8 +747,8 @@ impl Physics3D {
     /// builds it on another thread.
     ///
     /// ```
-    /// use ponko::*;
-    /// let mut physics = Physics3D::default();
+    /// use ponko::prelude::*;
+    /// let mut physics = ponko::d3::Physics::default();
     /// let heights = [0.0, 1.0, 2.0, 0.0, 1.0, 2.0, 0.0, 1.0, 2.0];
     /// let ground = physics.heightfield(&heights, 8.0);
     /// # let _ = ground;

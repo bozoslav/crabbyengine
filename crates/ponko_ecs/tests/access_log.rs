@@ -77,7 +77,7 @@ fn raw_access_counts_as_writing() {
     let mut w = world();
     let pos = w.component_id::<Pos>().unwrap();
     w.record_access();
-    w.for_each_chunk(&[pos], |_| {});
+    w.raw().for_each_chunk(&[pos], |_| {});
     assert_eq!(w.take_access_log().unwrap().components, [(pos, true)]);
 }
 
@@ -100,17 +100,20 @@ fn replacing_a_component_in_place_is_a_write_and_adding_one_is_structural() {
     w.record_access();
     let value = Pos(5.0);
     // SAFETY: a valid `Pos`, moved into the world (no destructor to skip).
-    assert!(unsafe { w.insert_dynamic(e, pos, (&raw const value).cast()) });
+    assert!(unsafe { w.raw().insert_dynamic(e, pos, (&raw const value).cast()) });
     let log = w.take_access_log().unwrap();
     assert_eq!(log.components, [(pos, true)]);
     assert!(!log.structural);
     w.record_access();
     let n = 1u64;
     // SAFETY: a valid u64.
-    assert!(unsafe { w.insert_dynamic(e, fresh, (&raw const n).cast()) });
+    assert!(unsafe { w.raw().insert_dynamic(e, fresh, (&raw const n).cast()) });
     assert!(w.take_access_log().unwrap().structural);
     w.record_access();
     // SAFETY: a dead entity: nothing is read.
-    assert!(!unsafe { w.insert_dynamic(Entity::from_bits(u64::MAX), pos, (&raw const value).cast()) });
+    assert!(!unsafe {
+        w.raw()
+            .insert_dynamic(Entity::from_bits(u64::MAX), pos, (&raw const value).cast())
+    });
     assert!(w.take_access_log().unwrap().structural);
 }

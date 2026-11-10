@@ -3,7 +3,8 @@
 use std::collections::HashSet;
 
 use super::{LodGroup, LodShadow, Mesh, Model, ShadowMesh};
-use crate::{Ctx, ResidencyKind};
+use crate::Ctx;
+use crate::residency::ResidencyKind;
 
 impl Ctx {
     /// The mesh in file `path`, loaded now if it isn't resident, under the
@@ -11,7 +12,7 @@ impl Ctx {
     /// frame you need it (cell streaming, a level's props): asking marks it
     /// used, and when resident meshes go over the budget, the least recently
     /// used ones are freed until they fit. A freed one loads again, from
-    /// where [`load_mesh`](crate::Graphics::load_mesh) finds it, the next time it's
+    /// where [`load_mesh`](crate::gfx::Graphics::load_mesh) finds it, the next time it's
     /// asked for, as the same [`Mesh`] (its id is kept for it while it is
     /// out: a handle the game kept reads as not [live](Self::is_live) and
     /// models showing it draw nothing until then); its materials and
@@ -28,12 +29,12 @@ impl Ctx {
     /// here. Without a budget nothing is evicted.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     ctx.set_residency_budget(ResidencyKind::Mesh, Some(256 << 20));
+    ///     ctx.set_residency_budget(ponko::residency::ResidencyKind::Mesh, Some(256 << 20));
     ///     let house = ctx.resident_mesh("models/house.glb");
-    ///     ctx.world.spawn((Transform3D::default(), Model::new(house))); // kept while shown
-    ///     println!("meshes: {}", ctx.gfx.residency(ResidencyKind::Mesh));
+    ///     ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(house))); // kept while shown
+    ///     println!("meshes: {}", ctx.gfx.residency(ponko::residency::ResidencyKind::Mesh));
     /// });
     /// ```
     ///
@@ -68,15 +69,15 @@ impl Ctx {
     }
 
     /// [`resident_mesh`](Self::resident_mesh) with errors as values, the
-    /// same ones [`try_load_mesh`](crate::Graphics::try_load_mesh) returns. A failed
+    /// same ones [`try_load_mesh`](crate::gfx::Graphics::try_load_mesh) returns. A failed
     /// load changes nothing resident.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let hat = ctx.try_resident_mesh("models/hat.glb");
     ///     assert_eq!(hat.unwrap_err().kind(), ErrorKind::NotFound);
-    ///     assert!(!ctx.gfx.is_resident(ResidencyKind::Mesh, "models/hat.glb"));
+    ///     assert!(!ctx.gfx.is_resident(ponko::residency::ResidencyKind::Mesh, "models/hat.glb"));
     /// });
     /// ```
     ///
@@ -189,7 +190,7 @@ impl Ctx {
     }
 }
 
-impl crate::Graphics {
+impl crate::gfx::Graphics {
     /// Mesh `id` is being freed (`free_mesh`). If it is the id kept for an
     /// evicted resident mesh, the game let its handle go: release the id
     /// (once) and forget the name. Returns whether it did. A live resident

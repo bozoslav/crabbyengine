@@ -21,13 +21,13 @@ use crate::{Color, Texture};
 /// don't record them.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 64, 64).run_headless(0, |ctx| {
 ///     // A tracer: a thin, glowing ribbon a quarter second long.
-///     let mut tracer = Trail3D::new(0.25, 0.05);
-///     tracer.blend = ParticleBlend3D::Additive;
-///     tracer.color = ParticleGradient::new(vec![(0.0, Color::rgb(1.0, 0.8, 0.3)), (1.0, Color::rgba(1.0, 0.3, 0.0, 0.0))]);
-///     ctx.world.spawn((Transform3D::default(), tracer));
+///     let mut tracer = ponko::d3::Trail::new(0.25, 0.05);
+///     tracer.blend = ponko::d3::ParticleBlend::Additive;
+///     tracer.color = ponko::render::ParticleGradient::new(vec![(0.0, Color::rgb(1.0, 0.8, 0.3)), (1.0, Color::rgba(1.0, 0.3, 0.0, 0.0))]);
+///     ctx.world.spawn((ponko::d3::Transform::default(), tracer));
 /// });
 /// ```
 #[derive(Debug, Clone)]
@@ -58,8 +58,8 @@ impl Trail3D {
     /// A ribbon `width` meters wide (narrowing to 0 at its end) whose points
     /// last `lifetime` seconds, white and alpha blended.
     /// ```
-    /// # use ponko::*;
-    /// let t = Trail3D::new(0.5, 0.1);
+    /// # use ponko::prelude::*;
+    /// let t = ponko::d3::Trail::new(0.5, 0.1);
     /// assert_eq!(t.width.sample(0.0), 0.1);
     /// assert_eq!(t.width.sample(1.0), 0.0);
     /// ```
@@ -80,8 +80,8 @@ impl Trail3D {
 
     /// How many points it keeps now.
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(Trail3D::new(1.0, 0.1).point_count(), 0);
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::d3::Trail::new(1.0, 0.1).point_count(), 0);
     /// ```
     #[must_use]
     pub fn point_count(&self) -> usize {
@@ -90,8 +90,8 @@ impl Trail3D {
 
     /// Forgets every point: after a teleport, so no ribbon spans the jump.
     /// ```
-    /// # use ponko::*;
-    /// let mut t = Trail3D::new(1.0, 0.1);
+    /// # use ponko::prelude::*;
+    /// let mut t = ponko::d3::Trail::new(1.0, 0.1);
     /// t.clear();
     /// assert_eq!(t.point_count(), 0);
     /// ```
@@ -129,11 +129,11 @@ impl Trail3D {
 /// paths. Change `points` any time; it's rebuilt every frame it's seen.
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// Game::new("t", 64, 64).run_headless(0, |ctx| {
 ///     // A glowing beam 20 m forward.
-///     let beam = Line3D::new(vec![Vec3::ZERO, vec3(0.0, 0.0, -20.0)], 0.02, Color::RED);
-///     ctx.world.spawn((Transform3D::default(), Line3D { blend: ParticleBlend3D::Additive, ..beam }));
+///     let beam = ponko::d3::Line::new(vec![Vec3::ZERO, vec3(0.0, 0.0, -20.0)], 0.02, Color::RED);
+///     ctx.world.spawn((ponko::d3::Transform::default(), ponko::d3::Line { blend: ponko::d3::ParticleBlend::Additive, ..beam }));
 /// });
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -156,8 +156,8 @@ pub struct Line3D {
 impl Line3D {
     /// A `color` line `width` meters wide through `points`, alpha blended.
     /// ```
-    /// # use ponko::*;
-    /// let l = Line3D::new(vec![Vec3::ZERO, Vec3::X], 0.1, Color::WHITE);
+    /// # use ponko::prelude::*;
+    /// let l = ponko::d3::Line::new(vec![Vec3::ZERO, Vec3::X], 0.1, Color::WHITE);
     /// assert_eq!(l.texture_length, 0.0);
     /// ```
     #[must_use]

@@ -3,8 +3,13 @@
 //! Gather walkable triangles in a `CrabbyNavSources`, bake them into the
 //! context's navmesh, then query paths or give entities agents.
 
+use ponko::d3::NavAgent as NavAgent3D;
+use ponko::d3::NavMesh as NavMesh3D;
+use ponko::d3::NavObstacle as NavObstacle3D;
+use ponko::nav::NavBakeSettings;
+use ponko::nav::NavSource;
 use ponko::systems::step_navmesh3d;
-use ponko::{Ctx, Entity, NavAgent3D, NavBakeSettings, NavMesh3D, NavObstacle3D, NavSource, Vec3};
+use ponko::{Ctx, Entity, Vec3};
 
 use crate::ctx::{ctx_access, out};
 use crate::game::{build, ok};

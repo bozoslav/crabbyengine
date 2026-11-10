@@ -809,6 +809,32 @@ typedef struct CrabbyGridView {
   uint32_t y_bits;
 } CrabbyGridView;
 
+typedef struct CrabbyQueryFilter2D {
+  bool exclude;
+  uint64_t exclude_entity;
+  bool sensors;
+} CrabbyQueryFilter2D;
+
+typedef struct CrabbyRayHit {
+  struct CrabbyEntity entity;
+  struct CrabbyVec2 point;
+  struct CrabbyVec2 normal;
+  float distance;
+} CrabbyRayHit;
+
+typedef struct CrabbyTransform3D {
+  struct CrabbyQuat rotation;
+  struct CrabbyVec3 position;
+  struct CrabbyVec3 scale;
+  float reserved[2];
+} CrabbyTransform3D;
+
+typedef struct CrabbyTransform2D {
+  struct CrabbyVec2 position;
+  float rotation;
+  struct CrabbyVec2 scale;
+} CrabbyTransform2D;
+
 typedef struct CrabbyFlowView {
   const uint8_t *cells;
   const struct CrabbyVec2 *directions;
@@ -900,13 +926,6 @@ typedef struct CrabbyNavBakeSettings {
   uint32_t tile_size;
   bool carving;
 } CrabbyNavBakeSettings;
-
-typedef struct CrabbyTransform3D {
-  struct CrabbyQuat rotation;
-  struct CrabbyVec3 position;
-  struct CrabbyVec3 scale;
-  float reserved[2];
-} CrabbyTransform3D;
 
 typedef struct CrabbyParticleKey {
   float t;
@@ -1000,13 +1019,6 @@ typedef struct CrabbyCollider {
   float restitution;
   bool sensor;
 } CrabbyCollider;
-
-typedef struct CrabbyRayHit {
-  struct CrabbyEntity entity;
-  struct CrabbyVec2 point;
-  struct CrabbyVec2 normal;
-  float distance;
-} CrabbyRayHit;
 
 typedef struct CrabbyCollision {
   struct CrabbyEntity a;
@@ -1765,12 +1777,6 @@ typedef struct CrabbyVehicle3D {
   uint32_t reserved;
 } CrabbyVehicle3D;
 
-typedef struct CrabbyTransform2D {
-  struct CrabbyVec2 position;
-  float rotation;
-  struct CrabbyVec2 scale;
-} CrabbyTransform2D;
-
 typedef struct CrabbySprite {
   struct CrabbyTexture texture;
   struct CrabbyColor color;
@@ -2436,6 +2442,37 @@ enum CrabbyStatus crabby_ctx_spatial_nearest(const struct CrabbyCtx *ctx,
 
 enum CrabbyStatus crabby_ctx_spatial_view(const struct CrabbyCtx *ctx,
                                           struct CrabbyGridView *out_view);
+
+enum CrabbyStatus crabby_ctx_cast_ray_filtered(struct CrabbyCtx *ctx,
+                                               struct CrabbyVec2 origin,
+                                               struct CrabbyVec2 direction,
+                                               float max_distance,
+                                               struct CrabbyQueryFilter2D filter,
+                                               bool *out_found,
+                                               struct CrabbyRayHit *out_hit);
+
+enum CrabbyStatus crabby_ctx_overlap_ball(struct CrabbyCtx *ctx,
+                                          struct CrabbyVec2 center,
+                                          float radius,
+                                          struct CrabbyQueryFilter2D filter,
+                                          struct CrabbyEntity *out_entities,
+                                          size_t capacity,
+                                          size_t *out_count);
+
+enum CrabbyStatus crabby_ctx_spawn_prefab3d(struct CrabbyCtx *ctx,
+                                            const char *path,
+                                            struct CrabbyVec3 at,
+                                            uint64_t *output);
+
+enum CrabbyStatus crabby_ctx_spawn_prefab_transform3d(struct CrabbyCtx *ctx,
+                                                      const char *path,
+                                                      struct CrabbyTransform3D at,
+                                                      uint64_t *output);
+
+enum CrabbyStatus crabby_ctx_spawn_prefab_transform2d(struct CrabbyCtx *ctx,
+                                                      const char *path,
+                                                      struct CrabbyTransform2D at,
+                                                      uint64_t *output);
 
 struct CrabbyNavGrid *crabby_nav_new(uint32_t width, uint32_t height, float cell_size);
 

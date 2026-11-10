@@ -1,5 +1,8 @@
 #![cfg(feature = "3d")]
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::{ReflectionProbe as ReflectionProbe3D, Transform as Transform3D};
+use ponko::prelude::*;
 
 #[test]
 fn probe_weights_fade_inside_box_and_projection_hits_wall() {

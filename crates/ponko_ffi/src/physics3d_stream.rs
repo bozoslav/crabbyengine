@@ -14,7 +14,7 @@ use crate::{CrabbyCtx, CrabbyStatus, CrabbyWorld};
 /// game's with `crabby_ctx_physics3d_add_mesh`.
 pub struct CrabbyCollisionMeshData {
     #[cfg(feature = "physics3d")]
-    data: ponko::CollisionMeshData,
+    data: ponko::physics3d::CollisionMeshData,
 }
 
 /// The built-in `TerrainCollider` component: makes a terrain tile's entity
@@ -250,7 +250,12 @@ pub unsafe extern "C" fn crabby_ctx_physics3d_is_collider_active(
 mod imp {
     use std::mem::offset_of;
 
-    use ponko::{ColliderFocus, CollisionGroups, CollisionMesh, CollisionMeshData, TerrainCollider, Vec3};
+    use ponko::Vec3;
+    use ponko::physics3d::ColliderFocus;
+    use ponko::physics3d::CollisionGroups;
+    use ponko::physics3d::CollisionMesh;
+    use ponko::physics3d::CollisionMeshData;
+    use ponko::physics3d::TerrainCollider;
     use ponko_ecs::Entity;
 
     use super::*;

@@ -1,7 +1,9 @@
 //! Declared system access: conflict rules, the report, and the debug check
 //! that a system stays within its declaration. Headless.
 
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::access::{AccessConflict, SystemAccess};
+use ponko::prelude::*;
 
 struct Pos(f32);
 struct Vel(f32);
@@ -297,6 +299,7 @@ mod named {
         // SAFETY: four readable bytes for a 4-byte layout.
         unsafe {
             ctx.world
+                .raw()
                 .insert_resource_dynamic("lives", Layout::new::<u32>(), (&raw const value).cast());
         }
     }
@@ -313,7 +316,7 @@ mod named {
                     .read_events_named(std::any::type_name::<Hit>()),
                 |ctx| {
                     ctx.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
-                    let lives = ctx.world.get_resource_dynamic("lives").unwrap();
+                    let lives = ctx.world.raw_ref().get_resource_dynamic("lives").unwrap();
                     // SAFETY: stored as a u32 in setup.
                     let n = unsafe { *lives.cast::<u32>() };
                     let hit = ctx.world.register::<Hit>().index() as u32;
@@ -357,7 +360,7 @@ mod named {
     fn an_undeclared_dynamic_resource_panics() {
         Game::new("access", 320, 240)
             .add_with_access(Phase::AfterPhysics, SystemAccess::new(), |ctx| {
-                let _ = ctx.world.get_resource_dynamic("lives");
+                let _ = ctx.world.raw_ref().get_resource_dynamic("lives");
             })
             .run_headless(1, store);
     }
@@ -386,7 +389,7 @@ mod named {
                 SystemAccess::new().read_named(std::any::type_name::<Pos>()),
                 |ctx| {
                     let id = ctx.world.component_id::<Pos>().unwrap();
-                    ctx.world.for_each_chunk(&[id], |_| {});
+                    ctx.world.raw().for_each_chunk(&[id], |_| {});
                 },
             )
             .run_headless(1, |ctx| {

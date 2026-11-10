@@ -6,7 +6,7 @@ with `--no-default-features --features navmesh`. The existing 2D `NavGrid` and
 `FlowField` are independent.
 
 Gather static geometry as world-space `NavSource` triangle soups, or use
-`NavSource::from_mesh` with a `MeshData` and `Transform3D`. Include solid walls,
+`NavSource::from_mesh` with a `MeshData` and `d3::Transform`. Include solid walls,
 ceilings and platforms, not only floors. Floors face up with counter-clockwise
 winding. Sources are copied: later mesh edits require another bake.
 
@@ -75,8 +75,8 @@ route leaves the agent stopped.
 </div>
 
 Register `systems::step_navmesh3d` with `Game::sim_system` (C++: `game::navmesh3d()`), like an exposed physics step.
-There is no automatic navigation update. Insert a `NavMesh3D` resource, then spawn
-entities with `Transform3D` and `NavAgent3D`. This works in `run_headless` and obeys
+There is no automatic navigation update. Insert a `d3::NavMesh` resource, then spawn
+entities with `d3::Transform` and `d3::NavAgent`. This works in `run_headless` and obeys
 the simulation clock. Put destination/obstacle systems before the navigation step.
 
 <div class="lang-pair">
@@ -104,7 +104,7 @@ controller that writes the same transform. Use a separate presentation offset if
 your model origin is above its feet. Bake for the largest agent radius and height;
 components with radius larger than the bake radius stop.
 
-`NavObstacle3D` is a world-space axis-aligned box component. The sim system gathers
+`d3::NavObstacle` is a world-space axis-aligned box component. The sim system gathers
 all boxes each tick. Changed, moved or removed boxes invalidate cached paths, as
 does replacing the mesh resource, changing a destination or teleporting an agent.
 Unreachable agents wait until one of these changes. An agent trapped inside a
@@ -132,7 +132,7 @@ a Bevy plugin. The C API and C++ wrapper expose baking, queries, agents, avoidan
 
 ## Crowd avoidance
 
-Set `NavAgent3D::avoidance` to opt into the backend's DetourCrowd manager.
+Set `d3::NavAgent::avoidance` to opt into the backend's DetourCrowd manager.
 The default is false so existing path following and arrival behaviour stay intact.
 Only opted-in agents participate, including agents whose destination is `None`.
 Do not mix opted-out followers into a crowd and expect them to collide.
@@ -141,8 +141,8 @@ Do not mix opted-out followers into a crowd and expect them to collide.
 <div>
 
 ```rust
-# use ponko::*;
-let mut agent = NavAgent3D::default();
+# use ponko::prelude::*;
+let mut agent = ponko::d3::NavAgent::default();
 agent.avoidance = true;
 agent.avoidance_weight = 2.0;
 agent.neighbour_distance = 3.6;
@@ -205,14 +205,14 @@ updates never rasterize source triangles again.
 <div class="lang-pair">
 
 ```rust,no_run
-# use ponko::*;
+# use ponko::prelude::*;
 # fn add(ctx: &mut Ctx) {
-// Bake with layers: NavBakeSettings { carving: true, ..Default::default() }.
-let mut obstacle = NavObstacle3D::new(vec3(6.0, 1.0, 6.0), Vec3::ONE);
+// Bake with layers: ponko::nav::NavBakeSettings { carving: true, ..Default::default() }.
+let mut obstacle = ponko::d3::NavObstacle::new(vec3(6.0, 1.0, 6.0), Vec3::ONE);
 obstacle.carve = true;
 ctx.world.spawn((obstacle,));
 // step_navmesh3d gathers components and rebuilds one cached layer per tick.
-let nav = ctx.world.resource_mut::<NavMesh3D>();
+let nav = ctx.world.resource_mut::<ponko::d3::NavMesh>();
 let steps = nav.update_carving(0).unwrap();
 let pending = nav.carving_pending();
 # let _ = (steps, pending);

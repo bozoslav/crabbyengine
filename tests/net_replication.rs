@@ -4,11 +4,23 @@
 
 use std::time::Duration;
 
-use ponko::{
-    Authority, AuthorityCheck, Interest, InterestConfig, InterestEntity, InterestViewer, Lane, LatestWins,
-    MessageEvent, NetMessages, PeerId, Pose, Quat, SnapshotConfig, SnapshotState, SnapshotStream, UpdateStamp, Vec3,
-    vec3,
-};
+use ponko::net::Authority;
+use ponko::net::AuthorityCheck;
+use ponko::net::Interest;
+use ponko::net::InterestConfig;
+use ponko::net::InterestEntity;
+use ponko::net::InterestViewer;
+use ponko::net::Lane;
+use ponko::net::LatestWins;
+use ponko::net::MessageEvent;
+use ponko::net::NetMessages;
+use ponko::net::PeerId;
+use ponko::net::Pose;
+use ponko::net::SnapshotConfig;
+use ponko::net::SnapshotState;
+use ponko::net::SnapshotStream;
+use ponko::net::UpdateStamp;
+use ponko::{Quat, Vec3, vec3};
 
 const FRAME: f64 = 1.0 / 60.0;
 /// The sender's clock runs this far ahead of the receiver's.
@@ -423,8 +435,10 @@ fn interest_decides_what_each_peer_is_sent() {
 #[cfg(feature = "3d")]
 #[test]
 fn net_pose_moves_a_transform_from_buffered_snapshots() {
+    #[cfg(feature = "3d")]
+    use ponko::d3::Transform as Transform3D;
     use ponko::systems::apply_net_poses;
-    use ponko::{Game, NetPose, Transform3D};
+    use ponko::{Game, net::NetPose};
     // Snapshots a second apart; the headless run's clock advances 1/60 s per tick.
     let mut world = Game::new("remote", 1, 1)
         .fixed_hz(60)

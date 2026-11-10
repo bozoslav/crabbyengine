@@ -1,5 +1,9 @@
 //! Fixed-camera render workload. Run with --features render --bin instances.
-use ponko::*;
+#[allow(unused_imports)]
+use ponko::d3::Transform as Transform3D;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::render::{InstanceBatchOptions, InstanceLevel, MaterialDesc, MeshData, Model};
 
 fn main() {
     Game::new("Instance streaming benchmark", 1280, 720)

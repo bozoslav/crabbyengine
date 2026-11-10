@@ -1,7 +1,12 @@
 //! `ponko::Error`: every loader's `try_` twin reports what went wrong as an
 //! [`ErrorKind`], and the panicking twin panics with the same message.
 
-use ponko::*;
+use ponko::prelude::*;
+#[allow(unused_imports)]
+use ponko::reflect::ReflectError;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::{Material, MaterialDesc, MeshData};
 
 /// Writes `bytes` to a temporary file and returns its absolute path, which
 /// the asset loaders accept as is.

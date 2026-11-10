@@ -3,14 +3,46 @@
 //! the sun.
 use std::ffi::c_char;
 
-use ponko::{
-    AmbientOcclusion, AntiAliasing, Blend, Camera3D, Color, Compute, ComputePass, Decal3D, Effect, GlobalIllumination,
-    GpuBuffer, GraphicsQuality, Lighting, LodGroup, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow,
-    MAX_GI_PROBES_PER_FRAME, MAX_LIGHT_SHADOW_VIEWS, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Material, MaterialDesc, Mesh,
-    MeshData, Model, PointLight3D, Post, QualityLevel, Quat, ReceivesDecals, ReflectionProbe3D, ScreenEffect, Shader,
-    Sky, SpotLight3D, TERRAIN_LAYERS, TERRAIN_LODS, TargetCamera, TerrainMaterialDesc, TerrainTile, TextureArray,
-    TextureKind, Tonemap, Transform3D, Vec2, Vec3, Vec4,
-};
+use ponko::anim::Blend;
+use ponko::d3::Camera as Camera3D;
+use ponko::d3::Decal as Decal3D;
+use ponko::d3::PointLight as PointLight3D;
+use ponko::d3::ReflectionProbe as ReflectionProbe3D;
+use ponko::d3::SpotLight as SpotLight3D;
+use ponko::d3::Transform as Transform3D;
+use ponko::render::AmbientOcclusion;
+use ponko::render::AntiAliasing;
+use ponko::render::Compute;
+use ponko::render::ComputePass;
+use ponko::render::Effect;
+use ponko::render::GlobalIllumination;
+use ponko::render::GpuBuffer;
+use ponko::render::GraphicsQuality;
+use ponko::render::Lighting;
+use ponko::render::LodGroup;
+use ponko::render::LodLevel;
+use ponko::render::LodPick;
+use ponko::render::LodRenderer;
+use ponko::render::LodSettings;
+use ponko::render::LodShadow;
+use ponko::render::Material;
+use ponko::render::MaterialDesc;
+use ponko::render::Mesh;
+use ponko::render::MeshData;
+use ponko::render::Model;
+use ponko::render::Post;
+use ponko::render::QualityLevel;
+use ponko::render::ReceivesDecals;
+use ponko::render::ScreenEffect;
+use ponko::render::Shader;
+use ponko::render::Sky;
+use ponko::render::TargetCamera;
+use ponko::render::Tonemap;
+use ponko::terrain::TerrainMaterialDesc;
+use ponko::terrain::TerrainTile;
+use ponko::terrain::TextureArray;
+use ponko::terrain::TextureKind;
+use ponko::{Color, Quat, Vec2, Vec3, Vec4};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::types::*;
@@ -87,7 +119,7 @@ pub struct CrabbyPointLight3D {
     /// Same as Rust `PointLight3D::range`.
     pub range: f32,
     /// Cast shadows (Rust `PointLight3D::shadows`): six of the frame's
-    /// `MAX_LIGHT_SHADOW_VIEWS` shadow views, nearest lights first.
+    /// `ponko::d3::PointLight::MAX_SHADOW_VIEWS` shadow views, nearest lights first.
     pub shadows: bool,
     /// Each shadow view's size in the shadow atlas, in texels (Rust
     /// `PointLight3D::shadow_resolution`): 0 sizes it by how big the light
@@ -189,7 +221,7 @@ pub struct CrabbyTerrainTile {
 
 /// How many detail levels a `CrabbyTerrainTile` has.
 pub const CRABBY_TERRAIN_LODS: usize = 4;
-const _: () = assert!(CRABBY_TERRAIN_LODS == TERRAIN_LODS);
+const _: () = assert!(CRABBY_TERRAIN_LODS == ponko::terrain::TerrainTile::LODS);
 
 /// A compute pass shader (`crabby_ctx_load_compute`, `crabby_ctx_create_compute`).
 /// ```
@@ -409,7 +441,7 @@ pub struct CrabbyTerrainMaterialDesc {
 
 /// The most ground layers a terrain material blends.
 pub const CRABBY_TERRAIN_LAYERS: usize = 8;
-const _: () = assert!(CRABBY_TERRAIN_LAYERS == TERRAIN_LAYERS);
+const _: () = assert!(CRABBY_TERRAIN_LAYERS == ponko::terrain::TerrainTile::LAYERS);
 /// `crabby_ctx_create_texture_array` kinds (Rust `TextureKind`): colors, stored as sRGB.
 pub const CRABBY_TEXTURE_COLOR: u32 = 0;
 /// Numbers read as stored: normal maps, masks, weights.
@@ -2321,7 +2353,7 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
             }
             if !(256..=4096).contains(&l.shadow_resolution)
                 || !(128..=2048).contains(&l.light_shadow_resolution)
-                || l.light_shadow_views > MAX_LIGHT_SHADOW_VIEWS as u32
+                || l.light_shadow_views > ponko::d3::PointLight::MAX_SHADOW_VIEWS as u32
             {
                 return Err(invalid(
                     "shadow_resolution must be 256 to 4096, light_shadow_resolution 128 to 2048 and light_shadow_views 0 to 24",
@@ -2336,7 +2368,7 @@ pub unsafe extern "C" fn crabby_ctx_set_lighting(ctx: *mut CrabbyCtx, lighting: 
                     && extent.min_element() > 0.0
                     && l.gi_spacing.is_finite()
                     && l.gi_spacing > 0.0
-                    && (1..=MAX_GI_PROBES_PER_FRAME).contains(&l.gi_probes_per_frame)
+                    && (1..=ponko::render::GlobalIllumination::MAX_PROBES_PER_FRAME).contains(&l.gi_probes_per_frame)
                     && l.gi_intensity.is_finite()
                     && l.gi_intensity >= 0.0)
             {
@@ -2581,7 +2613,10 @@ pub unsafe extern "C" fn crabby_ctx_set_post(ctx: *mut CrabbyCtx, post: *const C
                     "chromatic_aberration must be 0 to 1, lens_distortion -1 to 1 and lens_scale above zero",
                 ));
             }
-            if !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&p.render_scale) || !(0.0..=1.0).contains(&p.sharpen) {
+            if !(ponko::render::GraphicsQuality::MIN_RENDER_SCALE..=ponko::render::GraphicsQuality::MAX_RENDER_SCALE)
+                .contains(&p.render_scale)
+                || !(0.0..=1.0).contains(&p.sharpen)
+            {
                 return Err(invalid("render_scale must be 0.25 to 2 and sharpen 0 to 1"));
             }
             let tonemap = match p.tonemap {
@@ -2732,7 +2767,10 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
         3 => AntiAliasing::Taa,
         _ => return Err(invalid("anti_aliasing must be 0 to 3")),
     };
-    if !(MIN_RENDER_SCALE..=MAX_RENDER_SCALE).contains(&q.render_scale) || !(0.0..=1.0).contains(&q.sharpen) {
+    if !(ponko::render::GraphicsQuality::MIN_RENDER_SCALE..=ponko::render::GraphicsQuality::MAX_RENDER_SCALE)
+        .contains(&q.render_scale)
+        || !(0.0..=1.0).contains(&q.sharpen)
+    {
         return Err(invalid("render_scale must be 0.25 to 2 and sharpen 0 to 1"));
     }
     if !q.shadow_distance.is_finite() || q.shadow_distance < 0.0 || !(1..=4).contains(&q.shadow_cascades) {
@@ -2742,7 +2780,7 @@ fn quality_from_c(q: &CrabbyGraphicsQuality) -> Result<GraphicsQuality, crate::F
     }
     if !(256..=4096).contains(&q.shadow_resolution)
         || !(128..=2048).contains(&q.light_shadow_resolution)
-        || q.light_shadow_views > MAX_LIGHT_SHADOW_VIEWS as u32
+        || q.light_shadow_views > ponko::d3::PointLight::MAX_SHADOW_VIEWS as u32
     {
         return Err(invalid(
             "shadow_resolution must be 256 to 4096, light_shadow_resolution 128 to 2048 and light_shadow_views 0 to 24",
@@ -2904,7 +2942,7 @@ pub unsafe extern "C" fn crabby_ctx_reset_temporal_history(ctx: *mut CrabbyCtx) 
 
 /// A terrain tile's heights for finding the ground on the CPU (Rust
 /// `Heightfield`). Make it with `crabby_heightfield_new`.
-pub struct CrabbyHeightfield(ponko::Heightfield);
+pub struct CrabbyHeightfield(ponko::terrain::Heightfield);
 
 /// Makes a heightfield `size` wide from `count` heights (n x n, as
 /// `crabby_ctx_create_terrain_tile` takes them). Returns null (see
@@ -2937,7 +2975,9 @@ pub unsafe extern "C" fn crabby_heightfield_new(
         }
         // SAFETY: caller supplies `count` floats.
         let heights = unsafe { std::slice::from_raw_parts(heights, count) };
-        made = Box::into_raw(Box::new(CrabbyHeightfield(ponko::Heightfield::new(heights, size))));
+        made = Box::into_raw(Box::new(CrabbyHeightfield(ponko::terrain::Heightfield::new(
+            heights, size,
+        ))));
         Ok(())
     });
     if status == CrabbyStatus::CRABBY_OK {
@@ -3038,7 +3078,8 @@ pub unsafe extern "C" fn crabby_ctx_set_shadow_mesh(
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
-            c.world.insert(entity, ponko::ShadowMesh(casts.then(|| to_c(mesh))));
+            c.world
+                .insert(entity, ponko::render::ShadowMesh(casts.then(|| to_c(mesh))));
             Ok(())
         })
     })
@@ -3069,13 +3110,13 @@ pub unsafe extern "C" fn crabby_ctx_set_model_material(
                 return Err(invalid("no such entity"));
             }
             if !enabled {
-                c.world.remove::<ponko::ModelMaterial>(entity);
+                c.world.remove::<ponko::render::ModelMaterial>(entity);
                 return Ok(());
             }
             if !c.gfx.is_live(to_c(material)) {
                 return Err(invalid("that material wasn't made by this game"));
             }
-            c.world.insert(entity, ponko::ModelMaterial(to_c(material)));
+            c.world.insert(entity, ponko::render::ModelMaterial(to_c(material)));
             Ok(())
         })
     })
@@ -3105,7 +3146,7 @@ pub unsafe extern "C" fn crabby_ctx_model_material(
             if out_has.is_null() {
                 return Err(invalid("output is null"));
             }
-            let found = c.world.get::<ponko::ModelMaterial>(entity).copied();
+            let found = c.world.get::<ponko::render::ModelMaterial>(entity).copied();
             if let (Some(m), false) = (found, out_material.is_null()) {
                 *out_material = to_c(m.0);
             }
@@ -3142,7 +3183,7 @@ pub unsafe extern "C" fn crabby_ctx_set_model_part_materials(
                 return Err(invalid("no such entity"));
             }
             if count == 0 {
-                c.world.remove::<ponko::ModelMaterials>(entity);
+                c.world.remove::<ponko::render::ModelMaterials>(entity);
                 return Ok(());
             }
             if parts.is_null() || materials.is_null() {
@@ -3153,12 +3194,12 @@ pub unsafe extern "C" fn crabby_ctx_set_model_part_materials(
             if materials.iter().any(|&m| !c.gfx.is_live(to_c(m))) {
                 return Err(invalid("a material wasn't made by this game"));
             }
-            let list: Vec<(usize, ponko::Material)> = parts
+            let list: Vec<(usize, ponko::render::Material)> = parts
                 .iter()
                 .zip(materials)
                 .map(|(&part, &m)| (part as usize, to_c(m)))
                 .collect();
-            c.world.insert(entity, ponko::ModelMaterials::new(&list));
+            c.world.insert(entity, ponko::render::ModelMaterials::new(&list));
             Ok(())
         })
     })
@@ -3191,7 +3232,7 @@ pub unsafe extern "C" fn crabby_ctx_model_part_materials(
             if out_count.is_null() {
                 return Err(invalid("output is null"));
             }
-            let Some(list) = c.world.get::<ponko::ModelMaterials>(entity) else {
+            let Some(list) = c.world.get::<ponko::render::ModelMaterials>(entity) else {
                 return out(out_count, 0);
             };
             if !out_parts.is_null() && !out_materials.is_null() {
@@ -4068,7 +4109,7 @@ pub unsafe extern "C" fn crabby_ctx_create_instance_batch(
             let b = c.gfx.create_instance_batch(
                 to_c(mesh),
                 &data,
-                ponko::InstanceBatchOptions {
+                ponko::render::InstanceBatchOptions {
                     cell_size: options.cell_size,
                     max_distance: options.max_distance,
                     cast_shadows: options.cast_shadows,
@@ -4092,7 +4133,7 @@ pub unsafe extern "C" fn crabby_ctx_update_instance_batch(
     // SAFETY: caller supplies the described matrix array.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let b = ponko::InstanceBatch::from_id(batch.id);
+            let b = ponko::render::InstanceBatch::from_id(batch.id);
             if c.gfx.instance_batch_len(b).is_none() || count > 16_777_216 || (count > 0 && matrices.is_null()) {
                 return Err(invalid("invalid instance batch update"));
             }
@@ -4125,7 +4166,7 @@ pub unsafe extern "C" fn crabby_ctx_free_instance_batch(
     // SAFETY: forwarded context contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.gfx.free(ponko::InstanceBatch::from_id(batch.id));
+            c.gfx.free(ponko::render::InstanceBatch::from_id(batch.id));
             Ok(())
         })
     })
@@ -4188,7 +4229,7 @@ pub unsafe extern "C" fn crabby_ctx_create_instance_batch_levels(
             }
             let levels: Vec<_> = levels
                 .iter()
-                .map(|l| ponko::InstanceLevel {
+                .map(|l| ponko::render::InstanceLevel {
                     mesh: to_c(l.mesh),
                     min_distance: l.min_distance,
                     max_distance: l.max_distance,
@@ -4201,7 +4242,7 @@ pub unsafe extern "C" fn crabby_ctx_create_instance_batch_levels(
                 &levels,
                 &transforms,
                 &colors,
-                ponko::InstanceBatchOptions {
+                ponko::render::InstanceBatchOptions {
                     cell_size: options.cell_size,
                     max_distance: options.max_distance,
                     cast_shadows: options.cast_shadows,
@@ -4229,10 +4270,11 @@ pub unsafe extern "C" fn crabby_ctx_update_instance_batch_colors(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let (transforms, colors) = instance_arrays(matrices, count, colors, color_count)?;
-            if !c
-                .gfx
-                .update_instance_batch_colors(ponko::InstanceBatch::from_id(batch.id), &transforms, &colors)
-            {
+            if !c.gfx.update_instance_batch_colors(
+                ponko::render::InstanceBatch::from_id(batch.id),
+                &transforms,
+                &colors,
+            ) {
                 return Err(invalid("invalid instance batch or level mesh"));
             }
             Ok(())

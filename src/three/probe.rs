@@ -1,13 +1,14 @@
 //! Local, axis-aligned reflection volumes. Captures are explicit, never per-frame.
+use crate::d3::Transform as Transform3D;
 use crate::gfx::Graphics;
-use crate::{Entity, Texture, Transform3D, Vec3, World};
+use crate::{Entity, Texture, Vec3, World};
 
 /// A local environment at an entity's [`Transform3D::position`]. Rotation and
 /// scale are ignored. Four baked environments can be resident; zero content
 /// falls back to sky lighting. Capture excludes transparent objects.
 /// ```
-/// use ponko::*;
-/// let probe = ReflectionProbe3D { size: vec3(12.0, 4.0, 8.0), ..Default::default() };
+/// use ponko::prelude::*;
+/// let probe = ponko::d3::ReflectionProbe { size: vec3(12.0, 4.0, 8.0), ..Default::default() };
 /// assert_eq!(probe.intensity, 1.0);
 /// ```
 #[repr(C)]
@@ -39,8 +40,8 @@ impl Default for ReflectionProbe3D {
 impl ReflectionProbe3D {
     /// Influence at `point`, fading to zero at the boundary.
     /// ```
-    /// use ponko::*;
-    /// assert_eq!(ReflectionProbe3D::default().weight(Vec3::ZERO, Vec3::ZERO), 1.0);
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::d3::ReflectionProbe::default().weight(Vec3::ZERO, Vec3::ZERO), 1.0);
     /// ```
     pub fn weight(&self, center: Vec3, point: Vec3) -> f32 {
         if !self.size.is_finite()
@@ -65,8 +66,8 @@ impl ReflectionProbe3D {
     /// Direction from the capture center to the ray's exit from this box.
     /// Returns the input direction outside the box or when correction is off.
     /// ```
-    /// use ponko::*;
-    /// let p = ReflectionProbe3D::default();
+    /// use ponko::prelude::*;
+    /// let p = ponko::d3::ReflectionProbe::default();
     /// assert_eq!(p.project(Vec3::ZERO, Vec3::ZERO, Vec3::Z), Vec3::Z * 5.0);
     /// ```
     pub fn project(&self, center: Vec3, point: Vec3, direction: Vec3) -> Vec3 {
@@ -137,9 +138,9 @@ impl Graphics {
     /// frame, for the probe on `entity` of `world` (the game's is `ctx.world`). Calling again refreshes the same content. At most four captures
     /// can be allocated in a context. Headless simulation queues no GPU work.
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// Game::new("probe", 1, 1).run_headless(0, |ctx| {
-    ///     let e = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
+    ///     let e = ctx.world.spawn((ponko::d3::Transform::default(), ponko::d3::ReflectionProbe::default()));
     ///     ctx.gfx.bake_reflection_probe(&mut ctx.world, e).unwrap();
     /// });
     /// ```
@@ -194,7 +195,7 @@ impl Graphics {
     /// Pixels are linear radiance, with +Y at the top and +X at the center.
     /// The file must have a 2:1 aspect ratio. Filtering runs next rendered frame.
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn load(ctx: &mut Ctx, probe: Entity) -> Result<(), String> {
     /// ctx.gfx.load_reflection_probe(&mut ctx.world, probe, "interior.exr")?;
     /// # Ok(()) }

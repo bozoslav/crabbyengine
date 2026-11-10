@@ -278,12 +278,12 @@ application messages. Host migration requires creating a new endpoint.
 <div class="lang-rust">
 
 ```rust,no_run
-use ponko::*;
-let client = steamworks::Client::init_app(480).unwrap();
-let lobby_id = steam_lobby_from_args();
+use ponko::prelude::*;
+let client = ponko::net::steam::Client::init_app(480).unwrap();
+let lobby_id = ponko::net::steam_lobby_from_args();
 let mut net = match lobby_id {
-    Some(id) => NetMessages::steam_join(&client, id)?,
-    None => NetMessages::steam_host(&client, 3)?,
+    Some(id) => ponko::net::NetMessages::steam_join(&client, id)?,
+    None => ponko::net::NetMessages::steam_host(&client, 3)?,
 };
 net.poll()?;
 if lobby_id.is_none() {
@@ -319,9 +319,9 @@ application (or the C API's first call with an app id), never by fake relay test
 <div class="lang-rust">
 
 ```rust,no_run
-use ponko::*;
-let client = steamworks::Client::init_app(480).unwrap();
-let mut lobby = SteamLobby::create(&client, SteamLobbyVisibility::Public, 4)?;
+use ponko::prelude::*;
+let client = ponko::net::steam::Client::init_app(480).unwrap();
+let mut lobby = ponko::net::SteamLobby::create(&client, ponko::net::SteamLobbyVisibility::Public, 4)?;
 lobby.poll()?;
 if lobby.id().is_some() {
     lobby.set_metadata("version", "1")?;
@@ -419,7 +419,7 @@ own clock and the state; every frame, `sample` your clock:
   (snapshots kept; at least twice `delay` × your send rate).
 
 With the `3d` feature, the `NetPose` component holds a stream and the system
-`systems::apply_net_poses` sets the `Transform3D` position and rotation of every entity
+`systems::apply_net_poses` sets the `d3::Transform` position and rotation of every entity
 that has one, from `ctx.time.elapsed()`; add it with `Game::system` so entities move
 every frame:
 

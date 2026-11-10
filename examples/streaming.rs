@@ -11,7 +11,10 @@
 
 use std::collections::HashMap;
 
-use ponko::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::d3::*;
+use ponko::prelude::*;
 
 const N: usize = 129;
 const TILE: f32 = 256.0;
@@ -67,7 +70,7 @@ fn surface(s: Surface) -> Surface {
 
 /// A cell's tile: still being built, or in the world.
 enum Tile {
-    Building(Job<TerrainTileData>),
+    Building(ponko::stream::Job<TerrainTileData>),
     Live(Entity, TerrainTile),
 }
 
@@ -82,7 +85,7 @@ fn tile_data(corner: Vec3) -> TerrainTileData {
 fn main() {
     let bench = std::env::var("BENCH").is_ok();
     let shot = std::env::var("SHOT").ok();
-    let mut cells = CellStreamer::new(TILE, LOAD, KEEP);
+    let mut cells = ponko::stream::CellStreamer::new(TILE, LOAD, KEEP);
     let mut tiles: HashMap<(i32, i32), Tile> = HashMap::new();
     let mut ground: Option<Material> = None;
     let (mut yaw, mut speed, mut altitude) = (0.4f32, if bench { 600.0f32 } else { 120.0 }, 90.0f32);
@@ -126,7 +129,7 @@ fn main() {
             cells.update(at, STARTS);
             for &cell in cells.to_load() {
                 let corner = cells.corner(cell);
-                tiles.insert(cell, Tile::Building(Job::spawn(move || tile_data(corner))));
+                tiles.insert(cell, Tile::Building(ponko::stream::Job::spawn(move || tile_data(corner))));
             }
             for cell in cells.to_drop() {
                 // A job still building is dropped with its result.
@@ -152,9 +155,9 @@ fn main() {
                 if let Tile::Building(job) = tile
                     && let Some(data) = job.take()
                 {
-                    let start = Instant::now();
+                    let start = ponko::perf::Instant::now();
                     let made = ctx.gfx.upload_terrain_tile(&data, ground);
-                    let entity = ctx.world.spawn((Transform3D::at(cells.corner(cell)), made));
+                    let entity = ctx.world.spawn((Transform::at(cells.corner(cell)), made));
                     let took = start.elapsed().as_secs_f64() * 1000.0;
                     upload_time += took;
                     worst_upload = worst_upload.max(took);

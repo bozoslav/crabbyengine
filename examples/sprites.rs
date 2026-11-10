@@ -6,7 +6,7 @@
 //! - The small crab follows the mouse
 //! - Escape: quit
 
-use ponko::*;
+use ponko::prelude::*;
 
 fn main() {
     Game::new("Ponko: sprites", 800, 600).run(|ctx| {

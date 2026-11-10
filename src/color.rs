@@ -4,7 +4,7 @@
 /// in a paint program or see in CSS).
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// let sky = Color::rgb(0.4, 0.7, 1.0);
 /// let ghost = Color::WHITE.with_alpha(0.5);
 /// let orange = Color::hex(0xFF8800);
@@ -47,7 +47,7 @@ impl Color {
     /// An opaque color from red, green and blue (each 0.0 to 1.0).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let teal = Color::rgb(0.0, 0.5, 0.5);
     /// ```
     #[must_use]
@@ -58,7 +58,7 @@ impl Color {
     /// A color with transparency (`a`: 0.0 invisible, 1.0 opaque).
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let shadow = Color::rgba(0.0, 0.0, 0.0, 0.3);
     /// ```
     #[must_use]
@@ -69,7 +69,7 @@ impl Color {
     /// An opaque color from a `0xRRGGBB` hex number.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let crab_orange = Color::hex(0xE8743B);
     /// ```
     #[must_use]
@@ -84,7 +84,7 @@ impl Color {
     /// The same color with a different alpha.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let faded = Color::RED.with_alpha(0.25);
     /// ```
     #[must_use]

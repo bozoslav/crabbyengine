@@ -1,5 +1,5 @@
 //! What happened to each of the game's shaders: compiled, reloaded or
-//! rejected, and where in its WGSL an error is ([`Graphics::shader_status`](crate::Graphics::shader_status)).
+//! rejected, and where in its WGSL an error is ([`Graphics::shader_status`](crate::gfx::Graphics::shader_status)).
 
 use crate::gfx::Graphics;
 
@@ -12,11 +12,11 @@ pub(crate) const COMPUTE_STAND_IN: &str = "fn compute(c: Cell) -> vec4<f32> { re
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ShaderKind {
-    /// A material shader ([`Graphics::create_shader`](crate::Graphics::create_shader), [`Graphics::load_shader`](crate::Graphics::load_shader)).
+    /// A material shader ([`Graphics::create_shader`](crate::gfx::Graphics::create_shader), [`Graphics::load_shader`](crate::gfx::Graphics::load_shader)).
     Material,
-    /// A screen effect ([`Graphics::create_effect`](crate::Graphics::create_effect), [`Graphics::load_effect`](crate::Graphics::load_effect)).
+    /// A screen effect ([`Graphics::create_effect`](crate::gfx::Graphics::create_effect), [`Graphics::load_effect`](crate::gfx::Graphics::load_effect)).
     Effect,
-    /// A compute pass ([`Graphics::create_compute`](crate::Graphics::create_compute), [`Graphics::load_compute`](crate::Graphics::load_compute)).
+    /// A compute pass ([`Graphics::create_compute`](crate::gfx::Graphics::create_compute), [`Graphics::load_compute`](crate::gfx::Graphics::load_compute)).
     Compute,
 }
 
@@ -106,7 +106,7 @@ pub enum ShaderOutcome {
 }
 
 /// The latest result of compiling one of the game's shaders, from
-/// [`Graphics::shader_status`](crate::Graphics::shader_status).
+/// [`Graphics::shader_status`](crate::gfx::Graphics::shader_status).
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ShaderStatus {
@@ -140,7 +140,7 @@ impl Graphics {
     /// without reading logs.
     ///
     /// ```no_run
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// for status in ctx.gfx.shader_status() {
     ///     for error in &status.diagnostics {

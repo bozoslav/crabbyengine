@@ -22,13 +22,13 @@
 //! while playing sounds or changing entities.
 //!
 //! ```
-//! use ponko::*;
+//! use ponko::prelude::*;
 //!
 //! fn menu(ctx: &mut Ctx) {
 //!     let click = *ctx.world.resource::<Sound>();
 //!     // `ctx.ui` and `ctx.audio` are separate fields.
 //!     for event in ctx.ui.events() {
-//!         if let UiEvent::Clicked(_) = event {
+//!         if let ponko::ui::UiEvent::Clicked(_) = event {
 //!             ctx.audio.play(&click);
 //!         }
 //!     }
@@ -37,7 +37,7 @@
 //! Game::new("ui", 320, 240).sim_system(menu).run_headless(1, |ctx| {
 //!     let click = ctx.audio.create(8000, &[0.0; 80]);
 //!     ctx.world.insert_resource(click);
-//!     let start = ctx.ui.add(UiWidget::Button, ui_layout::Style::default());
+//!     let start = ctx.ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
 //!     ctx.ui.push_screen(start, false);
 //! });
 //! ```
@@ -61,7 +61,7 @@ use crate::color::Color;
 /// [`ctx.ui.immediate.style`](UiImmediate::style).
 ///
 /// ```
-/// # use ponko::*;
+/// # use ponko::prelude::*;
 /// # fn setup(ctx: &mut Ctx) {
 /// ctx.ui.immediate.style.accent = Color::hex(0x2e8b57);
 /// ctx.ui.immediate.style.text_size = 18.0;
@@ -125,3 +125,6 @@ pub use immediate::UiImmediate;
 #[cfg(feature = "3d")]
 pub use panel3d::UiPanel3D;
 pub use retained::{Ui, UiEvent, UiId, UiInput, UiPaint, UiTextAlign, UiWidget};
+
+/// Layout engine types for retained UI.
+pub use taffy as layout;

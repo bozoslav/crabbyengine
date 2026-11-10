@@ -7,7 +7,7 @@ use super::{Physics3D, from_rp, rot_from_rp, to_rp};
 use crate::{Entity, Vec3, World};
 
 /// Changes how a body's contacts behave. Put it on an entity with a
-/// [`Collider3D`](crate::Collider3D) (the one-way side and the conveyor
+/// [`Collider3D`](crate::d3::Collider) (the one-way side and the conveyor
 /// velocity are in that body's own frame, so they turn with it):
 ///
 /// - [`one_way`](Self::one_way): things pass through from every side but
@@ -20,20 +20,20 @@ use crate::{Entity, Vec3, World};
 /// Bodies with this component pay a little: their contacts are rebuilt every
 /// step instead of reused.
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// let mut world = World::new();
 /// // A platform you can jump up through, and a belt carrying things 2 m/s along +X.
 /// world.spawn((
-///     Transform3D::default(),
-///     RigidBody3D::fixed(),
-///     Collider3D::cuboid(vec3(4.0, 0.2, 4.0)),
-///     ContactModifier3D::one_way(Vec3::Y),
+///     ponko::d3::Transform::default(),
+///     ponko::d3::RigidBody::fixed(),
+///     ponko::d3::Collider::cuboid(vec3(4.0, 0.2, 4.0)),
+///     ponko::d3::ContactModifier::one_way(Vec3::Y),
 /// ));
 /// world.spawn((
-///     Transform3D::at(vec3(10.0, 0.0, 0.0)),
-///     RigidBody3D::fixed(),
-///     Collider3D::cuboid(vec3(8.0, 0.2, 1.0)),
-///     ContactModifier3D::conveyor(vec3(2.0, 0.0, 0.0)),
+///     ponko::d3::Transform::at(vec3(10.0, 0.0, 0.0)),
+///     ponko::d3::RigidBody::fixed(),
+///     ponko::d3::Collider::cuboid(vec3(8.0, 0.2, 1.0)),
+///     ponko::d3::ContactModifier::conveyor(vec3(2.0, 0.0, 0.0)),
 /// ));
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -68,8 +68,8 @@ impl Default for ContactModifier3D {
 impl ContactModifier3D {
     /// Solid only from the side `up` (local) points to.
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(ContactModifier3D::one_way(Vec3::Y).one_way, Some(Vec3::Y));
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::d3::ContactModifier::one_way(Vec3::Y).one_way, Some(Vec3::Y));
     /// ```
     #[must_use]
     pub fn one_way(up: Vec3) -> Self {
@@ -81,8 +81,8 @@ impl ContactModifier3D {
 
     /// A surface moving what touches it at `velocity` (local, m/s).
     /// ```
-    /// # use ponko::*;
-    /// assert_eq!(ContactModifier3D::conveyor(Vec3::X).surface_velocity, Vec3::X);
+    /// # use ponko::prelude::*;
+    /// assert_eq!(ponko::d3::ContactModifier::conveyor(Vec3::X).surface_velocity, Vec3::X);
     /// ```
     #[must_use]
     pub fn conveyor(velocity: Vec3) -> Self {
@@ -94,8 +94,8 @@ impl ContactModifier3D {
 
     /// Contacts handed to the [`Physics3D::set_contact_hook`] closure.
     /// ```
-    /// # use ponko::*;
-    /// assert!(ContactModifier3D::hook().hook);
+    /// # use ponko::prelude::*;
+    /// assert!(ponko::d3::ContactModifier::hook().hook);
     /// ```
     #[must_use]
     pub fn hook() -> Self {

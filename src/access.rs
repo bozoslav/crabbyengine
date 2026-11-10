@@ -39,8 +39,8 @@
 //!
 //! 1. **View systems enforce it.** A system registered with
 //!    [`Game::add_view`](crate::Game::add_view) gets a
-//!    [`SystemView`](crate::SystemView) instead of `&mut Ctx`: a restricted
-//!    [`WorldView`](crate::WorldView) of its declared components and
+//!    [`SystemView`](crate::system_view::SystemView) instead of `&mut Ctx`: a restricted
+//!    [`WorldView`](crate::ecs_core::WorldView) of its declared components and
 //!    resources, and checked access to its events, commands and services,
 //!    in every build. Nothing else is reachable, so such a system can't go
 //!    beyond its declaration. Only view systems may ever share a parallel
@@ -74,7 +74,7 @@
 //!   accessor call (never per entity) in every build.
 //!
 //! ```
-//! use ponko::*;
+//! use ponko::prelude::*;
 //!
 //! struct Pos(f32);
 //! struct Vel(f32);
@@ -83,12 +83,12 @@
 //! let game = Game::new("access", 320, 240)
 //!     .add_with_access(
 //!         Phase::AfterPhysics,
-//!         SystemAccess::new().write::<Pos>().read::<Vel>(),
+//!         ponko::access::SystemAccess::new().write::<Pos>().read::<Vel>(),
 //!         |ctx| ctx.world.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| p.0 += v.0),
 //!     )
 //!     .add_with_access(
 //!         Phase::AfterPhysics,
-//!         SystemAccess::new().write::<Health>(),
+//!         ponko::access::SystemAccess::new().write::<Health>(),
 //!         |ctx| ctx.world.query::<&mut Health>().for_each(|h| h.0 -= 1),
 //!     );
 //! let report = game.access_report();
@@ -104,13 +104,13 @@ use ponko_ecs::{AccessLog, Component, ViewAccess, World};
 use crate::Ctx;
 use crate::Phase;
 
-/// An engine service on [`Ctx`](crate::Ctx) that a system can declare,
+/// An engine service on [`Ctx`] that a system can declare,
 /// beside its components, resources, events and commands.
 ///
 /// Names follow the service fields of `Ctx`. Two declarations conflict on
 /// a service when both use it and at least one writes it. View systems
 /// ([`Game::add_view`](crate::Game::add_view)) can use the services marked
-/// "view" below, through [`SystemView`](crate::SystemView); the others
+/// "view" below, through [`SystemView`](crate::system_view::SystemView); the others
 /// hold state that belongs to the window, renderer or asset tables, so a
 /// system that needs them keeps `&mut Ctx` (declared with
 /// [`Game::add_with_access`](crate::Game::add_with_access), or exclusive).
@@ -185,7 +185,7 @@ impl Service {
         }
     }
 
-    /// What a [`SystemView`](crate::SystemView) offers: `None` if nothing,
+    /// What a [`SystemView`](crate::system_view::SystemView) offers: `None` if nothing,
     /// else whether it can also write.
     pub(crate) fn in_view(self) -> Option<bool> {
         match self {
@@ -266,7 +266,7 @@ fn add_event(items: &mut Vec<Item>, it: Item) {
 
 /// What a system declares it reads and writes.
 ///
-/// Two declared systems in the same [`Phase`](crate::Phase) conflict (and
+/// Two declared systems in the same [`Phase`] conflict (and
 /// keep their order) when either is exclusive, both touch the same
 /// component, resource or [`Service`] and one writes it, one sends an event
 /// type the other reads or both send it, or either records commands (any
@@ -281,13 +281,13 @@ fn add_event(items: &mut Vec<Item>, it: Item) {
 /// to it. Declaring a write also covers reading the same type.
 ///
 /// ```
-/// use ponko::*;
+/// use ponko::prelude::*;
 /// struct Pos(f32);
 /// struct Vel(f32);
 /// struct Gravity(f32);
 ///
-/// let fall = SystemAccess::new().write::<Vel>().read_resource::<Gravity>();
-/// let movement = SystemAccess::new().write::<Pos>().read::<Vel>();
+/// let fall = ponko::access::SystemAccess::new().write::<Vel>().read_resource::<Gravity>();
+/// let movement = ponko::access::SystemAccess::new().write::<Pos>().read::<Vel>();
 /// let names: Vec<String> = fall.conflicts_with(&movement).iter().map(|c| c.to_string()).collect();
 /// assert_eq!(names.len(), 1);
 /// assert!(names[0].contains("Vel"));
@@ -547,10 +547,10 @@ impl SystemAccess {
     /// Components, resources and services conflict as in `conflicts_with`.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::prelude::*;
     /// struct Hit;
-    /// let send = SystemAccess::new().send_events::<Hit>();
-    /// let read = SystemAccess::new().read_events::<Hit>();
+    /// let send = ponko::access::SystemAccess::new().send_events::<Hit>();
+    /// let read = ponko::access::SystemAccess::new().read_events::<Hit>();
     /// assert!(!read.conflicts_before(&send).is_empty() == false); // reader first: fine
     /// assert_eq!(send.conflicts_before(&read).len(), 1); // sender first: the reader would see it
     /// assert!(send.conflicts_before(&send.clone()).is_empty()); // published in order

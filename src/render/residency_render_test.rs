@@ -3,7 +3,10 @@
 //! in a loop leave nothing behind, and a mesh's bytes match the estimate
 //! the engine makes without a GPU. Skips without a GPU.
 use super::gpu3d::*;
-use crate::*;
+#[allow(unused_imports)]
+use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::{Material, MeshData};
 
 fn renderer() -> Option<(wgpu::Device, Renderer3D)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());

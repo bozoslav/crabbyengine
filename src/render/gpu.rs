@@ -808,28 +808,38 @@ impl Renderer {
     }
     /// Compiles a compute pass; its id, or the compiler's message.
     #[cfg(feature = "3d")]
-    pub fn create_compute(&mut self, name: &str, source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
+    pub fn create_compute(&mut self, name: &str, source: &str) -> Result<u32, Box<crate::render::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().create_compute(&device, name, source)
     }
 
     /// Recompiles compute pass `id` in place (hot reload).
     #[cfg(feature = "3d")]
-    pub fn replace_compute(&mut self, id: u32, name: &str, source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
+    pub fn replace_compute(
+        &mut self,
+        id: u32,
+        name: &str,
+        source: &str,
+    ) -> Result<(), Box<crate::render::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().replace_compute(&device, id, name, source)
     }
 
     /// Compiles a screen effect; its id, or the compiler's message.
     #[cfg(feature = "3d")]
-    pub fn create_effect(&mut self, name: &str, source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
+    pub fn create_effect(&mut self, name: &str, source: &str) -> Result<u32, Box<crate::render::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().create_effect(&device, name, source)
     }
 
     /// Recompiles screen effect `id` (hot reload).
     #[cfg(feature = "3d")]
-    pub fn replace_effect(&mut self, id: u32, name: &str, source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
+    pub fn replace_effect(
+        &mut self,
+        id: u32,
+        name: &str,
+        source: &str,
+    ) -> Result<(), Box<crate::render::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().replace_effect(&device, id, name, source)
     }
@@ -846,13 +856,18 @@ impl Renderer {
 
     /// Compiles a material shader; its index, or the compiler's message.
     #[cfg(feature = "3d")]
-    pub fn create_shader(&mut self, name: &str, source: &str) -> Result<u32, Box<crate::ShaderDiagnostic>> {
+    pub fn create_shader(&mut self, name: &str, source: &str) -> Result<u32, Box<crate::render::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().create_shader(&device, name, source)
     }
 
     #[cfg(feature = "3d")]
-    pub fn replace_shader(&mut self, id: u32, name: &str, source: &str) -> Result<(), Box<crate::ShaderDiagnostic>> {
+    pub fn replace_shader(
+        &mut self,
+        id: u32,
+        name: &str,
+        source: &str,
+    ) -> Result<(), Box<crate::render::ShaderDiagnostic>> {
         let device = self.device.clone();
         self.three().replace_shader(&device, id, name, source)
     }
@@ -863,8 +878,8 @@ impl Renderer {
     pub fn create_mesh(
         &mut self,
         id: u32,
-        data: &crate::MeshData,
-        parts: &[(std::ops::Range<u32>, crate::Material)],
+        data: &crate::render::MeshData,
+        parts: &[(std::ops::Range<u32>, crate::render::Material)],
         skinned: bool,
     ) {
         let device = self.device.clone();
@@ -912,9 +927,9 @@ impl Renderer {
 
     /// What this renderer holds on the GPU, counted from its own tables
     /// (`Ctx::asset_inventory`).
-    pub fn residency(&self) -> Option<crate::GpuResidency> {
+    pub fn residency(&self) -> Option<crate::inventory::GpuResidency> {
         #[cfg_attr(not(feature = "3d"), allow(unused_mut))]
-        let mut r = crate::GpuResidency {
+        let mut r = crate::inventory::GpuResidency {
             textures: self.textures.len(),
             texture_bytes: self.textures.iter().map(|t| texture_bytes(&t.texture)).sum(),
             ..Default::default()

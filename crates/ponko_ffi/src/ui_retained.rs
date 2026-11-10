@@ -18,13 +18,20 @@
 //! Text insertion and keyboard capture are context-wide input operations.
 use std::ffi::c_char;
 
+use ponko::ui::Ui;
+use ponko::ui::UiEvent;
+use ponko::ui::UiId;
+use ponko::ui::UiPaint;
+use ponko::ui::UiTextAlign;
+use ponko::ui::UiTheme;
+use ponko::ui::UiWidget;
 use ponko::ui_layout::{
     AlignContent, AlignItems, Dimension, Display, FlexDirection, FlexWrap, GridPlacement, GridTemplateArea,
     GridTemplateAreas, GridTemplateComponent, GridTemplateRepetition, LengthPercentage, LengthPercentageAuto, Line,
     Position, Rect as Edges, RepetitionCount, Size, Style, TrackSizingFunction,
     style_helpers::{TaffyGridLine, TaffyGridSpan},
 };
-use ponko::{Color, Entity, Ui, UiEvent, UiId, UiPaint, UiPanel3D, UiTextAlign, UiTheme, UiWidget};
+use ponko::{Color, Entity, d3::UiPanel as UiPanel3D};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::media::{font_from_c, font_to_c};
@@ -2180,7 +2187,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_frame(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let input = match input.as_ref() {
-            Some(i) => ponko::UiInput {
+            Some(i) => ponko::ui::UiInput {
                 pointer: to_c(i.pointer),
                 pressed: i.pressed,
                 held: i.held,
@@ -2199,7 +2206,7 @@ pub unsafe extern "C" fn crabby_ctx_ui_frame(
                 end: i.end,
                 text: optional_text(i.text)?.to_owned(),
             },
-            None => ponko::UiInput::default(),
+            None => ponko::ui::UiInput::default(),
         };
         with_ui(ctx, target, |ui| {
             ui.frame(to_c(viewport), &input);
@@ -2769,7 +2776,7 @@ mod tests {
 
     #[test]
     fn layout_presets_are_the_rust_presets() {
-        use ponko::UiLayout;
+        use ponko::ui::UiLayout;
         let pairs = [
             (crabby_ui_layout_row(20.0), UiLayout::row(20.0)),
             (crabby_ui_layout_column(150.0), UiLayout::column(150.0)),
