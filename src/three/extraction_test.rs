@@ -7,6 +7,7 @@ use std::sync::Arc;
 use glam::{Quat, Vec2, Vec3};
 
 use super::collect::{Frame3D, Instance3D};
+use super::retained::SERIAL;
 use super::skin::MeshSkin;
 use super::{
     Assets3D, Camera3D, Lighting, Material, Mesh, Model, ModelMaterial, ReceivesDecals, ShadowMesh, Skeleton,
@@ -100,11 +101,15 @@ impl Scene {
         drawn(&self.frame)
     }
 
-    /// A frame that remembers nothing, of the same world.
+    /// A frame that remembers nothing, of the same world, collected the
+    /// other way (on all cores if this test runs on one, and the reverse).
     fn fresh(&mut self) -> Frame3D {
         let mut fresh = Frame3D::default();
         let skins = SkinFrame::default();
+        let mine = SERIAL.get();
+        SERIAL.set(mine.map(|serial| !serial));
         fresh.collect(&mut self.world, &self.assets, &skins, &self.camera, &self.lighting);
+        SERIAL.set(mine);
         fresh
     }
 
@@ -162,7 +167,6 @@ impl Rng {
     }
 }
 
-#[test]
 fn a_still_scene_is_left_as_it_was() {
     let mut scene = Scene::new(1500);
     let first = scene.collect();
@@ -184,7 +188,6 @@ fn a_still_scene_is_left_as_it_was() {
     scene.check("still");
 }
 
-#[test]
 fn a_first_frame_is_packed_by_view_then_mesh_like_a_sorted_one() {
     let mut scene = Scene::new(1500);
     scene.collect();
@@ -199,7 +202,6 @@ fn a_first_frame_is_packed_by_view_then_mesh_like_a_sorted_one() {
     assert!(frame.runs.windows(2).all(|w| w[0].0 < w[1].0), "in mesh order");
 }
 
-#[test]
 fn a_moving_camera_keeps_what_it_still_sees_in_place() {
     let mut scene = Scene::new(2500);
     scene.collect();
@@ -225,7 +227,6 @@ fn a_moving_camera_keeps_what_it_still_sees_in_place() {
     assert!(shares[shares.len() * 3 / 4] <= 20, "and most under a fifth: {shares:?}");
 }
 
-#[test]
 fn a_moved_model_rewrites_its_own_instances_only() {
     let mut scene = Scene::new(1500);
     scene.lighting.shadows = false;
@@ -245,7 +246,6 @@ fn a_moved_model_rewrites_its_own_instances_only() {
     }
 }
 
-#[test]
 fn every_kind_of_edit_draws_what_a_frame_built_from_nothing_draws() {
     let mut scene = Scene::new(900);
     let seen = scene.check("first");
@@ -359,7 +359,6 @@ fn every_kind_of_edit_draws_what_a_frame_built_from_nothing_draws() {
     assert_eq!(scene.check("one model"), 1);
 }
 
-#[test]
 fn a_change_to_a_mesh_reaches_the_models_that_use_it() {
     let mut scene = Scene::new(900);
     let seen = scene.check("first");
@@ -421,7 +420,6 @@ fn a_change_to_a_mesh_reaches_the_models_that_use_it() {
     scene.check("and a model of it");
 }
 
-#[test]
 fn random_edits_always_draw_what_a_frame_built_from_nothing_draws() {
     // Enough models that they are compared on several cores.
     let mut scene = Scene::new(3000);
@@ -521,7 +519,6 @@ fn random_edits_always_draw_what_a_frame_built_from_nothing_draws() {
     }
 }
 
-#[test]
 fn shadow_only_casters_follow_edits_too() {
     let mut scene = Scene::new(400);
     let casters: Vec<Entity> = (0..30)
@@ -544,7 +541,6 @@ fn shadow_only_casters_follow_edits_too() {
     scene.check("camera");
 }
 
-#[test]
 fn a_kept_cascade_draws_nothing_and_is_right_when_its_turn_comes() {
     let mut scene = Scene::new(1500);
     scene.lighting.shadow_refresh = 4;
@@ -576,7 +572,6 @@ fn a_kept_cascade_draws_nothing_and_is_right_when_its_turn_comes() {
     assert!(kept > 10, "the far cascades were kept on most frames");
 }
 
-#[test]
 fn moved_models_are_listed_with_where_they_were() {
     let mut scene = Scene::new(600);
     scene.lighting.shadows = false;
@@ -599,7 +594,6 @@ fn moved_models_are_listed_with_where_they_were() {
     assert!(scene.frame.motion.instances.is_empty(), "it stopped");
 }
 
-#[test]
 fn what_is_kept_per_model_is_bounded_and_stops_growing() {
     let models = 20_000;
     let mut scene = Scene::new(models);
@@ -631,3 +625,38 @@ fn what_is_kept_per_model_is_bounded_and_stops_growing() {
         assert!(scene.frame.extraction_bytes() <= settled, "it stopped growing");
     }
 }
+
+/// Runs every test twice: with the models collected in one pass on this
+/// thread (as with one core, or in a browser), and compared on all cores.
+macro_rules! both_ways {
+    ($($name:ident),* $(,)?) => {
+        mod on_one_core {
+            $(#[test]
+            fn $name() {
+                super::SERIAL.set(Some(true));
+                super::$name();
+            })*
+        }
+        mod on_several_cores {
+            $(#[test]
+            fn $name() {
+                super::SERIAL.set(Some(false));
+                super::$name();
+            })*
+        }
+    };
+}
+
+both_ways!(
+    a_still_scene_is_left_as_it_was,
+    a_first_frame_is_packed_by_view_then_mesh_like_a_sorted_one,
+    a_moving_camera_keeps_what_it_still_sees_in_place,
+    a_moved_model_rewrites_its_own_instances_only,
+    every_kind_of_edit_draws_what_a_frame_built_from_nothing_draws,
+    a_change_to_a_mesh_reaches_the_models_that_use_it,
+    random_edits_always_draw_what_a_frame_built_from_nothing_draws,
+    shadow_only_casters_follow_edits_too,
+    a_kept_cascade_draws_nothing_and_is_right_when_its_turn_comes,
+    moved_models_are_listed_with_where_they_were,
+    what_is_kept_per_model_is_bounded_and_stops_growing,
+);

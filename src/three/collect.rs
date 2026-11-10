@@ -637,6 +637,13 @@ impl Frame3D {
         self.lists.repacks
     }
 
+    /// Whether the models are worked out without comparing them (see
+    /// `Tracked::rush`).
+    #[cfg(test)]
+    pub(crate) fn rushing(&self) -> bool {
+        self.tracked.rushing()
+    }
+
     /// Bytes the model collection keeps between frames: its buffers'
     /// capacity (instances, lists and what is remembered per model).
     pub(crate) fn extraction_bytes(&self) -> usize {
