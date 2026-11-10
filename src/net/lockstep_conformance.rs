@@ -6,7 +6,7 @@
 //! (`Net::ready_at`), so they need no sockets, no threads, no Steam
 //! installation and no renderer, and they pin what the protocol does when
 //! the transport delays, loses, duplicates, reorders, refuses or fails
-//! packets. `net/message_conformance.rs` is the same for [`NetMessages`](crate::NetMessages).
+//! packets. `net/message_conformance.rs` is the same for [`NetMessages`](crate::net::NetMessages).
 //!
 //! # Transport contract (lockstep)
 //!

@@ -1,7 +1,7 @@
 //! A deterministic scripted network for the transport conformance tests of
-//! both protocols: `net/message_conformance.rs` ([`NetMessages`](crate::NetMessages),
+//! both protocols: `net/message_conformance.rs` ([`NetMessages`](crate::net::NetMessages),
 //! through `PacketTransport`) and `net/lockstep_conformance.rs`
-//! ([`Net`](crate::Net), through `Transport`). No sockets, no threads, no
+//! ([`Net`](crate::net::Net), through `Transport`). No sockets, no threads, no
 //! wall clock: a test advances `Network::tick` and decides what the network
 //! does to each datagram.
 

@@ -53,7 +53,7 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
 /// | [`assets`](Self::assets) | [`Assets`](crate::Assets): asset sources, data files, saving scenes and prefabs, hot reload. |
 /// | [`perf`](Self::perf) | [`Perf`](crate::perf::Perf): timings, the HUD, traces, profiling reports. |
 /// | [`camera`](Self::camera), `camera3d`, `lighting`, `sky`, `post`, `lod` | What the renderer reads when the frame is drawn. |
-/// | [`spatial`](Self::spatial), `physics`, `physics3d`, [`net`](Self::net) | Neighbor queries, the physics worlds, [`Networking`](crate::Networking): lockstep, messages, snapshots. |
+/// | [`spatial`](Self::spatial), `physics`, `physics3d`, [`net`](Self::net) | Neighbor queries, the physics worlds, [`Networking`](crate::net::Networking): lockstep, messages, snapshots. |
 ///
 /// The calls nearly every system makes are also methods here:
 /// [`dt`](Self::dt), [`key_down`](Self::key_down),
