@@ -66,12 +66,15 @@ pub(super) fn end_scope(scope: wgpu::ErrorScopeGuard, defer: bool) -> Result<Opt
 /// A material shader's verdict to come, with the variant it was built for.
 pub(super) type LaterVerdict = Option<(String, Verdict)>;
 
+/// A material shader's previous pipelines and shadow traits.
+type Previous = (Arc<ShaderPipelines>, (bool, bool));
+
 /// Which pipelines a check is about, and what to put back if the GPU
 /// rejects them (`None`: the shader was new; it gets a stand-in).
 pub(super) enum Swap {
     Material {
         new: Arc<ShaderPipelines>,
-        old: Option<(Arc<ShaderPipelines>, (bool, bool))>,
+        old: Option<Previous>,
     },
     Effect {
         new: wgpu::RenderPipeline,
@@ -222,7 +225,7 @@ impl Renderer3D {
     /// back to the built-in shader; `own` (`id`, what it replaced) gets
     /// its previous ones instead. Shaders made from the same code since
     /// share `new` through the material cache.
-    fn drop_shared(&mut self, new: &Arc<ShaderPipelines>, own: Option<(usize, (Arc<ShaderPipelines>, (bool, bool)))>) {
+    fn drop_shared(&mut self, new: &Arc<ShaderPipelines>, own: Option<(usize, Previous)>) {
         let builtin = (self.shaders[0].clone(), ShadowCache::shader_traits(""));
         for (i, slot) in self.shaders.iter_mut().enumerate() {
             if Arc::ptr_eq(slot, new) {
