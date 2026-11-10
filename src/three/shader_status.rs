@@ -243,13 +243,18 @@ impl Graphics {
         renderer.poll_shader_checks(&mut late);
         for error in late {
             eprintln!("ponko: {} (keeping the previous version)", error.diagnostic);
-            self.record_rejected(error.reload, *error.diagnostic);
+            self.record_rejected(error.reload, error.superseded, *error.diagnostic);
         }
     }
 
-    /// A shader recorded as compiled turned out to be rejected by the GPU.
+    /// A version of a shader recorded as compiled turned out to be rejected
+    /// by the GPU. `reload`: it was a hot reload, whose count is undone.
+    /// `superseded`: newer code of that shader was put in use since, and
+    /// its status stands. Otherwise the previous version is back: the
+    /// status is a failure, with this error (after any newer compiler
+    /// error that already made it one).
     #[cfg(feature = "window")]
-    pub(crate) fn record_rejected(&mut self, reload: bool, diagnostic: ShaderDiagnostic) {
+    pub(crate) fn record_rejected(&mut self, reload: bool, superseded: bool, diagnostic: ShaderDiagnostic) {
         let frame = self.frame;
         let Some(status) = self
             .assets3d
@@ -259,18 +264,24 @@ impl Graphics {
         else {
             return;
         };
-        status.frame = frame;
         if reload {
-            if status.outcome == ShaderOutcome::Reloaded {
-                status.reloads = status.reloads.saturating_sub(1);
-            }
-            if status.outcome != ShaderOutcome::Failed {
-                status.outcome = ShaderOutcome::ReloadFailed;
-            }
-        } else {
-            status.outcome = ShaderOutcome::Failed;
+            status.reloads = status.reloads.saturating_sub(1);
         }
-        status.diagnostics = vec![diagnostic];
+        if superseded {
+            return;
+        }
+        status.frame = frame;
+        match status.outcome {
+            ShaderOutcome::Failed | ShaderOutcome::ReloadFailed => status.diagnostics.push(diagnostic),
+            _ => {
+                status.outcome = if reload {
+                    ShaderOutcome::ReloadFailed
+                } else {
+                    ShaderOutcome::Failed
+                };
+                status.diagnostics = vec![diagnostic];
+            }
+        }
     }
 }
 
@@ -293,15 +304,15 @@ mod tests {
                 .unwrap();
             assert_eq!(ctx.gfx.shader_status()[1].reloads, 1);
 
-            ctx.gfx.record_rejected(false, rejected("new.wgsl"));
-            ctx.gfx.record_rejected(true, rejected("reloaded.wgsl"));
+            ctx.gfx.record_rejected(false, false, rejected("new.wgsl"));
+            ctx.gfx.record_rejected(true, false, rejected("reloaded.wgsl"));
             let s = ctx.gfx.shader_status();
             assert_eq!(s[0].outcome, ShaderOutcome::Failed);
             assert_eq!(s[1].outcome, ShaderOutcome::ReloadFailed);
             assert_eq!(s[1].reloads, 0, "the reload didn't take effect after all");
             assert!(s[1].diagnostics[0].message.contains("rejected"));
             // Unknown names are ignored.
-            ctx.gfx.record_rejected(true, rejected("gone.wgsl"));
+            ctx.gfx.record_rejected(true, false, rejected("gone.wgsl"));
             assert_eq!(ctx.gfx.shader_status().len(), 2);
         });
     }
@@ -315,6 +326,44 @@ mod tests {
                 .record_shader("x.wgsl", ShaderKind::Material, true, Err(Box::new(rejected("x.wgsl"))));
             assert!(again.is_err());
             assert_eq!(ctx.gfx.shader_status()[0].outcome, ShaderOutcome::Failed);
+        });
+    }
+
+    #[test]
+    fn a_rejected_reload_behind_a_compiler_failure_undoes_its_count_and_adds_its_error() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            ctx.gfx.create_shader("r.wgsl", "");
+            // A reload put in use, waiting on the GPU; then an edit that doesn't compile.
+            ctx.gfx
+                .record_shader("r.wgsl", ShaderKind::Material, true, Ok(()))
+                .unwrap();
+            let compile =
+                ctx.gfx
+                    .record_shader("r.wgsl", ShaderKind::Material, true, Err(Box::new(rejected("r.wgsl"))));
+            assert!(compile.is_err());
+            assert_eq!(ctx.gfx.shader_status()[0].reloads, 1);
+            ctx.gfx.record_rejected(true, false, rejected("r.wgsl"));
+            let s = &ctx.gfx.shader_status()[0];
+            assert_eq!(s.outcome, ShaderOutcome::ReloadFailed);
+            assert_eq!(s.reloads, 0, "the reload never took effect");
+            assert_eq!(s.diagnostics.len(), 2, "the compiler's error and the GPU's");
+        });
+    }
+
+    #[test]
+    fn a_superseded_rejection_only_undoes_its_reload_count() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            ctx.gfx.create_shader("s.wgsl", "");
+            ctx.gfx
+                .record_shader("s.wgsl", ShaderKind::Material, true, Ok(()))
+                .unwrap();
+            ctx.gfx
+                .record_shader("s.wgsl", ShaderKind::Material, true, Ok(()))
+                .unwrap();
+            ctx.gfx.record_rejected(true, true, rejected("s.wgsl"));
+            let s = &ctx.gfx.shader_status()[0];
+            assert_eq!((s.outcome, s.reloads), (ShaderOutcome::Reloaded, 1));
+            assert!(s.diagnostics.is_empty(), "the newer code runs");
         });
     }
 }

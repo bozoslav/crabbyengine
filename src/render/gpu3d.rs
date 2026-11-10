@@ -991,6 +991,9 @@ pub(crate) struct Renderer3D {
     /// The game's shader pipelines in use before the GPU checked them (a
     /// browser's WebGPU answers later; see `shader_checks.rs`).
     shader_checks: Vec<shader_checks::PendingCheck>,
+    /// How many times each game shader's pipelines were put in use, by
+    /// kind and id: tells a late GPU rejection whether newer code runs.
+    shader_versions: std::collections::HashMap<(ShaderKind, u32), u64>,
     /// Tests: treat every GPU check as one that answers later.
     #[cfg(test)]
     pub(crate) defer_checks: bool,
@@ -1822,6 +1825,7 @@ impl Renderer3D {
             white,
             effect_pipelines: Vec::new(),
             shader_checks: Vec::new(),
+            shader_versions: std::collections::HashMap::new(),
             #[cfg(test)]
             defer_checks: false,
             effects: Vec::new(),
@@ -1862,6 +1866,7 @@ impl Renderer3D {
     fn compile_effect(&mut self, device: &wgpu::Device, name: &str, user: &str) -> Result<u32, Box<ShaderDiagnostic>> {
         let (module, pipeline, verdict) = self.checked_effect(device, name, user)?;
         let id = self.effect_pipelines.len() as u32;
+        self.installed(ShaderKind::Effect, id);
         if let Some(verdict) = verdict {
             let swap = Swap::Effect {
                 new: pipeline.clone(),
@@ -1925,6 +1930,7 @@ impl Renderer3D {
         let old_module = std::mem::replace(&mut self.effect_modules[i], module);
         // Rebuilt from the new shader when next used.
         self.effect_target_pipelines[i] = None;
+        self.installed(ShaderKind::Effect, id);
         if let Some(verdict) = verdict {
             let swap = Swap::Effect {
                 new,
@@ -2203,6 +2209,7 @@ impl Renderer3D {
         };
         let (pipeline, verdict) = self.checked_compute(device, layout, name, &source)?;
         let id = self.compute_pipelines.len() as u32;
+        self.installed(ShaderKind::Compute, id);
         if let Some(verdict) = verdict {
             let swap = Swap::Compute {
                 new: pipeline.clone(),
@@ -2271,6 +2278,7 @@ impl Renderer3D {
         }
         let old = self.compute_pipelines[i].replace(pipeline.clone());
         let old_buffer = std::mem::replace(&mut self.buffer_computes[i], defines(user, "update"));
+        self.installed(ShaderKind::Compute, id);
         if let Some(verdict) = verdict {
             let swap = Swap::Compute {
                 new: pipeline,
@@ -2314,6 +2322,7 @@ impl Renderer3D {
     ) -> Result<u32, Box<ShaderDiagnostic>> {
         let (pipelines, verdict) = self.material_pipelines(device, name, user, None)?;
         let id = self.shaders.len() as u32;
+        self.installed(ShaderKind::Material, id);
         if let Some((variant, verdict)) = verdict {
             let swap = Swap::Material {
                 new: pipelines.clone(),
@@ -2343,6 +2352,7 @@ impl Renderer3D {
             ShadowCache::shader_traits(user),
         );
         self.shadow_cache.invalidate();
+        self.installed(ShaderKind::Material, id);
         if let Some((variant, verdict)) = verdict {
             let swap = Swap::Material {
                 new: pipelines,
