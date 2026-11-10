@@ -86,6 +86,8 @@ pub(super) enum Swap {
 /// Pipelines in use whose GPU check hasn't come back.
 pub(super) struct PendingCheck {
     pub id: u32,
+    /// Which time this shader's pipelines were put in use (`installed`).
+    pub version: u64,
     pub name: String,
     pub variant: String,
     pub swap: Swap,
@@ -94,11 +96,7 @@ pub(super) struct PendingCheck {
 
 impl PendingCheck {
     fn kind(&self) -> ShaderKind {
-        match self.swap {
-            Swap::Material { .. } => ShaderKind::Material,
-            Swap::Effect { .. } => ShaderKind::Effect,
-            Swap::Compute { .. } => ShaderKind::Compute,
-        }
+        swap_kind(&self.swap)
     }
 
     fn reload(&self) -> bool {
@@ -120,6 +118,9 @@ impl PendingCheck {
 pub struct LateShaderError {
     /// It replaced a working version (a hot reload).
     pub reload: bool,
+    /// Newer code of the same shader was put in use since: the rejected
+    /// version is gone, and the shader's current state stands.
+    pub superseded: bool,
     pub diagnostic: Box<ShaderDiagnostic>,
 }
 
@@ -160,14 +161,24 @@ impl Renderer3D {
             let Some(error) = error else { continue };
             let (kind, reload) = (check.kind(), check.reload());
             let diagnostic = rejected(&check.name, kind, &check.variant, &error);
+            let superseded = self.shader_versions.get(&(kind, check.id)) != Some(&check.version);
             // A newer version of the same shader is in use and waiting too:
             // if that one fails, it goes back to what was good before this.
-            if let Some(newer) = self.shader_checks[at..].iter_mut().find(|c| c.same_shader(&check)) {
-                hand_down(check.swap, &mut newer.swap);
+            if let Some(newer) = self.shader_checks[at..].iter().position(|c| c.same_shader(&check)) {
+                // Other shaders made from the rejected code since share it.
+                if let Swap::Material { new, .. } = &check.swap {
+                    let new = new.clone();
+                    self.drop_shared(&new, None);
+                }
+                hand_down(check.swap, &mut self.shader_checks[at + newer].swap);
             } else {
                 self.put_back(device, check.id, check.swap);
             }
-            out.push(LateShaderError { reload, diagnostic });
+            out.push(LateShaderError {
+                reload,
+                superseded,
+                diagnostic,
+            });
         }
     }
 
@@ -176,22 +187,8 @@ impl Renderer3D {
         let id = id as usize;
         match swap {
             Swap::Material { new, old } => {
-                let builtin = (self.shaders[0].clone(), ShadowCache::shader_traits(""));
-                let (back, traits) = old.unwrap_or_else(|| builtin.clone());
-                // Shaders made from the same code since share them: they
-                // draw with the built-in shader.
-                for (i, slot) in self.shaders.iter_mut().enumerate() {
-                    if Arc::ptr_eq(slot, &new) {
-                        let (pipelines, shadow) = if i == id {
-                            (&back, traits)
-                        } else {
-                            (&builtin.0, builtin.1)
-                        };
-                        *slot = pipelines.clone();
-                        self.shadow_cache.shaders[i] = shadow;
-                    }
-                }
-                self.shadow_cache.invalidate();
+                let back = old.unwrap_or_else(|| (self.shaders[0].clone(), ShadowCache::shader_traits("")));
+                self.drop_shared(&new, Some((id, back)));
             }
             Swap::Effect { new, old } => {
                 if self.effect_pipelines.get(id) != Some(&new) {
@@ -221,10 +218,36 @@ impl Renderer3D {
         }
     }
 
+    /// Every shader drawing with rejected material pipelines `new` goes
+    /// back to the built-in shader; `own` (`id`, what it replaced) gets
+    /// its previous ones instead. Shaders made from the same code since
+    /// share `new` through the material cache.
+    fn drop_shared(&mut self, new: &Arc<ShaderPipelines>, own: Option<(usize, (Arc<ShaderPipelines>, (bool, bool)))>) {
+        let builtin = (self.shaders[0].clone(), ShadowCache::shader_traits(""));
+        for (i, slot) in self.shaders.iter_mut().enumerate() {
+            if Arc::ptr_eq(slot, new) {
+                let (pipelines, shadow) = match &own {
+                    Some((id, (back, traits))) if *id == i => (back, *traits),
+                    _ => (&builtin.0, builtin.1),
+                };
+                *slot = pipelines.clone();
+                self.shadow_cache.shaders[i] = shadow;
+            }
+        }
+        self.shadow_cache.invalidate();
+    }
+
+    /// Notes that shader `id`'s new pipelines are in use now.
+    pub(super) fn installed(&mut self, kind: ShaderKind, id: u32) {
+        *self.shader_versions.entry((kind, id)).or_default() += 1;
+    }
+
     /// Records pipelines put in use before the GPU's verdict on them.
     pub(super) fn wait_for_verdict(&mut self, id: u32, name: &str, variant: &str, swap: Swap, verdict: Verdict) {
+        let version = self.shader_versions.get(&(swap_kind(&swap), id)).copied().unwrap_or(0);
         self.shader_checks.push(PendingCheck {
             id,
+            version,
             name: name.to_string(),
             variant: variant.to_string(),
             swap,
@@ -236,6 +259,14 @@ impl Renderer3D {
     #[cfg(test)]
     pub(crate) fn pending_shader_checks(&self) -> usize {
         self.shader_checks.len()
+    }
+}
+
+fn swap_kind(swap: &Swap) -> ShaderKind {
+    match swap {
+        Swap::Material { .. } => ShaderKind::Material,
+        Swap::Effect { .. } => ShaderKind::Effect,
+        Swap::Compute { .. } => ShaderKind::Compute,
     }
 }
 
