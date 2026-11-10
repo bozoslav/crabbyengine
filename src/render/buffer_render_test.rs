@@ -15,6 +15,8 @@ pub(super) struct Rig {
     textures: Vec<GpuTexture>,
     pub renderer: Renderer3D,
     pub ctx: Ctx,
+    /// What the last draw collected: kept between draws, as a game's is.
+    frame: Frame3D,
 }
 
 impl Rig {
@@ -135,6 +137,7 @@ impl Rig {
             textures,
             renderer,
             ctx,
+            frame: Frame3D::default(),
         })
     }
 
@@ -149,13 +152,19 @@ impl Rig {
         mesh
     }
 
+    /// How many model instances the last draw's views drew (the camera's
+    /// and the shadow maps' together).
+    pub fn models_drawn(&self) -> usize {
+        self.frame.drawn
+    }
+
     /// Draws the world and reads the pixels back (RGBA).
     pub fn draw(&mut self) -> Vec<u8> {
         self.draw_with_grid(None)
     }
     fn draw_with_grid(&mut self, grid: Option<crate::three::occlusion::OcclusionGrid>) -> Vec<u8> {
         let ctx = &mut self.ctx;
-        let mut frame = Frame3D::default();
+        let mut frame = std::mem::take(&mut self.frame);
         frame.lod = ctx.lod;
         frame.occlusion = grid;
         frame.collect(
@@ -165,9 +174,11 @@ impl Rig {
             &ctx.camera3d,
             &ctx.lighting,
         );
+        ctx.gfx.frame3d.views = std::mem::take(&mut frame.views);
         ctx.collect_views(&SkinFrame::default());
         frame.views = std::mem::take(&mut ctx.gfx.frame3d.views);
         // Like the frame does: a freed buffer's passes are left out.
+        frame.computes.clear();
         frame.computes.extend(
             ctx.compute_passes
                 .iter()
@@ -202,6 +213,7 @@ impl Rig {
             .renderer
             .draw(&self.device, &self.target, wgpu::Color::BLACK, &self.textures, None);
         self.queue.submit(buffers);
+        self.frame = frame;
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: u64::from(SIZE * SIZE * 4),

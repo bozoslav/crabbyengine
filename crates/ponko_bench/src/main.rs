@@ -7,6 +7,7 @@
 
 mod actions;
 mod archetypes;
+mod extraction;
 mod membership;
 mod nav3d;
 mod net;
@@ -170,6 +171,7 @@ fn main() {
     physics::run(&mut b);
     physics3d::run(&mut b);
     nav3d::run(&mut b);
+    extraction::run(&mut b);
     net::run(&mut b);
     actions::run(&mut b);
     query_cache::run(&mut b);
