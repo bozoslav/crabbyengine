@@ -308,6 +308,10 @@ impl Perf {
     /// `println!("{report}")` prints it. Empty until profiling is on (see
     /// [`set_profiling`](Self::set_profiling)).
     ///
+    /// Its `entities` count is from the last time commands were applied
+    /// (after each system and at the end of the frame), so entities the
+    /// running system spawned straight into `ctx.world` aren't in it yet.
+    ///
     /// ```
     /// # use ponko::*;
     /// fn dump(ctx: &mut Ctx) {

@@ -696,7 +696,11 @@ impl Ctx {
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.perf.report`")]
     pub fn perf_report(&self) -> crate::PerfReport {
-        self.perf.report()
+        // The flat method always counted the world as it is now, also for
+        // entities this system spawned itself.
+        let mut report = self.perf.report();
+        report.entities = self.world.len();
+        report
     }
 
     #[doc(hidden)]

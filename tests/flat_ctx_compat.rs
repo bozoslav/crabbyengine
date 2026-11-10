@@ -57,6 +57,16 @@ fn the_flat_perf_spellings_still_forward() {
 }
 
 #[test]
+fn the_flat_perf_report_counts_entities_spawned_by_the_running_system() {
+    fn spawn_then_report(ctx: &mut Ctx) {
+        let before = ctx.perf_report().entities;
+        ctx.world.spawn((Transform2D::default(),));
+        assert_eq!(ctx.perf_report().entities, before + 1);
+    }
+    Game::new("t", 1, 1).system(spawn_then_report).run_headless(3, |_| {});
+}
+
+#[test]
 fn the_flat_audio_spellings_still_forward() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let beep = ctx.create_sound(8000, &[0.0; 80]);

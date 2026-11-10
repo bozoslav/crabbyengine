@@ -301,7 +301,13 @@ pub unsafe extern "C" fn crabby_ctx_perf_report(
         if buffer.is_null() && capacity > 0 {
             return Err(invalid("buffer is null"));
         }
-        let json = ctx_access(ctx, |c| Ok(c.perf.report().to_json()))?;
+        let json = ctx_access(ctx, |c| {
+            // Count the world as it is now, as this function always has:
+            // the service's count is from the last command flush.
+            let mut report = c.perf.report();
+            report.entities = c.world.len();
+            Ok(report.to_json())
+        })?;
         write_text(buffer, capacity, out_len, &json);
         Ok(())
     })
