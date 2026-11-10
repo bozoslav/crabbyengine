@@ -121,8 +121,8 @@ impl Scene {
         let fresh = self.fresh();
         let (now, new) = (&self.frame, &fresh);
         assert_eq!(
-            (now.visible, now.drawn, now.cascades, now.light_views),
-            (new.visible, new.drawn, new.cascades, new.light_views),
+            (now.visible, now.drawn, now.models, now.cascades, now.light_views),
+            (new.visible, new.drawn, new.models, new.cascades, new.light_views),
             "{what}: counts"
         );
         assert!(
@@ -695,6 +695,33 @@ fn a_kept_cascade_draws_nothing_and_is_right_when_its_turn_comes() {
     assert!(kept > 10, "the far cascades were kept on most frames");
 }
 
+fn models_are_counted_once_each_also_in_cascades_that_are_kept() {
+    let mut scene = Scene::new(1500);
+    scene.lighting.shadow_refresh = 4;
+    scene.lighting.shadow_cascades = 4;
+    scene.collect();
+    let (seen, models) = (scene.frame.visible, scene.frame.models);
+    // Models out of the camera's view cast into it; one the camera sees
+    // that is in a cascade or two as well counts once.
+    assert!(models > seen, "{models} models, {seen} in view");
+    let instances: usize = (0..scene.frame.cascades).fold(seen, |n, cascade| {
+        n + drawn(&scene.frame)
+            .iter()
+            .filter(|r| r.0 == 1 + cascade)
+            .map(|r| r.2.len())
+            .sum::<usize>()
+    });
+    assert!(models < instances, "{models} models in {instances} instances");
+    // Nothing moves: as many models whichever cascades a frame draws again.
+    let mut fewest = scene.frame.drawn;
+    for _ in 0..8 {
+        scene.collect();
+        assert_eq!(scene.frame.models, models);
+        fewest = fewest.min(scene.frame.drawn);
+    }
+    assert!(fewest < instances, "some frames kept a cascade's map");
+}
+
 fn moved_models_are_listed_with_where_they_were() {
     let mut scene = Scene::new(600);
     scene.lighting.shadows = false;
@@ -780,6 +807,7 @@ both_ways!(
     random_edits_always_draw_what_a_frame_built_from_nothing_draws,
     shadow_only_casters_follow_edits_too,
     a_kept_cascade_draws_nothing_and_is_right_when_its_turn_comes,
+    models_are_counted_once_each_also_in_cascades_that_are_kept,
     moved_models_are_listed_with_where_they_were,
     what_is_kept_per_model_is_bounded_and_stops_growing,
     while_most_models_move_every_edit_is_still_followed,

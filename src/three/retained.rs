@@ -149,6 +149,8 @@ pub(crate) struct Lists {
     /// Whether no view drew anything when the frame began: it is built
     /// tightly packed, in view and mesh order.
     fresh: bool,
+    /// How many ids some view draws.
+    things: usize,
     /// The buffers the last packing read from, for the next.
     spare: (Vec<Instance3D>, Vec<u32>),
     /// How many times the array was packed again.
@@ -163,6 +165,7 @@ impl Default for Lists {
             free: Vec::new(),
             owners: Vec::new(),
             fresh: true,
+            things: 0,
             spare: Default::default(),
             repacks: 0,
         }
@@ -231,6 +234,7 @@ impl Lists {
     pub fn set(&mut self, arena: &mut Vec<Instance3D>, id: u32, meshes: &Meshes, flags: u32, instance: &Instance3D) {
         let old = self.applied[id as usize];
         let new = Applied::new(meshes, flags, instance);
+        self.things = self.things + usize::from(new.flags != 0) - usize::from(old.flags != 0);
         let mut views = (old.flags | new.flags) & VIEW_BITS;
         while views != 0 {
             let view = views.trailing_zeros() as usize;
@@ -374,6 +378,11 @@ impl Lists {
         owners.shrink_to(arena.len());
         self.spare = (packed, owners);
         self.repacks += 1;
+    }
+
+    /// How many things some view draws, each counted once.
+    pub fn things(&self) -> usize {
+        self.things
     }
 
     /// How many instances `view` draws.

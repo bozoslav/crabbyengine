@@ -362,14 +362,22 @@ fn panes(reversed: bool) -> Option<Rig> {
         let at = vec3(-0.8 - i as f32 * 0.65, 0.5, 0.5);
         rig.ctx.world.spawn((Transform3D::at(at), Model::new(pane)));
     }
-    let tints = [Color::RED, Color::GREEN, Color::BLUE, Color::rgb(1.0, 1.0, 0.0), Color::WHITE];
+    let tints = [
+        Color::RED,
+        Color::GREEN,
+        Color::BLUE,
+        Color::rgb(1.0, 1.0, 0.0),
+        Color::WHITE,
+    ];
     let mut stack: Vec<usize> = (0..tints.len()).collect();
     if reversed {
         stack.reverse();
     }
     for k in stack {
         let at = vec3(k as f32 * 0.1, 0.5, -(k as f32) * 0.4);
-        rig.ctx.world.spawn((Transform3D::at(at), Model::new(pane).with_color(tints[k])));
+        rig.ctx
+            .world
+            .spawn((Transform3D::at(at), Model::new(pane).with_color(tints[k])));
     }
     Some(rig)
 }
@@ -401,7 +409,10 @@ fn overlapping_see_through_models_blend_the_same_while_others_leave_the_view() {
         pass_panes(&mut fresh, step);
         let once = fresh.draw();
         let differ = (kept.chunks(4).zip(once.chunks(4))).filter(|(a, b)| a != b).count();
-        assert_eq!(differ, 0, "step {step}: {differ} pixels differ from the scene drawn once");
+        assert_eq!(
+            differ, 0,
+            "step {step}: {differ} pixels differ from the scene drawn once"
+        );
         last = kept;
     }
     assert!(
@@ -412,9 +423,14 @@ fn overlapping_see_through_models_blend_the_same_while_others_leave_the_view() {
     // Nor does the order the panes were spawned in show.
     let mut other = panes(true).unwrap();
     pass_panes(&mut other, 5);
-    let differ = (last.chunks(4).zip(other.draw().chunks(4))).filter(|(a, b)| a != b).count();
+    let differ = (last.chunks(4).zip(other.draw().chunks(4)))
+        .filter(|(a, b)| a != b)
+        .count();
     assert_eq!(differ, 0, "{differ} pixels differ from the stack spawned in reverse");
     // And the stack does blend: its panes' tints show through each other.
-    let mixed = last.chunks(4).filter(|p| p[0] > 40 && p[1] > 40 && p[2] > 40 && p[0] != p[2]).count();
+    let mixed = last
+        .chunks(4)
+        .filter(|p| p[0] > 40 && p[1] > 40 && p[2] > 40 && p[0] != p[2])
+        .count();
     assert!(mixed > 50, "{mixed} pixels show several tints");
 }

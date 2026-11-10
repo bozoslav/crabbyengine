@@ -1109,7 +1109,10 @@ impl Ctx {
         self.assets3d.live_bounds(mesh.id).is_some()
     }
 
-    /// How many 3D models were drawn last frame: those the camera could see.
+    /// How many 3D models were drawn last frame: those the camera could
+    /// see, and those out of its view whose shadow can fall into it. Each
+    /// model counts once. A model in a shadow cascade whose map is kept
+    /// this frame ([`Lighting::shadow_refresh`]) counts too.
     ///
     /// ```no_run
     /// # use ponko::*;
@@ -1119,7 +1122,7 @@ impl Ctx {
     /// ```
     #[must_use]
     pub fn models_drawn(&self) -> usize {
-        self.frame3d.drawn
+        self.frame3d.models
     }
 
     /// Makes TAA, temporal ambient occlusion and screen-space reflections

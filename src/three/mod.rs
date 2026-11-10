@@ -358,8 +358,10 @@ pub enum Blend {
     #[default]
     Opaque = 0,
     /// See-through by its alpha (glass, water). Drawn after everything
-    /// solid, casts no shadow; overlapping transparent models are not
-    /// sorted, so one may show over another that is in front of it.
+    /// solid, casts no shadow. Transparent models of one mesh are drawn far
+    /// to near (by their origins), so they blend in the right order;
+    /// models of different meshes are not sorted against each other, so
+    /// one may show over another that is in front of it.
     Transparent = 1,
     /// Solid, with pixels whose alpha is below 0.5 cut out (leaves,
     /// fences, grass cards). Their shadows have the same holes.

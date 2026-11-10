@@ -129,6 +129,9 @@ pub(crate) struct Frame3D {
     pub visible: usize,
     /// How many instances the camera and this frame's shadow views draw.
     pub drawn: usize,
+    /// How many models some view holds (the camera's, or a shadow view's,
+    /// whether this frame draws it again or keeps its map), each once.
+    pub models: usize,
     /// An earlier frame's depth to cull hidden models with, when the camera
     /// has [`occlusion_culling`](Camera3D::occlusion_culling) on.
     pub occlusion: Option<super::occlusion::OcclusionGrid>,
@@ -607,6 +610,7 @@ impl Frame3D {
         self.occluded = culler.occluded.into_inner();
         lists.runs(0, &mut self.runs);
         self.visible = lists.count(0);
+        self.models = lists.things();
         self.drawn = self.visible;
         for (i, runs) in self.shadow_runs.iter_mut().enumerate() {
             // A kept cascade's casters stay in its list; nothing draws them.
