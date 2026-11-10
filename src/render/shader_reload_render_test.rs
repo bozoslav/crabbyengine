@@ -577,18 +577,23 @@ fn first_load_stand_ins_are_replaced_by_the_fixed_reload() {
     let fx = renderer
         .create_effect(&device, "fx.wgsl", crate::three::EFFECT_STAND_IN)
         .unwrap();
+    let fx_stand_in = renderer.effect_pipelines[fx as usize].clone();
+
+    renderer.replace_shader(&device, shader, "m.wgsl", RED).unwrap();
+    renderer.replace_effect(&device, fx, "fx.wgsl", FX_GREY).unwrap();
+    assert_ne!(pipelines(&renderer, shader), pipelines(&renderer, 0));
+    assert_ne!(renderer.effect_pipelines[fx as usize], fx_stand_in);
+
+    // The compute pass, where the device has compute shaders.
+    if !crate::render::render_test_support::needs(&device, crate::GpuFeature::Compute) {
+        return;
+    }
     let cs = renderer
         .create_compute(&device, "cs.wgsl", crate::three::COMPUTE_STAND_IN)
         .unwrap();
     renderer.free_compute(cs);
     assert!(renderer.compute_pipelines[cs as usize].is_none(), "skipped until fixed");
-    let fx_stand_in = renderer.effect_pipelines[fx as usize].clone();
-
-    renderer.replace_shader(&device, shader, "m.wgsl", RED).unwrap();
-    renderer.replace_effect(&device, fx, "fx.wgsl", FX_GREY).unwrap();
     renderer.replace_compute(&device, cs, "cs.wgsl", CS_FADE).unwrap();
-    assert_ne!(pipelines(&renderer, shader), pipelines(&renderer, 0));
-    assert_ne!(renderer.effect_pipelines[fx as usize], fx_stand_in);
     assert!(
         renderer.compute_pipelines[cs as usize].is_some(),
         "the fix fills the slot"
