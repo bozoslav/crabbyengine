@@ -273,8 +273,9 @@ impl Graphics {
     /// which takes ids): [`Ctx::is_live`](crate::Ctx::is_live).
     #[doc(hidden)]
     #[must_use]
+    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
     pub fn has_compute(&self, compute: Compute) -> bool {
-        self.assets3d.computes_live.contains(compute.id)
+        self.is_live(compute)
     }
 
     /// Frees compute pass `id` (see [`Ctx::free`](crate::Ctx::free)): entries of
@@ -359,8 +360,9 @@ impl Graphics {
             .copied()
             .filter(|&len| len > 0)
     }
-    /// Frees `b`'s GPU memory: the engine side of [`Ctx::free`](crate::Ctx::free) with a
-    /// buffer, which also removes the compute passes that write to it.
+    /// Frees `b`'s GPU memory: the engine side of [`Graphics::free`](crate::Graphics::free) with a
+    /// buffer. The compute passes that write to it are removed before its id
+    /// is given to another buffer.
     pub(crate) fn free_gpu_buffer(&mut self, b: GpuBuffer) {
         let Some(len) = self.assets3d.gpu_buffers.get_mut(b.id as usize) else {
             return;
@@ -369,7 +371,9 @@ impl Graphics {
             return;
         }
         *len = 0;
-        self.assets3d.free_gpu_buffers.push(b.id);
+        // Back in the pool once its compute passes are gone
+        // (`Ctx::unlink_freed_gpu_buffers`).
+        self.assets3d.unlinking_gpu_buffers.push(b.id);
         if let Some(r) = self.renderer.as_mut()
             && !self.headless
         {
@@ -414,7 +418,7 @@ impl Graphics {
     /// # }
     /// ```
     pub fn set_mesh_gpu_buffer(&mut self, mesh: super::Mesh, b: GpuBuffer, count: u32) {
-        assert!(self.is_mesh_live(mesh), "invalid mesh");
+        assert!(self.is_live(mesh), "invalid mesh");
         assert!(
             count <= self.gpu_buffer_len(b).expect("invalid GPU buffer"),
             "GPU instance count out of bounds"
@@ -444,7 +448,7 @@ impl Graphics {
             radius >= 0.0 && radius.is_finite() && center.is_finite(),
             "invalid bounds"
         );
-        assert!(self.is_mesh_live(mesh), "invalid mesh");
+        assert!(self.is_live(mesh), "invalid mesh");
         let own = *self
             .assets3d
             .gpu_mesh_bounds
@@ -486,7 +490,7 @@ mod tests {
             ctx.gfx.set_mesh_gpu_bounds(mesh, Vec3::Y * 10.0, 2.0);
             assert_eq!(ctx.gfx.assets3d.bounds[mesh.id as usize], grown);
             // A freed mesh's slot starts over.
-            ctx.gfx.free_mesh(mesh);
+            ctx.gfx.free(mesh);
             let again = ctx.gfx.create_mesh(&crate::MeshData::cube(0.5), material);
             assert_eq!((again, ctx.gfx.assets3d.bounds[again.id as usize]), (mesh, own));
         });

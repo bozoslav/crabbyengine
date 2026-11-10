@@ -860,7 +860,7 @@ fn material_from_c(c: &ponko::Ctx, d: &CrabbyMaterialDesc) -> Result<MaterialDes
         _ => return Err(invalid("blend must be 0 (opaque), 1 (transparent) or 2 (cut out)")),
     };
     let shader = d.has_shader.then_some(Shader::from_id(d.shader.id));
-    if shader.is_some_and(|s| !c.gfx.has_shader(s)) {
+    if shader.is_some_and(|s| !c.gfx.is_live(s)) {
         return Err(invalid("that shader wasn't made by this game"));
     }
     let map = |has: bool, t: CrabbyTexture| has.then(|| texture_from_c(t));
@@ -1408,7 +1408,7 @@ pub unsafe extern "C" fn crabby_ctx_update_material(
                 return Err(invalid("material desc is null"));
             };
             let material: Material = to_c(material);
-            if !c.gfx.has_material(material) {
+            if !c.gfx.is_live(material) {
                 return Err(invalid("that material wasn't made by this game"));
             }
             let desc = material_from_c(c, d)?;
@@ -1600,7 +1600,7 @@ pub unsafe extern "C" fn crabby_ctx_set_compute_passes(
             let mut list = Vec::with_capacity(count);
             for p in given {
                 let compute = Compute::from_id(p.compute.id);
-                if !c.gfx.has_compute(compute) {
+                if !c.gfx.is_live(compute) {
                     return Err(invalid("that compute pass wasn't made by this game"));
                 }
                 let target = texture_from_c(p.target);
@@ -1612,7 +1612,7 @@ pub unsafe extern "C" fn crabby_ctx_set_compute_passes(
                     return Err(invalid("that texture isn't a render target of this game"));
                 }
                 let material = p.has_material.then(|| to_c(p.material));
-                if material.is_some_and(|m| !c.gfx.has_material(m)) {
+                if material.is_some_and(|m| !c.gfx.is_live(m)) {
                     return Err(invalid("that material wasn't made by this game"));
                 }
                 list.push(ComputePass {
@@ -1751,11 +1751,11 @@ pub unsafe extern "C" fn crabby_ctx_set_effects(
             let mut list = Vec::with_capacity(count);
             for e in given {
                 let effect = Effect::from_id(e.effect.id);
-                if !c.gfx.has_effect(effect) {
+                if !c.gfx.is_live(effect) {
                     return Err(invalid("that effect wasn't made by this game"));
                 }
                 let material = e.has_material.then(|| to_c(e.material));
-                if material.is_some_and(|m| !c.gfx.has_material(m)) {
+                if material.is_some_and(|m| !c.gfx.is_live(m)) {
                     return Err(invalid("that material wasn't made by this game"));
                 }
                 list.push(ScreenEffect { effect, material });
@@ -1839,7 +1839,7 @@ pub unsafe extern "C" fn crabby_ctx_create_mesh(
             }
             // Checked here so bad input is an error, not a panic.
             data.0.check().map_err(invalid_owned)?;
-            if !c.gfx.has_material(to_c(material)) {
+            if !c.gfx.is_live(to_c(material)) {
                 return Err(invalid("that material wasn't made by this game"));
             }
             out(out_mesh, to_c(c.gfx.create_mesh(&data.0, to_c(material))))
@@ -1911,7 +1911,7 @@ pub unsafe extern "C" fn crabby_ctx_create_terrain_tile(
             if !(size > 0.0 && size.is_finite()) {
                 return Err(invalid("size must be above 0"));
             }
-            if !c.gfx.has_material(to_c(material)) {
+            if !c.gfx.is_live(to_c(material)) {
                 return Err(invalid("that material wasn't made by this game"));
             }
             let heights = std::slice::from_raw_parts(heights, count);
@@ -3976,7 +3976,7 @@ pub unsafe extern "C" fn crabby_ctx_set_mesh_gpu_bounds(
         ctx_access(ctx, |c| {
             let mesh = to_c(mesh);
             let center = to_c(center);
-            if !c.gfx.is_mesh_live(mesh) || !(radius >= 0.0 && radius.is_finite() && center.is_finite()) {
+            if !c.gfx.is_live(mesh) || !(radius >= 0.0 && radius.is_finite() && center.is_finite()) {
                 return Err(invalid("invalid mesh bounds arguments"));
             }
             c.gfx.set_mesh_gpu_bounds(mesh, center, radius);
@@ -4000,7 +4000,7 @@ pub unsafe extern "C" fn crabby_ctx_set_mesh_gpu_buffer(
         ctx_access(ctx, |c| {
             let mesh = to_c(mesh);
             let b = GpuBuffer::from_id(buffer.id);
-            if !c.gfx.is_mesh_live(mesh) || c.gfx.gpu_buffer_len(b).is_none_or(|len| count > len) {
+            if !c.gfx.is_live(mesh) || c.gfx.gpu_buffer_len(b).is_none_or(|len| count > len) {
                 return Err(invalid("invalid GPU instance arguments"));
             }
             c.gfx.set_mesh_gpu_buffer(mesh, b, count);
@@ -4045,7 +4045,7 @@ pub unsafe extern "C" fn crabby_ctx_create_instance_batch(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             if output.is_null()
-                || !c.gfx.is_mesh_live(to_c(mesh))
+                || !c.gfx.is_live(to_c(mesh))
                 || !options.cell_size.is_finite()
                 || options.cell_size <= 0.0
                 || (options.max_distance.is_nan() || options.max_distance < 0.0)
@@ -4125,7 +4125,7 @@ pub unsafe extern "C" fn crabby_ctx_free_instance_batch(
     // SAFETY: forwarded context contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.gfx.free_instance_batch(ponko::InstanceBatch::from_id(batch.id));
+            c.gfx.free(ponko::InstanceBatch::from_id(batch.id));
             Ok(())
         })
     })
@@ -4178,7 +4178,7 @@ pub unsafe extern "C" fn crabby_ctx_create_instance_batch_levels(
             }
             let levels = std::slice::from_raw_parts(levels, level_count);
             if levels.iter().any(|l| {
-                !c.gfx.is_mesh_live(to_c(l.mesh))
+                !c.gfx.is_live(to_c(l.mesh))
                     || !l.min_distance.is_finite()
                     || l.min_distance < 0.0
                     || l.max_distance <= l.min_distance

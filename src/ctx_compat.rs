@@ -316,17 +316,17 @@ impl Ctx {
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.gfx.free_instance_batch`")]
+    #[deprecated(note = "use `ctx.free(..)`")]
     #[cfg(feature = "3d")]
     pub fn free_instance_batch(&mut self, batch: InstanceBatch) {
-        self.gfx.free_instance_batch(batch)
+        self.free(batch)
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.gfx.free_mesh`")]
+    #[deprecated(note = "use `ctx.free(..)`")]
     #[cfg(feature = "3d")]
     pub fn free_mesh(&mut self, mesh: Mesh) {
-        self.gfx.free_mesh(mesh)
+        self.free(mesh)
     }
 
     #[doc(hidden)]
@@ -399,37 +399,37 @@ impl Ctx {
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.gfx.has_compute`")]
+    #[deprecated(note = "use `ctx.is_live(..)`")]
     #[cfg(feature = "3d")]
     pub fn has_compute(&self, compute: Compute) -> bool {
-        self.gfx.has_compute(compute)
+        self.is_live(compute)
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.gfx.has_effect`")]
+    #[deprecated(note = "use `ctx.is_live(..)`")]
     #[cfg(feature = "3d")]
     pub fn has_effect(&self, effect: Effect) -> bool {
-        self.gfx.has_effect(effect)
+        self.is_live(effect)
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.gfx.has_font`")]
+    #[deprecated(note = "use `ctx.is_live(..)`")]
     pub fn has_font(&self, font: Font) -> bool {
-        self.gfx.has_font(font)
+        self.is_live(font)
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.gfx.has_material`")]
+    #[deprecated(note = "use `ctx.is_live(..)`")]
     #[cfg(feature = "3d")]
     pub fn has_material(&self, material: Material) -> bool {
-        self.gfx.has_material(material)
+        self.is_live(material)
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.gfx.has_shader`")]
+    #[deprecated(note = "use `ctx.is_live(..)`")]
     #[cfg(feature = "3d")]
     pub fn has_shader(&self, shader: Shader) -> bool {
-        self.gfx.has_shader(shader)
+        self.is_live(shader)
     }
 
     #[doc(hidden)]
@@ -447,10 +447,10 @@ impl Ctx {
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.gfx.is_mesh_live`")]
+    #[deprecated(note = "use `ctx.is_live(..)`")]
     #[cfg(feature = "3d")]
     pub fn is_mesh_live(&self, mesh: Mesh) -> bool {
-        self.gfx.is_mesh_live(mesh)
+        self.is_live(mesh)
     }
 
     #[doc(hidden)]

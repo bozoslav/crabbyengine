@@ -1,5 +1,5 @@
 //! Running a reused `ViewState` doesn't allocate once its buffers have
-//! grown. Its own test binary with a single test: the counter is
+//! grown, with change filters and removals too. Its own test binary with a single test: the counter is
 //! process-wide, so no other test may run beside it.
 
 use std::alloc::{GlobalAlloc, Layout, System};
@@ -55,4 +55,34 @@ fn reused_view_state_runs_without_allocating() {
     }
     assert_eq!(ALLOCATIONS.load(Ordering::Relaxed), before);
     assert_eq!(world.resource::<Score>().0, 101);
+    change_filters_and_removals_allocate_nothing();
+}
+
+/// Change filters and removals through a reused view allocate nothing.
+fn change_filters_and_removals_allocate_nothing() {
+    let mut world = World::new();
+    world.track_changes::<Pos>();
+    world.spawn_batch((0..256).map(|i| (Pos(i as f32), Vel(1.0))));
+    let gone = world.spawn((Pos(0.0), Vel(0.0)));
+    world.despawn(gone);
+    let mut state = ViewState::new(ViewAccess::new().write::<Pos>().read::<Vel>());
+    let mut seen = 0;
+    let mut run = |world: &mut World| {
+        state.run(world, |mut view| {
+            view.query::<(&mut Pos, &Vel)>()
+                .filter::<(Changed<Pos>, Or<(With<Vel>, Added<Pos>)>)>()
+                .since(Tick::default())
+                .for_each(|(p, v)| p.0 += v.0);
+            seen += view.query::<&Pos>().filter::<Added<Pos>>().count();
+            seen += view.query::<&Pos>().filter::<Changed<Pos>>().iter().count();
+            seen += view.removed::<Pos>().len();
+        });
+    };
+    run(&mut world);
+    let before = ALLOCATIONS.load(Ordering::Relaxed);
+    for _ in 0..100 {
+        run(&mut world);
+    }
+    assert_eq!(ALLOCATIONS.load(Ordering::Relaxed), before);
+    assert!(seen > 0);
 }

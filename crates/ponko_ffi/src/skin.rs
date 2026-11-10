@@ -228,7 +228,7 @@ pub unsafe extern "C" fn crabby_ctx_create_skinned_mesh(
             if data.0.joints.is_empty() {
                 return Err(invalid("the mesh data has no joints (use crabby_ctx_create_mesh)"));
             }
-            if !c.gfx.has_material(to_c(material)) {
+            if !c.gfx.is_live(to_c(material)) {
                 return Err(invalid("that material wasn't made by this game"));
             }
             let s = skeleton(c, skeleton_entity)?.clone();

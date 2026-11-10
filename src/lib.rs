@@ -151,9 +151,9 @@ pub use flow::RawFlowView;
 pub use flow::{FlowField, NavGrid};
 pub use game::{ConfiguredGame, Game, Phase, Plugin, SetupResult, SystemId, Systems};
 pub use gfx::Graphics;
-pub use handle::{Handle, LiveCounts};
+pub use handle::{GfxHandle, Handle, LiveCounts};
 pub use input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick, Input, Key, MAX_GAMEPADS, MouseButton};
-pub use inventory::{AssetClass, AssetCount, AssetGrowth, AssetInventory, GpuResidency};
+pub use inventory::{AssetClass, AssetCount, AssetGrowth, AssetInventory, DanglingHandle, GpuResidency};
 #[cfg(feature = "3d")]
 pub use net::NetPose;
 pub use net::{

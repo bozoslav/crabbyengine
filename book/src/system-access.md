@@ -52,11 +52,42 @@ What a declaration can name:
 entity checks (`is_alive`, `has`, `len`), all limited to the declaration. It
 has no `spawn`, `despawn`, `insert` or `remove`: structural changes go
 through commands, which apply after the system as usual. Its writes count
-for [change detection](ecs.md#change-detection) like any others, but its
-queries take `with` and `without` only: a system that filters by
-`Changed<T>` or `Added<T>`, or reads `removed::<T>()`, keeps `&mut Ctx`
-(and may declare its access with `add_with_access`; a change filter on `T`
-counts as reading `T`). Every accessor
+for [change detection](ecs.md#change-detection) like any others, and its
+queries take the same filters as world queries: `with`, `without` and
+`filter::<F>()` with `With`, `Without`, `Or`, `Added<T>` and `Changed<T>`.
+A change filter on `T` reads the stamps `T`'s writers leave, so it needs `T`
+declared (`read::<T>()` is enough); `sys.world.removed::<T>()` needs the
+same. Like a `&mut Ctx` system, a view system is shown what changed since it
+last ran. A view can't start tracking a component (that reallocates its
+storage), so call `ctx.world.track_changes::<T>()` in setup; a change
+filter on an untracked component panics and says so.
+
+```rust
+# use ponko::*;
+struct Health(i32);
+struct Hurt(Entity);
+
+fn report_hurt(sys: &mut SystemView) {
+    let mut hurt = Vec::new();
+    sys.world
+        .query::<Entity>()
+        .filter::<Changed<Health>>()
+        .for_each(|e| hurt.push(e));
+    for e in hurt {
+        sys.events().send(Hurt(e));
+    }
+}
+
+# fn main() {
+let _game = Game::new("t", 1, 1).add_view(
+    Phase::AfterPhysics,
+    SystemAccess::new().read::<Health>().send_events::<Hurt>(),
+    report_hurt,
+);
+# }
+```
+
+Every accessor
 checks the declaration **in every build** and panics with the system's
 name and what is missing:
 
@@ -303,10 +334,8 @@ declaration lookup per accessor call, no per-entity cost, and no heap
 allocation per run once its buffers have grown
 (`crates/ponko_ecs/tests/views_alloc.rs`).
 
-**Limits.** Query filters in a view are `with` and `without` (not the
-`filter::<F>()` combinators), and custom `QueryData` types must implement
-the shared lookup to be queried through a view. Writes through a view
-count for [change detection](ecs.md#change-detection), but a view query
-can't filter by `Changed<T>` or `Added<T>` and a view has no
-`removed::<T>()` yet
-([#286](https://github.com/ponkoengine/ponko/issues/286)).
+**Limits.** Custom `QueryData` types must implement the shared lookup to
+be queried through a view. A view's filters never register a component or
+start tracking one: `With<T>` of a component no entity ever had matches
+nothing, `Without<T>` of one matches everything, and `Added<T>` /
+`Changed<T>` of an untracked `T` panic.

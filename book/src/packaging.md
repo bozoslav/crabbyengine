@@ -165,13 +165,18 @@ text the game draws itself (`hud`) multiplies its sizes by the same factor, and 
 test measures every screen's lines at every scale and fails if one is wider or
 taller than the window. The scale is saved.
 
-**Rebinding.** `Controls` keeps a key (and a gamepad button) per control;
-`bindings_for` turns it into an `ActionMap`; `ctx.set_actions` installs it and
-keeps the `ActionId`s resolved at startup. Pressing a control's button opens a
-small modal prompt (a screen with nothing to focus, so no key can press a
-button behind it) and the next key or button pressed is the answer. The
-choices are saved with the other settings; the hints on the title, pause and
-result screens show the current keys.
+**Rebinding.** The installed `ActionMap` is the one record of what is bound.
+At startup `bindings_for` turns the saved `Controls` (a key and a gamepad
+button per control) into a map and `ctx.input.set_actions` installs it. The
+settings screen shows the keys it reads back from `ctx.input.actions()` with
+`Controls::from_bindings`, so a binding installed some other way (a
+user-edited actions file, say) shows up as it is. Pressing a control's button
+opens a small modal prompt (a screen with nothing to focus, so no key can press
+a button behind it), and the next key or button pressed is the answer. The
+check runs against what the map binds now, `ctx.input.set_action` replaces
+only the action that control feeds (its `ActionId` stays valid), and the copy
+saved with the other settings is read back from the map. The hints on the
+title, pause and result screens show the current keys.
 
 ```rust
 {{#include ../../examples/coin_dash/settings.rs:set_key}}
@@ -179,6 +184,14 @@ result screens show the current keys.
 
 ```rust
 {{#include ../../examples/coin_dash/settings.rs:bindings_for}}
+```
+
+```rust
+{{#include ../../examples/coin_dash/settings.rs:from_bindings}}
+```
+
+```rust
+{{#include ../../examples/coin_dash/settings.rs:rebind}}
 ```
 
 ```rust
@@ -225,7 +238,6 @@ index, or a new one):
 | Gap | Where it is tracked |
 |---|---|
 | No query for "which key or button was pressed this frame": the rebinding prompt lists the keys it offers itself, because the engine can only answer "is this one pressed". | Input service of [#195](https://github.com/ponkoengine/ponko/issues/195) |
-| `ActionMap` can't be read back (no `get` or iteration), so a rebinding UI keeps its own `Controls` and rebuilds the map. | [#281](https://github.com/ponkoengine/ponko/issues/281), part of [#207](https://github.com/ponkoengine/ponko/issues/207) |
 | `run_headless` runs no frame systems and no UI frame, so screens built on the retained UI are tested by hand-feeding `Ui::frame`. | Phases: [#198](https://github.com/ponkoengine/ponko/issues/198); scripted input: [#179](https://github.com/ponkoengine/ponko/issues/179) |
 | No native screen-reader adapter for the retained UI. | [#183](https://github.com/ponkoengine/ponko/issues/183) |
 | Immediate-mode text and UI don't follow the retained UI's scale; the theme and builders are the retained UI's only. | [#203](https://github.com/ponkoengine/ponko/issues/203) |

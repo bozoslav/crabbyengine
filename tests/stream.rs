@@ -200,10 +200,10 @@ mod cells {
             ctx.camera3d.look_at(Vec3::ZERO);
             ctx.world.spawn((Transform3D::default(), Model::new(kept)));
             ctx.world.spawn((Transform3D::default(), Model::new(freed)));
-            ctx.gfx.free_mesh(freed);
-            ctx.gfx.free_mesh(freed); // twice is fine
-            assert!(ctx.gfx.is_mesh_live(kept));
-            assert!(!ctx.gfx.is_mesh_live(freed));
+            ctx.gfx.free(freed);
+            ctx.gfx.free(freed); // twice is fine
+            assert!(ctx.gfx.is_live(kept));
+            assert!(!ctx.gfx.is_live(freed));
         });
     }
 
@@ -213,8 +213,8 @@ mod cells {
             let material = ctx.gfx.default_material();
             let cube = MeshData::cube(1.0);
             let freed = ctx.gfx.create_mesh(&cube, material);
-            ctx.gfx.free_mesh(freed);
-            ctx.gfx.free_mesh(Mesh::NONE); // does nothing
+            ctx.gfx.free(freed);
+            ctx.gfx.free(Mesh::NONE); // does nothing
             ctx.gfx.set_mesh_shadows(Mesh::NONE, false); // does nothing
             ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
             ctx.camera3d.look_at(Vec3::ZERO);
@@ -223,7 +223,7 @@ mod cells {
             let made: Vec<Mesh> = (0..4).map(|_| ctx.gfx.create_mesh(&cube, material)).collect();
             assert!(made.contains(&freed));
             assert!(!made.contains(&Mesh::NONE));
-            assert!(!ctx.gfx.is_mesh_live(Mesh::NONE));
+            assert!(!ctx.gfx.is_live(Mesh::NONE));
             assert!(ctx.gfx.mesh_shadows(Mesh::NONE));
         });
     }
@@ -239,8 +239,8 @@ mod cells {
             let there = ctx.gfx.upload_terrain_tile(&job.wait(), material);
             assert_eq!(here.lod_distance, there.lod_distance);
             ctx.gfx.free_terrain_tile(there);
-            assert!(there.lods.iter().all(|&m| !ctx.gfx.is_mesh_live(m)));
-            assert!(here.lods.iter().all(|&m| ctx.gfx.is_mesh_live(m)));
+            assert!(there.lods.iter().all(|&m| !ctx.gfx.is_live(m)));
+            assert!(here.lods.iter().all(|&m| ctx.gfx.is_live(m)));
         });
     }
 
@@ -248,9 +248,9 @@ mod cells {
     fn freeing_a_loaded_mesh_lets_it_load_again() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             let a = ctx.gfx.load_mesh("models/house.glb");
-            ctx.gfx.free_mesh(a);
+            ctx.gfx.free(a);
             let b = ctx.gfx.load_mesh("models/house.glb");
-            assert!(ctx.gfx.is_mesh_live(b));
+            assert!(ctx.gfx.is_live(b));
         });
     }
 
@@ -261,8 +261,8 @@ mod cells {
             let cube = MeshData::cube(1.0);
             let first: Vec<Mesh> = (0..4).map(|_| ctx.gfx.create_mesh(&cube, material)).collect();
             ctx.gfx.set_mesh_shadows(first[1], false);
-            ctx.gfx.free_mesh(first[1]);
-            ctx.gfx.free_mesh(first[3]);
+            ctx.gfx.free(first[1]);
+            ctx.gfx.free(first[3]);
             // Streaming tiles in and out keeps the mesh tables the same size.
             let again = [
                 ctx.gfx.create_mesh(&cube, material),
@@ -272,7 +272,7 @@ mod cells {
                 again == [first[3], first[1]] || again == [first[1], first[3]],
                 "{again:?}"
             );
-            assert!(again.iter().all(|&m| ctx.gfx.is_mesh_live(m)));
+            assert!(again.iter().all(|&m| ctx.gfx.is_live(m)));
             // The new mesh doesn't inherit the old one's settings.
             assert!(ctx.gfx.mesh_shadows(first[1]));
             // Past the freed ones, ids are new.
@@ -300,7 +300,7 @@ mod cells {
             far.update(ctx);
             let after: Vec<Mesh> = ctx.world.query::<&Model>().iter().map(|m| m.mesh).collect();
             assert_eq!(after.len(), 16);
-            assert!(after.iter().all(|&m| ctx.gfx.is_mesh_live(m)));
+            assert!(after.iter().all(|&m| ctx.gfx.is_live(m)));
             // Freed ids are reused, so the old and new sets are the same size.
             assert_eq!(after.len(), meshes.len());
             // A cell whose mesh has nothing left goes away with its entity.
@@ -317,7 +317,7 @@ mod cells {
             far.clear(ctx);
             tiny.clear(ctx);
             assert_eq!(models(ctx), 0);
-            assert!(meshes.iter().chain(&after).all(|&m| !ctx.gfx.is_mesh_live(m)));
+            assert!(meshes.iter().chain(&after).all(|&m| !ctx.gfx.is_live(m)));
         });
     }
 }
@@ -334,7 +334,7 @@ fn reloading_freed_geometry_reuses_materials_and_preserves_edits() {
         desc.roughness = 0.17;
         ctx.gfx.update_material(material, desc);
         for _ in 0..32 {
-            ctx.gfx.free_mesh(mesh);
+            ctx.gfx.free(mesh);
             mesh = ctx.gfx.load_mesh("models/house.glb");
             assert_eq!(ctx.gfx.loaded_materials("walls").len(), walls.len());
             assert_eq!(ctx.gfx.loaded_materials("roof").len(), roof.len());

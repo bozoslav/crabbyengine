@@ -41,6 +41,7 @@ use crate::bundle::Component;
 use crate::entity::Entity;
 use crate::query::{Filters, OrTerm, QueryData, QueryFilter};
 use crate::storage::{Archetype, ComponentId, ComponentInfo};
+use crate::view::SharedFilters;
 use crate::world::{Chunk, World};
 
 /// A point in a world's change history, from [`World::change_tick`] or
@@ -130,11 +131,17 @@ impl<T: Component> QueryFilter for Added<T> {
     fn add(world: &mut World, filters: &mut Filters) {
         filters.add_tick(filtered::<T>(world), true);
     }
+    fn add_shared(cx: &mut SharedFilters<'_>) {
+        cx.tick::<T>("Added", true);
+    }
 }
 
 impl<T: Component> QueryFilter for Changed<T> {
     fn add(world: &mut World, filters: &mut Filters) {
         filters.add_tick(filtered::<T>(world), false);
+    }
+    fn add_shared(cx: &mut SharedFilters<'_>) {
+        cx.tick::<T>("Changed", false);
     }
 }
 
@@ -142,11 +149,17 @@ impl<T: Component> OrTerm for Added<T> {
     fn add_term(world: &mut World, filters: &mut Filters) {
         filters.add_or_tick(filtered::<T>(world), true);
     }
+    fn add_shared_term(cx: &mut SharedFilters<'_>) {
+        cx.or_tick::<T>("Added", true);
+    }
 }
 
 impl<T: Component> OrTerm for Changed<T> {
     fn add_term(world: &mut World, filters: &mut Filters) {
         filters.add_or_tick(filtered::<T>(world), false);
+    }
+    fn add_shared_term(cx: &mut SharedFilters<'_>) {
+        cx.or_tick::<T>("Changed", false);
     }
 }
 

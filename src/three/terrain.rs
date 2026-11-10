@@ -302,12 +302,12 @@ impl Graphics {
     ///     let ground = ctx.gfx.default_material();
     ///     let tile = ctx.gfx.create_terrain_tile(&[0.0; 9 * 9], 16.0, ground);
     ///     ctx.gfx.free_terrain_tile(tile);
-    ///     assert!(!ctx.gfx.is_mesh_live(tile.lods[0]));
+    ///     assert!(!ctx.gfx.is_live(tile.lods[0]));
     /// });
     /// ```
     pub fn free_terrain_tile(&mut self, tile: TerrainTile) {
         for mesh in tile.lods {
-            self.free_mesh(mesh);
+            self.free(mesh);
         }
     }
 }

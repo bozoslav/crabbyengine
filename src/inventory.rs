@@ -2,7 +2,10 @@
 //! sounds and other asset handles, with estimated bytes ([`Ctx::asset_inventory`]).
 //!
 //! Counts come from the engine's own handle tables, the same ones that
-//! decide whether a handle is live, so they also work in headless runs.
+//! decide whether a handle is live ([`Ctx::is_live`], [`Ctx::live_counts`]),
+//! so they also work in headless runs. Every class agrees with
+//! [`LiveCounts`](crate::LiveCounts) except [`AssetClass::Texture`], which adds the engine's own
+//! textures because it measures memory, not handles.
 //! A windowed game adds what the renderer actually holds on the GPU
 //! ([`GpuResidency`]), to cross-check the two.
 
@@ -17,26 +20,29 @@ use crate::ctx::Ctx;
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum AssetClass {
-    /// Images from [`Graphics::create_texture`](crate::Graphics::create_texture) and [`Ctx::load_texture`]
-    /// (fonts and UI images too). Never freed.
+    /// Images from [`Graphics::create_texture`](crate::Graphics::create_texture) and [`Ctx::load_texture`],
+    /// freed with [`Graphics::free`](crate::Graphics::free). Also counts the engine's own textures
+    /// (glyph atlases, UI images), which the game can't free, so it can read
+    /// more than [`LiveCounts::textures`](crate::LiveCounts::textures).
     Texture,
-    /// 3D: textures cameras draw into ([`Graphics::create_render_target`](crate::Graphics::create_render_target)). Never freed.
+    /// 3D: textures cameras draw into ([`Graphics::create_render_target`](crate::Graphics::create_render_target)),
+    /// freed with [`Graphics::free`](crate::Graphics::free).
     RenderTarget,
-    /// 3D: [`TextureArray`](crate::TextureArray)s. Never freed.
+    /// 3D: [`TextureArray`](crate::TextureArray)s, freed with [`Graphics::free`](crate::Graphics::free).
     TextureArray,
-    /// 3D: [`Material`](crate::Material)s. Never freed.
+    /// 3D: [`Material`](crate::Material)s, freed with [`Graphics::free`](crate::Graphics::free).
     Material,
-    /// 3D: material [`Shader`](crate::Shader)s. Never freed.
+    /// 3D: material [`Shader`](crate::Shader)s, freed with [`Graphics::free`](crate::Graphics::free).
     Shader,
-    /// 3D: [`Mesh`](crate::Mesh)es, freed with [`Graphics::free_mesh`](crate::Graphics::free_mesh).
+    /// 3D: [`Mesh`](crate::Mesh)es, freed with [`Graphics::free`](crate::Graphics::free).
     Mesh,
-    /// 3D: [`GpuBuffer`](crate::GpuBuffer)s, freed with [`Ctx::free`](crate::Ctx::free).
+    /// 3D: [`GpuBuffer`](crate::GpuBuffer)s, freed with [`Graphics::free`](crate::Graphics::free).
     GpuBuffer,
-    /// 3D: screen [`Effect`](crate::Effect)s. Never freed.
+    /// 3D: screen [`Effect`](crate::Effect)s, freed with [`Graphics::free`](crate::Graphics::free).
     Effect,
-    /// 3D: [`Compute`](crate::Compute) passes. Never freed.
+    /// 3D: [`Compute`](crate::Compute) passes, freed with [`Graphics::free`](crate::Graphics::free).
     Compute,
-    /// [`Sound`](crate::Sound)s, loaded or made. Never freed.
+    /// [`Sound`](crate::Sound)s, loaded or made, freed with [`Audio::free`](crate::Audio::free).
     Sound,
 }
 
@@ -118,6 +124,22 @@ pub struct GpuResidency {
     pub gpu_buffer_bytes: u64,
 }
 
+/// A component that still names a freed handle, from
+/// [`AssetInventory::dangling`]: it draws with the default (see
+/// [`Ctx::free`]) until it is updated or despawned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[non_exhaustive]
+pub struct DanglingHandle {
+    /// The entity holding it, as its bits ([`Entity::to_bits`](crate::Entity::to_bits)).
+    pub entity: u64,
+    /// The component: `"Sprite"`, `"Model"`, `"ModelMaterial"` or `"ShadowMesh"`.
+    pub component: &'static str,
+    /// What was freed.
+    pub class: AssetClass,
+    /// The freed handle's id.
+    pub id: u32,
+}
+
 /// Live asset handles by [`AssetClass`], from [`Ctx::asset_inventory`]:
 /// to see what a long-running game holds, and to find what grows when it
 /// shouldn't (a leak). Take one as a baseline, run the game for a while,
@@ -142,6 +164,10 @@ pub struct AssetInventory {
     pub classes: Vec<AssetCount>,
     /// What the renderer holds, to cross-check the handles against.
     pub gpu: Option<GpuResidency>,
+    /// Sprites and models that still show a freed texture, mesh or
+    /// material, in entity order; empty when there are none. A freed mesh's
+    /// id goes to the next mesh made, so a model is listed only until then.
+    pub dangling: Vec<DanglingHandle>,
 }
 
 impl AssetInventory {
@@ -258,7 +284,73 @@ impl Ctx {
         } else {
             self.gfx.renderer.as_ref().and_then(crate::render::Renderer::residency)
         };
-        AssetInventory { classes, gpu }
+        AssetInventory {
+            classes,
+            gpu,
+            dangling: self.dangling_handles(),
+        }
+    }
+
+    /// Components that name a freed handle (see [`AssetInventory::dangling`]).
+    fn dangling_handles(&self) -> Vec<DanglingHandle> {
+        let mut out = Vec::new();
+        let world = &self.world;
+        // `was_made` keeps `NONE` and the engine's own textures out.
+        let textures = &self.gfx.textures_live;
+        each::<crate::Sprite>(world, |e, s| {
+            if textures.was_made(s.texture.id) && !textures.contains(s.texture.id) {
+                out.push(DanglingHandle::new(e, "Sprite", AssetClass::Texture, s.texture.id));
+            }
+        });
+        #[cfg(feature = "3d")]
+        {
+            let gfx = &self.gfx;
+            let freed_mesh = |m: crate::Mesh| m != crate::Mesh::NONE && !gfx.is_live(m);
+            each::<crate::Model>(world, |e, m| {
+                if freed_mesh(m.mesh) {
+                    out.push(DanglingHandle::new(e, "Model", AssetClass::Mesh, m.mesh.id));
+                }
+            });
+            each::<crate::ShadowMesh>(world, |e, m| {
+                if let Some(mesh) = m.0.filter(|&m| freed_mesh(m)) {
+                    out.push(DanglingHandle::new(e, "ShadowMesh", AssetClass::Mesh, mesh.id));
+                }
+            });
+            let materials = &gfx.assets3d.materials_live;
+            each::<crate::ModelMaterial>(world, |e, m| {
+                if materials.was_made(m.0.id) && !materials.contains(m.0.id) {
+                    out.push(DanglingHandle::new(e, "ModelMaterial", AssetClass::Material, m.0.id));
+                }
+            });
+        }
+        out.sort_by_key(|d| d.entity);
+        out
+    }
+}
+
+/// Calls `f` with every entity that has a `T`, without a mutable borrow of
+/// the world.
+fn each<T: crate::Component>(world: &crate::World, mut f: impl FnMut(crate::Entity, &T)) {
+    let Some(id) = world.component_id::<T>() else {
+        return;
+    };
+    for arch in world.archetypes().iter().filter(|a| a.has(id)) {
+        for &e in arch.entities() {
+            if let Some(c) = world.get::<T>(e) {
+                f(e, c);
+            }
+        }
+    }
+}
+
+impl DanglingHandle {
+    fn new(e: crate::Entity, component: &'static str, class: AssetClass, id: u32) -> Self {
+        DanglingHandle {
+            entity: e.to_bits(),
+            component,
+            class,
+            id,
+        }
     }
 }
 
@@ -279,6 +371,7 @@ mod tests {
         let before = AssetInventory {
             classes: vec![count(AssetClass::Texture, 2, 100), count(AssetClass::Sound, 1, 10)],
             gpu: None,
+            dangling: Vec::new(),
         };
         let after = AssetInventory {
             classes: vec![
@@ -287,6 +380,7 @@ mod tests {
                 count(AssetClass::Mesh, 1, 900),
             ],
             gpu: None,
+            dangling: Vec::new(),
         };
         let growth = after.growth_since(&before);
         assert_eq!(growth.len(), 2);

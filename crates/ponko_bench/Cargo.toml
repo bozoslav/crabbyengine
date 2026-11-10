@@ -30,3 +30,7 @@ render = ["ponko/window"]
 name = "instances"
 path = "src/bin/instances.rs"
 required-features = ["render"]
+
+[[bin]]
+name = "characters"
+path = "src/bin/characters.rs"

@@ -177,6 +177,30 @@ To rebind, copy `ctx.input.actions()`, call `set` or `remove`, then install it w
 map. Installation resets action edges and uses currently held inputs as the
 baseline. Rebinding a held key therefore does not generate a new press.
 
+A map reads back: `get("jump")` gives one action's bindings, `iter()` every
+action in name order (the order the JSON file stores them in), and `len()`
+counts them. An `Action`'s `buttons()`, `axes()` and `axes2()` are its
+sources as slices (empty for the other kinds). A settings screen can show
+what `ctx.input.actions()` binds instead of keeping its own copy. To change
+one action without rebuilding the map, `ctx.input.set_action("jump", action)`
+replaces it in place. The name keeps its `ActionId`, the other actions keep
+their state and edges, and held sources become the baseline as above:
+
+```rust
+# use ponko::*;
+# fn example(ctx: &mut Ctx) {
+let mut jump = ctx.input.actions().get("jump").cloned().unwrap_or(Action::Button(vec![]));
+if let Action::Button(sources) = &mut jump {
+    sources.retain(|s| !matches!(s, ButtonBinding::Key(_)));
+    sources.insert(0, ButtonBinding::Key(Key::K)); // the player's new key
+}
+ctx.input.set_action("jump", jump);
+# }
+```
+
+The read-back and `set_action` are Rust-only for now; C and C++ rebuild the map
+and install it as described above.
+
 `ActionMap::to_json` / `action_map::to_json` save bindings only, with the same
 serde JSON format in both languages. Write that string to your settings file
 using normal file I/O. Read it back with `ActionMap::from_json` /

@@ -452,7 +452,7 @@ pub unsafe extern "C" fn crabby_ctx_draw_text_ex(
                 return Err(invalid("params is null"));
             }
             let p = *params;
-            if !c.gfx.has_font(font_from_c(p.font)) {
+            if !c.gfx.is_live(font_from_c(p.font)) {
                 return Err(invalid("unknown or freed font"));
             }
             c.gfx.draw_text_ex(
@@ -492,7 +492,7 @@ pub unsafe extern "C" fn crabby_ctx_measure_text_ex(
             if out_size.is_null() {
                 return Err(invalid("output is null"));
             }
-            if !c.gfx.has_font(font_from_c(font)) {
+            if !c.gfx.is_live(font_from_c(font)) {
                 return Err(invalid("unknown or freed font"));
             }
             out(out_size, to_c(c.gfx.measure_text_ex(string, font_from_c(font), size)))

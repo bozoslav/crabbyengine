@@ -289,7 +289,7 @@ mod tests {
         let path = path.to_str().unwrap().to_string();
         Game::new("t", 1, 1).run_headless(0, move |ctx| {
             let mesh = ctx.gfx.load_mesh(&path);
-            assert!(ctx.gfx.is_mesh_live(mesh));
+            assert!(ctx.gfx.is_live(mesh));
         });
         let _ = std::fs::remove_dir_all(dir);
     }

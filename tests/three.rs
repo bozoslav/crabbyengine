@@ -1561,10 +1561,10 @@ fn persistent_instances(ctx: &mut Ctx, mesh: Mesh) {
     );
     assert_eq!(ctx.gfx.instance_batch_len(batch), Some(100_000));
     assert!(ctx.gfx.update_instance_batch(batch, &[Mat4::IDENTITY]));
-    ctx.gfx.free_instance_batch(batch);
+    ctx.gfx.free(batch);
     assert_eq!(ctx.gfx.instance_batch_len(batch), None);
     assert!(!ctx.gfx.update_instance_batch(batch, &[]));
-    ctx.gfx.free_instance_batch(batch);
+    ctx.gfx.free(batch);
 }
 // ANCHOR_END: gpu_instances
 #[test]
@@ -1633,11 +1633,11 @@ fn leveled_instances(ctx: &mut Ctx, near: Mesh, far: Mesh) {
     );
     assert_eq!(ctx.gfx.instance_batch_len(batch), Some(2));
     assert!(ctx.gfx.update_instance_batch(batch, &[Mat4::IDENTITY]));
-    ctx.gfx.free_instance_batch(batch);
+    ctx.gfx.free(batch);
     assert!(!ctx.is_live(batch));
     assert!(!ctx.gfx.update_instance_batch_colors(batch, &[], &[]));
     assert_eq!(ctx.gfx.instance_batch_len(batch), None);
-    ctx.gfx.free_instance_batch(batch);
+    ctx.gfx.free(batch);
 }
 // ANCHOR_END: instance_levels
 

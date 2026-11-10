@@ -16,6 +16,12 @@ the `3d` feature `Mesh`, `Material`, `Shader`, `Compute`, `Effect`,
 `GpuBuffer`, `InstanceBatch` and `TextureArray`. They implement the `Handle`
 trait, so a helper can take any of them.
 
+The service that holds a handle answers the same questions:
+`ctx.gfx.is_live(h)`, `ctx.gfx.free(h)` and `ctx.gfx.live_counts()` for
+everything drawn (every kind except `Sound`, the `GfxHandle` trait), and
+`ctx.audio.is_live(s)` and `ctx.audio.free(s)` for sounds. `ctx.is_live`
+and `ctx.free` take any kind and forward to them.
+
 A game that streams its world frees what each cell made when the cell goes
 out of range:
 
@@ -88,10 +94,18 @@ let before = ctx.live_counts();
 assert_eq!(ctx.live_counts(), before);
 ```
 
+`ctx.asset_inventory()` counts the same handles with estimated bytes (its
+texture count also includes the engine's own textures), and its `dangling`
+list names the sprites and models that still show a freed texture, mesh or
+material. The control endpoint's `perf.get` includes it as `assets`.
+
 ## The older names
 
-The per-kind calls (`free_mesh`, `free_texture`, `has_material`,
-`is_mesh_live`, ...) still work and do the same as `free` and `is_live`.
+The per-kind calls (`free_mesh`, `free_instance_batch`, `has_material`,
+`has_shader`, `has_font`, `is_mesh_live`, ...) still work and do the same as
+`free` and `is_live`, but are deprecated: use `ctx.gfx.free(h)` and
+`ctx.gfx.is_live(h)`. `gpu_buffer_len`, `instance_batch_len`,
+`has_texture_array` (which also checks the size) and `is_render_target` stay: they answer more than whether a handle is live.
 
 ## Not handles
 

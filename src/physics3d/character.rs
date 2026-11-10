@@ -150,8 +150,11 @@ pub(super) struct Plan {
 }
 
 /// Fewer characters than this move on one thread: splitting the work
-/// costs more than it saves.
-const PARALLEL_FROM: usize = 8;
+/// costs more than it saves. Measured with `ponko_bench --bin characters`
+/// (walking on a flat floor, Apple M4 Pro, 12 cores): one thread is faster
+/// at 8 (0.036 vs 0.044 ms a tick), the two tie at 12, and the pool wins
+/// from 16 (0.053 vs 0.044 ms; 0.107 vs 0.059 ms at 32).
+const PARALLEL_FROM: usize = 16;
 
 /// Works out `c`'s move. Fills `hits` (emptied first) with the dynamic
 /// bodies it walked into, if it pushes.
