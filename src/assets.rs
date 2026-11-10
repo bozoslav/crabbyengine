@@ -31,8 +31,19 @@ use std::sync::Arc;
 /// [`id`](Self::id) and its name, so the same name in two sources is two
 /// assets, and loading a name again returns the first handle without
 /// reading the source again. This holds for every kind of asset: textures,
-/// fonts, data, scenes, prefabs, sounds and (with the `3d` feature) meshes,
-/// skeletons, animation clips, shaders, screen effects and compute passes.
+/// fonts, data, scenes, prefabs, sounds, streamed music and (with the `3d`
+/// feature) meshes, skeletons, animation clips, shaders, screen effects and
+/// compute passes. Images a glTF file refers to are shared between models
+/// by the source they were found in, so two sources with the same image
+/// name give two images. Texture arrays, reflection probe images and
+/// [`load_asset_with`](crate::Ctx::load_asset_with) read their source on
+/// every call (they aren't cached).
+///
+/// # In a browser
+///
+/// Added sources work the same in web builds: they are asked first, and
+/// what they have is never fetched. The default source there is the files
+/// listed in `assets/index.json`, fetched before setup.
 ///
 /// # Hot reload
 ///
@@ -58,6 +69,18 @@ pub trait AssetSource: 'static {
     /// `NotFound` lets the next source try; any other error is reported to
     /// the caller of the load.
     fn read(&self, name: &str) -> std::io::Result<Vec<u8>>;
+
+    /// Whether this source has asset `name`, without handing over its
+    /// bytes. Used to tell which source a file a model refers to comes
+    /// from, so it is shared with what was loaded from that source before
+    /// instead of read again.
+    ///
+    /// The default reads it and checks the error is not
+    /// [`NotFound`](std::io::ErrorKind::NotFound); override it when that is
+    /// cheaper to answer (an index lookup).
+    fn contains(&self, name: &str) -> bool {
+        !matches!(self.read(name), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+    }
 }
 
 /// An [`AssetSource`] holding its files in memory: assets embedded with
@@ -106,6 +129,10 @@ impl MemorySource {
 impl AssetSource for MemorySource {
     fn id(&self) -> &str {
         &self.id
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.files.contains_key(name)
     }
 
     fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
@@ -248,6 +275,20 @@ impl Sources {
     #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     pub(crate) fn read(&self, name: &str) -> Result<Vec<u8>, String> {
         Ok(self.find(name)?.into_bytes()?)
+    }
+
+    /// Where asset `name` would be found, without reading it: the first
+    /// added source that [has](AssetSource::contains) it, else the default
+    /// source's file. `None` if nothing has it.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
+    pub(crate) fn locate(&self, name: &str) -> Option<Origin> {
+        match self.list.iter().find(|s| s.contains(name)) {
+            Some(source) => Some(Origin::Source {
+                source: source.id().to_string(),
+                name: name.to_string(),
+            }),
+            None => resolve(name).ok().map(Origin::File),
+        }
     }
 
     /// Finds asset `name`: in the added sources in order, then the default one.
@@ -498,6 +539,40 @@ mod tests {
             err.message().ends_with("Asset sources searched first: \"a\", \"b\""),
             "{err}"
         );
+    }
+
+    /// A source that only implements `read`: `contains` falls back to it.
+    struct ReadOnly;
+    impl AssetSource for ReadOnly {
+        fn id(&self) -> &str {
+            "read-only"
+        }
+        fn read(&self, name: &str) -> std::io::Result<Vec<u8>> {
+            match name {
+                "here" => Ok(b"x".to_vec()),
+                "broken" => Err(std::io::Error::other("disk on fire")),
+                _ => Err(std::io::ErrorKind::NotFound.into()),
+            }
+        }
+    }
+
+    #[test]
+    fn locate_names_the_first_source_that_has_a_name_without_reading_memory() {
+        let mut sources = Sources::default();
+        sources.add(Box::new(ReadOnly));
+        sources.add(Box::new(
+            MemorySource::new("mem").with("here", *b"y").with("only-mem", *b"z"),
+        ));
+        let in_source = |source: &str, name: &str| Origin::Source {
+            source: source.into(),
+            name: name.into(),
+        };
+        assert_eq!(sources.locate("here"), Some(in_source("read-only", "here")));
+        assert_eq!(sources.locate("only-mem"), Some(in_source("mem", "only-mem")));
+        // A source that has it but fails to read it still has it: the
+        // load reports the error.
+        assert_eq!(sources.locate("broken"), Some(in_source("read-only", "broken")));
+        assert_eq!(sources.locate("definitely-not-here.png"), None);
     }
 
     #[test]

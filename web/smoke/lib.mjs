@@ -46,7 +46,7 @@ export function parseMin(spec) {
   return { field: match[1], min: Number(match[2]) };
 }
 
-const FIXTURE_KEYS = ["example", "features", "asset", "assetSize", "presses", "min", "engineGpu"];
+const FIXTURE_KEYS = ["example", "features", "asset", "assetSize", "assetSource", "presses", "min", "engineGpu"];
 
 /** Parses fixtures.json: what each example needs from the runner. */
 export function parseFixtures(text) {
@@ -96,6 +96,7 @@ export function parseArgs(argv, fixtures = {}) {
       case "--chrome-trace": args.chromeTrace = true; break;
       case "--asset": given.asset = value(); break;
       case "--asset-size": given.assetSize = value(); break;
+      case "--asset-source": given.assetSource = value(); break;
       case "--engine-gpu": given.engineGpu = value(); break;
       case "--press": (given.presses ??= []).push(parsePress(value())); break;
       case "--min": (given.mins ??= []).push(parseMin(value())); break;
@@ -111,6 +112,7 @@ export function parseArgs(argv, fixtures = {}) {
   args.features = fixture?.features ?? [];
   args.asset = given.asset ?? fixture?.asset ?? "crab.png";
   args.assetSize = given.assetSize ?? (fixture ? fixture.assetSize ?? "none" : "32x32");
+  args.assetSource = given.assetSource ?? (fixture ? fixture.assetSource ?? "none" : "4x2");
   args.presses = given.presses ?? (fixture?.presses ?? []).map(parsePress);
   args.mins = given.mins ?? Object.entries(fixture?.min ?? {}).map(([field, min]) => ({ field, min }));
   args.engineGpu = given.engineGpu ?? (fixture?.engineGpu ? "required" : "optional");
@@ -124,6 +126,7 @@ export function parseArgs(argv, fixtures = {}) {
   if (!(args.case in CASES)) fail(`--case must be one of ${Object.keys(CASES).join(", ")}`);
   if (!(args.timeout > 0)) fail("--timeout must be a positive number of seconds");
   if (args.assetSize !== "none" && !/^\d+x\d+$/.test(args.assetSize)) fail("--asset-size must look like 32x32, or none");
+  if (args.assetSource !== "none" && !/^\d+x\d+$/.test(args.assetSource)) fail("--asset-source must look like 4x2, or none");
   if (!/^[\w./-]+$/.test(args.asset)) fail("--asset must be a plain file name under assets/");
   if (!["required", "optional"].includes(args.engineGpu)) fail("--engine-gpu must be required or optional");
   const browserLabel = args.browser === "chromium" && args.chromiumMode === "new" ? "chromium-new" : args.browser;

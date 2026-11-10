@@ -24,6 +24,7 @@ test("a fixture supplies its example, features, asset and expectations", () => {
   assert.deepEqual(args.features, ["3d"]);
   assert.equal(args.asset, "models/house.glb");
   assert.equal(args.assetSize, "none", "a model has no decoded size to compare");
+  assert.equal(args.assetSource, "none", "only the 2D fixture loads from an in-memory asset source");
   assert.deepEqual(args.mins, [
     { field: "models_drawn", min: 1 },
     { field: "triangles", min: 100 },
@@ -59,8 +60,16 @@ test("without a fixture the defaults are the 2D fixture's", () => {
   assert.equal(args.backend, "auto");
   assert.equal(args.asset, "crab.png");
   assert.equal(args.assetSize, "32x32");
+  assert.equal(args.assetSource, "4x2");
   assert.equal(args.engineGpu, "optional");
   assert.equal(args.trace, true);
+});
+
+test("the 2D fixture expects its in-memory asset source; a flag can change or drop it", () => {
+  assert.equal(parse("--fixture", "web_smoke").assetSource, "4x2");
+  assert.equal(parse("--fixture", "coin_dash").assetSource, "none");
+  assert.equal(parse("--fixture", "web_smoke", "--asset-source", "none").assetSource, "none");
+  assert.throws(() => parse("--fixture", "web_smoke", "--asset-source", "big"), /--asset-source must look like/);
 });
 
 test("artifacts go to a folder named by fixture, browser, backend and case", () => {

@@ -10,7 +10,9 @@ order:
    the canvas: an engine that says `gl` on a canvas with a WebGPU context, or
    the reverse, fails.
 2. **Assets**: `assets/index.json` and the fixture's asset were fetched
-   (HTTP 200); a texture also decoded at its real size.
+   (HTTP 200); a texture also decoded at its real size. In the 2D fixture, an
+   image and streamed music from the game's in-memory asset source loaded by
+   name without being fetched.
 3. **Progress**: the fixed-step simulation keeps ticking (at least 60 ticks
    in 3 seconds, a third of the 60 Hz rate; a coarse bound, not a frame-rate
    assertion, kept above the `stall` self-test's 20 ticks).
@@ -30,13 +32,13 @@ runner needs to know about each one, so `--fixture <name>` is all a run takes:
 
 | Fixture | Example | Features | Checks |
 |---|---|---|---|
-| `web_smoke` | `examples/web_smoke.rs` | none | `crab.png` fetched and decoded 32x32; sprites drawn |
+| `web_smoke` | `examples/web_smoke.rs` | none | `crab.png` fetched and decoded 32x32; an image and streamed music loaded from an in-memory asset source; sprites drawn |
 | `web_smoke_3d` | `examples/web_smoke_3d.rs` | `3d` | `models/house.glb` fetched and parsed; a sun with shadows; at least 1 model and 100 triangles drawn |
 | `coin_dash` | `examples/coin_dash` | none | the complete game: its picture, keys and the screens they reach (see [A complete game, packaged](../../book/src/packaging.md#the-web-build)) |
 
 To add one: publish the state with the helper (or the same attributes by hand),
 add an entry to `fixtures.json` (`example`, `features`, `asset`, `assetSize`
-or none, `presses`, `min`, `engineGpu`), and name it in the CI job. Every
+or none, `assetSource` or none, `presses`, `min`, `engineGpu`), and name it in the CI job. Every
 fixture needs `?smoke_case=panic` and `?smoke_case=stall` handled if it is to
 run the self-tests; the helper does that.
 
@@ -80,6 +82,7 @@ Options:
 | `--timeout <s>` | Seconds to wait for the first frame (default 90). |
 | `--allow-unsupported` | Exit 0 instead of 2 when the browser lacks the backend (the report and the last line still say UNSUPPORTED). |
 | `--asset <file>` / `--asset-size <W>x<H>` / `none` | Without a fixture: the file under `assets/` that must be fetched (default `crab.png`), and the size it must decode to. |
+| `--asset-source <W>x<H>` / `none` | The size the image from the game's in-memory asset source must decode to (the state's `source`); its streamed music must load too, and nothing under `assets/embedded/` may be fetched. Default `4x2` without a fixture. |
 | `--press <Key>=<field>:<value>` | After the click, press the key (Playwright key name: `Enter`, `Escape`, `Q`) and wait up to 10 s for the reported state's `<field>` to become `<value>`. Repeatable, in order. |
 | `--min <field>=<n>` | The reported state's numeric `<field>` must be at least `n`. Repeatable. |
 | `--engine-gpu required` | Fail when the fixture publishes no engine GPU report (fixtures set this). |

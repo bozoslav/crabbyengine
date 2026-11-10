@@ -72,6 +72,9 @@ pub(crate) enum AssetKind {
     Texture,
     Font,
     Sound,
+    /// A sound loaded with `load_stream`: the same name can also be a
+    /// `load_sound`, decoded whole, and the two are different sounds.
+    Stream,
 }
 
 /// Applies a data file's text to the world.
@@ -209,6 +212,9 @@ pub struct Ctx {
     data_loaders: Vec<DataLoader>,
     /// Parsed prefab files, by name (`spawn_prefab`).
     pub(crate) prefabs: HashMap<String, serde_json::Value>,
+    /// Fields of reflected components that name assets, and how to load
+    /// them before a scene or prefab is spawned (`scene_asset_field`).
+    pub(crate) scene_asset_fields: Vec<crate::scene::SceneAssetField>,
     /// Asset sources added with `add_asset_source`, asked before `assets/`.
     pub(crate) asset_sources: assets::Sources,
     /// Assets loaded under residency budgets (`resident_mesh`), by kind.
@@ -463,6 +469,7 @@ impl Ctx {
             watcher: Default::default(),
             data_loaders: Vec::new(),
             prefabs: HashMap::new(),
+            scene_asset_fields: Vec::new(),
             asset_sources: assets::Sources::default(),
             residency: Default::default(),
             loaded: HashMap::new(),
@@ -1350,14 +1357,13 @@ impl Ctx {
     /// Every load by name goes through it: [`load_texture`](Self::load_texture),
     /// [`load_font`](Self::load_font), [`load_resource`](Self::load_resource),
     /// [`load_scene`](Self::load_scene), [`spawn_prefab`](Self::spawn_prefab)
-    /// (and the textures their scenes name), [`load_sound`](Self::load_sound),
+    /// (and the assets their scenes name, including fields registered with
+    /// [`scene_asset_field`](Self::scene_asset_field)),
+    /// [`load_sound`](Self::load_sound), [`load_stream`](Self::load_stream),
     /// [`load_asset_with`](Self::load_asset_with) and, with the `3d` feature,
-    /// meshes, skeletons and animation clips (and the files a glTF refers to),
-    /// shaders, screen effects and compute passes.
-    ///
-    /// Not covered yet: [`load_stream`](Self::load_stream) (music streamed
-    /// from a file), texture arrays and reflection probe images still come
-    /// only from `assets/`.
+    /// meshes, skeletons and animation clips (and the files a glTF refers
+    /// to), texture arrays, reflection probe images, shaders, screen effects
+    /// and compute passes.
     ///
     /// Assets from sources are never hot reloaded: only files found in
     /// `assets/` are watched. See [`AssetSource`](crate::AssetSource) for
@@ -1546,7 +1552,7 @@ impl Ctx {
         }
         #[cfg(feature = "physics3d")]
         self.load_collider_files(json)?;
-        Ok(())
+        self.load_scene_asset_fields(json)
     }
 
     /// Loads resource `R` from a JSON file in `assets/`. With [hot
@@ -2840,6 +2846,28 @@ mod tests {
         assert_eq!(ctx.watcher.watched(), 1, "source sounds are not watched");
         assert_eq!(ctx.load_sound(&name), from_source, "the source's copy stays cached");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn streams_are_never_watched_and_cached_apart_from_sounds() {
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ZERO);
+        ctx.headless = true;
+        ctx.watcher.on = true;
+        ctx.add_asset_source(crate::MemorySource::new("mem").with("theme.wav", wav()));
+        let stream = ctx.load_stream("theme.wav");
+        assert_eq!(ctx.watcher.watched(), 0, "streams are not watched");
+        let sound = ctx.load_sound("theme.wav");
+        assert_ne!(stream, sound);
+        let origin = assets::Origin::Source {
+            source: "mem".into(),
+            name: "theme.wav".into(),
+        };
+        assert!(ctx.loaded.contains_key(&(origin.clone(), AssetKind::Stream)));
+        assert!(ctx.loaded.contains_key(&(origin, AssetKind::Sound)));
+        // Freeing the stream forgets it: loading again makes a new one.
+        ctx.free(stream);
+        assert_ne!(ctx.load_stream("theme.wav"), stream);
+        assert_eq!(ctx.load_sound("theme.wav"), sound);
     }
 
     #[cfg(feature = "3d")]

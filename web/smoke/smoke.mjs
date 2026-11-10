@@ -425,6 +425,21 @@ async function main() {
         throw new Failure("asset", `${args.asset} decoded as ${JSON.stringify(snapshot.state.asset)}, not ${args.assetSize}`);
       }
     }
+    // Assets from the game's in-memory asset source load by name in the
+    // browser too, and are never fetched (fixtures with `assetSource`).
+    if (args.assetSource !== "none") {
+      const [sourceWidth, sourceHeight] = args.assetSource.split("x").map(Number);
+      if (JSON.stringify(snapshot.state.source) !== JSON.stringify([sourceWidth, sourceHeight])) {
+        throw new Failure("asset", `the asset source's image decoded as ${JSON.stringify(snapshot.state.source)}, not ${args.assetSource}`);
+      }
+      if (snapshot.state.stream !== true) {
+        throw new Failure("asset", "streamed music from the asset source did not load");
+      }
+      const fetchedSource = report.requests.find((r) => r.path.includes("/assets/embedded/"));
+      if (fetchedSource) {
+        throw new Failure("asset", `${fetchedSource.path} was fetched, but it comes from an asset source`);
+      }
+    }
 
     // 3. Progress: the fixed-step simulation keeps ticking. The bound is
     //    coarse, not a frame-rate assertion: 60 Hz for 3 s gives ~180 ticks,

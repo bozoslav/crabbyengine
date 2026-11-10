@@ -3,6 +3,7 @@
     "example": "web_smoke",
     "asset": "crab.png",
     "assetSize": "32x32",
+    "assetSource": "4x2",
     "engineGpu": true
   },
   "web_smoke_3d": {
