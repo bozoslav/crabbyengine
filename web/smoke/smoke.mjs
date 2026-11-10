@@ -90,13 +90,26 @@ async function serve(root) {
 
 const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
-/** What the browser offers, probed on a blank page before the game loads. */
-async function probe(context, url) {
+/**
+ * What the browser offers, probed on a blank page before the game loads.
+ * WebGL2 is asked for first, and a WebGL2 run skips the WebGPU canvas test:
+ * on a GPU-less runner that test (a software WebGPU device presenting a
+ * canvas) can leave the browser without WebGL2 for the pages that follow.
+ */
+async function probe(context, url, backend) {
   const page = await context.newPage();
   try {
     await page.goto(new URL(PROBE_PATH, url).href);
-    return await page.evaluate(async () => {
+    return await page.evaluate(async (webgpuCanvasTest) => {
       const result = { webgpu: null, webgl2: null, hasNavigatorGpu: Boolean(navigator.gpu) };
+      const gl = document.createElement("canvas").getContext("webgl2");
+      if (gl) {
+        const debug = gl.getExtension("WEBGL_debug_renderer_info");
+        result.webgl2 = {
+          vendor: gl.getParameter(debug ? debug.UNMASKED_VENDOR_WEBGL : gl.VENDOR),
+          renderer: gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER),
+        };
+      }
       if (navigator.gpu) {
         try {
           const adapter = await navigator.gpu.requestAdapter();
@@ -108,6 +121,7 @@ async function probe(context, url) {
               description: info.description ?? "",
               fallback: Boolean(adapter.isFallbackAdapter ?? info.isFallbackAdapter),
             };
+            if (!webgpuCanvasTest) return result;
             // Can this browser show a WebGPU canvas at all? Clear one to
             // red without the engine and copy it back. (Some headless
             // setups have an adapter but no canvas presentation.)
@@ -145,16 +159,8 @@ async function probe(context, url) {
           }
         }
       }
-      const gl = document.createElement("canvas").getContext("webgl2");
-      if (gl) {
-        const debug = gl.getExtension("WEBGL_debug_renderer_info");
-        result.webgl2 = {
-          vendor: gl.getParameter(debug ? debug.UNMASKED_VENDOR_WEBGL : gl.VENDOR),
-          renderer: gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER),
-        };
-      }
       return result;
-    });
+    }, backend !== "webgl2");
   } finally {
     await page.close();
   }
@@ -318,7 +324,7 @@ async function main() {
     // calling a backend unsupported.
     for (let attempt = 1; ; attempt++) {
       const probeContext = await browser.newContext();
-      report.capabilities = await probe(probeContext, url);
+      report.capabilities = await probe(probeContext, url, args.backend);
       await probeContext.close();
       report.probeAttempts = attempt;
       if (backendAvailable(report.capabilities, args.backend) || attempt === 3) break;
