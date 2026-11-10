@@ -128,6 +128,9 @@ jobs:
           python3 scripts/generate-ponko-header.py --check
       - name: Changelog fragments
         run: python3 scripts/changelog.py --check
+      # Every C export needs a test, or a reasoned entry in the allowlist.
+      - name: C ABI test coverage
+        run: python3 scripts/check-ffi-coverage.py
       - run: cargo fmt --all --check
 
   # Reduced builds lint one package (`scope`), not the workspace: Cargo

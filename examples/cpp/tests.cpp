@@ -20,6 +20,16 @@ struct Tag {};
 namespace game { struct Health { float value; }; }
 namespace other { struct Health { int value; }; }
 PONKO_COUNT_CPP_ALLOCATIONS
+// The wrapper throws the engine's message; an argument the engine refused says so
+// (a panic would say "panicked").
+template<class F> void throws_invalid(F f, const char* what) {
+    bool caught = false;
+    try { f(); } catch (const std::exception& e) {
+        std::string message = e.what();
+        caught = message.find(what) != std::string::npos && message.find("panic") == std::string::npos;
+    }
+    CHECK(caught);
+}
 template<class F> void throws(F f) { bool caught = false; try { f(); } catch (const std::exception&) { caught = true; } CHECK(caught); }
 
 static void worlds() {
@@ -1047,9 +1057,9 @@ static void sound3d() {
     });
 }
 
-// A two-joint skin with one clip, "rise": the arm goes up 2 over 1 second.
-static void animators() {
-    const auto file = std::filesystem::temp_directory_path() / "ponko-cpp-rise.gltf";
+// Writes the two-joint skin with the clip "rise" to the temp folder.
+static std::filesystem::path write_rise_gltf(const char* name) {
+    const auto file = std::filesystem::temp_directory_path() / name;
     std::ofstream(file) << R"({"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": [0]}],
         "nodes": [{"name": "root", "children": [1]}, {"name": "arm", "mesh": 0}],
         "meshes": [{"primitives": [{"attributes": {"POSITION": 2}}]}],
@@ -1062,6 +1072,12 @@ static void animators() {
         "accessors": [{"bufferView": 0, "componentType": 5126, "count": 2, "type": "SCALAR", "min": [0], "max": [1]},
             {"bufferView": 1, "componentType": 5126, "count": 2, "type": "VEC3"},
             {"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}]})";
+    return file;
+}
+
+// A two-joint skin with one clip, "rise": the arm goes up 2 over 1 second.
+static void animators() {
+    const auto file = write_rise_gltf("ponko-cpp-rise.gltf");
     const std::string path = file.string();
     ponko::game("animators", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         auto rise = ctx.load_clip(path.c_str(), "rise");
@@ -1095,7 +1111,9 @@ static void animators() {
         CHECK(ctx.animator_normalized_time(e) == 0.75f);
         CHECK(ctx.animator_next_event(e) == std::optional<std::string>("half"));
         CHECK(!ctx.animator_next_event(e));
-        throws([&] { ctx.animator_set_bool(e, speed, true); }); // speed is a float
+        throws_invalid([&] { ctx.animator_set_bool(e, speed, true); }, "not a bool"); // speed is a float
+        throws_invalid([&] { ctx.animator_crossfade(e, 7, 0.1f); }, "no such animation state");
+        throws_invalid([&] { ctx.animator_crossfade(e, still, -1.0f); }, "duration");
         ctx.animator_play(e, still);
         ctx.animator_update(e, 0.0f);
         CHECK(ctx.animator_state(e) == still);
@@ -1819,6 +1837,207 @@ static void profiling() {
     });
 }
 
+// Animator parameters a layer reads (bool, trigger, float), a 2D blend tree,
+// and the C++ face of the 3D joint kinds, queries and clock.
+static void animator_layers_and_blend_trees() {
+    const auto file = write_rise_gltf("ponko-cpp-layers.gltf");
+    const std::string path = file.string();
+    ponko::game("layers", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto rise = ctx.load_clip(path.c_str(), "rise");
+        auto e = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ctx.load_skeleton(e, path.c_str());
+        auto arm = *ctx.find_joint(e, "arm");
+
+        // The base animation holds still; a layer rises when told to.
+        ponko::animation_graph_builder base;
+        base.add_state(ponko::motion::of(rise), 0);
+        ctx.set_animator(e, base.build(0));
+        ctx.animator_set_manual(e, true);
+
+        ponko::animation_graph_builder lb;
+        auto flag = lb.add_bool();
+        auto fire = lb.add_trigger();
+        auto amount = lb.add_float();
+        auto idle = lb.add_state(ponko::motion::of(rise), 0);
+        auto run = lb.add_state(ponko::motion::of(rise), 1, std::nullopt, false);
+        auto by_flag = lb.add_transition(idle, run, 0);
+        lb.add_condition(by_flag, PONKO_CONDITION_BOOL, flag, 1);
+        auto by_trigger = lb.add_transition(idle, run, 0);
+        lb.add_condition(by_trigger, PONKO_CONDITION_TRIGGER, fire);
+        auto by_float = lb.add_transition(idle, run, 0);
+        lb.add_condition(by_float, PONKO_CONDITION_GREATER, amount, 0.5f);
+        auto overlay = lb.build(idle);
+        auto layer = ctx.animator_add_layer(e, overlay, ponko::layer_blend::override_pose);
+
+        auto arm_y = [&] { return ctx.joint_pose(e, arm).position.y; };
+        auto back_to_idle = [&] {
+            ctx.animator_layer_crossfade(e, layer, idle, 0);
+            ctx.animator_update(e, 0);
+            CHECK(std::fabs(arm_y()) < 1e-4f);
+        };
+        ctx.animator_update(e, 0.5f);
+        CHECK(std::fabs(arm_y()) < 1e-4f); // nothing asked the layer to move
+
+        ctx.animator_layer_set_bool(e, layer, flag, true);
+        ctx.animator_update(e, 0);
+        ctx.animator_update(e, 0.5f);
+        CHECK(std::fabs(arm_y() - 1.0f) < 1e-4f); // by the bool
+        ctx.animator_layer_set_bool(e, layer, flag, false);
+        back_to_idle();
+
+        ctx.animator_layer_set_trigger(e, layer, fire);
+        ctx.animator_update(e, 0);
+        ctx.animator_update(e, 0.5f);
+        CHECK(std::fabs(arm_y() - 1.0f) < 1e-4f); // by the trigger
+        back_to_idle();
+
+        ctx.animator_layer_set_float(e, layer, amount, 1.0f);
+        ctx.animator_update(e, 0);
+        ctx.animator_update(e, 0.5f);
+        CHECK(std::fabs(arm_y() - 1.0f) < 1e-4f); // by the float
+        throws([&] { ctx.animator_layer_set_float(e, layer + 1, amount, 1.0f); }); // no such layer
+        throws_invalid([&] { ctx.animator_layer_set_bool(e, layer, amount, true); }, "not a bool"); // amount is a float
+
+        // A base graph with a trigger: it fires once and is used up.
+        ponko::animation_graph_builder tb;
+        auto go = tb.add_trigger();
+        auto first = tb.add_state(ponko::motion::of(rise), 0);
+        auto second = tb.add_state(ponko::motion::of(rise), 0);
+        auto t = tb.add_transition(first, second, 0);
+        tb.add_condition(t, PONKO_CONDITION_TRIGGER, go);
+        auto second_entity = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ctx.load_skeleton(second_entity, path.c_str());
+        ctx.set_animator(second_entity, tb.build(first));
+        ctx.animator_set_manual(second_entity, true);
+        ctx.animator_update(second_entity, 0.1f);
+        CHECK(ctx.animator_state(second_entity) == first);
+        ctx.animator_set_trigger(second_entity, go);
+        ctx.animator_update(second_entity, 0);
+        CHECK(ctx.animator_state(second_entity) == second);
+
+        // A 2D blend tree of the same clip at three points plays the clip
+        // wherever the two parameters put the blend.
+        ponko::animation_graph_builder bb;
+        auto x = bb.add_float();
+        auto y = bb.add_float();
+        auto tree = ponko::motion::blend2d(x, y);
+        tree.add(0, 0, ponko::motion::of(rise)).add(1, 0, ponko::motion::of(rise)).add(0, 1, ponko::motion::of(rise), 1);
+        bb.add_state(std::move(tree), 1);
+        auto third = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+        ctx.load_skeleton(third, path.c_str());
+        ctx.set_animator(third, bb.build(0));
+        ctx.animator_set_manual(third, true);
+        ctx.animator_set_float(third, x, 0.3f);
+        ctx.animator_set_float(third, y, 0.6f);
+        ctx.animator_update(third, 0.5f);
+        CHECK(std::fabs(ctx.joint_pose(third, arm).position.y - 1.0f) < 1e-4f);
+    });
+    std::filesystem::remove(file);
+}
+
+// Joint kinds, 3D queries, 3D body kinds, gravity, the clock, idle input and
+// the headless camera helpers, through the C++ wrapper.
+static void headless_wrapper_calls() {
+    // Joints: which axes each kind leaves free.
+    {
+        auto count = [](const ponko::joint3d& j, PonkoJointMotionKind kind) {
+            int n = 0;
+            for (auto& axis : j.axes) n += axis.kind == kind;
+            return n;
+        };
+        CHECK(count(ponko::fixed_joint3d(1, 2), PONKO_JOINT_LOCKED) == 6);
+        CHECK(count(ponko::generic_joint3d(1, 2), PONKO_JOINT_FREE) == 6);
+        auto slider = ponko::prismatic_joint3d(1, 2);
+        CHECK(slider.axes[ponko::joint_axis::linear_x].kind == PONKO_JOINT_FREE && count(slider, PONKO_JOINT_FREE) == 1);
+        CHECK(ponko::kinematic_body3d().kind == PONKO_BODY_KINEMATIC);
+        CHECK(ponko::kinematic_body().kind == PONKO_BODY_KINEMATIC);
+    }
+
+    ponko::entity wall = 0, ball = 0, plain = 0;
+    bool asked = false;
+    ponko::game("queries", 1, 1)
+        .physics3d({0, 0, 0})
+        .physics({0, 0})
+        .spatial_grid(16)
+        .sim_system([&](ponko::ctx& ctx) {
+            if (ctx.sim_tick() != 1) return;
+            asked = true;
+            // A ray along +Z meets the wall (4 to 6 m away) and then the ball.
+            std::vector<ponko::hit3d> hits;
+            ctx.cast_ray3d_all({0, 0, 0}, {0, 0, 1}, 100, hits);
+            CHECK(hits.size() == 2);
+            CHECK(ponko_entity_bits(hits[0].entity) == wall);
+            CHECK(std::fabs(hits[0].distance - 4.0f) < 1e-3f);
+            CHECK(ponko_entity_bits(hits[1].entity) == ball);
+            CHECK(hits[1].distance > hits[0].distance);
+            // A ball swept along +Z touches the wall half its radius early.
+            auto swept = ctx.cast_sphere3d({0, 0, 0}, 0.5f, {0, 0, 1}, 100);
+            CHECK(swept && std::fabs(swept->distance - 3.5f) < 1e-3f);
+            CHECK(!ctx.cast_sphere3d({0, 0, 0}, 0.5f, {0, 1, 0}, 100));
+            auto capsule = ctx.cast_capsule3d({0, 0, 0}, 2, 0.5f, {0, 0, 1}, 100);
+            CHECK(capsule && std::fabs(capsule->distance - 3.5f) < 1e-3f);
+            // Overlaps: a box around the wall finds it and not the ball.
+            std::vector<PonkoEntity> found;
+            ctx.overlap_box3d({0, 0, 5}, {4, 4, 4}, {0, 0, 0, 1}, found);
+            CHECK(found.size() == 1 && ponko_entity_bits(found[0]) == wall);
+            // Masses: the ball has one, a plain entity is no body.
+            CHECK(ctx.mass3d(ball) && *ctx.mass3d(ball) > 0);
+            CHECK(!ctx.mass3d(plain));
+            // The built-in grid sees the 2D transforms, and nothing outside the rectangle.
+            std::vector<ponko::grid_hit> cells;
+            ctx.spatial_rect({-1, -1}, {1, 1}, cells);
+            CHECK(cells.empty());
+
+            // The clock, idle input and cameras of a headless run.
+            ctx.set_sim_speed(0.5f);
+            CHECK(ctx.sim_speed() == 0.5f);
+            throws([&] { ctx.set_sim_speed(-1); });
+            CHECK(!ctx.key_released(PONKO_KEY_A) && !ctx.mouse_released(PONKO_MOUSE_LEFT));
+            CHECK(ctx.mouse_pos().x == 0 && ctx.mouse_pos().y == 0);
+            CHECK(ctx.mouse_wheel().y == 0 && ctx.mouse_motion().x == 0);
+            CHECK(!ctx.cursor_locked());
+            auto [origin, direction] = ctx.screen_ray(ctx.window_size() * 0.5f);
+            auto camera = ctx.camera3d();
+            CHECK(origin.x == camera.position.x && origin.y == camera.position.y && origin.z == camera.position.z);
+            CHECK(std::fabs(std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z) - 1.0f) < 1e-4f);
+            CHECK(ctx.models_drawn() == 0);
+            ctx.set_gravity({0, 10});
+            ctx.set_gravity3d({0, -1, 0});
+            throws([&] { ctx.set_gravity({NAN, 0}); });
+            ctx.warm_render_pipelines(); // nothing to build without a renderer
+        })
+        .run_headless(3, [&](ponko::ctx& ctx) {
+            auto world = ctx.world();
+            wall = world.spawn(ponko::transform3d_at({0, 0, 5}), ponko::fixed_body3d(), ponko::box_collider({2, 2, 2}));
+            ball = world.spawn(ponko::transform3d_at({0, 0, 10}), ponko::dynamic_body3d(), ponko::sphere_collider(0.5f));
+            plain = world.spawn(ponko::transform3d_at({30, 0, 0}));
+            auto pole = world.spawn(ponko::transform3d_at({50, 0, 0}), ponko::kinematic_body3d(), ponko::capsule_collider3d(1, 0.25f));
+            CHECK(world.get<ponko::rigid_body3d>(pole).kind == PONKO_BODY_KINEMATIC);
+        });
+    CHECK(asked);
+}
+
+// Shader, effect and compute files load once, and the same file gives the same handle.
+static void shader_files() {
+    const auto dir = std::filesystem::temp_directory_path();
+    const auto surface = dir / "ponko-cpp-wind.wgsl", effect = dir / "ponko-cpp-grey.wgsl", compute = dir / "ponko-cpp-fade.wgsl";
+    std::ofstream(surface) << "fn vertex(v: Vertex) -> Vertex { var o = v; o.position.x += material.custom[0].x; return o; }";
+    std::ofstream(effect) << "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(dot(p.color, vec3<f32>(0.3, 0.6, 0.1))); }";
+    std::ofstream(compute) << "fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }";
+    ponko::game("shaders", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto a = ctx.load_shader(surface.string().c_str());
+        CHECK(a.id == ctx.load_shader(surface.string().c_str()).id);
+        auto e = ctx.load_effect(effect.string().c_str());
+        CHECK(e.id == ctx.load_effect(effect.string().c_str()).id);
+        auto c = ctx.load_compute(compute.string().c_str());
+        CHECK(c.id == ctx.load_compute(compute.string().c_str()).id);
+        throws([&] { ctx.load_shader("no-such-shader.wgsl"); });
+        throws([&] { ctx.load_effect(surface.string().c_str()); }); // a surface shader is no effect
+        throws([&] { ctx.load_compute("no-such-compute.wgsl"); });
+    });
+    for (auto& f : {surface, effect, compute}) std::filesystem::remove(f);
+}
+
 int main() {
     worlds();
     names_and_reflection();
@@ -1832,6 +2051,9 @@ int main() {
     morph_targets();
     sound3d();
     animators();
+    animator_layers_and_blend_trees();
+    headless_wrapper_calls();
+    shader_files();
     inverse_kinematics();
     streaming();
     streamed_worlds();

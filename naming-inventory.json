@@ -164,7 +164,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/src/animator.rs": {
-      "occurrences": 215,
+      "occurrences": 216,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -415,6 +415,12 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/tests/control_endpoint.rs": {
+      "occurrences": 14,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/tests/events.rs": {
       "occurrences": 54,
       "path_occurrences": 0,
@@ -433,8 +439,20 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/tests/game_setup.rs": {
+      "occurrences": 107,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/tests/handles.rs": {
       "occurrences": 58,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/headless_ctx.rs": {
+      "occurrences": 265,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -499,6 +517,12 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "crates/ponko_ffi/tests/shader_files_and_probes.rs": {
+      "occurrences": 101,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
     "crates/ponko_ffi/tests/steam_messages.rs": {
       "occurrences": 25,
       "path_occurrences": 0,
@@ -525,6 +549,12 @@
     },
     "crates/ponko_ffi/tests/three.rs": {
       "occurrences": 585,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
+    },
+    "crates/ponko_ffi/tests/three_helpers.rs": {
+      "occurrences": 160,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
@@ -661,8 +691,20 @@
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
+    "scripts/check-ffi-coverage.py": {
+      "occurrences": 2,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+    },
     "scripts/check-naming.py": {
       "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "public compatibility",
+      "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
+    },
+    "scripts/ffi-coverage-allowlist.txt": {
+      "occurrences": 14,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Migration checks, alias generation or existing leak/build configuration fallback."
@@ -962,7 +1004,7 @@
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
     },
     "crates/ponko_ffi/tests/animator.rs": {
-      "occurrences": 286,
+      "occurrences": 314,
       "path_occurrences": 0,
       "category": "public compatibility",
       "reason": "Stable native ABI implementation, generated aliases or compatibility coverage."
