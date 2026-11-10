@@ -707,9 +707,38 @@ const DEAD: u64 = u64::MAX;
 const MANY_NEW: usize = 512;
 /// While most models change every frame (see `Tracked::rush`), one model
 /// in this many is still compared with its digest, to tell when they stop.
-const SAMPLE: usize = 16;
+const SAMPLE: u32 = 16;
 /// Fewer tracked models than this never rush: there is nothing to gain.
 const RUSH_MIN: usize = 1024;
+/// A rush ends when fewer models than this are sampled: too few to tell.
+const SAMPLE_MIN: usize = 16;
+
+/// Whether a rush still compares `entity`'s model: one entity in
+/// [`SAMPLE`], picked by a hash of its index (games spawn entities in
+/// patterns, which a plain "every sixteenth" could miss altogether).
+#[inline]
+fn sampled(entity: crate::Entity) -> bool {
+    entity.index().wrapping_mul(0x9E37_79B1) >> 16 & (SAMPLE - 1) == 0
+}
+
+/// What a frame on one core works every model out with.
+struct Serial<'a> {
+    assets: &'a Assets3D,
+    culler: &'a Culler<'a>,
+    overrides: &'a Overrides<'a>,
+    how: How<'a>,
+    /// Whether `how` reworks any model whose source didn't change.
+    reworks: bool,
+    /// Whether moved models are listed for motion vectors.
+    tracking: bool,
+}
+
+/// Models a frame compared with a digest they had, and those that differed.
+#[derive(Default)]
+struct Tally {
+    compared: usize,
+    differed: usize,
+}
 
 /// What makes a frame work models out again besides their own changes.
 #[derive(Clone, Copy)]
@@ -773,8 +802,14 @@ pub(crate) struct Tracked {
     /// every model is worked out each frame as if nothing was kept (the
     /// digest and what is kept would cost more than they save), except one
     /// in [`SAMPLE`], which says when the models have settled. What is kept
-    /// of the others is stale meanwhile.
+    /// of the others is stale meanwhile, but for the views that draw them.
     rush: bool,
+    /// In a rush: the objects the last frame found drawn, and (free
+    /// between frames) those this frame did.
+    drawn: Vec<u32>,
+    fresh_drawn: Vec<u32>,
+    /// In a rush, by object: whether this frame found it drawn.
+    marked: Vec<bool>,
     /// Work every model out again in the next frame: what is kept is stale.
     renew: bool,
 }
@@ -933,98 +968,245 @@ impl Tracked {
         arena: &mut Vec<Instance3D>,
         motion: &mut Motion,
     ) -> (usize, usize) {
+        let count = world.query::<ModelItem<'_>>().without::<SkinOf>().count();
         let rush = self.rush && !how.force;
         self.rush = rush;
-        let reworks = how.force || how.stale.is_some() || how.renumbered;
-        let tracking = motion.tracking();
+        if !rush {
+            if self.live == 0 {
+                // A world loaded at once takes no more room than it needs.
+                self.reserve(count, lists, false);
+            }
+            if count > self.live + MANY_NEW {
+                self.live += self.admit_all(world, lists);
+            }
+        }
+        let frame = Serial {
+            assets,
+            culler,
+            overrides,
+            how,
+            reworks: how.force || how.stale.is_some() || how.renumbered,
+            tracking: motion.tracking(),
+        };
         let (mut found, mut new) = (0, 0);
-        // Models compared with a digest they had, and those that differed.
-        let (mut compared, mut differed) = (0usize, 0usize);
+        let mut tally = Tally::default();
         let mut models = world.query::<ModelItem<'_>>().without::<SkinOf>();
-        if self.live == 0 {
-            // A world loaded at once takes no more room than it needs.
-            self.reserve(models.count(), lists, false);
-        }
-        models.for_each(|(entity, t, m, shadow, skeleton, receives, material)| {
-            let bits = entity.to_bits();
-            let k = match self.slot_of.get(entity.index() as usize) {
-                Some(&slot) if slot >> 32 == bits >> 32 && (slot as u32 as usize) < self.hot.len() => {
-                    found += 1;
-                    slot as u32 as usize
-                }
-                _ => {
-                    new += 1;
-                    self.admit(entity, lists)
-                }
-            };
-            let source = Source::of(t, m, shadow, skeleton, receives, material);
-            let hot = &mut self.hot[k];
-            let (was, id) = (*hot.applied.get_mut(), hot.id);
-            // In a rush, only the sampled models are compared and kept.
-            let exact = !rush || k % SAMPLE == 0;
-            // With ECS change ticks, this compare is what a tick test
-            // replaces.
-            let changed = if exact {
-                let digest = source.digest();
-                let before = std::mem::replace(hot.digest.get_mut(), digest);
-                compared += usize::from(before != 0);
-                differed += usize::from(before != 0 && before != digest);
-                before != digest || (reworks && how.reworks(source))
-            } else {
-                true
-            };
-            let (flags, mesh, caster);
-            if changed {
-                let derived = derive(source, assets, overrides);
-                if exact {
-                    let spheres = derived.sphere.into_iter().chain(derived.caster_sphere);
-                    for (kept, value) in self.spheres[k].iter_mut().zip(spheres) {
-                        *kept.get_mut() = value.to_bits();
+        if !rush {
+            models.for_each(|(entity, t, m, shadow, skeleton, receives, material)| {
+                let k = match self.find(entity) {
+                    Some(k) => {
+                        found += 1;
+                        k
                     }
-                    let cold = &mut self.cold[k];
-                    *cold.mesh.get_mut() = derived.mesh;
-                    *cold.caster.get_mut() = derived.caster;
+                    None => {
+                        new += 1;
+                        self.admit(entity, lists)
+                    }
+                };
+                let source = Source::of(t, m, shadow, skeleton, receives, material);
+                self.settle(k, source, &frame, &mut tally, lists, arena, motion);
+            });
+            if !how.force && tally.compared >= RUSH_MIN && tally.differed * 2 > tally.compared {
+                // From the next frame on, until the models settle.
+                self.rush = true;
+                self.marked.clear();
+                self.marked.resize(self.entities.len(), false);
+                self.drawn.clear();
+                for (k, hot) in self.hot.iter_mut().enumerate() {
+                    if *hot.applied.get_mut() != 0 {
+                        self.drawn.push(k as u32);
+                    }
                 }
-                flags = culler.classify_spheres(derived.sphere, derived.caster_sphere);
-                (mesh, caster) = (derived.mesh, derived.caster);
-            } else if how.cull {
-                let [x, y, z, r, cx, cy, cz, cr] = self.spheres[k].each_mut().map(|w| f32::from_bits(*w.get_mut()));
-                flags = culler.classify_spheres([x, y, z, r], [cx, cy, cz, cr]);
-                if flags == was {
-                    return;
-                }
-                let cold = &mut self.cold[k];
-                (mesh, caster) = (*cold.mesh.get_mut(), *cold.caster.get_mut());
-            } else {
-                return;
             }
-            if flags == 0 {
-                if was != 0 {
-                    lists.clear(arena, id);
-                    *self.hot[k].applied.get_mut() = 0;
-                }
-                return;
-            }
-            // The instance is made once, here, and written to its slots.
-            let instance = source.instance();
-            if tracking && was & flags & 1 != 0 {
-                motion.moved(mesh, &instance, arena[lists.slot(0, id)].model);
-            }
-            let mut meshes = [caster; 1 + MAX_CASCADES];
-            meshes[0] = mesh;
-            lists.set(arena, id, &meshes, flags, &instance);
-            *self.hot[k].applied.get_mut() = flags;
-        });
-        if rush {
-            // Settled: the next frame works everything out and keeps it.
-            if differed * 4 <= compared {
-                self.rush = false;
-                self.renew = true;
-            }
-        } else if !how.force && compared >= RUSH_MIN && differed * 2 > compared {
-            self.rush = true;
+            return (found, new);
         }
-        (found, new)
+        // A rush: every model is worked out and culled from its components
+        // alone, as if nothing was kept, and only the ones a view draws are
+        // looked up (to write their instances where they were). One model
+        // in `SAMPLE` is still compared, to tell when the models settle.
+        let mut now = std::mem::take(&mut self.fresh_drawn);
+        now.clear();
+        models.for_each(|(entity, t, m, shadow, skeleton, receives, material)| {
+            let source = Source::of(t, m, shadow, skeleton, receives, material);
+            let mut tracked = |tracked: &mut Self, lists: &mut Lists| {
+                tracked.find(entity).unwrap_or_else(|| {
+                    new += 1;
+                    tracked.admit(entity, lists)
+                })
+            };
+            if sampled(entity) {
+                let k = tracked(self, lists);
+                self.settle(k, source, &frame, &mut tally, lists, arena, motion);
+                if *self.hot[k].applied.get_mut() != 0 {
+                    self.mark(k, &mut now);
+                }
+                return;
+            }
+            let derived = derive(source, assets, overrides);
+            let flags = culler.classify_spheres(derived.sphere, derived.caster_sphere);
+            if flags != 0 {
+                let k = tracked(self, lists);
+                self.mark(k, &mut now);
+                self.draw(
+                    k,
+                    source,
+                    flags,
+                    derived.mesh,
+                    derived.caster,
+                    &frame,
+                    lists,
+                    arena,
+                    motion,
+                );
+            }
+        });
+        // The models drawn before that this frame didn't find drawn left
+        // the views, or the world.
+        for &k in &self.drawn {
+            if !self.marked[k as usize] {
+                let hot = &mut self.hot[k as usize];
+                if std::mem::take(hot.applied.get_mut()) != 0 {
+                    lists.clear(arena, hot.id);
+                }
+            }
+        }
+        for &k in &now {
+            self.marked[k as usize] = false;
+        }
+        self.fresh_drawn = std::mem::replace(&mut self.drawn, now);
+        // Settled (or too few are sampled to tell): the next frame works
+        // everything out and keeps it.
+        if tally.compared < SAMPLE_MIN || tally.differed * 4 <= tally.compared {
+            self.rush = false;
+            self.renew = true;
+        }
+        // Which tracked models are gone is found when the rush ends.
+        (self.live, new)
+    }
+
+    /// The object of `entity`, if it is tracked.
+    #[inline]
+    fn find(&self, entity: crate::Entity) -> Option<usize> {
+        let bits = entity.to_bits();
+        match self.slot_of.get(entity.index() as usize) {
+            Some(&slot) if slot >> 32 == bits >> 32 && (slot as u32 as usize) < self.hot.len() => {
+                Some(slot as u32 as usize)
+            }
+            _ => None,
+        }
+    }
+
+    /// In a rush: notes that this frame found object `k` drawn.
+    #[inline]
+    fn mark(&mut self, k: usize, now: &mut Vec<u32>) {
+        if self.marked.len() <= k {
+            self.marked.resize(k + 1, false);
+        }
+        if !std::mem::replace(&mut self.marked[k], true) {
+            now.push(k as u32);
+        }
+    }
+
+    /// One core: object `k` is compared with its digest, worked out again
+    /// if it differs, culled again if it or the views changed, and its
+    /// instances written if they changed.
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    fn settle(
+        &mut self,
+        k: usize,
+        source: Source<'_>,
+        frame: &Serial<'_>,
+        tally: &mut Tally,
+        lists: &mut Lists,
+        arena: &mut Vec<Instance3D>,
+        motion: &mut Motion,
+    ) {
+        let hot = &mut self.hot[k];
+        let (was, id) = (*hot.applied.get_mut(), hot.id);
+        // With ECS change ticks, this compare is what a tick test replaces.
+        let digest = source.digest();
+        let before = std::mem::replace(hot.digest.get_mut(), digest);
+        tally.compared += usize::from(before != 0);
+        tally.differed += usize::from(before != 0 && before != digest);
+        let (flags, mesh, caster);
+        if before != digest || (frame.reworks && frame.how.reworks(source)) {
+            let derived = derive(source, frame.assets, frame.overrides);
+            let spheres = derived.sphere.into_iter().chain(derived.caster_sphere);
+            for (kept, value) in self.spheres[k].iter_mut().zip(spheres) {
+                *kept.get_mut() = value.to_bits();
+            }
+            let cold = &mut self.cold[k];
+            *cold.mesh.get_mut() = derived.mesh;
+            *cold.caster.get_mut() = derived.caster;
+            flags = (frame.culler).classify_spheres(derived.sphere, derived.caster_sphere);
+            (mesh, caster) = (derived.mesh, derived.caster);
+        } else if frame.how.cull {
+            let [x, y, z, r, cx, cy, cz, cr] = self.spheres[k].each_mut().map(|w| f32::from_bits(*w.get_mut()));
+            flags = frame.culler.classify_spheres([x, y, z, r], [cx, cy, cz, cr]);
+            if flags == was {
+                return;
+            }
+            let cold = &mut self.cold[k];
+            (mesh, caster) = (*cold.mesh.get_mut(), *cold.caster.get_mut());
+        } else {
+            return;
+        }
+        if flags == 0 {
+            if was != 0 {
+                lists.clear(arena, id);
+                *self.hot[k].applied.get_mut() = 0;
+            }
+            return;
+        }
+        self.draw(k, source, flags, mesh, caster, frame, lists, arena, motion);
+    }
+
+    /// One core: writes object `k`'s instance, made once, here, to its
+    /// slots in the views of `flags` (not none).
+    #[inline]
+    #[allow(clippy::too_many_arguments)]
+    fn draw(
+        &mut self,
+        k: usize,
+        source: Source<'_>,
+        flags: u32,
+        mesh: u32,
+        caster: u32,
+        frame: &Serial<'_>,
+        lists: &mut Lists,
+        arena: &mut Vec<Instance3D>,
+        motion: &mut Motion,
+    ) {
+        let hot = &mut self.hot[k];
+        let (was, id) = (*hot.applied.get_mut(), hot.id);
+        let instance = source.instance();
+        if frame.tracking && was & flags & 1 != 0 {
+            motion.moved(mesh, &instance, arena[lists.slot(0, id)].model);
+        }
+        let mut meshes = [caster; 1 + MAX_CASCADES];
+        meshes[0] = mesh;
+        lists.set(arena, id, &meshes, flags, &instance);
+        *self.hot[k].applied.get_mut() = flags;
+    }
+
+    /// One core, a frame with many more models than are tracked (a world
+    /// or a level loaded at once): gives every model that isn't tracked an
+    /// object, all at once. Returns how many.
+    fn admit_all(&mut self, world: &mut World, lists: &mut Lists) -> usize {
+        let before = self.entities.len() - self.free.len();
+        world
+            .query::<crate::Entity>()
+            .with::<Transform3D>()
+            .with::<Model>()
+            .without::<SkinOf>()
+            .for_each(|entity| {
+                if self.find(entity).is_none() {
+                    self.add(entity);
+                }
+            });
+        self.grow(lists, false);
+        self.entities.len() - self.free.len() - before
     }
 
     /// Several threads: each model is compared with what is kept of it on
@@ -1307,6 +1489,8 @@ impl Tracked {
             + self.cold.capacity() * size_of::<Cold>()
             + self.kept.capacity() * size_of::<[AtomicU32; KEPT]>()
             + self.seen.capacity()
+            + self.marked.capacity()
+            + (self.drawn.capacity() + self.fresh_drawn.capacity()) * size_of::<u32>()
             + self.slot_of.capacity() * size_of::<u64>()
             + (self.free.capacity() + self.results.capacity()) * size_of::<u32>()
             + self.facts.capacity() * size_of::<Fact>()

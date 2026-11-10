@@ -427,6 +427,7 @@ fn random_edits_always_draw_what_a_frame_built_from_nothing_draws() {
     let mut rng = Rng(7);
     scene.check("first");
     let mut bare: Vec<(Entity, Model)> = Vec::new();
+    let mut rushed = 0;
     for frame in 0..160 {
         for _ in 0..rng.below(40) {
             let i = rng.below(scene.models.len());
@@ -486,6 +487,16 @@ fn random_edits_always_draw_what_a_frame_built_from_nothing_draws() {
                 }
             }
         }
+        // For a while most models move every frame: one core stops
+        // comparing them (and still follows every edit).
+        if (50..75).contains(&frame) {
+            for (i, &e) in scene.models.iter().enumerate() {
+                if i % 5 != 0 {
+                    scene.world.get_mut::<Transform3D>(e).unwrap().position.y = ((frame + i) % 2) as f32 * 0.4;
+                }
+            }
+            rushed += usize::from(scene.frame.rushing());
+        }
         // Some frames the camera flies, some it stays.
         if frame % 3 != 0 {
             let angle = frame as f32 * 0.05;
@@ -517,6 +528,117 @@ fn random_edits_always_draw_what_a_frame_built_from_nothing_draws() {
         }
         scene.check(&format!("frame {frame}"));
     }
+    assert_eq!(rushed > 15, SERIAL.get() == Some(true), "one core rushed: {rushed}");
+    assert!(!scene.frame.rushing(), "and compares the models again");
+}
+
+/// Moves every model but each tenth up or down.
+fn bob(scene: &mut Scene, frame: usize) {
+    for (i, &e) in scene.models.iter().enumerate() {
+        if i % 10 != 0
+            && let Some(t) = scene.world.get_mut::<Transform3D>(e)
+        {
+            t.position.y = (frame % 2) as f32 * 0.3;
+        }
+    }
+}
+
+fn while_most_models_move_every_edit_is_still_followed() {
+    let mut scene = Scene::new(2500);
+    let seen = scene.check("first");
+    let near = |scene: &Scene, k: usize| {
+        let mut close: Vec<Entity> = scene.models.clone();
+        let at = |e: &Entity| scene.world.get::<Transform3D>(*e).unwrap().position.length_squared();
+        close.sort_by(|a, b| at(a).total_cmp(&at(b)));
+        close[k]
+    };
+    let far = |scene: &Scene, k: usize| near(scene, scene.models.len() - 1 - k);
+    let mut rushed = 0;
+    // The models move in frames 2..=40, and end where they began.
+    for frame in 0..50 {
+        if (2..=40).contains(&frame) {
+            bob(&mut scene, frame);
+        }
+        match frame {
+            // A model in view and one out of view go; new ones take their
+            // indices, one in view, one not.
+            8 => {
+                let (a, b) = (near(&scene, 0), far(&scene, 0));
+                for e in [a, b] {
+                    scene.world.despawn(e);
+                    scene.models.retain(|&m| m != e);
+                }
+                for at in [Vec3::new(0.5, 1.0, 0.5), Vec3::new(0.0, 0.0, 900.0)] {
+                    let e = scene.world.spawn((Transform3D::at(at), Model::new(mesh(3))));
+                    scene.models.push(e);
+                }
+                assert_eq!(scene.check("despawned and spawned"), seen);
+            }
+            // Models leave the plain path and come back.
+            10 => {
+                let (a, b) = (near(&scene, 1), near(&scene, 2));
+                scene.world.insert(a, SkinOf(b));
+                let model = scene.world.remove::<Model>(b).unwrap();
+                assert_eq!(scene.check("a skin, and a model removed"), seen - 2);
+                scene.world.remove::<SkinOf>(a);
+                scene.world.insert(b, model);
+            }
+            // What a mesh is changes while the models aren't compared.
+            12 => scene.assets.bounds[1] = (Vec3::ZERO, 9.0),
+            14 => scene.assets.shadowless = vec![false, false, true],
+            16 => {
+                let a = near(&scene, 3);
+                scene.world.insert(a, ModelMaterial(Material { id: 2 }));
+                scene.world.insert(a, ShadowMesh(Some(mesh(1))));
+                scene.world.get_mut::<Model>(a).unwrap().color = Color::rgb(0.1, 0.5, 0.9);
+            }
+            18 => {
+                scene.camera.position = Vec3::new(14.0, 9.0, 22.0);
+                scene.camera.look_at(Vec3::new(-4.0, 0.0, 0.0));
+            }
+            20 => scene.lighting.shadows = false,
+            22 => {
+                scene.lighting.shadows = true;
+                scene.lighting.sun_direction = Vec3::new(0.4, -1.0, 0.2).normalize();
+            }
+            // Everything in view leaves it, and comes back.
+            24 => scene.camera.position.y = 4000.0,
+            26 => scene.camera.position.y = 9.0,
+            _ => {}
+        }
+        scene.check(&format!("frame {frame}"));
+        rushed += usize::from(scene.frame.rushing());
+    }
+    // One core stopped comparing models while they moved, and started
+    // again when they stopped: what it kept of them from before the rush
+    // (the same places, but meshes with other bounds) is worked out anew.
+    assert_eq!(rushed > 30, SERIAL.get() == Some(true), "one core rushed: {rushed}");
+    assert!(!scene.frame.rushing());
+    let before = scene.frame.instances.clone();
+    scene.check("still again");
+    assert_eq!(rewritten(&before, &scene.frame.instances), 0);
+}
+
+fn a_collection_can_change_between_one_core_and_several() {
+    let mut scene = Scene::new(2500);
+    let mine = SERIAL.get().unwrap();
+    for frame in 0..60 {
+        // Every few frames the other way, also while most models move.
+        SERIAL.set(Some(mine ^ (frame / 3 % 2 == 1)));
+        if (5..40).contains(&frame) {
+            bob(&mut scene, frame);
+        }
+        if frame % 4 == 0 {
+            let e = scene.models[frame * 37 % scene.models.len()];
+            scene.world.despawn(e);
+            let at = place(frame * 53 % 2500, 50) + Vec3::Y;
+            let i = scene.models.iter().position(|&m| m == e).unwrap();
+            scene.models[i] = scene.world.spawn((Transform3D::at(at), Model::new(mesh(frame))));
+        }
+        scene.camera.position.x = (frame as f32 * 0.3).sin() * 6.0;
+        scene.check(&format!("frame {frame}"));
+    }
+    SERIAL.set(Some(mine));
 }
 
 fn shadow_only_casters_follow_edits_too() {
@@ -659,4 +781,6 @@ both_ways!(
     a_kept_cascade_draws_nothing_and_is_right_when_its_turn_comes,
     moved_models_are_listed_with_where_they_were,
     what_is_kept_per_model_is_bounded_and_stops_growing,
+    while_most_models_move_every_edit_is_still_followed,
+    a_collection_can_change_between_one_core_and_several,
 );
