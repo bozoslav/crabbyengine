@@ -311,7 +311,8 @@ impl GpuTier {
 
     /// The tier `PONKO_GPU_TIER` forces (`webgl2`, `baseline` or
     /// `desktop`), if set. With `webgl2` or `baseline`, the engine opens the
-    /// GPU with that tier's limits and without timestamp queries, so the
+    /// GPU with that tier's limits (except the largest 2D texture, kept so
+    /// the window's surface fits) and without timestamp queries, so the
     /// game draws as on such a device (with this GPU's backend: it doesn't
     /// switch to WebGL2 itself). An unknown name is ignored with a warning.
     /// Always `None` on the web.
@@ -363,6 +364,21 @@ impl GpuTier {
             GpuTier::WebGl2 => requested.or_worse_values_from(&wgpu::Limits::downlevel_webgl2_defaults()),
             GpuTier::Baseline => requested.or_worse_values_from(&wgpu::Limits::downlevel_defaults()),
             GpuTier::Desktop => requested,
+        }
+    }
+
+    /// The limits the engine opens its window's device with when this tier
+    /// is forced: [`device_limits`](Self::device_limits), but keeping the
+    /// requested largest 2D texture. The window's surface and its
+    /// window-sized targets are as large as the window in physical pixels
+    /// (a 1280x720 window on a 2x display is 2560x1440), more than the
+    /// tiers' 2048 floor; a real device of the tier draws such a window
+    /// because it has that much. Every feature check is still the tier's.
+    pub(crate) fn window_limits(self, requested: wgpu::Limits) -> wgpu::Limits {
+        let max_texture_dimension_2d = requested.max_texture_dimension_2d;
+        wgpu::Limits {
+            max_texture_dimension_2d,
+            ..self.device_limits(requested)
         }
     }
 
@@ -847,6 +863,25 @@ mod tests {
         };
         for tier in GpuTier::ALL {
             assert_eq!(of(tier.device_limits(engine.clone())), tier.minimum_limits(), "{tier}");
+        }
+        // A forced window keeps the texture size a high-DPI window needs,
+        // and still lacks what the tier lacks.
+        for tier in GpuTier::ALL {
+            let window = of(tier.window_limits(engine.clone()));
+            assert_eq!(window.max_texture_dimension_2d, 8192, "{tier}");
+            assert!(
+                2560.max(1440) <= window.max_texture_dimension_2d,
+                "{tier}: a 1280x720 window at 2x"
+            );
+            assert_eq!(
+                GpuLimits {
+                    max_texture_dimension_2d: tier.minimum_limits().max_texture_dimension_2d,
+                    ..window
+                },
+                tier.minimum_limits(),
+                "{tier}: everything else is the floor"
+            );
+            assert_eq!(GpuTier::of(&window), tier, "{tier}");
         }
         let all = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
         assert_eq!(GpuTier::Desktop.device_features(all), all);

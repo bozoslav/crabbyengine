@@ -32,7 +32,7 @@ impl Rig {
     fn sized(slots: bool, size: (u32, u32)) -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            eprintln!("no GPU adapter: skipped");
+            crate::render::render_test_support::no_gpu("no GPU adapter");
             return None;
         };
         // As the engine asks: more texture slots where the adapter has them.
@@ -50,7 +50,7 @@ impl Rig {
                 ..Default::default()
             }),
         )) else {
-            eprintln!("no GPU device: skipped");
+            crate::render::render_test_support::no_gpu("no GPU device");
             return None;
         };
         if supports_gi(&device) != slots {

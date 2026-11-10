@@ -81,7 +81,8 @@ pub(super) fn skip(reason: impl std::fmt::Display) {
 }
 
 /// A missing adapter or device: a skip, or a failure under `PONKO_REQUIRE_GPU`.
-fn no_gpu(reason: impl std::fmt::Display) {
+/// Every suite reports a failed adapter or device request through this.
+pub(super) fn no_gpu(reason: impl std::fmt::Display) {
     if env_set("PONKO_REQUIRE_GPU") {
         panic!("{reason}, and PONKO_REQUIRE_GPU is set");
     }

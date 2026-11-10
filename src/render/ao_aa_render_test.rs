@@ -23,7 +23,7 @@ fn render(downlevel: bool, benchmark: bool) {
     let (width, height) = if benchmark { (1920, 1080) } else { (SIZE, SIZE) };
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        eprintln!("no GPU adapter: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter");
         return;
     };
     eprintln!("AO adapter: {:?}", adapter.get_info());
@@ -38,7 +38,7 @@ fn render(downlevel: bool, benchmark: bool) {
     let Ok((device, queue)) =
         pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&descriptor)))
     else {
-        eprintln!("no GPU device: skipped");
+        crate::render::render_test_support::no_gpu("no GPU device");
         return;
     };
     if !downlevel && !crate::render::render_test_support::needs(&device, crate::GpuFeature::AmbientOcclusion) {

@@ -36,7 +36,7 @@ fn culled_models_keep_their_slots_on_the_cpu_skinning_fallback() {
 fn draw_bent(morph: bool, mixed: bool, downlevel: bool) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        eprintln!("no GPU adapter: skipped");
+        crate::render::render_test_support::no_gpu("no GPU adapter");
         return;
     };
     let descriptor = wgpu::DeviceDescriptor {
@@ -50,7 +50,7 @@ fn draw_bent(morph: bool, mixed: bool, downlevel: bool) {
     let Ok((device, queue)) =
         pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&descriptor)))
     else {
-        eprintln!("no GPU device: skipped");
+        crate::render::render_test_support::no_gpu("no GPU device");
         return;
     };
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
