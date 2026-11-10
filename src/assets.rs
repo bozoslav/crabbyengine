@@ -436,6 +436,7 @@ impl SharedSources {
     }
 
     /// As [`Sources::is_empty`].
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     pub(crate) fn is_empty(&self) -> bool {
         self.0.borrow().is_empty()
     }
