@@ -19,9 +19,10 @@
   and recorded with the limits and fallbacks; a Playwright `trace.zip` for every
   run; an optional Chromium GPU trace (`--chrome-trace`); a Markdown summary of
   every run (`web/smoke/summary.mjs`).
-- CI: the `web-smoke` job now runs WebGL2 in Chromium, Firefox and WebKit for the
-  2D and 3D fixtures, tries WebGPU in two Chromium modes, and uploads the
-  artifacts; the runner's own tests (`node --test web/smoke`) run on every pull
+- CI: the `web-smoke` job now runs WebGL2 in Chromium and WebKit for the
+  2D and 3D fixtures (Firefox is tried and reported: the runner's headless
+  Firefox has no WebGL2), tries WebGPU in two Chromium modes, and uploads the
+  artifacts; the runner's own tests (`node --test web/smoke/*.test.mjs`) run on every pull
   request in `web-smoke-runner`; the `web` job lints the 3D examples for wasm.
 
 ### Fixed

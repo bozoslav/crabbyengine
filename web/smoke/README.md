@@ -125,13 +125,14 @@ table (and appends it to a GitHub job summary).
 
 | Where | Browser | WebGL2 (forced) | WebGPU |
 |---|---|---|---|
-| CI (`web-smoke` job, merge queue and `full-ci`, ubuntu-latest, no GPU) | Chromium (headless shell and full browser), Firefox, WebKit from Playwright | Must pass in each, for the 2D and 3D fixtures (software GL); `coin_dash` in Chromium | Tried; passes as "unsupported", with the reason, where the browser can't show a WebGPU canvas; where it can, the game must draw through it |
+| CI (`web-smoke` job, merge queue and `full-ci`, ubuntu-latest, no GPU) | Chromium (headless shell and full browser), Firefox, WebKit from Playwright | Must pass in Chromium and WebKit, for the 2D and 3D fixtures (software GL); `coin_dash` in Chromium. Firefox is tried and reported: headless Firefox has no WebGL2 on that runner, so it reads "unsupported" | Tried; passes as "unsupported", with the reason, where the browser can't show a WebGPU canvas; where it can, the game must draw through it |
 | CI, every pull request (`web-smoke-runner`) | none | the runner's own tests only | |
 | Apple Silicon Mac, Chromium new headless mode | Chromium 156 | Passes (ANGLE on Metal) | **Passes** on the Metal adapter: the engine reports `webgpu`, the canvas draws |
 | Apple Silicon Mac, Chromium headless shell | same | Passes (ANGLE on SwiftShader) | Unsupported: a SwiftShader fallback adapter exists, but a WebGPU canvas can't be shown |
 | Apple Silicon Mac, WebKit (Playwright build) | WebKit 27 | Passes | Passes on its own adapter |
 
 Not covered yet: Firefox on a Mac with its Playwright build here (it would
-not start on the development machine; CI runs it on Linux), WebGPU on a
+not start on the development machine, and on CI's Linux runner it has no
+WebGL2, so Firefox has not drawn a frame anywhere yet), WebGPU on a
 GPU-less Linux runner (the CI job tries it and reports), mobile browsers, and
 the hosted demo examples.

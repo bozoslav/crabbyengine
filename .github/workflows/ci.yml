@@ -576,8 +576,10 @@ jobs:
   # asset fetch, fixed-step progress, a click, a nonblank canvas, and the
   # adapter the engine itself reports. Three builds, each fixture from
   # web/smoke/fixtures.json: the 2D fixture, the 3D one (`--features 3d`) and
-  # the complete-game reference. Chromium, Firefox and WebKit run the WebGL2
-  # path, which must pass in each. GitHub's runners have no GPU, so WebGPU is
+  # the complete-game reference. Chromium and WebKit run the WebGL2 path,
+  # which must pass in each. Firefox is tried and reported: the runner's
+  # headless Firefox has no WebGL2 (no GPU), so it passes as "unsupported"
+  # there. GitHub's runners have no GPU, so WebGPU is
   # tried (headless shell and the full browser's new headless mode) and
   # reported: a browser that can't show a WebGPU canvas passes as
   # "unsupported" with the reason in its report and in the job summary, never
@@ -612,9 +614,6 @@ jobs:
           node --version
           npm ci --prefix web/smoke --no-audit --no-fund
           node web/smoke/node_modules/playwright-core/cli.js install --with-deps chromium firefox webkit
-          # Mesa's software GL: headless Firefox has no WebGL2 without it on a
-          # runner with no GPU (Chromium brings its own software renderer).
-          sudo apt-get install -y -qq libegl1 libgl1-mesa-dri libglx-mesa0
       - name: Runner tests
         run: node --test web/smoke/*.test.mjs
       - name: Build the fixtures (2D, 3D with --features 3d, the complete game)
@@ -654,13 +653,16 @@ jobs:
       - name: Chromium, whatever the engine picks
         if: ${{ !cancelled() }}
         run: node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend auto --allow-unsupported
-      # Firefox and WebKit: WebGL2 must pass; WebGPU is reported.
-      - name: Firefox, WebGL2 (2D and 3D fixtures)
+      # WebKit: WebGL2 must pass; WebGPU is reported. Firefox: both are
+      # reported. Headless Firefox has no WebGL2 on a runner without a GPU
+      # (also with Mesa's software GL installed), so "unsupported" passes
+      # here with its reason; anything else it does wrong still fails.
+      - name: Firefox, WebGL2 (2D and 3D fixtures; reported where it has no WebGL2)
         if: ${{ !cancelled() }}
         run: |
           status=0
           for fixture in web_smoke web_smoke_3d; do
-            node web/smoke/smoke.mjs --fixture "$fixture" --browser firefox --backend webgl2 || status=1
+            node web/smoke/smoke.mjs --fixture "$fixture" --browser firefox --backend webgl2 --allow-unsupported || status=1
           done
           exit $status
       - name: Firefox, WebGPU
