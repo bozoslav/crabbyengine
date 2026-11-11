@@ -32,8 +32,8 @@ python3 scripts/package-coin-dash.py package              # release build -> tar
 python3 scripts/package-coin-dash.py smoke --package target/package
 ```
 
-`package` builds the example and lays out a folder you can zip, with the same
-files on every desktop:
+`package` builds the example and lays out the initial portable folder below.
+The release signing step subsequently wraps the macOS payload in an `.app`:
 
 | File | What it is |
 |---|---|
@@ -62,11 +62,32 @@ made-up crates, plus the exit-code decisions below.
 ## Desktop releases
 
 The [release workflow](https://github.com/ponkoengine/ponko/blob/main/.github/workflows/release.yml)
-builds Coin Dash in release mode for Linux, macOS and Windows. It attaches
+builds Coin Dash in release mode for Linux x86_64 (Ubuntu 22.04, glibc 2.35
+or newer), macOS Apple silicon (macOS 11 or newer), and Windows x86_64.
+Runner images are pinned to Ubuntu 22.04, macOS 14 and Windows 2022. Windows
+links the CRT statically and does not require the VC++ redistributable.
+Release builds do not restore build caches. It attaches
 a Linux `.tar.gz` and macOS and Windows `.zip` archives, each with a
 `.sha256` file. The macOS ZIP contains `Coin Dash.app`, with the assets and
-notices in its Resources folder. Each runner extracts its finished archive
-and runs the headless package smoke test before the release job can upload it.
+notices in its Resources folder, plus readable copies of the README and license
+notices beside the app. Each runner extracts its finished archive and runs the
+headless package smoke test before upload. macOS also runs the executable in
+place inside that extracted bundle, from an unrelated directory, to exercise
+its actual asset symlinks, and verifies the bundle seal unconditionally.
+
+The `Desktop release package` PR workflow exercises `selftest`, `sign` without
+credentials, `archive` and checksum verification on all three pinned images.
+It can also be run manually. `python scripts/release-coin-dash.py selftest`
+checks partial credentials, checksum bytes and bundle layout (the symlink
+layout test runs on Unix). Credentialed signing and notarization still need
+separate validation with real certificates. Retina rendering has not been
+visually verified; the bundle declares `NSHighResolutionCapable`.
+
+The C library release and crates.io publish do not wait for desktop packaging
+or Apple notarization. A separate job attaches desktop archives after both
+they and the GitHub release are ready. Re-run failed desktop/upload jobs after
+an outage. Ordinary release tags must match the Cargo package version for the
+desktop build. Release creation uses `--verify-tag` to require the existing tag.
 
 Signing secrets are configured in the repository's GitHub Actions settings.
 Supply all values in a row to enable that step:
@@ -77,8 +98,15 @@ Supply all values in a row to enable that step:
 | macOS Developer ID signing | `MACOS_SIGN_P12` (base64 PKCS#12), `MACOS_SIGN_PASSWORD`, `MACOS_SIGN_IDENTITY` (the full Developer ID Application identity) |
 | macOS notarization and stapling | The signing secrets above, `MACOS_NOTARY_APPLE_ID`, `MACOS_NOTARY_PASSWORD` (Apple app-specific password), `MACOS_NOTARY_TEAM_ID` |
 
-With no signing secrets, the affected runner logs the skip and produces
-an unsigned archive. The macOS runner can sign without notarizing if the
+Use a Windows code-signing certificate exported with its private key as PFX;
+on macOS use a Developer ID Application certificate exported as PKCS#12.
+Encode the file with `base64 < certificate.p12 | tr -d '\n'` on Unix, or
+`[Convert]::ToBase64String([IO.File]::ReadAllBytes('certificate.pfx'))` in
+PowerShell, and put the result in the corresponding secret. Never commit it.
+
+With no signing secrets, Windows skips Authenticode and macOS seals the app
+with an ad-hoc signature. Ad-hoc signing does not establish a trusted developer
+identity or bypass Gatekeeper. The macOS runner can sign without notarizing if the
 notarization secrets are absent. When signing or notarization runs, the
 runner checks the signature or stapled ticket again after extracting the ZIP.
 
@@ -94,6 +122,10 @@ The tag runs the same desktop jobs and attaches the six files to a draft
 release on that repository. The C library release and crates.io jobs are
 skipped for this tag. An ordinary `v*` tag attaches the same desktop assets
 to the normal engine release.
+
+Dry-run tags are allowed on forks and the main repository; use unique names.
+After inspection, delete the draft with `gh release delete TAG --yes` and
+delete its remote tag with `git push origin :refs/tags/TAG`.
 
 ## The smoke test
 
@@ -281,4 +313,4 @@ index, or a new one):
 | The web build keeps nothing (no storage backend), and the browser matrix is Chromium on SwiftShader WebGL2 only (no real-GPU WebGPU, Firefox, Safari or mobile). | [#173](https://github.com/ponkoengine/ponko/issues/173) |
 | The window smoke proves "a window opens and frames are drawn", not what they look like; no image regression for a whole game. | [#135](https://github.com/ponkoengine/ponko/issues/135) |
 | The C and C++ bindings have no counterpart of this game (it is Rust only). | [#262](https://github.com/ponkoengine/ponko/issues/262) |
-| Desktop packages are portable archives. The third-party notice is generated from Cargo metadata and the license files distributed with the dependencies. Where a library publishes only its license declaration, the notice lists that declaration and its authors. | [Desktop releases](#desktop-releases) |
+| Desktop packages are portable archives, with no installer. Third-party notices use a script rather than a license-policy tool; missing distributed license texts are represented by the library's declared license and authors. | No dedicated follow-up issue; API friction index [#207](https://github.com/ponkoengine/ponko/issues/207). See [Desktop releases](#desktop-releases). |

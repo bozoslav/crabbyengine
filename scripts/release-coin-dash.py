@@ -4,6 +4,8 @@
 import argparse
 import base64
 import hashlib
+import importlib.util
+import json
 import os
 from pathlib import Path
 import plistlib
@@ -14,6 +16,7 @@ import sys
 import tarfile
 import tempfile
 import zipfile
+import tomllib
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -44,7 +47,7 @@ def credentials(names, step):
 def signtool():
     if tool := shutil.which("signtool"):
         return tool
-    sdk = Path(os.environ["ProgramFiles(x86)"]) / "Windows Kits" / "10" / "bin"
+    sdk = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Windows Kits" / "10" / "bin"
     tools = [p for p in sdk.glob("10.*/x64/signtool.exe") if p.parent.parent.name.replace(".", "").isdigit()]
     if not tools:
         raise RuntimeError("SignTool was not found in PATH or the Windows SDK")
@@ -75,7 +78,14 @@ def macos_app(package):
             "CFBundlePackageType": "APPL",
             "CFBundleShortVersionString": version,
             "CFBundleVersion": version,
+            "CFBundleInfoDictionaryVersion": "6.0",
+            "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "11.0",
+            "LSApplicationCategoryType": "public.app-category.games",
         }, file)
+    for name in ("README.txt", "LICENSE-MIT", "LICENSE-APACHE", "NOTICE",
+                 "CONTENT-NOTICES.txt", "THIRD-PARTY-NOTICES.txt"):
+        shutil.copy2(resources / name, package / name)
     return contents.parent
 
 
@@ -89,6 +99,8 @@ def sign_macos(app):
     if not signing:
         if notarization:
             raise RuntimeError("macOS notarization requires Developer ID signing credentials")
+        run("codesign", "--force", "--sign", "-", app)
+        run("codesign", "--verify", "--deep", "--strict", app)
         return False, False
     certificate, password, identity = signing
     if not identity.startswith("Developer ID Application:"):
@@ -109,13 +121,33 @@ def sign_macos(app):
                 "--keychain", keychain, "--sign", identity, app)
             run("codesign", "--verify", "--deep", "--strict", app)
         finally:
-            run("security", "delete-keychain", keychain)
+            # Do not replace a signing failure with a cleanup failure.
+            failed = sys.exc_info()[0] is not None
+            try:
+                run("security", "delete-keychain", keychain)
+            except (OSError, RuntimeError):
+                if not failed:
+                    raise
+                print("Warning: temporary signing keychain cleanup also failed.", file=sys.stderr)
         if notarization:
             apple_id, app_password, team = notarization
             submission = temp / "submission.zip"
             ditto_zip(app, submission)
-            run("xcrun", "notarytool", "submit", submission, "--apple-id", apple_id,
-                "--password", app_password, "--team-id", team, "--wait", "--timeout", "30m")
+            auth = ("--apple-id", apple_id, "--password", app_password, "--team-id", team)
+            result = subprocess.run(
+                ("xcrun", "notarytool", "submit", submission, *auth,
+                 "--wait", "--timeout", "30m", "--output-format", "json"),
+                capture_output=True, text=True, check=False)
+            try:
+                response = json.loads(result.stdout)
+            except ValueError:
+                raise RuntimeError("notarytool returned no valid JSON status") from None
+            if result.returncode or response.get("status") != "Accepted":
+                if submission_id := response.get("id"):
+                    log = temp / "notary-log.json"
+                    run("xcrun", "notarytool", "log", submission_id, *auth, log)
+                    print(log.read_text(encoding="utf-8"))
+                raise RuntimeError(f"Notarization did not succeed: {response.get('status', 'unknown')}")
             run("xcrun", "stapler", "staple", app)
     return True, bool(notarization)
 
@@ -165,27 +197,66 @@ def archive_and_smoke(package, out, signed, notarized):
         payload = extracted / package.name
         if sys.platform == "darwin":
             app = payload / APP
-            if signed:
-                run("codesign", "--verify", "--deep", "--strict", app)
+            run("codesign", "--verify", "--deep", "--strict", app)
             if notarized:
                 run("xcrun", "stapler", "validate", app)
             payload = app / "Contents" / "MacOS"
+            # Exercise the extracted bundle's actual symlinks, not a flattened copy.
+            spec = importlib.util.spec_from_file_location("package_smoke", ROOT / "scripts/package-coin-dash.py")
+            smoke = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(smoke)
+            work = temp / "bundle-smoke"
+            work.mkdir()
+            smoke.check_package(payload)
+            smoke.smoke_headless(payload, work, 240)
         elif os.name == "nt" and signed:
             run(signtool(), "verify", "/pa", payload / "coin_dash.exe")
         run(sys.executable, ROOT / "scripts/package-coin-dash.py", "smoke", "--package", payload)
         with archive.open("rb") as file:
             digest = hashlib.file_digest(file, "sha256").hexdigest()
         shutil.copyfile(archive, out / archive.name)
-        (out / f"{archive.name}.sha256").write_text(f"{digest}  {archive.name}\n", encoding="ascii")
+        write_checksum(out / f"{archive.name}.sha256", digest, archive.name)
         print(f"Verified archive and checksum: {archive.name}", flush=True)
+
+
+def write_checksum(path, digest, name):
+    path.write_text(f"{digest}  {name}\n", encoding="ascii", newline="\n")
+
+
+def check_version(tag):
+    if tag.endswith("-desktop-dry-run"):
+        return
+    with (ROOT / "Cargo.toml").open("rb") as file:
+        version = tomllib.load(file)["package"]["version"]
+    if tag != f"v{version}":
+        raise RuntimeError(f"Release tag {tag!r} does not match Cargo version {version!r}")
+
+
+def selftest():
+    import unittest
+    spec = importlib.util.spec_from_file_location("release_tests", ROOT / "scripts/test-release-coin-dash.py")
+    tests = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tests)
+    suite = unittest.defaultTestLoader.loadTestsFromModule(tests)
+    if suite.countTestCases() == 0:
+        raise RuntimeError("Release packaging selftest found no tests")
+    if not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful():
+        raise RuntimeError("Release packaging selftest failed")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("step", choices=("sign", "archive"))
-    parser.add_argument("--package", type=Path, required=True, help="folder made by package --out")
+    parser.add_argument("step", choices=("sign", "archive", "selftest", "check-version"))
+    parser.add_argument("--package", type=Path, help="folder made by package --out")
+    parser.add_argument("--tag", default=os.environ.get("GITHUB_REF_NAME", ""))
     parser.add_argument("--out", type=Path, default=Path("desktop-assets"))
     args = parser.parse_args()
+    if args.step == "selftest":
+        return selftest()
+    if args.step == "check-version":
+        return check_version(args.tag)
+    if args.package is None:
+        parser.error("--package is required for sign and archive")
     packages = [p for p in args.package.glob("coin-dash-*") if p.is_dir()]
     if len(packages) != 1:
         parser.error(f"expected one Coin Dash package in {args.package}")

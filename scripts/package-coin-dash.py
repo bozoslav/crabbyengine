@@ -218,7 +218,10 @@ def cmd_package(args):
     profile_flag = ["--release"] if args.profile == "release" else []
     if not args.no_build:
         run(["cargo", "build", *profile_flag, "--example", EXAMPLE])
-    built = target_dir() / ("release" if args.profile == "release" else "debug") / "examples" / EXE
+    build_root = target_dir()
+    if target := os.environ.get("CARGO_BUILD_TARGET"):
+        build_root /= target
+    built = build_root / ("release" if args.profile == "release" else "debug") / "examples" / EXE
     if not built.is_file():
         print(f"package: {built} does not exist; build the example first", file=sys.stderr)
         return 3
