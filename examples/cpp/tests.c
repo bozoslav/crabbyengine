@@ -38,7 +38,10 @@ static void setup(PonkoCtx* ctx, void* user) {
     PonkoInstanceBatch batch;
     CHECK(ponko_ctx_create_instance_batch(ctx,batch_mesh,matrices,1,(PonkoInstanceBatchOptions){32,100,true,{1,1,1,1}},&batch) == PONKO_OK);
     CHECK(ponko_ctx_update_instance_batch(ctx,batch,matrices,1) == PONKO_OK);
+    for (uint32_t mode=0; mode<3; ++mode) CHECK(ponko_ctx_set_instance_batch_culling(ctx,batch,mode) == PONKO_OK);
+    CHECK(ponko_ctx_set_instance_batch_culling(ctx,batch,3) == PONKO_INVALID_ARGUMENT);
     CHECK(ponko_ctx_free_instance_batch(ctx,batch) == PONKO_OK);
+    CHECK(ponko_ctx_set_instance_batch_culling(ctx,batch,0) == PONKO_INVALID_ARGUMENT);
     CHECK(ponko_ctx_update_instance_batch(ctx,batch,matrices,1) == PONKO_INVALID_ARGUMENT);
     CHECK(ponko_ctx_free_gpu_buffer(ctx, buffer) == PONKO_OK);
     CHECK(ponko_ctx_free_gpu_buffer(ctx, buffer) == PONKO_INVALID_ARGUMENT);

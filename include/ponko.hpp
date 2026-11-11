@@ -3388,6 +3388,10 @@ public:
         detail::check(ponko_ctx_update_instance_batch_colors(raw_, b,
             reinterpret_cast<const float (*)[16]>(matrices.data()), matrices.size(), colors.data(), colors.size()));
     }
+    /// 0 = automatic, 1 = prefer GPU, 2 = prefer CPU; device limits still apply.
+    void set_instance_batch_culling(instance_batch b, std::uint32_t culling) {
+        detail::check(ponko_ctx_set_instance_batch_culling(raw_, b, culling));
+    }
     void free_instance_batch(instance_batch b) { detail::check(ponko_ctx_free_instance_batch(raw_,b)); }
     gpu_buffer create_gpu_buffer(uint32_t len, const std::vector<std::array<float, 4>>& data = {}) {
         gpu_buffer b{}; detail::check(ponko_ctx_create_gpu_buffer(raw_, len,

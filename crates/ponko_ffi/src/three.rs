@@ -4056,6 +4056,36 @@ pub struct PonkoInstanceBatchOptions {
     /// Uniform sRGB tint.
     pub tint: PonkoColor,
 }
+/// Changes the culling preference: 0 = Auto, 1 = PreferGpu, 2 = PreferCpu.
+/// Reselects the path immediately. Unknown values and freed batches are rejected.
+/// The by-value options struct retains its existing ABI layout.
+/// # Safety
+/// Context is live or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_ctx_set_instance_batch_culling(
+    ctx: *mut PonkoCtx,
+    batch: PonkoInstanceBatch,
+    culling: u32,
+) -> PonkoStatus {
+    // SAFETY: the caller supplies a live context or null; ctx_access validates it.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let culling = match culling {
+                0 => ponko::render::BatchCulling::Auto,
+                1 => ponko::render::BatchCulling::PreferGpu,
+                2 => ponko::render::BatchCulling::PreferCpu,
+                _ => return Err(invalid("invalid batch culling preference")),
+            };
+            if !c
+                .gfx
+                .set_instance_batch_culling(ponko::render::InstanceBatch::from_id(batch.id), culling)
+            {
+                return Err(invalid("invalid instance batch"));
+            }
+            Ok(())
+        })
+    })
+}
 /// Creates a persistent batch from column-major affine matrices.
 /// # Safety
 /// Context is live or null, matrices hold `count` entries, output is writable.

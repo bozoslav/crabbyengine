@@ -292,6 +292,20 @@ impl Graphics {
         }
         Some(((lo + hi) * 0.5, (hi - lo).length() * 0.5))
     }
+    /// Changes a live batch's culling preference and immediately reselects its
+    /// path using the current materials. Returns false for a freed batch.
+    /// Device capability and size limits still apply to `PreferGpu`.
+    pub fn set_instance_batch_culling(&mut self, batch: InstanceBatch, culling: BatchCulling) -> bool {
+        let Some(Some(data)) = self.assets3d.instance_batches.get_mut(batch.id as usize) else {
+            return false;
+        };
+        data.options.culling = culling;
+        if let Some(renderer) = self.renderer.as_mut() {
+            renderer.set_instance_batch(batch.id, Some(data));
+        }
+        self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);
+        true
+    }
     /// Replaces transforms and rebuilds cells. Returns false for a freed handle.
     /// See [`InstanceBatch`].
     pub fn update_instance_batch(&mut self, batch: InstanceBatch, transforms: &[Mat4]) -> bool {

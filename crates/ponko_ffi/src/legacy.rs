@@ -15053,6 +15053,23 @@ pub unsafe extern "C" fn crabby_ctx_set_mesh_gpu_buffer(
 }
 
 /// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_set_instance_batch_culling`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_instance_batch_culling(
+    ctx: *mut CrabbyCtx,
+    batch: CrabbyInstanceBatch,
+    culling: u32,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_set_instance_batch_culling(ctx, batch, culling) }).into()
+}
+
+/// # Safety
 /// The caller must uphold the same preconditions as [`crate::ponko_ctx_create_instance_batch`].
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."

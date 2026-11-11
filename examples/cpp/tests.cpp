@@ -288,7 +288,10 @@ static void three_d() {
         std::vector<std::array<float,16>> batch_matrices = {{{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}}};
         auto batch = ctx.create_instance_batch(batch_mesh,batch_matrices);
         ctx.update_instance_batch(batch,batch_matrices);
+        for (std::uint32_t mode=0; mode<3; ++mode) ctx.set_instance_batch_culling(batch,mode);
+        throws([&] {ctx.set_instance_batch_culling(batch,3);});
         ctx.free_instance_batch(batch);
+        throws([&] {ctx.set_instance_batch_culling(batch,0);});
         throws([&] {ctx.update_instance_batch(batch,batch_matrices);});
         auto buffer = ctx.create_gpu_buffer(65);
         ctx.write_gpu_buffer(buffer, 64, {{1, 2, 3, 4}});

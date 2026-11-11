@@ -60,7 +60,22 @@ unsafe extern "C" fn setup(ctx: *mut PonkoCtx, user: *mut c_void) {
             ponko_ctx_update_instance_batch(ctx, batch, matrices.as_ptr(), 1),
             PONKO_OK
         );
+        for mode in 0..=2 {
+            assert_eq!(ponko_ctx_set_instance_batch_culling(ctx, batch, mode), PONKO_OK);
+        }
+        assert_eq!(
+            ponko_ctx_set_instance_batch_culling(ctx, batch, 3),
+            PONKO_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            ponko_ctx_set_instance_batch_culling(null_mut(), batch, 0),
+            PONKO_INVALID_ARGUMENT
+        );
         assert_eq!(ponko_ctx_free_instance_batch(ctx, batch), PONKO_OK);
+        assert_eq!(
+            ponko_ctx_set_instance_batch_culling(ctx, batch, 0),
+            PONKO_INVALID_ARGUMENT
+        );
         assert_eq!(
             ponko_ctx_update_instance_batch(ctx, batch, matrices.as_ptr(), 1),
             PONKO_INVALID_ARGUMENT
