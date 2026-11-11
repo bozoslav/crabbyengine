@@ -134,6 +134,14 @@ type Living = (Or<(With<Player>, With<Enemy>)>, Without<Dead>);
 world.query::<&mut Health>().filter::<Living>().for_each(|h| h.0 -= 1.0);
 ```
 
+A tuple can also be an `Or` arm: `Or<((With<Player>, With<Enemy>), Without<Dead>)>`
+means "both Player and Enemy, or not Dead". Tuples and `Or`s can nest.
+`Or<()>` matches nothing; an empty tuple arm matches everything. The inline
+storage expands `(A AND B) OR C` into `(A OR C) AND (B OR C)`: up to 4
+clauses and 16 component predicates across them, counting repetitions from
+expansion. Exceeding these limits panics. These filters work with `cached()`
+and parallel queries too.
+
 Asking for the same component twice with `&mut` (or `Option<&mut T>`) panics.
 
 Ways to run a query:

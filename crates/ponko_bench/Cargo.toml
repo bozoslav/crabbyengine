@@ -1,5 +1,6 @@
 [package]
 name = "ponko_bench"
+default-run = "ponko_bench"
 version = "0.0.1"
 description = "Benchmarks: ponko_ecs vs bevy_ecs vs hecs, and simulation at scale."
 edition.workspace = true

@@ -98,3 +98,195 @@ fn same_component_twice_read_only_is_fine() {
     w.spawn((Pos(1.0, 0.0),));
     w.query::<(&Pos, &Pos)>().for_each(|(a, b)| assert_eq!(a, b));
 }
+
+// Every combination gives the boolean expressions a complete truth table.
+struct Bit<const N: usize>;
+struct Bits(usize);
+fn filter_world(rows: usize) -> World {
+    let mut w = World::new();
+    for bits in 0..128 {
+        for _ in 0..rows {
+            let e = w.spawn((Bits(bits),));
+            macro_rules! bit {
+                ($n:literal) => {
+                    if bits & (1 << $n) != 0 {
+                        w.insert(e, Bit::<$n>);
+                    }
+                };
+            }
+            bit!(0);
+            bit!(1);
+            bit!(2);
+            bit!(3);
+            bit!(4);
+            bit!(5);
+            bit!(6);
+        }
+    }
+    w
+}
+fn truth<F: QueryFilter>(pred: impl Fn(usize) -> bool) {
+    let mut w = filter_world(1);
+    let mut q = w.query::<(Entity, &Bits)>().filter::<F>();
+    let mut actual: Vec<_> = q.iter().map(|(_, v)| v.0).collect();
+    actual.sort_unstable();
+    let expected: Vec<_> = (0..128).filter(|&b| pred(b)).collect();
+    assert_eq!(actual, expected);
+    assert_eq!(q.count(), expected.len());
+    q.for_each(|(e, v)| assert!(pred(v.0), "{e:?}"));
+    drop(q);
+    let entities: Vec<_> = w.query::<(Entity, &Bits)>().iter().map(|(e, b)| (e, b.0)).collect();
+    let mut q = w.query::<&Bits>().filter::<F>();
+    for (e, bits) in entities {
+        assert_eq!(q.get(e).is_some(), pred(bits));
+    }
+}
+
+#[test]
+fn or_accepts_and_arms_and_nested_combinations() {
+    truth::<Or<((With<Bit<0>>, With<Bit<1>>), Without<Bit<2>>)>>(|b| b & 3 == 3 || b & 4 == 0);
+    truth::<Or<((With<Bit<0>>, Without<Bit<1>>), (With<Bit<2>>, Without<Bit<3>>))>>(|b| b & 3 == 1 || b & 12 == 4);
+    type Nested = Or<((With<Bit<0>>, Or<(With<Bit<1>>, Without<Bit<2>>)>), (Without<Bit<3>>,))>;
+    truth::<Nested>(|b| b & 1 != 0 && (b & 2 != 0 || b & 4 == 0) || b & 8 == 0);
+    truth::<Or<(Or<((With<Bit<0>>, With<Bit<1>>), With<Bit<2>>)>, Without<Bit<3>>)>>(|b| {
+        b & 3 == 3 || b & 4 != 0 || b & 8 == 0
+    });
+    truth::<(Or<((With<Bit<0>>, With<Bit<1>>), Without<Bit<2>>)>, Without<Bit<3>>)>(|b| {
+        (b & 3 == 3 || b & 4 == 0) && b & 8 == 0
+    });
+}
+
+#[test]
+fn empty_singleton_repeated_and_contradictory_or_arms() {
+    truth::<Or<()>>(|_| false);
+    truth::<Or<((), With<Bit<0>>)>>(|_| true);
+    truth::<Or<((With<Bit<0>>,),)>>(|b| b & 1 != 0);
+    truth::<Or<((With<Bit<0>>, With<Bit<0>>), Or<()>)>>(|b| b & 1 != 0);
+    truth::<Or<((With<Bit<0>>, Without<Bit<0>>), With<Bit<1>>)>>(|b| b & 2 != 0);
+    truth::<Or<((Or<()>, With<Bit<0>>),)>>(|_| false);
+}
+
+#[test]
+fn tuple_or_filters_allow_optional_mutable_fetches_and_builder_filters() {
+    let mut w = filter_world(1);
+    w.query::<(&mut Bits, Option<&mut Bit<0>>)>()
+        .filter::<Or<((With<Bits>, With<Bit<0>>), Without<Bit<1>>)>>()
+        .with::<Bit<2>>()
+        .without::<Bit<3>>()
+        .for_each(|(v, optional)| {
+            assert_eq!(optional.is_some(), v.0 & 1 != 0);
+            assert!(v.0 & 1 != 0 || v.0 & 2 == 0);
+            v.0 += 128;
+        });
+    w.query::<&Bits>()
+        .for_each(|v| assert_eq!(v.0 >= 128, (v.0 & 1 != 0 || v.0 & 2 == 0) && v.0 & 12 == 4));
+}
+
+#[test]
+#[should_panic(expected = "twice")]
+fn tuple_or_filters_do_not_bypass_optional_mutable_alias_checks() {
+    let mut w = World::new();
+    let _ = w
+        .query::<(Option<&mut Bits>, &Bits)>()
+        .filter::<Or<((With<Bits>, Without<Bits>),)>>();
+}
+
+#[test]
+fn cached_tuple_or_filters_track_growth_and_distinct_signatures() {
+    let mut w = filter_world(1);
+    assert!(w.raw_ref().archetypes().len() >= 128);
+    type F = Or<((With<Bit<0>>, With<Bit<1>>), Without<Bit<2>>)>;
+    type G = Or<((With<Bit<0>>, Without<Bit<1>>), Without<Bit<2>>)>;
+    let e = w.spawn((Bits(0), Bit::<0>, Bit::<1>));
+    for pass in 0..3 {
+        let direct: Vec<_> = w.query::<&Bits>().filter::<F>().iter().map(|b| b.0).collect();
+        let cached: Vec<_> = w.query::<&Bits>().cached().filter::<F>().iter().map(|b| b.0).collect();
+        assert_eq!(cached, direct);
+        let direct: Vec<_> = w.query::<&Bits>().filter::<G>().iter().map(|b| b.0).collect();
+        let cached: Vec<_> = w.query::<&Bits>().cached().filter::<G>().iter().map(|b| b.0).collect();
+        assert_eq!(cached, direct);
+        if pass == 0 {
+            w.insert(e, Bit::<2>);
+        }
+        if pass == 1 {
+            w.spawn((Bits(999), Bit::<0>, Bit::<1>, Bit::<7>));
+            w.remove::<Bit<1>>(e);
+        }
+    }
+}
+
+#[cfg(feature = "parallel")]
+#[test]
+fn parallel_tuple_or_filters_match_sequential_order_and_mutation() {
+    let mut w = filter_world(if cfg!(miri) { 2 } else { 600 });
+    type F = Or<((With<Bit<0>>, With<Bit<1>>), Without<Bit<2>>)>;
+    let expected: Vec<_> = w.query::<&Bits>().filter::<F>().iter().map(|b| b.0).collect();
+    let mut got = vec![usize::MAX];
+    w.query::<&Bits>()
+        .cached()
+        .filter::<F>()
+        .par_collect_into(&mut got, |b| b.0);
+    assert_eq!(got, expected);
+    w.query::<&mut Bits>()
+        .cached()
+        .filter::<F>()
+        .par_for_each(|b| b.0 += 128);
+    w.query::<&Bits>()
+        .for_each(|b| assert_eq!(b.0 >= 128, b.0 & 3 == 3 || b.0 & 4 == 0));
+}
+
+#[test]
+fn view_tuple_or_filters_handle_unregistered_components_per_arm() {
+    struct Never;
+    let mut w = filter_world(1);
+    let mut state = ViewState::new(ViewAccess::new().write::<Bits>().read::<Bit<0>>());
+    state.run(&mut w, |mut view| {
+        assert_eq!(
+            view.query::<Entity>()
+                .filter::<Or<((With<Never>, With<Bit<0>>), With<Bit<1>>)>>()
+                .count(),
+            64
+        );
+        assert_eq!(
+            view.query::<Entity>()
+                .filter::<Or<((Without<Never>, With<Bit<0>>), With<Bit<1>>)>>()
+                .count(),
+            96
+        );
+        assert_eq!(
+            view.query::<Entity>().filter::<Or<((With<Never>,), Or<()>)>>().count(),
+            0
+        );
+        assert_eq!(view.query::<Entity>().filter::<Or<((), With<Never>)>>().count(), 128);
+        view.query::<(&mut Bits, Option<&Bit<0>>)>()
+            .filter::<Or<((With<Bit<0>>, With<Bit<1>>), Without<Never>)>>()
+            .for_each(|(b, m)| assert_eq!(m.is_some(), b.0 & 1 != 0));
+    });
+}
+
+#[test]
+#[should_panic(expected = "at most 4 `Or` filters per query")]
+fn expanded_tuple_or_clauses_obey_inline_capacity() {
+    let mut w = World::new();
+    let _ = w
+        .query::<Entity>()
+        .filter::<Or<((With<Bit<0>>, With<Bit<1>>, With<Bit<2>>), (With<Bit<3>>, With<Bit<4>>))>>();
+}
+
+// Four expanded clauses, each with four terms: exactly the inline limit.
+type FullOr = Or<(
+    (Or<(With<Bit<0>>, With<Bit<1>>)>, Or<(With<Bit<2>>, With<Bit<3>>)>),
+    (Or<(With<Bit<4>>, With<Bit<5>>)>, Or<(With<Bit<6>>, Without<Bit<0>>)>),
+)>;
+
+#[test]
+fn expanded_tuple_or_terms_fit_at_the_inline_limit() {
+    truth::<FullOr>(|b| (b & 3 != 0 && b & 12 != 0) || (b & 48 != 0 && (b & 64 != 0 || b & 1 == 0)));
+}
+
+#[test]
+#[should_panic(expected = "at most 16 components across a query's `Or` filters")]
+fn expanded_tuple_or_terms_panic_above_the_inline_limit() {
+    let mut w = World::new();
+    let _ = w.query::<Entity>().filter::<Or<(FullOr, With<Bit<1>>)>>();
+}
