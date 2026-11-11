@@ -13,6 +13,9 @@ use ponko::system_view::SystemView;
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
+const WARMUP: u64 = 50;
+const TICKS: u64 = 250;
+
 struct Pos(f32);
 struct Vel(f32);
 struct Total(f64);
@@ -39,14 +42,14 @@ fn total(sys: &mut SystemView) {
     sys.world.resource_mut::<Total>().0 += f64::from(moved);
 }
 
-fn run(threshold: Duration) -> (u32, f64) {
-    let world = Game::new("schedule allocations", 1, 1)
+fn run(threshold: Duration, allocate: bool) -> (u32, f64) {
+    let (world, report) = Game::new("schedule allocations", 1, 1)
         .parallel_systems(true)
         .parallel_threshold(threshold)
         .parallel_systems_env(false)
         .sim_system(|ctx: &mut Ctx| {
             let now = ponko::perf::alloc_counts();
-            ctx.world.insert_resource(Before(now));
+            ctx.world.resource_mut::<Before>().0 = now;
         })
         // One batch: a reader before the sender, and a writer of its own.
         .add_view(
@@ -57,7 +60,13 @@ fn run(threshold: Duration) -> (u32, f64) {
         .add_view(
             Phase::AfterPhysics,
             SystemAccess::new().write::<Pos>().read::<Vel>().send_events::<Moved>(),
-            movement,
+            move |sys: &mut SystemView| {
+                // Positive control inside the same measured batch.
+                if allocate {
+                    std::hint::black_box(Box::new([0u8; 64]));
+                }
+                movement(sys);
+            },
         )
         .add_view(
             Phase::AfterPhysics,
@@ -70,28 +79,40 @@ fn run(threshold: Duration) -> (u32, f64) {
         .sim_system(|ctx: &mut Ctx| {
             let made = ponko::perf::alloc_counts().count - ctx.world.resource::<Before>().0.count;
             // Buffers grow and the thread pool starts in the first ticks.
-            if ctx.time.sim_tick() >= 50 && made > 0 {
+            if ctx.time.sim_tick() >= WARMUP && made > 0 {
                 ctx.world.resource_mut::<Allocating>().0 += 1;
             }
         })
-        .run_headless(300, |ctx| {
+        .profile_headless(WARMUP, TICKS, |ctx| {
+            ctx.world.insert_resource(Before(ponko::perf::AllocCounts::default()));
             ctx.world.insert_resource(Total(0.0));
             ctx.world.insert_resource(Allocating(0));
             ctx.world
                 .spawn_batch((0..500).map(|i| (Pos(i as f32), Vel(1.0), i as u64)));
         });
+    assert_eq!(report.frames, TICKS as usize);
+    assert!(report.allocs.is_some(), "allocation counting must be enabled");
     (world.resource::<Allocating>().0, world.resource::<Total>().0)
 }
 
 #[test]
 fn a_batch_allocates_nothing_in_steady_state() {
-    // In order on the game's thread: the batch's own work never allocates.
-    let (allocating, total) = run(Duration::MAX);
-    assert_eq!(total, 500.0 * 299.0, "the reader saw every tick's event one tick later");
-    assert_eq!(allocating, 0, "ticks whose batch allocated, run in order");
-    // On the thread pool: the engine's side doesn't either. (Run in the same
-    // test: the counter is the whole process's.)
-    let (allocating, threaded_total) = run(Duration::ZERO);
-    assert_eq!(threaded_total, total);
-    assert_eq!(allocating, 0, "ticks whose batch allocated, run on threads");
+    // Keep controls and measurements in one test: the counter is process-wide.
+    // Profiling runs batches sequentially, including when parallelism is requested.
+    for (threshold, mode) in [(Duration::MAX, "in order"), (Duration::ZERO, "parallel requested")] {
+        let (allocating, control_total) = run(threshold, true);
+        assert_eq!(
+            allocating, TICKS as u32,
+            "positive control must count every measured tick, {mode}"
+        );
+
+        let (allocating, total) = run(threshold, false);
+        assert_eq!(
+            total,
+            500.0 * (WARMUP + TICKS - 1) as f64,
+            "the reader saw every tick's event one tick later"
+        );
+        assert_eq!(control_total, total);
+        assert_eq!(allocating, 0, "ticks whose batch allocated, {mode}");
+    }
 }
