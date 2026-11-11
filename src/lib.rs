@@ -34,7 +34,7 @@
 //! - `gamepad` (default): gamepads through gilrs; without it
 //!   `Input::gamepads` is always empty. On Linux it needs libudev headers.
 //! - `profiling`: per-system scopes for `puffin_viewer`. (Not needed for
-//!   [`profile_scope!`], [`Perf::report`] or [`CountingAllocator`], which
+//!   [`profile_scope!`], [`Perf::report`](perf::Perf::report) or [`CountingAllocator`](alloc_count::CountingAllocator), which
 //!   are always built in and cost one atomic load while profiling is off.)
 //! - `hotpatch`: change system code while the game runs, with
 //!   `dx serve --hot-patch --features hotpatch`.
@@ -44,7 +44,7 @@
 //!   colliders (heightfield terrain too), queries, a character controller and
 //!   raycast-wheel vehicles.
 //! - `steam`: lockstep and byte messages over Steam's relays and lobbies
-//!   (`Net::steam_host`), with the `steamworks` crate re-exported.
+//!   (`Net::steam_host`), with the `steamworks` crate re-exported as `ponko::net::steam`.
 
 #![warn(missing_docs)]
 // Without a window, the code that only the window loop calls is unused.
@@ -155,8 +155,6 @@ pub use ctx::Ctx;
 pub use error::{Error, ErrorKind};
 #[doc(hidden)]
 pub use events::Events;
-#[doc(hidden)]
-pub use flow::RawFlowView;
 
 #[doc(hidden)]
 pub use game::{ConfiguredGame, Game, Phase, Plugin, SetupResult, SystemId, Systems};
@@ -165,34 +163,12 @@ pub use handle::Handle;
 #[doc(hidden)]
 pub use input::{Key, MouseButton};
 #[doc(hidden)]
-pub use net::Interpolate;
-#[doc(hidden)]
 pub use random::{Random, Rng};
-#[doc(hidden)]
-pub use reflect::{FieldType, WorldReflect};
 
 #[doc(hidden)]
-pub use schema::ValueSchema;
+pub use reflect::WorldReflect;
 #[doc(hidden)]
 pub use sheet::SpriteSheet;
-#[doc(hidden)]
-pub use spatial::RawGridView;
-/// The Steamworks SDK (re-exported `steamworks` crate, feature `steam`):
-/// create the [`steamworks::Client`] for [`Net::steam_host`] here, and use
-/// it for achievements, friends and the rest of Steam.
-#[cfg(feature = "steam")]
-#[doc(hidden)]
-pub use steamworks;
-#[allow(deprecated)]
-#[doc(hidden)]
-pub use systems::at_root::*;
-/// Flex/grid/absolute layout types used by retained UI.
-/// ```
-/// use ponko::ui::layout::Style;
-/// let style: Style = Style::default();
-/// ```
-#[doc(hidden)]
-pub use taffy as ui_layout;
 #[doc(hidden)]
 pub use text::{Font, TextParams};
 #[doc(hidden)]
@@ -203,9 +179,7 @@ pub use time::{Time, Turns};
 
 /// The ECS: entities, components, queries, resources, commands.
 #[doc(hidden)]
-pub use ponko_ecs::{
-    Added, Changed, Commands, Component, Entity, Or, Query, QueryFilter, Tick, ViewQuery, With, Without, World,
-};
+pub use ponko_ecs::{Added, Changed, Commands, Component, Entity, Or, Query, Tick, With, Without, World};
 
 /// The whole ECS crate ([`ponko_ecs`]), for advanced use: component ids,
 /// read-only world views, the dynamic and C path ([`World::raw`]), chunks
@@ -230,18 +204,24 @@ pub use glam::{UVec2, uvec2};
 #[doc(hidden)]
 pub use glam::{Vec2, vec2};
 
-/// JSON values used by reflection (re-exported from `serde_json`).
+/// The `json!` macro used by reflection (re-exported from `serde_json`).
 #[doc(hidden)]
-pub use serde_json::{self, Value, json};
+pub use serde_json::json;
 
 mod environment;
+
+/// The prelude's short names for the dimension types.
+#[doc(hidden)]
+pub use d2::{Camera as Camera2D, Sprite, Transform as Transform2D};
+#[cfg(feature = "3d")]
+#[doc(hidden)]
+pub use d3::{Camera as Camera3D, Transform as Transform3D};
+#[cfg(feature = "3d")]
+#[doc(hidden)]
+pub use render::Model;
+#[doc(hidden)]
+pub use ui::{Ui, UiId};
 
 /// Prefab placement in either dimension.
 #[doc(hidden)]
 pub use scene::Placement;
-
-mod compat;
-#[doc(hidden)]
-#[allow(deprecated)]
-#[doc(hidden)]
-pub use compat::*;

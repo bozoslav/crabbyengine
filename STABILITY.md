@@ -75,21 +75,17 @@ them interoperable meanwhile.
 
 ## Deprecation
 
-The module/prelude migration keeps the original compatibility coverage of
-existing root exports and dynamic `World` methods, including those now hidden
-from the landing page or typed API documentation. Hiding an existing API is
-not permission to remove it in a compatible release. The root re-exports the
-prelude's items undeprecated, and every other moved root name is a re-export
-of the original item (never a type alias), so identity, layouts, enum-variant
-imports, unit and tuple struct values, and the combination of the root glob
-with the prelude or a module glob all keep working. Those re-exports carry
-`#[deprecated]`, but rustc does not warn through a re-export, so the
-[naming chapter](book/src/naming.md#the-root-glob-and-deprecated-root-spellings)
-and the CHANGELOG list each of them instead. This includes the
-root spellings of the built-in systems (`step_physics`, `draw_sprites`, ...),
-which keep compiling but do not warn. Only the root constants that became
-associated constants and the dynamic `World` methods (now behind
-`World::raw`) are separate items, and those do warn. C/C++ names and layouts
+The module/prelude migration first kept the old root spellings as
+`#[deprecated]` re-exports and forwarders. rustc does not warn through a
+re-export, so they gave old code no hint, and they are removed: the next
+release is a breaking release for code that names them (`ponko::RigidBody3D`,
+`ponko::draw_sprites`, `world.spawn_dynamic(..)`, ...). Its changelog lists
+every removed name with its replacement under "Breaking changes", and the
+[naming chapter](book/src/naming.md#the-root-glob) explains the moves. The
+crate root now holds the modules and the prelude's items, as the same items,
+so the root glob combines with the prelude or a module glob without
+ambiguity. Hiding an existing API from the documentation is still not
+permission to remove it in a compatible release. C/C++ names and layouts
 remain flat and unchanged.
 
 The root glob also brings in the root modules (`audio`, `input`, `net`,

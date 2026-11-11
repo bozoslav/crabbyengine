@@ -228,11 +228,11 @@ pub(super) fn builtin<T: 'static>() -> Option<ValueSchema> {
         return Some(decal3d());
     }
     #[cfg(feature = "3d")]
-    if id == std::any::TypeId::of::<crate::LodHysteresis>() {
+    if id == std::any::TypeId::of::<crate::render::LodHysteresis>() {
         return Some(lodhysteresis());
     }
     #[cfg(feature = "3d")]
-    if id == std::any::TypeId::of::<crate::ReceivesDecals>() {
+    if id == std::any::TypeId::of::<crate::render::ReceivesDecals>() {
         return Some(receivesdecals());
     }
     #[cfg(feature = "physics")]
@@ -563,8 +563,8 @@ mod tests {
             check!(crate::d3::PointLight, crate::d3::PointLight::default());
             check!(crate::d3::SpotLight, crate::d3::SpotLight::default());
             check!(crate::d3::Decal, crate::d3::Decal::default());
-            check!(crate::ReceivesDecals, crate::ReceivesDecals::default());
-            check!(crate::LodHysteresis, crate::LodHysteresis::default());
+            check!(crate::render::ReceivesDecals, crate::render::ReceivesDecals::default());
+            check!(crate::render::LodHysteresis, crate::render::LodHysteresis::default());
         }
         #[cfg(any(feature = "physics", feature = "physics3d"))]
         let kinds = [

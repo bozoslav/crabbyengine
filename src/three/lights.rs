@@ -97,21 +97,21 @@ impl Default for SpotLight3D {
 /// 12 by default): a shadowed spot light takes one, a shadowed point light
 /// six. Each view is a square tile of the lights' shadow atlas.
 /// ```
-/// assert_eq!(ponko::MAX_LIGHT_SHADOW_VIEWS, 24);
+/// assert_eq!(ponko::d3::PointLight::MAX_SHADOW_VIEWS, 24);
 /// ```
 pub const MAX_LIGHT_SHADOW_VIEWS: usize = 24;
 /// Default width and height of the largest point or spot light shadow
 /// view, in texels (see [`Lighting::light_shadow_resolution`](crate::render::Lighting)):
 /// what a light near the camera gets.
 /// ```
-/// assert_eq!(ponko::LIGHT_SHADOW_SIZE, 1024);
+/// assert_eq!(ponko::d3::PointLight::SHADOW_SIZE, 1024);
 /// ```
 pub const LIGHT_SHADOW_SIZE: u32 = 1024;
 /// Default width and height of the depth atlas every point and spot light
 /// shadow view is packed into, in texels (see
 /// [`Lighting::light_shadow_atlas`](crate::render::Lighting::light_shadow_atlas)).
 /// ```
-/// assert_eq!(ponko::LIGHT_SHADOW_ATLAS_SIZE, 4096);
+/// assert_eq!(ponko::d3::PointLight::SHADOW_ATLAS_SIZE, 4096);
 /// ```
 pub const LIGHT_SHADOW_ATLAS_SIZE: u32 = 4096;
 /// Smallest and largest point or spot light shadow view a game may ask for.

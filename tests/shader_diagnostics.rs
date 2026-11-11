@@ -1,5 +1,5 @@
 //! Shader errors as data: where in the game's own WGSL a compile failed,
-//! why, and whether a hot reload took effect ([`Graphics::shader_status`](ponko::Graphics::shader_status)).
+//! why, and whether a hot reload took effect ([`Graphics::shader_status`](ponko::gfx::Graphics::shader_status)).
 #![cfg(all(feature = "3d", feature = "window"))]
 
 use std::sync::{Arc, Mutex};

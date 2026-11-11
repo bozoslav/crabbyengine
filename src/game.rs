@@ -925,7 +925,8 @@ impl Game {
     /// ticks back and the worlds aren't compared.
     ///
     /// ```
-    /// use ponko::*;
+    /// use ponko::net::NetMessages;
+    /// use ponko::prelude::*;
     ///
     /// let host = NetMessages::loopback(2).remove(0);
     /// let world = Game::new("t", 1, 1)
@@ -2090,8 +2091,8 @@ mod tests {
             .sim_system(sim_a)
             .remove_system(sim_a)
             .remove_system(crate::systems::animate_sprites)
-            .remove_system(crate::draw_tilemaps)
-            .remove_system(crate::draw_sprites);
+            .remove_system(crate::systems::draw_tilemaps)
+            .remove_system(crate::systems::draw_sprites);
         assert!(game.sim_systems.is_empty());
         // Only positional audio (feature `3d`) is left in `Draw`.
         assert!(
@@ -2116,7 +2117,7 @@ mod tests {
     fn a_builtin_added_by_its_old_root_name_is_the_same_system() {
         let game = Game::new("t", 1, 1)
             .remove(Systems::DRAW_SPRITES)
-            .add(Phase::Draw, crate::draw_sprites);
+            .add(Phase::Draw, crate::systems::draw_sprites);
         assert_eq!(game.system_count(Systems::DRAW_SPRITES), 1);
         let listed = game
             .draw_systems

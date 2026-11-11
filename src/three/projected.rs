@@ -12,7 +12,7 @@ use glam::{Mat4, Vec2, Vec3};
 /// The most decals drawn in a frame. When more are in view, the ones
 /// nearest the camera are kept.
 /// ```
-/// assert_eq!(ponko::MAX_DECALS, 4096);
+/// assert_eq!(ponko::d3::Decal::MAX, 4096);
 /// ```
 pub const MAX_DECALS: usize = 4096;
 
@@ -20,7 +20,7 @@ pub const MAX_DECALS: usize = 4096;
 /// split into 24 slices of depth). Where more overlap, the ones with the
 /// highest [`Decal3D::order`] are kept.
 /// ```
-/// assert_eq!(ponko::MAX_DECALS_PER_CLUSTER, 64);
+/// assert_eq!(ponko::d3::Decal::MAX_PER_CLUSTER, 64);
 /// ```
 pub const MAX_DECALS_PER_CLUSTER: usize = 64;
 

@@ -1,8 +1,8 @@
 use ponko::prelude::*;
+use ponko::ui::layout::prelude::length;
+use ponko::ui::layout::{Dimension, Display, FlexDirection, LengthPercentage, Rect as Edges, Size, Style};
 #[allow(unused_imports)]
 use ponko::ui::{Ui, UiEvent, UiId, UiInput, UiLayout, UiPaint, UiStyle, UiTheme, UiWidget};
-use ponko::ui_layout::prelude::length;
-use ponko::ui_layout::{Dimension, Display, FlexDirection, LengthPercentage, Rect as Edges, Size, Style};
 
 fn sized(w: f32, h: f32) -> Style {
     Style {
@@ -729,7 +729,7 @@ fn top_and_left_place_a_preset_in_pixels() {
 
 #[test]
 fn auto_margins_share_the_windows_free_space_around_a_screen_root() {
-    use ponko::ui_layout::prelude::{auto, length};
+    use ponko::ui::layout::prelude::{auto, length};
     let margins = |left, right, top, bottom| Style {
         margin: Edges {
             left,

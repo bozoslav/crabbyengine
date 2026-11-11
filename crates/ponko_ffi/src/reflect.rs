@@ -274,7 +274,8 @@ pub unsafe extern "C" fn ponko_world_describe_component(
     boundary(|| {
         // SAFETY: caller promises live strings; text checks null and UTF-8.
         let (name, schema) = unsafe { (text(name)?, text(schema)?) };
-        let schema = serde_json::from_str::<ponko::ValueSchema>(schema).map_err(|e| invalid_owned(e.to_string()))?;
+        let schema =
+            serde_json::from_str::<ponko::reflect::ValueSchema>(schema).map_err(|e| invalid_owned(e.to_string()))?;
         // SAFETY: access checks the handle and guards its world borrow.
         unsafe {
             access(world, |w, _| {
@@ -298,7 +299,8 @@ pub unsafe extern "C" fn ponko_world_describe_resource(
     boundary(|| {
         // SAFETY: caller promises live strings; text checks null and UTF-8.
         let (name, schema) = unsafe { (text(name)?, text(schema)?) };
-        let schema = serde_json::from_str::<ponko::ValueSchema>(schema).map_err(|e| invalid_owned(e.to_string()))?;
+        let schema =
+            serde_json::from_str::<ponko::reflect::ValueSchema>(schema).map_err(|e| invalid_owned(e.to_string()))?;
         // SAFETY: access checks the handle and guards its world borrow.
         unsafe {
             access(world, |w, _| {

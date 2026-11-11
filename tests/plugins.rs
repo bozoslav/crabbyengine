@@ -68,7 +68,7 @@ fn ids_distinguish_instances_of_the_same_closure_and_do_not_recycle() {
 fn builtin_ids_and_legacy_removal_coexist() {
     let game = Game::new("ids", 1, 1)
         .remove(Systems::DRAW_SPRITES)
-        .remove_system(ponko::animate_sprites);
+        .remove_system(ponko::systems::animate_sprites);
     game.run_headless(0, |_| {});
 }
 
@@ -112,7 +112,7 @@ fn builtin_registrations_have_individual_handles_and_named_removal_stays_exact()
         .named_system("custom sprites", ponko::systems::draw_sprites);
     assert_eq!(game.remove_named_system("custom sprites"), 1);
     // The default registration must remain removable by its original spelling.
-    game.remove_system(ponko::draw_sprites).run_headless(0, |_| {});
+    game.remove_system(ponko::systems::draw_sprites).run_headless(0, |_| {});
 }
 
 #[test]

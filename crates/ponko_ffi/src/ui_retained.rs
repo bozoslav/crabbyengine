@@ -25,7 +25,7 @@ use ponko::ui::UiPaint;
 use ponko::ui::UiTextAlign;
 use ponko::ui::UiTheme;
 use ponko::ui::UiWidget;
-use ponko::ui_layout::{
+use ponko::ui::layout::{
     AlignContent, AlignItems, Dimension, Display, FlexDirection, FlexWrap, GridPlacement, GridTemplateArea,
     GridTemplateAreas, GridTemplateComponent, GridTemplateRepetition, LengthPercentage, LengthPercentageAuto, Line,
     Position, Rect as Edges, RepetitionCount, Size, Style, TrackSizingFunction,
@@ -788,7 +788,7 @@ fn edges<T>(s: PonkoUiSides, f: impl Fn(PonkoUiLength) -> Result<T, Failure>) ->
 }
 
 fn track(t: PonkoUiTrack) -> Result<TrackSizingFunction, Failure> {
-    use ponko::ui_layout::style_helpers as h;
+    use ponko::ui::layout::style_helpers as h;
     Ok(match pick(&TRACKS, t.kind, "unknown UI track kind")? {
         PonkoUiTrackKind::PONKO_UI_TRACK_AUTO => h::auto(),
         PonkoUiTrackKind::PONKO_UI_TRACK_POINTS => h::length(num(t.value)?),

@@ -41,7 +41,7 @@ fn main() {
                             shadows: max_distance <= 300.0,
                         },
                     );
-                    ctx.create_instance_batch_levels(&levels, &transforms, &[], options);
+                    ctx.gfx.create_instance_batch_levels(&levels, &transforms, &[], options);
                 }
             }
         })

@@ -79,7 +79,7 @@ fn protocol_resource_descriptions_replace_metadata_without_changing_values() {
     let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ZERO);
     ctx.world.reflect_resource::<Score>();
     ctx.world.insert_resource(Score { total: 7 });
-    let schema = crate::ValueSchema::object([("total", crate::ValueSchema::Unsigned)]);
+    let schema = crate::reflect::ValueSchema::object([("total", crate::reflect::ValueSchema::Unsigned)]);
     ctx.world.describe_resource("Score", schema.clone()).unwrap();
     let response = crate::control::handle(&mut ctx, "capabilities", &json!({})).unwrap();
     let resource = response["reflection"]["resources"]

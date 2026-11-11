@@ -322,7 +322,7 @@ impl Kind {
         matches!(self, Kind::Plain)
     }
 }
-const _: () = assert!(!std::mem::needs_drop::<ponko::Animation>());
+const _: () = assert!(!std::mem::needs_drop::<ponko::d2::Animation>());
 
 /// A Rust component and the C struct that stands for it.
 pub(crate) trait CMirror: Sized + 'static {
@@ -402,7 +402,7 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         // repr(C), layout checked against PonkoAttached; any bits are a valid value.
         Some(t) if t == TypeId::of::<ponko::d2::Attached>() => Kind::Plain,
         // repr(C), layout checked against PonkoAnimation; `looping` must be 0 or 1.
-        Some(t) if t == TypeId::of::<ponko::Animation>() => Kind::Plain,
+        Some(t) if t == TypeId::of::<ponko::d2::Animation>() => Kind::Plain,
         Some(t) if t == TypeId::of::<Sprite>() => Kind::Mirror(&SPRITE),
         // repr(C), layout checked against PonkoTransform3D / PonkoModel;
         // any bits are a valid value (unknown meshes draw nothing).

@@ -77,7 +77,7 @@ use std::time::Duration;
 
 use super::scripted::{Datagram, Network, Shared, addr, port};
 use super::{GONE, INPUTS, MAGIC, MAX_INPUT_BYTES, Net, NetState, PACKET, VERSION};
-use crate::{Instant, World, WorldReflect};
+use crate::{World, WorldReflect, perf::Instant};
 
 /// One scripted step: the network advances one tick, the clock 10 ms, then
 /// every peer tries to run its next simulation tick.
