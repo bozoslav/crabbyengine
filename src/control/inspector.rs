@@ -117,6 +117,7 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
                 "occluded_models": s.occluded,
                 "frustum_culled_models": null,
                 "pipelines_built": s.pipelines_built,
+                "instance_batches": instance_batches_json(&s.instance_batches),
             });
             let timing = json!({
                 "available": detail.gpu_timestamps,
@@ -161,6 +162,27 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
         "pipelines": pipelines,
         "quality": quality,
         "unavailable": unavailable,
+    })
+}
+
+/// How the static instance batches were culled and drawn in the frame:
+/// [`InstanceBatchStats`](crate::render::InstanceBatchStats), field by field.
+fn instance_batches_json(b: &crate::render::InstanceBatchStats) -> Value {
+    json!({
+        "batches": b.batches,
+        "instances": b.instances,
+        "gpu_driven": b.gpu_driven,
+        "gpu_instances": b.gpu_instances,
+        "cpu_small": b.cpu_small,
+        "cpu_no_compute": b.cpu_no_compute,
+        "cpu_over_limit": b.cpu_over_limit,
+        "dropped": b.dropped,
+        "pools": b.pools,
+        "pool_bytes": b.pool_bytes,
+        "cull_dispatches": b.cull_dispatches,
+        "cull_jobs": b.cull_jobs,
+        "views_skipped": b.views_skipped,
+        "pages": b.pages,
     })
 }
 
@@ -385,6 +407,10 @@ mod tests {
         assert!(why.contains("timestamp"), "{why}");
         // The CPU side and the counts are still there.
         assert_eq!(v["counts"]["draw_calls"], 7);
+        // How the instance batches were drawn rides along, all counts.
+        let batches = v["counts"]["instance_batches"].as_object().unwrap();
+        assert_eq!(batches.len(), 14);
+        assert!(batches.values().all(Value::is_u64), "{batches:?}");
         assert_eq!(v["cpu_ms"]["total"], 4.0);
         assert_nulls_explained(&v);
     }

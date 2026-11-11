@@ -799,8 +799,8 @@ impl Renderer {
     }
     #[cfg(feature = "3d")]
     pub fn set_instance_batch(&mut self, id: u32, batch: Option<&crate::three::instances::Batch>) {
-        let device = self.device.clone();
-        self.three().set_instance_batch(&device, id, batch);
+        let (device, queue) = (self.device.clone(), self.queue.clone());
+        self.three().set_instance_batch(&device, &queue, id, batch);
     }
     #[cfg(feature = "3d")]
     pub fn set_mesh_gpu_buffer(&mut self, mesh: u32, b: u32, count: u32) {
@@ -1407,6 +1407,7 @@ impl Renderer {
             self.stats.shadow_triangles = shadow_triangles;
             self.stats.occluded = three.occluded;
             self.stats.pipelines_built = three.take_pipelines_built();
+            self.stats.instance_batches = three.instance_batch_stats();
             self.stats.collect_ms = self.collect_ms;
         }
 

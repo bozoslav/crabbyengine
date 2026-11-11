@@ -83,6 +83,11 @@ Light updates are memory-bandwidth-bound, so extra cores help less. Heavy update
 Parallel queries across few huge versus many small archetypes, with their
 crossover thresholds: [PAR_ARCHETYPES.md](PAR_ARCHETYPES.md) (`-- par-arch`).
 
+Static instance batches, GPU-driven against CPU culling, over batch counts
+and sizes, occlusion and shadows, with the crossover the renderer uses:
+[STATIC_BATCHES.md](STATIC_BATCHES.md) (an offscreen renderer benchmark:
+`cargo test --release --lib --features 3d static_batch_benchmark -- --ignored --nocapture`).
+
 Whole systems at the same time (the parallel system scheduler), its
 overhead and its crossover: [SCHEDULE.md](SCHEDULE.md) (`-- schedule`).
 

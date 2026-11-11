@@ -484,27 +484,33 @@ impl PointLight3D {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     struct Counting;
     thread_local! { static ALLOCS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) }; }
+    // Marked code (see `marked`): whether this thread is in it now, how
+    // often it was entered, and how often it allocated, while counting.
+    thread_local! { static MARKED: std::cell::Cell<(bool, usize, usize)> = const { std::cell::Cell::new((false, 0, 0)) }; }
+    fn count() {
+        let _ = ALLOCS.try_with(|n| {
+            if let Some(v) = n.get() {
+                n.set(Some(v + 1));
+                let _ = MARKED.try_with(|m| {
+                    let (on, entered, allocations) = m.get();
+                    m.set((on, entered, allocations + usize::from(on)));
+                });
+            }
+        });
+    }
     // SAFETY: delegates every allocation unchanged to the system allocator.
     unsafe impl std::alloc::GlobalAlloc for Counting {
         unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
-            let _ = ALLOCS.try_with(|n| {
-                if let Some(v) = n.get() {
-                    n.set(Some(v + 1));
-                }
-            });
+            count();
             // SAFETY: forwarded allocation contract.
             unsafe { std::alloc::System.alloc(layout) }
         }
         unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, size: usize) -> *mut u8 {
-            let _ = ALLOCS.try_with(|n| {
-                if let Some(v) = n.get() {
-                    n.set(Some(v + 1));
-                }
-            });
+            count();
             // SAFETY: forwarded allocation contract.
             unsafe { std::alloc::System.realloc(ptr, layout, size) }
         }
@@ -515,6 +521,50 @@ mod tests {
     }
     #[global_allocator]
     static ALLOCATOR: Counting = Counting;
+
+    /// Restores what [`marked`] or [`unmarked`] changed.
+    pub(crate) struct Mark(bool);
+    impl Drop for Mark {
+        fn drop(&mut self) {
+            MARKED.with(|m| m.set((self.0, m.get().1, m.get().2)));
+        }
+    }
+    fn mark(on: bool) -> Mark {
+        MARKED.with(|m| {
+            let (was, entered, allocations) = m.get();
+            m.set((on, entered + usize::from(on && !was), allocations));
+            Mark(was)
+        })
+    }
+    /// Until the guard drops, this thread's allocations count as made by
+    /// marked code: a test can then tell a module's own allocations from
+    /// those of the libraries it calls, without reading call stacks (which
+    /// need debug info the CI builds leave out).
+    pub(crate) fn marked() -> Mark {
+        mark(true)
+    }
+    /// Until the guard drops, allocations don't count as marked code's: put
+    /// around a call into a library from marked code.
+    pub(crate) fn unmarked() -> Mark {
+        mark(false)
+    }
+    /// Runs `f` and returns how often this thread allocated (or
+    /// reallocated) in it, how often it entered marked code, and how many
+    /// of the allocations marked code made itself.
+    pub(crate) fn count_marked_allocations<R>(f: impl FnOnce() -> R) -> (R, [usize; 3]) {
+        MARKED.with(|m| m.set((false, 0, 0)));
+        let (result, all) = count_allocations(f);
+        let (_, entered, marked) = MARKED.with(|m| m.get());
+        (result, [all, entered, marked])
+    }
+
+    /// Runs `f` and returns how often it allocated (or reallocated) on
+    /// this thread: the lib tests' counting allocator, for other modules.
+    pub(crate) fn count_allocations<R>(f: impl FnOnce() -> R) -> (R, usize) {
+        ALLOCS.with(|n| n.set(Some(0)));
+        let result = f();
+        (result, ALLOCS.with(|n| n.replace(None).unwrap()))
+    }
 
     fn camera() -> Camera3D {
         let mut c = Camera3D::new(glam::Vec2::new(800.0, 600.0));

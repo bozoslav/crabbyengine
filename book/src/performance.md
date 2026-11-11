@@ -240,7 +240,7 @@ are per frame.
 | `gpu_timing` | `available`: the GPU has timestamp queries; `frames_timed`: frames whose GPU times came back |
 | `cpu_ms` | the renderer's CPU time: `total`, split into `extract` (culling, collecting models), `prepare` (uploading 3D data), `encode` (recording command buffers), `submit` and `other` (sprites, overlays) |
 | `gpu_ms` | `frame` and `passes` (`[{name, ms}]` in the order they run), smoothed |
-| `counts` | `draw_calls`, `sprites`, `models`, `triangles`, `shadow_models`, `shadow_triangles`, `occluded_models`, `frustum_culled_models`, `pipelines_built` |
+| `counts` | `draw_calls`, `sprites`, `models`, `triangles`, `shadow_models`, `shadow_triangles`, `occluded_models`, `frustum_culled_models`, `pipelines_built`, and `instance_batches`: how the [static instance batches](3d.md#which-path-a-batch-takes) were culled (`batches`, `instances`, `gpu_driven`, `gpu_instances`, `cpu_small`, `cpu_no_compute`, `cpu_over_limit`, `dropped`, `pools`, `pages`, `pool_bytes`, `cull_dispatches`, `cull_jobs`, `views_skipped`) |
 | `upload_bytes` | bytes the renderer uploaded to the GPU in the last drawn frame (`render.uploads` in `perf.get` splits them by kind) |
 | `memory_estimate_bytes` | not measured yet |
 | `quality` | the active [graphics quality](3d.md) `level` (`low` ... `ultra`, or `custom`) and every setting (3D builds) |

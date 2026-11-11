@@ -47,6 +47,45 @@ pub struct InstanceBatchOptions {
     pub cast_shadows: bool,
     /// Uniform tint, in sRGB like `Model::with_color`.
     pub tint: Color,
+    /// Which culling path the batch takes: the renderer's choice, or yours.
+    pub culling: BatchCulling,
+}
+/// How a batch is culled and drawn: [`InstanceBatchOptions::culling`].
+/// Both paths draw the same picture; they cost differently. The renderer's
+/// own choice (`Auto`) comes from a benchmark on one machine, so a game
+/// that measured its own scene can overrule it per batch.
+///
+/// The path is chosen when the batch is made and again whenever it is
+/// updated (`update_instance_batch`), from the mesh and materials as they
+/// are then. A material made see-through later moves an `Auto` batch to
+/// the CPU path only at the batch's next update.
+/// ```
+/// use ponko::render::{BatchCulling, InstanceBatchOptions};
+/// // A few thousand heavy meshes: cull them one by one on the GPU.
+/// let options = InstanceBatchOptions { culling: BatchCulling::PreferGpu, ..Default::default() };
+/// assert_eq!(InstanceBatchOptions::default().culling, BatchCulling::Auto);
+/// # let _ = options;
+/// ```
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum BatchCulling {
+    /// The renderer picks by the batch's size (see the guide's "Which path
+    /// a batch takes").
+    #[default]
+    Auto,
+    /// Cull every instance in the compute pass and draw with indirect
+    /// draws, where the device has compute culling (elsewhere, and for a
+    /// batch past a device limit, the CPU path is used all the same).
+    ///
+    /// Not for a batch with a see-through (blended) material whose
+    /// instances overlap on screen: the compute pass writes the visible
+    /// instances in no fixed order, so they blend in an order that can
+    /// change from frame to frame. `Auto` keeps such a batch on the CPU
+    /// path for that reason.
+    PreferGpu,
+    /// Cull cell by cell on the CPU and draw directly, also where the
+    /// device has compute culling.
+    PreferCpu,
 }
 impl Default for InstanceBatchOptions {
     fn default() -> Self {
@@ -55,6 +94,7 @@ impl Default for InstanceBatchOptions {
             max_distance: f32::INFINITY,
             cast_shadows: true,
             tint: Color::WHITE,
+            culling: BatchCulling::Auto,
         }
     }
 }
@@ -74,6 +114,7 @@ pub struct InstanceLevel {
     /// Cast sun and local-light shadows (also requires `cast_shadows`).
     pub shadows: bool,
 }
+#[cfg(test)]
 impl InstanceLevel {
     pub(crate) fn contains(&self, distance: f32) -> bool {
         distance >= self.min_distance && distance < self.max_distance

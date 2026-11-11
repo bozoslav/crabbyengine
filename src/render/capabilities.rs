@@ -44,6 +44,11 @@ pub struct GpuCapabilities {
     /// for, to try a game on a weaker GPU (see [`GpuTier::forced`]).
     #[serde(default)]
     pub forced_tier: Option<GpuTier>,
+    /// What these limits allow for instance batches: whether they can be
+    /// GPU-driven, from how many instances they are, and how many instances
+    /// a batch can hold on each path.
+    #[serde(default)]
+    pub instance_batches: GpuBatchLimits,
 }
 
 impl GpuCapabilities {
@@ -94,7 +99,81 @@ pub struct GpuLimits {
     pub max_storage_buffer_binding_size: u64,
     /// Most compute workgroups per dispatch dimension (0: no compute shaders).
     pub max_compute_workgroups_per_dimension: u32,
+    /// Largest buffer, in bytes (0 in a report made before this was listed).
+    #[serde(default)]
+    pub max_buffer_size: u64,
 }
+
+/// What the device's limits allow for instance batches
+/// ([`InstanceBatch`](crate::render::InstanceBatch)): [`GpuCapabilities::instance_batches`].
+///
+/// A batch is *GPU-driven* when the device has compute culling and the
+/// batch has at least `min_gpu_instances` instances: one compute dispatch
+/// culls every such batch per instance, and each is drawn with indirect
+/// draws. Every other batch is culled on the CPU, cell by cell, and drawn
+/// with direct draws. Both paths draw the same picture. A batch past a
+/// limit falls back (or, past `max_cpu_instances`, is not drawn) and logs
+/// it once; [`RenderStats::instance_batches`](crate::render::RenderStats)
+/// counts the batches on each path while the game runs.
+///
+/// ```
+/// let floor = ponko::render::GpuTier::Baseline.report().instance_batches;
+/// assert!(floor.gpu_driven);
+/// assert!(floor.max_gpu_instances >= 1_000_000);
+/// assert!(!ponko::render::GpuTier::WebGl2.report().instance_batches.gpu_driven);
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GpuBatchLimits {
+    /// Whether batches can be GPU-driven (the same answer as
+    /// [`GpuFeature::ComputeCulling`]).
+    pub gpu_driven: bool,
+    /// Batches with at least this many instances are GPU-driven where
+    /// `gpu_driven` is set. Smaller ones are culled on the CPU, unless
+    /// `min_gpu_triangles` sends them to the GPU: below this crossover
+    /// (measured on one Apple GPU on Metal) that is cheaper.
+    pub min_gpu_instances: u32,
+    /// Smaller batches are GPU-driven all the same when their instances
+    /// times the triangles of their heaviest mesh reach this: culling
+    /// heavy meshes one by one saves more drawing than the compute pass
+    /// costs. Measured on the same one GPU; a batch can overrule both
+    /// with [`BatchCulling`](crate::render::BatchCulling).
+    #[serde(default)]
+    pub min_gpu_triangles: u64,
+    /// A GPU-driven batch of up to this many instances always fits one
+    /// storage buffer binding (0 without `gpu_driven`). A larger batch may
+    /// be culled on the CPU instead.
+    pub max_gpu_instances: u64,
+    /// The most instances a batch culled on the CPU holds: one vertex
+    /// buffer's worth. A larger batch is not drawn; split it.
+    pub max_cpu_instances: u64,
+    /// The most cells (groups of up to 256 neighbouring instances) one
+    /// culling dispatch takes, over all batches, views and distance
+    /// levels of a frame (0 without `gpu_driven`).
+    pub max_cull_cells: u64,
+}
+
+/// Batches with fewer instances than this are culled on the CPU even where
+/// the device has compute culling. Having any GPU-driven batch costs a
+/// frame a compute pass and its table (a fixed cost), and each such batch
+/// a bind group and an indirect draw per level and pass; CPU culling costs
+/// by the cell. Measured on an offscreen benchmark, on one Apple GPU on
+/// Metal and nowhere else: see `crates/ponko_bench/STATIC_BATCHES.md` for
+/// the numbers and the command. Other GPUs may cross over elsewhere.
+pub(crate) const GPU_BATCH_MIN: u32 = 131_072;
+
+/// Smaller batches are GPU-driven when instances times the triangles of
+/// their heaviest mesh reach this. The CPU path culls by the cell, so it
+/// draws the instances of a cell that are outside the view; with meshes of
+/// thousands of triangles that costs the GPU more than the compute pass
+/// does. Measured in the same benchmark (the "spread" rows): the paths
+/// cross between 8 and 20 million instance-triangles.
+pub(crate) const GPU_BATCH_TRIANGLES: u64 = 1 << 24;
+
+/// Bytes a GPU-driven batch needs per instance at most: its record (six
+/// vec4s), and a cell (two vec4s) when every instance has its own.
+const BATCH_RECORD_BYTES: u64 = 96 + 32;
+/// Bytes of an instance on the CPU path's vertex buffer (five vec4s).
+const BATCH_VERTEX_BYTES: u64 = 80;
 
 /// A renderer feature that depends on what the GPU can do.
 ///
@@ -258,6 +337,7 @@ impl GpuTier {
                 max_storage_textures_per_shader_stage: 0,
                 max_storage_buffer_binding_size: 0,
                 max_compute_workgroups_per_dimension: 0,
+                max_buffer_size: 256 << 20,
             },
             GpuTier::Baseline => GpuLimits {
                 max_texture_dimension_2d: 2048,
@@ -267,6 +347,7 @@ impl GpuTier {
                 max_storage_textures_per_shader_stage: 4,
                 max_storage_buffer_binding_size: 128 << 20,
                 max_compute_workgroups_per_dimension: 65535,
+                max_buffer_size: 256 << 20,
             },
             GpuTier::Desktop => GpuLimits {
                 max_texture_dimension_2d: 8192,
@@ -276,6 +357,7 @@ impl GpuTier {
                 max_storage_textures_per_shader_stage: 4,
                 max_storage_buffer_binding_size: 128 << 20,
                 max_compute_workgroups_per_dimension: 65535,
+                max_buffer_size: 256 << 20,
             },
         }
     }
@@ -417,6 +499,32 @@ impl GpuLimits {
         self.compute() && self.max_storage_buffers_per_shader_stage >= CULLING_STORAGE_BUFFERS
     }
 
+    /// What these limits allow for instance batches.
+    pub(crate) fn instance_batches(&self) -> GpuBatchLimits {
+        let gpu_driven = self.compute_culling();
+        // 128 bytes an instance is the most a batch's records and cells
+        // take (a cell per instance); 64 KiB covers the block's header and
+        // rounding to the binding alignment.
+        let binding = self.max_storage_buffer_binding_size.min(self.max_buffer_size);
+        let side = u64::from(self.max_compute_workgroups_per_dimension.min(256));
+        GpuBatchLimits {
+            gpu_driven,
+            min_gpu_instances: GPU_BATCH_MIN,
+            min_gpu_triangles: GPU_BATCH_TRIANGLES,
+            max_gpu_instances: if gpu_driven {
+                binding.saturating_sub(64 << 10) / BATCH_RECORD_BYTES
+            } else {
+                0
+            },
+            max_cpu_instances: self.max_buffer_size / BATCH_VERTEX_BYTES,
+            max_cull_cells: if gpu_driven {
+                side * side * u64::from(self.max_compute_workgroups_per_dimension)
+            } else {
+                0
+            },
+        }
+    }
+
     /// Whether the skinning pass can bind its buffers.
     pub(crate) fn gpu_skinning(&self) -> bool {
         self.compute() && self.max_storage_buffers_per_shader_stage >= SKINNING_STORAGE_BUFFERS
@@ -473,7 +581,7 @@ pub(crate) fn report(
                     ),
                     GpuFeature::ComputeCulling => (
                         limits.compute_culling(),
-                        "static instance batches use CPU cell culling and choose one distance level per cell".into(),
+                        "instance batches are culled on the CPU, cell by cell, and drawn with direct draws (the same picture)".into(),
                         storage_reason(&limits, CULLING_STORAGE_BUFFERS, no_compute),
                     ),
                     GpuFeature::GpuSkinning => (
@@ -535,6 +643,7 @@ pub(crate) fn report(
     GpuCapabilities {
         adapter,
         tier: GpuTier::of(&limits),
+        instance_batches: limits.instance_batches(),
         limits,
         features,
         forced_tier: None,
@@ -565,6 +674,7 @@ impl GpuLimits {
             max_storage_textures_per_shader_stage: l.max_storage_textures_per_shader_stage,
             max_storage_buffer_binding_size: l.max_storage_buffer_binding_size,
             max_compute_workgroups_per_dimension: l.max_compute_workgroups_per_dimension,
+            max_buffer_size: l.max_buffer_size,
         }
     }
 }
@@ -616,6 +726,7 @@ mod tests {
             max_storage_textures_per_shader_stage: 0,
             max_storage_buffer_binding_size: 0,
             max_compute_workgroups_per_dimension: 0,
+            max_buffer_size: 256 << 20,
         }
     }
 
@@ -629,6 +740,7 @@ mod tests {
             max_storage_textures_per_shader_stage: 4,
             max_storage_buffer_binding_size: 128 << 20,
             max_compute_workgroups_per_dimension: 65535,
+            max_buffer_size: 256 << 20,
         }
     }
 
@@ -836,6 +948,51 @@ mod tests {
     }
 
     #[test]
+    fn batch_limits_follow_the_device_limits() {
+        // No compute: nothing is GPU-driven, the CPU path is bounded by
+        // one vertex buffer.
+        let web = caps(webgl2(), false).instance_batches;
+        assert!(!web.gpu_driven);
+        assert_eq!((web.max_gpu_instances, web.max_cull_cells), (0, 0));
+        assert_eq!(web.max_cpu_instances, (256 << 20) / BATCH_VERTEX_BYTES);
+        // Compute: one pool's storage binding bounds a GPU-driven batch,
+        // one dispatch its cells.
+        let full = caps(webgpu(16), false).instance_batches;
+        assert!(full.gpu_driven);
+        assert_eq!(full.min_gpu_instances, GPU_BATCH_MIN);
+        assert_eq!(full.min_gpu_triangles, GPU_BATCH_TRIANGLES);
+        let binding = webgpu(16).max_storage_buffer_binding_size;
+        assert_eq!(full.max_gpu_instances, (binding - (64 << 10)) / BATCH_RECORD_BYTES);
+        assert!(full.max_gpu_instances >= u64::from(GPU_BATCH_MIN), "{full:?}");
+        assert_eq!(full.max_cull_cells, 256 * 256 * 65_535);
+        // A buffer smaller than the binding limit bounds both paths.
+        let mut small = webgpu(16);
+        small.max_buffer_size = 1 << 20;
+        let small = small.instance_batches();
+        assert_eq!(small.max_gpu_instances, ((1 << 20) - (64 << 10)) / BATCH_RECORD_BYTES);
+        assert_eq!(small.max_cpu_instances, (1 << 20) / BATCH_VERTEX_BYTES);
+        // Few workgroups per dimension shrink the cell grid.
+        let mut narrow = webgpu(16);
+        narrow.max_compute_workgroups_per_dimension = 16;
+        assert_eq!(narrow.instance_batches().max_cull_cells, 16 * 16 * 16);
+    }
+
+    #[test]
+    fn a_report_without_batch_limits_still_reads() {
+        // Reports saved before these fields existed read back, as zeros.
+        let r = caps(webgpu(16), false);
+        let mut json = serde_json::to_value(&r).unwrap();
+        assert_eq!(json["instance_batches"]["gpu_driven"], true);
+        assert_eq!(json["limits"]["max_buffer_size"], 256u64 << 20);
+        json.as_object_mut().unwrap().remove("instance_batches");
+        json["limits"].as_object_mut().unwrap().remove("max_buffer_size");
+        let back: GpuCapabilities = serde_json::from_value(json).unwrap();
+        assert_eq!(back.instance_batches, GpuBatchLimits::default());
+        assert_eq!(back.limits.max_buffer_size, 0);
+        assert_eq!(back.features, r.features);
+    }
+
+    #[test]
     fn a_report_without_tier_fields_still_reads() {
         let mut json = serde_json::to_value(caps(webgl2(), false)).unwrap();
         let map = json.as_object_mut().unwrap();
@@ -856,6 +1013,7 @@ mod tests {
             max_storage_textures_per_shader_stage: l.max_storage_textures_per_shader_stage,
             max_storage_buffer_binding_size: l.max_storage_buffer_binding_size,
             max_compute_workgroups_per_dimension: l.max_compute_workgroups_per_dimension,
+            max_buffer_size: l.max_buffer_size,
         };
         let engine = wgpu::Limits {
             max_sampled_textures_per_shader_stage: 18,

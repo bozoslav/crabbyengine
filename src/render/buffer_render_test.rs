@@ -146,7 +146,10 @@ impl Rig {
             view_formats: &[],
         });
         let target = output.create_view(&Default::default());
-        let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
+        let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
+        // These suites test the GPU-driven path wherever the device has it,
+        // whatever the batch's size.
+        renderer.batching.path = BatchPath::Gpu;
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
         ctx.sky.atmosphere = false;
         Some(Self {
@@ -383,6 +386,7 @@ fn persistent_batch_draw(compute: bool) {
     let b = rig.ctx.gfx.create_instance_batch(mesh, &transforms, options);
     rig.renderer.set_instance_batch(
         &rig.device,
+        &rig.queue,
         b.id(),
         rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
     );
@@ -403,7 +407,7 @@ fn persistent_batch_draw(compute: bool) {
         "distant instance drawn ({compute})"
     );
     if compute {
-        let view = &rig.renderer.static_batches[b.id() as usize].as_ref().unwrap().views[0];
+        let (args, at) = rig.renderer.batch_view_args(b.id(), 0).unwrap();
         let read = rig.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: 20,
@@ -411,7 +415,7 @@ fn persistent_batch_draw(compute: bool) {
             mapped_at_creation: false,
         });
         let mut encoder = rig.device.create_command_encoder(&Default::default());
-        encoder.copy_buffer_to_buffer(&view.args, 0, &read, 0, 20);
+        encoder.copy_buffer_to_buffer(args, at, &read, 0, 20);
         rig.queue.submit([encoder.finish()]);
         read.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
         rig.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
@@ -434,7 +438,7 @@ fn persistent_batch_draw(compute: bool) {
     // The batch's view settings and its culling header and grid were
     // written only where they changed.
     rig.check_mirrors();
-    rig.renderer.set_instance_batch(&rig.device, b.id(), None);
+    rig.renderer.set_instance_batch(&rig.device, &rig.queue, b.id(), None);
     // Cutout-only batches must trigger the coverage prepass even without model entities.
     let cutout = rig.mesh(
         &MeshData::cube(0.5),
@@ -450,6 +454,7 @@ fn persistent_batch_draw(compute: bool) {
         .create_instance_batch(cutout, &[Mat4::from_translation(at[0])], options);
     rig.renderer.set_instance_batch(
         &rig.device,
+        &rig.queue,
         cb.id(),
         rig.ctx.gfx.assets3d.instance_batches[cb.id() as usize].as_ref(),
     );
@@ -460,8 +465,8 @@ fn persistent_batch_draw(compute: bool) {
         image[((y * SIZE + x) * 4) as usize] > 100,
         "cutout batch absent ({compute})"
     );
-    rig.renderer.set_instance_batch(&rig.device, cb.id(), None);
-    rig.renderer.set_instance_batch(&rig.device, b.id(), None);
+    rig.renderer.set_instance_batch(&rig.device, &rig.queue, cb.id(), None);
+    rig.renderer.set_instance_batch(&rig.device, &rig.queue, b.id(), None);
     let image = rig.draw();
     let (x, y) = pixel(vp, at[0]);
     assert!(image[((y * SIZE + x) * 4) as usize] < 50, "freed batch still drawn");
@@ -696,6 +701,7 @@ fn batch_target_levels(compute: bool, reflection: bool, levels: bool) {
     };
     rig.renderer.set_instance_batch(
         &rig.device,
+        &rig.queue,
         b.id(),
         rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
     );
@@ -812,6 +818,7 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
         );
         rig.renderer.set_instance_batch(
             &rig.device,
+            &rig.queue,
             batch.id(),
             rig.ctx.gfx.assets3d.instance_batches[batch.id() as usize].as_ref(),
         );
@@ -832,7 +839,8 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
             rig.draw().as_chunks::<4>().0.iter().all(|p| p[0] < 50 && p[2] < 50),
             "no band must draw nothing"
         );
-        rig.renderer.set_instance_batch(&rig.device, batch.id(), None);
+        rig.renderer
+            .set_instance_batch(&rig.device, &rig.queue, batch.id(), None);
         let white = mesh(&mut rig, Color::WHITE);
         rig.ctx.camera3d.position = Vec3::ZERO;
         let at = [vec3(-1.0, 0.0, -5.0), vec3(1.0, 0.0, -5.0)];
@@ -850,6 +858,7 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
         );
         rig.renderer.set_instance_batch(
             &rig.device,
+            &rig.queue,
             b.id(),
             rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
         );
@@ -912,14 +921,15 @@ fn instance_levels_overlap_exactly_without_copying_source_records() {
     );
     rig.renderer.set_instance_batch(
         &rig.device,
+        &rig.queue,
         b.id(),
         rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
     );
     rig.draw();
     let batch = rig.renderer.static_batches[b.id() as usize].as_ref().unwrap();
     assert_eq!(
-        batch.vertices.size(),
-        96 + 16 + 32,
+        rig.renderer.batch_record_bytes(b.id()),
+        Some(96 + 16 + 32),
         "one shared source record, including bounds"
     );
     assert_eq!(batch.views.len(), 3, "distant level and shadow views allocate nothing");
@@ -930,8 +940,9 @@ fn instance_levels_overlap_exactly_without_copying_source_records() {
         mapped_at_creation: false,
     });
     let mut encoder = rig.device.create_command_encoder(&Default::default());
-    for (i, v) in batch.views.iter().enumerate() {
-        encoder.copy_buffer_to_buffer(&v.args, 0, &read, (i * 20) as u64, 20);
+    for i in 0..batch.views.len() {
+        let (args, at) = rig.renderer.batch_view_args(b.id(), i).unwrap();
+        encoder.copy_buffer_to_buffer(args, at, &read, (i * 20) as u64, 20);
     }
     rig.queue.submit([encoder.finish()]);
     read.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
@@ -985,6 +996,7 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
         );
         rig.renderer.set_instance_batch(
             &rig.device,
+            &rig.queue,
             b.id(),
             rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
         );
@@ -995,6 +1007,6 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
             camera,
             "origin bands must ignore an off-centre mesh's sphere distance, and honour camera flags"
         );
-        rig.renderer.set_instance_batch(&rig.device, b.id(), None);
+        rig.renderer.set_instance_batch(&rig.device, &rig.queue, b.id(), None);
     }
 }

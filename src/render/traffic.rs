@@ -131,13 +131,35 @@ pub(crate) fn most_bytes(device: &wgpu::Device, usage: wgpu::BufferUsages) -> us
     usize::try_from(most).unwrap_or(usize::MAX) / 4 * 4
 }
 
-/// Reports (to stderr) that `what` needed `needed` bytes, more than the
+/// Says `message` where a developer sees it on every platform: stderr,
+/// or the browser's console (stderr goes nowhere there).
+pub(crate) fn warn(message: &str) {
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::warn_1(&wasm_bindgen::JsValue::from_str(message));
+    #[cfg(not(target_arch = "wasm32"))]
+    eprintln!("{message}");
+}
+
+/// Reports (see [`warn`]) that `what` needed `needed` bytes, more than the
 /// `most` this device's buffers hold, and what is drawn instead (`then`).
 /// The caller reports once until it fits again, not every frame.
 pub(crate) fn too_big(what: &str, needed: usize, most: usize, then: &str) {
     #[cfg(test)]
     TOO_BIG.with(|c| c.set(c.get() + 1));
-    eprintln!("ponko: {what} need {needed} bytes, more than this GPU's buffers hold ({most}); {then}");
+    warn(&format!(
+        "ponko: {what} need {needed} bytes, more than this GPU's buffers hold ({most}); {then}"
+    ));
+}
+
+/// Like [`too_big`], for a count that isn't bytes: `what` are `needed`,
+/// more than the `most` the device takes at once.
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
+pub(crate) fn too_many(what: &str, needed: u64, most: u64, then: &str) {
+    #[cfg(test)]
+    TOO_BIG.with(|c| c.set(c.get() + 1));
+    warn(&format!(
+        "ponko: {what}: {needed}, more than this GPU takes at once ({most}); {then}"
+    ));
 }
 
 #[cfg(test)]
@@ -179,6 +201,10 @@ impl Uploading<'_, wgpu::Queue> {
     /// `Queue::write_buffer`, counted.
     pub fn write_buffer(&self, buffer: &wgpu::Buffer, offset: u64, data: &[u8]) {
         add(self.kind, data.len() as u64);
+        // wgpu's own allocations (a staging buffer a write) aren't the
+        // caller's: tests that count a module's allocations leave them out.
+        #[cfg(all(test, feature = "3d"))]
+        let _wgpu = crate::three::lights::tests::unmarked();
         self.to.write_buffer(buffer, offset, data);
     }
     /// `Queue::write_texture`, counted.
