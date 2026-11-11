@@ -145,6 +145,10 @@ fn renderers_made_filled_emptied_and_dropped_leave_nothing_behind() {
             "round {round}: emptied"
         );
         drop(renderer);
+        // Nothing was drawn, so the batch's queue writes are still pending,
+        // and pending writes keep their buffers alive. A game submits every
+        // frame; an empty submission does the same here.
+        gpu.queue.submit([]);
         gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         if let Some(report) = gpu.device.generate_allocator_report() {
             allocated.push(report.total_allocated_bytes);
