@@ -110,6 +110,13 @@ To visit only the entities whose component changed, name a filter:
 as a change, `const T&` doesn't; see
 [Change detection](ecs.md#change-detection).
 
+To visit only the entities that have or lack components, name `with`,
+`without`, `or_` and `all_of` the same way, the C++ spelling of Rust's
+`With`, `Without`, `Or` and tuples of filters:
+`world.each<ponko::with<Player>, ponko::without<Dead>>(fn)`. C builds the
+same filters from component ids (`ponko_filter_*`, `ponko_query_filtered`); see
+[Queries](ecs.md#queries).
+
 `each` is as fast as a hand-written loop over the arrays: 1M entities,
 `position += velocity`, take 0.15 ms either way
 (`examples/cpp/bench.cpp`).

@@ -121,9 +121,14 @@ What you can ask for (Rust):
 | a tuple of the above | all of them, up to 12 (nest tuples for more) |
 
 Filters `with::<T>()` and `without::<T>()` narrow the match without fetching
-data. For "either" matches, or a filter you reuse across systems, pass a typed
-filter to `filter::<F>()`: `With<T>`, `Without<T>`, `Or<(...)>`, or a tuple of
-them that must all hold:
+data (C++: `ponko::with<T>`, `ponko::without<T>` in the list of `each`, `query`
+and `count`). For "either" matches, or a filter you reuse across systems, pass a
+typed filter to `filter::<F>()`: `With<T>`, `Without<T>`, `Or<(...)>`, or a
+tuple of them that must all hold (C++: `ponko::or_<...>` and `ponko::all_of<...>`,
+which mirror `Or` and tuples; `or` is a C++ keyword):
+
+<div class="lang-pair">
+<div>
 
 ```rust
 # struct Player;
@@ -132,15 +137,65 @@ them that must all hold:
 # struct Health(f32);
 type Living = (Or<(With<Player>, With<Enemy>)>, Without<Dead>);
 world.query::<&mut Health>().filter::<Living>().for_each(|h| h.0 -= 1.0);
+
+// An AND group inside an Or: both Player and Enemy, or not Dead.
+type Odd = Or<((With<Player>, With<Enemy>), Without<Dead>)>;
+let odd = world.query::<&Health>().filter::<Odd>().count();
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ecs_filters}}
+```
+
+</div>
+</div>
 
 A tuple can also be an `Or` arm: `Or<((With<Player>, With<Enemy>), Without<Dead>)>`
 means "both Player and Enemy, or not Dead". Tuples and `Or`s can nest.
-`Or<()>` matches nothing; an empty tuple arm matches everything. The inline
+`Or<()>` matches nothing; an empty tuple arm matches everything (C++:
+`or_<>` and `all_of<>`). The inline
 storage expands `(A AND B) OR C` into `(A OR C) AND (B OR C)`: up to 4
 clauses and 16 component predicates across them, counting repetitions from
-expansion. Exceeding these limits panics. These filters work with `cached()`
-and parallel queries too.
+expansion. Exceeding these limits panics in Rust and throws
+`std::runtime_error` in C++. These filters work with `cached()` and parallel
+queries too (`each_par` and `query_par` in C++).
+
+**From C**, there are no types, so a filter is built from component ids and
+passed to a query. `ponko_filter_with(id)`, `ponko_filter_without(id)`,
+`ponko_filter_all(parts, n)` (a tuple, or an AND group inside an any),
+`ponko_filter_any(parts, n)` (`Or`), `ponko_filter_always()` (`()`) and
+`ponko_filter_never()` (`Or<()>`) build one; `ponko_query_filtered(world, ids,
+count, filter, options, callback, user)` is `ponko_query_with` over the
+entities that pass it, serial or parallel (`options->parallel`). The result
+is the one the Rust query with the same filter has, and the limits are the
+same: a filter over them, or one that names a component the world doesn't
+know, is `PONKO_INVALID_ARGUMENT` (check one ahead with `ponko_filter_check`)
+instead of a panic. `all` and `any` copy their parts, so free the parts and
+the filter with `ponko_filter_free`. `all` and `any` need at least one part
+(that is what `always` and `never` are for). A component named twice is one
+slot, and `with` and `without` of one component match nothing, as for a Rust
+tuple. Groups nest at most 16 deep (`always` and `never` are leaves, not
+levels), and a filter is compiled when a query uses it, without allocating,
+so one filter can be built once and used every frame.
+
+```c
+// Living: (Player OR Enemy) AND NOT Dead.
+PonkoFilter* player = ponko_filter_with(player_id);
+PonkoFilter* enemy = ponko_filter_with(enemy_id);
+PonkoFilter* alive = ponko_filter_without(dead_id);
+const PonkoFilter* fighters[] = {player, enemy};
+PonkoFilter* fighter = ponko_filter_any(fighters, 2);
+const PonkoFilter* living_parts[] = {fighter, alive};
+PonkoFilter* living = ponko_filter_all(living_parts, 2);
+ponko_query_filtered(world, &health_id, 1, living, NULL, damage, NULL);
+// ... then ponko_filter_free() each of them.
+```
+
+`Added` and `Changed` are separate: from C they are the `changed` and `added`
+masks of `PonkoQueryOptions`, which `ponko_query_filtered` takes as well.
 
 Asking for the same component twice with `&mut` (or `Option<&mut T>`) panics.
 

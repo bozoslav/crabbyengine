@@ -630,6 +630,8 @@ typedef struct PonkoCtx PonkoCtx;
 
 typedef struct PonkoFarTerrain PonkoFarTerrain;
 
+typedef struct PonkoFilter PonkoFilter;
+
 typedef struct PonkoFlowField PonkoFlowField;
 
 typedef struct PonkoGame PonkoGame;
@@ -2481,6 +2483,30 @@ enum PonkoStatus ponko_ctx_spawn_prefab_transform2d(struct PonkoCtx *ctx,
                                                     const char *path,
                                                     struct PonkoTransform2D at,
                                                     uint64_t *output);
+
+struct PonkoFilter *ponko_filter_with(uint32_t component);
+
+struct PonkoFilter *ponko_filter_without(uint32_t component);
+
+struct PonkoFilter *ponko_filter_always(void);
+
+struct PonkoFilter *ponko_filter_never(void);
+
+struct PonkoFilter *ponko_filter_all(const struct PonkoFilter *const *parts, size_t count);
+
+struct PonkoFilter *ponko_filter_any(const struct PonkoFilter *const *parts, size_t count);
+
+void ponko_filter_free(struct PonkoFilter *filter);
+
+enum PonkoStatus ponko_filter_check(struct PonkoWorld *world, const struct PonkoFilter *filter);
+
+enum PonkoStatus ponko_query_filtered(struct PonkoWorld *world,
+                                      const uint32_t *components,
+                                      size_t count,
+                                      const struct PonkoFilter *filter,
+                                      const struct PonkoQueryOptions *options,
+                                      PonkoQueryFn callback,
+                                      void *user);
 
 struct PonkoNavGrid *ponko_nav_new(uint32_t width, uint32_t height, float cell_size);
 

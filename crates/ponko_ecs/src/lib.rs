@@ -59,7 +59,10 @@ pub use bundle::{Bundle, Component};
 pub use change::{Added, Changed, ChunkQuery, Tick};
 pub use commands::Commands;
 pub use entity::Entity;
-pub use query::{Or, OrTerm, OrTerms, Query, QueryData, QueryFilter, QueryIter, With, Without};
+pub use query::{
+    CompiledFilter, DynFilter, FilterError, FilterShape, FilterTree, MAX_FILTER_DEPTH, Or, OrTerm, OrTerms, Query,
+    QueryData, QueryFilter, QueryIter, With, Without, compile_tree,
+};
 pub use storage::{Archetype, ComponentId, ComponentInfo, DropFn};
 pub use view::{ViewAccess, ViewQuery, ViewState, WorldView};
 pub use world::{Chunk, World};

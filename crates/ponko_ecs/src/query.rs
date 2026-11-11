@@ -10,6 +10,9 @@ use crate::storage::{Archetype, ComponentId};
 use crate::view::SharedFilters;
 use crate::world::World;
 
+mod dynamic;
+pub use dynamic::{CompiledFilter, DynFilter, FilterError, FilterShape, FilterTree, MAX_FILTER_DEPTH, compile_tree};
+
 /// What a query fetches per entity: `&T`, `&mut T`, `Option<&T>`,
 /// `Option<&mut T>`, [`Entity`], or a tuple of those (up to 12; nest tuples
 /// for more).

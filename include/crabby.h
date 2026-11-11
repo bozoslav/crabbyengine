@@ -414,6 +414,7 @@
 #define CrabbyFarTerrain PonkoFarTerrain
 #define CrabbyField PonkoField
 #define CrabbyFieldType PonkoFieldType
+#define CrabbyFilter PonkoFilter
 #define CrabbyFlowField PonkoFlowField
 #define CrabbyFlowView PonkoFlowView
 #define CrabbyFont PonkoFont
@@ -1034,6 +1035,14 @@
 #define crabby_far_terrain_new ponko_far_terrain_new
 #define crabby_far_terrain_update ponko_far_terrain_update
 #define crabby_ffi ponko_ffi
+#define crabby_filter_all ponko_filter_all
+#define crabby_filter_always ponko_filter_always
+#define crabby_filter_any ponko_filter_any
+#define crabby_filter_check ponko_filter_check
+#define crabby_filter_free ponko_filter_free
+#define crabby_filter_never ponko_filter_never
+#define crabby_filter_with ponko_filter_with
+#define crabby_filter_without ponko_filter_without
 #define crabby_flow_compute ponko_flow_compute
 #define crabby_flow_direction ponko_flow_direction
 #define crabby_flow_distance ponko_flow_distance
@@ -1187,6 +1196,7 @@
 #define crabby_quat_rotate ponko_quat_rotate
 #define crabby_query ponko_query
 #define crabby_query_filter3d ponko_query_filter3d
+#define crabby_query_filtered ponko_query_filtered
 #define crabby_query_options_default ponko_query_options_default
 #define crabby_query_par ponko_query_par
 #define crabby_query_with ponko_query_with

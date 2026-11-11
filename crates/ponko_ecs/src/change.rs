@@ -815,7 +815,29 @@ impl World {
     ///
     /// With more than 32 component ids, or more than 8 `changed` and
     /// `added` bits together.
-    pub fn query_chunks(&mut self, query: ChunkQuery<'_>, mut f: impl FnMut(Chunk<'_>)) {
+    pub fn query_chunks(&mut self, query: ChunkQuery<'_>, f: impl FnMut(Chunk<'_>)) {
+        self.query_chunks_inner(query, None, f);
+    }
+
+    /// [`query_chunks`](Self::query_chunks) over the archetypes that also
+    /// pass `filter`, a [`DynFilter`](crate::DynFilter) compiled once (the
+    /// runtime form of [`With`](crate::With), [`Without`](crate::Without) and
+    /// [`Or`](crate::Or)). The entities are the ones the typed query with the
+    /// same filters visits.
+    ///
+    /// # Panics
+    ///
+    /// As [`query_chunks`](Self::query_chunks).
+    pub fn query_chunks_filtered(
+        &mut self,
+        query: ChunkQuery<'_>,
+        filter: &crate::CompiledFilter,
+        f: impl FnMut(Chunk<'_>),
+    ) {
+        self.query_chunks_inner(query, Some(filter.filters()), f);
+    }
+
+    fn query_chunks_inner(&mut self, query: ChunkQuery<'_>, filter: Option<&Filters>, mut f: impl FnMut(Chunk<'_>)) {
         const MAX: usize = 32;
         let ids = query.ids;
         assert!(ids.len() <= MAX, "query_chunks: at most {MAX} components");
@@ -846,7 +868,7 @@ impl World {
         let mut cols = [0; MAX];
         let mut ptrs = [std::ptr::null_mut(); MAX];
         'arch: for arch in self.archetypes.iter() {
-            if arch.is_empty() {
+            if arch.is_empty() || filter.is_some_and(|filter| !filter.matches(arch)) {
                 continue;
             }
             for (i, &id) in ids.iter().enumerate() {
