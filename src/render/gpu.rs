@@ -681,10 +681,10 @@ impl Renderer {
         batches: &[Option<crate::three::instances::Batch>],
     ) {
         self.material_mips(desc);
-        if let Some(three) = &mut self.three {
-            if three.update_material(&self.device, &self.queue, id, desc, &self.textures) {
-                three.refresh_batch_material(&self.device, &self.queue, id, batches);
-            }
+        if let Some(three) = &mut self.three
+            && three.update_material(&self.device, &self.queue, id, desc, &self.textures)
+        {
+            three.refresh_batch_material(&self.device, &self.queue, id, batches);
         }
     }
 

@@ -47,7 +47,8 @@ uses Metal with WebGL2 limits; timestamps are unavailable on that tier.
 
 Per allocated level/view, compaction storage grows from approximately 4 to
 8 bytes/instance, plus one word/cell and one word/group of 64 cells. It retains
-four storage bindings. The steady preparation/recording allocation regressions
+four storage bindings. CPU packed distance data uses 16 bytes/instance, rounded
+to four instances (previously 12 for level origins, 16 for legacy spheres). The steady preparation/recording allocation regressions
 assert zero allocations in batch code (wgpu's own allocations are excluded).
 Actual GPU resident memory and frame-time percentiles were not measured.
 
@@ -81,3 +82,30 @@ After:
 
 Desktop/baseline and forced WebGL2 limits are exercised locally. Windows,
 Linux adapters and actual browsers require their own runtime evidence.
+
+## Integration validation
+
+Rust 1.99.1 on the machine above:
+
+```sh
+cargo +1.99.1 fmt --all --check
+cargo +1.99.1 build --workspace --examples
+cargo +1.99.1 test --workspace
+cargo +1.99.1 clippy --workspace --all-targets -- -D warnings
+```
+
+All four passed. The workspace test command was retried after explicitly
+building `ponko_ffi` with 1.99.1: its first run reached the FFI doctests but
+found an unversioned 1.96.1 rlib in the shared cache. The retry passed all
+workspace tests, including all 880 FFI doctests. No cache was cleaned.
+
+C/C++: explicit `cargo +1.99.1 build -p ponko_ffi`, then CMake configure/build
+and CTest: **14/14 passed**, including the by-value ABI baseline and both setter
+runtime suites. Native tests used a copy of the matching dylib inside the
+same build cache, avoiding stale unversioned outputs. The dynamic symbol
+check verified 723 primary exports and every legacy forwarding export.
+Generated primary/compatibility headers, export coverage, naming inventory,
+changelog fragments, dependency feature contracts and the guide build passed.
+All 91 inline guide snippets compiled; another 130 blocks are included from
+real source files, with zero ignored blocks. The legacy setter forwarding
+body is also exercised directly by the FFI regression.

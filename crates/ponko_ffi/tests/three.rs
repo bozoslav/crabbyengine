@@ -63,6 +63,14 @@ unsafe extern "C" fn setup(ctx: *mut PonkoCtx, user: *mut c_void) {
         for mode in 0..=2 {
             assert_eq!(ponko_ctx_set_instance_batch_culling(ctx, batch, mode), PONKO_OK);
         }
+        #[cfg(feature = "legacy-names")]
+        #[allow(deprecated)]
+        {
+            assert_eq!(
+                crabby_ctx_set_instance_batch_culling(ctx, batch, 2),
+                CrabbyStatus::CRABBY_OK
+            );
+        }
         assert_eq!(
             ponko_ctx_set_instance_batch_culling(ctx, batch, 3),
             PONKO_INVALID_ARGUMENT

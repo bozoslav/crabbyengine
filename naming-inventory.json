@@ -115,6 +115,12 @@
       "category": "deprecated compatibility",
       "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
+    "crates/ponko_ffi/tests/three.rs": {
+      "occurrences": 3,
+      "path_occurrences": 0,
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
+    },
     "crates/ponko_mcp/src/lib.rs": {
       "occurrences": 18,
       "path_occurrences": 0,
