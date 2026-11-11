@@ -25,10 +25,20 @@
 //! Sprites and UI are drawn on top afterwards, without tone mapping.
 
 mod draw_order;
+mod frame_checks;
 use crate::render::traffic::{self, Counted, MAX_WRITES, MIRRORED, Mirror, NewBuffer, Synced, Upload};
 mod instances;
 mod passes;
+#[cfg(test)]
+pub(crate) use frame_checks::last_features;
+#[cfg(test)]
+pub(crate) use passes::Features as FrameFeatures;
+pub(in crate::render) use passes::mark as mark_step;
 mod pipeline_cache;
+#[cfg(not(target_arch = "wasm32"))]
+mod record_bench;
+#[cfg(not(target_arch = "wasm32"))]
+pub use record_bench::{RecordBench, RecordScene};
 mod shader_checks;
 mod shadow_cache;
 mod variants;
@@ -113,6 +123,8 @@ struct FrameParts<'a, 't> {
     targets: &'a Targets,
     split: bool,
     time: &'a PassTimer<'a, 't>,
+    /// What the parts are checked against in debug builds (see `passes`).
+    checks: frame_checks::FrameChecks,
 }
 
 /// Draws per shadow pass before a cascade is split into more passes, each
@@ -4277,13 +4289,9 @@ impl Renderer3D {
             parts.push(Part::Transparent);
         }
         parts.push(Part::Post);
-        // The order must keep what each pass declares it reads and writes
-        // (see `passes`); checked in debug builds, so in every render test.
-        if cfg!(debug_assertions)
-            && let Err(error) = passes::check_order(&passes::FRAME_PASSES, parts.iter().map(|p| p.pass()))
-        {
-            panic!("invalid 3d frame order: {error}");
-        }
+        // The frame must keep what its passes declare (see `passes`):
+        // checked in debug builds, so in every render test.
+        let checks = self.check_frame(&parts, targets, view);
         let frame = FrameParts {
             view,
             clear,
@@ -4291,12 +4299,15 @@ impl Renderer3D {
             targets,
             split,
             time: &time,
+            checks,
         };
         let record = |part: &Part| {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some(part.label()),
             });
+            let outer = checks.begin(part.pass());
             self.record(*part, &mut encoder, &frame);
+            checks.end(*part, outer);
             encoder.finish()
         };
         #[cfg(not(target_arch = "wasm32"))]
@@ -4319,12 +4330,14 @@ impl Renderer3D {
             targets,
             split,
             time,
+            checks,
         } = *frame;
         match part {
             Part::Prelude => {
                 self.cull_static(encoder, time);
                 // Skinned models first: every pass draws them posed.
                 if self.skinning.has_work() {
+                    passes::mark("skinning");
                     let timestamps = time("skinning").map(|t| wgpu::ComputePassTimestampWrites {
                         query_set: t.query_set,
                         beginning_of_pass_write_index: t.beginning_of_pass_write_index,
@@ -4335,6 +4348,7 @@ impl Renderer3D {
                 // Compute passes first, so this frame's materials see their results.
                 for &(compute, state, material) in &self.computes {
                     if state & (1 << 31) != 0 {
+                        passes::mark("buffer compute");
                         let buffer = self.storage_buffers[state & !(1 << 31)].as_ref().unwrap();
                         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                             label: Some("GPU buffer update"),
@@ -4349,6 +4363,7 @@ impl Renderer3D {
                         continue;
                     }
                     let state = &self.compute_states[state].1;
+                    passes::mark("texture compute");
                     {
                         let timestamps = time("compute").map(|t| wgpu::ComputePassTimestampWrites {
                             query_set: t.query_set,
@@ -4374,6 +4389,7 @@ impl Renderer3D {
                     );
                 }
                 if self.atmosphere && self.environment.needs_sky() {
+                    passes::mark("sky texture");
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d sky texture"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -4408,6 +4424,11 @@ impl Renderer3D {
                 } else {
                     return;
                 };
+                passes::mark(if cascade < MAX_CASCADES {
+                    "sun shadows"
+                } else {
+                    "light shadows"
+                });
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("3d shadows"),
                     color_attachments: &[],
@@ -4466,6 +4487,7 @@ impl Renderer3D {
             }
             Part::Gi => self.record_gi(encoder, time),
             Part::Prepass => {
+                passes::mark("depth");
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("3d depth prepass"),
                     color_attachments: &[],
@@ -4502,6 +4524,7 @@ impl Renderer3D {
                 {
                     // Motion of the models that moved, over the final depth
                     // (read-only); everything else moves with the camera.
+                    passes::mark("motion vectors");
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d motion vectors"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -4538,6 +4561,7 @@ impl Renderer3D {
             }
             Part::Opaque => {
                 {
+                    passes::mark("color");
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d opaque"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -4548,11 +4572,16 @@ impl Renderer3D {
                                 // Alpha 0 marks the background for the post pass.
                                 load: wgpu::LoadOp::Clear(wgpu::Color { a: 0.0, ..clear }),
                                 // Without multisampling this is the lit frame itself.
-                                store: if split || self.samples <= 1 {
-                                    wgpu::StoreOp::Store
-                                } else {
-                                    wgpu::StoreOp::Discard
-                                },
+                                store: checks.store(
+                                    passes::OPAQUE,
+                                    "color",
+                                    frame_checks::Kept::Color,
+                                    if split || self.samples <= 1 {
+                                        wgpu::StoreOp::Store
+                                    } else {
+                                        wgpu::StoreOp::Discard
+                                    },
+                                ),
                             },
                         })],
                         depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -4562,16 +4591,23 @@ impl Renderer3D {
                                 // Later passes read it (the motion pass and
                                 // screen effects too); without a solid
                                 // prepass, it's only complete here.
-                                store: if split
-                                    || self.taa_on
-                                    || !self.effects.is_empty()
-                                    || !self.target_effects.is_empty()
-                                    || !self.full_prepass()
-                                {
-                                    wgpu::StoreOp::Store
-                                } else {
-                                    wgpu::StoreOp::Discard
-                                },
+                                store: checks.store(
+                                    passes::OPAQUE,
+                                    "color",
+                                    frame_checks::Kept::Depth,
+                                    if split
+                                        || self.taa_on
+                                        || !self.effects.is_empty()
+                                        || !self.target_effects.is_empty()
+                                        || !self.full_prepass()
+                                        // The occlusion grid is reduced from it below.
+                                        || (!self.solid_prepass && self.occlusion.recording())
+                                    {
+                                        wgpu::StoreOp::Store
+                                    } else {
+                                        wgpu::StoreOp::Discard
+                                    },
+                                ),
                             }),
                             stencil_ops: None,
                         }),
@@ -4604,6 +4640,8 @@ impl Renderer3D {
             Part::Transparent => {
                 if split {
                     let lit = targets.lit_texture(self.taa_on);
+                    passes::mark("scene copy");
+                    passes::mark("color");
                     encoder.copy_texture_to_texture(
                         lit.as_image_copy(),
                         targets.scene_texture.as_image_copy(),
@@ -4617,11 +4655,16 @@ impl Renderer3D {
                             resolve_target: self.frame_color(targets).1,
                             ops: wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                store: if self.samples <= 1 {
-                                    wgpu::StoreOp::Store
-                                } else {
-                                    wgpu::StoreOp::Discard
-                                },
+                                store: checks.store(
+                                    passes::TRANSPARENT,
+                                    "color",
+                                    frame_checks::Kept::Color,
+                                    if self.samples <= 1 {
+                                        wgpu::StoreOp::Store
+                                    } else {
+                                        wgpu::StoreOp::Discard
+                                    },
+                                ),
                             },
                         })],
                         // Read-only depth: the shaders sample it at the same time.
@@ -4646,12 +4689,14 @@ impl Renderer3D {
                 if self.taa_on
                     && let (Some(taa), Some(images)) = (&self.taa, &targets.taa)
                 {
+                    passes::mark("taa");
                     taa.draw(encoder, images, self.taa_frame_read, &targets.hdr, time("taa"));
                 }
                 // Target effects, in order: each reads the settled frame (in
                 // `hdr`) and writes only its own render target, so the screen
                 // effects below can sample this frame's results.
                 for &(effect, index, material) in &self.target_effects {
+                    passes::mark("target effects");
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d target effect"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -4687,6 +4732,7 @@ impl Renderer3D {
                     } else {
                         (&targets.scene, &targets.hdr)
                     };
+                    passes::mark(if in_hdr { "screen effect" } else { "screen effect back" });
                     in_hdr = !in_hdr;
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d screen effect"),
@@ -4719,6 +4765,7 @@ impl Renderer3D {
                     (&targets.post_of_scene, &targets.bloom_prefilter_of_scene)
                 };
                 if self.bloom {
+                    passes::mark("bloom");
                     let step = |encoder: &mut wgpu::CommandEncoder,
                                 label: &'static str,
                                 pipeline,
@@ -4771,6 +4818,7 @@ impl Renderer3D {
                 // With a render scale, everything up to antialiasing is drawn
                 // at the scene's size, then scaled onto the window.
                 let output = targets.upscale.as_ref().unwrap_or(view);
+                passes::mark("tone map");
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("3d post"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -4798,8 +4846,12 @@ impl Renderer3D {
                 drop(pass);
                 match self.aa {
                     crate::render::AntiAliasing::None | crate::render::AntiAliasing::Taa => {}
-                    crate::render::AntiAliasing::Smaa => self.smaa.as_ref().unwrap().draw(encoder, output),
+                    crate::render::AntiAliasing::Smaa => {
+                        passes::mark("smaa");
+                        self.smaa.as_ref().unwrap().draw(encoder, output);
+                    }
                     crate::render::AntiAliasing::Fxaa => {
+                        passes::mark("fxaa");
                         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some("FXAA"),
                             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -4819,6 +4871,7 @@ impl Renderer3D {
                     }
                 }
                 if let Some(group) = &targets.upscale_group {
+                    passes::mark("upscale");
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d upscale"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -4850,6 +4903,7 @@ impl Renderer3D {
         let Some(gi) = &self.gi else {
             return;
         };
+        passes::mark("shadows");
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("3d gi shadows"),
@@ -4890,6 +4944,7 @@ impl Renderer3D {
             }
         };
         let pass = |encoder: &mut wgpu::CommandEncoder, label, first: bool, timestamps, kind| {
+            passes::mark(if first { "cut-out views" } else { "views" });
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some(label),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -4940,6 +4995,8 @@ impl Renderer3D {
         clear: wgpu::Color,
         time: &PassTimer<'_, 't>,
     ) {
+        passes::mark("prepass");
+        passes::mark("color");
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("3d target camera prepass"),
@@ -5151,26 +5208,10 @@ impl Renderer3D {
         runs: &[(u32, u32, u32)],
         batches: Option<usize>,
     ) {
-        let cutout = runs.iter().any(|&(mesh, _, _)| {
-            self.meshes[self.base(mesh & !FADED) as usize]
-                .parts
-                .iter()
-                .enumerate()
-                .any(|(part, &(_, m))| self.materials[self.part_material(mesh, part, m) as usize].cutout)
-        });
-        let cutout = cutout
-            || (batches.is_some()
-                && self.static_batches.iter().flatten().any(|b| {
-                    b.levels.iter().any(|l| {
-                        self.meshes[l.mesh.slot() as usize]
-                            .parts
-                            .iter()
-                            .any(|(_, m)| self.materials[*m as usize].cutout)
-                    })
-                }));
-        if self.samples <= 1 || !cutout {
+        if !self.has_cutouts(runs, batches.is_some()) {
             return;
         }
+        passes::mark("cut-outs");
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("3d cut-out prepass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {

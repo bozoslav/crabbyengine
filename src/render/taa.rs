@@ -99,6 +99,14 @@ pub(super) struct TaaTargets {
     groups: [wgpu::BindGroup; 2],
 }
 
+impl TaaTargets {
+    /// A history image: for checking it against what the frame's passes
+    /// declare.
+    pub fn history(&self) -> &wgpu::TextureView {
+        &self.history[0]
+    }
+}
+
 /// Shared by TAA and temporal AO, without allocating TAA color histories.
 pub(super) struct VelocityTargets {
     /// Multisampled motion of moved models, resolved into `velocity`.

@@ -25,6 +25,8 @@ struct Rig {
     effects: Vec<(u32, u32)>,
     /// Target effects to run: (effect, render target id, material).
     target_effects: Vec<(u32, u32, u32)>,
+    /// Texture compute passes to run: (compute, render target id, material).
+    computes: Vec<(u32, u32, u32)>,
     /// Materials made on the GPU so far (ids follow this count).
     materials: u32,
     /// The bind group layout of sprite textures (for render targets).
@@ -139,6 +141,7 @@ impl Rig {
             ctx,
             effects: Vec::new(),
             target_effects: Vec::new(),
+            computes: Vec::new(),
             materials: 0,
             layout,
         })
@@ -256,6 +259,7 @@ impl Rig {
         frame.lod = ctx.lod;
         frame.effects.clone_from(&self.effects);
         frame.target_effects.clone_from(&self.target_effects);
+        frame.computes.clone_from(&self.computes);
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
@@ -478,4 +482,90 @@ fn target_effects_follow_hot_reloaded_effects() {
         .unwrap();
     rig.draw();
     assert_eq!(rig.read_target(&texture)[0], [0.75; 3]);
+}
+
+/// The pixel in the middle of a drawn frame.
+fn centre(frame: &[u8]) -> [u8; 3] {
+    let at = ((SIZE / 2 * SIZE + SIZE / 2) * 4) as usize;
+    [frame[at], frame[at + 1], frame[at + 2]]
+}
+
+#[test]
+fn two_screen_effects_run_in_order_swapping_between_two_images() {
+    let Some(mut rig) = Rig::new() else { return };
+    half_ground(&mut rig);
+    let effect = |rig: &mut Rig, name, source| rig.renderer.create_effect(&rig.device, name, source).unwrap();
+    // The first leaves red everywhere; the second moves red into green.
+    let red = effect(
+        &mut rig,
+        "red",
+        "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(1.0, 0.0, 0.0); }",
+    );
+    let turn = effect(
+        &mut rig,
+        "turn",
+        "fn effect(p: Pixel) -> vec3<f32> { return p.color.grb; }",
+    );
+    let material = rig.gpu_material(MaterialDesc::default());
+    rig.effects.push((red, material));
+    let [r, g, b] = centre(&rig.draw());
+    assert!(r > 150 && g < 20 && b < 20, "one effect: red: {r} {g} {b}");
+    let one = last_features().unwrap();
+    assert!(one.contains(FrameFeatures::EFFECTS.with(FrameFeatures::EFFECTS_ODD)));
+    assert!(!one.contains(FrameFeatures::EFFECTS_BACK));
+    // The second reads what the first wrote and writes back into the lit
+    // frame, where bloom and tone mapping then read it.
+    rig.effects.push((turn, material));
+    let [r, g, b] = centre(&rig.draw());
+    assert!(g > 150 && r < 20 && b < 20, "two effects: green: {r} {g} {b}");
+    let two = last_features().unwrap();
+    assert!(two.contains(FrameFeatures::EFFECTS.with(FrameFeatures::EFFECTS_BACK)));
+    assert!(!two.contains(FrameFeatures::EFFECTS_ODD));
+    // A third ends in the other image again.
+    rig.effects.push((turn, material));
+    let [r, g, b] = centre(&rig.draw());
+    assert!(r > 150 && g < 20 && b < 20, "three effects: red again: {r} {g} {b}");
+    let three = FrameFeatures::EFFECTS_BACK.with(FrameFeatures::EFFECTS_ODD);
+    assert!(last_features().unwrap().contains(three));
+}
+
+#[test]
+fn a_texture_compute_pass_fills_its_target_before_the_frame_reads_it() {
+    let Some(mut rig) = Rig::new() else { return };
+    if rig.device.limits().max_storage_textures_per_shader_stage == 0 {
+        return;
+    }
+    half_ground(&mut rig);
+    let (target, texture) = rig.render_target(4, 4);
+    let fill = rig
+        .renderer
+        .create_compute(
+            &rig.device,
+            "fill",
+            "fn compute(c: Cell) -> vec4<f32> { return vec4<f32>(0.0, 1.0, 0.0, 1.0); }",
+        )
+        .unwrap();
+    let show = rig
+        .renderer
+        .create_effect(
+            &rig.device,
+            "show",
+            "fn effect(p: Pixel) -> vec3<f32> { return textureLoad(custom_texture0, vec2<i32>(1, 1), 0).rgb; }",
+        )
+        .unwrap();
+    let reads_target = rig.gpu_material(MaterialDesc {
+        custom_textures: [Some(target), None],
+        ..Default::default()
+    });
+    let plain = rig.gpu_material(MaterialDesc::default());
+    rig.effects.push((show, reads_target));
+    rig.computes.push((fill, target.id, plain));
+    let [r, g, b] = centre(&rig.draw());
+    assert!(last_features().unwrap().contains(FrameFeatures::TEXTURE_COMPUTE));
+    assert!(
+        g > 150 && r < 20 && b < 20,
+        "the frame shows this frame's fill: {r} {g} {b}"
+    );
+    let texels = rig.read_target(&texture);
+    assert!(texels.iter().all(|t| t[1] > 0.9 && t[0] < 0.1), "{:?}", texels[0]);
 }

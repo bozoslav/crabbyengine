@@ -85,6 +85,19 @@ struct Blur {
     screen: wgpu::Texture,
 }
 
+impl SsrTargets {
+    /// Whether [`Ssr::trace`] filters the levels below the trace's.
+    pub fn has_levels(&self) -> bool {
+        self.blur.is_some() && !filter_skipped()
+    }
+
+    /// The history image and the filtered levels' texture, if any: for
+    /// checking them against what the frame's passes declare.
+    pub fn images(&self) -> (&wgpu::TextureView, Option<&wgpu::Texture>) {
+        (&self.history, self.blur.as_ref().map(|b| &b.levels))
+    }
+}
+
 impl Ssr {
     pub fn new(device: &wgpu::Device) -> Self {
         let texture = |binding, sample_type, multisampled| wgpu::BindGroupLayoutEntry {
@@ -432,6 +445,7 @@ impl Ssr {
         targets: &SsrTargets,
         time: &dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>>,
     ) {
+        super::gpu3d::mark_step("reflections");
         if targets.unmarked.swap(false, Ordering::Relaxed) {
             encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("3d screen reflections mark"),
@@ -461,6 +475,7 @@ impl Ssr {
         if let Some(blur) = &targets.blur
             && !filter_skipped()
         {
+            super::gpu3d::mark_step("reflection levels");
             let time = time("reflection blur");
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("3d reflection blur"),
@@ -496,6 +511,7 @@ impl Ssr {
 
     /// Keeps the opaque image for the next frame, after the opaque pass.
     pub fn keep(&self, encoder: &mut wgpu::CommandEncoder, targets: &SsrTargets) {
+        super::gpu3d::mark_step("reflection history");
         self.full_screen(
             encoder,
             "3d screen reflections history",

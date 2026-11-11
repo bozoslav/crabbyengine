@@ -42,6 +42,9 @@ pub(crate) use gpu::Renderer;
 pub(crate) use gpu3d::{
     COMPUTE_VARIANT, EFFECT_VARIANT, FULL_MATERIAL_VARIANT, compose_compute, compose_effect, compose_shader,
 };
+#[doc(hidden)]
+#[cfg(all(feature = "window", feature = "3d", not(target_arch = "wasm32")))]
+pub use gpu3d::{RecordBench, RecordScene};
 #[cfg(not(feature = "window"))]
 pub(crate) use none::Renderer;
 pub use pipeline_stats::PipelineStats;

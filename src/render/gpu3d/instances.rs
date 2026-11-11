@@ -1516,6 +1516,7 @@ impl Renderer3D {
         let Some(cull) = &self.static_culling else {
             return;
         };
+        super::passes::mark("static cull");
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("static instance cull"),
             timestamp_writes: time("static instance cull").map(|t| wgpu::ComputePassTimestampWrites {

@@ -46,6 +46,13 @@ pub(super) struct AoTargets {
     /// Whether `output` is the screen-space reflections' image.
     wide: bool,
 }
+impl AoTargets {
+    /// The raw image and, with temporal accumulation, a history image: for
+    /// checking them against what the frame's passes declare.
+    pub fn images(&self) -> (&wgpu::TextureView, Option<&wgpu::TextureView>) {
+        (&self.raw, self.temporal.then_some(&self.history[0]))
+    }
+}
 impl Ao {
     pub fn new(device: &wgpu::Device) -> Self {
         let texture = |binding, sample_type, multisampled| wgpu::BindGroupLayoutEntry {
@@ -305,6 +312,11 @@ impl Ao {
                 &targets.output,
             ),
         ] {
+            super::gpu3d::mark_step(if label == "GTAO horizons" {
+                "ambient occlusion"
+            } else {
+                "ambient occlusion denoise"
+            });
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some(label),
                 timestamp_writes: time(label),
