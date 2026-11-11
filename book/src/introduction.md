@@ -5,6 +5,10 @@ It aims to combine serious game-engine capabilities, measured performance,
 clear code-first APIs and practical AI-assisted development. Large simulations
 are a strength, alongside ordinary 2D and 3D games.
 
+> This guide follows the repository's `main` branch. Examples may use APIs
+> that are still unreleased. Use the [Git dependency](getting-started.md#your-first-game)
+> to follow the guide, or consult the [API docs for your release](https://docs.rs/crate/ponko).
+
 You do not need a large visual editor. Start with `Game::new()`, setup code and
 systems; use external asset tools and the optional runtime inspector when they
 help. Modular internals should support an integrated experience: common things
@@ -90,7 +94,7 @@ benchmark results do not establish a general engine ranking.
 ## Status and compatibility
 
 Formerly Ponko, Ponko currently has package version 0.0.1. Source folders
-retain `ponko_*` names. The guide follows `main`; installed releases may differ.
+retain `ponko_*` names.
 [STABILITY.md](https://github.com/ponkoengine/ponko/blob/main/STABILITY.md)
 remains authoritative for published API/ABI, MSRV, saved-world, MCP and
 determinism commitments. The rename does not weaken those promises.

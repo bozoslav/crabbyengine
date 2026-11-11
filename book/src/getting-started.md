@@ -31,12 +31,19 @@ Always use `--release` for anything with many entities; debug builds are
 
 ## Your first game
 
-Add the engine to a new project:
+The examples in this guide follow `main`. Add Ponko from that branch to use
+the same APIs:
 
 ```sh
-cargo new my_game && cd my_game
-cargo add ponko
+cargo new my_game
+cd my_game
+cargo add ponko --git https://github.com/ponkoengine/ponko --branch main
 ```
+
+If you prefer the published crate, use `cargo add ponko` instead of the last
+command and consult the [API docs for your release](https://docs.rs/crate/ponko).
+Some examples in this guide use unreleased APIs, such as the
+[`actions!` macro](actions.md) in the named input actions chapter.
 
 Then in `src/main.rs` (Rust) or `main.cpp` (C++, see [C and C++](c-cpp.md)
 for building):
