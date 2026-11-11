@@ -5,6 +5,7 @@ name: Release
 # v1.0.0 (on a commit of main whose CI passed):
 #   - builds the C library on each OS and attaches it, with the headers,
 #     to a GitHub release whose notes are that version's CHANGELOG section;
+#   - attaches Coin Dash desktop archives and their SHA-256 checksums;
 #   - publishes the crates to crates.io if the CARGO_REGISTRY_TOKEN secret
 #     is set (`gh secret set CARGO_REGISTRY_TOKEN`); otherwise that job says
 #     so and does nothing, and can be re-run once the secret exists.
@@ -19,7 +20,74 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  desktop:
+    name: Coin Dash desktop (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install ALSA and udev headers (audio, gamepads)
+        if: runner.os == 'Linux'
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/windows-linker
+        if: runner.os == 'Windows'
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked --release --example coin_dash
+      - run: python scripts/package-coin-dash.py package --no-build --out target/desktop-release
+      - name: Prepare bundle and sign when configured
+        id: signing
+        env:
+          WINDOWS_SIGN_PFX: ${{ runner.os == 'Windows' && secrets.WINDOWS_SIGN_PFX || '' }}
+          WINDOWS_SIGN_PASSWORD: ${{ runner.os == 'Windows' && secrets.WINDOWS_SIGN_PASSWORD || '' }}
+          MACOS_SIGN_P12: ${{ runner.os == 'macOS' && secrets.MACOS_SIGN_P12 || '' }}
+          MACOS_SIGN_PASSWORD: ${{ runner.os == 'macOS' && secrets.MACOS_SIGN_PASSWORD || '' }}
+          MACOS_SIGN_IDENTITY: ${{ runner.os == 'macOS' && secrets.MACOS_SIGN_IDENTITY || '' }}
+          MACOS_NOTARY_APPLE_ID: ${{ runner.os == 'macOS' && secrets.MACOS_NOTARY_APPLE_ID || '' }}
+          MACOS_NOTARY_PASSWORD: ${{ runner.os == 'macOS' && secrets.MACOS_NOTARY_PASSWORD || '' }}
+          MACOS_NOTARY_TEAM_ID: ${{ runner.os == 'macOS' && secrets.MACOS_NOTARY_TEAM_ID || '' }}
+        run: python scripts/release-coin-dash.py sign --package target/desktop-release
+      - name: Archive, unpack, smoke-test and checksum
+        env:
+          COIN_DASH_SIGNED: ${{ steps.signing.outputs.signed }}
+          COIN_DASH_NOTARIZED: ${{ steps.signing.outputs.notarized }}
+        run: python scripts/release-coin-dash.py archive --package target/desktop-release --out desktop-assets
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coin-dash-${{ matrix.os }}
+          path: desktop-assets/coin-dash-*
+          if-no-files-found: error
+
+  desktop-dry-run:
+    name: Attach desktop archives to draft
+    if: endsWith(github.ref_name, '-desktop-dry-run')
+    needs: desktop
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: coin-dash-*
+          path: dist
+          merge-multiple: true
+      - name: Create desktop dry-run draft
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/coin-dash-* --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --draft --title "Coin Dash desktop dry run ($GITHUB_REF_NAME)" \
+            --notes "Desktop packaging rehearsal. The runner logs report which signing steps ran."
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   c-library:
+    if: ${{ !endsWith(github.ref_name, '-desktop-dry-run') }}
     name: C library (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -58,7 +126,7 @@ jobs:
 
   github-release:
     name: GitHub release
-    needs: c-library
+    needs: [c-library, desktop]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -76,7 +144,7 @@ jobs:
             on { print }
           ' CHANGELOG.md > notes.md
           test -s notes.md || { echo "CHANGELOG.md has no section for $version"; exit 1; }
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "Ponko ${GITHUB_REF_NAME#v}" --notes-file notes.md
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "Ponko ${GITHUB_REF_NAME#v}" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
 
