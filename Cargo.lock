@@ -3113,6 +3113,7 @@ dependencies = [
  "rapier2d",
  "rapier3d",
  "rayon",
+ "serde_json",
 ]
 
 [[package]]

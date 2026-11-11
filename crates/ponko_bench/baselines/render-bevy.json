@@ -1,0 +1,157 @@
+{
+  "engine": "bevy",
+  "engine_version": "0.20.1",
+  "env": {
+    "arch": "aarch64",
+    "debug_assertions": false,
+    "load_average": "24.86 23.97 21.19",
+    "os": "macos",
+    "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+  },
+  "frames": 600,
+  "gpu": {
+    "adapter": {
+      "backend": "metal",
+      "device_type": "integratedgpu",
+      "driver": "",
+      "driver_info": "",
+      "name": "Apple M4 Max"
+    }
+  },
+  "height": 720,
+  "samples": 4,
+  "scale": 1.0,
+  "scenes": [
+    {
+      "content": {
+        "materials": 9,
+        "meshes": 9,
+        "models": 200001,
+        "moving_models": 0,
+        "textures": 0
+      },
+      "gpu": {
+        "timed_frames": 0,
+        "unavailable": "this program reads no GPU timestamps from Bevy (its render diagnostics record them on Vulkan and DX12 only)"
+      },
+      "name": "static-world",
+      "timings_ms": {
+        "cpu": {
+          "max": 49.645208,
+          "mean": 7.478225,
+          "min": 6.714916,
+          "p50": 7.255125,
+          "p95": 7.924417,
+          "p99": 8.129584,
+          "samples": 600
+        },
+        "frame": {
+          "max": 58.201125,
+          "mean": 11.254337,
+          "min": 9.424416,
+          "p50": 10.726875,
+          "p95": 14.130167,
+          "p99": 18.407583,
+          "samples": 600
+        },
+        "update": {
+          "max": 0.00275,
+          "mean": 0.000888,
+          "min": 0.000041,
+          "p50": 0.000834,
+          "p95": 0.0015,
+          "p99": 0.001875,
+          "samples": 600
+        }
+      }
+    },
+    {
+      "content": {
+        "materials": 17,
+        "meshes": 17,
+        "models": 20001,
+        "moving_models": 20000,
+        "textures": 0
+      },
+      "gpu": {
+        "timed_frames": 0,
+        "unavailable": "this program reads no GPU timestamps from Bevy (its render diagnostics record them on Vulkan and DX12 only)"
+      },
+      "name": "dynamic-world",
+      "timings_ms": {
+        "cpu": {
+          "max": 6.765291,
+          "mean": 4.604764,
+          "min": 3.681917,
+          "p50": 4.502084,
+          "p95": 5.225334,
+          "p99": 5.381416,
+          "samples": 600
+        },
+        "frame": {
+          "max": 10.6895,
+          "mean": 7.013657,
+          "min": 5.811625,
+          "p50": 6.873583,
+          "p95": 8.484667,
+          "p99": 9.326625,
+          "samples": 600
+        },
+        "update": {
+          "max": 0.392958,
+          "mean": 0.292946,
+          "min": 0.221084,
+          "p50": 0.292583,
+          "p95": 0.347875,
+          "p99": 0.36725,
+          "samples": 600
+        }
+      }
+    },
+    {
+      "content": {
+        "materials": 513,
+        "meshes": 513,
+        "models": 6001,
+        "moving_models": 0,
+        "textures": 32
+      },
+      "gpu": {
+        "timed_frames": 0,
+        "unavailable": "this program reads no GPU timestamps from Bevy (its render diagnostics record them on Vulkan and DX12 only)"
+      },
+      "name": "multi-material",
+      "timings_ms": {
+        "cpu": {
+          "max": 3.049542,
+          "mean": 1.954231,
+          "min": 1.603958,
+          "p50": 1.851334,
+          "p95": 2.5525,
+          "p99": 2.809375,
+          "samples": 600
+        },
+        "frame": {
+          "max": 7.017041,
+          "mean": 3.683755,
+          "min": 2.973875,
+          "p50": 3.482959,
+          "p95": 4.780709,
+          "p99": 5.870167,
+          "samples": 600
+        },
+        "update": {
+          "max": 0.005542,
+          "mean": 0.000405,
+          "min": 0.000041,
+          "p50": 0.00025,
+          "p95": 0.001125,
+          "p99": 0.002333,
+          "samples": 600
+        }
+      }
+    }
+  ],
+  "warmup": 120,
+  "width": 1280
+}

@@ -44,7 +44,7 @@ pub(crate) use gpu3d::{
 };
 #[doc(hidden)]
 #[cfg(all(feature = "window", feature = "3d", not(target_arch = "wasm32")))]
-pub use gpu3d::{RecordBench, RecordScene};
+pub use gpu3d::{RecordBench, RecordScene, SceneBench, SceneFrame, SceneKind, SceneSetup};
 #[cfg(not(feature = "window"))]
 pub(crate) use none::Renderer;
 pub use pipeline_stats::PipelineStats;

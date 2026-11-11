@@ -99,6 +99,11 @@ jobs:
       - name: C ABI test coverage
         run: python3 scripts/check-ffi-coverage.py
       - run: cargo fmt --all --check
+      # The Bevy comparison scenes are a crate of their own, outside the
+      # workspace. Only their formatting is checked: building them pulls in
+      # all of Bevy.
+      - name: Format of bench/bevy_scenes
+        run: cargo fmt --check --manifest-path bench/bevy_scenes/Cargo.toml
 
   # The render tests' reference images (tests/fixtures/render) change only
   # through a test run with PONKO_UPDATE_REFERENCES=1, and only with a
@@ -244,6 +249,10 @@ jobs:
           - name: accessibility feature
             scope: -p ponko
             args: --features accessibility
+          # The offscreen rendering benchmarks (`render/scene`, `render/record`).
+          - name: benchmarks with the renderer
+            scope: -p ponko_bench
+            args: --features render
     steps:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)

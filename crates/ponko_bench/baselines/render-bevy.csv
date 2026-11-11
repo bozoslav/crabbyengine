@@ -1,0 +1,13 @@
+scene,group,metric,unit,samples,min,p50,p95,p99,max,mean,note
+static-world,cpu,update,ms,600,0.000041,0.000834,0.001500,0.001875,0.002750,0.000888,
+static-world,cpu,cpu,ms,600,6.714916,7.255125,7.924417,8.129584,49.645208,7.478225,
+static-world,cpu,frame,ms,600,9.424416,10.726875,14.130167,18.407583,58.201125,11.254337,
+static-world,gpu,total,ms,0,,,,,,,"this program reads no GPU timestamps from Bevy (its render diagnostics record them on Vulkan and DX12 only)"
+dynamic-world,cpu,update,ms,600,0.221084,0.292583,0.347875,0.367250,0.392958,0.292946,
+dynamic-world,cpu,cpu,ms,600,3.681917,4.502084,5.225334,5.381416,6.765291,4.604764,
+dynamic-world,cpu,frame,ms,600,5.811625,6.873583,8.484667,9.326625,10.689500,7.013657,
+dynamic-world,gpu,total,ms,0,,,,,,,"this program reads no GPU timestamps from Bevy (its render diagnostics record them on Vulkan and DX12 only)"
+multi-material,cpu,update,ms,600,0.000041,0.000250,0.001125,0.002333,0.005542,0.000405,
+multi-material,cpu,cpu,ms,600,1.603958,1.851334,2.552500,2.809375,3.049542,1.954231,
+multi-material,cpu,frame,ms,600,2.973875,3.482959,4.780709,5.870167,7.017041,3.683755,
+multi-material,gpu,total,ms,0,,,,,,,"this program reads no GPU timestamps from Bevy (its render diagnostics record them on Vulkan and DX12 only)"

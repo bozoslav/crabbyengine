@@ -87,6 +87,10 @@ mod record;
 mod record_bench;
 #[cfg(not(target_arch = "wasm32"))]
 pub use record_bench::{RecordBench, RecordScene};
+#[cfg(not(target_arch = "wasm32"))]
+mod scene_bench;
+#[cfg(not(target_arch = "wasm32"))]
+pub use scene_bench::{SceneBench, SceneFrame, SceneKind, SceneSetup};
 mod resources;
 mod screen_space;
 mod shader_checks;

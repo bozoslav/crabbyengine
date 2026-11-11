@@ -12,8 +12,8 @@ fn main() {
             ctx.camera3d.look_at(vec3(0.0, 0.0, -150.0));
             ctx.camera3d.far = 1000.0;
             ctx.lighting.shadow_distance = 300.0;
-            let material = ctx.create_material(MaterialDesc::default());
-            let mesh = ctx.create_mesh(&MeshData::cube(0.3), material);
+            let material = ctx.gfx.create_material(MaterialDesc::default());
+            let mesh = ctx.gfx.create_mesh(&MeshData::cube(0.3), material);
             for region in 0..300 {
                 let origin = vec3((region % 20) as f32 * 32.0 - 320.0, 0.0, -(region / 20) as f32 * 32.0);
                 let transforms: Vec<_> = (0..1000)
@@ -30,7 +30,7 @@ fn main() {
                             .spawn((Transform3D::at(matrix.w_axis.truncate()), Model::new(mesh)));
                     }
                 } else if std::env::var_os("PONKO_INSTANCE_LEGACY").is_some() {
-                    ctx.create_instance_batch(mesh, &transforms, options);
+                    ctx.gfx.create_instance_batch(mesh, &transforms, options);
                 } else {
                     let levels = [(0.0, 50.0), (50.0, 150.0), (150.0, 300.0), (300.0, 500.0)].map(
                         |(min_distance, max_distance)| InstanceLevel {
