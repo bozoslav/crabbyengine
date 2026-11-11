@@ -25,26 +25,20 @@ fn ao_gpu_timings_1080p() {
 }
 fn render(downlevel: bool, benchmark: bool) {
     let (width, height) = if benchmark { (1920, 1080) } else { (SIZE, SIZE) };
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        crate::render::render_test_support::no_gpu("no GPU adapter");
+    let Some(gpu) = crate::render::render_test_support::gpu_with(|adapter| {
+        let mut descriptor = wgpu::DeviceDescriptor::default();
+        if benchmark {
+            descriptor.required_features = adapter.features() & wgpu::Features::TIMESTAMP_QUERY;
+        }
+        if downlevel {
+            descriptor.required_limits.max_compute_workgroups_per_dimension = 0;
+            descriptor.required_limits.max_storage_textures_per_shader_stage = 0;
+        }
+        Ok(descriptor)
+    }) else {
         return;
     };
-    eprintln!("AO adapter: {:?}", adapter.get_info());
-    let mut descriptor = wgpu::DeviceDescriptor::default();
-    if benchmark {
-        descriptor.required_features = adapter.features() & wgpu::Features::TIMESTAMP_QUERY;
-    }
-    if downlevel {
-        descriptor.required_limits.max_compute_workgroups_per_dimension = 0;
-        descriptor.required_limits.max_storage_textures_per_shader_stage = 0;
-    }
-    let Ok((device, queue)) =
-        pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&descriptor)))
-    else {
-        crate::render::render_test_support::no_gpu("no GPU device");
-        return;
-    };
+    let (device, queue) = (gpu.device, gpu.queue);
     if !downlevel && !crate::render::render_test_support::needs(&device, crate::render::GpuFeature::AmbientOcclusion) {
         return;
     }

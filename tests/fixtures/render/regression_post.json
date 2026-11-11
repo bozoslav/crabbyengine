@@ -1,0 +1,17 @@
+{
+  "name": "regression_post",
+  "scene": "Three glowing bars on black (emissive 0.25 grey, 1.0 white, and orange 6, 3, 0.6), nothing lit, bloom 0.3 at the default threshold, ACES tonemapping, no antialiasing beyond 4x multisampling; camera at (0, 0, 8) looking at the origin; 128x128.",
+  "width": 128,
+  "height": 128,
+  "format": "rgba8-srgb",
+  "tolerance": {
+    "channel": 16,
+    "outliers": 0.015,
+    "edge": 1
+  },
+  "adapter": "Apple M4 Max",
+  "backend": "Metal",
+  "driver": "unknown",
+  "checksum": "a5fe9b9206e62492",
+  "reason": "New reference: the image regression suite's first baselines (#135)."
+}

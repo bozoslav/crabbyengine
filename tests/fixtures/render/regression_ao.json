@@ -1,0 +1,17 @@
+{
+  "name": "regression_ao",
+  "scene": "A white floor meeting a white wall in a crease, lit only by white ambient light at 0.6, ambient occlusion at its defaults without temporal filtering, second frame; camera at (0, 2.5, 6) looking at (0, 0.5, -1); 128x128, 4x multisampling, no tonemapping.",
+  "width": 128,
+  "height": 128,
+  "format": "rgba8-srgb",
+  "tolerance": {
+    "channel": 16,
+    "outliers": 0.015,
+    "edge": 1
+  },
+  "adapter": "Apple M4 Max",
+  "backend": "Metal",
+  "driver": "unknown",
+  "checksum": "799c97a9011cf3d0",
+  "reason": "New reference: the image regression suite's first baselines (#135)."
+}

@@ -48,24 +48,19 @@ fn instance_levels_separate_camera_and_local_shadow_geometry() {
     }
 }
 fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, camera: Option<bool>) {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        crate::render::render_test_support::no_gpu("no GPU adapter");
-        return;
-    };
-    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(
-        &wgpu::DeviceDescriptor {
+    let Some(gpu) = crate::render::render_test_support::gpu_with(|_| {
+        Ok(wgpu::DeviceDescriptor {
             required_limits: if compute {
                 wgpu::Limits::default()
             } else {
                 wgpu::Limits::downlevel_webgl2_defaults()
             },
             ..Default::default()
-        },
-    ))) else {
-        crate::render::render_test_support::no_gpu("no GPU device");
+        })
+    }) else {
         return;
     };
+    let (device, queue) = (gpu.device, gpu.queue);
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[

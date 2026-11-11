@@ -3,8 +3,8 @@
 #
 # Two tiers keep pull requests fast and runners free:
 # - pull_request: only quick Linux checks (leaks, format, clippy, feature
-#   contracts, docs, book), no tests. Authors run the tests on their own
-#   machine before opening the pull request.
+#   contracts, reference images, docs, book), no tests. Authors run the
+#   tests on their own machine before opening the pull request.
 # - push to main and workflow_dispatch: the full matrix (macOS, Windows,
 #   feature tests, Miri, MSRV, C/C++, web), after the merge.
 # A pull request labelled `full-ci` runs the full matrix too (for risky
@@ -99,6 +99,112 @@ jobs:
       - name: C ABI test coverage
         run: python3 scripts/check-ffi-coverage.py
       - run: cargo fmt --all --check
+
+  # The render tests' reference images (tests/fixtures/render) change only
+  # through a test run with PONKO_UPDATE_REFERENCES=1, and only with a
+  # reviewer having seen them. This job checks every image against its
+  # metadata; for a pull request that adds, changes or removes one it
+  # uploads the before and after images (the `reference-image-evidence`
+  # artifact, also listed in the job summary) and fails until the pull
+  # request carries the `references-reviewed` label: a maintainer looks at
+  # the artifact, adds the label and re-runs this job. The label is read
+  # when the job runs, so a re-run sees it. See the book's "GPU regression
+  # tests".
+  #
+  # The gate holds in every run that can put "CI passed" on a pull
+  # request's head, not only `pull_request` runs: a workflow_dispatch run
+  # on a branch (what the `full-ci` label starts) looks up the branch's
+  # open pull request and asks the same of it. Only main itself, where the
+  # change has merged, is checked against the metadata alone.
+  #
+  # A review covers the images it saw. A push that changes the references
+  # again takes a label from before that push off the pull request (the
+  # label is older than this run, which the push started); a re-run after
+  # the label was added again keeps it.
+  reference-images:
+    name: Reference images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      # Write: to take a stale `references-reviewed` label off.
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      LABEL: references-reviewed
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: The script's own checks
+        run: python3 scripts/check-reference-images.py --self-test
+      - name: Every reference image matches its metadata
+        run: python3 scripts/check-reference-images.py
+      # Which pull request this run speaks for, and the commit its
+      # references are compared with.
+      - name: Find the pull request
+        id: pr
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          EVENT_BASE: ${{ github.event.pull_request.base.sha }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            echo "number=$EVENT_PR" >> "$GITHUB_OUTPUT"
+            echo "base=$EVENT_BASE" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "On $DEFAULT_BRANCH: the references here were reviewed on their pull request."
+          else
+            # Never empty by accident: a failed lookup fails the job.
+            found=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open \
+              --json number,baseRefName --jq '.[0] | select(.) | "\(.number) \(.baseRefName)"')
+            if [ -z "$found" ]; then
+              # No pull request, nothing to merge: opening one starts its own run.
+              echo "::notice::No open pull request for $BRANCH: its references are compared with $DEFAULT_BRANCH for the summary only."
+              echo "base=$(git merge-base "origin/$DEFAULT_BRANCH" HEAD)" >> "$GITHUB_OUTPUT"
+            else
+              read -r number target <<<"$found"
+              echo "Pull request #$number into $target."
+              echo "number=$number" >> "$GITHUB_OUTPUT"
+              echo "base=$(git merge-base "origin/$target" HEAD)" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+      - name: Reference images this branch changes
+        id: changes
+        if: steps.pr.outputs.base != ''
+        shell: bash
+        env:
+          BASE: ${{ steps.pr.outputs.base }}
+        run: |
+          python3 scripts/check-reference-images.py --changed "$BASE" \
+            --evidence evidence --summary "$GITHUB_STEP_SUMMARY" | tee changes.log
+          echo "changed=$(tail -n 1 changes.log | sed 's/^changed=//')" >> "$GITHUB_OUTPUT"
+      - name: Keep the before and after images
+        if: ${{ !cancelled() && hashFiles('evidence/index.html') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: reference-image-evidence
+          path: evidence
+          retention-days: 30
+      - name: A maintainer has looked at the changed images
+        if: steps.pr.outputs.number != '' && steps.changes.outputs.changed != '0'
+        shell: bash
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+          CHANGED: ${{ steps.changes.outputs.changed }}
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 scripts/check-reference-images.py --review \
+            --repo "$REPO" --pr "$PR" --label "$LABEL" --changed-count "$CHANGED" \
+            --event "$EVENT" --action "$ACTION" --before "$BEFORE" --after "$AFTER" \
+            --run-id "$GITHUB_RUN_ID"
 
   # Reduced builds lint one package (`scope`), not the workspace: Cargo
   # unifies features across every package it builds, and other members turn
@@ -225,6 +331,24 @@ jobs:
       - name: Build examples
         if: ${{ !cancelled() && runner.os != 'Windows' }}
         run: cargo build --workspace --examples
+      # Linux and macOS run the render tests only where the runner has a
+      # GPU adapter (they skip with a logged reason otherwise; Windows is
+      # the lane that requires one, in windows-unit).
+      # Every image comparison's measured difference, passed or failed
+      # (target/render-test-output/comparisons.log): the margins on this
+      # runner's adapter.
+      - name: Margins of the image comparisons
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: sort target/render-test-output/comparisons.log 2>/dev/null || echo "No image comparison ran."
+      - name: Keep the images of failed render tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: render-test-output-${{ matrix.os }}
+          path: target/render-test-output
+          if-no-files-found: ignore
+          retention-days: 14
 
   windows-unit-build:
     name: Compile unit and render tests (windows-latest)
@@ -275,11 +399,32 @@ jobs:
       # render tests take two to three minutes each on the software adapter
       # and set the floor for a shard; six shards keep the rest of a slice
       # from adding much to that (three took over five minutes).
+      # This is the lane where the render tests must run: the runner's
+      # software adapter (WARP) is always there, so a test that finds no
+      # adapter or device fails instead of skipping.
       - name: Run archived tests
+        env:
+          PONKO_REQUIRE_GPU: 1
         run: >-
           cargo nextest run --archive-file target/ci-unit/windows-unit.tar.zst
           --workspace-remap . --partition slice:${{ matrix.shard }}/6
           --test-threads 2 --no-fail-fast
+      # What a failed image comparison drew, and where it differs.
+      # Every image comparison's measured difference, passed or failed
+      # (target/render-test-output/comparisons.log): the margins on this
+      # runner's adapter.
+      - name: Margins of the image comparisons
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: sort target/render-test-output/comparisons.log 2>/dev/null || echo "No image comparison ran."
+      - name: Keep the images of failed render tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: render-test-output-windows-unit-${{ matrix.shard }}
+          path: target/render-test-output
+          if-no-files-found: ignore
+          retention-days: 14
 
   windows-gpu-tiers:
     name: Render tests on the ${{ matrix.tier }} GPU tier (windows-latest, ${{ matrix.shard }}/2)
@@ -313,7 +458,7 @@ jobs:
           cargo nextest run --archive-file target/ci-unit/windows-unit.tar.zst \
             --workspace-remap . --partition slice:${{ matrix.shard }}/2 \
             --test-threads 2 --no-fail-fast --success-output final \
-            -E '(test(render_test) & !test(capabilities_render_test)) | test(skinning::tests) | test(particles::tests)' \
+            -E '(test(render_test) & !test(capabilities_render_test)) | test(skinning::tests) | test(particles::tests) | test(mips::tests) | test(timer::tests)' \
             2>&1 | tee tier.log
           status=${PIPESTATUS[0]}
           opened=$(grep -c "as the $PONKO_GPU_TIER tier" tier.log)
@@ -321,7 +466,23 @@ jobs:
           if [ "$opened" -eq 0 ]; then
             echo "no render test opened a device on the forced tier" && exit 1
           fi
+          echo "render tests run: $(grep -c 'render test ran \[' tier.log), skipped with a reason: $(grep -c 'render test SKIPPED \[' tier.log)"
           exit $status
+      # Every image comparison's measured difference, passed or failed
+      # (target/render-test-output/comparisons.log): the margins on this
+      # runner's adapter.
+      - name: Margins of the image comparisons
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: sort target/render-test-output/comparisons.log 2>/dev/null || echo "No image comparison ran."
+      - name: Keep the images of failed render tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: render-test-output-${{ matrix.tier }}-${{ matrix.shard }}
+          path: target/render-test-output
+          if-no-files-found: ignore
+          retention-days: 14
 
   windows-examples:
     name: Examples and library tests (windows-latest)
@@ -830,7 +991,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles]
+    needs: [leaks, fmt, reference-images, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job

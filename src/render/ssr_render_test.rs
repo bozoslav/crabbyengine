@@ -31,20 +31,13 @@ impl Rig {
     }
 
     fn sized(width: u32, height: u32) -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            crate::render::render_test_support::no_gpu("no GPU adapter");
-            return None;
-        };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
-            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor {
+        let gpu = crate::render::render_test_support::gpu_with(|adapter| {
+            Ok(wgpu::DeviceDescriptor {
                 required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
                 ..Default::default()
-            }),
-        )) else {
-            crate::render::render_test_support::no_gpu("no GPU device");
-            return None;
-        };
+            })
+        })?;
+        let (device, queue) = (gpu.device, gpu.queue);
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[
@@ -480,7 +473,7 @@ fn small_and_odd_sizes_filter_reflections() {
 fn reflection_filter_gpu_cost() {
     let Some(mut rig) = Rig::sized(1920, 1080) else { return };
     let Some(mut timer) = super::timer::GpuTimer::new(&rig.device, &rig.queue) else {
-        eprintln!("timestamp queries unavailable: skipped");
+        crate::render::render_test_support::skip("timestamp queries unavailable");
         return;
     };
     let floor = rig.mesh(

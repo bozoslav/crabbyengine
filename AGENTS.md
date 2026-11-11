@@ -43,6 +43,7 @@ Rules:
 - Panics that are part of the API get `#[should_panic(expected = "...")]` tests, so the message stays helpful.
 - Benchmarks are not tests: never assert on timings in tests, except for coarse bounds such as "≥ 6 ms for three 2 ms steps".
 - Run one area locally with `cargo test -p ponko_ecs --test queries`.
+- Offscreen GPU tests (`src/render/*_render_test.rs`) follow the book's "GPU regression tests" (`book/src/render-tests.md`): devices through `render_test_support`, semantic assertions with a negative control, tolerances instead of byte equality across adapters. Reference images in `tests/fixtures/render` change only with `PONKO_UPDATE_REFERENCES=1 PONKO_REFERENCE_REASON="..."`, the before/after images in the pull request, and the `references-reviewed` label from a maintainer.
 
 ## Integration checks
 

@@ -13,6 +13,14 @@ In short:
   required from every contributor. Maintainers coordinate that coverage and
   own follow-ups. Preserve existing compatibility and describe behavior and tests.
 
+## Changing the renderer
+
+The renderer's offscreen GPU tests, their reference images and what a
+failure means on other hardware are described in
+[GPU regression tests](render-tests.md). Run them on your GPU and under
+`PONKO_GPU_TIER=baseline` and `webgl2` before a pull request, and say in it
+which adapter they ran on and what was skipped.
+
 ## Testing the C API
 
 Every function the C library exports (`extern "C" fn` in `crates/ponko_ffi/src`)
