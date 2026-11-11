@@ -132,6 +132,33 @@ static void resize_health_bars(ponko::ctx& ctx) {
 }
 // ANCHOR_END: ecs_changes
 
+// ANCHOR: ecs_filters
+struct Ally {};
+struct Dead {};
+// Living fighters: allies or enemies that aren't dead.
+using Living = ponko::all_of<ponko::or_<ponko::with<Ally>, ponko::with<Enemy>>, ponko::without<Dead>>;
+// An AND group inside an or_: both Ally and Enemy, or not Dead.
+using Odd = ponko::or_<ponko::all_of<ponko::with<Ally>, ponko::with<Enemy>>, ponko::without<Dead>>;
+
+static std::size_t fight(ponko::ctx& ctx) {
+    auto world = ctx.world();
+    world.each<Living>([](Health& hp) { hp.value -= 1; });
+    return world.count<Odd>();
+}
+// ANCHOR_END: ecs_filters
+
+static void ecs_filters(ponko::ctx& ctx) {
+    auto world = ctx.world();
+    const auto ally = world.spawn(Health{10}, Ally{});
+    const auto foe = world.spawn(Health{10}, Enemy{});
+    const auto corpse = world.spawn(Health{10}, Enemy{}, Dead{});
+    const auto bystander = world.spawn(Health{10});
+    const std::size_t odd = fight(ctx);
+    assert(world.get<Health>(ally).value == 9 && world.get<Health>(foe).value == 9);
+    assert(world.get<Health>(corpse).value == 10 && world.get<Health>(bystander).value == 10);
+    assert(odd == 3);   // everything that isn't dead
+}
+
 // ANCHOR: resources
 struct Score { std::uint32_t points; };
 
@@ -2527,6 +2554,7 @@ static void declared_access_guide() {
 
 int main() {
     builder_setup_runs_headless();
+    ponko::game("filter guide", 1, 1).run_headless(0, ecs_filters);
     plugins_run_headless();
     declared_access_guide();
     steering_stays_within_budget();

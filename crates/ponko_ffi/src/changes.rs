@@ -8,6 +8,7 @@ use std::ffi::c_void;
 
 use ponko_ecs::{ChunkQuery, Entity, Tick};
 
+use crate::filters::{PonkoFilter, compile};
 use crate::{
     Failure, ParallelQuery, PonkoChunk, PonkoQueryFn, PonkoStatus, PonkoWorld, access, boundary, chunk_in_parallel,
     error, invalid, query_input, resolve,
@@ -321,6 +322,19 @@ pub unsafe extern "C" fn ponko_removed(
     })
 }
 
+/// `World::query_chunks`, over the archetypes that pass `filter` if any.
+fn visit(
+    w: &mut ponko_ecs::World,
+    query: ChunkQuery<'_>,
+    filter: Option<&ponko_ecs::CompiledFilter>,
+    f: impl FnMut(ponko_ecs::Chunk<'_>),
+) {
+    match filter {
+        Some(filter) => w.query_chunks_filtered(query, filter, f),
+        None => w.query_chunks(query, f),
+    }
+}
+
 fn since_or_world(w: &ponko_ecs::World, raw: u64) -> Tick {
     since(raw).unwrap_or(w.changes_since())
 }
@@ -374,6 +388,23 @@ pub unsafe extern "C" fn ponko_query_with(
     callback: PonkoQueryFn,
     user: *mut c_void,
 ) -> PonkoStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { query_with_filter(world, components, count, None, options, callback, user) }
+}
+
+/// `ponko_query_with`, over the entities that also pass `filter`.
+///
+/// # Safety
+/// As `ponko_query_with`.
+pub(crate) unsafe fn query_with_filter(
+    world: *mut PonkoWorld,
+    components: *const u32,
+    count: usize,
+    filter: Option<&PonkoFilter>,
+    options: *const PonkoQueryOptions,
+    callback: PonkoQueryFn,
+    user: *mut c_void,
+) -> PonkoStatus {
     boundary(|| {
         let input = query_input(components, count)?;
         let callback = callback.ok_or_else(|| invalid("query callback is null"))?;
@@ -391,6 +422,7 @@ pub unsafe extern "C" fn ponko_query_with(
         unsafe {
             access(world, |w, handle| {
                 let (resolved, sizes) = resolve(w, input)?;
+                let compiled = filter.map(|filter| compile(w, filter)).transpose()?;
                 let query = ChunkQuery {
                     ids: &resolved[..count],
                     writes: options.writes,
@@ -403,12 +435,12 @@ pub unsafe extern "C" fn ponko_query_with(
                 if options.parallel {
                     let _commands_off = ParallelQuery::begin(handle);
                     let threads = rayon::current_num_threads().max(1);
-                    w.query_chunks(query, |chunk| {
+                    visit(w, query, compiled.as_ref(), |chunk| {
                         chunk_in_parallel(&chunk, &sizes, first, threads, callback, user);
                         first += chunk.entities.len();
                     });
                 } else {
-                    w.query_chunks(query, |chunk| {
+                    visit(w, query, compiled.as_ref(), |chunk| {
                         let view = PonkoChunk {
                             count: chunk.entities.len(),
                             column_count: count,

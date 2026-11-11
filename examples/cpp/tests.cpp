@@ -642,6 +642,208 @@ static void change_detection() {
 struct Hp { int value; };
 struct Bullet { float speed; };
 
+// Presence filters: with, without, or_, all_of. One entity per combination of
+// four markers, labelled with the combination, so each filter has a plain C++
+// predicate to compare against.
+struct Hero {};
+struct Foe {};
+struct Slain {};
+struct Spirit {};
+template<int N> struct Extra {};
+struct Label { unsigned value; };
+template<class... Fs> static unsigned labels_seen(ponko::world& w) {
+    unsigned mask = 0;
+    w.each<Fs...>([&](const Label& l) { mask |= 1u << l.value; });
+    return mask;
+}
+template<class... Fs> static unsigned labels_seen_par(ponko::world& w) {
+    std::atomic<unsigned> mask{0};
+    w.each_par<Fs...>([&](const Label& l) { mask.fetch_or(1u << l.value); });
+    return mask.load();
+}
+template<class F> static unsigned labels_where(F predicate) {
+    unsigned mask = 0;
+    for (unsigned bits = 0; bits < 16; ++bits) if (predicate(bits)) mask |= 1u << bits;
+    return mask;
+}
+static void presence_filters() {
+    using namespace ponko;
+    constexpr unsigned HERO = 1, FOE = 2, SLAIN = 4, SPIRIT = 8;
+    world w;
+    for (unsigned bits = 0; bits < 16; ++bits) {
+        const auto e = w.spawn(Label{bits});
+        if (bits & HERO) w.set(e, Hero{});
+        if (bits & FOE) w.set(e, Foe{});
+        if (bits & SLAIN) w.set(e, Slain{});
+        if (bits & SPIRIT) w.set(e, Spirit{});
+    }
+    auto same = [&](unsigned want, unsigned got, unsigned par) { CHECK(want == got && want == par); };
+    same(labels_where([&](unsigned b) { return b & HERO; }), labels_seen<with<Hero>>(w), labels_seen_par<with<Hero>>(w));
+    same(labels_where([&](unsigned b) { return !(b & SLAIN); }), labels_seen<without<Slain>>(w), labels_seen_par<without<Slain>>(w));
+    // Several filters in one list must all pass.
+    same(labels_where([&](unsigned b) { return (b & HERO) && !(b & SLAIN); }),
+         labels_seen<with<Hero>, without<Slain>>(w), labels_seen_par<with<Hero>, without<Slain>>(w));
+    same(labels_where([&](unsigned b) { return (b & HERO) && !(b & SLAIN); }),
+         labels_seen<all_of<with<Hero>, without<Slain>>>(w), labels_seen_par<all_of<with<Hero>, without<Slain>>>(w));
+    same(labels_where([&](unsigned b) { return b & (HERO | FOE); }),
+         labels_seen<or_<with<Hero>, with<Foe>>>(w), labels_seen_par<or_<with<Hero>, with<Foe>>>(w));
+    // The named filter: a fighter that isn't slain.
+    using living = all_of<or_<with<Hero>, with<Foe>>, without<Slain>>;
+    same(labels_where([&](unsigned b) { return (b & (HERO | FOE)) && !(b & SLAIN); }),
+         labels_seen<living>(w), labels_seen_par<living>(w));
+    // An AND group inside an OR: (Hero AND Foe) OR NOT Slain.
+    using either = or_<all_of<with<Hero>, with<Foe>>, without<Slain>>;
+    same(labels_where([&](unsigned b) { return ((b & HERO) && (b & FOE)) || !(b & SLAIN); }),
+         labels_seen<either>(w), labels_seen_par<either>(w));
+    // Nesting: (Hero AND (Slain OR (Spirit AND NOT Foe))) OR Foe.
+    using nested = or_<all_of<with<Hero>, or_<with<Slain>, all_of<with<Spirit>, without<Foe>>>>, with<Foe>>;
+    same(labels_where([&](unsigned b) { return ((b & HERO) && ((b & SLAIN) || ((b & SPIRIT) && !(b & FOE)))) || (b & FOE); }),
+         labels_seen<nested>(w), labels_seen_par<nested>(w));
+    // Empty groups: all_of<> is everything, or_<> nothing.
+    CHECK(labels_seen<all_of<>>(w) == 0xFFFFu && labels_seen<or_<>>(w) == 0);
+    CHECK(labels_seen<or_<all_of<>, with<Hero>>>(w) == 0xFFFFu && labels_seen<all_of<or_<>, with<Hero>>>(w) == 0);
+
+    // Counting, the lower-level query, and columns beside the filters.
+    CHECK(w.count<with<Hero>>() == 8 && w.count<Label, without<Slain>>() == 8 && w.count<living>() == 6);
+    std::size_t rows = 0;
+    w.query<const Label, with<Hero>, without<Foe>>([&](auto chunk) { rows += chunk.size(); });
+    CHECK(rows == 4);
+    // A filter can name a component that is also a column.
+    CHECK((w.count<Hero, with<Hero>>() == 8 && w.count<Hero, without<Hero>>() == 0));
+
+    // Change filters and presence filters combine: both must pass.
+    w.track_changes<Label>();
+    w.set_changes_since(w.advance_change_tick());
+    ponko::entity hero_entity = 0, plain_entity = 0;
+    w.each([&](ponko::entity e, const Label& l) { if (l.value == HERO) hero_entity = e; if (l.value == 0) plain_entity = e; });
+    CHECK(w.mark_changed<Label>(hero_entity) && w.mark_changed<Label>(plain_entity));
+    CHECK(w.count<ponko::changed<Label>>() == 2 && w.count<ponko::changed<Label>, with<Hero>>() == 1);
+    CHECK(labels_seen<ponko::changed<Label>, without<Hero>>(w) == 1u);
+    // any_of picks rows by what changed, and presence filters still narrow them.
+    CHECK((w.count<ponko::any_of<ponko::changed<Label>, ponko::added<Label>>, or_<with<Hero>, with<Foe>>>() == 1));
+
+    // The same filter list again, and in a second world with other ids.
+    world other;
+    other.spawn(Spirit{}); other.spawn(Hero{}, Label{HERO}); other.spawn(Label{0});
+    CHECK(labels_seen<with<Hero>>(other) == 1u << HERO && labels_seen<with<Hero>>(w) == labels_where([&](unsigned b) { return b & HERO; }));
+    CHECK(other.count<or_<with<Hero>, with<Spirit>>>() == 2 && other.count<without<Hero>>() == 2);
+
+    // Limits and mistakes are exceptions, never a crash.
+    throws_invalid([&] { (void)w.count<with<Extra<0>>, with<Extra<1>>, with<Extra<2>>, with<Extra<3>>, with<Extra<4>>,
+                                       with<Extra<5>>, with<Extra<6>>, with<Extra<7>>, with<Extra<8>>>(); }, "at most 8 `with`");
+    CHECK((w.count<with<Extra<0>>, with<Extra<1>>, with<Extra<2>>, with<Extra<3>>, with<Extra<4>>,
+                   with<Extra<5>>, with<Extra<6>>, with<Extra<7>>>() == 0));
+    throws_invalid([&] { (void)w.count<or_<with<Hero>>, or_<with<Foe>>, or_<with<Slain>>, or_<with<Spirit>>, or_<with<Label>>>(); },
+                   "at most 4 `Or`");
+    throws_invalid([&] { (void)w.count<or_<all_of<with<Hero>, with<Foe>, with<Label>>, all_of<with<Slain>, with<Spirit>>>>(); },
+                   "at most 4 `Or`");
+    // A repeat is one slot and a contradiction matches nothing, as for a Rust tuple.
+    CHECK(w.count<with<Hero>, with<Hero>>() == 8 && w.count<without<Hero>, without<Hero>>() == 8);
+    CHECK(w.count<with<Hero>, without<Hero>>() == 0 && w.count<without<Hero>, with<Hero>>() == 0);
+    CHECK(labels_seen<with<Hero>, with<Hero>>(w) == labels_where([&](unsigned b) { return b & HERO; }));
+    CHECK(labels_seen<all_of<with<Foe>, with<Foe>>, with<Foe>>(w) == labels_where([&](unsigned b) { return b & FOE; }));
+    CHECK(labels_seen_par<with<Hero>, without<Hero>>(w) == 0);
+    // A failed query leaves the world usable, and the working lists working.
+    CHECK(w.count<with<Hero>>() == 8);
+    // A type used for the first time inside a query can't be registered there.
+    throws([&] { w.each([&](const Label&) { (void)w.count<with<Extra<20>>>(); }); });
+}
+
+// Queries over more than the 8 columns the first Rust tuples had: 12 in
+// `each`, and a presence filter beside them.
+template<int N> struct Col { int value; };
+static void wide_queries() {
+    ponko::world w;
+    const auto spawn = [&](bool with_hero) {
+        const auto e = w.spawn(Col<0>{0}, Col<1>{1}, Col<2>{2}, Col<3>{3}, Col<4>{4}, Col<5>{5},
+                               Col<6>{6}, Col<7>{7}, Col<8>{8}, Col<9>{9}, Col<10>{10}, Col<11>{11});
+        if (with_hero) w.set(e, Hero{});
+        return e;
+    };
+    spawn(false); spawn(true); spawn(true);
+    auto sum = [&](auto filters) {
+        int total = 0, rows = 0;
+        auto visit = [&](const Col<0>& a, const Col<1>& b, const Col<2>& c, const Col<3>& d, const Col<4>& e, const Col<5>& f,
+                         const Col<6>& g, const Col<7>& h, const Col<8>& i, const Col<9>& j, const Col<10>& k, Col<11>& l) {
+            total += a.value + b.value + c.value + d.value + e.value + f.value + g.value + h.value + i.value + j.value + k.value + l.value;
+            ++rows;
+        };
+        filters(visit);
+        return std::pair<int, int>(total, rows);
+    };
+    CHECK(sum([&](auto f) { w.each(f); }) == std::pair<int, int>(66 * 3, 3));
+    CHECK(sum([&](auto f) { w.each<ponko::with<Hero>>(f); }) == std::pair<int, int>(66 * 2, 2));
+    CHECK(sum([&](auto f) { w.each<ponko::without<Hero>>(f); }) == std::pair<int, int>(66, 1));
+}
+
+// The allocations per frame of system `name` in a profile report's JSON
+// (the average over the frames, so any allocation shows), -1 if it isn't there.
+static double system_allocations(const std::string& json, const std::string& name) {
+    const auto at = json.find("\"name\": \"" + name + "\"");
+    if (at == std::string::npos) return -1;
+    const std::string key = "\"allocs_per_frame\":";
+    const auto value = json.find(key, at);
+    if (value == std::string::npos) return -1;
+    return std::strtod(json.c_str() + value + key.size(), nullptr);
+}
+
+// What the wrapper does for a presence-filtered query in steady state: the
+// filter is built once per list and world, so a repeated call allocates
+// nothing (C++ `new` and the engine's own allocations are both counted, per
+// system, and must be exactly zero).
+static void presence_filters_allocate_nothing() {
+    using namespace ponko;
+    auto setup = [](ponko::ctx& ctx) {
+        auto w = ctx.world();
+        for (unsigned bits = 0; bits < 64; ++bits) {
+            const auto e = w.spawn(Label{bits});
+            if (bits & 1) w.set(e, Hero{});
+            if (bits & 2) w.set(e, Foe{});
+            if (bits & 4) w.set(e, Slain{});
+        }
+    };
+    std::size_t each_rows = 0, query_rows = 0, count_rows = 0, every_rows = 0;
+    auto each_filtered = [&](ponko::ctx& ctx) {
+        auto w = ctx.world();
+        each_rows = 0;
+        w.each<with<Hero>>([&](const Label&) { ++each_rows; });
+        w.each<or_<all_of<with<Hero>, with<Foe>>, without<Slain>>, with<Label>>([&](const Label&) { ++each_rows; });
+    };
+    auto query_filtered = [&](ponko::ctx& ctx) {
+        query_rows = 0;
+        ctx.world().query<const Label, without<Foe>>([&](auto chunk) { query_rows += chunk.size(); });
+    };
+    auto count_filtered = [&](ponko::ctx& ctx) {
+        count_rows = ctx.world().count<all_of<or_<with<Hero>, with<Foe>>, without<Slain>>>();
+    };
+    // The same three without a filter, to show the report sees allocations at all.
+    auto leaky = [](ponko::ctx&) { int* p = new int[4]; *static_cast<volatile int*>(p) = 7; delete[] p; };
+    auto parallel_filtered = [&](ponko::ctx& ctx) { ctx.world().each_par<with<Hero>>([](const Label&) {}); };
+    auto parallel_plain = [&](ponko::ctx& ctx) { ctx.world().each_par([](const Label&) {}); };
+    auto every = [&](ponko::ctx& ctx) { every_rows = ctx.world().count<Label>(); };
+    auto run = ponko::game("filter allocations", 1, 1)
+        .sim_system(each_filtered, "each_filtered")
+        .sim_system(query_filtered, "query_filtered")
+        .sim_system(count_filtered, "count_filtered")
+        .sim_system(every, "every")
+        .sim_system(leaky, "leaky")
+        .sim_system(parallel_filtered, "parallel_filtered")
+        .sim_system(parallel_plain, "parallel_plain")
+        .profile_headless(5, 40, setup);
+    CHECK(each_rows == 32 + 40 && query_rows == 32 && count_rows == 24 && every_rows == 64);
+    const std::string json = run.report.json();
+    CHECK(system_allocations(json, "leaky") >= 1.0);   // the report does see allocations
+    CHECK(system_allocations(json, "each_filtered") == 0.0);
+    CHECK(system_allocations(json, "query_filtered") == 0.0);
+    CHECK(system_allocations(json, "count_filtered") == 0.0);
+    CHECK(system_allocations(json, "every") == 0.0);
+    // On all cores the thread pool may allocate now and then; the filter must
+    // not add an allocation to every call (one call per frame here).
+    const double plain = system_allocations(json, "parallel_plain");
+    CHECK(plain >= 0 && system_allocations(json, "parallel_filtered") >= 0);
+    CHECK(system_allocations(json, "parallel_filtered") < plain + 0.5);
+}
+
 static void games() {
     // Systems, the clock, quit and exceptions.
     std::uint64_t ticks = 0; float dt = 0;
@@ -2458,6 +2660,9 @@ int main() {
     asset_streaming();
     parallel_queries();
     change_detection();
+    presence_filters();
+    wide_queries();
+    presence_filters_allocate_nothing();
     games();
     attachments();
     physics();

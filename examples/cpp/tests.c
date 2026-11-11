@@ -990,6 +990,211 @@ static void change_detection(void) {
     CHECK(ponko_world_free(w) == PONKO_OK);
 }
 
+/* Query filters: with, without, OR over arms, AND groups inside an OR. One
+ * entity per combination of four markers; bit i of an entity's label says
+ * whether it has marker i, so every filter has a plain C predicate to compare
+ * against. */
+enum { PLAYER_BIT = 1, ENEMY_BIT = 2, DEAD_BIT = 4, GHOST_BIT = 8 };
+typedef struct { uint32_t mask; size_t rows; } Labels;
+static void collect_labels(const PonkoChunk* chunk, void* user) {
+    Labels* l = user;
+    const uint32_t* label = chunk->columns[0];
+    for (size_t i = 0; i < chunk->count; ++i) { l->mask |= 1u << label[i]; ++l->rows; }
+}
+static uint32_t filtered_labels(PonkoWorld* w, uint32_t label, const PonkoFilter* filter, PonkoStatus* status) {
+    Labels l = {0, 0};
+    PonkoQueryOptions options = ponko_query_options_default();
+    options.writes = 0;
+    *status = ponko_query_filtered(w, &label, 1, filter, &options, collect_labels, &l);
+    return l.mask;
+}
+/* A parallel callback fills row i of the query into slot i: no two threads share one. */
+static void fill_slots(const PonkoChunk* chunk, void* user) {
+    uint32_t* slots = user;
+    const uint32_t* label = chunk->columns[0];
+    for (size_t i = 0; i < chunk->count; ++i) slots[chunk->first + i] = label[i];
+}
+static uint32_t labels_where(int (*predicate)(unsigned)) {
+    uint32_t mask = 0;
+    for (unsigned bits = 0; bits < 16; ++bits) if (predicate(bits)) mask |= 1u << bits;
+    return mask;
+}
+static int is_player(unsigned b) { return b & PLAYER_BIT; }
+static int not_dead(unsigned b) { return !(b & DEAD_BIT); }
+static int player_alive(unsigned b) { return (b & PLAYER_BIT) && !(b & DEAD_BIT); }
+static int player_or_enemy(unsigned b) { return b & (PLAYER_BIT | ENEMY_BIT); }
+static int living_fighter(unsigned b) { return player_or_enemy(b) && !(b & DEAD_BIT); }
+static int both_or_alive(unsigned b) { return ((b & PLAYER_BIT) && (b & ENEMY_BIT)) || !(b & DEAD_BIT); }
+static int nested(unsigned b) { return ((b & PLAYER_BIT) && ((b & DEAD_BIT) || ((b & GHOST_BIT) && !(b & ENEMY_BIT)))) || (b & ENEMY_BIT); }
+static int anything(unsigned b) { (void)b; return 1; }
+static int nothing(unsigned b) { (void)b; return 0; }
+static void check_filter(PonkoWorld* w, uint32_t label, const PonkoFilter* filter, int (*predicate)(unsigned)) {
+    PonkoStatus status;
+    CHECK(ponko_filter_check(w, filter) == PONKO_OK);
+    uint32_t want = labels_where(predicate);
+    CHECK(filtered_labels(w, label, filter, &status) == want && status == PONKO_OK);
+    /* The same rows on all cores. */
+    uint32_t slots[16], rows = 0;
+    for (int i = 0; i < 16; ++i) slots[i] = UINT32_MAX;
+    PonkoQueryOptions par = ponko_query_options_default();
+    par.writes = 0; par.parallel = true;
+    CHECK(ponko_query_filtered(w, &label, 1, filter, &par, fill_slots, slots) == PONKO_OK);
+    uint32_t seen = 0;
+    for (int i = 0; i < 16; ++i) if (slots[i] != UINT32_MAX) { seen |= 1u << slots[i]; ++rows; }
+    uint32_t count = 0;
+    for (uint32_t m = want; m; m &= m - 1) ++count;
+    CHECK(seen == want && rows == count);
+}
+static void query_filters(void) {
+    PonkoWorld* w = ponko_world_new(); CHECK(w);
+    const char* names[] = {"Player", "Enemy", "Dead", "Ghost"};
+    uint32_t ids[4], label;
+    for (int i = 0; i < 4; ++i) CHECK(ponko_component_register(w, names[i], sizeof(uint32_t), _Alignof(uint32_t), &ids[i]) == PONKO_OK);
+    CHECK(ponko_component_register(w, "Label", sizeof(uint32_t), _Alignof(uint32_t), &label) == PONKO_OK);
+    for (uint32_t bits = 0; bits < 16; ++bits) {
+        PonkoValue values[5] = {{label, &bits, sizeof bits}};
+        size_t n = 1;
+        for (int i = 0; i < 4; ++i) if (bits >> i & 1) values[n++] = (PonkoValue){ids[i], &bits, sizeof bits};
+        uint64_t e;
+        CHECK(ponko_spawn(w, values, n, &e) == PONKO_OK);
+    }
+    PonkoFilter* player = ponko_filter_with(ids[0]);
+    PonkoFilter* enemy = ponko_filter_with(ids[1]);
+    PonkoFilter* dead = ponko_filter_with(ids[2]);
+    PonkoFilter* ghost = ponko_filter_with(ids[3]);
+    PonkoFilter* alive = ponko_filter_without(ids[2]);
+    PonkoFilter* not_enemy = ponko_filter_without(ids[1]);
+    CHECK(player && enemy && dead && ghost && alive && not_enemy);
+
+    check_filter(w, label, player, is_player);
+    check_filter(w, label, alive, not_dead);
+    const PonkoFilter* player_alive_parts[] = {player, alive};
+    PonkoFilter* player_alive_filter = ponko_filter_all(player_alive_parts, 2);
+    check_filter(w, label, player_alive_filter, player_alive);
+    const PonkoFilter* fighter_parts[] = {player, enemy};
+    PonkoFilter* fighter = ponko_filter_any(fighter_parts, 2);
+    check_filter(w, label, fighter, player_or_enemy);
+    /* (Player OR Enemy) AND NOT Dead: two filters at once. */
+    const PonkoFilter* living_parts[] = {fighter, alive};
+    PonkoFilter* living = ponko_filter_all(living_parts, 2);
+    check_filter(w, label, living, living_fighter);
+    /* AND group inside an OR: (Player AND Enemy) OR NOT Dead. */
+    const PonkoFilter* both_parts[] = {player, enemy};
+    PonkoFilter* both = ponko_filter_all(both_parts, 2);
+    const PonkoFilter* either_parts[] = {both, alive};
+    PonkoFilter* either = ponko_filter_any(either_parts, 2);
+    check_filter(w, label, either, both_or_alive);
+    /* Nesting: (Player AND (Dead OR (Ghost AND NOT Enemy))) OR Enemy. */
+    const PonkoFilter* ghost_parts[] = {ghost, not_enemy};
+    PonkoFilter* ghost_alone = ponko_filter_all(ghost_parts, 2);
+    const PonkoFilter* dead_or_parts[] = {dead, ghost_alone};
+    PonkoFilter* dead_or_ghost = ponko_filter_any(dead_or_parts, 2);
+    const PonkoFilter* player_arm_parts[] = {player, dead_or_ghost};
+    PonkoFilter* player_arm = ponko_filter_all(player_arm_parts, 2);
+    const PonkoFilter* nested_parts[] = {player_arm, enemy};
+    PonkoFilter* nested_filter = ponko_filter_any(nested_parts, 2);
+    check_filter(w, label, nested_filter, nested);
+    /* Freeing the parts of a filter doesn't change it. */
+    ponko_filter_free(player_arm); ponko_filter_free(dead_or_ghost); ponko_filter_free(ghost_alone);
+    check_filter(w, label, nested_filter, nested);
+    /* always matches everything, never nothing; null is no filter. */
+    PonkoFilter* always = ponko_filter_always();
+    PonkoFilter* never = ponko_filter_never();
+    check_filter(w, label, always, anything);
+    check_filter(w, label, never, nothing);
+    PonkoStatus status;
+    CHECK(filtered_labels(w, label, NULL, &status) == 0xFFFFu && status == PONKO_OK);
+    CHECK(ponko_query_filtered(w, &label, 1, living, NULL, NULL, NULL) == PONKO_INVALID_ARGUMENT);
+    /* A filter is checked in the world that runs it. */
+    PonkoFilter* unknown = ponko_filter_with(9999);
+    CHECK(unknown && ponko_filter_check(w, unknown) == PONKO_INVALID_ARGUMENT);
+    CHECK(strstr(ponko_last_error(), "not registered") != NULL);
+    CHECK(filtered_labels(w, label, unknown, &status) == 0 && status == PONKO_INVALID_ARGUMENT);
+    /* Building errors are null: nothing to combine, a null part. */
+    CHECK(ponko_filter_all(NULL, 0) == NULL && ponko_filter_any(NULL, 0) == NULL);
+    const PonkoFilter* with_null[] = {player, NULL};
+    CHECK(ponko_filter_any(with_null, 2) == NULL);
+    /* A repeat is one slot and a contradiction matches nothing, as for a Rust tuple. */
+    const PonkoFilter* contradiction[] = {player, ponko_filter_without(ids[0])};
+    PonkoFilter* contradictory = ponko_filter_all(contradiction, 2);
+    CHECK(contradictory);
+    check_filter(w, label, contradictory, nothing);
+    const PonkoFilter* repeat[] = {player, player};
+    PonkoFilter* repeated = ponko_filter_all(repeat, 2);
+    CHECK(repeated);
+    check_filter(w, label, repeated, is_player);
+    ponko_filter_free(contradictory); ponko_filter_free(repeated);
+    ponko_filter_free((PonkoFilter*)contradiction[1]);
+    /* Limits are errors too: 9 with components (8 are fine) and 5 `any` clauses (4 are). */
+    PonkoFilter* many[9];
+    for (int i = 0; i < 9; ++i) {
+        char name[16]; uint32_t id;
+        snprintf(name, sizeof name, "Extra%d", i);
+        CHECK(ponko_component_register(w, name, 4, 4, &id) == PONKO_OK);
+        many[i] = ponko_filter_with(id);
+    }
+    const PonkoFilter* nine_parts[9];
+    for (int i = 0; i < 9; ++i) nine_parts[i] = many[i];
+    PonkoFilter* eight = ponko_filter_all(nine_parts, 8);
+    PonkoFilter* nine = ponko_filter_all(nine_parts, 9);
+    CHECK(eight && nine && ponko_filter_check(w, eight) == PONKO_OK && ponko_filter_check(w, nine) == PONKO_INVALID_ARGUMENT);
+    CHECK(strstr(ponko_last_error(), "at most 8 `with`") != NULL);
+    PonkoFilter* clauses[5];
+    for (int i = 0; i < 5; ++i) {
+        const PonkoFilter* one[] = {many[i]};
+        clauses[i] = ponko_filter_any(one, 1);
+    }
+    const PonkoFilter* clause_parts[5] = {clauses[0], clauses[1], clauses[2], clauses[3], clauses[4]};
+    PonkoFilter* four_clauses = ponko_filter_all(clause_parts, 4);
+    PonkoFilter* five_clauses = ponko_filter_all(clause_parts, 5);
+    CHECK(four_clauses && five_clauses);
+    CHECK(ponko_filter_check(w, four_clauses) == PONKO_OK && ponko_filter_check(w, five_clauses) == PONKO_INVALID_ARGUMENT);
+    CHECK(strstr(ponko_last_error(), "at most 4 `Or`") != NULL);
+    ponko_filter_free(four_clauses); ponko_filter_free(five_clauses);
+    for (int i = 0; i < 5; ++i) ponko_filter_free(clauses[i]);
+    ponko_filter_free(eight); ponko_filter_free(nine);
+    for (int i = 0; i < 9; ++i) ponko_filter_free(many[i]);
+    ponko_filter_free(unknown); ponko_filter_free(never); ponko_filter_free(always);
+    ponko_filter_free(nested_filter); ponko_filter_free(either); ponko_filter_free(both);
+    ponko_filter_free(living); ponko_filter_free(fighter); ponko_filter_free(player_alive_filter);
+    ponko_filter_free(not_enemy); ponko_filter_free(alive); ponko_filter_free(ghost);
+    ponko_filter_free(dead); ponko_filter_free(enemy); ponko_filter_free(player);
+    ponko_filter_free(NULL);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+}
+
+/* Wide queries: a C query takes 32 columns (Rust tuples hold 12; nest them for more), also with a filter. */
+static void count_wide(const PonkoChunk* chunk, void* user) {
+    CHECK(chunk->column_count == 32);
+    for (size_t column = 0; column < 32; ++column)
+        for (size_t i = 0; i < chunk->count; ++i) CHECK(((const uint32_t*)chunk->columns[column])[i] == column);
+    *(size_t*)user += chunk->count;
+}
+static void wide_queries(void) {
+    PonkoWorld* w = ponko_world_new(); CHECK(w);
+    uint32_t ids[33], values[33];
+    PonkoValue spawn[33];
+    for (uint32_t i = 0; i < 33; ++i) {
+        char name[16];
+        snprintf(name, sizeof name, "Wide%u", i);
+        CHECK(ponko_component_register(w, name, sizeof(uint32_t), _Alignof(uint32_t), &ids[i]) == PONKO_OK);
+        values[i] = i;
+        spawn[i] = (PonkoValue){ids[i], &values[i], sizeof(uint32_t)};
+    }
+    uint64_t e;
+    CHECK(ponko_spawn(w, spawn, 32, &e) == PONKO_OK && ponko_spawn(w, spawn, 33, &e) == PONKO_OK);
+    size_t rows = 0;
+    CHECK(ponko_query(w, ids, 32, count_wide, &rows) == PONKO_OK && rows == 2);
+    CHECK(ponko_query(w, ids, 33, count_wide, &rows) == PONKO_INVALID_ARGUMENT);
+    /* The 33rd component is a filter, not a column. */
+    PonkoFilter* last = ponko_filter_with(ids[32]);
+    rows = 0;
+    CHECK(ponko_query_filtered(w, ids, 32, last, NULL, count_wide, &rows) == PONKO_OK && rows == 1);
+    CHECK(ponko_query_filtered(w, ids, 33, last, NULL, count_wide, &rows) == PONKO_INVALID_ARGUMENT);
+    ponko_filter_free(last);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+}
+
 /* Headless: no renderer, so nothing is uploaded to the GPU. */
 static void no_uploads(PonkoCtx* ctx, void* user) {
     (void)user;
@@ -1275,5 +1480,7 @@ int main(void) {
     asset_streaming();
     profiling_c();
     animation_graphs();
+    query_filters();
+    wide_queries();
     return 0;
 }

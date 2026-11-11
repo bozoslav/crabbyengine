@@ -691,6 +691,9 @@ namespace detail {
 inline void check(PonkoStatus status) {
     if (status != PONKO_OK) throw ponko::error(ponko_last_error(), ponko_last_error_kind());
 }
+/// An owned C query filter (see with, without, or_, all_of).
+struct filter_deleter { void operator()(PonkoFilter* f) const noexcept { ponko_filter_free(f); } };
+using filter_ptr = std::unique_ptr<PonkoFilter, filter_deleter>;
 /// The `PonkoHandleKind` of each handle type, for `ctx::is_live` and `ctx::free`.
 template<class H> struct handle_kind;
 template<> struct handle_kind<PonkoTexture> { static constexpr std::uint32_t value = PONKO_HANDLE_TEXTURE; };
@@ -765,6 +768,9 @@ struct first_error {
 struct identity {
     std::vector<std::uint32_t> ids;  // type_slot -> id + 1 (0: not registered yet)
     std::unordered_map<std::uint32_t, std::type_index> types;  // id -> the C++ type using it
+    // The with/without/or_/all_of filters of queries, built once per filter list.
+    std::mutex filters_lock;
+    std::unordered_map<std::type_index, filter_ptr> filters;
     // Commands and events whose type was first used inside a query, when the
     // world can't register it: replayed right after the system returns.
     std::mutex later_lock;
@@ -912,11 +918,52 @@ template<class T> struct added {};
 /// query's only filter.
 template<class... Fs> struct any_of {};
 
+/// A query filter: only entities that have a `T` (it isn't a column). Rust:
+/// `With<T>`. Filters in one list must all pass:
+/// `world.each<ponko::with<Player>, ponko::without<Dead>>(fn)`.
+template<class T> struct with {};
+/// A query filter: only entities that don't have a `T`. Rust: `Without<T>`.
+template<class T> struct without {};
+/// A query filter that passes when every one of `Fs` does (an AND group,
+/// which inside or_ is one arm). Rust: a tuple of filters. `all_of<>` passes
+/// for every entity. Name a filter you use in many places:
+/// `using living = ponko::all_of<ponko::or_<ponko::with<Player>, ponko::with<Enemy>>, ponko::without<Dead>>;`.
+/// Hold with, without, all_of and or_ filters.
+template<class... Fs> struct all_of {};
+/// A query filter that passes when at least one of `Fs` does (`or` is a C++
+/// keyword, so the name has an underscore). Rust: `Or<(..)>`. An arm can be
+/// a `with`, a `without`, an all_of group or another or_:
+///
+///     world.each<ponko::or_<ponko::all_of<ponko::with<Player>, ponko::without<Ghost>>,
+///                           ponko::with<Enemy>>>(fn);
+///
+/// `or_<>` passes for no entity. A query takes at most 4 clauses with 16
+/// component predicates between them: an or_ of all_of groups is expanded, so
+/// `(a AND b) OR c` is two clauses of two predicates each. A query over the
+/// limits throws std::runtime_error. A component named twice is one slot,
+/// and `with` and `without` of one component pass for no entity, as for the
+/// Rust tuple. Unlike any_of, which picks rows by what changed,
+/// or_ picks entities by the components they have; the two combine in one
+/// query list.
+template<class... Fs> struct or_ {};
+
 namespace detail {
+
 template<class T> struct is_filter : std::false_type {};
 template<class T> struct is_filter<changed<T>> : std::true_type {};
 template<class T> struct is_filter<added<T>> : std::true_type {};
 template<class... Fs> struct is_filter<any_of<Fs...>> : std::true_type {};
+template<class T> struct is_filter<with<T>> : std::true_type {};
+template<class T> struct is_filter<without<T>> : std::true_type {};
+template<class... Fs> struct is_filter<all_of<Fs...>> : std::true_type {};
+template<class... Fs> struct is_filter<or_<Fs...>> : std::true_type {};
+/// with, without, all_of and or_: the filters that pick entities by the
+/// components they have, not rows by what changed.
+template<class T> struct is_presence : std::false_type {};
+template<class T> struct is_presence<with<T>> : std::true_type {};
+template<class T> struct is_presence<without<T>> : std::true_type {};
+template<class... Fs> struct is_presence<all_of<Fs...>> : std::true_type {};
+template<class... Fs> struct is_presence<or_<Fs...>> : std::true_type {};
 template<class T> struct is_any : std::false_type {};
 template<class... Fs> struct is_any<any_of<Fs...>> : std::true_type {};
 template<class... Ts> struct types {};
@@ -927,6 +974,12 @@ template<bool Filters, class... Ts> struct pick { using type = types<>; };
 template<bool Filters, class T, class... Rest> struct pick<Filters, T, Rest...> {
     using type = typename joined<typename std::conditional<is_filter<T>::value == Filters, types<T>, types<>>::type,
                                  typename pick<Filters, Rest...>::type>::type;
+};
+/// The presence filters (see is_presence) among `Fs`.
+template<class... Fs> struct presence { using type = types<>; };
+template<class F, class... Rest> struct presence<F, Rest...> {
+    using type = typename joined<typename std::conditional<is_presence<F>::value, types<F>, types<>>::type,
+                                 typename presence<Rest...>::type>::type;
 };
 /// The column type of an each() parameter: `T` for `T&` (written), `const T`
 /// for `const T&` and copies (only read).
@@ -1093,8 +1146,57 @@ protected:
     template<class T> void add_filter(detail::query_plan& plan, added<T>*) const { plan.options.added |= plan.bit(id<T>()); }
     template<class... Fs> void add_filter(detail::query_plan& plan, any_of<Fs...>*) const {
         static_assert(!std::disjunction<detail::is_any<Fs>...>::value, "any_of can't hold another any_of: list its filters directly");
+        static_assert(!std::disjunction<detail::is_presence<Fs>...>::value,
+                      "any_of holds changed<T> and added<T>; use or_<...> to pick entities by the components they have");
         plan.options.any = true;
         (add_filter(plan, static_cast<Fs*>(nullptr)), ...);
+    }
+    // with, without, all_of and or_ pick entities, not rows: they are not part of the plan.
+    template<class F> std::enable_if_t<detail::is_presence<F>::value> add_filter(detail::query_plan&, F*) const {}
+
+    /// The C filter of a presence filter, kept alive in `keep`.
+    template<class T> PonkoFilter* build_filter(std::vector<detail::filter_ptr>& keep, with<T>*) const {
+        return keep_filter(keep, ponko_filter_with(id<T>()));
+    }
+    template<class T> PonkoFilter* build_filter(std::vector<detail::filter_ptr>& keep, without<T>*) const {
+        return keep_filter(keep, ponko_filter_without(id<T>()));
+    }
+    template<class... Fs> PonkoFilter* build_filter(std::vector<detail::filter_ptr>& keep, all_of<Fs...>*) const {
+        if constexpr (sizeof...(Fs) == 0) {
+            return keep_filter(keep, ponko_filter_always());
+        } else {
+            static_assert(std::conjunction<detail::is_presence<Fs>...>::value,
+                          "all_of holds with, without, all_of and or_ filters");
+            const std::array<const PonkoFilter*, sizeof...(Fs)> parts{{build_filter(keep, static_cast<Fs*>(nullptr))...}};
+            return keep_filter(keep, ponko_filter_all(parts.data(), parts.size()));
+        }
+    }
+    template<class... Fs> PonkoFilter* build_filter(std::vector<detail::filter_ptr>& keep, or_<Fs...>*) const {
+        if constexpr (sizeof...(Fs) == 0) {
+            return keep_filter(keep, ponko_filter_never());
+        } else {
+            static_assert(std::conjunction<detail::is_presence<Fs>...>::value,
+                          "or_ holds with, without, all_of and or_ filters");
+            const std::array<const PonkoFilter*, sizeof...(Fs)> parts{{build_filter(keep, static_cast<Fs*>(nullptr))...}};
+            return keep_filter(keep, ponko_filter_any(parts.data(), parts.size()));
+        }
+    }
+    static PonkoFilter* keep_filter(std::vector<detail::filter_ptr>& keep, PonkoFilter* built) {
+        if (!built) throw std::runtime_error(ponko_last_error());
+        keep.emplace_back(built);
+        return built;
+    }
+    /// The filter of a query's presence filters `Ps` (all of them must pass),
+    /// built on first use for this world and kept.
+    template<class... Ps> const PonkoFilter* presence_filter(detail::types<Ps...>) const {
+        std::lock_guard<std::mutex> guard(owner_->filters_lock);
+        const std::type_index key(typeid(detail::types<Ps...>));
+        auto found = owner_->filters.find(key);
+        if (found != owner_->filters.end()) return found->second.get();
+        std::vector<detail::filter_ptr> keep;  // the parts: the filter holds copies
+        const PonkoFilter* all = build_filter(keep, static_cast<all_of<Ps...>*>(nullptr));
+        owner_->filters.emplace(key, std::move(keep.back()));  // the last one built is the whole filter
+        return all;
     }
     /// Runs `fn(chunk<Ts...>)` for every archetype with all of `Ts`, or for
     /// every run of rows that pass the filters `Fs`. A `const` column is only
@@ -1110,8 +1212,8 @@ protected:
                                         std::is_same<detail::bare<Ts>, character3d>..., std::is_same<detail::bare<Ts>, joint3d>...,
                                         std::is_same<detail::bare<Ts>, contact_modifier3d>...>::value,
                       "rigid_body3d, collider3d, character3d, joint3d and contact_modifier3d are not query columns: use get/set (velocity3d is fine)");
-        static_assert(!std::disjunction<detail::is_any<Fs>...>::value || sizeof...(Fs) == 1,
-                      "any_of must be the query's only filter");
+        static_assert(!std::disjunction<detail::is_any<Fs>...>::value || (std::size_t(!detail::is_presence<Fs>::value) + ... + 0) == 1,
+                      "any_of must be the query's only changed/added filter");
         valid();
         detail::query_plan plan;
         plan.options.writes = 0;
@@ -1125,7 +1227,13 @@ protected:
             if (c.error.set.load()) return;
             try { (*c.fn)(chunk<Ts...>(raw)); } catch (...) { c.error.capture(); }
         };
-        auto status = ponko_query_with(raw_, plan.ids.data(), plan.count, &plan.options, trampoline, &c);
+        PonkoStatus status;
+        if constexpr (std::disjunction<detail::is_presence<Fs>...>::value) {
+            const PonkoFilter* filter = presence_filter(typename detail::presence<Fs...>::type{});
+            status = ponko_query_filtered(raw_, plan.ids.data(), plan.count, filter, &plan.options, trampoline, &c);
+        } else {
+            status = ponko_query_with(raw_, plan.ids.data(), plan.count, &plan.options, trampoline, &c);
+        }
         c.error.rethrow();
         detail::check(status);
     }
@@ -1278,15 +1386,17 @@ public:
     /// hand-written loop over the columns (see query).
     ///
     /// Filters narrow it to what changed since the calling system last ran
-    /// (see changed, added, any_of):
+    /// (see changed, added, any_of), or to the entities that have or lack
+    /// components, without fetching them (see with, without, or_, all_of):
     ///
     ///     world.each<ponko::changed<Health>>([](ponko::entity e, const Health& h) { ... });
+    ///     world.each<ponko::with<Player>, ponko::without<Dead>>([](Health& h) { ... });
     ///
     /// A component taken by `&` counts as changed for every entity visited,
     /// written or not; one taken by `const&` or by value doesn't.
     template<class... Filters, class F> void each(F&& fn) {
         static_assert(std::conjunction<detail::is_filter<Filters>...>::value,
-                      "each<...> takes filters: ponko::changed<T>, ponko::added<T> or ponko::any_of<...>");
+                      "each<...> takes filters: ponko::changed<T>, ponko::added<T>, ponko::any_of<...>, ponko::with<T>, ponko::without<T>, ponko::all_of<...> or ponko::or_<...>");
         using args = typename detail::params<detail::bare<F>>::type;
         each_of<args>::run(*this, detail::types<Filters...>{}, false, fn);
     }
@@ -1295,7 +1405,7 @@ public:
     /// spatial queries).
     template<class... Filters, class F> void each_par(F&& fn) {
         static_assert(std::conjunction<detail::is_filter<Filters>...>::value,
-                      "each_par<...> takes filters: ponko::changed<T>, ponko::added<T> or ponko::any_of<...>");
+                      "each_par<...> takes filters: ponko::changed<T>, ponko::added<T>, ponko::any_of<...>, ponko::with<T>, ponko::without<T>, ponko::all_of<...> or ponko::or_<...>");
         using args = typename detail::params<detail::bare<F>>::type;
         each_of<args>::run(*this, detail::types<Filters...>{}, true, fn);
     }
