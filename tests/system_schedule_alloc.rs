@@ -144,6 +144,9 @@ fn run(threshold: Duration, allocate: bool) -> (u32, f64) {
 
 #[test]
 fn a_batch_allocates_nothing_in_steady_state() {
+    // Start every worker before profiling; parking may still allocate later,
+    // so exact assertions use only the profiling thread's counter.
+    rayon::broadcast(|_| ());
     // Both modes must count every allocating tick and reject any allocation
     // in a steady-state batch. Profiling keeps these systems on this thread.
     for (threshold, mode) in [(Duration::MAX, "in order"), (Duration::ZERO, "parallel requested")] {
