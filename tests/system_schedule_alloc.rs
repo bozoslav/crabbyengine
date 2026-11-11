@@ -98,6 +98,11 @@ fn run(threshold: Duration, allocate: bool) -> (u32, f64) {
 #[test]
 fn a_batch_allocates_nothing_in_steady_state() {
     // Keep controls and measurements in one test: the counter is process-wide.
+    // The thread pool's workers allocate while they start, on their own
+    // threads and in their own time: the whole test takes milliseconds, so
+    // on a slow machine that landed in a measured tick. Start every worker
+    // and wait for it before anything is counted.
+    rayon::broadcast(|_| ());
     // Profiling runs batches sequentially, including when parallelism is requested.
     for (threshold, mode) in [(Duration::MAX, "in order"), (Duration::ZERO, "parallel requested")] {
         let (allocating, control_total) = run(threshold, true);
