@@ -97,6 +97,8 @@ pub use crate::three::AntiAliasing;
 #[doc(inline)]
 pub use crate::three::AttachToJoint;
 #[doc(inline)]
+pub use crate::three::BatchCulling;
+#[doc(inline)]
 pub use crate::three::Blend;
 #[doc(inline)]
 pub use crate::three::Camera3D as Camera;

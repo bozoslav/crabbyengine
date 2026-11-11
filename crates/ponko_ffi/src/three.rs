@@ -4100,6 +4100,7 @@ pub unsafe extern "C" fn ponko_ctx_create_instance_batch(
                     max_distance: options.max_distance,
                     cast_shadows: options.cast_shadows,
                     tint: Color::rgba(options.tint.r, options.tint.g, options.tint.b, options.tint.a),
+                    ..Default::default()
                 },
             );
             out(output, PonkoInstanceBatch { id: b.id() })
@@ -4230,6 +4231,7 @@ pub unsafe extern "C" fn ponko_ctx_create_instance_batch_levels(
                     max_distance: options.max_distance,
                     cast_shadows: options.cast_shadows,
                     tint: Color::rgba(options.tint.r, options.tint.g, options.tint.b, options.tint.a),
+                    ..Default::default()
                 },
             );
             out(output, PonkoInstanceBatch { id: b.id() })

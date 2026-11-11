@@ -122,7 +122,7 @@ impl Renderer3D {
     }
 
     /// Whether a run draws any part with a transparent material.
-    fn blends(&self, mesh: u32) -> bool {
+    pub(super) fn blends(&self, mesh: u32) -> bool {
         self.meshes[self.base(mesh) as usize]
             .parts
             .iter()

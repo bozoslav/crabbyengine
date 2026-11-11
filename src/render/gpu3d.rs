@@ -34,7 +34,9 @@ mod shadow_cache;
 mod variants;
 use super::capabilities::GpuLimits;
 pub(crate) use draw_order::StateChanges;
-use instances::{Culling, StaticBatch};
+#[cfg(test)]
+pub(crate) use instances::{BatchPath, Route};
+use instances::{Batching, Culling, StaticBatch};
 use pipeline_cache::{Features, MaterialCache, ModuleKey, TargetKey};
 pub(crate) use shader_checks::LateShaderError;
 use shader_checks::{Swap, end_scope, rejected};
@@ -948,6 +950,8 @@ pub(crate) struct Renderer3D {
     pub(super) static_batches: Vec<Option<StaticBatch>>,
     static_shadowless: Vec<u32>,
     static_culling: Option<Culling>,
+    /// The batches' path choice, draw order and per-frame scratch.
+    pub(crate) batching: Batching,
     storage_read: Option<wgpu::BindGroupLayout>,
     storage_write: Option<(wgpu::BindGroupLayout, wgpu::PipelineLayout)>,
     storage_buffers: Vec<Option<StorageBuffer>>,
@@ -1837,6 +1841,7 @@ impl Renderer3D {
             static_batches: Vec::new(),
             static_shadowless: Vec::new(),
             static_culling: None,
+            batching: Batching::default(),
             storage_read,
             storage_write,
             storage_buffers: Vec::new(),
@@ -3385,6 +3390,7 @@ impl Renderer3D {
         self.set_light_shadow_map(device, frame);
         // Shadow views whose maps already hold what they'd draw are kept.
         self.plan_shadows(frame, camera);
+        self.finish_static(device, queue);
         let rebind = self.bind_decal_array(frame.decal_array);
         if self.lights.upload(device, queue, &frame.lights, &frame.decals) || rebind {
             self.frame_bind_group = self.frame_sources.bind_group(device, &self.frame_buffer, &self.lights);
@@ -4440,7 +4446,7 @@ impl Renderer3D {
                 pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
                 pass.set_bind_group(2, &self.no_scene, &[]);
                 let runs = &self.shadow_runs[cascade][first as usize..end as usize];
-                self.draw_model_runs(&mut pass, runs, Kind::Shadow(cascade), &self.instances, None);
+                self.draw_model_runs(&mut pass, runs, Kind::Shadow(cascade), &self.instances);
                 if first == 0 {
                     self.draw_models(&mut pass, &[], Kind::Shadow(cascade), &self.instances);
                 }
@@ -4862,7 +4868,7 @@ impl Renderer3D {
             pass.set_bind_group(0, &self.shadow_bind_group, &[offset]);
             pass.set_bind_group(2, &self.no_scene, &[]);
             // Models only: instance batches are culled for the main camera.
-            self.draw_model_runs(&mut pass, &self.gi_runs, Kind::Shadow(0), &self.instances, None);
+            self.draw_model_runs(&mut pass, &self.gi_runs, Kind::Shadow(0), &self.instances);
         }
         // Each view in its own square of the views image.
         let views = |pass: &mut wgpu::RenderPass<'_>, kind| {
@@ -4878,7 +4884,6 @@ impl Renderer3D {
                     &self.gi_face_runs[start as usize..end as usize],
                     kind,
                     &self.instances,
-                    None,
                 );
             }
         };
@@ -5192,7 +5197,7 @@ impl Renderer3D {
         if let Some(view) = batches {
             self.draw_models_view(&mut pass, runs, Kind::PrepassCoverage, &self.instances, view);
         } else {
-            self.draw_model_runs(&mut pass, runs, Kind::PrepassCoverage, &self.instances, None);
+            self.draw_model_runs(&mut pass, runs, Kind::PrepassCoverage, &self.instances);
         }
     }
 
@@ -5217,42 +5222,9 @@ impl Renderer3D {
         instances: &wgpu::Buffer,
         view: usize,
     ) {
-        self.draw_model_runs(pass, runs, kind, instances, None);
-        if kind == Kind::Velocity {
-            return;
-        }
-        for batch in self.static_batches.iter().flatten() {
-            for (level, l) in batch.levels.iter().enumerate() {
-                if self
-                    .meshes
-                    .get(l.mesh.slot() as usize)
-                    .is_none_or(|m| m.buffers.is_none())
-                {
-                    continue;
-                }
-                let visible = if batch.compute {
-                    batch.view(view, level).is_some()
-                } else {
-                    batch
-                        .visible
-                        .get(view * batch.levels.len() + level)
-                        .is_some_and(|v| !v.is_empty())
-                };
-                if !visible {
-                    continue;
-                }
-                self.draw_model_runs(
-                    pass,
-                    &[(l.mesh.slot(), 0, batch.count)],
-                    kind,
-                    if batch.compute {
-                        &self.static_culling.as_ref().unwrap().marker
-                    } else {
-                        &batch.vertices
-                    },
-                    Some((batch, view, level)),
-                );
-            }
+        self.draw_model_runs(pass, runs, kind, instances);
+        if kind != Kind::Velocity {
+            self.draw_static(pass, kind, view);
         }
     }
 
@@ -5262,7 +5234,6 @@ impl Renderer3D {
         runs: &[(u32, u32, u32)],
         kind: Kind,
         instances: &wgpu::Buffer,
-        batch: Option<(&StaticBatch, usize, usize)>,
     ) {
         let mut n = StateChanges::default();
         // Pipeline lookups, added to the cache's counters once at the end.
@@ -5326,10 +5297,7 @@ impl Renderer3D {
                 // Crossfading instances dither in every pass (their
                 // pipelines are built the first time they're drawn, unless
                 // `warm_pipelines` built them while loading).
-                let variant = ShaderVariant::new(
-                    Sides::of(m.double_sided),
-                    Instancing::of(fading, storage.is_some() || batch.is_some_and(|(b, _, _)| b.compute)),
-                );
+                let variant = ShaderVariant::new(Sides::of(m.double_sided), Instancing::of(fading, storage.is_some()));
                 lookups += 1;
                 let Some(pipeline) = shader.variant(variant).role(role) else {
                     continue;
@@ -5351,33 +5319,7 @@ impl Renderer3D {
                     n.bind_groups += 1;
                     bound_material = *material;
                 }
-                if let Some((batch, view, level)) = batch {
-                    if let Some(v) = batch.view(view, level) {
-                        pass.set_bind_group(3, &v.read, &[]);
-                        n.bind_groups += 1;
-                        dummy_bound = false;
-                        if mesh.parts.len() > 1 {
-                            if part > 0 && mesh.parts[part - 1].1 == *material {
-                                continue;
-                            }
-                            let parts = mesh.parts[part..].iter().take_while(|(_, m)| m == material).count();
-                            pass.multi_draw_indexed_indirect(&v.args, (part * 20) as u64, parts as u32);
-                        } else {
-                            pass.draw_indexed_indirect(&v.args, (part * 20) as u64);
-                        }
-                        n.draws += 1;
-                    } else {
-                        if let Some(dummy) = self.storage_dummy.as_ref().filter(|_| !dummy_bound) {
-                            pass.set_bind_group(3, dummy, &[]);
-                            n.bind_groups += 1;
-                            dummy_bound = true;
-                        }
-                        for &(start, count) in &batch.visible[view * batch.levels.len() + level] {
-                            pass.draw_indexed(range.clone(), 0, start..start + count);
-                            n.draws += 1;
-                        }
-                    }
-                } else if let Some((b, count)) = storage {
+                if let Some((b, count)) = storage {
                     // Each model gets its own draw: its one instance record
                     // (transform and tint) is shared by all `count` instances.
                     if count > 0 {

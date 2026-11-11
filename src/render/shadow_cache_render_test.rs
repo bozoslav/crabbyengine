@@ -135,7 +135,7 @@ impl Rig {
     }
 
     fn renderer(&self) -> Renderer3D {
-        Renderer3D::new(
+        let mut renderer = Renderer3D::new(
             &self.device,
             &self.layout,
             self.output.format(),
@@ -143,7 +143,10 @@ impl Rig {
             &self.white,
             4,
             true,
-        )
+        );
+        // The GPU-driven path wherever the device has it, whatever the batch's size.
+        renderer.batching.path = BatchPath::Gpu;
+        renderer
     }
 
     /// Collects, prepares and draws one frame; returns its pixels.
@@ -583,6 +586,7 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
         for batch in [b, far_batch] {
             r.set_instance_batch(
                 &rig.device,
+                &rig.queue,
                 batch.id(),
                 ctx.gfx.assets3d.instance_batches[batch.id() as usize].as_ref(),
             );

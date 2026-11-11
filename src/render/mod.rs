@@ -35,7 +35,7 @@ mod timer;
 #[cfg(feature = "window")]
 pub(crate) mod traffic;
 
-pub use capabilities::{GpuAdapter, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuTier};
+pub use capabilities::{GpuAdapter, GpuBatchLimits, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuTier};
 #[cfg(feature = "window")]
 pub(crate) use gpu::Renderer;
 #[cfg(all(feature = "window", feature = "3d"))]
@@ -99,6 +99,83 @@ pub struct RenderStats {
     /// changes, only a few small per-frame uniforms should be uploaded and
     /// no buffers created.
     pub uploads: GpuUploads,
+    /// How the instance batches are culled and drawn: how many take the
+    /// GPU-driven path, how many the CPU path and why, and what the
+    /// culling pass did last frame. All zero without the `3d` feature.
+    pub instance_batches: InstanceBatchStats,
+}
+
+/// How the instance batches ([`InstanceBatch`]) are culled and drawn:
+/// [`RenderStats::instance_batches`].
+///
+/// A batch is *GPU-driven* (culled per instance by one compute dispatch
+/// shared with all other such batches, drawn with indirect draws) where
+/// the device has compute culling ([`GpuFeature::ComputeCulling`]) and the
+/// batch has at least [`GpuBatchLimits::min_gpu_instances`] instances.
+/// Every other batch is culled on the CPU, cell by cell, and drawn with
+/// direct draws; both paths draw the same picture. The counts say which
+/// batches are on which path and why.
+///
+/// `#[non_exhaustive]`: new counts can arrive in a minor release. Read the
+/// fields; to make one (in a test), start from `InstanceBatchStats::default()`.
+///
+/// ```
+/// # use ponko::prelude::*;
+/// fn report(ctx: &mut Ctx) {
+///     let b = ctx.perf.render_stats().instance_batches;
+///     if b.cpu_over_limit + b.dropped + b.views_skipped > 0 {
+///         println!("instance batches hit a device limit: {b:?}");
+///     }
+/// }
+/// # Game::new("t", 1, 1).system(report).run_headless(1, |_| {});
+/// ```
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct InstanceBatchStats {
+    /// Live batches with at least one instance.
+    pub batches: u32,
+    /// Their instances, all together.
+    pub instances: u64,
+    /// Batches on the GPU-driven path.
+    pub gpu_driven: u32,
+    /// The instances of the GPU-driven batches.
+    pub gpu_instances: u64,
+    /// Batches culled on the CPU by choice: below the measured crossover
+    /// (CPU culling of a few cells costs less than the GPU path's fixed
+    /// cost per batch), or because the game asked with
+    /// [`BatchCulling::PreferCpu`].
+    pub cpu_small: u32,
+    /// Batches culled on the CPU because the device has no compute
+    /// culling (WebGL2 and other devices below the baseline tier).
+    pub cpu_no_compute: u32,
+    /// Batches culled on the CPU because their records are more than one
+    /// storage buffer binding holds
+    /// ([`GpuBatchLimits::max_gpu_instances`]). Logged once per batch.
+    pub cpu_over_limit: u32,
+    /// Batches not drawn at all: their instances are more than one GPU
+    /// buffer holds ([`GpuBatchLimits::max_cpu_instances`]). Logged
+    /// once per batch; split such a batch.
+    pub dropped: u32,
+    /// Buffer pools the GPU-driven batches' records share. More than one
+    /// only past a storage binding's size.
+    pub pools: u32,
+    /// GPU memory of the pools' buffers (records, visible lists and draw
+    /// arguments), in bytes.
+    pub pool_bytes: u64,
+    /// Culling dispatches recorded for the last frame: one per page with
+    /// anything to cull.
+    pub cull_dispatches: u32,
+    /// What the last frame culled: one job per batch, view and distance
+    /// level that could be in sight.
+    pub cull_jobs: u32,
+    /// Batch views not drawn last frame because of a device limit (more
+    /// cells than one culling dispatch takes; logged once). 0 in a
+    /// healthy scene: a view always has room for its visible list.
+    pub views_skipped: u32,
+    /// Buffers of visible lists the GPU-driven batches' views fill: each
+    /// is one culling dispatch. More than one when the views' lists
+    /// (4 bytes an instance, per view and level) outgrow one buffer.
+    pub pages: u32,
 }
 
 /// Bytes the renderer uploaded to the GPU, by kind, and the buffers it
@@ -270,6 +347,10 @@ mod skin_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod ssr_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
+mod static_batch_bench;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod static_batch_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
 mod target_effect_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod text3d_render_test;
@@ -304,7 +385,7 @@ mod residency_render_test;
 
 #[cfg(feature = "3d")]
 pub use crate::three::{
-    AmbientOcclusion, AntiAliasing, Compute, ComputePass, Effect, ExtractionBench, ExtractionSample,
+    AmbientOcclusion, AntiAliasing, BatchCulling, Compute, ComputePass, Effect, ExtractionBench, ExtractionSample,
     GlobalIllumination, GpuBuffer, GraphicsQuality, InstanceBatch, InstanceBatchOptions, InstanceLevel, Lighting,
     LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow, Material, MaterialDesc, Mesh,
     MeshCost, MeshData, Model, ModelMaterial, ModelMaterials, ParticleCurve, ParticleGradient, Post, QualityLevel,

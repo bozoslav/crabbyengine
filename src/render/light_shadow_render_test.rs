@@ -197,6 +197,8 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
     ctx.sky.atmosphere = false;
 
     let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
+    // The GPU-driven path wherever the device has it, whatever the batch's size.
+    renderer.batching.path = BatchPath::Gpu;
     renderer.create_material(&device, &GpuMaterialDesc::new(&matte), &textures);
     renderer.create_mesh(&device, &ground, &[(0..ground.indices.len() as u32, material)], true);
     renderer.create_mesh(&device, &cube, &[(0..cube.indices.len() as u32, material)], true);
@@ -228,6 +230,7 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
         };
         renderer.set_instance_batch(
             &device,
+            &queue,
             handle.id(),
             ctx.gfx.assets3d.instance_batches[handle.id() as usize].as_ref(),
         );

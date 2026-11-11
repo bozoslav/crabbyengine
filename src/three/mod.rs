@@ -22,7 +22,7 @@ pub(crate) mod gi;
 mod gltf;
 mod ik;
 pub(crate) mod instances;
-pub use instances::{InstanceBatch, InstanceBatchOptions, InstanceLevel};
+pub use instances::{BatchCulling, InstanceBatch, InstanceBatchOptions, InstanceLevel};
 mod lod;
 pub(crate) mod occlusion;
 pub use gi::GlobalIllumination;
