@@ -297,7 +297,9 @@ static void three_d() {
         ctx.free_gpu_buffer(spare);
         throws([&] { ctx.free_gpu_buffer(spare); });
         throws([&] { ctx.write_gpu_buffer(spare, 0, {{1, 2, 3, 4}}); });
-        CHECK(ctx.create_gpu_buffer(3).id == spare.id);  // a freed buffer's id is taken again
+        auto reused = ctx.create_gpu_buffer(3);  // the freed slot comes back under a new id
+        CHECK((reused.id & 0x00FFFFFFu) == (spare.id & 0x00FFFFFFu) && reused.id != spare.id);
+        throws([&] { ctx.write_gpu_buffer(spare, 0, {{1, 2, 3, 4}}); });
         auto update = ctx.create_compute("update", "fn update(i: u32) { items[i].x += frame.time.y; }");
         ctx.set_compute_passes({ponko::buffer_compute_pass(update, buffer)});
         CHECK(ctx.compute_passes()[0].has_buffer && ctx.compute_passes()[0].buffer.id == buffer.id);
