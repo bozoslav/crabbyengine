@@ -124,6 +124,20 @@ typedef enum PonkoStatus {
   PONKO_PANIC = 4,
 } PonkoStatus;
 
+typedef enum PonkoErrorKind {
+  PONKO_ERROR_NONE = 0,
+  PONKO_ERROR_NOT_FOUND = 1,
+  PONKO_ERROR_IO = 2,
+  PONKO_ERROR_DECODE = 3,
+  PONKO_ERROR_SHADER = 4,
+  PONKO_ERROR_UNSUPPORTED = 5,
+  PONKO_ERROR_BAD_HANDLE = 6,
+  PONKO_ERROR_JSON = 7,
+  PONKO_ERROR_LIMIT = 8,
+  PONKO_ERROR_INVALID = 9,
+  PONKO_ERROR_OTHER = 10,
+} PonkoErrorKind;
+
 typedef enum PonkoAnimationCondition {
   PONKO_CONDITION_GREATER = 0,
   PONKO_CONDITION_LESS = 1,
@@ -1842,6 +1856,8 @@ struct PonkoWorld *ponko_world_new(void);
 enum PonkoStatus ponko_world_free(struct PonkoWorld *world);
 
 const char *ponko_last_error(void);
+
+enum PonkoErrorKind ponko_last_error_kind(void);
 
 uint32_t ponko_abi_version(void);
 

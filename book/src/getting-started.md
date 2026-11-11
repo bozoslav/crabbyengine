@@ -163,10 +163,10 @@ Match on `e.kind()` (`NotFound`, `Io`, `Decode`, `Shader`, `Invalid`,
 `Box<dyn Error>` or your own error type.
 
 Calls that can fail in normal play return `Result<_, ponko::Error>` under
-their plain name and have no panicking twin: saving a scene or a prefab
+their plain name and have no panicking twin: loading a scene and spawning a
+prefab (`ctx.load_scene`, `ctx.spawn_prefab`), saving them
 (`ctx.assets.save_scene`, `save_prefab`), loading JSON into a component or
-resource (`load_component_json`, `load_resource_json`), baking a reflection
-probe, and your own decoders (`ctx.assets.load_with`). Some older calls on
-`Ctx` itself (`load_scene`, `spawn_prefab`, `start_ragdoll`) still return
-`Result<_, String>`; `?` turns a `ponko::Error` into that `String`. The C and
-C++ APIs keep their existing error reporting for now.
+resource (`load_component_json`, `load_resource_json`), starting a ragdoll,
+baking a reflection probe, and your own decoders (`ctx.assets.load_with`).
+In C and C++, `ponko_last_error_kind()` and `ponko::error::kind()` give the
+same kinds ([C and C++](c-cpp.md)).

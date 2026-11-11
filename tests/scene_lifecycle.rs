@@ -162,7 +162,7 @@ fn a_scene_with_an_unreflected_component_changes_nothing() {
         let e = ctx.world.spawn((Tag(3),));
         ctx.commands.insert(e, Marker);
         let err = ctx.load_scene(file.0).unwrap_err();
-        assert!(err.contains("NoSuchComponent"), "{err}");
+        assert!(err.message().contains("NoSuchComponent"), "{err}");
         assert_eq!(ctx.commands.len(), 1, "pending commands are kept on failure");
     });
     assert_eq!(
@@ -191,7 +191,7 @@ fn a_scene_with_a_missing_texture_changes_nothing_but_keeps_loaded_ones() {
         ctx.world.reflect::<Tag>();
         ctx.world.spawn((Tag(4),));
         let err = ctx.load_scene(file.0).unwrap_err();
-        assert!(err.contains("no-such-texture.png"), "{err}");
+        assert!(err.message().contains("no-such-texture.png"), "{err}");
         // Preloading is not undone: the texture that did load is cached and
         // named, so loading it again gives the same handle.
         let crab = ctx.load_texture("crab.png");

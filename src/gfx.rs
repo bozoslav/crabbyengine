@@ -450,7 +450,7 @@ impl Graphics {
                 assets::Origin::File(file) => file.display().to_string(),
                 assets::Origin::Source { .. } => origin.describe(path),
             };
-            crate::Error::decode(path, format!("{what}: {e}"))
+            crate::Error::decode(path, format!("{what}: {}", e.message()))
         })?;
         self.loaded_fonts.insert(origin.clone(), AssetKind::Font, font);
         if let assets::Origin::File(file) = origin {

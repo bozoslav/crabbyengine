@@ -100,8 +100,11 @@ fn a_missing_name_reports_the_sources_and_folders_searched() {
     game().run_headless(0, |ctx| {
         ctx.assets.add_source(MemorySource::new("mem"));
         let err = ctx.load_scene("levels/nowhere.json").unwrap_err();
-        assert!(err.contains("\"levels/nowhere.json\" not found in assets/"), "{err}");
-        assert!(err.contains("Asset sources searched first: \"mem\""), "{err}");
+        assert!(
+            err.message().contains("\"levels/nowhere.json\" not found in assets/"),
+            "{err}"
+        );
+        assert!(err.message().contains("Asset sources searched first: \"mem\""), "{err}");
     });
 }
 
@@ -124,9 +127,12 @@ fn a_bad_scene_from_a_source_is_an_error_not_a_panic() {
                 .with("binary.json", vec![0xff, 0xfe]),
         );
         let err = ctx.load_scene("bad.json").unwrap_err();
-        assert!(err.starts_with("bad.json:"), "{err}");
+        assert!(err.message().starts_with("bad.json:"), "{err}");
         let err = ctx.load_scene("binary.json").unwrap_err();
-        assert!(err.contains("(from asset source \"mem\") is not UTF-8 text"), "{err}");
+        assert!(
+            err.message().contains("(from asset source \"mem\") is not UTF-8 text"),
+            "{err}"
+        );
     });
 }
 
@@ -229,7 +235,11 @@ fn a_read_error_other_than_not_found_stops_the_search() {
     game().run_headless(0, |ctx| {
         ctx.assets.add_source(Broken);
         let err = ctx.load_scene("crab.png").unwrap_err();
-        assert_eq!(err, "asset source \"broken\" could not read \"crab.png\": disk on fire");
+        assert_eq!(err.kind(), ErrorKind::Io);
+        assert_eq!(
+            err.message(),
+            "asset source \"broken\" could not read \"crab.png\": disk on fire"
+        );
     });
 }
 
@@ -627,10 +637,11 @@ fn a_custom_asset_field_that_fails_to_load_fails_the_scene_with_its_name() {
         let before = ctx.world.spawn((Transform2D::default(),));
         let err = ctx.load_scene("shop.json").unwrap_err();
         assert!(
-            err.starts_with("shop.json: ShopItem.icon \"icons/missing.png\": "),
+            err.message()
+                .starts_with("shop.json: ShopItem.icon \"icons/missing.png\": "),
             "{err}"
         );
-        assert!(err.contains("not found in assets/"), "{err}");
+        assert!(err.message().contains("not found in assets/"), "{err}");
         assert!(ctx.world.is_alive(before), "the world is unchanged");
     });
 }

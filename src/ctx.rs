@@ -759,7 +759,7 @@ impl Ctx {
 
     /// Loads the textures of sprites and meshes of models that `json` (a
     /// scene, a prefab, or components) names, so they can be spawned.
-    pub(crate) fn load_scene_assets(&mut self, json: &serde_json::Value) -> Result<(), String> {
+    pub(crate) fn load_scene_assets(&mut self, json: &serde_json::Value) -> Result<(), crate::Error> {
         let mut names = Vec::new();
         crate::reflect::asset_names(json, "Sprite", "texture", &mut names);
         for name in names.drain(..) {
@@ -796,7 +796,7 @@ impl Ctx {
                 Asset::Font(id) => {
                     let applied = assets::read(&file)
                         .map_err(|e| e.to_string())
-                        .and_then(|bytes| self.gfx.text.replace_font(Font(id), &bytes));
+                        .and_then(|bytes| Ok(self.gfx.text.replace_font(Font(id), &bytes)?));
                     self.assets.report_reload(name, applied);
                     continue;
                 }

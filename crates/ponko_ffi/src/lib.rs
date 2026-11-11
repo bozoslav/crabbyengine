@@ -216,21 +216,106 @@ pub struct PonkoChunk {
 /// ```
 pub type PonkoQueryFn = Option<unsafe extern "C" fn(*const PonkoChunk, *mut c_void)>;
 
-thread_local! {
-    static LAST_ERROR: RefCell<[u8; 512]> = const { RefCell::new([0; 512]) };
+/// What kind of failure the last failed call on this thread was
+/// ([`ponko_last_error_kind`]), the C side of Rust's `ponko::ErrorKind`. A
+/// failing call still returns its [`PonkoStatus`] as before; this says more
+/// about why. New kinds can be added in a minor release, so a `switch` on it
+/// needs a `default:` case.
+/// ```
+/// assert_eq!(ponko_ffi::PonkoErrorKind::PONKO_ERROR_NOT_FOUND as u32, 1);
+/// ```
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum PonkoErrorKind {
+    /// No call on this thread has failed yet.
+    PONKO_ERROR_NONE = 0,
+    /// No such file in `assets/`, or no such named thing.
+    PONKO_ERROR_NOT_FOUND = 1,
+    /// The file exists but couldn't be read or written.
+    PONKO_ERROR_IO = 2,
+    /// The bytes aren't an image, font, sound, model or text this engine reads.
+    PONKO_ERROR_DECODE = 3,
+    /// A shader didn't compile; `ponko_last_error()` has the compiler's log.
+    PONKO_ERROR_SHADER = 4,
+    /// The GPU or the build lacks something this needs.
+    PONKO_ERROR_UNSUPPORTED = 5,
+    /// A handle this game didn't make, or that was freed.
+    PONKO_ERROR_BAD_HANDLE = 6,
+    /// JSON that doesn't parse or doesn't fit the type.
+    PONKO_ERROR_JSON = 7,
+    /// More than the engine allows.
+    PONKO_ERROR_LIMIT = 8,
+    /// An argument outside what the call accepts.
+    PONKO_ERROR_INVALID = 9,
+    /// Anything else: a borrowed world, a caught panic, a kind newer than
+    /// this header.
+    PONKO_ERROR_OTHER = 10,
+}
+impl From<ponko::ErrorKind> for PonkoErrorKind {
+    fn from(kind: ponko::ErrorKind) -> Self {
+        use ponko::ErrorKind as K;
+        match kind {
+            K::NotFound => PonkoErrorKind::PONKO_ERROR_NOT_FOUND,
+            K::Io => PonkoErrorKind::PONKO_ERROR_IO,
+            K::Decode => PonkoErrorKind::PONKO_ERROR_DECODE,
+            K::Shader => PonkoErrorKind::PONKO_ERROR_SHADER,
+            K::Unsupported => PonkoErrorKind::PONKO_ERROR_UNSUPPORTED,
+            K::BadHandle => PonkoErrorKind::PONKO_ERROR_BAD_HANDLE,
+            K::Json => PonkoErrorKind::PONKO_ERROR_JSON,
+            K::Limit => PonkoErrorKind::PONKO_ERROR_LIMIT,
+            K::Invalid => PonkoErrorKind::PONKO_ERROR_INVALID,
+            _ => PonkoErrorKind::PONKO_ERROR_OTHER,
+        }
+    }
 }
 
-pub(crate) struct Failure(PonkoStatus, std::borrow::Cow<'static, str>);
+/// The kind a failure with `status` and no `ponko::Error` behind it gets.
+fn kind_of_status(status: PonkoStatus) -> PonkoErrorKind {
+    match status {
+        PONKO_OK => PonkoErrorKind::PONKO_ERROR_NONE,
+        PONKO_INVALID_ARGUMENT => PonkoErrorKind::PONKO_ERROR_INVALID,
+        PONKO_NOT_FOUND => PonkoErrorKind::PONKO_ERROR_NOT_FOUND,
+        PONKO_BUSY | PONKO_PANIC => PonkoErrorKind::PONKO_ERROR_OTHER,
+    }
+}
+
+thread_local! {
+    static LAST_ERROR: RefCell<[u8; 512]> = const { RefCell::new([0; 512]) };
+    static LAST_ERROR_KIND: std::cell::Cell<PonkoErrorKind> = const { std::cell::Cell::new(PonkoErrorKind::PONKO_ERROR_NONE) };
+}
+
+pub(crate) struct Failure(PonkoStatus, std::borrow::Cow<'static, str>, PonkoErrorKind);
 pub(crate) fn error(status: PonkoStatus, message: &'static str) -> Failure {
-    Failure(status, message.into())
+    Failure(status, message.into(), kind_of_status(status))
 }
 pub(crate) fn invalid(message: &'static str) -> Failure {
     error(PONKO_INVALID_ARGUMENT, message)
 }
-/// An invalid-argument failure with `message`: a `String`, or a
-/// `ponko::Error` (its message, without the `ponko:` prefix).
-pub(crate) fn invalid_owned(message: impl Into<String>) -> Failure {
-    Failure(PONKO_INVALID_ARGUMENT, message.into().into())
+
+/// What [`invalid_owned`] takes: a message, or a `ponko::Error` (its
+/// message, without the `ponko:` prefix, and its kind).
+pub(crate) trait FailureMessage {
+    fn into_parts(self) -> (String, PonkoErrorKind);
+}
+impl FailureMessage for String {
+    fn into_parts(self) -> (String, PonkoErrorKind) {
+        (self, PonkoErrorKind::PONKO_ERROR_INVALID)
+    }
+}
+impl FailureMessage for ponko::Error {
+    fn into_parts(self) -> (String, PonkoErrorKind) {
+        let kind = self.kind().into();
+        (String::from(self), kind)
+    }
+}
+
+/// An invalid-argument failure (`PONKO_INVALID_ARGUMENT`, as these calls
+/// always returned) with `message`; a `ponko::Error` also sets
+/// [`ponko_last_error_kind`] to its kind.
+pub(crate) fn invalid_owned(message: impl FailureMessage) -> Failure {
+    let (message, kind) = message.into_parts();
+    Failure(PONKO_INVALID_ARGUMENT, message.into(), kind)
 }
 pub(crate) fn save_error(message: &str) {
     LAST_ERROR.with(|cell| {
@@ -246,8 +331,9 @@ pub(crate) fn save_error(message: &str) {
 pub(crate) fn boundary(f: impl FnOnce() -> Result<(), Failure>) -> PonkoStatus {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(Ok(())) => PONKO_OK,
-        Ok(Err(Failure(status, message))) => {
+        Ok(Err(Failure(status, message, kind))) => {
             save_error(&message);
+            LAST_ERROR_KIND.with(|cell| cell.set(kind));
             status
         }
         Err(payload) => {
@@ -257,6 +343,7 @@ pub(crate) fn boundary(f: impl FnOnce() -> Result<(), Failure>) -> PonkoStatus {
                 .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
                 .unwrap_or("unknown panic payload");
             save_error(&format!("Rust panic caught at C ABI boundary: {text}"));
+            LAST_ERROR_KIND.with(|cell| cell.set(PonkoErrorKind::PONKO_ERROR_OTHER));
             // Drop ordinary payloads, but contain a payload destructor that panics.
             // A second payload is intentionally retained: its destructor could
             // panic recursively, and no unwind may escape this ABI boundary.
@@ -527,6 +614,17 @@ pub unsafe extern "C" fn ponko_world_free(world: *mut PonkoWorld) -> PonkoStatus
 #[unsafe(no_mangle)]
 pub extern "C" fn ponko_last_error() -> *const c_char {
     LAST_ERROR.with(|cell| cell.as_ptr().cast())
+}
+
+/// The kind of the last failure on this thread ([`PonkoErrorKind`]), set
+/// with [`ponko_last_error`]'s message; `PonkoErrorKind::PONKO_ERROR_NONE` before any.
+/// Successful calls leave it unchanged.
+/// ```
+/// let _ = ponko_ffi::ponko_last_error_kind();
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn ponko_last_error_kind() -> PonkoErrorKind {
+    LAST_ERROR_KIND.with(std::cell::Cell::get)
 }
 
 /// ABI version, currently 2.

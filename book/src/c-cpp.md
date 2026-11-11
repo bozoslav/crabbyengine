@@ -177,7 +177,10 @@ A headless game in C:
 ```
 
 Every call returns `PonkoStatus`; on failure `ponko_last_error()` has the
-message (per thread, until the next failed call). Null arguments, wrong
+message and `ponko_last_error_kind()` its kind, a `PonkoErrorKind` that
+mirrors Rust's `ponko::ErrorKind` (`PONKO_ERROR_NOT_FOUND`, `PONKO_ERROR_SHADER`,
+..., per thread, until the next failed call). C++ throws `ponko::error`, a
+`std::runtime_error` whose `kind()` is that kind. Null arguments, wrong
 sizes, unknown ids, duplicate query columns and busy worlds are rejected.
 Pointers you pass must still be valid: the library can't recognize a
 dangling pointer or a buffer smaller than you say. Callbacks must return
@@ -202,7 +205,7 @@ Rust today; the chapters say so where they use them, and
 | Named grid spans in UI layouts | [Retained game UI](ui.md) | Named lines and areas, no named spans |
 | `World::resource_scope`, `resources_mut`, `Query::with_resources` | [Entities, components, queries](ecs.md#borrowing-several-things-at-once) | The existing resource calls, copied in and out |
 | `Query::with_lookup`, `World::get_many_mut` | [Entities, components, queries](ecs.md#borrowing-several-things-at-once) | Component pointers from `get`, which don't borrow |
-| `ponko::Error` and the `try_` loaders | [Getting started](getting-started.md) | `ponko_last_error()` |
+| `ponko::Error` and the `try_` loaders | [Getting started](getting-started.md) | `ponko_last_error()` and `ponko_last_error_kind()` (C++: `ponko::error::kind()`) |
 
 System phases, system ids, setup callbacks and plugins are not on this
 list. They have C and C++ calls, described in

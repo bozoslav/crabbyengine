@@ -131,6 +131,17 @@ pub(crate) struct Text {
     pub sdf: SdfAtlas,
 }
 
+/// The bytes of a font file as a font; not one this engine reads is
+/// [`ErrorKind::Decode`](crate::ErrorKind::Decode).
+fn decode_font(bytes: &[u8]) -> Result<fontdue::Font, crate::Error> {
+    fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).map_err(|e| {
+        crate::Error::new(
+            crate::ErrorKind::Decode,
+            format!("not a font file this engine can read: {e}"),
+        )
+    })
+}
+
 impl Text {
     pub fn new() -> Self {
         Self {
@@ -163,9 +174,14 @@ impl Text {
         self.live.len() - 1
     }
 
-    pub fn add_font(&mut self, bytes: &[u8]) -> Result<Font, String> {
-        let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
-            .map_err(|e| format!("not a font file this engine can read: {e}"))?;
+    /// Adds a font from the bytes of a font file.
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::Decode`](crate::ErrorKind::Decode) if they aren't a font
+    /// this engine can read.
+    pub fn add_font(&mut self, bytes: &[u8]) -> Result<Font, crate::Error> {
+        let font = decode_font(bytes)?;
         self.fonts.push(Some(font));
         let id = self.fonts.len() as u32 - 1;
         self.live.insert(id);
@@ -191,9 +207,12 @@ impl Text {
     }
 
     /// Replaces a loaded font's data (hot reload); its glyphs are drawn again.
-    pub fn replace_font(&mut self, font: Font, bytes: &[u8]) -> Result<(), String> {
-        let new = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
-            .map_err(|e| format!("not a font file this engine can read: {e}"))?;
+    ///
+    /// # Errors
+    ///
+    /// As [`add_font`](Self::add_font); the old font stays then.
+    pub fn replace_font(&mut self, font: Font, bytes: &[u8]) -> Result<(), crate::Error> {
+        let new = decode_font(bytes)?;
         if !self.has_font(font) {
             return Ok(());
         }

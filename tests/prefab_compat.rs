@@ -168,9 +168,9 @@ fn unsupported_prefab_files_fail_usefully_and_spawn_nothing() {
         let world = game().run_headless(0, |ctx| {
             reflect_all(&mut ctx.world);
             let err = ctx.spawn_prefab(file.name(), vec2(0.0, 0.0)).unwrap_err();
-            assert!(err.contains(expected), "case {i}: {err}");
+            assert!(err.message().contains(expected), "case {i}: {err}");
             if expected == "unsupported prefab version" {
-                assert!(err.contains("reads 1"), "case {i}: {err}");
+                assert!(err.message().contains("reads 1"), "case {i}: {err}");
             }
         });
         assert_eq!(world.len(), 0, "case {i} spawned something");
@@ -183,7 +183,7 @@ fn a_v1_prefab_names_what_the_game_does_not_reflect() {
     let world = game().run_headless(0, |ctx| {
         ctx.world.reflect::<Transform2D>();
         let err = ctx.spawn_prefab(file.name(), vec2(0.0, 0.0)).unwrap_err();
-        assert!(err.contains("reflect"), "{err}");
+        assert!(err.message().contains("reflect"), "{err}");
     });
     assert_eq!(world.len(), 0, "a failed spawn changes nothing");
 }
@@ -218,7 +218,7 @@ fn an_unsupported_scene_version_fails_usefully_and_keeps_the_world() {
         ctx.world.spawn((Team(4),));
         let err = ctx.load_scene(file.name()).unwrap_err();
         assert!(
-            err.contains("unsupported save version") && err.contains("reads 1"),
+            err.message().contains("unsupported save version") && err.message().contains("reads 1"),
             "{err}"
         );
     });

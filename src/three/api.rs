@@ -524,7 +524,7 @@ impl Graphics {
     /// ```
     pub fn try_create_mesh(&mut self, data: &MeshData, material: Material) -> Result<Mesh, crate::Error> {
         use crate::{Error, ErrorKind};
-        data.check()
+        data.problem()
             .map_err(|e| Error::new(ErrorKind::Invalid, format!("create_mesh: {e}")))?;
         if material.id >= self.assets3d.materials {
             return Err(Error::new(
@@ -573,7 +573,7 @@ impl Graphics {
     /// ```
     pub fn try_create_plain_mesh(&mut self, data: &MeshData) -> Result<Mesh, crate::Error> {
         // Checked first, so bad data doesn't make the default material.
-        data.check()
+        data.problem()
             .map_err(|e| crate::Error::new(crate::ErrorKind::Invalid, format!("create_plain_mesh: {e}")))?;
         let material = self.default_material();
         self.try_create_mesh(data, material)
@@ -609,7 +609,7 @@ impl Graphics {
     /// joints, names a joint the skeleton doesn't have, or the material
     /// comes from another game.
     pub fn create_skinned_mesh(&mut self, data: &MeshData, material: Material, skeleton: &Skeleton) -> Mesh {
-        if let Err(e) = data.check() {
+        if let Err(e) = data.problem() {
             panic!("ponko: create_skinned_mesh: {e}");
         }
         assert!(

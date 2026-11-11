@@ -30,7 +30,7 @@ fn collect<'a>(json: &'a Value, out: &mut Vec<&'a Value>) {
 impl Ctx {
     /// Makes the collision meshes `json` (a scene, a prefab or components)
     /// names by file, so its colliders can be spawned.
-    pub(crate) fn load_collider_files(&mut self, json: &Value) -> Result<(), String> {
+    pub(crate) fn load_collider_files(&mut self, json: &Value) -> Result<(), crate::Error> {
         let mut files = Vec::new();
         collect(json, &mut files);
         if files.is_empty() {
@@ -44,9 +44,9 @@ impl Ctx {
             if self.world.resource::<ColliderFiles>().by_file.contains_key(&key) {
                 continue;
             }
-            let path = file["file"]
-                .as_str()
-                .ok_or("a mesh collider's \"file\" must be a string")?;
+            let path = file["file"].as_str().ok_or_else(|| {
+                crate::Error::new(crate::ErrorKind::Json, "a mesh collider's \"file\" must be a string")
+            })?;
             let scale = match &file["scale"] {
                 Value::Array(s) if s.len() == 3 => {
                     Vec3::from_array(std::array::from_fn(|i| s[i].as_f64().unwrap_or(1.0) as f32))
@@ -62,7 +62,13 @@ impl Ctx {
                 let triangles: Vec<[u32; 3]> = data.indices.as_chunks::<3>().0.to_vec();
                 self.physics3d.trimesh(&points, &triangles)
             }
-            .ok_or_else(|| format!("{path}: no collision shape can be made of it"))?;
+            .ok_or_else(|| {
+                crate::Error::new(
+                    crate::ErrorKind::Invalid,
+                    format!("{path}: no collision shape can be made of it"),
+                )
+                .with_path(path)
+            })?;
             let files = self.world.resource_mut::<ColliderFiles>();
             files.by_file.insert(key, mesh);
             files.by_mesh.insert(mesh, file.clone());

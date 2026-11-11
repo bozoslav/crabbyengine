@@ -125,7 +125,12 @@ impl EcsDiagnostics {
     ///     ctx.world.spawn((Hp(3),));
     /// });
     /// ```
-    pub fn matching(&self, components: &[&str]) -> Result<MatchCount, String> {
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) for a name no
+    /// component has (the message lists the known ones).
+    pub fn matching(&self, components: &[&str]) -> Result<MatchCount, crate::Error> {
         let mut full: Vec<&str> = Vec::with_capacity(components.len());
         for &wanted in components {
             let found = self
@@ -137,7 +142,10 @@ impl EcsDiagnostics {
                 Some(c) => full.push(&c.name),
                 None => {
                     let known: Vec<&str> = self.components.iter().map(|c| c.short_name.as_str()).collect();
-                    return Err(format!("unknown component `{wanted}` (known: {})", known.join(", ")));
+                    return Err(crate::Error::new(
+                        crate::ErrorKind::NotFound,
+                        format!("unknown component `{wanted}` (known: {})", known.join(", ")),
+                    ));
                 }
             }
         }

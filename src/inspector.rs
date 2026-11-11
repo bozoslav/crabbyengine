@@ -200,14 +200,14 @@ impl Panels {
     }
 
     /// Shows an edit's error, or forgets the last one.
-    fn report<T>(&mut self, result: Result<T, String>) -> Option<T> {
+    fn report<T, E: Into<String>>(&mut self, result: Result<T, E>) -> Option<T> {
         match result {
             Ok(v) => {
                 self.error = None;
                 Some(v)
             }
             Err(e) => {
-                self.error = Some(e);
+                self.error = Some(e.into());
                 None
             }
         }

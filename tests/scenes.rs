@@ -95,9 +95,13 @@ fn bad_files_are_errors_that_change_nothing() {
     file.write(r#"{ "format": "ponko-world", "version": 1, "entities": [] }"#);
     game().run_headless(0, |ctx| {
         let missing = ctx.load_scene("test-no-such-scene.json").unwrap_err();
-        assert!(missing.contains("not found in assets/"), "{missing}");
+        assert_eq!(missing.kind(), ErrorKind::NotFound);
+        assert_eq!(missing.path(), Some("test-no-such-scene.json"));
+        assert!(missing.message().contains("not found in assets/"), "{missing}");
         let wrong = ctx.spawn_prefab(file.name(), Vec2::ZERO).unwrap_err();
-        assert!(wrong.contains("not a prefab"), "{wrong}");
+        assert_eq!(wrong.kind(), ErrorKind::Json);
+        assert_eq!(wrong.path(), Some(file.name()));
+        assert!(wrong.message().contains("not a prefab"), "{wrong}");
         assert_eq!(ctx.world.len(), 0);
         let dead = ctx.world.spawn((Transform2D::default(),));
         ctx.world.despawn(dead);
@@ -122,7 +126,7 @@ fn scenes_with_huge_entity_ids_are_errors_that_change_nothing() {
                 "components": { "Transform2D": { "position": [0.0, 0.0], "rotation": 0.0, "scale": [1.0, 1.0] } } } ]);
             file.write(&scene.to_string());
             let err = ctx.load_scene(file.name()).unwrap_err();
-            assert!(err.contains("may only use indices below"), "{err}");
+            assert!(err.message().contains("may only use indices below"), "{err}");
             assert_eq!(ctx.world.len(), 1);
             assert_eq!((ctx.world.entity_slots(), ctx.world.allocated_bytes()), (slots, bytes));
             assert!(ctx.world.is_alive(kept));
