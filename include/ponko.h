@@ -84,6 +84,12 @@
 
 #define PONKO_MAX_GAMEPADS 8
 
+#define PONKO_QUERY_CACHE_AUTO 0
+
+#define PONKO_QUERY_CACHE_ALWAYS 1
+
+#define PONKO_QUERY_CACHE_NEVER 2
+
 #define PONKO_SHADER_MATERIAL 0
 
 #define PONKO_SHADER_EFFECT 1
@@ -1174,6 +1180,24 @@ typedef struct PonkoColliderFocus {
   float radius;
   float keep_radius;
 } PonkoColliderFocus;
+
+typedef struct PonkoQueryCachePolicy {
+  size_t min_archetypes;
+  size_t max_signatures;
+  size_t max_index_bytes;
+  uint32_t promote_after;
+  uint8_t max_match_percent;
+  uint8_t reserved[19];
+} PonkoQueryCachePolicy;
+
+typedef struct PonkoQueryCacheStats {
+  size_t signatures;
+  size_t indexed;
+  size_t indices;
+  size_t bytes;
+  uint64_t hits;
+  uint64_t evictions;
+} PonkoQueryCacheStats;
 
 typedef struct PonkoRagdollBone {
   const char *joint;
@@ -3256,6 +3280,28 @@ enum PonkoStatus ponko_ctx_physics3d_stream_colliders(struct PonkoCtx *ctx,
 enum PonkoStatus ponko_ctx_physics3d_is_collider_active(struct PonkoCtx *ctx,
                                                         uint64_t entity,
                                                         bool *out_active);
+
+struct PonkoQueryCachePolicy ponko_query_cache_policy_default(void);
+
+struct PonkoQueryCachePolicy ponko_query_cache_policy_off(void);
+
+enum PonkoStatus ponko_world_set_query_cache_policy(struct PonkoWorld *world,
+                                                    const struct PonkoQueryCachePolicy *policy);
+
+enum PonkoStatus ponko_world_query_cache_policy(struct PonkoWorld *world,
+                                                struct PonkoQueryCachePolicy *out_policy);
+
+enum PonkoStatus ponko_world_query_cache_stats(struct PonkoWorld *world,
+                                               struct PonkoQueryCacheStats *out_stats);
+
+enum PonkoStatus ponko_query_cached(struct PonkoWorld *world,
+                                    const uint32_t *components,
+                                    size_t count,
+                                    const struct PonkoFilter *filter,
+                                    const struct PonkoQueryOptions *options,
+                                    uint32_t cache,
+                                    PonkoQueryFn callback,
+                                    void *user);
 
 struct PonkoRagdollBone ponko_ragdoll_bone(const char *joint, float radius);
 

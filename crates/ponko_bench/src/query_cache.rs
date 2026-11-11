@@ -32,10 +32,19 @@ fn world(layouts: usize) -> World {
     w
 }
 
+fn hint<'w>(q: ponko_ecs::Query<'w, &'static Value>, strategy: &str) -> ponko_ecs::Query<'w, &'static Value> {
+    match strategy {
+        "scan" => q.uncached(),
+        "auto" => q,
+        _ => q.cached(),
+    }
+}
+
 pub fn run(b: &mut Bench) {
     for layouts in [1, 8, 32, 64, 128, 256, 1024] {
-        for cached in [false, true] {
-            let strategy = if cached { "cached" } else { "scan" };
+        // `scan`: the index off for the query. `auto`: the world's default
+        // policy decides. `cached`: the query asks for the index.
+        for strategy in ["scan", "auto", "cached"] {
             b.run(
                 &format!("query-cache/{layouts}/cold/{strategy}"),
                 100,
@@ -47,7 +56,7 @@ pub fn run(b: &mut Bench) {
                         .with::<Marker<1>>()
                         .without::<Marker<2>>()
                         .without::<Marker<3>>();
-                    let mut q = if cached { q.cached() } else { q };
+                    let mut q = hint(q, strategy);
                     black_box(q.count());
                 },
             );
@@ -68,7 +77,7 @@ pub fn run(b: &mut Bench) {
                                         .without::<Marker<2>>()
                                         .without::<Marker<3>>()
                                 };
-                                let mut q = if cached { q.cached() } else { q };
+                                let mut q = hint(q, strategy);
                                 match mode {
                                     "count" | "dense" => {
                                         black_box(q.count());

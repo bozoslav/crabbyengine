@@ -264,6 +264,9 @@
 #define CRABBY_PHASE_LATE PONKO_PHASE_LATE
 #define CRABBY_PHASE_PHYSICS PONKO_PHASE_PHYSICS
 #define CRABBY_PHASE_SIM_LAST PONKO_PHASE_SIM_LAST
+#define CRABBY_QUERY_CACHE_ALWAYS PONKO_QUERY_CACHE_ALWAYS
+#define CRABBY_QUERY_CACHE_AUTO PONKO_QUERY_CACHE_AUTO
+#define CRABBY_QUERY_CACHE_NEVER PONKO_QUERY_CACHE_NEVER
 #define CRABBY_RESIDENCY_MESH PONKO_RESIDENCY_MESH
 #define CRABBY_RESIDENCY_TEXTURE PONKO_RESIDENCY_TEXTURE
 #define CRABBY_ROLLOFF_LINEAR PONKO_ROLLOFF_LINEAR
@@ -509,6 +512,8 @@
 #define CrabbyPost PonkoPost
 #define CrabbyProfileScope PonkoProfileScope
 #define CrabbyQuat PonkoQuat
+#define CrabbyQueryCachePolicy PonkoQueryCachePolicy
+#define CrabbyQueryCacheStats PonkoQueryCacheStats
 #define CrabbyQueryFilter2D PonkoQueryFilter2D
 #define CrabbyQueryFilter3D PonkoQueryFilter3D
 #define CrabbyQueryFn PonkoQueryFn
@@ -1219,6 +1224,9 @@
 #define crabby_quat_mul ponko_quat_mul
 #define crabby_quat_rotate ponko_quat_rotate
 #define crabby_query ponko_query
+#define crabby_query_cache_policy_default ponko_query_cache_policy_default
+#define crabby_query_cache_policy_off ponko_query_cache_policy_off
+#define crabby_query_cached ponko_query_cached
 #define crabby_query_filter3d ponko_query_filter3d
 #define crabby_query_filtered ponko_query_filtered
 #define crabby_query_options_default ponko_query_options_default
@@ -1316,8 +1324,11 @@
 #define crabby_world_len ponko_world_len
 #define crabby_world_load ponko_world_load
 #define crabby_world_new ponko_world_new
+#define crabby_world_query_cache_policy ponko_world_query_cache_policy
+#define crabby_world_query_cache_stats ponko_world_query_cache_stats
 #define crabby_world_save ponko_world_save
 #define crabby_world_set_changes_since ponko_world_set_changes_since
+#define crabby_world_set_query_cache_policy ponko_world_set_query_cache_policy
 #define crabby_world_sort_spatial ponko_world_sort_spatial
 
 #endif

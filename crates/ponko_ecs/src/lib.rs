@@ -61,7 +61,7 @@ pub use commands::Commands;
 pub use entity::Entity;
 pub use query::{
     CompiledFilter, DynFilter, FilterError, FilterShape, FilterTree, MAX_FILTER_DEPTH, Or, OrTerm, OrTerms, Query,
-    QueryData, QueryFilter, QueryIter, With, Without, compile_tree,
+    QueryCache, QueryCachePolicy, QueryCacheStats, QueryData, QueryFilter, QueryIter, With, Without, compile_tree,
 };
 pub use storage::{Archetype, ComponentId, ComponentInfo, DropFn};
 pub use view::{ViewAccess, ViewGroup, ViewQuery, ViewState, WorldView};

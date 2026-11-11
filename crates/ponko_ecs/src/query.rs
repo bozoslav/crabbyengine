@@ -1,6 +1,5 @@
 //! Queries: loop over every entity that has a set of components.
 
-use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use crate::bundle::Component;
@@ -10,6 +9,9 @@ use crate::storage::{Archetype, ComponentId};
 use crate::view::SharedFilters;
 use crate::world::World;
 
+mod cache;
+pub(crate) use cache::{MatchCache, signature};
+pub use cache::{QueryCache, QueryCachePolicy, QueryCacheStats};
 mod dynamic;
 pub use dynamic::{CompiledFilter, DynFilter, FilterError, FilterShape, FilterTree, MAX_FILTER_DEPTH, compile_tree};
 
@@ -493,33 +495,9 @@ impl Filters {
     }
 }
 
-// Cache candidates, never QueryData::State: column buffers and the archetype
-// Vec may move between queries. Q::state is still resolved under the live borrow.
-// Bounds cap signature memory; saturated caches fall back without eviction churn.
-const CACHE_MIN_ARCHETYPES: usize = 128;
-const CACHE_MAX_SIGNATURES: usize = 128;
-
-#[derive(PartialEq, Eq, Hash)]
-struct MatchKey {
-    required: [ComponentId; 32],
-    n_required: usize,
-    filters: Filters,
-}
-
-#[derive(Default)]
-pub(crate) struct MatchCache(HashMap<MatchKey, MatchEntry>);
-
-#[derive(Default)]
-struct MatchEntry {
-    // Archetypes are append-only: their count is a non-wrapping generation.
-    // Empty layouts must stay cached: later spawns can populate them again.
-    generation: usize,
-    indices: Vec<usize>,
-}
-
 pub(crate) struct Archetypes<'a> {
     pub(crate) all: &'a [Archetype],
-    pub(crate) indices: Option<std::slice::Iter<'a, usize>>,
+    pub(crate) indices: Option<std::slice::Iter<'a, u32>>,
     pub(crate) next: usize,
 }
 
@@ -528,7 +506,7 @@ impl<'a> Archetypes<'a> {
     #[inline]
     pub(crate) fn next_indexed(&mut self) -> Option<(usize, &'a Archetype)> {
         let index = if let Some(indices) = &mut self.indices {
-            *indices.next()?
+            *indices.next()? as usize
         } else {
             let index = self.next;
             self.next += 1;
@@ -905,7 +883,7 @@ pub struct Query<'w, Q: QueryData> {
     pub(crate) world: &'w mut World,
     pub(crate) ids: Q::Ids,
     filters: Filters,
-    cached: bool,
+    cache: QueryCache,
     /// What `Added`/`Changed` filters compare against, if not the world's
     /// [`changes_since`](World::changes_since).
     since: Option<Tick>,
@@ -922,7 +900,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
             world,
             ids,
             filters: Filters::default(),
-            cached: false,
+            cache: QueryCache::Auto,
             since: None,
         }
     }
@@ -947,71 +925,78 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         self.world.tracks_changes()
     }
 
+    /// The archetypes to visit: every one, or the candidates the world's
+    /// index holds for this query's signature (see [`QueryCachePolicy`]).
+    /// The loops test their filters and resolve their columns either way.
+    #[inline]
     fn archetypes(&mut self) -> Archetypes<'_> {
-        let world = &mut self.world;
-        if !self.cached || world.archetypes.len() < CACHE_MIN_ARCHETYPES {
+        // Field by field, never the world as a whole: a `Lookup` reads the
+        // entity table and the archetypes through raw pointers while this
+        // query loops, and a `&mut World` made here would end them.
+        // The whole cost of the index for a world it doesn't apply to.
+        if self.cache == QueryCache::Never || self.world.archetypes.len() < self.world.query_matches.min_archetypes() {
             return Archetypes {
-                all: &world.archetypes,
+                all: &self.world.archetypes,
                 indices: None,
                 next: 0,
             };
         }
-        let mut key = MatchKey {
-            required: [ComponentId(0); 32],
-            n_required: 0,
-            filters: self.filters,
-        };
-        Q::access(&self.ids, &mut |id, _, required| {
-            if required {
-                key.required[key.n_required] = id;
-                key.n_required += 1;
-            }
-        });
-        key.required[..key.n_required].sort_unstable();
-        key.filters.with[..key.filters.n_with as usize].sort_unstable();
-        key.filters.without[..key.filters.n_without as usize].sort_unstable();
-        let cache = &mut world.query_matches.0;
-        if cache.len() >= CACHE_MAX_SIGNATURES && !cache.contains_key(&key) {
-            return Archetypes {
-                all: &world.archetypes,
-                indices: None,
-                next: 0,
-            };
-        }
-        let required = key.required;
-        let n_required = key.n_required;
-        let entry = cache.entry(key).or_default();
-        // Only newly created layouts need matching; existing membership cannot
-        // change. Registration alone doesn't change any existing layout.
-        for (index, arch) in world.archetypes.iter().enumerate().skip(entry.generation) {
-            if self.filters.matches(arch) && required[..n_required].iter().all(|&id| arch.has(id)) {
-                entry.indices.push(index);
-            }
-        }
-        entry.generation = world.archetypes.len();
-        Archetypes {
-            all: &world.archetypes,
-            indices: Some(entry.indices.iter()),
-            next: 0,
-        }
+        let key = cache::signature::<Q>(&self.ids, &self.filters);
+        self.world
+            .query_matches
+            .archetypes(&self.world.archetypes, &key, self.cache)
     }
 
-    /// Reuse a world-owned matching-archetype list for repeated queries with
-    /// this required-component and filter signature.
+    /// Index this query's signature in the world now, instead of leaving it
+    /// to the world's [`QueryCachePolicy`]: on its first use, and however
+    /// many archetypes it matches.
     ///
-    /// This is opt-in: selective queries over many layouts benefit most; dense
-    /// queries can lose to a direct scan. Worlds with fewer than 128 archetypes
-    /// use the direct scan. At most 128 signatures are retained per world;
-    /// further signatures also scan directly. Cold matching and newly created
-    /// archetypes may allocate; steady-state repeated queries do not.
+    /// Most queries don't need this: a world with many archetypes (64 by
+    /// default) indexes the signatures that repeat and that leave archetypes
+    /// out, by itself. The hint is for a query the policy would skip, such
+    /// as one that runs rarely but must not scan when it does. It changes
+    /// no result: the same entities come back in the same order.
     ///
-    /// Only archetype indices are retained, never component pointers. New
-    /// layouts are matched before traversal; empty matching layouts remain
-    /// eligible when populated again. Optional components and mutability do
-    /// not affect the signature. Custom [`QueryData::state`] is still called
-    /// for each candidate under the query's live world borrow.
+    /// The hint is ignored where the index isn't used at all: in worlds
+    /// with fewer archetypes than
+    /// [`min_archetypes`](QueryCachePolicy::min_archetypes), when the index
+    /// is [off](QueryCachePolicy::off) or full. Remembering a signature and
+    /// listing newly created archetypes may allocate; repeating a query
+    /// doesn't.
+    ///
+    /// Only archetype indices are kept, never component pointers. Archetypes
+    /// created later are matched before the next traversal, and an archetype
+    /// that empties stays listed for when it is populated again. Optional
+    /// components and mutability aren't part of the signature.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// struct Health(i32);
+    /// struct Boss;
+    /// let mut world = World::new();
+    /// world.spawn((Health(100), Boss));
+    /// assert_eq!(world.query::<&Health>().with::<Boss>().cached().count(), 1);
+    /// ```
     pub fn cached(mut self) -> Self {
-        self.cached = true;
+        self.cache = QueryCache::Always;
+        self
+    }
+
+    /// Never use the world's archetype index for this query: test every
+    /// archetype, as a world with the index
+    /// [off](QueryCachePolicy::off) does for all of them. The results are
+    /// the same; use it to compare, or for a query that is known to match
+    /// nearly every archetype.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// struct Health(i32);
+    /// let mut world = World::new();
+    /// world.spawn((Health(100),));
+    /// assert_eq!(world.query::<&Health>().uncached().count(), 1);
+    /// ```
+    pub fn uncached(mut self) -> Self {
+        self.cache = QueryCache::Never;
         self
     }
 
@@ -1594,46 +1579,6 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
                 self.len = 0;
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod cache_tests {
-    use super::*;
-
-    #[test]
-    fn signatures_are_bounded_and_filter_order_is_canonical() {
-        let mut world = World::new();
-        // Empty, immutable layouts isolate cache bookkeeping from entity storage.
-        for _ in 0..CACHE_MIN_ARCHETYPES {
-            world.archetypes.push(Archetype::new(Box::new([]), &[]));
-        }
-        world
-            .query::<Entity>()
-            .cached()
-            .without::<u8>()
-            .without::<u16>()
-            .count();
-        world
-            .query::<Entity>()
-            .without::<u16>()
-            .cached()
-            .without::<u8>()
-            .count();
-        assert_eq!(world.query_matches.0.len(), 1);
-        for id in 0..CACHE_MAX_SIGNATURES as u32 {
-            let mut q = world.query::<Entity>().cached();
-            q.filters.without[0] = ComponentId(id);
-            q.filters.n_without = 1;
-            assert_eq!(q.count(), 0);
-        }
-        assert_eq!(world.query_matches.0.len(), CACHE_MAX_SIGNATURES);
-        let mut q = world.query::<Entity>().cached();
-        q.filters.with[0] = ComponentId(1000);
-        q.filters.n_with = 1;
-        assert!(q.archetypes().indices.is_none());
-        assert_eq!(q.count(), 0);
-        assert_eq!(world.query_matches.0.len(), CACHE_MAX_SIGNATURES);
     }
 }
 

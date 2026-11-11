@@ -322,17 +322,16 @@ pub unsafe extern "C" fn ponko_removed(
     })
 }
 
-/// `World::query_chunks`, over the archetypes that pass `filter` if any.
+/// `World::query_chunks`, over the archetypes that pass `filter` if any,
+/// with the archetype index used as `cache` says.
 fn visit(
     w: &mut ponko_ecs::World,
     query: ChunkQuery<'_>,
     filter: Option<&ponko_ecs::CompiledFilter>,
+    cache: ponko_ecs::QueryCache,
     f: impl FnMut(ponko_ecs::Chunk<'_>),
 ) {
-    match filter {
-        Some(filter) => w.query_chunks_filtered(query, filter, f),
-        None => w.query_chunks(query, f),
-    }
+    w.query_chunks_cached(query, filter, cache, f);
 }
 
 fn since_or_world(w: &ponko_ecs::World, raw: u64) -> Tick {
@@ -389,19 +388,33 @@ pub unsafe extern "C" fn ponko_query_with(
     user: *mut c_void,
 ) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
-    unsafe { query_with_filter(world, components, count, None, options, callback, user) }
+    unsafe {
+        query_with_filter(
+            world,
+            components,
+            count,
+            None,
+            options,
+            ponko_ecs::QueryCache::Auto,
+            callback,
+            user,
+        )
+    }
 }
 
-/// `ponko_query_with`, over the entities that also pass `filter`.
+/// `ponko_query_with`, over the entities that also pass `filter`, using
+/// the world's archetype index as `cache` says.
 ///
 /// # Safety
 /// As `ponko_query_with`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn query_with_filter(
     world: *mut PonkoWorld,
     components: *const u32,
     count: usize,
     filter: Option<&PonkoFilter>,
     options: *const PonkoQueryOptions,
+    cache: ponko_ecs::QueryCache,
     callback: PonkoQueryFn,
     user: *mut c_void,
 ) -> PonkoStatus {
@@ -435,12 +448,12 @@ pub(crate) unsafe fn query_with_filter(
                 if options.parallel {
                     let _commands_off = ParallelQuery::begin(handle);
                     let threads = rayon::current_num_threads().max(1);
-                    visit(w, query, compiled.as_ref(), |chunk| {
+                    visit(w, query, compiled.as_ref(), cache, |chunk| {
                         chunk_in_parallel(&chunk, &sizes, first, threads, callback, user);
                         first += chunk.entities.len();
                     });
                 } else {
-                    visit(w, query, compiled.as_ref(), |chunk| {
+                    visit(w, query, compiled.as_ref(), cache, |chunk| {
                         let view = PonkoChunk {
                             count: chunk.entities.len(),
                             column_count: count,
