@@ -16,7 +16,7 @@ documentation = "https://docs.rs/ponko/"
 exclude = ["/book", "/.github", "/web", "/include", "/examples/cpp", "/docs", "/rustfmt.toml", "/CLAUDE.md", "/AGENTS.md", "/.mcp.json"]
 
 [package.metadata.docs.rs]
-features = ["physics", "physics3d", "steam", "3d", "navmesh"]
+features = ["physics", "physics3d", "steam", "3d", "navmesh", "accessibility"]
 
 [dependencies]
 taffy = { version = "0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "content_size"] }
@@ -50,9 +50,18 @@ web-time = "1.1.0"
 gilrs = { version = "0.11.2", optional = true }
 steamworks = { version = "0.13.1", optional = true }
 gltf = { version = "1.4.1", default-features = false, features = ["utils", "names", "extras"], optional = true }
+# Accessibility tree data types (feature `accessibility`); the same crate
+# and version the inspector's egui already brings in.
+accesskit = { version = "0.25.2", optional = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"
+
+# The screen-reader adapter (feature `accessibility`): AccessKit's macOS
+# adapter, which answers the system's accessibility queries for the window's
+# view. The `accesskit` data types themselves are in [dependencies].
+[target.'cfg(target_os = "macos")'.dependencies]
+accesskit_macos = { version = "0.27.2", optional = true }
 
 # The web build (wasm32): the browser APIs for the canvas and fetching
 # assets, and WebGL2 for browsers without WebGPU.
@@ -64,6 +73,19 @@ js-sys = "0.3.107"
 # Sound through WebAudio (kira plays through cpal).
 cpal = { version = "0.18.2", features = ["wasm-bindgen"], optional = true }
 web-sys = { version = "0.3.107", features = ["Window", "Document", "Element", "HtmlCanvasElement", "Location", "Response", "console"] }
+
+# The validation bundle example drives a launched game through the MCP
+# server's tools, in-process. Path only (no version): the MCP crate's tests
+# depend on the engine, and a published cycle between the two can't resolve.
+[dev-dependencies]
+ponko_mcp = { path = "crates/ponko_mcp" }
+
+# The native accessibility test (tests/ui_access_macos.rs) asks an `NSView`
+# what a screen reader would ask it. The same objc2 versions AccessKit's
+# macOS adapter uses.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+objc2 = "0.5.2"
+objc2-foundation = { version = "0.2.2", features = ["NSArray", "NSString", "NSValue"] }
 
 # The browser smoke fixture (examples/web_smoke.rs) reports its state to
 # the page; the engine already depends on web-sys there.
@@ -83,6 +105,12 @@ audio = ["dep:kira", "dep:cpal"]
 # components with live editing, resources, system timings, sim controls.
 # Off: no egui in the build.
 inspector = ["window", "dep:egui", "dep:egui-wgpu", "dep:egui-winit"]
+# Screen-reader support for the retained UI (`ctx.ui`): roles, names, values
+# and focus are given to the system's accessibility API, and its requests
+# (press, focus, set value) reach the UI. macOS (VoiceOver) only for now;
+# on other systems the feature builds and does nothing. Off: no adapter;
+# `Ui::accessibility_tree` and `UiAccessTracker` are always there.
+accessibility = ["window", "dep:accesskit", "dep:accesskit_macos"]
 # Gamepads through gilrs (Xbox, PlayStation, Switch and other controllers).
 # Off: `ctx.gamepads()` is always empty. On Linux it needs libudev headers.
 gamepad = ["window", "dep:gilrs"]
@@ -113,6 +141,13 @@ physics-determinism = ["physics", "rapier2d/enhanced-determinism", "rapier3d?/en
 # drawn under the 2D layer (`Transform3D`, `Model`, `ctx.camera3d`).
 # Off: no 3D pass, no glTF loader in the build.
 3d = ["dep:gltf", "image/jpeg", "image/hdr", "image/exr"]
+
+# Runs on the main thread (AppKit requires it), so it is its own program
+# without the test harness. Does nothing off macOS.
+[[test]]
+name = "ui_access_macos"
+harness = false
+required-features = ["accessibility"]
 
 [[example]]
 name = "physics"
@@ -209,3 +244,6 @@ required-features = ["3d"]
 
 [[example]]
 name = "ui_shop"
+
+[[example]]
+name = "ui_menu"

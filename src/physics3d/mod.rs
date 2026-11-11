@@ -1040,6 +1040,69 @@ pub fn step_physics3d(ctx: &mut Ctx) {
     step(&mut ctx.physics3d, &mut ctx.world, &mut ctx.events, dt);
 }
 
+/// What [`step_physics3d`] uses, as a declaration: it writes the 3D physics
+/// service ([`Service::Physics3D`](crate::access::Service::Physics3D)), reads
+/// the timestep ([`Service::Time`](crate::access::Service::Time)), reads the
+/// body, collider, joint, contact-modifier, terrain and streaming-focus
+/// components and the count of world loads (a load drops every body), writes
+/// [`Transform3D`], [`Velocity3D`], [`Character3D`], [`Vehicle3D`],
+/// [`Ragdoll3D`] and the ragdolls' skeletons, and sends [`CollisionStarted`]
+/// and [`CollisionStopped`]. Nothing else: no other resources, commands,
+/// drawing or input.
+///
+/// [`Game::physics3d`](crate::Game::physics3d) registers the step with this
+/// declaration, so [`Game::access_report`](crate::Game::access_report) lists
+/// what the step touches and debug builds check that it stays inside it.
+/// Pass it to [`Game::add_with_access`](crate::Game::add_with_access) when
+/// you place the step yourself. The step keeps `&mut Ctx` and its place in
+/// the order; see [`access`](crate::access).
+///
+/// The [`Service`](crate::access::Service) entries of the declaration are
+/// documentation: they appear in the report, but services are not recorded,
+/// so nothing checks them at run time. Components, resources and events are
+/// checked in debug builds.
+#[must_use]
+pub fn step_physics3d_access() -> crate::access::SystemAccess {
+    use crate::access::{Service, SystemAccess};
+    SystemAccess::new()
+        .write_service(Service::Physics3D)
+        .read_service(Service::Time)
+        .write::<Transform3D>()
+        .read::<RigidBody3D>()
+        .read::<Collider3D>()
+        .write::<Velocity3D>()
+        .write::<Character3D>()
+        .write::<Vehicle3D>()
+        .read::<Joint3D>()
+        .read::<ContactModifier3D>()
+        .read::<TerrainCollider>()
+        .read::<ColliderFocus>()
+        .read_resource::<crate::reflect::WorldLoads>()
+        .write::<Ragdoll3D>()
+        .write::<crate::anim::Skeleton>()
+        .send_events::<CollisionStarted>()
+        .send_events::<CollisionStopped>()
+}
+
+/// What [`interpolate_physics3d`] uses, as a declaration: it writes the 3D
+/// physics service (the poses it last wrote), reads the frame's place
+/// between two steps ([`Service::Time`](crate::access::Service::Time)) and
+/// writes [`Transform3D`]. [`Game::physics3d`](crate::Game::physics3d)
+/// registers the blend with it.
+///
+/// The [`Service`](crate::access::Service) entries of the declaration are
+/// documentation: they appear in the report, but services are not recorded,
+/// so nothing checks them at run time. Components, resources and events are
+/// checked in debug builds.
+#[must_use]
+pub fn interpolate_physics3d_access() -> crate::access::SystemAccess {
+    use crate::access::{Service, SystemAccess};
+    SystemAccess::new()
+        .write_service(Service::Physics3D)
+        .read_service(Service::Time)
+        .write::<Transform3D>()
+}
+
 /// The step itself, with only what it touches: the physics state (bodies,
 /// joints, contact rules, ragdolls), the world whose body, character,
 /// vehicle, joint and terrain components it reads and writes, the event
@@ -1356,6 +1419,59 @@ mod tests {
         assert_eq!(x(&mut ctx), -5.0, "left alone by the blend");
         tick(&mut ctx);
         assert!((x(&mut ctx) + 4.8).abs() < 1e-4, "{}", x(&mut ctx));
+    }
+
+    #[test]
+    fn code_before_the_next_step_reads_the_drawn_blend_and_the_service_keeps_the_stepped_pose() {
+        let mut ctx = Ctx::new(0.02, Vec2::ZERO);
+        start(&mut ctx, Vec3::ZERO);
+        let ball = ctx.world.spawn((
+            Transform3D::default(),
+            RigidBody3D::dynamic(),
+            Collider3D::sphere(0.5),
+            Velocity3D::linear(vec3(10.0, 0.0, 0.0)),
+        ));
+        tick(&mut ctx);
+        tick(&mut ctx);
+        frame(&mut ctx, 0.25);
+        // What a system before the next step finds in the component: the
+        // pose that was drawn. The physics service has the stepped one.
+        let drawn = ctx.world.get::<Transform3D>(ball).unwrap().position.x;
+        assert!((drawn - 0.25).abs() < 1e-4, "{drawn}");
+        let stepped = ctx.physics3d.position(ball).unwrap().x;
+        assert!((stepped - 0.4).abs() < 1e-4, "{stepped}");
+        // After the step the component is the stepped pose again.
+        tick(&mut ctx);
+        let after = ctx.world.get::<Transform3D>(ball).unwrap().position.x;
+        assert!((after - 0.6).abs() < 1e-4, "{after}");
+        assert_eq!(after, ctx.physics3d.position(ball).unwrap().x);
+    }
+
+    #[test]
+    fn a_blend_skips_entities_removed_since_the_step_and_the_next_step_drops_their_bodies() {
+        let mut ctx = Ctx::new(0.02, Vec2::ZERO);
+        start(&mut ctx, Vec3::ZERO);
+        let spawn = |ctx: &mut Ctx, z: f32| {
+            ctx.world.spawn((
+                Transform3D::at(vec3(0.0, 0.0, z)),
+                RigidBody3D::dynamic(),
+                Collider3D::sphere(0.5),
+                Velocity3D::linear(vec3(10.0, 0.0, 0.0)),
+            ))
+        };
+        let (gone, kept) = (spawn(&mut ctx, 0.0), spawn(&mut ctx, 5.0));
+        tick(&mut ctx);
+        tick(&mut ctx);
+        ctx.world.despawn(gone);
+        frame(&mut ctx, 0.5);
+        let x = ctx.world.get::<Transform3D>(kept).unwrap().position.x;
+        assert!((x - 0.3).abs() < 1e-4, "the other body is still blended: {x}");
+        assert_eq!(ctx.physics3d.body_count(), 2, "bodies leave on a step, not on a frame");
+        tick(&mut ctx);
+        assert_eq!(ctx.physics3d.body_count(), 1);
+        frame(&mut ctx, 0.5);
+        let x = ctx.world.get::<Transform3D>(kept).unwrap().position.x;
+        assert!((x - 0.5).abs() < 1e-4, "{x}");
     }
 
     /// A floor, a stack of boxes and a walking character.

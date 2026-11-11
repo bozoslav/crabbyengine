@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "id": "cpp-battle-opening",
+  "duration": 121,
+  "steps": [
+    { "tick": 0, "type": "expect_count", "component": "Base", "equals": 2 },
+    { "tick": 0, "type": "expect_count", "component": "Unit", "equals": 400 },
+    { "tick": 60, "type": "expect_resource", "resource": "Score", "pointer": "/red_alive", "equals": 200 },
+    { "tick": 60, "type": "expect_resource", "resource": "Score", "pointer": "/blue_alive", "equals": 200 },
+    { "tick": 120, "type": "expect_resource", "resource": "Score", "pointer": "/winner", "equals": 0 }
+  ]
+}

@@ -435,11 +435,12 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "launch",
-            description: "Build and start a game or example with `cargo run`, with the control endpoint on, and wait until it is ready. Starts headless and paused by default, so you can inspect it and step it with run_ticks. Returns the new instance.",
+            description: "Build and start a game or example with `cargo run` (or start an executable that is already built, with `program`), with the control endpoint on, and wait until it is ready. Starts headless and paused by default, so you can inspect it and step it with run_ticks. Returns the new instance.",
             writes: true,
             params: || {
                 json!({
-                    "cwd": { "type": "string", "description": "Cargo project directory (default: this server's working directory)" },
+                    "cwd": { "type": "string", "description": "Cargo project directory, or the directory `program` starts in (default: this server's working directory)" },
+                    "program": { "type": "string", "description": "Start this executable instead of `cargo run` (a packaged game, a C or C++ game, a build made earlier); `example`, `bin`, `package`, `features` and `release` are then unused" },
                     "example": { "type": "string", "description": "Run `--example <name>`" },
                     "bin": { "type": "string", "description": "Run `--bin <name>`" },
                     "features": { "type": "array", "items": { "type": "string" }, "description": "Cargo features to turn on, e.g. [\"physics\"] or [\"3d\"]" },
@@ -1176,24 +1177,34 @@ impl Server {
             .as_str()
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let mut cmd = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()));
-        cmd.arg("run").current_dir(&cwd);
-        if flag("release") {
-            cmd.arg("--release");
-        }
-        for (key, opt) in [("package", "-p"), ("example", "--example"), ("bin", "--bin")] {
-            if let Some(v) = args[key].as_str() {
-                cmd.args([opt, v]);
+        let program = args["program"].as_str();
+        let mut cmd = match program {
+            // An executable that is already built: started as it is.
+            Some(program) => Command::new(program),
+            None => Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into())),
+        };
+        cmd.current_dir(&cwd);
+        if program.is_none() {
+            cmd.arg("run");
+            if flag("release") {
+                cmd.arg("--release");
             }
-        }
-        if let Some(features) = args["features"].as_array() {
-            let list: Vec<&str> = features.iter().filter_map(Value::as_str).collect();
-            if !list.is_empty() {
-                cmd.args(["--features", &list.join(",")]);
+            for (key, opt) in [("package", "-p"), ("example", "--example"), ("bin", "--bin")] {
+                if let Some(v) = args[key].as_str() {
+                    cmd.args([opt, v]);
+                }
+            }
+            if let Some(features) = args["features"].as_array() {
+                let list: Vec<&str> = features.iter().filter_map(Value::as_str).collect();
+                if !list.is_empty() {
+                    cmd.args(["--features", &list.join(",")]);
+                }
             }
         }
         if let Some(extra) = args["args"].as_array() {
-            cmd.arg("--");
+            if program.is_none() {
+                cmd.arg("--");
+            }
             cmd.args(extra.iter().filter_map(Value::as_str));
         }
         let launch_id = random_id();
@@ -1224,7 +1235,7 @@ impl Server {
             .stdout(log)
             .stderr(log2)
             .spawn()
-            .map_err(|e| format!("could not run cargo: {e}"))?;
+            .map_err(|e| format!("could not run {}: {e}", program.unwrap_or("cargo")))?;
         self.launched.insert(launch_id.clone(), log_path.clone());
 
         let deadline = deadline_after(args["timeout_secs"].as_u64().unwrap_or(600));
@@ -1247,6 +1258,8 @@ impl Server {
             }
             if Instant::now() > deadline {
                 let _ = child.kill();
+                // Reaped, so a timed-out launch leaves no zombie behind.
+                let _ = child.wait();
                 return Err(format!(
                     "timed out waiting for the game to start. Last log lines:\n{}",
                     tail(&log_path, 40)

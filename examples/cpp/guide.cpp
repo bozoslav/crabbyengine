@@ -2352,6 +2352,22 @@ static void build_shop(ponko::ctx& ctx) {
     tree.set_name(tree.add_button(dialog, "Confirm purchase", ui::fixed(240, 36)), "confirm");
     tree.set_name(tree.add_button(dialog, "Back", ui::fixed(240, 30)), "cancel");
     // ANCHOR_END: shop_dialog
+
+    // ANCHOR: ui_access
+    // A slider has no text of its own to be named by.
+    auto volume = tree.add_slider(root, 0.5f, ui::fixed(240, 24));
+    tree.set_accessible_name(volume, "Volume");
+    tree.set_accessible_description(buy, "Buys the highlighted item");
+    // A change to a live region is announced while focus is elsewhere.
+    auto status = tree.add_label(root, "Ready", ui::fixed(400, 24));
+    tree.set_live_region(status, ui::live::polite);
+    // A request from assistive technology; the next frame applies it.
+    tree.access_action(ui::access_action_kind::increment, volume);
+    // What changed since the last look, for a backend of your own.
+    ui::access access;
+    auto changes = access.update(tree);
+    for (auto node : changes.changed) (void)access.name(node);
+    // ANCHOR_END: ui_access
 }
 
 // ANCHOR: shop_events

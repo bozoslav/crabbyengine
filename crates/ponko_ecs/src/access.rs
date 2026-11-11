@@ -90,6 +90,22 @@ impl Recorder {
         }
     }
 
+    /// [`start`](Self::start) with `log`'s buffers, emptied: no allocation
+    /// until the log outgrows them.
+    pub(crate) fn start_into(&mut self, #[allow(unused_mut)] mut log: AccessLog) {
+        #[cfg(debug_assertions)]
+        {
+            log.components.clear();
+            log.resources.clear();
+            log.dynamic_resources.clear();
+            log.structural = false;
+            *self.log.get_mut().unwrap_or_else(std::sync::PoisonError::into_inner) = log;
+            *self.on.get_mut() = true;
+        }
+        #[cfg(not(debug_assertions))]
+        drop(log);
+    }
+
     pub(crate) fn stop(&mut self) -> Option<AccessLog> {
         #[cfg(debug_assertions)]
         {

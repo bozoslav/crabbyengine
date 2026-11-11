@@ -1,0 +1,51 @@
+== the menu, as the window's content view gives it
+AXGroup
+  AXGroup
+    AXStaticText value="Settings"
+    AXStaticText value="Ready"
+    AXButton "Play" help="Starts a new run"
+    AXSlider "Volume" value=0.50
+    AXTextField "Player name" value="Ann"
+    AXCheckBox "Music" value=1.00
+    AXButton "Quit"
+
+== after pressing Play through the system
+AXGroup
+  AXGroup
+    AXStaticText value="Settings"
+    AXStaticText value="Started a run for Ann"
+    AXButton "Play" help="Starts a new run" focused
+    AXSlider "Volume" value=0.50
+    AXTextField "Player name" value="Ann"
+    AXCheckBox "Music" value=1.00
+    AXButton "Quit"
+
+== after one increment of Volume through the system
+AXGroup
+  AXGroup
+    AXStaticText value="Settings"
+    AXStaticText value="Volume 55%"
+    AXButton "Play" help="Starts a new run" focused
+    AXSlider "Volume" value=0.55
+    AXTextField "Player name" value="Ann"
+    AXCheckBox "Music" value=1.00
+    AXButton "Quit"
+
+== after pressing Quit: the modal dialog is all there is
+AXGroup
+  AXWindow "Quit the game?"
+    AXStaticText value="Quit the game?"
+    AXButton "Yes"
+    AXButton "No"
+
+== after pressing No: the menu is back
+AXGroup
+  AXGroup
+    AXStaticText value="Settings"
+    AXStaticText value="Volume 55%"
+    AXButton "Play" help="Starts a new run"
+    AXSlider "Volume" value=0.55
+    AXTextField "Player name" value="Ann"
+    AXCheckBox "Music" value=1.00
+    AXButton "Quit" focused
+
