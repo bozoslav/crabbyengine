@@ -95,8 +95,9 @@ use glam::{Quat, Vec3};
 
 use super::collect::{Culler, FADED, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS};
 use super::motion::{IdHasher, Motion, NO_KEY};
-use super::{SLOT_MASK, 
-    Assets3D, Model, ModelMaterial, ModelMaterials, ReceivesDecals, ShadowMesh, Skeleton, SkinOf, Transform3D, linear,
+use super::{
+    Assets3D, Model, ModelMaterial, ModelMaterials, ReceivesDecals, SLOT_MASK, ShadowMesh, Skeleton, SkinOf,
+    Transform3D, linear,
 };
 use crate::World;
 

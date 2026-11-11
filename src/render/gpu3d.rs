@@ -5223,7 +5223,11 @@ impl Renderer3D {
         }
         for batch in self.static_batches.iter().flatten() {
             for (level, l) in batch.levels.iter().enumerate() {
-                if self.meshes.get(l.mesh.slot() as usize).is_none_or(|m| m.buffers.is_none()) {
+                if self
+                    .meshes
+                    .get(l.mesh.slot() as usize)
+                    .is_none_or(|m| m.buffers.is_none())
+                {
                     continue;
                 }
                 let visible = if batch.compute {

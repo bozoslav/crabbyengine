@@ -296,7 +296,11 @@ mod cells {
             ctx.gfx.free(first[3]);
             assert!(again.iter().all(|&m| ctx.gfx.is_live(m)));
             // The new mesh doesn't inherit the old one's settings.
-            let reused = if slot(again[0]) == slot(first[1]) { again[0] } else { again[1] };
+            let reused = if slot(again[0]) == slot(first[1]) {
+                again[0]
+            } else {
+                again[1]
+            };
             assert!(ctx.gfx.mesh_shadows(reused));
             // Past the freed ones, slots are new.
             let new = ctx.gfx.create_mesh(&cube, material);

@@ -1228,18 +1228,17 @@ impl Graphics {
         let mut costs: Vec<super::MeshCost> = renderer
             .mesh_costs()
             .into_iter()
-            .map(
-                |(slot, models, triangles, shadow_models, shadow_triangles)| {
-                    let mesh = self.assets3d.mesh_in_slot(slot);
-                    super::MeshCost {
+            .map(|(slot, models, triangles, shadow_models, shadow_triangles)| {
+                let mesh = self.assets3d.mesh_in_slot(slot);
+                super::MeshCost {
                     mesh,
                     name: names.get(&mesh.id).cloned(),
                     models,
                     triangles,
                     shadow_models,
                     shadow_triangles,
-                }},
-            )
+                }
+            })
             .collect();
         costs.sort_by_key(|c| std::cmp::Reverse(c.triangles + c.shadow_triangles));
         costs

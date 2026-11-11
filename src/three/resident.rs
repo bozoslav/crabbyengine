@@ -105,7 +105,13 @@ impl Ctx {
     /// meshes and evicts what the budget needs gone.
     pub(crate) fn add_resident_mesh(&mut self, path: &str, mesh: Mesh, file: crate::assets::Origin, shared: bool) {
         let now = self.residency_now();
-        let bytes = self.gfx.assets3d.mesh_bytes.get(mesh.slot() as usize).copied().unwrap_or(0);
+        let bytes = self
+            .gfx
+            .assets3d
+            .mesh_bytes
+            .get(mesh.slot() as usize)
+            .copied()
+            .unwrap_or(0);
         self.gfx
             .residency
             .set_mut(ResidencyKind::Mesh)
