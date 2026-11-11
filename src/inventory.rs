@@ -288,12 +288,6 @@ impl Ledger {
             .get(&(class, id))
             .map_or((0, None), |b| (b.frame, b.owner.as_deref()))
     }
-
-    /// How many handles have a birth record (for tests: freed ones don't).
-    #[cfg(test)]
-    pub(crate) fn births(&self) -> usize {
-        self.births.len()
-    }
 }
 
 /// Who made a handle, in an [`AssetRecord`].

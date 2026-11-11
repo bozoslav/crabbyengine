@@ -460,7 +460,7 @@ mod files {
         headless(|ctx| {
             let mut pack = MemorySource::new("pack");
             for i in 0..30 {
-                pack = pack.with(&format!("models/house{i}.glb"), HOUSE);
+                pack = pack.with(format!("models/house{i}.glb"), HOUSE);
             }
             ctx.assets.add_source(pack);
             let base = ctx.asset_inventory();
