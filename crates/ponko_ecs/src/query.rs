@@ -409,20 +409,74 @@ impl Filters {
         (!rows.is_empty()).then_some(rows)
     }
 
-    /// How many `Or` terms were added so far: where the clause being
-    /// built starts, for [`truncate_terms`](Self::truncate_terms).
-    pub(crate) fn or_terms(&self) -> u8 {
-        self.n_terms
+    /// Converts required predicates into singleton clauses. Only construction
+    /// uses this representation; the matching loops and cache key stay unchanged.
+    pub(crate) fn into_clauses(self) -> Self {
+        let mut out = Self::default();
+        for i in 0..self.n_with as usize {
+            let added = self.with_added >> i & 1 != 0;
+            let changed = self.with_changed >> i & 1 != 0;
+            if !added && !changed {
+                out.add_or_term(self.with[i], true);
+                out.close_or();
+            }
+            for (enabled, added) in [(added, true), (changed, false)] {
+                if enabled {
+                    out.add_or_tick(self.with[i], added);
+                    out.close_or();
+                }
+            }
+        }
+        for &id in &self.without[..self.n_without as usize] {
+            out.add_or_term(id, false);
+            out.close_or();
+        }
+        out.append_clauses(&self);
+        out
     }
 
-    /// Drops the `Or` terms from `start` on: the clause being built holds
-    /// for every entity, so it filters nothing.
-    pub(crate) fn truncate_terms(&mut self, start: u8) {
-        let keep = 1u16.checked_shl(u32::from(start)).map_or(u16::MAX, |bit| bit - 1);
-        self.any_has &= keep;
-        self.any_added &= keep;
-        self.any_changed &= keep;
-        self.n_terms = start;
+    /// An empty disjunction is false; an empty conjunction (Default) is true.
+    pub(crate) fn never() -> Self {
+        let mut out = Self::default();
+        out.close_or();
+        out
+    }
+
+    fn copy_terms(&mut self, from: &Self, start: usize, end: usize) {
+        for i in start..end {
+            let n = self.n_terms;
+            self.add_or_term(from.any[i], from.any_has >> i & 1 != 0);
+            self.any_added |= ((from.any_added >> i) & 1) << n;
+            self.any_changed |= ((from.any_changed >> i) & 1) << n;
+        }
+    }
+
+    pub(crate) fn append_clauses(&mut self, other: &Self) {
+        let mut start = 0;
+        for &end in &other.any_end[..other.n_any as usize] {
+            self.copy_terms(other, start, end as usize);
+            self.close_or();
+            start = end as usize;
+        }
+    }
+
+    /// Distribute OR over AND: (a AND b) OR c = (a OR c) AND (b OR c).
+    /// Both operands contain only clauses. Bounds are checked before each
+    /// write, so expansion stays inline and fails with the usual limit errors.
+    pub(crate) fn disjoin(&self, other: &Self) -> Self {
+        let mut out = Self::default();
+        let mut left = 0;
+        for &left_end in &self.any_end[..self.n_any as usize] {
+            let mut right = 0;
+            for &right_end in &other.any_end[..other.n_any as usize] {
+                out.copy_terms(self, left, left_end as usize);
+                out.copy_terms(other, right, right_end as usize);
+                out.close_or();
+                right = right_end as usize;
+            }
+            left = left_end as usize;
+        }
+        out
     }
 
     /// Closes the `Or` clause being built.
@@ -699,17 +753,13 @@ pub trait QueryFilter {
     fn add_shared(cx: &mut SharedFilters<'_>);
 }
 
-/// A term of an [`Or`] filter: [`With<T>`], [`Without<T>`],
-/// [`Added<T>`](crate::Added), [`Changed<T>`](crate::Changed) or a nested `Or`.
-pub trait OrTerm {
-    #[doc(hidden)]
-    fn add_term(world: &mut World, filters: &mut Filters);
+/// An arm of an [`Or`] filter: a provided filter or a tuple whose filters
+/// must all hold. Tuples and `Or`s can nest within one another.
+///
+/// Implemented by this crate only: combine the provided filters.
+pub trait OrTerm: QueryFilter {}
 
-    #[doc(hidden)]
-    fn add_shared_term(cx: &mut SharedFilters<'_>);
-}
-
-/// The terms of an [`Or`] filter: a tuple of 1 to 8 [`OrTerm`]s.
+/// The terms of an [`Or`] filter: a tuple of 0 to 8 [`OrTerm`]s.
 pub trait OrTerms {
     #[doc(hidden)]
     fn add_terms(world: &mut World, filters: &mut Filters);
@@ -724,22 +774,26 @@ pub struct With<T>(PhantomData<fn() -> T>);
 /// Filter: the entity doesn't have component `T`.
 pub struct Without<T>(PhantomData<fn() -> T>);
 
-/// Filter: at least one of the terms holds, for example
-/// `Or<(With<Player>, With<Enemy>)>`. The terms are [`With`], [`Without`],
-/// [`Added`](crate::Added), [`Changed`](crate::Changed) or nested `Or`s; for
-/// "both A and B", put the filters in a tuple outside the `Or` instead.
+/// Filter: at least one arm holds. A tuple arm requires all its filters:
+/// `Or<((With<A>, With<B>), Without<C>)>` means "A and B, or no C".
+/// Tuples (up to 8 filters) and `Or`s can nest.
 ///
-/// A query takes at most 4 `Or` filters with 16 terms between them.
+/// Filters use inline storage. An `Or` is expanded into ANDed clauses:
+/// `(A AND B) OR C` becomes `(A OR C) AND (B OR C)`. A query takes at
+/// most 4 such clauses with 16 component predicates between them, including
+/// repeated predicates introduced by expansion. Exceeding either limit panics.
+/// `Or<()>` matches nothing; an empty tuple arm `Or<((), With<A>)>`
+/// matches everything.
 ///
-/// A tuple inside an `Or` doesn't compile:
-///
-/// ```compile_fail
+/// ```
 /// # use ponko_ecs::*;
 /// struct A;
 /// struct B;
 /// struct C;
 /// let mut world = World::new();
-/// let _ = world.query::<Entity>().filter::<Or<((With<A>, With<B>), With<C>)>>();
+/// world.spawn((A, B, C));
+/// world.spawn((C,));
+/// assert_eq!(world.query::<Entity>().filter::<Or<((With<A>, With<B>), Without<C>)>>().count(), 1);
 /// ```
 pub struct Or<T>(PhantomData<fn() -> T>);
 
@@ -764,39 +818,27 @@ impl<T: Component> QueryFilter for Without<T> {
 impl<T: OrTerms> QueryFilter for Or<T> {
     fn add(world: &mut World, filters: &mut Filters) {
         T::add_terms(world, filters);
-        filters.close_or();
     }
     fn add_shared(cx: &mut SharedFilters<'_>) {
-        let start = cx.begin_or();
         T::add_shared_terms(cx);
-        cx.end_or(start);
     }
 }
 
-impl<T: Component> OrTerm for With<T> {
-    fn add_term(world: &mut World, filters: &mut Filters) {
-        filters.add_or_term(world.register::<T>(), true);
-    }
-    fn add_shared_term(cx: &mut SharedFilters<'_>) {
-        cx.or_with(cx.world.component_id::<T>());
-    }
-}
+impl<T: Component> OrTerm for With<T> {}
+impl<T: Component> OrTerm for Without<T> {}
+impl<T: OrTerms> OrTerm for Or<T> {}
 
-impl<T: Component> OrTerm for Without<T> {
-    fn add_term(world: &mut World, filters: &mut Filters) {
-        filters.add_or_term(world.register::<T>(), false);
-    }
-    fn add_shared_term(cx: &mut SharedFilters<'_>) {
-        cx.or_without(cx.world.component_id::<T>());
-    }
+impl QueryFilter for () {
+    fn add(_: &mut World, _: &mut Filters) {}
+    fn add_shared(_: &mut SharedFilters<'_>) {}
 }
-
-impl<T: OrTerms> OrTerm for Or<T> {
-    fn add_term(world: &mut World, filters: &mut Filters) {
-        T::add_terms(world, filters);
+impl OrTerm for () {}
+impl OrTerms for () {
+    fn add_terms(_: &mut World, filters: &mut Filters) {
+        filters.append_clauses(&Filters::never());
     }
-    fn add_shared_term(cx: &mut SharedFilters<'_>) {
-        T::add_shared_terms(cx);
+    fn add_shared_terms(cx: &mut SharedFilters<'_>) {
+        cx.append_clauses(&Filters::never());
     }
 }
 
@@ -810,12 +852,21 @@ macro_rules! filter_tuple {
                 $($t::add_shared(cx);)*
             }
         }
+        impl<$($t: OrTerm),*> OrTerm for ($($t,)*) {}
         impl<$($t: OrTerm),*> OrTerms for ($($t,)*) {
             fn add_terms(world: &mut World, filters: &mut Filters) {
-                $($t::add_term(world, filters);)*
+                let mut union = Filters::never();
+                $(
+                    let mut arm = Filters::default();
+                    $t::add(world, &mut arm);
+                    union = union.disjoin(&arm.into_clauses());
+                )*
+                filters.append_clauses(&union);
             }
             fn add_shared_terms(cx: &mut SharedFilters<'_>) {
-                $($t::add_shared_term(cx);)*
+                let mut union = Filters::never();
+                $(union = union.disjoin(&cx.or_arm::<$t>());)*
+                cx.append_clauses(&union);
             }
         }
     };
@@ -1009,8 +1060,8 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// # Panics
     ///
     /// With more than 8 different `With` or `Without` components, more than
-    /// 4 `Or` filters, more than 16 terms across the `Or` filters, or more
-    /// than 4 `Added`/`Changed` filters outside an `Or`.
+    /// 4 expanded `Or` clauses, more than 16 terms across those clauses
+    /// (see [`Or`]), or more than 4 `Added`/`Changed` filters outside an `Or`.
     pub fn filter<F: QueryFilter>(mut self) -> Self {
         F::add(self.world, &mut self.filters);
         self

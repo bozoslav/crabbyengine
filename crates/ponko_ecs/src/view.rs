@@ -448,9 +448,6 @@ pub struct SharedFilters<'a> {
     filters: Filters,
     /// A filter can never hold: a `with` component no entity ever had.
     empty: bool,
-    /// The `Or` clause being built holds for every entity (a `without`
-    /// term names a component no entity ever had).
-    always: bool,
 }
 
 impl SharedFilters<'_> {
@@ -492,43 +489,26 @@ impl SharedFilters<'_> {
         self.filters.add_tick(id, added);
     }
 
-    /// Starts an `Or` clause; pass the result to [`end_or`](Self::end_or).
-    pub(crate) fn begin_or(&mut self) -> (u8, bool) {
-        let outer = self.always;
-        self.always = false;
-        (self.filters.or_terms(), outer)
-    }
-
-    pub(crate) fn or_with(&mut self, id: Option<ComponentId>) {
-        // A component no entity ever had: the term never holds.
-        if let Some(id) = id {
-            self.filters.add_or_term(id, true);
-        }
-    }
-
-    pub(crate) fn or_without(&mut self, id: Option<ComponentId>) {
-        match id {
-            Some(id) => self.filters.add_or_term(id, false),
-            None => self.always = true,
-        }
-    }
-
-    #[track_caller]
-    pub(crate) fn or_tick<T: Component>(&mut self, filter: &str, added: bool) {
-        let id = self.tracked::<T>(filter);
-        self.filters.add_or_tick(id, added);
-    }
-
-    pub(crate) fn end_or(&mut self, (start, outer): (u8, bool)) {
-        if self.always {
-            self.filters.truncate_terms(start);
-        } else if self.filters.or_terms() == start {
-            // Every term named a component no entity ever had.
-            self.empty = true;
+    /// Resolve each arm independently: an unknown `With` makes only that
+    /// arm false, while an unknown `Without` contributes no requirement.
+    pub(crate) fn or_arm<F: QueryFilter>(&self) -> Filters {
+        let mut arm = SharedFilters {
+            world: self.world,
+            label: self.label,
+            decl: self.decl,
+            filters: Filters::default(),
+            empty: false,
+        };
+        F::add_shared(&mut arm);
+        if arm.empty {
+            Filters::never()
         } else {
-            self.filters.close_or();
+            arm.filters.into_clauses()
         }
-        self.always = outer;
+    }
+
+    pub(crate) fn append_clauses(&mut self, filters: &Filters) {
+        self.filters.append_clauses(filters);
     }
 }
 
@@ -825,7 +805,6 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
             decl: self.decl,
             filters: self.filters,
             empty: self.empty,
-            always: false,
         };
         F::add_shared(&mut cx);
         self.filters = cx.filters;

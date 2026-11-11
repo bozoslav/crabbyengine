@@ -145,23 +145,8 @@ impl<T: Component> QueryFilter for Changed<T> {
     }
 }
 
-impl<T: Component> OrTerm for Added<T> {
-    fn add_term(world: &mut World, filters: &mut Filters) {
-        filters.add_or_tick(filtered::<T>(world), true);
-    }
-    fn add_shared_term(cx: &mut SharedFilters<'_>) {
-        cx.or_tick::<T>("Added", true);
-    }
-}
-
-impl<T: Component> OrTerm for Changed<T> {
-    fn add_term(world: &mut World, filters: &mut Filters) {
-        filters.add_or_tick(filtered::<T>(world), false);
-    }
-    fn add_shared_term(cx: &mut SharedFilters<'_>) {
-        cx.or_tick::<T>("Changed", false);
-    }
-}
+impl<T: Component> OrTerm for Added<T> {}
+impl<T: Component> OrTerm for Changed<T> {}
 
 /// Stamps older than this many ticks are aged to exactly this old, so their
 /// 32 bits never wrap. A reader that last looked longer ago than this sees

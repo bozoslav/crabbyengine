@@ -17,6 +17,7 @@ mod par_archetypes;
 mod physics;
 mod physics3d;
 mod query_cache;
+mod query_filters;
 mod report;
 mod streaming;
 
@@ -176,6 +177,7 @@ fn main() {
     net::run(&mut b);
     actions::run(&mut b);
     query_cache::run(&mut b);
+    query_filters::run(&mut b);
     par_archetypes::run(&mut b);
     streaming::run(&mut b);
 
