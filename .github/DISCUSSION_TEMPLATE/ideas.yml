@@ -1,0 +1,25 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas start here, so we can talk about the shape before anyone writes code.
+        Once an idea has a clear design, it becomes an issue.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to make?
+      description: The game or tool, and what's hard or impossible to do with the engine today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: The API or behavior you have in mind, as code if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Workarounds you use today, or how other engines handle it.

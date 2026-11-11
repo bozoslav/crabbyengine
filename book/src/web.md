@@ -23,8 +23,8 @@ cargo install wasm-bindgen-cli --version 0.2.130   # the wasm-bindgen version in
 ```
 
 Then, from your game's folder, with
-[`web/build.sh`](https://github.com/bozoslav/ponko/blob/main/web/build.sh)
-and [`web/index.html`](https://github.com/bozoslav/ponko/blob/main/web/index.html)
+[`web/build.sh`](https://github.com/ponkoengine/ponko/blob/main/web/build.sh)
+and [`web/index.html`](https://github.com/ponkoengine/ponko/blob/main/web/index.html)
 copied from the engine's repository:
 
 ```sh
