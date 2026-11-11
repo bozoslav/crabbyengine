@@ -320,6 +320,14 @@ fn asset_class(class: u32) -> Result<AssetClass, crate::Failure> {
     })
 }
 
+/// The records of `class`, from the service that holds it.
+fn records_of(c: &ponko::Ctx, class: AssetClass) -> Vec<ponko::inventory::AssetRecord> {
+    match class {
+        AssetClass::Sound => c.audio.asset_handles(),
+        _ => c.gfx.asset_handles(class),
+    }
+}
+
 /// Live handles of class `asset_class_id` (a `PonkoAssetClass`) and their estimated bytes
 /// (Rust `Ctx::asset_inventory`): compare two to see which class grows.
 /// # Safety
@@ -350,7 +358,8 @@ pub unsafe extern "C" fn ponko_ctx_asset_count(
 }
 
 /// Every live handle of class `asset_class_id` (a `PonkoAssetClass`), oldest first, with
-/// its bytes, age and owner (Rust `Ctx::asset_handles`): up to `capacity`
+/// its bytes, age and owner (Rust `Graphics::asset_handles` and
+/// `Audio::asset_handles`): up to `capacity`
 /// copied into `records`; `*out_len` is how many there are. Call with
 /// `capacity` 0 to size the array.
 /// # Safety
@@ -374,7 +383,7 @@ pub unsafe extern "C" fn ponko_ctx_asset_handles(
             if records.is_null() && capacity > 0 {
                 return Err(invalid("records is null"));
             }
-            let all = c.asset_handles(asset_class(asset_class_id)?);
+            let all = records_of(c, asset_class(asset_class_id)?);
             for (i, r) in all.iter().take(capacity).enumerate() {
                 records.add(i).write(PonkoAssetRecord {
                     id: r.id,
@@ -419,8 +428,7 @@ pub unsafe extern "C" fn ponko_ctx_asset_owner(
             if buffer.is_null() && capacity > 0 {
                 return Err(invalid("buffer is null"));
             }
-            let name = c
-                .asset_handles(asset_class(asset_class_id)?)
+            let name = records_of(c, asset_class(asset_class_id)?)
                 .into_iter()
                 .find(|r| r.id == id)
                 .and_then(|r| match r.owner {

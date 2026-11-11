@@ -127,7 +127,8 @@ texture, mesh or material. The control endpoint's `perf.get` includes it as
 `assets`. Take one as a baseline, run the game for a while, and
 `growth_since(&baseline)` names the classes that grew, the biggest first.
 
-`ctx.asset_handles(class)` then lists every live handle of that class,
+`ctx.gfx.asset_handles(class)` (for sounds `ctx.audio.asset_handles()`)
+then lists every live handle of that class,
 oldest first, with its bytes, the frame it was made on, its age in frames
 and its owner: game code, the asset file that loaded it (for a glTF model's
 materials and textures, the model's file), or the engine. Handles that keep

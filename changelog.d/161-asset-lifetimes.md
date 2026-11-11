@@ -1,5 +1,6 @@
 ### Added
-- `Ctx::asset_handles(class)` lists every live handle of an `AssetClass`
+- `Graphics::asset_handles(class)` (and `Audio::asset_handles()` for
+  sounds) lists every live handle of an `AssetClass`
   with its estimated bytes, the frame it was made on, its age and its
   `AssetOwner` (game code, the asset file that loaded it, or the engine),
   oldest first: after `AssetInventory::growth_since` names the class that

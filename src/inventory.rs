@@ -234,7 +234,7 @@ impl fmt::Display for AssetInventory {
 
 /// Classes whose handles have no table of their own to count from (2D
 /// textures): what each live one holds; and when each live handle was
-/// made and which file loaded it ([`Ctx::asset_handles`]). Graphics keeps
+/// made and which file loaded it (`Graphics::asset_handles`). Graphics keeps
 /// one, audio another for sounds.
 #[derive(Default)]
 pub(crate) struct Ledger {
@@ -311,7 +311,7 @@ pub enum AssetOwner {
 }
 
 /// One live handle, with what it holds, its age and its owner, from
-/// [`Ctx::asset_handles`]: to find which handles of a class that
+/// [`Graphics::asset_handles`](crate::gfx::Graphics::asset_handles): to find which handles of a class that
 /// [grows](AssetInventory::growth_since) are piling up, and where they
 /// came from.
 ///
@@ -321,7 +321,7 @@ pub enum AssetOwner {
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     let made = ctx.gfx.create_texture(2, 2, &[255; 16]);
 ///     let loaded = ctx.load_texture("crab.png");
-///     let records = ctx.asset_handles(AssetClass::Texture);
+///     let records = ctx.gfx.asset_handles(AssetClass::Texture);
 ///     let made = records.iter().find(|r| r.id == made.id()).unwrap();
 ///     assert_eq!((made.owner.clone(), made.bytes), (AssetOwner::Code, 16));
 ///     let loaded = records.iter().find(|r| r.id == loaded.id()).unwrap();
@@ -364,6 +364,77 @@ pub(crate) fn mip_chain_bytes(width: u32, height: u32, bytes_per_pixel: u64) -> 
     }
 }
 
+impl Ledger {
+    /// The record of live handle `id` of `class`, `now` being this frame.
+    fn record(&self, class: AssetClass, id: u32, bytes: u64, engine: bool) -> AssetRecord {
+        let (made_frame, owner) = self.birth(class, id);
+        AssetRecord {
+            class,
+            id,
+            bytes,
+            made_frame,
+            age_frames: self.now.saturating_sub(made_frame),
+            owner: match owner {
+                _ if engine => AssetOwner::Engine,
+                Some(name) => AssetOwner::File(name.to_string()),
+                None => AssetOwner::Code,
+            },
+        }
+    }
+}
+
+/// Oldest first, then by id.
+fn oldest_first(mut records: Vec<AssetRecord>) -> Vec<AssetRecord> {
+    records.sort_by_key(|r| (r.made_frame, r.id));
+    records
+}
+
+impl crate::gfx::Graphics {
+    /// Every live handle of `class`, with its bytes, age and owner, oldest
+    /// first (see [`AssetRecord`]); empty for [`AssetClass::Sound`], which
+    /// [`Audio::asset_handles`](crate::audio::Audio::asset_handles) lists.
+    /// It allocates: for diagnostics and tests, after
+    /// [`Ctx::asset_inventory`] says which class to look at.
+    #[must_use]
+    pub fn asset_handles(&self, class: AssetClass) -> Vec<AssetRecord> {
+        let ledger = &self.asset_ledger;
+        let mut out = Vec::new();
+        match class {
+            AssetClass::Texture => {
+                for (&id, &bytes) in &ledger.textures {
+                    out.push(ledger.record(class, id, bytes, !self.textures_live.was_made(id)));
+                }
+            }
+            AssetClass::Sound => {}
+            #[cfg(feature = "3d")]
+            _ => self.assets3d.records(class, &self.textures_live, |id, bytes| {
+                out.push(ledger.record(class, id, bytes, false));
+            }),
+            #[cfg(not(feature = "3d"))]
+            _ => {}
+        }
+        oldest_first(out)
+    }
+}
+
+impl crate::audio::Audio {
+    /// Every live sound, with its bytes, age and owner, oldest first (see
+    /// [`AssetRecord`]): [`Graphics::asset_handles`](crate::gfx::Graphics::asset_handles)
+    /// for sounds.
+    #[must_use]
+    pub fn asset_handles(&self) -> Vec<AssetRecord> {
+        let records = self
+            .sounds_live
+            .ids()
+            .map(|id| {
+                self.ledger
+                    .record(AssetClass::Sound, id, self.backend.sound_bytes(id), false)
+            })
+            .collect();
+        oldest_first(records)
+    }
+}
+
 impl Ctx {
     /// Live asset handles by class, with estimated bytes: see
     /// [`AssetInventory`]. Cheap enough to call every frame, but meant for
@@ -394,56 +465,6 @@ impl Ctx {
             gpu,
             dangling: self.dangling_handles(),
         }
-    }
-
-    /// Every live handle of `class`, with its bytes, age and owner, oldest
-    /// first (see [`AssetRecord`]). It allocates: for diagnostics and
-    /// tests, like [`asset_inventory`](Self::asset_inventory), which says
-    /// which class to look at.
-    #[must_use]
-    pub fn asset_handles(&self, class: AssetClass) -> Vec<AssetRecord> {
-        let now = self.time.frame();
-        let gfx = &self.gfx;
-        let ledger = match class {
-            AssetClass::Sound => &self.audio.ledger,
-            _ => &gfx.asset_ledger,
-        };
-        let mut out: Vec<AssetRecord> = Vec::new();
-        let mut add = |id: u32, bytes: u64, engine: bool| {
-            let (made_frame, owner) = ledger.birth(class, id);
-            out.push(AssetRecord {
-                class,
-                id,
-                bytes,
-                made_frame,
-                age_frames: now.saturating_sub(made_frame),
-                owner: match owner {
-                    _ if engine => AssetOwner::Engine,
-                    Some(name) => AssetOwner::File(name.to_string()),
-                    None => AssetOwner::Code,
-                },
-            });
-        };
-        match class {
-            AssetClass::Texture => {
-                for (&id, &bytes) in &gfx.asset_ledger.textures {
-                    add(id, bytes, !gfx.textures_live.was_made(id));
-                }
-            }
-            AssetClass::Sound => {
-                for id in self.audio.sounds_live.ids() {
-                    add(id, self.audio.backend.sound_bytes(id), false);
-                }
-            }
-            #[cfg(feature = "3d")]
-            _ => gfx
-                .assets3d
-                .records(class, &gfx.textures_live, |id, bytes| add(id, bytes, false)),
-            #[cfg(not(feature = "3d"))]
-            _ => {}
-        }
-        out.sort_by_key(|r| (r.made_frame, r.id));
-        out
     }
 
     /// Components that name a freed handle (see [`AssetInventory::dangling`]).

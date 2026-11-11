@@ -1079,7 +1079,7 @@ pub(crate) struct Assets3D {
 
 impl Assets3D {
     /// Calls `f` with the id and estimated bytes of every live handle of
-    /// `class` (`Ctx::asset_handles`); bytes as `inventory` counts them.
+    /// `class` (`Graphics::asset_handles`); bytes as `inventory` counts them.
     pub(crate) fn records(
         &self,
         class: crate::inventory::AssetClass,

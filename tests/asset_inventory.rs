@@ -12,6 +12,14 @@ use ponko::render::{GpuBuffer, Material, MaterialDesc, Mesh, MeshData, ModelMate
 #[cfg(feature = "3d")]
 use ponko::terrain::{TextureArray, TextureKind};
 
+/// The records of `class`, from the service that holds it.
+fn handles(ctx: &Ctx, class: AssetClass) -> Vec<ponko::inventory::AssetRecord> {
+    match class {
+        AssetClass::Sound => ctx.audio.asset_handles(),
+        _ => ctx.gfx.asset_handles(class),
+    }
+}
+
 fn headless(setup: impl FnOnce(&mut Ctx)) {
     Game::new("assets", 1, 1).run_headless(0, setup);
 }
@@ -324,7 +332,7 @@ fn records_say_when_and_by_whom_each_handle_was_made() {
             }
             let made = ctx.gfx.create_texture(2, 1, &[0; 8]);
             let beep = ctx.audio.create(1000, &[0.0; 100]);
-            let records = ctx.asset_handles(AssetClass::Texture);
+            let records = ctx.gfx.asset_handles(AssetClass::Texture);
             let loaded = records
                 .iter()
                 .find(|r| r.owner == AssetOwner::File("crab.png".into()))
@@ -334,13 +342,18 @@ fn records_say_when_and_by_whom_each_handle_was_made() {
             assert_eq!((new.made_frame, new.age_frames, new.bytes), (frame, 0, 8));
             assert_eq!(new.owner, AssetOwner::Code);
             assert_eq!(records.last().unwrap().id, made.id(), "oldest first");
-            let sound = ctx.asset_handles(AssetClass::Sound);
+            let sound = ctx.audio.asset_handles();
             assert_eq!(sound.len(), 1);
             assert_eq!((sound[0].id, sound[0].made_frame), (beep.id(), frame));
             ctx.free(made);
             ctx.free(beep);
-            assert!(ctx.asset_handles(AssetClass::Texture).iter().all(|r| r.id != made.id()));
-            assert!(ctx.asset_handles(AssetClass::Sound).is_empty());
+            assert!(
+                ctx.gfx
+                    .asset_handles(AssetClass::Texture)
+                    .iter()
+                    .all(|r| r.id != made.id())
+            );
+            assert!(ctx.audio.asset_handles().is_empty());
             done.set(true);
         })
         .run_headless(5, |ctx| {
@@ -356,7 +369,7 @@ fn records_cover_every_live_handle_of_every_class() {
     fn agree(ctx: &Ctx) {
         let inventory = ctx.asset_inventory();
         for count in &inventory.classes {
-            let records = ctx.asset_handles(count.class);
+            let records = handles(ctx, count.class);
             assert_eq!(records.len(), count.live, "{:?}", count.class);
             assert_eq!(
                 records.iter().map(|r| r.bytes).sum::<u64>(),
@@ -414,9 +427,9 @@ mod files {
         headless(|ctx| {
             let house = ctx.gfx.load_mesh("models/house.glb");
             let owner = AssetOwner::File("models/house.glb".into());
-            let meshes = ctx.asset_handles(AssetClass::Mesh);
+            let meshes = ctx.gfx.asset_handles(AssetClass::Mesh);
             assert!(meshes.iter().any(|r| r.id == house.id() && r.owner == owner));
-            let materials = ctx.asset_handles(AssetClass::Material);
+            let materials = ctx.gfx.asset_handles(AssetClass::Material);
             assert!(!materials.is_empty() && materials.iter().all(|r| r.owner == owner));
         });
     }
@@ -430,7 +443,7 @@ mod files {
             let base = ctx.asset_inventory();
             for round in 0..20 {
                 ctx.free(house);
-                let material = ctx.asset_handles(AssetClass::Material)[0].id;
+                let material = ctx.gfx.asset_handles(AssetClass::Material)[0].id;
                 ctx.free(Material::from_id(material));
                 house = ctx.gfx.load_mesh("models/house.glb");
                 assert!(ctx.gfx.is_live(house));
@@ -507,7 +520,7 @@ fn the_guide_leak_hunt_runs() {
                 grown.class, grown.live, grown.bytes
             );
             // Which handles are they, how old, and who made them?
-            for r in ctx.asset_handles(grown.class) {
+            for r in ctx.gfx.asset_handles(grown.class) {
                 if let AssetOwner::File(name) = &r.owner {
                     println!(
                         "  {} {}: {} bytes, {} frames old, from {name}",

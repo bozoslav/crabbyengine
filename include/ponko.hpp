@@ -3853,7 +3853,7 @@ public:
         ponko::asset_count n{}; detail::check(ponko_ctx_asset_count(raw_, static_cast<std::uint32_t>(c), &n)); return n;
     }
     /// Every live handle of `c`, oldest first, with its bytes, age and owner
-    /// (Rust `Ctx::asset_handles`).
+    /// (Rust `Graphics::asset_handles`, `Audio::asset_handles`).
     std::vector<ponko::asset_record> asset_handles(asset_class c) const {
         const auto k = static_cast<std::uint32_t>(c);
         std::size_t n = 0; detail::check(ponko_ctx_asset_handles(raw_, k, nullptr, 0, &n));
