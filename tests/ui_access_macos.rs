@@ -15,24 +15,26 @@
 //!
 //! AppKit must be used from the main thread, so this is a program without
 //! the test harness: each check below is a function named after what must
-//! hold, run in order by `main`. Off macOS it does nothing.
+//! hold, run in order by `main`. Off macOS, and without the `accessibility`
+//! feature, it does nothing: CI's `--test '*'` runs must still be able to
+//! build it, which a `required-features` entry would refuse.
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(all(target_os = "macos", feature = "accessibility")))]
 fn main() {}
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "accessibility"))]
 fn main() {
     mac::run();
 }
 
 /// The guide's sample menu, `examples/ui_menu.rs`: its nodes and what it
 /// does with an event, without its `main`.
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "accessibility"))]
 #[allow(dead_code)]
 #[path = "../examples/ui_menu.rs"]
 mod sample;
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", feature = "accessibility"))]
 mod mac {
     use objc2::rc::Id;
     use objc2::runtime::{AnyObject, NSObject};

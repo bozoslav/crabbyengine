@@ -147,7 +147,6 @@ physics-determinism = ["physics", "rapier2d/enhanced-determinism", "rapier3d?/en
 [[test]]
 name = "ui_access_macos"
 harness = false
-required-features = ["accessibility"]
 
 [[example]]
 name = "physics"
