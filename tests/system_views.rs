@@ -45,7 +45,7 @@ fn run(game: Game, ticks: u64) -> World {
     game.run_headless(ticks, setup)
 }
 
-fn one(access: SystemAccess, system: impl FnMut(&mut SystemView) + 'static) -> World {
+fn one(access: SystemAccess, system: impl FnMut(&mut SystemView) + Send + 'static) -> World {
     run(
         Game::new("views", 1, 1).add_view(Phase::AfterPhysics, access, system),
         1,
@@ -289,7 +289,7 @@ fn reading_a_service_does_not_allow_writing_it() {
 
 struct Click(Sound);
 
-fn with_sound(access: SystemAccess, system: impl FnMut(&mut SystemView) + 'static) -> World {
+fn with_sound(access: SystemAccess, system: impl FnMut(&mut SystemView) + Send + 'static) -> World {
     Game::new("views", 1, 1)
         .add_view(Phase::AfterPhysics, access, system)
         .run_headless(1, |ctx| {
@@ -748,7 +748,7 @@ mod physics2d {
     #[allow(unused_imports)]
     use ponko::system_view::SystemView;
 
-    fn with_physics(access: SystemAccess, system: impl FnMut(&mut SystemView) + 'static) -> World {
+    fn with_physics(access: SystemAccess, system: impl FnMut(&mut SystemView) + Send + 'static) -> World {
         Game::new("views", 1, 1)
             .physics(vec2(0.0, 10.0))
             .add_view(Phase::AfterPhysics, access, system)
@@ -806,7 +806,7 @@ mod physics3d {
     #[allow(unused_imports)]
     use ponko::system_view::SystemView;
 
-    fn with_physics(access: SystemAccess, system: impl FnMut(&mut SystemView) + 'static) -> World {
+    fn with_physics(access: SystemAccess, system: impl FnMut(&mut SystemView) + Send + 'static) -> World {
         Game::new("views", 1, 1)
             .physics3d(vec3(0.0, -10.0, 0.0))
             .add_view(Phase::AfterPhysics, access, system)

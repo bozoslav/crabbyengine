@@ -118,6 +118,7 @@ pub mod render;
 pub mod residency;
 pub mod scenario;
 mod scene;
+pub mod schedule;
 mod schema;
 pub mod scope;
 pub mod sheet;

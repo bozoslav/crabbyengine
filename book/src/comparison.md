@@ -87,13 +87,13 @@ parallel. Explicit ordering still matters. See
 [system scheduling tutorial](https://bevy.org/learn/quick-start/getting-started/ecs/).
 Ponko has declared system access and restricted system views
 ([#137](https://github.com/ponkoengine/ponko/issues/137), see
-[Declared system access](system-access.md)); the optional access-aware
-scheduler that uses them is **planned**, following
-[benchmarks #132](https://github.com/ponkoengine/ponko/issues/132) and
-[barrier contracts #146](https://github.com/ponkoengine/ponko/issues/146),
-before [parallel scheduling #138](https://github.com/ponkoengine/ponko/issues/138).
-It must preserve the simple existing workflow and cannot safely be achieved
-by sharing unrestricted mutable contexts between threads.
+[Declared system access](system-access.md)) and an optional scheduler
+that runs non-conflicting view systems at the same time
+([#138](https://github.com/ponkoengine/ponko/issues/138), see
+[Parallel systems](parallel-systems.md)). It is off by default, batches
+only neighbouring systems in registration order rather than building a
+dependency graph, and leaves `&mut Ctx` systems exclusive: unrestricted
+mutable contexts are never shared between threads.
 
 Unity Entities supplies ECS systems and archetype/chunk storage; Unity's
 [Job System](https://docs.unity3d.com/6000.0/Documentation/Manual/JobSystem.html)

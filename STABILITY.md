@@ -203,6 +203,9 @@ What gives the same world from the same seed and inputs:
   another version is ignored and times out.
 - Iteration order of queries is deterministic but not part of the API: it
   can change between versions.
+- `Game::parallel_systems` doesn't change any of this: a simulation gives
+  the same world with it on or off and on any number of threads, so
+  lockstep peers may differ in that setting.
 
 ## Platforms
 

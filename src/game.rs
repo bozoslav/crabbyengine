@@ -7,6 +7,7 @@ use glam::Vec2;
 
 use ponko_ecs::World;
 
+mod batch;
 #[cfg(feature = "window")]
 mod window;
 
@@ -23,11 +24,15 @@ const PIXELS_PER_SCROLL_LINE: f32 = 20.0;
 /// How often to check whether a hidden/minimized window is visible again.
 const OCCLUDED_POLL: Duration = Duration::from_millis(100);
 
-/// Sequential execution buckets, ordered independently of builder call order.
+/// Execution buckets, ordered independently of builder call order.
 ///
 /// `Input` through `SimLast` run once per fixed tick (also headlessly).
 /// `Frame` through `Draw` run once per rendered frame. Systems in the same
-/// phase run in registration order, applying deferred commands after each one.
+/// phase run in registration order, applying deferred commands after each
+/// one. With [`Game::parallel_systems`] on, view systems that are next to
+/// each other in a phase and don't conflict share a batch and may run at
+/// the same time; see [`SchedulePlan`](crate::schedule::SchedulePlan). A
+/// phase always ends before the next one starts.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Phase {
@@ -268,6 +273,18 @@ pub struct Game {
     input_scenario: Option<crate::scenario::InputScenario>,
     /// Whether tools may start input scenarios through the control endpoint.
     input_injection: bool,
+    /// From `parallel_systems`: batches of view systems may use other threads.
+    parallel: bool,
+    /// From `parallel_threshold`.
+    parallel_threshold: Option<Duration>,
+    /// `PONKO_PARALLEL_SYSTEMS` may override the two above.
+    parallel_env: bool,
+    /// Phases where `barrier` was called and no system was added since.
+    pending_barriers: Vec<Phase>,
+    /// From `order`: the second system must see the first's work.
+    order: Vec<(SystemId, SystemId)>,
+    /// The stages the systems run in, built when the game starts.
+    exec: batch::Exec,
 }
 
 type SetupFn = Box<dyn FnOnce(&mut Ctx)>;
@@ -328,13 +345,21 @@ impl ConfiguredGame {
 
 type SystemFn = Box<dyn FnMut(&mut Ctx)>;
 
+/// What a system runs.
+enum Run {
+    /// A function of the whole `Ctx`: always alone.
+    Ctx(SystemFn),
+    /// A view system. `None` only while a batch has it.
+    View(Option<Box<crate::system_view::ViewRunner>>),
+}
+
 /// A system: a named function that runs over the world.
 struct System {
     key: SystemId,
     builtin: Option<SystemId>,
     name: &'static str,
     stage: Phase,
-    run: SystemFn,
+    run: Run,
     /// Simulation systems only: run on ticks where `tick % every == phase`.
     every: u32,
     phase: u32,
@@ -350,6 +375,8 @@ struct System {
     changes_seen: ChangesSeen,
     /// A view system (`add_view`): it can't reach anything undeclared.
     enforced: bool,
+    /// `Game::barrier` was called before it was added: it starts a stage.
+    barrier: bool,
 }
 
 /// A system's place in the world's change history: the change tick at which
@@ -429,7 +456,10 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
     if check.is_some() {
         crate::access::begin_check(ctx);
     }
-    (s.run)(ctx);
+    match &mut s.run {
+        Run::Ctx(f) => f(ctx),
+        Run::View(runner) => runner.as_mut().expect("a batch gives its systems back").run_alone(ctx),
+    }
     #[cfg(debug_assertions)]
     if let Some(access) = check {
         crate::access::end_check(ctx, s.name, access);
@@ -461,7 +491,7 @@ impl System {
             builtin: builtin.map(|b| b.0),
             name: builtin.map_or(std::any::type_name::<F>(), |b| b.1),
             stage: Phase::AfterPhysics,
-            run: hot(f),
+            run: Run::Ctx(hot(f)),
             every: 1,
             phase: 0,
             id,
@@ -469,6 +499,32 @@ impl System {
             last: false,
             changes_seen: ChangesSeen::default(),
             enforced: false,
+            barrier: false,
+        }
+    }
+
+    /// A view system: `f` gets only what `access` declares.
+    fn view<F>(access: crate::access::SystemAccess, f: F) -> Self
+    where
+        F: FnMut(&mut crate::system_view::SystemView<'_>) + Send + 'static,
+    {
+        let id = next_system_id();
+        let name = std::any::type_name::<F>();
+        let runner = crate::system_view::ViewRunner::new(name, access.clone(), hot_view(f));
+        System {
+            key: SystemId(id),
+            builtin: None,
+            name,
+            stage: Phase::AfterPhysics,
+            run: Run::View(Some(Box::new(runner))),
+            every: 1,
+            phase: 0,
+            id,
+            access: Some(access),
+            last: false,
+            changes_seen: ChangesSeen::default(),
+            enforced: true,
+            barrier: false,
         }
     }
 
@@ -501,6 +557,32 @@ fn hot<F: FnMut(&mut Ctx) + 'static>(mut f: F) -> SystemFn {
         // A patch that changed code "above" this system (in its caller)
         // can't run in place; skip this call, the next one is current.
         let _ = subsecond::HotFn::current(call::<F>).try_call((&mut f, ctx));
+    })
+}
+
+/// Boxes view system `f`, like [`hot`] does for `Ctx` systems.
+#[cfg(not(feature = "hotpatch"))]
+fn hot_view<F>(f: F) -> crate::system_view::ViewFn
+where
+    F: FnMut(&mut crate::system_view::SystemView<'_>) + Send + 'static,
+{
+    Box::new(f)
+}
+
+#[cfg(feature = "hotpatch")]
+fn hot_view<F>(mut f: F) -> crate::system_view::ViewFn
+where
+    F: FnMut(&mut crate::system_view::SystemView<'_>) + Send + 'static,
+{
+    /// As in `hot`: a zero-sized function item for subsecond's jump table.
+    fn call<F: FnMut(&mut crate::system_view::SystemView<'_>)>(
+        f: &mut F,
+        view: &mut crate::system_view::SystemView<'_>,
+    ) {
+        f(view);
+    }
+    Box::new(move |view: &mut crate::system_view::SystemView<'_>| {
+        let _ = subsecond::HotFn::current(call::<F>).try_call((&mut f, view));
     })
 }
 
@@ -581,6 +663,12 @@ impl Game {
             inspector: cfg!(debug_assertions),
             input_scenario: None,
             input_injection: false,
+            parallel: false,
+            parallel_threshold: None,
+            parallel_env: true,
+            pending_barriers: Vec::new(),
+            order: Vec::new(),
+            exec: batch::Exec::default(),
         };
         #[cfg(feature = "3d")]
         {
@@ -640,10 +728,13 @@ impl Game {
     /// gets a [`SystemView`](crate::system_view::SystemView) that offers exactly that,
     /// instead of the whole `Ctx`. Anything undeclared is unreachable (its
     /// accessors panic, in every build), so the declaration is enforced by
-    /// the view, not trusted. Systems still run one at a time, in order;
-    /// view systems are the only ones a future parallel executor may run
-    /// together. See [`SystemAccess`](crate::access::SystemAccess) and the guide's
-    /// "Declared system access" chapter.
+    /// the view, not trusted. View systems run one at a time, in order,
+    /// unless [`parallel_systems`](Self::parallel_systems) is on: then the
+    /// ones that are next to each other in a phase and don't conflict share
+    /// a batch and may run at the same time, which is why a view system is
+    /// `Send`. See [`SystemAccess`](crate::access::SystemAccess), the
+    /// [`schedule`](crate::schedule) module and the guide's "Declared
+    /// system access" and "Parallel systems" chapters.
     ///
     /// ```
     /// use ponko::prelude::*;
@@ -677,19 +768,231 @@ impl Game {
         mut self,
         phase: Phase,
         access: crate::access::SystemAccess,
-        system: impl FnMut(&mut crate::system_view::SystemView<'_>) + 'static,
+        system: impl FnMut(&mut crate::system_view::SystemView<'_>) + Send + 'static,
     ) -> Self {
+        self.add_view_system(phase, access, system);
+        self
+    }
+
+    /// [`add_view`](Self::add_view) that returns the system's id, for
+    /// [`remove`](Self::remove) and [`order`](Self::order). Like
+    /// [`add_system`](Self::add_system), it borrows the builder.
+    ///
+    /// # Panics
+    /// As [`add_view`](Self::add_view).
+    #[track_caller]
+    pub fn add_view_system(
+        &mut self,
+        phase: Phase,
+        access: crate::access::SystemAccess,
+        system: impl FnMut(&mut crate::system_view::SystemView<'_>) + Send + 'static,
+    ) -> SystemId {
         let name = crate::system_view::name_of(&system);
         if let Some(problem) = access.view_problem() {
             panic!("Game::add_view: system `{name}` {problem}");
         }
-        let mut s = System::new(crate::system_view::wrap(name, access.clone(), system));
-        s.name = name;
-        s.builtin = None;
-        s.access = Some(access);
-        s.enforced = true;
-        self.insert_system(phase, s);
+        self.insert_system(phase, System::view(access, system))
+    }
+
+    /// Lets view systems ([`add_view`](Self::add_view)) that don't conflict
+    /// run at the same time, on several threads. Off by default: then every
+    /// system runs alone, in order, as always.
+    ///
+    /// On, the systems of each phase are cut into stages
+    /// ([`schedule_plan`](Self::schedule_plan) shows them): view systems
+    /// that are next to each other and whose declarations don't conflict
+    /// share a **batch**; every other system (all `&mut Ctx` systems, and
+    /// view systems that hold sound, a camera, a physics world or
+    /// networking) is a stage of its own. Stages run in order, so systems
+    /// that conflict keep their registration order. Commands recorded in a
+    /// batch are applied, and events sent in it become visible, when the
+    /// batch ends, in registration order; the conflict rules make sure no
+    /// system could have seen them earlier anyway.
+    ///
+    /// The simulation comes out the same as with it off, whatever the
+    /// threads do, down to the world's change ticks: a game in lockstep can
+    /// turn it on for some players only. Off, the scheduler never touches
+    /// the thread pool (rayon's global pool): a game that doesn't turn it
+    /// on gets no threads from here and can still configure the pool.
+    ///
+    /// If a system of a batch panics, the batch's other systems still run
+    /// (as they may already be running on other threads), then the panic
+    /// is passed on. That batch has no barrier: the commands its systems
+    /// recorded and the events they sent are dropped.
+    /// A batch whose systems are too cheap to be worth another thread runs
+    /// in order on the game's thread ([`parallel_threshold`](Self::parallel_threshold)),
+    /// and so do all batches while the profiler is on, on the web, and on a
+    /// machine with one core. Many tiny systems don't get faster: see the
+    /// guide's "Parallel systems" chapter for measurements.
+    ///
+    /// The environment variable `PONKO_PARALLEL_SYSTEMS` overrides this:
+    /// `1` on, `0` off, `always` on with a threshold of zero (every batch
+    /// goes to the thread pool, for tests).
+    ///
+    /// ```
+    /// use ponko::access::SystemAccess;
+    /// use ponko::prelude::*;
+    /// use ponko::system_view::SystemView;
+    ///
+    /// struct Pos(f32);
+    /// struct Health(i32);
+    ///
+    /// fn drift(sys: &mut SystemView) {
+    ///     sys.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
+    /// }
+    /// fn decay(sys: &mut SystemView) {
+    ///     sys.world.query::<&mut Health>().for_each(|h| h.0 -= 1);
+    /// }
+    ///
+    /// let mut world = Game::new("parallel", 1, 1)
+    ///     .parallel_systems(true)
+    ///     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Pos>(), drift)
+    ///     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), decay)
+    ///     .run_headless(10, |ctx| {
+    ///         ctx.world.spawn((Pos(0.0), Health(100)));
+    ///     });
+    /// let mut rows = world.query::<(&Pos, &Health)>();
+    /// let (p, h) = rows.iter().next().unwrap();
+    /// assert_eq!((p.0, h.0), (10.0, 90));
+    /// ```
+    pub fn parallel_systems(mut self, on: bool) -> Self {
+        self.parallel = on;
+        self.exec.invalidate();
         self
+    }
+
+    /// How much work a batch must have before it goes to other threads,
+    /// with [`parallel_systems`](Self::parallel_systems) on: the usual run
+    /// time of its systems, without the slowest one (the batch takes at
+    /// least that long on any number of threads). Below it, the batch runs in order on the game's
+    /// thread, where waking other threads would cost more than it saves.
+    /// The default is
+    /// [`DEFAULT_PARALLEL_THRESHOLD`](crate::schedule::DEFAULT_PARALLEL_THRESHOLD),
+    /// from the benchmarks in the guide; `Duration::ZERO` sends every batch
+    /// to the pool. It only changes speed, never results.
+    ///
+    /// ```
+    /// use ponko::prelude::*;
+    /// use std::time::Duration;
+    /// let game = Game::new("t", 1, 1).parallel_systems(true).parallel_threshold(Duration::from_micros(200));
+    /// # let _ = game;
+    /// ```
+    pub fn parallel_threshold(mut self, work: Duration) -> Self {
+        self.parallel_threshold = Some(work);
+        self.exec.invalidate();
+        self
+    }
+
+    /// Whether the environment variable `PONKO_PARALLEL_SYSTEMS` may
+    /// override [`parallel_systems`](Self::parallel_systems) and
+    /// [`parallel_threshold`](Self::parallel_threshold) (it may, by
+    /// default). For tests that compare a game with the scheduler off, on
+    /// in order, and on threads: their settings must hold whatever the
+    /// test run's environment says.
+    #[doc(hidden)]
+    pub fn parallel_systems_env(mut self, obeyed: bool) -> Self {
+        self.parallel_env = obeyed;
+        self.exec.invalidate();
+        self
+    }
+
+    /// Puts a barrier into `phase`, after the systems added to it so far:
+    /// the next system added to the phase starts a new stage, so it and
+    /// everything after it see the applied commands and the events of
+    /// everything before. Only matters with
+    /// [`parallel_systems`](Self::parallel_systems) on, where it splits
+    /// what would be one batch; without it, every system is already a
+    /// stage. A barrier with no system after it does nothing.
+    ///
+    /// ```
+    /// use ponko::access::SystemAccess;
+    /// use ponko::prelude::*;
+    /// struct A;
+    /// struct B;
+    /// let plan = Game::new("barrier", 1, 1)
+    ///     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<A>(), |_| {})
+    ///     .barrier(Phase::AfterPhysics)
+    ///     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<B>(), |_| {})
+    ///     .schedule_plan();
+    /// assert_eq!(plan.stages_in(Phase::AfterPhysics).len(), 2);
+    /// ```
+    pub fn barrier(mut self, phase: Phase) -> Self {
+        if !self.pending_barriers.contains(&phase) {
+            self.pending_barriers.push(phase);
+        }
+        self
+    }
+
+    /// Says that `second` must see `first`'s work: the two never share a
+    /// batch, even if their declarations don't conflict (for an order that
+    /// the declarations can't show, such as two systems that talk through
+    /// a file or a channel). `first` must already run before `second`: an
+    /// earlier phase, or registered first in the same phase. Ids come from
+    /// [`add_view_system`](Self::add_view_system) and
+    /// [`add_system`](Self::add_system); a removed system's pair is ignored.
+    ///
+    /// # Panics
+    /// When the game starts (or its [`schedule_plan`](Self::schedule_plan)
+    /// is made), if `second` runs before `first`. That is checked with the
+    /// scheduler on or off, so turning it on can't be what makes a game
+    /// panic.
+    ///
+    /// ```
+    /// use ponko::access::SystemAccess;
+    /// use ponko::prelude::*;
+    /// struct A;
+    /// struct B;
+    /// let mut game = Game::new("order", 1, 1);
+    /// let first = game.add_view_system(Phase::AfterPhysics, SystemAccess::new().write::<A>(), |_| {});
+    /// let second = game.add_view_system(Phase::AfterPhysics, SystemAccess::new().write::<B>(), |_| {});
+    /// assert_eq!(game.schedule_plan().stages_in(Phase::AfterPhysics).len(), 1);
+    /// let game = game.order(first, second);
+    /// assert_eq!(game.schedule_plan().stages_in(Phase::AfterPhysics).len(), 2);
+    /// ```
+    pub fn order(mut self, first: SystemId, second: SystemId) -> Self {
+        self.order.push((first, second));
+        self.exec.invalidate();
+        self
+    }
+
+    /// The stages the systems run in with
+    /// [`parallel_systems`](Self::parallel_systems) on: which systems share
+    /// a batch, which run alone, and why each stage starts where it does.
+    /// The plan doesn't depend on whether it is on. Print it to see why two
+    /// systems don't run together.
+    ///
+    /// # Panics
+    /// If an [`order`](Self::order) pair contradicts the run order.
+    #[must_use]
+    #[track_caller]
+    pub fn schedule_plan(&self) -> crate::schedule::SchedulePlan {
+        crate::schedule::plan(&self.plan_inputs(), &self.order)
+    }
+
+    /// Every system in run order, as the planner takes them.
+    fn plan_inputs(&self) -> Vec<crate::schedule::PlanInput<'_>> {
+        let lists = [&self.sim_systems, &self.systems, &self.late_systems, &self.draw_systems];
+        (lists.into_iter().enumerate())
+            .flat_map(|(list, systems)| {
+                systems.iter().map(move |s| crate::schedule::PlanInput {
+                    name: s.name,
+                    // Late and draw systems report their list's phase
+                    // (built-ins are added without setting `stage`).
+                    phase: match list {
+                        2 => Phase::Late,
+                        3 => Phase::Draw,
+                        _ => s.stage,
+                    },
+                    list: list as u8,
+                    id: s.key,
+                    access: s.access.as_ref(),
+                    view: s.enforced,
+                    // A batch runs every tick: an interval system stays alone.
+                    interval: s.every > 1,
+                    barrier: s.barrier,
+                })
+            })
+            .collect()
     }
 
     /// For language bindings (the C API): `named_add` with a declaration
@@ -794,6 +1097,15 @@ impl Game {
     fn insert_system(&mut self, phase: Phase, mut s: System) -> SystemId {
         let id = s.key;
         s.stage = phase;
+        // A pending barrier belongs to the next system the game adds, not
+        // to a built-in that stays at the end of the phase.
+        if !s.last
+            && let Some(i) = self.pending_barriers.iter().position(|&p| p == phase)
+        {
+            self.pending_barriers.swap_remove(i);
+            s.barrier = true;
+        }
+        self.exec.invalidate();
         let systems = match phase {
             Phase::Input | Phase::BeforePhysics | Phase::Physics | Phase::AfterPhysics | Phase::SimLast => {
                 &mut self.sim_systems
@@ -877,6 +1189,7 @@ impl Game {
     }
 
     fn remove_id(&mut self, id: SystemId) {
+        self.exec.invalidate();
         self.sim_systems.retain(|s| s.key != id && s.builtin != Some(id));
         self.systems.retain(|s| s.key != id && s.builtin != Some(id));
         self.late_systems.retain(|s| s.key != id && s.builtin != Some(id));
@@ -1027,6 +1340,11 @@ impl Game {
         let same = self.sim_systems.iter().filter(|s| s.every == ticks).count() as u32;
         s.every = ticks;
         s.phase = same % ticks;
+        if let Some(i) = self.pending_barriers.iter().position(|&p| p == Phase::AfterPhysics) {
+            self.pending_barriers.swap_remove(i);
+            s.barrier = true;
+        }
+        self.exec.invalidate();
         let index = self.sim_systems.partition_point(|s| s.stage <= Phase::AfterPhysics);
         self.sim_systems.insert(index, s);
         self
@@ -1567,8 +1885,10 @@ impl Game {
     /// frame, late and draw systems. The retained UI updates first
     /// (`Ctx::frame_begin_services`); every other engine step of a frame is
     /// a system: animators and particles end `Animate`, positional audio ends
-    /// `Draw`. Commands are applied after every system.
+    /// `Draw`. Commands are applied after every system (after every batch
+    /// with `parallel_systems`).
     fn run_systems(&mut self, ctx: &mut Ctx, fixed_steps: u32) {
+        self.ensure_schedule();
         ctx.net.begin_frame();
         ctx.frame_begin_services();
         self.begin_timings(ctx);
@@ -1583,15 +1903,12 @@ impl Game {
         ctx.set_in_sim(false);
         let n_sim = self.sim_systems.len();
         let n_frame = self.systems.len();
-        for (i, s) in self.systems.iter_mut().enumerate() {
-            run_one(s, ctx, n_sim + i);
-        }
-        for (i, s) in self.late_systems.iter_mut().enumerate() {
-            run_one(s, ctx, n_sim + n_frame + i);
-        }
-        for (i, s) in self.draw_systems.iter_mut().enumerate() {
-            run_one(s, ctx, n_sim + n_frame + self.late_systems.len() + i);
-        }
+        let n_late = self.late_systems.len();
+        self.exec.run_list(&mut self.systems, 1, ctx, n_sim, None);
+        self.exec
+            .run_list(&mut self.late_systems, 2, ctx, n_sim + n_frame, None);
+        self.exec
+            .run_list(&mut self.draw_systems, 3, ctx, n_sim + n_frame + n_late, None);
         end_timings(ctx);
         let frame = self.systems.iter().chain(&self.late_systems).chain(&self.draw_systems);
         forget_seen_removals(ctx, self.sim_systems.iter().chain(frame));
@@ -1599,6 +1916,7 @@ impl Game {
 
     /// One simulation tick: every sim system once, then the tick counter.
     fn run_sim_tick(&mut self, ctx: &mut Ctx) {
+        self.ensure_schedule();
         let tick = ctx.time.sim_tick();
         if let Some(scenario) = self.input_scenario.take() {
             ctx.input.install_scenario(
@@ -1610,17 +1928,50 @@ impl Game {
             );
         }
         ctx.scenario_begin_tick();
-        for (i, s) in self.sim_systems.iter_mut().enumerate() {
-            if tick % u64::from(s.every) != u64::from(s.phase) {
-                continue;
-            }
-            ctx.set_sim_steps(s.every);
-            run_one(s, ctx, i);
-        }
+        self.exec.run_list(&mut self.sim_systems, 0, ctx, 0, Some(tick));
         ctx.set_sim_steps(1);
         ctx.scenario_end_tick();
         ctx.net.lockstep.end_tick(&ctx.world, tick);
         ctx.advance_tick();
+    }
+
+    /// What is wrong with the [`order`](Self::order) pairs, if anything.
+    /// For language bindings: lets them refuse before
+    /// [`schedule_plan`](Self::schedule_plan) panics.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn order_problem(&self) -> Option<String> {
+        let lists = [&self.sim_systems, &self.systems, &self.late_systems, &self.draw_systems];
+        let systems = lists.into_iter().flat_map(|l| l.iter().map(|s| (s.key, s.name)));
+        crate::schedule::order_problem(systems, &self.order)
+    }
+
+    /// Builds the stages the systems run in, if the systems or the settings
+    /// changed since they were built.
+    fn ensure_schedule(&mut self) {
+        let lens = [
+            self.sim_systems.len(),
+            self.systems.len(),
+            self.late_systems.len(),
+            self.draw_systems.len(),
+        ];
+        if self.exec.is_current(lens) {
+            return;
+        }
+        let settings = batch::Settings::new(self.parallel, self.parallel_threshold, self.parallel_env);
+        // Checked on or off: a wrong `order` must not wait for the day the
+        // scheduler is turned on (which the environment can do).
+        if let Some(problem) = self.order_problem() {
+            panic!("{problem}");
+        }
+        let plan = settings.on.then(|| self.schedule_plan());
+        let lists = [
+            &self.sim_systems[..],
+            &self.systems[..],
+            &self.late_systems[..],
+            &self.draw_systems[..],
+        ];
+        self.exec.build(settings, plan.as_ref(), lists);
     }
 
     /// Each system's phase and interval, in timing order, for diagnostics.
@@ -2278,6 +2629,8 @@ mod tests {
 
 #[cfg(test)]
 mod barrier_tests;
+#[cfg(test)]
+mod batch_tests;
 #[cfg(test)]
 mod phase_order_tests;
 #[cfg(test)]

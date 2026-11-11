@@ -19,6 +19,7 @@ mod physics3d;
 mod query_cache;
 mod query_filters;
 mod report;
+mod schedule;
 mod streaming;
 
 use bevy_ecs::component::Component;
@@ -179,6 +180,7 @@ fn main() {
     query_cache::run(&mut b);
     query_filters::run(&mut b);
     par_archetypes::run(&mut b);
+    schedule::run(&mut b);
     streaming::run(&mut b);
 
     // Resource scoping versus the previous public take/put workaround.

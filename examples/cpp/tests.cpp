@@ -2625,6 +2625,11 @@ static void declared_access() {
     CHECK(report.find("mover + killer: could run together") == std::string::npos);
     CHECK(report.find("mover + killer: no conflict, but a `Ctx` system stays sequential") != std::string::npos);
     CHECK(report.find("killer + scorer: conflict on events") != std::string::npos);
+    // With the scheduler on, C++ systems keep running one at a time: they take the whole ctx.
+    g.parallel_systems();
+    const std::string plan = g.schedule_plan();
+    CHECK(plan.find("  mover (alone: takes `&mut Ctx`)") != std::string::npos);
+    CHECK(plan.find("  scorer (alone: takes `&mut Ctx`)") != std::string::npos);
     auto w = g.run_headless(2, [](ponko::ctx& ctx) {
         ctx.world().set_resource(Score{0});
         ctx.world().spawn(Pos{0, 0}, Vel{1, 0});

@@ -47,7 +47,9 @@
 
 use std::any::{Any, TypeId};
 use std::marker::PhantomData;
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, PoisonError};
 
 use crate::bundle::Component;
 use crate::change::{self, Clock, Tick};
@@ -250,6 +252,19 @@ pub struct ViewState {
     lent: Vec<Lent>,
     /// The world prepared for, 0 when not prepared.
     world: u64,
+    /// Unique per state: how a [`ViewGroup`] recognizes the states it checked.
+    id: u64,
+    /// What change filters compare against, if not the world's
+    /// [`changes_since`](World::changes_since).
+    since: Option<Tick>,
+    /// The tick this state's views write in and report, if not the
+    /// world's current one.
+    now: Option<Tick>,
+}
+
+fn next_state_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 impl ViewState {
@@ -262,7 +277,51 @@ impl ViewState {
             ids: Vec::new(),
             lent: Vec::new(),
             world: 0,
+            id: next_state_id(),
+            since: None,
+            now: None,
         }
+    }
+
+    /// Makes [`Added`](crate::Added) and [`Changed`](crate::Changed) filters
+    /// and [`WorldView::removed`] in this state's views report what happened
+    /// after `since`, instead of after the world's
+    /// [`changes_since`](World::changes_since); `None` goes back to the
+    /// world's. Views that share a world each need their own: the world has
+    /// only one `changes_since`.
+    pub fn set_changes_since(&mut self, since: Option<Tick>) {
+        self.since = since;
+    }
+
+    /// Makes this state's views write in change tick `tick`: their writes
+    /// are stamped with it and [`WorldView::change_tick`] returns it,
+    /// instead of the world's current tick; `None` goes back to the
+    /// world's. For views that share a world but stand for work that would
+    /// otherwise happen in ticks of its own, one after another: advance the
+    /// world past those ticks first, then give each view its tick. A tick
+    /// after the world's current one counts as the current one.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// struct Pos(f32);
+    /// let mut world = World::new();
+    /// world.track_changes::<Pos>();
+    /// world.spawn((Pos(0.0),));
+    /// let first = world.advance_change_tick();
+    /// let second = world.advance_change_tick();
+    /// let mut state = ViewState::new(ViewAccess::new().write::<Pos>());
+    /// // Write as if in the tick `second`, although the world is past it.
+    /// state.set_change_tick(Some(second));
+    /// state.run(&mut world, |mut view| {
+    ///     assert_eq!(view.change_tick(), second);
+    ///     view.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
+    /// });
+    /// let changed = |world: &mut World, since| world.query::<&Pos>().filter::<Changed<Pos>>().since(since).count();
+    /// assert_eq!(changed(&mut world, first), 1);
+    /// assert_eq!(changed(&mut world, second), 0);
+    /// ```
+    pub fn set_change_tick(&mut self, tick: Option<Tick>) {
+        self.now = tick;
     }
 
     /// Names the code using the view in panic messages (a system's name).
@@ -396,6 +455,8 @@ impl ViewState {
             label: self.label,
             ids: &self.ids,
             lent: &mut self.lent,
+            since: self.since.unwrap_or(world.changes_since()),
+            now: self.now.map_or(world.change_tick(), |t| t.min(world.change_tick())),
         }
     }
 }
@@ -411,6 +472,10 @@ pub struct WorldView<'w> {
     label: &'static str,
     ids: &'w [(ComponentId, bool)],
     lent: &'w mut [Lent],
+    /// What change filters and `removed` compare against by default.
+    since: Tick,
+    /// The tick this view writes in.
+    now: Tick,
 }
 
 /// Panics unless `decl` allows `write` (or reading) component `id`.
@@ -558,13 +623,15 @@ impl<'w> WorldView<'w> {
             filters: Filters::default(),
             empty: false,
             since: None,
+            default_since: self.since,
+            now: self.now,
             _borrow: PhantomData,
         }
     }
 
     /// The entities that lost component `T` (declared read or write)
-    /// since the world's [`changes_since`](World::changes_since), oldest
-    /// first: [`World::removed`] through the view. In a game, that is since
+    /// since the world's [`changes_since`](World::changes_since) (or the
+    /// state's own, see [`ViewState::set_changes_since`]), oldest first: [`World::removed`] through the view. In a game, that is since
     /// this system last ran.
     ///
     /// # Panics
@@ -572,7 +639,7 @@ impl<'w> WorldView<'w> {
     #[track_caller]
     #[must_use]
     pub fn removed<T: Component>(&self) -> &'w [Entity] {
-        self.removed_since::<T>(self.world.changes_since())
+        self.removed_since::<T>(self.since)
     }
 
     /// [`removed`](Self::removed) after a tick the caller kept.
@@ -587,12 +654,14 @@ impl<'w> WorldView<'w> {
         world.removed_since::<T>(since)
     }
 
-    /// The world's current change tick (see [`World::change_tick`]): keep
-    /// it to pass to [`ViewQuery::since`] or
-    /// [`removed_since`](Self::removed_since) next time.
+    /// The change tick this view writes in: the world's current one (see
+    /// [`World::change_tick`]) unless the state has its own
+    /// ([`ViewState::set_change_tick`]). Keep it to pass to
+    /// [`ViewQuery::since`] or [`removed_since`](Self::removed_since) next
+    /// time.
     #[must_use]
     pub fn change_tick(&self) -> Tick {
-        self.world.change_tick()
+        self.now
     }
 
     /// Component `T` of `e` (declared read or write), or `None` if `e` is
@@ -617,7 +686,7 @@ impl<'w> WorldView<'w> {
         if arch.tracked() {
             // A mutable borrow counts as a change, as with `World::get_mut`.
             // The stamps belong to the column this view may write.
-            arch.stamp(col, loc.row as usize, self.world.changes.stamp(), false);
+            arch.stamp(col, loc.row as usize, self.now.0 as u32, false);
         }
         let ptr = arch.columns[col].ptr(loc.row as usize);
         // SAFETY: `T` is declared written, so nothing else touches it (the
@@ -740,6 +809,10 @@ pub struct ViewQuery<'v, Q: QueryData> {
     /// What `Added`/`Changed` filters compare against, if not the world's
     /// [`changes_since`](World::changes_since).
     since: Option<Tick>,
+    /// The view's own default for `since`.
+    default_since: Tick,
+    /// The tick the view writes in.
+    now: Tick,
     /// Borrows the view mutably: one query at a time, like `World::query`.
     _borrow: PhantomData<&'v mut ()>,
 }
@@ -829,12 +902,9 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
     }
 
     /// The window of this query's change stamps: writes are stamped with
-    /// the world's current tick.
+    /// the view's tick.
     fn clock(&self) -> Clock {
-        Clock::new(
-            self.world.change_tick(),
-            self.since.unwrap_or(self.world.changes_since()),
-        )
+        Clock::new(self.now, self.since.unwrap_or(self.default_since))
     }
 
     /// Runs `f` for every matching entity. As in [`World::query`], every
@@ -932,5 +1002,203 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         }
         // SAFETY: the row is the live entity's; access was checked.
         Some(unsafe { Q::fetch(state, loc.row as usize) })
+    }
+}
+
+/// Proof that a list of [`ViewState`]s may view one world at the same time:
+/// their declarations don't overlap pairwise ([`ViewAccess::overlaps`]).
+///
+/// Check once with [`new`](Self::new), then [`run`](Self::run) the same
+/// states as often as needed, on several threads or one after another. This
+/// is the safe way to share a world between views: `run` recognizes the
+/// states it checked and refuses any other.
+///
+/// ```
+/// use ponko_ecs::*;
+/// struct Pos(f32);
+/// struct Health(i32);
+///
+/// let mut world = World::new();
+/// world.spawn((Pos(0.0), Health(3)));
+///
+/// // Each task: its view state, and whatever else it needs.
+/// let mut tasks = vec![
+///     (ViewState::new(ViewAccess::new().write::<Pos>()), 1.0f32),
+///     (ViewState::new(ViewAccess::new().write::<Health>()), 2.0f32),
+/// ];
+/// let group = ViewGroup::new(tasks.iter().map(|t| &t.0)).unwrap();
+/// group.run(
+///     &mut world,
+///     &mut tasks,
+///     true,
+///     |task| (&mut task.0, &mut task.1),
+///     |amount, mut view| {
+///         if *amount == 1.0 {
+///             view.query::<&mut Pos>().for_each(|p| p.0 += *amount);
+///         } else {
+///             view.query::<&mut Health>().for_each(|h| h.0 -= *amount as i32);
+///         }
+///     },
+/// );
+/// assert_eq!(world.query::<&Pos>().iter().next().unwrap().0, 1.0);
+/// assert_eq!(world.query::<&Health>().iter().next().unwrap().0, 1);
+/// ```
+#[derive(Clone, Debug)]
+pub struct ViewGroup {
+    /// The checked states, in order.
+    ids: Vec<u64>,
+}
+
+impl ViewGroup {
+    /// Checks `states`. `Err((i, j))` names the first two whose
+    /// declarations overlap (or that are the same state twice).
+    pub fn new<'a>(states: impl IntoIterator<Item = &'a ViewState>) -> Result<Self, (usize, usize)> {
+        let states: Vec<&ViewState> = states.into_iter().collect();
+        for (j, b) in states.iter().enumerate() {
+            for (i, a) in states[..j].iter().enumerate() {
+                if a.id == b.id || a.access.overlaps(&b.access) {
+                    return Err((i, j));
+                }
+            }
+        }
+        Ok(ViewGroup {
+            ids: states.iter().map(|s| s.id).collect(),
+        })
+    }
+
+    /// How many states the group checked.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.ids.len()
+    }
+
+    /// `true` for a group of no states.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+
+    /// Runs `f` once per item with a view of `world`, all sharing it.
+    ///
+    /// `split` gives each item's view state (the group's states, in the
+    /// order they were checked) and the rest of the item, which `f` gets
+    /// next to the view. With `parallel` (and the `parallel` feature, and
+    /// more than one item) the calls run on rayon's threads; otherwise one
+    /// after another on this thread, in order. Either way every state is
+    /// prepared before the first call and finished after the last, in
+    /// order: what the items see doesn't depend on which of the two it was.
+    ///
+    /// A panic in `f` doesn't stop the other calls, on threads or in order:
+    /// every item still gets its call, every state is finished (lent
+    /// resources go back to the world), and then the panic of the first
+    /// item in order that panicked is passed on. So a panic leaves the same
+    /// world and the same items behind whichever way the group ran, and
+    /// which panic the caller sees doesn't depend on thread timing.
+    ///
+    /// # Panics
+    /// If `items` aren't the states this group checked, in that order, or
+    /// one of them is already prepared. With the first panic of `f`, as
+    /// above.
+    pub fn run<T, U>(
+        &self,
+        world: &mut World,
+        items: &mut [T],
+        parallel: bool,
+        split: impl Fn(&mut T) -> (&mut ViewState, &mut U) + Sync,
+        f: impl Fn(&mut U, WorldView<'_>) + Sync,
+    ) where
+        T: Send,
+    {
+        /// Finishes every state, also while unwinding.
+        struct Finish<'a, T, U, S: Fn(&mut T) -> (&mut ViewState, &mut U)> {
+            items: &'a mut [T],
+            world: &'a mut World,
+            split: &'a S,
+        }
+        impl<T, U, S: Fn(&mut T) -> (&mut ViewState, &mut U)> Drop for Finish<'_, T, U, S> {
+            fn drop(&mut self) {
+                for item in self.items.iter_mut() {
+                    let state = (self.split)(item).0;
+                    // Only what this run prepared: a state prepared for
+                    // another world isn't ours to finish.
+                    if state.world == self.world.uid {
+                        state.finish(self.world);
+                    }
+                }
+            }
+        }
+
+        assert_eq!(
+            items.len(),
+            self.ids.len(),
+            "ViewGroup::run: the group checked {} states, not {}",
+            self.ids.len(),
+            items.len()
+        );
+        let guard = Finish {
+            items,
+            world,
+            split: &split,
+        };
+        for (i, item) in guard.items.iter_mut().enumerate() {
+            let state = split(item).0;
+            assert_eq!(
+                state.id, self.ids[i],
+                "ViewGroup::run: item {i} isn't the state this group checked"
+            );
+            state.prepare(guard.world);
+        }
+        let world: &World = guard.world;
+        let ids = &self.ids;
+        // The panic of the first item in order that panicked. Only locked
+        // when a call panics.
+        let first_panic: Mutex<Option<(usize, Box<dyn Any + Send>)>> = Mutex::new(None);
+        let one = |(i, item): (usize, &mut T)| {
+            let (state, rest) = split(item);
+            // Checked again: `split` decides what it returns on every call.
+            assert_eq!(
+                state.id, ids[i],
+                "ViewGroup::run: item {i} isn't the state this group checked"
+            );
+            // SAFETY: `guard` holds the only (mutable) borrow of the world,
+            // so nothing changes it through `&mut World` and only these
+            // views read or write it. Each view comes from a different
+            // state (ids are unique and each item must have its own), and
+            // the states' declarations don't overlap pairwise (checked in
+            // `new`; a state's declaration never changes), so no view
+            // writes a component another reads or writes. `f` gets nothing
+            // of the world but its view.
+            let view = unsafe { state.view(world) };
+            // The other items still run: see the docs. The item's state is
+            // finished by `guard` like every other.
+            if let Err(panic) = catch_unwind(AssertUnwindSafe(|| f(rest, view))) {
+                let mut first = first_panic.lock().unwrap_or_else(PoisonError::into_inner);
+                if first.as_ref().is_none_or(|(at, _)| i < *at) {
+                    *first = Some((i, panic));
+                }
+            }
+        };
+        #[cfg(feature = "parallel")]
+        let threads = parallel && guard.items.len() > 1;
+        #[cfg(not(feature = "parallel"))]
+        let threads = {
+            let _ = parallel;
+            false
+        };
+        if threads {
+            #[cfg(feature = "parallel")]
+            {
+                use rayon::prelude::*;
+                guard.items.par_iter_mut().enumerate().for_each(one);
+            }
+        } else {
+            guard.items.iter_mut().enumerate().for_each(one);
+        }
+        // Finish the states first, then pass the panic on.
+        drop(guard);
+        let first = first_panic.into_inner().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, panic)) = first {
+            resume_unwind(panic);
+        }
     }
 }

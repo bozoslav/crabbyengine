@@ -10,7 +10,7 @@ This roadmap is directional. Ordering changes with correctness evidence, measure
 
 | Complete-game area | Status | Evidence and remaining work |
 |---|---|---|
-| ECS and fixed-step simulation | Implemented | [ECS](crates/ponko_ecs/src), [game loop](src/game.rs), [determinism tests](tests/determinism.rs). Systems remain sequential; optional cross-system scheduling is planned. |
+| ECS and fixed-step simulation | Implemented | [ECS](crates/ponko_ecs/src), [game loop](src/game.rs), [determinism tests](tests/determinism.rs). Systems are sequential by default; view systems can opt into parallel batches ([schedule](src/schedule.rs)). |
 | World, scene and prefab management | Implemented | [scene.rs](src/scene.rs), [reflection](src/reflect.rs), [scene tests](tests/scenes.rs). Advanced world composition and complete service-state restoration need use-case validation. |
 | Asset importing and processing | Partial | [glTF](src/three/gltf.rs), [Unity tooling](crates/ponko_unity), [assets](src/assets.rs). Import support varies by format and feature; it is not source-engine runtime compatibility. |
 | Asset streaming and residency | Partial | [Job/CellStreamer](src/stream.rs), [stream tests](tests/stream.rs). Automatic budgeted mip/mesh residency is missing; [#154](https://github.com/ponkoengine/ponko/issues/154). |

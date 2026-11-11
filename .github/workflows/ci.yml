@@ -370,6 +370,22 @@ jobs:
       - name: Tests, engine with hotpatch
         if: ${{ !cancelled() }}
         run: cargo test -p ponko --no-fail-fast --features hotpatch --test headless --test determinism --test events
+      # `PONKO_PARALLEL_SYSTEMS=always` turns the scheduler on in every game
+      # that doesn't pin its own setting, with every batch on the thread pool.
+      # What this proves: games whose view systems follow the environment get
+      # the same results in batches on threads as one at a time. Those are
+      # `determinism` (view_systems_give_the_same_world_...), `net`
+      # (peers_that_schedule_their_view_systems_differently_...: the host in
+      # batches, the guest one at a time) and all of `system_views`. The
+      # older tests in these files only have `&mut Ctx` systems, which run
+      # alone either way: for them the step shows the scheduler leaves them
+      # alone. `system_schedule` pins its three modes itself (off, in order,
+      # threads) and compares them, so it proves the same here as in `test`.
+      - name: Tests, view systems in batches on threads (scheduler forced on)
+        if: ${{ !cancelled() }}
+        env:
+          PONKO_PARALLEL_SYSTEMS: always
+        run: cargo test -p ponko --no-fail-fast --test determinism --test net --test net_messages --test net_replication --test system_views --test system_schedule --test schedule_barriers --test events --test change_detection --test phases
       # The same pile on every OS: rapier's cross-platform determinism.
       - name: Tests, physics with cross-platform determinism
         if: ${{ !cancelled() }}
@@ -440,9 +456,10 @@ jobs:
             flags: ""
           # The parallel path. rayon's dependency crossbeam-epoch trips Stacked
           # Borrows (not our code), and its global pool outlives main.
-          # `changes` holds the parallel loops over rows picked by change filters.
+          # `changes` holds the parallel loops over rows picked by change filters,
+          # `view_groups` the views that share a world across threads.
           - name: par_for_each, tree borrows
-            args: --test parallel --test changes
+            args: --test parallel --test changes --test view_groups
             flags: -Zmiri-tree-borrows -Zmiri-ignore-leaks
     env:
       MIRIFLAGS: ${{ matrix.flags }}

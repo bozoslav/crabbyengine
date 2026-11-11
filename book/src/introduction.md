@@ -59,8 +59,9 @@ and the paired API examples.
 Grow into [entities and systems](ecs.md), fixed-step simulation and parallel
 queries as needed. A [headless run](headless.md) advances simulation without a
 window or GPU. Configure a minimal build with Cargo features when those
-dependencies should also be omitted. Parallel query iteration exists today;
-automatic dependency-aware parallel system scheduling is planned.
+dependencies should also be omitted. Parallel query iteration is built in,
+and systems that declare what they use can opt into
+[running at the same time](parallel-systems.md).
 
 ## Current tools and future goals
 

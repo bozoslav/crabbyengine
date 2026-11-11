@@ -136,6 +136,36 @@ impl Commands {
         self.ops.is_empty()
     }
 
+    /// Forgets everything recorded without applying it (the values the
+    /// commands hold are dropped), keeping the buffers for reuse.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// let mut world = World::new();
+    /// let mut commands = Commands::new();
+    /// commands.spawn((1u32,));
+    /// commands.clear();
+    /// assert!(commands.is_empty());
+    /// world.apply(&mut commands);
+    /// assert_eq!(world.len(), 0);
+    /// ```
+    pub fn clear(&mut self) {
+        self.drop_recorded();
+        self.ops.clear();
+        self.bytes.clear();
+    }
+
+    /// Drops the values of every recorded command and empties `ops`, so none
+    /// is read again: also when a value's `Drop` panics part way through (the
+    /// values after it are then leaked, never dropped twice).
+    fn drop_recorded(&mut self) {
+        let base = self.bytes.as_mut_ptr();
+        for op in self.ops.drain(..) {
+            // SAFETY: recorded commands that were never applied; each read once.
+            unsafe { (op.call)(base.add(op.offset), None) };
+        }
+    }
+
     pub(crate) fn apply(&mut self, world: &mut World) {
         /// Drops the commands not yet run and empties the buffers, also when a
         /// command panics part way through.
@@ -174,10 +204,6 @@ impl Commands {
 
 impl Drop for Commands {
     fn drop(&mut self) {
-        let base = self.bytes.as_mut_ptr();
-        for op in &self.ops {
-            // SAFETY: recorded commands that were never applied; each read once.
-            unsafe { (op.call)(base.add(op.offset), None) };
-        }
+        self.drop_recorded();
     }
 }

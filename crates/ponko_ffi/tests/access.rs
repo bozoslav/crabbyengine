@@ -176,6 +176,23 @@ fn the_report_lists_declared_c_systems() {
             ponko_game_access_report(g, null_mut(), 0, null_mut()),
             PONKO_INVALID_ARGUMENT
         );
+        // The scheduler can be turned on, and the plan says why C systems
+        // still run one at a time.
+        assert_eq!(ponko_game_parallel_systems(g, true), PONKO_OK);
+        assert_eq!(ponko_game_schedule_plan(g, null_mut(), 0, &mut len), PONKO_OK);
+        let mut buf = vec![0 as c_char; len + 1];
+        assert_eq!(
+            ponko_game_schedule_plan(g, buf.as_mut_ptr(), buf.len(), &mut len),
+            PONKO_OK
+        );
+        let plan = CStr::from_ptr(buf.as_ptr()).to_str().unwrap();
+        assert!(plan.contains("  hurt (alone: takes `&mut Ctx`)\n"), "{plan}");
+        assert!(plan.contains("  count (alone: takes `&mut Ctx`)\n"), "{plan}");
+        assert_eq!(
+            ponko_game_schedule_plan(g, null_mut(), 0, null_mut()),
+            PONKO_INVALID_ARGUMENT
+        );
+        assert_eq!(ponko_game_parallel_systems(null_mut(), true), PONKO_INVALID_ARGUMENT);
         ponko_game_free(g);
         ponko_access_free(a);
         ponko_access_free(b);

@@ -1,10 +1,11 @@
 //! Declared system access: what a system reads and writes, and which
 //! declared systems could run together.
 //!
-//! **Status:** declarations, view systems and the conflict rules are in
-//! place; systems still run one after another, in phase and registration
-//! order. The parallel executor that uses them is planned (#138). The
-//! guide's "Declared system access" chapter has the full design.
+//! Systems run one after another, in phase and registration order, unless
+//! [`Game::parallel_systems`](crate::Game::parallel_systems) is on: then
+//! view systems whose declarations don't conflict run at the same time
+//! (see [`schedule`](crate::schedule)). The guide's "Declared system
+//! access" and "Parallel systems" chapters have the full design.
 //!
 //! # The model
 //!
@@ -55,9 +56,9 @@
 //!    (spawn, despawn, insert, remove: those need exclusivity or commands),
 //!    and any undeclared command panics, naming the system and what it
 //!    used. Services aren't recorded. These systems always run sequentially.
-//! 3. **No shared `Ctx`, ever.** A parallel executor must never hand
-//!    `&mut Ctx` (or `&mut World`) to two systems at once; views share
-//!    `&World` under the rules of [`ViewState`](crate::ecs_core::ViewState).
+//! 3. **No shared `Ctx`, ever.** The scheduler never hands `&mut Ctx` (or
+//!    `&mut World`) to two systems at once; views share `&World` through a
+//!    checked [`ViewGroup`](crate::ecs_core::ViewGroup).
 //!
 //! # Scope and limits
 //!
@@ -303,6 +304,43 @@ pub struct SystemAccess {
     services: Vec<(Service, bool)>,
     /// The typed components and resources, as the ECS view takes them.
     world: ViewAccess,
+    /// For each typed event type read: how to share its kept events.
+    event_items: Vec<EventItems>,
+}
+
+/// How to get the kept events of one type as a value threads can share.
+#[derive(Clone, Copy)]
+struct EventItems {
+    id: TypeId,
+    items: SharedItems,
+}
+
+/// From [`Events::shared_items`](crate::events::Events::shared_items).
+pub(crate) type SharedItems = for<'a> fn(&'a crate::events::Events) -> Option<&'a (dyn std::any::Any + Send + Sync)>;
+
+impl PartialEq for EventItems {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for EventItems {}
+
+impl fmt::Debug for EventItems {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.id.fmt(f)
+    }
+}
+
+/// Why a view system can't share a parallel batch whatever its neighbours
+/// declare: it runs alone, like a `Ctx` system.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Unbatchable {
+    /// It declares a service that only one system at a time may hold.
+    Service(Service),
+    /// It sends and reads this event type: alone, it sees its own events
+    /// at once; in a batch they would only arrive when the batch ends.
+    SendsAndReads(&'static str),
 }
 
 impl SystemAccess {
@@ -356,16 +394,27 @@ impl SystemAccess {
     }
 
     /// Reads `E` events ([`Events::read`](crate::Events::read) or `peek`).
+    ///
+    /// Declared event types are `Send + Sync`, like components and
+    /// resources: a system in a parallel batch reads them from another
+    /// thread. A system whose events aren't stays undeclared (exclusive).
     #[must_use]
-    pub fn read_events<E: 'static>(mut self) -> Self {
+    pub fn read_events<E: Send + Sync + 'static>(mut self) -> Self {
         add_event(&mut self.events, item::<E>(false));
+        let id = TypeId::of::<E>();
+        if !self.event_items.iter().any(|e| e.id == id) {
+            self.event_items.push(EventItems {
+                id,
+                items: crate::events::Events::shared_items::<E>,
+            });
+        }
         self
     }
 
     /// Sends `E` events. Doesn't cover reading them; add
     /// [`read_events`](Self::read_events) for that.
     #[must_use]
-    pub fn send_events<E: 'static>(mut self) -> Self {
+    pub fn send_events<E: Send + Sync + 'static>(mut self) -> Self {
         add_event(&mut self.events, item::<E>(true));
         self
     }
@@ -479,6 +528,25 @@ impl SystemAccess {
     /// `true` if `E` events may be sent.
     pub(crate) fn sends_events(&self, id: TypeId) -> bool {
         self.events.iter().any(|i| i.key == Key::Type(id) && i.write)
+    }
+
+    /// The typed event types this system reads, with how to share each.
+    pub(crate) fn event_reads(&self) -> impl Iterator<Item = (TypeId, SharedItems)> + '_ {
+        self.event_items.iter().map(|e| (e.id, e.items))
+    }
+
+    /// Why a view system with this declaration must run alone, if it must.
+    ///
+    /// In a batch a system gets only what can be shared or is its own: the
+    /// world view, its command buffer, an outbox for its events, and the
+    /// services a view only reads (input, time, random, the spatial grid).
+    pub(crate) fn batch_problem(&self) -> Option<Unbatchable> {
+        if let Some(&(s, _)) = self.services.iter().find(|(s, _)| s.in_view() != Some(false)) {
+            return Some(Unbatchable::Service(s));
+        }
+        (self.events.iter())
+            .find(|a| a.write && self.events.iter().any(|b| !b.write && a.same(b)))
+            .map(|a| Unbatchable::SendsAndReads(a.name))
     }
 
     /// The typed component and resource part, for an ECS view.
@@ -767,8 +835,8 @@ pub struct ReportedSystem {
     /// Its declaration; `None` means undeclared, which counts as exclusive.
     pub access: Option<SystemAccess>,
     /// `true` for a view system ([`Game::add_view`](crate::Game::add_view)):
-    /// it can reach nothing beyond its declaration, so a parallel executor
-    /// may trust it. Declared `&mut Ctx` systems (`add_with_access`) are
+    /// it can reach nothing beyond its declaration, so the scheduler
+    /// may put it in a batch. Declared `&mut Ctx` systems (`add_with_access`) are
     /// only checked in debug builds and must stay sequential.
     pub enforced: bool,
 }
@@ -792,7 +860,9 @@ pub struct ReportedPair {
 /// Lists every system and, for each pair in the same phase where both have
 /// a declaration, its conflicts. Undeclared systems are exclusive and are
 /// left out of the pairs, but one registered between two declared systems
-/// keeps them apart ([`AccessConflict::Between`]). Purely informational: systems still run in order.
+/// keeps them apart ([`AccessConflict::Between`]). Purely informational:
+/// [`Game::schedule_plan`](crate::Game::schedule_plan) shows what really
+/// runs together.
 #[derive(Clone, Debug, Default)]
 pub struct AccessReport {
     /// Every registered system, in run order.
