@@ -39,20 +39,6 @@ fn frees<H: Handle>(ctx: &mut Ctx, handle: H, make: impl Fn(&mut Ctx) -> H) {
     ctx.free(next);
 }
 
-/// [`frees`] for meshes and GPU buffers, whose freed ids the next one made
-/// takes (streamed worlds make and free them all the time).
-#[cfg(feature = "3d")]
-fn frees_reusing<H: Handle>(ctx: &mut Ctx, handle: H, make: impl Fn(&mut Ctx) -> H) {
-    assert!(ctx.is_live(handle), "{handle:?} is live before free");
-    ctx.free(handle);
-    assert!(!ctx.is_live(handle), "{handle:?} is dead after free");
-    ctx.free(handle); // again: nothing
-    let next = make(ctx);
-    assert_eq!(next.id(), handle.id(), "{handle:?}: the freed id is taken again");
-    assert!(ctx.is_live(next));
-    ctx.free(next);
-}
-
 #[test]
 fn none_is_never_live_and_freeing_it_does_nothing() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
@@ -179,7 +165,7 @@ mod three {
                 ctx.gfx.create_mesh(&MeshData::cube(1.0), m)
             };
             let mesh = cube(ctx);
-            frees_reusing(ctx, mesh, cube);
+            frees(ctx, mesh, cube);
             let plain = |ctx: &mut Ctx| ctx.gfx.create_material(MaterialDesc::default());
             let material = plain(ctx);
             frees(ctx, material, plain);
@@ -194,7 +180,7 @@ mod three {
             frees(ctx, e, effect);
             let buffer = |ctx: &mut Ctx| ctx.gfx.create_gpu_buffer(4, &[]);
             let b = buffer(ctx);
-            frees_reusing(ctx, b, buffer);
+            frees(ctx, b, buffer);
             let cube_mesh = cube(ctx);
             let batch = move |ctx: &mut Ctx| {
                 ctx.gfx
@@ -219,6 +205,54 @@ mod three {
             assert!(!ctx.is_live(Mesh::NONE) && !ctx.is_live(Material::NONE) && !ctx.is_live(Shader::NONE));
             assert!(!ctx.is_live(Compute::NONE) && !ctx.is_live(Effect::NONE) && !ctx.is_live(GpuBuffer::NONE));
             assert!(!ctx.is_live(InstanceBatch::NONE) && !ctx.is_live(TextureArray::NONE));
+        });
+    }
+
+    /// A freed mesh or buffer slot is reused under a new id, so a handle
+    /// kept past `free` never reaches the resource made after it.
+    #[test]
+    fn stale_mesh_and_buffer_handles_never_reach_the_next_resource() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let material = ctx.gfx.default_material();
+            let old = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            ctx.free(old);
+            let new = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            assert_eq!(new.id() & 0x00FF_FFFF, old.id() & 0x00FF_FFFF, "the same slot");
+            assert_ne!(new, old);
+            assert!(!ctx.is_live(old) && ctx.is_live(new));
+            assert!(!ctx.is_live(Mesh::from_id(old.id())));
+            // Calls with the stale handle leave the new mesh alone.
+            ctx.gfx.set_mesh_shadows(old, false);
+            assert!(ctx.gfx.mesh_shadows(new));
+            ctx.free(old);
+            assert!(ctx.is_live(new));
+            assert_eq!(ctx.live_counts().meshes, 1);
+
+            let old = ctx.gfx.create_gpu_buffer(4, &[]);
+            ctx.free(old);
+            let new = ctx.gfx.create_gpu_buffer(2, &[]);
+            assert_eq!(new.id() & 0x00FF_FFFF, old.id() & 0x00FF_FFFF, "the same slot");
+            assert_eq!(ctx.gfx.gpu_buffer_len(old), None);
+            ctx.free(old);
+            assert_eq!(ctx.gfx.gpu_buffer_len(new), Some(2));
+        });
+    }
+
+    /// Streaming one mesh in and out keeps its slot: the tables stay the
+    /// same size, and the ids cycle through 256 generations, none `NONE`.
+    #[test]
+    fn a_reused_slot_counts_its_generations() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let material = ctx.gfx.default_material();
+            let mut ids = std::collections::HashSet::new();
+            for _ in 0..300 {
+                let m = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+                assert_eq!(m.id() & 0x00FF_FFFF, 0);
+                assert_ne!(m, Mesh::NONE);
+                ids.insert(m.id());
+                ctx.free(m);
+            }
+            assert_eq!(ids.len(), 256);
         });
     }
 
@@ -299,7 +333,8 @@ mod three {
                 if !seen.get() {
                     assert!(ctx.compute_passes.is_empty(), "the next frame removed the stale pass");
                     let made = ctx.gfx.create_gpu_buffer(4, &[]);
-                    assert_eq!(made.id(), 0, "and the id is back in the pool");
+                    assert_eq!(made.id() & 0x00FF_FFFF, 0, "and the slot is back in the pool");
+                    assert_ne!(made.id(), 0, "under a new id");
                     seen.set(true);
                 }
             })

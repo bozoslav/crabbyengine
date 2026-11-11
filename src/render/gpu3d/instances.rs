@@ -202,7 +202,7 @@ impl Renderer3D {
             .levels
             .iter()
             .map(|l| {
-                self.meshes[l.mesh.id as usize]
+                self.meshes[l.mesh.slot() as usize]
                     .parts
                     .iter()
                     .flat_map(|(r, _)| [r.end - r.start, 0, r.start, 0, 0])
@@ -289,7 +289,7 @@ impl Renderer3D {
                 // Whole-batch rejection precedes uniforms, dispatches and draws.
                 let enabled = |l: &InstanceLevel| {
                     if shadow {
-                        l.shadows && !frame.static_shadowless.contains(&l.mesh.id)
+                        l.shadows && !frame.static_shadowless.contains(&l.mesh.slot())
                     } else {
                         l.camera
                     }

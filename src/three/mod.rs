@@ -260,6 +260,57 @@ impl Mesh {
     /// });
     /// ```
     pub const NONE: Mesh = Mesh { id: u32::MAX };
+
+    /// Its slot in the engine's mesh tables and the renderer: the id
+    /// without its generation (see [`SLOT_BITS`]).
+    #[inline]
+    pub(crate) fn slot(self) -> u32 {
+        self.id & SLOT_MASK
+    }
+}
+
+/// Bits of a [`Mesh`] or [`GpuBuffer`] id that name its slot in the
+/// engine's tables; the bits above count how often the slot was given out
+/// again. Streamed worlds make and free these handles all the time, so a
+/// freed slot is reused, but under a new id: a handle kept past `free`
+/// stays dead instead of reaching the next resource in its slot. The count
+/// wraps after 256 reuses of one slot.
+pub(crate) const SLOT_BITS: u32 = 24;
+/// The slot bits of a [`Mesh`] or [`GpuBuffer`] id (see [`SLOT_BITS`]).
+pub(crate) const SLOT_MASK: u32 = (1 << SLOT_BITS) - 1;
+
+/// The id the slot of freed handle `id` is given out under next: its
+/// generation counted up. Never `u32::MAX` (`NONE`), whose slot is never
+/// given out.
+pub(crate) fn next_generation(id: u32) -> u32 {
+    let generation = ((id >> SLOT_BITS) + 1) & (u32::MAX >> SLOT_BITS);
+    (generation << SLOT_BITS) | (id & SLOT_MASK)
+}
+
+/// A new slot after `len` used ones, for a mesh or GPU buffer. Panics when
+/// every slot is taken (the last one is `NONE`'s).
+pub(crate) fn new_slot(len: usize, what: &str) -> u32 {
+    assert!(len < SLOT_MASK as usize, "too many live {what}s");
+    len as u32
+}
+
+/// Records that slot `id & SLOT_MASK` is given out as `id`, in a table of
+/// ids by slot that may be shorter (a missing entry means the slot's own
+/// number, generation 0).
+pub(crate) fn set_slot_id(ids: &mut Vec<u32>, id: u32) {
+    let slot = (id & SLOT_MASK) as usize;
+    while ids.len() <= slot {
+        ids.push(ids.len() as u32);
+    }
+    ids[slot] = id;
+}
+
+/// The slot of `id` if `id` is the id its slot was last given out as
+/// (see [`set_slot_id`]); `None` for a stale or foreign id.
+#[inline]
+pub(crate) fn slot_of(ids: &[u32], id: u32) -> Option<usize> {
+    let slot = id & SLOT_MASK;
+    (ids.get(slot as usize).copied().unwrap_or(slot) == id).then_some(slot as usize)
 }
 
 /// What one mesh cost to draw in the last frame, from
@@ -933,7 +984,10 @@ pub(crate) struct Assets3D {
     pub morph_bases: std::collections::HashMap<crate::Entity, (u32, MorphWeights, MorphWeights)>,
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
-    /// Freed meshes' ids, for the next meshes made.
+    /// The id each mesh slot was last given out as (see [`SLOT_BITS`]);
+    /// shorter than `bounds` while the last slots are on their first id.
+    pub mesh_ids: Vec<u32>,
+    /// Freed meshes' ids, for the next meshes made (under a new generation).
     pub free_meshes: Vec<u32>,
     /// The id the next mesh made takes instead (a resident mesh reloaded
     /// after eviction; see `three::resident`).
@@ -980,8 +1034,10 @@ pub(crate) struct Assets3D {
     pub effects: u32,
     /// Compute passes made so far, and those loaded from files.
     pub computes: u32,
-    /// GPU buffers' lengths, by id; 0 for a freed one.
+    /// GPU buffers' lengths, by slot; 0 for a freed one.
     pub gpu_buffers: Vec<u32>,
+    /// The id each GPU buffer slot was last given out as (see [`SLOT_BITS`]).
+    pub gpu_buffer_ids: Vec<u32>,
     pub instance_batches: Vec<Option<instances::Batch>>,
     pub instance_batch_revision: u64,
     /// Freed GPU buffers' ids, for the next buffers made.
@@ -1054,22 +1110,44 @@ impl Assets3D {
 
     /// Mesh `id`'s bounds, unless there's no such mesh or it was freed.
     pub(crate) fn live_bounds(&self, id: u32) -> Option<(Vec3, f32)> {
-        self.bounds.get(id as usize).copied().filter(|&(_, r)| r >= 0.0)
+        self.bounds.get(self.mesh_slot(id)?).copied().filter(|&(_, r)| r >= 0.0)
     }
 
-    /// How mesh `id` binds to joints, if it's skinned.
+    /// The slot of mesh `id`, unless the id is stale (its slot was given
+    /// to a newer mesh) or was never made. Freed meshes keep their slot
+    /// until it is reused; [`live_bounds`](Self::live_bounds) tells those apart.
+    pub(crate) fn mesh_slot(&self, id: u32) -> Option<usize> {
+        slot_of(&self.mesh_ids, id).filter(|&slot| slot < self.bounds.len())
+    }
+
+    /// The live mesh handle in `slot`, for what the renderer reports by slot.
+    pub(crate) fn mesh_in_slot(&self, slot: u32) -> Mesh {
+        Mesh {
+            id: self.mesh_ids.get(slot as usize).copied().unwrap_or(slot),
+        }
+    }
+
+    /// The slot of GPU buffer `id`, unless the id is stale or was never made.
+    pub(crate) fn gpu_buffer_slot(&self, id: u32) -> Option<usize> {
+        slot_of(&self.gpu_buffer_ids, id).filter(|&slot| slot < self.gpu_buffers.len())
+    }
+
+    /// How the mesh in `id`'s slot binds to joints, if it's skinned. Takes
+    /// a mesh id or a slot; check the mesh with `live_bounds` first.
     pub(crate) fn skin(&self, id: u32) -> Option<&MeshSkin> {
-        self.skins.get(id as usize)?.as_deref()
+        self.skins.get((id & SLOT_MASK) as usize)?.as_deref()
     }
 
-    /// Mesh `id`'s morph targets, if it has any.
+    /// The morph targets of the mesh in `id`'s slot, if it has any (as
+    /// [`skin`](Self::skin)).
     pub(crate) fn morph(&self, id: u32) -> Option<&MeshMorph> {
-        self.morphs.get(id as usize)?.as_deref()
+        self.morphs.get((id & SLOT_MASK) as usize)?.as_deref()
     }
 
-    /// Whether mesh `id` casts shadows (the default).
+    /// Whether the mesh in `id`'s slot casts shadows (the default; as
+    /// [`skin`](Self::skin)).
     pub(crate) fn casts_shadows(&self, id: u32) -> bool {
-        !self.shadowless.get(id as usize).copied().unwrap_or(false)
+        !self.shadowless.get((id & SLOT_MASK) as usize).copied().unwrap_or(false)
     }
 }
 

@@ -230,9 +230,11 @@ mod cells {
             ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
             ctx.camera3d.look_at(Vec3::ZERO);
             ctx.world.spawn((Transform3D::default(), Model::new(Mesh::NONE)));
-            // A freed id is taken by the next mesh made; NONE never is.
+            // A freed slot is taken by the next mesh made (under a new
+            // id); NONE never is.
             let made: Vec<Mesh> = (0..4).map(|_| ctx.gfx.create_mesh(&cube, material)).collect();
-            assert!(made.contains(&freed));
+            assert!(made.iter().any(|m| m.id() & 0x00FF_FFFF == freed.id() & 0x00FF_FFFF));
+            assert!(!made.contains(&freed));
             assert!(!made.contains(&Mesh::NONE));
             assert!(!ctx.gfx.is_live(Mesh::NONE));
             assert!(ctx.gfx.mesh_shadows(Mesh::NONE));
@@ -266,7 +268,7 @@ mod cells {
     }
 
     #[test]
-    fn freed_mesh_ids_are_reused() {
+    fn freed_mesh_slots_are_reused_under_new_ids() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             let material = ctx.gfx.default_material();
             let cube = MeshData::cube(1.0);
@@ -279,16 +281,26 @@ mod cells {
                 ctx.gfx.create_mesh(&cube, material),
                 ctx.gfx.create_mesh(&cube, material),
             ];
+            let slot = |m: Mesh| m.id() & 0x00FF_FFFF;
+            let slots = again.map(slot);
             assert!(
-                again == [first[3], first[1]] || again == [first[1], first[3]],
+                slots == [slot(first[3]), slot(first[1])] || slots == [slot(first[1]), slot(first[3])],
                 "{again:?}"
             );
             assert!(again.iter().all(|&m| ctx.gfx.is_live(m)));
+            // But under new ids: the freed handles stay dead, and freeing
+            // them again leaves the new meshes alone.
+            assert!(again.iter().all(|m| !first.contains(m)));
+            assert!(!ctx.gfx.is_live(first[1]) && !ctx.gfx.is_live(first[3]));
+            ctx.gfx.free(first[1]);
+            ctx.gfx.free(first[3]);
+            assert!(again.iter().all(|&m| ctx.gfx.is_live(m)));
             // The new mesh doesn't inherit the old one's settings.
-            assert!(ctx.gfx.mesh_shadows(first[1]));
-            // Past the freed ones, ids are new.
+            let reused = if slot(again[0]) == slot(first[1]) { again[0] } else { again[1] };
+            assert!(ctx.gfx.mesh_shadows(reused));
+            // Past the freed ones, slots are new.
             let new = ctx.gfx.create_mesh(&cube, material);
-            assert!(!first.contains(&new));
+            assert!(!first.iter().any(|&m| slot(m) == slot(new)));
         });
     }
 

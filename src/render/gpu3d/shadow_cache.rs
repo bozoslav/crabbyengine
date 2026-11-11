@@ -237,7 +237,7 @@ impl Renderer3D {
                 .iter()
                 .flatten()
                 .filter(|b| b.casts())
-                .any(|b| b.levels.iter().any(|l| l.shadows && mesh_volatile(l.mesh.id)))
+                .any(|b| b.levels.iter().any(|l| l.shadows && mesh_volatile(l.mesh.slot())))
     }
 
     fn material_volatile(&self, material: u32) -> bool {

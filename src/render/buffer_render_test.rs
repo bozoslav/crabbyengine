@@ -214,7 +214,7 @@ impl Rig {
             ctx.compute_passes
                 .iter()
                 .filter(|c| ctx.gfx.gpu_buffer_len(c.buffer.unwrap()).is_some())
-                .map(|c| (c.compute.id, c.buffer.unwrap().id | (1 << 31), 0)),
+                .map(|c| (c.compute.id, c.buffer.unwrap().slot() | (1 << 31), 0)),
         );
         let scene = Scene3D {
             frame: &frame,
@@ -311,10 +311,10 @@ fn buffer_draw(compute: bool) {
     let mut data = vec![vec4(99.0, -1.0, 0.0, 1.0); 65];
     data[0].x = -2.0;
     let b = rig.ctx.gfx.create_gpu_buffer(65, &data);
-    rig.renderer.create_gpu_buffer(&rig.device, b.id, 65, &data);
+    rig.renderer.create_gpu_buffer(&rig.device, b.slot(), 65, &data);
     rig.renderer
-        .write_gpu_buffer(&rig.queue, b.id, 64, &[vec4(0.0, -1.0, 0.0, 1.0)]);
-    rig.renderer.set_mesh_gpu_buffer(mesh.id, b.id, 65);
+        .write_gpu_buffer(&rig.queue, b.slot(), 64, &[vec4(0.0, -1.0, 0.0, 1.0)]);
+    rig.renderer.set_mesh_gpu_buffer(mesh.slot(), b.slot(), 65);
     let first = "fn update(i: u32) { items[i].x += 1.0; }";
     let second = "fn update(i: u32) { items[i].y += 1.0 + frame.time.y * 0.0; }";
     for source in [first, second] {
@@ -488,7 +488,7 @@ impl Rig {
     fn buffer(&mut self, data: &[Vec4]) -> GpuBuffer {
         let b = self.ctx.gfx.create_gpu_buffer(data.len() as u32, data);
         self.renderer
-            .create_gpu_buffer(&self.device, b.id, data.len() as u32, data);
+            .create_gpu_buffer(&self.device, b.slot(), data.len() as u32, data);
         b
     }
     fn look_at_origin(&mut self) -> Mat4 {
@@ -513,7 +513,7 @@ fn buffer_instances_move_and_tint_with_their_entity() {
     }
     let mesh = rig.offset_mesh();
     let b = rig.buffer(&[vec4(-1.0, 0.0, 0.0, 0.0), vec4(1.0, 0.0, 0.0, 0.0)]);
-    rig.renderer.set_mesh_gpu_buffer(mesh.id, b.id, 2);
+    rig.renderer.set_mesh_gpu_buffer(mesh.slot(), b.slot(), 2);
     let entity = rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
     let view_proj = rig.look_at_origin();
 
@@ -562,7 +562,7 @@ fn buffer_instances_are_culled_by_the_grown_bounds() {
     let mesh = rig.offset_mesh();
     // The entity is far off to the left; its instance is shifted back on screen.
     let b = rig.buffer(&[vec4(12.0, 0.0, 0.0, 0.0)]);
-    rig.renderer.set_mesh_gpu_buffer(mesh.id, b.id, 1);
+    rig.renderer.set_mesh_gpu_buffer(mesh.slot(), b.slot(), 1);
     rig.ctx
         .world
         .spawn((Transform3D::at(vec3(-12.0, 0.0, 0.0)), Model::new(mesh)));
@@ -583,14 +583,14 @@ fn buffer_instances_are_culled_by_the_grown_bounds() {
 }
 
 #[test]
-fn freed_buffers_are_skipped_and_their_ids_reused() {
+fn freed_buffers_are_skipped_and_their_slots_reused() {
     let Some(mut rig) = Rig::new() else { return };
     if rig.device.limits().max_storage_buffers_per_shader_stage == 0 {
         return;
     }
     let mesh = rig.offset_mesh();
     let b = rig.buffer(&[vec4(-1.0, 0.0, 0.0, 0.0), vec4(1.0, 0.0, 0.0, 0.0)]);
-    rig.renderer.set_mesh_gpu_buffer(mesh.id, b.id, 2);
+    rig.renderer.set_mesh_gpu_buffer(mesh.slot(), b.slot(), 2);
     let source = "fn update(i: u32) { items[i].y += 1.0; }";
     let c = rig.ctx.gfx.create_compute("up", source);
     rig.renderer.create_compute(&rig.device, "up", source).unwrap();
@@ -602,7 +602,7 @@ fn freed_buffers_are_skipped_and_their_ids_reused() {
     assert!(drawn(&mut rig, vec3(-1.0, 1.0, 0.0)), "the pass moved it up");
 
     rig.ctx.free(b);
-    rig.renderer.free_gpu_buffer(b.id);
+    rig.renderer.free_gpu_buffer(b.slot());
     assert_eq!(rig.ctx.gfx.gpu_buffer_len(b), None);
     assert!(rig.ctx.compute_passes.is_empty(), "its passes went with it");
     assert!(!drawn(&mut rig, vec3(-1.0, 1.0, 0.0)) && !drawn(&mut rig, vec3(-1.0, 0.0, 0.0)));
@@ -614,16 +614,18 @@ fn freed_buffers_are_skipped_and_their_ids_reused() {
     // Freeing it again does nothing.
     rig.ctx.free(b);
 
-    // The id comes back for a new buffer; the mesh isn't bound to it.
+    // The slot comes back for a new buffer, under a new id; the mesh isn't bound to it.
     let again = rig.buffer(&[
         vec4(0.0, 0.0, 0.0, 0.0),
         vec4(0.0, -1.0, 0.0, 0.0),
         vec4(0.0, 1.0, 0.0, 0.0),
     ]);
-    assert_eq!(again, b);
+    assert_eq!(again.slot(), b.slot());
+    assert_ne!(again, b);
+    assert_eq!(rig.ctx.gfx.gpu_buffer_len(b), None, "the old handle stays dead");
     assert_eq!(rig.ctx.gfx.gpu_buffer_len(again), Some(3));
     assert!(!drawn(&mut rig, Vec3::ZERO), "the old binding was cleared");
-    rig.renderer.set_mesh_gpu_buffer(mesh.id, again.id, 3);
+    rig.renderer.set_mesh_gpu_buffer(mesh.slot(), again.slot(), 3);
     assert!(
         drawn(&mut rig, Vec3::ZERO) && drawn(&mut rig, vec3(0.0, 1.0, 0.0)),
         "bound again"

@@ -1560,7 +1560,7 @@ fn gpu_buffers_support_headless_setup_and_writes() {
     });
 }
 #[test]
-fn freed_gpu_buffers_reuse_ids_and_drop_their_passes() {
+fn freed_gpu_buffers_reuse_slots_under_new_ids_and_drop_their_passes() {
     Game::new("buffers", 1, 1).run_headless(0, |ctx| {
         let b = ctx.gfx.create_gpu_buffer(4, &[]);
         let other = ctx.gfx.create_gpu_buffer(2, &[]);
@@ -1573,9 +1573,13 @@ fn freed_gpu_buffers_reuse_ids_and_drop_their_passes() {
         assert_eq!(ctx.compute_passes[0].buffer, Some(other));
         ctx.free(b); // again: nothing
         let again = ctx.gfx.create_gpu_buffer(8, &[]);
-        assert_eq!(again, b);
+        assert_ne!(again, b, "the freed slot comes back under a new id");
         assert_eq!(ctx.gfx.gpu_buffer_len(again), Some(8));
-        assert_eq!(ctx.gfx.create_gpu_buffer(1, &[]).id(), 2, "then a new id");
+        assert_eq!(ctx.gfx.gpu_buffer_len(b), None, "so the old handle stays dead");
+        assert!(!ctx.is_live(b));
+        ctx.free(b); // a stale free leaves the new buffer alone
+        assert_eq!(ctx.gfx.gpu_buffer_len(again), Some(8));
+        assert_eq!(ctx.gfx.create_gpu_buffer(1, &[]).id(), 2, "then a new slot");
     });
 }
 #[test]

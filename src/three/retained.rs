@@ -95,7 +95,7 @@ use glam::{Quat, Vec3};
 
 use super::collect::{Culler, FADED, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS};
 use super::motion::{IdHasher, Motion, NO_KEY};
-use super::{
+use super::{SLOT_MASK, 
     Assets3D, Model, ModelMaterial, ModelMaterials, ReceivesDecals, ShadowMesh, Skeleton, SkinOf, Transform3D, linear,
 };
 use crate::World;
@@ -703,6 +703,10 @@ fn derive(source: Source<'_>, assets: &Assets3D, overrides: &OverrideIds<'_>) ->
     }
     .filter(|&c| assets.casts_shadows(c));
     let caster_bounds = caster.and_then(|c| assets.live_bounds(c));
+    // Checked: from here on the meshes go by slot, as the renderer and the
+    // override table know them.
+    let mesh = mesh & SLOT_MASK;
+    let caster = caster.map(|c| c & SLOT_MASK);
     let t = source.transform;
     let widest = t.scale.abs().max_element();
     let matrix = t.matrix();
@@ -830,7 +834,7 @@ impl How<'_> {
     fn reworks(&self, source: Source<'_>) -> bool {
         let stale = |mesh: u32| {
             self.stale
-                .is_some_and(|s| s.get(mesh as usize).copied().unwrap_or(false))
+                .is_some_and(|s| s.get((mesh & SLOT_MASK) as usize).copied().unwrap_or(false))
         };
         self.force
             || stale(source.mesh())
