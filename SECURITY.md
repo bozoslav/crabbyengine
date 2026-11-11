@@ -7,7 +7,7 @@ Ponko hasn't had a release yet. Security fixes go to `main`.
 ## Reporting a vulnerability
 
 Please **don't** open a public issue. Report it privately through
-[GitHub's private vulnerability reporting](https://github.com/bozoslav/ponko/security/advisories/new)
+[GitHub's private vulnerability reporting](https://github.com/ponkoengine/ponko/security/advisories/new)
 instead. Include what's affected, how to reproduce it, and what an attacker
 could do with it.
 

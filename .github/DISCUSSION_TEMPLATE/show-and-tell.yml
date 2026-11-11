@@ -1,0 +1,22 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Made something with Ponko? A game, a prototype, a tool, a benchmark: we'd love to see it.
+  - type: textarea
+    id: what
+    attributes:
+      label: What did you make?
+      description: A short description, plus screenshots, a video or a GIF.
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: Link
+      description: Source code, a playable build or a video, if you have one.
+  - type: textarea
+    id: notes
+    attributes:
+      label: How it went
+      description: Optional. What worked well, what got in the way, which engine features you used.

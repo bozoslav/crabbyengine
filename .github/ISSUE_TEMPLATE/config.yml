@@ -1,8 +1,14 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Ask a question
+    url: https://github.com/ponkoengine/ponko/discussions/new?category=q-a
+    about: How do I...? Questions go to Discussions, where answers stay findable for everyone.
+  - name: Suggest an idea
+    url: https://github.com/ponkoengine/ponko/discussions/new?category=ideas
+    about: Early ideas start in Discussions; agreed designs become issues.
   - name: The guide
     url: https://ponkoengine.github.io/ponko/
     about: How to use the engine, with Rust and C++ examples side by side.
   - name: Report a security vulnerability
-    url: https://github.com/bozoslav/ponko/security/advisories/new
+    url: https://github.com/ponkoengine/ponko/security/advisories/new
     about: Please report security issues privately, not as public issues.

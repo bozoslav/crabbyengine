@@ -1,0 +1,32 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for asking! Check [the guide](https://ponkoengine.github.io/ponko/) and the [API docs](https://docs.rs/ponko/) first; your answer may already be there.
+        If something crashes or doesn't work as documented, please [open a bug report](https://github.com/ponkoengine/ponko/issues/new?template=bug_report.yml) instead.
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to do?
+      description: The goal, what you tried, and where you got stuck.
+    validations:
+      required: true
+  - type: textarea
+    id: code
+    attributes:
+      label: Code
+      description: The smallest piece of code that shows what you have so far, if any.
+      render: rust
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options:
+        - Rust
+        - C++
+        - C
+  - type: input
+    id: version
+    attributes:
+      label: Engine version
+      description: Version or commit hash, if it matters.

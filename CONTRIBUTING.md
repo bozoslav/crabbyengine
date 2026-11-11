@@ -25,12 +25,16 @@ integration checklist; you only need the parts relevant to your contribution.
 
 ## Questions, bugs and ideas
 
+- **Questions:** ask in [Q&A](https://github.com/ponkoengine/ponko/discussions/categories/q-a),
+  so the answer stays findable for the next person.
 - **Bugs:** open an [issue](https://github.com/ponkoengine/ponko/issues/new/choose)
   with the smallest code that shows the problem, your OS and GPU, and what
   you expected.
-- **Ideas and features:** open an issue first, so we can agree on the
-  shape before you write the code. The engine aims for one obvious way to
+- **Ideas and features:** start in [Ideas](https://github.com/ponkoengine/ponko/discussions/categories/ideas),
+  or open an issue if you already have a concrete design, so we can agree on
+  the shape before you write the code. The engine aims for one obvious way to
   do each thing, so a new API gets discussed before it's built.
+- **Made something?** Share it in [Show and tell](https://github.com/ponkoengine/ponko/discussions/categories/show-and-tell).
 - **Security issues:** don't open a public issue; see [SECURITY.md](SECURITY.md).
 
 ## Finding a manageable contribution
