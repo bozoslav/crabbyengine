@@ -465,6 +465,21 @@ static void three_d() {
         look.double_sided = true;
         ctx.update_material(tiled, look);
         throws([&] { ctx.create_shader("broken", "fn surface(s: Surface) -> Surface { return 1; }"); });
+        // The exception says what kind of failure it was, and is still a runtime_error.
+        try {
+            ctx.create_shader("broken", "fn surface(s: Surface) -> Surface { return 1; }");
+            CHECK(false);
+        } catch (const ponko::error& e) {
+            CHECK(e.kind() == PONKO_ERROR_SHADER);
+            CHECK(std::string(e.what()).rfind("broken:1:", 0) == 0);
+        }
+        try {
+            ctx.load_shader("no-such-shader.wgsl");
+            CHECK(false);
+        } catch (const std::runtime_error& e) {
+            CHECK(ponko_last_error_kind() == PONKO_ERROR_NOT_FOUND);
+            CHECK(dynamic_cast<const ponko::error*>(&e) != nullptr);
+        }
     });
     const auto t = w.get<ponko::transform3d>(cubes[1]);
     CHECK(t.position.x == 2 && std::abs(t.rotation.y - std::sin(0.25f)) < 1e-5f);

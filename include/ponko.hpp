@@ -675,9 +675,21 @@ public:
 
 class ctx;
 class contact_pair3d;
+/// What the wrapper throws when an engine call fails: `what()` is
+/// `ponko_last_error()`, `kind()` is `ponko_last_error_kind()` (the C side
+/// of Rust's `ponko::ErrorKind`). It is a `std::runtime_error`, so existing
+/// `catch (const std::runtime_error&)` blocks still catch it.
+class error : public std::runtime_error {
+public:
+    error(const char* message, PonkoErrorKind kind) : std::runtime_error(message), kind_(kind) {}
+    PonkoErrorKind kind() const noexcept { return kind_; }
+private:
+    PonkoErrorKind kind_;
+};
+
 namespace detail {
 inline void check(PonkoStatus status) {
-    if (status != PONKO_OK) throw std::runtime_error(ponko_last_error());
+    if (status != PONKO_OK) throw ponko::error(ponko_last_error(), ponko_last_error_kind());
 }
 /// The `PonkoHandleKind` of each handle type, for `ctx::is_live` and `ctx::free`.
 template<class H> struct handle_kind;

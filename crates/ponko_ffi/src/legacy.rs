@@ -2425,39 +2425,7 @@ pub use crate::PonkoChunk as CrabbyChunk;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
-pub use crate::PonkoFont as CrabbyFont;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoNetMessages as CrabbyNetMessages;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoPlaying as CrabbyPlaying;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
 pub use crate::PonkoQueryFn as CrabbyQueryFn;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoSound as CrabbySound;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoSoundParams as CrabbySoundParams;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoTextParams as CrabbyTextParams;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoTurns as CrabbyTurns;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoUiStyle as CrabbyUiStyle;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
@@ -2486,6 +2454,160 @@ pub use CrabbyStatus::CRABBY_OK;
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
 pub use CrabbyStatus::CRABBY_PANIC;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum CrabbyErrorKind {
+    CRABBY_ERROR_NONE = 0,
+
+    CRABBY_ERROR_NOT_FOUND = 1,
+
+    CRABBY_ERROR_IO = 2,
+
+    CRABBY_ERROR_DECODE = 3,
+
+    CRABBY_ERROR_SHADER = 4,
+
+    CRABBY_ERROR_UNSUPPORTED = 5,
+
+    CRABBY_ERROR_BAD_HANDLE = 6,
+
+    CRABBY_ERROR_JSON = 7,
+
+    CRABBY_ERROR_LIMIT = 8,
+
+    CRABBY_ERROR_INVALID = 9,
+
+    CRABBY_ERROR_OTHER = 10,
+}
+impl From<crate::PonkoErrorKind> for CrabbyErrorKind {
+    fn from(value: crate::PonkoErrorKind) -> Self {
+        match value {
+            crate::PonkoErrorKind::PONKO_ERROR_NONE => Self::CRABBY_ERROR_NONE,
+            crate::PonkoErrorKind::PONKO_ERROR_NOT_FOUND => Self::CRABBY_ERROR_NOT_FOUND,
+            crate::PonkoErrorKind::PONKO_ERROR_IO => Self::CRABBY_ERROR_IO,
+            crate::PonkoErrorKind::PONKO_ERROR_DECODE => Self::CRABBY_ERROR_DECODE,
+            crate::PonkoErrorKind::PONKO_ERROR_SHADER => Self::CRABBY_ERROR_SHADER,
+            crate::PonkoErrorKind::PONKO_ERROR_UNSUPPORTED => Self::CRABBY_ERROR_UNSUPPORTED,
+            crate::PonkoErrorKind::PONKO_ERROR_BAD_HANDLE => Self::CRABBY_ERROR_BAD_HANDLE,
+            crate::PonkoErrorKind::PONKO_ERROR_JSON => Self::CRABBY_ERROR_JSON,
+            crate::PonkoErrorKind::PONKO_ERROR_LIMIT => Self::CRABBY_ERROR_LIMIT,
+            crate::PonkoErrorKind::PONKO_ERROR_INVALID => Self::CRABBY_ERROR_INVALID,
+            crate::PonkoErrorKind::PONKO_ERROR_OTHER => Self::CRABBY_ERROR_OTHER,
+        }
+    }
+}
+impl From<CrabbyErrorKind> for crate::PonkoErrorKind {
+    fn from(value: CrabbyErrorKind) -> Self {
+        match value {
+            CrabbyErrorKind::CRABBY_ERROR_NONE => Self::PONKO_ERROR_NONE,
+            CrabbyErrorKind::CRABBY_ERROR_NOT_FOUND => Self::PONKO_ERROR_NOT_FOUND,
+            CrabbyErrorKind::CRABBY_ERROR_IO => Self::PONKO_ERROR_IO,
+            CrabbyErrorKind::CRABBY_ERROR_DECODE => Self::PONKO_ERROR_DECODE,
+            CrabbyErrorKind::CRABBY_ERROR_SHADER => Self::PONKO_ERROR_SHADER,
+            CrabbyErrorKind::CRABBY_ERROR_UNSUPPORTED => Self::PONKO_ERROR_UNSUPPORTED,
+            CrabbyErrorKind::CRABBY_ERROR_BAD_HANDLE => Self::PONKO_ERROR_BAD_HANDLE,
+            CrabbyErrorKind::CRABBY_ERROR_JSON => Self::PONKO_ERROR_JSON,
+            CrabbyErrorKind::CRABBY_ERROR_LIMIT => Self::PONKO_ERROR_LIMIT,
+            CrabbyErrorKind::CRABBY_ERROR_INVALID => Self::PONKO_ERROR_INVALID,
+            CrabbyErrorKind::CRABBY_ERROR_OTHER => Self::PONKO_ERROR_OTHER,
+        }
+    }
+}
+const _: () = {
+    assert!(std::mem::size_of::<CrabbyErrorKind>() == std::mem::size_of::<crate::PonkoErrorKind>());
+    assert!(std::mem::align_of::<CrabbyErrorKind>() == std::mem::align_of::<crate::PonkoErrorKind>());
+    assert!(CrabbyErrorKind::CRABBY_ERROR_NONE as u32 == crate::PonkoErrorKind::PONKO_ERROR_NONE as u32);
+    assert!(CrabbyErrorKind::CRABBY_ERROR_NOT_FOUND as u32 == crate::PonkoErrorKind::PONKO_ERROR_NOT_FOUND as u32);
+    assert!(CrabbyErrorKind::CRABBY_ERROR_IO as u32 == crate::PonkoErrorKind::PONKO_ERROR_IO as u32);
+    assert!(CrabbyErrorKind::CRABBY_ERROR_DECODE as u32 == crate::PonkoErrorKind::PONKO_ERROR_DECODE as u32);
+    assert!(CrabbyErrorKind::CRABBY_ERROR_SHADER as u32 == crate::PonkoErrorKind::PONKO_ERROR_SHADER as u32);
+    assert!(CrabbyErrorKind::CRABBY_ERROR_UNSUPPORTED as u32 == crate::PonkoErrorKind::PONKO_ERROR_UNSUPPORTED as u32);
+    assert!(CrabbyErrorKind::CRABBY_ERROR_BAD_HANDLE as u32 == crate::PonkoErrorKind::PONKO_ERROR_BAD_HANDLE as u32);
+    assert!(CrabbyErrorKind::CRABBY_ERROR_JSON as u32 == crate::PonkoErrorKind::PONKO_ERROR_JSON as u32);
+    assert!(CrabbyErrorKind::CRABBY_ERROR_LIMIT as u32 == crate::PonkoErrorKind::PONKO_ERROR_LIMIT as u32);
+    assert!(CrabbyErrorKind::CRABBY_ERROR_INVALID as u32 == crate::PonkoErrorKind::PONKO_ERROR_INVALID as u32);
+    assert!(CrabbyErrorKind::CRABBY_ERROR_OTHER as u32 == crate::PonkoErrorKind::PONKO_ERROR_OTHER as u32);
+};
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoFont as CrabbyFont;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoNetMessages as CrabbyNetMessages;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoPlaying as CrabbyPlaying;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoSound as CrabbySound;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoSoundParams as CrabbySoundParams;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoTextParams as CrabbyTextParams;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoTurns as CrabbyTurns;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoUiStyle as CrabbyUiStyle;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_BAD_HANDLE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_DECODE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_INVALID;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_IO;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_JSON;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_LIMIT;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_NONE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_NOT_FOUND;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_OTHER;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_SHADER;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyErrorKind::CRABBY_ERROR_UNSUPPORTED;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
@@ -8480,6 +8602,14 @@ pub unsafe extern "C" fn crabby_world_free(world: *mut CrabbyWorld) -> CrabbySta
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_last_error() -> *const c_char {
     crate::ponko_last_error()
+}
+
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_last_error_kind() -> CrabbyErrorKind {
+    crate::ponko_last_error_kind().into()
 }
 
 #[deprecated(

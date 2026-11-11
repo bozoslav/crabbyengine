@@ -557,5 +557,5 @@ pub unsafe extern "C" fn ponko_ctx_set_streamed_lod(
 }
 
 fn invalid_error(e: &ponko::Error) -> crate::Failure {
-    crate::invalid_owned(e.to_string())
+    crate::invalid_owned(e.clone())
 }

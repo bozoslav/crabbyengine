@@ -31,6 +31,17 @@
 #define CRABBY_CONDITION_LESS PONKO_CONDITION_LESS
 #define CRABBY_CONDITION_TRIGGER PONKO_CONDITION_TRIGGER
 #define CRABBY_DECAL_NO_IMAGE PONKO_DECAL_NO_IMAGE
+#define CRABBY_ERROR_BAD_HANDLE PONKO_ERROR_BAD_HANDLE
+#define CRABBY_ERROR_DECODE PONKO_ERROR_DECODE
+#define CRABBY_ERROR_INVALID PONKO_ERROR_INVALID
+#define CRABBY_ERROR_IO PONKO_ERROR_IO
+#define CRABBY_ERROR_JSON PONKO_ERROR_JSON
+#define CRABBY_ERROR_LIMIT PONKO_ERROR_LIMIT
+#define CRABBY_ERROR_NONE PONKO_ERROR_NONE
+#define CRABBY_ERROR_NOT_FOUND PONKO_ERROR_NOT_FOUND
+#define CRABBY_ERROR_OTHER PONKO_ERROR_OTHER
+#define CRABBY_ERROR_SHADER PONKO_ERROR_SHADER
+#define CRABBY_ERROR_UNSUPPORTED PONKO_ERROR_UNSUPPORTED
 #define CRABBY_FIELD_BOOL PONKO_FIELD_BOOL
 #define CRABBY_FIELD_COLOR PONKO_FIELD_COLOR
 #define CRABBY_FIELD_ENTITY PONKO_FIELD_ENTITY
@@ -399,6 +410,7 @@
 #define CrabbyDrawParams PonkoDrawParams
 #define CrabbyEffect PonkoEffect
 #define CrabbyEntity PonkoEntity
+#define CrabbyErrorKind PonkoErrorKind
 #define CrabbyFarTerrain PonkoFarTerrain
 #define CrabbyField PonkoField
 #define CrabbyFieldType PonkoFieldType
@@ -1095,6 +1107,7 @@
 #define crabby_joint3d_revolute ponko_joint3d_revolute
 #define crabby_joint3d_spherical ponko_joint3d_spherical
 #define crabby_last_error ponko_last_error
+#define crabby_last_error_kind ponko_last_error_kind
 #define crabby_last_perf_report ponko_last_perf_report
 #define crabby_latest_wins_accept ponko_latest_wins_accept
 #define crabby_latest_wins_clear ponko_latest_wins_clear

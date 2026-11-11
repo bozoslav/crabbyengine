@@ -107,7 +107,7 @@ pub unsafe extern "C" fn ponko_game_lockstep_join(game: *mut PonkoGame, addr: *c
 
 impl From<std::io::Error> for Failure {
     fn from(e: std::io::Error) -> Self {
-        crate::invalid_owned(format!("lockstep: {e}"))
+        crate::invalid_owned(ponko::Error::new(ponko::ErrorKind::Io, format!("lockstep: {e}")))
     }
 }
 
