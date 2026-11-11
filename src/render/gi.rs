@@ -371,6 +371,11 @@ impl Gi {
     }
 
     /// How many probes are updated this frame.
+    /// Whether [`update`](Self::update) records anything.
+    pub fn updates_probes(&self) -> bool {
+        self.sky_group.is_some() && !self.updates.is_empty()
+    }
+
     pub fn update_count(&self) -> usize {
         self.updates.len()
     }
@@ -384,6 +389,7 @@ impl Gi {
         if self.updates.is_empty() {
             return;
         }
+        super::gpu3d::mark_step("update");
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("3d gi update"),

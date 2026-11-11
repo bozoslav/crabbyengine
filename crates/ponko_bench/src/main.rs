@@ -21,6 +21,8 @@ mod physics3d;
 mod query_cache;
 mod query_filters;
 mod query_policy;
+#[cfg(feature = "render")]
+mod record;
 mod report;
 mod schedule;
 mod streaming;
@@ -211,6 +213,8 @@ fn main() {
     query_filters::run(&mut b);
     query_policy::run(&mut b);
     par_archetypes::run(&mut b);
+    #[cfg(feature = "render")]
+    record::run(&mut b);
     schedule::run(&mut b);
     streaming::run(&mut b);
 

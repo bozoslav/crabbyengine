@@ -245,6 +245,14 @@ impl Occlusion {
         self.next = (i + 1) % SLOTS;
     }
 
+    /// Whether [`record`](Self::record) has a grid to reduce this frame.
+    pub fn recording(&self) -> bool {
+        self.pipeline.is_some()
+            && self.bind_group.is_some()
+            && self.farthest.is_some()
+            && self.current.is_some_and(|i| self.slots[i].buffer.is_some())
+    }
+
     /// Records the reduction and the copy out, once the depth is complete.
     pub fn record(&self, encoder: &mut wgpu::CommandEncoder, timestamps: Option<wgpu::ComputePassTimestampWrites<'_>>) {
         let (Some(i), Some((_, pipeline, _)), Some(bind_group), Some(farthest)) =
@@ -255,6 +263,7 @@ impl Occlusion {
         let slot = &self.slots[i];
         let Some(buffer) = &slot.buffer else { return };
         let (w, h) = slot.grid;
+        super::gpu3d::mark_step("occlusion depth");
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("3d occlusion depth"),

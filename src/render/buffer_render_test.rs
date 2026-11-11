@@ -32,6 +32,9 @@ pub(super) struct Rig {
     /// CPU time of the last draw's `Renderer3D::prepare` (collecting not
     /// included), in ms.
     pub prepare_ms: f64,
+    /// Environment probe bakes the next draws ask for, as a game's frame
+    /// lists them: (probe slot, the render targets of its six faces).
+    pub probe_bakes: Vec<(u32, [u32; 6])>,
 }
 
 impl Rig {
@@ -163,6 +166,7 @@ impl Rig {
             frame: Frame3D::default(),
             time: (0.0, 1.0 / 60.0),
             prepare_ms: 0.0,
+            probe_bakes: Vec::new(),
         })
     }
 
@@ -211,6 +215,7 @@ impl Rig {
         ctx.gfx.frame3d.views = std::mem::take(&mut frame.views);
         ctx.collect_views(&SkinFrame::default());
         frame.views = std::mem::take(&mut ctx.gfx.frame3d.views);
+        frame.probe_bakes.clone_from(&self.probe_bakes);
         // Like the frame does: a freed buffer's passes are left out.
         frame.computes.clear();
         frame.computes.extend(

@@ -304,9 +304,11 @@ impl Environment {
     }
     pub fn sky(&self, encoder: &mut wgpu::CommandEncoder, sky: &wgpu::Texture) {
         if self.brdf_pending.swap(false, Ordering::Relaxed) {
+            super::gpu3d::mark_step("environment lookup");
             Self::draw(encoder, &self.atlas, &self.brdf, &self.source_group, [800, 0, 128, 128]);
         }
         if self.dirty.swap(false, Ordering::Relaxed) {
+            super::gpu3d::mark_step("sky maps");
             encoder.copy_texture_to_texture(sky.as_image_copy(), self.atlas.as_image_copy(), sky.size());
             Self::draw(encoder, &self.source, &self.cube, &self.sky_group, [0, 0, 768, 128]);
             self.filter(encoder, 0);
@@ -338,6 +340,10 @@ impl Environment {
             self.uploads.push((*slot, texture));
         }
     }
+    /// Whether the lookup table is still to draw (see [`sky`](Self::sky)).
+    pub fn needs_lookup(&self) -> bool {
+        self.brdf_pending.load(Ordering::Relaxed)
+    }
     /// Whether this frame re-renders the sky environment.
     pub fn needs_sky(&self) -> bool {
         self.dirty.load(Ordering::Relaxed)
@@ -347,6 +353,17 @@ impl Environment {
     }
     pub fn has_probes(&self) -> bool {
         !self.bakes.is_empty() || !self.uploads.is_empty()
+    }
+    /// Whether [`probes`](Self::probes) records anything: a loaded probe,
+    /// or a bake whose six faces are all render targets (see
+    /// [`prepare_bakes`](Self::prepare_bakes)).
+    pub fn records_probes(&self) -> bool {
+        !self.uploads.is_empty() || !self.capture_groups.is_empty()
+    }
+    /// The maps' atlas and the cube strip they are filtered from: for
+    /// checking them against what the frame's passes declare.
+    pub fn images(&self) -> [&wgpu::Texture; 2] {
+        [&self.atlas, &self.source]
     }
     /// Binds each captured face of this frame's bakes, for `probes`.
     pub fn prepare_bakes(&mut self, device: &wgpu::Device, targets: &[(u32, wgpu::Texture)]) {
@@ -384,10 +401,12 @@ impl Environment {
     }
     pub fn probes(&self, encoder: &mut wgpu::CommandEncoder) {
         for (slot, texture) in &self.uploads {
+            super::gpu3d::mark_step("probes");
             encoder.copy_texture_to_texture(texture.as_image_copy(), self.source.as_image_copy(), texture.size());
             self.filter(encoder, *slot);
         }
         for (slot, groups) in &self.capture_groups {
+            super::gpu3d::mark_step("probes");
             // Each face lands in the cube strip, with the sky behind what the
             // capture didn't cover.
             for (face, group) in groups.iter().enumerate() {
