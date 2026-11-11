@@ -307,6 +307,7 @@ fn repeated_edits_reload_in_place_without_growth() {
         std::fs::write(&shader, "fn surface(s: Surface) -> Surface { return s; }").unwrap();
         shader
     };
+    #[cfg_attr(not(feature = "3d"), allow(unused_mut))]
     let mut names = vec![image.to_str().unwrap().to_string(), sound.to_str().unwrap().to_string()];
     #[cfg(feature = "3d")]
     names.push(shader.to_str().unwrap().to_string());
