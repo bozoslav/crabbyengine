@@ -1195,6 +1195,117 @@ static void wide_queries(void) {
     CHECK(ponko_world_free(w) == PONKO_OK);
 }
 
+/* The archetype index: 128 archetypes (one per subset of seven markers), so
+ * the default policy applies. The per-query hint, the world's off switch and
+ * the automatic policy all visit the same rows. */
+static uint32_t cache_slots[256];
+static uint32_t cached_rows(PonkoWorld* w, uint32_t label, const PonkoFilter* filter, uint32_t cache, bool parallel) {
+    Rows rows = {0, 0};
+    PonkoQueryOptions options = ponko_query_options_default();
+    options.writes = 0; options.parallel = parallel;
+    /* A parallel callback may not share a counter: count on one thread, and
+     * only check that the parallel query runs. */
+    if (parallel) { CHECK(ponko_query_cached(w, &label, 1, filter, &options, cache, fill_slots, cache_slots) == PONKO_OK); return 0; }
+    CHECK(ponko_query_cached(w, &label, 1, filter, &options, cache, count_rows, &rows) == PONKO_OK);
+    return (uint32_t)rows.rows;
+}
+static void query_cache(void) {
+    PonkoWorld* w = ponko_world_new(); CHECK(w);
+    uint32_t markers[7], label;
+    char name[16];
+    for (int i = 0; i < 7; ++i) {
+        snprintf(name, sizeof name, "Marker%d", i);
+        CHECK(ponko_component_register(w, name, sizeof(uint32_t), _Alignof(uint32_t), &markers[i]) == PONKO_OK);
+    }
+    CHECK(ponko_component_register(w, "Label", sizeof(uint32_t), _Alignof(uint32_t), &label) == PONKO_OK);
+    for (uint32_t bits = 0; bits < 128; ++bits) {
+        PonkoValue values[8] = {{label, &bits, sizeof bits}};
+        size_t n = 1;
+        for (int i = 0; i < 7; ++i) if (bits >> i & 1) values[n++] = (PonkoValue){markers[i], &bits, sizeof bits};
+        uint64_t e;
+        CHECK(ponko_spawn(w, values, n, &e) == PONKO_OK);
+    }
+    /* Marker 0 and marker 1, without marker 2: 16 of the 128. */
+    PonkoFilter* a = ponko_filter_with(markers[0]);
+    PonkoFilter* b = ponko_filter_with(markers[1]);
+    PonkoFilter* c = ponko_filter_without(markers[2]);
+    const PonkoFilter* parts[] = {a, b, c};
+    PonkoFilter* filter = ponko_filter_all(parts, 3);
+    CHECK(a && b && c && filter);
+
+    PonkoQueryCacheStats stats;
+    CHECK(ponko_world_query_cache_stats(w, &stats) == PONKO_OK && stats.signatures == 0 && stats.hits == 0);
+    /* Never: the index is not touched. */
+    CHECK(cached_rows(w, label, filter, PONKO_QUERY_CACHE_NEVER, false) == 16);
+    CHECK(ponko_world_query_cache_stats(w, &stats) == PONKO_OK && stats.signatures == 0);
+    /* Automatic, through the ordinary query function: indexed from its second run. */
+    Rows rows = {0, 0};
+    for (int i = 0; i < 3; ++i) CHECK(ponko_query_filtered(w, &label, 1, filter, NULL, count_rows, &rows) == PONKO_OK);
+    CHECK(rows.rows == 3 * 16);
+    CHECK(ponko_world_query_cache_stats(w, &stats) == PONKO_OK);
+    CHECK(stats.signatures == 1 && stats.indexed == 1 && stats.indices == 16 && stats.hits == 2 && stats.bytes > 0);
+    /* Always: a query the policy would scan (it matches every archetype) is indexed at once. */
+    CHECK(cached_rows(w, label, NULL, PONKO_QUERY_CACHE_AUTO, false) == 128);
+    CHECK(cached_rows(w, label, NULL, PONKO_QUERY_CACHE_AUTO, false) == 128);
+    CHECK(ponko_world_query_cache_stats(w, &stats) == PONKO_OK && stats.signatures == 2 && stats.indexed == 1);
+    CHECK(cached_rows(w, label, NULL, PONKO_QUERY_CACHE_ALWAYS, false) == 128);
+    CHECK(ponko_world_query_cache_stats(w, &stats) == PONKO_OK && stats.indexed == 2 && stats.indices == 16 + 128);
+    /* The same rows, in the same order, on all cores. */
+    for (int i = 0; i < 128; ++i) cache_slots[i] = UINT32_MAX;
+    cached_rows(w, label, filter, PONKO_QUERY_CACHE_ALWAYS, true);
+    uint32_t expect = 0, filled = 0;
+    for (uint32_t bits = 0; bits < 128; ++bits) {
+        if ((bits & 7) != 3) continue;
+        ++filled;
+    }
+    for (int i = 0; i < 128; ++i) if (cache_slots[i] != UINT32_MAX) { CHECK((cache_slots[i] & 7) == 3); ++expect; }
+    CHECK(expect == filled && filled == 16);
+    /* A new archetype is listed before the next query. */
+    uint32_t extra, value = 3;
+    CHECK(ponko_component_register(w, "Extra", sizeof(uint32_t), _Alignof(uint32_t), &extra) == PONKO_OK);
+    PonkoValue grown[4] = {{label, &value, sizeof value}, {markers[0], &value, sizeof value}, {markers[1], &value, sizeof value}, {extra, &value, sizeof value}};
+    uint64_t e;
+    CHECK(ponko_spawn(w, grown, 4, &e) == PONKO_OK);
+    CHECK(cached_rows(w, label, filter, PONKO_QUERY_CACHE_AUTO, false) == 17);
+    CHECK(cached_rows(w, label, filter, PONKO_QUERY_CACHE_NEVER, false) == 17);
+
+    /* The policy: read, change, and turn the index off for the world. */
+    PonkoQueryCachePolicy policy, off = ponko_query_cache_policy_off(), standard = ponko_query_cache_policy_default();
+    CHECK(ponko_world_query_cache_policy(w, &policy) == PONKO_OK);
+    CHECK(policy.min_archetypes == standard.min_archetypes && policy.promote_after == standard.promote_after);
+    CHECK(off.min_archetypes == SIZE_MAX && standard.min_archetypes < 128);
+    CHECK(ponko_world_set_query_cache_policy(w, &off) == PONKO_OK);
+    CHECK(ponko_world_query_cache_policy(w, &policy) == PONKO_OK && policy.min_archetypes == SIZE_MAX);
+    CHECK(ponko_world_query_cache_stats(w, &stats) == PONKO_OK && stats.signatures == 0 && stats.bytes == 0);
+    uint64_t hits = stats.hits;
+    CHECK(cached_rows(w, label, filter, PONKO_QUERY_CACHE_ALWAYS, false) == 17);
+    CHECK(cached_rows(w, label, filter, PONKO_QUERY_CACHE_AUTO, false) == 17);
+    CHECK(ponko_world_query_cache_stats(w, &stats) == PONKO_OK && stats.signatures == 0 && stats.hits == hits);
+    standard.promote_after = 1;
+    CHECK(ponko_world_set_query_cache_policy(w, &standard) == PONKO_OK);
+    CHECK(cached_rows(w, label, filter, PONKO_QUERY_CACHE_AUTO, false) == 17);
+    CHECK(ponko_world_query_cache_stats(w, &stats) == PONKO_OK && stats.indexed == 1 && stats.hits == hits + 1);
+
+    /* Bad arguments. */
+    standard.reserved[0] = 1;
+    CHECK(ponko_world_set_query_cache_policy(w, &standard) == PONKO_INVALID_ARGUMENT);
+    standard.reserved[0] = 0;
+    standard.max_match_percent = 101;
+    CHECK(ponko_world_set_query_cache_policy(w, &standard) == PONKO_OK);
+    CHECK(ponko_world_query_cache_policy(w, &policy) == PONKO_OK && policy.max_match_percent == 100);
+    CHECK(ponko_world_set_query_cache_policy(w, NULL) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_world_set_query_cache_policy(NULL, &off) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_world_query_cache_policy(w, NULL) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_world_query_cache_stats(w, NULL) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_world_query_cache_stats(NULL, &stats) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_query_cached(w, &label, 1, filter, NULL, 3, count_rows, &rows) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_query_cached(w, &label, 1, filter, NULL, PONKO_QUERY_CACHE_ALWAYS, NULL, NULL) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_query_cached(NULL, &label, 1, filter, NULL, PONKO_QUERY_CACHE_ALWAYS, count_rows, &rows) == PONKO_INVALID_ARGUMENT);
+
+    ponko_filter_free(a); ponko_filter_free(b); ponko_filter_free(c); ponko_filter_free(filter);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+}
+
 /* Headless: no renderer, so nothing is uploaded to the GPU. */
 static void no_uploads(PonkoCtx* ctx, void* user) {
     (void)user;
@@ -1489,6 +1600,7 @@ int main(void) {
     profiling_c();
     animation_graphs();
     query_filters();
+    query_cache();
     wide_queries();
     return 0;
 }

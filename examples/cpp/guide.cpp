@@ -159,6 +159,35 @@ static void ecs_filters(ponko::ctx& ctx) {
     assert(odd == 3);   // everything that isn't dead
 }
 
+// ANCHOR: ecs_query_cache
+struct Boss {};
+
+static std::size_t bosses(ponko::ctx& ctx) {
+    auto world = ctx.world();
+    // Runs rarely, but must not test every archetype of a big world when
+    // it does: index it on first use.
+    return world.count<Health, ponko::with<Boss>, ponko::cached>();
+}
+static std::size_t bosses_by_scan(ponko::ctx& ctx) {
+    // Never use the index for this query: the same entities, found by
+    // testing every archetype.
+    return ctx.world().count<Health, ponko::with<Boss>, ponko::uncached>();
+}
+static void no_index(ponko::ctx& ctx) {
+    // Or opt the whole world out.
+    ctx.world().set_query_cache_policy(ponko_query_cache_policy_off());
+}
+// ANCHOR_END: ecs_query_cache
+
+static void ecs_query_cache(ponko::ctx& ctx) {
+    auto world = ctx.world();
+    world.spawn(Health{100}, Boss{});
+    world.spawn(Health{10});
+    assert(bosses(ctx) == 1 && bosses_by_scan(ctx) == 1);
+    no_index(ctx);
+    assert(bosses(ctx) == 1 && world.query_cache_stats().signatures == 0);
+}
+
 // ANCHOR: resources
 struct Score { std::uint32_t points; };
 
@@ -2573,6 +2602,7 @@ static void parallel_systems_guide() {
 int main() {
     builder_setup_runs_headless();
     ponko::game("filter guide", 1, 1).run_headless(0, ecs_filters);
+    ponko::game("query cache guide", 1, 1).run_headless(0, ecs_query_cache);
     plugins_run_headless();
     declared_access_guide();
     parallel_systems_guide();

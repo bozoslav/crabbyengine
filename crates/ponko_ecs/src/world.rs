@@ -1113,7 +1113,10 @@ impl World {
         assert!(ids.len() <= MAX, "for_each_chunk: at most {MAX} components");
         self.recorder.note(|l| ids.iter().for_each(|&id| l.component(id, true)));
         let mut ptrs = [std::ptr::null_mut(); MAX];
-        'arch: for arch in self.archetypes.iter() {
+        let archetypes = self
+            .query_matches
+            .chunk_archetypes(&self.archetypes, ids, None, crate::QueryCache::Auto);
+        'arch: for arch in archetypes {
             if arch.is_empty() {
                 continue;
             }

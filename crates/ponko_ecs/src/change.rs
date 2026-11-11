@@ -39,7 +39,7 @@ use std::marker::PhantomData;
 
 use crate::bundle::Component;
 use crate::entity::Entity;
-use crate::query::{Filters, OrTerm, QueryData, QueryFilter};
+use crate::query::{Filters, OrTerm, QueryCache, QueryData, QueryFilter};
 use crate::storage::{Archetype, ComponentId, ComponentInfo};
 use crate::view::SharedFilters;
 use crate::world::{Chunk, World};
@@ -816,7 +816,7 @@ impl World {
     /// With more than 32 component ids, or more than 8 `changed` and
     /// `added` bits together.
     pub fn query_chunks(&mut self, query: ChunkQuery<'_>, f: impl FnMut(Chunk<'_>)) {
-        self.query_chunks_inner(query, None, f);
+        self.query_chunks_inner(query, None, QueryCache::Auto, f);
     }
 
     /// [`query_chunks`](Self::query_chunks) over the archetypes that also
@@ -834,10 +834,49 @@ impl World {
         filter: &crate::CompiledFilter,
         f: impl FnMut(Chunk<'_>),
     ) {
-        self.query_chunks_inner(query, Some(filter.filters()), f);
+        self.query_chunks_inner(query, Some(filter.filters()), QueryCache::Auto, f);
     }
 
-    fn query_chunks_inner(&mut self, query: ChunkQuery<'_>, filter: Option<&Filters>, mut f: impl FnMut(Chunk<'_>)) {
+    /// [`query_chunks`](Self::query_chunks) or
+    /// [`query_chunks_filtered`](Self::query_chunks_filtered) (with a
+    /// `filter`), saying whether this query uses the world's archetype
+    /// index: what [`Query::cached`](crate::Query::cached) and
+    /// [`Query::uncached`](crate::Query::uncached) say for a typed query.
+    /// Without it the world's [`QueryCachePolicy`](crate::QueryCachePolicy)
+    /// decides, as [`QueryCache::Auto`] does here. The chunks are the same
+    /// either way.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// struct Speed(f32);
+    /// let mut world = World::new();
+    /// world.spawn((Speed(1.0),));
+    /// let ids = [world.register::<Speed>()];
+    /// let mut rows = 0;
+    /// world.query_chunks_cached(ChunkQuery::new(&ids), None, QueryCache::Always, |chunk| rows += chunk.len());
+    /// assert_eq!(rows, 1);
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// As [`query_chunks`](Self::query_chunks).
+    pub fn query_chunks_cached(
+        &mut self,
+        query: ChunkQuery<'_>,
+        filter: Option<&crate::CompiledFilter>,
+        cache: QueryCache,
+        f: impl FnMut(Chunk<'_>),
+    ) {
+        self.query_chunks_inner(query, filter.map(crate::CompiledFilter::filters), cache, f);
+    }
+
+    fn query_chunks_inner(
+        &mut self,
+        query: ChunkQuery<'_>,
+        filter: Option<&Filters>,
+        cache: QueryCache,
+        mut f: impl FnMut(Chunk<'_>),
+    ) {
         const MAX: usize = 32;
         let ids = query.ids;
         assert!(ids.len() <= MAX, "query_chunks: at most {MAX} components");
@@ -867,7 +906,10 @@ impl World {
         let stamp = self.changes.stamp();
         let mut cols = [0; MAX];
         let mut ptrs = [std::ptr::null_mut(); MAX];
-        'arch: for arch in self.archetypes.iter() {
+        let archetypes = self
+            .query_matches
+            .chunk_archetypes(&self.archetypes, ids, filter, cache);
+        'arch: for arch in archetypes {
             if arch.is_empty() || filter.is_some_and(|filter| !filter.matches(arch)) {
                 continue;
             }

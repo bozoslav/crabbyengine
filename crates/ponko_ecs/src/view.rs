@@ -54,7 +54,7 @@ use std::sync::{Mutex, PoisonError};
 use crate::bundle::Component;
 use crate::change::{self, Clock, Tick};
 use crate::entity::Entity;
-use crate::query::{Archetypes, Filters, QueryData, QueryFilter, QueryIter, check_aliasing};
+use crate::query::{Archetypes, Filters, QueryCache, QueryData, QueryFilter, QueryIter, check_aliasing, signature};
 use crate::storage::ComponentId;
 use crate::world::World;
 
@@ -358,6 +358,9 @@ impl ViewState {
             "ViewState::prepare: {} is already prepared; call finish first",
             self.label
         );
+        // The world is held exclusively here: let its archetype index
+        // take in what the last views' queries asked for.
+        world.query_matches.settle_for_views(&world.archetypes);
         self.ids.clear();
         for c in &self.access.components {
             self.ids.push(((c.register)(world), c.write));
@@ -622,6 +625,7 @@ impl<'w> WorldView<'w> {
             ids,
             filters: Filters::default(),
             empty: false,
+            cache: QueryCache::Auto,
             since: None,
             default_since: self.since,
             now: self.now,
@@ -806,6 +810,8 @@ pub struct ViewQuery<'v, Q: QueryData> {
     filters: Filters,
     /// A filter can never hold: it names a component no entity ever had.
     empty: bool,
+    /// Whether this query uses the world's archetype index.
+    cache: QueryCache,
     /// What `Added`/`Changed` filters compare against, if not the world's
     /// [`changes_since`](World::changes_since).
     since: Option<Tick>,
@@ -893,10 +899,46 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         self
     }
 
+    /// Index this query's signature in the world's archetype index, as
+    /// [`Query::cached`](crate::Query::cached) asks. A view shares the
+    /// world, so it can't build the index itself: this query scans, and the
+    /// index is built the next time the world is held exclusively (before
+    /// the next view runs).
+    pub fn cached(mut self) -> Self {
+        self.cache = QueryCache::Always;
+        self
+    }
+
+    /// Never use the world's archetype index for this query, as
+    /// [`Query::uncached`](crate::Query::uncached) asks.
+    pub fn uncached(mut self) -> Self {
+        self.cache = QueryCache::Never;
+        self
+    }
+
+    /// The archetypes to visit: every one, or the candidates the world's
+    /// index already holds for this query. The index is only read here
+    /// (other views may be reading it on other threads); a signature it
+    /// doesn't hold yet is scanned.
     fn archetypes(&self) -> Archetypes<'v> {
+        let world = self.world;
+        if self.empty {
+            return Archetypes {
+                all: &[],
+                indices: None,
+                next: 0,
+            };
+        }
+        let index = &world.query_matches;
+        let indices = if self.cache == QueryCache::Never || world.archetypes.len() < index.min_archetypes() {
+            None
+        } else {
+            let key = signature::<Q>(&self.ids, &self.filters);
+            index.shared_candidates(&world.archetypes, &key, self.cache)
+        };
         Archetypes {
-            all: if self.empty { &[] } else { &self.world.archetypes },
-            indices: None,
+            all: &world.archetypes,
+            indices: indices.map(<[u32]>::iter),
             next: 0,
         }
     }

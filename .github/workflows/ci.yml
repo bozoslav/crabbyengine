@@ -457,9 +457,11 @@ jobs:
           # The parallel path. rayon's dependency crossbeam-epoch trips Stacked
           # Borrows (not our code), and its global pool outlives main.
           # `changes` holds the parallel loops over rows picked by change filters,
-          # `view_groups` the views that share a world across threads.
+          # `view_groups` the views that share a world across threads,
+          # `query_cache` and `query_cache_views` the parallel loops and view
+          # batches that find their archetypes through the query index.
           - name: par_for_each, tree borrows
-            args: --test parallel --test changes --test view_groups
+            args: --test parallel --test changes --test view_groups --test query_cache --test query_cache_views
             flags: -Zmiri-tree-borrows -Zmiri-ignore-leaks
     env:
       MIRIFLAGS: ${{ matrix.flags }}

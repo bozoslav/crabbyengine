@@ -3422,6 +3422,14 @@ pub use crate::PonkoHit3D as CrabbyHit3D;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
+pub use crate::PonkoQueryCachePolicy as CrabbyQueryCachePolicy;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoQueryCacheStats as CrabbyQueryCacheStats;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
 pub use crate::PonkoQueryFilter3D as CrabbyQueryFilter3D;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
@@ -11281,6 +11289,104 @@ pub unsafe extern "C" fn crabby_ctx_physics3d_is_collider_active(
     // pointer, lifetime, ownership and callback preconditions. Distinct value
     // types have identical repr(C) layouts and valid discriminants, checked above.
     (unsafe { crate::ponko_ctx_physics3d_is_collider_active(ctx, entity, out_active) }).into()
+}
+
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PONKO_QUERY_CACHE_ALWAYS as CRABBY_QUERY_CACHE_ALWAYS;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PONKO_QUERY_CACHE_AUTO as CRABBY_QUERY_CACHE_AUTO;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PONKO_QUERY_CACHE_NEVER as CRABBY_QUERY_CACHE_NEVER;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_query_cache_policy_default() -> CrabbyQueryCachePolicy {
+    crate::ponko_query_cache_policy_default()
+}
+
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_query_cache_policy_off() -> CrabbyQueryCachePolicy {
+    crate::ponko_query_cache_policy_off()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_world_set_query_cache_policy`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_set_query_cache_policy(
+    world: *mut CrabbyWorld,
+    policy: *const CrabbyQueryCachePolicy,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_world_set_query_cache_policy(world, policy) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_world_query_cache_policy`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_query_cache_policy(
+    world: *mut CrabbyWorld,
+    out_policy: *mut CrabbyQueryCachePolicy,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_world_query_cache_policy(world, out_policy) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_world_query_cache_stats`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_query_cache_stats(
+    world: *mut CrabbyWorld,
+    out_stats: *mut CrabbyQueryCacheStats,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_world_query_cache_stats(world, out_stats) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_query_cached`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_query_cached(
+    world: *mut CrabbyWorld,
+    components: *const u32,
+    count: usize,
+    filter: *const CrabbyFilter,
+    options: *const CrabbyQueryOptions,
+    cache: u32,
+    callback: CrabbyQueryFn,
+    user: *mut c_void,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_query_cached(world, components, count, filter, options, cache, callback, user) }).into()
 }
 
 #[deprecated(

@@ -18,6 +18,7 @@ mod physics;
 mod physics3d;
 mod query_cache;
 mod query_filters;
+mod query_policy;
 mod report;
 mod schedule;
 mod streaming;
@@ -179,6 +180,7 @@ fn main() {
     actions::run(&mut b);
     query_cache::run(&mut b);
     query_filters::run(&mut b);
+    query_policy::run(&mut b);
     par_archetypes::run(&mut b);
     schedule::run(&mut b);
     streaming::run(&mut b);
