@@ -889,6 +889,7 @@
 #define crabby_ctx_set_gravity ponko_ctx_set_gravity
 #define crabby_ctx_set_gravity3d ponko_ctx_set_gravity3d
 #define crabby_ctx_set_input ponko_ctx_set_input
+#define crabby_ctx_set_instance_batch_culling ponko_ctx_set_instance_batch_culling
 #define crabby_ctx_set_joint_pose ponko_ctx_set_joint_pose
 #define crabby_ctx_set_later ponko_ctx_set_later
 #define crabby_ctx_set_lighting ponko_ctx_set_lighting

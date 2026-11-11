@@ -55,10 +55,9 @@ pub struct InstanceBatchOptions {
 /// own choice (`Auto`) comes from a benchmark on one machine, so a game
 /// that measured its own scene can overrule it per batch.
 ///
-/// The path is chosen when the batch is made and again whenever it is
-/// updated (`update_instance_batch`), from the mesh and materials as they
-/// are then. A material made see-through later moves an `Auto` batch to
-/// the CPU path only at the batch's next update.
+/// The path is chosen when the batch is made, updated, or its preference
+/// changes. An automatic batch is also reselected immediately when one of
+/// its materials changes between opaque/cutout and transparent blending.
 /// ```
 /// use ponko::render::{BatchCulling, InstanceBatchOptions};
 /// // A few thousand heavy meshes: cull them one by one on the GPU.
@@ -77,11 +76,9 @@ pub enum BatchCulling {
     /// draws, where the device has compute culling (elsewhere, and for a
     /// batch past a device limit, the CPU path is used all the same).
     ///
-    /// Not for a batch with a see-through (blended) material whose
-    /// instances overlap on screen: the compute pass writes the visible
-    /// instances in no fixed order, so they blend in an order that can
-    /// change from frame to frame. `Auto` keeps such a batch on the CPU
-    /// path for that reason.
+    /// Visible instances keep the batch's stable cell order, including depth
+    /// ties. Transparent instances are not sorted back to front; `Auto`
+    /// conservatively keeps blended batches on the CPU path.
     PreferGpu,
     /// Cull cell by cell on the CPU and draw directly, also where the
     /// device has compute culling.
@@ -291,6 +288,20 @@ impl Graphics {
             hi = hi.max(center + radius);
         }
         Some(((lo + hi) * 0.5, (hi - lo).length() * 0.5))
+    }
+    /// Changes a live batch's culling preference and immediately reselects its
+    /// path using the current materials. Returns false for a freed batch.
+    /// Device capability and size limits still apply to `PreferGpu`.
+    pub fn set_instance_batch_culling(&mut self, batch: InstanceBatch, culling: BatchCulling) -> bool {
+        let Some(Some(data)) = self.assets3d.instance_batches.get_mut(batch.id as usize) else {
+            return false;
+        };
+        data.options.culling = culling;
+        if let Some(renderer) = self.renderer.as_mut() {
+            renderer.set_instance_batch(batch.id, Some(data));
+        }
+        self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);
+        true
     }
     /// Replaces transforms and rebuilds cells. Returns false for a freed handle.
     /// See [`InstanceBatch`].

@@ -1568,16 +1568,16 @@ typedef struct PonkoLodSettings {
   bool crossfade;
 } PonkoLodSettings;
 
+typedef struct PonkoInstanceBatch {
+  uint32_t id;
+} PonkoInstanceBatch;
+
 typedef struct PonkoInstanceBatchOptions {
   float cell_size;
   float max_distance;
   bool cast_shadows;
   struct PonkoColor tint;
 } PonkoInstanceBatchOptions;
-
-typedef struct PonkoInstanceBatch {
-  uint32_t id;
-} PonkoInstanceBatch;
 
 typedef struct PonkoInstanceLevel {
   struct PonkoMesh mesh;
@@ -4090,6 +4090,10 @@ enum PonkoStatus ponko_ctx_set_mesh_gpu_buffer(struct PonkoCtx *ctx,
                                                struct PonkoMesh mesh,
                                                struct PonkoGpuBuffer buffer,
                                                uint32_t count);
+
+enum PonkoStatus ponko_ctx_set_instance_batch_culling(struct PonkoCtx *ctx,
+                                                      struct PonkoInstanceBatch batch,
+                                                      uint32_t culling);
 
 enum PonkoStatus ponko_ctx_create_instance_batch(struct PonkoCtx *ctx,
                                                  struct PonkoMesh mesh,

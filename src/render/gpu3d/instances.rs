@@ -10,8 +10,8 @@
 //!   over all instances, and no see-through material): the batch's records and
 //!   cells live in a [`Pool`] shared by all such batches, and each of its
 //!   views (a batch level seen by a camera or a shadow view) has a visible
-//!   list in one of the pool's [`Page`]s. Every frame one compute dispatch
-//!   per page culls all its views (a table of *jobs* says which), writing
+//!   list in one of the pool's [`Page`]s. Every frame a four-stage compute
+//!   sequence per page culls all its views (a table of *jobs* says which), writing
 //!   each job's visible instance indices and the instance counts of its
 //!   indirect draw arguments. A level is then drawn with one indirect draw
 //!   per material, whatever is visible. A pool gets another page when its
@@ -45,6 +45,15 @@ const JOB: usize = 12;
 const VIEW: usize = 28;
 /// The first buffer of each kind a pool makes holds this much (it doubles).
 const FIRST_BYTES: u64 = 64 << 10;
+/// Keep empty buffers across short streaming gaps, then return their memory.
+const EMPTY_FRAMES: u8 = 8;
+
+/// Buffer identities survive replacement of the arena, page or pool slot.
+fn next_generation() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Which path the batches made from now on take.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -124,8 +133,6 @@ pub(crate) struct Batching {
     occlusion: bool,
     /// Whether the frame had more views than its buffer takes.
     capped: bool,
-    /// Whether the frame before the last left a batch view out.
-    limited: bool,
     /// How often a CPU-path list was built since the renderer was made
     /// (tests watch it: a view at rest builds none).
     built: u32,
@@ -194,7 +201,7 @@ impl Arena {
             align,
             end,
             free: Vec::new(),
-            generation: 0,
+            generation: next_generation(),
         }
     }
 
@@ -239,7 +246,7 @@ impl Arena {
             }
             self.buffer = bigger;
             self.capacity = capacity;
-            self.generation += 1;
+            self.generation = next_generation();
             traffic::reallocated();
         }
         self.end = needed;
@@ -277,6 +284,7 @@ struct Pool {
     batches: u32,
     /// Whether it ever held a batch: an emptied pool gives its memory back.
     used: bool,
+    idle: u8,
 }
 
 /// Bytes at the start of a page's visibility buffer kept for its root.
@@ -306,10 +314,12 @@ struct Page {
     /// This frame's jobs and the workgroups they take together.
     jobs: u32,
     groups: u32,
+    scans: u32,
     /// The views that have their lists here.
     views: u32,
     /// Whether it ever held a view: an emptied page gives its memory back.
     used: bool,
+    idle: u8,
 }
 
 impl Page {
@@ -333,8 +343,10 @@ impl Page {
             mirrored: (0, 0),
             jobs: 0,
             groups: 0,
+            scans: 0,
             views: 0,
             used: false,
+            idle: 0,
         }
     }
 
@@ -366,6 +378,7 @@ impl Page {
         }
         self.views += 1;
         self.used = true;
+        self.idle = 0;
         Some((at, args))
     }
 
@@ -388,6 +401,7 @@ impl Pool {
             pages: Vec::new(),
             batches: 0,
             used: false,
+            idle: 0,
         }
     }
 
@@ -443,16 +457,30 @@ pub(crate) struct StaticBatch {
     /// light's shadow views, a camera at rest). And whether the list is
     /// this frame's.
     seen: Vec<Seen>,
-    /// The CPU path's per-instance bounds: (sphere centre, radius), and
-    /// for distance levels the origins.
-    spheres: Vec<[f32; 4]>,
-    origins: Vec<Vec3>,
+    /// Four centres/radii (legacy) or origins (levels) at a time. Prepared
+    /// once; boundary cells evaluate exact distances with SIMD, without gathers.
+    distances: Vec<DistanceQuad>,
     pub(super) compute: bool,
     pub(crate) route: Route,
     arguments: Vec<Vec<u32>>,
     pub options: crate::render::InstanceBatchOptions,
     legacy_distance: bool,
     pub count: u32,
+}
+
+struct DistanceQuad {
+    x: crate::Vec4,
+    y: crate::Vec4,
+    z: crate::Vec4,
+    radius: crate::Vec4,
+}
+impl DistanceQuad {
+    fn distances(&self, eye: Vec3) -> crate::Vec4 {
+        let x = self.x - crate::Vec4::splat(eye.x);
+        let y = self.y - crate::Vec4::splat(eye.y);
+        let z = self.z - crate::Vec4::splat(eye.z);
+        (x * x + y * y + z * z).sqrt() - self.radius
+    }
 }
 
 impl StaticBatch {
@@ -489,8 +517,10 @@ impl StaticBatch {
 pub(super) struct Culling {
     layout: wgpu::BindGroupLayout,
     pipeline: wgpu::ComputePipeline,
-    /// Zeroes the jobs' instance counts before `pipeline` counts.
-    reset: wgpu::ComputePipeline,
+    /// Prefixes cell counts and scatters instances in source order.
+    scan: wgpu::ComputePipeline,
+    prefix: wgpu::ComputePipeline,
+    scatter: wgpu::ComputePipeline,
     /// What every page's dispatch reads of the frame: the occlusion
     /// grid's header, its depths, then the views.
     occlusion: wgpu::Buffer,
@@ -577,7 +607,9 @@ impl Culling {
         Self {
             layout,
             pipeline: pipeline("main"),
-            reset: pipeline("reset"),
+            scan: pipeline("scan"),
+            prefix: pipeline("prefix"),
+            scatter: pipeline("scatter"),
             occlusion,
             header_mirror: Default::default(),
             grid_mirror: Default::default(),
@@ -750,16 +782,24 @@ fn cull_cells(
             push_run(runs, cell.start, cell.count);
             continue;
         }
-        for i in cell.start..cell.start + cell.count {
-            let inside = if legacy {
-                let s = batch.spheres[i as usize];
-                Vec3::new(s[0], s[1], s[2]).distance(view.eye) - s[3] <= far
+        let end = cell.start + cell.count;
+        for quad in cell.start / 4..end.div_ceil(4) {
+            let d = batch.distances[quad as usize].distances(view.eye);
+            let mask = if legacy {
+                d.cmple(crate::Vec4::splat(far)).bitmask()
             } else {
-                let d = batch.origins[i as usize].distance(view.eye);
-                d >= near && d < far
+                (d.cmpge(crate::Vec4::splat(near)) & d.cmplt(crate::Vec4::splat(far))).bitmask()
             };
-            if inside {
-                push_run(runs, i, 1);
+            let start = (quad * 4).max(cell.start);
+            let stop = (quad * 4 + 4).min(end);
+            if mask == 15 {
+                push_run(runs, start, stop - start);
+            } else {
+                for i in start..stop {
+                    if mask & (1 << (i % 4)) != 0 {
+                        push_run(runs, i, 1);
+                    }
+                }
             }
         }
     }
@@ -786,6 +826,29 @@ impl Renderer3D {
             }
         }
         order.sort_unstable();
+    }
+
+    /// Refresh only automatic batches using a material whose blend mode changed.
+    pub fn refresh_batch_material(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        material: u32,
+        batches: &[Option<Batch>],
+    ) {
+        for (id, batch) in batches.iter().enumerate() {
+            let Some(batch) = batch else { continue };
+            if batch.options.culling == BatchCulling::Auto
+                && batch.levels.iter().any(|level| {
+                    self.meshes[level.mesh.slot() as usize]
+                        .parts
+                        .iter()
+                        .any(|(_, m)| *m == material)
+                })
+            {
+                self.set_instance_batch(device, queue, id as u32, Some(batch));
+            }
+        }
     }
 
     /// Picks the batch's path and uploads it there.
@@ -847,6 +910,7 @@ impl Renderer3D {
                     );
                     pool_buffers.batches += 1;
                     pool_buffers.used = true;
+                    pool_buffers.idle = 0;
                     pooled = Some(Pooled {
                         pool,
                         records: (at, bytes),
@@ -922,16 +986,28 @@ impl Renderer3D {
             max: batch.max,
             visible: Vec::new(),
             seen: Vec::new(),
-            spheres: if cpu && batch.legacy_distance {
-                batch.spheres.clone()
-            } else {
-                Vec::new()
-            },
-            origins: if cpu && !batch.legacy_distance {
-                batch
-                    .instances
-                    .iter()
-                    .map(|i| Vec3::new(i.model[3][0], i.model[3][1], i.model[3][2]))
+            distances: if cpu {
+                (0..batch.instances.len().div_ceil(4))
+                    .map(|quad| {
+                        let points: [[f32; 4]; 4] = std::array::from_fn(|lane| {
+                            let i = (quad * 4 + lane).min(batch.instances.len() - 1);
+                            if batch.legacy_distance {
+                                batch.spheres[i]
+                            } else {
+                                batch.instances[i].model[3]
+                            }
+                        });
+                        DistanceQuad {
+                            x: crate::Vec4::from_array(points.map(|p| p[0])),
+                            y: crate::Vec4::from_array(points.map(|p| p[1])),
+                            z: crate::Vec4::from_array(points.map(|p| p[2])),
+                            radius: if batch.legacy_distance {
+                                crate::Vec4::from_array(points.map(|p| p[3]))
+                            } else {
+                                crate::Vec4::ZERO
+                            },
+                        }
+                    })
                     .collect()
             } else {
                 Vec::new()
@@ -962,7 +1038,8 @@ impl Renderer3D {
             }
         }
         if let Some(culling) = &self.static_culling {
-            // Emptied pools and pages keep their slots, not their memory.
+            // Emptied pools and pages keep their slots; memory is retired
+            // after the grace period, and is included in pool_bytes until then.
             stats.pools = culling.pools.iter().filter(|p| p.batches > 0).count() as u32;
             stats.pages = culling
                 .pools
@@ -999,11 +1076,11 @@ impl Renderer3D {
         let _batch_code = crate::three::lights::tests::marked();
         // Shadow maps drawn while a limit left batch views out lack those
         // batches: once every view fits again they are drawn anew.
-        let limited = self.batching.skipped > 0;
-        if self.batching.limited && !limited {
+        if self.batching.skipped > 0 {
+            // Decide before planning this frame's shadows. This also redraws
+            // on the very first frame that fits, including dispatch limits.
             self.shadow_cache.invalidate();
         }
-        self.batching.limited = limited;
         if self.static_shadowless != frame.static_shadowless {
             self.shadow_cache.invalidate();
             self.static_shadowless.clear();
@@ -1081,7 +1158,7 @@ impl Renderer3D {
             );
             // Nothing is culled until `finish_static` says what.
             for page in cull.pools.iter_mut().flat_map(|p| &mut p.pages) {
-                (page.jobs, page.groups) = (0, 0);
+                (page.jobs, page.groups, page.scans) = (0, 0, 0);
             }
         }
         // A limit that no longer bites may be reported when it does again.
@@ -1175,7 +1252,11 @@ impl Renderer3D {
                         let index = match batch.views.iter().position(|v| v.slot == slot && v.level == level) {
                             Some(index) => Some(index),
                             None => {
-                                let visibility = (u64::from(batch.count) + 1) * 4;
+                                let visibility = (2 * u64::from(batch.count)
+                                    + batch.cells.len() as u64
+                                    + batch.cells.len().div_ceil(64) as u64
+                                    + 1)
+                                    * 4;
                                 let arguments: &[u8] = bytemuck::cast_slice(&batch.arguments[level]);
                                 let placed =
                                     culling.place_view(device, queue, pooled.pool, visibility, arguments.len() as u64);
@@ -1249,6 +1330,9 @@ impl Renderer3D {
             }
         }
         batching.occlusion = occlusion && gpu_grid;
+        // Also runs on an entirely empty scene, which can return before
+        // finish_static (there are then no passes to record).
+        self.retire_static(device);
     }
 
     /// Writes the culling pass's work for this frame: each page's jobs,
@@ -1265,7 +1349,7 @@ impl Renderer3D {
         };
         for page in culling.pools.iter_mut().flat_map(|p| &mut p.pages) {
             page.table.clear();
-            (page.jobs, page.groups) = (0, 0);
+            (page.jobs, page.groups, page.scans) = (0, 0, 0);
         }
         let targets = 1 + MAX_CASCADES + self.light_views;
         let (redrawn, light_kept) = (self.redrawn, self.shadow_cache.light_kept);
@@ -1340,11 +1424,12 @@ impl Renderer3D {
                     flags,
                     view.band.0.to_bits(),
                     view.band.1.to_bits(),
-                    0,
-                    0,
+                    page.scans,
+                    cells.div_ceil(64),
                 ]);
                 page.jobs += 1;
                 page.groups += cells;
+                page.scans += cells.div_ceil(64);
             }
         }
         let frame_generation = culling.frame_generation;
@@ -1356,7 +1441,7 @@ impl Renderer3D {
                     page.root_mirror.forget();
                     page.table_mirror.forget();
                 }
-                let root = [page.jobs, (at / 4) as u32, page.groups, side, 0, 0, 0, 0];
+                let root = [page.jobs, (at / 4) as u32, page.groups, side, page.scans, 0, 0, 0];
                 let buffer = &page.visibility.buffer;
                 page.root_mirror
                     .upload(queue, Upload::StaticBatches, buffer, 0, bytemuck::cast_slice(&root));
@@ -1394,8 +1479,14 @@ impl Renderer3D {
                 batching.jobs += page.jobs;
             }
         }
-        // Memory nothing uses any more goes back: a page whose views are
-        // all gone and a pool whose batches are. The slots stay (views and
+    }
+
+    fn retire_static(&mut self, device: &wgpu::Device) {
+        let Some(culling) = &mut self.static_culling else {
+            return;
+        };
+        // After a short grace period, return memory nothing uses any more:
+        // a page whose views are all gone and a pool whose batches are. The slots stay (views and
         // batches hold their indices) with buffers of the smallest size.
         // Here, not when a batch is freed: an updated batch has taken its
         // place again by now.
@@ -1403,13 +1494,19 @@ impl Renderer3D {
         for pool in &mut culling.pools {
             if pool.batches == 0 {
                 if pool.used {
-                    *pool = Pool::new(device, align, 0);
+                    pool.idle += 1;
+                    if pool.idle >= EMPTY_FRAMES {
+                        *pool = Pool::new(device, align, 0);
+                    }
                 }
                 continue;
             }
             for page in &mut pool.pages {
                 if page.views == 0 && page.used {
-                    *page = Page::new(device, align, 0);
+                    page.idle += 1;
+                    if page.idle >= EMPTY_FRAMES {
+                        *page = Page::new(device, align, 0);
+                    }
                 }
             }
         }
@@ -1432,11 +1529,16 @@ impl Renderer3D {
                 continue;
             };
             pass.set_bind_group(0, bind, &[]);
-            pass.set_pipeline(&cull.reset);
-            pass.dispatch_workgroups(page.jobs.div_ceil(64), 1, 1);
-            pass.set_pipeline(&cull.pipeline);
             let side = cull.side;
             let rows = page.groups.div_ceil(side);
+            pass.set_pipeline(&cull.pipeline);
+            pass.dispatch_workgroups(page.groups.min(side), rows.min(side), rows.div_ceil(side));
+            pass.set_pipeline(&cull.scan);
+            let scan_rows = page.scans.div_ceil(side);
+            pass.dispatch_workgroups(page.scans.min(side), scan_rows.min(side), scan_rows.div_ceil(side));
+            pass.set_pipeline(&cull.prefix);
+            pass.dispatch_workgroups(page.jobs.div_ceil(64), 1, 1);
+            pass.set_pipeline(&cull.scatter);
             pass.dispatch_workgroups(page.groups.min(side), rows.min(side), rows.div_ceil(side));
         }
     }
@@ -1618,6 +1720,51 @@ impl Default for BatchDraws {
 
 #[cfg(test)]
 impl Renderer3D {
+    pub(crate) fn batch_generations(&self) -> Vec<u32> {
+        self.static_culling
+            .iter()
+            .flat_map(|c| &c.pools)
+            .flat_map(|p| {
+                std::iter::once(p.records.generation).chain(
+                    p.pages
+                        .iter()
+                        .flat_map(|p| [p.visibility.generation, p.args.generation]),
+                )
+            })
+            .collect()
+    }
+    pub(crate) fn check_batch_order(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        for batch in self.static_batches.iter().flatten() {
+            let Some(pooled) = &batch.pooled else { continue };
+            let pool = &self.static_culling.as_ref().unwrap().pools[pooled.pool];
+            for view in batch.views.iter().filter(|v| v.active) {
+                let page = &pool.pages[view.page];
+                let count = traffic::read_back(device, queue, &page.args.buffer, view.args + 4, 4);
+                let count = u32::from_ne_bytes(count.try_into().unwrap());
+                if count == 0 {
+                    continue;
+                }
+                let bytes = traffic::read_back(
+                    device,
+                    queue,
+                    &page.visibility.buffer,
+                    view.visibility.0 + 4,
+                    u64::from(count) * 4,
+                );
+                let indices: Vec<u32> = bytes
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| u32::from_ne_bytes(*b))
+                    .collect();
+                assert!(
+                    indices.windows(2).all(|p| p[0] < p[1]),
+                    "visible indices must stay in source order: {indices:?}"
+                );
+                assert!(indices.last().unwrap() < &batch.count);
+            }
+        }
+    }
     /// The static batches' and their culling's part of `check_mirrors`.
     pub(super) fn check_batch_mirrors(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if let Some(cull) = &self.static_culling {
@@ -1709,6 +1856,45 @@ impl Renderer3D {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn packed_distances_preserve_scalar_distance_and_boundary_selection() {
+        // The SIMD path must retain sqrt/subtraction semantics at exact band
+        // edges, rather than approximate them with squared-distance comparisons.
+        for n in 0..1024 {
+            let p: [Vec3; 4] =
+                std::array::from_fn(|i| Vec3::new((n as f32 - 512.0) * 0.13, i as f32 * 1.37, (n % 31) as f32 * -2.11));
+            let radii = [0.0, 0.125, 3.0, 20.0];
+            let quad = DistanceQuad {
+                x: crate::Vec4::from_array(p.map(|v| v.x)),
+                y: crate::Vec4::from_array(p.map(|v| v.y)),
+                z: crate::Vec4::from_array(p.map(|v| v.z)),
+                radius: crate::Vec4::from_array(radii),
+            };
+            for eye in [Vec3::ZERO, Vec3::new(0.123, -4.5, 7.0), p[0]] {
+                let actual = quad.distances(eye).to_array();
+                for i in 0..4 {
+                    let expected = p[i].distance(eye) - radii[i];
+                    assert_eq!(actual[i].to_bits(), expected.to_bits());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn replaced_pages_keep_new_buffer_generations() {
+        let Some(gpu) = crate::render::render_test_support::gpu() else {
+            return;
+        };
+        let mut page = Page::new(&gpu.device, 16, 0);
+        let old = [page.visibility.generation, page.args.generation];
+        page = Page::new(&gpu.device, 16, 0);
+        assert!(page.visibility.generation > *old.iter().max().unwrap());
+        assert!(page.args.generation > page.visibility.generation);
+        let generation = page.visibility.generation;
+        page.visibility.alloc(&gpu.device, &gpu.queue, FIRST_BYTES * 2).unwrap();
+        assert!(page.visibility.generation > generation, "growth also advances identity");
+    }
 
     #[test]
     fn the_frames_buffer_fits_one_binding_and_the_grid_gives_way_to_the_views() {
