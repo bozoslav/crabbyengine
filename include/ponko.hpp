@@ -103,6 +103,21 @@ constexpr PonkoMesh mesh_none{PONKO_MESH_NONE};
 template<class H> constexpr H none() { H h{}; h.id = PONKO_HANDLE_NONE; return h; }
 /// How many handles of each kind are live (Rust `LiveCounts`).
 using live_counts = PonkoLiveCounts;
+/// A class of asset handle in the inventory (Rust `AssetClass`).
+enum class asset_class : std::uint32_t {
+    texture = PONKO_ASSET_CLASS_TEXTURE, render_target = PONKO_ASSET_CLASS_RENDER_TARGET,
+    texture_array = PONKO_ASSET_CLASS_TEXTURE_ARRAY, material = PONKO_ASSET_CLASS_MATERIAL,
+    shader = PONKO_ASSET_CLASS_SHADER, mesh = PONKO_ASSET_CLASS_MESH, gpu_buffer = PONKO_ASSET_CLASS_GPU_BUFFER,
+    effect = PONKO_ASSET_CLASS_EFFECT, compute = PONKO_ASSET_CLASS_COMPUTE, sound = PONKO_ASSET_CLASS_SOUND
+};
+/// Who made a handle (Rust `AssetOwner`), in `asset_record::owner`.
+enum class asset_owner : std::uint32_t {
+    code = PONKO_ASSET_OWNER_CODE, file = PONKO_ASSET_OWNER_FILE, engine = PONKO_ASSET_OWNER_ENGINE
+};
+/// Live handles of one class and their estimated bytes (Rust `AssetCount`).
+using asset_count = PonkoAssetCount;
+/// One live handle with its bytes, age and owner (Rust `AssetRecord`).
+using asset_record = PonkoAssetRecord;
 /// A kind of asset with its own residency budget (Rust `ResidencyKind`).
 enum class residency_kind : std::uint32_t { mesh = PONKO_RESIDENCY_MESH, texture = PONKO_RESIDENCY_TEXTURE };
 /// Where a streamed asset is (Rust `AssetState`).
@@ -3832,6 +3847,35 @@ public:
     /// How many handles of each kind are live now (Rust `Ctx::live_counts`).
     ponko::live_counts live_counts() const {
         ponko::live_counts c{}; detail::check(ponko_ctx_live_counts(raw_, &c)); return c;
+    }
+    /// Live handles of `c` and their estimated bytes (Rust `Ctx::asset_inventory`).
+    ponko::asset_count asset_count(asset_class c) const {
+        ponko::asset_count n{}; detail::check(ponko_ctx_asset_count(raw_, static_cast<std::uint32_t>(c), &n)); return n;
+    }
+    /// Every live handle of `c`, oldest first, with its bytes, age and owner
+    /// (Rust `Ctx::asset_handles`).
+    std::vector<ponko::asset_record> asset_handles(asset_class c) const {
+        const auto k = static_cast<std::uint32_t>(c);
+        std::size_t n = 0; detail::check(ponko_ctx_asset_handles(raw_, k, nullptr, 0, &n));
+        std::vector<ponko::asset_record> out(n);
+        if (n) detail::check(ponko_ctx_asset_handles(raw_, k, out.data(), out.size(), &n));
+        out.resize(std::min(n, out.size()));
+        return out;
+    }
+    /// The asset name that loaded handle `id` of `c`; empty if code or the engine made it.
+    std::string asset_owner_name(asset_class c, std::uint32_t id) const {
+        const auto k = static_cast<std::uint32_t>(c);
+        std::size_t len = 0;
+        detail::check(ponko_ctx_asset_owner(raw_, k, id, nullptr, 0, &len));
+        std::string text(len + 1, '\0');
+        detail::check(ponko_ctx_asset_owner(raw_, k, id, text.data(), text.size(), &len));
+        text.resize(len);
+        return text;
+    }
+    /// Frees everything loading glTF file `path` made: mesh, materials and
+    /// unshared textures (Rust `Graphics::unload_mesh`). False if it wasn't loaded.
+    bool unload_mesh(const char* path) {
+        bool done = false; detail::check(ponko_ctx_unload_mesh(raw_, path, &done)); return done;
     }
     /// Sets `kind`'s residency budget in bytes; std::nullopt for no limit
     /// (Rust `Ctx::set_residency_budget`).

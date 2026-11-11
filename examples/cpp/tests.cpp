@@ -1346,6 +1346,24 @@ static void handle_lifecycle() {
         auto after = ctx.live_counts();
         CHECK(after.textures == before.textures && after.meshes == before.meshes && after.materials == before.materials);
         throws([] { ponko::detail::check(ponko_ctx_handle_free(nullptr, PONKO_HANDLE_MESH, 0)); });
+
+        // Asset accounting: counts and bytes by class, each handle's age and owner.
+        const auto textures = ctx.asset_count(ponko::asset_class::texture);
+        auto pixel = ctx.create_texture(1, 1, px, sizeof px);
+        CHECK(ctx.asset_count(ponko::asset_class::texture).live == textures.live + 1);
+        CHECK(ctx.asset_count(ponko::asset_class::texture).bytes == textures.bytes + 4);
+        bool listed = false;
+        for (const auto& r : ctx.asset_handles(ponko::asset_class::texture)) {
+            if (r.id == pixel.id) listed = r.owner == static_cast<std::uint32_t>(ponko::asset_owner::code) && r.bytes == 4;
+        }
+        CHECK(listed);
+        CHECK(ctx.asset_owner_name(ponko::asset_class::texture, pixel.id).empty());
+        ctx.free(pixel);
+        auto house = ctx.load_mesh("models/house.glb");
+        CHECK(ctx.asset_owner_name(ponko::asset_class::mesh, house.id) == "models/house.glb");
+        CHECK(ctx.unload_mesh("models/house.glb") && !ctx.is_live(house));
+        CHECK(!ctx.unload_mesh("models/house.glb"));
+        throws([&] { ctx.asset_count(static_cast<ponko::asset_class>(99)); });
     });
 }
 
