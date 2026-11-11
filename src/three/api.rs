@@ -1134,7 +1134,9 @@ impl Graphics {
     /// ```
     #[must_use]
     pub fn mesh_shadows(&self, mesh: Mesh) -> bool {
-        self.assets3d.casts_shadows(mesh.id)
+        // A stale handle reads the default, not the setting of the mesh
+        // made after it in its slot.
+        self.assets3d.mesh_slot(mesh.id).is_none() || self.assets3d.casts_shadows(mesh.id)
     }
 
     /// Whether `mesh` was made by this game and not freed: [`Ctx::is_live`]

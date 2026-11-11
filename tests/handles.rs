@@ -224,6 +224,8 @@ mod three {
             // Calls with the stale handle leave the new mesh alone.
             ctx.gfx.set_mesh_shadows(old, false);
             assert!(ctx.gfx.mesh_shadows(new));
+            ctx.gfx.set_mesh_shadows(new, false);
+            assert!(ctx.gfx.mesh_shadows(old), "a stale handle reads the default");
             ctx.free(old);
             assert!(ctx.is_live(new));
             assert_eq!(ctx.live_counts().meshes, 1);
