@@ -1887,6 +1887,12 @@ mod tests {
         let Some(gpu) = crate::render::render_test_support::gpu() else {
             return;
         };
+        // Pages belong to the compute-culling path. WebGL2 has no storage
+        // bindings (Metal reports a zero binding limit), so its renderer uses
+        // CPU batches and cannot exercise storage-buffer growth here.
+        if !crate::render::render_test_support::needs(&gpu.device, crate::render::GpuFeature::ComputeCulling) {
+            return;
+        }
         let mut page = Page::new(&gpu.device, 16, 0);
         let old = [page.visibility.generation, page.args.generation];
         page = Page::new(&gpu.device, 16, 0);
