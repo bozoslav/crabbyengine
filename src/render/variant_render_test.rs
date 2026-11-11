@@ -32,35 +32,27 @@ struct Rig {
 impl Rig {
     /// `None` without a GPU.
     fn new(samples: u32) -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            crate::render::render_test_support::no_gpu("no GPU adapter");
-            return None;
-        };
-        if !multisamples(&adapter, samples) {
-            eprintln!("{samples}x multisampling unsupported: skipped");
-            return None;
-        }
-        // The device the game asks for (`gpu.rs`): 2x multisampling needs
-        // the adapter's own format features, and the decal and GI texture
-        // slots one more sampled texture than the default 16.
-        let descriptor = wgpu::DeviceDescriptor {
-            required_features: adapter.features() & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
-            required_limits: wgpu::Limits {
-                max_sampled_textures_per_shader_stage: adapter
-                    .limits()
-                    .max_sampled_textures_per_shader_stage
-                    .clamp(16, 24),
-                ..wgpu::Limits::default()
-            },
-            ..Default::default()
-        };
-        let Ok((device, queue)) =
-            pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&descriptor)))
-        else {
-            crate::render::render_test_support::no_gpu("no GPU device");
-            return None;
-        };
+        let gpu = crate::render::render_test_support::gpu_with(|adapter| {
+            if !multisamples(adapter, samples) {
+                return Err(format!("{samples}x multisampling unsupported"));
+            }
+            // The device the game asks for (`gpu.rs`): 2x multisampling needs
+            // the adapter's own format features, and the decal and GI texture
+            // slots one more sampled texture than the default 16.
+            let descriptor = wgpu::DeviceDescriptor {
+                required_features: adapter.features() & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+                required_limits: wgpu::Limits {
+                    max_sampled_textures_per_shader_stage: adapter
+                        .limits()
+                        .max_sampled_textures_per_shader_stage
+                        .clamp(16, 24),
+                    ..wgpu::Limits::default()
+                },
+                ..Default::default()
+            };
+            Ok(descriptor)
+        })?;
+        let (device, queue) = (gpu.device, gpu.queue);
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[
@@ -143,7 +135,6 @@ impl Rig {
         });
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, samples, true);
-        eprintln!("material variant test adapter: {:?}", adapter.get_info());
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
         ctx.sky.atmosphere = false;
         Some(Self {

@@ -34,14 +34,9 @@ impl Rig {
     /// [`new`](Self::new), drawing `size` pixels, with GPU timestamps
     /// where the GPU has them.
     fn sized(slots: bool, size: (u32, u32)) -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            crate::render::render_test_support::no_gpu("no GPU adapter");
-            return None;
-        };
-        // As the engine asks: more texture slots where the adapter has them.
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
-            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor {
+        let gpu = crate::render::render_test_support::gpu_with(|adapter| {
+            // As the engine asks: more texture slots where the adapter has them.
+            Ok(wgpu::DeviceDescriptor {
                 required_limits: wgpu::Limits {
                     max_sampled_textures_per_shader_stage: if slots {
                         adapter.limits().max_sampled_textures_per_shader_stage.clamp(16, 24)
@@ -52,13 +47,14 @@ impl Rig {
                 },
                 required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
                 ..Default::default()
-            }),
-        )) else {
-            crate::render::render_test_support::no_gpu("no GPU device");
-            return None;
-        };
+            })
+        })?;
+        let (device, queue) = (gpu.device, gpu.queue);
         if supports_gi(&device) != slots {
-            eprintln!("this GPU can't be set up for this test: skipped");
+            crate::render::render_test_support::skip(format_args!(
+                "the device {} the texture slot global illumination needs, and this test wants the opposite",
+                if slots { "lacks" } else { "has" }
+            ));
             return None;
         }
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -393,7 +389,7 @@ fn gi_cost() {
         return;
     };
     let Some(mut timer) = super::timer::GpuTimer::new(&rig.device, &rig.queue) else {
-        eprintln!("no GPU timestamps: skipped");
+        crate::render::render_test_support::skip("no GPU timestamps");
         return;
     };
     let white = rig.mesh(&MeshData::cube(1.0), MaterialDesc::color(Color::WHITE));

@@ -609,6 +609,78 @@ static void ui_auto_margins_setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, m, &r) == PONKO_OK && r.min.x == 400 && r.min.y == 350);
     CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, p, &r) == PONKO_OK && r.min.x == 800);
 }
+/* What a screen reader reads of a UI, and what it can ask of it. */
+static void ui_access_setup(PonkoCtx* ctx, void* user) {
+    (void)user;
+    const uint64_t s = PONKO_UI_SCREEN;
+    const PonkoVec2 window = {800, 600};
+    PonkoUiLayout fill = ponko_ui_layout_fill(), row = ponko_ui_layout_row(30);
+    uint64_t root, play, volume, name;
+    CHECK(ponko_ctx_ui_add_panel(ctx, s, PONKO_UI_NONE, &fill, &root) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_button(ctx, s, root, "Play", &row, &play) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_slider(ctx, s, root, 0.5f, &row, &volume) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_text_input(ctx, s, root, "Ann", &row, &name) == PONKO_OK);
+    CHECK(ponko_ctx_ui_push_screen(ctx, s, root, false) == PONKO_OK);
+    /* Names, a description and a live region. */
+    CHECK(ponko_ctx_ui_set_accessible_name(ctx, s, volume, "Volume") == PONKO_OK);
+    CHECK(ponko_ctx_ui_set_accessible_description(ctx, s, play, "Starts a run") == PONKO_OK);
+    CHECK(ponko_ctx_ui_set_live_region(ctx, s, play, PONKO_UI_LIVE_POLITE) == PONKO_OK);
+    char text[512]; size_t len = 0;
+    CHECK(ponko_ctx_ui_accessible_name(ctx, s, volume, text, sizeof text, &len) == PONKO_OK && strcmp(text, "Volume") == 0);
+    CHECK(ponko_ctx_ui_accessible_description(ctx, s, play, text, sizeof text, &len) == PONKO_OK && len == 12);
+    PonkoUiLive live = PONKO_UI_LIVE_OFF;
+    CHECK(ponko_ctx_ui_live_region(ctx, s, play, &live) == PONKO_OK && live == PONKO_UI_LIVE_POLITE);
+    CHECK(ponko_ctx_ui_frame(ctx, s, window, NULL) == PONKO_OK);
+    CHECK(ponko_ctx_ui_access_text(ctx, s, text, sizeof text, &len) == PONKO_OK);
+    CHECK(strstr(text, "group\n  button \"Play\" description=\"Starts a run\" live=polite focusable\n") == text);
+
+    /* The snapshot: every node at first, then only what changed. */
+    PonkoUiAccess* access = ponko_ui_access_new(); CHECK(access);
+    PonkoUiAccessChanges changes;
+    CHECK(ponko_ui_access_update(access, ctx, s, &changes) == PONKO_OK && changes.any && changes.changed_count == 4);
+    size_t count = 0;
+    CHECK(ponko_ui_access_count(access, &count) == PONKO_OK && count == 4);
+    PonkoUiAccessNode node;
+    CHECK(ponko_ui_access_node(access, 0, &node) == PONKO_OK && node.id == root && node.role == PONKO_UI_ROLE_GROUP && node.child_count == 3);
+    uint64_t child = 0;
+    CHECK(ponko_ui_access_child(access, root, 1, &child) == PONKO_OK && child == volume);
+    CHECK(ponko_ui_access_find(access, volume, &node) == PONKO_OK && node.role == PONKO_UI_ROLE_SLIDER);
+    CHECK(node.value_kind == PONKO_UI_ACCESS_VALUE_RANGE && node.value == 0.5f && node.focusable && !node.focused);
+    CHECK(ponko_ui_access_find(access, name, &node) == PONKO_OK && node.has_selection && node.selection_caret == 3);
+    CHECK(ponko_ui_access_name(access, volume, text, sizeof text, &len) == PONKO_OK && strcmp(text, "Volume") == 0);
+    CHECK(ponko_ui_access_description(access, play, text, sizeof text, &len) == PONKO_OK && len == 12);
+    CHECK(ponko_ui_access_value_text(access, name, text, sizeof text, &len) == PONKO_OK && strcmp(text, "Ann") == 0);
+    uint64_t focus = 0;
+    CHECK(ponko_ui_access_focus(access, &focus) == PONKO_OK && focus == PONKO_UI_NONE);
+    CHECK(ponko_ui_access_update(access, ctx, s, &changes) == PONKO_OK && !changes.any);
+
+    /* A request does what the key does: the event, the value, the focus. */
+    CHECK(ponko_ctx_ui_access_action(ctx, s, PONKO_UI_ACCESS_ACTION_ACTIVATE, play, 0, NULL) == PONKO_OK);
+    CHECK(ponko_ctx_ui_access_action(ctx, s, PONKO_UI_ACCESS_ACTION_INCREMENT, volume, 0, NULL) == PONKO_OK);
+    CHECK(ponko_ctx_ui_access_action(ctx, s, PONKO_UI_ACCESS_ACTION_SET_TEXT, name, 0, "Bea") == PONKO_OK);
+    CHECK(ponko_ctx_ui_frame(ctx, s, window, NULL) == PONKO_OK);
+    PonkoUiEvent event;
+    CHECK(ponko_ctx_ui_next_event(ctx, s, &event) == PONKO_OK && event.kind == PONKO_UI_EVENT_CLICKED && event.id == play);
+    CHECK(ponko_ui_access_update(access, ctx, s, &changes) == PONKO_OK && changes.any && changes.focus_changed);
+    CHECK(changes.changed_count == 3 && changes.removed_count == 0);
+    uint64_t changed = 0;
+    CHECK(ponko_ui_access_changed(access, 0, &changed) == PONKO_OK && changed == play);
+    CHECK(ponko_ui_access_focus(access, &focus) == PONKO_OK && focus == play);
+    CHECK(ponko_ui_access_find(access, volume, &node) == PONKO_OK && node.value > 0.54f && node.value < 0.56f);
+    CHECK(ponko_ui_access_value_text(access, name, text, sizeof text, &len) == PONKO_OK && strcmp(text, "Bea") == 0);
+
+    /* A removed node is reported and no longer found. */
+    CHECK(ponko_ctx_ui_remove(ctx, s, volume) == PONKO_OK);
+    CHECK(ponko_ctx_ui_frame(ctx, s, window, NULL) == PONKO_OK);
+    CHECK(ponko_ui_access_update(access, ctx, s, &changes) == PONKO_OK && changes.removed_count == 1);
+    uint64_t removed = 0;
+    CHECK(ponko_ui_access_removed(access, 0, &removed) == PONKO_OK && removed == volume);
+    CHECK(ponko_ui_access_find(access, volume, &node) == PONKO_NOT_FOUND);
+    CHECK(ponko_ui_access_reset(access) == PONKO_OK);
+    CHECK(ponko_ui_access_update(access, ctx, s, &changes) == PONKO_OK && changes.changed_count == 3);
+    CHECK(ponko_ctx_ui_set_live_region(ctx, s, play, 9) == PONKO_INVALID_ARGUMENT);
+    ponko_ui_access_free(access);
+}
 static void retained_ui(void) {
     PonkoGame* game = ponko_game_new("c ui", 1, 1); CHECK(game);
     PonkoWorld* w = NULL;
@@ -619,6 +691,9 @@ static void retained_ui(void) {
     CHECK(ponko_world_free(w) == PONKO_OK);
     game = ponko_game_new("c ui auto margins", 1, 1); CHECK(game);
     CHECK(ponko_game_run_headless(game, 0, ui_auto_margins_setup, NULL, &w) == PONKO_OK);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+    game = ponko_game_new("c ui access", 1, 1); CHECK(game);
+    CHECK(ponko_game_run_headless(game, 0, ui_access_setup, NULL, &w) == PONKO_OK);
     CHECK(ponko_world_free(w) == PONKO_OK);
 }
 /* Ribbon and line defaults, and a decal cut from a floor. */

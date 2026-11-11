@@ -28,6 +28,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "accesskit_consumer"
+version = "0.39.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3da8f27636015191b2264ee1df681503170a632cafd832fdc1edfdd4e3a2fd3"
+dependencies = [
+ "accesskit",
+ "hashbrown 0.17.1",
+]
+
+[[package]]
+name = "accesskit_macos"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "123828ceeec755b05255e3976cb0852993202de98a0626c97dd8d34246991f84"
+dependencies = [
+ "accesskit",
+ "accesskit_consumer",
+ "hashbrown 0.17.1",
+ "objc2 0.5.3",
+ "objc2-app-kit 0.2.2",
+ "objc2-foundation 0.2.2",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3032,6 +3056,8 @@ dependencies = [
 name = "ponko"
 version = "0.0.1"
 dependencies = [
+ "accesskit",
+ "accesskit_macos",
  "bytemuck",
  "cpal",
  "dioxus-devtools",
@@ -3049,8 +3075,11 @@ dependencies = [
  "kira",
  "libc",
  "navmesh-rs",
+ "objc2 0.5.3",
+ "objc2-foundation 0.2.2",
  "pollster",
  "ponko_ecs",
+ "ponko_mcp",
  "puffin",
  "puffin_http",
  "rapier2d",
@@ -3084,6 +3113,7 @@ dependencies = [
  "rapier2d",
  "rapier3d",
  "rayon",
+ "serde_json",
 ]
 
 [[package]]

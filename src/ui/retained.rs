@@ -416,6 +416,10 @@ pub(super) struct Node {
     pub anchor: usize,
     /// Accessible name override; empty means "derive it from the text".
     pub access_name: String,
+    /// What assistive technology reads after the name; empty: nothing.
+    pub access_description: String,
+    /// Whether changes to it are announced without it having focus.
+    pub access_live: super::UiLive,
     /// The name it is found by ([`Ui::find`]); empty: none.
     pub name: String,
     /// A title ([`Ui::title`]): painted from the theme's title color and size.
@@ -475,6 +479,8 @@ pub struct Ui {
     measure: crate::text::Text,
     external_fonts: bool,
     consumed: bool,
+    /// Requests from assistive technology, applied by the next [`Ui::frame`].
+    pub(super) access_actions: Vec<super::UiAccessAction>,
     pub(super) theme: super::UiTheme,
     /// The named nodes ([`Ui::find`]).
     pub(super) names: std::collections::HashMap<String, UiId>,
@@ -513,6 +519,7 @@ impl Default for Ui {
             measure: crate::text::Text::new(),
             external_fonts: false,
             consumed: false,
+            access_actions: Vec::new(),
             theme: super::UiTheme::default(),
             names: std::collections::HashMap::new(),
             immediate: super::UiImmediate::default(),
@@ -561,6 +568,8 @@ impl Ui {
             caret: 0,
             anchor: 0,
             access_name: String::new(),
+            access_description: String::new(),
+            access_live: super::UiLive::Off,
             name: String::new(),
             title: false,
         }));
@@ -1152,6 +1161,7 @@ impl Ui {
         self.consumed = false;
         self.pointer = input.pointer;
         self.layout(viewport);
+        let access_moved_focus = self.apply_access_actions();
         if input.cancel {
             if let Some(root) = self.pop_screen() {
                 self.events.push(UiEvent::ScreenPopped(root));
@@ -1267,7 +1277,7 @@ impl Ui {
             .filter(|&id| self.node(id).unwrap().widget == UiWidget::Slider)
             && input.direction.x != 0.0
         {
-            let value = self.value(id).unwrap() + input.direction.x * 0.05;
+            let value = self.value(id).unwrap() + input.direction.x * super::access::SLIDER_STEP;
             self.change_value(id, value.clamp(0.0, 1.0));
         } else if input.direction != Vec2::ZERO {
             self.navigate(input.direction);
@@ -1278,7 +1288,7 @@ impl Ui {
             self.activate(id);
         }
         self.layout(viewport);
-        if input.next || input.previous || input.direction != Vec2::ZERO {
+        if input.next || input.previous || input.direction != Vec2::ZERO || access_moved_focus {
             self.reveal_focus();
             self.layout(viewport);
         }
@@ -1344,7 +1354,7 @@ impl Ui {
             self.focus = best;
         }
     }
-    fn activate(&mut self, id: UiId) {
+    pub(super) fn activate(&mut self, id: UiId) {
         if !self.interactive(id) {
             return;
         }
@@ -1358,7 +1368,10 @@ impl Ui {
             _ => {}
         }
     }
-    fn change_value(&mut self, id: UiId, value: f32) {
+    pub(super) fn push_changed(&mut self, id: UiId) {
+        self.events.push(UiEvent::Changed(id));
+    }
+    pub(super) fn change_value(&mut self, id: UiId, value: f32) {
         if self.value(id) != Some(value) {
             self.set_value(id, value);
             self.events.push(UiEvent::Changed(id));

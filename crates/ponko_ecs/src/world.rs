@@ -808,6 +808,31 @@ impl World {
         self.recorder.start();
     }
 
+    /// [`record_access`](Self::record_access), reusing `log`'s buffers: the
+    /// log is emptied and filled again, so a checker that hands back the log
+    /// it took last time records without allocating once the buffers are
+    /// big enough.
+    ///
+    /// ```
+    /// use ponko_ecs::{AccessLog, World};
+    /// struct Pos(f32);
+    ///
+    /// let mut world = World::new();
+    /// world.spawn((Pos(0.0),));
+    /// let mut spare = AccessLog::default();
+    /// for _ in 0..3 {
+    ///     world.record_access_into(std::mem::take(&mut spare));
+    ///     world.query::<&Pos>().for_each(|_| {});
+    ///     if let Some(log) = world.take_access_log() {
+    ///         assert_eq!(log.components.len(), 1, "only this round's access");
+    ///         spare = log;
+    ///     }
+    /// }
+    /// ```
+    pub fn record_access_into(&mut self, log: AccessLog) {
+        self.recorder.start_into(log);
+    }
+
     /// Stops recording and returns what was accessed since
     /// [`record_access`](Self::record_access). `None` if the world wasn't
     /// recording, and always in release builds.

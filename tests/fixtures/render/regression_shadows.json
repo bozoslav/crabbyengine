@@ -1,0 +1,17 @@
+{
+  "name": "regression_shadows",
+  "scene": "A white box (1 x 1.5 x 1) on a grey floor, white sun at 45 degrees from the left (direction 1, -1, 0) casting its shadow to the right, white ambient light at 0.05; camera at (0, 2.4, 5) looking at (0, 0.6, 0); 128x128, 4x multisampling, default shadow settings, no tonemapping.",
+  "width": 128,
+  "height": 128,
+  "format": "rgba8-srgb",
+  "tolerance": {
+    "channel": 12,
+    "outliers": 0.0075,
+    "edge": 1
+  },
+  "adapter": "Apple M4 Max",
+  "backend": "Metal",
+  "driver": "unknown",
+  "checksum": "78f56d2b6b9eddb4",
+  "reason": "New reference: the image regression suite's first baselines (#135)."
+}

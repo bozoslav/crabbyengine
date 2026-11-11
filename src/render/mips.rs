@@ -272,9 +272,8 @@ mod tests {
 
     /// An offscreen device, or `None` without a GPU.
     fn gpu() -> Option<(wgpu::Device, wgpu::Queue)> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()
+        let gpu = crate::render::render_test_support::gpu()?;
+        Some((gpu.device, gpu.queue))
     }
 
     /// Mip level `level` of an RGBA8 `texture`, rows unpadded.
@@ -327,7 +326,6 @@ mod tests {
     #[test]
     fn data_textures_keep_their_bytes_without_view_formats() {
         let Some((device, queue)) = gpu() else {
-            eprintln!("no GPU: skipped");
             return;
         };
         // 4x4: red alternates 0 and 200 by column; green and blue are a normal map's flat (128, 255).

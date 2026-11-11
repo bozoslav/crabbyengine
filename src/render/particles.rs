@@ -337,15 +337,9 @@ mod tests {
 
     #[test]
     fn particles_additive_brightens_pixels_offscreen() {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            crate::render::render_test_support::no_gpu("no GPU adapter");
-            return;
-        };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
-            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
-        )) else {
-            crate::render::render_test_support::no_gpu("no GPU device");
+        let Some(crate::render::render_test_support::TestGpu { device, queue, .. }) =
+            crate::render::render_test_support::gpu()
+        else {
             return;
         };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

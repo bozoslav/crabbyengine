@@ -58,6 +58,10 @@ where
         occluded: false,
         #[cfg(feature = "inspector")]
         inspector: None,
+        #[cfg(feature = "accessibility")]
+        access: None,
+        #[cfg(feature = "accessibility")]
+        access_gap_until: None,
         #[cfg(feature = "gamepad")]
         gamepads: None,
     };
@@ -128,8 +132,6 @@ struct App<S> {
     /// Delivers [`Ready`] from the task that opens the GPU (web builds).
     #[cfg(target_arch = "wasm32")]
     proxy: Option<winit::event_loop::EventLoopProxy<Ready>>,
-    /// Kept for the whole run: dropping it closes the endpoint.
-    control: Option<Control>,
     config: Game,
     setup: Option<S>,
     /// Setup has run; frames may run.
@@ -143,9 +145,22 @@ struct App<S> {
     /// inspector overlay, when the game has it on.
     #[cfg(feature = "inspector")]
     inspector: Option<crate::inspector::Inspector>,
+    /// Gives `ctx.ui` to the system's accessibility API (screen readers).
+    #[cfg(feature = "accessibility")]
+    access: Option<crate::ui::UiAccessAdapter>,
+    /// While assistive technology is reading the window: when the next
+    /// frame may start (see [`ACCESS_GAP`]).
+    #[cfg(feature = "accessibility")]
+    access_gap_until: Option<Instant>,
     /// Connected controllers, read at the start of every frame.
     #[cfg(feature = "gamepad")]
     gamepads: Option<crate::gamepad::Gamepads>,
+    /// Kept for the whole run: dropping it closes the endpoint. The last
+    /// field, so it is dropped after `ctx`: a reply `ctx` still holds (a
+    /// screenshot waiting for its frame) is let go first, its client is told
+    /// the game is shutting down, and the endpoint's exit doesn't wait for
+    /// an answer that can no longer come.
+    control: Option<Control>,
 }
 
 impl<S, U> App<S>
@@ -192,6 +207,12 @@ where
         let systems_start = Instant::now();
         self.config.run_systems(&mut self.ctx, timing.fixed_steps);
         let systems_ms = systems_start.elapsed().as_secs_f32() * 1000.0;
+        // What the systems left in the UI goes to the screen reader, and its
+        // requests are queued for the UI's next frame.
+        #[cfg(feature = "accessibility")]
+        if let (Some(access), Some(window)) = (&mut self.access, &self.window) {
+            access.update(&mut self.ctx.ui, window.scale_factor() as f32);
+        }
         self.ctx.input.end_frame();
         #[cfg(feature = "inspector")]
         if let (Some(inspector), Some(window)) = (&mut self.inspector, &self.window) {
@@ -239,8 +260,56 @@ where
             && !self.unpaced()
             && let Some(window) = &self.window
         {
+            // A screen reader is asking: leave the event loop idle for a
+            // moment before the next frame (`about_to_wait` asks for it).
+            #[cfg(feature = "accessibility")]
+            if let Some(until) = access_gap(self.access.as_ref().is_some_and(|a| a.is_active()), Instant::now()) {
+                self.access_gap_until = Some(until);
+                return;
+            }
             window.request_redraw();
         }
+    }
+}
+
+/// How long the event loop is left idle between two vsync-paced frames
+/// while assistive technology is reading the window.
+///
+/// A screen reader's questions arrive through the event loop, one per pass.
+/// A paced frame spends nearly all of its time waiting for the display
+/// inside the frame, so without a pause the game answers one question per
+/// frame: a screen reader that asks hundreds waits seconds and reports the
+/// game as not responding. During the pause every waiting question is
+/// answered. The frame still ends on the display's next refresh, as long as
+/// its own work fits in what is left of the refresh interval.
+#[cfg(feature = "accessibility")]
+const ACCESS_GAP: std::time::Duration = std::time::Duration::from_millis(4);
+
+/// When the next paced frame may start: `None` for right away, or the end
+/// of the pause that lets assistive technology be answered.
+#[cfg(feature = "accessibility")]
+fn access_gap(read_by_assistive_technology: bool, now: Instant) -> Option<Instant> {
+    read_by_assistive_technology.then(|| now + ACCESS_GAP)
+}
+
+#[cfg(all(test, feature = "accessibility"))]
+mod access_gap_tests {
+    use super::*;
+
+    #[test]
+    fn a_window_nobody_reads_starts_its_next_frame_right_away() {
+        assert_eq!(access_gap(false, Instant::now()), None);
+    }
+
+    #[test]
+    fn a_window_a_screen_reader_reads_leaves_the_event_loop_idle_before_the_next_frame() {
+        let now = Instant::now();
+        let until = access_gap(true, now).expect("a pause");
+        assert_eq!(until - now, ACCESS_GAP);
+        // Short enough to keep a 60 Hz frame on its refresh, long enough to
+        // answer many questions (each takes well under a millisecond).
+        assert!(ACCESS_GAP >= std::time::Duration::from_millis(2));
+        assert!(ACCESS_GAP <= std::time::Duration::from_millis(8));
     }
 }
 
@@ -335,9 +404,19 @@ where
         } else {
             attributes
         };
+        // The accessibility adapter has to be on the view before it is
+        // first shown, so the window starts hidden and is shown right after.
+        #[cfg(all(feature = "accessibility", target_os = "macos"))]
+        let attributes = attributes.with_visible(false);
         let window = event_loop
             .create_window(attributes)
             .unwrap_or_else(|e| panic!("ponko: could not create the window: {e}"));
+        #[cfg(feature = "accessibility")]
+        {
+            self.access = Some(crate::ui::UiAccessAdapter::for_window(&window, &self.config.title));
+            #[cfg(target_os = "macos")]
+            window.set_visible(true);
+        }
         let window = Arc::new(window);
         self.window = Some(window.clone());
         let display = event_loop.owned_display_handle();
@@ -383,6 +462,11 @@ where
             if inspector.on_event(&window, &event) {
                 return;
             }
+        }
+
+        #[cfg(feature = "accessibility")]
+        if let (WindowEvent::Focused(focused), Some(access)) = (&event, &mut self.access) {
+            access.set_window_focused(*focused);
         }
 
         match event {
@@ -466,6 +550,19 @@ where
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Between two frames while a screen reader is asking: stay idle
+        // (answering it) until the pause is over, then ask for the frame.
+        #[cfg(feature = "accessibility")]
+        if let Some(until) = self.access_gap_until {
+            if Instant::now() < until {
+                event_loop.set_control_flow(ControlFlow::WaitUntil(until));
+                return;
+            }
+            self.access_gap_until = None;
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+        }
         if self.occluded {
             // Hidden: check back now and then instead of spinning a core.
             // The simulation pauses while hidden (dt is clamped on return).

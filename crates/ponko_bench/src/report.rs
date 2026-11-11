@@ -48,6 +48,7 @@ pub struct Record {
     pub min: Duration,
     pub p50: Duration,
     pub p95: Duration,
+    pub p99: Duration,
     pub max: Duration,
     pub mean: Duration,
     /// Bytes the ECS world reports as allocated for component storage
@@ -80,6 +81,7 @@ impl Record {
             min: times[0],
             p50: nearest_rank(times, 50),
             p95: nearest_rank(times, 95),
+            p99: nearest_rank(times, 99),
             max: times[times.len() - 1],
             mean: total / times.len() as u32,
             world_bytes: None,
@@ -192,8 +194,10 @@ fn cpu_name() -> String {
         .unwrap_or_else(|| "unknown".to_owned())
 }
 
-/// The results as one JSON document. Times are in milliseconds.
-pub fn to_json(env: &Env, records: &[Record]) -> String {
+/// The results as one JSON document. Times are in milliseconds. `render`:
+/// the rendering baseline's own section (a JSON object, see
+/// `render_report`), written as the document's `render` field.
+pub fn to_json(env: &Env, records: &[Record], render: Option<&str>) -> String {
     let mut s = String::new();
     s.push_str("{\n");
     let _ = writeln!(s, "  \"schema_version\": {SCHEMA_VERSION},");
@@ -208,7 +212,11 @@ pub fn to_json(env: &Env, records: &[Record]) -> String {
     let _ = writeln!(s, "    \"logical_cores\": {},", env.logical_cores);
     let _ = writeln!(s, "    \"rayon_threads\": {},", env.rayon_threads);
     let _ = writeln!(s, "    \"debug_assertions\": {},", env.debug_assertions);
-    let _ = writeln!(s, "    \"ponko_features\": [\"physics\", \"physics3d\", \"navmesh\"],");
+    let window = if cfg!(feature = "render") { ", \"window\"" } else { "" };
+    let _ = writeln!(
+        s,
+        "    \"ponko_features\": [\"physics\", \"physics3d\", \"navmesh\"{window}],"
+    );
     let _ = writeln!(s, "    \"bevy_ecs\": {},", json_str(BEVY_ECS_VERSION));
     let features: Vec<String> = BEVY_ECS_FEATURES.iter().map(|f| json_str(f)).collect();
     let _ = writeln!(s, "    \"bevy_ecs_features\": [{}],", features.join(", "));
@@ -225,8 +233,8 @@ pub fn to_json(env: &Env, records: &[Record]) -> String {
         let _ = write!(
             s,
             "    {{\"name\": {}, \"kind\": \"{}\", \"warmup\": {}, \"runs\": {}, \
-             \"min_ms\": {}, \"p50_ms\": {}, \"p95_ms\": {}, \"max_ms\": {}, \"mean_ms\": {}, \
-             \"world_bytes\": {bytes}, \"allocs_per_run\": {}, \"alloc_bytes_per_run\": {}}}",
+             \"min_ms\": {}, \"p50_ms\": {}, \"p95_ms\": {}, \"p99_ms\": {}, \"max_ms\": {}, \
+             \"mean_ms\": {}, \"world_bytes\": {bytes}, \"allocs_per_run\": {}, \"alloc_bytes_per_run\": {}}}",
             json_str(&r.name),
             r.kind.as_str(),
             r.warmup,
@@ -234,13 +242,19 @@ pub fn to_json(env: &Env, records: &[Record]) -> String {
             ms(r.min),
             ms(r.p50),
             ms(r.p95),
+            ms(r.p99),
             ms(r.max),
             ms(r.mean),
             per_run(r.allocs_per_run),
             per_run(r.alloc_bytes_per_run),
         );
     }
-    s.push_str(if records.is_empty() { "]\n}\n" } else { "\n  ]\n}\n" });
+    s.push_str(if records.is_empty() { "]" } else { "\n  ]" });
+    if let Some(render) = render {
+        // Indented like the rest of the document.
+        let _ = write!(s, ",\n  \"render\": {}", render.trim_end().replace('\n', "\n  "));
+    }
+    s.push_str("\n}\n");
     s
 }
 
@@ -338,13 +352,13 @@ mod tests {
         a.allocs_per_run = Some(2.5);
         a.alloc_bytes_per_run = Some(64.0);
         let b = Record::new("spawn/b", Kind::Fresh, 1, &mut [d(3)]);
-        let json = to_json(&env, &[a, b]);
+        let json = to_json(&env, &[a, b], None);
         assert!(json.contains("\"schema_version\": 1,"));
         assert!(json.contains("\"filter\": \"iter\","));
         assert!(json.contains(
             "{\"name\": \"iter/a\", \"kind\": \"steady\", \"warmup\": 5, \"runs\": 2, \"min_ms\": 1.000000, \
-             \"p50_ms\": 1.000000, \"p95_ms\": 2.000000, \"max_ms\": 2.000000, \"mean_ms\": 1.500000, \
-             \"world_bytes\": 4096, \"allocs_per_run\": 2.500, \"alloc_bytes_per_run\": 64.000},\n"
+             \"p50_ms\": 1.000000, \"p95_ms\": 2.000000, \"p99_ms\": 2.000000, \"max_ms\": 2.000000, \
+             \"mean_ms\": 1.500000, \"world_bytes\": 4096, \"allocs_per_run\": 2.500, \"alloc_bytes_per_run\": 64.000},\n"
         ));
         assert!(json.contains("\"name\": \"spawn/b\", \"kind\": \"fresh\""));
         assert!(
@@ -354,8 +368,21 @@ mod tests {
         assert_eq!(json.matches('{').count(), json.matches('}').count());
         assert_eq!(json.matches('[').count(), json.matches(']').count());
 
-        let empty = to_json(&Env::default(), &[]);
+        let empty = to_json(&Env::default(), &[], None);
         assert!(empty.ends_with("\"results\": []\n}\n"));
         assert!(empty.contains("\"filter\": null,"));
+    }
+
+    #[test]
+    fn the_render_section_is_part_of_the_document() {
+        let r = Record::new("render/scene x frame", Kind::Steady, 2, &mut [d(1)]);
+        let json = to_json(&Env::default(), &[r], Some("{\n  \"scenes\": []\n}"));
+        assert!(
+            json.ends_with("\n  ],\n  \"render\": {\n    \"scenes\": []\n  }\n}\n"),
+            "{json}"
+        );
+        let empty = to_json(&Env::default(), &[], Some("{}"));
+        assert!(empty.ends_with("\"results\": [],\n  \"render\": {}\n}\n"), "{empty}");
+        assert_eq!(json.matches('{').count(), json.matches('}').count());
     }
 }

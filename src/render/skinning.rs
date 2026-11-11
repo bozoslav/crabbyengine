@@ -515,15 +515,9 @@ mod tests {
     fn posed_corners_match(compute: bool) {
         use glam::{Mat4, Quat, Vec3};
         use wgpu::util::DeviceExt;
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            crate::render::render_test_support::no_gpu("no GPU adapter");
-            return;
-        };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
-            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
-        )) else {
-            crate::render::render_test_support::no_gpu("no GPU device");
+        let Some(crate::render::render_test_support::TestGpu { device, queue, .. }) =
+            crate::render::render_test_support::gpu()
+        else {
             return;
         };
         // The compute pass binds six storage buffers (the renderer's own check).
@@ -629,15 +623,9 @@ mod tests {
     fn the_cpu_fallback_uploads_a_pose_only_when_what_it_reads_changed() {
         use glam::{Mat4, Vec3};
         use wgpu::util::DeviceExt;
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            crate::render::render_test_support::no_gpu("no GPU adapter");
-            return;
-        };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
-            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
-        )) else {
-            crate::render::render_test_support::no_gpu("no GPU device");
+        let Some(crate::render::render_test_support::TestGpu { device, queue, .. }) =
+            crate::render::render_test_support::gpu()
+        else {
             return;
         };
         let skinning = &mut super::Skinning::new(&device, false);

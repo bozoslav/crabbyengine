@@ -364,25 +364,28 @@ mod tests {
         assert!((passes[0].ms - 5.0).abs() < 1e-5, "{}", passes[0].ms);
     }
 
+    /// A device with those of `features` the adapter has. The shared helper
+    /// (which needs the `3d` feature) logs the adapter, fails a missing one
+    /// under `PONKO_REQUIRE_GPU` and applies `PONKO_GPU_TIER`.
+    #[cfg(feature = "3d")]
     fn device(features: wgpu::Features) -> Option<(wgpu::Device, wgpu::Queue)> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
-        let features = adapter.features() & features;
-        let descriptor = wgpu::DeviceDescriptor {
-            required_features: features,
-            ..Default::default()
-        };
-        pollster::block_on(adapter.request_device(&descriptor)).ok()
+        let gpu = crate::render::render_test_support::gpu_with(|adapter| {
+            Ok(wgpu::DeviceDescriptor {
+                required_features: adapter.features() & features,
+                ..Default::default()
+            })
+        })?;
+        Some((gpu.device, gpu.queue))
     }
 
     /// The render-pass inspector reports GPU time only where this makes a
     /// timer: a device without timestamp queries gets none, so its GPU
     /// times are unavailable rather than zero. Offscreen, no window; skips
     /// without a GPU.
+    #[cfg(feature = "3d")]
     #[test]
     fn devices_without_timestamp_queries_get_no_timer() {
         let Some((device, queue)) = device(wgpu::Features::empty()) else {
-            eprintln!("no GPU adapter: skipped");
             return;
         };
         assert!(!device.features().contains(wgpu::Features::TIMESTAMP_QUERY));
@@ -391,14 +394,16 @@ mod tests {
 
     /// A device with timestamp queries gets a timer, and it reports nothing
     /// until a frame's timestamps have actually come back.
+    #[cfg(feature = "3d")]
     #[test]
     fn a_new_timer_reports_no_gpu_time_before_a_readback() {
         let Some((device, queue)) = device(wgpu::Features::TIMESTAMP_QUERY) else {
-            eprintln!("no GPU adapter: skipped");
             return;
         };
+        // An adapter (or a forced tier) without timestamp queries is a
+        // skip, also under `PONKO_REQUIRE_GPU`: the test above covers it.
         if !device.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
-            eprintln!("adapter has no timestamp queries: skipped");
+            crate::render::render_test_support::skip("needs timestamp queries, which this device lacks");
             return;
         }
         let timer = GpuTimer::new(&device, &queue).expect("timestamps are supported");

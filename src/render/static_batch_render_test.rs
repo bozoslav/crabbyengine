@@ -521,6 +521,7 @@ fn wall_grid(view_proj: Mat4, camera: Vec3) -> OcclusionGrid {
 const SAME_DEVICE: support::Tolerance = support::Tolerance {
     channel: 2,
     outliers: 0.0,
+    edge: 0,
 };
 
 /// Asserts `a` and `b` are the same picture within `tolerance`, and that

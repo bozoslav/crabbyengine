@@ -41,7 +41,8 @@ impl StateCounters {
         }
     }
 
-    #[cfg(test)]
+    // The offscreen scene benchmark reads these; it is not built for the web.
+    #[cfg(any(test, not(target_arch = "wasm32")))]
     pub fn take(&self) -> StateChanges {
         let [pipelines, bind_groups, vertex_buffers, index_buffers, draws] =
             std::array::from_fn(|i| self.0[i].swap(0, Ordering::Relaxed));
@@ -164,7 +165,7 @@ impl Renderer3D {
 
     /// The state changes and draws the model passes recorded since the last
     /// call (for tests and benchmarks).
-    #[cfg(test)]
+    #[cfg(any(test, not(target_arch = "wasm32")))]
     pub(crate) fn take_state_changes(&self) -> StateChanges {
         self.state_counters.take()
     }

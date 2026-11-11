@@ -10,5 +10,7 @@
   },
   "adapter": "Apple M4 Max",
   "backend": "Metal",
-  "driver": "unknown"
+  "driver": "unknown",
+  "checksum": "87af1bbf28e6bf48",
+  "reason": "First reference image: the shared conventions' example (#279)."
 }

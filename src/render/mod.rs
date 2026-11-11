@@ -44,7 +44,7 @@ pub(crate) use gpu3d::{
 };
 #[doc(hidden)]
 #[cfg(all(feature = "window", feature = "3d", not(target_arch = "wasm32")))]
-pub use gpu3d::{RecordBench, RecordScene};
+pub use gpu3d::{RecordBench, RecordScene, SceneBench, SceneFrame, SceneKind, SceneSetup};
 #[cfg(not(feature = "window"))]
 pub(crate) use none::Renderer;
 pub use pipeline_stats::PipelineStats;
@@ -340,6 +340,12 @@ mod lod_render_test;
 mod model_material_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod occlusion_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod regression_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod regression_sequence_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod regression_stage;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 pub(crate) mod render_test_support;
 #[cfg(all(test, feature = "window", feature = "3d"))]

@@ -53,17 +53,8 @@ struct Rig {
 impl Rig {
     /// `None` without a GPU.
     fn new(solid_prepass: bool) -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            crate::render::render_test_support::no_gpu("no GPU adapter");
-            return None;
-        };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
-            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
-        )) else {
-            crate::render::render_test_support::no_gpu("no GPU device");
-            return None;
-        };
+        let gpu = crate::render::render_test_support::gpu_with(|_| Ok(wgpu::DeviceDescriptor::default()))?;
+        let (device, queue) = (gpu.device, gpu.queue);
         let gpu_errors = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = gpu_errors.clone();
         device.on_uncaptured_error(std::sync::Arc::new(move |e: wgpu::Error| {

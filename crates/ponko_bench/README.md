@@ -107,6 +107,12 @@ and after the renderer's split into subsystems:
 What recording a 3D frame's passes into command buffers costs, offscreen:
 [RECORDING.md](RECORDING.md) (`--features render -- render/record`).
 
+The rendering baseline: seven offscreen 3D scenes (static, dynamic,
+multi-material, shadow-heavy, alpha-heavy, animated, game-like) with CPU
+steps, GPU passes, draw calls, memory and frame-time distributions, as JSON
+and CSV, and three of them side by side with Bevy:
+[RENDER_SCENES.md](RENDER_SCENES.md) (`--features render -- render/scene`).
+
 Whole systems at the same time (the parallel system scheduler), its
 overhead and its crossover: [SCHEDULE.md](SCHEDULE.md) (`-- schedule`).
 

@@ -51,6 +51,11 @@ pub(crate) const ENV_LAUNCH_ID: &str = "PONKO_LAUNCH_ID";
 /// (a game stuck in a long frame, or paused in a debugger).
 const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How long a game that is exiting waits for the replies it already owes
+/// to be written to their sockets, so the client that asked it to quit
+/// hears that it did. A client that stopped reading costs at most this.
+const EXIT_FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// How often the accept loop checks whether the game has shut down.
 const ACCEPT_POLL: Duration = Duration::from_millis(20);
 
@@ -98,6 +103,64 @@ struct Request {
     reply: Sender<Result<Value, String>>,
 }
 
+/// How many requests have been handed to the game whose replies are not on
+/// their sockets yet. The connection threads count; the game waits for zero
+/// before it exits.
+#[derive(Default)]
+struct Owed {
+    count: std::sync::Mutex<usize>,
+    none: std::sync::Condvar,
+}
+
+impl Owed {
+    fn count(&self) -> std::sync::MutexGuard<'_, usize> {
+        self.count.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// One more reply is owed until the returned guard is dropped.
+    fn one_more(self: &Arc<Self>) -> OwedReply {
+        *self.count() += 1;
+        OwedReply(self.clone())
+    }
+
+    /// Waits until nothing is owed, for at most `timeout`. Calls `idle`
+    /// between looks (to refuse requests that arrive meanwhile).
+    fn wait_for_none(&self, timeout: Duration, mut idle: impl FnMut()) {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut count = self.count();
+        while *count > 0 {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return;
+            }
+            drop(count);
+            idle();
+            count = self.count();
+            if *count == 0 {
+                return;
+            }
+            count = self
+                .none
+                .wait_timeout(count, left.min(Duration::from_millis(5)))
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+    }
+}
+
+/// A reply the game owes; dropped once it was written (or could not be).
+struct OwedReply(Arc<Owed>);
+
+impl Drop for OwedReply {
+    fn drop(&mut self) {
+        let mut count = self.0.count();
+        *count -= 1;
+        if *count == 0 {
+            self.0.none.notify_all();
+        }
+    }
+}
+
 /// A running endpoint. Dropping it stops accepting connections and removes
 /// the registry file.
 pub(crate) struct Control {
@@ -105,6 +168,9 @@ pub(crate) struct Control {
     addr: SocketAddr,
     registry_file: Option<PathBuf>,
     shutdown: Arc<AtomicBool>,
+    owed: Arc<Owed>,
+    #[cfg(test)]
+    token: Arc<str>,
     /// Keeps stdout and stderr for `logs.get` while the endpoint is open.
     _logs: Option<crate::logs::Capture>,
 }
@@ -112,6 +178,13 @@ pub(crate) struct Control {
 impl Control {
     /// Opens the endpoint on a free localhost port and registers the instance.
     pub(crate) fn start(name: &str, headless: bool) -> std::io::Result<Self> {
+        Self::start_with(name, headless, true)
+    }
+
+    /// [`start`](Self::start), with or without the capture of stdout and
+    /// stderr for `logs.get`. The capture is one per process, so tests that
+    /// open endpoints side by side leave it off.
+    fn start_with(name: &str, headless: bool, capture_logs: bool) -> std::io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
@@ -143,16 +216,25 @@ impl Control {
         });
 
         let stop = shutdown.clone();
+        #[cfg(test)]
+        let kept_token = token.clone();
+        let owed = Arc::new(Owed::default());
+        let counted = owed.clone();
         thread::Builder::new()
             .name("ponko-control".into())
-            .spawn(move || accept_loop(listener, token, tx, stop))?;
-        let logs = crate::logs::Capture::start();
-        eprintln!("ponko: control endpoint on {addr}");
+            .spawn(move || accept_loop(listener, token, tx, stop, counted))?;
+        let logs = capture_logs.then(crate::logs::Capture::start).flatten();
+        if capture_logs {
+            eprintln!("ponko: control endpoint on {addr}");
+        }
         Ok(Self {
             requests,
             addr,
             registry_file,
             shutdown,
+            owed,
+            #[cfg(test)]
+            token: kept_token,
             _logs: logs,
         })
     }
@@ -181,12 +263,28 @@ impl Control {
     }
 }
 
+impl Control {
+    /// The game is exiting (often because a client asked it to): the
+    /// connection threads die with the process, so this waits until every
+    /// reply already owed has been written to its socket, for at most
+    /// [`EXIT_FLUSH_TIMEOUT`]. Requests that were queued but not handled, or
+    /// that still arrive, are refused instead of left waiting.
+    fn flush_replies(&self) {
+        self.owed.wait_for_none(EXIT_FLUSH_TIMEOUT, || {
+            while let Ok(req) = self.requests.try_recv() {
+                let _ = req.reply.send(Err("the game is shutting down".into()));
+            }
+        });
+    }
+}
+
 impl Drop for Control {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Relaxed);
         if let Some(path) = &self.registry_file {
             let _ = std::fs::remove_file(path);
         }
+        self.flush_replies();
     }
 }
 
@@ -206,14 +304,20 @@ fn write_registry(dir: &Path, port: u16, info: &Value) -> std::io::Result<PathBu
     Ok(path)
 }
 
-fn accept_loop(listener: TcpListener, token: Arc<str>, tx: Sender<Request>, shutdown: Arc<AtomicBool>) {
+fn accept_loop(
+    listener: TcpListener,
+    token: Arc<str>,
+    tx: Sender<Request>,
+    shutdown: Arc<AtomicBool>,
+    owed: Arc<Owed>,
+) {
     while !shutdown.load(Ordering::Relaxed) {
         match listener.accept() {
             Ok((stream, _)) => {
-                let (token, tx) = (token.clone(), tx.clone());
+                let (token, tx, owed) = (token.clone(), tx.clone(), owed.clone());
                 let _ = thread::Builder::new()
                     .name("ponko-control-conn".into())
-                    .spawn(move || serve_connection(stream, &token, &tx));
+                    .spawn(move || serve_connection(stream, &token, &tx, &owed));
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(ACCEPT_POLL),
             Err(_) => thread::sleep(ACCEPT_POLL),
@@ -221,11 +325,11 @@ fn accept_loop(listener: TcpListener, token: Arc<str>, tx: Sender<Request>, shut
     }
 }
 
-fn serve_connection(stream: TcpStream, token: &str, tx: &Sender<Request>) {
+fn serve_connection(stream: TcpStream, token: &str, tx: &Sender<Request>, owed: &Arc<Owed>) {
     static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
     let connection = NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed);
     let mut bound_scenario = false;
-    serve_lines(stream, token, tx, connection, &mut bound_scenario);
+    serve_lines(stream, token, tx, connection, &mut bound_scenario, owed);
     if bound_scenario {
         // The client that started the scenario is gone: let go of its input.
         let (reply, _) = mpsc::channel();
@@ -237,7 +341,14 @@ fn serve_connection(stream: TcpStream, token: &str, tx: &Sender<Request>) {
     }
 }
 
-fn serve_lines(stream: TcpStream, token: &str, tx: &Sender<Request>, connection: u64, bound_scenario: &mut bool) {
+fn serve_lines(
+    stream: TcpStream,
+    token: &str,
+    tx: &Sender<Request>,
+    connection: u64,
+    bound_scenario: &mut bool,
+    owed: &Arc<Owed>,
+) {
     let _ = stream.set_nonblocking(false);
     let Ok(mut writer) = stream.try_clone() else {
         return;
@@ -249,11 +360,16 @@ fn serve_lines(stream: TcpStream, token: &str, tx: &Sender<Request>, connection:
         if line.trim().is_empty() {
             continue;
         }
+        // Owed from before the game can see the request until the reply is
+        // written: a game that exits in between waits for this.
+        let owed_reply = owed.one_more();
         let reply = handle_line(&line, token, tx, connection);
         if reply["result"]["bound_to_connection"] == true {
             *bound_scenario = true;
         }
-        if writeln!(writer, "{reply}").and_then(|()| writer.flush()).is_err() {
+        let written = writeln!(writer, "{reply}").and_then(|()| writer.flush());
+        drop(owed_reply);
+        if written.is_err() {
             return;
         }
     }
@@ -296,7 +412,9 @@ fn handle_line(line: &str, token: &str, tx: &Sender<Request>, connection: u64) -
     }
     reply(match reply_rx.recv_timeout(REPLY_TIMEOUT) {
         Ok(r) => r,
-        Err(_) => Err("the game did not answer in time".into()),
+        Err(RecvTimeoutError::Timeout) => Err("the game did not answer in time".into()),
+        // The game let go of the request without answering: it is exiting.
+        Err(RecvTimeoutError::Disconnected) => Err("the game is shutting down".into()),
     })
 }
 
@@ -1208,6 +1326,85 @@ mod tests {
 
     fn ctx() -> Ctx {
         Ctx::new(1.0 / 60.0, glam::Vec2::ZERO)
+    }
+
+    /// A game that is asked to quit drops its endpoint and exits; the
+    /// connection threads die with the process. So once the endpoint's exit
+    /// flush returns, the reply must have been written: nothing is owed.
+    #[test]
+    fn the_reply_to_quit_is_written_before_the_endpoint_is_gone() {
+        for round in 0..200 {
+            let control = Control::start_with("quit-reply", true, false).unwrap();
+            let mut client = TcpStream::connect(control.addr()).unwrap();
+            let line = json!({ "id": round, "token": &*control.token, "method": "game.quit", "params": {} });
+            writeln!(client, "{line}").unwrap();
+            // The game loop: answer what arrives, and leave once told to.
+            let mut ctx = ctx();
+            while !ctx.quit_requested() {
+                control.wait(&mut ctx, Duration::from_secs(5));
+            }
+            // What dropping the endpoint does first. Without it the game
+            // would be gone while the connection thread still holds the
+            // reply.
+            control.flush_replies();
+            assert_eq!(
+                *control.owed.count(),
+                0,
+                "round {round}: the reply to game.quit was not written when the game left"
+            );
+            drop(control);
+            client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut reply = String::new();
+            BufReader::new(&client).read_line(&mut reply).unwrap();
+            let reply: Value = serde_json::from_str(&reply).unwrap_or_else(|e| panic!("round {round}: {reply:?}: {e}"));
+            assert_eq!(reply, json!({ "id": round, "result": true }), "round {round}");
+        }
+    }
+
+    /// A request the game never got to is refused when the game exits,
+    /// instead of leaving its client waiting for an answer.
+    #[test]
+    fn a_request_still_queued_when_the_game_exits_is_refused_not_left_waiting() {
+        let control = Control::start_with("queued", true, false).unwrap();
+        let mut client = TcpStream::connect(control.addr()).unwrap();
+        let line = json!({ "id": 1, "token": &*control.token, "method": "sim.status", "params": {} });
+        writeln!(client, "{line}").unwrap();
+        // Until the connection thread has handed the request over.
+        while *control.owed.count() == 0 {
+            thread::yield_now();
+        }
+        let started = std::time::Instant::now();
+        drop(control);
+        assert!(started.elapsed() < EXIT_FLUSH_TIMEOUT, "the exit waited out its limit");
+        let mut reply = String::new();
+        BufReader::new(client).read_line(&mut reply).unwrap();
+        let reply: Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply, json!({ "id": 1, "error": "the game is shutting down" }));
+    }
+
+    /// A windowed screenshot is answered after the next frame; a game that
+    /// exits first drops the request with its graphics. The client is told
+    /// at once, and the exit doesn't wait for an answer that can't come.
+    #[test]
+    fn a_request_the_game_let_go_of_is_refused_at_once_and_does_not_hold_up_the_exit() {
+        let control = Control::start_with("dropped", true, false).unwrap();
+        let mut client = TcpStream::connect(control.addr()).unwrap();
+        let line = json!({ "id": 4, "token": &*control.token, "method": "screenshot", "params": {} });
+        writeln!(client, "{line}").unwrap();
+        // The game takes the request and keeps it for later, then exits:
+        // whatever held it is dropped before the endpoint.
+        let held = control.requests.recv_timeout(Duration::from_secs(5)).unwrap();
+        let started = std::time::Instant::now();
+        drop(held);
+        drop(control);
+        assert!(
+            started.elapsed() < EXIT_FLUSH_TIMEOUT / 2,
+            "the exit waited for a reply that could not come"
+        );
+        let mut reply = String::new();
+        BufReader::new(client).read_line(&mut reply).unwrap();
+        let reply: Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply, json!({ "id": 4, "error": "the game is shutting down" }));
     }
 
     #[test]

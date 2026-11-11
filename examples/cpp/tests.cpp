@@ -2197,6 +2197,70 @@ static void retained_ui_presets() {
     });
 }
 
+// What a screen reader reads of a UI, what changed, and what it can ask.
+static void retained_ui_access() {
+    ponko::game("retained ui access", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        namespace u = ponko::ui;
+        auto ui = ctx.ui_retained();
+        const ponko::vec2 window{800, 600};
+        auto root = ui.add_panel(u::none, u::fill());
+        auto play = ui.add_button(root, "Play", u::row(30));
+        auto volume = ui.add_slider(root, 0.5f, u::row(30));
+        auto name = ui.add_text_input(root, "Ann", u::row(30));
+        auto music = ui.add_toggle(root, "Music", true, u::row(30));
+        ui.push_screen(root);
+
+        // Names, descriptions and live regions.
+        CHECK(ui.accessible_name(play) == "Play" && ui.accessible_name(volume).empty());
+        ui.set_accessible_name(volume, "Volume");
+        ui.set_accessible_description(play, "Starts a run");
+        ui.set_live_region(play, u::live::polite);
+        CHECK(ui.accessible_name(volume) == "Volume" && ui.accessible_description(play) == "Starts a run");
+        CHECK(ui.live_region(play) == u::live::polite && ui.live_region(volume) == u::live::off);
+        ui.frame(window);
+        CHECK(ui.access_text().rfind("group\n  button \"Play\" description=\"Starts a run\" live=polite focusable\n", 0) == 0);
+
+        // The snapshot: everything at first, then nothing, then what changed.
+        u::access access;
+        auto first = access.update(ui);
+        CHECK(first.any && first.screens_changed && first.changed == std::vector<u::id>({root, play, volume, name, music}));
+        CHECK(access.size() == 5 && access.at(0).id == root && access.children(root).size() == 4);
+        auto slider = access.find(volume);
+        CHECK(slider && slider->role == PONKO_UI_ROLE_SLIDER && slider->value == 0.5f && slider->focusable);
+        CHECK(access.name(volume) == "Volume" && access.description(play) == "Starts a run");
+        CHECK(access.value_text(name) == "Ann" && access.find(name)->has_selection && !access.focus());
+        CHECK(access.find(music)->value_kind == PONKO_UI_ACCESS_VALUE_CHECKED && access.find(music)->value == 1.0f);
+        CHECK(!access.update(ui).any);
+
+        // Requests do what keys do.
+        ui.access_action(u::access_action_kind::activate, play);
+        ui.access_action(u::access_action_kind::decrement, volume);
+        ui.access_action(u::access_action_kind::set_value, music, 0.0f);
+        ui.access_action(u::access_action_kind::set_text, name, 0.0f, "Bea");
+        ui.frame(window);
+        auto events = ui.events();
+        CHECK(events.size() == 4 && events[0].kind == u::event_kind::clicked && events[0].node == play);
+        CHECK(ui.focus() == play && ui.text(name) == "Bea" && ui.value(music) == 0.0f);
+        auto after = access.update(ui);
+        CHECK(after.any && after.focus_changed && after.changed.size() == 4 && after.removed.empty());
+        CHECK(access.focus() == play && access.find(play)->focused && access.value_text(name) == "Bea");
+
+        // A modal dialog covers the menu; a reset reports everything again.
+        auto dialog = ui.add_panel(u::none, u::centered(200, 100));
+        ui.push_screen(dialog, true);
+        ui.frame(window);
+        auto covered = access.update(ui);
+        CHECK(covered.screens_changed && covered.removed.size() == 5 && covered.changed == std::vector<u::id>({dialog}));
+        CHECK(!access.find(play) && access.find(dialog)->modal && access.find(dialog)->role == PONKO_UI_ROLE_DIALOG);
+        throws([&] { access.name(play); });  // not exposed
+        access.reset();
+        CHECK(access.update(ui).changed.size() == 1);
+        throws([&] { ui.set_accessible_name(999999, "x"); });
+        u::access moved = std::move(access);
+        CHECK(moved.size() == 1);
+    });
+}
+
 static void retained_ui() {
     ponko::game("retained ui", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         auto ui = ctx.ui_retained();
@@ -2784,6 +2848,7 @@ int main() {
     ribbons_and_decals();
     retained_ui();
     retained_ui_presets();
+    retained_ui_access();
     ui_panels();
     events();
     profiling();

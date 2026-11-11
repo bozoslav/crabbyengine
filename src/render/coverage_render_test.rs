@@ -28,17 +28,8 @@ struct Rig {
 impl Rig {
     /// `None` without a GPU.
     fn new(samples: u32) -> Option<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-        let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-            crate::render::render_test_support::no_gpu("no GPU adapter");
-            return None;
-        };
-        let Ok((device, queue)) = pollster::block_on(adapter.request_device(
-            &crate::render::render_test_support::forced(&wgpu::DeviceDescriptor::default()),
-        )) else {
-            crate::render::render_test_support::no_gpu("no GPU device");
-            return None;
-        };
+        let gpu = crate::render::render_test_support::gpu_with(|_| Ok(wgpu::DeviceDescriptor::default()))?;
+        let (device, queue) = (gpu.device, gpu.queue);
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[

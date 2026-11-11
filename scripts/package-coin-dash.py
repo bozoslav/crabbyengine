@@ -91,9 +91,13 @@ def linked_crates(triple):
 
     An example is also built with ponko's dev-dependencies. This list leaves
     them out, so it fails if a dev-dependency is linked on this platform that
-    is not also a normal one (then the notices would miss a library)."""
+    is not also a normal one (then the notices would miss a library). A crate
+    of this workspace doesn't count: it is the engine's own code, under the
+    license files the package already carries, and its own dependencies are
+    still checked."""
     crates = tree_crates(triple, "normal")
-    dev_only = tree_crates(triple, "normal,dev") - crates
+    own = {(p["name"], p["version"]) for p in cargo_json("--no-deps")["packages"]}
+    dev_only = tree_crates(triple, "normal,dev") - crates - own
     if dev_only:
         names = ", ".join(f"{n} {v}" for n, v in sorted(dev_only))
         raise Failure(

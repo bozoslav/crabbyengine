@@ -147,6 +147,58 @@ fn declared_c_systems_run_within_their_declarations() {
     assert_eq!(state.seen, 3);
 }
 
+/// The game's access report as text.
+unsafe fn report(g: *mut PonkoGame) -> String {
+    // SAFETY: the caller's live game; the buffer is sized by the first call.
+    unsafe {
+        let mut len = 0;
+        assert_eq!(ponko_game_access_report(g, null_mut(), 0, &mut len), PONKO_OK);
+        let mut buf = vec![0 as c_char; len + 1];
+        assert_eq!(
+            ponko_game_access_report(g, buf.as_mut_ptr(), buf.len(), &mut len),
+            PONKO_OK
+        );
+        CStr::from_ptr(buf.as_ptr()).to_str().unwrap().to_owned()
+    }
+}
+
+#[cfg(all(feature = "physics", feature = "physics3d"))]
+#[test]
+fn the_physics_and_navigation_steps_a_c_game_adds_are_declared() {
+    let mut state = State::default();
+    let b = reader_access();
+    unsafe {
+        let g = ponko_game_new(c"steps".as_ptr(), 1, 1);
+        assert_eq!(ponko_game_physics(g, PonkoVec2 { x: 0.0, y: 0.0 }), PONKO_OK);
+        let zero = PonkoVec3 { x: 0.0, y: 0.0, z: 0.0 };
+        assert_eq!(ponko_game_physics3d(g, zero), PONKO_OK);
+        assert_eq!(ponko_game_navmesh3d(g), PONKO_OK);
+        let p = PonkoPhase::PONKO_PHASE_AFTER_PHYSICS as u32;
+        assert_eq!(
+            ponko_game_add_system_with_access(g, p, c"count".as_ptr(), 1, b, Some(count_hits), user(&mut state)),
+            PONKO_OK
+        );
+        ponko_access_free(b);
+        let text = report(g);
+        // The two steps share the Physics phase. Declared, they are paired
+        // (undeclared systems are left out of the report); in their order
+        // nothing of one is visible to the other.
+        let steps = text
+            .lines()
+            .find(|l| l.contains("step_physics +") && l.contains("step_physics3d:"))
+            .unwrap_or_else(|| panic!("the steps are paired: {text}"));
+        assert!(steps.contains("no conflict"), "{steps}");
+        // The navigation step is declared too: it and a C system that
+        // touches none of its inputs don't conflict.
+        let nav = text
+            .lines()
+            .find(|l| l.contains("step_navmesh3d + count:"))
+            .unwrap_or_else(|| panic!("navigation is paired with the C system: {text}"));
+        assert!(nav.contains("no conflict"), "{nav}");
+        ponko_game_free(g);
+    }
+}
+
 #[test]
 fn the_report_lists_declared_c_systems() {
     let mut state = State::default();

@@ -1,0 +1,2 @@
+# Reference images of the render tests: never text-converted or merged as text.
+tests/fixtures/render/*.png binary

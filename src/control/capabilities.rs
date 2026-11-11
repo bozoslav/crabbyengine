@@ -28,6 +28,7 @@ pub(super) const FEATURES: &[(&str, bool)] = &[
     ("steam", cfg!(feature = "steam")),
     ("3d", cfg!(feature = "3d")),
     ("navmesh", cfg!(feature = "navmesh")),
+    ("accessibility", cfg!(feature = "accessibility")),
 ];
 
 /// Why `method` would be refused by this instance right now, if it would.

@@ -9,18 +9,8 @@ use crate::prelude::*;
 use crate::render::{Material, MeshData};
 
 fn renderer() -> Option<(wgpu::Device, Renderer3D)> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        crate::render::render_test_support::no_gpu("no GPU adapter");
-        return None;
-    };
-    eprintln!("residency test adapter: {:?}", adapter.get_info());
-    let Ok((device, _queue)) = pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(
-        &wgpu::DeviceDescriptor::default(),
-    ))) else {
-        crate::render::render_test_support::no_gpu("no GPU device");
-        return None;
-    };
+    let gpu = crate::render::render_test_support::gpu_with(|_| Ok(wgpu::DeviceDescriptor::default()))?;
+    let (device, _queue) = (gpu.device, gpu.queue);
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[
@@ -87,7 +77,7 @@ fn freed_meshes_and_buffers_leave_no_gpu_memory() {
     renderer.create_gpu_buffer(&device, 0, 64, &[]);
     let (_, _, buffers, buffer_bytes) = renderer.residency();
     if buffers == base.2 {
-        eprintln!("no storage buffers on this GPU: buffer part skipped");
+        crate::render::render_test_support::skip("the buffer part: no storage buffers on this GPU");
         return;
     }
     assert_eq!((buffers, buffer_bytes), (base.2 + 1, base.3 + 64 * 16));
