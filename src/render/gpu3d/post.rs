@@ -704,10 +704,11 @@ mod tests {
         ("upscale", "fn record<'t>(", "time(\"upscale\")"),
     ];
 
-    /// This file without its tests.
-    fn source() -> &'static str {
-        let all = include_str!("post.rs");
-        &all[..all.find("\n#[cfg(test)]\nmod tests").unwrap()]
+    /// This file without its tests, with `\n` line ends (a Windows checkout
+    /// may have `\r\n`).
+    fn source() -> String {
+        let all = include_str!("post.rs").replace("\r\n", "\n");
+        all[..all.find("\n#[cfg(test)]\nmod tests").unwrap()].to_string()
     }
 
     /// Keeps `POST_CHAIN` (the documented order) and this file's source in
@@ -717,7 +718,7 @@ mod tests {
     /// image tests.
     #[test]
     fn the_post_chain_is_recorded_in_its_documented_order() {
-        let source = source();
+        let source = &source();
         assert_eq!(POST_CHAIN.map(|link| link), RECORDED.map(|(link, ..)| link));
         // `record_post` walks the chain and ends in the chain's own links.
         let walk = &source[source.find("fn record_post(").unwrap()..];
