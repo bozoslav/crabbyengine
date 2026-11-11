@@ -235,6 +235,37 @@ PONKO_BENCH=600 PONKO_BENCH_OUT=before.json cargo run --release
 
 Run it at a fixed camera before and after a change, and compare.
 
+### The rendering baseline
+
+For work on the renderer itself there is a fixed set of scenes that needs
+no game: seven generated 3D scenes (a static world, a dynamic one, many
+materials, heavy shadows, see-through models, skinned figures and a small
+town with all of it), drawn offscreen by the real renderer.
+
+```sh
+PONKO_BENCH_JSON=render.json PONKO_RENDER_CSV=render.csv \
+  cargo run --release -p ponko_bench --features render -- render/scene
+```
+
+Each scene reports the CPU steps of a frame (collect, prepare, encode,
+submit), the GPU time of every pass, draw calls, triangles, uploads,
+allocations, the memory the renderer can count, and the frame-time
+distribution (median, 95th and 99th percentile). The JSON also holds the
+adapter, backend, driver, the limits and features the device gave, the
+resolution, sample count and every quality setting, so two files say
+whether they can be compared at all:
+
+```sh
+cargo run -p ponko_bench --bin render_compare -- before.json after.json
+```
+
+What a device can't measure is written as missing with the reason (GPU
+pass times without timestamp queries, allocator totals on Metal), never as
+0. It opens no window. `crates/ponko_bench/RENDER_SCENES.md` describes the
+scenes, the settings, every field, the committed baseline and the three
+scenes built again with Bevy, with what is and is not matched between the
+two.
+
 ### From an agent
 
 The [control endpoint](control.md) has the same numbers (`perf.get`,

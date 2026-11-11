@@ -1292,7 +1292,7 @@ mod reference_workflow {
     }
 
     /// The files that may open a GPU device themselves, and why.
-    const OWN_DEVICE: [(&str, &str); 5] = [
+    const OWN_DEVICE: [(&str, &str); 6] = [
         ("src/render/gpu.rs", "the engine's own device"),
         ("src/render/render_test_support.rs", "the shared helpers"),
         (
@@ -1301,6 +1301,11 @@ mod reference_workflow {
         ),
         ("src/render/lights_bench.rs", "an ignored benchmark, run by hand"),
         ("src/render/gpu3d/record_bench.rs", "benchmark support, not a test"),
+        (
+            "src/render/gpu3d/scene_bench.rs",
+            "benchmark support: `SceneBench::new` opens the high-performance adapter the benchmark reports; \
+             its tests open theirs with gpu_with",
+        ),
     ];
 
     /// Not only the `*_render_test.rs` suites: a GPU test inside any module

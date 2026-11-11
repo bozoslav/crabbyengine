@@ -75,6 +75,7 @@ Run both before a pull request that touches the renderer. This forces
 | Capabilities and quality presets | `capabilities_render_test`, `quality_render_test` |
 | Resources: uploads, handles, lifetimes, GPU memory | `upload_render_test`, `handle_render_test`, `asset_lifetime_render_test`, `residency_render_test` |
 | Text and UI | `text3d_render_test`, `ui_render_test` |
+| The rendering baseline's scenes draw and report on any device | `gpu3d::scene_bench::render_test` |
 
 Not covered, so say so when a change touches it: no test runs on a second
 *hardware* GPU (CI's adapter is a software rasteriser), none runs the real

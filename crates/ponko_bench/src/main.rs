@@ -23,6 +23,10 @@ mod query_filters;
 mod query_policy;
 #[cfg(feature = "render")]
 mod record;
+#[allow(dead_code)] // the comparison is used by `render_compare`, the rest behind `render`
+mod render_report;
+#[cfg(feature = "render")]
+mod render_scenes;
 mod report;
 mod schedule;
 mod streaming;
@@ -215,6 +219,10 @@ fn main() {
     par_archetypes::run(&mut b);
     #[cfg(feature = "render")]
     record::run(&mut b);
+    #[cfg(feature = "render")]
+    let render = render_scenes::run(&mut b);
+    #[cfg(not(feature = "render"))]
+    let render: Option<String> = None;
     schedule::run(&mut b);
     streaming::run(&mut b);
 
@@ -1204,7 +1212,7 @@ fn main() {
     flow_benches(&mut b);
 
     if let Some(path) = std::env::var_os("PONKO_BENCH_JSON") {
-        let json = report::to_json(env.as_ref().expect("detected at start"), &b.records);
+        let json = report::to_json(env.as_ref().expect("detected at start"), &b.records, render.as_deref());
         match std::fs::write(&path, json) {
             Ok(()) => println!("\n{} results written to {}", b.records.len(), path.to_string_lossy()),
             Err(e) => {
