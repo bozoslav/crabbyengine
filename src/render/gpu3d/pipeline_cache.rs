@@ -199,7 +199,7 @@ impl MaterialCache {
     }
 
     /// The live sets.
-    fn live(&self) -> impl Iterator<Item = (&SetKey, Arc<ShaderPipelines>)> {
+    pub(super) fn live(&self) -> impl Iterator<Item = (&SetKey, Arc<ShaderPipelines>)> {
         self.sets.iter().filter_map(|(k, s)| Some((k, s.upgrade()?)))
     }
 

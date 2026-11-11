@@ -59,6 +59,71 @@ impl Renderer3D {
         self.prepare_occlusion(device, queue, scene, &view);
     }
 
+    /// Switches between adapter-supported multisampled counts at a frame
+    /// boundary. A pending asynchronous shader verdict must settle first,
+    /// otherwise it could restore pipelines for the previous sample count.
+    pub(crate) fn set_samples(&mut self, device: &wgpu::Device, samples: u32) -> bool {
+        if samples == self.samples {
+            return true;
+        }
+        if !matches!(samples, 2 | 4)
+            || self.samples == 1
+            || !self.shader_checks.is_empty()
+            || (samples == 2
+                && !device
+                    .features()
+                    .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES))
+        {
+            return false;
+        }
+        self.shaders.set_samples(samples);
+        self.sky = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("3d sky"),
+            layout: Some(&self.sky_layout),
+            vertex: wgpu::VertexState {
+                module: &self.sky_module,
+                entry_point: Some("vs_far"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: samples,
+                ..Default::default()
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &self.sky_module,
+                entry_point: Some("fs_sky"),
+                compilation_options: Default::default(),
+                targets: &[Some(HDR_FORMAT.into())],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        self.particles = super::super::particles::Particles::new(device, &self.texture_layout, samples);
+        self.gi = None; // Its capture attachments also use the scene's count.
+        self.render_targets.views.clear();
+        self.shadow_cache.invalidate();
+        self.samples = samples;
+        // Keep the old targets until prepare: targets_stale observes their
+        // count and History::decide resets every temporal consumer together.
+        true
+    }
+
+    /// Presentation stopped or its surface was recreated. The next drawn
+    /// frame must have new targets even when its dimensions did not change.
+    pub(crate) fn invalidate_targets(&mut self) {
+        self.targets = None;
+        self.forget_history();
+    }
+
     /// Step 9: the scene-sized targets. Targets made for settings that have
     /// since changed (a different size, or an effect turned on or off) are
     /// replaced; the old ones are freed once the commands that used them

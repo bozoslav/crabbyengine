@@ -34,7 +34,8 @@ impl Rig {
             device, queue, info, ..
         } = gpu_with(|adapter| {
             let mut descriptor = wgpu::DeviceDescriptor {
-                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+                required_features: adapter.features()
+                    & (wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
                 ..Default::default()
             };
             if downlevel {
@@ -122,6 +123,9 @@ impl Rig {
             &ctx.camera3d,
             &ctx.lighting,
         );
+        ctx.gfx.frame3d.views = std::mem::take(&mut self.frame.views);
+        ctx.collect_views(&SkinFrame::default());
+        self.frame.views = std::mem::take(&mut ctx.gfx.frame3d.views);
         if self.disable_motion {
             self.frame.motion.runs.clear();
         }
@@ -663,6 +667,7 @@ fn each_history_trigger_resets_once_and_steady_frames_keep_the_history() {
                 requested: true,
                 targets: true,
                 camera_cut: false,
+                content: false,
             },
         ),
     ];
@@ -931,4 +936,230 @@ fn a_still_slab_matches_its_reference_image() {
          the camera, on black; 64x64, no antialiasing, no lighting, no tonemapping.",
         &rig.info,
     );
+}
+
+/// Validation scopes cover preparation, old-target retirement, shader reload,
+/// command recording, submission and readback. Unscoped errors are captured too.
+fn checked(rig: &mut Rig, draw: impl FnOnce(&mut Rig)) {
+    use std::sync::{Arc, Mutex};
+    let errors = Arc::new(Mutex::new(Vec::new()));
+    let sink = errors.clone();
+    rig.device
+        .on_uncaptured_error(Arc::new(move |e| sink.lock().unwrap().push(e.to_string())));
+    let scope = rig.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| draw(rig)));
+    rig.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let error = pollster::block_on(scope.pop());
+    assert!(error.is_none(), "GPU validation: {error:?}");
+    let errors = errors.lock().unwrap().clone();
+    assert!(errors.is_empty(), "GPU errors: {errors:?}");
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+fn assert_box_sides(rig: &mut Rig, x: f32) {
+    let image = rig.image();
+    keep_image(&image);
+    let (here, there) = if x > 0.0 {
+        (rig.size * 3 / 4..rig.size, 0..rig.size / 4)
+    } else {
+        (0..rig.size / 4, rig.size * 3 / 4..rig.size)
+    };
+    let lit = image.fraction(here, 0..rig.size, |p| p[0] > 240);
+    eprintln!("box x={x}, {}px: bright fraction {lit}", rig.size);
+    assert!(lit > 0.01, "the current box is drawn: {lit}");
+    assert_region(&image, there, 0..rig.size, 1.0, "no old box or stale history", |p| {
+        p[0] < 40
+    });
+}
+
+#[test]
+fn repeated_toggles_and_shader_hot_reload_leave_no_stale_history_or_invalid_bindings() {
+    let Some(mut rig) = Rig::new(SIZE, false) else {
+        return;
+    };
+    const LIGHT: &str = "fn surface(s: Surface) -> Surface { var o = s; o.emissive = vec3<f32>(1.0); return o; }";
+    const DIM: &str = "fn surface(s: Surface) -> Surface { var o = s; o.emissive = vec3<f32>(0.0); return o; }";
+    checked(&mut rig, |rig| {
+        let shader = rig.renderer.create_shader(&rig.device, "history.wgsl", LIGHT).unwrap();
+        let mut desc = GpuMaterialDesc::new(&MaterialDesc {
+            color: Color::BLACK,
+            emissive: Color::WHITE,
+            ..Default::default()
+        });
+        desc.shader = shader;
+        rig.renderer
+            .update_material(&rig.device, &rig.queue, 0, &desc, &rig.textures);
+        rig.ctx
+            .world
+            .spawn((Transform3D::at(vec3(-1.2, 0.0, 0.0)), Model::new(rig.cube)));
+        for cycle in 0..12 {
+            let x = if cycle % 2 == 0 { -1.2 } else { 1.2 };
+            rig.resize(if cycle % 2 == 0 { SIZE } else { SIZE * 2 });
+            rig.ctx.post.render_scale = if cycle % 3 == 0 { 0.5 } else { 1.0 };
+            rig.ctx.post.anti_aliasing = if cycle % 2 == 0 {
+                AntiAliasing::Taa
+            } else {
+                AntiAliasing::Fxaa
+            };
+            rig.ctx.post.ssr = (cycle % 2) as f32;
+            rig.ctx.post.ambient_occlusion.enabled = cycle % 2 == 0;
+            rig.ctx.post.ao_temporal = cycle % 3 == 0;
+            rig.ctx.world.query::<&mut Transform3D>().for_each(|t| t.position.x = x);
+            rig.renderer
+                .replace_shader(&rig.device, shader, "history.wgsl", DIM)
+                .unwrap();
+            let dark = rig.image();
+            assert_region(
+                &dark,
+                0..rig.size,
+                0..rig.size,
+                1.0,
+                "reloaded shader draws dark",
+                |p| p[0] < 40,
+            );
+            rig.renderer
+                .replace_shader(&rig.device, shader, "history.wgsl", LIGHT)
+                .unwrap();
+            assert_box_sides(rig, x);
+            assert!(
+                rig.renderer.history_reset().content,
+                "the reload resets shading history"
+            );
+            let expected = (rig.size as f32 * rig.ctx.post.render_scale) as u32;
+            rig.renderer.assert_target_configuration((expected, expected), 4);
+            rig.draw();
+            assert!(!rig.renderer.history_reset().any(), "steady frame keeps history");
+        }
+    });
+}
+
+#[test]
+fn surface_interruptions_reset_once_and_hidden_captures_draw_at_the_last_size() {
+    use crate::render::surface_lifecycle::{SurfaceEvent as E, SurfaceLifecycle};
+    let Some(mut rig) = Rig::new(SIZE, false) else {
+        return;
+    };
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.post.ssr = 1.0;
+    rig.ctx.post.ambient_occlusion.enabled = true;
+    rig.ctx.post.ao_temporal = true;
+    rig.ctx
+        .world
+        .spawn((Transform3D::at(vec3(-1.2, 0.0, 0.0)), Model::new(rig.cube)));
+    checked(&mut rig, |rig| {
+        let mut lifecycle = SurfaceLifecycle::default();
+        for _ in 0..8 {
+            rig.draw();
+        }
+        for (i, event) in [
+            E::Occluded(true),
+            E::Occluded(false),
+            E::Suspended(true),
+            E::Suspended(false),
+            E::Recreated,
+            E::Recreated,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let x = if i % 2 == 0 { 1.2 } else { -1.2 };
+            if lifecycle.update(event) {
+                rig.renderer.invalidate_targets();
+            }
+            // A zero-sized/minimized window keeps its last nonzero capture size.
+            assert!(SurfaceLifecycle::draw(false, true, false));
+            rig.ctx.world.query::<&mut Transform3D>().for_each(|t| t.position.x = x);
+            assert_box_sides(rig, x);
+            assert!(rig.renderer.history_reset().targets, "{event:?}");
+            assert_box_sides(rig, x);
+            assert!(
+                !rig.renderer.history_reset().any(),
+                "offscreen history can accumulate while hidden"
+            );
+        }
+    });
+}
+
+#[test]
+fn runtime_sample_changes_rebuild_main_and_target_camera_attachments_without_history() {
+    let mut supports_two = false;
+    // Probe through the shared rig so forced-tier limits and skip reporting apply.
+    let Some(probe) = gpu_with(|adapter| {
+        supports_two = multisamples(adapter, 2);
+        Ok(Default::default())
+    }) else {
+        return;
+    };
+    drop(probe);
+    if !supports_two {
+        skip("adapter does not support 2x scene color and depth");
+        return;
+    }
+    let Some(mut rig) = Rig::new(SIZE, false) else {
+        return;
+    };
+    let texture = target(&rig.device, (SIZE, SIZE), HDR_FORMAT);
+    // target() includes copy-src, so both the main view and camera are read back.
+    rig.ctx.set_headless(true);
+    let handle = rig.ctx.gfx.create_render_target(SIZE, SIZE);
+    rig.renderer.add_render_target(handle.id, &texture);
+    rig.ctx
+        .target_cameras
+        .push(crate::render::TargetCamera::new(rig.ctx.camera3d, handle));
+    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx
+        .world
+        .spawn((Transform3D::at(vec3(-1.2, 0.0, 0.0)), Model::new(rig.cube)));
+    checked(&mut rig, |rig| {
+        rig.draw();
+        assert!(!rig.renderer.set_samples(&rig.device, 0));
+        for (i, count) in [2, 4, 2, 4, 2, 4].into_iter().enumerate() {
+            assert!(rig.renderer.set_samples(&rig.device, count));
+            let x = if i % 2 == 0 { 1.2 } else { -1.2 };
+            rig.ctx.world.query::<&mut Transform3D>().for_each(|t| t.position.x = x);
+            assert_box_sides(rig, x);
+            assert!(rig.renderer.history_reset().targets);
+            rig.renderer.assert_target_configuration((SIZE, SIZE), count);
+            assert_eq!(rig.frame.views.len(), 1);
+            assert!(
+                !rig.frame.views[0].frame.motion.enabled,
+                "target cameras keep no motion/history"
+            );
+            // Target cameras render the current scene without TAA even when
+            // the main camera accumulates it: a moved box leaves no old pixels.
+            assert_target_box(rig, &texture, x);
+            rig.draw();
+            assert!(!rig.renderer.history_reset().any());
+            // A no-op count must preserve targets and history too.
+            assert!(rig.renderer.set_samples(&rig.device, count));
+            rig.draw();
+            assert!(!rig.renderer.history_reset().any());
+            // Move without recreating attachments: the target camera still
+            // has no old frame to blend, irrespective of the main view's TAA.
+            rig.ctx
+                .world
+                .query::<&mut Transform3D>()
+                .for_each(|t| t.position.x = -x);
+            rig.draw();
+            assert!(!rig.renderer.history_reset().any());
+            assert_target_box(rig, &texture, -x);
+        }
+    });
+}
+
+fn assert_target_box(rig: &Rig, texture: &wgpu::Texture, x: f32) {
+    let bytes = read_texture(&rig.device, &rig.queue, &texture);
+    let red: Vec<f32> = bytes
+        .chunks_exact(8)
+        .map(|p| half::f16::from_le_bytes([p[0], p[1]]).to_f32())
+        .collect();
+    let (here, there) = if x > 0.0 {
+        (SIZE * 3 / 4..SIZE, 0..SIZE / 4)
+    } else {
+        (0..SIZE / 4, SIZE * 3 / 4..SIZE)
+    };
+    assert!(brightest(&red, SIZE, here) > 0.9);
+    assert!(brightest(&red, SIZE, there) < 0.02);
 }

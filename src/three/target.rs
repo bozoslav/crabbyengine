@@ -15,6 +15,10 @@ use crate::gfx::Graphics;
 /// light, before screen effects, bloom and tone mapping. It uses the main
 /// view's shadows. Transparent models aren't drawn into it.
 ///
+/// Target cameras have no temporal history: no jitter, TAA, temporal AO or
+/// SSR is applied. Each draw clears and replaces the target's color/depth.
+/// Changing MSAA recreates their attachments before the next draw.
+///
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {

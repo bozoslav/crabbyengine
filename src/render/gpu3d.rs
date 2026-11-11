@@ -154,10 +154,10 @@ const SHADOW_READBACK: wgpu::TextureUsages = if cfg!(test) {
 /// The lit frame before tone mapping: light brighter than white survives.
 pub(super) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// Samples per pixel: smooth edges.
-/// Whether this GPU can multisample the 3D frame's color and depth `samples`
-/// times. 4 always works (WebGPU guarantees it).
+/// Whether this GPU can multisample scene color, depth and velocity `samples`
+/// times (nonstandard counts also require adapter-specific format features). 4 always works (WebGPU guarantees it).
 pub(crate) fn multisamples(adapter: &wgpu::Adapter, samples: u32) -> bool {
-    [DEPTH_FORMAT, HDR_FORMAT].iter().all(|&f| {
+    [DEPTH_FORMAT, HDR_FORMAT, taa::VELOCITY_FORMAT].iter().all(|&f| {
         adapter
             .get_texture_format_features(f)
             .flags
@@ -205,6 +205,9 @@ pub(crate) struct Renderer3D {
     // ---- Made once, for the renderer's life ----
     /// Samples per pixel of the frame and target cameras (2 or 4).
     samples: u32,
+    texture_layout: wgpu::BindGroupLayout,
+    sky_module: wgpu::ShaderModule,
+    sky_layout: wgpu::PipelineLayout,
     /// Whether solid surfaces go through the depth prepass too. GPUs that
     /// draw in tiles (Apple's) drop hidden solid fragments themselves, so
     /// there they skip it and write their depth while lit; only cut-out
@@ -668,13 +671,14 @@ impl Renderer3D {
             None,
         );
         // Behind everything: only where the depth is still the far plane.
+        let sky_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("3d sky"),
+            bind_group_layouts: &[Some(&frame_layout)],
+            immediate_size: 0,
+        });
         let sky = sky_pipeline(
             "3d sky",
-            &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("3d sky"),
-                bind_group_layouts: &[Some(&frame_layout)],
-                immediate_size: 0,
-            }),
+            &sky_layout,
             "fs_sky",
             samples,
             Some(wgpu::DepthStencilState {
@@ -852,6 +856,9 @@ impl Renderer3D {
         });
         let capacity = 1024;
         Self {
+            texture_layout: texture_layout.clone(),
+            sky_module,
+            sky_layout,
             samples,
             solid_prepass,
             resources: Resources {
@@ -1227,6 +1234,7 @@ impl Renderer3D {
             };
             self.wait_for_verdict(id, name, &variant, swap, verdict);
         }
+        self.history.content_changed = true;
         Ok(())
     }
 
@@ -1594,6 +1602,19 @@ impl Renderer3D {
             || !self.lists.runs.is_empty()
             || self.particles.has_draws()
             || !self.lists.computes.is_empty()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn assert_target_configuration(&self, size: (u32, u32), samples: u32) {
+        let targets = self.targets.as_ref().expect("drawn scene targets");
+        assert_eq!(targets.size, size);
+        assert_eq!(targets.samples, samples);
+        assert_eq!(targets.depth.texture().sample_count(), samples);
+        assert_eq!(targets.color.texture().sample_count(), samples);
+        for (_, view) in &self.render_targets.views {
+            assert_eq!(view.color.texture().sample_count(), samples);
+            assert_eq!(view.depth.texture().sample_count(), samples);
+        }
     }
 
     /// The motion vector image of the last frame (for tests).

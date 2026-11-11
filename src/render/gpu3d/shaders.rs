@@ -90,6 +90,48 @@ impl Shaders {
         }
     }
 
+    /// Changes between supported multisampled counts. Both use the same
+    /// WGSL and layouts; every pipeline (including lazy variants) must change.
+    pub(super) fn set_samples(&mut self, samples: u32) {
+        let mut cache = MaterialCache::new(TargetKey {
+            samples,
+            ..self.cache.targets
+        });
+        cache.counters = self.cache.counters.clone();
+        for (key, old) in self.cache.live() {
+            let builder = SideBuilder {
+                samples,
+                ..old.builder.clone()
+            };
+            let new = ShaderPipelines {
+                sides: Sides::ALL
+                    .map(|sides| builder.timed_build(ShaderVariant::new(sides, Instancing::Plain), &cache.counters)),
+                fade: Default::default(),
+                shared: Default::default(),
+                builder,
+                counters: cache.counters.clone(),
+                in_use: true,
+                reads_scene: old.reads_scene,
+            };
+            // Keep warmed variants warm, and retain sharing between shader ids.
+            for variant in ShaderVariant::ALL {
+                if old.built(variant) {
+                    new.lookup(variant, false);
+                }
+            }
+            #[allow(clippy::arc_with_non_send_sync)]
+            let new = Arc::new(new);
+            for slot in &mut self.sets {
+                if Arc::ptr_eq(slot, &old) {
+                    *slot = new.clone();
+                }
+            }
+            cache.insert(cache.key(key.module.clone()), &new);
+        }
+        self.cache = cache;
+        self.samples = samples;
+    }
+
     /// Builds every shader's pipeline variants now, and from now on with
     /// each new shader (see `Renderer3D::warm_pipelines`).
     pub(super) fn warm(&mut self) {
@@ -627,6 +669,7 @@ pub(super) fn build_pipelines(
 
 /// What it takes to build a material shader's pipelines, kept to build the
 /// crossfade variants when a frame first needs them.
+#[derive(Clone)]
 pub(super) struct SideBuilder {
     pub(super) device: wgpu::Device,
     pub(super) module: wgpu::ShaderModule,

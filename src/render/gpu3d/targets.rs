@@ -185,7 +185,10 @@ impl Renderer3D {
 
     /// Whether the targets were made for other settings than these: a
     /// different size (window or render scale), or an effect switched on or
-    /// off. They are then made again, and the history with them.
+    /// off, or another MSAA count. Pipelines and attachments must agree on
+    /// samples; histories must agree on the scene size. A presentation
+    /// interruption sets targets to None, forcing this same reset contract.
+    /// They are then made again, and the history with them.
     pub(super) fn targets_stale(
         &self,
         size: (u32, u32),
@@ -195,6 +198,7 @@ impl Renderer3D {
     ) -> bool {
         self.targets.as_ref().is_none_or(|t| {
             t.size != size
+                || t.samples != self.samples
                 || t.ao.is_some() != self.screen.ao_enabled
                 || t.ao
                     .as_ref()
@@ -292,6 +296,7 @@ impl Renderer3D {
         let screen = ssr.as_ref().map(|s| &s.screen).or(ao.as_ref().map(|a| &a.output));
         let opaque_scene = screen.map(|screen| scene_bind_group(device, &self.scene_layout, screen, &self.dummy_depth));
         Targets {
+            samples: self.samples,
             ao,
             ssr,
             opaque_scene,
@@ -313,6 +318,7 @@ impl Renderer3D {
 
 /// Scene-sized targets: the window's size times `Post::render_scale`.
 pub(super) struct Targets {
+    pub(super) samples: u32,
     pub(super) ao: Option<crate::render::screen::AoTargets>,
     pub(super) ssr: Option<crate::render::ssr::SsrTargets>,
     /// With GTAO or screen-space reflections: what the opaque pass reads
