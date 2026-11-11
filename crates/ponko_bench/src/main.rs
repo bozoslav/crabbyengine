@@ -6,7 +6,9 @@
 //! the median and minimum over several runs.
 
 mod actions;
+mod alloc;
 mod archetypes;
+mod ecs_suite;
 mod extraction;
 mod membership;
 mod nav3d;
@@ -26,6 +28,10 @@ mod streaming;
 use bevy_ecs::component::Component;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
+
+/// Counts heap allocations, so every result reports them per timed run.
+#[global_allocator]
+static ALLOCATOR: alloc::Counting = alloc::Counting;
 
 const N: usize = 1_000_000;
 const ADD_REMOVE_N: usize = 100_000;
@@ -88,8 +94,10 @@ impl Bench {
         }
     }
 
+    /// The filter is a substring of the names to run; `a|b` runs names
+    /// containing either.
     fn skips(&self, name: &str) -> bool {
-        self.filter.as_ref().is_some_and(|f| !name.contains(f.as_str()))
+        self.filter.as_ref().is_some_and(|f| !matches_filter(f, name))
     }
 
     /// Builds the state once, then times `op` repeatedly on it (like a system
@@ -116,28 +124,35 @@ impl Bench {
         for _ in 0..WARMUP {
             op(&mut s);
         }
-        let mut times: Vec<_> = (0..runs)
-            .map(|_| {
-                let t = Instant::now();
-                op(&mut s);
-                t.elapsed()
-            })
-            .collect();
+        let mut times = Vec::with_capacity(runs);
+        let allocs = alloc::Counts::now();
+        for _ in 0..runs {
+            let t = Instant::now();
+            op(&mut s);
+            times.push(t.elapsed());
+        }
+        let allocs = alloc::Counts::now().since(allocs);
         black_box(&s);
         let mut record = report::Record::new(name, report::Kind::Steady, WARMUP, &mut times);
         record.world_bytes = bytes(&s);
+        record.set_allocs(allocs, runs);
         self.report(record);
     }
 
     fn report(&mut self, r: report::Record) {
         let bytes = r.world_bytes.map(|b| format!("   {:>8.1} KiB", b as f64 / 1024.0));
+        let allocs = r
+            .allocs_per_run
+            .filter(|&a| a > 0.0)
+            .map(|a| format!("   {a:>9.2} allocs/run"));
         println!(
-            "{:<32} median {:>9.3} ms   p95 {:>9.3} ms   min {:>9.3} ms{}",
+            "{:<32} median {:>9.3} ms   p95 {:>9.3} ms   min {:>9.3} ms{}{}",
             r.name,
             ms(r.p50),
             ms(r.p95),
             ms(r.min),
-            bytes.unwrap_or_default()
+            bytes.unwrap_or_default(),
+            allocs.unwrap_or_default()
         );
         self.records.push(r);
     }
@@ -148,19 +163,31 @@ impl Bench {
             return;
         }
         let mut times = Vec::with_capacity(runs);
+        let mut allocs = alloc::Counts::default();
         // Warmup runs, then measured runs.
         for i in 0..runs + WARMUP {
             let mut s = setup();
+            let before = alloc::Counts::now();
             let t = Instant::now();
             op(&mut s);
             let el = t.elapsed();
+            let counted = alloc::Counts::now().since(before);
             if i >= WARMUP {
                 times.push(el);
+                allocs.count += counted.count;
+                allocs.bytes += counted.bytes;
             }
             drop(black_box(s));
         }
-        self.report(report::Record::new(name, report::Kind::Fresh, WARMUP, &mut times));
+        let mut record = report::Record::new(name, report::Kind::Fresh, WARMUP, &mut times);
+        record.set_allocs(allocs, runs);
+        self.report(record);
     }
+}
+
+/// `name` contains one of the `|`-separated parts of `filter`.
+fn matches_filter(filter: &str, name: &str) -> bool {
+    filter.split('|').any(|part| name.contains(part))
 }
 
 fn ms(d: Duration) -> f64 {
@@ -170,6 +197,8 @@ fn ms(d: Duration) -> f64 {
 fn main() {
     let filter = std::env::args().nth(1);
     let mut b = Bench::new(filter.clone());
+    // Before any benchmark runs, so the load average is the machine's, not ours.
+    let env = std::env::var_os("PONKO_BENCH_JSON").map(|_| report::Env::detect(filter));
     println!("N = {N}, add/remove N = {ADD_REMOVE_N}\n");
     membership::run(b.filter.as_deref());
     physics::run(&mut b);
@@ -1167,10 +1196,11 @@ fn main() {
     );
 
     archetypes::run(&mut b);
+    ecs_suite::run(&mut b);
     flow_benches(&mut b);
 
     if let Some(path) = std::env::var_os("PONKO_BENCH_JSON") {
-        let json = report::to_json(&report::Env::detect(filter), &b.records);
+        let json = report::to_json(env.as_ref().expect("detected at start"), &b.records);
         match std::fs::write(&path, json) {
             Ok(()) => println!("\n{} results written to {}", b.records.len(), path.to_string_lossy()),
             Err(e) => {
@@ -1295,4 +1325,17 @@ fn flow_benches(b: &mut Bench) {
             black_box(world);
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::matches_filter;
+
+    #[test]
+    fn filters_match_any_alternative() {
+        assert!(matches_filter("iter", "ecs/iter-1k/ponko"));
+        assert!(matches_filter("ecs/|archetypes-1024", "archetypes-1024/hecs"));
+        assert!(matches_filter("ecs/|archetypes-1024", "ecs/game-10k/bevy"));
+        assert!(!matches_filter("ecs/|archetypes-1024", "spawn/hecs"));
+    }
 }

@@ -13,6 +13,10 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// Versions of the comparison crates, as locked in the workspace `Cargo.lock`.
 pub const BEVY_ECS_VERSION: &str = "0.20.1";
 pub const HECS_VERSION: &str = "0.11.2";
+/// The bevy_ecs features `ponko_bench`'s `Cargo.toml` turns on (with its
+/// defaults). `dependency_versions_and_features_match_cargo_toml` keeps the
+/// three constants in step with `Cargo.toml`.
+pub const BEVY_ECS_FEATURES: &[&str] = &["default", "multi_threaded"];
 
 /// How a benchmark was timed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,6 +54,12 @@ pub struct Record {
     /// (`World::allocated_bytes`), measured after the timed runs. `None` where
     /// the benchmark has no such world or the library can't report it.
     pub world_bytes: Option<usize>,
+    /// Heap allocations (and reallocations) per timed run, averaged over the
+    /// timed runs, counted for the whole process by the runner's allocator.
+    /// `None` when the runner didn't count them.
+    pub allocs_per_run: Option<f64>,
+    /// Bytes those allocations requested, per timed run.
+    pub alloc_bytes_per_run: Option<f64>,
 }
 
 impl Record {
@@ -73,7 +83,18 @@ impl Record {
             max: times[times.len() - 1],
             mean: total / times.len() as u32,
             world_bytes: None,
+            allocs_per_run: None,
+            alloc_bytes_per_run: None,
         }
+    }
+}
+
+impl Record {
+    /// Records `counted` allocations over `runs` timed runs.
+    pub fn set_allocs(&mut self, counted: crate::alloc::Counts, runs: usize) {
+        let runs = runs.max(1) as f64;
+        self.allocs_per_run = Some(counted.count as f64 / runs);
+        self.alloc_bytes_per_run = Some(counted.bytes as f64 / runs);
     }
 }
 
@@ -98,6 +119,9 @@ pub struct Env {
     pub debug_assertions: bool,
     pub filter: Option<String>,
     pub unix_time: u64,
+    /// The 1, 5 and 15 minute load averages when the run started (how busy
+    /// the machine was), or `"unknown"`.
+    pub load_average: String,
 }
 
 impl Env {
@@ -122,6 +146,7 @@ impl Env {
             unix_time: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),
+            load_average: load_average(),
         }
     }
 }
@@ -135,6 +160,19 @@ fn command_line(cmd: &str, args: &[&str]) -> String {
         .filter(|o| o.status.success())
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .and_then(|s| s.lines().next().map(|l| l.trim().to_owned()))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
+fn load_average() -> String {
+    if cfg!(target_os = "macos") {
+        // "{ 1.23 2.34 3.45 }"
+        let s = command_line("sysctl", &["-n", "vm.loadavg"]);
+        return s.trim_matches(|c| c == '{' || c == '}' || c == ' ').to_owned();
+    }
+    std::fs::read_to_string("/proc/loadavg")
+        .ok()
+        .map(|s| s.split_whitespace().take(3).collect::<Vec<_>>().join(" "))
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".to_owned())
 }
@@ -172,19 +210,23 @@ pub fn to_json(env: &Env, records: &[Record]) -> String {
     let _ = writeln!(s, "    \"debug_assertions\": {},", env.debug_assertions);
     let _ = writeln!(s, "    \"ponko_features\": [\"physics\", \"physics3d\", \"navmesh\"],");
     let _ = writeln!(s, "    \"bevy_ecs\": {},", json_str(BEVY_ECS_VERSION));
+    let features: Vec<String> = BEVY_ECS_FEATURES.iter().map(|f| json_str(f)).collect();
+    let _ = writeln!(s, "    \"bevy_ecs_features\": [{}],", features.join(", "));
     let _ = writeln!(s, "    \"hecs\": {},", json_str(HECS_VERSION));
     let filter = env.filter.as_deref().map_or_else(|| "null".to_owned(), json_str);
     let _ = writeln!(s, "    \"filter\": {filter},");
+    let _ = writeln!(s, "    \"load_average\": {},", json_str(&env.load_average));
     let _ = writeln!(s, "    \"unix_time\": {}", env.unix_time);
     s.push_str("  },\n  \"results\": [");
     for (i, r) in records.iter().enumerate() {
         s.push_str(if i == 0 { "\n" } else { ",\n" });
         let bytes = r.world_bytes.map_or_else(|| "null".to_owned(), |b| b.to_string());
+        let per_run = |v: Option<f64>| v.map_or_else(|| "null".to_owned(), |v| format!("{v:.3}"));
         let _ = write!(
             s,
             "    {{\"name\": {}, \"kind\": \"{}\", \"warmup\": {}, \"runs\": {}, \
              \"min_ms\": {}, \"p50_ms\": {}, \"p95_ms\": {}, \"max_ms\": {}, \"mean_ms\": {}, \
-             \"world_bytes\": {bytes}}}",
+             \"world_bytes\": {bytes}, \"allocs_per_run\": {}, \"alloc_bytes_per_run\": {}}}",
             json_str(&r.name),
             r.kind.as_str(),
             r.warmup,
@@ -194,6 +236,8 @@ pub fn to_json(env: &Env, records: &[Record]) -> String {
             ms(r.p95),
             ms(r.max),
             ms(r.mean),
+            per_run(r.allocs_per_run),
+            per_run(r.alloc_bytes_per_run),
         );
     }
     s.push_str(if records.is_empty() { "]\n}\n" } else { "\n  ]\n}\n" });
@@ -257,6 +301,28 @@ mod tests {
     }
 
     #[test]
+    fn dependency_versions_and_features_match_cargo_toml() {
+        let manifest = include_str!("../Cargo.toml");
+        let line = |name: &str| {
+            manifest
+                .lines()
+                .find(|l| l.starts_with(&format!("{name} =")))
+                .unwrap_or_else(|| panic!("{name} is a dependency"))
+        };
+        let bevy = line("bevy_ecs");
+        assert!(bevy.contains(&format!("version = \"{BEVY_ECS_VERSION}\"")), "{bevy}");
+        // Every feature turned on is listed, and `default` stays on.
+        let extra: Vec<String> = BEVY_ECS_FEATURES
+            .iter()
+            .filter(|&&f| f != "default")
+            .map(|f| format!("\"{f}\""))
+            .collect();
+        assert!(bevy.contains(&format!("features = [{}]", extra.join(", "))), "{bevy}");
+        assert!(!bevy.contains("default-features = false"), "{bevy}");
+        assert_eq!(line("hecs"), format!("hecs = \"{HECS_VERSION}\""));
+    }
+
+    #[test]
     fn json_strings_are_escaped() {
         assert_eq!(json_str("a\"b\\c\nd\u{1}"), r#""a\"b\\c\nd\u0001""#);
     }
@@ -269,6 +335,8 @@ mod tests {
         };
         let mut a = Record::new("iter/a", Kind::Steady, 5, &mut [d(2), d(1)]);
         a.world_bytes = Some(4096);
+        a.allocs_per_run = Some(2.5);
+        a.alloc_bytes_per_run = Some(64.0);
         let b = Record::new("spawn/b", Kind::Fresh, 1, &mut [d(3)]);
         let json = to_json(&env, &[a, b]);
         assert!(json.contains("\"schema_version\": 1,"));
@@ -276,10 +344,12 @@ mod tests {
         assert!(json.contains(
             "{\"name\": \"iter/a\", \"kind\": \"steady\", \"warmup\": 5, \"runs\": 2, \"min_ms\": 1.000000, \
              \"p50_ms\": 1.000000, \"p95_ms\": 2.000000, \"max_ms\": 2.000000, \"mean_ms\": 1.500000, \
-             \"world_bytes\": 4096},\n"
+             \"world_bytes\": 4096, \"allocs_per_run\": 2.500, \"alloc_bytes_per_run\": 64.000},\n"
         ));
         assert!(json.contains("\"name\": \"spawn/b\", \"kind\": \"fresh\""));
-        assert!(json.contains("\"world_bytes\": null}\n  ]\n}\n"));
+        assert!(
+            json.contains("\"world_bytes\": null, \"allocs_per_run\": null, \"alloc_bytes_per_run\": null}\n  ]\n}\n")
+        );
         // Balanced, so a JSON parser at least sees a closed document.
         assert_eq!(json.matches('{').count(), json.matches('}').count());
         assert_eq!(json.matches('[').count(), json.matches(']').count());

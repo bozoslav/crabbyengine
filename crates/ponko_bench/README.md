@@ -9,7 +9,14 @@ Started as the M3 ECS spike: it compares a minimal archetype ECS of our own (`sr
 cargo run --release -p ponko_bench            # everything
 cargo run --release -p ponko_bench -- iter    # filter by name (substring)
 PONKO_BENCH_JSON=results.json cargo run --release -p ponko_bench   # also export JSON
+cargo run --release -p ponko_bench -- 'iter|spawn'                   # names containing either
 ```
+
+**The ECS matrix** (ponko_ecs vs bevy_ecs vs hecs at 1k/100k/1M entities:
+iteration, parallel scaling, spawning, churn, optional and filtered queries,
+a game-like tick), its methodology, the limits of each comparison and the
+committed baselines: [ECS.md](ECS.md). One command re-records them:
+`PONKO_BENCH_JSON=crates/ponko_bench/baselines/ecs.json cargo run --release -p ponko_bench -- 'ecs/|archetypes-1024|query-build'`.
 
 Each benchmark prints its median (p50), p95 and minimum. *Steady* benchmarks build their state once, run the operation 5 times untimed, then time it repeatedly (like a system running every frame); *fresh* benchmarks rebuild the state untimed before every run and drop one warmup run. Percentiles are nearest-rank, so with 10 runs p95 is the slowest run.
 
@@ -24,19 +31,23 @@ With `PONKO_BENCH_JSON=<path>`, the runner writes every result it ran (after the
     "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)", "git_rev": "<commit>", "git_dirty": false,
     "os": "macos", "arch": "aarch64", "cpu": "Apple M4 Max",
     "logical_cores": 14, "rayon_threads": 14, "debug_assertions": false,
-    "ponko_features": ["physics", "physics3d"], "bevy_ecs": "0.20.1", "hecs": "0.11.2",
-    "filter": "archetypes", "unix_time": 1794224632
+    "ponko_features": ["physics", "physics3d"], "bevy_ecs": "0.20.1",
+    "bevy_ecs_features": ["default", "multi_threaded"], "hecs": "0.11.2",
+    "filter": "archetypes", "load_average": "9.12 8.40 7.95", "unix_time": 1794224632
   },
   "results": [
     {"name": "archetypes-1024/ponko", "kind": "steady", "warmup": 5, "runs": 200,
      "min_ms": 0.0069, "p50_ms": 0.0078, "p95_ms": 0.0088, "max_ms": 0.0090, "mean_ms": 0.0078,
-     "world_bytes": 1081344}
+     "world_bytes": 1081344, "allocs_per_run": 0.000, "alloc_bytes_per_run": 0.000}
   ]
 }
 ```
 
 - Times are milliseconds per timed operation. `kind` is `steady` or `fresh` (above).
 - `world_bytes` is `World::allocated_bytes()` (component columns and entity handles) after the timed runs, for benchmarks that record it; otherwise `null`. It is not process memory, and bevy_ecs and hecs don't report a comparable number.
+- `allocs_per_run` and `alloc_bytes_per_run` are heap allocations (with reallocations) and the bytes they requested, per timed run, counted for the whole process by the runner's global allocator (`src/alloc.rs`); `null` for benchmarks that time themselves.
+- `load_average` is the 1, 5 and 15 minute load average when the run started.
+- The counting allocator adds two relaxed atomic adds to every allocation, shared by all threads. Rows that allocate a lot from several threads at once can shift slightly against runs from before it was added (before `allocs_per_run` existed); compare such rows only between runs that both have it.
 - `rustc` is the `rustc` on `PATH` when the runner starts, which matches the build when run through `cargo run`. Unknown values are `"unknown"` or `null`.
 - `schema_version` changes only when a field changes meaning or is removed.
 
@@ -104,7 +115,7 @@ overhead and its crossover: [SCHEDULE.md](SCHEDULE.md) (`-- schedule`).
 
 - The two "build" rows measure different work: building a bevy `QueryState` matches it against every archetype, while a ponko `Query` only resolves component ids and matches while it runs. The "build and count" row does the same work in both (resolve, match all 1024 archetypes, sum lengths), so compare that one. bevy systems normally keep their `QueryState` and update it incrementally, which this benchmark does not measure.
 - The iteration row builds the query once for bevy (a kept `QueryState`) and once per run for ponko, as each library's systems use them.
-- hecs is not included in these cases.
+- These rows predate hecs in these cases. hecs is in [ECS.md](ECS.md), whose baselines were also recorded under load (load average 12.5 before and 24.5 after the main run; 36.2 before the second run), not on an idle machine. Re-record them with `PONKO_BENCH_JSON=crates/ponko_bench/baselines/ecs.json cargo run --release -p ponko_bench -- 'ecs/|archetypes-1024|query-build'`.
 
 ## Caveats
 
