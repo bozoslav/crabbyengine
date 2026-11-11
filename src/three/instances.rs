@@ -55,10 +55,9 @@ pub struct InstanceBatchOptions {
 /// own choice (`Auto`) comes from a benchmark on one machine, so a game
 /// that measured its own scene can overrule it per batch.
 ///
-/// The path is chosen when the batch is made and again whenever it is
-/// updated (`update_instance_batch`), from the mesh and materials as they
-/// are then. A material made see-through later moves an `Auto` batch to
-/// the CPU path only at the batch's next update.
+/// The path is chosen when the batch is made, updated, or its preference
+/// changes. An automatic batch is also reselected immediately when one of
+/// its materials changes between opaque/cutout and transparent blending.
 /// ```
 /// use ponko::render::{BatchCulling, InstanceBatchOptions};
 /// // A few thousand heavy meshes: cull them one by one on the GPU.
@@ -77,11 +76,9 @@ pub enum BatchCulling {
     /// draws, where the device has compute culling (elsewhere, and for a
     /// batch past a device limit, the CPU path is used all the same).
     ///
-    /// Not for a batch with a see-through (blended) material whose
-    /// instances overlap on screen: the compute pass writes the visible
-    /// instances in no fixed order, so they blend in an order that can
-    /// change from frame to frame. `Auto` keeps such a batch on the CPU
-    /// path for that reason.
+    /// Visible instances keep the batch's stable cell order, including depth
+    /// ties. Transparent instances are not sorted back to front; `Auto`
+    /// conservatively keeps blended batches on the CPU path.
     PreferGpu,
     /// Cull cell by cell on the CPU and draw directly, also where the
     /// device has compute culling.

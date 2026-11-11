@@ -4,6 +4,11 @@ How the two paths of static instance batches (`Graphics::create_instance_batch`,
 `create_instance_batch_levels`) cost a frame, before and after #149, and
 where the renderer switches between them.
 
+The measurements below describe #149's original atomic append path. For the
+stable compaction and CPU distance follow-ups, see
+[STATIC_BATCH_FOLLOWUPS.md](STATIC_BATCH_FOLLOWUPS.md); the original numbers
+are retained as historical evidence, not measurements of the current shader.
+
 ## How to run it
 
 ```sh
@@ -138,9 +143,8 @@ numbers (`min_gpu_instances`, `min_gpu_triangles`).
 Two more rules:
 
 - A batch with a see-through (blended) material stays on the CPU path
-  under the automatic choice. The compute pass writes its visible list in
-  no fixed order, and blended instances that overlap would change with the
-  order.
+  under the automatic choice. The original compute pass had no fixed order.
+  Current compaction preserves source order, but does not depth-sort blending.
 - `InstanceBatchOptions::culling` overrules the choice per batch:
   `BatchCulling::PreferGpu` or `PreferCpu` (a device without compute
   culling, and a batch too big for the GPU path, stay on the CPU path).
@@ -520,7 +524,7 @@ wgpu's own.
 
 ## Draw order on the GPU-driven path
 
-The compute pass writes a batch's visible instances in no fixed order, so
+Before #309, the compute pass wrote a batch's visible instances in no fixed order, so
 the order of a batch's instances in a draw changes from run to run and
 frame to frame. For opaque instances that shows only where two meet at
 exactly the same depth in a sample: the later one wins. The parity tests

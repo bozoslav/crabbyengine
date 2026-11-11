@@ -152,7 +152,7 @@ impl Graphics {
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            renderer.update_material(material.id, &gpu);
+            renderer.update_material(material.id, &gpu, &self.assets3d.instance_batches);
         }
     }
 

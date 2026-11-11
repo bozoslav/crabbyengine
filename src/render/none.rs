@@ -90,7 +90,12 @@ impl Renderer {
         match *self {}
     }
     #[cfg(feature = "3d")]
-    pub fn update_material(&mut self, _id: u32, _desc: &crate::three::GpuMaterialDesc) {
+    pub fn update_material(
+        &mut self,
+        _id: u32,
+        _desc: &crate::three::GpuMaterialDesc,
+        _batches: &[Option<crate::three::instances::Batch>],
+    ) {
         match *self {}
     }
     #[cfg(feature = "3d")]

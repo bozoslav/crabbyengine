@@ -2465,6 +2465,13 @@ void persistent_instances(ponko::ctx& ctx, ponko::mesh mesh) {
 }
 // ANCHOR_END: gpu_instances
 
+// ANCHOR: batch_culling
+void choose_batch_culling(ponko::ctx& ctx, ponko::instance_batch batch) {
+    // 0 = automatic, 1 = prefer GPU, 2 = prefer CPU.
+    ctx.set_instance_batch_culling(batch, 1);
+}
+// ANCHOR_END: batch_culling
+
 // ANCHOR: instance_levels
 void leveled_instances(ponko::ctx& ctx, ponko::mesh near_mesh, ponko::mesh far_mesh) {
     std::vector<ponko::instance_level> levels = {

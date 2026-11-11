@@ -2896,10 +2896,11 @@ impl Renderer3D {
         id: u32,
         desc: &GpuMaterialDesc,
         textures: &[GpuTexture],
-    ) {
+    ) -> bool {
         let Some(material) = self.materials.get(id as usize) else {
-            return;
+            return false;
         };
+        let changed_blend = material.transparent != desc.transparent;
         self.shadow_cache.invalidate();
         queue
             .uploading(Upload::Materials)
@@ -2917,6 +2918,7 @@ impl Renderer3D {
         material.transparent = desc.transparent;
         material.cutout = desc.cutout;
         material.double_sided = desc.double_sided;
+        changed_blend
     }
 
     /// Makes the next new mesh (tests make meshes this way).
