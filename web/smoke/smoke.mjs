@@ -386,6 +386,14 @@ async function main() {
       if (status) return new Failure("page-error", status);
       return null;
     };
+    // A page error can arrive a moment before the event that explains it:
+    // the answer to a failed asset request, or the panic's console line.
+    // Give those a moment, so the failure is named by its cause.
+    const settled = async (failure) => {
+      if (failure.kind !== "page-error") return failure;
+      await sleep(500);
+      return appFailure(null) ?? failure;
+    };
 
     // 1. Startup: the first frame publishes the state.
     const deadline = Date.now() + args.timeout * 1000;
@@ -393,7 +401,7 @@ async function main() {
     for (;;) {
       snapshot = await smokeState(page);
       const failure = appFailure(snapshot.status);
-      if (failure) throw failure;
+      if (failure) throw await settled(failure);
       if (snapshot.state && snapshot.state.ticks > 0) break;
       if (Date.now() > deadline) {
         throw new Failure("startup-timeout", `no running frame within ${args.timeout}s (state: ${JSON.stringify(snapshot.state)})`);
@@ -456,7 +464,7 @@ async function main() {
     await sleep(3000);
     snapshot = await smokeState(page);
     let failure = appFailure(snapshot.status);
-    if (failure) throw failure;
+    if (failure) throw await settled(failure);
     report.progress = { before, after: snapshot.state };
     log(`after 3s: ${JSON.stringify(snapshot.state)}`);
     if (snapshot.state.frames <= before.frames) {
@@ -473,7 +481,7 @@ async function main() {
     for (;;) {
       snapshot = await smokeState(page);
       failure = appFailure(snapshot.status);
-      if (failure) throw failure;
+      if (failure) throw await settled(failure);
       if (snapshot.state.clicks >= 1) break;
       if (Date.now() > clickDeadline) throw new Failure("input", "the game never saw the click");
       await sleep(100);
@@ -488,7 +496,7 @@ async function main() {
       for (;;) {
         snapshot = await smokeState(page);
         failure = appFailure(snapshot.status);
-        if (failure) throw failure;
+        if (failure) throw await settled(failure);
         if (String(snapshot.state[field]) === value) break;
         if (Date.now() > pressDeadline) {
           throw new Failure("input", `after ${key}, ${field} is ${JSON.stringify(snapshot.state[field])}, not ${value}`);
@@ -520,7 +528,7 @@ async function main() {
       throw new Failure("blank", `the canvas looks blank: ${JSON.stringify(report.canvas)}`);
     }
     failure = appFailure(null);
-    if (failure) throw failure;
+    if (failure) throw await settled(failure);
     report.finalState = snapshot.state;
 
     if (CASES[args.case]) {
