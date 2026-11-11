@@ -1198,7 +1198,7 @@ fn paint_from_c(p: &PonkoUiPaint) -> Result<UiPaint, Failure> {
 ///
 /// # Safety
 /// `ptr` is null or NUL-terminated.
-unsafe fn optional_text<'a>(ptr: *const c_char) -> Result<&'a str, Failure> {
+pub(crate) unsafe fn optional_text<'a>(ptr: *const c_char) -> Result<&'a str, Failure> {
     if ptr.is_null() {
         Ok("")
     } else {
@@ -1207,7 +1207,7 @@ unsafe fn optional_text<'a>(ptr: *const c_char) -> Result<&'a str, Failure> {
     }
 }
 
-fn existing(ui: &Ui, id: u64) -> Result<UiId, Failure> {
+pub(crate) fn existing(ui: &Ui, id: u64) -> Result<UiId, Failure> {
     let id = UiId::from_bits(id);
     if ui.rect(id).is_some() {
         Ok(id)
@@ -1226,7 +1226,7 @@ fn check_font(c: &mut ponko::Ctx, font: ponko::Font) -> Result<(), Failure> {
     }
 }
 
-fn id_to_c(id: Option<UiId>) -> u64 {
+pub(crate) fn id_to_c(id: Option<UiId>) -> u64 {
     id.map_or(PONKO_UI_NONE, UiId::bits)
 }
 
@@ -1250,7 +1250,7 @@ pub(crate) fn ui_of(c: &mut ponko::Ctx, target: u64) -> Result<&mut Ui, Failure>
 ///
 /// # Safety
 /// Forwards the caller's contract for `ctx`.
-unsafe fn with_ui<R>(
+pub(crate) unsafe fn with_ui<R>(
     ctx: *mut PonkoCtx,
     target: u64,
     f: impl FnOnce(&mut Ui) -> Result<R, Failure>,
@@ -2646,7 +2646,7 @@ pub unsafe extern "C" fn ponko_ctx_ui_take_click(ctx: *mut PonkoCtx, target: u64
 }
 
 /// Refuses a null `out_len`, or a null `buffer` with a capacity.
-fn check_output(buffer: *mut c_char, capacity: usize, out_len: *mut usize) -> Result<(), Failure> {
+pub(crate) fn check_output(buffer: *mut c_char, capacity: usize, out_len: *mut usize) -> Result<(), Failure> {
     if out_len.is_null() || (buffer.is_null() && capacity != 0) {
         return Err(invalid("output is null"));
     }
@@ -2658,7 +2658,12 @@ fn check_output(buffer: *mut c_char, capacity: usize, out_len: *mut usize) -> Re
 ///
 /// # Safety
 /// `buffer` writable for `capacity` bytes, or null with capacity 0; `out_len` null or writable.
-unsafe fn copy_string(value: &str, buffer: *mut c_char, capacity: usize, out_len: *mut usize) -> Result<(), Failure> {
+pub(crate) unsafe fn copy_string(
+    value: &str,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> Result<(), Failure> {
     check_output(buffer, capacity, out_len)?;
     // SAFETY: validated non-null outputs; the caller supplies the stated capacity.
     unsafe {

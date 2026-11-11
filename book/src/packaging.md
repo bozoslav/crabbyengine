@@ -220,9 +220,9 @@ title, pause and result screens show the current keys.
   retained UI; the immediate-mode calls (`draw_text`, `ui_label`) aren't scaled
   by it, so the game scales its own.
 - **Navigation** is tested with the `UiInput` the engine builds from keys and
-  pad buttons, not with operating-system events. No native accessibility
-  adapter reads the screen: the accessible names and roles are the platform-neutral
-  half only.
+  pad buttons, not with operating-system events. The game is built without
+  the `accessibility` feature, so no screen reader reads it: its accessible
+  names and roles are checked through the platform-neutral snapshot only.
 - **Tests** of the retained UI drive `Ui::frame` by hand, because
   `run_headless` runs simulation systems only (no frame systems, no UI frame).
 - **The window walk-through** can't be pixel-checked: it proves the program

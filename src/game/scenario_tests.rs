@@ -220,3 +220,107 @@ fn cancelling_takes_back_the_unrun_ticks_the_scenario_queued() {
     assert!(ctx.input.cancel_scenario(&mut ctx.world, &mut ctx.time));
     assert_eq!(ctx.take_pending_steps(), 1, "only the other client's step is left");
 }
+
+#[test]
+fn the_window_loop_runs_one_tick_a_frame_while_a_scenario_runs_so_edges_last_one_tick() {
+    // A paused game told to run five ticks at once, as a tool does.
+    let scenario = InputScenario::new()
+        .at(1, InputEvent::Key(Key::Space, true))
+        .at(3, InputEvent::Key(Key::Space, false));
+    let (mut game, mut ctx) = game_without_scenario();
+    let mut clock = Clock::new(60);
+    ctx.time.pause();
+    ctx.input.start_scenario(&mut ctx.world, &mut ctx.time, scenario);
+    ctx.time.queue_steps(5);
+    let mut per_frame = Vec::new();
+    for _ in 0..7 {
+        let timing = frame_timing(&mut clock, &mut ctx, 1.0 / 60.0);
+        per_frame.push(timing.fixed_steps);
+        ctx.begin_frame(timing);
+        game.run_systems(&mut ctx, timing.fixed_steps);
+        ctx.input.end_frame();
+    }
+    // Five frames of one tick each: what a headless run sees.
+    assert_eq!(
+        trace(&mut ctx),
+        [
+            seen(0, false, false, false),
+            seen(1, true, true, false),
+            seen(2, false, true, false),
+            seen(3, false, false, true),
+            seen(4, false, false, false),
+        ]
+    );
+    assert_eq!(per_frame, [1, 1, 1, 1, 1, 0, 0]);
+
+    // With no scenario the queued ticks still run in one frame.
+    ctx.time.queue_steps(3);
+    assert_eq!(frame_timing(&mut clock, &mut ctx, 1.0 / 60.0).fixed_steps, 3);
+}
+
+/// One frame as the window loop runs it; returns how many ticks it ran.
+fn window_frame(game: &mut Game, ctx: &mut Ctx, clock: &mut Clock, frame_dt: f64) -> u32 {
+    let timing = frame_timing(clock, ctx, frame_dt);
+    ctx.begin_frame(timing);
+    game.run_systems(ctx, timing.fixed_steps);
+    ctx.input.end_frame();
+    timing.fixed_steps
+}
+
+#[test]
+fn a_scenario_in_a_window_slower_than_the_tick_rate_leaves_no_backlog_and_no_burst_after_it() {
+    // 60 ticks a second drawn at 30 frames a second: two ticks are due
+    // every frame. The scenario lasts ten ticks.
+    let scenario = InputScenario::new()
+        .at(1, InputEvent::Key(Key::Space, true))
+        .at(9, InputEvent::Key(Key::Space, false));
+    let (mut game, mut ctx) = game_without_scenario();
+    let mut clock = Clock::new(60);
+    ctx.input.start_scenario(&mut ctx.world, &mut ctx.time, scenario);
+    let mut during = Vec::new();
+    while ctx.input.scenarios.run.is_some() {
+        during.push(window_frame(&mut game, &mut ctx, &mut clock, 1.0 / 30.0));
+        assert_eq!(ctx.take_pending_steps(), 0, "nothing piles up while the scenario runs");
+        assert!(during.len() <= 20, "the scenario ends");
+    }
+    assert_eq!(during, [1; 10], "one tick a frame, ten frames for ten ticks");
+    // The frames after it run what is due, not what was skipped.
+    let after: Vec<u32> = (0..5)
+        .map(|_| window_frame(&mut game, &mut ctx, &mut clock, 1.0 / 30.0))
+        .collect();
+    assert_eq!(after, [2; 5], "two ticks a frame again, and no burst");
+    assert_eq!(ctx.time.sim_tick(), 20);
+    // Every tick of the scenario saw the edge once.
+    let pressed: Vec<u64> = trace(&mut ctx).iter().filter(|s| s.pressed).map(|s| s.tick).collect();
+    assert_eq!(pressed, [1]);
+}
+
+#[test]
+fn pausing_during_a_scenario_stops_the_game() {
+    let scenario = InputScenario::new()
+        .at(1, InputEvent::Key(Key::Space, true))
+        .at(50, InputEvent::Key(Key::Space, false));
+    let (mut game, mut ctx) = game_without_scenario();
+    let mut clock = Clock::new(60);
+    ctx.input.start_scenario(&mut ctx.world, &mut ctx.time, scenario);
+    for _ in 0..5 {
+        window_frame(&mut game, &mut ctx, &mut clock, 1.0 / 30.0);
+    }
+    let tick = ctx.time.sim_tick();
+    assert_eq!(tick, 5);
+    ctx.time.pause();
+    for _ in 0..10 {
+        assert_eq!(
+            window_frame(&mut game, &mut ctx, &mut clock, 1.0 / 30.0),
+            0,
+            "a paused game runs no tick"
+        );
+    }
+    assert_eq!(ctx.time.sim_tick(), tick);
+    assert!(ctx.input.scenarios.run.is_some(), "the scenario waits with the game");
+    // One step asked for while paused runs, and only that one.
+    ctx.time.step();
+    assert_eq!(window_frame(&mut game, &mut ctx, &mut clock, 1.0 / 30.0), 1);
+    assert_eq!(window_frame(&mut game, &mut ctx, &mut clock, 1.0 / 30.0), 0);
+    assert_eq!(ctx.time.sim_tick(), tick + 1);
+}

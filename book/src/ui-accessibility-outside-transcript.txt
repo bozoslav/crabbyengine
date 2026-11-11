@@ -1,0 +1,106 @@
+== the window as another process reads it
+AXWindow "Settings"
+  AXGroup
+    AXGroup
+      AXStaticText value="Settings"
+      AXStaticText value="Ready"
+      AXButton "Play" help="Starts a new run"
+      AXSlider "Volume" value=0.50
+      AXTextField "Player name" value="Ann"
+      AXCheckBox "Music" value=1.00
+      AXButton "Quit"
+  AXStaticText value="Settings"
+
+-> set keyboard focus on the Volume slider (AXFocused = true): accepted
+== after moving focus to Volume
+AXWindow "Settings"
+  AXGroup
+    AXGroup
+      AXStaticText value="Settings"
+      AXStaticText value="Ready"
+      AXButton "Play" help="Starts a new run"
+      AXSlider "Volume" value=0.50 focused
+      AXTextField "Player name" value="Ann"
+      AXCheckBox "Music" value=1.00
+      AXButton "Quit"
+  AXStaticText value="Settings"
+
+-> increment the Volume slider (AXIncrement): accepted
+== after one increment: the slider and the game's status line
+AXWindow "Settings"
+  AXGroup
+    AXGroup
+      AXStaticText value="Settings"
+      AXStaticText value="Volume 55%"
+      AXButton "Play" help="Starts a new run"
+      AXSlider "Volume" value=0.55 focused
+      AXTextField "Player name" value="Ann"
+      AXCheckBox "Music" value=1.00
+      AXButton "Quit"
+  AXStaticText value="Settings"
+
+-> set the Player name text field's value to "Bea" (AXValue): accepted
+== after changing the text
+AXWindow "Settings"
+  AXGroup
+    AXGroup
+      AXStaticText value="Settings"
+      AXStaticText value="Volume 55%"
+      AXButton "Play" help="Starts a new run"
+      AXSlider "Volume" value=0.55 focused
+      AXTextField "Player name" value="Bea"
+      AXCheckBox "Music" value=1.00
+      AXButton "Quit"
+  AXStaticText value="Settings"
+
+-> press the Play button (AXPress): accepted
+== after pressing Play: the game started a run for the new name
+AXWindow "Settings"
+  AXGroup
+    AXGroup
+      AXStaticText value="Settings"
+      AXStaticText value="Started a run for Bea"
+      AXButton "Play" help="Starts a new run" focused
+      AXSlider "Volume" value=0.55
+      AXTextField "Player name" value="Bea"
+      AXCheckBox "Music" value=1.00
+      AXButton "Quit"
+  AXStaticText value="Settings"
+
+-> press the Music checkbox (AXPress): accepted
+== after pressing Music
+AXWindow "Settings"
+  AXGroup
+    AXGroup
+      AXStaticText value="Settings"
+      AXStaticText value="Music off"
+      AXButton "Play" help="Starts a new run"
+      AXSlider "Volume" value=0.55
+      AXTextField "Player name" value="Bea"
+      AXCheckBox "Music" value=0.00 focused
+      AXButton "Quit"
+  AXStaticText value="Settings"
+
+-> press the Quit button (AXPress): accepted
+== after pressing Quit: only the modal dialog is there
+AXWindow "Settings"
+  AXGroup
+    AXWindow "Quit the game?"
+      AXStaticText value="Quit the game?"
+      AXButton "Yes"
+      AXButton "No"
+  AXStaticText value="Settings"
+
+-> press No (AXPress): accepted
+== after pressing No: the menu is back
+AXWindow "Settings"
+  AXGroup
+    AXGroup
+      AXStaticText value="Settings"
+      AXStaticText value="Music off"
+      AXButton "Play" help="Starts a new run"
+      AXSlider "Volume" value=0.55
+      AXTextField "Player name" value="Bea"
+      AXCheckBox "Music" value=0.00
+      AXButton "Quit" focused
+  AXStaticText value="Settings"

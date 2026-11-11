@@ -2576,7 +2576,16 @@ inline input default_input() { return ponko_ui_input_default(); }
 
 /// The UI of a context (Rust `Ctx::ui_retained`); get it with `ctx::ui_retained()`.
 /// It is a cheap handle: copy it freely while the system runs.
+/// Whether a node's changes are announced while something else has focus.
+enum class live : std::uint32_t { off = 0, polite = 1, assertive = 2 };
+/// What a node is to assistive technology.
+enum class role : std::uint32_t { group = 0, dialog = 1, label = 2, button = 3, image = 4, scroll_view = 5, text_input = 6, checkbox = 7, slider = 8 };
+/// What `tree::access_action` asks the UI to do.
+enum class access_action_kind : std::uint32_t { focus = 0, activate = 1, set_value = 2, increment = 3, decrement = 4, set_text = 5 };
+class access;
+
 class tree {
+    friend class access;
     PonkoCtx* raw_;
     entity target_;
     static std::optional<id> maybe(id n) { return n == none ? std::nullopt : std::optional<id>(n); }
@@ -2665,6 +2674,47 @@ public:
         out.resize(len);
         return out;
     }
+    // Accessibility: what a screen reader reads. A name is the node's text
+    // unless one is set; sliders, text inputs, images and icon-only buttons
+    // need one. None of these change layout, drawing, focus or events.
+    void set_accessible_name(id node, const char* name) { detail::check(ponko_ctx_ui_set_accessible_name(raw_, target_, node, name)); }
+    std::string accessible_name(id node) const {
+        std::size_t len = 0;
+        detail::check(ponko_ctx_ui_accessible_name(raw_, target_, node, nullptr, 0, &len));
+        std::string out(len + 1, '\0');
+        detail::check(ponko_ctx_ui_accessible_name(raw_, target_, node, &out[0], out.size(), &len));
+        out.resize(len);
+        return out;
+    }
+    /// Read after the name: what a control does, or a hint. Empty removes it.
+    void set_accessible_description(id node, const char* description) { detail::check(ponko_ctx_ui_set_accessible_description(raw_, target_, node, description)); }
+    std::string accessible_description(id node) const {
+        std::size_t len = 0;
+        detail::check(ponko_ctx_ui_accessible_description(raw_, target_, node, nullptr, 0, &len));
+        std::string out(len + 1, '\0');
+        detail::check(ponko_ctx_ui_accessible_description(raw_, target_, node, &out[0], out.size(), &len));
+        out.resize(len);
+        return out;
+    }
+    /// Announce a node's changes while something else has focus (a status line).
+    void set_live_region(id node, live l) { detail::check(ponko_ctx_ui_set_live_region(raw_, target_, node, static_cast<std::uint32_t>(l))); }
+    live live_region(id node) const { PonkoUiLive l = PONKO_UI_LIVE_OFF; detail::check(ponko_ctx_ui_live_region(raw_, target_, node, &l)); return static_cast<live>(l); }
+    /// A request from assistive technology, applied by the UI's next frame:
+    /// it does what the matching key does and queues the same events.
+    void access_action(access_action_kind kind, id node, float value = 0.0f, const char* text = nullptr) {
+        detail::check(ponko_ctx_ui_access_action(raw_, target_, static_cast<std::uint32_t>(kind), node, value, text));
+    }
+    /// The accessibility semantics as text, one line per exposed node: for
+    /// golden tests and tools.
+    std::string access_text() const {
+        std::size_t len = 0;
+        detail::check(ponko_ctx_ui_access_text(raw_, target_, nullptr, 0, &len));
+        std::string out(len + 1, '\0');
+        detail::check(ponko_ctx_ui_access_text(raw_, target_, &out[0], out.size(), &len));
+        out.resize(len);
+        return out;
+    }
+
     /// A disabled node and everything under it ignore input.
     void set_enabled(id node, bool on) { detail::check(ponko_ctx_ui_set_enabled(raw_, target_, node, on)); }
     /// A slider's value (0 to 1) or a toggle's (0 off, 1 on).
@@ -2713,6 +2763,80 @@ public:
     void frame(vec2 viewport, const input& in = default_input()) { detail::check(ponko_ctx_ui_frame(raw_, target_, viewport, &in)); }
     /// Typed text for the engine's next UI frame (the context's, not a panel's).
     void insert_text(const char* text) { detail::check(ponko_ctx_ui_insert_text(raw_, text)); }
+};
+
+/// A snapshot of one UI's accessibility semantics (roles, names, values,
+/// states, focus) that knows what changed since its last `update`: what an
+/// accessibility adapter or a test reads. Use one per UI; while nothing
+/// changed, `update` allocates nothing.
+class access {
+    PonkoUiAccess* raw_;
+    using reader = PonkoStatus (*)(PonkoUiAccess*, std::uint64_t, char*, std::size_t, std::size_t*);
+    std::string read(reader f, id node) const {
+        std::size_t len = 0;
+        detail::check(f(raw_, node, nullptr, 0, &len));
+        std::string out(len + 1, '\0');
+        detail::check(f(raw_, node, &out[0], out.size(), &len));
+        out.resize(len);
+        return out;
+    }
+public:
+    /// One exposed node; `role`, `value_kind` and `live` hold the C enums.
+    using node = PonkoUiAccessNode;
+    /// What an update found: the changed and removed nodes, in tree order.
+    struct changes {
+        bool any = false;
+        bool screens_changed = false;
+        bool focus_changed = false;
+        std::vector<id> changed;
+        std::vector<id> removed;
+    };
+    access() : raw_(ponko_ui_access_new()) { if (!raw_) throw std::runtime_error(ponko_last_error()); }
+    ~access() { ponko_ui_access_free(raw_); }
+    access(access&& o) noexcept : raw_(o.raw_) { o.raw_ = nullptr; }
+    access& operator=(access&& o) noexcept { std::swap(raw_, o.raw_); return *this; }
+    access(const access&) = delete;
+    access& operator=(const access&) = delete;
+    /// Looks at the UI (after its frame) and says what changed since the
+    /// last look. The first look reports every exposed node.
+    changes update(const tree& ui) {
+        PonkoUiAccessChanges c{};
+        detail::check(ponko_ui_access_update(raw_, ui.raw_, ui.target_, &c));
+        changes out{c.any, c.screens_changed, c.focus_changed, {}, {}};
+        out.changed.resize(c.changed_count);
+        for (std::size_t i = 0; i < out.changed.size(); ++i) detail::check(ponko_ui_access_changed(raw_, i, &out.changed[i]));
+        out.removed.resize(c.removed_count);
+        for (std::size_t i = 0; i < out.removed.size(); ++i) detail::check(ponko_ui_access_removed(raw_, i, &out.removed[i]));
+        return out;
+    }
+    /// Forgets what was seen: the next update reports every node again.
+    void reset() { detail::check(ponko_ui_access_reset(raw_)); }
+    /// How many nodes are exposed.
+    std::size_t size() const { std::size_t n = 0; detail::check(ponko_ui_access_count(raw_, &n)); return n; }
+    /// Node number `index`, in tree order (a parent before its children).
+    node at(std::size_t index) const { node n{}; detail::check(ponko_ui_access_node(raw_, index, &n)); return n; }
+    /// The node for a UI node, unless it is hidden, removed or covered by a modal screen.
+    std::optional<node> find(id ui_node) const {
+        node n{};
+        const PonkoStatus status = ponko_ui_access_find(raw_, ui_node, &n);
+        if (status == PONKO_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return n;
+    }
+    /// An exposed node's children, in layout order.
+    std::vector<id> children(id ui_node) const {
+        node n{};
+        detail::check(ponko_ui_access_find(raw_, ui_node, &n));
+        std::vector<id> out(n.child_count);
+        for (std::size_t i = 0; i < out.size(); ++i) detail::check(ponko_ui_access_child(raw_, ui_node, i, &out[i]));
+        return out;
+    }
+    std::string name(id ui_node) const { return read(ponko_ui_access_name, ui_node); }
+    std::string description(id ui_node) const { return read(ponko_ui_access_description, ui_node); }
+    /// A text input's text; empty for a node whose value is not text.
+    std::string value_text(id ui_node) const { return read(ponko_ui_access_value_text, ui_node); }
+    /// The focused exposed node, if any.
+    std::optional<id> focus() const { id n = PONKO_UI_NONE; detail::check(ponko_ui_access_focus(raw_, &n)); return n == PONKO_UI_NONE ? std::nullopt : std::optional<id>(n); }
 };
 }  // namespace ui
 

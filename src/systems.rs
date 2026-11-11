@@ -44,13 +44,15 @@ use crate::Ctx;
 pub use crate::attach::follow_attachments;
 pub use crate::ecs::draw_sprites;
 #[cfg(feature = "navmesh")]
-pub use crate::nav3d::step_navmesh3d;
+pub use crate::nav3d::{step_navmesh3d, step_navmesh3d_access};
 #[cfg(feature = "3d")]
 pub use crate::net::apply_net_poses;
 #[cfg(feature = "physics")]
-pub use crate::physics::step_physics;
+pub use crate::physics::{step_physics, step_physics_access};
 #[cfg(feature = "physics3d")]
-pub use crate::physics3d::{interpolate_physics3d, step_physics3d};
+pub use crate::physics3d::{
+    interpolate_physics3d, interpolate_physics3d_access, step_physics3d, step_physics3d_access,
+};
 pub use crate::sheet::animate_sprites;
 pub use crate::spatial::rebuild_spatial_grid;
 pub use crate::tilemap::draw_tilemaps;

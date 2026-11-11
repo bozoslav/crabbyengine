@@ -3,8 +3,8 @@
 //! Pure data handling: hashing, redaction, bounded command capture, manifest
 //! writing and comparison. Nothing here knows about the reference interaction.
 
-// `compare_setups`, `Bundle::json` and `CommandSpec::new` serve callers that
-// compare or extend bundles; the tests use them.
+// Some helpers (`Bundle::json`, `CommandSpec::new`) serve callers that
+// extend bundles; the tests use them.
 #![allow(dead_code)]
 
 use serde_json::{Map, Value, json};
@@ -218,13 +218,20 @@ pub struct CommandSpec {
     pub argv: Vec<String>,
     /// Extra environment for the child. Only the names are recorded.
     pub env: Vec<(String, String)>,
+    /// Where it runs; the current directory when `None`.
+    pub cwd: Option<String>,
 }
 
 impl CommandSpec {
     pub fn new(argv: &[&str]) -> Self {
+        Self::from_argv(argv.iter().map(|s| s.to_string()).collect())
+    }
+
+    pub fn from_argv(argv: Vec<String>) -> Self {
         Self {
-            argv: argv.iter().map(|s| s.to_string()).collect(),
+            argv,
             env: Vec::new(),
+            cwd: None,
         }
     }
 }
@@ -306,6 +313,14 @@ impl Bounded {
     }
 }
 
+/// The start and end of `bytes` as text, at most `max_bytes` of it, with the
+/// number of bytes left out in between; and that number.
+pub fn bounded_text(bytes: &[u8], max_bytes: usize) -> (String, u64) {
+    let mut kept = Bounded::new(max_bytes);
+    kept.push(bytes);
+    (kept.text(), kept.omitted())
+}
+
 fn drain<R: Read + Send + 'static>(mut from: R, into: Arc<Mutex<Bounded>>) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
@@ -336,6 +351,9 @@ pub fn run_command(spec: &CommandSpec, timeout: Duration, max_bytes: usize) -> C
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(cwd) = &spec.cwd {
+        cmd.current_dir(cwd);
+    }
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => return failed(CommandStatus::LaunchFailed(e.to_string())),
@@ -425,6 +443,20 @@ impl Bundle {
         });
     }
 
+    /// A binary artifact (an image), stored as it is: nothing in it is
+    /// redacted, so only pass bytes that hold no paths or secrets.
+    pub fn bytes(&mut self, path: &str, kind: &'static str, bytes: Vec<u8>) {
+        debug_assert!(
+            !path.starts_with('/') && !path.contains(".."),
+            "bundle paths are relative"
+        );
+        self.files.push(File {
+            path: path.to_string(),
+            kind,
+            bytes,
+        });
+    }
+
     pub fn json(&mut self, path: &str, kind: &'static str, value: &Value) {
         let mut text = serde_json::to_string_pretty(value).expect("JSON value serializes");
         text.push('\n');
@@ -482,21 +514,40 @@ fn flatten(prefix: &str, value: &Value, out: &mut BTreeMap<String, Value>) {
                 flatten(&format!("{prefix}.{k}"), v, out);
             }
         }
-        // Arrays (commands, steps) compare whole.
+        // A list of records (the commands): each by its place, so one
+        // changed command shows as that command.
+        Value::Array(items) if !items.is_empty() && items.iter().all(Value::is_object) => {
+            for (i, v) in items.iter().enumerate() {
+                flatten(&format!("{prefix}.{i}"), v, out);
+            }
+        }
+        // Other lists (an argv, the features) compare whole.
         other => {
             out.insert(prefix.trim_start_matches('.').to_string(), other.clone());
         }
     }
 }
 
-/// What differs between two bundles in the sections that describe how a run
-/// was made: `build`, `settings`, `scenario`, `commands`. Results (assertions,
-/// artifacts) are deliberately not compared here: they are what the difference
-/// is supposed to explain. Each entry is `(path, value in a, value in b)`;
-/// `null` means absent.
-pub fn compare_setups(a: &Value, b: &Value) -> Vec<(String, Value, Value)> {
+/// The fields of a recorded command that say how it went, not what was
+/// asked: whether a tool call was answered, how a build ended, how much
+/// output was cut. They are outcomes of the run. A call that goes wrong for
+/// a moment (the game exits while its last reply is on the way, a log read
+/// races the exit) changes them without the setup having changed.
+const COMMAND_OUTCOME_FIELDS: [&str; 4] = ["ok", "status", "exit_code", "omitted_output_bytes"];
+
+/// Whether a flattened manifest path is a command's outcome field
+/// (`commands.<n>.<field>`).
+fn is_command_outcome(path: &str) -> bool {
+    let mut parts = path.split('.');
+    parts.next() == Some("commands")
+        && parts.next().is_some_and(|n| n.parse::<usize>().is_ok())
+        && parts.next().is_some_and(|f| COMMAND_OUTCOME_FIELDS.contains(&f))
+        && parts.next().is_none()
+}
+
+fn differing_paths(a: &Value, b: &Value, sections: &[&str]) -> Vec<(String, Value, Value)> {
     let (mut fa, mut fb) = (BTreeMap::new(), BTreeMap::new());
-    for section in ["build", "settings", "scenario", "commands"] {
+    for section in sections {
         flatten(section, &a[section], &mut fa);
         flatten(section, &b[section], &mut fb);
     }
@@ -512,6 +563,432 @@ pub fn compare_setups(a: &Value, b: &Value) -> Vec<(String, Value, Value)> {
             (va != vb).then(|| (k.clone(), va, vb))
         })
         .collect()
+}
+
+/// What differs between two bundles in the sections that describe how a run
+/// was made: `build`, `settings`, `scenario`, `commands`. Results (assertions,
+/// artifacts) are deliberately not compared here: they are what the difference
+/// is supposed to explain. Of a command, what was asked counts (the tool, its
+/// arguments, an argv, a timeout); how it went does not, see
+/// [`compare_command_outcomes`]. Each entry is `(path, value in a, value in
+/// b)`; `null` means absent.
+pub fn compare_setups(a: &Value, b: &Value) -> Vec<(String, Value, Value)> {
+    differing_paths(a, b, &["build", "settings", "scenario", "commands"])
+        .into_iter()
+        .filter(|(path, _, _)| !is_command_outcome(path))
+        .collect()
+}
+
+/// Commands that were the same in both bundles but went differently: a tool
+/// call answered in one run and not in the other, a build that ended another
+/// way. Not a setup difference. Each entry is `(path, what the command was,
+/// value in a, value in b)`.
+pub fn compare_command_outcomes(a: &Value, b: &Value) -> Vec<(String, String, Value, Value)> {
+    differing_paths(a, b, &["commands"])
+        .into_iter()
+        .filter(|(path, _, _)| is_command_outcome(path))
+        .map(|(path, va, vb)| {
+            let index: usize = path.split('.').nth(1).and_then(|n| n.parse().ok()).unwrap_or(0);
+            let command = [a, b]
+                .iter()
+                .map(|m| &m["commands"][index])
+                .find(|c| c.is_object())
+                .map_or_else(String::new, |c| match c["tool"].as_str() {
+                    Some(tool) => format!("{} {tool}", c["role"].as_str().unwrap_or("command")),
+                    None => c["role"].as_str().unwrap_or("command").to_string(),
+                });
+            (path, command, va, vb)
+        })
+        .collect()
+}
+
+// ------------------------------------------------------ reading and verifying
+
+/// A reviewer's notes on a bundle's images, kept beside the manifest (never
+/// in it: the manifest is what the run wrote).
+pub const INSPECTIONS_FILE: &str = "inspections.json";
+pub const INSPECTIONS_SCHEMA: &str = "ponko-validation-inspections";
+
+/// Artifact kinds whose bytes differ between two runs of the same setup
+/// (wall-clock timings, a process's own output, rendered pixels), so their
+/// hashes say nothing about whether the runs agree.
+const VOLATILE_KINDS: [&str; 5] = ["performance", "screenshot", "process-output", "game-log", "step-log"];
+
+/// Reads `dir/manifest.json`.
+pub fn read_manifest(dir: &Path) -> Result<Value, String> {
+    let path = dir.join("manifest.json");
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let manifest: Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    if manifest["schema"] != SCHEMA {
+        return Err(format!("{}: not a validation bundle manifest", path.display()));
+    }
+    match manifest["schema_version"].as_u64() {
+        Some(v) if v <= SCHEMA_VERSION => Ok(manifest),
+        v => Err(format!(
+            "{}: schema version {v:?}, this tool reads up to {SCHEMA_VERSION}",
+            path.display()
+        )),
+    }
+}
+
+fn walk(dir: &Path, base: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk(&path, base, out);
+        } else if let Ok(rel) = path.strip_prefix(base) {
+            out.push(rel.to_string_lossy().replace('\\', "/"));
+        }
+    }
+}
+
+/// What is wrong with the bundle in `dir` against its own manifest: a
+/// listed file that is missing, has another size or hash, or a file the
+/// manifest doesn't list. Empty when the bundle is intact.
+pub fn verify(dir: &Path, manifest: &Value) -> Vec<String> {
+    let mut problems = Vec::new();
+    let mut listed = Vec::new();
+    for a in manifest["artifacts"].as_array().into_iter().flatten() {
+        let Some(path) = a["path"].as_str() else {
+            problems.push("an artifact has no path".to_string());
+            continue;
+        };
+        listed.push(path.to_string());
+        if path.starts_with('/') || path.contains("..") {
+            problems.push(format!("{path}: not a path inside the bundle"));
+            continue;
+        }
+        match std::fs::read(dir.join(path)) {
+            Err(_) => problems.push(format!("{path}: listed, but missing")),
+            Ok(bytes) => {
+                if a["bytes"].as_u64() != Some(bytes.len() as u64) {
+                    problems.push(format!(
+                        "{path}: {} bytes, the manifest says {}",
+                        bytes.len(),
+                        a["bytes"]
+                    ));
+                } else if a["sha256"].as_str() != Some(sha256_hex(&bytes).as_str()) {
+                    problems.push(format!("{path}: its hash is not the manifest's"));
+                }
+            }
+        }
+    }
+    let mut on_disk = Vec::new();
+    walk(dir, dir, &mut on_disk);
+    on_disk.sort();
+    for file in on_disk {
+        if file != "manifest.json" && file != INSPECTIONS_FILE && !listed.contains(&file) {
+            problems.push(format!("{file}: in the directory, but not in the manifest"));
+        }
+    }
+    problems
+}
+
+// ---------------------------------------------------------- visual evidence
+
+/// The bundle's images with what a reviewer recorded about each: an image
+/// counts as inspected only when a note in `inspections.json` names its
+/// current hash. The tool never judges an image itself.
+pub fn visual_evidence(dir: &Path, manifest: &Value) -> Vec<Value> {
+    let notes: Value = std::fs::read_to_string(dir.join(INSPECTIONS_FILE))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or(Value::Null);
+    manifest["artifacts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|a| a["kind"] == "screenshot")
+        .map(|a| {
+            let note = notes["inspections"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .rev()
+                .find(|n| n["image"] == a["path"]);
+            let inspection = match note {
+                None => json!({ "status": "not_inspected" }),
+                Some(n) if n["sha256"] != a["sha256"] => {
+                    json!({ "status": "not_inspected", "reason": "the note is about another image (its hash differs)" })
+                }
+                Some(n) => json!({ "status": "inspected", "verdict": n["verdict"], "note": n["note"], "by": n["by"] }),
+            };
+            json!({ "path": a["path"], "sha256": a["sha256"], "inspection": inspection })
+        })
+        .collect()
+}
+
+/// Records that someone looked at `image` (a screenshot in the bundle) and
+/// what they saw. The note names the image's hash, so it stops counting if
+/// the image changes. Returns the note.
+pub fn record_inspection(dir: &Path, image: &str, verdict: &str, note: &str, by: &str) -> Result<Value, String> {
+    if !["ok", "wrong", "unclear"].contains(&verdict) {
+        return Err(format!("verdict {verdict:?}: use ok, wrong or unclear"));
+    }
+    if note.trim().is_empty() {
+        return Err("a note saying what the image shows is required".into());
+    }
+    let manifest = read_manifest(dir)?;
+    let artifact = manifest["artifacts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|a| a["path"] == image && a["kind"] == "screenshot")
+        .ok_or_else(|| format!("{image}: not a screenshot in this bundle"))?;
+    let bytes = std::fs::read(dir.join(image)).map_err(|e| format!("{image}: {e}"))?;
+    if artifact["sha256"].as_str() != Some(sha256_hex(&bytes).as_str()) {
+        return Err(format!("{image}: the file is not the one the manifest lists"));
+    }
+    let path = dir.join(INSPECTIONS_FILE);
+    let mut all: Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .filter(|v: &Value| v["schema"] == INSPECTIONS_SCHEMA)
+        .unwrap_or_else(|| json!({ "schema": INSPECTIONS_SCHEMA, "schema_version": 1, "inspections": [] }));
+    let entry = json!({ "image": image, "sha256": artifact["sha256"], "verdict": verdict, "note": note, "by": by });
+    all["inspections"]
+        .as_array_mut()
+        .ok_or("inspections.json is malformed")?
+        .push(entry.clone());
+    let mut text = serde_json::to_string_pretty(&all).expect("JSON value serializes");
+    text.push('\n');
+    std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(entry)
+}
+
+// ------------------------------------------------------- comparing two runs
+
+fn failure_summary(manifest: &Value) -> Value {
+    let f = &manifest["result"]["failure"];
+    json!({
+        "outcome": manifest["result"]["outcome"],
+        "failure_kind": f["kind"],
+        "failed_assertion": f["assertion"],
+        "tick": f["tick"],
+        "ticks_run": manifest["result"]["ticks_run"],
+    })
+}
+
+/// Compares two bundles on disk: whether each is intact, what differs in
+/// how the runs were made, whether they came out the same, which
+/// deterministic artifacts differ, and what is known about their images.
+///
+/// Images are never compared pixel by pixel or by hash: the same scene
+/// renders differently across GPUs, drivers and scale factors. The report
+/// only says whether each image was inspected.
+pub fn compare_bundles(dir_a: &Path, dir_b: &Path) -> Result<Value, String> {
+    let (a, b) = (read_manifest(dir_a)?, read_manifest(dir_b)?);
+    let setup: Vec<Value> = compare_setups(&a, &b)
+        .into_iter()
+        .map(|(path, va, vb)| json!({ "path": path, "a": va, "b": vb }))
+        .collect();
+    let outcomes: Vec<Value> = compare_command_outcomes(&a, &b)
+        .into_iter()
+        .map(|(path, command, va, vb)| {
+            json!({
+                "path": path,
+                "command": command,
+                "a": va,
+                "b": vb,
+                "reason": "how a command went, not what was asked: it can vary between runs of the same setup",
+            })
+        })
+        .collect();
+    let (ra, rb) = (failure_summary(&a), failure_summary(&b));
+
+    let by_id = |m: &Value| -> BTreeMap<String, Value> {
+        m["assertions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|x| Some((x["id"].as_str()?.to_string(), x.clone())))
+            .collect()
+    };
+    let (aa, ab) = (by_id(&a), by_id(&b));
+    let mut ids: Vec<&String> = aa.keys().chain(ab.keys()).collect();
+    ids.sort();
+    ids.dedup();
+    let part = |x: Option<&Value>| {
+        x.map_or(
+            Value::Null,
+            |x| json!({ "outcome": x["outcome"], "tick": x["tick"], "actual": x["actual"] }),
+        )
+    };
+    let assertions: Vec<Value> = ids
+        .into_iter()
+        .filter_map(|id| {
+            let (xa, xb) = (part(aa.get(id)), part(ab.get(id)));
+            (xa != xb).then(|| json!({ "id": id, "a": xa, "b": xb }))
+        })
+        .collect();
+
+    let files = |m: &Value| -> BTreeMap<String, Value> {
+        m["artifacts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|x| Some((x["path"].as_str()?.to_string(), x.clone())))
+            .collect()
+    };
+    let (fa, fb) = (files(&a), files(&b));
+    let mut paths: Vec<&String> = fa.keys().chain(fb.keys()).collect();
+    paths.sort();
+    paths.dedup();
+    let (mut differing, mut not_compared) = (Vec::new(), Vec::new());
+    for path in paths {
+        let (xa, xb) = (fa.get(path), fb.get(path));
+        let kind = xa.or(xb).map_or(Value::Null, |x| x["kind"].clone());
+        if kind.as_str().is_some_and(|k| VOLATILE_KINDS.contains(&k)) {
+            let reason = if kind == "screenshot" {
+                "images are inspected, not compared: pixels differ across GPUs, drivers and scale factors"
+            } else {
+                "varies between runs of the same setup (timings or process output)"
+            };
+            not_compared.push(json!({ "path": path, "kind": kind, "reason": reason }));
+        } else if xa.map(|x| &x["sha256"]) != xb.map(|x| &x["sha256"]) {
+            differing.push(json!({
+                "path": path,
+                "kind": kind,
+                "a": xa.map_or(Value::Null, |x| x["sha256"].clone()),
+                "b": xb.map_or(Value::Null, |x| x["sha256"].clone()),
+            }));
+        }
+    }
+
+    let same_setup = setup.is_empty();
+    let same_result = ra == rb && assertions.is_empty() && differing.is_empty();
+    let verdict = match (same_setup, same_result) {
+        (true, true) => "same setup, same result".to_string(),
+        (true, false) => "same recorded setup, different result: the runs are not deterministic, or something that differs was not recorded".to_string(),
+        (false, true) => format!("{} setup difference(s), same result", setup.len()),
+        (false, false) => format!("{} setup difference(s) and a different result", setup.len()),
+    };
+    Ok(json!({
+        "schema": "ponko-validation-comparison",
+        "schema_version": 1,
+        "integrity": { "a": verify(dir_a, &a), "b": verify(dir_b, &b) },
+        "same_setup": same_setup,
+        "same_result": same_result,
+        "verdict": verdict,
+        "setup_differences": setup,
+        "command_outcome_differences": outcomes,
+        "result": { "a": ra, "b": rb },
+        "assertion_differences": assertions,
+        "artifact_differences": differing,
+        "not_compared": not_compared,
+        "visual_evidence": {
+            "a": visual_evidence(dir_a, &a),
+            "b": visual_evidence(dir_b, &b),
+            "note": "an image is evidence only once someone has looked at it; identical pixels are neither expected nor required",
+        },
+    }))
+}
+
+/// [`compare_bundles`]' report as text for a terminal.
+pub fn comparison_text(report: &Value) -> String {
+    let mut out = String::new();
+    let short = |v: &Value| match v {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    for side in ["a", "b"] {
+        let problems = report["integrity"][side].as_array().cloned().unwrap_or_default();
+        if problems.is_empty() {
+            out.push_str(&format!("bundle {side}: intact\n"));
+        } else {
+            out.push_str(&format!("bundle {side}: DAMAGED\n"));
+            for p in &problems {
+                out.push_str(&format!("  {}\n", short(p)));
+            }
+        }
+    }
+    out.push_str(&format!("verdict: {}\n", short(&report["verdict"])));
+    let list = |title: &str, items: &Value, line: &dyn Fn(&Value) -> String, out: &mut String| {
+        let items = items.as_array().cloned().unwrap_or_default();
+        if !items.is_empty() {
+            out.push_str(&format!("{title}:\n"));
+            for item in &items {
+                out.push_str(&format!("  {}\n", line(item)));
+            }
+        }
+    };
+    list(
+        "setup differences",
+        &report["setup_differences"],
+        &|d| format!("{}: {} -> {}", short(&d["path"]), d["a"], d["b"]),
+        &mut out,
+    );
+    for side in ["a", "b"] {
+        let r = &report["result"][side];
+        let mut line = format!("result {side}: {}", short(&r["outcome"]));
+        if !r["failure_kind"].is_null() {
+            line.push_str(&format!(" ({}", short(&r["failure_kind"])));
+            if !r["failed_assertion"].is_null() {
+                line.push_str(&format!(": {}", short(&r["failed_assertion"])));
+            }
+            if !r["tick"].is_null() {
+                line.push_str(&format!(" at tick {}", r["tick"]));
+            }
+            line.push(')');
+        }
+        out.push_str(&line);
+        out.push('\n');
+    }
+    list(
+        "assertions that came out differently",
+        &report["assertion_differences"],
+        &|d| format!("{}: {} -> {}", short(&d["id"]), d["a"], d["b"]),
+        &mut out,
+    );
+    list(
+        "deterministic artifacts that differ",
+        &report["artifact_differences"],
+        &|d| format!("{} ({})", short(&d["path"]), short(&d["kind"])),
+        &mut out,
+    );
+    list(
+        "commands that went differently (not a setup difference)",
+        &report["command_outcome_differences"],
+        &|d| {
+            format!(
+                "{} ({}): {} -> {}",
+                short(&d["path"]),
+                short(&d["command"]),
+                d["a"],
+                d["b"]
+            )
+        },
+        &mut out,
+    );
+    list(
+        "not compared",
+        &report["not_compared"],
+        &|d| format!("{} ({}): {}", short(&d["path"]), short(&d["kind"]), short(&d["reason"])),
+        &mut out,
+    );
+    for side in ["a", "b"] {
+        list(
+            &format!("images in {side}"),
+            &report["visual_evidence"][side],
+            &|i| {
+                let ins = &i["inspection"];
+                if ins["status"] == "inspected" {
+                    format!(
+                        "{}: inspected by {}, {}: {}",
+                        short(&i["path"]),
+                        short(&ins["by"]),
+                        short(&ins["verdict"]),
+                        short(&ins["note"])
+                    )
+                } else {
+                    format!("{}: NOT INSPECTED, so it is no evidence yet", short(&i["path"]))
+                }
+            },
+            &mut out,
+        );
+    }
+    out
 }
 
 // -------------------------------------------------------------- assertions

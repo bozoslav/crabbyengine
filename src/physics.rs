@@ -643,6 +643,51 @@ pub fn step_physics(ctx: &mut Ctx) {
     step(&mut ctx.physics, &mut ctx.world, &mut ctx.events, dt);
 }
 
+/// What [`step_physics`] uses, as a declaration: it writes the 2D physics
+/// service ([`Service::Physics`](crate::access::Service::Physics)), reads
+/// the timestep ([`Service::Time`](crate::access::Service::Time)), reads
+/// [`RigidBody`], [`Collider`] and the count of world loads (a load drops
+/// every body), writes [`Transform2D`] and [`Velocity`], and sends
+/// [`CollisionStarted`] and [`CollisionStopped`]. Nothing else: no other
+/// resources, commands, drawing or input.
+///
+/// [`Game::physics`](crate::Game::physics) registers the step with this
+/// declaration, so [`Game::access_report`](crate::Game::access_report) lists
+/// what the step touches and debug builds check that it stays inside it.
+/// Pass it to [`Game::add_with_access`](crate::Game::add_with_access) when
+/// you place the step yourself. The step keeps `&mut Ctx` and its place in
+/// the order; see [`access`](crate::access).
+///
+/// ```
+/// use ponko::prelude::*;
+/// use ponko::{Systems, systems};
+///
+/// let game = Game::new("Order", 800, 600)
+///     .physics(vec2(0.0, 980.0))
+///     .remove(Systems::PHYSICS)
+///     .add_with_access(Phase::BeforePhysics, systems::step_physics_access(), systems::step_physics);
+/// # let _ = game;
+/// ```
+///
+/// The [`Service`](crate::access::Service) entries of the declaration are
+/// documentation: they appear in the report, but services are not recorded,
+/// so nothing checks them at run time. Components, resources and events are
+/// checked in debug builds.
+#[must_use]
+pub fn step_physics_access() -> crate::access::SystemAccess {
+    use crate::access::{Service, SystemAccess};
+    SystemAccess::new()
+        .write_service(Service::Physics)
+        .read_service(Service::Time)
+        .write::<Transform2D>()
+        .read::<RigidBody>()
+        .read::<Collider>()
+        .write::<Velocity>()
+        .read_resource::<crate::reflect::WorldLoads>()
+        .send_events::<CollisionStarted>()
+        .send_events::<CollisionStopped>()
+}
+
 /// The step itself, with only what it touches: the physics state, the world
 /// whose [`Transform2D`] / [`RigidBody`] / [`Collider`] / [`Velocity`]
 /// components it reads and writes, the event queue that gets the collision

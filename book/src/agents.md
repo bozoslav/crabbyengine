@@ -36,7 +36,7 @@ ctx.world.reflect::<Health>();
 | Tool | Changes the game | What it's for |
 |---|---|---|
 | `list_instances` | | find running games |
-| `launch` | ✓ | build and start a game or example; headless and paused by default |
+| `launch` | ✓ | build and start a game or example, or start an already built executable (`program`, e.g. a C or C++ game); headless and paused by default |
 | `instance_info` | | tick, sim time, paused, speed, fps, entity count, render CPU/GPU ms |
 | `instance_capabilities` | | what this game can do before you try: headless or windowed, compiled features, subsystems and why one is off, which tools work on it (and why not), reflected types with their field schema ([details](control.md#capabilities)) |
 | `world_summary` | | archetypes, entity counts, reflected components |
@@ -189,24 +189,16 @@ headless success does not verify rendering. Collect a `perf_report` or
 before/after workloads. A screenshot alone does not establish simulation
 correctness or a performance improvement.
 
-### Validation bundles (first stage)
+### Validation bundles
 
 `cargo run --example validation_bundle -- --out DIR --variant buggy|fixed`
-runs a small headless interaction driven by a tick-indexed
-[`InputScenario`](actions.md) and writes one self-contained directory: a
-versioned `manifest.json` (engine version, commit/features/rustc when you
-supply them, scenario id and seed, commands, assertion outcomes with the
-failing tick, artifact sizes and SHA-256 hashes), `logs/` and a per-tick
-`trace.csv`. `--step "cmd args"` runs a bounded command first (a build, a
-launch check); a failed or timed-out step ends the run with its output kept
-(start and end, bounded). Control tokens, passwords and authorization values
-are replaced by `<redacted>`, and `--redact-paths` swaps the working, home and
-bundle directories for `<CWD>`, `<HOME>` and `<BUNDLE>` without touching the
-rest of a path. Metrics a run can't produce (screenshots, performance) are
-marked `unavailable` with the reason. The bundle shows what one run observed;
-it is not proof of pixel identity or visual correctness. Screenshots,
-performance reports and driving a launched game through the MCP tools are
-later stages.
+writes one self-contained directory for a run: build identity, scenario and
+seed, the commands and MCP calls made, each check's outcome with the failing
+tick, logs, performance reports, screenshots of a windowed run, and the hash
+of every file. It can run the game in-process or launch it and drive it
+through the tools above, put a game of your own (Rust, C or C++) through a
+scenario file, and compare two bundles. See
+[Validation bundles](validation-bundles.md).
 
 These tools exist today. A general gameplay-input recording/replay service,
 structured scheduler inspection, richer shader diagnostics and broader

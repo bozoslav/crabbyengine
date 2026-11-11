@@ -113,13 +113,21 @@ pub(crate) struct UiState {
 }
 
 mod access;
+#[cfg(feature = "accessibility")]
+mod access_kit;
+#[cfg(feature = "accessibility")]
+mod access_native;
 mod build;
 mod immediate;
 #[cfg(feature = "3d")]
 mod panel3d;
 mod retained;
 mod retained_draw;
-pub use access::{UiAccessNode, UiAccessTree, UiAccessValue, UiRole};
+pub use access::{
+    UiAccessAction, UiAccessChanges, UiAccessNode, UiAccessTracker, UiAccessTree, UiAccessValue, UiLive, UiRole,
+};
+#[cfg(feature = "accessibility")]
+pub use access_native::UiAccessAdapter;
 pub use build::{UiBuilder, UiLayout, UiTheme};
 pub use immediate::UiImmediate;
 #[cfg(feature = "3d")]
