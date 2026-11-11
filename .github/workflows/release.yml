@@ -27,14 +27,12 @@ jobs:
     name: Coin Dash desktop (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 75
-    env:
-      CARGO_BUILD_TARGET: ${{ matrix.os == 'windows-2022' && 'x86_64-pc-windows-msvc' || '' }}
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, windows-2022]
+        os: [ubuntu-22.04, macos-26, windows-2022]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -46,6 +44,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/windows-linker
         if: runner.os == 'Windows'
+      - name: Set explicit Windows target for static CRT
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo 'CARGO_BUILD_TARGET=x86_64-pc-windows-msvc' >> "$GITHUB_ENV"
       - run: python scripts/release-coin-dash.py check-version
         if: github.event_name == 'push'
       - run: python scripts/release-coin-dash.py selftest

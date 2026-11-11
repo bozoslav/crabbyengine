@@ -64,7 +64,7 @@ made-up crates, plus the exit-code decisions below.
 The [release workflow](https://github.com/ponkoengine/ponko/blob/main/.github/workflows/release.yml)
 builds Coin Dash in release mode for Linux x86_64 (Ubuntu 22.04, glibc 2.35
 or newer), macOS Apple silicon (macOS 11 or newer), and Windows x86_64.
-Runner images are pinned to Ubuntu 22.04, macOS 14 and Windows 2022. Windows
+Runner images are pinned to Ubuntu 22.04, macOS 26 and Windows 2022. Windows
 links the CRT statically and does not require the VC++ redistributable.
 Release builds do not restore build caches. It attaches
 a Linux `.tar.gz` and macOS and Windows `.zip` archives, each with a
