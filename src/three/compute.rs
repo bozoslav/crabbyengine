@@ -153,12 +153,25 @@ impl Graphics {
     /// gets a stand-in and stays watched until a saved fix compiles
     /// ([`crate::render::ShaderOutcome::Failed`], [`Graphics::shader_status`](crate::gfx::Graphics::shader_status)).
     pub fn load_compute(&mut self, path: &str) -> Compute {
-        self.try_load_compute(path).unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_load_compute(path).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`Graphics::load_compute`](crate::gfx::Graphics::load_compute) that returns errors (for the C API).
-    #[doc(hidden)]
-    pub fn try_load_compute(&mut self, path: &str) -> Result<Compute, String> {
+    /// [`load_compute`](Self::load_compute) with errors as values:
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
+    /// missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::ErrorKind::Decode) if it isn't UTF-8 text and
+    /// [`Shader`](crate::ErrorKind::Shader) if it doesn't compile (the
+    /// message has the compiler's log). With hot reload on, a file that
+    /// doesn't compile still returns a stand-in, as `load_compute` does.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let err = ctx.gfx.try_load_compute("missing.wgsl").unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::NotFound);
+    /// });
+    /// ```
+    pub fn try_load_compute(&mut self, path: &str) -> Result<Compute, crate::Error> {
         let found = match self
             .asset_sources
             .lookup(path, |origin| self.assets3d.loaded_computes.get(origin).copied())?
@@ -173,6 +186,7 @@ impl Graphics {
             // With hot reload on, it is skipped until a saved fix compiles;
             // its status says what's wrong.
             Err(e) if self.keeps_failed_load(&origin) => {
+                let e = e.with_path(path);
                 Self::report_stand_in(path, &e);
                 let id = self.assets3d.computes;
                 self.compile_compute(path, super::COMPUTE_STAND_IN, None)
@@ -186,7 +200,7 @@ impl Graphics {
                 self.assets3d.computes_live.insert(id);
                 Compute { id }
             }
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.with_path(path)),
         };
         self.assets3d.loaded_computes.insert(origin.clone(), compute);
         if let crate::assets::Origin::File(file) = origin {
@@ -216,13 +230,13 @@ impl Graphics {
     ///
     /// If it doesn't compile (the message says where).
     pub fn create_compute(&mut self, name: &str, source: &str) -> Compute {
-        self.try_create_compute(name, source)
-            .unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_create_compute(name, source).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`Graphics::create_compute`](crate::gfx::Graphics::create_compute) that returns errors (for the C API).
-    #[doc(hidden)]
-    pub fn try_create_compute(&mut self, name: &str, source: &str) -> Result<Compute, String> {
+    /// [`create_compute`](Self::create_compute) with errors as values:
+    /// [`ErrorKind::Shader`](crate::ErrorKind::Shader) if it doesn't
+    /// compile, with the compiler's log in the message.
+    pub fn try_create_compute(&mut self, name: &str, source: &str) -> Result<Compute, crate::Error> {
         let id = self.assets3d.computes;
         let compiled = self.compile_compute(name, source, None);
         self.record_shader(name, super::ShaderKind::Compute, false, compiled)?;
@@ -266,7 +280,7 @@ impl Graphics {
             return Ok(());
         }
         let compiled = self.compile_compute(name, source, Some(id));
-        self.record_shader(name, super::ShaderKind::Compute, true, compiled)
+        Ok(self.record_shader(name, super::ShaderKind::Compute, true, compiled)?)
     }
 
     /// Whether this game made `compute` and hasn't freed it (for the C API,

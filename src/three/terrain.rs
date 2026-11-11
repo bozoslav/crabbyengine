@@ -201,16 +201,24 @@ impl Graphics {
     /// another game.
     pub fn create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Material {
         self.try_create_terrain_material(desc)
-            .unwrap_or_else(|e| panic!("ponko: create_terrain_material: {e}"))
+            .unwrap_or_else(|e| panic!("{}", e.context("create_terrain_material")))
     }
 
-    /// [`Graphics::create_terrain_material`](crate::gfx::Graphics::create_terrain_material) that returns errors (for the C API).
-    #[doc(hidden)]
-    pub fn try_create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Result<Material, String> {
-        desc.check()?;
+    /// [`create_terrain_material`](Self::create_terrain_material) with errors
+    /// as values: [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) for a
+    /// description that doesn't fit together (too many layers, too few weight
+    /// images or normal maps, a size not above 0),
+    /// [`BadHandle`](crate::ErrorKind::BadHandle) for an array this game
+    /// didn't make.
+    pub fn try_create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Result<Material, crate::Error> {
+        desc.check()
+            .map_err(|e| crate::Error::new(crate::ErrorKind::Invalid, e))?;
         let arrays = [Some(desc.layers), desc.normals, Some(desc.weights)];
         if arrays.into_iter().flatten().any(|a| !self.has_texture_array(a)) {
-            return Err("that texture array wasn't made by this game".into());
+            return Err(crate::Error::new(
+                crate::ErrorKind::BadHandle,
+                "that texture array wasn't made by this game",
+            ));
         }
         let shader = match self.assets3d.terrain_shader {
             Some(shader) => shader,

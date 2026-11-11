@@ -144,32 +144,41 @@ impl Graphics {
     ///     ctx.gfx.bake_reflection_probe(&mut ctx.world, e).unwrap();
     /// });
     /// ```
-    pub fn bake_reflection_probe(&mut self, world: &mut World, entity: Entity) -> Result<(), String> {
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if `entity` has no
+    /// probe or no transform, [`Invalid`](crate::ErrorKind::Invalid) if the
+    /// probe's volume or intensity is zero or its content is unknown,
+    /// [`Limit`](crate::ErrorKind::Limit) if four captures are already
+    /// allocated.
+    pub fn bake_reflection_probe(&mut self, world: &mut World, entity: Entity) -> Result<(), crate::Error> {
+        use crate::{Error, ErrorKind};
         let probe = *world
             .get::<ReflectionProbe3D>(entity)
-            .ok_or("entity has no reflection probe")?;
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, "entity has no reflection probe"))?;
         let center = world
             .get::<Transform3D>(entity)
-            .ok_or("probe has no transform")?
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, "probe has no transform"))?
             .position;
         if probe.weight(center, center) == 0.0 {
-            return Err("probe has invalid volume or intensity".into());
+            return Err(Error::new(ErrorKind::Invalid, "probe has invalid volume or intensity"));
         }
         let slot = if probe.content == 0 {
             if self.assets3d.probes.captures.len() == 4 {
-                return Err("four reflection environments are already allocated".into());
+                return Err(Error::new(
+                    ErrorKind::Limit,
+                    "four reflection environments are already allocated",
+                ));
             }
-            let faces = std::array::from_fn(|_| {
-                self.make_render_target(128, 128)
-                    .unwrap_or_else(|e| panic!("ponko: {e}"))
-            });
+            let faces = std::array::from_fn(|_| self.make_render_target(128, 128).unwrap_or_else(|e| panic!("{e}")));
             self.assets3d.probes.captures.push(faces);
             let slot = self.assets3d.probes.captures.len() as u32;
             world.get_mut::<ReflectionProbe3D>(entity).unwrap().content = slot;
             slot
         } else {
             if probe.content as usize > self.assets3d.probes.captures.len() {
-                return Err("invalid reflection content".into());
+                return Err(Error::new(ErrorKind::Invalid, "invalid reflection content"));
             }
             probe.content
         };
@@ -196,20 +205,55 @@ impl Graphics {
     /// The file must have a 2:1 aspect ratio. Filtering runs next rendered frame.
     /// ```no_run
     /// # use ponko::prelude::*;
-    /// # fn load(ctx: &mut Ctx, probe: Entity) -> Result<(), String> {
-    /// ctx.gfx.load_reflection_probe(&mut ctx.world, probe, "interior.exr")?;
-    /// # Ok(()) }
+    /// # fn load(ctx: &mut Ctx, probe: Entity) {
+    /// ctx.gfx.load_reflection_probe(&mut ctx.world, probe, "interior.exr");
+    /// # }
     /// ```
-    pub fn load_reflection_probe(&mut self, world: &mut World, entity: Entity, name: &str) -> Result<(), String> {
+    ///
+    /// # Panics
+    ///
+    /// If the file is missing or not a 2:1 image, or the probe can't be
+    /// baked; use [`try_load_reflection_probe`](Self::try_load_reflection_probe)
+    /// to handle that.
+    pub fn load_reflection_probe(&mut self, world: &mut World, entity: Entity, name: &str) {
+        self.try_load_reflection_probe(world, entity, name)
+            .unwrap_or_else(|e| panic!("{e}"));
+    }
+
+    /// [`load_reflection_probe`](Self::load_reflection_probe) with errors as
+    /// values: [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file
+    /// is missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::ErrorKind::Decode) if it isn't an image or holds
+    /// non-finite radiance, [`Invalid`](crate::ErrorKind::Invalid) if it isn't
+    /// 2:1, and the errors of
+    /// [`bake_reflection_probe`](Self::bake_reflection_probe).
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("probe", 1, 1).run_headless(0, |ctx| {
+    ///     let e = ctx.world.spawn((ponko::d3::Transform::default(), ponko::d3::ReflectionProbe::default()));
+    ///     let err = ctx.gfx.try_load_reflection_probe(&mut ctx.world, e, "no/such.exr").unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::NotFound);
+    /// });
+    /// ```
+    pub fn try_load_reflection_probe(
+        &mut self,
+        world: &mut World,
+        entity: Entity,
+        name: &str,
+    ) -> Result<(), crate::Error> {
         let found = self.asset_sources.find(name)?;
         let origin = found.origin.clone();
-        let bytes = found.into_bytes()?;
+        let bytes = found.into_bytes().map_err(|e| e.with_path(name))?;
         let image = image::load_from_memory(&bytes)
-            .map_err(|e| format!("{} is not a valid image: {e}", origin.describe(name)))?
+            .map_err(|e| crate::Error::decode(name, format!("{} is not a valid image: {e}", origin.describe(name))))?
             .into_rgb32f();
         let (width, height) = image.dimensions();
         if width != height.saturating_mul(2) || height == 0 {
-            return Err("reflection image must have 2:1 aspect ratio".into());
+            return Err(
+                crate::Error::new(crate::ErrorKind::Invalid, "reflection image must have 2:1 aspect ratio")
+                    .with_path(name),
+            );
         }
         let mut pixels = Vec::with_capacity(768 * 128 * 4);
         for y in 0..128 {
@@ -235,7 +279,10 @@ impl Graphics {
                     v.fract().rem_euclid(1.0),
                 );
                 if !c.is_finite() {
-                    return Err("reflection image contains non-finite radiance".into());
+                    return Err(crate::Error::decode(
+                        name,
+                        "reflection image contains non-finite radiance",
+                    ));
                 }
                 pixels.extend(
                     c.clamp(Vec3::ZERO, Vec3::splat(65504.0))

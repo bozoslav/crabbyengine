@@ -372,6 +372,7 @@ impl Panels {
                 let saved = ctx
                     .assets
                     .save_scene(&ctx.world, &path)
+                    .map_err(String::from)
                     .map(|()| format!("saved {path}"));
                 self.status = self.report(saved);
             }
@@ -408,6 +409,7 @@ impl Panels {
                 let saved = ctx
                     .assets
                     .save_prefab(&ctx.world, e, &path)
+                    .map_err(String::from)
                     .map(|()| format!("saved {path}"));
                 self.status = self.report(saved);
                 self.prefabs = None;

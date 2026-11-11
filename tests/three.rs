@@ -850,7 +850,11 @@ fn terrain_materials_check_their_layers() {
         let two_weights = ctx.gfx.create_texture_array(2, 2, &[&image[..]; 2], TextureKind::Data);
         let nine = ctx.gfx.create_texture_array(2, 2, &[&image[..]; 9], TextureKind::Color);
         let desc = |layers, weights| TerrainMaterialDesc::new(layers, weights, Vec2::ZERO, vec2(10.0, 10.0));
-        let err = |ctx: &mut Ctx, d: TerrainMaterialDesc| ctx.gfx.try_create_terrain_material(&d).unwrap_err();
+        let err = |ctx: &mut Ctx, d: TerrainMaterialDesc| {
+            let e = ctx.gfx.try_create_terrain_material(&d).unwrap_err();
+            assert_eq!(e.kind(), ErrorKind::Invalid);
+            e.message().to_string()
+        };
         assert!(err(ctx, desc(five, one_weight)).contains("need 2 weight images"));
         assert!(err(ctx, desc(nine, two_weights)).contains("at most 8 layers"));
         let no_size = TerrainMaterialDesc {

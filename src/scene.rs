@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::{Ctx, Entity, Vec2, WorldReflect};
 
 /// Loads one asset a scene names (`Assets::scene_asset_field`).
-type SceneAssetLoader = std::rc::Rc<dyn Fn(&mut Ctx, &str) -> Result<(), String>>;
+type SceneAssetLoader = std::rc::Rc<dyn Fn(&mut Ctx, &str) -> Result<(), crate::Error>>;
 
 /// A field of a reflected component that names an asset, and how to load
 /// it (`Assets::scene_asset_field`).
@@ -218,6 +218,10 @@ impl crate::Assets {
     /// resource). Names are found through the [asset
     /// sources](Self::add_source) like any other load.
     ///
+    /// `load` returns a [`crate::Error`], so the engine's `try_` loaders
+    /// can be returned as they are; [`Error::new`](crate::Error::new) makes
+    /// one for your own asset types.
+    ///
     /// The field may hold a name or a list of names; other values are
     /// skipped (the component's own deserialization reports them). A
     /// failing `load` fails the scene load before any entity changes, with
@@ -238,9 +242,7 @@ impl crate::Assets {
     /// #     .unwrap();
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     ctx.world.reflect::<ShopItem>();
-    ///     ctx.assets.scene_asset_field::<ShopItem>("icon", |ctx, name| {
-    ///         ctx.gfx.try_load_texture(name).map(|_| ()).map_err(|e| e.to_string())
-    ///     });
+    ///     ctx.assets.scene_asset_field::<ShopItem>("icon", |ctx, name| ctx.gfx.try_load_texture(name).map(|_| ()));
     ///     // A scene with one shop item, kept in memory with its icon.
     ///     ctx.world.spawn((ShopItem { icon: "icons/apple.png".into() },));
     ///     let shop = serde_json::to_string(&ctx.world.save()).unwrap();
@@ -255,7 +257,7 @@ impl crate::Assets {
     pub fn scene_asset_field<T: 'static>(
         &mut self,
         field: &str,
-        load: impl Fn(&mut Ctx, &str) -> Result<(), String> + 'static,
+        load: impl Fn(&mut Ctx, &str) -> Result<(), crate::Error> + 'static,
     ) {
         let component = crate::reflect::short_name(std::any::type_name::<T>());
         let entry = SceneAssetField {
@@ -286,7 +288,7 @@ impl Ctx {
             names.sort_unstable();
             names.dedup();
             for name in names {
-                load(self, &name).map_err(|e| format!("{component}.{field} \"{name}\": {e}"))?;
+                load(self, &name).map_err(|e| format!("{component}.{field} \"{name}\": {}", e.message()))?;
             }
         }
         Ok(())

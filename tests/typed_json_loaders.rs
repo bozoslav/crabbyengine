@@ -63,11 +63,13 @@ fn a_type_that_was_not_reflected_is_an_error_not_a_panic() {
             .assets
             .load_component_json::<Stats>(&mut ctx.world, stats.name(), e)
             .unwrap_err();
-        assert!(error.contains("Stats"), "{error}");
+        assert_eq!(error.kind(), ErrorKind::NotFound);
+        assert!(error.message().contains("Stats"), "{error}");
         let error = ctx
             .assets
             .load_resource_json::<Tuning>(&mut ctx.world, stats.name())
             .unwrap_err();
-        assert!(error.contains("Tuning"), "{error}");
+        assert_eq!(error.kind(), ErrorKind::NotFound);
+        assert!(error.message().contains("Tuning"), "{error}");
     });
 }

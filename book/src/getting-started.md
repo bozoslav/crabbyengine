@@ -157,7 +157,16 @@ match ctx.gfx.try_load_texture("skins/gold.png") {
 # }
 ```
 
-Match on `e.kind()` (`NotFound`, `Io`, `Decode`, `Invalid`, `BadHandle`,
-...), not on the message text, which may change. `ponko::Error` implements
-`std::error::Error`, so `?` passes it on into a `Box<dyn Error>` or your own
-error type. The C and C++ APIs keep their existing error reporting for now.
+Match on `e.kind()` (`NotFound`, `Io`, `Decode`, `Shader`, `Invalid`,
+`BadHandle`, `Limit`, ...), not on the message text, which may change.
+`ponko::Error` implements `std::error::Error`, so `?` passes it on into a
+`Box<dyn Error>` or your own error type.
+
+Calls that can fail in normal play return `Result<_, ponko::Error>` under
+their plain name and have no panicking twin: saving a scene or a prefab
+(`ctx.assets.save_scene`, `save_prefab`), loading JSON into a component or
+resource (`load_component_json`, `load_resource_json`), baking a reflection
+probe, and your own decoders (`ctx.assets.load_with`). Some older calls on
+`Ctx` itself (`load_scene`, `spawn_prefab`, `start_ragdoll`) still return
+`Result<_, String>`; `?` turns a `ponko::Error` into that `String`. The C and
+C++ APIs keep their existing error reporting for now.

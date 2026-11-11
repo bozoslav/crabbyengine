@@ -122,6 +122,13 @@ impl Error {
     pub(crate) fn decode(path: &str, message: impl Into<String>) -> Self {
         Self::new(ErrorKind::Decode, message).with_path(path)
     }
+
+    /// The same error with `context: ` in front of its message.
+    #[must_use]
+    pub(crate) fn context(mut self, context: impl fmt::Display) -> Self {
+        self.message = format!("{context}: {}", self.message);
+        self
+    }
 }
 
 impl fmt::Display for Error {

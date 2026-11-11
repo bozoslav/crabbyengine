@@ -100,30 +100,43 @@ impl Graphics {
         kind: TextureKind,
     ) -> TextureArray {
         self.try_create_texture_array(width, height, layers, kind)
-            .unwrap_or_else(|e| panic!("ponko: {e}"))
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`Graphics::create_texture_array`](crate::gfx::Graphics::create_texture_array) that returns errors (for the C API).
-    #[doc(hidden)]
+    /// [`create_texture_array`](Self::create_texture_array) with errors as
+    /// values: [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) for no
+    /// layers, a zero size or a layer of the wrong length,
+    /// [`Limit`](crate::ErrorKind::Limit) for one larger than the GPU takes.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let err = ctx.gfx.try_create_texture_array(2, 2, &[&[0; 3]], ponko::terrain::TextureKind::Color).unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::Invalid);
+    /// });
+    /// ```
     pub fn try_create_texture_array(
         &mut self,
         width: u32,
         height: u32,
         layers: &[&[u8]],
         kind: TextureKind,
-    ) -> Result<TextureArray, String> {
+    ) -> Result<TextureArray, crate::Error> {
+        let invalid = |message: String| crate::Error::new(crate::ErrorKind::Invalid, message);
         if layers.is_empty() {
-            return Err("a texture array needs at least one layer".into());
+            return Err(invalid("a texture array needs at least one layer".into()));
         }
         if width == 0 || height == 0 {
-            return Err(format!("texture size must not be zero (got {width} x {height})"));
+            return Err(invalid(format!(
+                "texture size must not be zero (got {width} x {height})"
+            )));
         }
         let expected = width as usize * height as usize * 4;
         if let Some((i, layer)) = layers.iter().enumerate().find(|(_, l)| l.len() != expected) {
-            return Err(format!(
+            return Err(invalid(format!(
                 "layer {i} of a {width} x {height} texture array needs {expected} bytes of RGBA, got {}",
                 layer.len()
-            ));
+            )));
         }
         let id = self.assets3d.arrays.len() as u32;
         if let Some(renderer) = self.renderer.as_mut()
@@ -131,10 +144,13 @@ impl Graphics {
         {
             let (max, max_layers) = renderer.max_texture_array_size();
             if width > max || height > max || layers.len() as u32 > max_layers {
-                return Err(format!(
-                    "a {width} x {height} texture array of {} layers is larger than this GPU takes \
-                     ({max} x {max}, {max_layers} layers)",
-                    layers.len()
+                return Err(crate::Error::new(
+                    crate::ErrorKind::Limit,
+                    format!(
+                        "a {width} x {height} texture array of {} layers is larger than this GPU takes \
+                         ({max} x {max}, {max_layers} layers)",
+                        layers.len()
+                    ),
                 ));
             }
             let gpu_id = renderer.create_texture_array(width, height, layers, kind == TextureKind::Data);
@@ -170,23 +186,40 @@ impl Graphics {
     /// sizes differ.
     pub fn load_texture_array(&mut self, paths: &[&str], kind: TextureKind) -> TextureArray {
         self.try_load_texture_array(paths, kind)
-            .unwrap_or_else(|e| panic!("ponko: {e}"))
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`Graphics::load_texture_array`](crate::gfx::Graphics::load_texture_array) that returns errors (for the C API).
-    #[doc(hidden)]
-    pub fn try_load_texture_array(&mut self, paths: &[&str], kind: TextureKind) -> Result<TextureArray, String> {
+    /// [`load_texture_array`](Self::load_texture_array) with errors as
+    /// values: [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if a file
+    /// is missing, [`Io`](crate::ErrorKind::Io) if one can't be read,
+    /// [`Decode`](crate::ErrorKind::Decode) if one isn't an image (each with
+    /// that file as its path), and [`Invalid`](crate::ErrorKind::Invalid) for
+    /// no files or images of different sizes.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let err = ctx.gfx.try_load_texture_array(&["no/such.png"], ponko::terrain::TextureKind::Color).unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::NotFound);
+    ///     assert_eq!(err.path(), Some("no/such.png"));
+    /// });
+    /// ```
+    pub fn try_load_texture_array(&mut self, paths: &[&str], kind: TextureKind) -> Result<TextureArray, crate::Error> {
         let mut images = Vec::with_capacity(paths.len());
         for path in paths {
             let found = self.asset_sources.find(path)?;
             let origin = found.origin.clone();
-            let bytes = found.into_bytes()?;
-            let image = assets::decode_image(&bytes)
-                .map_err(|e| format!("{} is not a valid image: {e}", origin.describe(path)))?;
+            let bytes = found.into_bytes().map_err(|e| e.with_path(*path))?;
+            let image = assets::decode_image(&bytes).map_err(|e| {
+                crate::Error::decode(path, format!("{} is not a valid image: {e}", origin.describe(path)))
+            })?;
             images.push(image);
         }
         let Some(first) = images.first() else {
-            return Err("load_texture_array: no files given".into());
+            return Err(crate::Error::new(
+                crate::ErrorKind::Invalid,
+                "load_texture_array: no files given",
+            ));
         };
         let (width, height) = (first.width, first.height);
         if let Some((i, other)) = images
@@ -194,10 +227,14 @@ impl Graphics {
             .enumerate()
             .find(|(_, im)| (im.width, im.height) != (width, height))
         {
-            return Err(format!(
-                "load_texture_array: {} is {} x {}, but {} is {width} x {height}; every layer must be the same size",
-                paths[i], other.width, other.height, paths[0]
-            ));
+            return Err(crate::Error::new(
+                crate::ErrorKind::Invalid,
+                format!(
+                    "load_texture_array: {} is {} x {}, but {} is {width} x {height}; every layer must be the same size",
+                    paths[i], other.width, other.height, paths[0]
+                ),
+            )
+            .with_path(paths[i]));
         }
         let layers: Vec<&[u8]> = images.iter().map(|im| im.rgba.as_slice()).collect();
         self.try_create_texture_array(width, height, &layers, kind)
@@ -252,21 +289,27 @@ impl Graphics {
     ///
     /// If the array wasn't made by this context or isn't `TextureKind::Data`.
     pub fn set_decal_textures(&mut self, array: Option<TextureArray>) {
-        self.try_set_decal_textures(array)
-            .unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_set_decal_textures(array).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`Graphics::set_decal_textures`](crate::gfx::Graphics::set_decal_textures) that returns errors (for the C API).
-    #[doc(hidden)]
-    pub fn try_set_decal_textures(&mut self, array: Option<TextureArray>) -> Result<(), String> {
+    /// [`set_decal_textures`](Self::set_decal_textures) with errors as
+    /// values: [`ErrorKind::BadHandle`](crate::ErrorKind::BadHandle) for an
+    /// array this game didn't make (or freed),
+    /// [`Invalid`](crate::ErrorKind::Invalid) for one not made with
+    /// [`TextureKind::Data`].
+    pub fn try_set_decal_textures(&mut self, array: Option<TextureArray>) -> Result<(), crate::Error> {
         if let Some(a) = array {
             if !self.has_texture_array(a) {
-                return Err("decal textures: that texture array wasn't made by this context".into());
+                return Err(crate::Error::new(
+                    crate::ErrorKind::BadHandle,
+                    "decal textures: that texture array wasn't made by this context",
+                ));
             }
             if !self.assets3d.array_data.get(a.id as usize).copied().unwrap_or(false) {
-                return Err(
-                    "decal textures: make the array with TextureKind::Data (decals decode colors themselves)".into(),
-                );
+                return Err(crate::Error::new(
+                    crate::ErrorKind::Invalid,
+                    "decal textures: make the array with TextureKind::Data (decals decode colors themselves)",
+                ));
             }
         }
         self.assets3d.decal_array = array;

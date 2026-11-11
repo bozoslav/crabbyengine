@@ -227,8 +227,10 @@ pub(crate) fn error(status: PonkoStatus, message: &'static str) -> Failure {
 pub(crate) fn invalid(message: &'static str) -> Failure {
     error(PONKO_INVALID_ARGUMENT, message)
 }
-pub(crate) fn invalid_owned(message: String) -> Failure {
-    Failure(PONKO_INVALID_ARGUMENT, message.into())
+/// An invalid-argument failure with `message`: a `String`, or a
+/// `ponko::Error` (its message, without the `ponko:` prefix).
+pub(crate) fn invalid_owned(message: impl Into<String>) -> Failure {
+    Failure(PONKO_INVALID_ARGUMENT, message.into().into())
 }
 pub(crate) fn save_error(message: &str) {
     LAST_ERROR.with(|cell| {

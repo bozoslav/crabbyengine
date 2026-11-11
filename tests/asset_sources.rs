@@ -395,10 +395,10 @@ fn corrupt_sound_bytes_name_the_asset_and_its_source() {
 /// A level in a made-up format: one row of tiles per line, `#` is a wall.
 struct Tiles(Vec<Vec<bool>>);
 
-fn decode_tiles(bytes: &[u8]) -> Result<Tiles, String> {
-    let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+fn decode_tiles(bytes: &[u8]) -> Result<Tiles, Error> {
+    let text = std::str::from_utf8(bytes).map_err(|e| Error::new(ErrorKind::Decode, e.to_string()))?;
     if let Some(bad) = text.chars().find(|c| !matches!(c, '#' | '.' | '\n')) {
-        return Err(format!("unknown tile {bad:?}"));
+        return Err(Error::new(ErrorKind::Decode, format!("unknown tile {bad:?}")));
     }
     Ok(Tiles(
         text.lines()
@@ -423,13 +423,19 @@ fn a_custom_asset_decode_error_names_the_asset_and_its_source() {
         ctx.assets
             .add_source(MemorySource::new("mem").with("levels/bad.tiles", "#?\n"));
         let err = ctx.assets.load_with("levels/bad.tiles", decode_tiles).err().unwrap();
+        assert_eq!(err.kind(), ErrorKind::Decode);
+        assert_eq!(err.path(), Some("levels/bad.tiles"));
         assert_eq!(
-            err,
+            err.message(),
             "\"levels/bad.tiles\" (from asset source \"mem\") could not be decoded: unknown tile '?'"
         );
         let err = ctx.assets.load_with("levels/none.tiles", decode_tiles).err().unwrap();
-        assert!(err.contains("\"levels/none.tiles\" not found in assets/"), "{err}");
-        assert!(err.contains("Asset sources searched first: \"mem\""), "{err}");
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+        assert!(
+            err.message().contains("\"levels/none.tiles\" not found in assets/"),
+            "{err}"
+        );
+        assert!(err.message().contains("Asset sources searched first: \"mem\""), "{err}");
     });
 }
 
@@ -554,8 +560,8 @@ struct ShopItem {
     variants: Vec<String>,
 }
 
-fn load_icon(ctx: &mut Ctx, name: &str) -> Result<(), String> {
-    ctx.gfx.try_load_texture(name).map(|_| ()).map_err(|e| e.to_string())
+fn load_icon(ctx: &mut Ctx, name: &str) -> Result<(), Error> {
+    ctx.gfx.try_load_texture(name).map(|_| ())
 }
 
 /// A scene with one shop item, saved by the engine.

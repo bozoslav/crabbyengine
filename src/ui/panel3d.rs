@@ -193,16 +193,21 @@ impl Graphics {
             .unwrap_or_else(|message| panic!("{message}"))
     }
 
-    /// [`Graphics::create_ui_panel`](crate::gfx::Graphics::create_ui_panel) that returns errors (for the C API).
-    #[doc(hidden)]
+    /// [`create_ui_panel`](Self::create_ui_panel) with errors as values:
+    /// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) for a size that
+    /// isn't positive and finite, and the errors of
+    /// [`try_create_render_target`](Self::try_create_render_target).
     pub fn try_create_ui_panel(
         &mut self,
         width: u32,
         height: u32,
         size: Vec2,
-    ) -> Result<(UiPanel3D, crate::render::Model), String> {
+    ) -> Result<(UiPanel3D, crate::render::Model), crate::Error> {
         if !size.is_finite() || size.x <= 0.0 || size.y <= 0.0 {
-            return Err("panel size must be positive and finite".into());
+            return Err(crate::Error::new(
+                crate::ErrorKind::Invalid,
+                "panel size must be positive and finite",
+            ));
         }
         let texture = self.try_create_render_target(width, height)?;
         let panel = UiPanel3D::new(texture, size);
