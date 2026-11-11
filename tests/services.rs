@@ -623,8 +623,11 @@ mod three {
             ctx.free(buffer);
             assert!(ctx.compute_passes.is_empty());
             assert_eq!(ctx.gfx.gpu_buffer_len(buffer), None);
-            // The id is reused, and starts clean.
-            assert_eq!(ctx.gfx.create_gpu_buffer(2, &[]), buffer);
+            // The slot is reused under a new id, and starts clean.
+            let again = ctx.gfx.create_gpu_buffer(2, &[]);
+            assert_eq!(again.id() & 0x00FF_FFFF, buffer.id() & 0x00FF_FFFF);
+            assert_ne!(again, buffer);
+            assert_eq!(ctx.gfx.gpu_buffer_len(again), Some(2));
         });
     }
 

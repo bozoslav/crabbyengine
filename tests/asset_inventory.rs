@@ -286,3 +286,24 @@ fn models_showing_a_freed_mesh_or_material_are_listed_as_dangling() {
         assert!(found.contains(&(e.to_bits(), "ModelMaterial", AssetClass::Material)));
     });
 }
+
+/// A freed mesh's slot is reused under a new id: a model that kept the old
+/// handle still shows a dead mesh (listed as dangling, drawn as nothing),
+/// not the mesh made after it.
+#[cfg(feature = "3d")]
+#[test]
+fn a_model_keeping_a_freed_mesh_never_shows_the_next_one() {
+    headless(|ctx| {
+        let material = ctx.gfx.default_material();
+        let old = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+        let holder = ctx.world.spawn((Transform3D::default(), Model::new(old)));
+        ctx.free(old);
+        let new = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+        assert_eq!(new.id() & 0x00FF_FFFF, old.id() & 0x00FF_FFFF, "the same slot");
+        let dangling = ctx.asset_inventory().dangling;
+        assert_eq!(dangling.len(), 1, "{dangling:?}");
+        assert_eq!((dangling[0].entity, dangling[0].id), (holder.to_bits(), old.id()));
+        ctx.world.get_mut::<Model>(holder).unwrap().mesh = new;
+        assert!(ctx.asset_inventory().dangling.is_empty());
+    });
+}

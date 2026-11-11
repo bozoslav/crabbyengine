@@ -674,7 +674,7 @@ const NOTHING: Derived = Derived {
 
 /// What of a mesh the models' [`Derived`] is worked out from: its bounds,
 /// and whether it casts no shadow, is skinned, has morph targets.
-type Fact = (Vec3, f32, bool, bool, bool);
+type Fact = (Vec3, f32, bool, bool, bool, u32);
 
 /// The material overrides' numbering: the frame's table of them (each
 /// mesh with its overriding materials once, in order, which also tells
@@ -1087,7 +1087,11 @@ impl Tracked {
             let (center, radius) = assets.bounds[id];
             let shadowless = !assets.casts_shadows(id as u32);
             let (skin, morph) = (assets.skin(id as u32).is_some(), assets.morph(id as u32).is_some());
-            (center, radius, shadowless, skin, morph)
+            // The id the slot is given out as: a slot freed and reused within
+            // one frame, with the same bounds, must still drop the models
+            // holding the old id.
+            let handle = assets.mesh_in_slot(id as u32).id;
+            (center, radius, shadowless, skin, morph, handle)
         };
         let meshes = assets.bounds.len();
         let same = self.facts.len() == meshes && (0..meshes).all(|id| self.facts[id] == fact(id));

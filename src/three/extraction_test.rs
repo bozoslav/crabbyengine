@@ -452,6 +452,32 @@ fn a_change_to_a_mesh_reaches_the_models_that_use_it() {
     scene.check("and a model of it");
 }
 
+#[test]
+fn models_keeping_a_reused_mesh_slots_old_id_draw_nothing() {
+    let mut scene = Scene::new(900);
+    let seen = scene.check("first");
+    let ones = (scene.frame.runs.iter()).find(|r| r.0 == 1).map_or(0, |r| r.2 as usize);
+    assert!(ones > 0);
+    // Slot 1 is freed and made again in one frame, with the same bounds,
+    // under a new id: the models holding the old id draw nothing.
+    let new = Mesh {
+        id: super::next_generation(1),
+    };
+    super::set_slot_id(&mut scene.assets.mesh_ids, new.id);
+    assert_eq!(scene.check("slot reused"), seen - ones);
+    // Pointed at the new id, they draw again, as slot 1.
+    let holders: Vec<Entity> = (scene.models.iter().copied())
+        .filter(|&e| scene.world.get::<Model>(e).unwrap().mesh.id == 1)
+        .collect();
+    for e in holders {
+        scene.world.get_mut::<Model>(e).unwrap().mesh = new;
+    }
+    assert_eq!(scene.check("new id"), seen);
+    assert!(scene.frame.runs.iter().any(|r| r.0 == 1 && r.2 as usize == ones));
+    assert!(scene.frame.runs.iter().all(|r| r.0 != new.id));
+}
+
+#[test]
 fn random_edits_always_draw_what_a_frame_built_from_nothing_draws() {
     // Enough models that they are compared on several cores, and that one
     // core stops comparing them while most move.
