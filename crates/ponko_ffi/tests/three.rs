@@ -953,7 +953,8 @@ unsafe extern "C" fn target_cameras(ctx: *mut PonkoCtx, user: *mut c_void) {
             ponko_ctx_create_gpu_buffer(ctx, 0, std::ptr::null(), 0, &mut buffer),
             PONKO_INVALID_ARGUMENT
         );
-        // Freeing: once; later calls see an invalid buffer; the id comes back.
+        // Freeing: once; later calls see an invalid buffer; the slot comes
+        // back under a new id, so the freed handle stays invalid.
         let freed = buffer;
         assert_eq!(ponko_ctx_free_gpu_buffer(ctx, freed), PONKO_OK);
         assert_eq!(ponko_ctx_free_gpu_buffer(ctx, freed), PONKO_INVALID_ARGUMENT);
@@ -965,7 +966,12 @@ unsafe extern "C" fn target_cameras(ctx: *mut PonkoCtx, user: *mut c_void) {
             ponko_ctx_create_gpu_buffer(ctx, 4, std::ptr::null(), 0, &mut buffer),
             PONKO_OK
         );
-        assert_eq!(buffer.id, freed.id);
+        assert_eq!(buffer.id & 0x00FF_FFFF, freed.id & 0x00FF_FFFF);
+        assert_ne!(buffer.id, freed.id);
+        assert_eq!(
+            ponko_ctx_write_gpu_buffer(ctx, freed, 0, data.as_ptr(), 1),
+            PONKO_INVALID_ARGUMENT
+        );
         // A compute pass on the render target.
         let mut fade = PonkoCompute::default();
         let source = c"fn compute(c: Cell) -> vec4<f32> { return c.value * 0.9; }";

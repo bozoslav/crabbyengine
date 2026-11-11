@@ -46,10 +46,13 @@ out of range:
 
 - **Ids are never reused within a run**, so a freed handle stays dead: it
   never starts naming something made later, and a stale copy kept somewhere
-  can't quietly point at the wrong thing. **Except meshes and GPU buffers:**
-  streamed worlds make and free those all the time, so the next one made
-  takes a freed id and the engine's tables (and per-frame work over every
-  mesh) don't keep growing. Drop a mesh or buffer handle once you free it.
+  can't quietly point at the wrong thing. Meshes and GPU buffers are made
+  and freed all the time in streamed worlds, so the next one made takes a
+  freed one's slot in the engine's tables (which, with the per-frame work
+  over every mesh, then don't keep growing), but under a new id: the id's
+  top 8 bits count how often its slot was reused. A stale mesh or buffer
+  handle stays dead too, until its slot has been reused 256 times; drop it
+  once you free it.
 - **Freeing twice, or freeing `NONE`, does nothing.** `NONE` is never live.
 - **Only what the game made can be freed.** The built-in font, the default
   material's internals and the engine's own textures (shadow maps, the font

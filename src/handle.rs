@@ -12,9 +12,10 @@
 //! - Release it: [`Graphics::free`](crate::gfx::Graphics::free),
 //!   [`Audio::free`](crate::audio::Audio::free), or [`Ctx::free`]. Ids are never reused within a run, so a
 //!   freed handle stays dead; freeing it again does nothing. Meshes and GPU
-//!   buffers are the exception: streamed worlds make and free them all the
-//!   time, so the next one made takes a freed id. Drop those handles once
-//!   freed.
+//!   buffers reuse a freed one's table slot (streamed worlds make and free
+//!   them all the time), but under a new id with a generation count in its
+//!   top 8 bits, so a freed handle stays dead for them too, until one slot
+//!   has been reused 256 times.
 //! - An empty handle: [`Handle::NONE`], which is never live.
 //!
 //! Freeing something others still use is defined: they draw with the
@@ -259,10 +260,11 @@ impl Graphics {
     /// Releases what `handle` names, as [`Ctx::free`] describes: whatever
     /// still uses it draws with the default. Freeing it again, or freeing
     /// [`Handle::NONE`], does nothing. Meshes and GPU buffers give their
-    /// ids to the next ones made (streamed worlds make and free them all
-    /// the time), so drop those handles once freed; a freed buffer's
+    /// table slots to the next ones made (streamed worlds make and free
+    /// them all the time) under new ids, so the freed handle stays dead and
+    /// freeing it again leaves the new resource alone; a freed buffer's
     /// [compute passes](crate::Ctx::compute_passes) are removed before its
-    /// id is reused.
+    /// slot is reused.
     ///
     /// ```
     /// # use ponko::*;

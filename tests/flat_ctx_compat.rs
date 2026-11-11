@@ -172,14 +172,17 @@ fn the_flat_3d_spellings_still_forward() {
         assert_eq!(ctx.graphics_quality(), ctx.gfx.quality(&ctx.post, &ctx.lighting));
         assert_eq!(ctx.graphics_quality().level(), QualityLevel::Medium);
 
-        // Freeing a buffer the flat way still drops its passes and reuses the id.
+        // Freeing a buffer the flat way still drops its passes and reuses its slot.
         let buffer = ctx.create_gpu_buffer(4, &[]);
         let update = ctx.create_compute("up", "fn update(i: u32) { items[i].x += 1.0; }");
         ctx.compute_passes.push(ComputePass::for_buffer(update, buffer));
         ctx.free_gpu_buffer(buffer);
         assert!(ctx.compute_passes.is_empty());
         assert_eq!(ctx.gpu_buffer_len(buffer), None);
-        assert_eq!(ctx.create_gpu_buffer(4, &[]), buffer);
+        let again = ctx.create_gpu_buffer(4, &[]);
+        assert_ne!(again, buffer);
+        assert_eq!(ctx.gpu_buffer_len(again), Some(4));
+        assert_eq!(ctx.gpu_buffer_len(buffer), None);
     });
 }
 

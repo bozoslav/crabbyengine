@@ -526,7 +526,7 @@ impl Frame3D {
         // A shadow-only caster's mesh and bounds.
         let shadow_only = |shadow: &ShadowMesh| {
             let mesh = shadow.0.filter(|c| assets.casts_shadows(c.id))?;
-            Some((mesh.id, assets.live_bounds(mesh.id)?))
+            Some((mesh.slot(), assets.live_bounds(mesh.id)?))
         };
         // The matrix's fourth row is always (0, 0, 0, 1): its first three
         // slots carry what the shader needs per model; the first holds the
@@ -557,16 +557,16 @@ impl Frame3D {
         world
             .query::<(&Model, &ModelMaterial)>()
             .without::<ModelMaterials>()
-            .for_each(|(m, o)| overrides.add(m.mesh.id, Some(o), None));
+            .for_each(|(m, o)| overrides.add(m.mesh.slot(), Some(o), None));
         world
             .query::<(&Model, &ModelMaterials, Option<&ModelMaterial>)>()
-            .for_each(|(m, parts, o)| overrides.add(m.mesh.id, o, Some(parts)));
+            .for_each(|(m, parts, o)| overrides.add(m.mesh.slot(), o, Some(parts)));
         world
             .query::<(&LodGroup, Option<&ModelMaterial>, Option<&ModelMaterials>)>()
             .filter::<Or<(With<ModelMaterial>, With<ModelMaterials>)>>()
             .for_each(|(g, o, parts)| {
                 for r in g.levels.iter().flat_map(|l| &l.renderers) {
-                    overrides.add(r.mesh.id, o, parts);
+                    overrides.add(r.mesh.slot(), o, parts);
                 }
             });
         world
@@ -574,7 +574,7 @@ impl Frame3D {
             .filter::<Or<(With<ModelMaterial>, With<ModelMaterials>)>>()
             .for_each(|(tile, o, parts)| {
                 for lod in tile.lods {
-                    overrides.add(lod.id, o, parts);
+                    overrides.add(lod.slot(), o, parts);
                 }
             });
         let overrides = &self.material_overrides;
@@ -734,9 +734,9 @@ impl Frame3D {
                             // level's separate shadow casters keep theirs.
                             // (The cheap test first: most groups have no override.)
                             let mesh = if drawn && (material.is_some() || parts.is_some()) {
-                                overridden(r.mesh.id, material, parts)
+                                overridden(r.mesh.slot(), material, parts)
                             } else {
-                                r.mesh.id
+                                r.mesh.slot()
                             };
                             // No motion of their own for temporal antialiasing: they
                             // reproject with the camera (scenery stays put).
@@ -781,6 +781,7 @@ impl Frame3D {
                     .id
                 });
                 if meshes.iter().all(|&m| assets.live_bounds(m).is_some()) {
+                    let meshes = meshes.map(|m| m & super::SLOT_MASK);
                     let casts = !matches!(shadow, Some(ShadowMesh(None)));
                     let f = classify(t, (center, radius), casts.then_some((center, radius)));
                     if f != 0 {

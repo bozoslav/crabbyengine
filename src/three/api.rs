@@ -954,45 +954,51 @@ impl Graphics {
         // grow the tables (and the per-frame sort, which spans every id).
         // A resident mesh coming back after eviction takes its old id, so
         // handles the game kept stay good.
-        let id = match self
-            .assets3d
-            .reuse_mesh_id
-            .take()
-            .or_else(|| self.assets3d.free_meshes.pop())
-        {
+        // A freed slot comes back under a new id (its generation counted
+        // up), so handles to the freed mesh stay dead.
+        let reused = match self.assets3d.reuse_mesh_id.take() {
+            Some(id) => Some(id),
+            None => self.assets3d.free_meshes.pop().map(super::next_generation),
+        };
+        let id = match reused {
             Some(id) => {
-                self.assets3d.gpu_mesh_bounds.remove(&id);
-                self.assets3d.bounds[id as usize] = data.bounds();
+                let slot = id & super::SLOT_MASK;
+                self.assets3d.gpu_mesh_bounds.remove(&slot);
+                self.assets3d.bounds[slot as usize] = data.bounds();
                 id
             }
             None => {
+                let slot = super::new_slot(self.assets3d.bounds.len(), "mesh");
                 self.assets3d.bounds.push(data.bounds());
-                self.assets3d.bounds.len() as u32 - 1
+                slot
             }
         };
-        if self.assets3d.mesh_bytes.len() <= id as usize {
-            self.assets3d.mesh_bytes.resize(id as usize + 1, 0);
+        super::set_slot_id(&mut self.assets3d.mesh_ids, id);
+        let mesh = Mesh { id };
+        let slot = mesh.slot() as usize;
+        if self.assets3d.mesh_bytes.len() <= slot {
+            self.assets3d.mesh_bytes.resize(slot + 1, 0);
         }
-        self.assets3d.mesh_bytes[id as usize] = super::mesh_gpu_bytes(data);
+        self.assets3d.mesh_bytes[slot] = super::mesh_gpu_bytes(data);
         let posed = skin.is_some() || !data.morph_targets.is_empty();
         if let Some(skin) = skin {
-            if self.assets3d.skins.len() <= id as usize {
-                self.assets3d.skins.resize(id as usize + 1, None);
+            if self.assets3d.skins.len() <= slot {
+                self.assets3d.skins.resize(slot + 1, None);
             }
-            self.assets3d.skins[id as usize] = Some(std::sync::Arc::new(skin));
+            self.assets3d.skins[slot] = Some(std::sync::Arc::new(skin));
         }
         if let Some(morph) = MeshMorph::new(data, morph_defaults) {
-            if self.assets3d.morphs.len() <= id as usize {
-                self.assets3d.morphs.resize_with(id as usize + 1, || None);
+            if self.assets3d.morphs.len() <= slot {
+                self.assets3d.morphs.resize_with(slot + 1, || None);
             }
-            self.assets3d.morphs[id as usize] = Some(std::sync::Arc::new(morph));
+            self.assets3d.morphs[slot] = Some(std::sync::Arc::new(morph));
         }
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            renderer.create_mesh(id, data, parts, posed);
+            renderer.create_mesh(mesh.slot(), data, parts, posed);
         }
-        Mesh { id }
+        mesh
     }
 
     /// The index of `mesh`'s morph target called `name`, for
@@ -1013,6 +1019,7 @@ impl Graphics {
     /// ```
     #[must_use]
     pub fn morph_target(&self, mesh: Mesh, name: &str) -> Option<usize> {
+        self.assets3d.live_bounds(mesh.id)?;
         self.assets3d.morph(mesh.id)?.names.iter().position(|n| n == name)
     }
 
@@ -1039,9 +1046,11 @@ impl Graphics {
     /// Frees mesh `id`: the engine side of [`Graphics::free`] with a mesh.
     pub(crate) fn free_mesh_id(&mut self, id: u32) {
         let mesh = Mesh { id };
-        let Some(&(_, radius)) = self.assets3d.bounds.get(mesh.id as usize) else {
+        // A stale handle (its slot given to a newer mesh) frees nothing.
+        let Some(slot) = self.assets3d.mesh_slot(id) else {
             return;
         };
+        let radius = self.assets3d.bounds[slot].1;
         // Already freed: maybe an evicted resident mesh's kept id, which
         // freeing its handle releases.
         if radius < 0.0 {
@@ -1049,19 +1058,19 @@ impl Graphics {
             return;
         }
         self.release_resident_mesh_id(mesh.id, true);
-        self.assets3d.bounds[mesh.id as usize] = (Vec3::ZERO, -1.0);
-        if let Some(bytes) = self.assets3d.mesh_bytes.get_mut(mesh.id as usize) {
+        self.assets3d.bounds[slot] = (Vec3::ZERO, -1.0);
+        if let Some(bytes) = self.assets3d.mesh_bytes.get_mut(slot) {
             *bytes = 0;
         }
-        self.assets3d.gpu_mesh_bounds.remove(&mesh.id);
+        self.assets3d.gpu_mesh_bounds.remove(&mesh.slot());
         self.assets3d.free_meshes.push(mesh.id);
-        if let Some(shadowless) = self.assets3d.shadowless.get_mut(mesh.id as usize) {
+        if let Some(shadowless) = self.assets3d.shadowless.get_mut(slot) {
             *shadowless = false;
         }
-        if let Some(skin) = self.assets3d.skins.get_mut(mesh.id as usize) {
+        if let Some(skin) = self.assets3d.skins.get_mut(slot) {
             *skin = None;
         }
-        if let Some(morph) = self.assets3d.morphs.get_mut(mesh.id as usize) {
+        if let Some(morph) = self.assets3d.morphs.get_mut(slot) {
             *morph = None;
         }
         let freed: Vec<_> = self
@@ -1080,7 +1089,7 @@ impl Graphics {
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
-            renderer.free_mesh(mesh.id);
+            renderer.free_mesh(mesh.slot());
         }
     }
 
@@ -1099,10 +1108,9 @@ impl Graphics {
     /// });
     /// ```
     pub fn set_mesh_shadows(&mut self, mesh: Mesh, casts: bool) {
-        let id = mesh.id as usize;
-        if id >= self.assets3d.bounds.len() {
+        let Some(id) = self.assets3d.live_bounds(mesh.id).and(self.assets3d.mesh_slot(mesh.id)) else {
             return;
-        }
+        };
         let shadowless = &mut self.assets3d.shadowless;
         if shadowless.len() <= id {
             if casts {
@@ -1126,7 +1134,9 @@ impl Graphics {
     /// ```
     #[must_use]
     pub fn mesh_shadows(&self, mesh: Mesh) -> bool {
-        self.assets3d.casts_shadows(mesh.id)
+        // A stale handle reads the default, not the setting of the mesh
+        // made after it in its slot.
+        self.assets3d.mesh_slot(mesh.id).is_none() || self.assets3d.casts_shadows(mesh.id)
     }
 
     /// Whether `mesh` was made by this game and not freed: [`Ctx::is_live`]
@@ -1220,16 +1230,17 @@ impl Graphics {
         let mut costs: Vec<super::MeshCost> = renderer
             .mesh_costs()
             .into_iter()
-            .map(
-                |(id, models, triangles, shadow_models, shadow_triangles)| super::MeshCost {
-                    mesh: super::Mesh { id },
-                    name: names.get(&id).cloned(),
+            .map(|(slot, models, triangles, shadow_models, shadow_triangles)| {
+                let mesh = self.assets3d.mesh_in_slot(slot);
+                super::MeshCost {
+                    mesh,
+                    name: names.get(&mesh.id).cloned(),
                     models,
                     triangles,
                     shadow_models,
                     shadow_triangles,
-                },
-            )
+                }
+            })
             .collect();
         costs.sort_by_key(|c| std::cmp::Reverse(c.triangles + c.shadow_triangles));
         costs
@@ -1255,13 +1266,13 @@ impl Graphics {
             return;
         }
         world.query::<(crate::Entity, &super::Model)>().for_each(|(e, m)| {
-            if morphs.get(m.mesh.id as usize).is_some_and(Option::is_some) {
+            if morphs.get(m.mesh.slot() as usize).is_some_and(Option::is_some) {
                 entities.push(e);
             }
         });
         for e in entities.iter().copied() {
-            let mesh_id = world.get::<super::Model>(e).unwrap().mesh.id;
-            let Some(morph) = self.assets3d.morphs.get(mesh_id as usize).and_then(|m| m.clone()) else {
+            let mesh = world.get::<super::Model>(e).unwrap().mesh;
+            let Some(morph) = self.assets3d.morphs.get(mesh.slot() as usize).and_then(|m| m.clone()) else {
                 continue;
             };
             let owner = world.get::<super::SkinOf>(e).map_or(e, |s| s.0);
@@ -1276,9 +1287,9 @@ impl Graphics {
                 .assets3d
                 .morph_bases
                 .entry(e)
-                .or_insert_with(|| (mesh_id, weights.clone(), weights.clone()));
-            if base.0 != mesh_id {
-                base.0 = mesh_id;
+                .or_insert_with(|| (mesh.id, weights.clone(), weights.clone()));
+            if base.0 != mesh.id {
+                base.0 = mesh.id;
                 base.1.clone_from(&weights);
             }
             for i in 0..weights.0.len().max(base.2.0.len()) {
@@ -1508,10 +1519,9 @@ impl Ctx {
                     // A freed buffer's passes do nothing.
                     self.gfx
                         .assets3d
-                        .gpu_buffers
-                        .get(b.id as usize)
-                        .filter(|&&len| len > 0)?;
-                    Some((c.compute.id, b.id | (1 << 31), material.id))
+                        .gpu_buffer_slot(b.id)
+                        .filter(|&slot| self.gfx.assets3d.gpu_buffers[slot] > 0)?;
+                    Some((c.compute.id, b.slot() | (1 << 31), material.id))
                 } else {
                     targets
                         .iter()

@@ -350,8 +350,11 @@ fn freeing_an_evicted_meshs_handle_releases_its_id_once() {
             let material = ctx.gfx.default_material();
             let a = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
             let c = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
-            assert_eq!(a.id(), held.id(), "the released id is reused");
-            assert_ne!(a.id(), c.id());
+            let slot = |m: Mesh| m.id() & 0x00FF_FFFF;
+            assert_eq!(slot(a), slot(held), "the released slot is reused");
+            assert_ne!(a, held, "under a new id");
+            assert!(!ctx.gfx.is_live(held) && ctx.gfx.is_live(a));
+            assert_ne!(slot(a), slot(c));
         }),
     ]);
 }

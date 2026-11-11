@@ -5062,7 +5062,7 @@ impl Renderer3D {
                 self.static_batches
                     .iter()
                     .flatten()
-                    .flat_map(|b| b.levels.iter().map(|l| l.mesh.id)),
+                    .flat_map(|b| b.levels.iter().map(|l| l.mesh.slot())),
             )
             .any(|mesh| {
                 self.meshes[self.base(mesh) as usize]
@@ -5155,7 +5155,7 @@ impl Renderer3D {
             || (batches.is_some()
                 && self.static_batches.iter().flatten().any(|b| {
                     b.levels.iter().any(|l| {
-                        self.meshes[l.mesh.id as usize]
+                        self.meshes[l.mesh.slot() as usize]
                             .parts
                             .iter()
                             .any(|(_, m)| self.materials[*m as usize].cutout)
@@ -5223,7 +5223,11 @@ impl Renderer3D {
         }
         for batch in self.static_batches.iter().flatten() {
             for (level, l) in batch.levels.iter().enumerate() {
-                if self.meshes.get(l.mesh.id as usize).is_none_or(|m| m.buffers.is_none()) {
+                if self
+                    .meshes
+                    .get(l.mesh.slot() as usize)
+                    .is_none_or(|m| m.buffers.is_none())
+                {
                     continue;
                 }
                 let visible = if batch.compute {
@@ -5239,7 +5243,7 @@ impl Renderer3D {
                 }
                 self.draw_model_runs(
                     pass,
-                    &[(l.mesh.id, 0, batch.count)],
+                    &[(l.mesh.slot(), 0, batch.count)],
                     kind,
                     if batch.compute {
                         &self.static_culling.as_ref().unwrap().marker

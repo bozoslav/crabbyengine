@@ -648,7 +648,7 @@ fn add(
     let mut model = matrix.to_cols_array_2d();
     model[0][3] = super::projected::receiver_mask(receives);
     out.draws.push(SkinDraw {
-        mesh: m.mesh.id,
+        mesh: m.mesh.slot(),
         instance: Instance3D {
             model,
             color: linear(m.color),

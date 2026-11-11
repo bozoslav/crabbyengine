@@ -309,6 +309,12 @@ pub struct GpuBuffer {
     pub(crate) id: u32,
 }
 impl GpuBuffer {
+    /// Its slot in the engine's buffer table and the renderer: the id
+    /// without its generation.
+    #[inline]
+    pub(crate) fn slot(self) -> u32 {
+        self.id & super::SLOT_MASK
+    }
     /// Internal handle ID for language bindings.
     #[doc(hidden)]
     pub fn id(self) -> u32 {
@@ -322,7 +328,8 @@ impl GpuBuffer {
 }
 impl Graphics {
     /// Creates `len` elements. Initial data may be empty or exactly `len` elements.
-    /// A freed buffer's id is reused first (see [`Ctx::free`](crate::Ctx::free)).
+    /// A freed buffer's slot is reused first, under a new id, so the freed
+    /// handle stays dead (see [`Ctx::free`](crate::Ctx::free)).
     /// Panics for zero length or mismatched data. See [`crate::render::GpuBuffer`].
     pub fn create_gpu_buffer(&mut self, len: u32, data: &[crate::Vec4]) -> GpuBuffer {
         assert!(
@@ -330,21 +337,22 @@ impl Graphics {
             "invalid GPU buffer length"
         );
         let id = match self.assets3d.free_gpu_buffers.pop() {
-            Some(id) => {
-                self.assets3d.gpu_buffers[id as usize] = len;
-                id
-            }
+            Some(freed) => super::next_generation(freed),
             None => {
-                self.assets3d.gpu_buffers.push(len);
-                self.assets3d.gpu_buffers.len() as u32 - 1
+                let slot = super::new_slot(self.assets3d.gpu_buffers.len(), "GPU buffer");
+                self.assets3d.gpu_buffers.push(0);
+                slot
             }
         };
+        let b = GpuBuffer { id };
+        self.assets3d.gpu_buffers[b.slot() as usize] = len;
+        super::set_slot_id(&mut self.assets3d.gpu_buffer_ids, id);
         if let Some(r) = self.renderer.as_mut()
             && !self.headless
         {
-            r.create_gpu_buffer(id, len, data);
+            r.create_gpu_buffer(b.slot(), len, data);
         }
-        GpuBuffer { id }
+        b
     }
     /// Number of elements, or `None` for an invalid or freed handle.
     /// ```
@@ -354,19 +362,18 @@ impl Graphics {
     /// });
     /// ```
     pub fn gpu_buffer_len(&self, b: GpuBuffer) -> Option<u32> {
-        self.assets3d
-            .gpu_buffers
-            .get(b.id as usize)
-            .copied()
-            .filter(|&len| len > 0)
+        let slot = self.assets3d.gpu_buffer_slot(b.id)?;
+        Some(self.assets3d.gpu_buffers[slot]).filter(|&len| len > 0)
     }
     /// Frees `b`'s GPU memory: the engine side of [`Graphics::free`](crate::gfx::Graphics::free) with a
     /// buffer. The compute passes that write to it are removed before its id
     /// is given to another buffer.
     pub(crate) fn free_gpu_buffer(&mut self, b: GpuBuffer) {
-        let Some(len) = self.assets3d.gpu_buffers.get_mut(b.id as usize) else {
+        // A stale handle (its slot given to a newer buffer) frees nothing.
+        let Some(slot) = self.assets3d.gpu_buffer_slot(b.id) else {
             return;
         };
+        let len = &mut self.assets3d.gpu_buffers[slot];
         if *len == 0 {
             return;
         }
@@ -377,7 +384,7 @@ impl Graphics {
         if let Some(r) = self.renderer.as_mut()
             && !self.headless
         {
-            r.free_gpu_buffer(b.id);
+            r.free_gpu_buffer(b.slot());
         }
     }
     /// Updates a range before the next frame. Panics for invalid handles or ranges.
@@ -392,7 +399,7 @@ impl Graphics {
             && let Some(r) = self.renderer.as_mut()
             && !self.headless
         {
-            r.write_gpu_buffer(b.id, offset, data);
+            r.write_gpu_buffer(b.slot(), offset, data);
         }
     }
     /// Draws a mesh as `count` GPU instances, using `items[v.instance_index]`
@@ -426,7 +433,7 @@ impl Graphics {
         if let Some(r) = self.renderer.as_mut()
             && !self.headless
         {
-            r.set_mesh_gpu_buffer(mesh.id, b.id, count);
+            r.set_mesh_gpu_buffer(mesh.slot(), b.slot(), count);
         }
     }
     /// Grows `mesh`'s culling bounds to also hold the sphere at `center`
@@ -449,12 +456,13 @@ impl Graphics {
             "invalid bounds"
         );
         assert!(self.is_live(mesh), "invalid mesh");
+        let slot = mesh.slot();
         let own = *self
             .assets3d
             .gpu_mesh_bounds
-            .entry(mesh.id)
-            .or_insert_with(|| self.assets3d.bounds[mesh.id as usize]);
-        self.assets3d.bounds[mesh.id as usize] = union_spheres(own, (center, radius));
+            .entry(slot)
+            .or_insert_with(|| self.assets3d.bounds[slot as usize]);
+        self.assets3d.bounds[slot as usize] = union_spheres(own, (center, radius));
     }
 }
 
@@ -482,17 +490,19 @@ mod tests {
         crate::Game::new("bounds", 1, 1).run_headless(0, |ctx| {
             let material = ctx.gfx.default_material();
             let mesh = ctx.gfx.create_mesh(&crate::render::MeshData::cube(0.5), material);
-            let own = ctx.gfx.assets3d.bounds[mesh.id as usize];
+            let own = ctx.gfx.assets3d.bounds[mesh.slot() as usize];
             ctx.gfx.set_mesh_gpu_bounds(mesh, Vec3::Y * 10.0, 2.0);
-            let grown = ctx.gfx.assets3d.bounds[mesh.id as usize];
+            let grown = ctx.gfx.assets3d.bounds[mesh.slot() as usize];
             assert!(grown.1 > own.1 + 5.0);
             // Calling again replaces the sphere instead of piling on.
             ctx.gfx.set_mesh_gpu_bounds(mesh, Vec3::Y * 10.0, 2.0);
-            assert_eq!(ctx.gfx.assets3d.bounds[mesh.id as usize], grown);
-            // A freed mesh's slot starts over.
+            assert_eq!(ctx.gfx.assets3d.bounds[mesh.slot() as usize], grown);
+            // A freed mesh's slot starts over (under a new id).
             ctx.gfx.free(mesh);
             let again = ctx.gfx.create_mesh(&crate::render::MeshData::cube(0.5), material);
-            assert_eq!((again, ctx.gfx.assets3d.bounds[again.id as usize]), (mesh, own));
+            assert_eq!(again.slot(), mesh.slot());
+            assert_ne!(again, mesh);
+            assert_eq!(ctx.gfx.assets3d.bounds[again.slot() as usize], own);
         });
     }
 

@@ -96,7 +96,8 @@ use glam::{Quat, Vec3};
 use super::collect::{Culler, FADED, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS};
 use super::motion::{IdHasher, Motion, NO_KEY};
 use super::{
-    Assets3D, Model, ModelMaterial, ModelMaterials, ReceivesDecals, ShadowMesh, Skeleton, SkinOf, Transform3D, linear,
+    Assets3D, Model, ModelMaterial, ModelMaterials, ReceivesDecals, SLOT_MASK, ShadowMesh, Skeleton, SkinOf,
+    Transform3D, linear,
 };
 use crate::World;
 
@@ -674,7 +675,7 @@ const NOTHING: Derived = Derived {
 
 /// What of a mesh the models' [`Derived`] is worked out from: its bounds,
 /// and whether it casts no shadow, is skinned, has morph targets.
-type Fact = (Vec3, f32, bool, bool, bool);
+type Fact = (Vec3, f32, bool, bool, bool, u32);
 
 /// The material overrides' numbering: the frame's table of them (each
 /// mesh with its overriding materials once, in order, which also tells
@@ -703,6 +704,10 @@ fn derive(source: Source<'_>, assets: &Assets3D, overrides: &OverrideIds<'_>) ->
     }
     .filter(|&c| assets.casts_shadows(c));
     let caster_bounds = caster.and_then(|c| assets.live_bounds(c));
+    // Checked: from here on the meshes go by slot, as the renderer and the
+    // override table know them.
+    let mesh = mesh & SLOT_MASK;
+    let caster = caster.map(|c| c & SLOT_MASK);
     let t = source.transform;
     let widest = t.scale.abs().max_element();
     let matrix = t.matrix();
@@ -830,7 +835,7 @@ impl How<'_> {
     fn reworks(&self, source: Source<'_>) -> bool {
         let stale = |mesh: u32| {
             self.stale
-                .is_some_and(|s| s.get(mesh as usize).copied().unwrap_or(false))
+                .is_some_and(|s| s.get((mesh & SLOT_MASK) as usize).copied().unwrap_or(false))
         };
         self.force
             || stale(source.mesh())
@@ -1083,7 +1088,11 @@ impl Tracked {
             let (center, radius) = assets.bounds[id];
             let shadowless = !assets.casts_shadows(id as u32);
             let (skin, morph) = (assets.skin(id as u32).is_some(), assets.morph(id as u32).is_some());
-            (center, radius, shadowless, skin, morph)
+            // The id the slot is given out as: a slot freed and reused within
+            // one frame, with the same bounds, must still drop the models
+            // holding the old id.
+            let handle = assets.mesh_in_slot(id as u32).id;
+            (center, radius, shadowless, skin, morph, handle)
         };
         let meshes = assets.bounds.len();
         let same = self.facts.len() == meshes && (0..meshes).all(|id| self.facts[id] == fact(id));
