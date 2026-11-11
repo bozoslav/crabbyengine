@@ -309,16 +309,24 @@ impl MeshData {
     /// # use ponko::prelude::*;
     /// let broken = ponko::render::MeshData { positions: vec![Vec3::ZERO], indices: vec![0, 1, 2], ..Default::default() };
     /// let short = ponko::render::MeshData { positions: vec![Vec3::ZERO; 3], indices: vec![0, 1, 2], uvs1: vec![Vec2::ZERO], ..Default::default() };
-    /// assert!(short.check().unwrap_err().contains("second texture coordinates"));
+    /// let err = short.check().unwrap_err();
+    /// assert_eq!(err.kind(), ErrorKind::Invalid);
+    /// assert!(err.message().contains("second texture coordinates"));
     /// let unweighted = ponko::render::MeshData { positions: vec![Vec3::ZERO; 3], indices: vec![0, 1, 2], joints: vec![[0; 4]; 3], ..Default::default() };
-    /// assert!(unweighted.check().unwrap_err().contains("weights"));
+    /// assert!(unweighted.check().unwrap_err().message().contains("weights"));
     /// assert!(broken.check().is_err());
     /// ```
     ///
     /// # Errors
     ///
-    /// Says what doesn't fit.
-    pub fn check(&self) -> Result<(), String> {
+    /// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid), saying what doesn't fit.
+    pub fn check(&self) -> Result<(), crate::Error> {
+        self.problem()
+            .map_err(|e| crate::Error::new(crate::ErrorKind::Invalid, e))
+    }
+
+    /// What doesn't fit in the data, for [`check`](Self::check).
+    pub(crate) fn problem(&self) -> Result<(), String> {
         let corners = self.positions.len();
         if self.indices.is_empty() || !self.indices.len().is_multiple_of(3) {
             return Err(format!("{} indices: needs 3 per triangle", self.indices.len()));

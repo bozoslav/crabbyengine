@@ -376,7 +376,7 @@ pub(crate) fn load(
             }
         }
     }
-    data.check().map_err(|e| format!("{name}: {e}"))?;
+    data.problem().map_err(|e| format!("{name}: {e}"))?;
     let morph_defaults = data
         .morph_targets
         .iter()
@@ -671,7 +671,7 @@ fn append(
             }
         }
     }
-    part.check().map_err(|e| format!("{name}: {e}"))?;
+    part.problem().map_err(|e| format!("{name}: {e}"))?;
     let normals = part.normals_or_computed().into_owned();
     // A mirroring node flips triangles inside out: swap two corners back.
     let flips = matrix.determinant() < 0.0;

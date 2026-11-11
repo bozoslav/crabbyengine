@@ -237,9 +237,9 @@ impl PerfReport {
     /// Reads a report written by [`to_json`](Self::to_json).
     ///
     /// # Errors
-    /// If the text isn't a report.
-    pub fn from_json(json: &str) -> Result<Self, String> {
-        serde_json::from_str(json).map_err(|e| format!("not a performance report: {e}"))
+    /// [`ErrorKind::Json`](crate::ErrorKind::Json) if the text isn't a report.
+    pub fn from_json(json: &str) -> Result<Self, crate::Error> {
+        serde_json::from_str(json).map_err(|e| crate::Error::from(e).context("not a performance report"))
     }
 
     /// Writes [`to_json`](Self::to_json) to `path`.
@@ -253,11 +253,22 @@ impl PerfReport {
     /// Reads a report saved with [`save`](Self::save).
     ///
     /// # Errors
-    /// If the file can't be read or isn't a report.
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, String> {
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if there's no such
+    /// file, [`Io`](crate::ErrorKind::Io) if it can't be read,
+    /// [`Json`](crate::ErrorKind::Json) if it isn't a report. The error's
+    /// path is `path`.
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, crate::Error> {
         let path = path.as_ref();
-        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Self::from_json(&text)
+        let shown = path.display().to_string();
+        let text = std::fs::read_to_string(path).map_err(|e| {
+            let kind = if e.kind() == std::io::ErrorKind::NotFound {
+                crate::ErrorKind::NotFound
+            } else {
+                crate::ErrorKind::Io
+            };
+            crate::Error::new(kind, format!("{shown}: {e}")).with_path(shown.clone())
+        })?;
+        Self::from_json(&text).map_err(|e| e.with_path(shown))
     }
 
     /// Where `budget` is broken. Empty means every limit holds.
@@ -572,9 +583,9 @@ impl Budget {
     /// Reads a budget from JSON.
     ///
     /// # Errors
-    /// If the text isn't a budget.
-    pub fn from_json(json: &str) -> Result<Self, String> {
-        serde_json::from_str(json).map_err(|e| format!("not a budget: {e}"))
+    /// [`ErrorKind::Json`](crate::ErrorKind::Json) if the text isn't a budget.
+    pub fn from_json(json: &str) -> Result<Self, crate::Error> {
+        serde_json::from_str(json).map_err(|e| crate::Error::from(e).context("not a budget"))
     }
 }
 

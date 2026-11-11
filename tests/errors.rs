@@ -168,6 +168,42 @@ fn data_files_report_missing_files_bad_json_and_dead_entities() {
     });
 }
 
+#[test]
+fn scenes_and_prefabs_report_their_kind_and_path() {
+    let not_json = temp_file("scene.json", b"{ entities: ");
+    let not_prefab = temp_file("prefab.json", br#"{"format": "something-else"}"#);
+    in_tick(move |ctx| {
+        let err = ctx.load_scene("no/such/scene.json").unwrap_err();
+        assert_eq!(
+            (err.kind(), err.path()),
+            (ErrorKind::NotFound, Some("no/such/scene.json"))
+        );
+        let err = ctx.load_scene(&not_json).unwrap_err();
+        assert_eq!((err.kind(), err.path()), (ErrorKind::Json, Some(not_json.as_str())));
+        let err = ctx.spawn_prefab(&not_prefab, Vec2::ZERO).unwrap_err();
+        assert_eq!((err.kind(), err.path()), (ErrorKind::Json, Some(not_prefab.as_str())));
+        assert!(!err.to_string().contains("ponko: ponko:"), "{err}");
+        let err = ctx.spawn_prefab("no/such/prefab.json", Vec2::ZERO).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+    });
+}
+
+#[test]
+fn perf_reports_and_diagnostics_report_their_kind() {
+    let err = ponko::perf::PerfReport::from_json("{").unwrap_err();
+    assert_eq!(err.kind(), ErrorKind::Json);
+    let err = ponko::perf::PerfReport::load("no/such/report.json").unwrap_err();
+    assert_eq!(
+        (err.kind(), err.path()),
+        (ErrorKind::NotFound, Some("no/such/report.json"))
+    );
+    assert_eq!(ponko::perf::Budget::from_json("[").unwrap_err().kind(), ErrorKind::Json);
+    in_tick(|ctx| {
+        let err = ctx.ecs_diagnostics().matching(&["Nope"]).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+    });
+}
+
 #[cfg(feature = "3d")]
 mod three {
     use super::*;
@@ -399,5 +435,13 @@ mod three {
             let err = ctx.gfx.bake_reflection_probe(&mut ctx.world, plain).unwrap_err();
             assert_eq!(err.kind(), ErrorKind::NotFound);
         });
+    }
+
+    #[test]
+    fn mesh_data_checks_are_invalid() {
+        let mut broken = MeshData::cube(1.0);
+        broken.indices.pop();
+        assert_eq!(broken.check().unwrap_err().kind(), ErrorKind::Invalid);
+        assert!(MeshData::cube(1.0).check().is_ok());
     }
 }

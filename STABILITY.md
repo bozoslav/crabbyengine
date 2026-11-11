@@ -75,12 +75,16 @@ loaders and scene and prefab saving. Callbacks a game hands these services
 (`Assets::load_with`'s decoder, `Assets::scene_asset_field`'s loader) return
 `ponko::Error` too.
 
-Older calls that return `Result<_, String>` keep their signatures: the
-deprecated flat `Ctx` methods that forward to the services, and calls that
-stayed on `Ctx` or other released types (`Ctx::load_scene`,
-`Ctx::spawn_prefab`, `Ctx::start_ragdoll`, `Editor`, `Text::add_font`,
-`PerfReport`). Changing them in place would break code that reads the error
-as a `String`; they move when they get a service home or in a major release.
+So do the play-time calls on `Ctx` (`load_scene`, `load_scene_lockstep`,
+`spawn_prefab`, `start_ragdoll`), performance reports and budgets
+(`PerfReport::from_json`, `load`, `Budget::from_json`), and checks
+(`MeshData::check`, `EcsDiagnostics::matching`). These returned
+`Result<_, String>` up to 0.0.1; the change ships in the same breaking
+release as the root-name removal (see [Deprecation](#deprecation)), listed
+under "Breaking changes" in the changelog.
+
+Only the deprecated flat `Ctx` methods that forward to the services still
+return `Result<_, String>`, with their old messages, until they are removed.
 `String: From<ponko::Error>` keeps the two interoperable: `?` turns a
 `ponko::Error` into the `String` (its message, without the prefix).
 
@@ -132,6 +136,15 @@ library dynamically:
 ```c
 if (ponko_abi_version() != 2) { /* built against another version */ }
 ```
+
+A failing call returns its `PonkoStatus`, and `ponko_last_error()` has its
+message. `ponko_last_error_kind()` says what kind of failure it was, as a
+`PonkoErrorKind` that mirrors Rust's `ponko::ErrorKind` (`PONKO_ERROR_NOT_FOUND`,
+`_IO`, `_DECODE`, `_SHADER`, `_INVALID`, ..., `_OTHER`); new kinds can arrive
+in a minor release, so a `switch` needs a `default:`. Statuses don't change
+with it: a call that returned `PONKO_INVALID_ARGUMENT` for a missing file
+still does, and says `PONKO_ERROR_NOT_FOUND` as its kind. The C++ wrapper
+throws `ponko::error`, a `std::runtime_error` with `kind()`.
 
 ## Saved worlds
 

@@ -56,10 +56,11 @@ impl Editor {
 
     /// Pauses and puts the world back as it was when Play was pressed.
     /// Components that aren't reflected can't be saved, so aren't put back.
-    /// If the world can't be put back (a lockstep session is running), the
-    /// Play snapshot and the undo history are kept and the simulation keeps
+    /// If the world can't be put back (a lockstep session is running:
+    /// [`ErrorKind::Unsupported`](crate::ErrorKind::Unsupported)), the Play
+    /// snapshot and the undo history are kept and the simulation keeps
     /// running, so Stop can be retried.
-    pub fn stop(&mut self, ctx: &mut Ctx) -> Result<(), String> {
+    pub fn stop(&mut self, ctx: &mut Ctx) -> Result<(), crate::Error> {
         let Some((save, steps)) = &self.played_from else {
             ctx.time.pause();
             return Ok(());
@@ -90,10 +91,10 @@ impl Editor {
     }
 
     /// Writes component `name` of `e` (adding it if missing), with undo.
-    pub fn set(&mut self, ctx: &mut Ctx, e: Entity, name: &str, value: Value) -> Result<(), String> {
+    pub fn set(&mut self, ctx: &mut Ctx, e: Entity, name: &str, value: Value) -> Result<(), crate::Error> {
         let before = ctx.world.get_json(e, name).ok();
         ctx.load_scene_assets(&json!({ name: &value }))?;
-        ctx.world.set_json(e, name, value).map_err(|e| e.to_string())?;
+        ctx.world.set_json(e, name, value)?;
         self.record(Undo::Component {
             e,
             name: name.to_string(),
@@ -104,14 +105,14 @@ impl Editor {
 
     /// Adds component `name` to `e` with its default fields (types whose
     /// fields all have defaults; others say which field is missing).
-    pub fn add(&mut self, ctx: &mut Ctx, e: Entity, name: &str) -> Result<(), String> {
+    pub fn add(&mut self, ctx: &mut Ctx, e: Entity, name: &str) -> Result<(), crate::Error> {
         self.set(ctx, e, name, json!({}))
     }
 
     /// Removes component `name` from `e`, with undo.
-    pub fn remove(&mut self, ctx: &mut Ctx, e: Entity, name: &str) -> Result<(), String> {
-        let before = ctx.world.get_json(e, name).map_err(|e| e.to_string())?;
-        ctx.world.remove_json(e, name).map_err(|e| e.to_string())?;
+    pub fn remove(&mut self, ctx: &mut Ctx, e: Entity, name: &str) -> Result<(), crate::Error> {
+        let before = ctx.world.get_json(e, name)?;
+        ctx.world.remove_json(e, name)?;
         self.record(Undo::Component {
             e,
             name: name.to_string(),
@@ -138,30 +139,30 @@ impl Editor {
     }
 
     /// Spawns prefab `path` at `at`, with undo.
-    pub fn spawn_prefab(&mut self, ctx: &mut Ctx, path: &str, at: Vec2) -> Result<Entity, String> {
+    pub fn spawn_prefab(&mut self, ctx: &mut Ctx, path: &str, at: Vec2) -> Result<Entity, crate::Error> {
         let e = ctx.spawn_prefab(path, at)?;
         self.record(Undo::Spawned(e));
         Ok(e)
     }
 
     /// A copy of `e`'s reflected components, `offset` away.
-    pub fn duplicate(&mut self, ctx: &mut Ctx, e: Entity, offset: Vec2) -> Result<Entity, String> {
-        let mut components = ctx.world.entity_json(e).map_err(|e| e.to_string())?;
+    pub fn duplicate(&mut self, ctx: &mut Ctx, e: Entity, offset: Vec2) -> Result<Entity, crate::Error> {
+        let mut components = ctx.world.entity_json(e)?;
         if let Some(p) = components["Transform2D"]["position"].as_array_mut()
             && let [x, y] = &mut p[..]
         {
             *x = json!(x.as_f64().unwrap_or(0.0) + f64::from(offset.x));
             *y = json!(y.as_f64().unwrap_or(0.0) + f64::from(offset.y));
         }
-        let copy = ctx.world.spawn_json(components).map_err(|e| e.to_string())?;
+        let copy = ctx.world.spawn_json(components)?;
         self.record(Undo::Spawned(copy));
         Ok(copy)
     }
 
     /// Despawns `e`, with undo (which brings back its reflected components
     /// as a new entity: references to `e` from other components stay dead).
-    pub fn delete(&mut self, ctx: &mut Ctx, e: Entity) -> Result<(), String> {
-        let components = ctx.world.entity_json(e).map_err(|e| e.to_string())?;
+    pub fn delete(&mut self, ctx: &mut Ctx, e: Entity) -> Result<(), crate::Error> {
+        let components = ctx.world.entity_json(e)?;
         ctx.world.despawn(e);
         if components.as_object().is_some_and(|c| !c.is_empty()) {
             self.record(Undo::Despawned { e, components });
@@ -170,7 +171,7 @@ impl Editor {
     }
 
     /// Puts back the last change. `Ok(false)` if there's nothing to undo.
-    pub fn undo(&mut self, ctx: &mut Ctx) -> Result<bool, String> {
+    pub fn undo(&mut self, ctx: &mut Ctx) -> Result<bool, crate::Error> {
         let Some(step) = self.undo.pop() else {
             return Ok(false);
         };
@@ -179,14 +180,13 @@ impl Editor {
                 match before {
                     Some(value) => ctx.world.set_json(e, &name, value).map(drop),
                     None => ctx.world.remove_json(e, &name).map(drop),
-                }
-                .map_err(|e| e.to_string())?;
+                }?;
             }
             Undo::Spawned(e) => {
                 ctx.world.despawn(e);
             }
             Undo::Despawned { e, components } => {
-                let back = ctx.world.spawn_json(components).map_err(|e| e.to_string())?;
+                let back = ctx.world.spawn_json(components)?;
                 for step in &mut self.undo {
                     match step {
                         Undo::Component { e: old, .. } | Undo::Spawned(old) | Undo::Despawned { e: old, .. } => {
@@ -326,7 +326,7 @@ mod tests {
         let session = std::mem::replace(&mut ctx.net.lockstep, crate::net::Net::loopback(2).remove(0));
         drop(session);
         let err = ed.stop(&mut ctx).unwrap_err();
-        assert!(err.contains("lockstep"), "{err}");
+        assert!(err.message().contains("lockstep"), "{err}");
         assert!(ed.playing(), "the Play snapshot is kept");
         assert!(!ctx.time.is_paused(), "a refused Stop doesn't pause the simulation");
         assert_eq!(ed.undo.len(), 3, "and the undo history");

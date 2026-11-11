@@ -148,5 +148,5 @@ fn matching_counts_archetypes_and_entities_for_component_names() {
     assert_eq!(d.matching(&["Pos"]).unwrap().entities, 3);
     assert_eq!(d.matching(&[]).unwrap().entities, 3);
     let err = d.matching(&["Nope"]).unwrap_err();
-    assert!(err.contains("Nope"), "{err}");
+    assert!(err.message().contains("Nope"), "{err}");
 }

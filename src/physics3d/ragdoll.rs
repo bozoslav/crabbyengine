@@ -173,34 +173,43 @@ impl Ctx {
     ///
     /// # Errors
     ///
-    /// If `entity` has no skeleton or transform, a bone names no joint, a
-    /// joint is chosen twice, or a radius isn't positive.
-    pub fn start_ragdoll(&mut self, entity: Entity, bones: &[RagdollBone]) -> Result<(), String> {
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if `entity` has
+    /// no skeleton or transform or a bone names no joint,
+    /// [`Invalid`](crate::ErrorKind::Invalid) if a joint is chosen twice or a
+    /// radius or density isn't positive. A running ragdoll is left alone then.
+    pub fn start_ragdoll(&mut self, entity: Entity, bones: &[RagdollBone]) -> Result<(), crate::Error> {
+        use crate::{Error, ErrorKind};
         let model = self
             .world
             .get::<Transform3D>(entity)
-            .ok_or("start_ragdoll: the entity has no Transform3D")?
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, "start_ragdoll: the entity has no Transform3D"))?
             .matrix();
         let skeleton = self
             .world
             .get::<Skeleton>(entity)
-            .ok_or("start_ragdoll: the entity has no Skeleton")?
+            .ok_or_else(|| Error::new(ErrorKind::NotFound, "start_ragdoll: the entity has no Skeleton"))?
             .clone();
         let skeleton = &skeleton;
         let joints = skeleton.joints();
         let mut chosen: Vec<(usize, &RagdollBone)> = Vec::with_capacity(bones.len());
         for b in bones {
-            let j = skeleton
-                .find(&b.joint)
-                .ok_or_else(|| format!("start_ragdoll: no joint named {:?}", b.joint))?;
+            let j = skeleton.find(&b.joint).ok_or_else(|| {
+                Error::new(
+                    ErrorKind::NotFound,
+                    format!("start_ragdoll: no joint named {:?}", b.joint),
+                )
+            })?;
             if !(b.radius > 0.0 && b.radius.is_finite()) || !b.density.is_finite() || b.density <= 0.0 {
-                return Err(format!(
-                    "start_ragdoll: {:?} needs a positive radius and density",
-                    b.joint
+                return Err(Error::new(
+                    ErrorKind::Invalid,
+                    format!("start_ragdoll: {:?} needs a positive radius and density", b.joint),
                 ));
             }
             if chosen.iter().any(|&(c, _)| c == j) {
-                return Err(format!("start_ragdoll: {:?} is chosen twice", b.joint));
+                return Err(Error::new(
+                    ErrorKind::Invalid,
+                    format!("start_ragdoll: {:?} is chosen twice", b.joint),
+                ));
             }
             chosen.push((j, b));
         }

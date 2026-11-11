@@ -73,14 +73,20 @@ impl Ctx {
     ///
     /// # Errors
     ///
-    /// If the file is missing or isn't a scene, names a component or
-    /// resource that isn't reflected, or names an asset that can't be
-    /// loaded, or when a lockstep session runs and the load would change
-    /// only this peer (see above). The world,
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
+    /// missing or names a component or resource that isn't reflected,
+    /// [`Json`](crate::ErrorKind::Json) if it isn't a scene, the error of an
+    /// asset it names that can't be loaded (its kind and path), and
+    /// [`Unsupported`](crate::ErrorKind::Unsupported) when a lockstep session
+    /// runs and the load would change only this peer (see above). The world,
     /// commands, physics and every other service are unchanged then; assets
     /// the scene named that did load before the failure stay cached.
-    pub fn load_scene(&mut self, path: &str) -> Result<(), String> {
-        self.check_session_load().map_err(|e| format!("{path}: {e}"))?;
+    pub fn load_scene(&mut self, path: &str) -> Result<(), crate::Error> {
+        self.check_session_load().map_err(|e| {
+            crate::Error::new(crate::ErrorKind::Unsupported, e)
+                .context(path)
+                .with_path(path)
+        })?;
         self.read_and_replace(path)
     }
 
@@ -105,14 +111,16 @@ impl Ctx {
     /// # Errors
     ///
     /// As `load_scene`.
-    pub fn load_scene_lockstep(&mut self, path: &str) -> Result<(), String> {
+    pub fn load_scene_lockstep(&mut self, path: &str) -> Result<(), crate::Error> {
         self.load_scene(path)
     }
 
-    fn read_and_replace(&mut self, path: &str) -> Result<(), String> {
+    fn read_and_replace(&mut self, path: &str) -> Result<(), crate::Error> {
         let (_, text) = self.assets.read_text(path)?;
-        let scene: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
-        self.replace_world_now(&scene).map_err(|e| format!("{path}: {e}"))
+        let scene: Value =
+            serde_json::from_str(&text).map_err(|e| crate::Error::from(e).context(path).with_path(path))?;
+        self.replace_world_now(&scene)
+            .map_err(|e| e.context(path).with_path(path))
     }
 
     /// Refuses a game's load that would change only this peer: outside a
@@ -141,9 +149,12 @@ impl Ctx {
     /// Replaces the world with `save` (a scene or world save) for tools (the
     /// editor's Stop, the control endpoint): refused while a lockstep
     /// session is connecting or running, since a tool acts on this peer only.
-    pub(crate) fn replace_world(&mut self, save: &Value) -> Result<(), String> {
+    pub(crate) fn replace_world(&mut self, save: &Value) -> Result<(), crate::Error> {
         if self.session_active() {
-            return Err("a lockstep session is running and a tool's load would change only this peer".into());
+            return Err(crate::Error::new(
+                crate::ErrorKind::Unsupported,
+                "a lockstep session is running and a tool's load would change only this peer",
+            ));
         }
         self.replace_world_now(save)
     }
@@ -151,9 +162,9 @@ impl Ctx {
     /// Replaces the world with `save`, as [`load_scene`](Self::load_scene)
     /// describes: its assets first, then the entities, then the services
     /// that follow entity ids.
-    fn replace_world_now(&mut self, save: &Value) -> Result<(), String> {
+    fn replace_world_now(&mut self, save: &Value) -> Result<(), crate::Error> {
         self.load_scene_assets(save)?;
-        self.world.load(save).map_err(|e| e.to_string())?;
+        self.world.load(save)?;
         self.commands = crate::Commands::new();
         self.scene_loads += 1;
         #[cfg(feature = "physics")]
@@ -186,19 +197,23 @@ impl Ctx {
     ///
     /// # Errors
     ///
-    /// If the file is missing or isn't a prefab, or a component isn't
-    /// reflected or doesn't fit; nothing is spawned then.
-    pub fn spawn_prefab(&mut self, path: &str, at: impl Into<Placement>) -> Result<Entity, String> {
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
+    /// missing or a component isn't reflected,
+    /// [`Json`](crate::ErrorKind::Json) if it isn't a prefab or a component
+    /// doesn't fit, and the error of an asset it names that can't be loaded.
+    /// The error's path is `path`; nothing is spawned then.
+    pub fn spawn_prefab(&mut self, path: &str, at: impl Into<Placement>) -> Result<Entity, crate::Error> {
+        let in_prefab = |e: crate::Error| e.context(path).with_path(path);
         if !self.assets.prefabs.contains_key(path) {
             let (_, text) = self.assets.read_text(path)?;
-            let prefab: Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
-            let components = components_of(&prefab).map_err(|e| format!("{path}: {e}"))?;
-            self.load_scene_assets(&components)
-                .map_err(|e| format!("{path}: {e}"))?;
+            let prefab: Value = serde_json::from_str(&text).map_err(|e| in_prefab(e.into()))?;
+            let components =
+                components_of(&prefab).map_err(|e| in_prefab(crate::Error::new(crate::ErrorKind::Json, e)))?;
+            self.load_scene_assets(&components).map_err(in_prefab)?;
             self.assets.prefabs.insert(path.to_string(), components);
         }
         let components = self.assets.prefabs[path].clone();
-        spawn_at(&mut self.world, components, at.into()).map_err(|e| format!("{path}: {e}"))
+        spawn_at(&mut self.world, components, at.into()).map_err(in_prefab)
     }
 }
 
@@ -279,7 +294,7 @@ impl crate::Assets {
 impl Ctx {
     /// Loads the assets that fields registered with
     /// [`scene_asset_field`](crate::Assets::scene_asset_field) name anywhere in `json`.
-    pub(crate) fn load_scene_asset_fields(&mut self, json: &Value) -> Result<(), String> {
+    pub(crate) fn load_scene_asset_fields(&mut self, json: &Value) -> Result<(), crate::Error> {
         for i in 0..self.assets.scene_asset_fields.len() {
             let f = &self.assets.scene_asset_fields[i];
             let (component, field, load) = (f.component.clone(), f.field.clone(), f.load.clone());
@@ -288,7 +303,7 @@ impl Ctx {
             names.sort_unstable();
             names.dedup();
             for name in names {
-                load(self, &name).map_err(|e| format!("{component}.{field} \"{name}\": {}", e.message()))?;
+                load(self, &name).map_err(|e| e.context(format!("{component}.{field} \"{name}\"")))?;
             }
         }
         Ok(())
@@ -337,32 +352,26 @@ fn components_of(prefab: &Value) -> Result<Value, String> {
 
 /// Spawns `components` with the position set to `at` (adding a transform if
 /// there's none).
-fn spawn_at(world: &mut crate::World, mut components: Value, at: Placement) -> Result<Entity, String> {
+fn spawn_at(world: &mut crate::World, mut components: Value, at: Placement) -> Result<Entity, crate::Error> {
     match at {
         Placement::Position2(at) => match components.get_mut("Transform2D") {
             Some(t) => t["position"] = json!([at.x, at.y]),
-            None => {
-                components["Transform2D"] =
-                    serde_json::to_value(crate::d2::Transform::at(at)).map_err(|e| e.to_string())?
-            }
+            None => components["Transform2D"] = serde_json::to_value(crate::d2::Transform::at(at))?,
         },
         Placement::D2(at) => {
-            components["Transform2D"] = serde_json::to_value(at).map_err(|e| e.to_string())?;
+            components["Transform2D"] = serde_json::to_value(at)?;
         }
         #[cfg(feature = "3d")]
         Placement::Position3(at) => match components.get_mut("Transform3D") {
             Some(t) => t["position"] = json!([at.x, at.y, at.z]),
-            None => {
-                components["Transform3D"] =
-                    serde_json::to_value(crate::d3::Transform::at(at)).map_err(|e| e.to_string())?
-            }
+            None => components["Transform3D"] = serde_json::to_value(crate::d3::Transform::at(at))?,
         },
         #[cfg(feature = "3d")]
         Placement::D3(at) => {
-            components["Transform3D"] = serde_json::to_value(at).map_err(|e| e.to_string())?;
+            components["Transform3D"] = serde_json::to_value(at)?;
         }
     }
-    world.spawn_json(components).map_err(|e| e.to_string())
+    Ok(world.spawn_json(components)?)
 }
 
 /// Where [`Ctx::spawn_prefab`](crate::Ctx::spawn_prefab) puts a prefab: a
@@ -464,9 +473,9 @@ mod lockstep_tests {
     fn assert_every_local_load_is_refused(ctx: &mut Ctx, files: &Files) {
         let before = WorldReflect::save(&ctx.world);
         let plain = files.plain.to_str().unwrap();
-        let errors = [
-            ctx.load_scene(files.asset).unwrap_err(),
-            ctx.load_scene_lockstep(files.asset).unwrap_err(),
+        let errors: [String; 4] = [
+            ctx.load_scene(files.asset).unwrap_err().into(),
+            ctx.load_scene_lockstep(files.asset).unwrap_err().into(),
             crate::control::handle(ctx, "scene.load", &json!({ "path": files.asset })).unwrap_err(),
             crate::control::handle(ctx, "world.load", &json!({ "path": plain })).unwrap_err(),
         ];
@@ -479,7 +488,9 @@ mod lockstep_tests {
             let mut editor = crate::editor::Editor::default();
             editor.play(ctx);
             let extra = ctx.world.spawn((Tag(100),));
-            assert!(editor.stop(ctx).unwrap_err().contains("lockstep session"));
+            let err = editor.stop(ctx).unwrap_err();
+            assert_eq!(err.kind(), crate::ErrorKind::Unsupported);
+            assert!(err.message().contains("lockstep session"), "{err}");
             assert!(editor.playing(), "Stop can be retried");
             assert!(!ctx.time.is_paused(), "a refused Stop doesn't pause the simulation");
             ctx.world.despawn(extra);
