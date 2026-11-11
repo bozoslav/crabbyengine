@@ -169,7 +169,7 @@ impl Graphics {
         kind: ShaderKind,
         reload: bool,
         result: Result<(), Box<ShaderDiagnostic>>,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::Error> {
         let frame = self.frame;
         let list = &mut self.assets3d.shader_status;
         let at = match list.iter().position(|s| s.shader == name && s.kind == kind) {
@@ -208,7 +208,7 @@ impl Graphics {
                     ShaderOutcome::Failed
                 };
                 status.diagnostics = vec![*diagnostic];
-                Err(message)
+                Err(crate::Error::new(crate::ErrorKind::Shader, message))
             }
         }
     }
@@ -222,8 +222,8 @@ impl Graphics {
     }
 
     /// Says that `path` failed to compile and uses a stand-in until fixed.
-    pub(crate) fn report_stand_in(path: &str, error: &str) {
-        eprintln!("ponko: {error}");
+    pub(crate) fn report_stand_in(path: &str, error: &crate::Error) {
+        eprintln!("{error}");
         eprintln!("ponko: {path} uses a stand-in until it compiles; hot reload is watching it");
     }
 

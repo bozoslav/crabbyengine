@@ -319,12 +319,25 @@ impl Graphics {
     /// gets a stand-in and stays watched until a saved fix compiles
     /// ([`ShaderOutcome::Failed`](crate::render::ShaderOutcome::Failed), [`Graphics::shader_status`](crate::gfx::Graphics::shader_status)).
     pub fn load_shader(&mut self, path: &str) -> Shader {
-        self.try_load_shader(path).unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_load_shader(path).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`Graphics::load_shader`](crate::gfx::Graphics::load_shader) that returns errors (for the C API).
-    #[doc(hidden)]
-    pub fn try_load_shader(&mut self, path: &str) -> Result<Shader, String> {
+    /// [`load_shader`](Self::load_shader) with errors as values:
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
+    /// missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::ErrorKind::Decode) if it isn't UTF-8 text and
+    /// [`Shader`](crate::ErrorKind::Shader) if it doesn't compile (the
+    /// message has the compiler's log). With hot reload on, a file that
+    /// doesn't compile still returns a stand-in, as `load_shader` does.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let err = ctx.gfx.try_load_shader("shaders/missing.wgsl").unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::NotFound);
+    /// });
+    /// ```
+    pub fn try_load_shader(&mut self, path: &str) -> Result<Shader, crate::Error> {
         let found = match self
             .asset_sources
             .lookup(path, |origin| self.assets3d.loaded_shaders.get(origin).copied())?
@@ -339,6 +352,7 @@ impl Graphics {
             // With hot reload on, it draws with the built-in look until a
             // saved fix compiles; its status says what's wrong.
             Err(e) if self.keeps_failed_load(&origin) => {
+                let e = e.with_path(path);
                 Self::report_stand_in(path, &e);
                 let id = self.assets3d.shaders;
                 self.compile_shader(path, "", None).map_err(|_| e)?;
@@ -346,7 +360,7 @@ impl Graphics {
                 self.assets3d.shaders_live.insert(id);
                 Shader { id }
             }
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.with_path(path)),
         };
         self.assets3d.loaded_shaders.insert(origin.clone(), shader);
         if let crate::assets::Origin::File(file) = origin {
@@ -375,13 +389,21 @@ impl Graphics {
     ///
     /// If it doesn't compile (the message says where).
     pub fn create_shader(&mut self, name: &str, source: &str) -> Shader {
-        self.try_create_shader(name, source)
-            .unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_create_shader(name, source).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`Graphics::create_shader`](crate::gfx::Graphics::create_shader) that returns errors (for the C API).
-    #[doc(hidden)]
-    pub fn try_create_shader(&mut self, name: &str, source: &str) -> Result<Shader, String> {
+    /// [`create_shader`](Self::create_shader) with errors as values:
+    /// [`ErrorKind::Shader`](crate::ErrorKind::Shader) if it doesn't
+    /// compile, with the compiler's log in the message.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let err = ctx.gfx.try_create_shader("broken", "fn surface(s: Surface) -> Surface { return 1; }").unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::Shader);
+    /// });
+    /// ```
+    pub fn try_create_shader(&mut self, name: &str, source: &str) -> Result<Shader, crate::Error> {
         let id = self.assets3d.shaders;
         let compiled = self.compile_shader(name, source, None);
         self.record_shader(name, super::ShaderKind::Material, false, compiled)?;
@@ -397,7 +419,7 @@ impl Graphics {
             return Ok(());
         }
         let compiled = self.compile_shader(name, source, Some(id));
-        self.record_shader(name, super::ShaderKind::Material, true, compiled)
+        Ok(self.record_shader(name, super::ShaderKind::Material, true, compiled)?)
     }
 
     /// Checks material shader `source` and builds its pipelines, as shader
@@ -677,23 +699,33 @@ impl Graphics {
     /// # }
     /// ```
     pub fn load_clips(&mut self, path: &str) -> Vec<AnimationClip> {
-        self.try_load_clips(path).unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_load_clips(path).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// Fallible clip loading; a file without skins or animations returns an error.
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// let clips = ctx.gfx.try_load_clips("models/character.glb");
-    /// # }
+    /// [`load_clips`](Self::load_clips) with errors as values: those of
+    /// [`try_load_mesh`](Self::try_load_mesh), and
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) for a file without
+    /// skins or animations.
     /// ```
-    pub fn try_load_clips(&mut self, path: &str) -> Result<Vec<AnimationClip>, String> {
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let err = ctx.gfx.try_load_clips("models/missing.glb").unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::NotFound);
+    /// });
+    /// ```
+    pub fn try_load_clips(&mut self, path: &str) -> Result<Vec<AnimationClip>, crate::Error> {
         let (_, origin) = self.load_mesh_from(path)?;
         self.assets3d
             .loaded_skeletons
             .contains_key(&origin)
             .then(|| self.assets3d.loaded_clips.get(&origin).cloned().unwrap_or_default())
-            .ok_or_else(|| format!("{path} has no skins or animations, so no skeleton"))
+            .ok_or_else(|| {
+                crate::Error::new(
+                    crate::ErrorKind::NotFound,
+                    format!("{path} has no skins or animations, so no skeleton"),
+                )
+                .with_path(path)
+            })
     }
 
     /// Loads a named clip. Panics with available names if it is missing.
@@ -704,21 +736,25 @@ impl Graphics {
     /// # }
     /// ```
     pub fn load_clip(&mut self, path: &str, name: &str) -> AnimationClip {
-        self.try_load_clip(path, name).unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_load_clip(path, name).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// Fallible named clip loading; errors list available names.
+    /// [`load_clip`](Self::load_clip) with errors as values: those of
+    /// [`try_load_clips`](Self::try_load_clips), and
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file has no
+    /// clip called `name` (the message lists the ones it has).
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let walk = ctx.gfx.try_load_clip("models/character.glb", "walk");
     /// # }
     /// ```
-    pub fn try_load_clip(&mut self, path: &str, name: &str) -> Result<AnimationClip, String> {
+    pub fn try_load_clip(&mut self, path: &str, name: &str) -> Result<AnimationClip, crate::Error> {
         let clips = self.try_load_clips(path)?;
         clips.iter().find(|c| c.name() == name).cloned().ok_or_else(|| {
             let names: Vec<_> = clips.iter().map(AnimationClip::name).collect();
-            format!("{path}: no animation {name:?}; available animations: {names:?}")
+            let message = format!("{path}: no animation {name:?}; available animations: {names:?}");
+            crate::Error::new(crate::ErrorKind::NotFound, message).with_path(path)
         })
     }
 
@@ -924,19 +960,42 @@ impl Graphics {
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx) -> Result<(), String> {
-    /// let wall = ctx.gfx.load_mesh_data("models/wall.glb")?;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let wall = ctx.gfx.load_mesh_data("models/wall.glb");
     /// let hole = wall.decal(Mat4::from_scale(Vec3::splat(0.1)), 0.002);
-    /// # Ok(()) }
+    /// # }
     /// ```
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// If the file is missing or isn't a glTF file with triangles.
-    pub fn load_mesh_data(&self, path: &str) -> Result<MeshData, String> {
-        let bytes = self.asset_sources.read(path)?;
+    /// If the file is missing or isn't a glTF file with triangles; use
+    /// [`try_load_mesh_data`](Self::try_load_mesh_data) to handle that.
+    pub fn load_mesh_data(&self, path: &str) -> MeshData {
+        self.try_load_mesh_data(path).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`load_mesh_data`](Self::load_mesh_data) with errors as values:
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
+    /// missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::ErrorKind::Decode) if it isn't a glTF file with
+    /// triangles (including files it names that are missing).
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// fn wall(ctx: &Ctx) -> Result<ponko::render::MeshData, Box<dyn std::error::Error>> {
+    ///     Ok(ctx.gfx.try_load_mesh_data("models/wall.glb")?)
+    /// }
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| assert!(wall(ctx).is_err()));
+    /// ```
+    pub fn try_load_mesh_data(&self, path: &str) -> Result<MeshData, crate::Error> {
+        let bytes = self
+            .asset_sources
+            .find(path)?
+            .into_bytes()
+            .map_err(|e| e.with_path(path))?;
         let sources = &self.asset_sources;
-        let loaded = gltf::load(path, &bytes, &mut |name| sources.read(name), &|_| true)?;
+        let loaded = gltf::load(path, &bytes, &mut |name| sources.read(name), &|_| true)
+            .map_err(|e| crate::Error::decode(path, e))?;
         Ok(loaded.data)
     }
 
@@ -1649,7 +1708,9 @@ mod clip_tests {
             ctx.gfx.load_clip(&path, "idle").source_joints()
         ));
         let error = ctx.gfx.try_load_clip(&path, "run").unwrap_err();
-        assert!(error.contains("idle") && error.contains("walk") && error.contains("run"));
+        assert_eq!(error.kind(), crate::ErrorKind::NotFound);
+        let message = error.message();
+        assert!(message.contains("idle") && message.contains("walk") && message.contains("run"));
     }
 
     #[test]
@@ -1670,7 +1731,10 @@ mod clip_tests {
         assert_eq!(ctx.gfx.load_clip("hero.glb", "idle").name(), "idle");
         assert_eq!(ctx.gfx.load_clips("hero.glb").len(), 1);
         let error = ctx.gfx.try_load_clip("hero.glb", "run").unwrap_err();
-        assert!(error.contains("idle") && error.contains("run"), "{error}");
+        assert!(
+            error.message().contains("idle") && error.message().contains("run"),
+            "{error}"
+        );
     }
 
     #[test]

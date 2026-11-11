@@ -67,11 +67,22 @@ Fallible calls follow one convention, introduced with `ponko::Error`:
 - Operations that fail in normal play (scene loads, prefab spawns, network
   joins) return a `Result` under their plain name and have no panicking twin.
 
-Texture, mesh, skeleton, sound and font loading and material and mesh
-creation follow it. Older calls that return `Result<_, String>` keep their
-signatures on the `Ctx` services (`ctx.gfx`, `ctx.assets`); they move to
-`ponko::Error` service by service, and `String: From<ponko::Error>` keeps
-them interoperable meanwhile.
+Every loader and creator on the `ctx.gfx` and `ctx.assets` services follows
+it: textures, meshes, mesh data, skeletons, clips, sounds, fonts, materials,
+shaders, screen effects, compute passes, render targets, texture arrays,
+terrain materials, UI panels and reflection probes, plus the data-file
+loaders and scene and prefab saving. Callbacks a game hands these services
+(`Assets::load_with`'s decoder, `Assets::scene_asset_field`'s loader) return
+`ponko::Error` too.
+
+Older calls that return `Result<_, String>` keep their signatures: the
+deprecated flat `Ctx` methods that forward to the services, and calls that
+stayed on `Ctx` or other released types (`Ctx::load_scene`,
+`Ctx::spawn_prefab`, `Ctx::start_ragdoll`, `Editor`, `Text::add_font`,
+`PerfReport`). Changing them in place would break code that reads the error
+as a `String`; they move when they get a service home or in a major release.
+`String: From<ponko::Error>` keeps the two interoperable: `?` turns a
+`ponko::Error` into the `String` (its message, without the prefix).
 
 ## Deprecation
 

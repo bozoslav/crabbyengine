@@ -442,7 +442,7 @@ pub unsafe extern "C" fn ponko_ctx_load_mesh_data(
             if out_data.is_null() {
                 return Err(invalid("output is null"));
             }
-            let data: MeshData = c.gfx.load_mesh_data(path).map_err(invalid_owned)?;
+            let data: MeshData = c.gfx.try_load_mesh_data(path).map_err(invalid_owned)?;
             out(out_data, Box::into_raw(Box::new(PonkoMeshData(data))))
         })
     })

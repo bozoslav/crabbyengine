@@ -142,12 +142,22 @@ impl Graphics {
     /// If the size is zero or larger than the GPU takes.
     pub fn create_render_target(&mut self, width: u32, height: u32) -> Texture {
         self.try_create_render_target(width, height)
-            .unwrap_or_else(|e| panic!("ponko: {e}"))
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`Graphics::create_render_target`](crate::gfx::Graphics::create_render_target) that returns errors (for the C API).
-    #[doc(hidden)]
-    pub fn try_create_render_target(&mut self, width: u32, height: u32) -> Result<Texture, String> {
+    /// [`create_render_target`](Self::create_render_target) with errors as
+    /// values: [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) for a zero
+    /// size, [`Limit`](crate::ErrorKind::Limit) for one larger than the GPU
+    /// takes.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let err = ctx.gfx.try_create_render_target(0, 64).unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::Invalid);
+    /// });
+    /// ```
+    pub fn try_create_render_target(&mut self, width: u32, height: u32) -> Result<Texture, crate::Error> {
         let texture = self.make_render_target(width, height)?;
         self.textures_live.insert(texture.id);
         Ok(texture)
@@ -155,9 +165,12 @@ impl Graphics {
 
     /// [`Graphics::try_create_render_target`](crate::gfx::Graphics::try_create_render_target) for the engine's own targets
     /// (reflection probe faces): not the game's to free or count.
-    pub(crate) fn make_render_target(&mut self, width: u32, height: u32) -> Result<Texture, String> {
+    pub(crate) fn make_render_target(&mut self, width: u32, height: u32) -> Result<Texture, crate::Error> {
         if width == 0 || height == 0 {
-            return Err(format!("render target size must not be zero (got {width} x {height})"));
+            return Err(crate::Error::new(
+                crate::ErrorKind::Invalid,
+                format!("render target size must not be zero (got {width} x {height})"),
+            ));
         }
         let texture = if self.headless {
             self.headless_textures += 1;
@@ -166,8 +179,9 @@ impl Graphics {
             let renderer = self.renderer();
             let max = renderer.max_texture_size();
             if width > max || height > max {
-                return Err(format!(
-                    "{width} x {height} is larger than this GPU's maximum texture size ({max})"
+                return Err(crate::Error::new(
+                    crate::ErrorKind::Limit,
+                    format!("{width} x {height} is larger than this GPU's maximum texture size ({max})"),
                 ));
             }
             Texture::new(renderer.create_render_target(width, height), width, height)

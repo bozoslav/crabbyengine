@@ -196,12 +196,25 @@ impl Graphics {
     /// gets a stand-in and stays watched until a saved fix compiles
     /// ([`ShaderOutcome::Failed`](crate::render::ShaderOutcome::Failed), [`Graphics::shader_status`](crate::gfx::Graphics::shader_status)).
     pub fn load_effect(&mut self, path: &str) -> Effect {
-        self.try_load_effect(path).unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_load_effect(path).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`Graphics::load_effect`](crate::gfx::Graphics::load_effect) that returns errors (for the C API).
-    #[doc(hidden)]
-    pub fn try_load_effect(&mut self, path: &str) -> Result<Effect, String> {
+    /// [`load_effect`](Self::load_effect) with errors as values:
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
+    /// missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::ErrorKind::Decode) if it isn't UTF-8 text and
+    /// [`Shader`](crate::ErrorKind::Shader) if it doesn't compile (the
+    /// message has the compiler's log). With hot reload on, a file that
+    /// doesn't compile still returns a stand-in, as `load_effect` does.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let err = ctx.gfx.try_load_effect("missing.wgsl").unwrap_err();
+    ///     assert_eq!(err.kind(), ErrorKind::NotFound);
+    /// });
+    /// ```
+    pub fn try_load_effect(&mut self, path: &str) -> Result<Effect, crate::Error> {
         let found = match self
             .asset_sources
             .lookup(path, |origin| self.assets3d.loaded_effects.get(origin).copied())?
@@ -216,6 +229,7 @@ impl Graphics {
             // With hot reload on, it shows the frame as it is until a saved
             // fix compiles; its status says what's wrong.
             Err(e) if self.keeps_failed_load(&origin) => {
+                let e = e.with_path(path);
                 Self::report_stand_in(path, &e);
                 let id = self.assets3d.effects;
                 self.compile_effect(path, super::EFFECT_STAND_IN, None).map_err(|_| e)?;
@@ -223,7 +237,7 @@ impl Graphics {
                 self.assets3d.effects_live.insert(id);
                 Effect { id }
             }
-            Err(e) => return Err(e),
+            Err(e) => return Err(e.with_path(path)),
         };
         self.assets3d.loaded_effects.insert(origin.clone(), effect);
         if let crate::assets::Origin::File(file) = origin {
@@ -251,13 +265,13 @@ impl Graphics {
     ///
     /// If it doesn't compile (the message says where).
     pub fn create_effect(&mut self, name: &str, source: &str) -> Effect {
-        self.try_create_effect(name, source)
-            .unwrap_or_else(|e| panic!("ponko: {e}"))
+        self.try_create_effect(name, source).unwrap_or_else(|e| panic!("{e}"))
     }
 
-    /// [`Graphics::create_effect`](crate::gfx::Graphics::create_effect) that returns errors (for the C API).
-    #[doc(hidden)]
-    pub fn try_create_effect(&mut self, name: &str, source: &str) -> Result<Effect, String> {
+    /// [`create_effect`](Self::create_effect) with errors as values:
+    /// [`ErrorKind::Shader`](crate::ErrorKind::Shader) if it doesn't
+    /// compile, with the compiler's log in the message.
+    pub fn try_create_effect(&mut self, name: &str, source: &str) -> Result<Effect, crate::Error> {
         let id = self.assets3d.effects;
         let compiled = self.compile_effect(name, source, None);
         self.record_shader(name, super::ShaderKind::Effect, false, compiled)?;
@@ -301,7 +315,7 @@ impl Graphics {
             return Ok(());
         }
         let compiled = self.compile_effect(name, source, Some(id));
-        self.record_shader(name, super::ShaderKind::Effect, true, compiled)
+        Ok(self.record_shader(name, super::ShaderKind::Effect, true, compiled)?)
     }
 
     /// Whether this game made `effect` and hasn't freed it (for the C API,

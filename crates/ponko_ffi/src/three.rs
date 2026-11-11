@@ -3611,7 +3611,7 @@ pub unsafe extern "C" fn ponko_ctx_load_reflection_probe(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             c.gfx
-                .load_reflection_probe(&mut c.world, ponko::Entity::from_bits(entity), text(name)?)
+                .try_load_reflection_probe(&mut c.world, ponko::Entity::from_bits(entity), text(name)?)
                 .map_err(invalid_owned)
         })
     })

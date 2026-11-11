@@ -533,7 +533,7 @@ fn a_loaded_equirect_image_lights_the_ball_from_the_right_direction() {
     ));
     rig.ctx
         .gfx
-        .load_reflection_probe(&mut rig.ctx.world, probe, path.to_str().unwrap())
+        .try_load_reflection_probe(&mut rig.ctx.world, probe, path.to_str().unwrap())
         .unwrap();
     std::fs::remove_file(&path).ok();
     let ball = rig.mesh(&MeshData::sphere(1.5, 32), mirror(Color::WHITE));

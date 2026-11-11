@@ -114,7 +114,9 @@ impl Ctx {
     #[deprecated(note = "use `ctx.gfx.bake_reflection_probe(&mut ctx.world, entity)`")]
     #[cfg(feature = "3d")]
     pub fn bake_reflection_probe(&mut self, entity: Entity) -> Result<(), String> {
-        self.gfx.bake_reflection_probe(&mut self.world, entity)
+        self.gfx
+            .bake_reflection_probe(&mut self.world, entity)
+            .map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -502,7 +504,11 @@ impl Ctx {
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.assets.load_with`")]
     pub fn load_asset_with<T>(&self, name: &str, decode: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
-        self.assets.load_with(name, decode)
+        self.assets
+            .load_with(name, |bytes| {
+                decode(bytes).map_err(|e| crate::Error::new(crate::ErrorKind::Decode, e))
+            })
+            .map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -522,7 +528,9 @@ impl Ctx {
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.assets.load_component_json::<T>(&mut ctx.world, path, entity)`")]
     pub fn load_component_json<T: 'static>(&mut self, path: &str, entity: Entity) -> Result<(), String> {
-        self.assets.load_component_json::<T>(&mut self.world, path, entity)
+        self.assets
+            .load_component_json::<T>(&mut self.world, path, entity)
+            .map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -530,6 +538,7 @@ impl Ctx {
     pub fn load_component_json_named(&mut self, path: &str, entity: Entity, component: &str) -> Result<(), String> {
         self.assets
             .load_component_json_named(&mut self.world, path, entity, component)
+            .map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -560,17 +569,21 @@ impl Ctx {
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.gfx.load_mesh_data`")]
+    #[deprecated(note = "use `ctx.gfx.try_load_mesh_data` (or `load_mesh_data`, which panics)")]
     #[cfg(feature = "3d")]
     pub fn load_mesh_data(&self, path: &str) -> Result<MeshData, String> {
-        self.gfx.load_mesh_data(path)
+        self.gfx.try_load_mesh_data(path).map_err(String::from)
     }
 
     #[doc(hidden)]
-    #[deprecated(note = "use `ctx.gfx.load_reflection_probe(&mut ctx.world, entity, name)`")]
+    #[deprecated(
+        note = "use `ctx.gfx.try_load_reflection_probe(&mut ctx.world, entity, name)` (or `load_reflection_probe`, which panics)"
+    )]
     #[cfg(feature = "3d")]
     pub fn load_reflection_probe(&mut self, entity: Entity, name: &str) -> Result<(), String> {
-        self.gfx.load_reflection_probe(&mut self.world, entity, name)
+        self.gfx
+            .try_load_reflection_probe(&mut self.world, entity, name)
+            .map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -582,13 +595,17 @@ impl Ctx {
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.assets.load_resource_json::<T>(&mut ctx.world, path)`")]
     pub fn load_resource_json<T: 'static>(&mut self, path: &str) -> Result<(), String> {
-        self.assets.load_resource_json::<T>(&mut self.world, path)
+        self.assets
+            .load_resource_json::<T>(&mut self.world, path)
+            .map_err(String::from)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.assets.load_resource_json_named(&mut ctx.world, path, name)`")]
     pub fn load_resource_json_named(&mut self, path: &str, name: &str) -> Result<(), String> {
-        self.assets.load_resource_json_named(&mut self.world, path, name)
+        self.assets
+            .load_resource_json_named(&mut self.world, path, name)
+            .map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -821,13 +838,13 @@ impl Ctx {
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.assets.save_prefab(&ctx.world, entity, path)`")]
     pub fn save_prefab(&mut self, e: Entity, path: &str) -> Result<(), String> {
-        self.assets.save_prefab(&self.world, e, path)
+        self.assets.save_prefab(&self.world, e, path).map_err(String::from)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.assets.save_scene(&ctx.world, path)`")]
     pub fn save_scene(&mut self, path: &str) -> Result<(), String> {
-        self.assets.save_scene(&self.world, path)
+        self.assets.save_scene(&self.world, path).map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -1012,14 +1029,14 @@ impl Ctx {
     #[deprecated(note = "use `ctx.gfx.try_create_compute`")]
     #[cfg(feature = "3d")]
     pub fn try_create_compute(&mut self, name: &str, source: &str) -> Result<Compute, String> {
-        self.gfx.try_create_compute(name, source)
+        self.gfx.try_create_compute(name, source).map_err(String::from)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.try_create_effect`")]
     #[cfg(feature = "3d")]
     pub fn try_create_effect(&mut self, name: &str, source: &str) -> Result<Effect, String> {
-        self.gfx.try_create_effect(name, source)
+        self.gfx.try_create_effect(name, source).map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -1040,21 +1057,21 @@ impl Ctx {
     #[deprecated(note = "use `ctx.gfx.try_create_render_target`")]
     #[cfg(feature = "3d")]
     pub fn try_create_render_target(&mut self, width: u32, height: u32) -> Result<Texture, String> {
-        self.gfx.try_create_render_target(width, height)
+        self.gfx.try_create_render_target(width, height).map_err(String::from)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.try_create_shader`")]
     #[cfg(feature = "3d")]
     pub fn try_create_shader(&mut self, name: &str, source: &str) -> Result<Shader, String> {
-        self.gfx.try_create_shader(name, source)
+        self.gfx.try_create_shader(name, source).map_err(String::from)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.try_create_terrain_material`")]
     #[cfg(feature = "3d")]
     pub fn try_create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Result<Material, String> {
-        self.gfx.try_create_terrain_material(desc)
+        self.gfx.try_create_terrain_material(desc).map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -1067,7 +1084,9 @@ impl Ctx {
         layers: &[&[u8]],
         kind: TextureKind,
     ) -> Result<TextureArray, String> {
-        self.gfx.try_create_texture_array(width, height, layers, kind)
+        self.gfx
+            .try_create_texture_array(width, height, layers, kind)
+            .map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -1079,35 +1098,35 @@ impl Ctx {
         height: u32,
         size: Vec2,
     ) -> Result<(UiPanel3D, crate::render::Model), String> {
-        self.gfx.try_create_ui_panel(width, height, size)
+        self.gfx.try_create_ui_panel(width, height, size).map_err(String::from)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.try_load_clip`")]
     #[cfg(feature = "3d")]
     pub fn try_load_clip(&mut self, path: &str, name: &str) -> Result<AnimationClip, String> {
-        self.gfx.try_load_clip(path, name)
+        self.gfx.try_load_clip(path, name).map_err(String::from)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.try_load_clips`")]
     #[cfg(feature = "3d")]
     pub fn try_load_clips(&mut self, path: &str) -> Result<Vec<AnimationClip>, String> {
-        self.gfx.try_load_clips(path)
+        self.gfx.try_load_clips(path).map_err(String::from)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.try_load_compute`")]
     #[cfg(feature = "3d")]
     pub fn try_load_compute(&mut self, path: &str) -> Result<Compute, String> {
-        self.gfx.try_load_compute(path)
+        self.gfx.try_load_compute(path).map_err(String::from)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.try_load_effect`")]
     #[cfg(feature = "3d")]
     pub fn try_load_effect(&mut self, path: &str) -> Result<Effect, String> {
-        self.gfx.try_load_effect(path)
+        self.gfx.try_load_effect(path).map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -1127,7 +1146,7 @@ impl Ctx {
     #[deprecated(note = "use `ctx.gfx.try_load_shader`")]
     #[cfg(feature = "3d")]
     pub fn try_load_shader(&mut self, path: &str) -> Result<Shader, String> {
-        self.gfx.try_load_shader(path)
+        self.gfx.try_load_shader(path).map_err(String::from)
     }
 
     #[doc(hidden)]
@@ -1153,14 +1172,14 @@ impl Ctx {
     #[deprecated(note = "use `ctx.gfx.try_load_texture_array`")]
     #[cfg(feature = "3d")]
     pub fn try_load_texture_array(&mut self, paths: &[&str], kind: TextureKind) -> Result<TextureArray, String> {
-        self.gfx.try_load_texture_array(paths, kind)
+        self.gfx.try_load_texture_array(paths, kind).map_err(String::from)
     }
 
     #[doc(hidden)]
     #[deprecated(note = "use `ctx.gfx.try_set_decal_textures`")]
     #[cfg(feature = "3d")]
     pub fn try_set_decal_textures(&mut self, array: Option<TextureArray>) -> Result<(), String> {
-        self.gfx.try_set_decal_textures(array)
+        self.gfx.try_set_decal_textures(array).map_err(String::from)
     }
 
     #[doc(hidden)]

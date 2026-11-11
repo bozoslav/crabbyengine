@@ -61,7 +61,7 @@ fn a_mesh_loads_by_name_from_a_memory_source() {
             home,
             "loading again returns the same mesh"
         );
-        let data = ctx.gfx.load_mesh_data("models/home.glb").unwrap();
+        let data = ctx.gfx.load_mesh_data("models/home.glb");
         assert!(!data.indices.is_empty());
         ctx.world.spawn((Transform3D::default(), Model::new(home)));
     });
@@ -132,9 +132,16 @@ fn the_same_mesh_name_in_two_sources_is_two_meshes_and_the_first_wins() {
 fn a_missing_mesh_reports_the_sources_and_folders_searched() {
     game().run_headless(0, |ctx| {
         ctx.assets.add_source(MemorySource::new("pack"));
-        let err = ctx.gfx.load_mesh_data("models/nowhere.glb").unwrap_err();
-        assert!(err.contains("\"models/nowhere.glb\" not found in assets/"), "{err}");
-        assert!(err.contains("Asset sources searched first: \"pack\""), "{err}");
+        let err = ctx.gfx.try_load_mesh_data("models/nowhere.glb").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+        assert!(
+            err.message().contains("\"models/nowhere.glb\" not found in assets/"),
+            "{err}"
+        );
+        assert!(
+            err.message().contains("Asset sources searched first: \"pack\""),
+            "{err}"
+        );
     });
 }
 
@@ -204,15 +211,24 @@ fn shader_errors_name_the_source() {
         ctx.assets
             .add_source(MemorySource::new("pack").with("bad.wgsl", vec![0xff, 0xfe, 0xfd]));
         let err = ctx.gfx.try_load_shader("bad.wgsl").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Decode);
+        assert_eq!(err.path(), Some("bad.wgsl"));
         assert!(
-            err.contains("\"bad.wgsl\" (from asset source \"pack\") is not UTF-8 text"),
+            err.message()
+                .contains("\"bad.wgsl\" (from asset source \"pack\") is not UTF-8 text"),
             "{err}"
         );
         let err = ctx.gfx.try_load_effect("missing.wgsl").unwrap_err();
-        assert!(err.contains("\"missing.wgsl\" not found in assets/"), "{err}");
-        assert!(err.contains("Asset sources searched first: \"pack\""), "{err}");
+        assert!(err.message().contains("\"missing.wgsl\" not found in assets/"), "{err}");
+        assert!(
+            err.message().contains("Asset sources searched first: \"pack\""),
+            "{err}"
+        );
         let err = ctx.gfx.try_load_compute("missing.wgsl").unwrap_err();
-        assert!(err.contains("Asset sources searched first: \"pack\""), "{err}");
+        assert!(
+            err.message().contains("Asset sources searched first: \"pack\""),
+            "{err}"
+        );
     });
 }
 
@@ -221,10 +237,11 @@ fn assets_without_sources_still_say_where_they_looked() {
     game().run_headless(0, |ctx| {
         let err = ctx.gfx.try_load_shader("nowhere.wgsl").unwrap_err();
         assert!(
-            err.contains("\"nowhere.wgsl\" not found in assets/. Looked in:"),
+            err.message()
+                .contains("\"nowhere.wgsl\" not found in assets/. Looked in:"),
             "{err}"
         );
-        assert!(!err.contains("Asset sources searched first"), "{err}");
+        assert!(!err.message().contains("Asset sources searched first"), "{err}");
     });
 }
 
@@ -346,20 +363,27 @@ fn texture_arrays_load_their_layers_from_sources() {
             .gfx
             .try_load_texture_array(&["layers/a.png", "layers/small.png"], TextureKind::Color)
             .unwrap_err();
-        assert!(err.contains("every layer must be the same size"), "{err}");
+        assert_eq!(err.kind(), ErrorKind::Invalid);
+        assert!(err.message().contains("every layer must be the same size"), "{err}");
         let err = ctx
             .gfx
             .try_load_texture_array(&["layers/bad.png"], TextureKind::Color)
             .unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Decode);
+        assert_eq!(err.path(), Some("layers/bad.png"));
         assert!(
-            err.contains("\"layers/bad.png\" (from asset source \"pack\") is not a valid image"),
+            err.message()
+                .contains("\"layers/bad.png\" (from asset source \"pack\") is not a valid image"),
             "{err}"
         );
         let err = ctx
             .gfx
             .try_load_texture_array(&["layers/none.png"], TextureKind::Color)
             .unwrap_err();
-        assert!(err.contains("Asset sources searched first: \"pack\""), "{err}");
+        assert!(
+            err.message().contains("Asset sources searched first: \"pack\""),
+            "{err}"
+        );
     });
 }
 
@@ -382,17 +406,21 @@ fn reflection_probe_images_load_from_sources() {
         let probe = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
         let err = ctx
             .gfx
-            .load_reflection_probe(&mut ctx.world, probe, "sky/bad.exr")
+            .try_load_reflection_probe(&mut ctx.world, probe, "sky/bad.exr")
             .unwrap_err();
-        assert!(err.contains("\"sky/bad.exr\" (from asset source \"pack\")"), "{err}");
+        assert!(
+            err.message().contains("\"sky/bad.exr\" (from asset source \"pack\")"),
+            "{err}"
+        );
         let err = ctx
             .gfx
-            .load_reflection_probe(&mut ctx.world, probe, "sky/none.exr")
+            .try_load_reflection_probe(&mut ctx.world, probe, "sky/none.exr")
             .unwrap_err();
-        assert!(err.contains("Asset sources searched first: \"pack\""), "{err}");
-        ctx.gfx
-            .load_reflection_probe(&mut ctx.world, probe, "sky/room.exr")
-            .unwrap();
+        assert!(
+            err.message().contains("Asset sources searched first: \"pack\""),
+            "{err}"
+        );
+        ctx.gfx.load_reflection_probe(&mut ctx.world, probe, "sky/room.exr");
         assert_ne!(ctx.world.get::<ReflectionProbe3D>(probe).unwrap().content, 0);
     });
 }

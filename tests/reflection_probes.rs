@@ -51,22 +51,24 @@ fn loading_needs_a_two_to_one_finite_image() {
         let entity = ctx.world.spawn((Transform3D::default(), ReflectionProbe3D::default()));
         let bad = ctx
             .gfx
-            .load_reflection_probe(&mut ctx.world, entity, &square)
+            .try_load_reflection_probe(&mut ctx.world, entity, &square)
             .unwrap_err();
-        assert!(bad.contains("2:1"), "{bad}");
-        assert!(
-            ctx.gfx
-                .load_reflection_probe(&mut ctx.world, entity, &broken)
-                .unwrap_err()
-                .contains("finite")
-        );
-        assert!(
-            ctx.gfx
-                .load_reflection_probe(&mut ctx.world, entity, "missing-probe.exr")
-                .is_err()
-        );
+        assert_eq!(bad.kind(), ErrorKind::Invalid);
+        assert!(bad.message().contains("2:1"), "{bad}");
+        let broken = ctx
+            .gfx
+            .try_load_reflection_probe(&mut ctx.world, entity, &broken)
+            .unwrap_err();
+        assert_eq!(broken.kind(), ErrorKind::Decode);
+        assert!(broken.message().contains("finite"), "{broken}");
+        let missing = ctx
+            .gfx
+            .try_load_reflection_probe(&mut ctx.world, entity, "missing-probe.exr")
+            .unwrap_err();
+        assert_eq!(missing.kind(), ErrorKind::NotFound);
+        assert_eq!(missing.path(), Some("missing-probe.exr"));
         assert_eq!(ctx.world.get::<ReflectionProbe3D>(entity).unwrap().content, 0);
-        ctx.gfx.load_reflection_probe(&mut ctx.world, entity, &good).unwrap();
+        ctx.gfx.load_reflection_probe(&mut ctx.world, entity, &good);
         assert_ne!(ctx.world.get::<ReflectionProbe3D>(entity).unwrap().content, 0);
     });
     for path in [good, square, broken] {
@@ -86,6 +88,7 @@ fn a_fifth_environment_is_refused() {
             ctx.gfx
                 .bake_reflection_probe(&mut ctx.world, fifth)
                 .unwrap_err()
+                .message()
                 .contains("four")
         );
     });

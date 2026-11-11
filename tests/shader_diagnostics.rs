@@ -20,7 +20,8 @@ const GOOD: &str = "fn surface(s: Surface) -> Surface {\n    var out = s;\n    o
 fn a_broken_shader_says_where_and_why_in_its_own_lines() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let err = ctx.gfx.try_create_shader("red.wgsl", BROKEN).unwrap_err();
-        assert!(err.starts_with("red.wgsl:3:12: error: "), "{err}");
+        assert_eq!(err.kind(), ErrorKind::Shader);
+        assert!(err.message().starts_with("red.wgsl:3:12: error: "), "{err}");
 
         let status = ctx.gfx.shader_status();
         assert_eq!(status.len(), 1);
@@ -33,7 +34,7 @@ fn a_broken_shader_says_where_and_why_in_its_own_lines() {
         assert_eq!(d.source_line.as_deref(), Some("    return 1.0;"));
         assert!(d.message.contains("Surface"), "{}", d.message);
         assert!(!d.variant.is_empty());
-        assert_eq!(err, d.to_string(), "the error string is the diagnostic");
+        assert_eq!(err.message(), d.to_string(), "the error message is the diagnostic");
     });
 }
 
@@ -85,7 +86,11 @@ fn a_hook_with_the_wrong_signature_is_reported_in_the_engines_code() {
             .unwrap_err();
         let d = &ctx.gfx.shader_status()[0].diagnostics[0];
         assert!(d.in_engine_code, "{err}");
-        assert!(err.starts_with("fx.wgsl (in the engine's code around it"), "{err}");
+        assert_eq!(err.kind(), ErrorKind::Shader);
+        assert!(
+            err.message().starts_with("fx.wgsl (in the engine's code around it"),
+            "{err}"
+        );
     });
 }
 
@@ -228,7 +233,9 @@ fn without_hot_reload_a_shader_file_that_fails_is_an_error() {
     let name = path.to_str().unwrap().to_string();
     Game::new("shader", 1, 1).hot_reload(false).run_headless(0, move |ctx| {
         let err = ctx.gfx.try_load_shader(&name).unwrap_err();
-        assert!(err.contains(":3:12: error: "), "{err}");
+        assert_eq!(err.kind(), ErrorKind::Shader);
+        assert_eq!(err.path(), Some(name.as_str()));
+        assert!(err.message().contains(":3:12: error: "), "{err}");
         assert_eq!(ctx.gfx.shader_status()[0].outcome, ShaderOutcome::Failed);
         assert_eq!(ctx.live_counts().shaders, 0, "no handle was made");
     });

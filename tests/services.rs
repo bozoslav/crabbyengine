@@ -448,9 +448,9 @@ fn data_files_load_while_a_world_query_is_alive() {
         // into another world here, since the query has the game's.
         let mut scratch = World::new();
         for p in ctx.world.query::<&mut Pos>().iter() {
-            let found = ctx.assets.load_with("rules.json", |bytes| {
-                serde_json::from_slice::<Rules>(bytes).map_err(|e| e.to_string())
-            });
+            let found = ctx
+                .assets
+                .load_with("rules.json", |bytes| Ok(serde_json::from_slice::<Rules>(bytes)?));
             p.0 = found.unwrap().speed;
             ctx.assets.load_resource::<Rules>(&mut scratch, "rules.json");
         }

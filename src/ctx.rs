@@ -809,7 +809,7 @@ impl Ctx {
                 }
                 Asset::Data(i) => {
                     let applied = assets::read_to_string(&file)
-                        .and_then(|text| (self.assets.data_loaders[i])(&mut self.world, &text));
+                        .and_then(|text| (self.assets.data_loaders[i])(&mut self.world, &text).map_err(String::from));
                     self.assets.report_reload(name, applied);
                     continue;
                 }

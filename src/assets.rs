@@ -257,13 +257,17 @@ impl Found {
         }
     }
 
-    /// The asset as UTF-8 text; `name` is for messages.
-    pub(crate) fn into_text(self, name: &str) -> Result<String, String> {
+    /// The asset as UTF-8 text; `name` is for messages and the error's path.
+    /// Bytes that aren't UTF-8 are [`ErrorKind::Decode`](crate::ErrorKind::Decode).
+    pub(crate) fn into_text(self, name: &str) -> Result<String, crate::Error> {
         let origin = self.origin.clone();
-        let bytes = self.into_bytes()?;
-        String::from_utf8(bytes).map_err(|e| match &origin {
-            Origin::File(path) => format!("{} is not UTF-8 text: {e}", path.display()),
-            Origin::Source { .. } => format!("{} is not UTF-8 text: {e}", origin.describe(name)),
+        let bytes = self.into_bytes().map_err(|e| e.with_path(name))?;
+        String::from_utf8(bytes).map_err(|e| {
+            let message = match &origin {
+                Origin::File(path) => format!("{} is not UTF-8 text: {e}", path.display()),
+                Origin::Source { .. } => format!("{} is not UTF-8 text: {e}", origin.describe(name)),
+            };
+            crate::Error::decode(name, message)
         })
     }
 }
@@ -543,6 +547,21 @@ pub(crate) fn write(name: &str, _: &[u8]) -> Result<PathBuf, String> {
     Err(format!("can't save \"{name}\": web builds have no files"))
 }
 
+/// [`write`] for the public save calls: a failure is
+/// [`ErrorKind::Io`](crate::ErrorKind::Io) naming `name`, or
+/// [`Unsupported`](crate::ErrorKind::Unsupported) in web builds, which have
+/// no files.
+pub(crate) fn write_asset(name: &str, bytes: &[u8]) -> Result<(), crate::Error> {
+    let kind = if cfg!(target_arch = "wasm32") {
+        crate::ErrorKind::Unsupported
+    } else {
+        crate::ErrorKind::Io
+    };
+    write(name, bytes)
+        .map(|_| ())
+        .map_err(|e| crate::Error::new(kind, e).with_path(name))
+}
+
 /// Reads an asset file found by [`resolve`] as UTF-8 text.
 pub(crate) fn read_to_string(path: &Path) -> Result<String, String> {
     let bytes = read(path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
@@ -608,7 +627,7 @@ pub(crate) fn decode_image(bytes: &[u8]) -> Result<Image, String> {
 }
 
 /// How to apply a loaded data file's text to the world (kept for reloads).
-pub(crate) type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), String>>;
+pub(crate) type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), crate::Error>>;
 
 /// Asset files: `ctx.assets`.
 ///
@@ -713,8 +732,9 @@ impl Assets {
     /// registration. Nothing is cached and nothing is watched: it reads and
     /// decodes each call, so keep the result.
     ///
-    /// `decode` gets the bytes and returns your value, or an error message
-    /// that is reported with the asset's name and source.
+    /// `decode` gets the bytes and returns your value, or a [`crate::Error`]
+    /// (usually [`ErrorKind::Decode`](crate::ErrorKind::Decode)), which is
+    /// reported with the asset's name and source in front of its message.
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -726,7 +746,7 @@ impl Assets {
     ///     let level = ctx
     ///         .assets
     ///         .load_with("levels/one.tiles", |bytes| {
-    ///             let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+    ///             let text = std::str::from_utf8(bytes).map_err(|e| Error::new(ErrorKind::Decode, e.to_string()))?;
     ///             Ok(Tiles(text.lines().map(|row| row.bytes().collect()).collect()))
     ///         })
     ///         .unwrap();
@@ -736,17 +756,26 @@ impl Assets {
     /// ```
     ///
     /// # Errors
-    /// If no source has the asset (the message says where it looked), reading
-    /// it fails, or `decode` returns an error.
-    pub fn load_with<T>(&self, name: &str, decode: impl FnOnce(&[u8]) -> Result<T, String>) -> Result<T, String> {
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if no source has
+    /// the asset (the message says where it looked), [`Io`](crate::ErrorKind::Io)
+    /// if reading it fails, and `decode`'s error, with its kind, if it fails.
+    /// The error's path is `name`.
+    pub fn load_with<T>(
+        &self,
+        name: &str,
+        decode: impl FnOnce(&[u8]) -> Result<T, crate::Error>,
+    ) -> Result<T, crate::Error> {
         let found = self.asset_sources.find(name)?;
         let origin = found.origin.clone();
-        let bytes = found.into_bytes()?;
-        decode(&bytes).map_err(|e| format!("{} could not be decoded: {e}", origin.describe(name)))
+        let bytes = found.into_bytes().map_err(|e| e.with_path(name))?;
+        decode(&bytes).map_err(|e| {
+            e.context(format!("{} could not be decoded", origin.describe(name)))
+                .with_path(name)
+        })
     }
 
     /// Reads asset `name` as UTF-8 text from the first source that has it.
-    pub(crate) fn read_text(&self, name: &str) -> Result<(Origin, String), String> {
+    pub(crate) fn read_text(&self, name: &str) -> Result<(Origin, String), crate::Error> {
         let found = self.asset_sources.find(name)?;
         let origin = found.origin.clone();
         Ok((origin, found.into_text(name)?))
@@ -786,12 +815,12 @@ impl Assets {
             world,
             path,
             Box::new(|world: &mut World, text: &str| {
-                let value: R = serde_json::from_str(text).map_err(|e| e.to_string())?;
+                let value: R = serde_json::from_str(text)?;
                 world.insert_resource(value);
                 Ok(())
             }),
         );
-        loaded.unwrap_or_else(|e| panic!("ponko: {e}"));
+        loaded.unwrap_or_else(|e| panic!("{e}"));
     }
 
     /// Loads a JSON file into the reflected component `T` of `entity` (object
@@ -802,16 +831,21 @@ impl Assets {
     /// # use ponko::prelude::*;
     /// # #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
     /// # struct Stats { hp: f32 }
-    /// # fn f(ctx: &mut Ctx, e: Entity) -> Result<(), String> {
+    /// # fn f(ctx: &mut Ctx, e: Entity) -> Result<(), ponko::Error> {
     /// ctx.assets.load_component_json::<Stats>(&mut ctx.world, "stats.json", e)?;
     /// # Ok(()) }
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// As [`load_resource_json`](Self::load_resource_json), and
+    /// [`ErrorKind::BadHandle`](crate::ErrorKind::BadHandle) if `entity` is dead.
     pub fn load_component_json<T: 'static>(
         &mut self,
         world: &mut World,
         path: &str,
         entity: Entity,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::Error> {
         self.load_component_json_named(
             world,
             path,
@@ -831,14 +865,14 @@ impl Assets {
         path: &str,
         entity: Entity,
         component: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::Error> {
         let component = component.to_string();
         self.load_data(
             world,
             path,
             Box::new(move |world: &mut World, text: &str| {
-                let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
-                world.set_json(entity, &component, value).map_err(|e| e.to_string())
+                let value: serde_json::Value = serde_json::from_str(text)?;
+                Ok(world.set_json(entity, &component, value)?)
             }),
         )
     }
@@ -852,11 +886,19 @@ impl Assets {
     /// # use ponko::prelude::*;
     /// # #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
     /// # struct Rules { speed: f32 }
-    /// # fn f(ctx: &mut Ctx) -> Result<(), String> {
+    /// # fn f(ctx: &mut Ctx) -> Result<(), ponko::Error> {
     /// ctx.assets.load_resource_json::<Rules>(&mut ctx.world, "rules.json")?;
     /// # Ok(()) }
     /// ```
-    pub fn load_resource_json<T: 'static>(&mut self, world: &mut World, path: &str) -> Result<(), String> {
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
+    /// missing or `T` isn't registered, [`Io`](crate::ErrorKind::Io) if it
+    /// can't be read, [`Decode`](crate::ErrorKind::Decode) if it isn't UTF-8
+    /// and [`Json`](crate::ErrorKind::Json) if it isn't valid JSON for `T`.
+    /// The error's path is `path`.
+    pub fn load_resource_json<T: 'static>(&mut self, world: &mut World, path: &str) -> Result<(), crate::Error> {
         self.load_resource_json_named(world, path, &crate::reflect::short_name(std::any::type_name::<T>()))
     }
 
@@ -864,21 +906,21 @@ impl Assets {
     /// and C++ way. Rust code that has the type uses
     /// [`load_resource_json`](Self::load_resource_json).
     #[doc(hidden)]
-    pub fn load_resource_json_named(&mut self, world: &mut World, path: &str, name: &str) -> Result<(), String> {
+    pub fn load_resource_json_named(&mut self, world: &mut World, path: &str, name: &str) -> Result<(), crate::Error> {
         let name = name.to_string();
         self.load_data(
             world,
             path,
             Box::new(move |world: &mut World, text: &str| {
-                let value: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
-                world.set_resource_json(&name, value).map_err(|e| e.to_string())
+                let value: serde_json::Value = serde_json::from_str(text)?;
+                Ok(world.set_resource_json(&name, value)?)
             }),
         )
     }
 
-    fn load_data(&mut self, world: &mut World, path: &str, apply: DataLoader) -> Result<(), String> {
+    fn load_data(&mut self, world: &mut World, path: &str, apply: DataLoader) -> Result<(), crate::Error> {
         let (origin, text) = self.read_text(path)?;
-        apply(world, &text).map_err(|e| format!("{path}: {e}"))?;
+        apply(world, &text).map_err(|e| e.context(path).with_path(path))?;
         self.data_loaders.push(apply);
         if let Origin::File(file) = origin {
             self.watcher.watch(path, file, Asset::Data(self.data_loaders.len() - 1));
@@ -898,10 +940,11 @@ impl Assets {
     ///
     /// # Errors
     ///
-    /// If the file can't be written.
-    pub fn save_scene(&self, world: &World, path: &str) -> Result<(), String> {
-        let text = serde_json::to_string_pretty(&world.save()).map_err(|e| e.to_string())?;
-        write(path, text.as_bytes()).map(|_| ())
+    /// [`ErrorKind::Io`](crate::ErrorKind::Io) if the file can't be written
+    /// ([`Unsupported`](crate::ErrorKind::Unsupported) in web builds).
+    pub fn save_scene(&self, world: &World, path: &str) -> Result<(), crate::Error> {
+        let text = serde_json::to_string_pretty(&world.save())?;
+        write_asset(path, text.as_bytes())
     }
 
     /// Saves entity `e` (its reflected components) as a prefab in
@@ -917,15 +960,17 @@ impl Assets {
     ///
     /// # Errors
     ///
-    /// If `e` is dead or the file can't be written.
-    pub fn save_prefab(&mut self, world: &World, e: Entity, path: &str) -> Result<(), String> {
-        let mut components = world.entity_json(e).map_err(|e| e.to_string())?;
+    /// [`ErrorKind::BadHandle`](crate::ErrorKind::BadHandle) if `e` is dead,
+    /// [`Io`](crate::ErrorKind::Io) if the file can't be written
+    /// ([`Unsupported`](crate::ErrorKind::Unsupported) in web builds).
+    pub fn save_prefab(&mut self, world: &World, e: Entity, path: &str) -> Result<(), crate::Error> {
+        let mut components = world.entity_json(e)?;
         if let Some(t) = components.get_mut("Transform2D") {
             t["position"] = json!([0.0, 0.0]);
         }
         let prefab = json!({ "format": PREFAB_FORMAT, "version": PREFAB_VERSION, "components": components });
-        let text = serde_json::to_string_pretty(&prefab).map_err(|e| e.to_string())?;
-        write(path, text.as_bytes())?;
+        let text = serde_json::to_string_pretty(&prefab)?;
+        write_asset(path, text.as_bytes())?;
         self.prefabs.insert(path.to_string(), components);
         Ok(())
     }
