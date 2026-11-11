@@ -2503,6 +2503,29 @@ void stream_out(ponko::ctx& ctx) {
 }
 // ANCHOR_END: handles
 
+// ANCHOR: asset_leaks
+void find_leaks(ponko::ctx& ctx) {
+    const auto before = ctx.asset_count(ponko::asset_class::material);
+    for (int level = 0; level < 3; level++) {
+        auto house = ctx.load_mesh("models/house.glb");
+        ctx.free(house);  // keeps the file's materials and textures for next time
+    }
+    // Loading the same file again reuses them: only the first load grew.
+    const auto grown = ctx.asset_count(ponko::asset_class::material);
+    std::printf("materials: %zu more\n", grown.live - before.live);
+    // Which textures are there, how old, and who made them?
+    for (const auto& r : ctx.asset_handles(ponko::asset_class::texture)) {
+        if (r.owner == static_cast<std::uint32_t>(ponko::asset_owner::file))
+            std::printf("texture %u: %llu bytes, %llu frames old, from %s\n", r.id,
+                        static_cast<unsigned long long>(r.bytes), static_cast<unsigned long long>(r.age_frames),
+                        ctx.asset_owner_name(ponko::asset_class::texture, r.id).c_str());
+    }
+    // Done with the model for good: free its materials and textures too.
+    ctx.unload_mesh("models/house.glb");
+    if (ctx.asset_count(ponko::asset_class::material).live != before.live) std::abort();
+}
+// ANCHOR_END: asset_leaks
+
 // ANCHOR: streaming
 void streaming_setup(ponko::ctx& ctx) {
     // Memory caps for what loads by name, and bytes sent to the GPU per frame.
@@ -2726,6 +2749,7 @@ int main() {
     (void)&controls;
     ponko::game("gpu buffers", 1, 1).run_headless(0, gpu_particles);
     ponko::game("handles", 1, 1).run_headless(0, stream_out);
+    ponko::game("asset leaks", 1, 1).run_headless(0, find_leaks);
     ponko::game("streaming", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
         streaming_setup(ctx);
         draw_crab(ctx);

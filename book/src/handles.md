@@ -67,7 +67,7 @@ defined. Nothing panics and nothing reads freed memory:
 
 | Freed | What still uses it does |
 |---|---|
-| Mesh | A model showing it draws nothing, like `Mesh::NONE`. |
+| Mesh | A model showing it draws nothing, like `Mesh::NONE`. An instance batch drawing it (or one of its levels) draws nothing from the next frame on, never the mesh made later in the freed one's slot; free the batch first. |
 | Texture | Materials and sprites sample white, as if they had no texture. A freed normal, ORM or emissive map is ignored. |
 | Material | Meshes draw with the default material. |
 | Shader | Materials using it draw with the built-in shader. |
@@ -81,6 +81,27 @@ defined. Nothing panics and nothing reads freed memory:
 Updating a freed handle (`update_texture`, `update_material`) does nothing,
 and a hot-reloaded file no longer touches it. Loading a freed file again
 (`load_mesh`, `load_texture`) loads a fresh copy with a new id.
+
+## Loaded files and their caches
+
+What loads by name is cached by name: loading the same file again returns
+the same handle and reads nothing. Freeing the handle also forgets the
+cache entry and stops hot reload watching the file, so the next load reads
+it afresh. Hot reload replaces an edited texture, sound, font or shader in
+place, under the same handle, without making anything new.
+
+A glTF model is more than its mesh. `load_mesh` also makes the file's
+materials and the textures they use, and they outlive the mesh:
+
+- **Freeing the mesh** keeps the file's materials and textures, with any
+  edits made with `update_material`, for the next `load_mesh` of the same
+  file. A level that loads and frees the same models every time stays flat.
+- **Freeing one of those materials or textures** and loading the file again
+  makes only what was freed again; the rest are reused.
+- **`ctx.gfx.unload_mesh(path)`** frees everything loading the file made:
+  its mesh, its materials and its textures, except images another loaded
+  file shares. Use it in a long-running game that loads many different
+  models over time; it returns false when the file wasn't loaded.
 
 To hide something for a while, show `Mesh::NONE` instead of freeing it, and
 show the real mesh again later. Free when you won't need it again.
@@ -97,10 +118,42 @@ let before = ctx.live_counts();
 assert_eq!(ctx.live_counts(), before);
 ```
 
-`ctx.asset_inventory()` counts the same handles with estimated bytes (its
-texture count also includes the engine's own textures), and its `dangling`
-list names the sprites and models that still show a freed texture, mesh or
-material. The control endpoint's `perf.get` includes it as `assets`.
+## Finding a leak
+
+`ctx.asset_inventory()` counts the same handles by class with estimated
+bytes (its texture count also includes the engine's own textures), and its
+`dangling` list names the sprites and models that still show a freed
+texture, mesh or material. The control endpoint's `perf.get` includes it as
+`assets`. Take one as a baseline, run the game for a while, and
+`growth_since(&baseline)` names the classes that grew, the biggest first.
+
+`ctx.asset_handles(class)` then lists every live handle of that class,
+oldest first, with its bytes, the frame it was made on, its age in frames
+and its owner: game code, the asset file that loaded it (for a glTF model's
+materials and textures, the model's file), or the engine. Handles that keep
+getting older while the class grows are the ones nothing frees.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../tests/asset_inventory.rs:asset_leaks}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:asset_leaks}}
+```
+
+</div>
+</div>
+
+Both read the engine's own handle tables, so they also work in headless
+tests; a windowed game's inventory adds `gpu`, what the renderer really
+holds, to cross-check them. Leak tests in the engine load, free, replace
+and hot-reload assets in loops and expect `growth_since` to stay empty.
 
 ## The older names
 
@@ -132,3 +185,19 @@ ponko_ctx_live_counts(ctx, &counts);
 An unknown kind is an invalid argument. `PONKO_HANDLE_NONE` is the empty id
 for every kind. C API calls that take a handle report a freed one as an
 invalid argument.
+
+The inventory takes a class (`PonkoAssetClass`, which counts the engine's
+textures and lists render targets on their own) instead of a kind:
+
+```c
+PonkoAssetCount textures;
+ponko_ctx_asset_count(ctx, PONKO_ASSET_CLASS_TEXTURE, &textures);
+size_t n = 0;
+ponko_ctx_asset_handles(ctx, PONKO_ASSET_CLASS_TEXTURE, NULL, 0, &n); /* how many */
+/* ...then again with an array of n PonkoAssetRecord: id, owner, bytes, made_frame, age_frames */
+char name[256];
+size_t len = 0;
+ponko_ctx_asset_owner(ctx, PONKO_ASSET_CLASS_TEXTURE, id, name, sizeof name, &len);
+bool unloaded = false;
+ponko_ctx_unload_mesh(ctx, "models/house.glb", &unloaded);
+```

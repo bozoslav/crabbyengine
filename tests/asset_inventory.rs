@@ -486,3 +486,40 @@ mod files {
         });
     }
 }
+
+/// The guide's leak hunt: compare inventories, then list the handles of
+/// the class that grew with their age and owner.
+#[cfg(feature = "3d")]
+#[test]
+fn the_guide_leak_hunt_runs() {
+    headless(|ctx| {
+        // ANCHOR: asset_leaks
+        use ponko::inventory::{AssetClass, AssetOwner};
+        let before = ctx.asset_inventory();
+        for _level in 0..3 {
+            let house = ctx.gfx.load_mesh("models/house.glb");
+            ctx.free(house); // keeps the file's materials and textures for next time
+        }
+        // Loading the same file again reuses them: only the first load grew.
+        for grown in ctx.asset_inventory().growth_since(&before) {
+            println!(
+                "{}: {} more handles, {} more bytes",
+                grown.class, grown.live, grown.bytes
+            );
+            // Which handles are they, how old, and who made them?
+            for r in ctx.asset_handles(grown.class) {
+                if let AssetOwner::File(name) = &r.owner {
+                    println!(
+                        "  {} {}: {} bytes, {} frames old, from {name}",
+                        r.class, r.id, r.bytes, r.age_frames
+                    );
+                }
+            }
+        }
+        // Done with the model for good: free its materials and textures too.
+        ctx.gfx.unload_mesh("models/house.glb");
+        assert!(ctx.asset_inventory().growth_since(&before).is_empty());
+        // ANCHOR_END: asset_leaks
+        let _ = AssetClass::Texture;
+    });
+}
