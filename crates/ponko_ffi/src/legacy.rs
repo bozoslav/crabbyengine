@@ -1105,6 +1105,201 @@ pub use CrabbyHandleKind::CRABBY_HANDLE_TEXTURE_ARRAY;
 #[repr(C)]
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyAssetClass {
+    CRABBY_ASSET_CLASS_TEXTURE = 0,
+
+    CRABBY_ASSET_CLASS_RENDER_TARGET = 1,
+
+    CRABBY_ASSET_CLASS_TEXTURE_ARRAY = 2,
+
+    CRABBY_ASSET_CLASS_MATERIAL = 3,
+
+    CRABBY_ASSET_CLASS_SHADER = 4,
+
+    CRABBY_ASSET_CLASS_MESH = 5,
+
+    CRABBY_ASSET_CLASS_GPU_BUFFER = 6,
+
+    CRABBY_ASSET_CLASS_EFFECT = 7,
+
+    CRABBY_ASSET_CLASS_COMPUTE = 8,
+
+    CRABBY_ASSET_CLASS_SOUND = 9,
+}
+impl From<crate::PonkoAssetClass> for CrabbyAssetClass {
+    fn from(value: crate::PonkoAssetClass) -> Self {
+        match value {
+            crate::PonkoAssetClass::PONKO_ASSET_CLASS_TEXTURE => Self::CRABBY_ASSET_CLASS_TEXTURE,
+            crate::PonkoAssetClass::PONKO_ASSET_CLASS_RENDER_TARGET => Self::CRABBY_ASSET_CLASS_RENDER_TARGET,
+            crate::PonkoAssetClass::PONKO_ASSET_CLASS_TEXTURE_ARRAY => Self::CRABBY_ASSET_CLASS_TEXTURE_ARRAY,
+            crate::PonkoAssetClass::PONKO_ASSET_CLASS_MATERIAL => Self::CRABBY_ASSET_CLASS_MATERIAL,
+            crate::PonkoAssetClass::PONKO_ASSET_CLASS_SHADER => Self::CRABBY_ASSET_CLASS_SHADER,
+            crate::PonkoAssetClass::PONKO_ASSET_CLASS_MESH => Self::CRABBY_ASSET_CLASS_MESH,
+            crate::PonkoAssetClass::PONKO_ASSET_CLASS_GPU_BUFFER => Self::CRABBY_ASSET_CLASS_GPU_BUFFER,
+            crate::PonkoAssetClass::PONKO_ASSET_CLASS_EFFECT => Self::CRABBY_ASSET_CLASS_EFFECT,
+            crate::PonkoAssetClass::PONKO_ASSET_CLASS_COMPUTE => Self::CRABBY_ASSET_CLASS_COMPUTE,
+            crate::PonkoAssetClass::PONKO_ASSET_CLASS_SOUND => Self::CRABBY_ASSET_CLASS_SOUND,
+        }
+    }
+}
+impl From<CrabbyAssetClass> for crate::PonkoAssetClass {
+    fn from(value: CrabbyAssetClass) -> Self {
+        match value {
+            CrabbyAssetClass::CRABBY_ASSET_CLASS_TEXTURE => Self::PONKO_ASSET_CLASS_TEXTURE,
+            CrabbyAssetClass::CRABBY_ASSET_CLASS_RENDER_TARGET => Self::PONKO_ASSET_CLASS_RENDER_TARGET,
+            CrabbyAssetClass::CRABBY_ASSET_CLASS_TEXTURE_ARRAY => Self::PONKO_ASSET_CLASS_TEXTURE_ARRAY,
+            CrabbyAssetClass::CRABBY_ASSET_CLASS_MATERIAL => Self::PONKO_ASSET_CLASS_MATERIAL,
+            CrabbyAssetClass::CRABBY_ASSET_CLASS_SHADER => Self::PONKO_ASSET_CLASS_SHADER,
+            CrabbyAssetClass::CRABBY_ASSET_CLASS_MESH => Self::PONKO_ASSET_CLASS_MESH,
+            CrabbyAssetClass::CRABBY_ASSET_CLASS_GPU_BUFFER => Self::PONKO_ASSET_CLASS_GPU_BUFFER,
+            CrabbyAssetClass::CRABBY_ASSET_CLASS_EFFECT => Self::PONKO_ASSET_CLASS_EFFECT,
+            CrabbyAssetClass::CRABBY_ASSET_CLASS_COMPUTE => Self::PONKO_ASSET_CLASS_COMPUTE,
+            CrabbyAssetClass::CRABBY_ASSET_CLASS_SOUND => Self::PONKO_ASSET_CLASS_SOUND,
+        }
+    }
+}
+const _: () = {
+    assert!(std::mem::size_of::<CrabbyAssetClass>() == std::mem::size_of::<crate::PonkoAssetClass>());
+    assert!(std::mem::align_of::<CrabbyAssetClass>() == std::mem::align_of::<crate::PonkoAssetClass>());
+    assert!(
+        CrabbyAssetClass::CRABBY_ASSET_CLASS_TEXTURE as u32 == crate::PonkoAssetClass::PONKO_ASSET_CLASS_TEXTURE as u32
+    );
+    assert!(
+        CrabbyAssetClass::CRABBY_ASSET_CLASS_RENDER_TARGET as u32
+            == crate::PonkoAssetClass::PONKO_ASSET_CLASS_RENDER_TARGET as u32
+    );
+    assert!(
+        CrabbyAssetClass::CRABBY_ASSET_CLASS_TEXTURE_ARRAY as u32
+            == crate::PonkoAssetClass::PONKO_ASSET_CLASS_TEXTURE_ARRAY as u32
+    );
+    assert!(
+        CrabbyAssetClass::CRABBY_ASSET_CLASS_MATERIAL as u32
+            == crate::PonkoAssetClass::PONKO_ASSET_CLASS_MATERIAL as u32
+    );
+    assert!(
+        CrabbyAssetClass::CRABBY_ASSET_CLASS_SHADER as u32 == crate::PonkoAssetClass::PONKO_ASSET_CLASS_SHADER as u32
+    );
+    assert!(CrabbyAssetClass::CRABBY_ASSET_CLASS_MESH as u32 == crate::PonkoAssetClass::PONKO_ASSET_CLASS_MESH as u32);
+    assert!(
+        CrabbyAssetClass::CRABBY_ASSET_CLASS_GPU_BUFFER as u32
+            == crate::PonkoAssetClass::PONKO_ASSET_CLASS_GPU_BUFFER as u32
+    );
+    assert!(
+        CrabbyAssetClass::CRABBY_ASSET_CLASS_EFFECT as u32 == crate::PonkoAssetClass::PONKO_ASSET_CLASS_EFFECT as u32
+    );
+    assert!(
+        CrabbyAssetClass::CRABBY_ASSET_CLASS_COMPUTE as u32 == crate::PonkoAssetClass::PONKO_ASSET_CLASS_COMPUTE as u32
+    );
+    assert!(
+        CrabbyAssetClass::CRABBY_ASSET_CLASS_SOUND as u32 == crate::PonkoAssetClass::PONKO_ASSET_CLASS_SOUND as u32
+    );
+};
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetClass::CRABBY_ASSET_CLASS_COMPUTE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetClass::CRABBY_ASSET_CLASS_EFFECT;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetClass::CRABBY_ASSET_CLASS_GPU_BUFFER;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetClass::CRABBY_ASSET_CLASS_MATERIAL;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetClass::CRABBY_ASSET_CLASS_MESH;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetClass::CRABBY_ASSET_CLASS_RENDER_TARGET;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetClass::CRABBY_ASSET_CLASS_SHADER;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetClass::CRABBY_ASSET_CLASS_SOUND;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetClass::CRABBY_ASSET_CLASS_TEXTURE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetClass::CRABBY_ASSET_CLASS_TEXTURE_ARRAY;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CrabbyAssetOwner {
+    CRABBY_ASSET_OWNER_CODE = 0,
+
+    CRABBY_ASSET_OWNER_FILE = 1,
+
+    CRABBY_ASSET_OWNER_ENGINE = 2,
+}
+impl From<crate::PonkoAssetOwner> for CrabbyAssetOwner {
+    fn from(value: crate::PonkoAssetOwner) -> Self {
+        match value {
+            crate::PonkoAssetOwner::PONKO_ASSET_OWNER_CODE => Self::CRABBY_ASSET_OWNER_CODE,
+            crate::PonkoAssetOwner::PONKO_ASSET_OWNER_FILE => Self::CRABBY_ASSET_OWNER_FILE,
+            crate::PonkoAssetOwner::PONKO_ASSET_OWNER_ENGINE => Self::CRABBY_ASSET_OWNER_ENGINE,
+        }
+    }
+}
+impl From<CrabbyAssetOwner> for crate::PonkoAssetOwner {
+    fn from(value: CrabbyAssetOwner) -> Self {
+        match value {
+            CrabbyAssetOwner::CRABBY_ASSET_OWNER_CODE => Self::PONKO_ASSET_OWNER_CODE,
+            CrabbyAssetOwner::CRABBY_ASSET_OWNER_FILE => Self::PONKO_ASSET_OWNER_FILE,
+            CrabbyAssetOwner::CRABBY_ASSET_OWNER_ENGINE => Self::PONKO_ASSET_OWNER_ENGINE,
+        }
+    }
+}
+const _: () = {
+    assert!(std::mem::size_of::<CrabbyAssetOwner>() == std::mem::size_of::<crate::PonkoAssetOwner>());
+    assert!(std::mem::align_of::<CrabbyAssetOwner>() == std::mem::align_of::<crate::PonkoAssetOwner>());
+    assert!(CrabbyAssetOwner::CRABBY_ASSET_OWNER_CODE as u32 == crate::PonkoAssetOwner::PONKO_ASSET_OWNER_CODE as u32);
+    assert!(CrabbyAssetOwner::CRABBY_ASSET_OWNER_FILE as u32 == crate::PonkoAssetOwner::PONKO_ASSET_OWNER_FILE as u32);
+    assert!(
+        CrabbyAssetOwner::CRABBY_ASSET_OWNER_ENGINE as u32 == crate::PonkoAssetOwner::PONKO_ASSET_OWNER_ENGINE as u32
+    );
+};
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoAssetCount as CrabbyAssetCount;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoAssetRecord as CrabbyAssetRecord;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetOwner::CRABBY_ASSET_OWNER_CODE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetOwner::CRABBY_ASSET_OWNER_ENGINE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyAssetOwner::CRABBY_ASSET_OWNER_FILE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[repr(C)]
+#[allow(non_camel_case_types)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CrabbyKey {
     CRABBY_KEY_A,
 
@@ -3419,6 +3614,14 @@ pub use crate::PonkoCollisionMeshData as CrabbyCollisionMeshData;
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
 pub use crate::PonkoHit3D as CrabbyHit3D;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoQueryCachePolicy as CrabbyQueryCachePolicy;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoQueryCacheStats as CrabbyQueryCacheStats;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
@@ -8711,6 +8914,79 @@ pub unsafe extern "C" fn crabby_ctx_live_counts(
     (unsafe { crate::ponko_ctx_live_counts(ctx, out_counts) }).into()
 }
 
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_asset_count`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_asset_count(
+    ctx: *mut CrabbyCtx,
+    asset_class_id: u32,
+    out_count: *mut CrabbyAssetCount,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_asset_count(ctx, asset_class_id, out_count) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_asset_handles`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_asset_handles(
+    ctx: *mut CrabbyCtx,
+    asset_class_id: u32,
+    records: *mut CrabbyAssetRecord,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_asset_handles(ctx, asset_class_id, records, capacity, out_len) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_asset_owner`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_asset_owner(
+    ctx: *mut CrabbyCtx,
+    asset_class_id: u32,
+    id: u32,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_asset_owner(ctx, asset_class_id, id, buffer, capacity, out_len) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_unload_mesh`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_unload_mesh(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_unloaded: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_unload_mesh(ctx, path, out_unloaded) }).into()
+}
+
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
@@ -11281,6 +11557,104 @@ pub unsafe extern "C" fn crabby_ctx_physics3d_is_collider_active(
     // pointer, lifetime, ownership and callback preconditions. Distinct value
     // types have identical repr(C) layouts and valid discriminants, checked above.
     (unsafe { crate::ponko_ctx_physics3d_is_collider_active(ctx, entity, out_active) }).into()
+}
+
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PONKO_QUERY_CACHE_ALWAYS as CRABBY_QUERY_CACHE_ALWAYS;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PONKO_QUERY_CACHE_AUTO as CRABBY_QUERY_CACHE_AUTO;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PONKO_QUERY_CACHE_NEVER as CRABBY_QUERY_CACHE_NEVER;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_query_cache_policy_default() -> CrabbyQueryCachePolicy {
+    crate::ponko_query_cache_policy_default()
+}
+
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_query_cache_policy_off() -> CrabbyQueryCachePolicy {
+    crate::ponko_query_cache_policy_off()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_world_set_query_cache_policy`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_set_query_cache_policy(
+    world: *mut CrabbyWorld,
+    policy: *const CrabbyQueryCachePolicy,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_world_set_query_cache_policy(world, policy) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_world_query_cache_policy`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_query_cache_policy(
+    world: *mut CrabbyWorld,
+    out_policy: *mut CrabbyQueryCachePolicy,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_world_query_cache_policy(world, out_policy) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_world_query_cache_stats`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_query_cache_stats(
+    world: *mut CrabbyWorld,
+    out_stats: *mut CrabbyQueryCacheStats,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_world_query_cache_stats(world, out_stats) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_query_cached`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_query_cached(
+    world: *mut CrabbyWorld,
+    components: *const u32,
+    count: usize,
+    filter: *const CrabbyFilter,
+    options: *const CrabbyQueryOptions,
+    cache: u32,
+    callback: CrabbyQueryFn,
+    user: *mut c_void,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_query_cached(world, components, count, filter, options, cache, callback, user) }).into()
 }
 
 #[deprecated(
@@ -15050,6 +15424,23 @@ pub unsafe extern "C" fn crabby_ctx_set_mesh_gpu_buffer(
     // pointer, lifetime, ownership and callback preconditions. Distinct value
     // types have identical repr(C) layouts and valid discriminants, checked above.
     (unsafe { crate::ponko_ctx_set_mesh_gpu_buffer(ctx, mesh, buffer, count) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_set_instance_batch_culling`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_set_instance_batch_culling(
+    ctx: *mut CrabbyCtx,
+    batch: CrabbyInstanceBatch,
+    culling: u32,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_set_instance_batch_culling(ctx, batch, culling) }).into()
 }
 
 /// # Safety

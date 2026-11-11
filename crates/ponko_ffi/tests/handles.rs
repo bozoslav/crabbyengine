@@ -104,3 +104,73 @@ fn every_kind_frees_through_one_pair_of_calls() {
     }
     assert_eq!(errors, vec![PONKO_INVALID_ARGUMENT; 4]);
 }
+
+unsafe extern "C" fn accounting(ctx: *mut PonkoCtx, user: *mut c_void) {
+    use PonkoAssetClass::*;
+    unsafe {
+        let errors = &mut *user.cast::<Vec<PonkoStatus>>();
+        let count = |class: PonkoAssetClass| {
+            let mut c = PonkoAssetCount::default();
+            assert_eq!(ponko_ctx_asset_count(ctx, class as u32, &mut c), PONKO_OK);
+            c
+        };
+        let before = count(PONKO_ASSET_CLASS_TEXTURE);
+        let mut texture = std::mem::zeroed::<PonkoTexture>();
+        let pixels = [0u8; 2 * 2 * 4];
+        assert_eq!(
+            ponko_ctx_create_texture(ctx, 2, 2, pixels.as_ptr(), pixels.len(), &mut texture),
+            PONKO_OK
+        );
+        let after = count(PONKO_ASSET_CLASS_TEXTURE);
+        assert_eq!((after.live, after.bytes), (before.live + 1, before.bytes + 16));
+        let mut n = 0;
+        let class = PONKO_ASSET_CLASS_TEXTURE as u32;
+        assert_eq!(ponko_ctx_asset_handles(ctx, class, null_mut(), 0, &mut n), PONKO_OK);
+        assert_eq!(n, after.live);
+        let mut records = vec![PonkoAssetRecord::default(); n];
+        assert_eq!(
+            ponko_ctx_asset_handles(ctx, class, records.as_mut_ptr(), n, &mut n),
+            PONKO_OK
+        );
+        let made = records.iter().find(|r| r.id == texture.id).expect("listed");
+        assert_eq!(made.owner, PonkoAssetOwner::PONKO_ASSET_OWNER_CODE as u32);
+        assert_eq!((made.bytes, made.age_frames), (16, 0));
+        // Made in code: no file name. (Loading and unloading a model file
+        // is covered by the native tests, which have the asset folder.)
+        let mut name = [1 as std::ffi::c_char; 8];
+        let mut len = 9;
+        assert_eq!(
+            ponko_ctx_asset_owner(ctx, class, texture.id, name.as_mut_ptr(), name.len(), &mut len),
+            PONKO_OK
+        );
+        assert_eq!((len, name[0]), (0, 0));
+        let mut unloaded = true;
+        assert_eq!(
+            ponko_ctx_unload_mesh(ctx, c"models/none.glb".as_ptr(), &mut unloaded),
+            PONKO_OK
+        );
+        assert!(!unloaded);
+        // Errors.
+        let mut c = PonkoAssetCount::default();
+        errors.push(ponko_ctx_asset_count(ctx, 10, &mut c));
+        errors.push(ponko_ctx_asset_handles(ctx, class, null_mut(), 1, &mut n));
+        errors.push(ponko_ctx_asset_owner(ctx, class, 0, null_mut(), 1, &mut len));
+        errors.push(ponko_ctx_unload_mesh(ctx, std::ptr::null(), &mut unloaded));
+    }
+}
+
+#[test]
+fn asset_counts_records_owners_and_unloading_work_from_c() {
+    let mut errors: Vec<PonkoStatus> = Vec::new();
+    unsafe {
+        let g = ponko_game_new(c"accounting".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        let user = (&raw mut errors).cast();
+        assert_eq!(
+            ponko_game_run_headless(g, 1, Some(accounting), user, &mut world),
+            PONKO_OK
+        );
+        ponko_world_free(world);
+    }
+    assert_eq!(errors, vec![PONKO_INVALID_ARGUMENT; 4]);
+}

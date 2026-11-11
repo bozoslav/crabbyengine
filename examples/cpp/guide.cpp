@@ -159,6 +159,35 @@ static void ecs_filters(ponko::ctx& ctx) {
     assert(odd == 3);   // everything that isn't dead
 }
 
+// ANCHOR: ecs_query_cache
+struct Boss {};
+
+static std::size_t bosses(ponko::ctx& ctx) {
+    auto world = ctx.world();
+    // Runs rarely, but must not test every archetype of a big world when
+    // it does: index it on first use.
+    return world.count<Health, ponko::with<Boss>, ponko::cached>();
+}
+static std::size_t bosses_by_scan(ponko::ctx& ctx) {
+    // Never use the index for this query: the same entities, found by
+    // testing every archetype.
+    return ctx.world().count<Health, ponko::with<Boss>, ponko::uncached>();
+}
+static void no_index(ponko::ctx& ctx) {
+    // Or opt the whole world out.
+    ctx.world().set_query_cache_policy(ponko_query_cache_policy_off());
+}
+// ANCHOR_END: ecs_query_cache
+
+static void ecs_query_cache(ponko::ctx& ctx) {
+    auto world = ctx.world();
+    world.spawn(Health{100}, Boss{});
+    world.spawn(Health{10});
+    assert(bosses(ctx) == 1 && bosses_by_scan(ctx) == 1);
+    no_index(ctx);
+    assert(bosses(ctx) == 1 && world.query_cache_stats().signatures == 0);
+}
+
 // ANCHOR: resources
 struct Score { std::uint32_t points; };
 
@@ -2465,6 +2494,13 @@ void persistent_instances(ponko::ctx& ctx, ponko::mesh mesh) {
 }
 // ANCHOR_END: gpu_instances
 
+// ANCHOR: batch_culling
+void choose_batch_culling(ponko::ctx& ctx, ponko::instance_batch batch) {
+    // 0 = automatic, 1 = prefer GPU, 2 = prefer CPU.
+    ctx.set_instance_batch_culling(batch, 1);
+}
+// ANCHOR_END: batch_culling
+
 // ANCHOR: instance_levels
 void leveled_instances(ponko::ctx& ctx, ponko::mesh near_mesh, ponko::mesh far_mesh) {
     std::vector<ponko::instance_level> levels = {
@@ -2502,6 +2538,29 @@ void stream_out(ponko::ctx& ctx) {
     if (!dead || !none || ctx.live_counts().meshes != before.meshes) std::abort();
 }
 // ANCHOR_END: handles
+
+// ANCHOR: asset_leaks
+void find_leaks(ponko::ctx& ctx) {
+    const auto before = ctx.asset_count(ponko::asset_class::material);
+    for (int level = 0; level < 3; level++) {
+        auto house = ctx.load_mesh("models/house.glb");
+        ctx.free(house);  // keeps the file's materials and textures for next time
+    }
+    // Loading the same file again reuses them: only the first load grew.
+    const auto grown = ctx.asset_count(ponko::asset_class::material);
+    std::printf("materials: %zu more\n", grown.live - before.live);
+    // Which textures are there, how old, and who made them?
+    for (const auto& r : ctx.asset_handles(ponko::asset_class::texture)) {
+        if (r.owner == static_cast<std::uint32_t>(ponko::asset_owner::file))
+            std::printf("texture %u: %llu bytes, %llu frames old, from %s\n", r.id,
+                        static_cast<unsigned long long>(r.bytes), static_cast<unsigned long long>(r.age_frames),
+                        ctx.asset_owner_name(ponko::asset_class::texture, r.id).c_str());
+    }
+    // Done with the model for good: free its materials and textures too.
+    ctx.unload_mesh("models/house.glb");
+    if (ctx.asset_count(ponko::asset_class::material).live != before.live) std::abort();
+}
+// ANCHOR_END: asset_leaks
 
 // ANCHOR: streaming
 void streaming_setup(ponko::ctx& ctx) {
@@ -2573,6 +2632,7 @@ static void parallel_systems_guide() {
 int main() {
     builder_setup_runs_headless();
     ponko::game("filter guide", 1, 1).run_headless(0, ecs_filters);
+    ponko::game("query cache guide", 1, 1).run_headless(0, ecs_query_cache);
     plugins_run_headless();
     declared_access_guide();
     parallel_systems_guide();
@@ -2726,6 +2786,7 @@ int main() {
     (void)&controls;
     ponko::game("gpu buffers", 1, 1).run_headless(0, gpu_particles);
     ponko::game("handles", 1, 1).run_headless(0, stream_out);
+    ponko::game("asset leaks", 1, 1).run_headless(0, find_leaks);
     ponko::game("streaming", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
         streaming_setup(ctx);
         draw_crab(ctx);

@@ -674,10 +674,17 @@ impl Renderer {
     }
 
     #[cfg(feature = "3d")]
-    pub fn update_material(&mut self, id: u32, desc: &crate::three::GpuMaterialDesc) {
+    pub fn update_material(
+        &mut self,
+        id: u32,
+        desc: &crate::three::GpuMaterialDesc,
+        batches: &[Option<crate::three::instances::Batch>],
+    ) {
         self.material_mips(desc);
-        if let Some(three) = &mut self.three {
-            three.update_material(&self.device, &self.queue, id, desc, &self.textures);
+        if let Some(three) = &mut self.three
+            && three.update_material(&self.device, &self.queue, id, desc, &self.textures)
+        {
+            three.refresh_batch_material(&self.device, &self.queue, id, batches);
         }
     }
 

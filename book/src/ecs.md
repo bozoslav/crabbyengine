@@ -160,8 +160,9 @@ means "both Player and Enemy, or not Dead". Tuples and `Or`s can nest.
 storage expands `(A AND B) OR C` into `(A OR C) AND (B OR C)`: up to 4
 clauses and 16 component predicates across them, counting repetitions from
 expansion. Exceeding these limits panics in Rust and throws
-`std::runtime_error` in C++. These filters work with `cached()` and parallel
-queries too (`each_par` and `query_par` in C++).
+`std::runtime_error` in C++. These filters work with parallel queries too
+(`each_par` and `query_par` in C++), and with the
+[archetype index](#which-archetypes-a-query-visits).
 
 **From C**, there are no types, so a filter is built from component ids and
 passed to a query. `ponko_filter_with(id)`, `ponko_filter_without(id)`,
@@ -198,6 +199,96 @@ ponko_query_filtered(world, &health_id, 1, living, NULL, damage, NULL);
 masks of `PonkoQueryOptions`, which `ponko_query_filtered` takes as well.
 
 Asking for the same component twice with `&mut` (or `Option<&mut T>`) panics.
+
+### Which archetypes a query visits
+
+A query first has to find the archetypes (the sets of entities with the same
+components) that hold what it asks for. In a small world it tests every
+archetype, which is the fastest way there. In a world with many archetypes
+the world keeps an **index**: for a query it has seen before, the list of
+archetypes that can match, so the query skips the rest. You don't turn it
+on, and it never changes what a query returns or in which order; it only
+changes how long the query takes to find its entities.
+
+What is indexed automatically:
+
+- Only worlds with at least 64 archetypes. Below that every query scans.
+- A query's *signature*: the components it needs and its `with`, `without`
+  and `Or` filters, however they are written (`.with::<A>()`, `With<A>` in a
+  tuple, a filter built at run time from C, and filters in another order
+  are one signature). `Added` and `Changed` aren't part of it; they pick
+  rows inside the archetypes.
+- A signature that was used twice and matches at most half of the
+  archetypes. One that matches more is scanned: a list of nearly everything
+  saves nothing.
+- At most 128 signatures and 1 MiB of lists per world. Signatures that are
+  no longer used make room for new ones.
+
+The index follows the world on its own: new archetypes are added to the
+lists the next time a query runs, and despawning, `clear`, loading a scene
+and registering components never leave it stale.
+Queries of a [world view](system-access.md) read the same index, also from
+several threads at once.
+
+Two hints change the choice for one query, and a policy for a whole world:
+
+<div class="lang-pair">
+<div>
+
+```rust
+# use ponko::ecs_core::QueryCachePolicy;
+# struct Health(f32);
+# struct Boss;
+// Runs rarely, but must not test every archetype of a big world when it
+// does: index it on first use.
+let bosses = world.query::<&Health>().with::<Boss>().cached().count();
+// Never use the index for this query.
+let by_scan = world.query::<&Health>().with::<Boss>().uncached().count();
+// Or opt the whole world out.
+world.set_query_cache_policy(QueryCachePolicy::off());
+# let _ = (bosses, by_scan);
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ecs_query_cache}}
+```
+
+</div>
+</div>
+
+- `cached()` (C++: `ponko::cached` in the list of `each`, `query` and
+  `count`) indexes the query on its first use and keeps it indexed when it
+  matches most archetypes. Use it for a query that runs once in a while in
+  a world with many archetypes. In a world under 64 archetypes it changes
+  nothing.
+- `uncached()` (C++: `ponko::uncached`) always scans. Use it for a query
+  with a filter that is different on every call, so it doesn't take a place
+  in the index.
+- `world.set_query_cache_policy(policy)` changes the limits above for one
+  world (`QueryCachePolicy` in Rust, `PonkoQueryCachePolicy` from C and
+  C++); `QueryCachePolicy::off()` (`ponko_query_cache_policy_off()`) turns
+  the index off. `world.query_cache_stats()` says how many signatures are
+  indexed, how much memory the lists take and how often they were used.
+
+**From C**, `ponko_query`, `ponko_query_with` and `ponko_query_filtered`
+use the index automatically. `ponko_query_cached(world, ids, count, filter,
+options, cache, callback, user)` is `ponko_query_filtered` with a hint:
+`PONKO_QUERY_CACHE_AUTO`, `PONKO_QUERY_CACHE_ALWAYS` or
+`PONKO_QUERY_CACHE_NEVER` (`filter` may be `NULL`).
+`ponko_world_set_query_cache_policy`, `ponko_world_query_cache_policy` and
+`ponko_world_query_cache_stats` are the world's policy and counters.
+
+How much it saves depends on how many archetypes there are and how few of
+them the query matches. Measured on one machine (see
+`crates/ponko_bench/QUERY_CACHE.md` for the commands and every number): a
+query that matches 1 in 16 archetypes takes about the same time either way
+at 32 archetypes, 58% of the scan's time at 64, 14% at 1,024 and, for 1 in
+64, 6% at 4,096. A query that matches every archetype gains nothing from a
+list, which is why those are scanned; looking a signature up costs about
+50 ns per query, and only in worlds with at least 64 archetypes.
 
 Ways to run a query:
 

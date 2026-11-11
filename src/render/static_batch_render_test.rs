@@ -71,6 +71,9 @@ pub(super) struct BatchRig {
     /// would deliver it), if any.
     pub grid: Option<OcclusionGrid>,
     frames: u32,
+    /// Hand instances to the engine in the order given on every path (the
+    /// benchmark measures what a game gives it). See `ordered`.
+    pub keep_order: bool,
     /// Preparing the frame last drawn, as it was drawn: [allocations of
     /// the whole `Renderer3D::prepare`, times the batch preparation ran,
     /// allocations the batch preparation made].
@@ -120,6 +123,7 @@ impl BatchRig {
             timer,
             grid: None,
             frames: 0,
+            keep_order: false,
             prepared_allocations: [0; 3],
         })
     }
@@ -171,9 +175,29 @@ impl BatchRig {
         batch
     }
 
+    /// `items` in the order this rig hands instances to the engine: as
+    /// given, or last to first on a rig forced to the CPU path.
+    ///
+    /// The two paths draw a batch's instances in different orders (the
+    /// compute pass in whatever order the device runs it), so a picture
+    /// must not depend on the order. It does where two instances meet at
+    /// the same depth: the last one drawn wins the sample. Which device
+    /// shows that is luck (one scene's coplanar, overlapping cubes passed
+    /// on Metal and failed on a software Direct3D 12 device), so every
+    /// comparison of the paths also turns the order around: a scene with
+    /// such ties then fails on any device.
+    fn ordered<T: Copy>(&self, items: &[T]) -> Vec<T> {
+        let mut items = items.to_vec();
+        if self.renderer.batching.path == BatchPath::Cpu && !self.keep_order {
+            items.reverse();
+        }
+        items
+    }
+
     /// A batch of `mesh` at `transforms`.
     pub fn batch(&mut self, mesh: Mesh, transforms: &[Mat4], options: InstanceBatchOptions) -> InstanceBatch {
-        let batch = self.ctx.gfx.create_instance_batch(mesh, transforms, options);
+        let transforms = self.ordered(transforms);
+        let batch = self.ctx.gfx.create_instance_batch(mesh, &transforms, options);
         self.upload(batch)
     }
 
@@ -185,16 +209,18 @@ impl BatchRig {
         colors: &[Color],
         options: InstanceBatchOptions,
     ) -> InstanceBatch {
+        let (transforms, colors) = (self.ordered(transforms), self.ordered(colors));
         let batch = self
             .ctx
             .gfx
-            .create_instance_batch_levels(levels, transforms, colors, options);
+            .create_instance_batch_levels(levels, &transforms, &colors, options);
         self.upload(batch)
     }
 
     /// Replaces `batch`'s transforms, as a game's update does.
     pub fn update(&mut self, batch: InstanceBatch, transforms: &[Mat4]) {
-        assert!(self.ctx.gfx.update_instance_batch(batch, transforms));
+        let transforms = self.ordered(transforms);
+        assert!(self.ctx.gfx.update_instance_batch(batch, &transforms));
         self.upload(batch);
     }
 
@@ -497,22 +523,22 @@ const SAME_DEVICE: support::Tolerance = support::Tolerance {
     outliers: 0.0,
 };
 
-/// [`SAME_DEVICE`], but for two pixels of the picture. The GPU-driven
-/// path writes its visible instances in no fixed order, and where two
-/// opaque instances meet at the same depth in a sample, the later one
-/// wins. Seen in the target camera's picture on the `baseline` tier: one
-/// edge pixel of 16,384 off by 3 of 255, in 12 of 150 runs of the GPU path
-/// against itself (never on the CPU path against itself).
-const ORDER_NOISE: support::Tolerance = support::Tolerance {
-    channel: 2,
-    outliers: 2.0 / 16384.0,
-};
-
 /// Asserts `a` and `b` are the same picture within `tolerance`, and that
 /// the picture isn't empty (`lit`: the least fraction of non-black pixels).
 fn assert_same(what: &str, a: &support::Image, b: &support::Image, tolerance: support::Tolerance, lit: f32) {
     let d = support::diff(a, b, tolerance.channel);
     eprintln!("{what}: {d}");
+    if !d.within(tolerance) {
+        // Where and what, for a device this can't be run on at a desk.
+        let pixels = a.rgba.as_chunks::<4>().0.iter().zip(b.rgba.as_chunks::<4>().0);
+        let off = pixels
+            .enumerate()
+            .filter(|(_, (p, q))| p.iter().zip(*q).any(|(x, y)| x.abs_diff(*y) > tolerance.channel));
+        for (i, (p, q)) in off.take(40) {
+            let (x, y) = (i % a.width as usize, i / a.width as usize);
+            eprintln!("  {what}: pixel {x},{y}: {p:?} against {q:?}");
+        }
+    }
     assert!(d.within(tolerance), "{what}: {d}");
     let seen = a.fraction(0..a.width, 0..a.height, |p| p[0] > 40 || p[1] > 40 || p[2] > 40);
     assert!(seen >= lit, "{what}: only {:.1}% of the picture is lit", seen * 100.0);
@@ -752,7 +778,29 @@ fn both_paths_draw_the_same_into_a_target_camera() {
         let (a, b) = (gpu.image(), cpu.image());
         assert_same(&format!("main camera, frame {k}"), &a, &b, SAME_DEVICE, 0.05);
         let (a, b) = (target_image(&gpu, &targets[0]), target_image(&cpu, &targets[1]));
-        assert_same(&format!("target camera, frame {k}"), &a, &b, ORDER_NOISE, 0.1);
+        assert_same(&format!("target camera, frame {k}"), &a, &b, SAME_DEVICE, 0.1);
+        gpu.renderer.check_batch_order(&gpu.gpu.device, &gpu.gpu.queue);
+        for _ in 0..20 {
+            gpu.frame();
+            assert_eq!(
+                target_image(&gpu, &targets[0]),
+                a,
+                "stationary target must be byte-identical"
+            );
+        }
+        if let Ok(dir) = std::env::var("PONKO_BATCH_IMAGES") {
+            std::fs::create_dir_all(&dir).unwrap();
+            for (name, image) in [("gpu", &a), ("cpu", &b)] {
+                image::save_buffer(
+                    std::path::Path::new(&dir).join(format!("target-{k}-{name}.png")),
+                    &image.rgba,
+                    image.width,
+                    image.height,
+                    image::ColorType::Rgba8,
+                )
+                .unwrap();
+            }
+        }
     }
     assert!(
         gpu.renderer.instance_batch_stats().cull_jobs > 5,
@@ -1357,6 +1405,11 @@ fn freed_batches_give_their_pages_and_pools_back() {
         }
     }
     rig.frame();
+    // Buffers survive short gaps but are released after eight empty frames.
+    assert_eq!(rig.renderer.instance_batch_stats().pool_bytes, stats.pool_bytes);
+    for _ in 1..8 {
+        rig.frame();
+    }
     let empty = rig.renderer.instance_batch_stats();
     assert_eq!((empty.batches, empty.pools, empty.pages), (0, 0, 0));
     assert!(
@@ -1439,12 +1492,6 @@ fn views_past_the_frames_buffer_are_not_drawn_and_reported() {
     assert_eq!(traffic::take_too_big(), 1, "three frames, one report");
     // With room again every view is culled, and the picture is the CPU path's.
     gpu.renderer.limit_batch_views(usize::MAX);
-    // (Two frames: the renderer sees that nothing was left out, then draws
-    // the cached shadow maps again with the batches in them.)
-    for _ in 0..2 {
-        gpu.frame();
-        cpu.frame();
-    }
     let (a, b) = (gpu.image(), cpu.image());
     assert_same("with room for every view", &a, &b, SAME_DEVICE, 0.05);
     assert_eq!(gpu.renderer.instance_batch_stats().views_skipped, 0);
@@ -1659,17 +1706,37 @@ fn new_lights_views_of_many_batches_spill_into_another_page() {
         return;
     }
     let Some(mut cpu) = BatchRig::new(setup) else { return };
+    // The control: the CPU path with every batch's instances in the other
+    // order than the CPU rig's. The paths draw a batch's instances in different orders (the
+    // compute pass in whatever order the device runs it), so the scene
+    // must not depend on the order: no two instances may meet at the same
+    // depth. They did once: cubes 0.5 m wide, 0.2 m apart, had coplanar
+    // overlapping tops, and the last one drawn won each tied sample (34
+    // pixels off by up to 5 of 255 on a software Direct3D 12 device, and 5
+    // pixels on any device between the CPU path and this control). Here
+    // the cubes are 0.15 m wide, with air between them.
+    let Some(mut flipped) = BatchRig::new(setup) else {
+        return;
+    };
     gpu.renderer.batching.path = BatchPath::Gpu;
     cpu.renderer.batching.path = BatchPath::Cpu;
+    flipped.renderer.batching.path = BatchPath::Cpu;
     traffic::take_too_big();
-    for rig in [&mut gpu, &mut cpu] {
+    for (r, rig) in [&mut gpu, &mut cpu, &mut flipped].into_iter().enumerate() {
         ground(rig);
         let levels = stacked_levels(rig);
         for b in 0..10 {
             let origin = vec3((b % 5) as f32 * 9.0 - 22.0, 1.5, -((b / 5) as f32) * 12.0 - 6.0);
-            let transforms: Vec<_> = (0..1000)
-                .map(|i| Mat4::from_translation(origin + vec3((i % 40) as f32 * 0.2, 0.0, -((i / 40) as f32) * 0.4)))
+            let mut transforms: Vec<_> = (0..1000)
+                .map(|i| {
+                    let at = origin + vec3((i % 40) as f32 * 0.2, 0.0, -((i / 40) as f32) * 0.4);
+                    Mat4::from_translation(at) * Mat4::from_scale(Vec3::splat(0.3))
+                })
                 .collect();
+            if r == 2 {
+                // (The rig turns a CPU rig's order around once already.)
+                transforms.reverse();
+            }
             rig.batch_levels(&levels, &transforms, &[], Default::default());
         }
         rig.ctx.lighting.shadows = true;
@@ -1679,7 +1746,14 @@ fn new_lights_views_of_many_batches_spill_into_another_page() {
         rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -14.0));
     }
     for k in 0..2 {
-        let (a, b) = (gpu.image(), cpu.image());
+        let (a, b, c) = (gpu.image(), cpu.image(), flipped.image());
+        assert_same(
+            &format!("before the light, frame {k}, instance order"),
+            &b,
+            &c,
+            SAME_DEVICE,
+            0.2,
+        );
         assert_same(&format!("before the light, frame {k}"), &a, &b, SAME_DEVICE, 0.2);
     }
     let before = gpu.renderer.instance_batch_stats();
@@ -1688,14 +1762,21 @@ fn new_lights_views_of_many_batches_spill_into_another_page() {
         (1, 1, 10),
         "{before:?}"
     );
-    for rig in [&mut gpu, &mut cpu] {
+    for rig in [&mut gpu, &mut cpu, &mut flipped] {
         rig.ctx.lighting.light_shadow_views = 24;
         for x in [-14.0, 0.0, 14.0] {
             let _ = shadowed_lamp(rig, vec3(x, 3.0, -12.0), 60.0);
         }
     }
     for k in 0..4 {
-        let (a, b) = (gpu.image(), cpu.image());
+        let (a, b, c) = (gpu.image(), cpu.image(), flipped.image());
+        assert_same(
+            &format!("with the light, frame {k}, instance order"),
+            &b,
+            &c,
+            SAME_DEVICE,
+            0.2,
+        );
         assert_same(&format!("with the light, frame {k}"), &a, &b, SAME_DEVICE, 0.2);
         let stats = gpu.renderer.instance_batch_stats();
         assert_eq!(stats.views_skipped, 0, "frame {k}: {stats:?}");
@@ -1710,7 +1791,7 @@ fn new_lights_views_of_many_batches_spill_into_another_page() {
         .sum();
     eprintln!("{views} views: {after:?}");
     assert!(views > 10 * 3 * 5, "the light's views have lists: {views}");
-    assert_eq!((after.pools, after.pages), (1, 2), "{after:?}");
+    assert_eq!((after.pools, after.pages), (1, 3), "{after:?}");
     assert_eq!(traffic::take_too_big(), 0, "no limit was hit");
 }
 
@@ -2089,5 +2170,100 @@ fn recording_batches_allocates_only_inside_wgpu() {
         eprintln!("{path:?}: {all} allocations recording the frame, {ours} by the batch code in {entered} passes");
         assert!(entered > 0, "{path:?}: the batch drawing code ran while counting");
         assert_eq!(ours, 0, "{path:?}: the batch code allocated while recording");
+    }
+}
+
+#[test]
+fn short_lived_batches_reuse_buffers_then_expire_with_new_generations() {
+    let Some(mut rig) = BatchRig::new(RigSetup::default()) else {
+        return;
+    };
+    if !support::needs(&rig.gpu.device, GpuFeature::ComputeCulling) {
+        return;
+    }
+    rig.renderer.batching.path = BatchPath::Gpu;
+    let mesh = rig.mesh(&MeshData::cube(1.0), glow(Color::BLUE));
+    let transforms = vec![Mat4::IDENTITY; 513]; // crosses cell/workgroup boundaries
+    let mut batch = rig.batch(mesh, &transforms, Default::default());
+    let reference = rig.image();
+    let generations = rig.renderer.batch_generations();
+    assert_eq!(generations.len(), 3);
+    for _ in 0..12 {
+        rig.renderer.check_batch_order(&rig.gpu.device, &rig.gpu.queue);
+        rig.free(batch);
+        for _ in 0..3 {
+            rig.frame();
+        }
+        batch = rig.batch(mesh, &transforms, Default::default());
+        assert_eq!(rig.image(), reference);
+        assert_eq!(
+            rig.renderer.batch_generations(),
+            generations,
+            "short gaps must keep the same buffers"
+        );
+    }
+    rig.free(batch);
+    for _ in 0..8 {
+        rig.frame();
+    }
+    let replaced = rig.renderer.batch_generations();
+    assert_eq!(replaced.len(), 1, "the expired pool drops its pages");
+    assert!(replaced[0] > *generations.iter().max().unwrap());
+    rig.batch(mesh, &transforms, Default::default());
+    assert_eq!(rig.image(), reference);
+    let renewed = rig.renderer.batch_generations();
+    assert!(renewed.iter().all(|g| *g > *generations.iter().max().unwrap()));
+}
+
+#[test]
+fn material_blend_changes_reroute_auto_batches_without_transform_updates() {
+    use crate::render::BatchCulling;
+    let Some(mut rig) = BatchRig::new(RigSetup::default()) else {
+        return;
+    };
+    if !support::needs(&rig.gpu.device, GpuFeature::ComputeCulling) {
+        return;
+    }
+    let desc = glow(Color::WHITE);
+    let mesh = rig.mesh(&MeshData::cube(1.0), desc);
+    let data = vec![Mat4::IDENTITY; super::capabilities::GPU_BATCH_MIN as usize];
+    let automatic = rig.batch(mesh, &data, Default::default());
+    let forced = rig.batch(
+        mesh,
+        &data,
+        InstanceBatchOptions {
+            culling: BatchCulling::PreferGpu,
+            ..Default::default()
+        },
+    );
+    assert_eq!(rig.renderer.batch_route(automatic.id()), Some(Route::Gpu));
+    // BatchRig mirrors the production Renderer wrapper's material update path.
+    for (blend, expected) in [(Blend::Transparent, Route::CpuSmall), (Blend::Opaque, Route::Gpu)] {
+        let gpu = GpuMaterialDesc::new(&MaterialDesc { blend, ..desc });
+        assert!(
+            rig.renderer
+                .update_material(&rig.gpu.device, &rig.gpu.queue, 0, &gpu, &rig.textures)
+        );
+        rig.renderer.refresh_batch_material(
+            &rig.gpu.device,
+            &rig.gpu.queue,
+            0,
+            &rig.ctx.gfx.assets3d.instance_batches,
+        );
+        assert_eq!(rig.renderer.batch_route(automatic.id()), Some(expected));
+        assert_eq!(rig.renderer.batch_route(forced.id()), Some(Route::Gpu));
+        assert!(
+            !rig.renderer
+                .update_material(&rig.gpu.device, &rig.gpu.queue, 0, &gpu, &rig.textures),
+            "same blend needs no batch refresh"
+        );
+    }
+    for (preference, route) in [
+        (BatchCulling::PreferCpu, Route::CpuSmall),
+        (BatchCulling::PreferGpu, Route::Gpu),
+    ] {
+        assert!(rig.ctx.gfx.set_instance_batch_culling(automatic, preference));
+        rig.upload(automatic);
+        assert_eq!(rig.renderer.batch_route(automatic.id()), Some(route));
     }
 }

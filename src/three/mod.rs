@@ -1064,6 +1064,10 @@ pub(crate) struct Assets3D {
     /// Material handles survive geometry eviction; reloading must preserve
     /// user shader edits and must not allocate another material/texture set.
     pub file_materials: std::collections::HashMap<crate::assets::Origin, Vec<Material>>,
+    /// The textures each glTF file's materials use, by image index in the
+    /// file (shared images included): kept with `file_materials`, freed by
+    /// `Graphics::unload_mesh`.
+    pub file_textures: std::collections::HashMap<crate::assets::Origin, Vec<crate::Texture>>,
     /// Images that glTF files take from files of their own, by where those
     /// files were found (see `gltf::Loaded::image_sources`): many models
     /// share them, and the same name in two asset sources is two images.
@@ -1074,6 +1078,46 @@ pub(crate) struct Assets3D {
 }
 
 impl Assets3D {
+    /// Calls `f` with the id and estimated bytes of every live handle of
+    /// `class` (`Graphics::asset_handles`); bytes as `inventory` counts them.
+    pub(crate) fn records(
+        &self,
+        class: crate::inventory::AssetClass,
+        textures_live: &crate::handle::LiveSet,
+        mut f: impl FnMut(u32, u64),
+    ) {
+        use crate::inventory::{AssetClass, mip_chain_bytes};
+        match class {
+            AssetClass::RenderTarget => {
+                for t in self.render_targets.iter().filter(|t| textures_live.contains(t.id)) {
+                    f(t.id, u64::from(t.width()) * u64::from(t.height()) * 8);
+                }
+            }
+            AssetClass::TextureArray => {
+                for a in self.arrays.iter().filter(|a| self.arrays_live.contains(a.id)) {
+                    f(a.id, mip_chain_bytes(a.width, a.height, 4) * u64::from(a.layers));
+                }
+            }
+            AssetClass::Mesh => {
+                for (slot, _) in self.bounds.iter().enumerate().filter(|(_, b)| b.1 >= 0.0) {
+                    let id = self.mesh_ids.get(slot).copied().unwrap_or(slot as u32);
+                    f(id, self.mesh_bytes.get(slot).copied().unwrap_or(0));
+                }
+            }
+            AssetClass::GpuBuffer => {
+                for (slot, &len) in self.gpu_buffers.iter().enumerate().filter(|(_, l)| **l > 0) {
+                    let id = self.gpu_buffer_ids.get(slot).copied().unwrap_or(slot as u32);
+                    f(id, u64::from(len) * 16);
+                }
+            }
+            AssetClass::Material => self.materials_live.ids().for_each(|id| f(id, 0)),
+            AssetClass::Shader => self.shaders_live.ids().for_each(|id| f(id, 0)),
+            AssetClass::Effect => self.effects_live.ids().for_each(|id| f(id, 0)),
+            AssetClass::Compute => self.computes_live.ids().for_each(|id| f(id, 0)),
+            AssetClass::Texture | AssetClass::Sound => {}
+        }
+    }
+
     /// Live 3D handles by class, counted from the tables that decide
     /// whether each handle is live (`Ctx::asset_inventory`).
     /// Freed ones aren't counted; `textures_live` says which render

@@ -85,6 +85,7 @@ fn run(scenario: &Scenario, path: BatchPath, compute: bool) -> Option<Row> {
         ..Default::default()
     })?;
     rig.renderer.batching.path = path;
+    rig.keep_order = true;
     let data = if scenario.segments == 0 {
         MeshData::cube(0.3)
     } else {
@@ -296,6 +297,10 @@ fn static_batch_benchmark() {
             });
         }
     }
+    scenarios.push(Scenario {
+        levels: true,
+        ..Scenario::new("million instance levels", 1, 1_000_000)
+    });
     // The CPU path with a camera at rest keeps its lists.
     for per_batch in [65_536, 1_000_000] {
         scenarios.push(Scenario {

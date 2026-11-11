@@ -165,6 +165,7 @@ impl Graphics {
         self.assets3d.arrays.push(array);
         self.assets3d.array_data.push(kind == TextureKind::Data);
         self.assets3d.arrays_live.insert(id);
+        self.asset_ledger.made(crate::inventory::AssetClass::TextureArray, id);
         Ok(array)
     }
 
@@ -255,6 +256,7 @@ impl Graphics {
         if !self.assets3d.arrays_live.remove(id) {
             return;
         }
+        self.asset_ledger.freed(crate::inventory::AssetClass::TextureArray, id);
         if self.assets3d.decal_array.is_some_and(|a| a.id == id) {
             self.assets3d.decal_array = None;
         }

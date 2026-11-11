@@ -229,18 +229,21 @@ mod backend {
         /// (one streamed from a file is read as it plays: 0).
         pub fn inventory(&self) -> (usize, u64) {
             let live = self.sounds.iter().filter(|clip| !matches!(clip, Clip::Freed));
-            let bytes = live
-                .clone()
-                .map(|clip| match clip {
-                    Clip::Static(data) => (data.frames.len() * std::mem::size_of::<Frame>()) as u64,
-                    #[cfg(not(target_arch = "wasm32"))]
-                    Clip::Stream(StreamFrom::File(_)) => 0,
-                    #[cfg(not(target_arch = "wasm32"))]
-                    Clip::Stream(StreamFrom::Memory(bytes)) => bytes.len() as u64,
-                    Clip::Freed => 0,
-                })
-                .sum();
-            (live.count(), bytes)
+            (live.clone().count(), live.map(Self::clip_bytes).sum())
+        }
+        /// What sound `id` holds, as `inventory` counts it.
+        pub fn sound_bytes(&self, id: u32) -> u64 {
+            self.sounds.get(id as usize).map_or(0, Self::clip_bytes)
+        }
+        fn clip_bytes(clip: &Clip) -> u64 {
+            match clip {
+                Clip::Static(data) => (data.frames.len() * std::mem::size_of::<Frame>()) as u64,
+                #[cfg(not(target_arch = "wasm32"))]
+                Clip::Stream(StreamFrom::File(_)) => 0,
+                #[cfg(not(target_arch = "wasm32"))]
+                Clip::Stream(StreamFrom::Memory(bytes)) => bytes.len() as u64,
+                Clip::Freed => 0,
+            }
         }
         pub fn replace(&mut self, id: u32, bytes: Vec<u8>) -> Result<(), String> {
             let data = decode(bytes)?;
@@ -528,6 +531,9 @@ mod backend {
         pub fn inventory(&self) -> (usize, u64) {
             ((self.count - self.freed) as usize, 0)
         }
+        pub fn sound_bytes(&self, _id: u32) -> u64 {
+            0
+        }
         pub fn stream(&mut self, _path: std::path::PathBuf) -> Result<(u32, f32), String> {
             self.load(Vec::new())
         }
@@ -603,6 +609,8 @@ pub struct Audio {
     pub(crate) watcher: crate::hot_reload::SharedWatcher,
     /// No window: nothing is played.
     pub(crate) headless: bool,
+    /// When each live sound was made and which file it came from.
+    pub(crate) ledger: crate::inventory::Ledger,
 }
 
 impl Audio {
@@ -659,6 +667,7 @@ impl Audio {
         })?;
         let sound = Sound { id, seconds };
         self.sounds_live.insert(id);
+        self.ledger.own(crate::inventory::AssetClass::Sound, id, path);
         self.loaded
             .insert(origin.clone(), crate::asset_cache::AssetKind::Sound, sound);
         if let crate::assets::Origin::File(file) = origin {
@@ -694,6 +703,7 @@ impl Audio {
         assert!(sample_rate > 0, "ponko: the sample rate must not be zero");
         let (id, seconds) = self.backend.create(sample_rate, samples);
         self.sounds_live.insert(id);
+        self.ledger.made(crate::inventory::AssetClass::Sound, id);
         Sound { id, seconds }
     }
 
@@ -732,6 +742,7 @@ impl Audio {
         if !self.sounds_live.remove(id) {
             return;
         }
+        self.ledger.freed(crate::inventory::AssetClass::Sound, id);
         {
             use crate::asset_cache::AssetKind::{Sound, Stream};
             self.loaded.release(&[Sound, Stream], |s| s.id == id);

@@ -288,7 +288,10 @@ static void three_d() {
         std::vector<std::array<float,16>> batch_matrices = {{{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1}}};
         auto batch = ctx.create_instance_batch(batch_mesh,batch_matrices);
         ctx.update_instance_batch(batch,batch_matrices);
+        for (std::uint32_t mode=0; mode<3; ++mode) ctx.set_instance_batch_culling(batch,mode);
+        throws([&] {ctx.set_instance_batch_culling(batch,3);});
         ctx.free_instance_batch(batch);
+        throws([&] {ctx.set_instance_batch_culling(batch,0);});
         throws([&] {ctx.update_instance_batch(batch,batch_matrices);});
         auto buffer = ctx.create_gpu_buffer(65);
         ctx.write_gpu_buffer(buffer, 64, {{1, 2, 3, 4}});
@@ -791,6 +794,82 @@ static double system_allocations(const std::string& json, const std::string& nam
 // filter is built once per list and world, so a repeated call allocates
 // nothing (C++ `new` and the engine's own allocations are both counted, per
 // system, and must be exactly zero).
+// The archetype index: 128 archetypes (one per subset of seven markers), so
+// the default policy applies. Hints and the world's policy change how a
+// query finds its archetypes, never what it visits.
+template<class... Fs> static std::vector<unsigned> labels_in_order(ponko::world& w) {
+    std::vector<unsigned> seen;
+    w.each<Fs...>([&](const Label& l) { seen.push_back(l.value); });
+    return seen;
+}
+static void query_cache_hints() {
+    using namespace ponko;
+    world w;
+    for (unsigned bits = 0; bits < 128; ++bits) {
+        const auto e = w.spawn(Label{bits});
+        if (bits & 1) w.set(e, Extra<0>{});
+        if (bits & 2) w.set(e, Extra<1>{});
+        if (bits & 4) w.set(e, Extra<2>{});
+        if (bits & 8) w.set(e, Extra<3>{});
+        if (bits & 16) w.set(e, Extra<4>{});
+        if (bits & 32) w.set(e, Extra<5>{});
+        if (bits & 64) w.set(e, Extra<6>{});
+    }
+    CHECK(w.query_cache_stats().signatures == 0);
+    // uncached: every archetype is tested, the index is not touched.
+    const auto scanned = labels_in_order<with<Extra<0>>, without<Extra<1>>, uncached>(w);
+    CHECK(scanned.size() == 32 && w.query_cache_stats().signatures == 0);
+    // No hint: the world indexes the query from its second run.
+    for (int i = 0; i < 3; ++i) CHECK((labels_in_order<with<Extra<0>>, without<Extra<1>>>(w) == scanned));
+    auto stats = w.query_cache_stats();
+    CHECK(stats.signatures == 1 && stats.indexed == 1 && stats.indices == 32 && stats.hits == 2 && stats.bytes > 0);
+    // cached: a query the policy leaves alone (it matches nearly every
+    // archetype) is indexed on its first run. Same entities, same order.
+    const auto all = labels_in_order<uncached>(w);
+    CHECK(all.size() == 128 && (labels_in_order<>(w) == all) && (labels_in_order<>(w) == all));
+    CHECK(w.query_cache_stats().indexed == 1);
+    CHECK((labels_in_order<cached>(w) == all) && w.query_cache_stats().indexed == 2);
+    // Hints combine with every other filter, with query, count and each_par.
+    CHECK((w.count<Label, cached, or_<with<Extra<2>>, with<Extra<3>>>>() == 96));
+    CHECK((w.count<Label, uncached, or_<with<Extra<2>>, with<Extra<3>>>>() == 96));
+    std::size_t rows = 0;
+    w.query<const Label, with<Extra<6>>, cached>([&](auto chunk) { rows += chunk.size(); });
+    CHECK(rows == 64);
+    std::atomic<unsigned> par{0};
+    w.each_par<cached, with<Extra<5>>, with<Extra<6>>>([&](const Label&) { par.fetch_add(1); });
+    CHECK(par.load() == 32);
+    w.track_changes<Label>();
+    CHECK((w.count<ponko::changed<Label>, cached>() == 128));
+    // An archetype created later is listed before the next query.
+    const auto late = w.spawn(Label{1}, Extra<0>{}, Hero{});
+    CHECK((labels_in_order<with<Extra<0>>, without<Extra<1>>>(w).size() == 33));
+    CHECK((labels_in_order<with<Extra<0>>, without<Extra<1>>, uncached>(w).size() == 33));
+    w.despawn(late);
+    CHECK((labels_in_order<with<Extra<0>>, without<Extra<1>>>(w) == scanned));
+
+    // The world's policy: off for the whole world, hints included.
+    CHECK(w.query_cache_policy().min_archetypes == ponko_query_cache_policy_default().min_archetypes);
+    w.set_query_cache_policy(ponko_query_cache_policy_off());
+    stats = w.query_cache_stats();
+    CHECK(stats.signatures == 0 && stats.bytes == 0 && w.query_cache_policy().min_archetypes == SIZE_MAX);
+    const auto hits = stats.hits;
+    CHECK((labels_in_order<with<Extra<0>>, without<Extra<1>>, cached>(w) == scanned));
+    CHECK((labels_in_order<with<Extra<0>>, without<Extra<1>>>(w) == scanned));
+    CHECK(w.query_cache_stats().hits == hits && w.query_cache_stats().signatures == 0);
+    // And tuned: index from the first run.
+    query_cache_policy tuned = ponko_query_cache_policy_default();
+    tuned.promote_after = 1;
+    w.set_query_cache_policy(tuned);
+    CHECK((labels_in_order<with<Extra<0>>, without<Extra<1>>>(w) == scanned));
+    CHECK(w.query_cache_stats().hits == hits + 1 && w.query_cache_policy().promote_after == 1);
+    tuned.reserved[0] = 1;
+    throws_invalid([&] { w.set_query_cache_policy(tuned); }, "reserved");
+    tuned.reserved[0] = 0;
+    tuned.max_match_percent = 101;
+    w.set_query_cache_policy(tuned);
+    CHECK(w.query_cache_policy().max_match_percent == 100);
+}
+
 static void presence_filters_allocate_nothing() {
     using namespace ponko;
     auto setup = [](ponko::ctx& ctx) {
@@ -1346,6 +1425,24 @@ static void handle_lifecycle() {
         auto after = ctx.live_counts();
         CHECK(after.textures == before.textures && after.meshes == before.meshes && after.materials == before.materials);
         throws([] { ponko::detail::check(ponko_ctx_handle_free(nullptr, PONKO_HANDLE_MESH, 0)); });
+
+        // Asset accounting: counts and bytes by class, each handle's age and owner.
+        const auto textures = ctx.asset_count(ponko::asset_class::texture);
+        auto pixel = ctx.create_texture(1, 1, px, sizeof px);
+        CHECK(ctx.asset_count(ponko::asset_class::texture).live == textures.live + 1);
+        CHECK(ctx.asset_count(ponko::asset_class::texture).bytes == textures.bytes + 4);
+        bool listed = false;
+        for (const auto& r : ctx.asset_handles(ponko::asset_class::texture)) {
+            if (r.id == pixel.id) listed = r.owner == static_cast<std::uint32_t>(ponko::asset_owner::code) && r.bytes == 4;
+        }
+        CHECK(listed);
+        CHECK(ctx.asset_owner_name(ponko::asset_class::texture, pixel.id).empty());
+        ctx.free(pixel);
+        auto house = ctx.load_mesh("models/house.glb");
+        CHECK(ctx.asset_owner_name(ponko::asset_class::mesh, house.id) == "models/house.glb");
+        CHECK(ctx.unload_mesh("models/house.glb") && !ctx.is_live(house));
+        CHECK(!ctx.unload_mesh("models/house.glb"));
+        throws([&] { ctx.asset_count(static_cast<ponko::asset_class>(99)); });
     });
 }
 
@@ -2666,6 +2763,7 @@ int main() {
     parallel_queries();
     change_detection();
     presence_filters();
+    query_cache_hints();
     wide_queries();
     presence_filters_allocate_nothing();
     games();

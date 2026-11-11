@@ -1729,3 +1729,22 @@ fn instance_colors_reject_mismatched_lengths() {
         );
     });
 }
+
+#[test]
+fn batch_culling_setter_accepts_live_and_empty_batches_and_rejects_freed_handles() {
+    use ponko::render::{BatchCulling, InstanceBatch};
+    Game::new("batch culling", 1, 1).run_headless(0, |ctx| {
+        let material = ctx.gfx.create_material(Default::default());
+        let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+        let batch = ctx.gfx.create_instance_batch(mesh, &[], Default::default());
+        for mode in [BatchCulling::Auto, BatchCulling::PreferGpu, BatchCulling::PreferCpu] {
+            assert!(ctx.gfx.set_instance_batch_culling(batch, mode));
+        }
+        ctx.gfx.free(batch);
+        assert!(!ctx.gfx.set_instance_batch_culling(batch, BatchCulling::Auto));
+        assert!(
+            !ctx.gfx
+                .set_instance_batch_culling(InstanceBatch::from_id(u32::MAX), BatchCulling::Auto)
+        );
+    });
+}

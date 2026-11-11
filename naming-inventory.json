@@ -62,7 +62,7 @@
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "crates/ponko_ffi/src/legacy.rs": {
-      "occurrences": 5615,
+      "occurrences": 5778,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Optional legacy native exports and source shims; removal requires a major release no earlier than 2027-11-10."
@@ -111,6 +111,12 @@
     },
     "crates/ponko_ffi/tests/naming.rs": {
       "occurrences": 27,
+      "path_occurrences": 0,
+      "category": "deprecated compatibility",
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
+    },
+    "crates/ponko_ffi/tests/three.rs": {
+      "occurrences": 3,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
@@ -164,7 +170,7 @@
       "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "include/crabby.h": {
-      "occurrences": 1295,
+      "occurrences": 1328,
       "path_occurrences": 1,
       "category": "deprecated compatibility",
       "reason": "Optional legacy native exports and source shims; removal requires a major release no earlier than 2027-11-10."

@@ -103,6 +103,21 @@ constexpr PonkoMesh mesh_none{PONKO_MESH_NONE};
 template<class H> constexpr H none() { H h{}; h.id = PONKO_HANDLE_NONE; return h; }
 /// How many handles of each kind are live (Rust `LiveCounts`).
 using live_counts = PonkoLiveCounts;
+/// A class of asset handle in the inventory (Rust `AssetClass`).
+enum class asset_class : std::uint32_t {
+    texture = PONKO_ASSET_CLASS_TEXTURE, render_target = PONKO_ASSET_CLASS_RENDER_TARGET,
+    texture_array = PONKO_ASSET_CLASS_TEXTURE_ARRAY, material = PONKO_ASSET_CLASS_MATERIAL,
+    shader = PONKO_ASSET_CLASS_SHADER, mesh = PONKO_ASSET_CLASS_MESH, gpu_buffer = PONKO_ASSET_CLASS_GPU_BUFFER,
+    effect = PONKO_ASSET_CLASS_EFFECT, compute = PONKO_ASSET_CLASS_COMPUTE, sound = PONKO_ASSET_CLASS_SOUND
+};
+/// Who made a handle (Rust `AssetOwner`), in `asset_record::owner`.
+enum class asset_owner : std::uint32_t {
+    code = PONKO_ASSET_OWNER_CODE, file = PONKO_ASSET_OWNER_FILE, engine = PONKO_ASSET_OWNER_ENGINE
+};
+/// Live handles of one class and their estimated bytes (Rust `AssetCount`).
+using asset_count = PonkoAssetCount;
+/// One live handle with its bytes, age and owner (Rust `AssetRecord`).
+using asset_record = PonkoAssetRecord;
 /// A kind of asset with its own residency budget (Rust `ResidencyKind`).
 enum class residency_kind : std::uint32_t { mesh = PONKO_RESIDENCY_MESH, texture = PONKO_RESIDENCY_TEXTURE };
 /// Where a streamed asset is (Rust `AssetState`).
@@ -167,6 +182,11 @@ inline terrain_material_desc terrain_material_of(texture_array layers, texture_a
 using mesh = PonkoMesh;
 /// Frame timing over the last few seconds, in ms (`gpu_ms` -1 where the GPU can't time itself).
 using frame_stats = PonkoFrameStats;
+/// When a world indexes the archetypes of repeated queries; see
+/// world_view::set_query_cache_policy.
+using query_cache_policy = PonkoQueryCachePolicy;
+/// What a world's archetype index holds; see world_view::query_cache_stats.
+using query_cache_stats = PonkoQueryCacheStats;
 /// Bytes the renderer uploaded over the last drawn frame, by kind, and the
 /// buffers it made (`reallocations`: buffers and textures replaced because outgrown).
 using gpu_uploads = PonkoGpuUploads;
@@ -947,6 +967,20 @@ template<class... Fs> struct all_of {};
 /// query list.
 template<class... Fs> struct or_ {};
 
+/// A query hint, in the filter list: index this query in the world's
+/// archetype index on its first use, however many archetypes it matches.
+/// Rust: `query.cached()`.
+///
+///     world.each<ponko::cached, ponko::with<Boss>>([](Health& h) { ... });
+///
+/// Most queries don't need it: a world with many archetypes indexes the
+/// queries that repeat by itself (see world_view::set_query_cache_policy).
+/// A hint never changes which entities a query visits or their order.
+struct cached {};
+/// A query hint, in the filter list: test every archetype for this query
+/// instead of using the world's archetype index. Rust: `query.uncached()`.
+struct uncached {};
+
 namespace detail {
 
 template<class T> struct is_filter : std::false_type {};
@@ -957,6 +991,13 @@ template<class T> struct is_filter<with<T>> : std::true_type {};
 template<class T> struct is_filter<without<T>> : std::true_type {};
 template<class... Fs> struct is_filter<all_of<Fs...>> : std::true_type {};
 template<class... Fs> struct is_filter<or_<Fs...>> : std::true_type {};
+template<> struct is_filter<cached> : std::true_type {};
+template<> struct is_filter<uncached> : std::true_type {};
+/// cached and uncached: they say how a query finds its archetypes, not
+/// which entities or rows it visits.
+template<class T> struct is_hint : std::false_type {};
+template<> struct is_hint<cached> : std::true_type {};
+template<> struct is_hint<uncached> : std::true_type {};
 /// with, without, all_of and or_: the filters that pick entities by the
 /// components they have, not rows by what changed.
 template<class T> struct is_presence : std::false_type {};
@@ -991,6 +1032,7 @@ struct query_plan {
     std::array<std::uint32_t, 32> ids{};
     std::size_t count = 0;
     PonkoQueryOptions options = ponko_query_options_default();
+    std::uint32_t cache = PONKO_QUERY_CACHE_AUTO;
     /// The bit of column `id`, added as a read-only column if it's new.
     std::uint32_t bit(std::uint32_t id) {
         for (std::size_t i = 0; i < count; ++i) if (ids[i] == id) return std::uint32_t(1) << i;
@@ -1151,6 +1193,8 @@ protected:
         plan.options.any = true;
         (add_filter(plan, static_cast<Fs*>(nullptr)), ...);
     }
+    void add_filter(detail::query_plan& plan, cached*) const { plan.cache = PONKO_QUERY_CACHE_ALWAYS; }
+    void add_filter(detail::query_plan& plan, uncached*) const { plan.cache = PONKO_QUERY_CACHE_NEVER; }
     // with, without, all_of and or_ pick entities, not rows: they are not part of the plan.
     template<class F> std::enable_if_t<detail::is_presence<F>::value> add_filter(detail::query_plan&, F*) const {}
 
@@ -1202,7 +1246,8 @@ protected:
     /// every run of rows that pass the filters `Fs`. A `const` column is only
     /// read; the others count as changed for every row visited.
     template<class... Ts, class... Fs, class F> void run_query(detail::types<Ts...>, detail::types<Fs...>, bool parallel, F& fn) {
-        static_assert(sizeof...(Ts) + sizeof...(Fs) > 0, "a query needs at least one component");
+        static_assert(sizeof...(Ts) + (std::size_t(!detail::is_hint<Fs>::value) + ... + 0) > 0, "a query needs at least one component");
+        static_assert((std::size_t(detail::is_hint<Fs>::value) + ... + 0) <= 1, "a query takes one of ponko::cached and ponko::uncached");
         static_assert(sizeof...(Ts) <= 32, "a query takes at most 32 components");
         static_assert(!std::disjunction<std::is_same<detail::bare<Ts>, sprite>...>::value,
                       "sprite is not a query column: query transform2d (and your own components) instead");
@@ -1212,7 +1257,8 @@ protected:
                                         std::is_same<detail::bare<Ts>, character3d>..., std::is_same<detail::bare<Ts>, joint3d>...,
                                         std::is_same<detail::bare<Ts>, contact_modifier3d>...>::value,
                       "rigid_body3d, collider3d, character3d, joint3d and contact_modifier3d are not query columns: use get/set (velocity3d is fine)");
-        static_assert(!std::disjunction<detail::is_any<Fs>...>::value || (std::size_t(!detail::is_presence<Fs>::value) + ... + 0) == 1,
+        static_assert(!std::disjunction<detail::is_any<Fs>...>::value ||
+                          (std::size_t(!detail::is_presence<Fs>::value && !detail::is_hint<Fs>::value) + ... + 0) == 1,
                       "any_of must be the query's only changed/added filter");
         valid();
         detail::query_plan plan;
@@ -1228,7 +1274,13 @@ protected:
             try { (*c.fn)(chunk<Ts...>(raw)); } catch (...) { c.error.capture(); }
         };
         PonkoStatus status;
-        if constexpr (std::disjunction<detail::is_presence<Fs>...>::value) {
+        if constexpr (std::disjunction<detail::is_hint<Fs>...>::value) {
+            const PonkoFilter* filter = nullptr;
+            if constexpr (std::disjunction<detail::is_presence<Fs>...>::value) {
+                filter = presence_filter(typename detail::presence<Fs...>::type{});
+            }
+            status = ponko_query_cached(raw_, plan.ids.data(), plan.count, filter, &plan.options, plan.cache, trampoline, &c);
+        } else if constexpr (std::disjunction<detail::is_presence<Fs>...>::value) {
             const PonkoFilter* filter = presence_filter(typename detail::presence<Fs...>::type{});
             status = ponko_query_filtered(raw_, plan.ids.data(), plan.count, filter, &plan.options, trampoline, &c);
         } else {
@@ -1396,7 +1448,7 @@ public:
     /// written or not; one taken by `const&` or by value doesn't.
     template<class... Filters, class F> void each(F&& fn) {
         static_assert(std::conjunction<detail::is_filter<Filters>...>::value,
-                      "each<...> takes filters: ponko::changed<T>, ponko::added<T>, ponko::any_of<...>, ponko::with<T>, ponko::without<T>, ponko::all_of<...> or ponko::or_<...>");
+                      "each<...> takes filters: ponko::changed<T>, ponko::added<T>, ponko::any_of<...>, ponko::with<T>, ponko::without<T>, ponko::all_of<...>, ponko::or_<...>, ponko::cached or ponko::uncached");
         using args = typename detail::params<detail::bare<F>>::type;
         each_of<args>::run(*this, detail::types<Filters...>{}, false, fn);
     }
@@ -1405,7 +1457,7 @@ public:
     /// spatial queries).
     template<class... Filters, class F> void each_par(F&& fn) {
         static_assert(std::conjunction<detail::is_filter<Filters>...>::value,
-                      "each_par<...> takes filters: ponko::changed<T>, ponko::added<T>, ponko::any_of<...>, ponko::with<T>, ponko::without<T>, ponko::all_of<...> or ponko::or_<...>");
+                      "each_par<...> takes filters: ponko::changed<T>, ponko::added<T>, ponko::any_of<...>, ponko::with<T>, ponko::without<T>, ponko::all_of<...>, ponko::or_<...>, ponko::cached or ponko::uncached");
         using args = typename detail::params<detail::bare<F>>::type;
         each_of<args>::run(*this, detail::types<Filters...>{}, true, fn);
     }
@@ -1433,6 +1485,29 @@ public:
     /// filters: `count<ponko::changed<Health>>()`). Counting changes nothing.
     template<class... Ts> std::size_t count() {
         return count_rows(typename detail::pick<false, Ts...>::type{}, typename detail::pick<true, Ts...>::type{});
+    }
+
+    // ---- the archetype index ----
+    /// Sets when this world indexes the archetypes of repeated queries, and
+    /// forgets what was indexed so far. Start from
+    /// `ponko_query_cache_policy_default()`; `ponko_query_cache_policy_off()`
+    /// turns the index off for the whole world. Query results never depend
+    /// on it. Rust: `World::set_query_cache_policy`.
+    void set_query_cache_policy(const ponko::query_cache_policy& policy) {
+        detail::check(ponko_world_set_query_cache_policy(raw_, &policy));
+    }
+    /// The policy this world uses.
+    ponko::query_cache_policy query_cache_policy() {
+        ponko::query_cache_policy policy = ponko_query_cache_policy_default();
+        detail::check(ponko_world_query_cache_policy(raw_, &policy));
+        return policy;
+    }
+    /// What the archetype index holds now: queries remembered and indexed,
+    /// its bytes, and how often it answered a query.
+    ponko::query_cache_stats query_cache_stats() {
+        ponko::query_cache_stats stats{};
+        detail::check(ponko_world_query_cache_stats(raw_, &stats));
+        return stats;
     }
 
     // ---- change detection ----
@@ -3388,6 +3463,10 @@ public:
         detail::check(ponko_ctx_update_instance_batch_colors(raw_, b,
             reinterpret_cast<const float (*)[16]>(matrices.data()), matrices.size(), colors.data(), colors.size()));
     }
+    /// 0 = automatic, 1 = prefer GPU, 2 = prefer CPU; device limits still apply.
+    void set_instance_batch_culling(instance_batch b, std::uint32_t culling) {
+        detail::check(ponko_ctx_set_instance_batch_culling(raw_, b, culling));
+    }
     void free_instance_batch(instance_batch b) { detail::check(ponko_ctx_free_instance_batch(raw_,b)); }
     gpu_buffer create_gpu_buffer(uint32_t len, const std::vector<std::array<float, 4>>& data = {}) {
         gpu_buffer b{}; detail::check(ponko_ctx_create_gpu_buffer(raw_, len,
@@ -3832,6 +3911,35 @@ public:
     /// How many handles of each kind are live now (Rust `Ctx::live_counts`).
     ponko::live_counts live_counts() const {
         ponko::live_counts c{}; detail::check(ponko_ctx_live_counts(raw_, &c)); return c;
+    }
+    /// Live handles of `c` and their estimated bytes (Rust `Ctx::asset_inventory`).
+    ponko::asset_count asset_count(asset_class c) const {
+        ponko::asset_count n{}; detail::check(ponko_ctx_asset_count(raw_, static_cast<std::uint32_t>(c), &n)); return n;
+    }
+    /// Every live handle of `c`, oldest first, with its bytes, age and owner
+    /// (Rust `Graphics::asset_handles`, `Audio::asset_handles`).
+    std::vector<ponko::asset_record> asset_handles(asset_class c) const {
+        const auto k = static_cast<std::uint32_t>(c);
+        std::size_t n = 0; detail::check(ponko_ctx_asset_handles(raw_, k, nullptr, 0, &n));
+        std::vector<ponko::asset_record> out(n);
+        if (n) detail::check(ponko_ctx_asset_handles(raw_, k, out.data(), out.size(), &n));
+        out.resize(std::min(n, out.size()));
+        return out;
+    }
+    /// The asset name that loaded handle `id` of `c`; empty if code or the engine made it.
+    std::string asset_owner_name(asset_class c, std::uint32_t id) const {
+        const auto k = static_cast<std::uint32_t>(c);
+        std::size_t len = 0;
+        detail::check(ponko_ctx_asset_owner(raw_, k, id, nullptr, 0, &len));
+        std::string text(len + 1, '\0');
+        detail::check(ponko_ctx_asset_owner(raw_, k, id, text.data(), text.size(), &len));
+        text.resize(len);
+        return text;
+    }
+    /// Frees everything loading glTF file `path` made: mesh, materials and
+    /// unshared textures (Rust `Graphics::unload_mesh`). False if it wasn't loaded.
+    bool unload_mesh(const char* path) {
+        bool done = false; detail::check(ponko_ctx_unload_mesh(raw_, path, &done)); return done;
     }
     /// Sets `kind`'s residency budget in bytes; std::nullopt for no limit
     /// (Rust `Ctx::set_residency_budget`).

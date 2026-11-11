@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release -p ponko_ffi
       - name: Package
@@ -87,7 +87,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo publish
         env:

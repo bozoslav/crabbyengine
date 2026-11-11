@@ -376,6 +376,15 @@ impl LiveSet {
     pub(crate) fn len(&self) -> usize {
         self.live
     }
+
+    /// The live ids, in order.
+    pub(crate) fn ids(&self) -> impl Iterator<Item = u32> + '_ {
+        self.state
+            .iter()
+            .enumerate()
+            .filter(|&(_, &s)| s == MADE)
+            .map(|(id, _)| id as u32)
+    }
 }
 
 /// `Handle` for a handle type whose only field is `id: u32`.

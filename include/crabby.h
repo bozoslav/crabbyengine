@@ -11,9 +11,22 @@
 #define CRABBY_ACTION_KEYS PONKO_ACTION_KEYS
 #define CRABBY_ACTION_KEYS2 PONKO_ACTION_KEYS2
 #define CRABBY_ACTION_MOUSE PONKO_ACTION_MOUSE
+#define CRABBY_ASSET_CLASS_COMPUTE PONKO_ASSET_CLASS_COMPUTE
+#define CRABBY_ASSET_CLASS_EFFECT PONKO_ASSET_CLASS_EFFECT
+#define CRABBY_ASSET_CLASS_GPU_BUFFER PONKO_ASSET_CLASS_GPU_BUFFER
+#define CRABBY_ASSET_CLASS_MATERIAL PONKO_ASSET_CLASS_MATERIAL
+#define CRABBY_ASSET_CLASS_MESH PONKO_ASSET_CLASS_MESH
+#define CRABBY_ASSET_CLASS_RENDER_TARGET PONKO_ASSET_CLASS_RENDER_TARGET
+#define CRABBY_ASSET_CLASS_SHADER PONKO_ASSET_CLASS_SHADER
+#define CRABBY_ASSET_CLASS_SOUND PONKO_ASSET_CLASS_SOUND
+#define CRABBY_ASSET_CLASS_TEXTURE PONKO_ASSET_CLASS_TEXTURE
+#define CRABBY_ASSET_CLASS_TEXTURE_ARRAY PONKO_ASSET_CLASS_TEXTURE_ARRAY
 #define CRABBY_ASSET_EVICTED PONKO_ASSET_EVICTED
 #define CRABBY_ASSET_FAILED PONKO_ASSET_FAILED
 #define CRABBY_ASSET_LOADING PONKO_ASSET_LOADING
+#define CRABBY_ASSET_OWNER_CODE PONKO_ASSET_OWNER_CODE
+#define CRABBY_ASSET_OWNER_ENGINE PONKO_ASSET_OWNER_ENGINE
+#define CRABBY_ASSET_OWNER_FILE PONKO_ASSET_OWNER_FILE
 #define CRABBY_ASSET_RESIDENT PONKO_ASSET_RESIDENT
 #define CRABBY_ASSET_STREAMING PONKO_ASSET_STREAMING
 #define CRABBY_ASSET_UNKNOWN PONKO_ASSET_UNKNOWN
@@ -251,6 +264,9 @@
 #define CRABBY_PHASE_LATE PONKO_PHASE_LATE
 #define CRABBY_PHASE_PHYSICS PONKO_PHASE_PHYSICS
 #define CRABBY_PHASE_SIM_LAST PONKO_PHASE_SIM_LAST
+#define CRABBY_QUERY_CACHE_ALWAYS PONKO_QUERY_CACHE_ALWAYS
+#define CRABBY_QUERY_CACHE_AUTO PONKO_QUERY_CACHE_AUTO
+#define CRABBY_QUERY_CACHE_NEVER PONKO_QUERY_CACHE_NEVER
 #define CRABBY_RESIDENCY_MESH PONKO_RESIDENCY_MESH
 #define CRABBY_RESIDENCY_TEXTURE PONKO_RESIDENCY_TEXTURE
 #define CRABBY_ROLLOFF_LINEAR PONKO_ROLLOFF_LINEAR
@@ -375,6 +391,10 @@
 #define CrabbyAnimationCondition PonkoAnimationCondition
 #define CrabbyAnimationGraph PonkoAnimationGraph
 #define CrabbyAnimationGraphBuilder PonkoAnimationGraphBuilder
+#define CrabbyAssetClass PonkoAssetClass
+#define CrabbyAssetCount PonkoAssetCount
+#define CrabbyAssetOwner PonkoAssetOwner
+#define CrabbyAssetRecord PonkoAssetRecord
 #define CrabbyAssetState PonkoAssetState
 #define CrabbyAttached PonkoAttached
 #define CrabbyAudioBus PonkoAudioBus
@@ -492,6 +512,8 @@
 #define CrabbyPost PonkoPost
 #define CrabbyProfileScope PonkoProfileScope
 #define CrabbyQuat PonkoQuat
+#define CrabbyQueryCachePolicy PonkoQueryCachePolicy
+#define CrabbyQueryCacheStats PonkoQueryCacheStats
 #define CrabbyQueryFilter2D PonkoQueryFilter2D
 #define CrabbyQueryFilter3D PonkoQueryFilter3D
 #define CrabbyQueryFn PonkoQueryFn
@@ -684,7 +706,10 @@
 #define crabby_ctx_animator_update ponko_ctx_animator_update
 #define crabby_ctx_apply_impulse ponko_ctx_apply_impulse
 #define crabby_ctx_apply_impulse3d ponko_ctx_apply_impulse3d
+#define crabby_ctx_asset_count ponko_ctx_asset_count
 #define crabby_ctx_asset_error ponko_ctx_asset_error
+#define crabby_ctx_asset_handles ponko_ctx_asset_handles
+#define crabby_ctx_asset_owner ponko_ctx_asset_owner
 #define crabby_ctx_asset_state ponko_ctx_asset_state
 #define crabby_ctx_attach_to_joint ponko_ctx_attach_to_joint
 #define crabby_ctx_audio_bus ponko_ctx_audio_bus
@@ -889,6 +914,7 @@
 #define crabby_ctx_set_gravity ponko_ctx_set_gravity
 #define crabby_ctx_set_gravity3d ponko_ctx_set_gravity3d
 #define crabby_ctx_set_input ponko_ctx_set_input
+#define crabby_ctx_set_instance_batch_culling ponko_ctx_set_instance_batch_culling
 #define crabby_ctx_set_joint_pose ponko_ctx_set_joint_pose
 #define crabby_ctx_set_later ponko_ctx_set_later
 #define crabby_ctx_set_lighting ponko_ctx_set_lighting
@@ -1010,6 +1036,7 @@
 #define crabby_ctx_ui_value ponko_ctx_ui_value
 #define crabby_ctx_ui_wants_keyboard ponko_ctx_ui_wants_keyboard
 #define crabby_ctx_ui_wants_pointer ponko_ctx_ui_wants_pointer
+#define crabby_ctx_unload_mesh ponko_ctx_unload_mesh
 #define crabby_ctx_unpin_resident ponko_ctx_unpin_resident
 #define crabby_ctx_update_instance_batch ponko_ctx_update_instance_batch
 #define crabby_ctx_update_instance_batch_colors ponko_ctx_update_instance_batch_colors
@@ -1197,6 +1224,9 @@
 #define crabby_quat_mul ponko_quat_mul
 #define crabby_quat_rotate ponko_quat_rotate
 #define crabby_query ponko_query
+#define crabby_query_cache_policy_default ponko_query_cache_policy_default
+#define crabby_query_cache_policy_off ponko_query_cache_policy_off
+#define crabby_query_cached ponko_query_cached
 #define crabby_query_filter3d ponko_query_filter3d
 #define crabby_query_filtered ponko_query_filtered
 #define crabby_query_options_default ponko_query_options_default
@@ -1294,8 +1324,11 @@
 #define crabby_world_len ponko_world_len
 #define crabby_world_load ponko_world_load
 #define crabby_world_new ponko_world_new
+#define crabby_world_query_cache_policy ponko_world_query_cache_policy
+#define crabby_world_query_cache_stats ponko_world_query_cache_stats
 #define crabby_world_save ponko_world_save
 #define crabby_world_set_changes_since ponko_world_set_changes_since
+#define crabby_world_set_query_cache_policy ponko_world_set_query_cache_policy
 #define crabby_world_sort_spatial ponko_world_sort_spatial
 
 #endif

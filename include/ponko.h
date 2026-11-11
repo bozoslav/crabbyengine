@@ -34,7 +34,7 @@
  * for that panel's UI.
  *
  * Enums (PonkoKey, PonkoMouseButton, PonkoGamepadButton, PonkoGamepadAxis,
- * PonkoTextAlign3D, PonkoBodyKind, PonkoShapeKind, PonkoShape3DKind, PonkoNetState, PonkoPhase, PonkoService, PonkoHandleKind, PonkoResidencyKind, PonkoAssetState, PonkoGpuTier, PonkoGpuFeature, and the
+ * PonkoTextAlign3D, PonkoBodyKind, PonkoShapeKind, PonkoShape3DKind, PonkoNetState, PonkoPhase, PonkoService, PonkoHandleKind, PonkoAssetClass, PonkoAssetOwner, PonkoResidencyKind, PonkoAssetState, PonkoGpuTier, PonkoGpuFeature, and the
  * PonkoUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
@@ -83,6 +83,12 @@
 #define PONKO_HANDLE_NONE UINT32_MAX
 
 #define PONKO_MAX_GAMEPADS 8
+
+#define PONKO_QUERY_CACHE_AUTO 0
+
+#define PONKO_QUERY_CACHE_ALWAYS 1
+
+#define PONKO_QUERY_CACHE_NEVER 2
 
 #define PONKO_SHADER_MATERIAL 0
 
@@ -243,6 +249,25 @@ typedef enum PonkoHandleKind {
   PONKO_HANDLE_INSTANCE_BATCH = 9,
   PONKO_HANDLE_TEXTURE_ARRAY = 10,
 } PonkoHandleKind;
+
+typedef enum PonkoAssetClass {
+  PONKO_ASSET_CLASS_TEXTURE = 0,
+  PONKO_ASSET_CLASS_RENDER_TARGET = 1,
+  PONKO_ASSET_CLASS_TEXTURE_ARRAY = 2,
+  PONKO_ASSET_CLASS_MATERIAL = 3,
+  PONKO_ASSET_CLASS_SHADER = 4,
+  PONKO_ASSET_CLASS_MESH = 5,
+  PONKO_ASSET_CLASS_GPU_BUFFER = 6,
+  PONKO_ASSET_CLASS_EFFECT = 7,
+  PONKO_ASSET_CLASS_COMPUTE = 8,
+  PONKO_ASSET_CLASS_SOUND = 9,
+} PonkoAssetClass;
+
+typedef enum PonkoAssetOwner {
+  PONKO_ASSET_OWNER_CODE = 0,
+  PONKO_ASSET_OWNER_FILE = 1,
+  PONKO_ASSET_OWNER_ENGINE = 2,
+} PonkoAssetOwner;
 
 typedef enum PonkoResidencyKind {
   PONKO_RESIDENCY_MESH = 0,
@@ -884,6 +909,19 @@ typedef struct PonkoLiveCounts {
   size_t fonts;
 } PonkoLiveCounts;
 
+typedef struct PonkoAssetCount {
+  size_t live;
+  uint64_t bytes;
+} PonkoAssetCount;
+
+typedef struct PonkoAssetRecord {
+  uint32_t id;
+  uint32_t owner;
+  uint64_t bytes;
+  uint64_t made_frame;
+  uint64_t age_frames;
+} PonkoAssetRecord;
+
 typedef struct PonkoFont {
   uint32_t id;
 } PonkoFont;
@@ -1142,6 +1180,24 @@ typedef struct PonkoColliderFocus {
   float radius;
   float keep_radius;
 } PonkoColliderFocus;
+
+typedef struct PonkoQueryCachePolicy {
+  size_t min_archetypes;
+  size_t max_signatures;
+  size_t max_index_bytes;
+  uint32_t promote_after;
+  uint8_t max_match_percent;
+  uint8_t reserved[19];
+} PonkoQueryCachePolicy;
+
+typedef struct PonkoQueryCacheStats {
+  size_t signatures;
+  size_t indexed;
+  size_t indices;
+  size_t bytes;
+  uint64_t hits;
+  uint64_t evictions;
+} PonkoQueryCacheStats;
 
 typedef struct PonkoRagdollBone {
   const char *joint;
@@ -1568,16 +1624,16 @@ typedef struct PonkoLodSettings {
   bool crossfade;
 } PonkoLodSettings;
 
+typedef struct PonkoInstanceBatch {
+  uint32_t id;
+} PonkoInstanceBatch;
+
 typedef struct PonkoInstanceBatchOptions {
   float cell_size;
   float max_distance;
   bool cast_shadows;
   struct PonkoColor tint;
 } PonkoInstanceBatchOptions;
-
-typedef struct PonkoInstanceBatch {
-  uint32_t id;
-} PonkoInstanceBatch;
 
 typedef struct PonkoInstanceLevel {
   struct PonkoMesh mesh;
@@ -2649,6 +2705,25 @@ enum PonkoStatus ponko_ctx_handle_free(struct PonkoCtx *ctx, uint32_t kind, uint
 
 enum PonkoStatus ponko_ctx_live_counts(struct PonkoCtx *ctx, struct PonkoLiveCounts *out_counts);
 
+enum PonkoStatus ponko_ctx_asset_count(struct PonkoCtx *ctx,
+                                       uint32_t asset_class_id,
+                                       struct PonkoAssetCount *out_count);
+
+enum PonkoStatus ponko_ctx_asset_handles(struct PonkoCtx *ctx,
+                                         uint32_t asset_class_id,
+                                         struct PonkoAssetRecord *records,
+                                         size_t capacity,
+                                         size_t *out_len);
+
+enum PonkoStatus ponko_ctx_asset_owner(struct PonkoCtx *ctx,
+                                       uint32_t asset_class_id,
+                                       uint32_t id,
+                                       char *buffer,
+                                       size_t capacity,
+                                       size_t *out_len);
+
+enum PonkoStatus ponko_ctx_unload_mesh(struct PonkoCtx *ctx, const char *path, bool *out_unloaded);
+
 struct PonkoTextParams ponko_text_params_default(void);
 
 struct PonkoUiStyle ponko_ui_style_default(void);
@@ -3205,6 +3280,28 @@ enum PonkoStatus ponko_ctx_physics3d_stream_colliders(struct PonkoCtx *ctx,
 enum PonkoStatus ponko_ctx_physics3d_is_collider_active(struct PonkoCtx *ctx,
                                                         uint64_t entity,
                                                         bool *out_active);
+
+struct PonkoQueryCachePolicy ponko_query_cache_policy_default(void);
+
+struct PonkoQueryCachePolicy ponko_query_cache_policy_off(void);
+
+enum PonkoStatus ponko_world_set_query_cache_policy(struct PonkoWorld *world,
+                                                    const struct PonkoQueryCachePolicy *policy);
+
+enum PonkoStatus ponko_world_query_cache_policy(struct PonkoWorld *world,
+                                                struct PonkoQueryCachePolicy *out_policy);
+
+enum PonkoStatus ponko_world_query_cache_stats(struct PonkoWorld *world,
+                                               struct PonkoQueryCacheStats *out_stats);
+
+enum PonkoStatus ponko_query_cached(struct PonkoWorld *world,
+                                    const uint32_t *components,
+                                    size_t count,
+                                    const struct PonkoFilter *filter,
+                                    const struct PonkoQueryOptions *options,
+                                    uint32_t cache,
+                                    PonkoQueryFn callback,
+                                    void *user);
 
 struct PonkoRagdollBone ponko_ragdoll_bone(const char *joint, float radius);
 
@@ -4090,6 +4187,10 @@ enum PonkoStatus ponko_ctx_set_mesh_gpu_buffer(struct PonkoCtx *ctx,
                                                struct PonkoMesh mesh,
                                                struct PonkoGpuBuffer buffer,
                                                uint32_t count);
+
+enum PonkoStatus ponko_ctx_set_instance_batch_culling(struct PonkoCtx *ctx,
+                                                      struct PonkoInstanceBatch batch,
+                                                      uint32_t culling);
 
 enum PonkoStatus ponko_ctx_create_instance_batch(struct PonkoCtx *ctx,
                                                  struct PonkoMesh mesh,

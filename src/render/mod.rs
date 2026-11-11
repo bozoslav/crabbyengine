@@ -162,8 +162,8 @@ pub struct InstanceBatchStats {
     /// GPU memory of the pools' buffers (records, visible lists and draw
     /// arguments), in bytes.
     pub pool_bytes: u64,
-    /// Culling dispatches recorded for the last frame: one per page with
-    /// anything to cull.
+    /// Culling pages recorded for the last frame: one per page with
+    /// anything to cull. Each records four compute stages.
     pub cull_dispatches: u32,
     /// What the last frame culled: one job per batch, view and distance
     /// level that could be in sight.
@@ -173,8 +173,9 @@ pub struct InstanceBatchStats {
     /// healthy scene: a view always has room for its visible list.
     pub views_skipped: u32,
     /// Buffers of visible lists the GPU-driven batches' views fill: each
-    /// is one culling dispatch. More than one when the views' lists
-    /// (4 bytes an instance, per view and level) outgrow one buffer.
+    /// records one culling job table. More than one when the views' lists
+    /// and stable compaction scratch (about 8 bytes an instance, per view
+    /// and level, plus cell counters) outgrow one buffer.
     pub pages: u32,
 }
 
@@ -382,6 +383,9 @@ mod quality_render_test;
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod residency_render_test;
+
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod asset_lifetime_render_test;
 
 #[cfg(feature = "3d")]
 pub use crate::three::{

@@ -323,5 +323,16 @@ pub unsafe extern "C" fn ponko_query_filtered(
     user: *mut c_void,
 ) -> PonkoStatus {
     // SAFETY: forwarded caller contract; the filter is null or live.
-    unsafe { query_with_filter(world, components, count, filter.as_ref(), options, callback, user) }
+    unsafe {
+        query_with_filter(
+            world,
+            components,
+            count,
+            filter.as_ref(),
+            options,
+            ponko_ecs::QueryCache::Auto,
+            callback,
+            user,
+        )
+    }
 }
