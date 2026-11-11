@@ -198,11 +198,14 @@ impl Graphics {
                 }
                 self.assets3d.computes += 1;
                 self.assets3d.computes_live.insert(id);
+                self.asset_ledger.made(crate::inventory::AssetClass::Compute, id);
                 Compute { id }
             }
             Err(e) => return Err(e.with_path(path)),
         };
         self.assets3d.loaded_computes.insert(origin.clone(), compute);
+        self.asset_ledger
+            .own(crate::inventory::AssetClass::Compute, compute.id, path);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher
                 .watch(path, file, crate::hot_reload::Asset::Compute(compute.id));
@@ -242,6 +245,7 @@ impl Graphics {
         self.record_shader(name, super::ShaderKind::Compute, false, compiled)?;
         self.assets3d.computes += 1;
         self.assets3d.computes_live.insert(id);
+        self.asset_ledger.made(crate::inventory::AssetClass::Compute, id);
         Ok(Compute { id })
     }
 
@@ -298,6 +302,7 @@ impl Graphics {
         if !self.assets3d.computes_live.remove(id) {
             return;
         }
+        self.asset_ledger.freed(crate::inventory::AssetClass::Compute, id);
         self.assets3d.loaded_computes.retain(|_, c| c.id != id);
         self.watcher
             .forget(|a| matches!(a, crate::hot_reload::Asset::Compute(c) if *c == id));
@@ -361,6 +366,7 @@ impl Graphics {
         let b = GpuBuffer { id };
         self.assets3d.gpu_buffers[b.slot() as usize] = len;
         super::set_slot_id(&mut self.assets3d.gpu_buffer_ids, id);
+        self.asset_ledger.made(crate::inventory::AssetClass::GpuBuffer, id);
         if let Some(r) = self.renderer.as_mut()
             && !self.headless
         {
@@ -392,6 +398,7 @@ impl Graphics {
             return;
         }
         *len = 0;
+        self.asset_ledger.freed(crate::inventory::AssetClass::GpuBuffer, b.id);
         // Back in the pool once its compute passes are gone
         // (`Ctx::unlink_freed_gpu_buffers`).
         self.assets3d.unlinking_gpu_buffers.push(b.id);

@@ -12,6 +12,14 @@ use ponko::render::{GpuBuffer, Material, MaterialDesc, Mesh, MeshData, ModelMate
 #[cfg(feature = "3d")]
 use ponko::terrain::{TextureArray, TextureKind};
 
+/// The records of `class`, from the service that holds it.
+fn handles(ctx: &Ctx, class: AssetClass) -> Vec<ponko::inventory::AssetRecord> {
+    match class {
+        AssetClass::Sound => ctx.audio.asset_handles(),
+        _ => ctx.gfx.asset_handles(class),
+    }
+}
+
 fn headless(setup: impl FnOnce(&mut Ctx)) {
     Game::new("assets", 1, 1).run_headless(0, setup);
 }
@@ -305,5 +313,226 @@ fn a_model_keeping_a_freed_mesh_never_shows_the_next_one() {
         assert_eq!((dangling[0].entity, dangling[0].id), (holder.to_bits(), old.id()));
         ctx.world.get_mut::<Model>(holder).unwrap().mesh = new;
         assert!(ctx.asset_inventory().dangling.is_empty());
+    });
+}
+
+/// Records list every live handle of a class with its bytes, the frame it
+/// was made on and who made it; freed handles leave them.
+#[test]
+fn records_say_when_and_by_whom_each_handle_was_made() {
+    use ponko::inventory::AssetOwner;
+    let checked = std::rc::Rc::new(std::cell::Cell::new(false));
+    let done = checked.clone();
+    Game::new("assets", 1, 1)
+        .hot_reload(false)
+        .sim_system(move |ctx: &mut Ctx| {
+            let frame = ctx.time.frame();
+            if frame != 3 {
+                return;
+            }
+            let made = ctx.gfx.create_texture(2, 1, &[0; 8]);
+            let beep = ctx.audio.create(1000, &[0.0; 100]);
+            let records = ctx.gfx.asset_handles(AssetClass::Texture);
+            let loaded = records
+                .iter()
+                .find(|r| r.owner == AssetOwner::File("crab.png".into()))
+                .expect("the loaded texture");
+            assert!(loaded.made_frame < frame && loaded.age_frames == frame - loaded.made_frame);
+            let new = records.iter().find(|r| r.id == made.id()).unwrap();
+            assert_eq!((new.made_frame, new.age_frames, new.bytes), (frame, 0, 8));
+            assert_eq!(new.owner, AssetOwner::Code);
+            assert_eq!(records.last().unwrap().id, made.id(), "oldest first");
+            let sound = ctx.audio.asset_handles();
+            assert_eq!(sound.len(), 1);
+            assert_eq!((sound[0].id, sound[0].made_frame), (beep.id(), frame));
+            ctx.free(made);
+            ctx.free(beep);
+            assert!(
+                ctx.gfx
+                    .asset_handles(AssetClass::Texture)
+                    .iter()
+                    .all(|r| r.id != made.id())
+            );
+            assert!(ctx.audio.asset_handles().is_empty());
+            done.set(true);
+        })
+        .run_headless(5, |ctx| {
+            let _ = ctx.load_texture("crab.png");
+        });
+    assert!(checked.get());
+}
+
+/// Every class's records match its inventory count and bytes, before and
+/// after freeing: no live handle is missing from the records.
+#[test]
+fn records_cover_every_live_handle_of_every_class() {
+    fn agree(ctx: &Ctx) {
+        let inventory = ctx.asset_inventory();
+        for count in &inventory.classes {
+            let records = handles(ctx, count.class);
+            assert_eq!(records.len(), count.live, "{:?}", count.class);
+            assert_eq!(
+                records.iter().map(|r| r.bytes).sum::<u64>(),
+                count.bytes,
+                "{:?}",
+                count.class
+            );
+        }
+    }
+    headless(|ctx| {
+        let t = ctx.gfx.create_texture(1, 1, &[0; 4]);
+        let s = ctx.audio.create(1000, &[0.0; 10]);
+        #[cfg(feature = "3d")]
+        let made = {
+            const SHADER: &str = "fn surface(s: Surface) -> Surface { return s; }";
+            const EFFECT: &str = "fn effect(p: Pixel) -> vec3<f32> { return p.color; }";
+            const COMPUTE: &str = "fn compute(c: Cell) -> vec4<f32> { return c.value; }";
+            let material = ctx.gfx.create_material(MaterialDesc::default());
+            let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            let buffer = ctx.gfx.create_gpu_buffer(4, &[]);
+            let target = ctx.gfx.create_render_target(4, 4);
+            let array = ctx.gfx.create_texture_array(1, 1, &[&[0; 4]], TextureKind::Color);
+            let shader = ctx.gfx.create_shader("s", SHADER);
+            let effect = ctx.gfx.create_effect("e", EFFECT);
+            let compute = ctx.gfx.create_compute("c", COMPUTE);
+            (material, mesh, buffer, target, array, shader, effect, compute)
+        };
+        agree(ctx);
+        ctx.free(t);
+        ctx.free(s);
+        #[cfg(feature = "3d")]
+        {
+            ctx.free(made.0);
+            ctx.free(made.1);
+            ctx.free(made.2);
+            ctx.free(made.3);
+            ctx.free(made.4);
+            ctx.free(made.5);
+            ctx.free(made.6);
+            ctx.free(made.7);
+        }
+        agree(ctx);
+    });
+}
+
+#[cfg(feature = "3d")]
+mod files {
+    use super::*;
+    use ponko::inventory::AssetOwner;
+
+    const HOUSE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/models/house.glb"));
+
+    #[test]
+    fn a_files_materials_and_textures_are_owned_by_it() {
+        headless(|ctx| {
+            let house = ctx.gfx.load_mesh("models/house.glb");
+            let owner = AssetOwner::File("models/house.glb".into());
+            let meshes = ctx.gfx.asset_handles(AssetClass::Mesh);
+            assert!(meshes.iter().any(|r| r.id == house.id() && r.owner == owner));
+            let materials = ctx.gfx.asset_handles(AssetClass::Material);
+            assert!(!materials.is_empty() && materials.iter().all(|r| r.owner == owner));
+        });
+    }
+
+    /// Freeing one of a file's materials and loading the file again makes
+    /// that material again, not a whole new set beside the old one.
+    #[test]
+    fn freeing_a_files_material_then_reloading_it_does_not_grow() {
+        headless(|ctx| {
+            let mut house = ctx.gfx.load_mesh("models/house.glb");
+            let base = ctx.asset_inventory();
+            for round in 0..20 {
+                ctx.free(house);
+                let material = ctx.gfx.asset_handles(AssetClass::Material)[0].id;
+                ctx.free(Material::from_id(material));
+                house = ctx.gfx.load_mesh("models/house.glb");
+                assert!(ctx.gfx.is_live(house));
+                let growth = ctx.asset_inventory().growth_since(&base);
+                assert!(growth.is_empty(), "round {round}: {growth:?}");
+            }
+        });
+    }
+
+    /// A long-running game loading many different models: `unload_mesh`
+    /// gives back everything each one made.
+    #[test]
+    fn unloading_many_different_files_returns_to_baseline() {
+        headless(|ctx| {
+            let mut pack = MemorySource::new("pack");
+            for i in 0..30 {
+                pack = pack.with(format!("models/house{i}.glb"), HOUSE);
+            }
+            ctx.assets.add_source(pack);
+            let base = ctx.asset_inventory();
+            for round in 0..3 {
+                for i in 0..30 {
+                    let name = format!("models/house{i}.glb");
+                    let house = ctx.gfx.load_mesh(&name);
+                    ctx.world.spawn((Transform3D::default(), Model::new(house)));
+                }
+                assert!(!ctx.asset_inventory().growth_since(&base).is_empty());
+                for i in 0..30 {
+                    assert!(ctx.gfx.unload_mesh(&format!("models/house{i}.glb")));
+                }
+                let growth = ctx.asset_inventory().growth_since(&base);
+                assert!(growth.is_empty(), "round {round}: {growth:?}");
+                assert!(!ctx.gfx.unload_mesh("models/house0.glb"), "unloaded already");
+                // The models still name the freed meshes: listed until despawned.
+                assert_eq!(ctx.asset_inventory().dangling.len(), 30 * (round + 1));
+            }
+        });
+    }
+
+    /// Freeing only the mesh keeps the file's materials (and their edits)
+    /// for the next load; unloading after that frees them too.
+    #[test]
+    fn unload_after_free_releases_the_kept_materials() {
+        headless(|ctx| {
+            let base = ctx.asset_inventory();
+            let house = ctx.gfx.load_mesh("models/house.glb");
+            ctx.free(house);
+            let kept = ctx.asset_inventory().growth_since(&base);
+            assert!(kept.iter().any(|g| g.class == AssetClass::Material), "{kept:?}");
+            assert!(ctx.gfx.unload_mesh("models/house.glb"));
+            assert!(ctx.asset_inventory().growth_since(&base).is_empty());
+            assert!(!ctx.gfx.unload_mesh("models/missing.glb"));
+        });
+    }
+}
+
+/// The guide's leak hunt: compare inventories, then list the handles of
+/// the class that grew with their age and owner.
+#[cfg(feature = "3d")]
+#[test]
+fn the_guide_leak_hunt_runs() {
+    headless(|ctx| {
+        // ANCHOR: asset_leaks
+        use ponko::inventory::{AssetClass, AssetOwner};
+        let before = ctx.asset_inventory();
+        for _level in 0..3 {
+            let house = ctx.gfx.load_mesh("models/house.glb");
+            ctx.free(house); // keeps the file's materials and textures for next time
+        }
+        // Loading the same file again reuses them: only the first load grew.
+        for grown in ctx.asset_inventory().growth_since(&before) {
+            println!(
+                "{}: {} more handles, {} more bytes",
+                grown.class, grown.live, grown.bytes
+            );
+            // Which handles are they, how old, and who made them?
+            for r in ctx.gfx.asset_handles(grown.class) {
+                if let AssetOwner::File(name) = &r.owner {
+                    println!(
+                        "  {} {}: {} bytes, {} frames old, from {name}",
+                        r.class, r.id, r.bytes, r.age_frames
+                    );
+                }
+            }
+        }
+        // Done with the model for good: free its materials and textures too.
+        ctx.gfx.unload_mesh("models/house.glb");
+        assert!(ctx.asset_inventory().growth_since(&before).is_empty());
+        // ANCHOR_END: asset_leaks
+        let _ = AssetClass::Texture;
     });
 }

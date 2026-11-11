@@ -34,7 +34,7 @@
  * for that panel's UI.
  *
  * Enums (PonkoKey, PonkoMouseButton, PonkoGamepadButton, PonkoGamepadAxis,
- * PonkoTextAlign3D, PonkoBodyKind, PonkoShapeKind, PonkoShape3DKind, PonkoNetState, PonkoPhase, PonkoService, PonkoHandleKind, PonkoResidencyKind, PonkoAssetState, PonkoGpuTier, PonkoGpuFeature, and the
+ * PonkoTextAlign3D, PonkoBodyKind, PonkoShapeKind, PonkoShape3DKind, PonkoNetState, PonkoPhase, PonkoService, PonkoHandleKind, PonkoAssetClass, PonkoAssetOwner, PonkoResidencyKind, PonkoAssetState, PonkoGpuTier, PonkoGpuFeature, and the
  * PonkoUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
@@ -243,6 +243,25 @@ typedef enum PonkoHandleKind {
   PONKO_HANDLE_INSTANCE_BATCH = 9,
   PONKO_HANDLE_TEXTURE_ARRAY = 10,
 } PonkoHandleKind;
+
+typedef enum PonkoAssetClass {
+  PONKO_ASSET_CLASS_TEXTURE = 0,
+  PONKO_ASSET_CLASS_RENDER_TARGET = 1,
+  PONKO_ASSET_CLASS_TEXTURE_ARRAY = 2,
+  PONKO_ASSET_CLASS_MATERIAL = 3,
+  PONKO_ASSET_CLASS_SHADER = 4,
+  PONKO_ASSET_CLASS_MESH = 5,
+  PONKO_ASSET_CLASS_GPU_BUFFER = 6,
+  PONKO_ASSET_CLASS_EFFECT = 7,
+  PONKO_ASSET_CLASS_COMPUTE = 8,
+  PONKO_ASSET_CLASS_SOUND = 9,
+} PonkoAssetClass;
+
+typedef enum PonkoAssetOwner {
+  PONKO_ASSET_OWNER_CODE = 0,
+  PONKO_ASSET_OWNER_FILE = 1,
+  PONKO_ASSET_OWNER_ENGINE = 2,
+} PonkoAssetOwner;
 
 typedef enum PonkoResidencyKind {
   PONKO_RESIDENCY_MESH = 0,
@@ -883,6 +902,19 @@ typedef struct PonkoLiveCounts {
   size_t sounds;
   size_t fonts;
 } PonkoLiveCounts;
+
+typedef struct PonkoAssetCount {
+  size_t live;
+  uint64_t bytes;
+} PonkoAssetCount;
+
+typedef struct PonkoAssetRecord {
+  uint32_t id;
+  uint32_t owner;
+  uint64_t bytes;
+  uint64_t made_frame;
+  uint64_t age_frames;
+} PonkoAssetRecord;
 
 typedef struct PonkoFont {
   uint32_t id;
@@ -2648,6 +2680,25 @@ enum PonkoStatus ponko_ctx_handle_is_live(struct PonkoCtx *ctx,
 enum PonkoStatus ponko_ctx_handle_free(struct PonkoCtx *ctx, uint32_t kind, uint32_t id);
 
 enum PonkoStatus ponko_ctx_live_counts(struct PonkoCtx *ctx, struct PonkoLiveCounts *out_counts);
+
+enum PonkoStatus ponko_ctx_asset_count(struct PonkoCtx *ctx,
+                                       uint32_t asset_class_id,
+                                       struct PonkoAssetCount *out_count);
+
+enum PonkoStatus ponko_ctx_asset_handles(struct PonkoCtx *ctx,
+                                         uint32_t asset_class_id,
+                                         struct PonkoAssetRecord *records,
+                                         size_t capacity,
+                                         size_t *out_len);
+
+enum PonkoStatus ponko_ctx_asset_owner(struct PonkoCtx *ctx,
+                                       uint32_t asset_class_id,
+                                       uint32_t id,
+                                       char *buffer,
+                                       size_t capacity,
+                                       size_t *out_len);
+
+enum PonkoStatus ponko_ctx_unload_mesh(struct PonkoCtx *ctx, const char *path, bool *out_unloaded);
 
 struct PonkoTextParams ponko_text_params_default(void);
 

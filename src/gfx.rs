@@ -524,6 +524,8 @@ impl Graphics {
                     crate::Error::decode(path, format!("{} is not a valid image: {e}", origin.describe(path)))
                 })?;
                 let texture = self.create_texture(image.width, image.height, &image.rgba);
+                self.asset_ledger
+                    .own(crate::inventory::AssetClass::Texture, texture.id, path);
                 self.loaded_textures.insert(origin.clone(), AssetKind::Texture, texture);
                 if let assets::Origin::File(file) = origin {
                     self.watcher.watch(path, file, Asset::Texture(texture));
@@ -578,6 +580,8 @@ impl Graphics {
             // No GPU: a handle that remembers its size, so game logic still works.
             self.headless_textures += 1;
             self.asset_ledger.textures.insert(self.headless_textures, bytes);
+            self.asset_ledger
+                .made(crate::inventory::AssetClass::Texture, self.headless_textures);
             return Texture::new(self.headless_textures, width, height);
         }
         let renderer = self.renderer();
@@ -588,6 +592,7 @@ impl Graphics {
         );
         let id = renderer.create_texture(width, height, rgba);
         self.asset_ledger.textures.insert(id, bytes);
+        self.asset_ledger.made(crate::inventory::AssetClass::Texture, id);
         Texture::new(id, width, height)
     }
 
@@ -598,6 +603,9 @@ impl Graphics {
             return;
         }
         self.asset_ledger.textures.remove(&id);
+        self.asset_ledger.freed(crate::inventory::AssetClass::Texture, id);
+        #[cfg(feature = "3d")]
+        self.asset_ledger.freed(crate::inventory::AssetClass::RenderTarget, id);
         self.forget_streamed_texture_id(id);
         self.loaded_textures.release(&[AssetKind::Texture], |t| t.id == id);
         self.watcher.forget(|a| matches!(a, Asset::Texture(t) if t.id == id));

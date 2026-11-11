@@ -235,11 +235,14 @@ impl Graphics {
                 self.compile_effect(path, super::EFFECT_STAND_IN, None).map_err(|_| e)?;
                 self.assets3d.effects += 1;
                 self.assets3d.effects_live.insert(id);
+                self.asset_ledger.made(crate::inventory::AssetClass::Effect, id);
                 Effect { id }
             }
             Err(e) => return Err(e.with_path(path)),
         };
         self.assets3d.loaded_effects.insert(origin.clone(), effect);
+        self.asset_ledger
+            .own(crate::inventory::AssetClass::Effect, effect.id, path);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher
                 .watch(path, file, crate::hot_reload::Asset::Effect(effect.id));
@@ -277,6 +280,7 @@ impl Graphics {
         self.record_shader(name, super::ShaderKind::Effect, false, compiled)?;
         self.assets3d.effects += 1;
         self.assets3d.effects_live.insert(id);
+        self.asset_ledger.made(crate::inventory::AssetClass::Effect, id);
         Ok(Effect { id })
     }
 
@@ -333,6 +337,7 @@ impl Graphics {
         if !self.assets3d.effects_live.remove(id) {
             return;
         }
+        self.asset_ledger.freed(crate::inventory::AssetClass::Effect, id);
         self.assets3d.loaded_effects.retain(|_, e| e.id != id);
         self.watcher
             .forget(|a| matches!(a, crate::hot_reload::Asset::Effect(e) if *e == id));

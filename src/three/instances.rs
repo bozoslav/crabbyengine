@@ -5,6 +5,11 @@ use crate::{Color, Mat4, Vec3};
 
 /// A persistent batch. Handles are never recycled; freeing twice is harmless.
 /// Create one batch per streamed region and free it when that region unloads.
+///
+/// Free a batch before the meshes it draws. A batch whose mesh (or one of
+/// whose level meshes) was freed draws nothing from the next frame on, and
+/// never the mesh made later in the freed one's place; it draws again if
+/// that mesh comes back under its id (an evicted resident mesh reloaded).
 /// ```
 /// use ponko::prelude::*;
 /// Game::new("instances", 1, 1).run_headless(0, |ctx| {
@@ -100,7 +105,8 @@ impl Default for InstanceBatchOptions {
 /// shadows use the light position. Mesh shadow settings still apply.
 #[derive(Clone, Copy, Debug)]
 pub struct InstanceLevel {
-    /// Mesh and materials for this level. Must outlive the batch.
+    /// Mesh and materials for this level. Must outlive the batch: while it
+    /// is freed, the whole batch draws nothing.
     pub mesh: Mesh,
     /// Inclusive, finite, nonnegative lower distance.
     pub min_distance: f32,
@@ -133,6 +139,9 @@ pub(crate) struct Batch {
     pub instances: Vec<Instance3D>,
     pub spheres: Vec<[f32; 4]>,
     pub cells: Vec<Cell>,
+    /// Withdrawn from the renderer because a level's mesh was freed (see
+    /// `Assets3D::validate_instance_batches`).
+    pub suspended: bool,
 }
 impl Batch {
     fn new(mesh: Mesh, transforms: &[Mat4], options: InstanceBatchOptions, bounds: (Vec3, f32)) -> Self {
@@ -199,6 +208,7 @@ impl Batch {
             instances: Vec::with_capacity(sorted.len()),
             spheres: Vec::with_capacity(sorted.len()),
             cells: Vec::new(),
+            suspended: false,
         };
         let mut previous = None;
         for (key, matrix, center, radius, color) in sorted {
@@ -360,6 +370,17 @@ impl Graphics {
             }
         }
     }
+    /// Withdraws batches whose level meshes were freed from the renderer,
+    /// and hands back those whose meshes are live again (see
+    /// [`InstanceBatch`]). Runs before each frame's 3D scene is collected.
+    pub(crate) fn validate_instance_batches(&mut self) {
+        let renderer = &mut self.renderer;
+        self.assets3d.validate_instance_batches(|id, batch| {
+            if let Some(r) = renderer.as_mut() {
+                r.set_instance_batch(id, batch);
+            }
+        });
+    }
     /// Returns the instance count, or None for a freed handle. See [`InstanceBatch`].
     pub fn instance_batch_len(&self, batch: InstanceBatch) -> Option<usize> {
         self.assets3d
@@ -367,6 +388,34 @@ impl Graphics {
             .get(batch.id as usize)?
             .as_ref()
             .map(|b| b.instances.len())
+    }
+}
+impl super::Assets3D {
+    /// Checks every batch's level meshes against the mesh table: a batch
+    /// with a freed one is withdrawn (`send(id, None)`), because the
+    /// renderer finds meshes by slot and the slot may hold a newer mesh; a
+    /// withdrawn batch whose meshes are all live again is handed back
+    /// (`send(id, Some(batch))`). A few lookups per batch, no allocation.
+    pub(crate) fn validate_instance_batches(&mut self, mut send: impl FnMut(u32, Option<&Batch>)) {
+        let mut changed = false;
+        for id in 0..self.instance_batches.len() {
+            let Some(batch) = &self.instance_batches[id] else {
+                continue;
+            };
+            let live = batch.levels.iter().all(|l| self.live_bounds(l.mesh.id).is_some());
+            if live != batch.suspended {
+                continue;
+            }
+            let Some(batch) = self.instance_batches[id].as_mut() else {
+                continue;
+            };
+            batch.suspended = !live;
+            send(id as u32, live.then_some(&*batch));
+            changed = true;
+        }
+        if changed {
+            self.instance_batch_revision = self.instance_batch_revision.wrapping_add(1);
+        }
     }
 }
 #[cfg(test)]
@@ -396,6 +445,84 @@ mod tests {
                 assert!((p - s[3]).cmpge(c.min).all() && (p + s[3]).cmple(c.max).all());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod lifetime_tests {
+    use super::*;
+    use crate::render::MeshData;
+
+    /// What `validate_instance_batches` sent: (batch id, handed back).
+    fn validate(ctx: &mut crate::Ctx) -> Vec<(u32, bool)> {
+        let mut sent = Vec::new();
+        ctx.gfx
+            .assets3d
+            .validate_instance_batches(|id, b| sent.push((id, b.is_some())));
+        sent
+    }
+
+    #[test]
+    fn a_batch_whose_mesh_was_freed_is_withdrawn_and_never_shows_the_next_mesh() {
+        crate::Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let material = ctx.gfx.default_material();
+            let kept = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            let old = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            let other = ctx
+                .gfx
+                .create_instance_batch(kept, &[Mat4::IDENTITY], Default::default());
+            let batch = ctx
+                .gfx
+                .create_instance_batch(old, &[Mat4::IDENTITY], Default::default());
+            assert!(validate(ctx).is_empty(), "live meshes: nothing to do");
+            let revision = ctx.gfx.assets3d.instance_batch_revision;
+            ctx.free(old);
+            let new = ctx.gfx.create_mesh(&MeshData::sphere(1.0, 8), material);
+            assert_eq!(new.slot(), old.slot(), "the freed slot holds the new mesh");
+            assert_eq!(validate(ctx), [(batch.id(), false)], "withdrawn, the other batch kept");
+            assert_ne!(ctx.gfx.assets3d.instance_batch_revision, revision, "frames rebuild");
+            assert!(validate(ctx).is_empty(), "withdrawn once");
+            assert!(ctx.is_live(batch) && ctx.is_live(other), "the handles stay live");
+            assert!(
+                !ctx.gfx.update_instance_batch(batch, &[Mat4::IDENTITY]),
+                "it can't be updated onto the new mesh"
+            );
+            ctx.free(batch);
+            assert!(validate(ctx).is_empty(), "a freed batch is left alone");
+        });
+    }
+
+    #[test]
+    fn a_withdrawn_batch_comes_back_with_its_mesh_id() {
+        crate::Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let material = ctx.gfx.default_material();
+            let near = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            let far = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            let level = |mesh, min_distance, max_distance| InstanceLevel {
+                mesh,
+                min_distance,
+                max_distance,
+                camera: true,
+                shadows: true,
+            };
+            let batch = ctx.gfx.create_instance_batch_levels(
+                &[level(near, 0.0, 10.0), level(far, 10.0, f32::INFINITY)],
+                &[Mat4::IDENTITY],
+                &[],
+                Default::default(),
+            );
+            // An evicted resident mesh: freed, its id kept for its reload.
+            ctx.gfx.free(far);
+            assert_eq!(validate(ctx), [(batch.id(), false)], "one dead level withdraws it");
+            if let Some(i) = ctx.gfx.assets3d.free_meshes.iter().position(|&id| id == far.id) {
+                ctx.gfx.assets3d.free_meshes.swap_remove(i);
+            }
+            ctx.gfx.assets3d.reuse_mesh_id = Some(far.id);
+            let back = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
+            assert_eq!(back, far);
+            assert_eq!(validate(ctx), [(batch.id(), true)], "handed back");
+            assert!(validate(ctx).is_empty());
+        });
     }
 }
 

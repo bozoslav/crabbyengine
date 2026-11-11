@@ -1622,6 +1622,17 @@ impl MaterialNames {
         table.by_file.insert(file.to_string(), list);
     }
 
+    /// Forgets mesh file `file` (it was unloaded), so a scene naming its
+    /// materials says it isn't loaded.
+    pub(crate) fn forget_file(&self, file: &str) {
+        let mut table = self.table();
+        if let Some(list) = table.by_file.remove(file) {
+            for (material, _) in list {
+                table.by_id.remove(&material.id);
+            }
+        }
+    }
+
     /// Forgets freed material `id`.
     pub(crate) fn remove(&self, id: u32) {
         let mut table = self.table();

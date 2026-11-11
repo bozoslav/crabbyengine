@@ -60,6 +60,40 @@ static void setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_handle_is_live(ctx, PONKO_HANDLE_TEXTURE, PONKO_HANDLE_NONE, &live) == PONKO_OK && !live);
     CHECK(ponko_ctx_handle_free(ctx, PONKO_HANDLE_MATERIAL, PONKO_HANDLE_NONE) == PONKO_OK);
     CHECK(ponko_ctx_handle_free(ctx, 99, 0) == PONKO_INVALID_ARGUMENT);
+    /* Asset accounting: counts and bytes by class, each handle's age and owner. */
+    PonkoAssetCount textures_before, textures_after;
+    CHECK(ponko_ctx_asset_count(ctx, PONKO_ASSET_CLASS_TEXTURE, &textures_before) == PONKO_OK);
+    const uint8_t pixels[2 * 2 * 4] = {0};
+    PonkoTexture made;
+    CHECK(ponko_ctx_create_texture(ctx, 2, 2, pixels, sizeof pixels, &made) == PONKO_OK);
+    CHECK(ponko_ctx_asset_count(ctx, PONKO_ASSET_CLASS_TEXTURE, &textures_after) == PONKO_OK);
+    CHECK(textures_after.live == textures_before.live + 1 && textures_after.bytes == textures_before.bytes + 16);
+    size_t record_count = 0;
+    CHECK(ponko_ctx_asset_handles(ctx, PONKO_ASSET_CLASS_TEXTURE, NULL, 0, &record_count) == PONKO_OK);
+    CHECK(record_count == textures_after.live);
+    PonkoAssetRecord records[64];
+    CHECK(record_count <= 64);
+    CHECK(ponko_ctx_asset_handles(ctx, PONKO_ASSET_CLASS_TEXTURE, records, 64, &record_count) == PONKO_OK);
+    bool found_made = false;
+    for (size_t i = 0; i < record_count; i++) {
+        if (records[i].id == made.id) {
+            found_made = records[i].owner == PONKO_ASSET_OWNER_CODE && records[i].bytes == 16;
+        }
+    }
+    CHECK(found_made);
+    size_t owner_len = 99;
+    CHECK(ponko_ctx_asset_owner(ctx, PONKO_ASSET_CLASS_TEXTURE, made.id, NULL, 0, &owner_len) == PONKO_OK && owner_len == 0);
+    CHECK(ponko_ctx_asset_count(ctx, 99, &textures_after) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_handle_free(ctx, PONKO_HANDLE_TEXTURE, made.id) == PONKO_OK);
+    PonkoMesh house;
+    CHECK(ponko_ctx_load_mesh(ctx, "models/house.glb", &house) == PONKO_OK);
+    char owner[64];
+    CHECK(ponko_ctx_asset_owner(ctx, PONKO_ASSET_CLASS_MESH, house.id, owner, sizeof owner, &owner_len) == PONKO_OK);
+    CHECK(owner_len == strlen("models/house.glb") && strcmp(owner, "models/house.glb") == 0);
+    bool unloaded = false;
+    CHECK(ponko_ctx_unload_mesh(ctx, "models/house.glb", &unloaded) == PONKO_OK && unloaded);
+    CHECK(ponko_ctx_handle_is_live(ctx, PONKO_HANDLE_MESH, house.id, &live) == PONKO_OK && !live);
+    CHECK(ponko_ctx_unload_mesh(ctx, "models/house.glb", &unloaded) == PONKO_OK && !unloaded);
     bool culling = true;
     CHECK(ponko_ctx_occlusion_culling(ctx, &culling) == PONKO_OK && !culling);
     CHECK(ponko_ctx_set_occlusion_culling(ctx, true) == PONKO_OK);

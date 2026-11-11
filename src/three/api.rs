@@ -114,6 +114,7 @@ impl Graphics {
         let id = self.assets3d.materials;
         self.assets3d.materials += 1;
         self.assets3d.materials_live.insert(id);
+        self.asset_ledger.made(crate::inventory::AssetClass::Material, id);
         let gpu = self.gpu_material(&desc);
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
@@ -205,6 +206,7 @@ impl Graphics {
         if !self.assets3d.materials_live.remove(id) {
             return;
         }
+        self.asset_ledger.freed(crate::inventory::AssetClass::Material, id);
         if self.assets3d.default_material == Some(Material { id }) {
             self.assets3d.default_material = None;
         }
@@ -213,10 +215,8 @@ impl Graphics {
             materials.retain(|(m, _)| m.id != id);
         }
         self.assets3d.loaded_materials.retain(|_, m| !m.is_empty());
-        // A file whose material was freed makes fresh ones when reloaded.
-        self.assets3d
-            .file_materials
-            .retain(|_, materials| !materials.contains(&Material { id }));
+        // A file whose material was freed makes only that one again when
+        // reloaded (`file_materials`).
         if let Some(renderer) = self.renderer.as_mut()
             && !self.headless
         {
@@ -230,6 +230,7 @@ impl Graphics {
         if !self.assets3d.shaders_live.remove(id) {
             return;
         }
+        self.asset_ledger.freed(crate::inventory::AssetClass::Shader, id);
         self.assets3d.loaded_shaders.retain(|_, s| s.id != id);
         if self.assets3d.terrain_shader == Some(Shader { id }) {
             self.assets3d.terrain_shader = None;
@@ -358,11 +359,14 @@ impl Graphics {
                 self.compile_shader(path, "", None).map_err(|_| e)?;
                 self.assets3d.shaders += 1;
                 self.assets3d.shaders_live.insert(id);
+                self.asset_ledger.made(crate::inventory::AssetClass::Shader, id);
                 Shader { id }
             }
             Err(e) => return Err(e.with_path(path)),
         };
         self.assets3d.loaded_shaders.insert(origin.clone(), shader);
+        self.asset_ledger
+            .own(crate::inventory::AssetClass::Shader, shader.id, path);
         if let crate::assets::Origin::File(file) = origin {
             self.watcher
                 .watch(path, file, crate::hot_reload::Asset::Shader(shader.id));
@@ -409,6 +413,7 @@ impl Graphics {
         self.record_shader(name, super::ShaderKind::Material, false, compiled)?;
         self.assets3d.shaders += 1;
         self.assets3d.shaders_live.insert(id);
+        self.asset_ledger.made(crate::inventory::AssetClass::Shader, id);
         Ok(Shader { id })
     }
 
@@ -873,58 +878,7 @@ impl Graphics {
         loaded: gltf::Loaded,
         image_keys: Vec<Option<SharedImage>>,
     ) -> Mesh {
-        let materials = if let Some(materials) = self.assets3d.file_materials.get(&file) {
-            materials.clone()
-        } else {
-            let textures: Vec<crate::Texture> = loaded
-                .images
-                .iter()
-                .zip(image_keys)
-                .map(|((w, h, rgba), key)| match key {
-                    Some(key) => match self.assets3d.shared_images.get(&key) {
-                        Some(&t) => t,
-                        None => {
-                            let t = self.create_texture(*w, *h, rgba);
-                            self.assets3d.shared_images.insert(key, t);
-                            t
-                        }
-                    },
-                    None => self.create_texture(*w, *h, rgba),
-                })
-                .collect();
-            let materials: Vec<Material> = loaded
-                .materials
-                .iter()
-                .map(|m| {
-                    let texture = |i: Option<usize>| i.map(|i| textures[i]);
-                    let desc = MaterialDesc {
-                        color: m.color,
-                        texture: texture(m.image),
-                        roughness: m.roughness.clamp(0.0, 1.0),
-                        metallic: m.metallic.clamp(0.0, 1.0),
-                        emissive: m.emissive,
-                        normal_map: texture(m.normal_map),
-                        normal_strength: m.normal_strength,
-                        orm_map: texture(m.orm_map),
-                        emissive_map: texture(m.emissive_map),
-                        blend: m.blend,
-                        double_sided: m.double_sided,
-                        ..Default::default()
-                    };
-                    let material = self.create_material(desc);
-                    if !m.name.is_empty() {
-                        self.assets3d
-                            .loaded_materials
-                            .entry(m.name.clone())
-                            .or_default()
-                            .push((material, desc));
-                    }
-                    material
-                })
-                .collect();
-            self.assets3d.file_materials.insert(file.clone(), materials.clone());
-            materials
-        };
+        let materials = self.file_materials(path, &file, &loaded, image_keys);
         let parts: Vec<(Range<u32>, Material)> = loaded
             .parts
             .iter()
@@ -944,6 +898,7 @@ impl Graphics {
         });
         let mesh = self.mesh_from_parts(&loaded.data, &parts, skin, loaded.morph_defaults);
         self.assets3d.loaded.insert(file.clone(), mesh);
+        self.asset_ledger.own(crate::inventory::AssetClass::Mesh, mesh.id, path);
         self.mesh_names.set(mesh.id, path, mesh);
         let named = materials
             .iter()
@@ -951,6 +906,137 @@ impl Graphics {
             .map(|(m, l)| (*m, l.name.clone()));
         self.material_names.add(path, named);
         mesh
+    }
+
+    /// The materials of glTF file `file` (loaded as `path`): the ones made
+    /// when it was first loaded, which survive freeing its mesh and keep
+    /// edits made with `update_material`. Only those the game freed since
+    /// are made again, from the file's textures that are still live, so a
+    /// file loaded, partly freed and loaded again never leaves unreachable
+    /// materials or textures behind.
+    fn file_materials(
+        &mut self,
+        path: &str,
+        file: &assets::Origin,
+        loaded: &gltf::Loaded,
+        image_keys: Vec<Option<SharedImage>>,
+    ) -> Vec<Material> {
+        let live = |gfx: &Self, m: &Material| gfx.assets3d.materials_live.contains(m.id);
+        let kept = self.assets3d.file_materials.get(file).cloned().unwrap_or_default();
+        if kept.len() == loaded.materials.len() && kept.iter().all(|m| live(self, m)) {
+            return kept;
+        }
+        let old_textures = self.assets3d.file_textures.get(file).cloned().unwrap_or_default();
+        let textures: Vec<crate::Texture> = loaded
+            .images
+            .iter()
+            .zip(image_keys)
+            .enumerate()
+            .map(|(i, ((w, h, rgba), key))| {
+                if let Some(&t) = old_textures.get(i).filter(|t| self.textures_live.contains(t.id)) {
+                    return t;
+                }
+                match key {
+                    Some(key) => match self.assets3d.shared_images.get(&key) {
+                        Some(&t) => t,
+                        None => {
+                            let t = self.create_texture(*w, *h, rgba);
+                            self.assets3d.shared_images.insert(key, t);
+                            t
+                        }
+                    },
+                    None => self.create_texture(*w, *h, rgba),
+                }
+            })
+            .collect();
+        for t in &textures {
+            self.asset_ledger.own(crate::inventory::AssetClass::Texture, t.id, path);
+        }
+        self.assets3d.file_textures.insert(file.clone(), textures.clone());
+        let materials: Vec<Material> = loaded
+            .materials
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                if let Some(&old) = kept.get(i).filter(|old| live(self, old)) {
+                    return old;
+                }
+                let texture = |i: Option<usize>| i.map(|i| textures[i]);
+                let desc = MaterialDesc {
+                    color: m.color,
+                    texture: texture(m.image),
+                    roughness: m.roughness.clamp(0.0, 1.0),
+                    metallic: m.metallic.clamp(0.0, 1.0),
+                    emissive: m.emissive,
+                    normal_map: texture(m.normal_map),
+                    normal_strength: m.normal_strength,
+                    orm_map: texture(m.orm_map),
+                    emissive_map: texture(m.emissive_map),
+                    blend: m.blend,
+                    double_sided: m.double_sided,
+                    ..Default::default()
+                };
+                let material = self.create_material(desc);
+                self.asset_ledger
+                    .own(crate::inventory::AssetClass::Material, material.id, path);
+                if !m.name.is_empty() {
+                    self.assets3d
+                        .loaded_materials
+                        .entry(m.name.clone())
+                        .or_default()
+                        .push((material, desc));
+                }
+                material
+            })
+            .collect();
+        self.assets3d.file_materials.insert(file.clone(), materials.clone());
+        materials
+    }
+
+    /// Frees everything loading glTF file `path` made: its mesh, its
+    /// materials and its textures, except images another loaded file
+    /// shares. For a long-running game that loads many different models:
+    /// freeing only the mesh keeps the materials and textures for the next
+    /// load of the same file. Whatever still shows them draws with the
+    /// default, as [`free`](Self::free) describes. False if `path` was not
+    /// loaded (or was unloaded already).
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let before = ctx.live_counts();
+    ///     let house = ctx.gfx.load_mesh("models/house.glb");
+    ///     ctx.gfx.free(house);
+    ///     assert_ne!(ctx.live_counts(), before, "its materials and textures stay");
+    ///     assert!(ctx.gfx.unload_mesh("models/house.glb"));
+    ///     assert_eq!(ctx.live_counts(), before);
+    ///     assert!(!ctx.gfx.unload_mesh("models/house.glb"));
+    /// });
+    /// ```
+    pub fn unload_mesh(&mut self, path: &str) -> bool {
+        let Some(file) = self.asset_sources.locate(path) else {
+            return false;
+        };
+        let mesh = self.assets3d.loaded.get(&file).copied();
+        let materials = self.assets3d.file_materials.remove(&file);
+        let textures = self.assets3d.file_textures.remove(&file);
+        if mesh.is_none() && materials.is_none() && textures.is_none() {
+            return false;
+        }
+        if let Some(mesh) = mesh {
+            self.free(mesh);
+        }
+        for material in materials.unwrap_or_default() {
+            self.free(material);
+        }
+        for texture in textures.unwrap_or_default() {
+            let shared = self.assets3d.file_textures.values().any(|ts| ts.contains(&texture));
+            if !shared {
+                self.free(texture);
+            }
+        }
+        self.material_names.forget_file(path);
+        true
     }
 
     /// A glTF file's mesh on the CPU (all its parts in one, placed as in
@@ -1033,6 +1119,7 @@ impl Graphics {
             }
         };
         super::set_slot_id(&mut self.assets3d.mesh_ids, id);
+        self.asset_ledger.made(crate::inventory::AssetClass::Mesh, id);
         let mesh = Mesh { id };
         let slot = mesh.slot() as usize;
         if self.assets3d.mesh_bytes.len() <= slot {
@@ -1117,6 +1204,7 @@ impl Graphics {
             return;
         }
         self.release_resident_mesh_id(mesh.id, true);
+        self.asset_ledger.freed(crate::inventory::AssetClass::Mesh, mesh.id);
         self.assets3d.bounds[slot] = (Vec3::ZERO, -1.0);
         if let Some(bytes) = self.assets3d.mesh_bytes.get_mut(slot) {
             *bytes = 0;
@@ -1616,6 +1704,7 @@ impl Ctx {
             None
         };
         self.collect_passes(fallback);
+        self.gfx.validate_instance_batches();
         let start = web_time::Instant::now();
         let mut skins = std::mem::take(&mut self.gfx.frame3d.skins);
         skins.collect(&mut self.world, &self.gfx.assets3d);
