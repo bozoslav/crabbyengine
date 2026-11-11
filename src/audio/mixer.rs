@@ -231,6 +231,7 @@ impl Audio {
         })?;
         let sound = Sound { id, seconds };
         self.sounds_live.insert(id);
+        self.ledger.own(crate::inventory::AssetClass::Sound, id, path);
         self.loaded.insert(origin, kind, sound);
         Ok(sound)
     }

@@ -570,6 +570,8 @@ impl Ctx {
         self.time.begin_frame(timing);
         self.events.begin_frame(self.time.frame(), self.time.sim_tick());
         self.gfx.frame = self.time.frame();
+        self.gfx.asset_ledger.now = self.time.frame();
+        self.audio.ledger.now = self.time.frame();
         self.gfx.text.begin_frame();
         self.ui.immediate.begin_frame();
         #[cfg(feature = "3d")]

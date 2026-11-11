@@ -755,6 +755,9 @@ impl Ctx {
         };
         self.gfx.streaming.texture_names.insert(texture.id, name.to_string());
         self.gfx.texture_names.add(texture.id, name, texture);
+        self.gfx
+            .asset_ledger
+            .own(crate::inventory::AssetClass::Texture, texture.id, name);
         if let Some(file) = file {
             self.gfx
                 .watcher

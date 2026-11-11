@@ -160,6 +160,8 @@ impl Graphics {
     pub fn try_create_render_target(&mut self, width: u32, height: u32) -> Result<Texture, crate::Error> {
         let texture = self.make_render_target(width, height)?;
         self.textures_live.insert(texture.id);
+        self.asset_ledger
+            .made(crate::inventory::AssetClass::RenderTarget, texture.id);
         Ok(texture)
     }
 
