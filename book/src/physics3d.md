@@ -43,9 +43,11 @@ The physics step is a simulation system in the `Physics`
 with `.add(Phase::BeforePhysics, f)` feed it, `sim_system`s see its result.
 It runs 50 times a second unless you chose a rate with `fixed_hz`, and
 between steps every body is **drawn blended** between its last two poses,
-so motion stays smooth at any frame rate. Simulation systems always see the
-stepped pose; to read a body's exact physics position from a frame system,
-use `ctx.physics3d.position(e)`.
+so motion stays smooth at any frame rate. Simulation systems after the step
+see the stepped pose; to read a body's exact physics position from a frame
+system, or from a simulation system that runs before the step, use
+`ctx.physics3d.position(e)`. [Who runs when](systems.md#physics-navigation-characters-and-interpolation-who-runs-when)
+has the whole order.
 
 ## Bodies, colliders and terrain
 

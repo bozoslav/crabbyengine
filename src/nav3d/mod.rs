@@ -706,6 +706,44 @@ pub fn step_navmesh3d(ctx: &mut Ctx) {
     step_world(&mut ctx.world, dt);
 }
 
+/// What [`step_navmesh3d`] uses, as a declaration: it writes the
+/// [`NavMesh3D`] resource (obstacles, carving and the crowd live in it),
+/// reads the timestep ([`Service::Time`](crate::access::Service::Time)),
+/// reads [`NavObstacle3D`] and writes [`Transform3D`] and [`NavAgent3D`].
+/// Nothing else: no events, commands, physics or drawing.
+///
+/// Register the step with it to have
+/// [`Game::access_report`](crate::Game::access_report) list what it touches
+/// and debug builds check that it stays inside it. The step keeps `&mut Ctx`
+/// and its place in the order; see [`access`](crate::access).
+///
+/// ```
+/// use ponko::prelude::*;
+/// use ponko::systems;
+///
+/// let game = Game::new("server", 1, 1).add_with_access(
+///     Phase::AfterPhysics,
+///     systems::step_navmesh3d_access(),
+///     systems::step_navmesh3d,
+/// );
+/// # let _ = game;
+/// ```
+///
+/// The [`Service`](crate::access::Service) entries of the declaration are
+/// documentation: they appear in the report, but services are not recorded,
+/// so nothing checks them at run time. Components, resources and events are
+/// checked in debug builds.
+#[must_use]
+pub fn step_navmesh3d_access() -> crate::access::SystemAccess {
+    use crate::access::{Service, SystemAccess};
+    SystemAccess::new()
+        .read_service(Service::Time)
+        .write_resource::<NavMesh3D>()
+        .read::<NavObstacle3D>()
+        .write::<Transform3D>()
+        .write::<NavAgent3D>()
+}
+
 /// [`step_navmesh3d`] without a `Ctx`: the [`NavMesh3D`] resource, the agent
 /// and obstacle components, and the timestep are all it uses.
 ///

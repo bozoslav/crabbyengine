@@ -4557,6 +4557,467 @@ pub use CrabbyTextAlign3D::CRABBY_TEXT_ALIGN3D_RIGHT;
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum CrabbyUiRole {
+    #[default]
+    CRABBY_UI_ROLE_GROUP,
+
+    CRABBY_UI_ROLE_DIALOG,
+
+    CRABBY_UI_ROLE_LABEL,
+
+    CRABBY_UI_ROLE_BUTTON,
+
+    CRABBY_UI_ROLE_IMAGE,
+
+    CRABBY_UI_ROLE_SCROLL_VIEW,
+
+    CRABBY_UI_ROLE_TEXT_INPUT,
+
+    CRABBY_UI_ROLE_CHECKBOX,
+
+    CRABBY_UI_ROLE_SLIDER,
+}
+impl From<crate::PonkoUiRole> for CrabbyUiRole {
+    fn from(value: crate::PonkoUiRole) -> Self {
+        match value {
+            crate::PonkoUiRole::PONKO_UI_ROLE_GROUP => Self::CRABBY_UI_ROLE_GROUP,
+            crate::PonkoUiRole::PONKO_UI_ROLE_DIALOG => Self::CRABBY_UI_ROLE_DIALOG,
+            crate::PonkoUiRole::PONKO_UI_ROLE_LABEL => Self::CRABBY_UI_ROLE_LABEL,
+            crate::PonkoUiRole::PONKO_UI_ROLE_BUTTON => Self::CRABBY_UI_ROLE_BUTTON,
+            crate::PonkoUiRole::PONKO_UI_ROLE_IMAGE => Self::CRABBY_UI_ROLE_IMAGE,
+            crate::PonkoUiRole::PONKO_UI_ROLE_SCROLL_VIEW => Self::CRABBY_UI_ROLE_SCROLL_VIEW,
+            crate::PonkoUiRole::PONKO_UI_ROLE_TEXT_INPUT => Self::CRABBY_UI_ROLE_TEXT_INPUT,
+            crate::PonkoUiRole::PONKO_UI_ROLE_CHECKBOX => Self::CRABBY_UI_ROLE_CHECKBOX,
+            crate::PonkoUiRole::PONKO_UI_ROLE_SLIDER => Self::CRABBY_UI_ROLE_SLIDER,
+        }
+    }
+}
+impl From<CrabbyUiRole> for crate::PonkoUiRole {
+    fn from(value: CrabbyUiRole) -> Self {
+        match value {
+            CrabbyUiRole::CRABBY_UI_ROLE_GROUP => Self::PONKO_UI_ROLE_GROUP,
+            CrabbyUiRole::CRABBY_UI_ROLE_DIALOG => Self::PONKO_UI_ROLE_DIALOG,
+            CrabbyUiRole::CRABBY_UI_ROLE_LABEL => Self::PONKO_UI_ROLE_LABEL,
+            CrabbyUiRole::CRABBY_UI_ROLE_BUTTON => Self::PONKO_UI_ROLE_BUTTON,
+            CrabbyUiRole::CRABBY_UI_ROLE_IMAGE => Self::PONKO_UI_ROLE_IMAGE,
+            CrabbyUiRole::CRABBY_UI_ROLE_SCROLL_VIEW => Self::PONKO_UI_ROLE_SCROLL_VIEW,
+            CrabbyUiRole::CRABBY_UI_ROLE_TEXT_INPUT => Self::PONKO_UI_ROLE_TEXT_INPUT,
+            CrabbyUiRole::CRABBY_UI_ROLE_CHECKBOX => Self::PONKO_UI_ROLE_CHECKBOX,
+            CrabbyUiRole::CRABBY_UI_ROLE_SLIDER => Self::PONKO_UI_ROLE_SLIDER,
+        }
+    }
+}
+const _: () = {
+    assert!(std::mem::size_of::<CrabbyUiRole>() == std::mem::size_of::<crate::PonkoUiRole>());
+    assert!(std::mem::align_of::<CrabbyUiRole>() == std::mem::align_of::<crate::PonkoUiRole>());
+    assert!(CrabbyUiRole::CRABBY_UI_ROLE_GROUP as u32 == crate::PonkoUiRole::PONKO_UI_ROLE_GROUP as u32);
+    assert!(CrabbyUiRole::CRABBY_UI_ROLE_DIALOG as u32 == crate::PonkoUiRole::PONKO_UI_ROLE_DIALOG as u32);
+    assert!(CrabbyUiRole::CRABBY_UI_ROLE_LABEL as u32 == crate::PonkoUiRole::PONKO_UI_ROLE_LABEL as u32);
+    assert!(CrabbyUiRole::CRABBY_UI_ROLE_BUTTON as u32 == crate::PonkoUiRole::PONKO_UI_ROLE_BUTTON as u32);
+    assert!(CrabbyUiRole::CRABBY_UI_ROLE_IMAGE as u32 == crate::PonkoUiRole::PONKO_UI_ROLE_IMAGE as u32);
+    assert!(CrabbyUiRole::CRABBY_UI_ROLE_SCROLL_VIEW as u32 == crate::PonkoUiRole::PONKO_UI_ROLE_SCROLL_VIEW as u32);
+    assert!(CrabbyUiRole::CRABBY_UI_ROLE_TEXT_INPUT as u32 == crate::PonkoUiRole::PONKO_UI_ROLE_TEXT_INPUT as u32);
+    assert!(CrabbyUiRole::CRABBY_UI_ROLE_CHECKBOX as u32 == crate::PonkoUiRole::PONKO_UI_ROLE_CHECKBOX as u32);
+    assert!(CrabbyUiRole::CRABBY_UI_ROLE_SLIDER as u32 == crate::PonkoUiRole::PONKO_UI_ROLE_SLIDER as u32);
+};
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiRole::CRABBY_UI_ROLE_BUTTON;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiRole::CRABBY_UI_ROLE_CHECKBOX;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiRole::CRABBY_UI_ROLE_DIALOG;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiRole::CRABBY_UI_ROLE_GROUP;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiRole::CRABBY_UI_ROLE_IMAGE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiRole::CRABBY_UI_ROLE_LABEL;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiRole::CRABBY_UI_ROLE_SCROLL_VIEW;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiRole::CRABBY_UI_ROLE_SLIDER;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiRole::CRABBY_UI_ROLE_TEXT_INPUT;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum CrabbyUiAccessValueKind {
+    #[default]
+    CRABBY_UI_ACCESS_VALUE_NONE,
+
+    CRABBY_UI_ACCESS_VALUE_TEXT,
+
+    CRABBY_UI_ACCESS_VALUE_CHECKED,
+
+    CRABBY_UI_ACCESS_VALUE_RANGE,
+}
+impl From<crate::PonkoUiAccessValueKind> for CrabbyUiAccessValueKind {
+    fn from(value: crate::PonkoUiAccessValueKind) -> Self {
+        match value {
+            crate::PonkoUiAccessValueKind::PONKO_UI_ACCESS_VALUE_NONE => Self::CRABBY_UI_ACCESS_VALUE_NONE,
+            crate::PonkoUiAccessValueKind::PONKO_UI_ACCESS_VALUE_TEXT => Self::CRABBY_UI_ACCESS_VALUE_TEXT,
+            crate::PonkoUiAccessValueKind::PONKO_UI_ACCESS_VALUE_CHECKED => Self::CRABBY_UI_ACCESS_VALUE_CHECKED,
+            crate::PonkoUiAccessValueKind::PONKO_UI_ACCESS_VALUE_RANGE => Self::CRABBY_UI_ACCESS_VALUE_RANGE,
+        }
+    }
+}
+impl From<CrabbyUiAccessValueKind> for crate::PonkoUiAccessValueKind {
+    fn from(value: CrabbyUiAccessValueKind) -> Self {
+        match value {
+            CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_NONE => Self::PONKO_UI_ACCESS_VALUE_NONE,
+            CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_TEXT => Self::PONKO_UI_ACCESS_VALUE_TEXT,
+            CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_CHECKED => Self::PONKO_UI_ACCESS_VALUE_CHECKED,
+            CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_RANGE => Self::PONKO_UI_ACCESS_VALUE_RANGE,
+        }
+    }
+}
+const _: () = {
+    assert!(std::mem::size_of::<CrabbyUiAccessValueKind>() == std::mem::size_of::<crate::PonkoUiAccessValueKind>());
+    assert!(std::mem::align_of::<CrabbyUiAccessValueKind>() == std::mem::align_of::<crate::PonkoUiAccessValueKind>());
+    assert!(
+        CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_NONE as u32
+            == crate::PonkoUiAccessValueKind::PONKO_UI_ACCESS_VALUE_NONE as u32
+    );
+    assert!(
+        CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_TEXT as u32
+            == crate::PonkoUiAccessValueKind::PONKO_UI_ACCESS_VALUE_TEXT as u32
+    );
+    assert!(
+        CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_CHECKED as u32
+            == crate::PonkoUiAccessValueKind::PONKO_UI_ACCESS_VALUE_CHECKED as u32
+    );
+    assert!(
+        CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_RANGE as u32
+            == crate::PonkoUiAccessValueKind::PONKO_UI_ACCESS_VALUE_RANGE as u32
+    );
+};
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_CHECKED;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_NONE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_RANGE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiAccessValueKind::CRABBY_UI_ACCESS_VALUE_TEXT;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum CrabbyUiLive {
+    #[default]
+    CRABBY_UI_LIVE_OFF,
+
+    CRABBY_UI_LIVE_POLITE,
+
+    CRABBY_UI_LIVE_ASSERTIVE,
+}
+impl From<crate::PonkoUiLive> for CrabbyUiLive {
+    fn from(value: crate::PonkoUiLive) -> Self {
+        match value {
+            crate::PonkoUiLive::PONKO_UI_LIVE_OFF => Self::CRABBY_UI_LIVE_OFF,
+            crate::PonkoUiLive::PONKO_UI_LIVE_POLITE => Self::CRABBY_UI_LIVE_POLITE,
+            crate::PonkoUiLive::PONKO_UI_LIVE_ASSERTIVE => Self::CRABBY_UI_LIVE_ASSERTIVE,
+        }
+    }
+}
+impl From<CrabbyUiLive> for crate::PonkoUiLive {
+    fn from(value: CrabbyUiLive) -> Self {
+        match value {
+            CrabbyUiLive::CRABBY_UI_LIVE_OFF => Self::PONKO_UI_LIVE_OFF,
+            CrabbyUiLive::CRABBY_UI_LIVE_POLITE => Self::PONKO_UI_LIVE_POLITE,
+            CrabbyUiLive::CRABBY_UI_LIVE_ASSERTIVE => Self::PONKO_UI_LIVE_ASSERTIVE,
+        }
+    }
+}
+const _: () = {
+    assert!(std::mem::size_of::<CrabbyUiLive>() == std::mem::size_of::<crate::PonkoUiLive>());
+    assert!(std::mem::align_of::<CrabbyUiLive>() == std::mem::align_of::<crate::PonkoUiLive>());
+    assert!(CrabbyUiLive::CRABBY_UI_LIVE_OFF as u32 == crate::PonkoUiLive::PONKO_UI_LIVE_OFF as u32);
+    assert!(CrabbyUiLive::CRABBY_UI_LIVE_POLITE as u32 == crate::PonkoUiLive::PONKO_UI_LIVE_POLITE as u32);
+    assert!(CrabbyUiLive::CRABBY_UI_LIVE_ASSERTIVE as u32 == crate::PonkoUiLive::PONKO_UI_LIVE_ASSERTIVE as u32);
+};
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiLive::CRABBY_UI_LIVE_ASSERTIVE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiLive::CRABBY_UI_LIVE_OFF;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiLive::CRABBY_UI_LIVE_POLITE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum CrabbyUiAccessActionKind {
+    #[default]
+    CRABBY_UI_ACCESS_ACTION_FOCUS,
+
+    CRABBY_UI_ACCESS_ACTION_ACTIVATE,
+
+    CRABBY_UI_ACCESS_ACTION_SET_VALUE,
+
+    CRABBY_UI_ACCESS_ACTION_INCREMENT,
+
+    CRABBY_UI_ACCESS_ACTION_DECREMENT,
+
+    CRABBY_UI_ACCESS_ACTION_SET_TEXT,
+}
+impl From<crate::PonkoUiAccessActionKind> for CrabbyUiAccessActionKind {
+    fn from(value: crate::PonkoUiAccessActionKind) -> Self {
+        match value {
+            crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_FOCUS => Self::CRABBY_UI_ACCESS_ACTION_FOCUS,
+            crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_ACTIVATE => Self::CRABBY_UI_ACCESS_ACTION_ACTIVATE,
+            crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_SET_VALUE => Self::CRABBY_UI_ACCESS_ACTION_SET_VALUE,
+            crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_INCREMENT => Self::CRABBY_UI_ACCESS_ACTION_INCREMENT,
+            crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_DECREMENT => Self::CRABBY_UI_ACCESS_ACTION_DECREMENT,
+            crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_SET_TEXT => Self::CRABBY_UI_ACCESS_ACTION_SET_TEXT,
+        }
+    }
+}
+impl From<CrabbyUiAccessActionKind> for crate::PonkoUiAccessActionKind {
+    fn from(value: CrabbyUiAccessActionKind) -> Self {
+        match value {
+            CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_FOCUS => Self::PONKO_UI_ACCESS_ACTION_FOCUS,
+            CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_ACTIVATE => Self::PONKO_UI_ACCESS_ACTION_ACTIVATE,
+            CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_SET_VALUE => Self::PONKO_UI_ACCESS_ACTION_SET_VALUE,
+            CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_INCREMENT => Self::PONKO_UI_ACCESS_ACTION_INCREMENT,
+            CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_DECREMENT => Self::PONKO_UI_ACCESS_ACTION_DECREMENT,
+            CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_SET_TEXT => Self::PONKO_UI_ACCESS_ACTION_SET_TEXT,
+        }
+    }
+}
+const _: () = {
+    assert!(std::mem::size_of::<CrabbyUiAccessActionKind>() == std::mem::size_of::<crate::PonkoUiAccessActionKind>());
+    assert!(std::mem::align_of::<CrabbyUiAccessActionKind>() == std::mem::align_of::<crate::PonkoUiAccessActionKind>());
+    assert!(
+        CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_FOCUS as u32
+            == crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_FOCUS as u32
+    );
+    assert!(
+        CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_ACTIVATE as u32
+            == crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_ACTIVATE as u32
+    );
+    assert!(
+        CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_SET_VALUE as u32
+            == crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_SET_VALUE as u32
+    );
+    assert!(
+        CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_INCREMENT as u32
+            == crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_INCREMENT as u32
+    );
+    assert!(
+        CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_DECREMENT as u32
+            == crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_DECREMENT as u32
+    );
+    assert!(
+        CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_SET_TEXT as u32
+            == crate::PonkoUiAccessActionKind::PONKO_UI_ACCESS_ACTION_SET_TEXT as u32
+    );
+};
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_ACTIVATE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_DECREMENT;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_FOCUS;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_INCREMENT;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_SET_TEXT;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyUiAccessActionKind::CRABBY_UI_ACCESS_ACTION_SET_VALUE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct CrabbyUiAccessNode {
+    pub id: u64,
+
+    pub parent: u64,
+
+    pub selection_anchor: u64,
+
+    pub selection_caret: u64,
+
+    pub rect: CrabbyRect,
+
+    pub role: CrabbyUiRole,
+
+    pub value_kind: CrabbyUiAccessValueKind,
+
+    pub value: f32,
+
+    pub live: CrabbyUiLive,
+
+    pub depth: u32,
+
+    pub child_count: u32,
+
+    pub has_selection: bool,
+
+    pub focusable: bool,
+
+    pub focused: bool,
+
+    pub disabled: bool,
+
+    pub inert: bool,
+
+    pub modal: bool,
+}
+impl From<crate::PonkoUiAccessNode> for CrabbyUiAccessNode {
+    fn from(value: crate::PonkoUiAccessNode) -> Self {
+        Self {
+            id: value.id,
+            parent: value.parent,
+            selection_anchor: value.selection_anchor,
+            selection_caret: value.selection_caret,
+            rect: value.rect,
+            role: value.role.into(),
+            value_kind: value.value_kind.into(),
+            value: value.value,
+            live: value.live.into(),
+            depth: value.depth,
+            child_count: value.child_count,
+            has_selection: value.has_selection,
+            focusable: value.focusable,
+            focused: value.focused,
+            disabled: value.disabled,
+            inert: value.inert,
+            modal: value.modal,
+        }
+    }
+}
+impl From<CrabbyUiAccessNode> for crate::PonkoUiAccessNode {
+    fn from(value: CrabbyUiAccessNode) -> Self {
+        Self {
+            id: value.id,
+            parent: value.parent,
+            selection_anchor: value.selection_anchor,
+            selection_caret: value.selection_caret,
+            rect: value.rect,
+            role: value.role.into(),
+            value_kind: value.value_kind.into(),
+            value: value.value,
+            live: value.live.into(),
+            depth: value.depth,
+            child_count: value.child_count,
+            has_selection: value.has_selection,
+            focusable: value.focusable,
+            focused: value.focused,
+            disabled: value.disabled,
+            inert: value.inert,
+            modal: value.modal,
+        }
+    }
+}
+const _: () = {
+    assert!(std::mem::size_of::<CrabbyUiAccessNode>() == std::mem::size_of::<crate::PonkoUiAccessNode>());
+    assert!(std::mem::align_of::<CrabbyUiAccessNode>() == std::mem::align_of::<crate::PonkoUiAccessNode>());
+    assert!(std::mem::offset_of!(CrabbyUiAccessNode, id) == std::mem::offset_of!(crate::PonkoUiAccessNode, id));
+    assert!(std::mem::offset_of!(CrabbyUiAccessNode, parent) == std::mem::offset_of!(crate::PonkoUiAccessNode, parent));
+    assert!(
+        std::mem::offset_of!(CrabbyUiAccessNode, selection_anchor)
+            == std::mem::offset_of!(crate::PonkoUiAccessNode, selection_anchor)
+    );
+    assert!(
+        std::mem::offset_of!(CrabbyUiAccessNode, selection_caret)
+            == std::mem::offset_of!(crate::PonkoUiAccessNode, selection_caret)
+    );
+    assert!(std::mem::offset_of!(CrabbyUiAccessNode, rect) == std::mem::offset_of!(crate::PonkoUiAccessNode, rect));
+    assert!(std::mem::offset_of!(CrabbyUiAccessNode, role) == std::mem::offset_of!(crate::PonkoUiAccessNode, role));
+    assert!(
+        std::mem::offset_of!(CrabbyUiAccessNode, value_kind)
+            == std::mem::offset_of!(crate::PonkoUiAccessNode, value_kind)
+    );
+    assert!(std::mem::offset_of!(CrabbyUiAccessNode, value) == std::mem::offset_of!(crate::PonkoUiAccessNode, value));
+    assert!(std::mem::offset_of!(CrabbyUiAccessNode, live) == std::mem::offset_of!(crate::PonkoUiAccessNode, live));
+    assert!(std::mem::offset_of!(CrabbyUiAccessNode, depth) == std::mem::offset_of!(crate::PonkoUiAccessNode, depth));
+    assert!(
+        std::mem::offset_of!(CrabbyUiAccessNode, child_count)
+            == std::mem::offset_of!(crate::PonkoUiAccessNode, child_count)
+    );
+    assert!(
+        std::mem::offset_of!(CrabbyUiAccessNode, has_selection)
+            == std::mem::offset_of!(crate::PonkoUiAccessNode, has_selection)
+    );
+    assert!(
+        std::mem::offset_of!(CrabbyUiAccessNode, focusable)
+            == std::mem::offset_of!(crate::PonkoUiAccessNode, focusable)
+    );
+    assert!(
+        std::mem::offset_of!(CrabbyUiAccessNode, focused) == std::mem::offset_of!(crate::PonkoUiAccessNode, focused)
+    );
+    assert!(
+        std::mem::offset_of!(CrabbyUiAccessNode, disabled) == std::mem::offset_of!(crate::PonkoUiAccessNode, disabled)
+    );
+    assert!(std::mem::offset_of!(CrabbyUiAccessNode, inert) == std::mem::offset_of!(crate::PonkoUiAccessNode, inert));
+    assert!(std::mem::offset_of!(CrabbyUiAccessNode, modal) == std::mem::offset_of!(crate::PonkoUiAccessNode, modal));
+};
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoUiAccess as CrabbyUiAccess;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoUiAccessChanges as CrabbyUiAccessChanges;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum CrabbyUiDisplay {
@@ -15680,6 +16141,378 @@ pub extern "C" fn crabby_entity_bits(entity: CrabbyEntity) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_draw_params_default() -> CrabbyDrawParams {
     crate::ponko_draw_params_default()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_ui_set_accessible_name`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_set_accessible_name(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    name: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_ui_set_accessible_name(ctx, target, id, name) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_ui_accessible_name`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_accessible_name(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_ui_accessible_name(ctx, target, id, buffer, capacity, out_len) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_ui_set_accessible_description`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_set_accessible_description(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    description: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_ui_set_accessible_description(ctx, target, id, description) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_ui_accessible_description`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_accessible_description(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_ui_accessible_description(ctx, target, id, buffer, capacity, out_len) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_ui_set_live_region`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_set_live_region(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    live: u32,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_ui_set_live_region(ctx, target, id, live) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_ui_live_region`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_live_region(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    out_live: *mut CrabbyUiLive,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_ui_live_region(ctx, target, id, out_live.cast()) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_ui_access_action`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_access_action(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    kind: u32,
+    id: u64,
+    value: f32,
+    text: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_ui_access_action(ctx, target, kind, id, value, text) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_ui_access_text`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_access_text(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_ui_access_text(ctx, target, buffer, capacity, out_len) }).into()
+}
+
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_ui_access_new() -> *mut CrabbyUiAccess {
+    crate::ponko_ui_access_new()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_free`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_free(access: *mut CrabbyUiAccess) {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    unsafe { crate::ponko_ui_access_free(access) }
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_update`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_update(
+    access: *mut CrabbyUiAccess,
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    out_changes: *mut CrabbyUiAccessChanges,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_update(access, ctx, target, out_changes) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_reset`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_reset(access: *mut CrabbyUiAccess) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_reset(access) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_count`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_count(access: *mut CrabbyUiAccess, out_count: *mut usize) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_count(access, out_count) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_node`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_node(
+    access: *mut CrabbyUiAccess,
+    index: usize,
+    out_node: *mut CrabbyUiAccessNode,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_node(access, index, out_node.cast()) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_find`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_find(
+    access: *mut CrabbyUiAccess,
+    id: u64,
+    out_node: *mut CrabbyUiAccessNode,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_find(access, id, out_node.cast()) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_child`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_child(
+    access: *mut CrabbyUiAccess,
+    id: u64,
+    index: usize,
+    out_child: *mut u64,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_child(access, id, index, out_child) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_name`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_name(
+    access: *mut CrabbyUiAccess,
+    id: u64,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_name(access, id, buffer, capacity, out_len) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_description`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_description(
+    access: *mut CrabbyUiAccess,
+    id: u64,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_description(access, id, buffer, capacity, out_len) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_value_text`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_value_text(
+    access: *mut CrabbyUiAccess,
+    id: u64,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_value_text(access, id, buffer, capacity, out_len) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_focus`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_focus(access: *mut CrabbyUiAccess, out_id: *mut u64) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_focus(access, out_id) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_changed`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_changed(
+    access: *mut CrabbyUiAccess,
+    index: usize,
+    out_id: *mut u64,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_changed(access, index, out_id) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ui_access_removed`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ui_access_removed(
+    access: *mut CrabbyUiAccess,
+    index: usize,
+    out_id: *mut u64,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ui_access_removed(access, index, out_id) }).into()
 }
 
 /// # Safety

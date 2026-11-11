@@ -131,6 +131,13 @@ jobs:
           - name: engine with only a window (2D)
             scope: -p ponko
             args: --no-default-features --features window
+          # On Linux this lints the feature's shared code and the path that
+          # does nothing; the macOS adapter itself is linted in the feature
+          # tests' macOS leg (a second macOS runner per pull request would
+          # cost more than the adapter's few hundred lines justify).
+          - name: accessibility feature
+            scope: -p ponko
+            args: --features accessibility
     steps:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
@@ -395,6 +402,22 @@ jobs:
       - name: Tests, Steam transport
         if: ${{ !cancelled() }}
         run: cargo test -p ponko --no-fail-fast --features steam --lib net::steam
+      # The screen-reader adapter (opt-in). Every OS: the UI's semantics as
+      # AccessKit data, and that the feature builds. macOS: an `NSView` is
+      # asked what a screen reader asks, on the main thread, with no window
+      # (`ui_access_macos` does nothing on the other systems).
+      - name: Tests, accessibility adapter
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          cargo test -p ponko --no-fail-fast --features accessibility --lib ui::access_kit
+          cargo test -p ponko --no-fail-fast --features accessibility --test ui_access_macos --test ui_access --test ui_access_changes
+      # The only job where the macOS adapter's code is compiled: lint it here.
+      - name: Clippy, accessibility adapter (macOS)
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        run: |
+          rustup component add clippy
+          cargo clippy -p ponko --all-targets --features accessibility
 
   docs:
     name: Docs
@@ -529,6 +552,11 @@ jobs:
       - run: cmake -S examples/cpp -B target/native -DCMAKE_BUILD_TYPE=Release -DPONKO_LIBRARY_DIR=${{ github.workspace }}/target/release
       - run: cmake --build target/native --config Release
       - run: ctest --test-dir target/native -C Release --output-on-failure
+      # A C++ game through the validation bundle tool: started headless,
+      # checked through the MCP tools, the bundle verified.
+      - name: Validation bundle of the C++ battle
+        if: runner.os != 'Windows'
+        run: bash scripts/validation-bundle-native.sh target/native/ponko_cpp_battle
 
   # The web build (wasm32): lint the browser-only code, and build the battle
   # demo the way the docs site does.
@@ -549,6 +577,8 @@ jobs:
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --examples
       # The 3D examples (the 3D browser smoke fixture among them) need the feature.
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features 3d --examples
+      # The accessibility feature has no web adapter: it must build and do nothing.
+      - run: cargo check -p ponko --target wasm32-unknown-unknown --features accessibility
       - name: Find the wasm-bindgen version in Cargo.lock
         run: echo "WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_ENV"
       - uses: taiki-e/install-action@v2
@@ -763,6 +793,35 @@ jobs:
             python scripts/package-coin-dash.py smoke --package target/package --mode window
           fi
 
+  # The reference validation bundles (book/src/validation-bundles.md): the
+  # deliberately broken game and the corrected one, run in-process and as a
+  # launched game driven through the MCP tools, verified and compared, then
+  # published so a reviewer can open what a run observed. Headless.
+  validation-bundles:
+    name: Validation bundles
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ALSA and udev headers (audio, gamepads)
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Reads the `test` cache (same dev build) and never writes it.
+          save-if: false
+          shared-key: test
+      - name: Make, verify and compare the bundles
+        run: bash scripts/validation-bundles.sh target/validation-bundles
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: validation-bundles
+          path: target/validation-bundles
+          retention-days: 14
+          if-no-files-found: error
+
   # Single check for branch protection: passes only if
   # every job above passed. Requiring one job keeps the rule valid when jobs
   # are added or renamed. Jobs a plain pull request skips (fast tier) are
@@ -771,7 +830,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke]
+    needs: [leaks, fmt, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job

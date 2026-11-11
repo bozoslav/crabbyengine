@@ -85,6 +85,10 @@ pub struct Events {
     /// declared access is checked (see [`SystemAccess`](crate::access::SystemAccess)).
     #[cfg(debug_assertions)]
     pub(crate) used: std::cell::RefCell<Option<crate::access::EventUse>>,
+    /// Debug builds: the last check's logs, whose buffers the next check
+    /// records into, so a checked system doesn't allocate every run.
+    #[cfg(debug_assertions)]
+    pub(crate) spare_logs: (ponko_ecs::AccessLog, crate::access::EventUse),
 }
 
 /// Reader id of the tools' feed; systems count up from 1.

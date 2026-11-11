@@ -78,6 +78,8 @@ Register `systems::step_navmesh3d` with `Game::sim_system` (C++: `game::navmesh3
 There is no automatic navigation update. Insert a `d3::NavMesh` resource, then spawn
 entities with `d3::Transform` and `d3::NavAgent`. This works in `run_headless` and obeys
 the simulation clock. Put destination/obstacle systems before the navigation step.
+With physics in the game, [who runs when](systems.md#physics-navigation-characters-and-interpolation-who-runs-when)
+says where the step goes; `systems::step_navmesh3d_access()` is its access declaration.
 
 <div class="lang-pair">
 <div>

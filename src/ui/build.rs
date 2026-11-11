@@ -796,6 +796,31 @@ impl UiBuilder<'_> {
         self.ui.set_accessible_name(self.id, name);
         self
     }
+    /// Read by assistive technology after the name; see
+    /// [`Ui::set_accessible_description`].
+    /// ```
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let root = ui.root().id();
+    /// let wipe = ui.button(root, "Reset").accessible_description("Deletes every save").id();
+    /// assert_eq!(ui.accessible_description(wipe), Some("Deletes every save"));
+    /// ```
+    pub fn accessible_description(self, description: impl AsRef<str>) -> Self {
+        self.ui.set_accessible_description(self.id, description);
+        self
+    }
+    /// Announce this node's changes without focus; see [`Ui::set_live_region`].
+    /// ```
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let root = ui.root().id();
+    /// let status = ui.label(root, "Saved").live_region(ponko::ui::UiLive::Polite).id();
+    /// assert_eq!(ui.live_region(status), Some(ponko::ui::UiLive::Polite));
+    /// ```
+    pub fn live_region(self, live: crate::ui::UiLive) -> Self {
+        self.ui.set_live_region(self.id, live);
+        self
+    }
     /// A name to find the node by later ([`Ui::find`]), instead of keeping
     /// its id.
     /// ```

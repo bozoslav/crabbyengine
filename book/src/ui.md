@@ -258,13 +258,22 @@ per-batch scissor rectangles; world sprites and immediate UI remain unclipped.
 ## Accessibility semantics
 
 `ui.accessibility_tree()` returns a deterministic snapshot of what assistive
-technology would read: each shown node's role (group, dialog, label, button,
-image, scroll view, text input, checkbox, slider), name, value (text, checked
-state or 0..1 range), bounds and states (focusable, focused, disabled, inert,
-modal), plus the focused node. Names come from the node's text; give sliders,
-text inputs, images and icon-only buttons one with `.accessible_name("Volume")`
-or `ui.set_accessible_name(id, "Volume")`. Text inputs expose their text as the
-value, never as the name. Names never change layout, focus or events.
+technology reads: each shown node's role (group, dialog, label, button,
+image, scroll view, text input, checkbox, slider), name, description, value
+(text, checked state or 0..1 range), bounds and states (focusable, focused,
+disabled, inert, modal), plus the focused node. Names come from the node's
+text; give sliders, text inputs, images and icon-only buttons one with
+`.accessible_name("Volume")` or `ui.set_accessible_name(id, "Volume")`. Text
+inputs expose their text as the value, never as the name, and their caret and
+selection as byte offsets. Names never change layout, focus or events.
+
+Two more things a screen reader uses:
+
+- A **description** (`.accessible_description("Starts a new run")`) is read
+  after the name: what a control does, or a hint.
+- A **live region** (`.live_region(UiLive::Polite)`) is announced when it
+  changes while focus is elsewhere: a status line, a score, an error.
+  `Assertive` interrupts what is being read; keep it for what can't wait.
 
 Nodes with `display: none` are left out with their subtrees. A modal screen
 hides every screen below it; lower screens under a non-modal one stay readable
@@ -284,9 +293,143 @@ assert_eq!(
 );
 ```
 
-This is the platform-neutral half only: no screen reader reads it yet. A native
-adapter is planned, and the C/C++ API does not expose these semantics yet
-(Rust only for now; the same example is a doctest on `UiAccessTree`).
+### Requests and changes
+
+Assistive technology also operates the UI. `ui.push_access_action(..)` queues
+a request (`Focus`, `Activate`, `Increment`, `Decrement`, `SetValue`,
+`SetText`); the next `Ui::frame` applies it by doing what the matching key
+does, so the game gets the same `Clicked`, `Changed` and `FocusChanged` events
+and needs no second code path. A request for a node that can't take focus
+right now (disabled, hidden, removed, under a modal screen) is dropped.
+`Increment` and `Decrement` move a slider by 0.05, as the arrow keys do.
+
+`UiAccessTracker::update(&ui)` reports what changed since the last call (the
+changed and removed nodes, and whether the screens or the focus changed), so
+a backend resends only those. While nothing changed it allocates nothing.
+
+<div class="lang-pair">
+<div>
+
+```rust
+# use ponko::ui::{Ui, UiAccessAction, UiAccessTracker, UiLayout, UiLive};
+# let mut ui = Ui::default();
+# let root = ui.root().layout(UiLayout::fill()).id();
+# let buy = ui.button(root, "Buy").layout(UiLayout::fixed(220.0, 40.0)).id();
+// A slider has no text of its own to be named by.
+let volume = ui
+    .slider(root)
+    .layout(UiLayout::fixed(240.0, 24.0))
+    .value(0.5)
+    .accessible_name("Volume")
+    .id();
+ui.set_accessible_description(buy, "Buys the highlighted item");
+// A change to a live region is announced while focus is elsewhere.
+ui.label(root, "Ready")
+    .layout(UiLayout::fixed(400.0, 24.0))
+    .live_region(UiLive::Polite);
+// A request from assistive technology; the next frame applies it.
+ui.push_access_action(UiAccessAction::Increment(volume));
+// What changed since the last look, for a backend of your own.
+let mut tracker = UiAccessTracker::new();
+if let Some(changes) = tracker.update(&ui) {
+    for id in &changes.changed {
+        let _name = tracker.tree().get(*id).map(|node| node.name.as_str());
+    }
+}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ui_access}}
+```
+
+</div>
+</div>
+
+In C the same calls are `ponko_ctx_ui_set_accessible_name`,
+`ponko_ctx_ui_set_accessible_description`, `ponko_ctx_ui_set_live_region`,
+`ponko_ctx_ui_access_action`, `ponko_ctx_ui_access_text` (the snapshot as
+text) and the `ponko_ui_access_*` functions for the tracker.
+
+### The screen reader adapter
+
+With the cargo feature `accessibility` (off by default) the engine gives
+`ctx.ui` to the operating system's accessibility API and brings the screen
+reader's requests back as the requests above. Nothing is called from game
+code:
+
+```toml
+ponko = { version = "...", features = ["accessibility"] }
+```
+
+Until assistive technology asks for the window's content the adapter does
+nothing: no snapshot is taken and nothing is allocated. After that it sends
+the whole tree once and then only the nodes that changed. A host that owns
+its own view instead of the engine's window makes a `UiAccessAdapter` itself
+(`UiAccessAdapter::for_ns_view`) and calls `update` once a frame after
+`Ui::frame`.
+
+What is supported:
+
+| System | Adapter |
+|---|---|
+| macOS | Yes: `NSAccessibility` through AccessKit (VoiceOver and other `NSAccessibility` clients). |
+| Windows | None. The feature builds and does nothing. |
+| Linux | None. The feature builds and does nothing. |
+| Web | None: the canvas has no accessible content. The feature is not for `wasm32`. |
+
+`UiAccessAdapter::SUPPORTED` says at compile time whether the build has one.
+The limits on macOS:
+
+- The window is named after the game's title, once: the engine has no call
+  that renames its window while the game runs.
+- While a screen reader is reading the window, the engine leaves the event
+  loop idle for 4 ms between two vsync-paced frames, so that it can answer:
+  the system delivers a screen reader's questions through the event loop,
+  and a frame that waits for the display would answer one per frame
+  (measured: a read of the whole window took 1.7 to 1.9 s, and VoiceOver
+  called the game "not responding"; with the pause, 15 ms). A game whose
+  frame needs more than the rest of the refresh interval loses a refresh
+  while it is being read. The pause stays on once a screen reader has asked.
+- Only `ctx.ui` is exposed. UI on surfaces in the world (`d3::UiPanel`), the
+  immediate-mode calls (`draw_text`, `ui_label`) and the inspector are not.
+- A text input's text is read and can be replaced, but its caret and
+  selection are not sent to the system yet (they are in the snapshot), so a
+  screen reader does not follow the caret character by character.
+- A scroll view is exposed as a scroll area and its content is read, but a
+  screen reader's own scroll requests are not handled.
+- C and C++ games get the adapter the same way (it belongs to the engine's
+  window) when `ponko_ffi` is built with its `accessibility` feature; there
+  is no C call to make an adapter for a view of your own.
+
+`examples/ui_menu.rs` is the sample menu for trying it: a title, a status
+line that is a live region, a described Play button, a named slider and text
+input, a toggle, and a Quit button that opens a modal dialog.
+
+How it is checked (the first two in `tests/ui_access_macos.rs`):
+
+- **Without a window** (every run, and CI's macOS leg): the adapter is
+  attached to a view that has no window and asked what VoiceOver asks
+  (children, role, title, value, help, enabled, focused, modal; press,
+  increment, decrement, set value, set focus), through this menu from Play
+  to the Quit dialog.
+- **In the engine's own window** (by hand, `PONKO_ACCESS_WINDOW=1 cargo test
+  --features accessibility --test ui_access_macos engine_window`): the game
+  runs with `Game::run`, which attaches the adapter to the window's content
+  view; a system of the game asks that view the same questions and operates
+  the menu through it. It opens a window for about a second, so CI doesn't
+  run it.
+
+- **From another process and with VoiceOver** (by hand, on a machine where
+  the terminal has the Accessibility permission and VoiceOver may be
+  scripted): the menu was read and operated through the system accessibility
+  API from outside the game, and VoiceOver was run over it with its speech
+  recorded.
+
+What each of these read and heard is in
+[Screen reader records](ui-accessibility.md).
 
 ## UI on surfaces in the world
 

@@ -43,6 +43,9 @@
 //! - `physics3d`: 3D physics with rapier (`Game::physics3d`): bodies,
 //!   colliders (heightfield terrain too), queries, a character controller and
 //!   raycast-wheel vehicles.
+//! - `accessibility`: screen readers read and operate the retained UI of the
+//!   game's window (`ui::UiAccessAdapter`). macOS only (VoiceOver, through
+//!   AccessKit); on other systems it builds and does nothing. Needs `window`.
 //! - `steam`: lockstep and byte messages over Steam's relays and lobbies
 //!   (`Net::steam_host`), with the `steamworks` crate re-exported as `ponko::net::steam`.
 

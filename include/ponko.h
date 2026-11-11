@@ -199,6 +199,31 @@ typedef enum PonkoInterestChangeKind {
   PONKO_INTEREST_LEFT = 1,
 } PonkoInterestChangeKind;
 
+typedef enum PonkoUiLive {
+  PONKO_UI_LIVE_OFF,
+  PONKO_UI_LIVE_POLITE,
+  PONKO_UI_LIVE_ASSERTIVE,
+} PonkoUiLive;
+
+typedef enum PonkoUiRole {
+  PONKO_UI_ROLE_GROUP,
+  PONKO_UI_ROLE_DIALOG,
+  PONKO_UI_ROLE_LABEL,
+  PONKO_UI_ROLE_BUTTON,
+  PONKO_UI_ROLE_IMAGE,
+  PONKO_UI_ROLE_SCROLL_VIEW,
+  PONKO_UI_ROLE_TEXT_INPUT,
+  PONKO_UI_ROLE_CHECKBOX,
+  PONKO_UI_ROLE_SLIDER,
+} PonkoUiRole;
+
+typedef enum PonkoUiAccessValueKind {
+  PONKO_UI_ACCESS_VALUE_NONE,
+  PONKO_UI_ACCESS_VALUE_TEXT,
+  PONKO_UI_ACCESS_VALUE_CHECKED,
+  PONKO_UI_ACCESS_VALUE_RANGE,
+} PonkoUiAccessValueKind;
+
 typedef enum PonkoUiEventKind {
   PONKO_UI_EVENT_CLICKED,
   PONKO_UI_EVENT_CHANGED,
@@ -613,6 +638,15 @@ typedef enum PonkoUiTextAlign {
   PONKO_UI_TEXT_ALIGN_END,
 } PonkoUiTextAlign;
 
+typedef enum PonkoUiAccessActionKind {
+  PONKO_UI_ACCESS_ACTION_FOCUS,
+  PONKO_UI_ACCESS_ACTION_ACTIVATE,
+  PONKO_UI_ACCESS_ACTION_SET_VALUE,
+  PONKO_UI_ACCESS_ACTION_INCREMENT,
+  PONKO_UI_ACCESS_ACTION_DECREMENT,
+  PONKO_UI_ACCESS_ACTION_SET_TEXT,
+} PonkoUiAccessActionKind;
+
 typedef enum PonkoGpuTier {
   PONKO_GPU_TIER_WEBGL2 = 0,
   PONKO_GPU_TIER_BASELINE = 1,
@@ -686,6 +720,8 @@ typedef struct PonkoSnapshotStream PonkoSnapshotStream;
 typedef struct PonkoSteamLobby PonkoSteamLobby;
 
 typedef struct PonkoTerrainTileData PonkoTerrainTileData;
+
+typedef struct PonkoUiAccess PonkoUiAccess;
 
 typedef struct PonkoWorld PonkoWorld;
 
@@ -1659,6 +1695,34 @@ typedef struct PonkoTileMap {
   struct PonkoColor color;
   uint16_t *tiles;
 } PonkoTileMap;
+
+typedef struct PonkoUiAccessChanges {
+  uint32_t changed_count;
+  uint32_t removed_count;
+  bool any;
+  bool screens_changed;
+  bool focus_changed;
+} PonkoUiAccessChanges;
+
+typedef struct PonkoUiAccessNode {
+  uint64_t id;
+  uint64_t parent;
+  uint64_t selection_anchor;
+  uint64_t selection_caret;
+  struct PonkoRect rect;
+  enum PonkoUiRole role;
+  enum PonkoUiAccessValueKind value_kind;
+  float value;
+  enum PonkoUiLive live;
+  uint32_t depth;
+  uint32_t child_count;
+  bool has_selection;
+  bool focusable;
+  bool focused;
+  bool disabled;
+  bool inert;
+  bool modal;
+} PonkoUiAccessNode;
 
 typedef struct PonkoUiLength {
   uint32_t kind;
@@ -4278,6 +4342,107 @@ enum PonkoStatus ponko_tilemap_update(struct PonkoWorld *world,
 uint64_t ponko_entity_bits(struct PonkoEntity entity);
 
 struct PonkoDrawParams ponko_draw_params_default(void);
+
+enum PonkoStatus ponko_ctx_ui_set_accessible_name(struct PonkoCtx *ctx,
+                                                  uint64_t target,
+                                                  uint64_t id,
+                                                  const char *name);
+
+enum PonkoStatus ponko_ctx_ui_accessible_name(struct PonkoCtx *ctx,
+                                              uint64_t target,
+                                              uint64_t id,
+                                              char *buffer,
+                                              size_t capacity,
+                                              size_t *out_len);
+
+enum PonkoStatus ponko_ctx_ui_set_accessible_description(struct PonkoCtx *ctx,
+                                                         uint64_t target,
+                                                         uint64_t id,
+                                                         const char *description);
+
+enum PonkoStatus ponko_ctx_ui_accessible_description(struct PonkoCtx *ctx,
+                                                     uint64_t target,
+                                                     uint64_t id,
+                                                     char *buffer,
+                                                     size_t capacity,
+                                                     size_t *out_len);
+
+enum PonkoStatus ponko_ctx_ui_set_live_region(struct PonkoCtx *ctx,
+                                              uint64_t target,
+                                              uint64_t id,
+                                              uint32_t live);
+
+enum PonkoStatus ponko_ctx_ui_live_region(struct PonkoCtx *ctx,
+                                          uint64_t target,
+                                          uint64_t id,
+                                          enum PonkoUiLive *out_live);
+
+enum PonkoStatus ponko_ctx_ui_access_action(struct PonkoCtx *ctx,
+                                            uint64_t target,
+                                            uint32_t kind,
+                                            uint64_t id,
+                                            float value,
+                                            const char *text);
+
+enum PonkoStatus ponko_ctx_ui_access_text(struct PonkoCtx *ctx,
+                                          uint64_t target,
+                                          char *buffer,
+                                          size_t capacity,
+                                          size_t *out_len);
+
+struct PonkoUiAccess *ponko_ui_access_new(void);
+
+void ponko_ui_access_free(struct PonkoUiAccess *access);
+
+enum PonkoStatus ponko_ui_access_update(struct PonkoUiAccess *access,
+                                        struct PonkoCtx *ctx,
+                                        uint64_t target,
+                                        struct PonkoUiAccessChanges *out_changes);
+
+enum PonkoStatus ponko_ui_access_reset(struct PonkoUiAccess *access);
+
+enum PonkoStatus ponko_ui_access_count(struct PonkoUiAccess *access, size_t *out_count);
+
+enum PonkoStatus ponko_ui_access_node(struct PonkoUiAccess *access,
+                                      size_t index,
+                                      struct PonkoUiAccessNode *out_node);
+
+enum PonkoStatus ponko_ui_access_find(struct PonkoUiAccess *access,
+                                      uint64_t id,
+                                      struct PonkoUiAccessNode *out_node);
+
+enum PonkoStatus ponko_ui_access_child(struct PonkoUiAccess *access,
+                                       uint64_t id,
+                                       size_t index,
+                                       uint64_t *out_child);
+
+enum PonkoStatus ponko_ui_access_name(struct PonkoUiAccess *access,
+                                      uint64_t id,
+                                      char *buffer,
+                                      size_t capacity,
+                                      size_t *out_len);
+
+enum PonkoStatus ponko_ui_access_description(struct PonkoUiAccess *access,
+                                             uint64_t id,
+                                             char *buffer,
+                                             size_t capacity,
+                                             size_t *out_len);
+
+enum PonkoStatus ponko_ui_access_value_text(struct PonkoUiAccess *access,
+                                            uint64_t id,
+                                            char *buffer,
+                                            size_t capacity,
+                                            size_t *out_len);
+
+enum PonkoStatus ponko_ui_access_focus(struct PonkoUiAccess *access, uint64_t *out_id);
+
+enum PonkoStatus ponko_ui_access_changed(struct PonkoUiAccess *access,
+                                         size_t index,
+                                         uint64_t *out_id);
+
+enum PonkoStatus ponko_ui_access_removed(struct PonkoUiAccess *access,
+                                         size_t index,
+                                         uint64_t *out_id);
 
 enum PonkoStatus ponko_ctx_create_ui_panel(struct PonkoCtx *ctx,
                                            uint64_t entity_bits,

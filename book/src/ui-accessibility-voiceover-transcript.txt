@@ -1,0 +1,28 @@
+the game's window comes to the front
+   VoiceOver: Welcome to macOS. VoiceOver is on.
+key: Tab (1)
+   VoiceOver: Starts a new run You are currently on a button. To click this button, press Control-Option-Space.
+key: Tab (2)
+   VoiceOver: 50% Volume circular slider
+key: Tab (3)
+   VoiceOver: Ann Player name edit text
+key: Tab (4)
+   VoiceOver: Music checked checkbox
+key: Tab (5)
+   VoiceOver: You are currently on a button. To click this button, press Control-Option-Space.
+key: Tab (6, wraps to the first control)
+   VoiceOver: Starts a new run You are currently on a button. To click this button, press Control-Option-Space.
+key: Return on the focused control
+   VoiceOver: Starts a new run You are currently on a button. To click this button, press Control-Option-Space.
+VoiceOver command: move right 
+   VoiceOver: 50% Volume circular slider
+VoiceOver command: move right 
+   VoiceOver: Ann Player name edit text
+VoiceOver command: move right 
+   VoiceOver: Music checked checkbox
+VoiceOver command: move right 
+   VoiceOver: You are currently on a button. To click this button, press Control-Option-Space.
+VoiceOver command: move right 
+   VoiceOver: Quit button
+VoiceOver command: move left 
+   VoiceOver: Music checked checkbox

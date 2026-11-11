@@ -413,9 +413,34 @@ fn next_system_id() -> u32 {
 
 /// This frame's timing: the clock at the current sim speed (0 while
 /// paused), plus any single steps requested with `ctx.time.step()`.
+///
+/// While an input scenario runs, a frame runs one tick at most. Pressed and
+/// released edges last for a frame, so in a frame with several ticks a
+/// scenario's key press would be "just pressed" in every one of them; a
+/// headless run has one tick per frame, and a windowed run of the same
+/// scenario has to see the same input.
+///
+/// - Steps that were asked for (a tool stepping a paused game) are never
+///   lost: the ones that don't fit this frame stay queued for the next.
+/// - The clock's own extra ticks are dropped, as the clock drops what it
+///   can't catch up on: a window that draws slower than the simulation
+///   ticks runs the scenario slower than real time, with no backlog during
+///   it and no burst after it.
 fn frame_timing(clock: &mut Clock, ctx: &mut Ctx, frame_dt: f64) -> FrameTiming {
     let mut timing = clock.advance(frame_dt, ctx.effective_sim_speed());
-    timing.fixed_steps += ctx.take_pending_steps();
+    let asked = ctx.take_pending_steps();
+    if ctx.input.scenarios.run.is_none() {
+        timing.fixed_steps += asked;
+        return timing;
+    }
+    if timing.fixed_steps > 0 {
+        // The clock's tick is this frame's; everything asked for waits.
+        timing.fixed_steps = 1;
+        ctx.time.queue_steps(u64::from(asked));
+    } else if asked > 0 {
+        timing.fixed_steps = 1;
+        ctx.time.queue_steps(u64::from(asked - 1));
+    }
     timing
 }
 
@@ -1454,7 +1479,11 @@ impl Game {
     pub fn physics(mut self, gravity: Vec2) -> Self {
         self.gravity = Some(gravity);
         if !self.sim_systems.iter().any(|s| s.builtin == Some(Systems::PHYSICS)) {
-            self = self.add(Phase::Physics, crate::systems::step_physics);
+            self = self.add_with_access(
+                Phase::Physics,
+                crate::systems::step_physics_access(),
+                crate::systems::step_physics,
+            );
         }
         self
     }
@@ -1494,14 +1523,22 @@ impl Game {
             self.fixed_hz = crate::physics3d::PHYSICS3D_HZ;
         }
         if !self.sim_systems.iter().any(|s| s.builtin == Some(Systems::PHYSICS3D)) {
-            self = self.add(Phase::Physics, crate::systems::step_physics3d);
+            self = self.add_with_access(
+                Phase::Physics,
+                crate::systems::step_physics3d_access(),
+                crate::systems::step_physics3d,
+            );
         }
         if !self
             .systems
             .iter()
             .any(|s| s.builtin == Some(Systems::INTERPOLATE_PHYSICS3D))
         {
-            self = self.add(Phase::Frame, crate::systems::interpolate_physics3d);
+            self = self.add_with_access(
+                Phase::Frame,
+                crate::systems::interpolate_physics3d_access(),
+                crate::systems::interpolate_physics3d,
+            );
         }
         self
     }

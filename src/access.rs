@@ -65,7 +65,10 @@
 //! - **Drawing, UI, assets and profiling** ([`Service::Gfx`], `Ui`,
 //!   `Assets`, `Perf`) can be declared but aren't offered to view systems;
 //!   systems that use them keep `&mut Ctx`.
-//! - **Physics** steps and other built-in systems stay exclusive.
+//! - **Physics and navigation** steps declare what they touch
+//!   ([`step_physics_access`](crate::systems::step_physics_access) and its
+//!   siblings in [`systems`](crate::systems)) and keep `&mut Ctx`: checked
+//!   in debug builds, sequential. Other built-in systems stay exclusive.
 //! - **Foreign (C/C++) systems** declare components, resources and events
 //!   by registered name and stay sequential.
 //! - **Hot patching** swaps a system's code, not its declaration. A patched
@@ -802,11 +805,15 @@ impl EventUse {
     }
 }
 
-/// Debug builds: starts recording what the system about to run uses.
+/// Debug builds: starts recording what the system about to run uses, into
+/// the buffers of the last check.
 #[cfg(debug_assertions)]
 pub(crate) fn begin_check(ctx: &mut Ctx) {
-    ctx.world.record_access();
-    *ctx.events.used.get_mut() = Some(EventUse::default());
+    let (log, mut events) = std::mem::take(&mut ctx.events.spare_logs);
+    events.used.clear();
+    events.raw.clear();
+    ctx.world.record_access_into(log);
+    *ctx.events.used.get_mut() = Some(events);
 }
 
 /// Debug builds: stops recording and panics if the system that just ran
@@ -823,6 +830,8 @@ pub(crate) fn end_check(ctx: &mut Ctx, system: &str, access: &SystemAccess) {
             problems.join(", it ")
         );
     }
+    // Keep the buffers for the next check.
+    ctx.events.spare_logs = (used, events);
 }
 
 /// One registered system, as the report sees it.

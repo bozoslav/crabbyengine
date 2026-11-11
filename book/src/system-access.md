@@ -133,6 +133,14 @@ declaration. Services are not recorded for `Ctx` systems. Use it to
 document and check existing systems; only view systems can ever run in
 parallel, because only they can't reach anything undeclared.
 
+The engine's own physics and navigation steps are declared this way:
+`Game::physics` and `Game::physics3d` register `step_physics`,
+`step_physics3d` and `interpolate_physics3d` with
+`systems::step_physics_access()` and its siblings, and
+`systems::step_navmesh3d_access()` is there for the navigation step you
+add yourself ([what the steps touch](systems.md#what-the-steps-touch)).
+The other built-in systems are undeclared, so exclusive.
+
 ## The access report
 
 `Game::access_report()` lists every system with its declaration and, for

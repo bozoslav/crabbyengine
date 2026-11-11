@@ -110,6 +110,90 @@ There is nothing else: every step between the ticks and the renderer is a
 system in one of these phases, and [`ctx.perf.system_timings()`](#timings) lists
 all of them.
 
+## Physics, navigation, characters and interpolation: who runs when
+
+These four all move transforms, so their order decides what each one (and
+your own code) sees in a tick. Nothing here is a separate movement
+framework: they are the ordinary systems above, in the phases above.
+
+| Step | System | Where it runs | What it does to the tick |
+|---|---|---|---|
+| Physics | `step_physics`, `step_physics3d` | `Physics`, added by `Game::physics` / `physics3d` | picks up new, changed and removed bodies, simulates, writes poses and velocities back, sends `CollisionStarted` / `CollisionStopped` |
+| Character motion | inside `step_physics3d` | `Physics` | every `d3::Character` moves by its `velocity` first, then the bodies are simulated |
+| Navigation | `step_navmesh3d` | where you add it | moves every `d3::NavAgent`'s transform along its path |
+| Interpolation | `interpolate_physics3d` | first in `Frame`, added by `Game::physics3d` | between two steps, sets moving bodies' `d3::Transform` to a blend of their last two poses |
+
+What follows from that:
+
+- **Input for the step goes before it.** Forces, velocities, a
+  character's `velocity`, a transform you move (a teleport) and commands
+  that spawn or despawn bodies reach *this* tick's step from `Input` and
+  `BeforePhysics`. From `AfterPhysics`, `SimLast` and the frame phases they
+  reach the next tick's step. Commands are applied after the system that
+  recorded them, so a despawn from `BeforePhysics` is gone before the step
+  and its body leaves with that step.
+- **Results are read after it.** Poses, velocities, `grounded` and physics
+  queries are this tick's from `AfterPhysics` on.
+- **Collision events follow the [event rules](events.md).** The step sends
+  them while it runs: a reader in `AfterPhysics` or `SimLast` sees a contact
+  in the tick it began, a reader before the step sees it one tick later,
+  and a `sim_system_every(n, ..)` reader sees each one once, on its first
+  run after the step. Events are kept at least as long as the slowest
+  interval.
+- **A step that runs every `n` ticks covers `n` ticks.** Take the step out
+  (`Game::remove(Systems::PHYSICS)`) and add `systems::step_physics` with
+  `sim_system_every(n, ..)`: its `ctx.dt()` is `n` fixed steps, and its
+  events are still read once.
+- **Navigation moves transforms; it doesn't push.** An agent has no
+  collision response, so don't give it a dynamic body or a character
+  controller: both would write the same transform, and an agent that finds
+  its transform changed by anything else plans again from where it is. A
+  kinematic body or a sensor that only *follows* an agent is fine: add the
+  navigation step in `BeforePhysics`, and the physics step moves the body to
+  the agent's new place in the same tick (as a teleport). Added after the
+  step (`sim_system`), the body, and every physics query, is one tick
+  behind the agent. To walk a `d3::Character` along a path, ask the mesh
+  for the path (`NavMesh::find_path`) and set the character's `velocity`
+  in `BeforePhysics`; leave `NavAgent` off that entity.
+- **Destinations and obstacles go before the navigation step**, in the
+  same tick, wherever you put it.
+- **The blend is for drawing.** `interpolate_physics3d` runs before your
+  frame systems, so cameras, animation and drawing see the smooth pose. It
+  only changes `d3::Transform`; `ctx.physics3d.position(e)` stays the
+  stepped pose. Simulation systems *after* the step always read the stepped
+  pose. One *before* the step reads whatever the last frame drew, which in
+  a window is the blend, a little behind the stepped pose (headless runs
+  never blend). Gameplay that needs the exact pose before the step reads
+  it from `ctx.physics3d`. A transform you change between steps is left
+  alone by the blend and teleports the body at the next step; an entity
+  you removed is skipped, and its body leaves at the next step.
+
+`tests/step_inputs.rs` holds each of these as a test.
+
+### What the steps touch
+
+The physics and navigation steps [declare their access](system-access.md):
+`systems::step_physics_access()`, `step_physics3d_access()`,
+`interpolate_physics3d_access()` and `step_navmesh3d_access()` list the
+service, components, resource and events each one uses, and nothing else.
+`Game::physics` and `Game::physics3d` register their systems with these
+declarations, so `Game::access_report()` shows them and debug builds check
+that the steps stay inside them. They still take `&mut Ctx` and run alone,
+in order. When you place a step yourself, pass the declaration along:
+
+```rust
+# use ponko::systems;
+let game = Game::new("Agents", 1280, 720)
+    .add_with_access(Phase::BeforePhysics, systems::step_navmesh3d_access(), systems::step_navmesh3d)
+    .physics3d(vec3(0.0, -9.81, 0.0));
+# let _ = game;
+```
+
+These declarations are Rust-only for now: C and C++ games add the same
+steps with `ponko_game_physics`, `ponko_game_physics3d` and
+`game::navmesh3d()`, which register them the same way, but have no call
+that returns a built-in step's declaration.
+
 ## Built-in systems
 
 The functions are in `ponko::systems`; the ids in `Systems` name them for

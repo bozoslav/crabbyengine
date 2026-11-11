@@ -8,7 +8,7 @@ use ponko::d3::NavMesh as NavMesh3D;
 use ponko::d3::NavObstacle as NavObstacle3D;
 use ponko::nav::NavBakeSettings;
 use ponko::nav::NavSource;
-use ponko::systems::step_navmesh3d;
+use ponko::systems::{step_navmesh3d, step_navmesh3d_access};
 use ponko::{Ctx, Entity, Vec3};
 
 use crate::ctx::{ctx_access, out};
@@ -444,7 +444,8 @@ pub unsafe extern "C" fn ponko_ctx_remove_nav(ctx: *mut PonkoCtx, entity_bits: u
 }
 
 /// Moves nav agents every simulation tick (adds Rust's `step_navmesh3d` as
-/// a sim system at this point in the order).
+/// a sim system at this point in the order, with its access declaration, so
+/// `ponko_game_access_report` lists what the step touches).
 /// ```
 /// assert_eq!(unsafe { ponko_ffi::ponko_game_navmesh3d(std::ptr::null_mut()) } as u32, 1);
 /// ```
@@ -453,7 +454,11 @@ pub unsafe extern "C" fn ponko_ctx_remove_nav(ctx: *mut PonkoCtx, entity_bits: u
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ponko_game_navmesh3d(game: *mut PonkoGame) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
-    unsafe { build(game, |g| ok(g.sim_system(step_navmesh3d))) }
+    unsafe {
+        build(game, |g| {
+            ok(g.add_with_access(ponko::Phase::AfterPhysics, step_navmesh3d_access(), step_navmesh3d))
+        })
+    }
 }
 
 /// Enables crowd avoidance and sets nonnegative separation weight and positive
