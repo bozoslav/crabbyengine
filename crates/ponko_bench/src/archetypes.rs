@@ -1,5 +1,5 @@
-//! Many small archetypes, and building queries over them, in ponko_ecs and
-//! bevy_ecs.
+//! Many small archetypes, and building queries over them, in ponko_ecs,
+//! bevy_ecs and hecs.
 //!
 //! The world: 1024 archetypes of 16 entities each (16384 in total). Every
 //! entity has `(Pos, Vel, Spr)` plus a different subset of 10 marker
@@ -14,7 +14,20 @@
 //!   component ids only and matches while iterating, so the two numbers measure
 //!   different work. Compare them together with `query-build+count`.
 //! - `query-build+count-x1000/*`: build the query and count its matches, 1000
-//!   times. This is the same work in both: resolve, match, read lengths.
+//!   times in the same world. For ponko and bevy this is the same work:
+//!   resolve, match all 1024 archetypes, read lengths (ponko's archetype
+//!   index stays off for this query, which matches every archetype). hecs
+//!   keeps a per-world cache of each query type's matching archetypes,
+//!   rebuilt only when the archetype set changes, so its row is a cache hit
+//!   (a lock, a hash lookup, summing lengths) after the first build.
+//! - `query-build+count-cold/*`: the first query of a world: build it and
+//!   count its matches once, in a freshly built world (rebuilt untimed before
+//!   every run), so no library has anything cached. This is the row where all
+//!   three really match all 1024 archetypes, including the bookkeeping each
+//!   does for a world's first query.
+//!
+//! hecs, like ponko, matches archetypes when a query runs, not when it is
+//! built, so its `query-build` row only borrows the world.
 
 use bevy_ecs::component::Component;
 use std::hint::black_box;
@@ -110,6 +123,17 @@ fn bevy_world() -> bevy_ecs::world::World {
     w
 }
 
+fn hecs_world() -> hecs::World {
+    let mut w = hecs::World::new();
+    for i in 0..ENTITIES {
+        let e = w.spawn(ent(i));
+        for k in bits(i) {
+            with_marker!(k, |M| w.insert_one(e, M::default()).unwrap());
+        }
+    }
+    w
+}
+
 fn step_ponko(w: &mut ponko_ecs::World, dt: f32) {
     w.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| {
         p.x += v.x * dt;
@@ -124,6 +148,17 @@ fn step_bevy(w: &mut bevy_ecs::world::World, q: &mut BevyMove, dt: f32) {
         p.x += v.x * dt;
         p.y += v.y * dt;
     });
+}
+
+fn step_hecs(w: &mut hecs::World, dt: f32) {
+    w.query_mut::<(&mut Pos, &Vel)>().into_iter().for_each(|(p, v)| {
+        p.x += v.x * dt;
+        p.y += v.y * dt;
+    });
+}
+
+fn count_hecs(w: &mut hecs::World) -> usize {
+    w.query_mut::<(&mut Pos, &Vel)>().into_iter().len()
 }
 
 fn count_ponko(w: &mut ponko_ecs::World) -> usize {
@@ -152,6 +187,7 @@ pub fn run(b: &mut Bench) {
         },
         |(w, q)| step_bevy(w, q, black_box(DT)),
     );
+    b.steady("archetypes-1024/hecs", 200, hecs_world, |w| step_hecs(w, black_box(DT)));
 
     b.steady(&format!("query-build-x{QUERY_BUILDS}/ponko"), 100, ponko_world, |w| {
         for _ in 0..QUERY_BUILDS {
@@ -161,6 +197,11 @@ pub fn run(b: &mut Bench) {
     b.steady(&format!("query-build-x{QUERY_BUILDS}/bevy"), 100, bevy_world, |w| {
         for _ in 0..QUERY_BUILDS {
             black_box(w.query::<(&mut Pos, &Vel)>());
+        }
+    });
+    b.steady(&format!("query-build-x{QUERY_BUILDS}/hecs"), 100, hecs_world, |w| {
+        for _ in 0..QUERY_BUILDS {
+            black_box(w.query_mut::<(&mut Pos, &Vel)>());
         }
     });
 
@@ -184,10 +225,30 @@ pub fn run(b: &mut Bench) {
             }
         },
     );
+    b.steady(
+        &format!("query-build+count-x{QUERY_BUILDS}/hecs"),
+        100,
+        hecs_world,
+        |w| {
+            for _ in 0..QUERY_BUILDS {
+                black_box(count_hecs(w));
+            }
+        },
+    );
+
+    b.run("query-build+count-cold/ponko", 200, ponko_world, |w| {
+        black_box(count_ponko(w));
+    });
+    b.run("query-build+count-cold/bevy", 200, bevy_world, |w| {
+        black_box(count_bevy(w));
+    });
+    b.run("query-build+count-cold/hecs", 200, hecs_world, |w| {
+        black_box(count_hecs(w));
+    });
 }
 
-// Correctness of the workloads, checked apart from their timing: both
-// libraries must build the same world and do the same work on it.
+// Correctness of the workloads, checked apart from their timing: every
+// library must build the same world and do the same work on it.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,12 +279,44 @@ mod tests {
             .collect();
         assert_eq!(sizes.len(), ARCHETYPES);
         assert!(sizes.iter().all(|&n| n == PER_ARCHETYPE as u32));
+
+        let w = hecs_world();
+        let sizes: Vec<_> = w.archetypes().map(|a| a.len()).filter(|&n| n > 0).collect();
+        assert_eq!(sizes.len(), ARCHETYPES);
+        assert!(sizes.iter().all(|&n| n == PER_ARCHETYPE as u32));
+    }
+
+    #[test]
+    fn cold_counts_match_every_archetype_of_a_fresh_world() {
+        // ponko: nothing remembered before, and the count scans (no index hit).
+        let mut w = ponko_world();
+        assert_eq!(w.query_cache_stats().signatures, 0);
+        assert_eq!(count_ponko(&mut w), ENTITIES);
+        assert_eq!(w.query_cache_stats().hits, 0);
+        assert_eq!(count_bevy(&mut bevy_world()), ENTITIES);
+
+        // hecs caches matches per world and query type. A fresh world has
+        // none, so its first count matches; a new archetype invalidates the
+        // cache, which is what makes the warm row a cache hit and this one not.
+        let mut h = hecs_world();
+        assert_eq!(count_hecs(&mut h), ENTITIES);
+        let generation = h.archetypes_generation();
+        assert_eq!(count_hecs(&mut h), ENTITIES);
+        assert_eq!(
+            h.archetypes_generation(),
+            generation,
+            "a warm count changes no archetypes"
+        );
+        h.spawn((Pos::default(), Vel::default(), 0u8));
+        assert_ne!(h.archetypes_generation(), generation);
+        assert_eq!(count_hecs(&mut h), ENTITIES + 1);
     }
 
     #[test]
     fn queries_count_every_entity_in_both() {
         assert_eq!(count_ponko(&mut ponko_world()), ENTITIES);
         assert_eq!(count_bevy(&mut bevy_world()), ENTITIES);
+        assert_eq!(count_hecs(&mut hecs_world()), ENTITIES);
     }
 
     #[test]
@@ -231,9 +324,11 @@ mod tests {
         let mut pw = ponko_world();
         let mut bw = bevy_world();
         let mut q = bw.query::<(&mut Pos, &Vel)>();
+        let mut hw = hecs_world();
         for _ in 0..3 {
             step_ponko(&mut pw, DT);
             step_bevy(&mut bw, &mut q, DT);
+            step_hecs(&mut hw, DT);
         }
         let mut a: Vec<_> = pw
             .query::<&Pos>()
@@ -245,9 +340,16 @@ mod tests {
             .iter(&bw)
             .map(|p| (p.x.to_bits(), p.y.to_bits()))
             .collect();
+        let mut h: Vec<_> = hw
+            .query_mut::<&Pos>()
+            .into_iter()
+            .map(|p| (p.x.to_bits(), p.y.to_bits()))
+            .collect();
         a.sort_unstable();
         b.sort_unstable();
+        h.sort_unstable();
         assert_eq!(a, b);
+        assert_eq!(a, h);
         // Moved by 3 steps of (1.0, 0.5) * dt from (i, 0).
         let y = (0.0f32 + 0.5 * DT + 0.5 * DT + 0.5 * DT).to_bits();
         assert!(a.iter().all(|&(_, py)| py == y));

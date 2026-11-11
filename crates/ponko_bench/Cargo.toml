@@ -16,7 +16,9 @@ ponko = { path = "../..", version = "0.0.1", default-features = false, features 
 rapier2d = "0.36.1"
 rapier3d = "0.36.1"
 rayon = "1.12.0"
-bevy_ecs = "0.20.1"
+# `multi_threaded` for `par_iter_mut`; `bevy_tasks` to start its thread pool.
+bevy_ecs = { version = "0.20.1", features = ["multi_threaded"] }
+bevy_tasks = { version = "0.20.1", features = ["multi_threaded"] }
 hecs = "0.11.2"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 

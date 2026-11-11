@@ -21,6 +21,21 @@ superiority. See [the engine comparison](comparison.md) and baseline issues
 `par_for_each` on a heavy per-entity workload, 10M entities: 8.1 ms on all
 cores vs 57.6 ms on one.
 
+The full ECS matrix (1k/100k/1M entities: iteration, parallel scaling,
+spawning, spawn/despawn and add/remove churn, optional and filtered queries,
+and a game-like tick, each against bevy_ecs and hecs, with allocation counts)
+records machine-readable results with one command:
+
+```sh
+PONKO_BENCH_JSON=crates/ponko_bench/baselines/ecs.json \
+  cargo run --release -p ponko_bench -- 'ecs/|archetypes-1024|query-build'
+```
+
+`crates/ponko_bench/ECS.md` has the methodology, the limits of each
+comparison and the committed baselines. `cargo test -p ponko_bench` checks
+that every workload does the same work in all three libraries; timings are
+never checked in CI.
+
 ## Headless simulation
 
 `AGENTS=1000000 cargo run --release --example headless`
