@@ -120,13 +120,34 @@ Rayon-backed query methods partition disjoint rows: the calling thread lines up 
 
 [Collection](src/three/collect.rs) turns models, transforms, lights, terrain, skinning and camera state into a reusable `Frame3D`. It sorts instances into mesh runs for camera and shadow views, selects LOD and maintains frame-related caches. Reused vectors reduce repeated allocation; that is distinct from general incremental extraction of unchanged ECS objects.
 
-[Renderer3D](src/render/gpu3d.rs) coordinates pipelines, targets, temporal state and pass encoding. Its `Part` enum expresses recording stages: prelude/compute and atmosphere, shadows, target-camera views, GI, depth prepass, opaque, optional scene-copy/transparency and post-processing. Exact work depends on enabled features. Temporal antialiasing and AO use motion/history data; SSR, GI and post effects have dedicated modules. Sprites and UI composite afterward.
+[Renderer3D](src/render/gpu3d.rs) coordinates the frame; the work and the state belong to subsystems under [src/render/gpu3d](src/render/gpu3d), each owning its pipelines, GPU objects and state. The renderer hands a subsystem what it needs, never itself.
+
+| Responsibility | Owner | Lives |
+|---|---|---|
+| Meshes, materials, texture arrays, GPU buffers | `Resources` ([resources.rs](src/render/gpu3d/resources.rs)) | Until the game frees them |
+| Material shaders: composing, variants, pipelines, warming | `Shaders` ([shaders.rs](src/render/gpu3d/shaders.rs), [variants.rs](src/render/gpu3d/variants.rs), [pipeline_cache.rs](src/render/gpu3d/pipeline_cache.rs)) | Until the shader is freed or replaced |
+| The game's render targets, the scene's images, frame bind groups | `RenderTargets`, `Targets` ([targets.rs](src/render/gpu3d/targets.rs)) | Until freed; the scene's until its size or passes change |
+| Shadow maps and what each view keeps | `ShadowMaps`, `ShadowCache` ([shadows.rs](src/render/gpu3d/shadows.rs), [shadow_cache.rs](src/render/gpu3d/shadow_cache.rs)) | Until resized; the cache from frame to frame |
+| Static and instanced batches, GPU culling | `StaticBatch`, `Batching` ([instances.rs](src/render/gpu3d/instances.rs)) | Until the batch is freed |
+| Pass preparation: named steps, in order | `Renderer3D::prepare` ([prepare.rs](src/render/gpu3d/prepare.rs)) | One frame |
+| This frame's draw lists | `FrameLists` ([lists.rs](src/render/gpu3d/lists.rs)) | One frame; capacity is kept |
+| The frame's description: each pass's steps, the resources they use, their formats, and the order | `FRAME_PASSES` ([passes.rs](src/render/gpu3d/passes.rs)) | Constant |
+| Holding a drawn frame to that description, in debug builds | `FrameChecks` ([frame_checks.rs](src/render/gpu3d/frame_checks.rs)) | One frame |
+| Pass encoding | `Renderer3D::draw` and `record` ([record.rs](src/render/gpu3d/record.rs)) | One frame |
+| Temporal history: jitter index, last frame's matrices, camera cuts | `History` ([history.rs](src/render/gpu3d/history.rs)) | Frame to frame, until a reset |
+| Game screen and target effects | `Effects` ([effects.rs](src/render/gpu3d/effects.rs)) | Pipelines until freed; lists one frame |
+| The post chain: bloom, tone mapping, antialiasing, scaling | `PostChain`, `PostTargets` ([post.rs](src/render/gpu3d/post.rs)) | Pipelines for good; images with the scene's |
+| Screen-space passes (temporal antialiasing, ambient occlusion, reflections) and which run this frame | `ScreenSpace` ([screen_space.rs](src/render/gpu3d/screen_space.rs)) | Pipelines once first used; flags one frame |
+
+`prepare` (`&mut self`) uploads and decides everything for the frame; `draw` (`&self`) only records. State that outlives a frame is in `History` and the temporal passes' own histories, and one decision a frame (`History::decide`) drops all of it together. Adding a post effect touches `post.rs`, and its declaration in the frame's description (`passes.rs`), alone: its module documentation walks through one. The chain's choices and images are private to it; the renderer asks it only whether its images are stale and how many draws it makes, and a [render test](src/render/post_links_render_test.rs) holds both answers for every link switched on and off. The screen-space passes are less separate: `ScreenSpace` holds their state, but pass preparation decides their flags and `targets.rs` makes their images, so a new one still touches those. Global illumination, the sky, particles, skinning and occlusion culling remain fields of the renderer, each a type of its own.
+
+The `Part` enum expresses recording stages: prelude/compute and atmosphere, shadows, target-camera views, GI, depth prepass, opaque, optional scene-copy/transparency and post-processing. Exact work depends on enabled features. Temporal antialiasing and AO use motion/history data; SSR, GI and post effects have dedicated modules. Sprites and UI composite afterward.
 
 Native builds can record parts using Rayon; browser GPU handles stay on one thread. [Static instances](src/render/gpu3d/instances.rs) already have compute culling and indirect drawing on supported devices. This does not mean every model uses a fully GPU-driven scene pipeline. CPU/downlevel paths and device limits remain part of the contract.
 
 The renderer already has effect modules and limited extension APIs for surface shaders, screen effects and compute: [three/api.rs](src/three/api.rs), [effect.rs](src/three/effect.rs), [compute.rs](src/three/compute.rs). A constrained arbitrary pass insertion API with declared hazards is still proposed in [#155](https://github.com/ponkoengine/ponko/issues/155). `Part` is not a general validated render graph: [passes.rs](src/render/gpu3d/passes.rs) describes the parts for the renderer's own checks (each pass's steps, the frames they are recorded in, the resources they use and how, each resource's format, sample count and lifetime), and debug builds check every drawn frame and what each part records against it; it schedules and allocates nothing.
 
-The intended evolution is smaller resource, pipeline, preparation and encoding responsibilities, followed by lightweight explicit internal dependencies. It retains wgpu and the existing public workflow. [#134](https://github.com/ponkoengine/ponko/issues/134), [#135](https://github.com/ponkoengine/ponko/issues/135), [#136](https://github.com/ponkoengine/ponko/issues/136), [#147](https://github.com/ponkoengine/ponko/issues/147) and [#148](https://github.com/ponkoengine/ponko/issues/148) describe the foundations and next steps; no giant public graph or mandatory plugin framework is assumed.
+The resource, pipeline, preparation, encoding, frame-lifetime and post-processing responsibilities are separate ([#136](https://github.com/ponkoengine/ponko/issues/136)); the intended evolution continues with lightweight explicit internal dependencies between passes. It retains wgpu and the existing public workflow. [#134](https://github.com/ponkoengine/ponko/issues/134), [#135](https://github.com/ponkoengine/ponko/issues/135), [#136](https://github.com/ponkoengine/ponko/issues/136), [#147](https://github.com/ponkoengine/ponko/issues/147) and [#148](https://github.com/ponkoengine/ponko/issues/148) describe the foundations and next steps; no giant public graph or mandatory plugin framework is assumed.
 
 ## Assets, scenes and lifetime
 

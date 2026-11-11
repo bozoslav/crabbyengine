@@ -64,7 +64,7 @@ fn rig() -> Option<(wgpu::Device, Renderer3D)> {
 
 /// The pipelines shader `id` draws with now.
 fn pipelines(renderer: &Renderer3D, id: u32) -> Vec<wgpu::RenderPipeline> {
-    renderer.shaders[id as usize]
+    renderer.shaders.sets[id as usize]
         .sides
         .iter()
         .flat_map(|p| {
@@ -344,7 +344,7 @@ fn effect_and_compute_errors_have_a_place_and_failed_reloads_keep_the_last_good_
     let fx = renderer.create_effect(&device, "grey.wgsl", FX_GREY).unwrap();
     let cs = renderer.create_compute(&device, "fade.wgsl", CS_FADE).unwrap();
     let (fx_before, cs_before) = (
-        renderer.effect_pipelines[fx as usize].clone(),
+        renderer.effects.pipelines[fx as usize].clone(),
         renderer.compute_pipelines[cs as usize].clone(),
     );
 
@@ -374,10 +374,10 @@ fn effect_and_compute_errors_have_a_place_and_failed_reloads_keep_the_last_good_
     assert!(e.message.contains("the GPU rejected its pipeline"), "{e}");
     let e = renderer.create_effect(&device, "new.wgsl", FX_UNBOUND).unwrap_err();
     assert_eq!(e.kind, ShaderKind::Effect);
-    assert_eq!(renderer.effect_pipelines.len(), 1, "a rejected new effect takes no id");
+    assert_eq!(renderer.effects.pipelines.len(), 1, "a rejected new effect takes no id");
 
     assert_eq!(
-        renderer.effect_pipelines[fx as usize], fx_before,
+        renderer.effects.pipelines[fx as usize], fx_before,
         "the last good effect stays"
     );
     assert_eq!(
@@ -387,7 +387,7 @@ fn effect_and_compute_errors_have_a_place_and_failed_reloads_keep_the_last_good_
 
     renderer.replace_effect(&device, fx, "grey.wgsl", FX_GREY).unwrap();
     renderer.replace_compute(&device, cs, "fade.wgsl", CS_FADE).unwrap();
-    assert_ne!(renderer.effect_pipelines[fx as usize], fx_before, "a fix takes effect");
+    assert_ne!(renderer.effects.pipelines[fx as usize], fx_before, "a fix takes effect");
     assert_ne!(renderer.compute_pipelines[cs as usize], cs_before);
     assert_eq!(renderer.pending_shader_checks(), 0, "native GPUs answer at once");
 }
@@ -408,7 +408,7 @@ fn late_gpu_rejections_put_the_previous_pipelines_back_and_are_reported() {
     let fx = renderer.create_effect(&device, "grey.wgsl", FX_GREY).unwrap();
     let cs = renderer.create_compute(&device, "fade.wgsl", CS_FADE).unwrap();
     let (red_before, other_before) = (pipelines(&renderer, red), pipelines(&renderer, other));
-    let fx_before = renderer.effect_pipelines[fx as usize].clone();
+    let fx_before = renderer.effects.pipelines[fx as usize].clone();
     let cs_before = renderer.compute_pipelines[cs as usize].clone();
     renderer.defer_checks = true;
 
@@ -445,7 +445,7 @@ fn late_gpu_rejections_put_the_previous_pipelines_back_and_are_reported() {
     assert!(late.iter().all(|e| e.diagnostic.message.contains("the GPU rejected")));
 
     assert_eq!(pipelines(&renderer, red), red_before, "the previous version is back");
-    assert_eq!(renderer.effect_pipelines[fx as usize], fx_before);
+    assert_eq!(renderer.effects.pipelines[fx as usize], fx_before);
     assert_eq!(renderer.compute_pipelines[cs as usize], cs_before);
     assert_eq!(
         pipelines(&renderer, new_shader),
@@ -453,7 +453,7 @@ fn late_gpu_rejections_put_the_previous_pipelines_back_and_are_reported() {
         "a new one draws as the built-in"
     );
     assert_ne!(
-        renderer.effect_pipelines[new_effect as usize], fx_before,
+        renderer.effects.pipelines[new_effect as usize], fx_before,
         "a new effect gets a stand-in"
     );
     assert_ne!(pipelines(&renderer, other), other_before, "the good reload stays");
@@ -577,12 +577,12 @@ fn first_load_stand_ins_are_replaced_by_the_fixed_reload() {
     let fx = renderer
         .create_effect(&device, "fx.wgsl", crate::three::EFFECT_STAND_IN)
         .unwrap();
-    let fx_stand_in = renderer.effect_pipelines[fx as usize].clone();
+    let fx_stand_in = renderer.effects.pipelines[fx as usize].clone();
 
     renderer.replace_shader(&device, shader, "m.wgsl", RED).unwrap();
     renderer.replace_effect(&device, fx, "fx.wgsl", FX_GREY).unwrap();
     assert_ne!(pipelines(&renderer, shader), pipelines(&renderer, 0));
-    assert_ne!(renderer.effect_pipelines[fx as usize], fx_stand_in);
+    assert_ne!(renderer.effects.pipelines[fx as usize], fx_stand_in);
 
     // The compute pass, where the device has compute shaders.
     if !crate::render::render_test_support::needs(&device, crate::render::GpuFeature::Compute) {

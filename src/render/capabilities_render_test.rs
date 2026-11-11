@@ -316,7 +316,7 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
     // The renderer's own choices, against the report.
     let on = |f| report.available(f);
     assert_eq!(
-        renderer.taa_on,
+        renderer.screen.taa_on,
         on(GpuFeature::TemporalAntialiasing) && ctx.post.anti_aliasing == AntiAliasing::Taa,
         "{}: TAA",
         profile.name
@@ -326,15 +326,20 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
         AntiAliasing::Taa if !on(GpuFeature::TemporalAntialiasing) => AntiAliasing::Fxaa,
         asked => asked,
     };
-    assert_eq!(renderer.aa, aa, "{}: the antialiasing used", profile.name);
     assert_eq!(
-        renderer.ao_enabled,
+        renderer.post.antialiasing(),
+        aa,
+        "{}: the antialiasing used",
+        profile.name
+    );
+    assert_eq!(
+        renderer.screen.ao_enabled,
         on(GpuFeature::AmbientOcclusion) && (ctx.post.ambient_occlusion.enabled || ctx.post.contact_shadows > 0.0),
         "{}: GTAO",
         profile.name
     );
     assert_eq!(
-        renderer.ssr_on,
+        renderer.screen.ssr_on,
         on(GpuFeature::ScreenSpaceReflections) && ctx.post.ssr > 0.0,
         "{}: SSR",
         profile.name
@@ -346,7 +351,7 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
         profile.name
     );
     assert_eq!(
-        renderer.storage_read.is_some(),
+        renderer.resources.storage_read.is_some(),
         on(GpuFeature::StorageBuffers),
         "{}: storage buffers",
         profile.name
@@ -381,6 +386,7 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
         image::save_buffer(&path, &pixels, size.0, size.1, image::ColorType::Rgba8).unwrap();
     }
     let features = renderer
+        .shaders
         .cache
         .built_keys()
         .into_iter()

@@ -141,7 +141,7 @@ impl Rig {
         });
         let layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[Some(&self.renderer.material_layout)],
+            bind_group_layouts: &[Some(&self.renderer.resources.material_layout)],
             immediate_size: 0,
         });
         let pipeline = self.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -202,7 +202,7 @@ impl Rig {
                 ..Default::default()
             });
             pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &self.renderer.materials[id as usize].bind_group, &[]);
+            pass.set_bind_group(0, &self.renderer.resources.materials[id as usize].bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
         encoder.copy_texture_to_buffer(
@@ -224,10 +224,13 @@ impl Rig {
     }
 
     fn update(&mut self, id: u32, desc: &GpuMaterialDesc, rebuild: bool) {
-        let before = self.renderer.materials[id as usize].bind_group.clone();
+        let before = self.renderer.resources.materials[id as usize].bind_group.clone();
         self.renderer
             .update_material(&self.device, &self.queue, id, desc, &self.textures);
-        assert_eq!(before != self.renderer.materials[id as usize].bind_group, rebuild);
+        assert_eq!(
+            before != self.renderer.resources.materials[id as usize].bind_group,
+            rebuild
+        );
     }
 }
 
@@ -241,9 +244,9 @@ fn uniform_updates_reuse_bindings_and_resource_changes_sample_new_textures() {
     desc.cutout = true;
     desc.double_sided = true;
     rig.update(id, &desc, false);
-    assert!(rig.renderer.materials[id as usize].transparent);
-    assert!(rig.renderer.materials[id as usize].cutout);
-    assert!(rig.renderer.materials[id as usize].double_sided);
+    assert!(rig.renderer.resources.materials[id as usize].transparent);
+    assert!(rig.renderer.resources.materials[id as usize].cutout);
+    assert!(rig.renderer.resources.materials[id as usize].double_sided);
     assert_eq!(rig.pixel(id, false), [128, 255, 255, 255]);
 
     let red = Rig::texture(&rig.device, &rig.queue, [255, 0, 0, 255], 1);
@@ -305,13 +308,14 @@ fn material_update_cpu_cost() {
             for id in 0..200 {
                 if rebuild {
                     // Baseline: the previous unconditional view/bind group rebuild.
-                    let material = &rig.renderer.materials[id as usize];
+                    let material = &rig.renderer.resources.materials[id as usize];
                     rig.queue
                         .write_buffer(&material.buffer, 0, bytemuck::bytes_of(&desc.uniform));
-                    let group = rig
-                        .renderer
-                        .material_bind_group(&rig.device, &material.buffer, &material.bindings);
-                    rig.renderer.materials[id as usize].bind_group = group;
+                    let group =
+                        rig.renderer
+                            .resources
+                            .material_bind_group(&rig.device, &material.buffer, &material.bindings);
+                    rig.renderer.resources.materials[id as usize].bind_group = group;
                 } else {
                     rig.renderer
                         .update_material(&rig.device, &rig.queue, id, &desc, &rig.textures);

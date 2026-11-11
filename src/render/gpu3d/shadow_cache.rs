@@ -218,13 +218,13 @@ impl Renderer3D {
     /// Whether shadow view `v`'s runs, or the static batches it draws, use
     /// data the shadow cache can't compare (see [`ShadowCache`]).
     fn shadow_volatile(&self, runs: &[Run]) -> bool {
-        let real = self.meshes.len() as u32;
+        let real = self.resources.meshes.len() as u32;
         let mesh_volatile = |run_mesh: u32| {
             let mesh = self.base(run_mesh);
             if self.material_override(run_mesh).is_none() && run_mesh & !FADED >= real {
                 return true; // skinned or morphing: posed this frame
             }
-            let m = &self.meshes[mesh as usize];
+            let m = &self.resources.meshes[mesh as usize];
             m.gpu_buffer.is_some()
                 || m.parts
                     .iter()
@@ -241,7 +241,7 @@ impl Renderer3D {
     }
 
     fn material_volatile(&self, material: u32) -> bool {
-        let Some(m) = self.materials.get(material as usize) else {
+        let Some(m) = self.resources.materials.get(material as usize) else {
             return false;
         };
         if m.transparent {
@@ -260,12 +260,13 @@ impl Renderer3D {
                         .maps
                         .iter()
                         .flatten()
-                        .any(|t| self.render_targets.iter().any(|&(id, _)| id == *t))))
+                        .any(|t| self.render_targets.textures.iter().any(|&(id, _)| id == *t))))
     }
 
     /// A texture's pixels changed: cut-out shadows using it are drawn again.
     pub fn texture_changed(&mut self, id: u32) {
         if self
+            .resources
             .materials
             .iter()
             .any(|m| m.cutout && m.bindings.maps.contains(&Some(id)))
@@ -280,9 +281,9 @@ impl Renderer3D {
         self.shadow_cache.begin();
         // Static batches cull the cascades' casters by distance from the camera.
         let by_distance = self.static_batches.iter().flatten().any(|b| b.shadow_distance());
-        for v in shadow_views(self.cascades, self.light_views) {
+        for v in shadow_views(self.lists.cascades, self.lists.light_views) {
             let key = if v < MAX_CASCADES {
-                if self.redrawn & (1 << v) == 0 {
+                if self.lists.redrawn & (1 << v) == 0 {
                     continue; // kept by the collector: holds what it drew
                 }
                 ViewKey {
@@ -295,12 +296,12 @@ impl Renderer3D {
                 ViewKey {
                     caster: frame.lights.shadow_views[i].to_cols_array_2d(),
                     eye: frame.lights.shadow_positions.get(i).map_or([0.0; 3], |p| p.to_array()),
-                    tile: self.light_tiles.get(i).copied().unwrap_or_default(),
+                    tile: self.lists.light_tiles.get(i).copied().unwrap_or_default(),
                 }
             };
-            let volatile = self.shadow_volatile(&self.shadow_runs[v]);
-            let (overrides, base) = (&self.material_overrides, self.override_base);
-            let listed = &self.override_parts;
+            let volatile = self.shadow_volatile(&self.lists.shadow_runs[v]);
+            let (overrides, base) = (&self.lists.material_overrides, self.lists.override_base);
+            let listed = &self.lists.override_parts;
             let ident = |mesh: u32| {
                 let k = (mesh & !FADED).checked_sub(base);
                 match k.and_then(|k| overrides.get(k as usize)) {
@@ -313,18 +314,18 @@ impl Renderer3D {
             };
             if self
                 .shadow_cache
-                .plan(v, &key, &self.shadow_runs[v], &ident, &frame.instances, volatile)
+                .plan(v, &key, &self.lists.shadow_runs[v], &ident, &frame.instances, volatile)
             {
-                self.shadow_runs[v].clear();
+                self.lists.shadow_runs[v].clear();
                 if v < MAX_CASCADES {
-                    self.redrawn &= !(1 << v);
+                    self.lists.redrawn &= !(1 << v);
                 } else {
                     self.shadow_cache.light_kept |= 1 << (v - MAX_CASCADES);
                 }
             }
         }
         // Light views not drawn this frame: their tiles may be drawn over.
-        for v in MAX_CASCADES + self.light_views..MAX_SHADOW_VIEWS {
+        for v in MAX_CASCADES + self.lists.light_views..MAX_SHADOW_VIEWS {
             self.shadow_cache.forget(v);
         }
     }
@@ -378,7 +379,7 @@ pub(super) fn tile_clear_pipeline(device: &wgpu::Device) -> wgpu::RenderPipeline
 impl Renderer3D {
     /// Number of sun cascade passes actually redrawn after both cache layers.
     pub fn shadow_cascades_redrawn(&self) -> u32 {
-        self.redrawn.count_ones()
+        self.lists.redrawn.count_ones()
     }
 
     /// The shadow views the last prepared frame kept (bit `v`: view `v`).

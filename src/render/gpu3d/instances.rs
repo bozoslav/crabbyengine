@@ -840,7 +840,7 @@ impl Renderer3D {
             let Some(batch) = batch else { continue };
             if batch.options.culling == BatchCulling::Auto
                 && batch.levels.iter().any(|level| {
-                    self.meshes[level.mesh.slot() as usize]
+                    self.resources.meshes[level.mesh.slot() as usize]
                         .parts
                         .iter()
                         .any(|(_, m)| *m == material)
@@ -854,7 +854,7 @@ impl Renderer3D {
     /// Picks the batch's path and uploads it there.
     fn make_batch(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, id: u32, batch: &Batch) -> StaticBatch {
         let count = batch.instances.len() as u32;
-        let can_compute = self.storage_read.is_some() && GpuLimits::of(device).compute_culling();
+        let can_compute = self.resources.storage_read.is_some() && GpuLimits::of(device).compute_culling();
         // What the game asked for decides; without a wish, the crossover.
         let gpu = match (self.batching.path, batch.options.culling) {
             (BatchPath::Gpu, _) => true,
@@ -866,7 +866,7 @@ impl Renderer3D {
             (BatchPath::Auto, _) => {
                 let blends = batch.levels.iter().any(|l| self.blends(l.mesh.slot()));
                 let triangles = |l: &InstanceLevel| -> u64 {
-                    let parts = &self.meshes[l.mesh.slot() as usize].parts;
+                    let parts = &self.resources.meshes[l.mesh.slot() as usize].parts;
                     parts.iter().map(|(r, _)| u64::from(r.end - r.start) / 3).sum()
                 };
                 let heaviest = batch.levels.iter().map(triangles).max().unwrap_or(0);
@@ -964,7 +964,7 @@ impl Renderer3D {
             .levels
             .iter()
             .map(|l| {
-                self.meshes[l.mesh.slot() as usize]
+                self.resources.meshes[l.mesh.slot() as usize]
                     .parts
                     .iter()
                     .flat_map(|(r, _)| [r.end - r.start, 0, r.start, 0, 0])
@@ -1344,15 +1344,15 @@ impl Renderer3D {
         let batching = &mut self.batching;
         batching.dispatches = 0;
         batching.jobs = 0;
-        let (Some(culling), Some(storage_read)) = (&mut self.static_culling, &self.storage_read) else {
+        let (Some(culling), Some(storage_read)) = (&mut self.static_culling, &self.resources.storage_read) else {
             return;
         };
         for page in culling.pools.iter_mut().flat_map(|p| &mut p.pages) {
             page.table.clear();
             (page.jobs, page.groups, page.scans) = (0, 0, 0);
         }
-        let targets = 1 + MAX_CASCADES + self.light_views;
-        let (redrawn, light_kept) = (self.redrawn, self.shadow_cache.light_kept);
+        let targets = 1 + MAX_CASCADES + self.lists.light_views;
+        let (redrawn, light_kept) = (self.lists.redrawn, self.shadow_cache.light_kept);
         // A shadow view kept from an earlier frame draws nothing: no job.
         let culled = |slot: usize| {
             slot == 0
@@ -1568,7 +1568,7 @@ impl Renderer3D {
             }
         }
         self.state_counters.add(&state.n);
-        self.cache.counters.looked_up(u64::from(state.lookups));
+        self.shaders.cache.counters.looked_up(u64::from(state.lookups));
     }
 
     fn draw_batch_level(
@@ -1582,7 +1582,7 @@ impl Renderer3D {
     ) {
         let Some(batch) = &self.static_batches[b] else { return };
         let run_mesh = batch.levels[level].mesh.slot();
-        let Some(mesh) = self.meshes.get(run_mesh as usize) else {
+        let Some(mesh) = self.resources.meshes.get(run_mesh as usize) else {
             return;
         };
         let Some((vertices, indices)) = &mesh.buffers else {
@@ -1600,7 +1600,7 @@ impl Renderer3D {
         let mut level_bound = false;
         for (part, (range, material)) in mesh.parts.iter().enumerate() {
             let material = self.part_material(run_mesh, part, *material);
-            let m = &self.materials[material as usize];
+            let m = &self.resources.materials[material as usize];
             let Some(role) = PipelineRole::for_pass(
                 kind.pass(),
                 m.cutout,
@@ -1610,7 +1610,7 @@ impl Renderer3D {
             ) else {
                 continue;
             };
-            let shader = &self.shaders[m.shader as usize];
+            let shader = &self.shaders.sets[m.shader as usize];
             let variant = ShaderVariant::new(
                 Sides::of(m.double_sided),
                 Instancing::of(false, mesh.gpu_buffer.is_some() || batch.compute),
@@ -1673,7 +1673,7 @@ impl Renderer3D {
                         n.vertex_buffers += 1;
                         (state.marker, state.instances) = (false, Some(b));
                     }
-                    if let Some(dummy) = self.storage_dummy.as_ref().filter(|_| !state.dummy) {
+                    if let Some(dummy) = self.resources.storage_dummy.as_ref().filter(|_| !state.dummy) {
                         gpu!(pass.set_bind_group(3, dummy, &[]));
                         n.bind_groups += 1;
                         state.dummy = true;

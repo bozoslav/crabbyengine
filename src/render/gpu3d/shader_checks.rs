@@ -190,24 +190,24 @@ impl Renderer3D {
         let id = id as usize;
         match swap {
             Swap::Material { new, old } => {
-                let back = old.unwrap_or_else(|| (self.shaders[0].clone(), ShadowCache::shader_traits("")));
+                let back = old.unwrap_or_else(|| (self.shaders.sets[0].clone(), ShadowCache::shader_traits("")));
                 self.drop_shared(&new, Some((id, back)));
             }
             Swap::Effect { new, old } => {
-                if self.effect_pipelines.get(id) != Some(&new) {
+                if self.effects.pipelines.get(id) != Some(&new) {
                     return;
                 }
                 let (module, pipeline) = old.unwrap_or_else(|| {
                     build_effect(
                         device,
-                        &self.layout,
+                        &self.shaders.layout,
                         "3d effect stand-in",
                         &for_samples(&compose_effect(EFFECT_STAND_IN), self.samples),
                     )
                 });
-                self.effect_pipelines[id] = pipeline;
-                self.effect_modules[id] = module;
-                self.effect_target_pipelines[id] = None;
+                self.effects.pipelines[id] = pipeline;
+                self.effects.modules[id] = module;
+                self.effects.target_pipelines[id] = None;
             }
             Swap::Compute { new, old } => {
                 if self.compute_pipelines.get(id) != Some(&Some(new)) {
@@ -226,8 +226,8 @@ impl Renderer3D {
     /// its previous ones instead. Shaders made from the same code since
     /// share `new` through the material cache.
     fn drop_shared(&mut self, new: &Arc<ShaderPipelines>, own: Option<(usize, Previous)>) {
-        let builtin = (self.shaders[0].clone(), ShadowCache::shader_traits(""));
-        for (i, slot) in self.shaders.iter_mut().enumerate() {
+        let builtin = (self.shaders.sets[0].clone(), ShadowCache::shader_traits(""));
+        for (i, slot) in self.shaders.sets.iter_mut().enumerate() {
             if Arc::ptr_eq(slot, new) {
                 let (pipelines, shadow) = match &own {
                     Some((id, (back, traits))) if *id == i => (back, *traits),

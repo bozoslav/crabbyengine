@@ -6,7 +6,6 @@
 
 use super::passes::{self, Features, Format, Resource, Samples};
 use super::{DEPTH_FORMAT, FADED, HDR_FORMAT, MAX_CASCADES, Part, Renderer3D, Run, Targets};
-use crate::render::AntiAliasing;
 
 /// What a frame's parts are recorded against: the frame's features. Empty
 /// in release builds.
@@ -138,18 +137,18 @@ impl Renderer3D {
             return false;
         }
         runs.iter().any(|&(mesh, _, _)| {
-            self.meshes[self.base(mesh & !FADED) as usize]
+            self.resources.meshes[self.base(mesh & !FADED) as usize]
                 .parts
                 .iter()
                 .enumerate()
-                .any(|(part, &(_, m))| self.materials[self.part_material(mesh, part, m) as usize].cutout)
+                .any(|(part, &(_, m))| self.resources.materials[self.part_material(mesh, part, m) as usize].cutout)
         }) || (batches
             && self.static_batches.iter().flatten().any(|b| {
                 b.levels.iter().any(|l| {
-                    self.meshes[l.mesh.slot() as usize]
+                    self.resources.meshes[l.mesh.slot() as usize]
                         .parts
                         .iter()
-                        .any(|(_, m)| self.materials[*m as usize].cutout)
+                        .any(|(_, m)| self.resources.materials[*m as usize].cutout)
                 })
             }))
     }
@@ -160,51 +159,48 @@ impl Renderer3D {
         let sun = has(|p| matches!(p, Part::Shadow { cascade, .. } if *cascade < MAX_CASCADES));
         let lights = has(|p| matches!(p, Part::Shadow { cascade, .. } if *cascade >= MAX_CASCADES));
         let buffer = |&(_, state, _): &(u32, usize, u32)| state & (1 << 31) != 0;
-        let effects = self.effects.len();
-        let cameras = !self.views.is_empty();
+        let effects = self.effects.frame.len();
+        let cameras = !self.lists.views.is_empty();
         // What `Environment::probes` records: a bake with a face that
         // isn't a render target is left out, though its part is in the frame.
         let probes = self.environment.records_probes();
         let gi = has(|p| matches!(p, Part::Gi)) && self.gi.is_some();
-        let fxaa = self.aa == AntiAliasing::Fxaa;
-        let smaa = self.aa == AntiAliasing::Smaa;
         let sky = self.environment.needs_sky();
         [
             Features::MSAA.only_if(self.samples > 1),
             Features::STATIC_CULL.only_if(self.static_culling.is_some()),
             Features::SKINNING.only_if(self.skinning.has_work()),
-            Features::BUFFER_COMPUTE.only_if(self.computes.iter().any(buffer)),
-            Features::TEXTURE_COMPUTE.only_if(self.computes.iter().any(|c| !buffer(c))),
+            Features::BUFFER_COMPUTE.only_if(self.lists.computes.iter().any(buffer)),
+            Features::TEXTURE_COMPUTE.only_if(self.lists.computes.iter().any(|c| !buffer(c))),
             Features::SKY_TEXTURE.only_if(self.atmosphere && sky),
             Features::SKY_BRDF.only_if(self.environment.needs_lookup()),
             Features::SKY_MAPS.only_if(sky),
             Features::SHADOWS.only_if(sun || lights),
             Features::SUN_SHADOWS.only_if(sun),
-            Features::LIGHT_SHADOWS.only_if(lights && self.light_atlas.is_some()),
+            Features::LIGHT_SHADOWS.only_if(lights && self.shadows.light_atlas.is_some()),
             Features::VIEWS.only_if(has(|p| matches!(p, Part::Views))),
             Features::TARGET_CAMERAS.only_if(cameras),
-            Features::TARGET_CUTOUTS.only_if(self.views.iter().any(|(_, runs, _)| self.has_cutouts(runs, true))),
+            Features::TARGET_CUTOUTS.only_if(self.lists.views.iter().any(|(_, runs, _)| self.has_cutouts(runs, true))),
             Features::PROBES.only_if(probes),
             Features::GI.only_if(gi),
             Features::GI_UPDATE.only_if(gi && self.gi.as_ref().is_some_and(|g| g.updates_probes())),
-            Features::AO_TEMPORAL.only_if(self.ao_enabled && targets.ao.as_ref().is_some_and(|a| a.temporal)),
-            Features::SSR_LEVELS.only_if(self.ssr.is_some() && targets.ssr.as_ref().is_some_and(|s| s.has_levels())),
-            Features::CUTOUTS.only_if(self.has_cutouts(&self.solid_runs, true)),
+            Features::AO_TEMPORAL.only_if(self.screen.ao_enabled && targets.ao.as_ref().is_some_and(|a| a.temporal)),
+            Features::SSR_LEVELS
+                .only_if(self.screen.ssr.is_some() && targets.ssr.as_ref().is_some_and(|s| s.has_levels())),
+            Features::CUTOUTS.only_if(self.has_cutouts(&self.lists.solid_runs, true)),
             Features::SOLID_PREPASS.only_if(self.solid_prepass),
             Features::OCCLUSION.only_if(self.occlusion.recording()),
-            Features::VELOCITY.only_if(self.velocity_on && targets.velocity.is_some()),
-            Features::AO.only_if(self.ao_enabled),
-            Features::SSR.only_if(self.ssr.is_some() && targets.ssr.is_some()),
+            Features::VELOCITY.only_if(self.screen.velocity_on && targets.velocity.is_some()),
+            Features::AO.only_if(self.screen.ao_enabled),
+            Features::SSR.only_if(self.screen.ssr.is_some() && targets.ssr.is_some()),
             Features::SPLIT.only_if(has(|p| matches!(p, Part::Transparent))),
-            Features::TAA.only_if(self.taa_on && self.taa.is_some() && targets.taa.is_some()),
-            Features::TARGET_EFFECTS.only_if(!self.target_effects.is_empty()),
+            Features::TAA.only_if(self.screen.taa_on && self.screen.taa.is_some() && targets.taa.is_some()),
+            Features::TARGET_EFFECTS.only_if(!self.effects.target_frame.is_empty()),
             Features::EFFECTS.only_if(effects >= 1),
             Features::EFFECTS_BACK.only_if(effects >= 2),
             Features::EFFECTS_ODD.only_if(effects % 2 == 1),
-            Features::BLOOM.only_if(self.bloom),
-            Features::FXAA.only_if(fxaa),
-            Features::SMAA.only_if(smaa),
-            Features::UPSCALE.only_if(targets.upscale_group.is_some()),
+            // Bloom, FXAA, SMAA and the scaling pass.
+            self.post.features(&targets.post),
         ]
         .into_iter()
         .fold(Features::NONE, Features::with)
@@ -226,7 +222,7 @@ impl Renderer3D {
             // One texture, in two roles (see `Resource::EffectScratch`).
             Some((Resource::SceneCopy, &targets.scene_texture)),
             Some(view(Resource::EffectScratch, &targets.scene_view)),
-            Some(view(Resource::BloomMips, &targets.bloom_mips[0])),
+            Some(view(Resource::BloomMips, targets.post.bloom_image())),
             Some((Resource::SkyTexture, &self.sky_texture)),
             targets.taa.as_ref().map(|t| (Resource::TaaInput, &t.input)),
             targets
@@ -261,10 +257,13 @@ impl Renderer3D {
                 .and_then(|a| a.images().1)
                 .map(|history| view(Resource::AoHistory, history)),
             targets.taa.as_ref().map(|t| view(Resource::TaaHistory, t.history())),
-            targets.ldr.as_ref().map(|l| view(Resource::Ldr, l)),
-            targets.upscale.as_ref().map(|u| view(Resource::Upscaled, u)),
-            self.shadow_layers.first().map(|l| view(Resource::SunShadowMap, l)),
-            self.light_atlas.as_ref().map(|a| view(Resource::LightShadowAtlas, a)),
+            targets.post.ldr().map(|l| view(Resource::Ldr, l)),
+            targets.post.upscaled().map(|u| view(Resource::Upscaled, u)),
+            self.shadows.layers.first().map(|l| view(Resource::SunShadowMap, l)),
+            self.shadows
+                .light_atlas
+                .as_ref()
+                .map(|a| view(Resource::LightShadowAtlas, a)),
             Some(view(Resource::Output, output)),
         ];
         let gi = self.gi.iter().flat_map(move |gi| {
@@ -276,8 +275,8 @@ impl Renderer3D {
                 view(Resource::GiProbes, &gi.atlas_view),
             ]
         });
-        let cameras = self.views.iter().flat_map(move |(target, _, _)| {
-            let target = &self.view_targets[*target].1;
+        let cameras = self.lists.views.iter().flat_map(move |(target, _, _)| {
+            let target = &self.render_targets.views[*target].1;
             [
                 view(Resource::TargetDepth, &target.depth),
                 view(Resource::TargetColor, &target.color),
@@ -310,7 +309,7 @@ impl Renderer3D {
             panic!("invalid 3d frame order: {error}");
         }
         // The window's texture may be viewed in another format than its own.
-        let output_format = self.output_format;
+        let output_format = self.post.output_format();
         for (resource, texture) in self.textures(targets, output, features) {
             let mut declared = declared(resource, output_format, self.samples);
             if resource == Resource::Output {

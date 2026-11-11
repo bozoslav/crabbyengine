@@ -63,13 +63,13 @@ impl Renderer3D {
     /// which these passes skip, go last.
     fn state_key(&self, &(mesh, _, _): &Run) -> (u32, u32, u32) {
         let fading = mesh & FADED != 0;
-        let base = &self.meshes[self.base(mesh) as usize];
+        let base = &self.resources.meshes[self.base(mesh) as usize];
         let solid = base
             .parts
             .iter()
             .enumerate()
             .map(|(part, &(_, m))| self.part_material(mesh, part, m))
-            .map(|m| (m, &self.materials[m as usize]))
+            .map(|m| (m, &self.resources.materials[m as usize]))
             .find(|(_, m)| !m.transparent);
         let Some((id, m)) = solid else {
             return (u32::MAX, u32::MAX, mesh);
@@ -102,32 +102,32 @@ impl Renderer3D {
     /// runs (none of which blend) by state. After skinning's prepare, as
     /// skinned models' ids name its draws.
     pub(super) fn order_runs(&mut self) {
-        let mut keys = std::mem::take(&mut self.sort_keys);
-        let mut solid = std::mem::take(&mut self.solid_runs);
+        let mut keys = std::mem::take(&mut self.lists.sort_keys);
+        let mut solid = std::mem::take(&mut self.lists.solid_runs);
         solid.clear();
-        solid.extend_from_slice(&self.runs);
+        solid.extend_from_slice(&self.lists.runs);
         self.sort_by_state(&mut solid, &mut keys);
-        self.solid_runs = solid;
-        for view in super::shadow_views(self.cascades, self.light_views) {
-            let mut runs = std::mem::take(&mut self.shadow_runs[view]);
+        self.lists.solid_runs = solid;
+        for view in super::shadow_views(self.lists.cascades, self.lists.light_views) {
+            let mut runs = std::mem::take(&mut self.lists.shadow_runs[view]);
             self.sort_by_state(&mut runs, &mut keys);
-            self.shadow_runs[view] = runs;
+            self.lists.shadow_runs[view] = runs;
         }
-        let mut views = std::mem::take(&mut self.views);
+        let mut views = std::mem::take(&mut self.lists.views);
         for (_, runs, _) in &mut views {
             self.sort_by_state(runs, &mut keys);
         }
-        self.views = views;
-        self.sort_keys = keys;
+        self.lists.views = views;
+        self.lists.sort_keys = keys;
     }
 
     /// Whether a run draws any part with a transparent material.
     pub(super) fn blends(&self, mesh: u32) -> bool {
-        self.meshes[self.base(mesh) as usize]
+        self.resources.meshes[self.base(mesh) as usize]
             .parts
             .iter()
             .enumerate()
-            .any(|(part, &(_, m))| self.materials[self.part_material(mesh, part, m) as usize].transparent)
+            .any(|(part, &(_, m))| self.resources.materials[self.part_material(mesh, part, m) as usize].transparent)
     }
 
     /// Fills `blended_runs` with the camera's runs that blend, each drawing
@@ -137,12 +137,12 @@ impl Renderer3D {
     /// picture, however the frame holds them. `base`: where `blended`
     /// starts in the instance buffer.
     pub(super) fn sort_blended(&mut self, instances: &[Instance3D], eye: glam::Vec3, base: u32) {
-        let mut runs = std::mem::take(&mut self.blended_runs);
-        let mut sorted = std::mem::take(&mut self.blended);
-        let mut keys = std::mem::take(&mut self.blend_keys);
+        let mut runs = std::mem::take(&mut self.lists.blended_runs);
+        let mut sorted = std::mem::take(&mut self.lists.blended);
+        let mut keys = std::mem::take(&mut self.lists.blend_keys);
         runs.clear();
         sorted.clear();
-        for &(mesh, start, count) in &self.runs {
+        for &(mesh, start, count) in &self.lists.runs {
             if !self.blends(mesh) {
                 continue;
             }
@@ -157,9 +157,9 @@ impl Renderer3D {
             runs.push((mesh, base + sorted.len() as u32, count));
             sorted.extend(keys.iter().map(|&(_, i)| run[i as usize]));
         }
-        self.blended_runs = runs;
-        self.blended = sorted;
-        self.blend_keys = keys;
+        self.lists.blended_runs = runs;
+        self.lists.blended = sorted;
+        self.lists.blend_keys = keys;
     }
 
     /// The state changes and draws the model passes recorded since the last
