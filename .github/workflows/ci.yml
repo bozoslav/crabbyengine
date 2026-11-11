@@ -135,7 +135,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -167,7 +167,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.95"
@@ -193,7 +193,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/windows-linker
         if: runner.os == 'Windows'
@@ -348,7 +348,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/windows-linker
         if: runner.os == 'Windows'
@@ -403,7 +403,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -430,7 +430,7 @@ jobs:
       # The guide's inline Rust snippets: one `cargo check` of every block as a
       # module of a scratch crate (see book/src/contributing.md).
       - name: Install ALSA and udev headers (audio, gamepads)
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -483,7 +483,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/windows-linker
         if: runner.os == 'Windows'
@@ -719,7 +719,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install ALSA and udev headers (audio, gamepads), a virtual display with the X11 libraries a window loads, and software Vulkan
         if: runner.os == 'Linux'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev libudev-dev xvfb mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libxinerama1 libx11-xcb1
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev xvfb mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri libxkbcommon-x11-0 libxcursor1 libxi6 libxrandr2 libxinerama1 libx11-xcb1
       - uses: dtolnay/rust-toolchain@stable
       - uses: ./.github/actions/windows-linker
         if: runner.os == 'Windows'
