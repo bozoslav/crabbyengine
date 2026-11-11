@@ -287,3 +287,74 @@ fn edited_sounds_reload() {
     };
     assert_eq!(reload_ticks("beep.wav", &wav(800, 1000), wav(1600, 2000), load), [2]);
 }
+
+/// Hot reload stress: a texture, a sound and (with 3D) a material shader
+/// edited again and again reload in place each time, and the asset
+/// inventory never grows: no handle, texture memory or decoded audio is
+/// left behind by a reload.
+#[test]
+fn repeated_edits_reload_in_place_without_growth() {
+    const EDITS: u64 = 5;
+    let dir = std::env::temp_dir().join(format!("ponko-reload-stress-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let image = dir.join("stress.png");
+    write_png(&image, 8, 8, [255, 0, 0, 255]);
+    let sound = dir.join("stress.wav");
+    std::fs::write(&sound, wav(800, 1000)).unwrap();
+    #[cfg(feature = "3d")]
+    let shader = {
+        let shader = dir.join("stress.wgsl");
+        std::fs::write(&shader, "fn surface(s: Surface) -> Surface { return s; }").unwrap();
+        shader
+    };
+    let mut names = vec![image.to_str().unwrap().to_string(), sound.to_str().unwrap().to_string()];
+    #[cfg(feature = "3d")]
+    names.push(shader.to_str().unwrap().to_string());
+    let loads = names.clone();
+    let reloads = Arc::new(Mutex::new(vec![0u64; names.len()]));
+    let counted = reloads.clone();
+    let base: Arc<Mutex<Option<ponko::inventory::AssetInventory>>> = Arc::default();
+    Game::new("reload stress", 1, 1)
+        .hot_reload(true)
+        .sim_system(move |ctx: &mut Ctx| {
+            let tick = ctx.time.sim_tick();
+            {
+                let mut reloads = counted.lock().unwrap();
+                for (i, name) in names.iter().enumerate() {
+                    reloads[i] += u64::from(ctx.assets.reloaded_files().contains(name));
+                }
+            }
+            let now = ctx.asset_inventory();
+            let mut base = base.lock().unwrap();
+            match &*base {
+                None => *base = Some(now),
+                Some(base) => {
+                    let growth = now.growth_since(base);
+                    assert!(growth.is_empty(), "tick {tick}: {growth:?}");
+                    assert_eq!(&now, base, "tick {tick}");
+                }
+            }
+            if tick % 2 == 1 && tick < 2 * EDITS {
+                let n = tick / 2;
+                std::thread::sleep(Duration::from_millis(50)); // see `run`
+                let level = [0, 64, 128, 192, 255][n as usize % 5];
+                write_png(&image, 8, 8, [level, 0, 255 - level, 255]);
+                std::fs::write(&sound, wav(800, 1000 + 100 * n as i16)).unwrap();
+                #[cfg(feature = "3d")]
+                std::fs::write(
+                    &shader,
+                    format!("fn surface(s: Surface) -> Surface {{ var o = s; o.roughness = 0.{n}; return o; }}"),
+                )
+                .unwrap();
+                std::thread::sleep(Duration::from_millis(400));
+            }
+        })
+        .run_headless(2 * EDITS + 2, move |ctx| {
+            let _ = ctx.load_texture(&loads[0]);
+            let _ = ctx.load_sound(&loads[1]);
+            #[cfg(feature = "3d")]
+            let _ = ctx.gfx.load_shader(&loads[2]);
+        });
+    let reloads = reloads.lock().unwrap().clone();
+    assert!(reloads.iter().all(|&n| n == EDITS), "reloads per file: {reloads:?}");
+}
