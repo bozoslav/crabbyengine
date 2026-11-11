@@ -175,14 +175,14 @@ impl Networking {
     /// [`Net::set_input`] on the lockstep session.
     ///
     /// # Panics
-    /// If the encoded input is over [`MAX_INPUT_BYTES`](crate::MAX_INPUT_BYTES).
+    /// If the encoded input is over [`MAX_INPUT_BYTES`](crate::net::MAX_INPUT_BYTES).
     pub fn set_input<T: Serialize>(&mut self, input: &T) {
         self.lockstep.set_input(input);
     }
     /// [`Net::set_input_bytes`] on the lockstep session.
     ///
     /// # Panics
-    /// If `input` is over [`MAX_INPUT_BYTES`](crate::MAX_INPUT_BYTES).
+    /// If `input` is over [`MAX_INPUT_BYTES`](crate::net::MAX_INPUT_BYTES).
     pub fn set_input_bytes(&mut self, input: &[u8]) {
         self.lockstep.set_input_bytes(input);
     }

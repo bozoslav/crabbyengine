@@ -4,9 +4,9 @@
 #[allow(unused_imports)]
 use ponko::input::Gamepad;
 use ponko::prelude::*;
+use ponko::ui::layout::{Display, Style};
 #[allow(unused_imports)]
 use ponko::ui::{Ui, UiAccessValue, UiId, UiInput, UiLayout, UiRole, UiWidget};
-use ponko::ui_layout::{Display, Style};
 
 const VIEW: Vec2 = Vec2::new(800.0, 600.0);
 

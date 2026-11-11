@@ -765,7 +765,7 @@ pub trait WorldReflect {
     fn set_resource_json(&mut self, name: &str, value: Value) -> Result<(), ReflectError>;
 
     /// Makes resource `name`, one with no Rust type (stored with
-    /// [`World::insert_resource_dynamic`], the C and C++ path), visible to
+    /// [`RawWorld::insert_resource_dynamic`](ponko_ecs::RawWorld::insert_resource_dynamic), the C and C++ path), visible to
     /// reflection by listing its fields, like
     /// [`reflect_fields`](Self::reflect_fields) does for components.
     /// Describing it again replaces the fields.

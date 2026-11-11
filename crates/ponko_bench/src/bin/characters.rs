@@ -4,6 +4,9 @@
 //!
 //! Run with: cargo run --release -p ponko_bench --bin characters [-- 8 16 32]
 //! Prints the best of several runs of the per-tick average, per count.
+use ponko::d3::Character as Character3D;
+use ponko::d3::Collider as Collider3D;
+use ponko::d3::RigidBody as RigidBody3D;
 use ponko::*;
 
 const WARMUP: u64 = 60;

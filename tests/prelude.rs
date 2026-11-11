@@ -54,3 +54,57 @@ fn a_game_glob_of_common_names_does_not_collide_with_the_prelude() {
     );
     let _: Vec2 = vec2(0.0, 0.0);
 }
+
+/// The root holds only the modules and the prelude's items, so its glob
+/// combines with a dimension glob: `Collider`, `RigidBody`, `Physics` and
+/// the rest are the module's, not an ambiguity with old root spellings.
+#[cfg(all(feature = "physics", feature = "physics3d"))]
+mod root_glob_with_a_dimension_glob {
+    use std::any::TypeId;
+    mod three {
+        use ponko::d3::*;
+        #[allow(unused_imports)] // only here to clash, if it could
+        use ponko::*;
+        pub fn ids() -> [std::any::TypeId; 4] {
+            use std::any::TypeId;
+            [
+                TypeId::of::<RigidBody>(),
+                TypeId::of::<Collider>(),
+                TypeId::of::<Velocity>(),
+                TypeId::of::<Physics>(),
+            ]
+        }
+    }
+    mod two {
+        use ponko::d2::*;
+        #[allow(unused_imports)] // only here to clash, if it could
+        use ponko::*;
+        pub fn ids() -> [std::any::TypeId; 4] {
+            use std::any::TypeId;
+            [
+                TypeId::of::<RigidBody>(),
+                TypeId::of::<Collider>(),
+                TypeId::of::<Velocity>(),
+                TypeId::of::<Physics>(),
+            ]
+        }
+    }
+    #[test]
+    fn the_dimension_glob_names_win_without_ambiguity() {
+        use ponko::{d2, d3};
+        let three = [
+            TypeId::of::<d3::RigidBody>(),
+            TypeId::of::<d3::Collider>(),
+            TypeId::of::<d3::Velocity>(),
+            TypeId::of::<d3::Physics>(),
+        ];
+        let two = [
+            TypeId::of::<d2::RigidBody>(),
+            TypeId::of::<d2::Collider>(),
+            TypeId::of::<d2::Velocity>(),
+            TypeId::of::<d2::Physics>(),
+        ];
+        assert_eq!(three::ids(), three);
+        assert_eq!(two::ids(), two);
+    }
+}

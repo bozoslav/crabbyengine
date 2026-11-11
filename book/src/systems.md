@@ -134,10 +134,9 @@ The functions are in `ponko::systems`; the ids in `Systems` name them for
 In C the ids are `PONKO_SYSTEM_DRAW_SPRITES` and so on; in C++,
 `ponko::systems::draw_sprites`.
 
-Before these functions had their own module they were at the crate root.
-Those spellings still work: they are deprecated re-exports of the same
-functions, so a system added under the old name is the same system, with the
-same id ([Naming and compatibility](naming.md) lists them).
+Before these functions had their own module they were at the crate root;
+those spellings are gone, so import them from `ponko::systems`
+([Naming and compatibility](naming.md#the-root-glob)).
 
 ### Replacing a built-in
 

@@ -52,10 +52,10 @@ fn frame(game: &mut Game, ctx: &mut Ctx, ticks: u32) {
 
 #[test]
 fn retained_ui_updates_before_simulation_and_frame_systems() {
-    use crate::ui_layout::{Dimension, Size, Style};
+    use crate::ui::layout::{Dimension, Size, Style};
     let mut ctx = ctx();
     let root = ctx.ui.add(
-        crate::UiWidget::Panel,
+        crate::ui::UiWidget::Panel,
         Style {
             size: Size {
                 width: Dimension::length(300.0),
@@ -66,7 +66,7 @@ fn retained_ui_updates_before_simulation_and_frame_systems() {
     );
     let button = ctx.ui.add_child(
         root,
-        crate::UiWidget::Button,
+        crate::ui::UiWidget::Button,
         Style {
             size: Size {
                 width: Dimension::length(70.0),
@@ -89,7 +89,7 @@ fn retained_ui_updates_before_simulation_and_frame_systems() {
     assert_eq!(ctx.ui.focus(), None);
     // Tab moves the focus to the button when the UI updates. The systems of
     // the same frame already see it: the UI went first.
-    ctx.input.feed(crate::InputEvent::Key(crate::Key::Tab, true));
+    ctx.input.feed(crate::actions::InputEvent::Key(crate::Key::Tab, true));
     frame(&mut game, &mut ctx, 1);
     assert_eq!(take(&mut ctx), ["sim focus=true", "frame focus=true"]);
     assert_eq!(ctx.ui.focus(), Some(button));

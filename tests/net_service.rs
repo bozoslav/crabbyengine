@@ -1,6 +1,19 @@
 //! `ctx.net`: one networking entry for lockstep, messages, snapshots and
 //! interest, with the engine polling the message endpoint.
 
+use ponko::net::Interest;
+use ponko::net::InterestConfig;
+use ponko::net::InterestEntity;
+use ponko::net::InterestViewer;
+use ponko::net::Lane;
+use ponko::net::MessageEvent;
+use ponko::net::Net;
+use ponko::net::NetMessages;
+use ponko::net::NetState;
+use ponko::net::PeerId;
+use ponko::net::Pose;
+use ponko::net::SnapshotState;
+use ponko::net::UpdateStamp;
 use ponko::*;
 use std::sync::mpsc;
 use std::thread;

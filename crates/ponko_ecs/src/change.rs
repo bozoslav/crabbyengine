@@ -489,7 +489,7 @@ pub struct ChunkQuery<'a> {
 
 impl<'a> ChunkQuery<'a> {
     /// Every row of every archetype with all of `ids`, with every column
-    /// writable: what [`World::for_each_chunk`] does.
+    /// writable: what [`RawWorld::for_each_chunk`](crate::RawWorld::for_each_chunk) does.
     #[must_use]
     pub fn new(ids: &'a [ComponentId]) -> Self {
         ChunkQuery {
@@ -521,16 +521,16 @@ impl World {
     ///
     /// | Operation | Added | Changed |
     /// |---|---|---|
-    /// | [`spawn`](Self::spawn), [`spawn_batch`](Self::spawn_batch), [`spawn_at`](Self::spawn_at), [`spawn_dynamic`](Self::spawn_dynamic), [`spawn_at_dynamic`](Self::spawn_at_dynamic) | yes | yes |
-    /// | [`insert`](Self::insert), [`insert_dynamic`](Self::insert_dynamic) on an entity without one | yes | yes |
+    /// | [`spawn`](Self::spawn), [`spawn_batch`](Self::spawn_batch), [`spawn_at`](Self::spawn_at), [`spawn_dynamic`](crate::RawWorld::spawn_dynamic), [`spawn_at_dynamic`](crate::RawWorld::spawn_at_dynamic) | yes | yes |
+    /// | [`insert`](Self::insert), [`insert_dynamic`](crate::RawWorld::insert_dynamic) on an entity without one | yes | yes |
     /// | `insert`, `insert_dynamic` replacing a value | no | yes |
     /// | [`get_mut`](Self::get_mut) | no | yes |
     /// | a query fetching `&mut T` or `Option<&mut T>` | no | yes, for every entity it visits |
     /// | the same in a [`WorldView`](crate::WorldView) query, and its `get_mut` | no | yes |
-    /// | [`for_each_chunk`](Self::for_each_chunk) | no | yes, every requested column of every chunk |
+    /// | [`for_each_chunk`](crate::RawWorld::for_each_chunk) | no | yes, every requested column of every chunk |
     /// | [`mark_changed`](Self::mark_changed), [`mark_changed_dynamic`](Self::mark_changed_dynamic) | no | yes |
     /// | [`get`](Self::get), [`has`](Self::has), `&T` in a query, [`Query::count`](crate::Query::count), [`sort_by`](Self::sort_by) | no | no |
-    /// | [`get_dynamic`](Self::get_dynamic) | no | no: it returns a raw pointer, so call `mark_changed_dynamic` after writing through it |
+    /// | [`get_dynamic`](crate::RawWorldRef::get_dynamic) | no | no: it returns a raw pointer, so call `mark_changed_dynamic` after writing through it |
     ///
     /// - **A mutable borrow counts as a change**, written or not: the world
     ///   can't see writes through a `&mut T`. A query marks the entities it
@@ -539,7 +539,7 @@ impl World {
     ///   only the rows that pass an `Added`/`Changed` filter), the one
     ///   entity for [`Query::get`](crate::Query::get). To change only some
     ///   entities, read with `&T` and use `get_mut` on those.
-    /// - **Removal** ([`remove`](Self::remove), [`remove_dynamic`](Self::remove_dynamic),
+    /// - **Removal** ([`remove`](Self::remove), [`remove_dynamic`](crate::RawWorld::remove_dynamic),
     ///   [`despawn`](Self::despawn), [`clear`](Self::clear), [`reset`](Self::reset))
     ///   is logged for [`removed`](Self::removed). The entity's other
     ///   components keep their stamps, as they do when a component is
@@ -693,7 +693,7 @@ impl World {
     }
 
     /// [`mark_changed`](Self::mark_changed) by component id: call it after
-    /// writing through a pointer from [`get_dynamic`](Self::get_dynamic).
+    /// writing through a pointer from [`get_dynamic`](crate::RawWorldRef::get_dynamic).
     ///
     /// ```
     /// # use ponko_ecs::*;
@@ -703,10 +703,10 @@ impl World {
     /// world.track_changes_dynamic(speed);
     /// let value = 1.5f32;
     /// // SAFETY: points to a valid f32, which needs no drop.
-    /// let e = unsafe { world.spawn_dynamic(&[(speed, (&value as *const f32).cast())]) };
+    /// let e = unsafe { world.raw().spawn_dynamic(&[(speed, (&value as *const f32).cast())]) };
     /// let seen = world.advance_change_tick();
     ///
-    /// let p = world.get_dynamic(e, speed).unwrap().cast::<f32>();
+    /// let p = world.raw_ref().get_dynamic(e, speed).unwrap().cast::<f32>();
     /// // SAFETY: the pointer is to this entity's live f32.
     /// unsafe { *p = 3.0 };
     /// assert!(world.mark_changed_dynamic(e, speed));
@@ -782,7 +782,7 @@ impl World {
         &log.entities[first..]
     }
 
-    /// [`for_each_chunk`](Self::for_each_chunk) with per-column access and
+    /// [`for_each_chunk`](crate::RawWorld::for_each_chunk) with per-column access and
     /// change filters: only the columns in `query.writes` count as changed,
     /// and with `query.changed` or `query.added` set, `f` gets the runs of
     /// consecutive rows that pass instead of whole archetypes. A filter
@@ -796,7 +796,7 @@ impl World {
     /// world.track_changes_dynamic(speed);
     /// let spawn = |world: &mut World, value: f32| {
     ///     // SAFETY: points to a valid f32, which needs no drop.
-    ///     unsafe { world.spawn_dynamic(&[(speed, (&value as *const f32).cast())]) }
+    ///     unsafe { world.raw().spawn_dynamic(&[(speed, (&value as *const f32).cast())]) }
     /// };
     /// let (a, b) = (spawn(&mut world, 1.0), spawn(&mut world, 2.0));
     /// let seen = world.advance_change_tick();

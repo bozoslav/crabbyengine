@@ -27,7 +27,3 @@
 - `Game::remove_system(f)` and `Game::remove_named_system(name)`: use
   `Game::remove` with a `Systems` constant or the id `Game::add_system`
   returned. Both still work.
-- The built-in system functions at the crate root (`ponko::draw_sprites`,
-  `ponko::step_physics3d`, `ponko::follow_attachments`, ...): use
-  `ponko::systems::...`. The old names forward to the same functions, and a
-  system added under an old name has the same id and timing name.

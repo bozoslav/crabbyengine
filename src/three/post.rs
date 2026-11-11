@@ -55,8 +55,8 @@ pub enum AntiAliasing {
 
 /// Smallest and largest [`Post::render_scale`].
 /// ```
-/// assert_eq!(ponko::MIN_RENDER_SCALE, 0.25);
-/// assert_eq!(ponko::MAX_RENDER_SCALE, 2.0);
+/// assert_eq!(ponko::render::GraphicsQuality::MIN_RENDER_SCALE, 0.25);
+/// assert_eq!(ponko::render::GraphicsQuality::MAX_RENDER_SCALE, 2.0);
 /// ```
 pub const MIN_RENDER_SCALE: f32 = 0.25;
 /// See [`GraphicsQuality::MIN_RENDER_SCALE`](crate::render::GraphicsQuality::MIN_RENDER_SCALE).

@@ -362,11 +362,11 @@ impl Archetype {
     /// struct Pos(f32, f32);
     /// let mut world = World::new();
     /// world.spawn((Pos(0.0, 0.0),));
-    /// let a = world.archetypes().iter().find(|a| a.len() == 1).unwrap();
+    /// let a = world.raw_ref().archetypes().iter().find(|a| a.len() == 1).unwrap();
     /// assert_eq!(a.bytes_per_entity(), 8 + 8); // Pos + the entity handle
     ///
     /// world.track_changes::<Pos>();
-    /// let a = world.archetypes().iter().find(|a| a.len() == 1).unwrap();
+    /// let a = world.raw_ref().archetypes().iter().find(|a| a.len() == 1).unwrap();
     /// assert_eq!(a.bytes_per_entity(), 8 + 8 + 8); // and two 4-byte stamps
     /// ```
     pub fn bytes_per_entity(&self) -> usize {
@@ -382,7 +382,7 @@ impl Archetype {
     /// struct Pos(f32, f32);
     /// let mut world = World::new();
     /// world.spawn_batch((0..100).map(|i| (Pos(i as f32, 0.0),)));
-    /// let a = world.archetypes().iter().find(|a| a.len() == 100).unwrap();
+    /// let a = world.raw_ref().archetypes().iter().find(|a| a.len() == 100).unwrap();
     /// assert!(a.allocated_bytes() >= 100 * a.bytes_per_entity());
     /// ```
     #[must_use]

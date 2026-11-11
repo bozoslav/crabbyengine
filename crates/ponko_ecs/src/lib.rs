@@ -36,7 +36,7 @@
 //!
 //! Under the hood every component, Rust or not, is a runtime-registered column
 //! (name, size, alignment, drop). Rust types are registered on first use;
-//! C/C++ code uses [`World::register_component`] and [`World::for_each_chunk`].
+//! C/C++ code uses [`World::register_component`] and [`RawWorld::for_each_chunk`](crate::RawWorld::for_each_chunk).
 
 #![warn(missing_docs)]
 

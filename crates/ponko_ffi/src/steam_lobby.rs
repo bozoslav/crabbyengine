@@ -90,7 +90,7 @@ pub unsafe extern "C" fn ponko_steam_lobby_join(
         #[cfg(feature = "steam")]
         {
             let client = crate::steam::client::get(app_id)?;
-            let lobby = ponko::net::SteamLobby::join(&client, ponko::steamworks::LobbyId::from_raw(id))?;
+            let lobby = ponko::net::SteamLobby::join(&client, ponko::net::steam::LobbyId::from_raw(id))?;
             // SAFETY: forwarded caller contract.
             unsafe { out(output, Box::into_raw(Box::new(PonkoSteamLobby { lobby }))) }
         }
@@ -312,7 +312,7 @@ pub unsafe extern "C" fn ponko_steam_lobby_members(
 
 #[cfg(feature = "steam")]
 unsafe fn copy_members(
-    values: Vec<ponko::steamworks::SteamId>,
+    values: Vec<ponko::net::steam::SteamId>,
     buffer: *mut u64,
     capacity: usize,
     needed: *mut usize,
@@ -525,8 +525,8 @@ mod tests {
             assert!(copy_text(None, text_buffer.as_mut_ptr(), 4, &mut needed).is_ok());
             assert_eq!(needed, 0);
             let ids = vec![
-                ponko::steamworks::SteamId::from_raw(7),
-                ponko::steamworks::SteamId::from_raw(9),
+                ponko::net::steam::SteamId::from_raw(7),
+                ponko::net::steam::SteamId::from_raw(9),
             ];
             assert!(copy_members(ids.clone(), members.as_mut_ptr(), 1, &mut needed).is_err());
             assert_eq!(members, [0; 2]);

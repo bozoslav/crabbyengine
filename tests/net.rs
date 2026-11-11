@@ -91,7 +91,7 @@ fn spawn_crowd(ctx: &mut Ctx, units: usize, players: usize) {
 
 /// Runs each session in its own thread for `ticks`; `tweak(player)` is an
 /// extra sim system, to break determinism on purpose.
-fn play(nets: Vec<Net>, ticks: u64, units: usize, tweak: fn(&mut Ctx)) -> Vec<(ponko::serde_json::Value, Outcome)> {
+fn play(nets: Vec<Net>, ticks: u64, units: usize, tweak: fn(&mut Ctx)) -> Vec<(ponko::reflect::json::Value, Outcome)> {
     let players = nets.len();
     let runs: Vec<_> = nets
         .into_iter()
@@ -124,7 +124,7 @@ fn play(nets: Vec<Net>, ticks: u64, units: usize, tweak: fn(&mut Ctx)) -> Vec<(p
 
 fn nothing(_: &mut Ctx) {}
 
-fn assert_identical(results: &[(ponko::serde_json::Value, Outcome)]) {
+fn assert_identical(results: &[(ponko::reflect::json::Value, Outcome)]) {
     // The host is player 0; guests are numbered in the order their hellos
     // arrive, which packet loss can shuffle.
     let mut players: Vec<usize> = results.iter().map(|(_, o)| o.player).collect();

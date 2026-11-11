@@ -54,7 +54,7 @@ fn setup_runs_before_the_first_tick_and_its_commands_are_applied_first() {
 
 #[test]
 fn headless_runs_neither_update_the_retained_ui_nor_run_frame_late_or_draw_steps() {
-    use ponko::ui_layout::{Dimension, Size, Style};
+    use ponko::ui::layout::{Dimension, Size, Style};
     let log: Log = Log::default();
     let focus = Rc::new(RefCell::new(None));
     let f = focus.clone();

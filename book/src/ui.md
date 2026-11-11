@@ -17,7 +17,7 @@ functions with a flat `PonkoUiLayout` (from `ponko_ui_layout_row`, `_column`,
 The tree is owned by `Ui`, independently of ECS entities. Stable `UiId` handles
 identify widgets and events. Removing a subtree invalidates its IDs permanently.
 Taffy supplies flexbox, grid, percentage sizes, min/max constraints, padding,
-margin, gap and absolute positioning through the `ui_layout` re-export. It owns
+margin, gap and absolute positioning through `ui::layout` (the Taffy crate). It owns
 neither the renderer nor the event loop. Ponko owns interaction and appearance.
 
 ## A shop and inventory grid
@@ -57,7 +57,7 @@ inventories, refined with `gap`, `padding`, `grow`, `horizontal`/`vertical` and
 `width`/`height`, and placed in points with `top(y)` and `left(x)` (a
 centered dialog near the top: `UiLayout::centered(360.0, 180.0).top(180.0)`).
 Children stack top to bottom, except in a row. Any Taffy
-`ui_layout::Style` is still accepted, and `UiLayout::custom(style)` wraps one.
+`ui::layout::Style` is still accepted, and `UiLayout::custom(style)` wraps one.
 Give a scroll view a bounded size; `fill()` shrinks to the space its siblings
 leave. `UiWidget::Scroll` clips descendants and supports wheel scrolling,
 content dragging and a vertical scrollbar. `set_scroll` uses unscaled layout

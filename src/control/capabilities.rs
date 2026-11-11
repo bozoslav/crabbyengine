@@ -437,9 +437,9 @@ mod tests {
         ctx.world
             .describe_component(
                 "Health",
-                crate::ValueSchema::object([
-                    ("current", crate::ValueSchema::Number),
-                    ("max", crate::ValueSchema::Number),
+                crate::reflect::ValueSchema::object([
+                    ("current", crate::reflect::ValueSchema::Number),
+                    ("max", crate::reflect::ValueSchema::Number),
                 ]),
             )
             .unwrap();
@@ -447,8 +447,10 @@ mod tests {
         let id = unsafe { ctx.world.register_component("CHealth", 4, 4, None) };
         // SAFETY: as above.
         unsafe {
-            ctx.world
-                .reflect_fields(id, &[crate::reflect::Field::new("hp", crate::FieldType::F32, 0)]);
+            ctx.world.reflect_fields(
+                id,
+                &[crate::reflect::Field::new("hp", crate::reflect::FieldType::F32, 0)],
+            );
         }
         let r = crate::control::handle(&mut ctx, "capabilities", &json!({})).unwrap();
         let comp = |name: &str| {
@@ -483,9 +485,11 @@ mod tests {
     #[test]
     fn describing_an_unreflected_type_is_an_error() {
         let mut ctx = ctx(true);
-        let e = ctx.world.describe_component("Nope", crate::ValueSchema::Number);
+        let e = ctx
+            .world
+            .describe_component("Nope", crate::reflect::ValueSchema::Number);
         assert!(matches!(e, Err(crate::reflect::ReflectError::UnknownComponent(_))));
-        let e = ctx.world.describe_resource("Nope", crate::ValueSchema::Number);
+        let e = ctx.world.describe_resource("Nope", crate::reflect::ValueSchema::Number);
         assert!(matches!(e, Err(crate::reflect::ReflectError::UnknownResource(_))));
     }
 }
