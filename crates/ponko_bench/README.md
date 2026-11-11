@@ -99,6 +99,11 @@ and sizes, occlusion and shadows, with the crossover the renderer uses:
 [STATIC_BATCHES.md](STATIC_BATCHES.md) (an offscreen renderer benchmark:
 `cargo test --release --lib --features 3d static_batch_benchmark -- --ignored --nocapture`).
 
+A whole 3D frame of ordinary models (prepare, record, submit, GPU), before
+and after the renderer's split into subsystems:
+[RENDERER_FRAME.md](RENDERER_FRAME.md) (an offscreen renderer benchmark:
+`cargo test --release --lib --features 3d renderer_frame_benchmark -- --ignored --nocapture`).
+
 What recording a 3D frame's passes into command buffers costs, offscreen:
 [RECORDING.md](RECORDING.md) (`--features render -- render/record`).
 
