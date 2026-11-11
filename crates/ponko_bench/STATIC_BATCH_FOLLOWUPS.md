@@ -21,7 +21,7 @@ adapters and in a real browser remain unmeasured; this is a partial delivery of
 
 Measured 2026-11-11 on Apple M4 Pro (12-core CPU, 24 GB), macOS 27.2.1
 (26B131), Metal integrated GPU, driver version not reported by wgpu 30.0.1.
-Rust 1.96.1, release profile, default features plus `3d`. Before: `8cc04b3`.
+Rust 1.96.1, release profile, default features plus `3d`. Before: `a3da6f8` (the fetched engine main, after #308).
 After: this change's four-stage compaction and packed-distance implementation.
 All builds reuse the supplied shared build cache.
 
@@ -109,3 +109,14 @@ changelog fragments, dependency feature contracts and the guide build passed.
 All 91 inline guide snippets compiled; another 130 blocks are included from
 real source files, with zero ignored blocks. The legacy setter forwarding
 body is also exercised directly by the FFI regression.
+
+Additional reduced-build checks: the new Rust setter passes with no default
+features and `3d`; the complete `three` integration file has 56 passes and
+three shader-diagnostic failures in that configuration. All three failures
+(`shader_errors_say_which_shader`, `compute_errors_say_which_pass`,
+`effect_errors_say_which_effect`) reproduce unchanged on baseline `a3da6f8`:
+shader validation is window-feature-dependent, but these tests expect it.
+The FFI fixture likewise expects shader validation with window support absent;
+it passes in the primary-only configuration with `--no-default-features
+--features window`. These pre-existing diagnostic-test assumptions are outside
+this change; no no-window whole-suite pass is claimed.
