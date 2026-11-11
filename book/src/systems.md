@@ -273,7 +273,10 @@ and a `main` that lists them; `examples/coin_dash` is built this way.
 
 Systems run one at a time, each with all of `ctx`. Between two systems
 the engine applies the first one's commands, so **every system is a
-barrier**: within a phase, across phases, and between ticks.
+barrier**: within a phase, across phases, and between ticks. (The one
+exception is opt-in: with [parallel systems](parallel-systems.md) on, view
+systems that share a batch have their barrier at the end of the batch;
+see the last rows.)
 
 | What | Becomes visible |
 |---|---|
@@ -285,6 +288,8 @@ barrier**: within a phase, across phases, and between ticks.
 | Events from simulation ticks, to frame systems | in the same frame, all ticks of it |
 | Events from frame systems, to simulation systems | on the next tick that runs |
 | A change to a tracked component, to `Changed<T>`, `Added<T>` and `removed::<T>()` | to every other system, the next time it runs; never to the system that made it (see [Change detection](ecs.md#change-detection)) |
+| A command recorded in a parallel batch | when the batch ends, before the next stage; the batch's commands apply in registration order |
+| An event sent in a parallel batch | when the batch ends, in registration order; a later reader of that type is never in the same batch |
 
 Commands apply in the order they were recorded: a closure from
 `commands.add` sees the ones before it, and an `insert` after a `despawn` of
@@ -311,9 +316,9 @@ menu's "restart") wait for the simulation readers.
 ### Writing systems that keep working
 
 The flush after every system is the contract for ordinary systems, and it
-stays that way. If parallel scheduling arrives
-([#138](https://github.com/ponkoengine/ponko/issues/138)), systems that opt
-in may get coarser barriers, documented there. To be ready:
+stays that way. View systems that opt into
+[parallel scheduling](parallel-systems.md) get the coarser batch barrier
+documented there. Systems written like this work under both:
 
 - Depend on another system's commands or events through explicit order: put
   the reader in a later phase, rather than relying on registration order
@@ -322,16 +327,16 @@ in may get coarser barriers, documented there. To be ready:
 - Keep work that needs the world exactly as it is in one system, through
   `ctx.world` (immediate) or one `commands.add` closure.
 
-## Parallel queries and future scheduling
+## Parallel queries and parallel systems
 
-Systems currently execute sequentially. A system can use the ECS's parallel
+Systems execute sequentially by default. A system can use the ECS's parallel
 query methods to divide its entity work across threads; this is not
-automatic parallel execution of different systems. Systems may declare what
+parallel execution of different systems. Systems may declare what
 they read and write, and view systems (`Game::add_view`) get only what they
-declared; see [Declared system access](system-access.md). The parallel
-scheduler that will use those declarations is planned in
-[#138](https://github.com/ponkoengine/ponko/issues/138); the batch barrier it
-must keep is documented in that chapter. Existing unannotated `sim_system`
+declared; see [Declared system access](system-access.md). With
+`Game::parallel_systems(true)`, view systems that don't conflict run at the
+same time; see [Parallel systems](parallel-systems.md) for the rules and
+for when it pays off. Existing unannotated `sim_system`
 callbacks remain usable and exclusive.
 See [the architecture](https://github.com/ponkoengine/ponko/blob/main/ARCHITECTURE.md)
 for current subsystem boundaries.

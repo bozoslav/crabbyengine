@@ -3,13 +3,13 @@
 Every system you have seen so far takes `&mut Ctx`: it may touch anything,
 so the engine runs systems one at a time. A system can also **declare** what
 it reads and writes. The declaration is checked, shows up in the access
-report, and is what a future parallel scheduler
-([#138](https://github.com/ponkoengine/ponko/issues/138)) will use to run
-systems side by side.
+report, and is what the optional scheduler uses to run systems side by
+side: see [Parallel systems](parallel-systems.md).
 
-Today nothing runs in parallel: declared systems run in phase and
-registration order like any other. Plain `sim_system`, `system` and `add`
-systems keep their API and stay *exclusive* (they conflict with
+Declaring access changes nothing by itself: declared systems run in phase
+and registration order like any other, one at a time, until
+`Game::parallel_systems(true)` is set. Plain `sim_system`, `system` and
+`add` systems keep their API and stay *exclusive* (they conflict with
 everything), so existing games behave exactly as before.
 
 ## View systems
@@ -175,8 +175,8 @@ system that sends an event type conflicts with any other that reads or
 sends it, and a command recorder conflicts with every other system.
 
 `SystemAccess::conflicts_before(later)` is the finer rule for a known
-order (the report uses it). It holds under the **batch contract** a
-parallel executor must keep:
+order (the report and the scheduler use it). It holds under the **batch
+contract** the scheduler keeps:
 
 1. Commands recorded in a parallel batch apply when the batch ends, in
    registration order.
@@ -206,21 +206,25 @@ or one that conflicts with either), and `parallel_pairs()` also treats a
 `Ctx` system between them as a barrier, since its declaration is only
 checked in debug builds.
 
-Running systems one after another (what the engine does now) keeps this
-contract trivially, so declaring access never changes results.
+Running systems one after another (the default) keeps this contract
+trivially, so declaring access never changes results.
 `tests/system_views.rs` pins the sequential behaviour each relaxed rule
-relies on.
+relies on, and `tests/system_schedule.rs` checks that batches give the same
+results.
 
 ### If you rely on the per-system flush
 
-Today every system is a barrier: a system sees the commands and events of
-every system before it in the same tick. Under a parallel executor, view
-systems batched together see each other's commands and events only after
-the batch. To stay correct either way:
+By default every system is a barrier: a system sees the commands and
+events of every system before it in the same tick. With
+`parallel_systems(true)`, view systems batched together see each other's
+commands and events only after the batch; the rules above keep systems
+whose declarations show such a dependency out of one batch. To stay
+correct either way:
 
 - If `b` needs `a`'s commands or events in the same tick, declare both so
   the rules above make them conflict (`a` records commands or sends `E`;
-  `b` reads `E`), or put `b` in a later phase.
+  `b` reads `E`), put `b` in a later phase, or say it with
+  `Game::order(a, b)` or `Game::barrier(phase)`.
 - Don't count on registration order between systems that don't conflict.
 - Keep "make a change and look at it" inside one system, through
   `world` (immediate) or a single `commands.add` closure.
@@ -273,11 +277,14 @@ write when the system changes it, so the report shows the conflict.
 `ponko_access_conflicts` and `ponko_game_access_report` expose the rules
 and the report. Build declarations at registration, not per frame: each
 step copies the declaration and keeps its names for the rest of the
-program. C and C++ systems always stay sequential.
+program. C and C++ systems always run one at a time: they receive the whole
+`ctx`, so the [scheduler](parallel-systems.md) never puts them in a batch.
+`ponko_game_parallel_systems` turns it on for the Rust view systems of a
+mixed game, and `ponko_game_schedule_plan` shows the stages.
 
 ## Design: the soundness strategy (RFC)
 
-*Status: accepted for #137; the executor is #138.*
+*Status: implemented (#137, and the executor in #138).*
 
 **Goal.** Let a scheduler run independent systems at the same time without
 ever giving two threads `&mut Ctx` or `&mut World`, and without trusting
@@ -315,17 +322,23 @@ then share `&World`:
   even when the system panics.
 
 The unsafe entry point is `ViewState::view(&World)`; its contract is
-exactly "no overlapping view or `&mut World` use while it lives", which
-the scheduler establishes from `conflicts_before`. A state prepared for
-one world refuses to view another. The two-thread test in
-`crates/ponko_ecs/tests/views.rs` runs under Miri.
+exactly "no overlapping view or `&mut World` use while it lives". The
+scheduler never calls it: it goes through `ViewGroup`, which checks once
+that a set of states is pairwise non-overlapping (and refuses the same
+state twice), and whose `run` hands each state's view to its own task,
+only for the states it checked. A state prepared for one world refuses to
+view another. `crates/ponko_ecs/tests/views.rs` and `view_groups.rs` run
+under Miri.
 
-**What the executor (#138) adds.** Per-view command buffers and event
-outboxes merged at the batch barrier in registration order (the batch
-contract above), per-system event cursors that don't share a mutable
-channel, and the batching itself. Services in the view are borrowed from
-separate `Ctx` fields; giving two views the same writable service is a
-declared conflict, so they are never batched together.
+**The executor (#138).** Each view system of a batch has its own command
+buffer and event outbox, merged at the batch barrier in registration order
+(the batch contract above), and reads events through a shared, read-only
+slice with its own cursor. A batch runs through the same code on several
+threads and on one, so the choice is invisible to the systems. Only
+read-only services (input, clocks, the random stream, the spatial grid)
+are shared in a batch; a view system that holds sound, a camera, a physics
+world or networking runs alone. The executor itself has no `unsafe`: the
+only shared-world entry is `ViewGroup::run` in the ECS.
 
 **Hot patching** swaps a system's code, not its declaration. A patched
 view system still can't reach anything undeclared; a patched `Ctx` system

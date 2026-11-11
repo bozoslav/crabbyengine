@@ -1072,6 +1072,7 @@
 #define crabby_game_msaa ponko_game_msaa
 #define crabby_game_navmesh3d ponko_game_navmesh3d
 #define crabby_game_new ponko_game_new
+#define crabby_game_parallel_systems ponko_game_parallel_systems
 #define crabby_game_physics ponko_game_physics
 #define crabby_game_physics3d ponko_game_physics3d
 #define crabby_game_plugin ponko_game_plugin
@@ -1080,6 +1081,7 @@
 #define crabby_game_remove_system ponko_game_remove_system
 #define crabby_game_run ponko_game_run
 #define crabby_game_run_headless ponko_game_run_headless
+#define crabby_game_schedule_plan ponko_game_schedule_plan
 #define crabby_game_seed ponko_game_seed
 #define crabby_game_setup ponko_game_setup
 #define crabby_game_sim_system ponko_game_sim_system

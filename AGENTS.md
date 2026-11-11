@@ -70,7 +70,7 @@ cd crates/ponko_ecs
 cargo +nightly miri test --tests --no-default-features
 # The parallel path. rayon's dependency crossbeam-epoch trips Stacked Borrows
 # (not our code), and its global thread pool outlives main:
-MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --test parallel --test changes
+MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --test parallel --test changes --test view_groups
 ```
 
 ## Project rules

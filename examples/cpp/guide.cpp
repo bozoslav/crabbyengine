@@ -2552,11 +2552,30 @@ static void declared_access_guide() {
 }
 // ANCHOR_END: declared_access
 
+// ANCHOR: parallel_systems
+static void parallel_systems_guide() {
+    auto game = ponko::game("declared", 320, 240);
+    game.parallel_systems()
+        .add(ponko::phase::after_physics,
+             ponko::access().write<Pos>().read<Speed>().read_service(ponko::service::time),
+             move_forward, "move_forward");
+    // A C++ system takes the whole ctx, so it runs alone:
+    //   AfterPhysics
+    //     move_forward (alone: takes `&mut Ctx`)
+    const std::string plan = game.schedule_plan();
+    if (plan.find("move_forward (alone") == std::string::npos) {
+        std::fprintf(stderr, "parallel systems guide failed\n");
+        std::abort();
+    }
+}
+// ANCHOR_END: parallel_systems
+
 int main() {
     builder_setup_runs_headless();
     ponko::game("filter guide", 1, 1).run_headless(0, ecs_filters);
     plugins_run_headless();
     declared_access_guide();
+    parallel_systems_guide();
     steering_stays_within_budget();
     navigation_guide();
     ponko::game("shop guide", 900, 700).run_headless(0, shop_guide);

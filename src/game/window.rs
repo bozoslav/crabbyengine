@@ -293,7 +293,7 @@ where
                         builtin: None,
                         name: "setup closure",
                         stage: Phase::Frame,
-                        run: f,
+                        run: super::Run::Ctx(f),
                         every: 1,
                         phase: 0,
                         id,
@@ -301,6 +301,7 @@ where
                         last: false,
                         changes_seen: Default::default(),
                         enforced: false,
+                        barrier: false,
                     },
                 );
             }

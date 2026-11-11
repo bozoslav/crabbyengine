@@ -83,6 +83,9 @@ Light updates are memory-bandwidth-bound, so extra cores help less. Heavy update
 Parallel queries across few huge versus many small archetypes, with their
 crossover thresholds: [PAR_ARCHETYPES.md](PAR_ARCHETYPES.md) (`-- par-arch`).
 
+Whole systems at the same time (the parallel system scheduler), its
+overhead and its crossover: [SCHEDULE.md](SCHEDULE.md) (`-- schedule`).
+
 ## Many small archetypes and query construction (2026-11-09)
 
 `ponko_ecs` vs `bevy_ecs` 0.20.1, M4 Max, release, single thread, rustc 1.99.1. The world: 1024 archetypes of 16 entities (16,384 total), each `(Pos, Vel, Spr)` plus a different subset of 10 zero-sized markers. `cargo run --release -p ponko_bench -- archetypes-1024` and `-- query-build`. Medians of 200 runs (iteration) or 100 runs (queries); the machine was shared with other work (load average around 40), so treat these as indicative and rerun before comparing.

@@ -148,6 +148,38 @@ impl Events {
         }
     }
 
+    /// The kept `T` events as one value that may be shared between threads
+    /// (a `Vec<T>`), or `None` if none were ever sent. For systems that run
+    /// in a parallel batch: the batch only reads, and nothing is sent to
+    /// this store until it ends.
+    pub(crate) fn shared_items<T: Send + Sync + 'static>(&self) -> Option<&(dyn Any + Send + Sync)> {
+        let &i = self.by_key.get(&Key::Type(TypeId::of::<T>()))?;
+        let typed = self.channels[i]
+            .as_any()
+            .downcast_ref::<Typed<T>>()
+            .expect("channel type");
+        Some(&typed.items)
+    }
+
+    /// Indexes of the events of type `id` that `reader` hasn't seen, without
+    /// marking them seen; empty if none were ever sent.
+    pub(crate) fn unread(&self, id: TypeId, reader: u32) -> std::ops::Range<usize> {
+        match self.by_key.get(&Key::Type(id)) {
+            Some(&i) => self.channels[i].log().unread(reader),
+            None => 0..0,
+        }
+    }
+
+    /// Marks every event of type `id` kept now as seen by `reader`: what
+    /// [`read`](Self::read) does, for a system that read them from
+    /// [`shared_items`](Self::shared_items). Nothing to mark if none were
+    /// ever sent: a reader without a position starts at the oldest kept event.
+    pub(crate) fn mark_read(&mut self, id: TypeId, reader: u32) {
+        if let Some(&i) = self.by_key.get(&Key::Type(id)) {
+            let _ = self.channels[i].log_mut().read(reader);
+        }
+    }
+
     /// Debug builds, while checking a system's declared access: notes that
     /// it sent (or read) `T` events.
     #[inline]
@@ -415,6 +447,8 @@ fn raw_name<'w>(world: &'w crate::World, id: u32, raw: &Raw) -> Option<&'w str> 
 
 trait Channel: Any {
     fn drop_old(&mut self, frame: u64, tick: u64, keep_ticks: u64);
+    fn log(&self) -> &Log;
+    fn log_mut(&mut self) -> &mut Log;
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
@@ -441,6 +475,12 @@ impl Log {
             _ => self.runs.push((self.base + self.len as u64, frame, tick)),
         }
         self.len += 1;
+    }
+
+    /// Indexes of events `reader` hasn't seen.
+    fn unread(&self, reader: u32) -> std::ops::Range<usize> {
+        let cursor = self.cursors.iter().find(|c| c.0 == reader).map_or(self.base, |c| c.1);
+        (cursor.max(self.base) - self.base) as usize..self.len
     }
 
     /// Indexes of events `reader` hasn't seen, and marks them seen.
@@ -495,6 +535,12 @@ impl<T: 'static> Channel for Typed<T> {
             self.items.drain(..n);
         }
     }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn log_mut(&mut self) -> &mut Log {
+        &mut self.log
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -541,6 +587,12 @@ impl Channel for Raw {
             self.blocks.truncate((self.log.len * self.size).div_ceil(16));
         }
     }
+    fn log(&self) -> &Log {
+        &self.log
+    }
+    fn log_mut(&mut self) -> &mut Log {
+        &mut self.log
+    }
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -549,9 +601,123 @@ impl Channel for Raw {
     }
 }
 
+/// The kept events of one type, as a system in a parallel batch sees them:
+/// shared, read-only, with the range it hasn't read yet.
+pub(crate) struct EventSlot<'a> {
+    pub(crate) id: TypeId,
+    /// A `Vec<T>` of the kept events.
+    pub(crate) items: &'a (dyn Any + Send + Sync),
+    pub(crate) unread: std::ops::Range<usize>,
+}
+
+/// Events a system sent while it ran in a parallel batch. They join
+/// [`Events`] when the batch ends, system after system in registration
+/// order, so the store ends up as if the systems had run one at a time.
+#[derive(Default)]
+pub(crate) struct Outbox {
+    /// One per event type ever sent, in the order of the first sends.
+    channels: Vec<Box<dyn Out>>,
+}
+
+trait Out: Send {
+    fn id(&self) -> TypeId;
+    fn flush(&mut self, into: &mut Events);
+    fn clear(&mut self);
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+struct OutOf<T>(Vec<T>);
+
+impl<T: Send + 'static> Out for OutOf<T> {
+    fn id(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
+    fn flush(&mut self, into: &mut Events) {
+        for event in self.0.drain(..) {
+            into.send(event);
+        }
+    }
+    fn clear(&mut self) {
+        self.0.clear();
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+impl Outbox {
+    pub(crate) fn send<T: Send + 'static>(&mut self, event: T) {
+        let id = TypeId::of::<T>();
+        let i = match self.channels.iter().position(|c| c.id() == id) {
+            Some(i) => i,
+            None => {
+                self.channels.push(Box::new(OutOf::<T>(Vec::new())));
+                self.channels.len() - 1
+            }
+        };
+        let out = self.channels[i].as_any_mut().downcast_mut::<OutOf<T>>();
+        out.expect("outbox type").0.push(event);
+    }
+
+    /// Drops everything, keeping the buffers.
+    pub(crate) fn clear(&mut self) {
+        for c in &mut self.channels {
+            c.clear();
+        }
+    }
+
+    /// Sends everything to `into`, keeping the buffers for the next batch.
+    pub(crate) fn flush(&mut self, into: &mut Events) {
+        for c in &mut self.channels {
+            c.flush(into);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unread_and_mark_read_match_read() {
+        let mut ev = Events::default();
+        let id = TypeId::of::<u32>();
+        assert_eq!(ev.unread(id, 1), 0..0);
+        ev.mark_read(id, 1); // nothing sent yet: nothing to mark
+        ev.send(1u32);
+        ev.send(2u32);
+        assert_eq!(ev.unread(id, 1), 0..2);
+        assert_eq!(ev.unread(id, 1), 0..2, "looking doesn't mark");
+        let shared = ev.shared_items::<u32>().unwrap();
+        assert_eq!(shared.downcast_ref::<Vec<u32>>().unwrap(), &[1, 2]);
+        ev.mark_read(id, 1);
+        assert_eq!(ev.unread(id, 1), 2..2);
+        ev.send(3u32);
+        assert_eq!(ev.unread(id, 1), 2..3);
+        ev.reader = 1;
+        assert_eq!(ev.read::<u32>(), [3]);
+        // Another reader still has everything.
+        assert_eq!(ev.unread(id, 2), 0..3);
+        assert!(ev.shared_items::<u64>().is_none());
+    }
+
+    #[test]
+    fn an_outbox_delivers_in_send_order_and_can_be_reused() {
+        let mut ev = Events::default();
+        let mut out = Outbox::default();
+        ev.send(0u32);
+        out.send(1u32);
+        out.send("a");
+        out.send(2u32);
+        assert_eq!(ev.peek::<u32>(), [0], "nothing arrives before the flush");
+        out.flush(&mut ev);
+        assert_eq!(ev.peek::<u32>(), [0, 1, 2]);
+        assert_eq!(ev.peek::<&str>(), ["a"]);
+        out.flush(&mut ev);
+        out.send(3u32);
+        out.flush(&mut ev);
+        assert_eq!(ev.peek::<u32>(), [0, 1, 2, 3]);
+    }
 
     #[test]
     fn each_reader_sees_each_event_once() {

@@ -1394,6 +1394,14 @@ static void declared_access(void) {
     CHECK(ponko_game_access_report(g, text, len + 1, &len) == PONKO_OK);
     CHECK(strcmp(text, "mover + reader: conflict on events `DeclPos`\n") == 0);
     free(text);
+    /* The scheduler may be on: C systems still run one at a time, and the plan says why. */
+    CHECK(ponko_game_parallel_systems(g, true) == PONKO_OK);
+    CHECK(ponko_game_schedule_plan(g, NULL, 0, &len) == PONKO_OK && len > 0);
+    text = malloc(len + 1);
+    CHECK(ponko_game_schedule_plan(g, text, len + 1, &len) == PONKO_OK);
+    CHECK(strstr(text, "  mover (alone: takes `&mut Ctx`)\n") != NULL);
+    CHECK(strstr(text, "  reader (alone: takes `&mut Ctx`)\n") != NULL);
+    free(text);
     PonkoWorld* w = NULL;
     CHECK(ponko_game_run_headless(g, 3, declared_setup, &d, &w) == PONKO_OK && w);
     Position at;

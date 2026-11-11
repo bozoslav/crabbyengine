@@ -769,3 +769,36 @@ pub unsafe extern "C" fn ponko_game_run_headless(
         Ok(())
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{PonkoStatus, ponko_game_free, ponko_game_new, ponko_game_parallel_systems, ponko_game_schedule_plan};
+    use ponko::Phase;
+    use std::ffi::CStr;
+
+    #[test]
+    fn a_plan_that_cannot_be_made_leaves_the_game_in_its_handle() {
+        unsafe {
+            let handle = ponko_game_new(c"plan".as_ptr(), 1, 1);
+            // What a Rust plugin sharing the game can do: an order against
+            // the order the systems run in.
+            let mut game = (*handle).game.take().unwrap();
+            let first = game.add_system(Phase::AfterPhysics, |_: &mut ponko::Ctx| {});
+            let second = game.add_system(Phase::AfterPhysics, |_: &mut ponko::Ctx| {});
+            (*handle).game = Some(game.order(second, first));
+
+            let mut len = 0;
+            let status = ponko_game_schedule_plan(handle, std::ptr::null_mut(), 0, &mut len);
+            assert_eq!(status, PonkoStatus::PONKO_INVALID_ARGUMENT);
+            let message = CStr::from_ptr(crate::ponko_last_error()).to_str().unwrap();
+            assert!(message.contains("Game::order"), "{message}");
+            // The handle still owns its game: later calls work, and say the
+            // same thing instead of "game was already run".
+            assert!((*handle).game.is_some());
+            assert_eq!(ponko_game_parallel_systems(handle, true), PonkoStatus::PONKO_OK);
+            let status = ponko_game_schedule_plan(handle, std::ptr::null_mut(), 0, &mut len);
+            assert_eq!(status, PonkoStatus::PONKO_INVALID_ARGUMENT);
+            ponko_game_free(handle);
+        }
+    }
+}

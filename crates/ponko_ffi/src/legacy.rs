@@ -5415,6 +5415,37 @@ pub unsafe extern "C" fn crabby_game_access_report(
     (unsafe { crate::ponko_game_access_report(game, buffer, capacity, out_len) }).into()
 }
 
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_game_parallel_systems`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_parallel_systems(game: *mut CrabbyGame, on: bool) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_game_parallel_systems(game, on) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_game_schedule_plan`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_schedule_plan(
+    game: *mut CrabbyGame,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_game_schedule_plan(game, buffer, capacity, out_len) }).into()
+}
+
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]

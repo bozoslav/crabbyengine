@@ -4578,7 +4578,8 @@ public:
     }
     /// A system in an explicit phase with a declaration of what it reads and
     /// writes (see ponko::access). Debug builds stop the game if it uses
-    /// anything undeclared. It still runs in order, like any other system.
+    /// anything undeclared. It still runs alone and in order, also with
+    /// parallel_systems() on: a C++ system takes the whole ctx.
     template<class F> game& add(phase p, const access& a, F fn, const char* name = nullptr, std::uint32_t every = 1) {
         return check(ponko_game_add_system_with_access(raw_, static_cast<std::uint32_t>(p), name, every, a.raw(),
                                                         trampoline, keep(std::move(fn))));
@@ -4587,6 +4588,16 @@ public:
     /// they could run together, or what they conflict on.
     std::string access_report() {
         return detail::read_text([&](char* b, std::size_t c, std::size_t* l) { return ponko_game_access_report(raw_, b, c, l); });
+    }
+    /// Turns the parallel system scheduler on or off (off by default).
+    /// It runs Rust systems that declared what they use at the same time
+    /// when they don't conflict. Systems added from C++ take the whole
+    /// ctx, so they always run one at a time, in registration order.
+    game& parallel_systems(bool on = true) { return check(ponko_game_parallel_systems(raw_, on)); }
+    /// The stages each phase's systems run in, which systems share a
+    /// stage, and why each stage starts where it does.
+    std::string schedule_plan() {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* l) { return ponko_game_schedule_plan(raw_, b, c, l); });
     }
     /// A system once per frame (input, camera, UI). Not run headless.
     template<class F> game& system(F fn, const char* name = nullptr) {

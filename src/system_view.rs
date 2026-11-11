@@ -8,20 +8,27 @@
 //! is no path from a `SystemView` to the rest of `Ctx`, so a declaration
 //! can't be wrong in a way that goes unnoticed: what isn't declared panics
 //! when it is used, naming the system.
+//!
+//! A view system runs in one of two ways, with the same results. Alone, it
+//! borrows what it declared from `Ctx`. In a parallel batch
+//! ([`Game::parallel_systems`](crate::Game::parallel_systems)) it shares the
+//! world with the batch's other systems and gets its own command buffer and
+//! an outbox for its events, both delivered when the batch ends.
 
 use std::any::TypeId;
 
 use glam::Vec2;
 use ponko_ecs::{Commands, ViewState, WorldView};
+use web_time::Instant;
 
 use crate::access::Service;
 use crate::access::SystemAccess;
-use crate::events::Events;
+use crate::events::{EventSlot, Events, Outbox};
 use crate::{Ctx, Key, MouseButton, Playing, Random, Sound, SoundParams};
 
 /// The clocks, read once when the system starts.
-#[derive(Clone, Copy)]
-struct Clock {
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Clock {
     dt: f32,
     fixed_dt: f32,
     sim_tick: u64,
@@ -80,20 +87,70 @@ pub struct SystemView<'a> {
     name: &'static str,
     access: &'a SystemAccess,
     commands: &'a mut Commands,
-    events: &'a mut Events,
+    events: Port<'a>,
     input: &'a crate::input::Input,
     clock: Clock,
     random: Random,
+    spatial: &'a crate::spatial::SpatialGrid,
+    alone: Option<Alone<'a>>,
+}
+
+impl Clock {
+    pub(crate) fn of(ctx: &Ctx) -> Self {
+        Clock {
+            dt: ctx.dt(),
+            fixed_dt: ctx.time.fixed_dt(),
+            sim_tick: ctx.time.sim_tick(),
+            time: ctx.time.elapsed(),
+            frame: ctx.time.frame(),
+        }
+    }
+}
+
+/// The services only one system at a time may hold: lent to a view system
+/// that runs alone, absent in a parallel batch (a system that declares one
+/// never joins a batch).
+struct Alone<'a> {
     audio: &'a mut crate::audio::Audio,
     camera: &'a mut crate::d2::Camera,
     #[cfg(feature = "3d")]
     camera3d: &'a mut crate::d3::Camera,
-    spatial: &'a crate::spatial::SpatialGrid,
     #[cfg(feature = "physics")]
     physics: &'a mut crate::d2::Physics,
     #[cfg(feature = "physics3d")]
     physics3d: &'a mut crate::d3::Physics,
     net: &'a mut crate::net::Net,
+}
+
+/// Where a view system's events come from and go to.
+enum Port<'a> {
+    /// Alone: the game's event store, directly.
+    Direct(&'a mut Events),
+    /// In a batch: the kept events of its declared types, shared and
+    /// read-only; the types it has read in this run; its outbox.
+    Batch {
+        slots: &'a [EventSlot<'a>],
+        read: &'a mut Vec<TypeId>,
+        outbox: &'a mut Outbox,
+    },
+}
+
+impl<'a> SystemView<'a> {
+    /// The services a batch doesn't have. `need` passed, so the system
+    /// declared one of them, and such a system always runs alone.
+    fn alone(&mut self) -> &mut Alone<'a> {
+        match &mut self.alone {
+            Some(alone) => alone,
+            None => unreachable!("a system that declares an exclusive service runs alone"),
+        }
+    }
+
+    fn alone_ref(&self) -> &Alone<'a> {
+        match &self.alone {
+            Some(alone) => alone,
+            None => unreachable!("a system that declares an exclusive service runs alone"),
+        }
+    }
 }
 
 impl SystemView<'_> {
@@ -142,7 +199,10 @@ impl SystemView<'_> {
         ViewEvents {
             name: self.name,
             access: self.access,
-            events: self.events,
+            port: match &mut self.events {
+                Port::Direct(events) => Port::Direct(events),
+                Port::Batch { slots, read, outbox } => Port::Batch { slots, read, outbox },
+            },
         }
     }
 
@@ -310,7 +370,7 @@ impl SystemView<'_> {
     #[track_caller]
     pub fn play_sound_ex(&mut self, sound: &Sound, params: SoundParams) -> Playing {
         self.need(Service::Audio, true);
-        self.audio.play_ex(sound, params)
+        self.alone().audio.play_ex(sound, params)
     }
 
     // ---- cameras, spatial grid, physics, net -----------------------------------------------
@@ -320,14 +380,14 @@ impl SystemView<'_> {
     #[must_use]
     pub fn camera(&self) -> &crate::d2::Camera {
         self.need(Service::Camera, false);
-        self.camera
+        self.alone_ref().camera
     }
 
     /// The 2D camera to move. Needs `Service::Camera` written.
     #[track_caller]
     pub fn camera_mut(&mut self) -> &mut crate::d2::Camera {
         self.need(Service::Camera, true);
-        self.camera
+        self.alone().camera
     }
 
     /// The 3D camera ([`Ctx::camera3d`], feature `3d`). Needs `Service::Camera`.
@@ -336,7 +396,7 @@ impl SystemView<'_> {
     #[must_use]
     pub fn camera3d(&self) -> &crate::d3::Camera {
         self.need(Service::Camera, false);
-        self.camera3d
+        self.alone_ref().camera3d
     }
 
     /// The 3D camera to move (feature `3d`). Needs `Service::Camera` written.
@@ -344,7 +404,7 @@ impl SystemView<'_> {
     #[track_caller]
     pub fn camera3d_mut(&mut self) -> &mut crate::d3::Camera {
         self.need(Service::Camera, true);
-        self.camera3d
+        self.alone().camera3d
     }
 
     /// The spatial grid ([`Ctx::spatial`]). Needs `Service::Spatial`.
@@ -362,7 +422,7 @@ impl SystemView<'_> {
     #[must_use]
     pub fn physics(&self) -> &crate::d2::Physics {
         self.need(Service::Physics, false);
-        self.physics
+        self.alone_ref().physics
     }
 
     /// The 2D physics world to change: impulses, gravity. Needs
@@ -371,7 +431,7 @@ impl SystemView<'_> {
     #[track_caller]
     pub fn physics_mut(&mut self) -> &mut crate::d2::Physics {
         self.need(Service::Physics, true);
-        self.physics
+        self.alone().physics
     }
 
     /// The 3D physics world (feature `physics3d`). Needs `Service::Physics3D`.
@@ -380,7 +440,7 @@ impl SystemView<'_> {
     #[must_use]
     pub fn physics3d(&self) -> &crate::d3::Physics {
         self.need(Service::Physics3D, false);
-        self.physics3d
+        self.alone_ref().physics3d
     }
 
     /// The 3D physics world to change. Needs `Service::Physics3D` written.
@@ -388,7 +448,7 @@ impl SystemView<'_> {
     #[track_caller]
     pub fn physics3d_mut(&mut self) -> &mut crate::d3::Physics {
         self.need(Service::Physics3D, true);
-        self.physics3d
+        self.alone().physics3d
     }
 
     /// Lockstep networking ([`Ctx::net`]). Needs `Service::Net`.
@@ -396,26 +456,29 @@ impl SystemView<'_> {
     #[must_use]
     pub fn net(&self) -> &crate::net::Net {
         self.need(Service::Net, false);
-        self.net
+        self.alone_ref().net
     }
 
     /// Lockstep networking, to send input. Needs `Service::Net` written.
     #[track_caller]
     pub fn net_mut(&mut self) -> &mut crate::net::Net {
         self.need(Service::Net, true);
-        self.net
+        self.alone().net
     }
 }
 
 /// The declared event types of a view system: from [`SystemView::events`].
 ///
 /// Same visibility rules as [`Events`]: see the guide's "Systems and the
-/// frame" chapter, and [`SystemAccess::conflicts_before`] for what a
-/// parallel executor must keep.
+/// frame" chapter. In a parallel batch, sent events reach the store when
+/// the batch ends, in registration order; no system of the batch could have
+/// seen them earlier ([`SystemAccess::conflicts_before`]).
+///
+/// Event types are `Send + Sync`: a batch reads them from several threads.
 pub struct ViewEvents<'a> {
     name: &'static str,
     access: &'a SystemAccess,
-    events: &'a mut Events,
+    port: Port<'a>,
 }
 
 impl ViewEvents<'_> {
@@ -443,87 +506,212 @@ impl ViewEvents<'_> {
 
     /// As [`Events::send`]. Needs [`SystemAccess::send_events`].
     #[track_caller]
-    pub fn send<E: 'static>(&mut self, event: E) {
+    pub fn send<E: Send + Sync + 'static>(&mut self, event: E) {
         self.need::<E>(true);
-        self.events.send(event);
+        match &mut self.port {
+            Port::Direct(events) => events.send(event),
+            Port::Batch { outbox, .. } => outbox.send(event),
+        }
     }
 
     /// As [`Events::read`]. Needs [`SystemAccess::read_events`].
     #[track_caller]
-    pub fn read<E: 'static>(&mut self) -> &[E] {
+    pub fn read<E: Send + Sync + 'static>(&mut self) -> &[E] {
         self.need::<E>(false);
-        self.events.read()
+        match &mut self.port {
+            Port::Direct(events) => events.read(),
+            Port::Batch { slots, read, .. } => {
+                let id = TypeId::of::<E>();
+                // A second read in one run finds nothing new, as alone.
+                if read.contains(&id) {
+                    return &[];
+                }
+                read.push(id);
+                match slots.iter().find(|s| s.id == id) {
+                    Some(slot) => &items::<E>(slot)[slot.unread.clone()],
+                    None => &[],
+                }
+            }
+        }
     }
 
     /// As [`Events::peek`]. Needs [`SystemAccess::read_events`].
     #[track_caller]
     #[must_use]
-    pub fn peek<E: 'static>(&self) -> &[E] {
+    pub fn peek<E: Send + Sync + 'static>(&self) -> &[E] {
         self.need::<E>(false);
-        self.events.peek()
+        match &self.port {
+            Port::Direct(events) => events.peek(),
+            Port::Batch { slots, .. } => match slots.iter().find(|s| s.id == TypeId::of::<E>()) {
+                Some(slot) => items::<E>(slot),
+                None => &[],
+            },
+        }
     }
+}
+
+/// The kept `E` events behind a batch's slot.
+fn items<'a, E: 'static>(slot: &EventSlot<'a>) -> &'a [E] {
+    slot.items.downcast_ref::<Vec<E>>().expect("event slot type")
 }
 
 pub(crate) fn name_of<F>(_: &F) -> &'static str {
     std::any::type_name::<F>()
 }
 
-/// The `&mut Ctx` system that runs view system `f`: lends the declared
-/// written resources out of the world, builds the view from separate `Ctx`
-/// fields, runs `f` and puts the resources back (also if `f` panics).
-/// Commands apply after it, like after any system.
-pub(crate) fn wrap<F>(name: &'static str, access: SystemAccess, mut f: F) -> impl FnMut(&mut Ctx) + 'static
-where
-    F: FnMut(&mut SystemView<'_>) + 'static,
-{
-    // Made once per registered system, for panic messages.
-    let label: &'static str = Box::leak(format!("system `{name}`").into_boxed_str());
-    let mut state = ViewState::new(access.world_access().clone()).labeled(label);
-    move |ctx: &mut Ctx| {
-        let clock = Clock {
-            dt: ctx.dt(),
-            fixed_dt: ctx.time.fixed_dt(),
-            sim_tick: ctx.time.sim_tick(),
-            time: ctx.time.elapsed(),
-            frame: ctx.time.frame(),
-        };
+/// A boxed view system.
+pub(crate) type ViewFn = Box<dyn FnMut(&mut SystemView<'_>) + Send>;
+
+/// A view system as the game keeps it: its view state, and everything else
+/// it needs to run ([`ViewTask`]). Two parts, because in a batch the state
+/// lends the world view to the task (`ViewGroup::run`).
+pub(crate) struct ViewRunner {
+    pub(crate) state: ViewState,
+    pub(crate) task: ViewTask,
+}
+
+/// The part of a view system that runs: its function and declaration, and
+/// what a batch gives it of its own.
+pub(crate) struct ViewTask {
+    name: &'static str,
+    access: SystemAccess,
+    f: ViewFn,
+    /// In a batch: its own commands, applied when the batch ends.
+    pub(crate) commands: Commands,
+    /// In a batch: the events it sent, delivered when the batch ends.
+    pub(crate) outbox: Outbox,
+    /// In a batch: the event types it read in this run.
+    pub(crate) read: Vec<TypeId>,
+    /// In a batch: its part of the batch's event slots.
+    pub(crate) slots: std::ops::Range<usize>,
+    /// In a batch: the clocks and its random stream, taken before it starts.
+    pub(crate) clock: Clock,
+    pub(crate) random: Random,
+    /// In a batch: how long its last run took, and the allocations made
+    /// meanwhile (only counted when the batch runs in order).
+    pub(crate) last_ms: f32,
+    pub(crate) allocs: u64,
+    /// Its last run in a batch returned (it didn't panic).
+    pub(crate) finished: bool,
+    /// Its usual run time in microseconds (a moving average), which decides
+    /// whether a batch is worth sending to other threads. 0 before it ran.
+    pub(crate) usual_us: f32,
+}
+
+/// What every system of a batch shares, read-only.
+pub(crate) struct Shared<'a> {
+    pub(crate) slots: &'a [EventSlot<'a>],
+    pub(crate) input: &'a crate::input::Input,
+    pub(crate) spatial: &'a crate::spatial::SpatialGrid,
+    /// Count each system's allocations: only exact when they run in order.
+    pub(crate) count_allocs: bool,
+}
+
+impl ViewRunner {
+    pub(crate) fn new(name: &'static str, access: SystemAccess, f: ViewFn) -> Self {
+        // Made once per registered system, for panic messages.
+        let label: &'static str = Box::leak(format!("system `{name}`").into_boxed_str());
+        ViewRunner {
+            state: ViewState::new(access.world_access().clone()).labeled(label),
+            task: ViewTask {
+                name,
+                access,
+                f,
+                commands: Commands::new(),
+                outbox: Outbox::default(),
+                read: Vec::new(),
+                slots: 0..0,
+                clock: Clock::default(),
+                random: Random::new(0, 0, 0),
+                last_ms: 0.0,
+                allocs: 0,
+                finished: false,
+                usual_us: 0.0,
+            },
+        }
+    }
+
+    /// The declaration.
+    pub(crate) fn access(&self) -> &SystemAccess {
+        &self.task.access
+    }
+
+    /// Runs the system alone: lends the declared written resources out of
+    /// the world, builds the view from separate `Ctx` fields, runs it and
+    /// puts the resources back (also if it panics). Its commands go to
+    /// `ctx.commands` and its events straight to `ctx.events`, like any
+    /// system's.
+    pub(crate) fn run_alone(&mut self, ctx: &mut Ctx) {
+        let clock = Clock::of(ctx);
         let random = ctx.random();
         let commands = &mut ctx.commands;
         let events = &mut ctx.events;
         let input = &ctx.input;
-        let audio = &mut ctx.audio;
-        let camera = &mut ctx.camera;
-        #[cfg(feature = "3d")]
-        let camera3d = &mut ctx.camera3d;
         let spatial = &ctx.spatial;
-        #[cfg(feature = "physics")]
-        let physics = &mut ctx.physics;
-        #[cfg(feature = "physics3d")]
-        let physics3d = &mut ctx.physics3d;
-        let net = &mut ctx.net.lockstep;
-        let access = &access;
-        state.run(&mut ctx.world, |world| {
+        let alone = Alone {
+            audio: &mut ctx.audio,
+            camera: &mut ctx.camera,
+            #[cfg(feature = "3d")]
+            camera3d: &mut ctx.camera3d,
+            #[cfg(feature = "physics")]
+            physics: &mut ctx.physics,
+            #[cfg(feature = "physics3d")]
+            physics3d: &mut ctx.physics3d,
+            net: &mut ctx.net.lockstep,
+        };
+        let ViewTask { name, access, f, .. } = &mut self.task;
+        // The world's own change window, which the game set for this system.
+        self.state.set_changes_since(None);
+        self.state.set_change_tick(None);
+        self.state.run(&mut ctx.world, |world| {
             let mut view = SystemView {
                 world,
                 name,
                 access,
                 commands,
-                events,
+                events: Port::Direct(events),
                 input,
                 clock,
                 random,
-                audio,
-                camera,
-                #[cfg(feature = "3d")]
-                camera3d,
                 spatial,
-                #[cfg(feature = "physics")]
-                physics,
-                #[cfg(feature = "physics3d")]
-                physics3d,
-                net,
+                alone: Some(alone),
             };
             f(&mut view);
+        });
+    }
+}
+
+impl ViewTask {
+    /// Runs the system in a batch, on any thread: `world` is its view of
+    /// the shared world. Everything else is its own or read-only.
+    pub(crate) fn run_shared(&mut self, world: WorldView<'_>, shared: &Shared<'_>) {
+        #[cfg(feature = "profiling")]
+        puffin::profile_scope!("system", self.name);
+        let allocs_before = shared.count_allocs.then(crate::perf::alloc_counts);
+        let start = Instant::now();
+        self.read.clear();
+        self.finished = false;
+        let mut view = SystemView {
+            world,
+            name: self.name,
+            access: &self.access,
+            commands: &mut self.commands,
+            events: Port::Batch {
+                slots: &shared.slots[self.slots.clone()],
+                read: &mut self.read,
+                outbox: &mut self.outbox,
+            },
+            input: shared.input,
+            clock: self.clock,
+            random: self.random,
+            spatial: shared.spatial,
+            alone: None,
+        };
+        (self.f)(&mut view);
+        self.finished = true;
+        self.last_ms = start.elapsed().as_secs_f32() * 1000.0;
+        self.allocs = allocs_before.map_or(0, |before| {
+            crate::perf::alloc_counts().count.saturating_sub(before.count)
         });
     }
 }

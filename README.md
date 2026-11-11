@@ -27,7 +27,7 @@ such as parallel ECS queries, inspection, or AI integration are not exclusive.
 |---|---|---|---|
 | Primary language and API | Rust `Game`/`Ctx`; C ABI and C++17 wrapper | Rust, ECS-oriented `App` and systems | C# gameplay API; native engine |
 | Architectural philosophy | Integrated defaults; modular internals with gradual boundary improvements planned | Modular plugins with standard defaults | Integrated editor and modular packages |
-| ECS and scheduling | Archetype ECS, parallel queries; dependency-aware parallel system scheduling planned | ECS with automatic scheduling of compatible systems in parallel | GameObjects and optional high-performance Entities/DOTS |
+| ECS and scheduling | Archetype ECS, parallel queries; opt-in parallel scheduling of systems that declare their access | ECS with automatic scheduling of compatible systems in parallel | GameObjects and optional high-performance Entities/DOTS |
 | Rendering | Custom wgpu 2D/3D renderer; ongoing maintenance and capability work | Extensible 2D/3D renderer and render graph | Multiple render pipelines and extensive graphics tooling |
 | Workflow and editor | Code-first; optional runtime inspector and external asset tools | Code-first; no large editor required | Primarily visual-editor-centered, with code and CLI workflows |
 | AI-assisted development | MCP for launch, state, stepping, screenshots and diagnostics | Remote protocol can support external tools and agents | Official Assistant and CLI MCP integration |
@@ -124,8 +124,8 @@ fn main() {
 
 Use `default-features = false` for a minimal headless dependency. Running
 headless alone does not disable compiled dependencies. Parallel query iteration
-is implemented; parallel scheduling of independent `Ctx` systems is future
-work. Determinism depends on game code, build/version, math and physics settings:
+is implemented, and systems that declare their access can opt into parallel
+scheduling (`Game::parallel_systems`); `&mut Ctx` systems stay sequential. Determinism depends on game code, build/version, math and physics settings:
 see [the contract](STABILITY.md#determinism).
 
 ## Current capabilities

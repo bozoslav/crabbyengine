@@ -64,5 +64,5 @@ pub use query::{
     QueryData, QueryFilter, QueryIter, With, Without, compile_tree,
 };
 pub use storage::{Archetype, ComponentId, ComponentInfo, DropFn};
-pub use view::{ViewAccess, ViewQuery, ViewState, WorldView};
+pub use view::{ViewAccess, ViewGroup, ViewQuery, ViewState, WorldView};
 pub use world::{Chunk, World};

@@ -2,7 +2,7 @@
 //! writes, checked in debug builds and listed in the access report.
 use crate::game::{PonkoGame, PonkoSystemFn, build, ok, phase, system, system_name};
 use crate::perf::write_text;
-use crate::{Failure, PonkoStatus, boundary, invalid};
+use crate::{Failure, PonkoStatus, boundary, invalid, invalid_owned};
 use ponko::Phase;
 use ponko::access::Service;
 use ponko::access::SystemAccess;
@@ -261,8 +261,9 @@ pub unsafe extern "C" fn ponko_access_conflicts(
 /// Like `ponko_game_add_system`, with a declaration of what the system
 /// reads and writes (copied; free yours when done). Debug builds check
 /// each run against it and abort the game with an error naming what was
-/// used without being declared. C systems stay sequential: the
-/// declaration is for tools and the access report.
+/// used without being declared. C systems stay sequential, also with
+/// `ponko_game_parallel_systems` on: the declaration is for tools and the
+/// access report.
 /// ```
 /// assert_eq!(unsafe { ponko_ffi::ponko_game_add_system_with_access(std::ptr::null_mut(), 3, std::ptr::null(), 1, std::ptr::null(), None, std::ptr::null_mut()) } as u32, 1);
 /// ```
@@ -328,6 +329,63 @@ pub unsafe extern "C" fn ponko_game_access_report(
     if status == PonkoStatus::PONKO_OK {
         // SAFETY: checked above; caller supplies the buffer.
         unsafe { write_text(buffer, capacity, out_len, &report) };
+    }
+    status
+}
+
+/// Turns the parallel system scheduler on or off (off by default). With it
+/// on, Rust systems that declared what they use and don't conflict may run
+/// at the same time. C and C++ systems take the whole `ctx`, so they always
+/// run one at a time, in registration order, whatever this is set to.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::ponko_game_parallel_systems(std::ptr::null_mut(), true) } as u32, 1);
+/// ```
+/// # Safety
+/// `game` must be null or a live game.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_game_parallel_systems(game: *mut PonkoGame, on: bool) -> PonkoStatus {
+    // SAFETY: forwarded caller contract.
+    unsafe { build(game, |g| ok(g.parallel_systems(on))) }
+}
+
+/// Writes the game's schedule plan: per phase, the stages its systems run
+/// in, which systems share a stage, and why each stage starts where it
+/// does. Copies it into `buffer` (NUL-terminated if it fits) and its length
+/// to `out_len`. Fails with `PONKO_INVALID_ARGUMENT` (and leaves the game
+/// usable) if the game has an order between two systems that contradicts
+/// the order they run in.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::ponko_game_schedule_plan(std::ptr::null_mut(), std::ptr::null_mut(), 0, std::ptr::null_mut()) } as u32, 1);
+/// ```
+/// # Safety
+/// Live game; `buffer` holds `capacity` bytes (or null with 0); `out_len` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_game_schedule_plan(
+    game: *mut PonkoGame,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> PonkoStatus {
+    if out_len.is_null() || (buffer.is_null() && capacity > 0) {
+        return boundary(|| Err(invalid("buffer or out_len is null")));
+    }
+    let mut plan = String::new();
+    // SAFETY: forwarded caller contract.
+    let status = unsafe {
+        build(game, |g| {
+            // `schedule_plan` panics on a wrong `Game::order` pair (which
+            // Rust code sharing this game can set). Refuse first: a panic
+            // in here would lose the game the handle owns.
+            if let Some(problem) = g.order_problem() {
+                return (g, Err(invalid_owned(problem)));
+            }
+            plan = g.schedule_plan().to_string();
+            ok(g)
+        })
+    };
+    if status == PonkoStatus::PONKO_OK {
+        // SAFETY: checked above; caller supplies the buffer.
+        unsafe { write_text(buffer, capacity, out_len, &plan) };
     }
     status
 }

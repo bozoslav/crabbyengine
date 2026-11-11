@@ -1950,6 +1950,13 @@ enum PonkoStatus ponko_game_access_report(struct PonkoGame *game,
                                           size_t capacity,
                                           size_t *out_len);
 
+enum PonkoStatus ponko_game_parallel_systems(struct PonkoGame *game, bool on);
+
+enum PonkoStatus ponko_game_schedule_plan(struct PonkoGame *game,
+                                          char *buffer,
+                                          size_t capacity,
+                                          size_t *out_len);
+
 struct PonkoActionMap *ponko_action_map_new(void);
 
 void ponko_action_map_free(struct PonkoActionMap *map);

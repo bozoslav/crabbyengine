@@ -61,6 +61,53 @@ fn unapplied_commands_drop_their_values_once() {
 }
 
 #[test]
+fn cleared_commands_drop_their_values_once_and_apply_nothing() {
+    let drops = counter();
+    let mut w = World::new();
+    let e = w.spawn((1u32,));
+    let mut c = Commands::new();
+    c.spawn((Counted(drops.clone()),));
+    c.insert(e, Counted(drops.clone()));
+    c.despawn(e);
+    c.clear();
+    assert_eq!(count(&drops), 2);
+    assert!(c.is_empty());
+    w.apply(&mut c);
+    assert!(w.is_alive(e));
+    assert_eq!(w.len(), 1);
+    // The list is reusable, and dropping it drops nothing twice.
+    c.spawn((Counted(drops.clone()),));
+    w.apply(&mut c);
+    assert_eq!(w.len(), 2);
+    drop(c);
+    assert_eq!(count(&drops), 2);
+}
+
+#[test]
+fn a_value_whose_drop_panics_in_clear_is_never_dropped_twice() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static DROPS: AtomicUsize = AtomicUsize::new(0);
+    struct Loud;
+    impl Drop for Loud {
+        fn drop(&mut self) {
+            if DROPS.fetch_add(1, Ordering::SeqCst) == 0 {
+                panic!("first drop panics");
+            }
+        }
+    }
+    let mut c = Commands::new();
+    c.spawn((Loud,));
+    c.spawn((Loud,));
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.clear()));
+    assert!(caught.is_err());
+    // The first value was dropped once; the one after it is leaked, and
+    // dropping the list reads neither again.
+    assert!(c.is_empty());
+    drop(c);
+    assert_eq!(DROPS.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn applied_values_move_into_the_world_without_extra_drops() {
     let dropped = counter();
     let mut w = World::new();

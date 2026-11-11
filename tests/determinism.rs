@@ -1,9 +1,11 @@
 //! Same seed, same simulation: everything that could make runs diverge
 //! (threads, the grid, sorting, reduced rates, spawning) at once.
 
+use ponko::access::{Service, SystemAccess};
 #[allow(unused_imports)]
 use ponko::d2::Transform as Transform2D;
 use ponko::prelude::*;
+use ponko::system_view::SystemView;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -82,35 +84,91 @@ fn breed_and_starve(ctx: &mut Ctx) {
     }
 }
 
+/// View systems: walkers tire at random, food ripens. They touch different
+/// components, so the parallel scheduler puts them in one batch.
+fn tire(sys: &mut SystemView) {
+    let (dt, random) = (sys.dt(), sys.random());
+    sys.world.query::<(Entity, &mut Walker)>().for_each(|(e, w)| {
+        w.energy -= random.of(e).range(0.0, 0.2) * dt;
+    });
+}
+
+fn ripen(sys: &mut SystemView) {
+    let dt = sys.dt();
+    sys.world.query::<&mut Food>().for_each(|f| f.0 += dt);
+}
+
+/// How a run's systems are scheduled.
+#[derive(Clone, Copy)]
+enum Scheduler {
+    /// Only `&mut Ctx` systems, as before the scheduler existed.
+    NoViews,
+    /// With the view systems; the scheduler is as the environment says
+    /// (off unless `PONKO_PARALLEL_SYSTEMS` turns it on).
+    Views,
+    /// With the view systems, the scheduler off or on with every batch on
+    /// the thread pool, whatever the environment says.
+    ViewsExactly { on: bool },
+}
+
 fn run(seed: u64, ticks: u64) -> ponko::reflect::json::Value {
-    let world = Game::new("det", 1, 1)
+    run_with(seed, ticks, Scheduler::NoViews)
+}
+
+fn run_with(seed: u64, ticks: u64, scheduler: Scheduler) -> ponko::reflect::json::Value {
+    let mut game = Game::new("det", 1, 1)
         .seed(seed)
         .spatial_grid(8.0)
         .sim_system(wander)
         .sim_system(eat)
-        .sim_system_every(5, breed_and_starve)
-        .run_headless(ticks, |ctx| {
-            ctx.world.reflect::<Walker>();
-            ctx.world.reflect::<Food>();
-            let mut rng = Rng::new(1);
-            ctx.world.spawn_batch((0..3000).map(|_| {
-                let p = vec2(rng.range(0.0, 200.0), rng.range(0.0, 200.0));
-                (
-                    Transform2D::at(p),
-                    Walker {
-                        heading: rng.angle(),
-                        energy: 2.0,
-                        crowded: 0,
-                    },
-                )
-            }));
-            ctx.world.spawn_batch((0..500).map(|_| {
-                (
-                    Transform2D::at(vec2(rng.range(0.0, 200.0), rng.range(0.0, 200.0))),
-                    Food(1.0),
-                )
-            }));
-        });
+        .sim_system_every(5, breed_and_starve);
+    if !matches!(scheduler, Scheduler::NoViews) {
+        let clock = || {
+            SystemAccess::new()
+                .read_service(Service::Time)
+                .read_service(Service::Random)
+        };
+        game = game.add_view(Phase::SimLast, clock().write::<Walker>(), tire).add_view(
+            Phase::SimLast,
+            clock().write::<Food>(),
+            ripen,
+        );
+    }
+    if let Scheduler::ViewsExactly { on } = scheduler {
+        game = game
+            .parallel_systems(on)
+            .parallel_threshold(std::time::Duration::ZERO)
+            .parallel_systems_env(false);
+    }
+    if !matches!(scheduler, Scheduler::NoViews) {
+        // The two view systems share a stage, so with the scheduler on
+        // they really run as a batch.
+        let plan = game.schedule_plan();
+        assert_eq!(plan.batches().count(), 1, "{plan}");
+        assert_eq!(plan.batches().next().unwrap().len, 2, "{plan}");
+    }
+    let world = game.run_headless(ticks, |ctx| {
+        ctx.world.reflect::<Walker>();
+        ctx.world.reflect::<Food>();
+        let mut rng = Rng::new(1);
+        ctx.world.spawn_batch((0..3000).map(|_| {
+            let p = vec2(rng.range(0.0, 200.0), rng.range(0.0, 200.0));
+            (
+                Transform2D::at(p),
+                Walker {
+                    heading: rng.angle(),
+                    energy: 2.0,
+                    crowded: 0,
+                },
+            )
+        }));
+        ctx.world.spawn_batch((0..500).map(|_| {
+            (
+                Transform2D::at(vec2(rng.range(0.0, 200.0), rng.range(0.0, 200.0))),
+                Food(1.0),
+            )
+        }));
+    });
     world.save()
 }
 
@@ -129,4 +187,15 @@ fn the_same_seed_gives_the_same_world() {
 #[test]
 fn a_different_seed_gives_a_different_world() {
     assert_ne!(run(7, 30).to_string(), run(8, 30).to_string());
+}
+
+#[test]
+fn view_systems_give_the_same_world_with_the_scheduler_off_on_and_as_the_environment_says() {
+    let off = run_with(7, 60, Scheduler::ViewsExactly { on: false }).to_string();
+    // The view systems do something: this is not the world without them.
+    assert_ne!(off, run(7, 60).to_string());
+    assert_eq!(run_with(7, 60, Scheduler::ViewsExactly { on: true }).to_string(), off);
+    // And however this test run was told to schedule (CI runs this file
+    // once more with `PONKO_PARALLEL_SYSTEMS=always`).
+    assert_eq!(run_with(7, 60, Scheduler::Views).to_string(), off);
 }

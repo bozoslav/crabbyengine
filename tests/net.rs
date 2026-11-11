@@ -2,11 +2,13 @@
 use std::thread;
 use std::time::Duration;
 
+use ponko::access::{Service, SystemAccess};
 #[allow(unused_imports)]
 use ponko::d2::Transform as Transform2D;
 #[allow(unused_imports)]
 use ponko::net::{Desync, Net, NetState};
 use ponko::prelude::*;
+use ponko::system_view::SystemView;
 use serde::{Deserialize, Serialize};
 
 /// What a player does in a tick.
@@ -74,6 +76,27 @@ fn crowd(ctx: &mut Ctx) {
 
 struct Steered(bool);
 
+/// For the view systems: how long a unit has lived, and how tired it is.
+#[derive(Serialize, Deserialize, Clone, Copy)]
+struct Age(u32);
+#[derive(Serialize, Deserialize, Clone, Copy)]
+struct Stamina(f32);
+
+/// View systems over different components: with the parallel scheduler on
+/// they share a batch.
+fn grow_older(sys: &mut SystemView) {
+    sys.world.query::<&mut Age>().for_each(|a| a.0 += 1);
+}
+
+fn tire(sys: &mut SystemView) {
+    let random = sys.random();
+    sys.world
+        .query::<(Entity, &mut Stamina, &Unit)>()
+        .for_each(|(e, s, u)| {
+            s.0 = s.0 * 0.99 + u.vel.length() * 0.01 + random.of(e).range(0.0, 0.1);
+        });
+}
+
 fn spawn_crowd(ctx: &mut Ctx, units: usize, players: usize) {
     ctx.world.reflect::<Unit>();
     ctx.world.insert_resource(Steered(false));
@@ -92,14 +115,42 @@ fn spawn_crowd(ctx: &mut Ctx, units: usize, players: usize) {
 /// Runs each session in its own thread for `ticks`; `tweak(player)` is an
 /// extra sim system, to break determinism on purpose.
 fn play(nets: Vec<Net>, ticks: u64, units: usize, tweak: fn(&mut Ctx)) -> Vec<(ponko::reflect::json::Value, Outcome)> {
+    play_with(nets, ticks, units, tweak, false)
+}
+
+/// `play`; with `views`, also the two view systems, and the peers schedule
+/// them differently: the host as the environment says (off, unless
+/// `PONKO_PARALLEL_SYSTEMS` turns the scheduler on), the others with the
+/// scheduler off whatever it says.
+fn play_with(
+    nets: Vec<Net>,
+    ticks: u64,
+    units: usize,
+    tweak: fn(&mut Ctx),
+    views: bool,
+) -> Vec<(ponko::reflect::json::Value, Outcome)> {
     let players = nets.len();
     let runs: Vec<_> = nets
         .into_iter()
-        .map(|net| {
+        .enumerate()
+        .map(|(peer, net)| {
             thread::spawn(move || {
-                let mut world = Game::new("net", 1, 1)
-                    .spatial_grid(16.0)
-                    .lockstep(net)
+                let mut game = Game::new("net", 1, 1).spatial_grid(16.0).lockstep(net);
+                if views {
+                    let random = || SystemAccess::new().read_service(Service::Random);
+                    game = game
+                        .add_view(Phase::BeforePhysics, SystemAccess::new().write::<Age>(), grow_older)
+                        .add_view(Phase::BeforePhysics, random().write::<Stamina>().read::<Unit>(), tire);
+                    // The two view systems share a stage, so a peer with the
+                    // scheduler on really runs them as a batch.
+                    let plan = game.schedule_plan();
+                    let batch = plan.batches().next().expect("one batch");
+                    assert_eq!((plan.batches().count(), batch.len), (1, 2), "{plan}");
+                    if peer > 0 {
+                        game = game.parallel_systems(false).parallel_systems_env(false);
+                    }
+                }
+                let mut world = game
                     .sim_system(play_along)
                     .sim_system(crowd)
                     .sim_system(tweak)
@@ -113,7 +164,18 @@ fn play(nets: Vec<Net>, ticks: u64, units: usize, tweak: fn(&mut Ctx)) -> Vec<(p
                             ctx.world.insert_resource(outcome);
                         }
                     })
-                    .run_headless(ticks, |ctx| spawn_crowd(ctx, units, players));
+                    .run_headless(ticks, |ctx| {
+                        spawn_crowd(ctx, units, players);
+                        if views {
+                            ctx.world.reflect::<Age>();
+                            ctx.world.reflect::<Stamina>();
+                            let all: Vec<Entity> = ctx.world.query::<Entity>().with::<Unit>().iter().collect();
+                            for e in all {
+                                ctx.world.insert(e, Age(0));
+                                ctx.world.insert(e, Stamina(1.0));
+                            }
+                        }
+                    });
                 let outcome = world.remove_resource::<Outcome>().expect("ran every tick");
                 (world.save(), outcome)
             })
@@ -149,6 +211,20 @@ fn two_peers_run_ten_thousand_ticks_bit_identical() {
     assert_identical(&play(Net::loopback(2), 10_000, 200, nothing));
 }
 // ANCHOR_END: loopback
+
+#[test]
+fn peers_that_schedule_their_view_systems_differently_stay_bit_identical() {
+    // The same crowd plus two view systems. CI runs this file once more
+    // with `PONKO_PARALLEL_SYSTEMS=always`: then the host runs them as a
+    // batch on the thread pool while the guest runs them one at a time.
+    let results = play_with(Net::loopback(2), 600, 100, nothing, true);
+    assert_identical(&results);
+    let units = results[0].0["entities"].as_array().unwrap();
+    assert!(
+        units.iter().any(|e| e.to_string().contains("Stamina")),
+        "the view systems' data is in the save"
+    );
+}
 
 #[test]
 fn lost_packets_are_recovered() {
