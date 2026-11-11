@@ -1616,6 +1616,7 @@ impl Ctx {
             None
         };
         self.collect_passes(fallback);
+        self.gfx.validate_instance_batches();
         let start = web_time::Instant::now();
         let mut skins = std::mem::take(&mut self.gfx.frame3d.skins);
         skins.collect(&mut self.world, &self.gfx.assets3d);

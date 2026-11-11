@@ -383,6 +383,9 @@ mod quality_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod residency_render_test;
 
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod asset_lifetime_render_test;
+
 #[cfg(feature = "3d")]
 pub use crate::three::{
     AmbientOcclusion, AntiAliasing, BatchCulling, Compute, ComputePass, Effect, ExtractionBench, ExtractionSample,
