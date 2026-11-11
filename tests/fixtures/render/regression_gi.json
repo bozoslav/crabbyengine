@@ -1,0 +1,17 @@
+{
+  "name": "regression_gi",
+  "scene": "A closed white room with a red west wall, the sun (intensity 4) shining through a roof opening onto that wall, grey ambient light at 0.3, global illumination with probes 1 apart updated 16 a frame, frame 80; camera inside at (2, 1.3, 0.3) looking at (-3.5, -0.2, 0); 128x128, 4x multisampling, no tonemapping.",
+  "width": 128,
+  "height": 128,
+  "format": "rgba8-srgb",
+  "tolerance": {
+    "channel": 16,
+    "outliers": 0.015,
+    "edge": 1
+  },
+  "adapter": "Apple M4 Max",
+  "backend": "Metal",
+  "driver": "unknown",
+  "checksum": "96384bf3fab8b552",
+  "reason": "New reference: the image regression suite's first baselines (#135)."
+}

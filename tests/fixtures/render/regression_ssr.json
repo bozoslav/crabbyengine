@@ -1,0 +1,17 @@
+{
+  "name": "regression_ssr",
+  "scene": "A red glowing box (emissive 4, 0, 0) 0.5 above a white mirror floor (metallic 1, roughness 0), nothing lit, screen-space reflections at 1.0, fourth frame; camera at (0, 2, 6) looking at (0, 0.5, 0); 128x128, 4x multisampling, no tonemapping.",
+  "width": 128,
+  "height": 128,
+  "format": "rgba8-srgb",
+  "tolerance": {
+    "channel": 16,
+    "outliers": 0.015,
+    "edge": 1
+  },
+  "adapter": "Apple M4 Max",
+  "backend": "Metal",
+  "driver": "unknown",
+  "checksum": "8ddbf7e4638ea2ff",
+  "reason": "New reference: the image regression suite's first baselines (#135)."
+}

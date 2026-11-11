@@ -51,25 +51,20 @@ fn outgrown_skin_buffers_pose_and_draw_as_before() {
 /// unskinned, by a morph target. `grow`: 80 more of them, out of view,
 /// before it bends.
 fn draw_bent(morph: bool, mixed: bool, downlevel: bool, grow: bool) {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        crate::render::render_test_support::no_gpu("no GPU adapter");
+    let Some(gpu) = crate::render::render_test_support::gpu_with(|_| {
+        let descriptor = wgpu::DeviceDescriptor {
+            required_limits: if downlevel {
+                wgpu::Limits::downlevel_webgl2_defaults()
+            } else {
+                wgpu::Limits::default()
+            },
+            ..Default::default()
+        };
+        Ok(descriptor)
+    }) else {
         return;
     };
-    let descriptor = wgpu::DeviceDescriptor {
-        required_limits: if downlevel {
-            wgpu::Limits::downlevel_webgl2_defaults()
-        } else {
-            wgpu::Limits::default()
-        },
-        ..Default::default()
-    };
-    let Ok((device, queue)) =
-        pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&descriptor)))
-    else {
-        crate::render::render_test_support::no_gpu("no GPU device");
-        return;
-    };
+    let (device, queue) = (gpu.device, gpu.queue);
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[

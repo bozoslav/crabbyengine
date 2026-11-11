@@ -1,0 +1,17 @@
+{
+  "name": "regression_skinned",
+  "scene": "An orange skinned bar (0.4 x 2 x 0.4, two boxes on two joints) standing on a grey floor at x -0.5 with its upper half turned 90 degrees to the left, white sun at 45 degrees from the left casting its shadow; camera at (0, 2.4, 5) looking at (0, 0.6, 0); 128x128, 4x multisampling, no tonemapping.",
+  "width": 128,
+  "height": 128,
+  "format": "rgba8-srgb",
+  "tolerance": {
+    "channel": 12,
+    "outliers": 0.0075,
+    "edge": 1
+  },
+  "adapter": "Apple M4 Max",
+  "backend": "Metal",
+  "driver": "unknown",
+  "checksum": "b9d0d8d5ece5989e",
+  "reason": "New reference: the image regression suite's first baselines (#135)."
+}

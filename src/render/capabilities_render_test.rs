@@ -116,7 +116,7 @@ fn draw(profile: &Profile) -> Option<Outcome> {
 fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> Option<Outcome> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        eprintln!("{}: no GPU adapter: skipped", profile.name);
+        crate::render::render_test_support::no_gpu(format_args!("{}: no GPU adapter", profile.name));
         return None;
     };
     let required_features = if profile.timestamps {
@@ -129,10 +129,10 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
         required_features,
         ..Default::default()
     })) else {
-        eprintln!(
-            "{}: the adapter can't open a device with these limits: skipped",
+        crate::render::render_test_support::skip(format_args!(
+            "{}: the adapter can't open a device with these limits",
             profile.name
-        );
+        ));
         return None;
     };
     let info = adapter.get_info();
@@ -527,7 +527,10 @@ fn forced_tiers_report_their_tier_and_cache_distinct_pipelines() {
         let r = &out.report;
         if *tier == GpuTier::Desktop && GpuTier::of(&r.limits) < GpuTier::Desktop {
             // An adapter with fewer than 18 texture slots can't be forced up.
-            eprintln!("{}: this adapter reaches only {}: skipped", profile.name, r.tier);
+            crate::render::render_test_support::skip(format_args!(
+                "{}: this adapter reaches only {}",
+                profile.name, r.tier
+            ));
             continue;
         }
         assert_eq!(r.tier, *tier, "{}", profile.name);

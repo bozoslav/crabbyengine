@@ -11,18 +11,8 @@ const BROKEN: &str = "// tints everything red\nfn surface(s: Surface) -> Surface
 const UNBOUND: &str = "@group(3) @binding(7) var<uniform> extra: vec4<f32>;\nfn surface(s: Surface) -> Surface { var out = s; out.albedo *= extra.xyz; return out; }\n";
 
 fn rig() -> Option<(wgpu::Device, Renderer3D)> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let Ok(adapter) = pollster::block_on(instance.request_adapter(&Default::default())) else {
-        crate::render::render_test_support::no_gpu("no GPU adapter");
-        return None;
-    };
-    eprintln!("shader reload test adapter: {:?}", adapter.get_info());
-    let Ok((device, _queue)) =
-        pollster::block_on(adapter.request_device(&crate::render::render_test_support::forced(&Default::default())))
-    else {
-        crate::render::render_test_support::no_gpu("no GPU device");
-        return None;
-    };
+    let gpu = crate::render::render_test_support::gpu_with(|_| Ok(Default::default()))?;
+    let (device, _queue) = (gpu.device, gpu.queue);
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[

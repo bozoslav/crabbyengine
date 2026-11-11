@@ -1,0 +1,17 @@
+{
+  "name": "regression_opaque",
+  "scene": "A red box (1.2 wide) in front of a taller blue box on a grey floor, white sun from the upper left front (direction -0.5, -1, -0.35) at intensity 1 plus white ambient light at 0.05, no shadows; camera at (0, 2.4, 5) looking at (0, 0.6, 0); 128x128, 4x multisampling, no tonemapping, no bloom.",
+  "width": 128,
+  "height": 128,
+  "format": "rgba8-srgb",
+  "tolerance": {
+    "channel": 12,
+    "outliers": 0.0075,
+    "edge": 1
+  },
+  "adapter": "Apple M4 Max",
+  "backend": "Metal",
+  "driver": "unknown",
+  "checksum": "77cf8191fcf5ec19",
+  "reason": "New reference: the image regression suite's first baselines (#135)."
+}

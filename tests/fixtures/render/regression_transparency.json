@@ -1,0 +1,17 @@
+{
+  "name": "regression_transparency",
+  "scene": "Three see-through 2x2 panes (alpha 0.5) of one mesh tinted red, green and blue, the red nearest and each 0.1 behind the one before, overlapping like a Venn diagram, lit by white ambient light at 1 on black; camera at (0, -0.2, 5.5) looking down -z; 128x128, 4x multisampling, no tonemapping.",
+  "width": 128,
+  "height": 128,
+  "format": "rgba8-srgb",
+  "tolerance": {
+    "channel": 12,
+    "outliers": 0.0075,
+    "edge": 1
+  },
+  "adapter": "Apple M4 Max",
+  "backend": "Metal",
+  "driver": "unknown",
+  "checksum": "b36d789de8a78a05",
+  "reason": "New reference: the image regression suite's first baselines (#135)."
+}

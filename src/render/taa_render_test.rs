@@ -925,6 +925,7 @@ fn a_still_slab_matches_its_reference_image() {
         Tolerance {
             channel: 8,
             outliers: 0.02,
+            edge: 0,
         },
         "A white emissive slab (4 x 1.5 x 0.05) turned 0.37 rad about the view axis, 5 units in front of \
          the camera, on black; 64x64, no antialiasing, no lighting, no tonemapping.",
