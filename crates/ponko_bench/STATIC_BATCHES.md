@@ -526,7 +526,13 @@ frame to frame. For opaque instances that shows only where two meet at
 exactly the same depth in a sample: the later one wins. The parity tests
 met it once: one edge pixel of a 128 x 128 picture off by 3 of 255 in 12
 of 150 runs of the GPU path against itself on the `baseline` tier (the
-CPU path against itself: 0 of 150). Blended instances depend on the order
+CPU path against itself: 0 of 150). A scene of coplanar, overlapping
+cubes showed it at scale: 34 pixels of the same picture off by up to 5 of
+255 between the paths on a software Direct3D 12 device, none on Metal,
+and 5 pixels on Metal once the CPU path was given the instances in
+reverse order. The parity tests now hand the CPU path every batch's
+instances last to first, so a scene that depends on the order fails on
+any device. Blended instances depend on the order
 everywhere they overlap, which is why the automatic choice keeps them on
 the CPU path.
 

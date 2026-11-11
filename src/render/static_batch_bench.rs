@@ -85,6 +85,7 @@ fn run(scenario: &Scenario, path: BatchPath, compute: bool) -> Option<Row> {
         ..Default::default()
     })?;
     rig.renderer.batching.path = path;
+    rig.keep_order = true;
     let data = if scenario.segments == 0 {
         MeshData::cube(0.3)
     } else {
