@@ -6,12 +6,19 @@
 //! draw the runs sorted by the state each draw binds: pipeline, then
 //! material, then mesh. Neighbouring runs then share pipelines and material
 //! bind groups instead of switching back and forth. The transparent pass
-//! blends, so it keeps the collected order of the runs, and draws each
-//! run's models far to near: the frame keeps a model's place in its mesh's
+//! blends, so it draws models globally far to near: the frame keeps a model's place in its mesh's
 //! instances while the camera sees it, so their order there says nothing
 //! about where they are, and changes as other models come and go.
 
 use super::{FADED, Instance3D, Renderer3D, Run};
+
+#[derive(Clone, Copy)]
+pub(super) struct PartRun {
+    pub run: Run,
+    pub part: usize,
+    pub key: (u32, u32, u32),
+    pub distance: f32,
+}
 use std::sync::atomic::{AtomicU32, Ordering};
 
 /// GPU state changes and draws the model passes recorded in a frame
@@ -42,7 +49,10 @@ impl StateCounters {
     }
 
     // The offscreen scene benchmark reads these; it is not built for the web.
-    #[cfg(any(test, not(target_arch = "wasm32")))]
+    pub fn read(&self) -> [u32; 5] {
+        std::array::from_fn(|i| self.0[i].load(Ordering::Relaxed))
+    }
+
     pub fn take(&self) -> StateChanges {
         let [pipelines, bind_groups, vertex_buffers, index_buffers, draws] =
             std::array::from_fn(|i| self.0[i].swap(0, Ordering::Relaxed));
@@ -120,6 +130,50 @@ impl Renderer3D {
         }
         self.lists.views = views;
         self.lists.sort_keys = keys;
+        for view in super::shadow_views(self.lists.cascades, self.lists.light_views) {
+            let mut parts = std::mem::take(&mut self.lists.shadow_parts[view]);
+            self.expand_parts(&self.lists.shadow_runs[view], &mut parts);
+            self.lists.shadow_parts[view] = parts;
+        }
+        let mut parts = std::mem::take(&mut self.lists.view_parts);
+        parts.resize_with(self.lists.views.len(), Vec::new);
+        for ((_, runs, _), parts) in self.lists.views.iter().zip(&mut parts) {
+            self.expand_parts(runs, parts);
+        }
+        self.lists.view_parts = parts;
+    }
+
+    fn expand_parts(&self, runs: &[Run], parts: &mut Vec<PartRun>) {
+        parts.clear();
+        for &run in runs {
+            let mesh = &self.resources.meshes[self.base(run.0) as usize];
+            for (part, &(_, own)) in mesh.parts.iter().enumerate() {
+                let material = self.part_material(run.0, part, own);
+                let m = &self.resources.materials[material as usize];
+                if m.transparent {
+                    continue;
+                }
+                let pipeline = (m.shader << 4)
+                    | u32::from(m.cutout) << 3
+                    | u32::from(m.double_sided) << 2
+                    | u32::from(run.0 & FADED != 0) << 1
+                    | u32::from(mesh.gpu_buffer.is_some());
+                let buffers = if mesh.allocation.is_some() {
+                    0
+                } else {
+                    self.base(run.0) + 1
+                };
+                parts.push(PartRun {
+                    run,
+                    part,
+                    key: (pipeline, material, buffers),
+                    distance: 0.0,
+                });
+            }
+        }
+        if self.group_draws {
+            parts.sort_unstable_by_key(|p| (p.key, p.run.0, p.part));
+        }
     }
 
     /// Whether a run draws any part with a transparent material.
@@ -131,7 +185,7 @@ impl Renderer3D {
             .any(|(part, &(_, m))| self.resources.materials[self.part_material(mesh, part, m) as usize].transparent)
     }
 
-    /// Fills `blended_runs` with the camera's runs that blend, each drawing
+    /// Fills `blended_runs` in global back-to-front order, each drawing
     /// a copy (in `blended`) of its instances sorted far to near from `eye`,
     /// by the models' origins. Models as far as each other are ordered by
     /// their instances' bytes, so the same models always draw the same
@@ -143,24 +197,40 @@ impl Renderer3D {
         let mut keys = std::mem::take(&mut self.lists.blend_keys);
         runs.clear();
         sorted.clear();
+        keys.clear();
         for &(mesh, start, count) in &self.lists.runs {
             if !self.blends(mesh) {
                 continue;
             }
-            let run = &instances[start as usize..(start + count) as usize];
-            keys.clear();
-            keys.extend(run.iter().enumerate().map(|(i, instance)| {
-                let [x, y, z, _] = instance.model[3];
-                (glam::Vec3::new(x, y, z).distance_squared(eye), i as u32)
+            keys.extend((start..start + count).map(|i| {
+                let [x, y, z, _] = instances[i as usize].model[3];
+                (glam::Vec3::new(x, y, z).distance_squared(eye), mesh, i)
             }));
-            let bytes = |i: u32| bytemuck::bytes_of(&run[i as usize]);
-            keys.sort_unstable_by(|a, b| b.0.total_cmp(&a.0).then_with(|| bytes(a.1).cmp(bytes(b.1))));
-            runs.push((mesh, base + sorted.len() as u32, count));
-            sorted.extend(keys.iter().map(|&(_, i)| run[i as usize]));
+        }
+        keys.sort_unstable_by(|a, b| {
+            b.0.total_cmp(&a.0).then_with(|| a.1.cmp(&b.1)).then_with(|| {
+                bytemuck::bytes_of(&instances[a.2 as usize]).cmp(bytemuck::bytes_of(&instances[b.2 as usize]))
+            })
+        });
+        for &(_, mesh, i) in &keys {
+            let at = base + sorted.len() as u32;
+            if let Some((last, start, count)) = runs.last_mut()
+                && *last == mesh
+                && *start + *count == at
+            {
+                *count += 1;
+            } else {
+                runs.push((mesh, at, 1));
+            }
+            sorted.push(instances[i as usize]);
         }
         self.lists.blended_runs = runs;
         self.lists.blended = sorted;
         self.lists.blend_keys = keys;
+    }
+
+    pub(crate) fn state_changes(&self) -> [u32; 5] {
+        self.state_counters.read()
     }
 
     /// The state changes and draws the model passes recorded since the last
@@ -168,5 +238,79 @@ impl Renderer3D {
     #[cfg(any(test, not(target_arch = "wasm32")))]
     pub(crate) fn take_state_changes(&self) -> StateChanges {
         self.state_counters.take()
+    }
+}
+
+impl Renderer3D {
+    /// Expand multi-material meshes into independently sortable part draws.
+    /// The effective material includes whole-model and per-part overrides.
+    /// With no prepass, preserve instancing and sort equal-state runs
+    /// by distance without introducing extra buffer binds.
+    pub(super) fn order_solid_parts(&mut self, instances: &[Instance3D], eye: glam::Vec3) {
+        let mut draws = std::mem::take(&mut self.lists.solid_parts);
+        draws.clear();
+        let depth = |instance: &Instance3D| {
+            let [x, y, z, _] = instance.model[3];
+            glam::Vec3::new(x, y, z).distance_squared(eye)
+        };
+        for &(mesh, start, count) in &self.lists.solid_runs {
+            let geometry = &self.resources.meshes[self.base(mesh) as usize];
+            let run = (mesh, start, count);
+            let mut near = f32::INFINITY;
+            if !self.full_prepass() && self.group_draws {
+                near = instances[start as usize..(start + count) as usize]
+                    .iter()
+                    .map(depth)
+                    .fold(f32::INFINITY, f32::min);
+            }
+            for (part, &(_, own)) in geometry.parts.iter().enumerate() {
+                let material = self.part_material(mesh, part, own);
+                let m = &self.resources.materials[material as usize];
+                if m.transparent {
+                    continue;
+                }
+                let pipeline = (m.shader << 4)
+                    | u32::from(m.cutout) << 3
+                    | u32::from(m.double_sided) << 2
+                    | u32::from(mesh & FADED != 0) << 1
+                    | u32::from(geometry.gpu_buffer.is_some());
+                // Arena meshes share both bindings. Dedicated meshes keep
+                // their own group so depth ordering cannot add switches.
+                let buffers = if geometry.allocation.is_some() {
+                    0
+                } else {
+                    self.base(mesh) + 1
+                };
+                draws.push(PartRun {
+                    run,
+                    part,
+                    key: (pipeline, material, buffers),
+                    distance: near,
+                });
+            }
+        }
+        if self.group_draws {
+            draws.sort_unstable_by(|a, b| {
+                a.key
+                    .cmp(&b.key)
+                    .then_with(|| a.distance.total_cmp(&b.distance))
+                    .then_with(|| a.run.0.cmp(&b.run.0))
+                    .then(a.part.cmp(&b.part))
+            });
+        }
+        self.lists.solid_parts = draws;
+    }
+}
+
+#[cfg(test)]
+impl Renderer3D {
+    pub(crate) fn flush_meshes_for_test(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.resources.mesh_arena.flush(device, queue);
+    }
+    pub(crate) fn group_blended_by_mesh_for_test(&mut self) {
+        self.lists.blended_runs.sort_unstable_by_key(|r| r.0);
+    }
+    pub(crate) fn solid_part_order_for_test(&self) -> Vec<(u32, usize)> {
+        self.lists.solid_parts.iter().map(|d| (d.run.0, d.part)).collect()
     }
 }

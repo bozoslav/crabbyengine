@@ -107,7 +107,11 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
                 (frame, Value::Array(passes))
             };
             gone("counts.frustum_culled_models", FRUSTUM);
+            if detail.state_changes.is_none() {
+                gone("counts.state_changes", "3D model passes are not enabled");
+            }
             let counts = json!({
+                "state_changes": crate::render::state_changes_json(detail.state_changes),
                 "draw_calls": s.draw_calls,
                 "sprites": s.sprites,
                 "models": s.instances,
@@ -250,6 +254,7 @@ mod tests {
             gpu_timestamps,
             gpu_frames_timed,
             prepare_ms: 1.5,
+            state_changes: Some([2, 7, 3, 2, 11]),
         })
     }
 
@@ -464,5 +469,37 @@ mod tests {
         });
         assert_eq!(q["level"], "custom");
         assert_eq!(q["shadow_cascades"], 1);
+    }
+}
+
+#[cfg(test)]
+mod state_change_tests {
+    use super::*;
+    #[test]
+    fn state_counters_are_additive_and_unavailable_without_rendering() {
+        let mut input = Inputs {
+            source: Source::Drawn(RenderDetail {
+                state_changes: Some([2, 7, 3, 2, 11]),
+                ..Default::default()
+            }),
+            stats: RenderStats::default(),
+            passes: &[],
+            quality: None,
+            pipelines: PipelineStats::default(),
+        };
+        let report = render_inspector(&input);
+        assert_eq!(report["schema"], 1);
+        assert_eq!(
+            report["counts"]["state_changes"],
+            crate::render::state_changes_json(Some([2, 7, 3, 2, 11]))
+        );
+        input.source = Source::Headless;
+        let report = render_inspector(&input);
+        assert!(report["counts"].is_null());
+        assert!(report["unavailable"]["counts"].is_string());
+        input.source = Source::Drawn(RenderDetail::default());
+        let report = render_inspector(&input);
+        assert!(report["counts"]["state_changes"].is_null());
+        assert!(report["unavailable"]["counts.state_changes"].is_string());
     }
 }

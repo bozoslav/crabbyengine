@@ -1585,7 +1585,7 @@ impl Renderer3D {
         let Some(mesh) = self.resources.meshes.get(run_mesh as usize) else {
             return;
         };
-        let Some((vertices, indices)) = &mesh.buffers else {
+        let Some((vertices, indices)) = mesh.buffers(&self.resources.mesh_arena) else {
             return;
         };
         if !batch.draws(slot, level) {
@@ -1624,12 +1624,17 @@ impl Renderer3D {
                 n.pipelines += 1;
                 state.pipeline = Some(pipeline as *const _);
             }
-            if state.mesh != run_mesh {
+            let buffer_key = if mesh.allocation.is_some() {
+                0
+            } else {
+                self.base(run_mesh) + 1
+            };
+            if state.mesh != buffer_key {
                 gpu!(pass.set_vertex_buffer(0, vertices.slice(..)));
                 gpu!(pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32));
                 n.vertex_buffers += 1;
                 n.index_buffers += 1;
-                state.mesh = run_mesh;
+                state.mesh = buffer_key;
             }
             if state.material != material {
                 gpu!(pass.set_bind_group(1, &m.bind_group, &[]));

@@ -172,6 +172,7 @@ impl Renderer3D {
         textures: &[GpuTexture],
         timer: Option<&GpuTimer>,
     ) -> Vec<wgpu::CommandBuffer> {
+        self.state_counters.take();
         let Some(targets) = self.targets.as_ref().filter(|_| !self.too_many) else {
             return Vec::new();
         };
@@ -187,11 +188,11 @@ impl Renderer3D {
             if cascade >= MAX_CASCADES && self.shadow_cache.light_kept & (1 << (cascade - MAX_CASCADES)) != 0 {
                 continue; // its tile already holds this
             }
-            let runs = &self.lists.shadow_runs[cascade];
+            let runs = &self.lists.shadow_parts[cascade];
             let mut first = 0;
             let mut draws = 0;
-            for (i, &(mesh, _, _)) in runs.iter().enumerate() {
-                draws += self.resources.meshes[self.base(mesh) as usize].parts.len();
+            for i in 0..runs.len() {
+                draws += 1;
                 if draws >= SHADOW_DRAWS_PER_PASS {
                     parts.push(Part::Shadow {
                         cascade,
@@ -399,8 +400,13 @@ impl Renderer3D {
                 let offset = (self.shadows.stride * cascade as u64) as u32;
                 pass.set_bind_group(0, &self.shadows.bind_group, &[offset]);
                 pass.set_bind_group(2, &self.no_scene, &[]);
-                let runs = &self.lists.shadow_runs[cascade][first as usize..end as usize];
-                self.draw_model_runs(&mut pass, runs, Kind::Shadow(cascade), &self.instances);
+                let runs = &self.lists.shadow_parts[cascade][first as usize..end as usize];
+                self.record_model_parts(
+                    &mut pass,
+                    runs.iter().map(|p| (p.run, Some(p.part))),
+                    Kind::Shadow(cascade),
+                    &self.instances,
+                );
                 if first == 0 {
                     self.draw_models(&mut pass, &[], Kind::Shadow(cascade), &self.instances);
                 }
@@ -436,7 +442,7 @@ impl Renderer3D {
                 });
                 pass.set_bind_group(0, &self.frame_bind_group, &[]);
                 pass.set_bind_group(2, &self.no_scene, &[]);
-                self.draw_models(&mut pass, &self.lists.solid_runs, Kind::Prepass, &self.instances);
+                self.draw_solid(&mut pass, Kind::Prepass);
                 drop(pass);
                 self.coverage_prepass(
                     encoder,
@@ -550,7 +556,7 @@ impl Renderer3D {
                     let opaque_scene = targets.opaque_scene.as_ref().unwrap_or(&self.no_scene);
                     pass.set_bind_group(0, &self.frame_bind_group, &[]);
                     pass.set_bind_group(2, opaque_scene, &[]);
-                    self.draw_models(&mut pass, &self.lists.solid_runs, Kind::Opaque, &self.instances);
+                    self.draw_solid(&mut pass, Kind::Opaque);
                     if self.atmosphere {
                         pass.set_pipeline(&self.sky);
                         pass.set_bind_group(0, &self.frame_bind_group, &[]);
@@ -885,7 +891,28 @@ impl Renderer3D {
         instances: &wgpu::Buffer,
         view: usize,
     ) {
-        self.draw_model_runs(pass, runs, kind, instances);
+        if runs.as_ptr() == self.lists.solid_runs.as_ptr() && runs.len() == self.lists.solid_runs.len() {
+            self.record_model_parts(
+                pass,
+                self.lists.solid_parts.iter().map(|d| (d.run, Some(d.part))),
+                kind,
+                instances,
+            );
+        } else if let Some(i) = self
+            .lists
+            .views
+            .iter()
+            .position(|(_, r, _)| r.as_ptr() == runs.as_ptr() && r.len() == runs.len())
+        {
+            self.record_model_parts(
+                pass,
+                self.lists.view_parts[i].iter().map(|p| (p.run, Some(p.part))),
+                kind,
+                instances,
+            );
+        } else {
+            self.draw_model_runs(pass, runs, kind, instances);
+        }
         if kind != Kind::Velocity {
             self.draw_static(pass, kind, view);
         }
@@ -895,6 +922,26 @@ impl Renderer3D {
         &self,
         pass: &mut wgpu::RenderPass<'_>,
         runs: &[(u32, u32, u32)],
+        kind: Kind,
+        instances: &wgpu::Buffer,
+    ) {
+        self.record_model_parts(pass, runs.iter().copied().map(|r| (r, None)), kind, instances);
+    }
+
+    fn draw_solid(&self, pass: &mut wgpu::RenderPass<'_>, kind: Kind) {
+        self.record_model_parts(
+            pass,
+            self.lists.solid_parts.iter().map(|d| (d.run, Some(d.part))),
+            kind,
+            &self.instances,
+        );
+        self.draw_static(pass, kind, 0);
+    }
+
+    fn record_model_parts(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        runs: impl Iterator<Item = (Run, Option<usize>)>,
         kind: Kind,
         instances: &wgpu::Buffer,
     ) {
@@ -914,7 +961,8 @@ impl Renderer3D {
         // validation and a Metal/Vulkan call per draw otherwise.
         let mut bound = None;
         let mut bound_material = u32::MAX;
-        for &(mesh, start, models) in runs {
+        let mut bound_buffers = None;
+        for ((mesh, start, models), only_part) in runs {
             let fading = mesh & FADED != 0;
             let mesh = mesh & !FADED;
             let run_mesh = mesh;
@@ -930,7 +978,7 @@ impl Renderer3D {
             } else {
                 None
             };
-            let Some((rest, indices)) = &mesh.buffers else {
+            let Some((rest, indices)) = mesh.buffers(&self.resources.mesh_arena) else {
                 continue;
             };
             let vertices = match posed {
@@ -941,7 +989,12 @@ impl Renderer3D {
                 },
             };
             let mut buffers_set = false;
-            for (part, (range, material)) in mesh.parts.iter().enumerate() {
+            let (first_part, parts) = match only_part {
+                Some(part) => (part, &mesh.parts[part..part + 1]),
+                None => (0, mesh.parts.as_slice()),
+            };
+            for (index, (range, material)) in parts.iter().enumerate() {
+                let part = first_part + index;
                 let material = &self.part_material(run_mesh, part, *material);
                 let m = &self.resources.materials[*material as usize];
                 // The role for the material's blend in this pass (see
@@ -970,12 +1023,13 @@ impl Renderer3D {
                     n.pipelines += 1;
                     bound = Some(pipeline as *const _);
                 }
-                if !buffers_set {
+                if !buffers_set && bound_buffers != Some((vertices, indices)) {
                     pass.set_vertex_buffer(0, vertices.slice(..));
                     pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
                     n.vertex_buffers += 1;
                     n.index_buffers += 1;
                     buffers_set = true;
+                    bound_buffers = Some((vertices, indices));
                 }
                 if bound_material != *material {
                     pass.set_bind_group(1, &m.bind_group, &[]);

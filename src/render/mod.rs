@@ -292,6 +292,7 @@ pub(crate) struct RenderDetail {
     /// CPU time preparing the 3D frame (collecting models and uploading
     /// their data) in ms; includes `RenderStats::collect_ms`.
     pub prepare_ms: f32,
+    pub state_changes: Option<[u32; 5]>,
 }
 
 /// What happened when we tried to draw a frame.
@@ -412,3 +413,16 @@ pub use crate::three::{
     ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus, ShadowMesh, Sky, TargetCamera, TargetEffect, Tonemap,
     look_at_joint, two_bone_ik,
 };
+
+/// Shared additive JSON shape for the inspector and frame benchmarks.
+pub(crate) fn state_changes_json(changes: Option<[u32; 5]>) -> serde_json::Value {
+    changes.map_or(
+        serde_json::Value::Null,
+        |[pipelines, bind_groups, vertex_buffers, index_buffers, draws]| {
+            serde_json::json!({
+                "pipelines": pipelines, "bind_groups": bind_groups,
+                "vertex_buffers": vertex_buffers, "index_buffers": index_buffers, "draws": draws,
+            })
+        },
+    )
+}

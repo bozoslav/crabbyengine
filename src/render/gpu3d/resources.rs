@@ -20,6 +20,7 @@ use crate::three::{GpuMaterialDesc, MaterialTextures, MeshData, linear};
 /// Every mesh, material, texture array and GPU buffer the scene draws with.
 pub(super) struct Resources {
     pub(super) meshes: Vec<GpuMesh>,
+    pub(super) mesh_arena: super::mesh_arena::MeshArena,
     pub(super) materials: Vec<GpuMaterial>,
     pub(super) material_layout: wgpu::BindGroupLayout,
     pub(super) material_sampler: wgpu::Sampler,
@@ -380,6 +381,7 @@ impl Resources {
         skinned: bool,
         skinning: &mut skinning::Skinning,
     ) {
+        self.free_mesh(id);
         let normals = data.normals_or_computed();
         let vertices: Vec<Vertex> = (0..data.positions.len())
             .map(|i| Vertex {
@@ -405,28 +407,43 @@ impl Resources {
                 .collect();
             skinning.create(device, &vertices, &data.joints, &data.weights, deltas)
         });
-        let vertices = device
-            .uploading(Upload::Meshes)
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("3d vertices"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX
-                    | if skin.is_some() {
-                        skinning.rest_usage()
-                    } else {
-                        wgpu::BufferUsages::empty()
-                    },
-            });
-        let indices = device
-            .uploading(Upload::Meshes)
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("3d indices"),
-                contents: bytemuck::cast_slice(&data.indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
+        let allocation = if skin.is_none() {
+            self.mesh_arena.upload(device, &vertices, &data.indices)
+        } else {
+            None
+        };
+        let buffers = if allocation.is_some() {
+            None
+        } else {
+            let vertices = device
+                .uploading(Upload::Meshes)
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("3d vertices"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX
+                        | if skin.is_some() {
+                            skinning.rest_usage()
+                        } else {
+                            wgpu::BufferUsages::empty()
+                        },
+                });
+            let indices = device
+                .uploading(Upload::Meshes)
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("3d indices"),
+                    contents: bytemuck::cast_slice(&data.indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+            Some((vertices, indices))
+        };
+        let offset = allocation.as_ref().map_or(0, |a| a.indices.start);
         let mesh = GpuMesh {
-            buffers: Some((vertices, indices)),
-            parts: parts.iter().map(|(r, m)| (r.clone(), m.id)).collect(),
+            buffers,
+            allocation,
+            parts: parts
+                .iter()
+                .map(|(r, m)| (r.start + offset..r.end + offset, m.id))
+                .collect(),
             skin,
             gpu_buffer: None,
         };
@@ -443,7 +460,8 @@ impl Resources {
     /// Meshes with GPU buffers and their bytes, then GPU buffers and
     /// theirs (`Ctx::asset_inventory`).
     pub(super) fn residency(&self) -> (usize, u64, usize, u64) {
-        let (mut meshes, mut mesh_bytes) = (0, 0);
+        let (mut meshes, mut mesh_bytes) = (0, self.mesh_arena.bytes());
+        meshes += self.meshes.iter().filter(|m| m.allocation.is_some()).count();
         for (vertices, indices) in self.meshes.iter().filter_map(|m| m.buffers.as_ref()) {
             meshes += 1;
             mesh_bytes += vertices.size() + indices.size();
@@ -460,6 +478,9 @@ impl Resources {
     /// Frees mesh `id`'s GPU memory; it draws nothing from now on.
     pub(super) fn free_mesh(&mut self, id: u32) {
         if let Some(mesh) = self.meshes.get_mut(id as usize) {
+            if let Some(allocation) = mesh.allocation.take() {
+                self.mesh_arena.release(allocation);
+            }
             mesh.buffers = None;
             mesh.parts = Vec::new();
             mesh.skin = None;
@@ -498,9 +519,10 @@ pub(super) const MOVED_ATTRIBUTES: [wgpu::VertexAttribute; 9] = wgpu::vertex_att
 ];
 
 pub(super) struct GpuMesh {
-    /// Vertex and index buffers; `None` once freed (its parts are gone too).
+    /// Dedicated buffers for deformable meshes and arena-limit fallback.
     pub(super) buffers: Option<(wgpu::Buffer, wgpu::Buffer)>,
-    /// Index range and material of each part.
+    pub(super) allocation: Option<super::mesh_arena::Allocation>,
+    /// Index range and material of each part (arena-global for shared meshes).
     pub(super) parts: Vec<(Range<u32>, u32)>,
     /// What skinning it needs, if it's skinned.
     pub(super) skin: Option<skinning::GpuSkin>,
@@ -542,4 +564,17 @@ pub(super) fn array_view(texture: &wgpu::Texture) -> wgpu::TextureView {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         ..Default::default()
     })
+}
+
+impl GpuMesh {
+    pub(super) fn buffers<'a>(
+        &'a self,
+        arena: &'a super::mesh_arena::MeshArena,
+    ) -> Option<(&'a wgpu::Buffer, &'a wgpu::Buffer)> {
+        if self.allocation.is_some() {
+            arena.buffers()
+        } else {
+            self.buffers.as_ref().map(|(v, i)| (v, i))
+        }
+    }
 }

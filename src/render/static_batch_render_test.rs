@@ -1280,9 +1280,9 @@ fn batches_of_one_mesh_share_their_draw_state() {
         let c = rig.frame().changes;
         eprintln!("{path:?}: {c:?}");
         // Two passes draw them (depth prepass, opaque); each binds each
-        // mesh's pipeline, buffers and material once, not once a batch.
+        // mesh's material once, and the shared geometry once, not once a batch.
         assert_eq!(c.pipelines, 2, "{path:?}: one pipeline a pass: {c:?}");
-        assert_eq!(c.index_buffers, 4, "{path:?}: each mesh's indices once a pass: {c:?}");
+        assert_eq!(c.index_buffers, 2, "{path:?}: shared indices once a pass: {c:?}");
         assert_eq!(c.draws, 80, "{path:?}: one draw per batch and pass: {c:?}");
         match path {
             // Per batch: its bind group. Per pass: the marker, two materials.

@@ -375,6 +375,7 @@ impl Perf {
         sample: crate::profiler::FrameSample,
         gpu_frame: Option<(&[crate::profiler::PassSpan], u64)>,
     ) -> bool {
+        self.profiler.frame_state_changes = self.last_render_detail.and_then(|d| d.state_changes);
         let quit = self.profiler.record(
             sample,
             &self.timings,

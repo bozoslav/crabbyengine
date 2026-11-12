@@ -46,6 +46,8 @@ struct Rig {
     renderer: Renderer3D,
     ctx: Ctx,
     frame: Frame3D,
+    /// Force the old mesh ordering as a blending negative control.
+    mesh_order_blends: bool,
     /// Uncaptured GPU errors and device loss, so a wrong frame names its cause.
     gpu_errors: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
@@ -162,6 +164,7 @@ impl Rig {
             ctx,
             frame: Frame3D::default(),
             gpu_errors,
+            mesh_order_blends: false,
         })
     }
 
@@ -257,6 +260,9 @@ impl Rig {
                 size: (SIZE, SIZE),
             },
         );
+        if self.mesh_order_blends {
+            self.renderer.group_blended_by_mesh_for_test();
+        }
         let prepared = t.elapsed();
         let t = std::time::Instant::now();
         let buffers = self
@@ -511,6 +517,16 @@ fn a_one_material_scene_draws_as_before() {
     let (after, sorted) = rig.settled(true);
     rig.assert_same_frame(&before, &after, "sorted and unsorted runs", false);
     assert_eq!(sorted, unsorted);
+    rig.render();
+    let counters = rig.renderer.state_changes();
+    assert!(counters[4] > 0);
+    assert_eq!(
+        rig.renderer.state_changes(),
+        counters,
+        "inspection does not consume counters"
+    );
+    rig.render();
+    assert_eq!(rig.renderer.state_changes(), counters, "each frame resets its counters");
 }
 
 /// CPU time and state changes of the many-material scene, mesh order vs
@@ -562,7 +578,7 @@ fn bench_draw_order() {
                 t.sort_by(f64::total_cmp);
                 (t[0], t[t.len() / 2], t[t.len() * 95 / 100])
             };
-            let (c, per) = (changes[i], frames);
+            let (c, per) = (changes[i], 1);
             eprintln!(
                 "{meshes} meshes, sorted {group}: prepare {:.3?} ms, record {:.3?} ms (min, p50, p95 of {}); \
                  per frame: {} pipelines, {} bind groups, {} vertex buffers, {} index buffers, {} draws",
@@ -695,4 +711,148 @@ fn frames_differing_by_gpu_noise_pass_and_by_more_fail() {
     }
     // Sorted and unsorted runs differ in their inputs; only a repeat must not.
     assert_same_frame(&base, &other, "sorted", false);
+}
+
+#[test]
+fn transparent_models_sort_globally_across_meshes_and_override_materials() {
+    for prepass in [false, true] {
+        let Some(mut rig) = Rig::new(prepass) else { return };
+        rig.ctx.lighting.shadows = false;
+        rig.ctx.camera3d.position = vec3(0.0, 0.0, 8.0);
+        rig.ctx.camera3d.look_at(Vec3::ZERO);
+        let unlit = rig.shader(
+            "glass_unlit",
+            "fn surface(s: Surface) -> Surface { var o = s; o.unlit = true; return o; }",
+        );
+        let red = rig.material(MaterialDesc {
+            color: Color::rgba(1.0, 0.0, 0.0, 0.5),
+            shader: Some(unlit),
+            blend: Blend::Transparent,
+            double_sided: true,
+            ..Default::default()
+        });
+        let blue = rig.material(MaterialDesc {
+            color: Color::rgba(0.0, 0.0, 1.0, 0.5),
+            shader: Some(unlit),
+            blend: Blend::Transparent,
+            double_sided: true,
+            ..Default::default()
+        });
+        let a = rig.mesh(&MeshData::plane(4.0), red);
+        let b = rig.mesh(&MeshData::plane(4.0), red);
+        let mut entities = Vec::new();
+        // Two instances of a must split around b. Mesh order is a,a,b;
+        // correct order is a (far), b (middle), a (near).
+        for (mesh, z) in [(a, 1.0), (a, -1.0), (b, 0.0)] {
+            let e = rig.ctx.world.spawn((
+                Transform3D {
+                    rotation: Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                    ..Transform3D::at(vec3(0.0, 0.0, z))
+                },
+                Model::new(mesh),
+            ));
+            entities.push(e);
+        }
+        rig.ctx.world.insert(entities[2], ModelMaterial(blue));
+        let center = |pixels: &[u8]| -> [u32; 2] {
+            let mut sum = [0; 2];
+            for y in 120..136 {
+                for x in 120..136 {
+                    let i = ((y * SIZE + x) * 4) as usize;
+                    sum[0] += pixels[i] as u32;
+                    sum[1] += pixels[i + 2] as u32;
+                }
+            }
+            sum
+        };
+        let (correct, _) = rig.settled(true);
+        let c = center(&correct);
+        assert!(c[0] > c[1] + 5000, "near red dominates: {c:?}");
+        rig.mesh_order_blends = true;
+        let (wrong, _) = rig.settled(true);
+        let w = center(&wrong);
+        eprintln!("prepass {prepass}: correct red/blue {c:?}, mesh-order control {w:?}");
+        assert!(w[1] > w[0] + 2000, "negative control: middle blue draws last: {w:?}");
+        rig.mesh_order_blends = false;
+        // Move blue in front of both red models; sorting must update with distance.
+        rig.ctx.world.get_mut::<Transform3D>(entities[2]).unwrap().position.z = 2.0;
+        let (moved, _) = rig.settled(true);
+        let m = center(&moved);
+        assert!(m[1] > m[0] + 2000, "near blue dominates after moving: {m:?}");
+        rig.assert_healthy("transparent ordering");
+    }
+}
+
+#[test]
+fn shared_mesh_buffers_preserve_pixels_after_free_reuse_and_growth() {
+    let Some(mut rig) = Rig::new(true) else { return };
+    let material = rig.material(MaterialDesc::default());
+    let data = MeshData::cube(1.0);
+    let a = rig.mesh(&data, material);
+    let b = rig.mesh(&data, material);
+    for (mesh, x) in [(a, -1.0), (b, 1.0)] {
+        rig.ctx
+            .world
+            .spawn((Transform3D::at(vec3(x, 0.0, 0.0)), Model::new(mesh)));
+    }
+    rig.ctx.camera3d.position = vec3(0.0, 2.0, 7.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    let (before, _) = rig.settled(true);
+    rig.renderer.free_mesh(a.id());
+    // Consume its hole, then force both arenas to grow. b must survive.
+    for i in 0..12 {
+        rig.mesh(&MeshData::sphere(0.1, 12 + i), material);
+    }
+    rig.renderer.create_mesh_at(
+        &rig.device,
+        a.id(),
+        &data,
+        &[(0..data.indices.len() as u32, material)],
+        false,
+    );
+    let (after, changes) = rig.settled(true);
+    rig.assert_same_frame(&before, &after, "shared arenas free/reuse/regrow", false);
+    assert!(changes.index_buffers < changes.draws, "shared bindings: {changes:?}");
+    // Negative control: a live mesh's removal must change its pixels.
+    rig.renderer.free_mesh(b.id());
+    let (missing, _) = rig.settled(true);
+    assert!(missing.iter().zip(after.iter()).filter(|(a, b)| a != b).count() > 1000);
+    rig.assert_healthy("shared arena growth");
+}
+
+#[test]
+fn part_runs_group_resolved_materials_and_depth_without_extra_draws() {
+    let Some(mut rig) = Rig::new(false) else { return };
+    let a = rig.material(MaterialDesc::default());
+    let b = rig.material(MaterialDesc {
+        color: Color::rgb(0.2, 0.5, 0.8),
+        ..Default::default()
+    });
+    let data = MeshData::cube(1.0);
+    let near = rig.mesh(&data, a);
+    let far = rig.mesh(&data, a);
+    // Two material parts, deliberately alternating across meshes.
+    rig.renderer
+        .create_mesh_at(&rig.device, near.id(), &data, &[(0..18, b), (18..36, a)], false);
+    rig.renderer
+        .create_mesh_at(&rig.device, far.id(), &data, &[(0..18, b), (18..36, a)], false);
+    rig.ctx
+        .world
+        .spawn((Transform3D::at(vec3(0.0, 0.0, -2.0)), Model::new(near)));
+    rig.ctx
+        .world
+        .spawn((Transform3D::at(vec3(0.0, 0.0, 2.0)), Model::new(far)));
+    rig.ctx.camera3d.position = vec3(0.0, 1.0, 8.0);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    let (before, unsorted) = rig.settled(false);
+    let (after, sorted) = rig.settled(true);
+    rig.assert_same_frame(&before, &after, "per-part material and depth order", false);
+    // A parts first, B parts second; the nearer run within each group first.
+    assert_eq!(
+        rig.renderer.solid_part_order_for_test(),
+        [(far.id(), 1), (near.id(), 1), (far.id(), 0), (near.id(), 0)]
+    );
+    assert_eq!(sorted.draws, unsorted.draws);
+    assert!(sorted.bind_groups < unsorted.bind_groups);
+    assert_eq!(sorted.index_buffers, unsorted.index_buffers);
 }

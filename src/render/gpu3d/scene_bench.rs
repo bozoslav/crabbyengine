@@ -1,5 +1,5 @@
 //! Offscreen 3D scenes for the rendering performance baseline (`ponko_bench`,
-//! `render/scene`): seven reproducible worlds drawn with the real
+//! `render/scene`): eight reproducible worlds drawn with the real
 //! `Renderer3D` into a texture, without a window, each frame split into the
 //! steps a game's frame has (collect, prepare, encode, submit, the GPU's
 //! work) and counted (draw calls, triangles, uploads, GPU memory).
@@ -35,6 +35,8 @@ use crate::{Color, Ctx};
 #[doc(hidden)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SceneKind {
+    /// One mesh and material, to detect simple-scene regressions.
+    SingleMaterial,
     /// A large world that never changes: eight instance batches and a
     /// ground, under a moving camera.
     StaticWorld,
@@ -58,7 +60,8 @@ pub enum SceneKind {
 
 impl SceneKind {
     /// Every scene, in the order the baseline lists them.
-    pub const ALL: [SceneKind; 7] = [
+    pub const ALL: [SceneKind; 8] = [
+        SceneKind::SingleMaterial,
         SceneKind::StaticWorld,
         SceneKind::DynamicWorld,
         SceneKind::MultiMaterial,
@@ -72,6 +75,7 @@ impl SceneKind {
     #[must_use]
     pub fn name(self) -> &'static str {
         match self {
+            SceneKind::SingleMaterial => "single-material",
             SceneKind::StaticWorld => "static-world",
             SceneKind::DynamicWorld => "dynamic-world",
             SceneKind::MultiMaterial => "multi-material",
@@ -86,6 +90,7 @@ impl SceneKind {
     #[must_use]
     pub fn description(self) -> &'static str {
         match self {
+            SceneKind::SingleMaterial => "one instanced cube mesh and material, 100 ordinary models",
             SceneKind::StaticWorld => {
                 "eight static instance batches (boxes and spheres) and a ground; only the camera moves"
             }
@@ -776,6 +781,17 @@ impl SceneBench {
     fn build(&mut self) {
         let mut seq = Sequence(0x9E37_79B9_7F4A_7C15);
         match self.kind {
+            SceneKind::SingleMaterial => {
+                let material = self.material(MaterialDesc::default());
+                let mesh = self.mesh(&MeshData::cube(1.0), material);
+                for i in 0..100 {
+                    self.ctx.world.spawn((
+                        Transform3D::at(Vec3::new((i % 10) as f32 * 1.5 - 7.0, 0.5, (i / 10) as f32 * -1.5)),
+                        Model::new(mesh),
+                    ));
+                }
+                self.orbit = (Vec3::new(0.0, 0.0, -5.0), 18.0, 10.0);
+            }
             SceneKind::StaticWorld => {
                 let half = 200.0;
                 self.ground(half * 2.0, Color::rgb(0.32, 0.4, 0.3));

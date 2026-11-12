@@ -8,9 +8,9 @@ use crate::prelude::*;
 #[allow(unused_imports)]
 use crate::render::{Material, MeshData};
 
-fn renderer() -> Option<(wgpu::Device, Renderer3D)> {
+fn renderer() -> Option<(wgpu::Device, wgpu::Queue, Renderer3D)> {
     let gpu = crate::render::render_test_support::gpu_with(|_| Ok(wgpu::DeviceDescriptor::default()))?;
-    let (device, _queue) = (gpu.device, gpu.queue);
+    let (device, queue) = (gpu.device, gpu.queue);
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: None,
         entries: &[
@@ -47,24 +47,25 @@ fn renderer() -> Option<(wgpu::Device, Renderer3D)> {
         view_formats: &[],
     });
     let renderer = Renderer3D::new(&device, &layout, wgpu::TextureFormat::Rgba8Unorm, 0, &white, 4, true);
-    Some((device, renderer))
+    Some((device, queue, renderer))
 }
 
 #[test]
 fn freed_meshes_and_buffers_leave_no_gpu_memory() {
-    let Some((device, mut renderer)) = renderer() else {
+    let Some((device, queue, mut renderer)) = renderer() else {
         return;
     };
     let base = renderer.residency();
     let cube = MeshData::cube(1.0);
     let parts = [(0..cube.indices.len() as u32, Material { id: 0 })];
     let id = renderer.create_mesh(&device, &cube, &parts, false);
+    renderer.flush_meshes_for_test(&device, &queue);
     let (meshes, bytes, _, _) = renderer.residency();
     assert_eq!(meshes, base.0 + 1);
-    assert_eq!(
-        bytes - base.1,
-        crate::three::mesh_gpu_bytes(&cube),
-        "the engine's estimate matches the buffers made"
+    let estimate = crate::three::mesh_gpu_bytes(&cube);
+    assert!(
+        bytes - base.1 >= estimate && bytes - base.1 < 2 * estimate,
+        "shared buffers reserve geometric growth room: {bytes}, payload {estimate}"
     );
     renderer.free_mesh(id);
     for _ in 0..50 {

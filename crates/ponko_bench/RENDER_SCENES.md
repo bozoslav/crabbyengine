@@ -1,7 +1,7 @@
-# Rendering baseline: seven offscreen scenes (#134)
+# Rendering baseline: eight offscreen scenes (#134)
 
 A reproducible measurement of the 3D renderer, to be recorded before and
-after rendering work: seven generated scenes drawn by the real renderer into
+after rendering work: eight generated scenes drawn by the real renderer into
 an offscreen texture, each frame split into its CPU steps and its GPU
 passes, with draw calls, uploads, allocations and memory, and with the GPU,
 the limits and the quality settings written next to the numbers.
@@ -28,6 +28,7 @@ run covers many views. Counts are at scale 1.
 
 | Scene | What it holds | What it stresses |
 |---|---|---|
+| `single-material` | 100 ordinary cube models of one mesh and material | Simple-scene regression control |
 | `static-world` | 8 static instance batches of 25,000 boxes and spheres (200,000 instances), a ground | Static batches: culling and drawing instances that never move |
 | `dynamic-world` | 20,000 models of 16 meshes, every one moved and turned every frame | Collecting moved models, instance uploads, batching by mesh |
 | `multi-material` | 6,000 models of 512 meshes, each mesh with its own material: 32 textures, opaque and cut-out, metallic, emissive, double-sided | Pipeline, bind group and buffer changes between draws |
@@ -393,3 +394,7 @@ Compare average shadow triangles and shadow GPU passes over all measured
 frames, rather than the last frame alone (snapping deliberately creates
 occasional refreshes). The frame CSV includes the work counts; JSON includes
 CPU/GPU distributions, allocation counts, memory and adapter metadata.
+
+
+For shared mesh arenas, global transparent order, and the cost of retaining
+instancing versus sorting by depth, see [the draw-order measurements](DRAW_ORDER_156.md).
