@@ -389,7 +389,13 @@ where
     U: SetupResult,
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_some() {
+        if let Some(window) = &self.window {
+            if let Some(renderer) = &mut self.ctx.gfx.renderer {
+                renderer.surface_event(crate::render::surface_lifecycle::SurfaceEvent::Suspended(false));
+                let size = window.inner_size();
+                renderer.resize(size.width, size.height);
+            }
+            window.request_redraw();
             return;
         }
 
@@ -439,6 +445,12 @@ where
         }
     }
 
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(renderer) = &mut self.ctx.gfx.renderer {
+            renderer.surface_event(crate::render::surface_lifecycle::SurfaceEvent::Suspended(true));
+        }
+    }
+
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, Ready(renderer): Ready) {
         self.start(renderer);
     }
@@ -479,12 +491,17 @@ where
                 if let Some(renderer) = self.ctx.gfx.renderer.as_mut() {
                     renderer.resize(size.width, size.height);
                 }
-                self.ctx.set_window_size(Self::logical_window_size(&window));
+                if crate::render::surface_lifecycle::SurfaceLifecycle::nonzero_size(size.width, size.height).is_some() {
+                    self.ctx.set_window_size(Self::logical_window_size(&window));
+                }
                 self.ctx.set_scale_factor(window.scale_factor() as f32);
                 window.request_redraw();
             }
 
             WindowEvent::Occluded(occluded) => {
+                if let Some(renderer) = &mut self.ctx.gfx.renderer {
+                    renderer.surface_event(crate::render::surface_lifecycle::SurfaceEvent::Occluded(occluded));
+                }
                 // A benchmark draws offscreen while hidden and keeps going.
                 self.occluded = occluded && !self.ctx.perf.profiler.benchmarking();
                 if !occluded {

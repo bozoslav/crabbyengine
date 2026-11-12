@@ -26,6 +26,7 @@ pub(crate) struct Renderer {
     window: Arc<Window>,
     instance: wgpu::Instance,
     surface: wgpu::Surface<'static>,
+    lifecycle: super::surface_lifecycle::SurfaceLifecycle,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -93,6 +94,8 @@ pub(crate) struct Renderer {
     /// Samples per pixel of the 3D frame.
     #[cfg(feature = "3d")]
     msaa: u32,
+    #[cfg(feature = "3d")]
+    supports_msaa2: bool,
     /// The GPU draws in tiles (see `Renderer3D::solid_prepass`).
     #[cfg(feature = "3d")]
     tiled: bool,
@@ -444,7 +447,12 @@ impl Renderer {
             // browser binding panics): draw the 3D frame unsmoothed, and
             // leave edges to FXAA or SMAA.
             1
-        } else if super::gpu3d::multisamples(&adapter, msaa) {
+        } else if msaa == 4
+            || (device
+                .features()
+                .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
+                && super::gpu3d::multisamples(&adapter, msaa))
+        {
             msaa
         } else {
             eprintln!("ponko: this GPU can't do {msaa}x multisampling here; using 4x");
@@ -572,6 +580,7 @@ impl Renderer {
             window,
             instance,
             surface,
+            lifecycle: Default::default(),
             device,
             queue,
             config,
@@ -610,6 +619,10 @@ impl Renderer {
             #[cfg(feature = "3d")]
             msaa,
             #[cfg(feature = "3d")]
+            supports_msaa2: msaa != 1
+                && required_features.contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
+                && super::gpu3d::multisamples(&adapter, 2),
+            #[cfg(feature = "3d")]
             tiled,
             #[cfg(feature = "3d")]
             mips: None,
@@ -637,6 +650,30 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         })
+    }
+
+    #[cfg(feature = "3d")]
+    pub fn set_msaa(&mut self, samples: u32) -> bool {
+        if self.msaa == 1 || (samples == 2 && !self.supports_msaa2) || !matches!(samples, 2 | 4) {
+            return false;
+        }
+        if let Some(three) = &mut self.three
+            && !three.set_samples(&self.device, samples)
+        {
+            return false;
+        }
+        self.msaa = samples;
+        if let Some(status) = self
+            .capabilities
+            .features
+            .iter_mut()
+            .find(|s| s.feature == super::GpuFeature::Multisampling)
+        {
+            status.available = true;
+            status.fallback = None;
+            status.reason = None;
+        }
+        true
     }
 
     /// The 3D pass, made on first use (with its white texture).
@@ -1307,14 +1344,28 @@ impl Renderer {
         self.refresh_mips(id);
     }
 
+    pub(crate) fn surface_event(&mut self, event: super::surface_lifecycle::SurfaceEvent) {
+        if self.lifecycle.update(event) {
+            #[cfg(feature = "3d")]
+            if let Some(three) = &mut self.three {
+                three.invalidate_targets();
+            }
+        }
+    }
+
     /// Call when the window's physical size changes.
     pub fn resize(&mut self, width: u32, height: u32) {
-        if width == 0 || height == 0 {
-            return; // minimized
-        }
+        self.surface_event(super::surface_lifecycle::SurfaceEvent::Occluded(
+            width == 0 || height == 0,
+        ));
+        let Some((width, height)) = super::surface_lifecycle::SurfaceLifecycle::nonzero_size(width, height) else {
+            return; // Keep the last nonzero dimensions for offscreen capture.
+        };
         self.config.width = width;
         self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
+        if !self.lifecycle.suspended() {
+            self.surface.configure(&self.device, &self.config);
+        }
     }
 
     /// Draws everything in `list` and presents. `list` is left as-is; the caller clears it.
@@ -1336,28 +1387,37 @@ impl Renderer {
         // screenshot is still drawn (offscreen), so it never waits on the
         // window being visible.
         let acquire_start = web_time::Instant::now();
-        let acquired = if self.only_hidden {
+        let acquired = if self.only_hidden || self.lifecycle.suspended() {
             wgpu::CurrentSurfaceTexture::Occluded
         } else {
             self.surface.get_current_texture()
         };
         self.display_wait_ms = acquire_start.elapsed().as_secs_f32() * 1000.0;
         let (frame, status) = match acquired {
-            wgpu::CurrentSurfaceTexture::Success(t) => (Some(t), FrameStatus::Presented),
+            wgpu::CurrentSurfaceTexture::Success(t) => {
+                self.surface_event(super::surface_lifecycle::SurfaceEvent::Occluded(false));
+                (Some(t), FrameStatus::Presented)
+            }
             wgpu::CurrentSurfaceTexture::Suboptimal(t) => {
                 // Draw this one, reconfigure for the next.
+                self.surface_event(super::surface_lifecycle::SurfaceEvent::Recreated);
                 self.surface.configure(&self.device, &self.config);
                 (Some(t), FrameStatus::Presented)
             }
-            wgpu::CurrentSurfaceTexture::Occluded => (None, FrameStatus::Occluded),
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                self.surface_event(super::surface_lifecycle::SurfaceEvent::Occluded(true));
+                (None, FrameStatus::Occluded)
+            }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Validation => {
                 (None, FrameStatus::Skipped)
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
+                self.surface_event(super::surface_lifecycle::SurfaceEvent::Recreated);
                 self.surface.configure(&self.device, &self.config);
                 (None, FrameStatus::Skipped)
             }
             wgpu::CurrentSurfaceTexture::Lost => {
+                self.surface_event(super::surface_lifecycle::SurfaceEvent::Recreated);
                 self.surface = self
                     .instance
                     .create_surface(self.window.clone())
@@ -1366,7 +1426,7 @@ impl Renderer {
                 (None, FrameStatus::Skipped)
             }
         };
-        if frame.is_none() && !capture && !self.draw_hidden {
+        if !super::surface_lifecycle::SurfaceLifecycle::draw(frame.is_some(), capture, self.draw_hidden) {
             return status;
         }
         let hidden = frame.is_none() && self.draw_hidden;

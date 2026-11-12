@@ -589,3 +589,24 @@ fn first_load_stand_ins_are_replaced_by_the_fixed_reload() {
         "the fix fills the slot"
     );
 }
+
+#[test]
+fn sample_changes_wait_for_pending_shader_reloads_to_settle() {
+    let Some((device, mut renderer)) = rig() else {
+        return;
+    };
+    let id = renderer.create_shader(&device, "pending.wgsl", RED).unwrap();
+    renderer.defer_checks = true;
+    renderer.replace_shader(&device, id, "pending.wgsl", UNBOUND).unwrap();
+    assert!(
+        !renderer.set_samples(&device, 2),
+        "a late verdict could restore old-count pipelines"
+    );
+    assert_eq!(renderer.samples, 4);
+    let mut errors = Vec::new();
+    renderer.poll_shader_checks(&device, &mut errors);
+    assert_eq!(errors.len(), 1);
+    // A no-op remains valid after the rejected reload; changing counts is
+    // covered by the attachment/pixel test on adapters that support 2x.
+    assert!(renderer.set_samples(&device, 4));
+}

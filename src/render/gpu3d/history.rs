@@ -15,6 +15,8 @@ use glam::{Mat4, Vec3};
 /// The cameras and counters carried from frame to frame.
 #[derive(Default)]
 pub(super) struct History {
+    /// A successful reload (or a late rollback) changed the scene's shading.
+    pub(super) content_changed: bool,
     /// Frames drawn with temporal antialiasing in a row (the jitter's position).
     pub(super) taa_frame: u32,
     /// Which history image the next frame reads, and the one this frame does.
@@ -37,6 +39,7 @@ impl History {
     /// `now`: this frame's unjittered camera, checked for a cut.
     pub(super) fn decide(&mut self, requested: bool, targets: bool, now: Mat4) -> HistoryReset {
         let reset = HistoryReset {
+            content: std::mem::take(&mut self.content_changed),
             requested,
             targets,
             camera_cut: self.camera.is_some_and(|before| camera_cut(before, now)),
@@ -66,11 +69,16 @@ impl History {
 /// agree.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct HistoryReset {
+    /// Shader reload or rollback: the old image has different shading.
+    pub content: bool,
     /// The game asked (`Graphics::reset_temporal_history`): a teleport or a new
     /// scene the camera can't tell apart from motion.
     pub requested: bool,
     /// The targets are made again (a resize, a render scale change or an
-    /// effect switched): the old history images are gone or the wrong size.
+    /// effect/sample count switched, or presentation interrupted/recreated):
+    /// old history images have incompatible dimensions/samples or describe a
+    /// scene from before presentation stopped. Render-scale controllers write
+    /// `Post::render_scale`; prepare_view computes the size before this check.
     pub targets: bool,
     /// The camera jumped far or turned sharply (see `camera_cut`): the
     /// last frame shows somewhere else.
@@ -80,7 +88,7 @@ pub(crate) struct HistoryReset {
 impl HistoryReset {
     /// Whether the frame starts over.
     pub fn any(self) -> bool {
-        self.requested || self.targets || self.camera_cut
+        self.requested || self.targets || self.camera_cut || self.content
     }
 }
 

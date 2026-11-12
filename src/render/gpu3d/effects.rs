@@ -270,6 +270,7 @@ impl Renderer3D {
             };
             self.wait_for_verdict(id, name, EFFECT_VARIANT, swap, verdict);
         }
+        self.history.content_changed = true;
         Ok(())
     }
 }

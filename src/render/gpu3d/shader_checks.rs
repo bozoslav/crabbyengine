@@ -163,6 +163,9 @@ impl Renderer3D {
             let check = self.shader_checks.remove(at);
             let Some(error) = error else { continue };
             let (kind, reload) = (check.kind(), check.reload());
+            // A rejected shader may already have drawn on asynchronous
+            // backends. Its pixels must not survive the rollback.
+            self.history.content_changed = true;
             let diagnostic = rejected(&check.name, kind, &check.variant, &error);
             let superseded = self.shader_versions.get(&(kind, check.id)) != Some(&check.version);
             // A newer version of the same shader is in use and waiting too:

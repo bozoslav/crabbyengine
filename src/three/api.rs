@@ -1333,8 +1333,9 @@ impl Graphics {
     ///
     /// The engine resets by itself on a window resize or render scale
     /// change, when temporal antialiasing or another screen effect is
-    /// turned on or off, and when the camera jumps far or turns sharply in
-    /// one frame. A reset asked for on a frame that draws nothing applies
+    /// turned on or off, after MSAA changes, shader reloads, presentation
+    /// interruptions or surface recreation, and when the camera jumps far
+    /// or turns sharply in one frame. A reset asked for on a frame that draws nothing applies
     /// to the next frame that does.
     ///
     /// ```
@@ -1831,5 +1832,35 @@ mod clip_tests {
     fn missing_named_clip_panics_with_available_names() {
         let (mut ctx, path) = cached_clips();
         ctx.gfx.load_clip(&path, "run");
+    }
+}
+
+impl Graphics {
+    /// Changes the 3D frame and target cameras to 2 or 4 MSAA samples at a
+    /// frame boundary, resetting temporal history on the next drawn frame.
+    /// Returns false without changing anything for unsupported counts, a
+    /// headless renderer, or while an asynchronous shader check is pending
+    /// (retry on a later frame). Existing meshes, materials and shaders stay.
+    /// Native bindings retain the startup `Game::msaa` option; this runtime
+    /// switch is currently Rust-only.
+    pub fn set_msaa(&mut self, samples: u32) -> bool {
+        #[cfg(feature = "window")]
+        if let Some(renderer) = &mut self.renderer {
+            return renderer.set_msaa(samples);
+        }
+        let _ = samples;
+        false
+    }
+}
+
+#[cfg(test)]
+mod msaa_tests {
+    #[test]
+    fn runtime_msaa_is_unavailable_without_a_gpu_and_rejects_invalid_counts() {
+        crate::Game::new("samples", 32, 32).run_headless(0, |ctx| {
+            for samples in [0, 1, 2, 4, 8] {
+                assert!(!ctx.gfx.set_msaa(samples));
+            }
+        });
     }
 }

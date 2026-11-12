@@ -28,6 +28,8 @@ mod shader_diagnostics;
 mod smaa;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod ssr;
+#[cfg(feature = "window")]
+pub(crate) mod surface_lifecycle;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod taa;
 #[cfg(feature = "window")]
