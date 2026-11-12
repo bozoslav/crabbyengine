@@ -360,6 +360,12 @@ impl Renderer {
         &self.capabilities
     }
 
+    /// Read the last collected GPU quality sample before scene preparation.
+    #[cfg(feature = "3d")]
+    pub(crate) fn quality_sample(&self) -> Option<crate::three::autotune::Sample> {
+        self.timer.as_ref()?.quality_sample()
+    }
+
     /// The latest GPU frame's passes and how many frames the timer has read.
     pub fn gpu_frame(&self) -> Option<(&[crate::profiler::PassSpan], u64)> {
         self.timer.as_ref().map(|t| (&t.last_frame[..], t.frames_read))

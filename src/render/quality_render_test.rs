@@ -25,11 +25,17 @@ struct Fixture {
     /// Kept between frames, as the engine keeps it (far shadow cascades
     /// can be kept from an earlier frame).
     frame: Frame3D,
+    timer: Option<super::timer::GpuTimer>,
 }
 
 impl Fixture {
     fn new() -> Option<Self> {
-        let gpu = crate::render::render_test_support::gpu_with(|_| Ok(wgpu::DeviceDescriptor::default()))?;
+        let gpu = crate::render::render_test_support::gpu_with(|adapter| {
+            Ok(wgpu::DeviceDescriptor {
+                required_features: adapter.features() & wgpu::Features::TIMESTAMP_QUERY,
+                ..Default::default()
+            })
+        })?;
         let (device, queue) = (gpu.device, gpu.queue);
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -147,7 +153,9 @@ impl Fixture {
         renderer.create_material(&device, &GpuMaterialDesc::new(&matte), &textures);
         renderer.create_mesh(&device, &ground, &[(0..ground.indices.len() as u32, material)], true);
         renderer.create_mesh(&device, &cube, &[(0..cube.indices.len() as u32, material)], true);
+        let timer = super::timer::GpuTimer::new(&device, &queue);
         Some(Self {
+            timer,
             device,
             queue,
             textures,
@@ -164,7 +172,12 @@ impl Fixture {
     fn draw(&mut self) -> Vec<u8> {
         let (device, queue, ctx) = (&self.device, &self.queue, &mut self.ctx);
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        if let Some(timer) = &mut self.timer {
+            timer.collect(device);
+            timer.begin_frame();
+        }
         let frame = &mut self.frame;
+        frame.motion.reset |= std::mem::take(&mut ctx.gfx.frame3d.motion.reset);
         frame.size_limit = device.limits().max_texture_dimension_2d;
         frame.collect(
             &mut ctx.world,
@@ -196,10 +209,20 @@ impl Fixture {
                 size: (W, H),
             },
         );
-        let buffers = self
-            .renderer
-            .draw(device, &self.target, wgpu::Color::BLACK, &self.textures, None);
+        let buffers = self.renderer.draw(
+            device,
+            &self.target,
+            wgpu::Color::BLACK,
+            &self.textures,
+            self.timer.as_ref(),
+        );
         queue.submit(buffers);
+        if let Some(timer) = &mut self.timer {
+            let mut encoder = device.create_command_encoder(&Default::default());
+            timer.resolve(&mut encoder);
+            queue.submit([encoder.finish()]);
+            timer.submitted();
+        }
         let readback = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: u64::from(W * H * 4),
@@ -223,6 +246,9 @@ impl Fixture {
         readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
         device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         let pixels = readback.get_mapped_range(..).unwrap().to_vec();
+        if let Some(timer) = &mut self.timer {
+            timer.collect(device);
+        }
         if let Some(error) = pollster::block_on(scope.pop()) {
             panic!("validation error: {error}");
         }
@@ -494,4 +520,90 @@ fn a_kept_far_cascade_still_shadows_the_frames_it_is_not_drawn_in() {
         assert!(off < shadow * 0.25, "{off} against a shadow of {shadow}");
     }
     assert!(kept >= 1, "the far cascade was kept on some frames");
+}
+
+/// Real timestamp queries drive the same controller/application path as a
+/// windowed game. Forced tiers also exercise its no-timestamps path.
+#[test]
+fn quality_autotune_uses_live_gpu_samples_and_resets_scaled_history() {
+    use crate::render::{QualityAutotune, QualityAutotuneReason};
+    let Some(mut f) = Fixture::new() else { return };
+    f.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    f.ctx.gfx.set_quality_autotune(
+        &f.ctx.post,
+        &f.ctx.lighting,
+        Some(QualityAutotune {
+            target_gpu_ms: 1000.0,
+            min_render_scale: 1.0,
+            max_render_scale: 1.05,
+            ..Default::default()
+        }),
+    );
+    let before = f.draw();
+    for _ in 0..185 {
+        let sample = f.timer.as_ref().and_then(super::timer::GpuTimer::quality_sample);
+        f.ctx.update_quality_autotune(sample, false);
+        f.draw();
+    }
+    let status = f.ctx.gfx.quality_autotune_status(&f.ctx.post, &f.ctx.lighting).unwrap();
+    if f.timer.is_none() {
+        assert_eq!(status.changes, 0);
+        assert_eq!(status.reason, QualityAutotuneReason::GpuUnavailable);
+        assert_eq!(f.ctx.post.render_scale, 1.0);
+        return;
+    }
+    assert_eq!(status.changes, 1, "{status:?}");
+    assert_eq!(f.ctx.post.render_scale, 1.05);
+    assert!(status.history[0].gpu_ms > 0.0);
+    // Prove an automatic scale decision uses the central reset and cannot
+    // leave stale TAA/SSR/AO resources. The explicit reset is consumed by
+    // the same prepare path as the normal targets invalidation.
+    f.ctx.post.render_scale = 1.0;
+    f.ctx.gfx.set_quality_autotune(
+        &f.ctx.post,
+        &f.ctx.lighting,
+        Some(QualityAutotune {
+            target_gpu_ms: 1000.0,
+            min_render_scale: 1.0,
+            max_render_scale: 1.05,
+            ..Default::default()
+        }),
+    );
+    for _ in 0..180 {
+        f.draw();
+        f.ctx
+            .update_quality_autotune(f.timer.as_ref().and_then(super::timer::GpuTimer::quality_sample), false);
+    }
+    assert!(f.ctx.gfx.frame3d.motion.reset);
+    let after = f.draw();
+    assert!(f.renderer.history_reset().requested);
+    assert!(f.renderer.history_reset().targets);
+    assert_eq!(after.len(), before.len());
+    assert!(lit_corners(&after)[2] > 0);
+    f.ctx.gfx.set_quality_autotune(
+        &f.ctx.post,
+        &f.ctx.lighting,
+        Some(QualityAutotune {
+            target_gpu_ms: 1000.0,
+            max_shadow_resolution: 4096,
+            ..Default::default()
+        }),
+    );
+    for _ in 0..180 {
+        f.draw();
+        f.ctx
+            .update_quality_autotune(f.timer.as_ref().and_then(super::timer::GpuTimer::quality_sample), false);
+    }
+    f.draw();
+    assert_eq!(f.ctx.lighting.shadow_resolution, 4096);
+    assert_eq!(
+        f.renderer.shadow_map().0,
+        4096.min(f.device.limits().max_texture_dimension_2d)
+    );
+    // Optional local inspection artifacts, never reference regeneration.
+    if std::env::var_os("PONKO_AUTOTUNE_IMAGES").is_some() {
+        for (name, pixels) in [("before", before), ("after", after)] {
+            image::save_buffer(format!(".autotune-{name}.png"), &pixels, W, H, image::ColorType::Rgba8).unwrap();
+        }
+    }
 }

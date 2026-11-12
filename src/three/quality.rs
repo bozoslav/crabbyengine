@@ -501,7 +501,9 @@ impl Graphics {
 
     /// Switches the 3D picture to `quality` (values outside their ranges are
     /// clamped, see [`GraphicsQuality::clamped`]), from any frame, without
-    /// restarting. It writes the matching fields of `post` and `lighting`
+    /// restarting. It pins render scale and sun shadow resolution against
+    /// automatic quality changes, including when their values are unchanged.
+    /// It writes the matching fields of `post` and `lighting`
     /// (the game's are `ctx.post` and `ctx.lighting`) and leaves the others
     /// (AO radius, tone mapping, ...) alone. The next frame draws the scene
     /// at the new resolution and with new shadow maps where their size or
@@ -515,6 +517,11 @@ impl Graphics {
     /// # }
     /// ```
     pub fn set_quality(&mut self, post: &mut Post, lighting: &mut Lighting, quality: GraphicsQuality) {
+        self.quality_pinned = true;
+        if let Some(c) = &mut self.autotune {
+            c.scale_pinned = true;
+            c.shadow_pinned = true;
+        }
         let q = quality.clamped();
         post.render_scale = q.render_scale;
         post.sharpen = q.sharpen;

@@ -48,6 +48,7 @@ pub(crate) mod projected;
 pub use projected::{Decal3D, ReceivesDecals};
 pub(crate) mod probe;
 pub use probe::ReflectionProbe3D;
+pub(crate) mod autotune;
 #[cfg(test)]
 mod extraction_test;
 mod quality;
@@ -80,6 +81,7 @@ pub(crate) use api::GpuMaterialDesc;
 pub(crate) use api::{MaterialTextures, MaterialUniform};
 pub use clip::{AnimationClip, AnimationTrack, Interpolation, JointAnimation, MorphAnimation};
 pub(crate) mod motion;
+pub use autotune::{QualityAutotune, QualityAutotuneReason, QualityAutotuneStatus, QualityChange};
 #[cfg(feature = "window")]
 pub(crate) use collect::{
     FADED, INSTANCE_BRIDGE, Instance3D, MAX_CASCADES, MAX_SHADOW_VIEWS, MaterialOverride, shadow_views,

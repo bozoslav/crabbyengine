@@ -115,6 +115,14 @@ enum Layer {
 /// });
 /// ```
 pub struct Graphics {
+    #[cfg(feature = "3d")]
+    pub(crate) autotune: Option<crate::three::autotune::Controller>,
+    #[cfg(feature = "3d")]
+    pub(crate) quality_pinned: bool,
+    #[cfg(feature = "3d")]
+    pub(crate) scale_pinned: bool,
+    #[cfg(feature = "3d")]
+    pub(crate) shadow_pinned: bool,
     /// Assets loaded under residency budgets (`resident_mesh`,
     /// `resident_texture`), by kind. The calls are on `Ctx` (eviction looks
     /// at the world); the bookkeeping is here because `update_texture`
@@ -178,6 +186,14 @@ impl Graphics {
         #[cfg(feature = "3d")] material_names: crate::reflect::MaterialNames,
     ) -> Self {
         Self {
+            #[cfg(feature = "3d")]
+            autotune: None,
+            #[cfg(feature = "3d")]
+            quality_pinned: false,
+            #[cfg(feature = "3d")]
+            scale_pinned: false,
+            #[cfg(feature = "3d")]
+            shadow_pinned: false,
             residency: Default::default(),
             streaming: Default::default(),
             sim_tick: 0,

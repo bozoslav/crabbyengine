@@ -30,9 +30,12 @@ struct Slot {
     /// The name of each timed pass, in order: pass `i` wrote timestamps
     /// `2i` and `2i + 1`.
     names: Vec<&'static str>,
+    submitted: Option<(u64, web_time::Instant)>,
 }
 
 pub(crate) struct GpuTimer {
+    frame_number: u64,
+    last_sample: Option<(f32, u64, web_time::Instant)>,
     queries: wgpu::QuerySet,
     resolve: wgpu::Buffer,
     slots: [Slot; SLOTS],
@@ -87,8 +90,11 @@ impl GpuTimer {
             state: Arc::new(AtomicU8::new(FREE)),
             written: 0,
             names: Vec::with_capacity(MAX_PASSES as usize),
+            submitted: None,
         };
         Some(Self {
+            frame_number: 0,
+            last_sample: None,
             queries,
             resolve,
             slots: [slot(), slot(), slot()],
@@ -141,6 +147,7 @@ impl GpuTimer {
             if !(ms.is_finite() && ms < 10_000.0) {
                 continue;
             }
+            self.last_sample = slot.submitted.map(|(frame, at)| (ms, frame, at));
             self.frames_read += 1;
             self.smoothed_ms = Some(match self.smoothed_ms {
                 None => ms,
@@ -150,8 +157,21 @@ impl GpuTimer {
         }
     }
 
+    /// Raw GPU time with source-frame age. A late readback is not fresh
+    /// merely because it was collected just now. CPU time is never a proxy.
+    #[cfg(feature = "3d")]
+    pub(crate) fn quality_sample(&self) -> Option<crate::three::autotune::Sample> {
+        self.last_sample.map(|(ms, frame, at)| crate::three::autotune::Sample {
+            sequence: self.frames_read,
+            ms,
+            fresh: self.frame_number.saturating_sub(frame) <= 8
+                && at.elapsed() <= std::time::Duration::from_millis(250),
+        })
+    }
+
     /// Starts timing a frame, if a readback slot is free.
     pub fn begin_frame(&mut self) {
+        self.frame_number = self.frame_number.wrapping_add(1);
         let i = self.next;
         self.names.get_mut().unwrap_or_else(PoisonError::into_inner).clear();
         self.current = (self.slots[i].state.load(Ordering::Acquire) == FREE).then_some(i);
@@ -202,7 +222,8 @@ impl GpuTimer {
     /// Starts reading this frame's timestamps back. Call after submitting.
     pub fn submitted(&mut self) {
         if let Some(i) = self.current.take() {
-            let slot = &self.slots[i];
+            let slot = &mut self.slots[i];
+            slot.submitted = Some((self.frame_number, web_time::Instant::now()));
             slot.state.store(MAPPING, Ordering::Release);
             let state = slot.state.clone();
             slot.buffer.map_async(wgpu::MapMode::Read, .., move |result| {
@@ -390,6 +411,28 @@ mod tests {
         };
         assert!(!device.features().contains(wgpu::Features::TIMESTAMP_QUERY));
         assert!(GpuTimer::new(&device, &queue).is_none());
+    }
+
+    #[cfg(feature = "3d")]
+    #[test]
+    fn quality_samples_expire_by_source_frame_and_submission_time() {
+        let Some((device, queue)) = device(wgpu::Features::TIMESTAMP_QUERY) else {
+            return;
+        };
+        let Some(mut timer) = GpuTimer::new(&device, &queue) else {
+            crate::render::render_test_support::skip("needs timestamp queries");
+            return;
+        };
+        assert!(timer.quality_sample().is_none());
+        timer.frames_read = 1;
+        timer.last_sample = Some((20.0, 1, web_time::Instant::now()));
+        timer.frame_number = 8;
+        assert!(timer.quality_sample().unwrap().fresh);
+        timer.frame_number = 10;
+        assert!(!timer.quality_sample().unwrap().fresh);
+        timer.frame_number = 1;
+        timer.last_sample = Some((20.0, 1, web_time::Instant::now() - std::time::Duration::from_secs(1)));
+        assert!(!timer.quality_sample().unwrap().fresh);
     }
 
     /// A device with timestamp queries gets a timer, and it reports nothing

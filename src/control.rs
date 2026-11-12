@@ -662,7 +662,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "perf.get",
-        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems, live asset handles by class with estimated bytes (`assets`: textures, meshes, materials, sounds, ...; with what the GPU holds), residency budgets per asset kind (`residency`: budget, resident and pinned counts and bytes, loads, reloads, evictions, evicted bytes), streaming (`streaming`: the upload queue's budget, pending count, bytes and uploads last frame and in total, oversized steps, decode waits, uploads held by a budget, failures, last and longest step ms; and `assets`, every streamed or resident asset with kind, name, state (loading, uploading, streaming, resident, evicted, failed), id and GPU size); params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice. Always has `render_inspector` (schema 1, also when headless): the last frame's CPU time split into extract, prepare, encode, submit and other ms; GPU ms per frame and per pass; draw calls, models, triangles, occluded models, pipelines built; upload and memory bytes; the active graphics quality preset and settings. A metric that can't be measured (no timestamp queries, headless, not counted yet) is null and `unavailable` gives the reason; GPU times are never guessed",
+        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems, live asset handles by class with estimated bytes (`assets`: textures, meshes, materials, sounds, ...; with what the GPU holds), residency budgets per asset kind (`residency`: budget, resident and pinned counts and bytes, loads, reloads, evictions, evicted bytes), streaming (`streaming`: the upload queue's budget, pending count, bytes and uploads last frame and in total, oversized steps, decode waits, uploads held by a budget, failures, last and longest step ms; and `assets`, every streamed or resident asset with kind, name, state (loading, uploading, streaming, resident, evicted, failed), id and GPU size); params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice. Always has `render_inspector.quality_autotune` (null when off; otherwise active choices, pins, frozen state, reason and the last 16 decisions) and `render_inspector` (schema 1, also when headless): the last frame's CPU time split into extract, prepare, encode, submit and other ms; GPU ms per frame and per pass; draw calls, models, triangles, occluded models, pipelines built; upload and memory bytes; the active graphics quality preset and settings. A metric that can't be measured (no timestamp queries, headless, not counted yet) is null and `unavailable` gives the reason; GPU times are never guessed",
     ),
     (
         "perf.trace",
@@ -687,13 +687,22 @@ fn render_inspector_json(ctx: &Ctx) -> Value {
     let quality = Some(inspector::quality_json(&ctx.gfx.quality(&ctx.post, &ctx.lighting)));
     #[cfg(not(feature = "3d"))]
     let quality = None;
-    inspector::render_inspector(&inspector::Inputs {
+    let mut report = inspector::render_inspector(&inspector::Inputs {
         source,
         stats: ctx.perf.render_stats(),
         passes: ctx.perf.gpu_passes(),
         quality,
         pipelines: ctx.gfx.pipeline_stats(),
-    })
+    });
+    #[cfg(feature = "3d")]
+    {
+        report["quality_autotune"] = json!(ctx.gfx.quality_autotune_status(&ctx.post, &ctx.lighting));
+    }
+    #[cfg(not(feature = "3d"))]
+    {
+        report["quality_autotune"] = Value::Null;
+    }
+    report
 }
 
 /// `perf.get`: the profiler's numbers as JSON.
@@ -1581,6 +1590,43 @@ mod tests {
         assert!(ctx.perf.profiling() && deep["report"].is_object(), "{deep}");
         assert!(handle(&mut ctx, "perf.get", &json!({ "profiling": 3 })).is_err());
         ctx.perf.set_profiling(false);
+    }
+
+    #[cfg(feature = "3d")]
+    #[test]
+    fn render_inspector_adds_autotune_choices_reasons_and_history() {
+        use crate::render::QualityAutotune;
+        use crate::three::autotune::Sample;
+        let mut ctx = ctx();
+        let report = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        assert!(report["render_inspector"].get("quality_autotune").unwrap().is_null());
+        ctx.gfx
+            .set_quality_autotune(&ctx.post, &ctx.lighting, Some(QualityAutotune::default()));
+        for i in 1..=30 {
+            ctx.update_quality_autotune(
+                Some(Sample {
+                    sequence: i,
+                    ms: 30.0,
+                    fresh: true,
+                }),
+                false,
+            );
+        }
+        let report = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        let inspector = &report["render_inspector"];
+        let auto = &inspector["quality_autotune"];
+        assert_eq!(inspector["schema"], 1);
+        assert_eq!(auto["changes"], 1);
+        assert_eq!(auto["history"][0]["reason"], "over_budget");
+        assert_eq!(auto["history"][0]["gpu_ms"], 30.0);
+        assert_eq!(auto["render_scale"], inspector["quality"]["render_scale"]);
+        ctx.set_headless(true);
+        for _ in 0..400 {
+            ctx.update_quality_autotune(None, false);
+        }
+        let report = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        assert_eq!(report["render_inspector"]["quality_autotune"]["reason"], "frozen");
+        assert_eq!(report["render_inspector"]["quality_autotune"]["changes"], 1);
     }
 
     #[test]

@@ -486,6 +486,11 @@ impl Ctx {
         self.draw_retained_ui();
         let capture = !self.gfx.screenshots.is_empty();
         #[cfg(feature = "3d")]
+        if self.gfx.autotune.is_some() {
+            let sample = self.gfx.renderer.as_ref().and_then(Renderer::quality_sample);
+            self.update_quality_autotune(sample, capture);
+        }
+        #[cfg(feature = "3d")]
         self.draw_ui_panels();
         #[cfg(feature = "3d")]
         self.prepare_3d();

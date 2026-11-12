@@ -37,6 +37,8 @@ mod timer;
 #[cfg(feature = "window")]
 pub(crate) mod traffic;
 
+#[cfg(feature = "3d")]
+pub use crate::three::{QualityAutotune, QualityAutotuneReason, QualityAutotuneStatus, QualityChange};
 pub use capabilities::{GpuAdapter, GpuBatchLimits, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuTier};
 #[cfg(feature = "window")]
 pub(crate) use gpu::Renderer;
