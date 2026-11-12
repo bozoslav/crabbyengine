@@ -179,6 +179,7 @@ impl Ctx {
             // Motion history is keyed by entity id: a same-id model of the
             // new scene has no past in the old one.
             self.gfx.reset_temporal_history();
+            self.set_quality_autotune(None);
         }
         Ok(())
     }

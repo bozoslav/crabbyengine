@@ -1748,3 +1748,29 @@ fn batch_culling_setter_accepts_live_and_empty_batches_and_rejects_freed_handles
         );
     });
 }
+
+#[test]
+fn quality_autotune_is_scene_opt_in_and_headless_stays_fixed() {
+    // ANCHOR: quality-autotune
+    use ponko::render::QualityAutotune;
+    Game::new("Quality policy", 640, 360).run_headless(2, |ctx| {
+        assert!(ctx.quality_autotune_status().is_none()); // default: off
+        ctx.set_quality_autotune(Some(QualityAutotune {
+            target_gpu_ms: 1000.0 / 60.0,
+            min_render_scale: 0.6,
+            max_render_scale: 1.0,
+            min_shadow_resolution: 512,
+            max_shadow_resolution: 2048,
+        }));
+        // An options-menu choice always wins, including same-value writes.
+        ctx.pin_shadow_resolution(2048);
+        // Freeze before a deterministic screenshot sequence and its warm-up.
+        ctx.freeze_quality_autotune(true);
+        let status = ctx.quality_autotune_status().unwrap();
+        assert!(status.shadow_resolution_pinned);
+        assert_eq!(status.changes, 0); // headless never tunes
+        ctx.freeze_quality_autotune(false);
+        ctx.set_quality_autotune(None); // retain choices, stop tuning
+    });
+    // ANCHOR_END: quality-autotune
+}
