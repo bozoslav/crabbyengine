@@ -366,3 +366,30 @@ baseline measures.
   counters the renderer already keeps; the one change to the renderer is
   that `Renderer3D::take_state_changes` is no longer test-only (the counters
   it reads were already kept in release builds).
+
+## Shadow-cache workload controls
+
+`PONKO_SHADOW_WORKLOAD` specializes the same generated scenes for shadow
+measurements, always with `shadow_refresh = 1`:
+
+- `static`: fixed camera and fixed actors.
+- `slow-camera`: static actors, camera orbit step 0.00001 radians per frame.
+- `actors`: fixed camera, the scene's normal actor animation.
+- `thrash`: normal camera and actor motion, plus a moving sun every frame.
+
+Unset preserves the original baseline. The selected workload is recorded in
+`scenes[].scene.shadow_workload`. Use `static-world` for the first two,
+`dynamic-world` for moving actors and full invalidation; the latter moves all
+models every frame. For example:
+
+```sh
+PONKO_SHADOW_WORKLOAD=slow-camera PONKO_RENDER_MATCHED=1 \
+PONKO_RENDER_FRAMES=300 PONKO_RENDER_WARMUP=60 PONKO_RENDER_SCALE=0.1 \
+PONKO_BENCH_JSON=shadows.json PONKO_RENDER_FRAMES_CSV=shadows.csv \
+  cargo run --release -p ponko_bench --features render -- 'render/scene static-world'
+```
+
+Compare average shadow triangles and shadow GPU passes over all measured
+frames, rather than the last frame alone (snapping deliberately creates
+occasional refreshes). The frame CSV includes the work counts; JSON includes
+CPU/GPU distributions, allocation counts, memory and adapter metadata.

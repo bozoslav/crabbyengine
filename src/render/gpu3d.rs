@@ -1225,7 +1225,11 @@ impl Renderer3D {
             &mut self.shadow_cache.shaders[id as usize],
             ShadowCache::shader_traits(user),
         );
-        self.shadow_cache.invalidate();
+        for (material, m) in self.resources.materials.iter().enumerate() {
+            if m.shader == id && (old_traits.vertex || self.shadow_cache.shaders[id as usize].vertex || m.cutout) {
+                self.shadow_cache.material_changed(material as u32);
+            }
+        }
         self.installed(ShaderKind::Material, id);
         if let Some((variant, verdict)) = verdict {
             let swap = Swap::Material {

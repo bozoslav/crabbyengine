@@ -1022,26 +1022,14 @@ pub(crate) fn sun_view_proj(camera: &Camera3D, sun_direction: Vec3, near: f32, f
 /// its center and radius. It doesn't change size as the camera turns.
 fn slice_sphere(camera: &Camera3D, near: f32, far: f32) -> (Vec3, f32) {
     let far = far.max(camera.near * 2.0);
-    let slice = Camera3D {
-        near: near.clamp(camera.near, far * 0.5),
-        far,
-        ..*camera
-    }
-    .view_proj()
-    .inverse();
-    let mut corners = [Vec3::ZERO; 8];
-    for (i, corner) in corners.iter_mut().enumerate() {
-        let ndc = Vec4::new(
-            if i & 1 == 0 { -1.0 } else { 1.0 },
-            if i & 2 == 0 { -1.0 } else { 1.0 },
-            if i & 4 == 0 { 0.0 } else { 1.0 },
-            1.0,
-        );
-        let p = slice * ndc;
-        *corner = p.truncate() / p.w;
-    }
-    let center = corners.iter().copied().sum::<Vec3>() / 8.0;
-    let radius = corners.iter().map(|c| c.distance(center)).fold(0.0, f32::max);
+    // Compute in camera space: inverting a translated view-projection
+    // made the radius wobble at rounding boundaries even during tiny moves.
+    let near = near.clamp(camera.near, far * 0.5);
+    let middle = (near + far) * 0.5;
+    let aspect = (camera.viewport.x / camera.viewport.y.max(1.0)).max(1e-3);
+    let height = far * (camera.fov_y * 0.5).tan();
+    let radius = Vec3::new(height * aspect, height, far - middle).length();
+    let center = camera.position + camera.forward() * middle;
     (center, radius)
 }
 
@@ -1058,12 +1046,11 @@ fn sun_box(camera: &Camera3D, sun_direction: Vec3, near: f32, far: f32, size: u3
     // Snap the center to whole texels in the light's view.
     let texel = 2.0 * radius / size.max(1) as f32;
     let snapped = (rotation.transform_point3(center) / texel).round() * texel;
-    let center = rotation.inverse().transform_point3(snapped);
-
-    // Reach far back towards the sun, so tall things outside the view still
-    // cast into it.
+    // Construct the translation directly in light space. A world-space
+    // round trip and another look_to introduced non-identical matrices for
+    // identical snapped centers (especially along an oblique sun).
     let back = radius * 4.0;
-    let view = glam::camera::rh::view::look_to_mat4(center - light * back, light, up);
+    let view = Mat4::from_translation(-snapped - Vec3::Z * back) * rotation;
     let projection =
         glam::camera::rh::proj::directx::orthographic(-radius, radius, -radius, radius, 0.0, back + radius);
     // Snapping moved the box by up to a texel in each direction.
@@ -1685,5 +1672,32 @@ mod tests {
         // casts: fine texels.
         let near = cascade_counts(&[(Vec3::new(0.0, 2.0, -3.0), 0.02)], sun);
         assert_eq!(near[0], 1, "{near:?}");
+    }
+}
+
+#[cfg(test)]
+mod stable_shadow_tests {
+    use super::*;
+    #[test]
+    fn translated_and_rotated_cameras_keep_a_bit_stable_sphere_radius() {
+        let mut camera = Camera3D::new(glam::Vec2::new(1280.0, 720.0));
+        let (_, radius) = slice_sphere(&camera, 0.1, 50.0);
+        let sun = Vec3::new(0.3, -0.8, 0.4);
+        let mut reused = 0;
+        let mut previous = sun_view_proj(&camera, sun, 0.1, 50.0, 1024).0;
+        for i in 0..200 {
+            camera.position.x += 0.0001;
+            assert_eq!(slice_sphere(&camera, 0.1, 50.0).1, radius);
+            let current = sun_view_proj(&camera, sun, 0.1, 50.0, 1024).0;
+            reused += usize::from(current == previous);
+            previous = current;
+            camera.rotation = glam::Quat::from_rotation_y(i as f32 * 0.000001) * camera.rotation;
+        }
+        assert!(
+            reused > 150,
+            "small camera moves should preserve exact projections: {reused}"
+        );
+        camera.position = Vec3::splat(100_000.0);
+        assert_eq!(slice_sphere(&camera, 0.1, 50.0).1, radius);
     }
 }

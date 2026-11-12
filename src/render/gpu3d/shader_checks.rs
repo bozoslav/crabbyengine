@@ -67,7 +67,7 @@ pub(super) fn end_scope(scope: wgpu::ErrorScopeGuard, defer: bool) -> Result<Opt
 pub(super) type LaterVerdict = Option<(String, Verdict)>;
 
 /// A material shader's previous pipelines and shadow traits.
-type Previous = (Arc<ShaderPipelines>, (bool, bool));
+type Previous = (Arc<ShaderPipelines>, super::shadow_cache::ShaderShadow);
 
 /// Which pipelines a check is about, and what to put back if the GPU
 /// rejects them (`None`: the shader was new; it gets a stand-in).

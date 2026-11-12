@@ -5,5 +5,4 @@
   still camera draws no shadow casters; a moving model redraws only the maps
   that see it, and a light atlas tile is cleared and drawn alone. Shadows look
   the same as drawing every map every frame. Views drawn from skinned or
-  morphing models, buffer-driven meshes or shaders that move vertices
-  themselves are still drawn every frame.
+  morphing models, buffer-driven meshes or shaders that read untracked inputs are still drawn every frame.

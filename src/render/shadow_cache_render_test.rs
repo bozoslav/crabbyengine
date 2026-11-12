@@ -200,7 +200,13 @@ impl Rig {
         self.queue.submit([encoder.finish()]);
         readback.map_async(wgpu::MapMode::Read, .., |r| r.unwrap());
         self.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-        readback.get_mapped_range(..).unwrap().to_vec()
+        let rgba = readback.get_mapped_range(..).unwrap().to_vec();
+        super::render_test_support::keep_image(&super::render_test_support::Image {
+            width: SIZE,
+            height: SIZE,
+            rgba: rgba.clone(),
+        });
+        rgba
     }
 }
 
@@ -302,6 +308,21 @@ fn kept_shadow_views_draw_the_same_image_as_redrawing_them() {
     eprintln!("shadow work: first frame {casters} casters, {triangles} triangles; unchanged frame {kept_work:?}");
     assert_eq!(kept_work, (0, 0), "an unchanged frame draws no shadow casters");
 
+    // Translate without rotating. A sub-texel move must preserve at least
+    // one exact projection; compare every resulting image to a full redraw.
+    let mut reused = 0;
+    for i in 0..24 {
+        ctx.camera3d.position.x += 0.0001;
+        let kept = step(&mut renderers, &mut ctx, "sub-texel camera translation", false);
+        reused += (kept & 0b11).count_ones();
+        if i % 5 == 0 {
+            ctx.world.get_mut::<Transform3D>(mover).unwrap().position.x += 0.08;
+            let kept = step(&mut renderers, &mut ctx, "actor under moving camera", true);
+            assert_ne!(kept & 0b11, 0b11);
+        }
+    }
+    assert!(reused > 24, "sub-texel motion reuses cascades: {reused}/48");
+
     // A caster moves: the views that see it are drawn again, others kept.
     ctx.world.get_mut::<Transform3D>(mover).unwrap().position.x += 0.6;
     let kept = step(&mut renderers, &mut ctx, "caster moved", true);
@@ -367,7 +388,8 @@ fn views_with_shader_moved_vertices_are_always_drawn() {
         crate::render::render_test_support::no_gpu("no GPU adapter or device");
         return;
     };
-    const WAVE: &str = "fn vertex(v: Vertex) -> Vertex { return v; }";
+    const WAVE: &str =
+        "fn vertex(v: Vertex) -> Vertex { var out = v; out.position.x += sin(frame.time.x); return out; }";
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
     let matte = MaterialDesc {
         color: Color::WHITE,
@@ -642,4 +664,136 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
         "the far caster must exercise deferred shadow content before its turn"
     );
     assert_eq!(refreshed, 0b1111, "every cascade converges within one refresh cycle");
+}
+
+#[test]
+fn pure_custom_functions_and_texture_channels_only_refresh_affected_shadows() {
+    let Some(rig) = Rig::new() else { return };
+    const PURE: &str = "fn vertex(v: Vertex) -> Vertex { return v; } fn surface(s: Surface) -> Surface { return s; }";
+    const MOVE: &str = "fn vertex(v: Vertex) -> Vertex { var out = v; out.position.x += 0.8; return out; } fn surface(s: Surface) -> Surface { return s; }";
+    let mut ctx = Ctx::new(1.0 / 60.0, Vec2::splat(SIZE as f32));
+    ctx.camera3d.position = vec3(0.0, 9.0, 9.0);
+    ctx.camera3d.look_at(Vec3::ZERO);
+    ctx.lighting.shadow_cascades = 1;
+    ctx.lighting.shadow_resolution = 512;
+    ctx.lighting.shadow_distance = 30.0;
+    ctx.lighting.shadow_refresh = 1;
+    ctx.sky.atmosphere = false;
+    let shader = ctx.gfx.create_shader("pure", PURE);
+    let texture = crate::Texture::new(0, 1, 1);
+    let floor_desc = MaterialDesc {
+        color: Color::WHITE,
+        ..Default::default()
+    };
+    let mut desc = MaterialDesc {
+        blend: Blend::Cutout,
+        texture: Some(texture),
+        shader: Some(shader),
+        ..floor_desc
+    };
+    let floor_material = ctx.gfx.create_material(floor_desc);
+    let material = ctx.gfx.create_material(desc);
+    let ground = MeshData::plane(20.0);
+    let cube = MeshData::cube(1.0);
+    let floor = ctx.gfx.create_mesh(&ground, floor_material);
+    let caster = ctx.gfx.create_mesh(&cube, material);
+    ctx.world.spawn((Transform3D::default(), Model::new(floor)));
+    ctx.world
+        .spawn((Transform3D::at(vec3(0.0, 1.0, 0.0)), Model::new(caster)));
+    let mut renderers = [rig.renderer(), rig.renderer()];
+    for r in &mut renderers {
+        r.create_shader(&rig.device, "pure", PURE).unwrap();
+        for d in [floor_desc, desc] {
+            r.create_material(&rig.device, &GpuMaterialDesc::new(&d), &rig.textures);
+        }
+        r.create_mesh(
+            &rig.device,
+            &ground,
+            &[(0..ground.indices.len() as u32, floor_material)],
+            true,
+        );
+        r.create_mesh(&rig.device, &cube, &[(0..cube.indices.len() as u32, material)], true);
+    }
+    let mut frames = [Frame3D::default(), Frame3D::default()];
+    let mut compare = |renderers: &mut [Renderer3D; 2], ctx: &mut Ctx| {
+        let [cached, reference] = renderers;
+        let [a, b] = &mut frames;
+        let image = rig.draw(cached, a, ctx);
+        reference.forget_shadows();
+        let expected = rig.draw(reference, b, ctx);
+        assert_eq!(image, expected, "cached custom/cutout shadows must match full redraw");
+        (image, cached.shadow_views_kept())
+    };
+    compare(&mut renderers, &mut ctx);
+    assert_eq!(
+        compare(&mut renderers, &mut ctx).1,
+        1,
+        "pure custom functions are reusable"
+    );
+    for r in &mut renderers {
+        r.replace_shader(&rig.device, 1, "moved", MOVE).unwrap();
+    }
+    let (moved, kept) = compare(&mut renderers, &mut ctx);
+    assert_eq!(kept, 0, "vertex shader reload refreshes depth");
+    assert_eq!(compare(&mut renderers, &mut ctx).1, 1);
+    // Built-in cutout: only alpha from its base texture affects shadows.
+    desc.shader = None;
+    for r in &mut renderers {
+        r.update_material(
+            &rig.device,
+            &rig.queue,
+            material.id,
+            &GpuMaterialDesc::new(&desc),
+            &rig.textures,
+        );
+    }
+    let (solid, _) = compare(&mut renderers, &mut ctx);
+    assert_ne!(moved, solid, "shader movement is visible");
+    compare(&mut renderers, &mut ctx);
+    for r in &mut renderers {
+        r.texture_alpha_changed(0, false);
+    }
+    assert_eq!(
+        compare(&mut renderers, &mut ctx).1,
+        1,
+        "RGB-only uploads retain cutout shadows"
+    );
+    rig.queue.write_texture(
+        rig.textures[0].texture.as_image_copy(),
+        &[255, 255, 255, 0],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: None,
+        },
+        rig.textures[0].texture.size(),
+    );
+    for r in &mut renderers {
+        r.texture_alpha_changed(0, true);
+    }
+    let (holes, kept) = compare(&mut renderers, &mut ctx);
+    assert_eq!(kept, 0, "base alpha updates refresh cutout shadows");
+    assert_ne!(solid, holes, "the alpha change must be visible");
+    // A normal texture, even its alpha, cannot affect built-in cutout depth.
+    desc.texture = None;
+    desc.normal_map = Some(texture);
+    for r in &mut renderers {
+        r.update_material(
+            &rig.device,
+            &rig.queue,
+            material.id,
+            &GpuMaterialDesc::new(&desc),
+            &rig.textures,
+        );
+    }
+    compare(&mut renderers, &mut ctx);
+    compare(&mut renderers, &mut ctx);
+    for r in &mut renderers {
+        r.texture_alpha_changed(0, true);
+    }
+    assert_eq!(
+        compare(&mut renderers, &mut ctx).1,
+        1,
+        "normal-map changes retain depth"
+    );
 }
