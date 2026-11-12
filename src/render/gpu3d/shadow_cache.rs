@@ -6,10 +6,11 @@
 //! its view-projection, its tile, its casters (meshes, transforms, tints
 //! and crossfades, compared exactly) and every resource their pass reads
 //! (meshes, materials, shaders, textures and the shadow maps themselves,
-//! tracked by an epoch that any change to them bumps). Views drawn from
-//! data that can change without the renderer seeing it (skinned or
+//! tracked by an epoch for shared geometry and per-view material dependencies).
+//! Views drawn from data that can change without the renderer seeing it (skinned or
 //! morphing models, buffer-driven meshes, shaders with their own `vertex`
-//! function, cut-outs with their own `surface` or reading a render target)
+//! function reading untracked inputs, cut-outs reading time, view inputs or
+//! a render target)
 //! are drawn every frame. So a kept view is the same depth the pass would
 //! draw again, and the frame is unchanged.
 //!
@@ -19,6 +20,26 @@
 
 use super::*;
 use std::sync::atomic::AtomicBool;
+
+/// Whether a custom function participates in shadows, and whether its
+/// inputs can vary independently of the cached geometry and material.
+#[derive(Clone, Copy, Default)]
+pub(super) struct ShaderShadow {
+    pub vertex: bool,
+    pub surface: bool,
+    vertex_volatile: bool,
+    surface_volatile: bool,
+}
+impl ShaderShadow {
+    fn unknown() -> Self {
+        Self {
+            vertex: true,
+            surface: true,
+            vertex_volatile: true,
+            surface_volatile: true,
+        }
+    }
+}
 
 /// What one shadow view drew (or would draw): enough to tell whether
 /// drawing it again would give the same depth.
@@ -34,6 +55,7 @@ pub(super) struct ShadowContent {
     /// (mesh, material, count, per-part materials) per run (see `Ident`),
     /// then every run's per-part materials and instances in order.
     runs: Vec<(u32, u32, u32, u32)>,
+    materials: Vec<u32>,
     parts: Vec<(u32, u32)>,
     instances: Vec<Instance3D>,
 }
@@ -120,7 +142,8 @@ pub(super) struct ShadowCache {
     /// Set when a frame is recorded, so its views' records are committed.
     recorded: AtomicBool,
     /// Per material shader: whether it has its own `vertex` and `surface`.
-    pub shaders: Vec<(bool, bool)>,
+    pub shaders: Vec<ShaderShadow>,
+    materials: Vec<u32>,
 }
 
 impl Default for ShadowCache {
@@ -134,7 +157,8 @@ impl Default for ShadowCache {
             light_kept: 0,
             kept: 0,
             recorded: AtomicBool::new(false),
-            shaders: vec![(false, false)],
+            shaders: vec![ShaderShadow::default()],
+            materials: Vec::new(),
         }
     }
 }
@@ -145,10 +169,53 @@ impl ShadowCache {
         self.epoch += 1;
     }
 
-    /// Whether material shader source `user` makes shadows that only the
-    /// renderer's own data decides: (its own `vertex`, its own `surface`).
-    pub fn shader_traits(user: &str) -> (bool, bool) {
-        (defines(user, "vertex"), defines(user, "surface"))
+    /// Classify only functions used by shadow passes, including callees.
+    /// Parsing fails closed; this runs at shader installation, never per frame.
+    pub fn shader_traits(user: &str) -> ShaderShadow {
+        use wgpu::naga;
+        if user.is_empty() {
+            return ShaderShadow::default();
+        }
+        let source = compose_shader(user);
+        let Ok(module) = naga::front::wgsl::parse_str(&source) else {
+            return ShaderShadow::unknown();
+        };
+        let Ok(info) =
+            naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::all())
+                .validate(&module)
+        else {
+            return ShaderShadow::unknown();
+        };
+        let volatile = |name: &str| {
+            module
+                .functions
+                .iter()
+                .find(|(_, f)| f.name.as_deref() == Some(name))
+                .is_none_or(|(h, _)| {
+                    module.global_variables.iter().any(|(g, global)| {
+                        !info[h][g].is_empty()
+                            && !global.binding.as_ref().is_some_and(|b| b.group == 1 && b.binding <= 7)
+                    })
+                })
+        };
+        ShaderShadow {
+            vertex: defines(user, "vertex"),
+            surface: defines(user, "surface"),
+            // Instance indices depend on camera-list packing. Surface view
+            // inputs depend on the observing camera. Keep these conservative.
+            vertex_volatile: volatile("vertex") || user.contains("instance_index"),
+            surface_volatile: volatile("surface") || user.contains("view"),
+        }
+    }
+
+    /// Invalidate only maps which actually used this material, including a
+    /// frame already recorded but not committed yet.
+    pub fn material_changed(&mut self, id: u32) {
+        for content in self.drawn.iter_mut().chain(&mut self.pending) {
+            if content.materials.contains(&id) {
+                content.epoch = 0;
+            }
+        }
     }
 
     /// Notes that this frame's commands were recorded (called by `draw`).
@@ -193,6 +260,8 @@ impl ShadowCache {
             self.forget_mask |= bit;
         } else {
             self.pending[v].set(self.epoch, key, runs, ident, instances);
+            self.pending[v].materials.clear();
+            self.pending[v].materials.extend_from_slice(&self.materials);
             self.pending_mask |= bit;
         }
         false
@@ -217,27 +286,34 @@ impl ShadowCache {
 impl Renderer3D {
     /// Whether shadow view `v`'s runs, or the static batches it draws, use
     /// data the shadow cache can't compare (see [`ShadowCache`]).
-    fn shadow_volatile(&self, runs: &[Run]) -> bool {
+    fn shadow_volatile(&mut self, runs: &[Run]) -> bool {
         let real = self.resources.meshes.len() as u32;
-        let mesh_volatile = |run_mesh: u32| {
+        let mut volatile = false;
+        let mut materials = std::mem::take(&mut self.shadow_cache.materials);
+        materials.clear();
+        let mut mesh_volatile = |run_mesh: u32| {
             let mesh = self.base(run_mesh);
             if self.material_override(run_mesh).is_none() && run_mesh & !FADED >= real {
-                return true; // skinned or morphing: posed this frame
+                volatile = true;
             }
             let m = &self.resources.meshes[mesh as usize];
-            m.gpu_buffer.is_some()
-                || m.parts
-                    .iter()
-                    .enumerate()
-                    .any(|(part, &(_, own))| self.material_volatile(self.part_material(run_mesh, part, own)))
+            volatile |= m.gpu_buffer.is_some();
+            for (part, &(_, own)) in m.parts.iter().enumerate() {
+                let material = self.part_material(run_mesh, part, own);
+                volatile |= self.material_volatile(material);
+                materials.push(material);
+            }
         };
-        runs.iter().any(|&(mesh, _, _)| mesh_volatile(mesh))
-            || self
-                .static_batches
-                .iter()
-                .flatten()
-                .filter(|b| b.casts())
-                .any(|b| b.levels.iter().any(|l| l.shadows && mesh_volatile(l.mesh.slot())))
+        for &(mesh, _, _) in runs {
+            mesh_volatile(mesh);
+        }
+        for batch in self.static_batches.iter().flatten().filter(|b| b.casts()) {
+            for level in batch.levels.iter().filter(|l| l.shadows) {
+                mesh_volatile(level.mesh.slot());
+            }
+        }
+        self.shadow_cache.materials = materials;
+        volatile
     }
 
     fn material_volatile(&self, material: u32) -> bool {
@@ -247,31 +323,42 @@ impl Renderer3D {
         if m.transparent {
             return false; // casts no shadow
         }
-        let (vertex, surface) = self
+        let shader = self
             .shadow_cache
             .shaders
             .get(m.shader as usize)
             .copied()
-            .unwrap_or((true, true));
-        vertex
-            || (m.cutout
-                && (surface
-                    || m.bindings
-                        .maps
-                        .iter()
-                        .flatten()
-                        .any(|t| self.render_targets.textures.iter().any(|&(id, _)| id == *t))))
+            .unwrap_or_else(ShaderShadow::unknown);
+        shader.vertex_volatile
+            || (m.cutout && shader.surface_volatile)
+            || ((shader.vertex || m.cutout)
+                && m.bindings
+                    .maps
+                    .iter()
+                    .flatten()
+                    .any(|t| self.render_targets.textures.iter().any(|&(id, _)| id == *t)))
     }
 
-    /// A texture's pixels changed: cut-out shadows using it are drawn again.
-    pub fn texture_changed(&mut self, id: u32) {
-        if self
-            .resources
-            .materials
-            .iter()
-            .any(|m| m.cutout && m.bindings.maps.contains(&Some(id)))
-        {
-            self.shadow_cache.invalidate();
+    /// A texture's pixels changed: only dependent shadow views are refreshed.
+    /// Built-in cutouts read alpha; custom functions may also read RGB.
+    pub fn texture_alpha_changed(&mut self, id: u32, alpha_changed: bool) {
+        for (material, m) in self.resources.materials.iter().enumerate() {
+            let shader = self
+                .shadow_cache
+                .shaders
+                .get(m.shader as usize)
+                .copied()
+                .unwrap_or_else(ShaderShadow::unknown);
+            // Built-in cutouts read only base alpha. Normal/ORM/emissive
+            // maps cannot affect it. Custom functions may read any map.
+            let reads = if shader.vertex || (m.cutout && shader.surface) {
+                m.bindings.maps.contains(&Some(id))
+            } else {
+                m.cutout && alpha_changed && m.bindings.maps[0] == Some(id)
+            };
+            if reads {
+                self.shadow_cache.material_changed(material as u32);
+            }
         }
     }
 
@@ -299,7 +386,9 @@ impl Renderer3D {
                     tile: self.lists.light_tiles.get(i).copied().unwrap_or_default(),
                 }
             };
-            let volatile = self.shadow_volatile(&self.lists.shadow_runs[v]);
+            let runs = std::mem::take(&mut self.lists.shadow_runs[v]);
+            let volatile = self.shadow_volatile(&runs);
+            self.lists.shadow_runs[v] = runs;
             let (overrides, base) = (&self.lists.material_overrides, self.lists.override_base);
             let listed = &self.lists.override_parts;
             let ident = |mesh: u32| {
@@ -390,5 +479,48 @@ impl Renderer3D {
     /// Makes the next frame draw every shadow view (a reference to compare with).
     pub fn forget_shadows(&mut self) {
         self.shadow_cache.invalidate();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shader_dependencies_follow_helpers_and_ignore_opaque_surface_work() {
+        let pure = ShadowCache::shader_traits(
+            "fn vertex(v: Vertex) -> Vertex { var out = v; out.position.y += material.custom[0].x; return out; }",
+        );
+        assert!(pure.vertex && !pure.vertex_volatile);
+        let clock = ShadowCache::shader_traits(
+            "fn clock() -> f32 { return frame.time.x; } fn vertex(v: Vertex) -> Vertex { var out = v; out.position.y += clock(); return out; }",
+        );
+        assert!(clock.vertex_volatile);
+        let surface = ShadowCache::shader_traits(
+            "fn surface(s: Surface) -> Surface { var out = s; out.alpha *= s.uv.x; return out; }",
+        );
+        assert!(surface.surface && !surface.surface_volatile && !surface.vertex_volatile);
+        let camera = ShadowCache::shader_traits(
+            "fn surface(s: Surface) -> Surface { var out = s; out.alpha *= s . view.x; return out; }",
+        );
+        assert!(camera.surface_volatile);
+        assert!(ShadowCache::shader_traits("not WGSL").vertex_volatile);
+    }
+
+    #[test]
+    fn targeted_invalidation_covers_recorded_pending_maps_and_retains_other_views() {
+        let mut cache = ShadowCache::default();
+        cache.pending[0].epoch = cache.epoch;
+        cache.pending[0].materials.push(3);
+        cache.pending[1].epoch = cache.epoch;
+        cache.pending[1].materials.push(7);
+        cache.pending_mask = 3;
+        cache.recorded();
+        cache.material_changed(3);
+        cache.begin();
+        assert_eq!(cache.drawn[0].epoch, 0);
+        assert_eq!(cache.drawn[1].epoch, cache.epoch);
+        cache.material_changed(7);
+        assert_eq!(cache.drawn[1].epoch, 0);
     }
 }

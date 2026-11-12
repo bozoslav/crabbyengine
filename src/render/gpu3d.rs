@@ -1128,6 +1128,9 @@ impl Renderer3D {
         texture: Option<u32>,
         array: Option<u32>,
     ) {
+        if let Some(texture) = texture {
+            self.texture_alpha_changed(texture, true);
+        }
         self.resources.rebind_materials(device, queue, textures, texture, array);
     }
 
@@ -1228,7 +1231,11 @@ impl Renderer3D {
             &mut self.shadow_cache.shaders[id as usize],
             ShadowCache::shader_traits(user),
         );
-        self.shadow_cache.invalidate();
+        for (material, m) in self.resources.materials.iter().enumerate() {
+            if m.shader == id && (old_traits.vertex || self.shadow_cache.shaders[id as usize].vertex || m.cutout) {
+                self.shadow_cache.material_changed(material as u32);
+            }
+        }
         self.installed(ShaderKind::Material, id);
         if let Some((variant, verdict)) = verdict {
             let swap = Swap::Material {
@@ -1254,8 +1261,12 @@ impl Renderer3D {
         if id == 0 {
             return;
         }
-        for material in &mut self.resources.materials {
+        let vertex = self.shadow_cache.shaders.get(id as usize).is_none_or(|s| s.vertex);
+        for (index, material) in self.resources.materials.iter_mut().enumerate() {
             if material.shader == id {
+                if vertex || material.cutout {
+                    self.shadow_cache.material_changed(index as u32);
+                }
                 material.shader = 0;
             }
         }

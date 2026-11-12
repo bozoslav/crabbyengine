@@ -288,6 +288,7 @@ pub struct SceneBench {
     /// The camera circles this point at this distance and height.
     orbit: (Vec3, f32, f32),
     frames: u32,
+    shadow_workload: Option<String>,
 }
 
 /// Bytes of an RGBA8 texture with a full mip chain.
@@ -438,6 +439,7 @@ impl SceneBench {
             content: Content::default(),
             orbit: (Vec3::ZERO, 10.0, 5.0),
             frames: 0,
+            shadow_workload: std::env::var("PONKO_SHADOW_WORKLOAD").ok(),
         };
         bench.build();
         if setup.matched {
@@ -448,6 +450,9 @@ impl SceneBench {
             ctx.post.ssr = 0.0;
             ctx.post.anti_aliasing = crate::render::AntiAliasing::Fxaa;
             ctx.lighting.shadow_refresh = 1;
+        }
+        if bench.shadow_workload.is_some() {
+            bench.ctx.lighting.shadow_refresh = 1;
         }
         bench.place_camera();
         let _ = bench.device.poll(wgpu::PollType::wait_indefinitely());
@@ -1192,7 +1197,12 @@ impl SceneBench {
     /// circle around it, so every frame's view differs a little.
     fn place_camera(&mut self) {
         let (center, distance, height) = self.orbit;
-        let angle = 0.6 + self.frames as f32 * 0.004;
+        let step = match self.shadow_workload.as_deref() {
+            Some("static" | "actors") => 0.0,
+            Some("slow-camera") => 0.00001,
+            _ => 0.004,
+        };
+        let angle = 0.6 + self.frames as f32 * step;
         let camera = &mut self.ctx.camera3d;
         camera.position = center + Vec3::new(angle.cos() * distance, height, angle.sin() * distance);
         camera.look_at(center);
@@ -1203,6 +1213,12 @@ impl SceneBench {
     fn animate(&mut self) {
         let time = self.frames as f32 / 60.0;
         self.place_camera();
+        if matches!(self.shadow_workload.as_deref(), Some("static" | "slow-camera")) {
+            return;
+        }
+        if self.shadow_workload.as_deref() == Some("thrash") {
+            self.ctx.lighting.sun_direction = Vec3::new(time.sin(), -1.0, time.cos());
+        }
         let mut movers = self.ctx.world.query::<(&mut Transform3D, &Mover)>();
         movers.for_each(|(transform, mover)| {
             let at = time * mover.speed + mover.phase;
@@ -1462,6 +1478,7 @@ impl SceneBench {
         let level = |l: QualityLevel| format!("{l:?}").to_lowercase();
         serde_json::json!({
             "name": self.kind.name(),
+            "shadow_workload": self.shadow_workload,
             "description": self.kind.description(),
             "scale": self.setup.scale,
             "content": {

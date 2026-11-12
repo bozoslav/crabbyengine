@@ -59,6 +59,9 @@ pub(crate) struct Renderer {
     sampler: wgpu::Sampler,
     nearest_sampler: wgpu::Sampler,
     textures: Vec<GpuTexture>,
+    /// CPU-uploaded alpha only; unknown GPU-written textures stay conservative.
+    #[cfg(feature = "3d")]
+    texture_alpha: std::collections::HashMap<u32, TextureAlpha>,
     /// A 1x1 white texture freed textures' slots show (made on first use).
     blank: Option<wgpu::Texture>,
     /// Ids of freed textures (their slots show `blank`).
@@ -601,6 +604,8 @@ impl Renderer {
             sampler,
             nearest_sampler,
             textures: Vec::new(),
+            #[cfg(feature = "3d")]
+            texture_alpha: Default::default(),
             blank: None,
             freed_textures: Default::default(),
             instance_buffer,
@@ -1037,7 +1042,10 @@ impl Renderer {
             #[cfg(feature = "3d")]
             mips: None,
         });
-        (self.textures.len() - 1) as u32
+        let id = (self.textures.len() - 1) as u32;
+        #[cfg(feature = "3d")]
+        self.texture_alpha.insert(id, TextureAlpha::new(width, height, rgba));
+        id
     }
 
     /// Replaces texture `id` with `rgba` at a new size (resolution
@@ -1064,8 +1072,11 @@ impl Renderer {
             if let Some(linear) = mips {
                 self.ensure_mips(id, linear);
             }
+            let next = TextureAlpha::new(width, height, rgba);
+            let alpha_changed = self.texture_alpha.get(&id) != Some(&next);
+            self.texture_alpha.insert(id, next);
             if let Some(three) = &mut self.three {
-                three.texture_changed(id);
+                three.texture_alpha_changed(id, alpha_changed);
                 three.texture_replaced(&self.device, &self.textures, id);
             }
         }
@@ -1096,6 +1107,8 @@ impl Renderer {
             mips: Some(false),
         };
         self.freed_textures.insert(id);
+        #[cfg(feature = "3d")]
+        self.texture_alpha.remove(&id);
         #[cfg(feature = "3d")]
         if let Some(three) = &mut self.three {
             three.free_render_target(id);
@@ -1264,12 +1277,6 @@ impl Renderer {
 
     /// Remakes texture `id`'s mipmaps after its pixels changed.
     fn refresh_mips(&mut self, id: u32) {
-        // Called after every change to a texture's pixels: cut-out shadows
-        // drawn with it are drawn again.
-        #[cfg(feature = "3d")]
-        if let Some(three) = &mut self.three {
-            three.texture_changed(id);
-        }
         #[cfg(feature = "3d")]
         if let Some(linear) = self.textures[id as usize].mips
             && let Some(mips) = &self.mips
@@ -1304,7 +1311,20 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
+        #[cfg(feature = "3d")]
+        self.shadow_texture_update(id, [0, 0], [width, height], rgba);
         self.refresh_mips(id);
+    }
+
+    #[cfg(feature = "3d")]
+    fn shadow_texture_update(&mut self, id: u32, at: [u32; 2], size: [u32; 2], rgba: &[u8]) {
+        let changed = self
+            .texture_alpha
+            .get_mut(&id)
+            .is_none_or(|alpha| alpha.update(at, size, rgba));
+        if let Some(three) = &mut self.three {
+            three.texture_alpha_changed(id, changed);
+        }
     }
 
     /// Switches texture `id` between smooth and hard-edged sampling.
@@ -1341,6 +1361,8 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
+        #[cfg(feature = "3d")]
+        self.shadow_texture_update(id, at, size, rgba);
         self.refresh_mips(id);
     }
 
@@ -1872,4 +1894,50 @@ fn texture_bytes(texture: &wgpu::Texture) -> u64 {
         .sum::<u64>()
         * layers
         * samples
+}
+
+/// Exact alpha comparison avoids invalidating built-in cutout shadows for
+/// RGB-only uploads. Dimensions participate because filtering depends on them.
+#[cfg(feature = "3d")]
+#[derive(Debug, PartialEq)]
+struct TextureAlpha {
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+#[cfg(feature = "3d")]
+impl TextureAlpha {
+    fn new(width: u32, height: u32, rgba: &[u8]) -> Self {
+        Self {
+            width,
+            height,
+            pixels: rgba.as_chunks::<4>().0.iter().map(|p| p[3]).collect(),
+        }
+    }
+
+    fn update(&mut self, at: [u32; 2], size: [u32; 2], rgba: &[u8]) -> bool {
+        let mut changed = false;
+        for (i, pixel) in rgba.as_chunks::<4>().0.iter().enumerate() {
+            let x = at[0] as usize + i % size[0] as usize;
+            let y = at[1] as usize + i / size[0] as usize;
+            let old = &mut self.pixels[y * self.width as usize + x];
+            changed |= *old != pixel[3];
+            *old = pixel[3];
+        }
+        changed
+    }
+}
+
+#[cfg(all(test, feature = "3d"))]
+mod shadow_alpha_tests {
+    use super::TextureAlpha;
+    #[test]
+    fn alpha_updates_compare_exact_pixels_and_region_strides() {
+        let mut alpha = TextureAlpha::new(2, 2, &[255; 16]);
+        assert!(!alpha.update([0, 0], [2, 2], &[64, 80, 90, 255].repeat(4)));
+        assert!(alpha.update([1, 0], [1, 2], &[255, 255, 255, 0].repeat(2)));
+        assert!(!alpha.update([1, 0], [1, 2], &[0; 8]));
+        assert_eq!(alpha.pixels, [255, 0, 255, 0]);
+        assert_ne!(alpha, TextureAlpha::new(1, 4, &[255; 16]));
+    }
 }
