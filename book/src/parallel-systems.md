@@ -165,6 +165,10 @@ difference from running one at a time:
 - Two systems that write the same component or resource, or where one
   reads what the other writes, are never in one batch.
 
+Converting a `&mut Ctx` system that leaned on the flush after every system?
+[Moving a system to a view system](systems.md#moving-a-system-to-a-view-system)
+lists what to check.
+
 So the scheduler is not a new set of visibility rules to learn. With it on
 or off, a system sees the commands and events of every system before it
 that it could conflict with.

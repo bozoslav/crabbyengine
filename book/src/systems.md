@@ -367,6 +367,9 @@ see the last rows.)
 | A change through `ctx.world` | immediately |
 | A command in `ctx.commands` | when the recording system returns, before the next system; never to the recording system itself |
 | Commands recorded in `setup` | before the first tick |
+| Commands recorded in a `Game::setup` callback | when that callback returns, before the next callback: every setup callback is a barrier too |
+| Commands recorded before a [`load_scene`](scenes.md#what-a-load-replaces-and-what-it-keeps) in the same system | never: the load drops them, they were meant for the old entities. Commands recorded after it apply as usual |
+| Events sent before a `load_scene` | as before the load, for their usual lifetime; entity ids in them name the old world's entities |
 | A sent event | immediately, to every later `read` (also the sender's own) |
 | An event, to a system earlier in the order | on that system's next run (the next tick for simulation systems) |
 | Events from simulation ticks, to frame systems | in the same frame, all ticks of it |
@@ -380,9 +383,45 @@ Commands apply in the order they were recorded: a closure from
 the same entity does nothing. Engine steps such as the physics step are
 ordinary systems, so commands recorded in `Phase::BeforePhysics` are in the
 world when physics runs. A system skipped by `sim_system_every` doesn't run
-and records nothing. C and C++ systems follow the same rules: inside a
-C query callback recorded commands are still pending, and parallel
-queries refuse commands.
+and records nothing.
+
+C and C++ systems follow the same rules, with the scheduler off or on (they
+always run alone). A query callback may record commands (`*_later`), but it
+can't read or change the world it is walking: world calls return
+`PONKO_BUSY` (C++ throws) until the query ends, so a callback never sees a
+half-applied change. Parallel queries refuse commands.
+
+<div class="lang-pair">
+<div>
+
+```rust
+# use ponko::prelude::*;
+struct Shot(i32);
+
+// Records a spawn. The world doesn't change until this system returns.
+fn fire(ctx: &mut Ctx) {
+    let before = ctx.world.len();
+    ctx.commands.spawn((Shot(3),));
+    assert_eq!(ctx.world.len(), before); // still pending
+}
+
+// The next system finds the shot in the world, in the same tick.
+fn count_shots(ctx: &mut Ctx) {
+    let shots = ctx.world.query::<&Shot>().count() as u64;
+    assert_eq!(shots, ctx.time.sim_tick() + 1);
+}
+# Game::new("t", 1, 1).sim_system(fire).sim_system(count_shots).run_headless(3, |_| {});
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:command_barrier}}
+```
+
+</div>
+</div>
 
 So the next system sees an event together with the commands its sender
 recorded: a `Died(e)` sent with `commands.despawn(e)` arrives when `e` is
@@ -395,14 +434,17 @@ tick, an event from tick `t` is kept through tick `t + 1`. While the
 simulation is paused no ticks pass, so events sent by frame systems (a pause
 menu's "restart") wait for the simulation readers.
 
-`tests/schedule_barriers.rs` pins these rules.
+`tests/schedule_barriers.rs` pins these rules, with the parallel scheduler
+off and on; `tests/scene_lifecycle.rs` pins the scene rows, and
+`examples/cpp/tests.c` and `tests.cpp` the C and C++ ones.
 
 ### Writing systems that keep working
 
-The flush after every system is the contract for ordinary systems, and it
-stays that way. View systems that opt into
-[parallel scheduling](parallel-systems.md) get the coarser batch barrier
-documented there. Systems written like this work under both:
+The flush after every system is the contract for `&mut Ctx` systems, and it
+stays that way: turning [parallel systems](parallel-systems.md) on changes
+nothing for them. Only a system you rewrite as a *view system*
+(`Game::add_view`) gets the coarser barrier at the end of its batch.
+Systems written like this work under both:
 
 - Depend on another system's commands or events through explicit order: put
   the reader in a later phase, rather than relying on registration order
@@ -410,6 +452,32 @@ documented there. Systems written like this work under both:
 - Read results of your own commands on your next run, not in the same call.
 - Keep work that needs the world exactly as it is in one system, through
   `ctx.world` (immediate) or one `commands.add` closure.
+
+### Moving a system to a view system
+
+A `&mut Ctx` system can lean on the flush after every system without saying
+so. When you turn it into a view system, check these, in this order:
+
+| The `&mut Ctx` system relied on | As a view system |
+|---|---|
+| Seeing the commands of the system registered just before it | Still true, and nothing to do, if that system *declares* `commands()`: a recorder is always the last of its batch, so the next system starts a new stage. An undeclared command is a panic naming the system, not a silent change. |
+| Seeing the events of the system registered just before it | Still true if both declare the event type (`send_events` and `read_events`): a sender never shares a batch with a later reader. |
+| Seeing another system's *direct* world changes | Still true if both declare the component or resource: a reader and a writer never share a batch. |
+| Changing the world at once through `ctx.world` (spawn, despawn, insert, remove) | Not possible in a view: structural changes go through `sys.commands()` and apply when the batch ends. Read the result on the next run, or keep the system a `&mut Ctx` system. |
+| Sending an event and reading it back in the same call | Works: a view system that sends and reads one type runs alone and sees its own events at once. |
+| Order that comes from nothing the declarations show (a file both write, a global, a callback) | Not kept. Say it: `Game::order(first, second)` or `Game::barrier(phase)`. |
+
+So the declarations carry the order the flush used to give for free. Two
+ways to check a conversion: `Game::schedule_plan()` (or
+[`ecs_diagnostics`](agents.md#ecs-diagnostics) on a running game) shows
+which systems share a batch and why each stage starts where it does, and
+running the game's tests with `PONKO_PARALLEL_SYSTEMS=0`, `1` and `always`
+must give the same results, since the scheduler never changes what a
+correctly declared simulation computes.
+
+Nothing has to move: a game can keep every system a `&mut Ctx` system, or
+convert only the heavy ones. A `&mut Ctx` system between two view systems
+is a barrier of its own, exactly as before.
 
 ## Parallel queries and parallel systems
 
