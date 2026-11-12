@@ -1,20 +1,33 @@
 //! Running a reused `ViewState` doesn't allocate once its buffers have
-//! grown, with change filters and removals too. Its own test binary with a single test: the counter is
-//! process-wide, so no other test may run beside it.
+//! grown, with change filters and removals too. Its own test binary with a
+//! single test. The counter is per thread: the test harness's other threads
+//! (its main thread waiting on the test) allocate at times of their own.
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::cell::Cell;
 
 use ponko_ecs::*;
 
 struct Counting;
 
-static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
+thread_local! {
+    // `const` init: reading it never allocates, so the allocator may use it.
+    static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+}
+
+fn allocations() -> usize {
+    ALLOCATIONS.with(Cell::get)
+}
+
+fn count() {
+    // `try_with`: a thread being torn down may still free or grow memory.
+    let _ = ALLOCATIONS.try_with(|n| n.set(n.get() + 1));
+}
 
 // SAFETY: forwards to the system allocator, only counting calls.
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        count();
         // SAFETY: the caller's contract, forwarded.
         unsafe { System.alloc(layout) }
     }
@@ -23,7 +36,7 @@ unsafe impl GlobalAlloc for Counting {
         unsafe { System.dealloc(ptr, layout) }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        ALLOCATIONS.fetch_add(1, Ordering::Relaxed);
+        count();
         // SAFETY: the caller's contract, forwarded.
         unsafe { System.realloc(ptr, layout, new_size) }
     }
@@ -49,11 +62,11 @@ fn reused_view_state_runs_without_allocating() {
         });
     };
     run(&mut world); // warm up: the state's buffers grow once
-    let before = ALLOCATIONS.load(Ordering::Relaxed);
+    let before = allocations();
     for _ in 0..100 {
         run(&mut world);
     }
-    assert_eq!(ALLOCATIONS.load(Ordering::Relaxed), before);
+    assert_eq!(allocations(), before);
     assert_eq!(world.resource::<Score>().0, 101);
     change_filters_and_removals_allocate_nothing();
 }
@@ -79,10 +92,10 @@ fn change_filters_and_removals_allocate_nothing() {
         });
     };
     run(&mut world);
-    let before = ALLOCATIONS.load(Ordering::Relaxed);
+    let before = allocations();
     for _ in 0..100 {
         run(&mut world);
     }
-    assert_eq!(ALLOCATIONS.load(Ordering::Relaxed), before);
+    assert_eq!(allocations(), before);
     assert!(seen > 0);
 }
