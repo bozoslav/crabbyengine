@@ -1,0 +1,64 @@
+name: Desktop release package
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/desktop-package.yml'
+      - '.github/workflows/release.yml'
+      - 'scripts/*coin-dash.py'
+      - 'examples/coin_dash/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package without credentials (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-26, windows-2022]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python scripts/release-coin-dash.py selftest
+      - name: Install ALSA and udev headers
+        if: runner.os == 'Linux'
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/windows-linker
+        if: runner.os == 'Windows'
+      - name: Set explicit Windows target for static CRT
+        if: runner.os == 'Windows'
+        shell: bash
+        run: echo 'CARGO_BUILD_TARGET=x86_64-pc-windows-msvc' >> "$GITHUB_ENV"
+      - run: cargo build --locked --release --example coin_dash
+        env:
+          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
+      - run: python scripts/package-coin-dash.py package --no-build --out target/desktop-release
+      # Deliberately no secrets: exercise the distributable default on forks too.
+      - run: python scripts/release-coin-dash.py sign --package target/desktop-release
+      - run: python scripts/release-coin-dash.py archive --package target/desktop-release --out desktop-assets
+      - name: Verify checksum files with the platform tool
+        shell: bash
+        run: |
+          cd desktop-assets
+          for checksum in *.sha256; do
+            if [ "$RUNNER_OS" = macOS ]; then
+              shasum -a 256 -c "$checksum"
+            else
+              sha256sum -c "$checksum"
+            fi
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-check-${{ matrix.os }}
+          path: desktop-assets/coin-dash-*
+          if-no-files-found: error

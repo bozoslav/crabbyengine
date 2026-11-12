@@ -10,6 +10,17 @@ Start `coin_dash` (`coin_dash.exe` on Windows) from this folder or from any
 other: it finds its `assets` folder next to the program, wherever you unpacked
 it and whatever the current folder is. Keep the `assets` folder beside it.
 
+The macOS release is for Apple silicon (macOS 11 or newer). Open Coin Dash.app;
+keep the bundle intact: assets and notices are inside Contents/Resources.
+Its README and license notices are also beside the app in the release archive.
+An ad-hoc signed build has no verified developer identity or notarization;
+macOS may require you to approve it in Privacy & Security before opening it.
+
+Linux releases target x86_64 and require glibc 2.35 or newer (Ubuntu 22.04
+baseline), ALSA/udev and the graphics/window-system libraries for your desktop.
+Windows x86_64 releases link the VC++ runtime statically; no separate VC++
+redistributable is required.
+
 Controls (change them in Settings, press O or the gamepad's North button)
 -----------------------------------------------------------------------
   Move            arrow keys, W A S D, or the left stick

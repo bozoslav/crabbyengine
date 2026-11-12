@@ -32,8 +32,8 @@ python3 scripts/package-coin-dash.py package              # release build -> tar
 python3 scripts/package-coin-dash.py smoke --package target/package
 ```
 
-`package` builds the example and lays out a folder you can zip, with the same
-files on every desktop:
+`package` builds the example and lays out the initial portable folder below.
+The release signing step subsequently wraps the macOS payload in an `.app`:
 
 | File | What it is |
 |---|---|
@@ -58,6 +58,80 @@ fails the packaging by name instead of being listed as "unknown", and so does a
 dev-dependency of `ponko` that this platform would link without the notice
 listing it; `python3 scripts/package-coin-dash.py selftest` checks both with
 made-up crates, plus the exit-code decisions below.
+
+## Desktop releases
+
+The [release workflow](https://github.com/ponkoengine/ponko/blob/main/.github/workflows/release.yml)
+builds Coin Dash in release mode for Linux x86_64 (Ubuntu 22.04, glibc 2.35
+or newer), macOS Apple silicon (macOS 11 or newer), and Windows x86_64.
+Runner images are pinned to Ubuntu 22.04, macOS 26 and Windows 2022. Windows
+links the CRT statically and does not require the VC++ redistributable.
+Release builds do not restore build caches. It attaches
+a Linux `.tar.gz` and macOS and Windows `.zip` archives, each with a
+`.sha256` file. The macOS ZIP contains `Coin Dash.app`, with the assets and
+notices in its Resources folder, plus readable copies of the README and license
+notices beside the app. Each runner extracts its finished archive and runs the
+headless package smoke test before upload. macOS also runs the executable in
+place inside that extracted bundle, from an unrelated directory, to exercise
+its actual asset symlinks, and verifies the bundle seal unconditionally.
+
+Linux tar archives normalize member ownership to root (uid/gid 0), member
+timestamps and the gzip timestamp to zero, and omit the gzip filename. Repacking
+the same payload with the same file modes and compression toolchain produces
+identical bytes despite different source file times or runner ownership. This
+does not claim reproducible Rust binaries or reproducible macOS/Windows ZIPs.
+
+The `Desktop release package` PR workflow exercises `selftest`, `sign` without
+credentials, `archive` and checksum verification on all three pinned images.
+It can also be run manually. `python scripts/release-coin-dash.py selftest`
+checks partial credentials, checksum bytes and bundle layout (the symlink
+layout test runs on Unix). Credentialed signing and notarization still need
+separate validation with real certificates. Retina rendering has not been
+visually verified; the bundle declares `NSHighResolutionCapable`.
+
+The C library release and crates.io publish do not wait for desktop packaging
+or Apple notarization. A separate job attaches desktop archives after both
+they and the GitHub release are ready. Re-run failed desktop/upload jobs after
+an outage. Ordinary release tags must match the Cargo package version for the
+desktop build. Release creation uses `--verify-tag` to require the existing tag.
+
+Signing secrets are configured in the repository's GitHub Actions settings.
+Supply all values in a row to enable that step:
+
+| Step | Secrets |
+|---|---|
+| Windows Authenticode | `WINDOWS_SIGN_PFX` (base64 PFX), `WINDOWS_SIGN_PASSWORD` |
+| macOS Developer ID signing | `MACOS_SIGN_P12` (base64 PKCS#12), `MACOS_SIGN_PASSWORD`, `MACOS_SIGN_IDENTITY` (the full Developer ID Application identity) |
+| macOS notarization and stapling | The signing secrets above, `MACOS_NOTARY_APPLE_ID`, `MACOS_NOTARY_PASSWORD` (Apple app-specific password), `MACOS_NOTARY_TEAM_ID` |
+
+Use a Windows code-signing certificate exported with its private key as PFX;
+on macOS use a Developer ID Application certificate exported as PKCS#12.
+Encode the file with `base64 < certificate.p12 | tr -d '\n'` on Unix, or
+`[Convert]::ToBase64String([IO.File]::ReadAllBytes('certificate.pfx'))` in
+PowerShell, and put the result in the corresponding secret. Never commit it.
+
+With no signing secrets, Windows skips Authenticode and macOS seals the app
+with an ad-hoc signature. Ad-hoc signing does not establish a trusted developer
+identity or bypass Gatekeeper. The macOS runner can sign without notarizing if the
+notarization secrets are absent. When signing or notarization runs, the
+runner checks the signature or stapled ticket again after extracting the ZIP.
+
+To rehearse on a fork with Actions enabled, push a unique tag ending in
+`-desktop-dry-run` from the commit to test:
+
+```sh
+git tag v0.0.0-test-desktop-dry-run
+git push origin refs/tags/v0.0.0-test-desktop-dry-run
+```
+
+The tag runs the same desktop jobs and attaches the six files to a draft
+release on that repository. The C library release and crates.io jobs are
+skipped for this tag. An ordinary `v*` tag attaches the same desktop assets
+to the normal engine release.
+
+Dry-run tags are allowed on forks and the main repository; use unique names.
+After inspection, delete the draft with `gh release delete TAG --yes` and
+delete its remote tag with `git push origin :refs/tags/TAG`.
 
 ## The smoke test
 
@@ -245,4 +319,4 @@ index, or a new one):
 | The web build keeps nothing (no storage backend), and the browser matrix is Chromium on SwiftShader WebGL2 only (no real-GPU WebGPU, Firefox, Safari or mobile). | [#173](https://github.com/ponkoengine/ponko/issues/173) |
 | The window smoke proves "a window opens and frames are drawn", not what they look like; no image regression for a whole game. | [#135](https://github.com/ponkoengine/ponko/issues/135) |
 | The C and C++ bindings have no counterpart of this game (it is Rust only). | [#262](https://github.com/ponkoengine/ponko/issues/262) |
-| Packages aren't attached to a release, signed or notarized, and there is no installer; the third-party notice is generated by a short script (on macOS, 33 of the 188 linked libraries ship no license file in their published source, so only their declared license and authors are listed; the package says which) rather than by a license-policy tool. | [#282](https://github.com/ponkoengine/ponko/issues/282) |
+| Desktop packages are portable archives, with no installer. Third-party notices use a script rather than a license-policy tool; missing distributed license texts are represented by the library's declared license and authors. | No dedicated follow-up issue; API friction index [#207](https://github.com/ponkoengine/ponko/issues/207). See [Desktop releases](#desktop-releases). |
