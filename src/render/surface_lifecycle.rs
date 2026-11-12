@@ -32,6 +32,12 @@ impl SurfaceLifecycle {
         self.suspended
     }
 
+    /// A minimized window has no drawable size. Keep both the capture
+    /// targets and camera viewport at their previous nonzero dimensions.
+    pub(crate) fn nonzero_size(width: u32, height: u32) -> Option<(u32, u32)> {
+        (width > 0 && height > 0).then_some((width, height))
+    }
+
     pub(crate) fn draw(has_surface: bool, capture: bool, draw_hidden: bool) -> bool {
         has_surface || capture || draw_hidden
     }

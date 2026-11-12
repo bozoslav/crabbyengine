@@ -1358,9 +1358,9 @@ impl Renderer {
         self.surface_event(super::surface_lifecycle::SurfaceEvent::Occluded(
             width == 0 || height == 0,
         ));
-        if width == 0 || height == 0 {
+        let Some((width, height)) = super::surface_lifecycle::SurfaceLifecycle::nonzero_size(width, height) else {
             return; // Keep the last nonzero dimensions for offscreen capture.
-        }
+        };
         self.config.width = width;
         self.config.height = height;
         if !self.lifecycle.suspended() {

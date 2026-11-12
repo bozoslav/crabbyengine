@@ -121,7 +121,8 @@ impl Renderer3D {
     /// frame must have new targets even when its dimensions did not change.
     pub(crate) fn invalidate_targets(&mut self) {
         self.targets = None;
-        self.forget_history();
+        // begin_history observes the missing targets and makes the single
+        // reset decision before any temporal consumer prepares again.
     }
 
     /// Step 9: the scene-sized targets. Targets made for settings that have

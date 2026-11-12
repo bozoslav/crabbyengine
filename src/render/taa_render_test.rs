@@ -1053,6 +1053,15 @@ fn surface_interruptions_reset_once_and_hidden_captures_draw_at_the_last_size() 
         for _ in 0..8 {
             rig.draw();
         }
+        for size in [(0, 0), (0, SIZE), (SIZE, 0)] {
+            // This is the same size filter used for the window's capture
+            // targets AND its cameras: neither may become zero/NaN.
+            if let Some((width, _)) = SurfaceLifecycle::nonzero_size(size.0, size.1) {
+                rig.resize(width);
+            }
+            assert_box_sides(rig, -1.2);
+            assert_eq!(rig.size, SIZE);
+        }
         for (i, event) in [
             E::Occluded(true),
             E::Occluded(false),
@@ -1113,6 +1122,24 @@ fn runtime_sample_changes_rebuild_main_and_target_camera_attachments_without_his
         .world
         .spawn((Transform3D::at(vec3(-1.2, 0.0, 0.0)), Model::new(rig.cube)));
     checked(&mut rig, |rig| {
+        // A custom material must retain its shader id and shading when the
+        // sample-dependent pipelines are replaced (a built-in fallback is white).
+        let shader = rig
+            .renderer
+            .create_shader(
+                &rig.device,
+                "sample-tint.wgsl",
+                "fn surface(s: Surface) -> Surface { var o = s; o.emissive = vec3<f32>(1.0, 0.0, 0.0); return o; }",
+            )
+            .unwrap();
+        let mut desc = GpuMaterialDesc::new(&MaterialDesc {
+            color: Color::BLACK,
+            emissive: Color::WHITE,
+            ..Default::default()
+        });
+        desc.shader = shader;
+        rig.renderer
+            .update_material(&rig.device, &rig.queue, 0, &desc, &rig.textures);
         rig.draw();
         assert!(!rig.renderer.set_samples(&rig.device, 0));
         for (i, count) in [2, 4, 2, 4, 2, 4].into_iter().enumerate() {
@@ -1150,11 +1177,17 @@ fn runtime_sample_changes_rebuild_main_and_target_camera_attachments_without_his
 }
 
 fn assert_target_box(rig: &Rig, texture: &wgpu::Texture, x: f32) {
-    let bytes = read_texture(&rig.device, &rig.queue, &texture);
+    let bytes = read_texture(&rig.device, &rig.queue, texture);
     let red: Vec<f32> = bytes
         .chunks_exact(8)
         .map(|p| half::f16::from_le_bytes([p[0], p[1]]).to_f32())
         .collect();
+    assert!(
+        bytes
+            .chunks_exact(8)
+            .all(|p| half::f16::from_le_bytes([p[4], p[5]]).to_f32() < 0.02),
+        "custom shader remains red after resampling"
+    );
     let (here, there) = if x > 0.0 {
         (SIZE * 3 / 4..SIZE, 0..SIZE / 4)
     } else {
@@ -1162,4 +1195,30 @@ fn assert_target_box(rig: &Rig, texture: &wgpu::Texture, x: f32) {
     };
     assert!(brightest(&red, SIZE, here) > 0.9);
     assert!(brightest(&red, SIZE, there) < 0.02);
+}
+
+#[test]
+fn validation_scope_captures_invalid_resources_as_a_negative_control() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let _invalid = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("validation capture negative control"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 0,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    assert!(
+        pollster::block_on(scope.pop()).is_some(),
+        "the GPU error scope must observe an invalid resource"
+    );
 }

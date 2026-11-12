@@ -491,7 +491,9 @@ where
                 if let Some(renderer) = self.ctx.gfx.renderer.as_mut() {
                     renderer.resize(size.width, size.height);
                 }
-                self.ctx.set_window_size(Self::logical_window_size(&window));
+                if crate::render::surface_lifecycle::SurfaceLifecycle::nonzero_size(size.width, size.height).is_some() {
+                    self.ctx.set_window_size(Self::logical_window_size(&window));
+                }
                 self.ctx.set_scale_factor(window.scale_factor() as f32);
                 window.request_redraw();
             }
