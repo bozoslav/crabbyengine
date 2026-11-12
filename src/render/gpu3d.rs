@@ -97,6 +97,8 @@ mod shader_checks;
 mod shaders;
 mod shadow_cache;
 mod shadows;
+#[cfg(test)]
+pub(in crate::render) mod sky_render_test;
 mod targets;
 mod variants;
 use super::capabilities::GpuLimits;

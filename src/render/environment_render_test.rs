@@ -665,13 +665,31 @@ fn the_atmosphere_has_no_dark_streak_at_negative_x() {
             rgba: pixels.clone(),
         });
     }
-    let mut max_difference = 0.0f32;
-    for y in 8..SIZE / 2 {
-        for x in SIZE / 2 - 2..SIZE / 2 + 2 {
-            max_difference = max_difference.max((rgb(&seam, x, y) - rgb(&reference, x, y)).abs().max_element());
+    let difference = |pixels: &[u8]| {
+        let mut maximum = 0.0f32;
+        for y in 8..SIZE / 2 {
+            for x in SIZE / 2 - 2..SIZE / 2 + 2 {
+                maximum = maximum.max((rgb(pixels, x, y) - rgb(&reference, x, y)).abs().max_element());
+            }
         }
-    }
-    eprintln!("atmosphere -X seam: maximum channel difference from +X = {max_difference}");
+        maximum
+    };
+    let max_difference = difference(&seam);
+    super::gpu3d::sky_render_test::use_unbounded_sky(&mut rig.renderer, &rig.device);
+    let control = rig.draw();
+    super::render_test_support::keep_image(&super::render_test_support::Image {
+        width: SIZE,
+        height: SIZE,
+        rgba: control.clone(),
+    });
+    let control_difference = difference(&control);
+    eprintln!(
+        "atmosphere -X seam: maximum channel difference from +X = {max_difference}; original lookup = {control_difference}"
+    );
+    assert!(
+        control_difference >= 15.0,
+        "the original lookup must expose the dark streak: {control_difference}"
+    );
     assert!(
         rgb(&reference, SIZE / 2, SIZE / 4).max_element() > 50.0,
         "control must be a lit sky"
