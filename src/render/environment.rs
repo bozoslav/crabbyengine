@@ -3,6 +3,12 @@ use super::gpu3d::HDR_FORMAT;
 use crate::render::traffic::{Counted, Upload};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub(super) const SHADER: &str = concat!(
+    include_str!("sky_sampling.wgsl"),
+    "\n",
+    include_str!("environment.wgsl")
+);
+
 pub(super) struct Environment {
     pub atlas: wgpu::Texture,
     source: wgpu::Texture,
@@ -171,7 +177,7 @@ impl Environment {
         let sh_groups = buffers.iter().map(|b| group(&sh_view, b)).collect();
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("IBL bake"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("environment.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("IBL bake"),

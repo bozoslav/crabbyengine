@@ -75,7 +75,7 @@ fn ggx(xi: vec2<f32>, roughness: f32) -> vec3<f32> {
     if config.params.y > 0.0 {
         let up = asin(clamp(d.y, -1.0, 1.0)) / (0.5 * PI);
         let uv = vec2<f32>(atan2(d.z, d.x) / (2.0 * PI) + 0.5, 0.5 - 0.5 * sign(up) * sqrt(abs(up)));
-        light = textureSampleLevel(image, linear_sampler, uv, 0.0).rgb * config.params.z;
+        light = sample_sky(image, linear_sampler, uv) * config.params.z;
     }
     return vec4<f32>(light, 1.0);
 }

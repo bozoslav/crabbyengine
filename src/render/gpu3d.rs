@@ -619,7 +619,8 @@ impl Renderer3D {
         let environment = super::environment::Environment::new(device, &sky_view);
         let sky_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("3d sky"),
-            // Around the horizon it wraps; up and down it stops.
+            // Packed regions bound their own filter footprints; the sky wraps
+            // longitude explicitly inside its region (sample_sky).
             address_mode_u: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
@@ -1735,7 +1736,7 @@ mod tests {
 
     #[test]
     fn the_environment_shader_is_valid() {
-        check_shader("environment", include_str!("environment.wgsl")).unwrap();
+        check_shader("environment", super::super::environment::SHADER).unwrap();
     }
 
     #[test]

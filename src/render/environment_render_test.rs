@@ -637,3 +637,47 @@ fn the_atmosphere_lights_a_rough_sphere_and_follows_the_sun_down() {
         "the baked sky follows the sun below the horizon: {day} then {night}"
     );
 }
+
+/// With the sun overhead the sky is invariant under azimuth. Compare the
+/// seam at -X to +X at exactly the same elevation and pixel coordinates.
+#[test]
+fn the_atmosphere_has_no_dark_streak_at_negative_x() {
+    let Some(mut rig) = Rig::new() else { return };
+    // Keep the 3D frame active; the floor stays below the sampled sky.
+    let floor = rig.mesh(&MeshData::plane(100.0), matte(Color::BLACK));
+    rig.ctx
+        .world
+        .spawn((Transform3D::at(vec3(0.0, -2.0, 0.0)), Model::new(floor)));
+    rig.ctx.sky.atmosphere = true;
+    rig.ctx.sky.stars = 0.0;
+    rig.ctx.sky.night_light = Color::BLACK;
+    rig.ctx.lighting.sun_direction = Vec3::NEG_Y;
+    rig.ctx.lighting.sun_intensity = 3.0;
+    rig.ctx.camera3d.position = Vec3::ZERO;
+    rig.ctx.camera3d.look_at(vec3(1.0, 0.3, 0.0));
+    let reference = rig.draw();
+    rig.ctx.camera3d.look_at(vec3(-1.0, 0.3, 0.0));
+    let seam = rig.draw();
+    for pixels in [&reference, &seam] {
+        super::render_test_support::keep_image(&super::render_test_support::Image {
+            width: SIZE,
+            height: SIZE,
+            rgba: pixels.clone(),
+        });
+    }
+    let mut max_difference = 0.0f32;
+    for y in 8..SIZE / 2 {
+        for x in SIZE / 2 - 2..SIZE / 2 + 2 {
+            max_difference = max_difference.max((rgb(&seam, x, y) - rgb(&reference, x, y)).abs().max_element());
+        }
+    }
+    eprintln!("atmosphere -X seam: maximum channel difference from +X = {max_difference}");
+    assert!(
+        rgb(&reference, SIZE / 2, SIZE / 4).max_element() > 50.0,
+        "control must be a lit sky"
+    );
+    assert!(
+        max_difference <= 3.0,
+        "azimuth-invariant atmosphere has a dark streak at -X: {max_difference}"
+    );
+}
