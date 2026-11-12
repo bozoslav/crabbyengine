@@ -1,10 +1,12 @@
 //! Executable guide examples and public shader contract regressions.
-#![cfg(all(feature = "3d", feature = "window"))]
+#![cfg(feature = "3d")]
 use ponko::anim::{Blend, Joint, Skeleton};
 use ponko::prelude::*;
 use ponko::render::{MaterialDesc, MaterialInstancing, MaterialSides, MaterialVariantKey, MeshData, Model};
 
 // ANCHOR: material_features
+const UNLIT: &str = include_str!("fixtures/shaders/material-unlit.wgsl");
+
 fn material_features(ctx: &mut Ctx) {
     // Lit is the default; this hook explicitly opts into unlit shading.
     let unlit = ctx.gfx.create_shader("unlit", UNLIT);
@@ -28,8 +30,6 @@ fn material_features(ctx: &mut Ctx) {
     }
 }
 // ANCHOR_END: material_features
-
-const UNLIT: &str = include_str!("fixtures/shaders/material-unlit.wgsl");
 
 // ANCHOR: material_skin
 fn skinned_material(ctx: &mut Ctx) {
@@ -104,6 +104,7 @@ fn variant_keys_cover_the_renderer_sets_without_device_handles() {
     assert_eq!(MaterialInstancing::of(true, true), MaterialInstancing::Shared);
 }
 
+#[cfg(feature = "window")]
 #[test]
 fn contract_errors_name_the_hook_rule_and_fix_at_the_user_line() {
     Game::new("contract", 1, 1).run_headless(0, |ctx| {
@@ -185,7 +186,7 @@ fn skinned_gpu_buffers_explain_how_to_draw_a_pose() {
         data.weights = vec![[1.0, 0.0, 0.0, 0.0]; data.positions.len()];
         let material = ctx.gfx.default_material();
         let mesh = ctx.gfx.create_skinned_mesh(&data, material, &skeleton);
-        ctx.gfx
-            .create_instance_batch(mesh, &[Mat4::IDENTITY], Default::default());
+        let buffer = ctx.gfx.create_gpu_buffer(1, &[Vec4::ZERO]);
+        ctx.gfx.set_mesh_gpu_buffer(mesh, buffer, 1);
     });
 }

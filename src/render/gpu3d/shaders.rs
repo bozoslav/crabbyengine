@@ -208,11 +208,10 @@ impl Shaders {
         let storage = self.features.storage;
         let (decals, gi) = (self.features.decals, self.features.gi);
         let variant = material_variant(decals, gi, storage);
-        let source = if !storage && user.contains("items") {
-            compose_shader_storage("", decals, gi, false)
-        } else {
-            compose_shader_storage(user, decals, gi, storage)
-        };
+        if !storage {
+            crate::render::shader_diagnostics::require_material_storage(name, &variant, user)?;
+        }
+        let source = compose_shader_storage(user, decals, gi, storage);
         crate::render::diagnose(name, ShaderKind::Material, &variant, &source)?;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pipelines = build_pipelines(

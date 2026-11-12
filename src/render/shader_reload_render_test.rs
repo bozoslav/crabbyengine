@@ -86,6 +86,22 @@ fn failed_reloads_keep_the_last_good_pipelines_and_spare_other_shaders() {
     assert_eq!(pipelines(&renderer, blue), blue_before, "the last good version stays");
     assert_eq!(pipelines(&renderer, red), red_before, "other shaders are untouched");
 
+    // Contract failures use the same located diagnostic and keep last-good
+    // pipelines, before any GPU scope or deferred verdict is needed.
+    for source in [
+        "fn vertex() -> f32 { return 0.0; }",
+        "@group(0) @binding(0) var<uniform> frame: vec4<f32>;",
+    ] {
+        let e = renderer.replace_shader(&device, blue, "blue.wgsl", source).unwrap_err();
+        assert_eq!((e.line, e.in_engine_code), (Some(1), false), "{e}");
+        assert!(
+            e.message.contains("signature") || e.message.contains("engine-owned"),
+            "{e}"
+        );
+        assert_eq!(pipelines(&renderer, blue), blue_before);
+        assert_eq!(pipelines(&renderer, red), red_before);
+    }
+
     // The GPU rejects its pipelines: the error comes back, the device lives on.
     let e = renderer
         .replace_shader(&device, blue, "blue.wgsl", BAD_SAMPLING)

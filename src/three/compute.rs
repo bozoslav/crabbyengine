@@ -137,7 +137,8 @@ impl Graphics {
     /// For GPU buffers, define `fn update(i: u32)` instead, accessing the
     /// read-write `items: array<vec4<f32>>`. Schedule it with
     /// [`crate::render::ComputePass::for_buffer`]; it shares the texture passes' frame uniforms
-    /// and ordering. WebGL2 skips buffer passes and buffer-driven draws.
+    /// and ordering. WebGL2 skips buffer compute passes; shaders reading
+    /// `items` and GPU-buffer draw setup report the storage requirement.
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -430,7 +431,9 @@ impl Graphics {
     /// position) and moves it by what it reads from `items`, in world axes. A
     /// particle emitter therefore follows its entity. One draw per entity;
     /// use one entity per emitter. Skinned meshes are unsupported and panic
-    /// with a fix: use model entities with `Skeleton` or `SkinOf`.
+    /// with a fix: use model entities with `Skeleton` or `SkinOf`. On a GPU
+    /// without vertex storage buffers, setup panics with an instruction to
+    /// use persistent instance batches (which have a CPU fallback) or entities.
     ///
     /// The entity is culled by the mesh's bounds, which don't know where the
     /// shader puts the instances: give the whole simulation's extent (in the

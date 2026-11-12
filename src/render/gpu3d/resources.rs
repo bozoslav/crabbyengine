@@ -135,6 +135,10 @@ impl Resources {
     }
 
     pub(super) fn set_mesh_gpu_buffer(&mut self, mesh: u32, b: u32, count: u32) {
+        assert!(
+            self.storage_read.is_some(),
+            "GPU-buffer instances require vertex storage buffers on this device; use create_instance_batch for the CPU fallback or draw Model entities"
+        );
         if let Some(mesh) = self.meshes.get_mut(mesh as usize) {
             mesh.gpu_buffer = Some((b, count));
         }

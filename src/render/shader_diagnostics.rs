@@ -189,6 +189,21 @@ fn material_contract(user: &str) -> Option<(std::ops::Range<usize>, String)> {
     None
 }
 
+/// An unsupported material/storage combination, located in the user hook.
+/// Comments do not count as reads of the engine's `items` buffer.
+pub(crate) fn require_material_storage(name: &str, variant: &str, user: &str) -> Result<(), Box<ShaderDiagnostic>> {
+    let Some((_, span)) = contract_tokens(user).into_iter().find(|t| t.0 == "items") else {
+        return Ok(());
+    };
+    let composed = crate::render::compose_shader(user);
+    let game = game_range(&composed).expect("material source marker");
+    Err(build(
+        name, ShaderKind::Material, variant, &composed,
+        "material hooks `vertex`/`surface` may read `items` only with vertex storage buffers; this GPU has none; use create_instance_batch or Model entities with a shader that does not read items, or select a storage-capable GPU".into(),
+        Some((span.start + game.start..span.end + game.start, "unsupported instance storage read".into())), Vec::new(),
+    ))
+}
+
 /// A diagnostic for an error that isn't the compiler's (pipeline creation),
 /// with no place in the source.
 pub(crate) fn without_location(name: &str, kind: ShaderKind, variant: &str, message: String) -> Box<ShaderDiagnostic> {

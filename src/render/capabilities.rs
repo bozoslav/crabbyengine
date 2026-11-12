@@ -572,7 +572,7 @@ pub(crate) fn report(
                     ),
                     GpuFeature::StorageBuffers => (
                         limits.storage_buffers(),
-                        "GPU buffers are not created and compute passes using them do nothing; material shaders that read `items` use the built-in shader".into(),
+                        "GPU buffers are not created and compute passes using them do nothing; material shaders reading `items` and GPU-buffer instance setup report an error with a fix to use CPU-backed instance batches or model entities".into(),
                         if limits.compute() {
                             storage_reason(&limits, 2, no_compute)
                         } else {

@@ -301,7 +301,14 @@ impl Graphics {
     /// source](crate::Assets::add_source) or `assets/`. It can define
     /// `fn vertex(v: Vertex) -> Vertex`, to move vertices (wind, waves), and
     /// `fn surface(s: Surface) -> Surface`, to change how each pixel looks;
-    /// the engine lights it, shadows it and does the rest. With hot reload
+    /// the engine lights it, shadows it and does the rest. Hooks are ordinary
+    /// functions with exactly those types (parameter names may differ), not
+    /// stage entry points. All `@group`/`@binding` declarations are engine-owned;
+    /// use the material's custom values/textures or `items` instead. Contract
+    /// errors name the expected rule and fix in [`Graphics::shader_status`].
+    /// Set `s.unlit = true` in `surface` for albedo plus emissive without
+    /// lighting; alpha, face mode, skinning and instancing still work as usual.
+    /// With hot reload
     /// on, saving the file in `assets/` updates the game (an error keeps the old one).
     /// Loading the same file again returns the same shader.
     ///
