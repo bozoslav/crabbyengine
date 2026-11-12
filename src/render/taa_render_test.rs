@@ -1178,13 +1178,14 @@ fn runtime_sample_changes_rebuild_main_and_target_camera_attachments_without_his
 
 fn assert_target_box(rig: &Rig, texture: &wgpu::Texture, x: f32) {
     let bytes = read_texture(&rig.device, &rig.queue, texture);
-    let red: Vec<f32> = bytes
-        .chunks_exact(8)
+    let (pixels, _) = bytes.as_chunks::<8>();
+    let red: Vec<f32> = pixels
+        .iter()
         .map(|p| half::f16::from_le_bytes([p[0], p[1]]).to_f32())
         .collect();
     assert!(
-        bytes
-            .chunks_exact(8)
+        pixels
+            .iter()
             .all(|p| half::f16::from_le_bytes([p[4], p[5]]).to_f32() < 0.02),
         "custom shader remains red after resampling"
     );
