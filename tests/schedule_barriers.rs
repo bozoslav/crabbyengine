@@ -1,15 +1,19 @@
 //! When deferred commands apply and when events become visible or expire,
-//! relative to systems, phases and setup. These pin the sequential contract
-//! documented on `Ctx::commands`, `Events` and the guide's "Systems and the
-//! frame" chapter; a future parallel scheduler must keep it or document the
-//! change.
+//! relative to systems, phases and setup. These pin the contract documented
+//! on `Ctx::commands`, `Events` and the guide's "Systems and the frame"
+//! chapter: a barrier after every `&mut Ctx` system, whether or not the
+//! parallel scheduler is on, and one barrier at the end of a batch of view
+//! systems (the last section; `tests/system_schedule.rs` has the batches'
+//! own rules).
 
+use ponko::access::SystemAccess;
 #[allow(unused_imports)]
 #[cfg(feature = "physics")]
 use ponko::d2::Physics;
 #[allow(unused_imports)]
 use ponko::input::Input;
 use ponko::prelude::*;
+use ponko::system_view::SystemView;
 
 /// What systems observed, in order.
 #[derive(Default)]
@@ -277,4 +281,129 @@ fn headless_events_expire_two_ticks_after_they_were_sent() {
         })
         .run_headless(4, setup);
     assert_eq!(lines(&world), ["0:1", "1:1", "2:0", "3:0"]);
+}
+
+// ---- with the parallel scheduler ------------------------------------------------
+
+struct Ping(u32);
+
+/// Every way a game runs its systems: the scheduler off, on with batches
+/// kept on the game's thread, and on with batches sent to other threads.
+fn modes() -> [(&'static str, Game); 3] {
+    use std::time::Duration;
+    // Whatever `PONKO_PARALLEL_SYSTEMS` says in this test run.
+    let game = || Game::new("barriers", 1, 1).parallel_systems_env(false);
+    [
+        ("off", game().parallel_systems(false)),
+        (
+            "in order",
+            game().parallel_systems(true).parallel_threshold(Duration::MAX),
+        ),
+        (
+            "threads",
+            game().parallel_systems(true).parallel_threshold(Duration::ZERO),
+        ),
+    ]
+}
+
+#[test]
+fn ctx_systems_keep_a_barrier_after_each_with_the_scheduler_on() {
+    for (mode, game) in modes() {
+        let world = game
+            .sim_system(|ctx: &mut Ctx| {
+                let before = markers(ctx);
+                ctx.commands.spawn((Marker(0),));
+                ctx.events.send(Ping(1));
+                let after = markers(ctx);
+                log(ctx, format!("recorder {before}->{after}"));
+            })
+            .sim_system(|ctx: &mut Ctx| {
+                let (n, pings) = (markers(ctx), ctx.events.read::<Ping>().len());
+                log(ctx, format!("next {n} pings={pings}"));
+            })
+            .run_headless(2, setup);
+        assert_eq!(
+            lines(&world),
+            ["recorder 0->0", "next 1 pings=1", "recorder 1->1", "next 2 pings=1"],
+            "{mode}"
+        );
+    }
+}
+
+#[test]
+fn a_batch_is_one_barrier_between_the_ctx_systems_around_it() {
+    for (mode, game) in modes() {
+        let world = game
+            // A `Ctx` system: its command applies before the batch starts.
+            .sim_system(|ctx: &mut Ctx| {
+                ctx.commands.spawn((Marker(0),));
+            })
+            // A batch of two view systems. Neither sees the other's work:
+            // the sender's event and the recorder's command arrive together
+            // when the batch ends.
+            .add_view(
+                Phase::AfterPhysics,
+                SystemAccess::new()
+                    .read::<Marker>()
+                    .send_events::<Ping>()
+                    .write_resource::<Log>(),
+                |sys: &mut SystemView| {
+                    let n = sys.world.query::<&Marker>().count();
+                    sys.events().send(Ping(n as u32));
+                    sys.world.resource_mut::<Log>().0.push(format!("sender sees {n}"));
+                },
+            )
+            .add_view(
+                Phase::AfterPhysics,
+                SystemAccess::new().read::<Marker>().commands(),
+                |sys: &mut SystemView| {
+                    let before = sys.world.query::<&Marker>().count();
+                    sys.commands().spawn((Marker(1),));
+                    assert_eq!(
+                        sys.world.query::<&Marker>().count(),
+                        before,
+                        "not applied inside the batch"
+                    );
+                },
+            )
+            // The next `Ctx` system sees the batch's command and event.
+            .sim_system(|ctx: &mut Ctx| {
+                let n = markers(ctx);
+                let pings: Vec<u32> = ctx.events.read::<Ping>().iter().map(|p| p.0).collect();
+                log(ctx, format!("after sees {n} pings={pings:?}"));
+            })
+            .run_headless(2, setup);
+        assert_eq!(
+            lines(&world),
+            [
+                "sender sees 1",
+                "after sees 2 pings=[1]",
+                "sender sees 3",
+                "after sees 4 pings=[3]"
+            ],
+            "{mode}"
+        );
+    }
+}
+
+#[test]
+fn the_two_view_systems_above_really_share_a_batch() {
+    // Otherwise the test above would only show two systems that run alone.
+    let game = Game::new("barriers", 1, 1)
+        .add_view(
+            Phase::AfterPhysics,
+            SystemAccess::new()
+                .read::<Marker>()
+                .send_events::<Ping>()
+                .write_resource::<Log>(),
+            |_: &mut SystemView| {},
+        )
+        .add_view(
+            Phase::AfterPhysics,
+            SystemAccess::new().read::<Marker>().commands(),
+            |_: &mut SystemView| {},
+        );
+    let plan = game.schedule_plan();
+    let sizes: Vec<usize> = plan.stages_in(Phase::AfterPhysics).iter().map(|s| s.len).collect();
+    assert_eq!(sizes, [2]);
 }

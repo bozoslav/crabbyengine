@@ -2753,6 +2753,43 @@ static void shader_files() {
     for (auto& f : {surface, effect, compute}) std::filesystem::remove(f);
 }
 
+static void command_barriers() {
+    // A system's commands and events reach the next system together, and
+    // nothing is applied while the recording system (or its loop) runs.
+    // The same with the scheduler off and on: C++ systems always run alone.
+    struct Mark { int from; };
+    struct Ping { int value; };
+    for (bool parallel : {false, true}) {
+        std::vector<std::size_t> seen;
+        std::size_t pings = 0;
+        auto g = ponko::game("t", 1, 1);
+        if (parallel) g.parallel_systems();
+        auto w = g
+            .sim_system([](ponko::ctx& ctx) {
+                const std::size_t before = ctx.world().size();
+                // A loop can record commands but can't look at the world it is
+                // walking, so it never sees a half-applied change.
+                ctx.world().each([&](const Mark&) {
+                    ctx.spawn_later(Mark{1});
+                    throws([&] { (void)ctx.world().size(); });
+                });
+                CHECK(ctx.world().size() == before);       // pending after the loop
+                ctx.spawn_later(Mark{2});
+                ctx.send(Ping{7});
+                CHECK(ctx.world().size() == before);       // and until the system returns
+            }, "recorder")
+            .sim_system([&](ponko::ctx& ctx) {
+                seen.push_back(ctx.world().size());
+                for (const Ping& p : ctx.read<Ping>()) { CHECK(p.value == 7); ++pings; }
+            }, "next")
+            // A command from setup applies before the first tick.
+            .run_headless(3, [](ponko::ctx& ctx) { ctx.spawn_later(Mark{0}); });
+        CHECK((seen == std::vector<std::size_t>{3, 7, 15}));
+        CHECK(pings == 3);
+        CHECK(w.size() == 15);
+    }
+}
+
 static void declared_access() {
     // A system declares what it reads and writes; debug builds of the
     // library stop the game if it uses anything else (tests/system_access.rs).
@@ -2802,6 +2839,7 @@ static void declared_access() {
 
 int main() {
     declared_access();
+    command_barriers();
     worlds();
     names_and_reflection();
     resources();

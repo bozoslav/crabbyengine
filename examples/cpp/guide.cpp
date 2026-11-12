@@ -962,6 +962,36 @@ static void funerals(ponko::ctx& ctx) {
 }
 // ANCHOR_END: events
 
+// ---- When commands apply --------------------------------------------------------------
+// ANCHOR: command_barrier
+struct Shot { int power; };
+static std::size_t shots_seen = 0;
+
+// Records a spawn. The world doesn't change until this system returns.
+static void fire(ponko::ctx& ctx) {
+    const std::size_t before = ctx.world().size();
+    ctx.spawn_later(Shot{3});
+    if (ctx.world().size() != before) std::abort();   // still pending
+}
+
+// The next system finds the shot in the world, in the same tick.
+static void count_shots(ponko::ctx& ctx) {
+    shots_seen = 0;
+    ctx.world().each([&](const Shot&) { ++shots_seen; });
+}
+// ANCHOR_END: command_barrier
+
+static void shots_arrive_before_the_next_system() {
+    ponko::game("barrier", 1, 1)
+        .sim_system(fire, "fire")
+        .sim_system(count_shots, "count shots")
+        .run_headless(3);
+    if (shots_seen != 3) {
+        std::fprintf(stderr, "barrier: %zu shots seen, expected 3\n", shots_seen);
+        std::abort();
+    }
+}
+
 static void the_dead_are_buried() {
     auto world = ponko::game("events", 1, 1)
         .sim_system(deaths, "deaths")
@@ -2696,6 +2726,7 @@ int main() {
     turrets_ride_on_tanks();
     crowds_reach_the_goal();
     the_dead_are_buried();
+    shots_arrive_before_the_next_system();
 
     // Run the other snippets headless once, so they're exercised, not only compiled.
     ponko::sound click{};

@@ -1633,9 +1633,81 @@ static void declared_access(void) {
     CHECK(ponko_world_free(w) == PONKO_OK);
 }
 
+/* Barriers: a system's commands and events reach the next system, and
+ * nothing is applied while the recording system (or its query) still runs. */
+typedef struct {
+    PonkoCtx* ctx; uint32_t mark;
+    size_t in_callback, after_recording, next_sees, pings, runs;
+} Barrier;
+static void barrier_visit(const PonkoChunk* chunk, void* user) {
+    Barrier* b = user;
+    Position p = {1}; PonkoValue v = {b->mark, &p, sizeof(p)};
+    for (size_t i = 0; i < chunk->count; ++i) CHECK(ponko_ctx_spawn_later(b->ctx, &v, 1) == PONKO_OK);
+    /* A callback can record commands but can't look at the world while the
+     * query walks it, so it never sees a half-applied change. */
+    size_t len;
+    CHECK(ponko_world_len(ponko_ctx_world(b->ctx), &len) == PONKO_BUSY);
+    ++b->in_callback;
+}
+static void barrier_recorder(PonkoCtx* ctx, void* user) {
+    Barrier* b = user;
+    PonkoWorld* w = ponko_ctx_world(ctx);
+    size_t before; CHECK(ponko_world_len(w, &before) == PONKO_OK);
+    b->ctx = ctx;
+    b->in_callback = 0;
+    CHECK(ponko_query(w, &b->mark, 1, barrier_visit, b) == PONKO_OK);
+    CHECK(b->in_callback > 0);
+    /* The commands recorded in the query are still pending after it. */
+    size_t after_query; CHECK(ponko_world_len(w, &after_query) == PONKO_OK && after_query == before);
+    Position p = {2}; PonkoValue v = {b->mark, &p, sizeof(p)};
+    CHECK(ponko_ctx_spawn_later(ctx, &v, 1) == PONKO_OK);
+    CHECK(ponko_ctx_send_event(ctx, b->mark, &p, sizeof(p)) == PONKO_OK);
+    /* And still pending when the system is about to return. */
+    CHECK(ponko_world_len(w, &b->after_recording) == PONKO_OK);
+    CHECK(b->after_recording == before);
+}
+static void barrier_next(PonkoCtx* ctx, void* user) {
+    Barrier* b = user;
+    CHECK(ponko_world_len(ponko_ctx_world(ctx), &b->next_sees) == PONKO_OK);
+    const void* data; size_t count;
+    CHECK(ponko_ctx_read_events(ctx, b->mark, sizeof(Position), &data, &count) == PONKO_OK);
+    b->pings += count;
+    ++b->runs;
+    /* Both commands of the recorder are in the world, together with its event:
+     * one entity before the first tick, doubled plus one by every recorder run. */
+    size_t expected = 1;
+    for (size_t i = 0; i < b->runs; ++i) expected = expected * 2 + 1;
+    CHECK(b->next_sees == expected);
+    CHECK(count == 1);
+}
+static void barrier_setup(PonkoCtx* ctx, void* user) {
+    Barrier* b = user;
+    PonkoWorld* w = ponko_ctx_world(ctx);
+    CHECK(ponko_component_register(w, "BarrierMark", sizeof(Position), _Alignof(Position), &b->mark) == PONKO_OK);
+    Position p = {0}; PonkoValue v = {b->mark, &p, sizeof(p)};
+    /* A command from setup applies before the first tick. */
+    CHECK(ponko_ctx_spawn_later(ctx, &v, 1) == PONKO_OK);
+}
+static void command_barriers(void) {
+    /* The same with the scheduler off and on: C systems always run alone. */
+    for (int parallel = 0; parallel < 2; ++parallel) {
+        Barrier b = {0};
+        PonkoGame* g = ponko_game_new("barriers", 1, 1); CHECK(g);
+        CHECK(ponko_game_parallel_systems(g, parallel != 0) == PONKO_OK);
+        CHECK(ponko_game_add_system(g, PONKO_PHASE_AFTER_PHYSICS, "recorder", 1, barrier_recorder, &b) == PONKO_OK);
+        CHECK(ponko_game_add_system(g, PONKO_PHASE_AFTER_PHYSICS, "next", 1, barrier_next, &b) == PONKO_OK);
+        PonkoWorld* w = NULL;
+        CHECK(ponko_game_run_headless(g, 3, barrier_setup, &b, &w) == PONKO_OK && w);
+        CHECK(b.runs == 3 && b.pings == 3);
+        size_t len; CHECK(ponko_world_len(w, &len) == PONKO_OK && len == 15);
+        CHECK(ponko_world_free(w) == PONKO_OK);
+    }
+}
+
 int main(void) {
     change_detection();
     declared_access();
+    command_barriers();
     steam_messages_validation();
     morph_clip_api();
     replication();
