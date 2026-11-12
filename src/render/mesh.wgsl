@@ -172,7 +172,7 @@ fn sky_dir(uv: vec2<f32>) -> vec3<f32> {
 // The sky's light from direction `dir` (towards the sky), without the sun
 // itself. Black without an atmosphere.
 fn sky_radiance(dir: vec3<f32>) -> vec3<f32> {
-    return textureSampleLevel(sky_texture, sky_sampler, sky_uv(dir) * vec2<f32>(0.25, 128.0 / 1536.0), 0.0).rgb;
+    return sample_sky(sky_texture, sky_sampler, sky_uv(dir));
 }
 
 // `color` seen through the fog between the camera and `world`: height fog,

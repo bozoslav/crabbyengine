@@ -377,7 +377,7 @@ impl Pipelines {
 }
 
 /// The built-in parts of every material shader.
-pub(super) const MESH_PRELUDE: &str = include_str!("../mesh.wgsl");
+pub(super) const MESH_PRELUDE: &str = concat!(include_str!("../sky_sampling.wgsl"), "\n", include_str!("../mesh.wgsl"));
 
 pub(super) const MESH_MAIN: &str = include_str!("../mesh_main.wgsl");
 
