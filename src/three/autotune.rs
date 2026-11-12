@@ -65,6 +65,8 @@ pub enum QualityAutotuneReason {
     UnderBudget,
     /// No permitted setting can move further in this direction.
     BoundsOrPinned,
+    /// A quadratic pixel/map-size estimate would exceed 90% of the budget.
+    InsufficientHeadroom,
 }
 use QualityAutotuneReason as Reason;
 
@@ -238,11 +240,23 @@ impl Controller {
                     .min(q.max_shadow_resolution);
             }
         } else if !self.shadow_pinned && self.shadow < q.max_shadow_resolution {
-            self.shadow = (self.shadow * 2)
+            let next = (self.shadow * 2)
                 .min(q.max_shadow_resolution)
                 .max(q.min_shadow_resolution);
+            let ratio = next as f32 / self.shadow as f32;
+            if s.ms * ratio * ratio > q.target_gpu_ms * 0.9 {
+                self.reason = Reason::InsufficientHeadroom;
+                return;
+            }
+            self.shadow = next;
         } else if !self.scale_pinned && self.scale < q.max_render_scale {
-            self.scale = (self.scale + 0.05).min(q.max_render_scale).max(q.min_render_scale);
+            let next = (self.scale + 0.05).min(q.max_render_scale).max(q.min_render_scale);
+            let ratio = next / self.scale;
+            if s.ms * ratio * ratio > q.target_gpu_ms * 0.9 {
+                self.reason = Reason::InsufficientHeadroom;
+                return;
+            }
+            self.scale = next;
         }
         if self.scale == old_scale && self.shadow == old_shadow {
             self.reason = Reason::BoundsOrPinned;
@@ -476,7 +490,7 @@ mod regressions {
             c.update(
                 Some(Sample {
                     sequence: seq,
-                    ms: 4.0,
+                    ms: 2.0,
                     fresh: true,
                 }),
                 false,
@@ -618,6 +632,36 @@ mod regressions {
             );
         }
         assert_eq!(ctx.quality_autotune_status().unwrap().changes, 1);
+    }
+
+    #[test]
+    fn shadow_feedback_does_not_ping_pong_when_doubling_would_exceed_budget() {
+        let mut c = Controller::new(QualityAutotune::default(), 1.0, 2048, true, false);
+        for i in 1..6000 {
+            // Shadow-dominated synthetic GPU: each dimension doubles cost.
+            let ms = 80.0 * (c.shadow as f32 / 2048.0).powi(2);
+            c.update(
+                Some(Sample {
+                    sequence: i,
+                    ms,
+                    fresh: true,
+                }),
+                false,
+                c.scale,
+                c.shadow,
+            );
+        }
+        assert_eq!(c.shadow, 512);
+        assert_eq!(c.changes, 2, "failed shadow upgrades must not repeat forever");
+    }
+
+    #[test]
+    fn scene_replacement_discards_the_old_scene_policy() {
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ONE);
+        ctx.set_quality_autotune(Some(QualityAutotune::default()));
+        let save = ctx.world.save();
+        ctx.replace_world(&save).unwrap();
+        assert!(ctx.quality_autotune_status().is_none());
     }
 
     /// Run explicitly in release; this measures controller dispatch only,
