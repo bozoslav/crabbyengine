@@ -429,7 +429,8 @@ impl Graphics {
     /// vertex already placed there (`v.position`, `v.origin` is the entity's
     /// position) and moves it by what it reads from `items`, in world axes. A
     /// particle emitter therefore follows its entity. One draw per entity;
-    /// use one entity per emitter.
+    /// use one entity per emitter. Skinned meshes are unsupported and panic
+    /// with a fix: use model entities with `Skeleton` or `SkinOf`.
     ///
     /// The entity is culled by the mesh's bounds, which don't know where the
     /// shader puts the instances: give the whole simulation's extent (in the
@@ -447,6 +448,13 @@ impl Graphics {
     /// ```
     pub fn set_mesh_gpu_buffer(&mut self, mesh: super::Mesh, b: GpuBuffer, count: u32) {
         assert!(self.is_live(mesh), "invalid mesh");
+        assert!(
+            self.assets3d
+                .skins
+                .get(mesh.slot() as usize)
+                .is_none_or(Option::is_none),
+            "skinned meshes cannot use GPU-buffer instances: spawn Model entities with Skeleton or SkinOf so each pose is evaluated"
+        );
         assert!(
             count <= self.gpu_buffer_len(b).expect("invalid GPU buffer"),
             "GPU instance count out of bounds"

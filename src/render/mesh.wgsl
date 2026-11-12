@@ -101,6 +101,7 @@ struct Surface {
     metallic: f32,
     occlusion: f32,      // 1: fully lit by ambient light, 0: none
     emissive: vec3<f32>,
+    unlit: bool,        // true: albedo + emissive, without direct or ambient lighting
     // Read-only inputs.
     world: vec3<f32>,
     uv: vec2<f32>,

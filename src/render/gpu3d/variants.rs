@@ -21,8 +21,8 @@
 //! ([`crate::three::Blend`]), the pass being drawn and multisampling (see
 //! [`PipelineRole::for_pass`]). Skinned meshes are not a variant: they are
 //! posed by a compute pass into a vertex buffer of the same layout, so the
-//! same pipelines draw them. There is no unlit variant either: an unlit look
-//! is a `surface` hook that writes `emissive` and a black `albedo`.
+//! same pipelines draw them. Unlit is selected inside `surface` with `s.unlit = true`; it does not
+//! require another pipeline set.
 //!
 //! The plain variants are built with the shader, the others the first time a
 //! frame draws them (or all up front by `Renderer3D::warm_pipelines`). The
@@ -30,95 +30,17 @@
 //! samples (`pipeline_cache.rs`), which also lists the renderer's fixed
 //! pipelines.
 
-/// Which faces of a material's triangles are drawn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Sides {
-    /// Back faces culled: the default.
-    One,
-    /// Both faces drawn (`MaterialDesc::double_sided`); `surface` sees the
-    /// normal flipped on the back.
-    Both,
-}
+pub(crate) use crate::three::{
+    MaterialInstancing as Instancing, MaterialSides as Sides, MaterialVariantKey as ShaderVariant,
+};
 
 impl Sides {
-    pub(crate) const ALL: [Sides; 2] = [Sides::One, Sides::Both];
-
-    pub(crate) fn of(double_sided: bool) -> Self {
-        if double_sided { Sides::Both } else { Sides::One }
-    }
-
     /// The face the rasterizer culls.
     pub(crate) fn cull(self) -> Option<wgpu::Face> {
         match self {
             Sides::One => Some(wgpu::Face::Back),
             Sides::Both => None,
         }
-    }
-
-    pub(crate) fn index(self) -> usize {
-        self as usize
-    }
-}
-
-/// How a draw's instances reach the vertex shader.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum Instancing {
-    /// One instance record per model (transform, tint, decal layers).
-    Plain,
-    /// Like `Plain`, for models crossfading between two levels of detail:
-    /// every fragment entry point discards the pixels the dither drops.
-    Crossfade,
-    /// Every instance of the draw reads the same record (zero stride): a
-    /// mesh drawn `count` times from a GPU buffer, read as `items` in
-    /// `vertex`. Buffer-driven draws never crossfade.
-    Shared,
-}
-
-impl Instancing {
-    #[cfg(test)]
-    pub(crate) const ALL: [Instancing; 3] = [Instancing::Plain, Instancing::Crossfade, Instancing::Shared];
-
-    /// The instancing of a draw: buffer-driven wins over crossfading.
-    pub(crate) fn of(fading: bool, shared: bool) -> Self {
-        if shared {
-            Instancing::Shared
-        } else if fading {
-            Instancing::Crossfade
-        } else {
-            Instancing::Plain
-        }
-    }
-
-    pub(crate) fn fades(self) -> bool {
-        self == Instancing::Crossfade
-    }
-
-    pub(crate) fn shared(self) -> bool {
-        self == Instancing::Shared
-    }
-}
-
-/// One pipeline set of a material shader: the key the renderer builds and
-/// looks pipelines up by.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct ShaderVariant {
-    pub sides: Sides,
-    pub instancing: Instancing,
-}
-
-impl ShaderVariant {
-    /// Every variant, plain ones first (those are built with the shader).
-    pub(crate) const ALL: [ShaderVariant; 6] = [
-        ShaderVariant::new(Sides::One, Instancing::Plain),
-        ShaderVariant::new(Sides::Both, Instancing::Plain),
-        ShaderVariant::new(Sides::One, Instancing::Crossfade),
-        ShaderVariant::new(Sides::Both, Instancing::Crossfade),
-        ShaderVariant::new(Sides::One, Instancing::Shared),
-        ShaderVariant::new(Sides::Both, Instancing::Shared),
-    ];
-
-    pub(crate) const fn new(sides: Sides, instancing: Instancing) -> Self {
-        Self { sides, instancing }
     }
 }
 

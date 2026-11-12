@@ -7,8 +7,10 @@ const RED: &str = "fn surface(s: Surface) -> Surface {\n    var out = s;\n    ou
 const BLUE: &str = "fn surface(s: Surface) -> Surface {\n    var out = s;\n    out.albedo = vec3<f32>(0.0, 0.0, 1.0);\n    return out;\n}\n";
 /// A minimal invalid shader: line 3 returns a number, not a `Surface`.
 const BROKEN: &str = "// tints everything red\nfn surface(s: Surface) -> Surface {\n    return 1.0;\n}\n";
-/// Valid WGSL the GPU can't build pipelines for: a binding no layout has.
-const UNBOUND: &str = "@group(3) @binding(7) var<uniform> extra: vec4<f32>;\nfn surface(s: Surface) -> Surface { var out = s; out.albedo *= extra.xyz; return out; }\n";
+/// Valid WGSL the GPU cannot build pipelines for: an unfilterable light-record texture
+/// sampled with a filtering sampler. Binding declarations now fail the contract
+/// earlier, so they cannot exercise asynchronous GPU rejection anymore.
+const BAD_SAMPLING: &str = "fn vertex(v: Vertex) -> Vertex { var out = v; out.position.x += textureSampleLevel(punctual_records, material_sampler, v.uv, 0.0).x; return out; }";
 
 fn rig() -> Option<(wgpu::Device, Renderer3D)> {
     let gpu = crate::render::render_test_support::gpu_with(|_| Ok(Default::default()))?;
@@ -86,7 +88,7 @@ fn failed_reloads_keep_the_last_good_pipelines_and_spare_other_shaders() {
 
     // The GPU rejects its pipelines: the error comes back, the device lives on.
     let e = renderer
-        .replace_shader(&device, blue, "blue.wgsl", UNBOUND)
+        .replace_shader(&device, blue, "blue.wgsl", BAD_SAMPLING)
         .unwrap_err();
     assert!(e.message.contains("rejected"), "{e}");
     assert_eq!(pipelines(&renderer, blue), blue_before);
@@ -208,7 +210,7 @@ fn failed_reloads_invalidate_nothing_and_are_timed() {
     let before = renderer.pipeline_stats();
     renderer.replace_shader(&device, blue, "blue.wgsl", BROKEN).unwrap_err();
     renderer
-        .replace_shader(&device, blue, "blue.wgsl", UNBOUND)
+        .replace_shader(&device, blue, "blue.wgsl", BAD_SAMPLING)
         .unwrap_err();
     let after = renderer.pipeline_stats();
     assert_eq!(after.invalidated, before.invalidated);
@@ -403,11 +405,13 @@ fn late_gpu_rejections_put_the_previous_pipelines_back_and_are_reported() {
     renderer.defer_checks = true;
 
     // Each is put in use before the verdict comes back.
-    renderer.replace_shader(&device, red, "red.wgsl", UNBOUND).unwrap();
+    renderer.replace_shader(&device, red, "red.wgsl", BAD_SAMPLING).unwrap();
     renderer.replace_effect(&device, fx, "grey.wgsl", FX_UNBOUND).unwrap();
     renderer.replace_compute(&device, cs, "fade.wgsl", CS_UNBOUND).unwrap();
     let new_effect = renderer.create_effect(&device, "new fx.wgsl", FX_UNBOUND).unwrap();
-    let new_shader = renderer.create_shader(&device, "new.wgsl", "@group(3) @binding(9) var<uniform> more: vec4<f32>;\nfn surface(s: Surface) -> Surface { var o = s; o.albedo *= more.xyz; return o; }\n").unwrap();
+    let new_shader = renderer
+        .create_shader(&device, "new.wgsl", &(BAD_SAMPLING.to_string() + "\n// another module"))
+        .unwrap();
     // A fine reload (of new code, so it compiles) waits too, and passes.
     let green = RED.replace("1.0, 0.0, 0.0", "0.0, 1.0, 0.0");
     renderer.replace_shader(&device, other, "blue.wgsl", &green).unwrap();
@@ -457,8 +461,8 @@ fn a_late_rejection_behind_a_newer_reload_falls_back_to_the_last_good_version() 
     let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
     let good = pipelines(&renderer, red);
     renderer.defer_checks = true;
-    renderer.replace_shader(&device, red, "red.wgsl", UNBOUND).unwrap();
-    let unbound2 = UNBOUND.replace("binding(7)", "binding(8)");
+    renderer.replace_shader(&device, red, "red.wgsl", BAD_SAMPLING).unwrap();
+    let unbound2 = BAD_SAMPLING.to_string() + "\n// another module";
     renderer.replace_shader(&device, red, "red.wgsl", &unbound2).unwrap();
     let mut late = Vec::new();
     renderer.poll_shader_checks(&device, &mut late);
@@ -506,7 +510,7 @@ fn a_late_rejection_of_an_older_reload_leaves_the_newer_one_that_passed() {
     };
     let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
     renderer.defer_checks = true;
-    renderer.replace_shader(&device, red, "red.wgsl", UNBOUND).unwrap();
+    renderer.replace_shader(&device, red, "red.wgsl", BAD_SAMPLING).unwrap();
     renderer.replace_shader(&device, red, "red.wgsl", BLUE).unwrap();
     let blue = pipelines(&renderer, red);
     let mut late = Vec::new();
@@ -532,9 +536,9 @@ fn a_late_rejection_handed_down_also_frees_shaders_sharing_the_rejected_code() {
     };
     let red = renderer.create_shader(&device, "red.wgsl", RED).unwrap();
     renderer.defer_checks = true;
-    renderer.replace_shader(&device, red, "red.wgsl", UNBOUND).unwrap();
+    renderer.replace_shader(&device, red, "red.wgsl", BAD_SAMPLING).unwrap();
     // Made from the same code: shares the waiting pipelines, no check of its own.
-    let twin = renderer.create_shader(&device, "twin.wgsl", UNBOUND).unwrap();
+    let twin = renderer.create_shader(&device, "twin.wgsl", BAD_SAMPLING).unwrap();
     assert_eq!(pipelines(&renderer, twin), pipelines(&renderer, red));
     // A newer reload, also waiting when the older verdict comes (it passes).
     renderer.replace_shader(&device, red, "red.wgsl", BLUE).unwrap();
@@ -597,7 +601,9 @@ fn sample_changes_wait_for_pending_shader_reloads_to_settle() {
     };
     let id = renderer.create_shader(&device, "pending.wgsl", RED).unwrap();
     renderer.defer_checks = true;
-    renderer.replace_shader(&device, id, "pending.wgsl", UNBOUND).unwrap();
+    renderer
+        .replace_shader(&device, id, "pending.wgsl", BAD_SAMPLING)
+        .unwrap();
     assert!(
         !renderer.set_samples(&device, 2),
         "a late verdict could restore old-count pipelines"

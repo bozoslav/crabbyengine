@@ -29,6 +29,21 @@ pub(crate) fn diagnose(
     variant: &str,
     composed: &str,
 ) -> Result<(), Box<ShaderDiagnostic>> {
+    if kind == ShaderKind::Material
+        && let Some(game) = game_range(composed)
+        && let Some((range, message)) = material_contract(&composed[game.clone()])
+    {
+        let range = range.start + game.start..range.end + game.start;
+        return Err(build(
+            name,
+            kind,
+            variant,
+            composed,
+            message,
+            Some((range, "material contract".into())),
+            Vec::new(),
+        ));
+    }
     let module = match naga::front::wgsl::parse_str(composed) {
         Ok(module) => module,
         Err(e) => {
@@ -77,6 +92,101 @@ pub(crate) fn diagnose(
         return Err(build(name, kind, variant, composed, message, primary, notes));
     }
     Ok(())
+}
+
+/// WGSL tokens with byte spans, excluding line and nested block comments.
+/// Used before parsing: a bad hook can otherwise fail in the engine's caller.
+pub(crate) fn contract_tokens(source: &str) -> Vec<(&str, std::ops::Range<usize>)> {
+    let bytes = source.as_bytes();
+    let mut tokens = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i].is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        if source[i..].starts_with("//") {
+            i += source[i..].find('\n').unwrap_or(source.len() - i);
+            continue;
+        }
+        if source[i..].starts_with("/*") {
+            i += 2;
+            let mut depth = 1;
+            while i < bytes.len() && depth > 0 {
+                if source[i..].starts_with("/*") {
+                    depth += 1;
+                    i += 2;
+                } else if source[i..].starts_with("*/") {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += source[i..].chars().next().unwrap().len_utf8();
+                }
+            }
+            continue;
+        }
+        let start = i;
+        if bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_' {
+            i += 1;
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+                i += 1;
+            }
+        } else if source[i..].starts_with("->") {
+            i += 2;
+        } else {
+            i += source[i..].chars().next().unwrap().len_utf8();
+        }
+        tokens.push((&source[start..i], start..i));
+    }
+    tokens
+}
+
+fn material_contract(user: &str) -> Option<(std::ops::Range<usize>, String)> {
+    let tokens = contract_tokens(user);
+    for (i, (token, span)) in tokens.iter().enumerate() {
+        if *token == "@"
+            && tokens
+                .get(i + 1)
+                .is_some_and(|t| matches!(t.0, "vertex" | "fragment" | "compute"))
+        {
+            return Some((span.clone(), "material hooks `vertex`/`surface` are ordinary functions, not shader-stage entry points; expected `fn vertex(value: Vertex) -> Vertex` or `fn surface(value: Surface) -> Surface`; remove the @vertex/@fragment/@compute attribute and let the engine provide the entry points".into()));
+        }
+        if *token == "@" && tokens.get(i + 1).is_some_and(|t| matches!(t.0, "group" | "binding")) {
+            return Some((span.clone(), "material hooks `vertex`/`surface` may not declare bindings: every @group/@binding is engine-owned; remove the declaration and use material.custom, custom_texture0..1, custom_array0..2 or items through the engine API".into()));
+        }
+        if *token != "fn" {
+            continue;
+        }
+        let Some((hook, _)) = tokens.get(i + 1) else {
+            continue;
+        };
+        let ty = match *hook {
+            "vertex" => "Vertex",
+            "surface" => "Surface",
+            _ => continue,
+        };
+        let signature: Vec<_> = tokens
+            .iter()
+            .skip(i + 2)
+            .take_while(|t| t.0 != "{")
+            .map(|t| t.0)
+            .collect();
+        // Parameter names are chosen by the caller. A trailing comma is WGSL.
+        let valid = signature.len() >= 7
+            && signature[0] == "("
+            && signature[2] == ":"
+            && signature[3] == ty
+            && (signature[4..] == [")", "->", ty] || signature[4..] == [",", ")", "->", ty]);
+        if !valid {
+            return Some((
+                span.clone(),
+                format!(
+                    "material hook `{hook}` has the wrong signature; expected `fn {hook}(value: {ty}) -> {ty}`; replace its parameters and return type with this signature (or remove the hook for the pass-through default)"
+                ),
+            ));
+        }
+    }
+    None
 }
 
 /// A diagnostic for an error that isn't the compiler's (pipeline creation),
