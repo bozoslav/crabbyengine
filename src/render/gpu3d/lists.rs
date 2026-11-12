@@ -39,7 +39,10 @@ pub(super) struct FrameLists {
     /// every other instance in the instance buffer, and scratch space.
     pub(super) blended_runs: Vec<Run>,
     pub(super) blended: Vec<Instance3D>,
-    pub(super) blend_keys: Vec<(f32, u32)>,
+    pub(super) blend_keys: Vec<(f32, u32, u32)>,
+    pub(super) solid_parts: Vec<super::draw_order::PartRun>,
+    pub(super) shadow_parts: [Vec<super::draw_order::PartRun>; MAX_SHADOW_VIEWS],
+    pub(super) view_parts: Vec<Vec<super::draw_order::PartRun>>,
     /// The runs of the models that moved, for the motion pass (their
     /// records are in the renderer's `moved` buffer).
     pub(super) moved_runs: Vec<Run>,
@@ -81,6 +84,9 @@ impl Default for FrameLists {
             blended_runs: Vec::new(),
             blended: Vec::new(),
             blend_keys: Vec::new(),
+            solid_parts: Vec::new(),
+            shadow_parts: Default::default(),
+            view_parts: Vec::new(),
             moved_runs: Vec::new(),
             views: Vec::new(),
             gi_runs: Vec::new(),

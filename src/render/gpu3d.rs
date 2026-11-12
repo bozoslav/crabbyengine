@@ -73,6 +73,7 @@ mod frame_checks;
 mod history;
 mod instances;
 mod lists;
+mod mesh_arena;
 mod passes;
 #[cfg(test)]
 pub(crate) use frame_checks::last_features;
@@ -866,6 +867,7 @@ impl Renderer3D {
             solid_prepass,
             resources: Resources {
                 meshes: Vec::new(),
+                mesh_arena: Default::default(),
                 materials: Vec::new(),
                 material_layout,
                 material_sampler,

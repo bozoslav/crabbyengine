@@ -346,6 +346,10 @@ impl Renderer {
     /// What the render-pass inspector needs beyond [`RenderStats`].
     pub fn detail(&self) -> super::RenderDetail {
         super::RenderDetail {
+            #[cfg(feature = "3d")]
+            state_changes: self.three.as_ref().map(|r| r.state_changes()),
+            #[cfg(not(feature = "3d"))]
+            state_changes: None,
             gpu_timestamps: self.timer.is_some(),
             gpu_frames_timed: self.timer.as_ref().map_or(0, |t| t.frames_read),
             #[cfg(feature = "3d")]

@@ -37,6 +37,7 @@ impl Renderer3D {
     /// The steps run in this order; each is a method below, and says what it
     /// decides for the later ones.
     pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, input: &Prepare3D<'_>) {
+        self.resources.mesh_arena.flush(device, queue);
         let &Prepare3D {
             scene,
             lut,
@@ -519,6 +520,7 @@ impl Renderer3D {
         // Blended models are drawn from sorted copies of their instances,
         // which follow all the others.
         self.sort_blended(&frame.instances, camera, total as u32);
+        self.order_solid_parts(&frame.instances, camera);
         total + self.lists.blended.len()
     }
 
