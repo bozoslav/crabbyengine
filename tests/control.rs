@@ -1037,3 +1037,57 @@ fn a_refused_scenario_leaves_the_running_one_alone() {
     c.call("game.quit", json!({})).unwrap();
     game.join().unwrap();
 }
+
+/// `quality.set` over the socket on a headless game: what `capabilities`
+/// says about it matches what the endpoint does, and with the `3d` feature
+/// the new settings show in `perf.get`'s render inspector.
+#[test]
+fn quality_set_over_tcp_matches_what_capabilities_reports() {
+    let (tx, rx) = mpsc::channel();
+    let game = thread::spawn(move || {
+        Game::new("quality", 1, 1)
+            .control_endpoint(true)
+            .run_headless(u64::MAX, move |ctx| {
+                ctx.time.pause();
+                tx.send(ctx.control_addr().unwrap()).unwrap();
+            })
+    });
+    let addr = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let mut c = connect(addr);
+    let caps = c.call("capabilities", json!({})).unwrap();
+    let entry = caps["methods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["name"] == "quality.set")
+        .cloned()
+        .expect("quality.set is listed");
+    let set = c.call("quality.set", json!({ "level": "low" }));
+    if cfg!(feature = "3d") {
+        assert_eq!(entry["available"], true, "{entry}");
+        assert!(entry["limited"].as_str().unwrap().contains("headless"), "{entry}");
+        let set = set.unwrap();
+        assert_eq!(
+            (set["requested"].clone(), set["quality"]["level"].clone()),
+            (json!("low"), json!("low"))
+        );
+        assert!(set["previous"]["level"].is_string(), "{set}");
+        let perf = c.call("perf.get", json!({ "history": 5 })).unwrap();
+        let inspector = &perf["render_inspector"];
+        assert_eq!(inspector["quality"], set["quality"], "perf.get shows the new settings");
+        assert_eq!(inspector["history"], json!([]), "a headless game draws no frames");
+        assert!(inspector["adapter"].is_null() && inspector["unavailable"]["adapter"].is_string());
+        // No GPU to recommend for: refused, and nothing changes.
+        let err = c.call("quality.set", json!({ "level": "recommended" })).unwrap_err();
+        assert!(err.contains("GPU"), "{err}");
+        let perf = c.call("perf.get", json!({})).unwrap();
+        assert_eq!(perf["render_inspector"]["quality"]["level"], "low");
+    } else {
+        assert_eq!(entry["available"], false, "{entry}");
+        let reason = entry["reason"].as_str().unwrap();
+        assert!(reason.contains("`3d` feature"), "{entry}");
+        assert_eq!(set.unwrap_err(), reason, "the refusal is the reported reason");
+    }
+    c.call("game.quit", json!({})).unwrap();
+    game.join().unwrap();
+}

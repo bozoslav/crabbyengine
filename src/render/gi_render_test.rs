@@ -487,3 +487,47 @@ fn gi_cost() {
         println!("gi {label}: GPU frame {gpu:.3} ms ({parts}); submit to done {wait:.3} ms; collect {cpu:.3} ms");
     }
 }
+
+/// What the probes cannot tell apart, measured (the quality baseline of
+/// `crates/ponko_bench/RAY_TRACING.md`). In the red wall room (probes every
+/// 1 unit, at whole x), a 2 cm white partition from floor to roof splits
+/// the room at `x`; the floor 20 cm east of it cannot see the red wall, so
+/// its true red tint is none. Returns its red tint (red minus green), or,
+/// without `x`, the tint there in the open room.
+fn tint_east_of_a_partition(x: Option<f32>) -> Option<i32> {
+    let mut rig = Rig::red_wall_room(true, true)?;
+    let mut floor = -0.8;
+    if let Some(x) = x {
+        let white = rig.mesh(&MeshData::cube(1.0), MaterialDesc::color(Color::WHITE));
+        rig.block(white, vec3(x - 0.01, -0.5, -3.5), vec3(x + 0.01, 3.5, 3.5));
+        floor = x + 0.2;
+    }
+    let pixels = rig.draw(80);
+    let c = rig.at(&pixels, vec3(floor, -0.5, -0.8));
+    Some(c[0] - c[1])
+}
+
+/// Pins a known limitation, not wanted behaviour: probe GI leaks light
+/// through a wall much thinner than the probe spacing when the wall lies on
+/// a probe plane. It is the measured baseline in §2 of
+/// `crates/ponko_bench/RAY_TRACING.md`. When the limitation is fixed, flip
+/// `on_plane > 20` to `on_plane <= 5` and update the note.
+#[test]
+fn bounced_light_leaks_through_a_thin_partition_on_a_probe_plane() {
+    let Some(open) = tint_east_of_a_partition(None) else {
+        return;
+    };
+    let Some(between) = tint_east_of_a_partition(Some(-1.5)) else {
+        return;
+    };
+    let Some(on_plane) = tint_east_of_a_partition(Some(-1.0)) else {
+        return;
+    };
+    eprintln!(
+        "red tint on the floor past a 2 cm partition: {open} with none, {between} with it between probe planes, \
+         {on_plane} with it on one (truth: 0)"
+    );
+    assert!(open > 40, "positive control: the open room's floor is tinted: {open}");
+    assert!(between <= 5, "between the probes the partition holds: {between}");
+    assert!(on_plane > 20, "on a probe plane the red leaks through it: {on_plane}");
+}

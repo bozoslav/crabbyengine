@@ -662,7 +662,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "perf.get",
-        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems, live asset handles by class with estimated bytes (`assets`: textures, meshes, materials, sounds, ...; with what the GPU holds), residency budgets per asset kind (`residency`: budget, resident and pinned counts and bytes, loads, reloads, evictions, evicted bytes), streaming (`streaming`: the upload queue's budget, pending count, bytes and uploads last frame and in total, oversized steps, decode waits, uploads held by a budget, failures, last and longest step ms; and `assets`, every streamed or resident asset with kind, name, state (loading, uploading, streaming, resident, evicted, failed), id and GPU size); params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice. Always has `render_inspector.quality_autotune` (null when off; otherwise active choices, pins, frozen state, reason and the last 16 decisions) and `render_inspector` (schema 1, also when headless): the last frame's CPU time split into extract, prepare, encode, submit and other ms; GPU ms per frame and per pass; draw calls, models, triangles, occluded models, pipelines built, and counts.state_changes (model-pass pipeline, bind group, vertex/index buffer changes and recorded draws); upload and memory bytes; the active graphics quality preset and settings. A metric that can't be measured (no timestamp queries, headless, not counted yet) is null and `unavailable` gives the reason; GPU times are never guessed",
+        "frame timing over the last few seconds (fps; avg, p50, p95, p99, max ms; CPU split into systems, render and waiting on the display; GPU ms), GPU ms per pass, what was drawn (draw calls; 3D models and triangles for the camera and the shadows; render CPU split into collect, record, submit), the slowest systems, live asset handles by class with estimated bytes (`assets`: textures, meshes, materials, sounds, ...; with what the GPU holds), residency budgets per asset kind (`residency`: budget, resident and pinned counts and bytes, loads, reloads, evictions, evicted bytes), streaming (`streaming`: the upload queue's budget, pending count, bytes and uploads last frame and in total, oversized steps, decode waits, uploads held by a budget, failures, last and longest step ms; and `assets`, every streamed or resident asset with kind, name, state (loading, uploading, streaming, resident, evicted, failed), id and GPU size); params: meshes? (list the n meshes drawing the most triangles, default 0), profiling? (true turns on scope timing and allocation counting, false turns it off), history? (list the last n drawn frames in render_inspector.history, at most 120, default 0). While profiling is on, the answer also has `report`: frame percentiles, every system and profile_scope with time and allocations per frame, the slowest frames and what was in them, and warnings with advice. Always has `render_inspector.quality_autotune` (null when off; otherwise active choices, pins, frozen state, reason and the last 16 decisions) and `render_inspector` (schema 1, also when headless): the last frame's CPU time split into extract, prepare, encode, submit and other ms; GPU ms per frame and per pass; draw calls, models, triangles, occluded models, plain models outside the camera's view, pipelines built, and counts.state_changes (model-pass pipeline, bind group, vertex/index buffer changes and recorded draws); upload bytes; memory_estimate_bytes (what the renderer's tables hold for the game's assets, not its own frame targets or shadow maps); the GPU adapter and tier; with history, per frame CPU ms, smoothed GPU ms, the newest single-frame GPU ms with its age, counts and uploads; the active graphics quality preset and settings. A metric that can't be measured (no timestamp queries, headless, not counted) is null and `unavailable` gives the reason; GPU times are never guessed",
     ),
     (
         "perf.trace",
@@ -672,12 +672,16 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
         "perf.hud",
         "show or hide the on-screen performance overlay; params: on (bool)",
     ),
+    (
+        "quality.set",
+        "switch the 3D graphics quality preset; params: level (low, medium, high, ultra or recommended)",
+    ),
     ("game.quit", "ask the game to exit"),
 ];
 
 /// `perf.get`'s `render_inspector`: the last frame's rendering cost in a
 /// versioned schema (see `control/inspector.rs`).
-fn render_inspector_json(ctx: &Ctx) -> Value {
+fn render_inspector_json(ctx: &Ctx, history: usize) -> Value {
     let source = match (ctx.headless, ctx.perf.last_render_detail) {
         (true, _) => inspector::Source::Headless,
         (false, None) => inspector::Source::NotDrawn,
@@ -687,29 +691,99 @@ fn render_inspector_json(ctx: &Ctx) -> Value {
     let quality = Some(inspector::quality_json(&ctx.gfx.quality(&ctx.post, &ctx.lighting)));
     #[cfg(not(feature = "3d"))]
     let quality = None;
+    // The newest `history` frames, oldest first.
+    let frames: Vec<crate::perf::RenderFrame> = {
+        let all = &ctx.perf.render_history;
+        all.iter().skip(all.len().saturating_sub(history)).copied().collect()
+    };
+    #[cfg(feature = "3d")]
+    let frustum_culled = ctx.gfx.frame3d.frustum_culled_models().ok_or(inspector::FRUSTUM_STALE);
+    #[cfg(not(feature = "3d"))]
+    let frustum_culled = Err(NO_3D_MODELS);
     let mut report = inspector::render_inspector(&inspector::Inputs {
         source,
         stats: ctx.perf.render_stats(),
         passes: ctx.perf.gpu_passes(),
         quality,
         pipelines: ctx.gfx.pipeline_stats(),
+        memory: ctx.gfx.renderer.as_ref().and_then(crate::render::Renderer::residency),
+        adapter: ctx.gfx.gpu_capabilities(),
+        history: &frames,
+        frustum_culled,
     });
     #[cfg(feature = "3d")]
-    {
-        report["quality_autotune"] = json!(ctx.gfx.quality_autotune_status(&ctx.post, &ctx.lighting));
-    }
+    let (autotune, off) = (
+        json!(ctx.gfx.quality_autotune_status(&ctx.post, &ctx.lighting)),
+        "automatic quality tuning is off (Graphics::set_quality_autotune turns it on)",
+    );
     #[cfg(not(feature = "3d"))]
-    {
-        report["quality_autotune"] = Value::Null;
+    let (autotune, off) = (Value::Null, "automatic quality tuning needs the `3d` feature");
+    if autotune.is_null() {
+        report["unavailable"]["quality_autotune"] = json!(off);
     }
+    report["quality_autotune"] = autotune;
     report
 }
 
+/// `quality.set`: switches to a graphics quality preset, fitted to what the
+/// GPU can do, and answers with the settings before and after, so a tool
+/// can compare `perf.get` across the change.
+#[cfg(feature = "3d")]
+fn quality_set(ctx: &mut Ctx, params: &Value) -> Result<Value, String> {
+    use crate::render::GraphicsQuality;
+    let level = str_param(params, "level")?;
+    let caps = ctx.gfx.gpu_capabilities().cloned();
+    let wanted = match level {
+        "low" => GraphicsQuality::low(),
+        "medium" => GraphicsQuality::medium(),
+        "high" => GraphicsQuality::high(),
+        "ultra" => GraphicsQuality::ultra(),
+        "recommended" => {
+            match &caps {
+                Some(caps) => GraphicsQuality::recommended(caps),
+                None if ctx.headless => return Err("`recommended` needs a GPU: this game runs headless".into()),
+                None => {
+                    return Err("`recommended` needs a GPU: the renderer hasn't opened one yet; try again after the first frame".into());
+                }
+            }
+        }
+        other => {
+            return Err(format!(
+                "unknown quality level `{other}` (low, medium, high, ultra or recommended)"
+            ));
+        }
+    };
+    // Nothing the GPU lacks is asked for.
+    let fitted = caps.as_ref().map_or(wanted, |caps| wanted.fitted_to(caps));
+    let previous = inspector::quality_json(&ctx.gfx.quality(&ctx.post, &ctx.lighting));
+    ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, fitted);
+    let now = ctx.gfx.quality(&ctx.post, &ctx.lighting);
+    Ok(json!({
+        "requested": level,
+        "fitted_to_gpu": fitted != wanted,
+        "previous": previous,
+        "quality": inspector::quality_json(&now),
+    }))
+}
+
+#[cfg(not(feature = "3d"))]
+fn quality_set(_: &mut Ctx, _: &Value) -> Result<Value, String> {
+    Err(NO_QUALITY.into())
+}
+
+/// Why `counts.frustum_culled_models` is null without the `3d` feature.
+#[cfg(not(feature = "3d"))]
+const NO_3D_MODELS: &str = "3D models need the `3d` feature";
+
+/// Why `quality.set` isn't there without the `3d` feature.
+#[cfg(not(feature = "3d"))]
+pub(crate) const NO_QUALITY: &str = "graphics quality settings need the `3d` feature";
+
 /// `perf.get`: the profiler's numbers as JSON.
-fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
+fn perf_json(ctx: &Ctx, meshes: usize, history: usize) -> Value {
     if ctx.headless {
         let slowest = slowest_systems(ctx);
-        return json!({ "headless": true, "systems": slowest, "residency": residency_json(ctx), "streaming": streaming_json(ctx), "render_inspector": render_inspector_json(ctx) });
+        return json!({ "headless": true, "systems": slowest, "residency": residency_json(ctx), "streaming": streaming_json(ctx), "render_inspector": render_inspector_json(ctx, history) });
     }
     let f = ctx.perf.frame_stats();
     let r = ctx.perf.render_stats();
@@ -741,7 +815,7 @@ fn perf_json(ctx: &Ctx, meshes: usize) -> Value {
         "systems": slowest_systems(ctx),
         "residency": residency_json(ctx),
         "streaming": streaming_json(ctx),
-        "render_inspector": render_inspector_json(ctx),
+        "render_inspector": render_inspector_json(ctx, history),
         "hint": "frame time is about max(CPU, GPU): when display_wait is large the GPU (or vsync) is the limit; gpu_passes says which pass",
     });
     #[cfg(feature = "3d")]
@@ -1241,7 +1315,8 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
                 ctx.perf
                     .set_profiling(on.as_bool().ok_or("`profiling` must be true or false")?);
             }
-            let mut out = perf_json(ctx, usize_param(params, "meshes", 0)?);
+            let history = usize_param(params, "history", 0)?.min(crate::perf::RENDER_HISTORY);
+            let mut out = perf_json(ctx, usize_param(params, "meshes", 0)?, history);
             out["assets"] = serde_json::to_value(ctx.asset_inventory()).unwrap_or_default();
             if ctx.perf.profiling() {
                 let report = ctx.perf.report();
@@ -1266,6 +1341,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             ctx.perf.set_hud(on);
             json!(on)
         }
+        "quality.set" => quality_set(ctx, params)?,
         "game.quit" => {
             ctx.quit();
             json!(true)
@@ -1434,7 +1510,11 @@ mod tests {
             if let Err(e) = r {
                 let uncaptured = *name == "logs.get" && e.contains("captured");
                 let refused = *name == "input.scenario.load" && e.contains("input injection is off");
-                assert!(e.starts_with("missing param") || uncaptured || refused, "{name}: {e}");
+                let no_3d = *name == "quality.set" && e.contains("`3d` feature");
+                assert!(
+                    e.starts_with("missing param") || uncaptured || refused || no_3d,
+                    "{name}: {e}"
+                );
             }
         }
         assert!(
@@ -1634,6 +1714,136 @@ mod tests {
         let report = handle(&mut ctx, "perf.get", &json!({})).unwrap();
         assert_eq!(report["render_inspector"]["quality_autotune"]["reason"], "frozen");
         assert_eq!(report["render_inspector"]["quality_autotune"]["changes"], 1);
+    }
+
+    #[test]
+    fn perf_get_lists_as_many_recent_frames_as_asked() {
+        let mut ctx = ctx();
+        for frame in 0..(crate::perf::RENDER_HISTORY as u64 + 5) {
+            ctx.perf.last_render_stats.draw_calls = frame as usize;
+            ctx.perf.push_render_frame(frame);
+        }
+        // Not listed unless asked for.
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        assert_eq!(perf["render_inspector"]["history"], json!([]));
+        let perf = handle(&mut ctx, "perf.get", &json!({ "history": 3 })).unwrap();
+        let frames: Vec<u64> = perf["render_inspector"]["history"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["frame"].as_u64().unwrap())
+            .collect();
+        let newest = crate::perf::RENDER_HISTORY as u64 + 4;
+        assert_eq!(frames, [newest - 2, newest - 1, newest], "the newest, oldest first");
+        assert_eq!(perf["render_inspector"]["history"][2]["draw_calls"], newest);
+        // More than is kept gives what is kept: the ring doesn't grow.
+        let all = handle(&mut ctx, "perf.get", &json!({ "history": 100_000 })).unwrap();
+        let all = all["render_inspector"]["history"].as_array().unwrap().len();
+        assert_eq!(all, crate::perf::RENDER_HISTORY);
+        assert!(ctx.perf.render_history.capacity() >= crate::perf::RENDER_HISTORY);
+        assert!(handle(&mut ctx, "perf.get", &json!({ "history": "all" })).is_err());
+    }
+
+    /// The null-with-reason rule on `perf.get`'s real answer, in every
+    /// state a game can be asked in: headless, windowed before its first
+    /// frame, after a drawn frame, with automatic quality tuning on.
+    #[test]
+    fn every_null_in_perf_gets_render_inspector_has_a_reason() {
+        let check = |ctx: &mut Ctx, state: &str| {
+            let perf = handle(ctx, "perf.get", &json!({ "history": 4 })).unwrap();
+            let report = &perf["render_inspector"];
+            assert!(report.is_object(), "{state}: {perf}");
+            inspector::assert_nulls_explained(report);
+            report.clone()
+        };
+        let mut headless = ctx();
+        headless.set_headless(true);
+        let r = check(&mut headless, "headless");
+        assert!(r["quality_autotune"].is_null() && r["unavailable"]["quality_autotune"].is_string());
+
+        let mut windowed = ctx();
+        check(&mut windowed, "not drawn yet");
+        // As `Ctx::render_frame` leaves it after a drawn frame (without
+        // timestamp queries, so GPU time is unknown).
+        windowed.perf.last_render_detail = Some(crate::render::RenderDetail::default());
+        windowed.perf.push_render_frame(1);
+        let r = check(&mut windowed, "drawn");
+        assert_eq!(r["history"].as_array().map(Vec::len), Some(1));
+        #[cfg(feature = "3d")]
+        {
+            // A world with nothing to cull: counted, 0.
+            assert_eq!(r["counts"]["frustum_culled_models"], 0);
+            windowed.gfx.set_quality_autotune(
+                &windowed.post,
+                &windowed.lighting,
+                Some(crate::render::QualityAutotune::default()),
+            );
+            let r = check(&mut windowed, "autotune on");
+            assert!(r["quality_autotune"].is_object());
+            assert!(r["unavailable"].get("quality_autotune").is_none());
+        }
+        #[cfg(not(feature = "3d"))]
+        {
+            let why = &r["unavailable"]["counts.frustum_culled_models"];
+            assert!(why.as_str().unwrap().contains("`3d` feature"), "{r}");
+        }
+    }
+
+    #[test]
+    fn a_game_without_a_renderer_explains_its_missing_memory_and_adapter() {
+        let mut ctx = ctx();
+        ctx.set_headless(true);
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        let inspector = &perf["render_inspector"];
+        for path in ["memory_estimate_bytes", "adapter"] {
+            assert!(inspector[path].is_null(), "{path}: {inspector}");
+            assert!(inspector["unavailable"][path].is_string(), "{path}: {inspector}");
+        }
+    }
+
+    #[cfg(feature = "3d")]
+    #[test]
+    fn quality_set_switches_presets_and_answers_before_and_after() {
+        let mut ctx = ctx();
+        let low = handle(&mut ctx, "quality.set", &json!({ "level": "low" })).unwrap();
+        assert_eq!(low["requested"], "low");
+        assert_eq!(low["quality"]["level"], "low");
+        assert_eq!(low["fitted_to_gpu"], false, "no GPU to fit to: {low}");
+        let ultra = handle(&mut ctx, "quality.set", &json!({ "level": "ultra" })).unwrap();
+        assert_eq!(
+            ultra["previous"], low["quality"],
+            "the answer carries the settings it replaced"
+        );
+        assert_eq!(ultra["quality"]["level"], "ultra");
+        // `perf.get` reports the same settings.
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        assert_eq!(perf["render_inspector"]["quality"], ultra["quality"]);
+
+        let err = handle(&mut ctx, "quality.set", &json!({ "level": "extreme" })).unwrap_err();
+        assert!(err.contains("extreme") && err.contains("recommended"), "{err}");
+        assert!(
+            handle(&mut ctx, "quality.set", &json!({})).is_err(),
+            "`level` is required"
+        );
+        // Without a GPU there is nothing to recommend for; nothing changes.
+        // A windowed game before its first frame will have one.
+        let err = handle(&mut ctx, "quality.set", &json!({ "level": "recommended" })).unwrap_err();
+        assert!(err.contains("hasn't opened"), "{err}");
+        let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
+        assert_eq!(perf["render_inspector"]["quality"]["level"], "ultra");
+        // A headless game never will.
+        let mut headless = Ctx::new(1.0 / 60.0, glam::Vec2::ZERO);
+        headless.set_headless(true);
+        let err = handle(&mut headless, "quality.set", &json!({ "level": "recommended" })).unwrap_err();
+        assert!(err.contains("headless"), "{err}");
+    }
+
+    #[cfg(not(feature = "3d"))]
+    #[test]
+    fn quality_set_needs_the_3d_feature() {
+        let mut ctx = ctx();
+        let err = handle(&mut ctx, "quality.set", &json!({ "level": "low" })).unwrap_err();
+        assert!(err.contains("3d"), "{err}");
     }
 
     #[test]

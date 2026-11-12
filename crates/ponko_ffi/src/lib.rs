@@ -29,6 +29,7 @@ pub use legacy::*;
 mod access;
 mod actions;
 mod animator;
+mod asset_sources;
 mod attach;
 mod audio3d;
 mod changes;
@@ -41,6 +42,7 @@ mod game;
 mod grid;
 mod handles;
 mod keys;
+mod loaders;
 mod media;
 mod messages;
 mod morph;
@@ -58,6 +60,7 @@ mod replicate;
 mod residency;
 mod resources;
 pub use dimensions::*;
+mod scenario;
 mod scene;
 mod shader_status;
 mod skin;
@@ -85,6 +88,7 @@ pub use animator::*;
 #[global_allocator]
 static ALLOCATOR: ponko::alloc_count::CountingAllocator = ponko::alloc_count::CountingAllocator;
 
+pub use asset_sources::*;
 pub use attach::*;
 pub use audio3d::*;
 pub use changes::*;
@@ -97,6 +101,7 @@ pub use gpu::*;
 pub use grid::*;
 pub use handles::*;
 pub use keys::*;
+pub use loaders::*;
 pub use media::*;
 pub use messages::*;
 pub use morph::*;
@@ -113,6 +118,7 @@ pub use reflect::*;
 pub use replicate::*;
 pub use residency::*;
 pub use resources::*;
+pub use scenario::*;
 pub use scene::*;
 pub use shader_status::*;
 pub use skin::*;
@@ -289,11 +295,19 @@ fn kind_of_status(status: PonkoStatus) -> PonkoErrorKind {
 thread_local! {
     static LAST_ERROR: RefCell<[u8; 512]> = const { RefCell::new([0; 512]) };
     static LAST_ERROR_KIND: std::cell::Cell<PonkoErrorKind> = const { std::cell::Cell::new(PonkoErrorKind::PONKO_ERROR_NONE) };
+    static LAST_ERROR_PATH: RefCell<[u8; 512]> = const { RefCell::new([0; 512]) };
 }
 
-pub(crate) struct Failure(PonkoStatus, std::borrow::Cow<'static, str>, PonkoErrorKind);
+/// A failed call: its status, message, kind and (for a `ponko::Error` about
+/// an asset) the asset's path.
+pub(crate) struct Failure(
+    PonkoStatus,
+    std::borrow::Cow<'static, str>,
+    PonkoErrorKind,
+    Option<String>,
+);
 pub(crate) fn error(status: PonkoStatus, message: &'static str) -> Failure {
-    Failure(status, message.into(), kind_of_status(status))
+    Failure(status, message.into(), kind_of_status(status), None)
 }
 pub(crate) fn invalid(message: &'static str) -> Failure {
     error(PONKO_INVALID_ARGUMENT, message)
@@ -302,17 +316,18 @@ pub(crate) fn invalid(message: &'static str) -> Failure {
 /// What [`invalid_owned`] takes: a message, or a `ponko::Error` (its
 /// message, without the `ponko:` prefix, and its kind).
 pub(crate) trait FailureMessage {
-    fn into_parts(self) -> (String, PonkoErrorKind);
+    fn into_parts(self) -> (String, PonkoErrorKind, Option<String>);
 }
 impl FailureMessage for String {
-    fn into_parts(self) -> (String, PonkoErrorKind) {
-        (self, PonkoErrorKind::PONKO_ERROR_INVALID)
+    fn into_parts(self) -> (String, PonkoErrorKind, Option<String>) {
+        (self, PonkoErrorKind::PONKO_ERROR_INVALID, None)
     }
 }
 impl FailureMessage for ponko::Error {
-    fn into_parts(self) -> (String, PonkoErrorKind) {
+    fn into_parts(self) -> (String, PonkoErrorKind, Option<String>) {
         let kind = self.kind().into();
-        (String::from(self), kind)
+        let path = self.path().map(str::to_owned);
+        (String::from(self), kind, path)
     }
 }
 
@@ -320,25 +335,71 @@ impl FailureMessage for ponko::Error {
 /// always returned) with `message`; a `ponko::Error` also sets
 /// [`ponko_last_error_kind`] to its kind.
 pub(crate) fn invalid_owned(message: impl FailureMessage) -> Failure {
-    let (message, kind) = message.into_parts();
-    Failure(PONKO_INVALID_ARGUMENT, message.into(), kind)
+    let (message, kind, path) = message.into_parts();
+    Failure(PONKO_INVALID_ARGUMENT, message.into(), kind, path)
+}
+/// A `ponko::Error` as a failure whose status follows its kind:
+/// `PONKO_NOT_FOUND` for a missing asset, `PONKO_INVALID_ARGUMENT` otherwise.
+/// For calls added with the `try_` loaders; older calls keep their status.
+pub(crate) fn engine_error(e: ponko::Error) -> Failure {
+    let status = if e.kind() == ponko::ErrorKind::NotFound {
+        PONKO_NOT_FOUND
+    } else {
+        PONKO_INVALID_ARGUMENT
+    };
+    let mut failure = invalid_owned(e);
+    failure.0 = status;
+    failure
+}
+/// Copies `message` into a thread-local buffer, cut at a character boundary.
+fn save_text(cell: &RefCell<[u8; 512]>, message: &str) {
+    let mut buffer = cell.borrow_mut();
+    let mut n = message.len().min(buffer.len() - 1);
+    while !message.is_char_boundary(n) {
+        n -= 1;
+    }
+    buffer[..n].copy_from_slice(&message.as_bytes()[..n]);
+    buffer[n] = 0;
+}
+/// Writes `text` for a `(buffer, capacity, out_len)` output: the length
+/// (without the NUL) always, the text only when it fits, an empty string
+/// otherwise (if `capacity > 0`), so the caller can grow the buffer and call
+/// again.
+///
+/// # Safety
+/// `buffer` holds `capacity` writable bytes (or is null with capacity 0);
+/// `out_len` is null or writable.
+pub(crate) unsafe fn write_text(
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+    text: &str,
+) -> Result<(), Failure> {
+    if out_len.is_null() || (buffer.is_null() && capacity != 0) {
+        return Err(invalid("output is null"));
+    }
+    // SAFETY: validated pointers; the caller supplies the stated capacity.
+    unsafe {
+        out_len.write(text.len());
+        if text.len() < capacity {
+            std::ptr::copy_nonoverlapping(text.as_ptr(), buffer.cast::<u8>(), text.len());
+            buffer.add(text.len()).write(0);
+        } else if capacity != 0 {
+            buffer.write(0);
+        }
+    }
+    Ok(())
 }
 pub(crate) fn save_error(message: &str) {
-    LAST_ERROR.with(|cell| {
-        let mut buffer = cell.borrow_mut();
-        let mut n = message.len().min(buffer.len() - 1);
-        while !message.is_char_boundary(n) {
-            n -= 1;
-        }
-        buffer[..n].copy_from_slice(&message.as_bytes()[..n]);
-        buffer[n] = 0;
-    });
+    LAST_ERROR.with(|cell| save_text(cell, message));
+    LAST_ERROR_PATH.with(|cell| save_text(cell, ""));
 }
 pub(crate) fn boundary(f: impl FnOnce() -> Result<(), Failure>) -> PonkoStatus {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(Ok(())) => PONKO_OK,
-        Ok(Err(Failure(status, message, kind))) => {
+        Ok(Err(Failure(status, message, kind, path))) => {
             save_error(&message);
+            LAST_ERROR_PATH.with(|cell| save_text(cell, path.as_deref().unwrap_or("")));
             LAST_ERROR_KIND.with(|cell| cell.set(kind));
             status
         }
@@ -631,6 +692,47 @@ pub extern "C" fn ponko_last_error() -> *const c_char {
 #[unsafe(no_mangle)]
 pub extern "C" fn ponko_last_error_kind() -> PonkoErrorKind {
     LAST_ERROR_KIND.with(std::cell::Cell::get)
+}
+
+/// The asset path the last failure on this thread was about (as passed to
+/// the call), or an empty string: the C side of Rust's `ponko::Error::path`.
+/// Set with [`ponko_last_error`]'s message, valid until the next failed call
+/// on this thread. Never free the returned pointer.
+/// ```
+/// assert!(!ponko_ffi::ponko_last_error_path().is_null());
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn ponko_last_error_path() -> *const c_char {
+    LAST_ERROR_PATH.with(|cell| cell.as_ptr().cast())
+}
+
+/// A short English name for a [`PonkoErrorKind`] value (`"not found"`,
+/// `"shader"`, ...), for logs; `"other"` for a value this library doesn't
+/// know. A static string: never free it.
+/// ```
+/// let name = unsafe { std::ffi::CStr::from_ptr(ponko_ffi::ponko_error_kind_name(1)) };
+/// assert_eq!(name.to_str(), Ok("not found"));
+/// ```
+#[unsafe(no_mangle)]
+pub extern "C" fn ponko_error_kind_name(kind: u32) -> *const c_char {
+    use PonkoErrorKind::*;
+    const KINDS: [(PonkoErrorKind, &std::ffi::CStr); 11] = [
+        (PONKO_ERROR_NONE, c"none"),
+        (PONKO_ERROR_NOT_FOUND, c"not found"),
+        (PONKO_ERROR_IO, c"io"),
+        (PONKO_ERROR_DECODE, c"decode"),
+        (PONKO_ERROR_SHADER, c"shader"),
+        (PONKO_ERROR_UNSUPPORTED, c"unsupported"),
+        (PONKO_ERROR_BAD_HANDLE, c"bad handle"),
+        (PONKO_ERROR_JSON, c"json"),
+        (PONKO_ERROR_LIMIT, c"limit"),
+        (PONKO_ERROR_INVALID, c"invalid"),
+        (PONKO_ERROR_OTHER, c"other"),
+    ];
+    KINDS
+        .iter()
+        .find(|(k, _)| *k as u32 == kind)
+        .map_or(c"other".as_ptr(), |(_, name)| name.as_ptr())
 }
 
 /// ABI version, currently 2.

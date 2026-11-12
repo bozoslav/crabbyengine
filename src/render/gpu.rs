@@ -356,6 +356,7 @@ impl Renderer {
             prepare_ms: self.last_prepare_3d_ms,
             #[cfg(not(feature = "3d"))]
             prepare_ms: 0.0,
+            gpu_latest: self.timer.as_ref().and_then(GpuTimer::latest_frame),
         }
     }
 

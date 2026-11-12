@@ -695,21 +695,79 @@ public:
 
 class ctx;
 class contact_pair3d;
-/// What the wrapper throws when an engine call fails: `what()` is
-/// `ponko_last_error()`, `kind()` is `ponko_last_error_kind()` (the C side
-/// of Rust's `ponko::ErrorKind`). It is a `std::runtime_error`, so existing
-/// `catch (const std::runtime_error&)` blocks still catch it.
+/// What the wrapper throws when an engine call fails (Rust's `ponko::Error`):
+/// `what()` is `ponko_last_error()`, `kind()` is `ponko_last_error_kind()`
+/// (the C side of Rust's `ponko::ErrorKind`), `path()` the asset the failure
+/// is about, if any (`ponko_last_error_path()`). It is a `std::runtime_error`,
+/// so existing `catch (const std::runtime_error&)` blocks still catch it.
 class error : public std::runtime_error {
 public:
-    error(const char* message, PonkoErrorKind kind) : std::runtime_error(message), kind_(kind) {}
+    error(const char* message, PonkoErrorKind kind, const char* path = "")
+        : std::runtime_error(message), kind_(kind), path_(path ? path : "") {}
     PonkoErrorKind kind() const noexcept { return kind_; }
+    /// The asset path the failure is about (as passed to the call), or empty.
+    const std::string& path() const noexcept { return path_; }
 private:
     PonkoErrorKind kind_;
+    std::string path_;
+};
+/// A short name for an error kind, for logs: "not found", "shader", ...
+inline const char* kind_name(PonkoErrorKind kind) noexcept { return ponko_error_kind_name(static_cast<std::uint32_t>(kind)); }
+
+namespace detail {
+/// The last failure on this thread as an exception.
+inline ponko::error last_error() { return ponko::error(ponko_last_error(), ponko_last_error_kind(), ponko_last_error_path()); }
+inline void check(PonkoStatus status) {
+    if (status != PONKO_OK) throw last_error();
+}
+}  // namespace detail
+
+/// What the `try_` loaders return, Rust's `Result<T, ponko::Error>`: the
+/// value, or the error that kept it from loading. Nothing is thrown until
+/// you ask a failed result for its value.
+///
+///     auto skin = ctx.try_load_texture("skins/gold.png");
+///     if (skin) use(*skin);
+///     else if (skin.kind() == PONKO_ERROR_NOT_FOUND) { /* no skin installed */ }
+template<class T> class result {
+    std::optional<T> value_;
+    std::optional<ponko::error> error_;
+public:
+    result(T value) : value_(std::move(value)) {}
+    result(ponko::error e) : error_(std::move(e)) {}
+    bool ok() const noexcept { return value_.has_value(); }
+    explicit operator bool() const noexcept { return ok(); }
+    /// The value; throws the error if it failed.
+    T& value() & { if (!value_) throw *error_; return *value_; }
+    const T& value() const& { if (!value_) throw *error_; return *value_; }
+    T value() && { if (!value_) throw *error_; return std::move(*value_); }
+    T& operator*() & { return value(); }
+    const T& operator*() const& { return value(); }
+    const T* operator->() const { return &value(); }
+    T value_or(T fallback) const { return value_ ? *value_ : fallback; }
+    /// The error; std::logic_error if it succeeded.
+    const ponko::error& error() const {
+        if (!error_) throw std::logic_error("ponko::result holds a value, not an error");
+        return *error_;
+    }
+    /// The error's kind, or PONKO_ERROR_NONE if it succeeded.
+    PonkoErrorKind kind() const noexcept { return error_ ? error_->kind() : PONKO_ERROR_NONE; }
+};
+
+/// The outcome of the latest input scenario run (Rust's `ScenarioReport`):
+/// the C fields, plus `passed()`. See `world_view::scenario_report`.
+struct scenario_report : PonkoScenarioReport {
+    /// Whether the run ended with every check held.
+    bool passed() const noexcept { return status == PONKO_SCENARIO_PASSED; }
 };
 
 namespace detail {
-inline void check(PonkoStatus status) {
-    if (status != PONKO_OK) throw ponko::error(ponko_last_error(), ponko_last_error_kind());
+/// `value` if `status` is PONKO_OK, else the last error, as a result. Make
+/// the call that fills `value` in its own statement first: the order in which
+/// function arguments are evaluated is unspecified.
+template<class T> ponko::result<T> attempt(PonkoStatus status, T value) {
+    if (status == PONKO_OK) return ponko::result<T>(std::move(value));
+    return ponko::result<T>(last_error());
 }
 /// An owned C query filter (see with, without, or_, all_of).
 struct filter_deleter { void operator()(PonkoFilter* f) const noexcept { ponko_filter_free(f); } };
@@ -1426,6 +1484,56 @@ public:
         if (status == PONKO_NOT_FOUND) return false;
         detail::check(status);
         return true;
+    }
+    /// Lends the world's `T` and the world next to it to `fn(world_view&, T&)`
+    /// (Rust's `resource_scope`) and returns what `fn` returns. Change `T` in
+    /// place while you query, spawn and use other resources: run a query in
+    /// `fn` to use `T` in its loop, nest scopes for several resources. Inside,
+    /// the world has no `T`; it is back, with the changes, when `fn` returns
+    /// or throws. Throws if the world has no `T`.
+    template<class T, class F> auto resource_scope(F fn) -> decltype(fn(std::declval<world_view&>(), std::declval<T&>())) {
+        static_assert(detail::pod<T>, "resources are plain structs (trivially copyable, no destructor)");
+        valid();
+        using R = decltype(fn(std::declval<world_view&>(), std::declval<T&>()));
+        struct state {
+            F* fn;
+            std::shared_ptr<detail::identity> owner;
+            std::exception_ptr error;
+            std::optional<typename std::conditional<std::is_void<R>::value, int, R>::type> result;
+        } st{&fn, owner_, nullptr, std::nullopt};
+        auto trampoline = [](PonkoWorld* w, void* value, void* user) noexcept {
+            auto& s = *static_cast<state*>(user);
+            try {
+                world_view view(w, s.owner);
+                if constexpr (std::is_void<R>::value) (*s.fn)(view, *static_cast<T*>(value));
+                else s.result.emplace((*s.fn)(view, *static_cast<T*>(value)));
+            } catch (...) { s.error = std::current_exception(); }
+        };
+        const auto status = ponko_resource_scope(raw_, detail::type_name<T>().c_str(), sizeof(T), trampoline, &st);
+        if (st.error) std::rethrow_exception(st.error);
+        detail::check(status);
+        if constexpr (!std::is_void<R>::value) return std::move(*st.result);
+    }
+
+    /// The latest input scenario run's report, kept in the world; nothing if
+    /// no scenario ran here.
+    std::optional<ponko::scenario_report> scenario_report() const {
+        valid();
+        ponko::scenario_report r{};
+        const auto status = ponko_world_scenario_report(raw_, &r);
+        if (status == PONKO_NOT_FOUND) return std::nullopt;
+        detail::check(status);
+        return r;
+    }
+    /// The same report as JSON, with the failed check's message, expected
+    /// and actual values; empty if no scenario ran here.
+    std::string scenario_report_json() const {
+        valid();
+        std::size_t len = 0;
+        const auto status = ponko_world_scenario_report_json(raw_, nullptr, 0, &len);
+        if (status == PONKO_NOT_FOUND) return {};
+        detail::check(status);
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* l) { return ponko_world_scenario_report_json(raw_, b, c, l); });
     }
 
     // ---- queries ----
@@ -2645,6 +2753,9 @@ public:
     void set_grid_line_names(id node, std::uint32_t axis, std::initializer_list<const char*> names) { detail::check(ponko_ctx_ui_set_grid_line_names(raw_, target_, node, axis, names.begin(), names.size())); }
     void set_grid_area(id node, const char* name) { detail::check(ponko_ctx_ui_set_grid_area(raw_, target_, node, name)); }
     void set_grid_named_line(id node, std::uint32_t axis, bool end, const char* name, int occurrence = 0) { detail::check(ponko_ctx_ui_set_grid_named_line(raw_, target_, node, axis, end, name, occurrence)); }
+    /// One edge spans to the `count`th line named `name` (CSS `span count name`), counted from the other edge,
+    /// which needs a line number (`ui::line`): axis 0 columns/1 rows, `end` false the start edge, true the end edge.
+    void set_grid_named_span(id node, std::uint32_t axis, bool end, const char* name, std::uint32_t count = 1) { detail::check(ponko_ctx_ui_set_grid_named_span(raw_, target_, node, axis, end, name, count)); }
     void set_paint(id node, const paint& p) { const PonkoUiPaint c = p.raw(); detail::check(ponko_ctx_ui_set_paint(raw_, target_, node, &c)); }
     void set_text(id node, const char* text) { detail::check(ponko_ctx_ui_set_text(raw_, target_, node, text)); }
     std::string text(id node) const {
@@ -3262,6 +3373,132 @@ struct input_event {
     static input_event disconnected(gamepad p) { return {5, p.slot, 0, 0}; }
 };
 
+/// A named action resolved once (Rust's `ActionId`), from `ctx::action_id`.
+/// Queries with it skip the name lookup; `none()` reads false/zero. An id
+/// belongs to the game it came from and stays valid when bindings change.
+struct action_id {
+    std::uint32_t bits = PONKO_ACTION_NONE;
+    static constexpr action_id none() noexcept { return action_id{}; }
+    constexpr bool is_none() const noexcept { return bits == PONKO_ACTION_NONE; }
+    friend constexpr bool operator==(action_id a, action_id b) noexcept { return a.bits == b.bits; }
+    friend constexpr bool operator!=(action_id a, action_id b) noexcept { return a.bits != b.bits; }
+};
+
+/// What an input scenario checks at a tick (Rust's `ScenarioCheck`).
+class scenario_check {
+    friend class input_scenario;
+    enum class kind { action, resource, count } kind_;
+    std::string name_, pointer_, equals_;
+    int pressed_ = -1, down_ = -1, released_ = -1;
+    std::uint64_t count_ = 0;
+    explicit scenario_check(kind k, std::string name) : kind_(k), name_(std::move(name)) {}
+public:
+    /// An action's edges and held state; chain `.pressed(true)`, `.down(true)`, `.released(false)`.
+    static scenario_check action(std::string name) { return scenario_check(kind::action, std::move(name)); }
+    /// A field of a reflected resource by JSON pointer (`"/points"`), compared as JSON.
+    static scenario_check resource(std::string name, std::string pointer, std::string equals_json) {
+        scenario_check c(kind::resource, std::move(name));
+        c.pointer_ = std::move(pointer); c.equals_ = std::move(equals_json);
+        return c;
+    }
+    /// How many entities have a reflected component.
+    static scenario_check count(std::string component, std::uint64_t n) {
+        scenario_check c(kind::count, std::move(component));
+        c.count_ = n;
+        return c;
+    }
+    scenario_check& pressed(bool expected) { pressed_ = expected ? 1 : 0; return *this; }
+    scenario_check& down(bool expected) { down_ = expected ? 1 : 0; return *this; }
+    scenario_check& released(bool expected) { released_ = expected ? 1 : 0; return *this; }
+};
+
+/// Raw input and checks scheduled by simulation tick, for reproducible
+/// headless tests (Rust's `InputScenario`). Run it with
+/// `game::run_headless_scenario`, `game::input_scenario` or
+/// `ctx::start_scenario`; each takes a copy.
+class input_scenario {
+    PonkoInputScenario* raw_;
+    input_scenario& step(PonkoStatus s) { detail::check(s); return *this; }
+public:
+    input_scenario() : raw_(ponko_input_scenario_new()) {}
+    ~input_scenario() { ponko_input_scenario_free(raw_); }
+    input_scenario(const input_scenario&) = delete;
+    input_scenario& operator=(const input_scenario&) = delete;
+    input_scenario(input_scenario&& other) noexcept : raw_(std::exchange(other.raw_, nullptr)) {}
+    input_scenario& operator=(input_scenario&& other) noexcept {
+        if (this != &other) { ponko_input_scenario_free(raw_); raw_ = std::exchange(other.raw_, nullptr); }
+        return *this;
+    }
+    /// Reads the versioned JSON format that Rust and tools use.
+    static input_scenario from_json(const std::string& json) {
+        PonkoInputScenario* raw = nullptr;
+        detail::check(ponko_input_scenario_from_json(json.c_str(), &raw));
+        input_scenario s; ponko_input_scenario_free(s.raw_); s.raw_ = raw;
+        return s;
+    }
+    std::string to_json() const {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* l) { return ponko_input_scenario_to_json(raw_, b, c, l); });
+    }
+    /// Feeds `e` before the simulation systems of tick `tick` run.
+    input_scenario& at(std::uint64_t tick, input_event e) {
+        return step(ponko_input_scenario_at(raw_, tick, e.kind, e.slot, e.input, e.value));
+    }
+    /// Checks `c` after the simulation systems of tick `tick` ran.
+    input_scenario& expect(std::uint64_t tick, const scenario_check& c) {
+        switch (c.kind_) {
+        case scenario_check::kind::action:
+            return step(ponko_input_scenario_expect_action(raw_, tick, c.name_.c_str(), c.pressed_, c.down_, c.released_));
+        case scenario_check::kind::resource:
+            return step(ponko_input_scenario_expect_resource(raw_, tick, c.name_.c_str(), c.pointer_.c_str(), c.equals_.c_str()));
+        case scenario_check::kind::count:
+            return step(ponko_input_scenario_expect_count(raw_, tick, c.name_.c_str(), c.count_));
+        }
+        throw std::logic_error("unknown scenario check");
+    }
+    /// Names the scenario in its report.
+    input_scenario& named(const char* id) { return step(ponko_input_scenario_named(raw_, id)); }
+    /// Lasts `ticks` ticks (default: through the last step's tick).
+    input_scenario& duration(std::uint64_t ticks) { return step(ponko_input_scenario_duration(raw_, ticks)); }
+    /// Releases inputs still held when the run finishes normally.
+    input_scenario& release_when_done() { return step(ponko_input_scenario_release_when_done(raw_)); }
+    /// How many ticks a run lasts.
+    std::uint64_t ticks() const { std::uint64_t t = 0; detail::check(ponko_input_scenario_info(raw_, &t, nullptr)); return t; }
+    /// How many steps (inputs and checks) it holds.
+    std::size_t step_count() const { std::size_t n = 0; detail::check(ponko_input_scenario_info(raw_, nullptr, &n)); return n; }
+    const PonkoInputScenario* raw() const noexcept { return raw_; }
+};
+
+/// Files in memory, to add with `ctx::add_asset_source` (Rust's
+/// `MemorySource`): assets compiled into the program, generated at startup,
+/// or made up in a test. The game gets a copy.
+class memory_source {
+    PonkoMemorySource* raw_;
+public:
+    explicit memory_source(const char* id) : raw_(ponko_memory_source_new(id)) {
+        if (!raw_) throw detail::last_error();
+    }
+    ~memory_source() { ponko_memory_source_free(raw_); }
+    memory_source(const memory_source&) = delete;
+    memory_source& operator=(const memory_source&) = delete;
+    memory_source(memory_source&& other) noexcept : raw_(std::exchange(other.raw_, nullptr)) {}
+    memory_source& operator=(memory_source&& other) noexcept {
+        if (this != &other) { ponko_memory_source_free(raw_); raw_ = std::exchange(other.raw_, nullptr); }
+        return *this;
+    }
+    /// Adds (or replaces) file `name` with a copy of `len` bytes at `data`.
+    memory_source& insert(const char* name, const void* data, std::size_t len) {
+        detail::check(ponko_memory_source_insert(raw_, name, static_cast<const std::uint8_t*>(data), len));
+        return *this;
+    }
+    /// Adds (or replaces) file `name` with a copy of `bytes`, builder style.
+    memory_source& with(const char* name, const std::string& bytes) { return insert(name, bytes.data(), bytes.size()); }
+    memory_source& with(const char* name, const std::vector<std::uint8_t>& bytes) { return insert(name, bytes.data(), bytes.size()); }
+    /// Bytes written out: `with("blob.bin", {1, 2, 3})` (without this, the braces
+    /// could make either a string or a vector).
+    memory_source& with(const char* name, std::initializer_list<std::uint8_t> bytes) { return insert(name, bytes.begin(), bytes.size()); }
+    const PonkoMemorySource* raw() const noexcept { return raw_; }
+};
+
 /// One contact point of a pair: where, and how far apart the bodies are there.
 struct contact_point3d {
     vec3 position;
@@ -3418,6 +3655,31 @@ public:
     bool action_released(const char* name) const { bool value = false; detail::check(ponko_ctx_action_released(raw_, name, &value)); return value; }
     float action_axis(const char* name) const { float value = 0; detail::check(ponko_ctx_action_axis(raw_, name, &value)); return value; }
     vec2 action_axis2(const char* name) const { vec2 value{}; detail::check(ponko_ctx_action_axis2(raw_, name, &value)); return value; }
+    /// Resolves an action name once (Rust's `ctx.input.action_id`); the
+    /// queries then take the id and skip the name lookup. Resolve in setup,
+    /// after set_actions. An unknown name throws ponko::error (kind
+    /// PONKO_ERROR_NOT_FOUND, naming the known actions), where Rust logs it.
+    ponko::action_id action_id(const char* name) const {
+        ponko::action_id id; detail::check(ponko_ctx_action_id(raw_, name, &id.bits)); return id;
+    }
+    /// Resolves several names at once: `auto [jump, fire] = ctx.action_ids({"jump", "fire"});`.
+    template<std::size_t N> std::array<ponko::action_id, N> action_ids(const char* const (&names)[N]) const {
+        std::array<std::uint32_t, N> bits{};
+        detail::check(ponko_ctx_action_ids(raw_, names, N, bits.data()));
+        std::array<ponko::action_id, N> ids{};
+        for (std::size_t i = 0; i < N; ++i) ids[i].bits = bits[i];
+        return ids;
+    }
+    bool action_down(ponko::action_id a) const { bool value = false; detail::check(ponko_ctx_action_down_id(raw_, a.bits, &value)); return value; }
+    bool action_pressed(ponko::action_id a) const { bool value = false; detail::check(ponko_ctx_action_pressed_id(raw_, a.bits, &value)); return value; }
+    bool action_released(ponko::action_id a) const { bool value = false; detail::check(ponko_ctx_action_released_id(raw_, a.bits, &value)); return value; }
+    float action_axis(ponko::action_id a) const { float value = 0; detail::check(ponko_ctx_action_axis_id(raw_, a.bits, &value)); return value; }
+    vec2 action_axis2(ponko::action_id a) const { vec2 value{}; detail::check(ponko_ctx_action_axis2_id(raw_, a.bits, &value)); return value; }
+    /// Starts a copy of `s` now, replacing a running scenario (Rust's
+    /// `Input::start_scenario`); from a system, its tick 0 is the next tick.
+    void start_scenario(const ponko::input_scenario& s) { detail::check(ponko_ctx_start_scenario(raw_, s.raw())); }
+    /// Ends the running scenario, releasing what it holds; whether one was running.
+    bool cancel_scenario() { bool was = false; detail::check(ponko_ctx_cancel_scenario(raw_, &was)); return was; }
     bool key_down(key k) const { bool b = false; detail::check(ponko_ctx_key_down(raw_, k, &b)); return b; }
     bool key_pressed(key k) const { bool b = false; detail::check(ponko_ctx_key_pressed(raw_, k, &b)); return b; }
     bool key_released(key k) const { bool b = false; detail::check(ponko_ctx_key_released(raw_, k, &b)); return b; }
@@ -3484,7 +3746,54 @@ public:
     entity spawn_prefab_transform2d(const char* path, transform2d at) { entity e = 0; detail::check(ponko_ctx_spawn_prefab_transform2d(raw_, path, at, &e)); return e; }
     /// Saves `e` as a prefab in assets/`path` (without its position).
     void save_prefab(entity e, const char* path) { detail::check(ponko_ctx_save_prefab(raw_, e, path)); }
-    texture load_texture(const char* path) { texture t{}; detail::check(ponko_ctx_load_texture(raw_, path, &t)); return t; }
+    /// Loads a texture; throws ponko::error (kind, path) if it can't.
+    texture load_texture(const char* path) { return try_load_texture(path).value(); }
+    /// Loads a texture, or says why not, without throwing (Rust's `try_load_texture`).
+    result<texture> try_load_texture(const char* path) { texture t{}; const PonkoStatus status = ponko_ctx_try_load_texture(raw_, path, &t); return detail::attempt(status, t); }
+
+    // Asset sources: where load_* calls find bytes besides assets/.
+    /// Adds a copy of `source`; it's asked before assets/. Add sources in
+    /// setup, before loading what they hold. Ids are unique per game.
+    void add_asset_source(const memory_source& source) { detail::check(ponko_ctx_add_memory_source(raw_, source.raw())); }
+    /// Adds a source whose reads are `read(name)` (Rust's `AssetSource`):
+    /// the bytes, or nothing if this source doesn't have `name` (the next
+    /// source is asked). An exception from `read` is a read error. It runs
+    /// inside the load call that needs it and must not call the engine.
+    template<class F> void add_asset_source(const char* id, F read) {
+        struct holder { F read; std::vector<std::uint8_t> last; };
+        auto h = std::make_unique<holder>(holder{std::move(read), {}});
+        auto on_read = [](void* user, const char* name, const std::uint8_t** data, std::size_t* len) noexcept -> std::uint32_t {
+            auto& self = *static_cast<holder*>(user);
+            try {
+                std::optional<std::vector<std::uint8_t>> bytes = self.read(name);
+                if (!bytes) return PONKO_NOT_FOUND;
+                self.last = std::move(*bytes);
+                *data = self.last.data(); *len = self.last.size();
+                return PONKO_OK;
+            } catch (...) { return PONKO_PANIC; }
+        };
+        auto on_free = [](void* user) noexcept { delete static_cast<holder*>(user); };
+        detail::check(ponko_ctx_add_asset_source(raw_, id, on_read, nullptr, on_free, h.get()));
+        h.release();
+    }
+    /// Reads asset `name` (from the sources, then assets/) and returns
+    /// `decode(data, len)`: your own format, with no registration (Rust's
+    /// `assets.load_with`). Nothing is cached. Throws ponko::error if the
+    /// asset can't be read, and what `decode` throws.
+    template<class F> auto load_asset_with(const char* name, F decode) -> decltype(decode(std::declval<const std::uint8_t*>(), std::size_t{})) {
+        using R = decltype(decode(std::declval<const std::uint8_t*>(), std::size_t{}));
+        static_assert(!std::is_void<R>::value, "the decoder returns the decoded value");
+        struct state { F* decode; std::optional<R> value; std::exception_ptr error; } st{&decode, std::nullopt, nullptr};
+        auto trampoline = [](void* user, const std::uint8_t* data, std::size_t len) noexcept -> std::uint32_t {
+            auto& s = *static_cast<state*>(user);
+            try { s.value.emplace((*s.decode)(data, len)); return PONKO_OK; }
+            catch (...) { s.error = std::current_exception(); return PONKO_INVALID_ARGUMENT; }
+        };
+        const auto status = ponko_ctx_load_asset_with(raw_, name, trampoline, &st);
+        if (st.error) std::rethrow_exception(st.error);
+        detail::check(status);
+        return std::move(*st.value);
+    }
     texture create_texture(std::uint32_t w, std::uint32_t h, const std::uint8_t* rgba, std::size_t len) {
         texture t{}; detail::check(ponko_ctx_create_texture(raw_, w, h, rgba, len, &t)); return t;
     }
@@ -3543,6 +3852,7 @@ public:
         return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return ponko_ctx_capabilities_json(raw_, b, c, n); });
     }
     ponko::shader load_shader(const char* path) { ponko::shader x{}; detail::check(ponko_ctx_load_shader(raw_, path, &x)); return x; }
+    result<ponko::shader> try_load_shader(const char* path) { ponko::shader x{}; const PonkoStatus status = ponko_ctx_load_shader(raw_, path, &x); return detail::attempt(status, x); }
     /// Makes a material shader from WGSL source; `name` is for error messages.
     ponko::shader create_shader(const char* name, const char* source) {
         ponko::shader x{}; detail::check(ponko_ctx_create_shader(raw_, name, source, &x)); return x;
@@ -3550,6 +3860,7 @@ public:
     /// Loads a screen effect (WGSL defining `fn effect(p: Pixel) -> vec3<f32>`)
     /// from assets/, hot reloaded; the same file again gives the same effect.
     ponko::effect load_effect(const char* path) { ponko::effect e{}; detail::check(ponko_ctx_load_effect(raw_, path, &e)); return e; }
+    result<ponko::effect> try_load_effect(const char* path) { ponko::effect e{}; const PonkoStatus status = ponko_ctx_load_effect(raw_, path, &e); return detail::attempt(status, e); }
     /// A screen effect from WGSL source; `name` is for error messages.
     ponko::effect create_effect(const char* name, const char* source) {
         ponko::effect e{}; detail::check(ponko_ctx_create_effect(raw_, name, source, &e)); return e;
@@ -3615,6 +3926,7 @@ public:
     /// Loads a compute pass (WGSL defining `fn compute(c: Cell) -> vec4<f32>`)
     /// from assets/, hot reloaded; the same file again gives the same one.
     ponko::compute load_compute(const char* path) { ponko::compute c{}; detail::check(ponko_ctx_load_compute(raw_, path, &c)); return c; }
+    result<ponko::compute> try_load_compute(const char* path) { ponko::compute c{}; const PonkoStatus status = ponko_ctx_load_compute(raw_, path, &c); return detail::attempt(status, c); }
     /// A compute pass from WGSL source; `name` is for error messages.
     ponko::compute create_compute(const char* name, const char* source) {
         ponko::compute c{}; detail::check(ponko_ctx_create_compute(raw_, name, source, &c)); return c;
@@ -3665,7 +3977,8 @@ public:
     mesh create_plain_mesh(const mesh_data& data) { mesh x{}; detail::check(ponko_ctx_create_plain_mesh(raw_, data.raw(), &x)); return x; }
     /// Loads a glTF model (.glb, or .gltf with its files) from assets/ as
     /// one mesh with its materials; the same file again gives the same mesh.
-    mesh load_mesh(const char* path) { mesh x{}; detail::check(ponko_ctx_load_mesh(raw_, path, &x)); return x; }
+    mesh load_mesh(const char* path) { return try_load_mesh(path).value(); }
+    result<mesh> try_load_mesh(const char* path) { mesh x{}; const PonkoStatus status = ponko_ctx_try_load_mesh(raw_, path, &x); return detail::attempt(status, x); }
     /// A texture array of `width` x `height` images, one after another in
     /// `rgba` (4 bytes a pixel).
     texture_array create_texture_array(std::uint32_t width, std::uint32_t height, const std::vector<std::uint8_t>& rgba, texture_kind kind) {
@@ -4258,7 +4571,8 @@ public:
     void remove_text3d(entity e) { detail::check(ponko_ctx_remove_text3d(raw_, e)); }
 
     // Fonts and text (screen space).
-    font load_font(const char* path) { font f{}; detail::check(ponko_ctx_load_font(raw_, path, &f)); return f; }
+    font load_font(const char* path) { return try_load_font(path).value(); }
+    result<font> try_load_font(const char* path) { font f{}; const PonkoStatus status = ponko_ctx_try_load_font(raw_, path, &f); return detail::attempt(status, f); }
     void draw_text(const char* text, vec2 pos, const text_params& params) { detail::check(ponko_ctx_draw_text_ex(raw_, text, pos, &params)); }
     vec2 measure_text(const char* text, font f, float size) { vec2 v{}; detail::check(ponko_ctx_measure_text_ex(raw_, text, f, size, &v)); return v; }
 
@@ -4297,7 +4611,8 @@ public:
     void clear_ui_pointer_ray() { detail::check(ponko_ctx_clear_ui_pointer_ray(raw_)); }
 
     // Sound (silent in headless runs).
-    sound load_sound(const char* path) { sound s{}; detail::check(ponko_ctx_load_sound(raw_, path, &s)); return s; }
+    sound load_sound(const char* path) { return try_load_sound(path).value(); }
+    result<sound> try_load_sound(const char* path) { sound s{}; const PonkoStatus status = ponko_ctx_try_load_sound(raw_, path, &s); return detail::attempt(status, s); }
     sound create_sound(std::uint32_t sample_rate, const float* samples, std::size_t len) {
         sound s{}; detail::check(ponko_ctx_create_sound(raw_, sample_rate, samples, len, &s)); return s;
     }
@@ -4305,7 +4620,8 @@ public:
     playing play_sound(sound s, const sound_params& params) { playing p{}; detail::check(ponko_ctx_play_sound(raw_, s, &params, &p)); return p; }
     void stop_sound(playing p) { detail::check(ponko_ctx_stop_sound(raw_, p)); }
     /// A long sound (music) streamed from disk as it plays.
-    sound load_stream(const char* path) { sound s{}; detail::check(ponko_ctx_load_stream(raw_, path, &s)); return s; }
+    sound load_stream(const char* path) { return try_load_stream(path).value(); }
+    result<sound> try_load_stream(const char* path) { sound s{}; const PonkoStatus status = ponko_ctx_try_load_stream(raw_, path, &s); return detail::attempt(status, s); }
     /// The bus named `name`, made the first time; keep the handle.
     PonkoAudioBus audio_bus(const char* name) { PonkoAudioBus b{}; detail::check(ponko_ctx_audio_bus(raw_, name, &b)); return b; }
     void set_audio_bus_volume(PonkoAudioBus b, float volume) { detail::check(ponko_ctx_set_audio_bus_volume(raw_, b, volume)); }
@@ -4893,6 +5209,30 @@ public:
         return owned;
     }
     ponko::world run_headless(std::uint64_t ticks) { return run_headless(ticks, [](ctx&) {}); }
+
+    /// Runs a copy of `s` with the game from its first tick (Rust's
+    /// `Game::input_scenario`); the report ends up in the world.
+    game& input_scenario(const ponko::input_scenario& s) { return check(ponko_game_input_scenario(raw_, s.raw())); }
+    /// What run_headless_scenario returns: `auto [world, report] = ...`.
+    struct scenario_run {
+        ponko::world world;
+        ponko::scenario_report report;
+    };
+    /// Runs `s` headlessly for its ticks and returns the world and the
+    /// scenario's report (Rust's `run_headless_scenario`): the bounded
+    /// runner for tests and CI. A failed check ends the run at that tick.
+    template<class S> scenario_run run_headless_scenario(const ponko::input_scenario& s, S setup) {
+        const std::uint64_t ticks = s.ticks();
+        this->input_scenario(s);
+        ponko::world w = run_headless(ticks, std::move(setup));
+        ponko::scenario_report pending{};
+        pending.status = PONKO_SCENARIO_PENDING;
+        pending.duration = ticks;
+        pending.steps = s.step_count();
+        auto report = w.scenario_report();
+        return scenario_run{std::move(w), report ? *report : pending};
+    }
+    scenario_run run_headless_scenario(const ponko::input_scenario& s) { return run_headless_scenario(s, [](ctx&) {}); }
 
     /// What profile_headless returns.
     struct profiled {

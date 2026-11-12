@@ -7,8 +7,8 @@ executable, a pack file, or files made up in a test. A game adds one in
 setup; after that, the same loads by name find the asset there, and the rest of
 the code doesn't change.
 
-Rust only for now: there is no C or C++ API for asset sources,
-`load_asset_with` or `scene_asset_field` (see
+C and C++ have asset sources and `load_asset_with` too;
+`scene_asset_field` is Rust-only for now (see
 [Still Rust-only](c-cpp.md#still-rust-only)).
 
 ## Embedding files in the executable
@@ -16,15 +16,41 @@ Rust only for now: there is no C or C++ API for asset sources,
 `MemorySource` holds named files in memory. Fill it with `include_bytes!` and
 the game needs nothing next to the executable:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 {{#include ../../tests/asset_sources.rs:embedded}}
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:asset_sources}}
+```
+
+</div>
+</div>
 
 `ctx.assets.add_source(source)` takes any type that implements `AssetSource`,
 and `MemorySource` is the ready-made one. Your own is two methods: `id` (a
 short name, unique among the sources you add) and `read(name)` (the bytes, or
 an error of kind `NotFound` when the source doesn't have that name). Use it
 for a pack file or a download cache.
+
+From C++, `ctx.add_asset_source(ponko::memory_source(id).with(name, bytes))`
+adds a copy of a memory source, and `ctx.add_asset_source(id, read)` takes a
+function from a name to `std::optional<std::vector<std::uint8_t>>` (`nullopt`
+when the source doesn't have it; an exception is reported as an I/O error).
+From C, `ponko_memory_source_new`, `ponko_memory_source_insert` and
+`ponko_ctx_add_memory_source`, or `ponko_ctx_add_asset_source` with a read
+callback: it returns `PONKO_OK` with the bytes (which stay valid until the
+next call to it), `PONKO_NOT_FOUND` to let the next source answer, or another
+status for an I/O error. It runs inside the load that needs it and must not
+call back into the engine. The engine owns `user` once the call succeeds and
+hands it to the optional free callback when the game ends; on a failure it is
+never freed.
 
 ## The rules
 
@@ -85,6 +111,13 @@ registration. `decode` returns your value or a `ponko::Error` (usually
 `ErrorKind::Decode`), which comes back with the asset's name and source in
 front of its message. Nothing is cached, so keep the result, for example in
 a resource.
+
+C++: `ctx.load_asset_with(name, decode)`, where `decode(data, len)` returns
+your value or throws; the example above counts the walls of a level file. C:
+`ponko_ctx_load_asset_with(ctx, name, decode, user)`, where `decode` returns
+`PONKO_OK` or a status that becomes a `decode` error naming the asset. The
+decoder runs outside the engine's lock, so it may call other `ctx` functions.
+The bytes are valid only during the call.
 
 ## Assets named in your own components
 

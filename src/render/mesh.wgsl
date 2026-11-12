@@ -128,8 +128,9 @@ fn toward_viewer(p: vec3<f32>) -> vec3<f32> {
 }
 
 // The opaque scene's light at a pixel, before tone mapping (in screen
-// effects: the frame so far). Only transparent materials and screen effects
-// see the scene; elsewhere this is black.
+// effects: the frame so far; in scene compute passes: the settled frame).
+// Only transparent materials, effects and scene compute passes see the
+// scene; elsewhere this is black.
 fn scene_color(screen: vec2<f32>) -> vec3<f32> {
     let size = vec2<i32>(textureDimensions(scene_color_texture));
     let at = clamp(vec2<i32>(screen), vec2<i32>(0), size - 1);
@@ -137,8 +138,8 @@ fn scene_color(screen: vec2<f32>) -> vec3<f32> {
 }
 
 // Where the opaque scene is at a pixel, in the world. Only transparent
-// materials and screen effects see the scene; elsewhere this is as far as
-// the camera sees.
+// materials, effects and scene compute passes see the scene; elsewhere this
+// reads a stand-in depth.
 fn scene_position(screen: vec2<f32>) -> vec3<f32> {
     let size = vec2<i32>(textureDimensions(scene_depth_texture));
     let at = clamp(vec2<i32>(screen), vec2<i32>(0), size - 1);

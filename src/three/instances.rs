@@ -73,8 +73,9 @@ pub struct InstanceBatchOptions {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum BatchCulling {
-    /// The renderer picks by the batch's size (see the guide's "Which path
-    /// a batch takes").
+    /// The renderer picks by the batch's size, and keeps batches of several
+    /// distance levels and see-through batches on the CPU path (see the
+    /// guide's "Which path a batch takes").
     #[default]
     Auto,
     /// Cull every instance in the compute pass and draw with indirect

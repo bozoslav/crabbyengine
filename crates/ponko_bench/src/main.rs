@@ -10,6 +10,8 @@ mod alloc;
 mod archetypes;
 mod ecs_suite;
 mod extraction;
+#[cfg(feature = "render")]
+mod lod_split;
 mod membership;
 mod nav3d;
 mod net;
@@ -29,6 +31,7 @@ mod render_report;
 mod render_scenes;
 mod report;
 mod schedule;
+mod sparse_set;
 mod streaming;
 
 use bevy_ecs::component::Component;
@@ -220,11 +223,14 @@ fn main() {
     #[cfg(feature = "render")]
     record::run(&mut b);
     #[cfg(feature = "render")]
+    lod_split::run(&mut b);
+    #[cfg(feature = "render")]
     let render = render_scenes::run(&mut b);
     #[cfg(not(feature = "render"))]
     let render: Option<String> = None;
     schedule::run(&mut b);
     streaming::run(&mut b);
+    sparse_set::run(&mut b);
 
     // Resource scoping versus the previous public take/put workaround.
     for scoped in [false, true] {

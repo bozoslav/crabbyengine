@@ -31,12 +31,23 @@ Always use `--release` for anything with many entities; debug builds are
 
 ## Your first game
 
-Add the engine to a new project:
+Add the engine to a new project. This guide follows the `main` branch, so
+depend on `main` to compile every example in it:
 
 ```sh
 cargo new my_game && cd my_game
-cargo add ponko
+cargo add ponko --git https://github.com/ponkoengine/ponko
 ```
+
+In `Cargo.toml` that is a git dependency, which you can also write by hand:
+`ponko = { git = "https://github.com/ponkoengine/ponko" }`. `cargo add ponko` alone takes the latest release from crates.io
+instead. A release holds what had been merged when it was tagged; anything
+merged since is only on `main`, so a page of this guide can describe an API
+the released crate lacks (the note under each page's title says which version
+the page documents). To follow a release exactly, use the guide published for
+its version, `/ponko/vX.Y.Z/`, with `ponko = "X.Y.Z"`; the
+[changelog](https://github.com/ponkoengine/ponko/blob/main/CHANGELOG.md) lists
+what each release added.
 
 Then in `src/main.rs` (Rust) or `main.cpp` (C++, see [C and C++](c-cpp.md)
 for building):

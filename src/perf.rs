@@ -81,6 +81,9 @@ pub struct Perf {
     pub(crate) state: crate::perf_report::PerfState,
     /// The renderer's per-pass GPU times, copied after every frame.
     pub(crate) gpu_passes: Vec<crate::perf::GpuPass>,
+    /// The last [`RENDER_HISTORY`] drawn frames, oldest first, for the
+    /// render inspector. Filled in place: nothing is allocated per frame.
+    pub(crate) render_history: std::collections::VecDeque<RenderFrame>,
     /// How long the last frame waited for the display, copied after every frame.
     pub(crate) display_wait_ms: f32,
     /// No window or GPU: there are no frames to trace or draw statistics for.
@@ -89,7 +92,57 @@ pub struct Perf {
     pub(crate) entities: usize,
 }
 
+/// How many drawn frames the render inspector's history keeps.
+pub(crate) const RENDER_HISTORY: usize = 120;
+
+/// One drawn frame's rendering cost, as the render inspector's history
+/// keeps it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct RenderFrame {
+    /// [`Time::frame`](crate::time::Time::frame) of the frame.
+    pub frame: u64,
+    pub cpu_ms: f32,
+    /// The GPU time smoothed over recent frames, as it stood after this
+    /// frame; `None` without timestamp queries or before the first timed
+    /// frame.
+    pub gpu_smoothed_ms: Option<f32>,
+    /// The newest single frame's own GPU time that had come back by then,
+    /// and how many drawn frames before this one it was drawn (timestamps
+    /// come back late): GPU time can't be known for the frame itself yet.
+    pub gpu_latest: Option<(f32, u64)>,
+    pub draw_calls: usize,
+    pub models: usize,
+    pub triangles: usize,
+    pub shadow_triangles: usize,
+    pub upload_bytes: u64,
+}
+
 impl Perf {
+    /// Adds a drawn frame to the render inspector's history, dropping the
+    /// oldest once [`RENDER_HISTORY`] are kept.
+    pub(crate) fn push_render_frame(&mut self, frame: u64) {
+        let s = &self.last_render_stats;
+        let entry = RenderFrame {
+            frame,
+            cpu_ms: s.cpu_ms,
+            gpu_smoothed_ms: s.gpu_ms,
+            gpu_latest: self.last_render_detail.and_then(|d| d.gpu_latest),
+            draw_calls: s.draw_calls,
+            models: s.instances,
+            triangles: s.triangles,
+            shadow_triangles: s.shadow_triangles,
+            upload_bytes: s.uploads.bytes(),
+        };
+        if self.render_history.capacity() < RENDER_HISTORY {
+            // Once, at the first drawn frame.
+            self.render_history.reserve_exact(RENDER_HISTORY);
+        }
+        if self.render_history.len() == RENDER_HISTORY {
+            self.render_history.pop_front();
+        }
+        self.render_history.push_back(entry);
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             timings: Vec::new(),
@@ -101,6 +154,7 @@ impl Perf {
             profiler: crate::profiler::Profiler::new(),
             state: crate::perf_report::PerfState::new(),
             gpu_passes: Vec::new(),
+            render_history: std::collections::VecDeque::new(),
             display_wait_ms: 0.0,
             headless: false,
             entities: 0,
@@ -431,3 +485,33 @@ pub use crate::profile_scope;
 /// println!("flow field in {:.2} ms", start.elapsed().as_secs_f64() * 1000.0);
 /// ```
 pub use web_time::Instant;
+
+#[cfg(test)]
+mod render_history_tests {
+    use super::*;
+
+    /// The render inspector's history costs a fixed, small amount: one
+    /// allocation at the first drawn frame, never more.
+    #[test]
+    fn the_render_history_is_a_small_fixed_ring() {
+        assert!(
+            size_of::<RenderFrame>() <= 88,
+            "bytes per kept frame: {}",
+            size_of::<RenderFrame>()
+        );
+        let mut perf = Perf::new();
+        assert_eq!(perf.render_history.capacity(), 0, "nothing until a frame is drawn");
+        perf.push_render_frame(0);
+        let ring = perf.render_history.as_slices().0.as_ptr();
+        for frame in 1..1000 {
+            perf.push_render_frame(frame);
+        }
+        assert_eq!(perf.render_history.len(), RENDER_HISTORY);
+        // `reserve_exact` may give a little more; what matters is that the
+        // first allocation is the only one.
+        assert!(perf.render_history.capacity() >= RENDER_HISTORY);
+        let (a, b) = perf.render_history.as_slices();
+        let base = if b.is_empty() { a.as_ptr() } else { b.as_ptr() };
+        assert_eq!(base, ring, "the same allocation, filled in place");
+    }
+}

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use glam::{Mat4, Vec3};
 
 use super::collect::Instance3D;
-use super::{Assets3D, MeshData, Model, ModelMaterial, ModelMaterials, Transform3D, linear};
+use super::{Assets3D, LodGroup, LodShadow, MeshData, Model, ModelMaterial, ModelMaterials, Transform3D, linear};
 use crate::{Entity, World};
 
 /// One joint of a [`Skeleton`]: its name, the joint it hangs from, and
@@ -452,7 +452,13 @@ pub(crate) struct SkinDraw {
     /// `material`: where they start in `SkinFrame::part_materials`, and
     /// how many.
     pub parts: (u32, u32),
+    /// For a renderer of a [`LodGroup`]: its place in the group's
+    /// renderers (see `LodGroup::first_renderer`). [`NOT_LOD`] for a model.
+    pub lod: u32,
 }
+
+/// [`SkinDraw::lod`] of a skinned model that is not in a [`LodGroup`].
+pub(crate) const NOT_LOD: u32 = u32::MAX;
 
 /// This frame's skinned models and their skin matrices: the joints' matrices
 /// times each slot's inverse bind matrix. Target cameras draw the same.
@@ -465,6 +471,11 @@ pub(crate) struct SkinFrame {
     /// `(part, material)` lists of the draws with per-part materials, each
     /// sorted by part.
     pub part_materials: Vec<(u32, u32)>,
+    /// The [`LodGroup`]s with a [`Skeleton`] and skinned renderers: the
+    /// entity, its first draw and how many, sorted by entity. Every level's
+    /// skinned renderers get a draw (each camera picks its own level), but
+    /// only those a view draws are skinned on the GPU.
+    pub lod_groups: Vec<(Entity, u32, u32)>,
     attached: Vec<(Entity, AttachToJoint)>,
     moved: Vec<(Entity, Transform3D)>,
     shared: Vec<(Model, Entity, Entity)>,
@@ -478,6 +489,7 @@ impl SkinFrame {
         self.matrices.clear();
         self.weights.clear();
         self.part_materials.clear();
+        self.lod_groups.clear();
         world.query::<&mut Skeleton>().par_for_each(Skeleton::update);
 
         // Attachments, in two steps: the query can't look at other entities.
@@ -529,7 +541,7 @@ impl SkinFrame {
             .for_each(|(e, t, m, s, w, r, material, parts)| {
                 // Unskinned meshes go with the next query, skeleton or not.
                 if assets.skin(m.mesh.id).is_some() {
-                    add(out, assets, e, t, m, Some(s), w, r, (material, parts));
+                    add(out, assets, e, placed(t), m, Some(s), w, r, (material, parts));
                 }
             });
         // Meshes that change shape but don't bend: one identity matrix.
@@ -546,9 +558,58 @@ impl SkinFrame {
             .without::<SkinOf>()
             .for_each(|(e, t, m, w, r, material, parts)| {
                 if assets.skin(m.mesh.id).is_none() && assets.morph(m.mesh.id).is_some() {
-                    add(out, assets, e, t, m, None, w, r, (material, parts));
+                    add(out, assets, e, placed(t), m, None, w, r, (material, parts));
                 }
             });
+        // Level-of-detail groups posed by their own skeleton: a draw for
+        // every skinned renderer of every level. Which level a view shows
+        // is picked with the rest of the group, per camera, in `Frame3D`.
+        let lod_groups = &mut self.lod_groups;
+        world
+            .query::<(
+                Entity,
+                &Transform3D,
+                &LodGroup,
+                &Skeleton,
+                Option<&MorphWeights>,
+                Option<&super::ReceivesDecals>,
+                Option<&ModelMaterial>,
+                Option<&ModelMaterials>,
+            )>()
+            .for_each(|(e, t, g, s, w, r, material, parts)| {
+                let first = out.draws.len() as u32;
+                let mut ordinal = 0;
+                for level in &g.levels {
+                    let casters = match &level.shadow {
+                        LodShadow::Casters(casters) => &casters[..],
+                        LodShadow::Same => &[],
+                    };
+                    // The group's override applies to what it draws, not
+                    // to separate shadow casters (as for unskinned levels).
+                    let drawn = level.renderers.iter().map(|r| (r, (material, parts)));
+                    for (renderer, overrides) in drawn.chain(casters.iter().map(|r| (r, (None, None)))) {
+                        if assets.skin(renderer.mesh.id).is_some() {
+                            let model = Model {
+                                mesh: renderer.mesh,
+                                color: renderer.color,
+                            };
+                            let matrix = t.matrix() * renderer.offset.matrix();
+                            let scale = t.scale.abs().max_element() * renderer.offset.scale.abs().max_element();
+                            let before = out.draws.len();
+                            add(out, assets, e, (matrix, scale), &model, Some(s), w, r, overrides);
+                            if let Some(d) = out.draws.get_mut(before) {
+                                d.lod = ordinal;
+                            }
+                        }
+                        ordinal += 1;
+                    }
+                }
+                let count = out.draws.len() as u32 - first;
+                if count > 0 {
+                    lod_groups.push((e, first, count));
+                }
+            });
+        lod_groups.sort_unstable_by_key(|&(e, _, _)| e.to_bits());
         self.shared.clear();
         world
             .query::<(Entity, &Model, &SkinOf)>()
@@ -559,7 +620,7 @@ impl SkinFrame {
                     out,
                     assets,
                     *e,
-                    t,
+                    placed(t),
                     m,
                     Some(s),
                     world.get::<MorphWeights>(*e),
@@ -569,6 +630,31 @@ impl SkinFrame {
             }
         }
     }
+
+    /// Whether any level-of-detail group has posed draws this frame.
+    pub(crate) fn any_lod_draws(&self) -> bool {
+        !self.lod_groups.is_empty()
+    }
+
+    /// The draws of `entity`'s [`LodGroup`] (empty when it has no skeleton
+    /// or no skinned renderer), and the first one's index in `draws`.
+    pub(crate) fn lod_draws(&self, entity: Entity) -> (u32, &[SkinDraw]) {
+        match self
+            .lod_groups
+            .binary_search_by_key(&entity.to_bits(), |&(e, _, _)| e.to_bits())
+        {
+            Ok(i) => {
+                let (_, first, count) = self.lod_groups[i];
+                (first, &self.draws[first as usize..(first + count) as usize])
+            }
+            Err(_) => (0, &[]),
+        }
+    }
+}
+
+/// A model's matrix and largest scale, from its transform.
+fn placed(t: &Transform3D) -> (Mat4, f32) {
+    (t.matrix(), t.scale.abs().max_element())
 }
 
 /// Where [`add`] puts a model.
@@ -586,7 +672,7 @@ fn add(
     out: &mut Out,
     assets: &Assets3D,
     entity: Entity,
-    t: &Transform3D,
+    (matrix, scale): (Mat4, f32),
     m: &Model,
     s: Option<&Skeleton>,
     w: Option<&MorphWeights>,
@@ -644,7 +730,6 @@ fn add(
         }
         _ => return,
     };
-    let matrix = t.matrix();
     let mut model = matrix.to_cols_array_2d();
     model[0][3] = super::projected::receiver_mask(receives);
     out.draws.push(SkinDraw {
@@ -655,7 +740,7 @@ fn add(
         },
         entity: entity.to_bits(),
         matrix,
-        scale: t.scale.abs().max_element(),
+        scale,
         bounds,
         first,
         morph_first,
@@ -669,6 +754,7 @@ fn add(
             }
             _ => (0, 0),
         },
+        lod: NOT_LOD,
     });
 }
 

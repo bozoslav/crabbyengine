@@ -46,7 +46,8 @@ ctx.world.reflect::<Health>();
 | `list_resources` / `get_resource` | | game-wide state: scores, rules, the current round |
 | `system_timings` | | which systems are slow |
 | `ecs_diagnostics` | | archetypes, component storage, every system's phase, order, timings and declared access, and the schedule's stages with why each starts where it does ([details](#ecs-diagnostics)) |
-| `perf_report` | | why frames are slow: fps and frame-time percentiles, CPU vs GPU, GPU time per pass, triangles drawn for the camera and the shadows, the heaviest meshes ([details](performance.md#profiling-a-frame)) |
+| `perf_report` | | why frames are slow: fps and frame-time percentiles, CPU vs GPU, GPU time per pass, triangles drawn for the camera and the shadows, the heaviest meshes; `render_inspector` with GPU memory estimates, the adapter and (`history: N`) the last N drawn frames ([details](performance.md#the-render-pass-inspector)) |
+| `set_graphics_quality` | ✓ | switch a 3D game's quality preset (`low` ... `ultra`, `recommended`) to measure what it costs between two `perf_report` calls ([example](performance.md#measuring-what-a-quality-level-costs)); changes only the picture (and pins render scale and shadow resolution against automatic tuning until the game restarts), but a read-only server doesn't offer it |
 | `shader_status` | | did a shader edit take effect? Each custom shader's last compile or hot reload result, and its errors with line and column in your `.wgsl` file ([details](3d.md)) |
 | `record_trace` | | the next N frames as a Perfetto trace, to find hitches |
 | `perf_hud` | | show the performance overlay, e.g. before a screenshot |

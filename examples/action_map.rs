@@ -1,9 +1,8 @@
 //! Named actions, shared by keyboard and gamepad. Runs without a window.
-#[allow(unused_imports)]
+// ANCHOR: action_map
 use ponko::input::{Gamepad, GamepadAxis, GamepadButton, GamepadStick};
 use ponko::prelude::*;
 
-// ANCHOR: action_map
 // The names live in one place; `Act::resolve` turns them into `Copy` ids once.
 actions! {
     struct Act { jump = "jump", movement = "move", throttle = "throttle" }

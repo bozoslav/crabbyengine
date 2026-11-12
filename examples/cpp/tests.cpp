@@ -31,6 +31,7 @@ template<class F> void throws_invalid(F f, const char* what) {
     CHECK(caught);
 }
 template<class F> void throws(F f) { bool caught = false; try { f(); } catch (const std::exception&) { caught = true; } CHECK(caught); }
+template<class F> void throws_kind(F f, PonkoErrorKind kind) { bool caught = false; try { f(); } catch (const ponko::error& e) { caught = e.kind() == kind; } CHECK(caught); }
 
 static void worlds() {
     static_assert(!std::is_copy_constructible<ponko::world>::value, "world owns its handle");
@@ -2376,6 +2377,19 @@ static void retained_ui() {
         ui.layout_for(window);
         CHECK(ui.rect(repeated_item).min.x == 150 && ui.rect(repeated_item).max.x == 300);
         throws([&] { ui.add_panel(u::none, u::layout().grid({u::repeat(2, u::fr(1)).names({"bad"})})); });
+        // A named span: from line 1 to the second line called "edge".
+        auto spans = ui.add_panel(u::none, u::layout().grid({u::track_points(100), u::track_points(100),
+            u::track_points(100), u::track_points(100)}).size(400, 100));
+        ui.set_grid_line_names(spans, 0, {"", "", "edge", "", "edge"});
+        auto spanned = ui.add_panel(spans, u::layout().grid_column(u::line(1)));
+        ui.set_grid_named_span(spanned, 0, true, "edge", 2);
+        throws([&] { ui.set_grid_named_span(spanned, 0, true, "edge", 0); });
+        ui.push_screen(spans);
+        ui.layout_for(window);
+        CHECK(ui.rect(spanned).min.x == 0 && ui.rect(spanned).max.x == 400);
+        ui.set_grid_named_span(spanned, 0, true, "edge");
+        ui.layout_for(window);
+        CHECK(ui.rect(spanned).max.x == 200);
         ui.set_grid_area(main, "main");
         ui.layout_for(window);
         CHECK(ui.rect(main).min.x == 150);
@@ -2837,6 +2851,108 @@ static void declared_access() {
     CHECK(w.size() == 1);
 }
 
+// Action ids, input scenarios, asset sources, resource_scope and the try_ loaders (#262).
+static ponko::action_map jump_map() {
+    ponko::action_map map;
+    map.set("jump", ponko::action::button({ponko::action_binding::key(PONKO_KEY_SPACE)}));
+    return map;
+}
+static void native_coverage() {
+    // Action ids: resolve once, query without the name.
+    ponko::game("ids", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        ctx.set_actions(jump_map());
+        const auto jump = ctx.action_id("jump");
+        CHECK(!jump.is_none() && jump != ponko::action_id::none());
+        throws_kind([&] { ctx.action_id("fly"); }, PONKO_ERROR_NOT_FOUND);
+        auto [again] = ctx.action_ids({"jump"});
+        CHECK(again == jump);
+        ctx.feed_input(ponko::input_event::key(PONKO_KEY_SPACE, true));
+        CHECK(ctx.action_down(jump) && ctx.action_pressed(jump) && !ctx.action_released(jump));
+        CHECK(ctx.action_axis(jump) == 0 && !ctx.action_down(ponko::action_id::none()));
+
+        // try_ loaders: the error says what and where.
+        auto missing = ctx.try_load_texture("no/such.png");
+        CHECK(!missing && missing.kind() == PONKO_ERROR_NOT_FOUND);
+        CHECK(missing.error().path() == "no/such.png");
+        CHECK(std::string(ponko::kind_name(missing.kind())) == "not found");
+        CHECK(missing.value_or(ponko::texture{}).id == 0);
+        CHECK(!ctx.try_load_font("no/such.ttf") && !ctx.try_load_sound("no/such.ogg"));
+        CHECK(!ctx.try_load_stream("no/such.ogg") && !ctx.try_load_mesh("no/such.glb"));
+        bool thrown = false;
+        try { ctx.load_texture("no/such.png"); } catch (const ponko::error& e) {
+            thrown = e.kind() == PONKO_ERROR_NOT_FOUND && e.path() == "no/such.png";
+        }
+        CHECK(thrown);
+
+        // Asset sources, then your own decoder.
+        ctx.add_asset_source(ponko::memory_source("embedded").with("level.txt", std::string("##.")).with("bytes.bin", {1, 2, 3}));
+        CHECK(ctx.load_asset_with("bytes.bin", [](const std::uint8_t* data, std::size_t len) { return len == 3 && data[2] == 3; }));
+        int asked = 0;
+        ctx.add_asset_source("generated", [&](const char* name) -> std::optional<std::vector<std::uint8_t>> {
+            ++asked;
+            if (std::string(name) != "blob.bin") return std::nullopt;
+            return std::vector<std::uint8_t>{1, 2, 3, 4};
+        });
+        auto walls = ctx.load_asset_with("level.txt", [](const std::uint8_t* data, std::size_t len) {
+            return std::count(data, data + len, '#');
+        });
+        CHECK(walls == 2);
+        CHECK(ctx.load_asset_with("blob.bin", [](const std::uint8_t*, std::size_t len) { return len; }) == 4);
+        CHECK(asked >= 1);
+        throws_kind([&] { ctx.load_asset_with("missing.bin", [](const std::uint8_t*, std::size_t) { return 0; }); },
+                    PONKO_ERROR_NOT_FOUND);
+        throws([&] { ctx.load_asset_with("level.txt", [](const std::uint8_t*, std::size_t) -> int { throw std::runtime_error("bad"); }); });
+    });
+
+    // resource_scope: the resource and the world, lent together.
+    ponko::world w;
+    w.set_resource(game::Score{1, 2});
+    auto red = w.resource_scope<game::Score>([](ponko::world_view& world, game::Score& score) {
+        CHECK(!world.try_resource<game::Score>());  // lent out
+        score.red += 41;
+        return score.red;
+    });
+    CHECK(red == 42 && w.resource<game::Score>().red == 42);
+    w.resource_scope<game::Score>([](ponko::world_view& world, game::Score&) { world.set_resource(game::Score{0, 0}); });
+    CHECK(w.resource<game::Score>().red == 42);  // the original wins
+    throws([&] { w.resource_scope<game::Score>([](ponko::world_view&, game::Score&) { throw std::runtime_error("scope"); }); });
+    CHECK(w.resource<game::Score>().red == 42);
+    throws_kind([&] { w.resource_scope<game::Tuning>([](ponko::world_view&, game::Tuning&) {}); }, PONKO_ERROR_NOT_FOUND);
+
+    // Input scenarios: Space held on ticks 2-4, checked through the action.
+    using ponko::scenario_check;
+    ponko::input_scenario s;
+    s.at(2, ponko::input_event::key(PONKO_KEY_SPACE, true))
+        .at(5, ponko::input_event::key(PONKO_KEY_SPACE, false))
+        .expect(2, scenario_check::action("jump").pressed(true).down(true))
+        .expect(5, scenario_check::action("jump").down(false).released(true))
+        .expect(5, scenario_check::resource("game::Score", "/red", "3"))
+        .named("jump").duration(6).release_when_done();
+    CHECK(s.ticks() == 6 && s.step_count() == 5);
+    auto copy = ponko::input_scenario::from_json(s.to_json());
+    CHECK(copy.to_json() == s.to_json());
+    throws_kind([] { ponko::input_scenario::from_json("{"); }, PONKO_ERROR_JSON);
+    auto run = ponko::game("scenario", 1, 1).run_headless_scenario(copy, [](ponko::ctx& ctx) {
+        ctx.set_actions(jump_map());
+        auto world = ctx.world();
+        world.set_resource(game::Score{3, 0});
+        world.reflect_resource<game::Score>({ponko::field("red", &game::Score::red), ponko::field("blue", &game::Score::blue)});
+    });
+    CHECK(run.report.passed() && run.report.checks_passed == 3 && run.report.inputs_applied == 2);
+    CHECK(run.world.scenario_report() && run.world.scenario_report_json().find("\"passed\"") != std::string::npos);
+    ponko::world fresh;
+    CHECK(!fresh.scenario_report() && fresh.scenario_report_json().empty());
+    // Started and cancelled from a system.
+    bool started = false, cancelled = false;
+    ponko::game("live", 1, 1)
+        .sim_system([&](ponko::ctx& ctx) {
+            if (ctx.sim_tick() == 0) { ctx.start_scenario(ponko::input_scenario().duration(10)); started = true; }
+            if (ctx.sim_tick() == 2) cancelled = ctx.cancel_scenario();
+        })
+        .run_headless(3);
+    CHECK(started && cancelled);
+}
+
 int main() {
     declared_access();
     command_barriers();
@@ -2892,5 +3008,6 @@ int main() {
     profiling();
     rng_matches_rust();
     grid_views_match_engine_queries();
+    native_coverage();
     std::cout << "C++ wrapper tests passed\n";
 }

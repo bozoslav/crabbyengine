@@ -22,6 +22,7 @@ jobs:
   c-library:
     name: C library (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    needs: verify
     strategy:
       matrix:
         include:
@@ -98,3 +99,19 @@ jobs:
             exit 0
           fi
           cargo publish --workspace
+
+  # Every release job depends on this one (c-library, then github-release and
+  # crates-io through it): nothing is built, released or published unless the
+  # tag, the crates' versions and the CHANGELOG section agree and the tagged
+  # commit was merged to main (scripts/release-check.py).
+  verify:
+    name: Check the tag
+    if: github.ref_type == 'tag' && !endsWith(github.ref_name, '-desktop-dry-run')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the check looks for the tag's commit on main
+      - run: python3 scripts/release-check.py check "$GITHUB_REF_NAME" --on-main

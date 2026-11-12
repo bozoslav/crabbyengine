@@ -126,6 +126,9 @@ pub(crate) struct Frame3D {
     pub target_effects: Vec<(u32, u32, u32)>,
     /// The compute passes to run, in order: (compute, target texture, material).
     pub computes: Vec<(u32, u32, u32)>,
+    /// The scene compute passes to run, in order, after the lit frame is
+    /// settled: as `computes`.
+    pub scene_computes: Vec<(u32, u32, u32)>,
     /// How many instances the camera draws.
     pub visible: usize,
     /// How many instances the camera and this frame's shadow views draw.
@@ -172,8 +175,9 @@ pub(crate) struct Frame3D {
     /// Per shadow-only caster, which passes see it (see `collect`), kept
     /// between frames.
     flags: Vec<u32>,
-    /// Per LOD group: what the camera picked, and which passes see any of it.
-    lod_picks: Vec<(LodPick, u32)>,
+    /// Per LOD group: what the camera picked, which passes see any of it,
+    /// and how many of its renderers the occlusion grid hid.
+    lod_picks: Vec<(LodPick, u32, u32)>,
     /// Per LOD group, in query order: the entity and the pick it showed
     /// last frame, for [`LodHysteresis`]. Each frame (main camera, render
     /// target) keeps its own.
@@ -523,6 +527,14 @@ impl Frame3D {
         let classify = |t: &Transform3D, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| -> u32 {
             classify_at(t.matrix(), t.scale.abs().max_element(), bounds, shadow_bounds)
         };
+        // The same, not counted (see `Culler::classify_uncounted`).
+        let classify_uncounted = |matrix: Mat4, scale: f32, bounds: (Vec3, f32), shadow_bounds: Option<(Vec3, f32)>| {
+            culler.classify_uncounted(
+                matrix.transform_point3(bounds.0),
+                bounds.1 * scale,
+                shadow_bounds.map(|(center, radius)| (matrix.transform_point3(center), radius * scale)),
+            )
+        };
         // A shadow-only caster's mesh and bounds.
         let shadow_only = |shadow: &ShadowMesh| {
             let mesh = shadow.0.filter(|c| assets.casts_shadows(c.id))?;
@@ -619,7 +631,10 @@ impl Frame3D {
             .query::<(&Transform3D, &ShadowMesh)>()
             .without::<Model>()
             .par_collect_into(flags, |(t, shadow)| {
-                shadow_only(shadow).map_or(0, |(_, bounds)| classify(t, bounds, Some(bounds)) & !1)
+                // Never drawn for the camera: not counted as hidden from it.
+                shadow_only(shadow).map_or(0, |(_, bounds)| {
+                    classify_uncounted(t.matrix(), t.scale.abs().max_element(), bounds, Some(bounds)) & !(1 | OCCLUDED)
+                })
             });
         let mut at = 0;
         world
@@ -642,7 +657,8 @@ impl Frame3D {
             });
         // Skinned models: each its own mesh, skinned on the GPU this frame.
         for (k, d) in skins.draws.iter().enumerate() {
-            if d.bounds.1 < 0.0 {
+            // A level-of-detail group's are drawn with the group, below.
+            if d.bounds.1 < 0.0 || d.lod != super::skin::NOT_LOD {
                 continue;
             }
             let caster = assets.casts_shadows(d.mesh).then_some(d.bounds);
@@ -666,22 +682,45 @@ impl Frame3D {
             let matrix = t.matrix() * r.offset.matrix();
             let scale = t.scale.abs().max_element() * r.offset.scale.abs().max_element();
             let shadow = (casts && assets.casts_shadows(r.mesh.id)).then_some(bounds);
-            let seen = classify_at(matrix, scale, bounds, shadow);
-            Some((matrix, if drawn { seen } else { seen & !1 }))
+            // Counted once per group, below: a group is classified again
+            // after its pick changes or when it is seen.
+            let seen = classify_uncounted(matrix, scale, bounds, shadow);
+            Some((matrix, if drawn { seen } else { seen & !(1 | OCCLUDED) }))
+        };
+        // A skinned renderer of a group with a skeleton: its posed draw
+        // (see `SkinFrame::lod_draws`), mesh id and flags.
+        let skinned = |posed: (u32, &[super::skin::SkinDraw]), ordinal: u32, drawn: bool, casts: bool| {
+            let (first, draws) = posed;
+            let k = draws.iter().position(|d| d.lod == ordinal)?;
+            let d = draws[k];
+            if d.bounds.1 < 0.0 {
+                return None;
+            }
+            let shadow = (casts && assets.casts_shadows(d.mesh)).then_some(d.bounds);
+            let seen = classify_uncounted(d.matrix, d.scale, d.bounds, shadow);
+            Some((
+                d,
+                real_meshes + first + k as u32,
+                if drawn { seen } else { seen & !(1 | OCCLUDED) },
+            ))
         };
         let picks = &mut self.lod_picks;
         world
             .query::<(&Transform3D, &LodGroup)>()
             .par_collect_into(picks, |(t, g)| {
                 let pick = g.pick_for(t, camera, &lod);
-                let mut seen = 0;
-                lod_draws(g, pick, |r, drawn, casts, _| {
-                    seen |= lod_flags(t, r, drawn, casts).map_or(0, |(_, f)| f);
+                let (mut seen, mut hidden) = (0, 0);
+                lod_draws(g, pick, false, |r, drawn, casts, _, _| {
+                    let f = lod_flags(t, r, drawn, casts).map_or(0, |(_, f)| f);
+                    seen |= f & !OCCLUDED;
+                    hidden += u32::from(f & OCCLUDED != 0);
                 });
-                (pick, seen)
+                (pick, seen, hidden)
             });
         let mut at = 0;
         let held = &mut self.lod_held;
+        // Most frames have no posed group: no lookup per group then.
+        let any_posed = skins.any_lod_draws();
         held.resize(picks.len(), (None, LodPick::Culled));
         world
             .query::<(
@@ -694,7 +733,9 @@ impl Frame3D {
                 Option<&ModelMaterials>,
             )>()
             .for_each(|(entity, t, g, decals, hysteresis, material, parts)| {
-                let (mut pick, mut seen) = picks[at];
+                // `hidden`: the renderers of the pick the occlusion grid
+                // hid from the camera, counted once whatever else sees them.
+                let (mut pick, mut seen, mut hidden) = picks[at];
                 // Hysteresis: when the pick changes, hold last frame's
                 // instead while near its thresholds (the same entity at the
                 // same place in the query, else it's new or the query
@@ -705,24 +746,57 @@ impl Frame3D {
                         let kept = g.pick_held(g.screen_height(t, camera), &lod, band, previous);
                         if kept != pick {
                             pick = kept;
-                            seen = 0;
-                            lod_draws(g, pick, |r, drawn, casts, _| {
-                                seen |= lod_flags(t, r, drawn, casts).map_or(0, |(_, f)| f);
+                            (seen, hidden) = (0, 0);
+                            lod_draws(g, pick, false, |r, drawn, casts, _, _| {
+                                let f = lod_flags(t, r, drawn, casts).map_or(0, |(_, f)| f);
+                                seen |= f & !OCCLUDED;
+                                hidden += u32::from(f & OCCLUDED != 0);
                             });
                         }
                     }
                     held[at] = (Some(entity), pick);
                 }
                 at += 1;
-                if seen != 0 {
+                // Posed renderers move past their rest bounds: test them
+                // with their posed bounds, below, whatever `seen` says.
+                let posed = if any_posed {
+                    skins.lod_draws(entity)
+                } else {
+                    (0, &[][..])
+                };
+                if seen != 0 || !posed.1.is_empty() {
+                    // Counted again as they are drawn (skinned ones with
+                    // their posed bounds).
+                    hidden = 0;
                     let receives = super::projected::receiver_mask(decals);
                     // Which of the group's renderers this is, in the order
                     // the pick draws them.
                     let mut renderer = retained::LOD;
-                    lod_draws(g, pick, |r, drawn, casts, fade| {
+                    lod_draws(g, pick, !posed.1.is_empty(), |r, drawn, casts, fade, ordinal| {
                         renderer += 1;
-                        if let Some((matrix, f)) = lod_flags(t, r, drawn, casts)
-                            && f != 0
+                        if !posed.1.is_empty() && assets.skin(r.mesh.id).is_some() {
+                            // Its materials come with the skinned draw.
+                            let found = skinned(posed, ordinal, drawn, casts);
+                            hidden += found.map_or(0, |(_, _, f)| u32::from(f & OCCLUDED != 0));
+                            if let Some((d, mesh, f)) = found.map(|(d, mesh, f)| (d, mesh, f & !OCCLUDED))
+                                && f != 0
+                            {
+                                let mut instance = d.instance;
+                                instance.model[0][3] = receives;
+                                // Characters move: motion vectors of
+                                // their own, as skinned models have.
+                                touch(
+                                    (entity.to_bits(), renderer),
+                                    d.entity,
+                                    [mesh; 1 + MAX_CASCADES],
+                                    instance.with_fade(fade),
+                                    f,
+                                );
+                            }
+                        } else if let Some((matrix, f)) = lod_flags(t, r, drawn, casts).map(|(m, f)| {
+                            hidden += u32::from(f & OCCLUDED != 0);
+                            (m, f & !OCCLUDED)
+                        }) && f != 0
                         {
                             let mut model = matrix.to_cols_array_2d();
                             model[0][3] = receives;
@@ -749,6 +823,9 @@ impl Frame3D {
                             );
                         }
                     });
+                }
+                if hidden != 0 {
+                    culler.count_occluded(hidden as usize);
                 }
             });
         // Terrain: the detail level for how far the camera is from the
@@ -845,6 +922,16 @@ impl Frame3D {
         self.tracked.rushing()
     }
 
+    /// How many plain models (not LOD groups, terrain, skinned models or
+    /// static instance batches) were outside the camera's view in the last
+    /// frame, tested as the culler tests them, from what is kept per model.
+    /// Worked out when asked; `None` while what is kept is stale (see
+    /// `Tracked::count_spheres`).
+    pub(crate) fn frustum_culled_models(&self) -> Option<usize> {
+        let planes = frustum_planes(self.view_proj);
+        (self.tracked).count_spheres(|[x, y, z, r]| !sphere_visible(&planes, Vec3::new(x, y, z), r))
+    }
+
     /// Bytes the model collection keeps between frames: its buffers'
     /// capacity (instances, lists and what is remembered per model).
     pub(crate) fn extraction_bytes(&self) -> usize {
@@ -878,19 +965,37 @@ pub(super) struct Culler<'a> {
     occluded: std::sync::atomic::AtomicUsize,
 }
 
+/// Set by [`Culler::classify_uncounted`] when the occlusion grid hid the
+/// sphere from the camera (past every view bit).
+const OCCLUDED: u32 = 1 << 31;
+const _: () = assert!(1 + MAX_SHADOW_VIEWS < 31, "the view bits stay clear of OCCLUDED");
+
 impl Culler<'_> {
     /// Which passes see a sphere in the world (bit 0 the camera) and its
     /// shadow caster's (`None`: no shadow; bit 1 + i shadow view i).
     pub fn classify(&self, center: Vec3, radius: f32, caster: Option<(Vec3, f32)>) -> u32 {
+        let flags = self.classify_uncounted(center, radius, caster);
+        if flags & OCCLUDED != 0 {
+            self.count_occluded(1);
+        }
+        flags & !OCCLUDED
+    }
+
+    /// [`classify`](Self::classify) without counting the sphere in
+    /// `occluded`: [`OCCLUDED`] is set instead when the occlusion grid hid
+    /// it from the camera. For things classified more than once a frame, or
+    /// whose camera bit is dropped, which count themselves once.
+    pub fn classify_uncounted(&self, center: Vec3, radius: f32, caster: Option<(Vec3, f32)>) -> u32 {
         let mut seen = sphere_visible(&self.planes, center, radius);
+        let mut flags = 0;
         if seen
             && let Some(grid) = self.occlusion
             && grid.hides(center - radius, center + radius, self.camera)
         {
-            self.occluded.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            flags = OCCLUDED;
             seen = false;
         }
-        let mut flags = u32::from(seen);
+        flags |= u32::from(seen);
         if let Some((world_center, world_radius)) = caster {
             // How far the shadow can reach: down through the whole view.
             let reach = world_center.distance(self.camera) + self.sweep;
@@ -914,6 +1019,13 @@ impl Culler<'_> {
             }
         }
         flags
+    }
+
+    /// Adds `n` models the occlusion grid hid to this frame's count.
+    pub fn count_occluded(&self, n: usize) {
+        if n > 0 {
+            self.occluded.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     /// [`classify`](Self::classify) for spheres kept as `xyz` center and
@@ -974,18 +1086,23 @@ pub(crate) fn shadow_views(cascades: usize, light_views: usize) -> impl Iterator
     (0..cascades).chain(MAX_CASCADES..MAX_CASCADES + light_views)
 }
 
-/// Calls `f(renderer, drawn, casts, fade)` for each renderer that `pick`
-/// shows: whether the camera draws it, whether it casts a shadow, and its
-/// dither (see [`Instance3D::with_fade`]).
-fn lod_draws(group: &LodGroup, pick: LodPick, mut f: impl FnMut(&LodRenderer, bool, bool, f32)) {
-    for (level, fade) in group.drawn(pick).into_iter().flatten() {
+/// Calls `f(renderer, drawn, casts, fade, ordinal)` for each renderer that
+/// `pick` shows: whether the camera draws it, whether it casts a shadow,
+/// its dither (see [`Instance3D::with_fade`]) and, with `ordinals`, its
+/// place in the group (only posed renderers need it; else counted from 0).
+fn lod_draws(group: &LodGroup, pick: LodPick, ordinals: bool, mut f: impl FnMut(&LodRenderer, bool, bool, f32, u32)) {
+    for (index, level, fade) in group.drawn(pick).into_iter().flatten() {
+        // The renderer's place in the group (`LodGroup::first_renderer`).
+        let mut ordinal = if ordinals { group.first_renderer(index) } else { 0 };
         let own_shadow = matches!(level.shadow, LodShadow::Same);
         for r in &level.renderers {
-            f(r, true, own_shadow, fade);
+            f(r, true, own_shadow, fade, ordinal);
+            ordinal += 1;
         }
         if let LodShadow::Casters(casters) = &level.shadow {
             for r in casters {
-                f(r, false, true, fade);
+                f(r, false, true, fade, ordinal);
+                ordinal += 1;
             }
         }
     }

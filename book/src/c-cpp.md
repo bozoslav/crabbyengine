@@ -193,26 +193,66 @@ Pointers you pass must still be valid: the library can't recognize a
 dangling pointer or a buffer smaller than you say. Callbacks must return
 normally; never let a C++ exception or `longjmp` cross them.
 
+## Errors and the `try_` loaders
+
+Rust's `ponko::Error` has a kind, the asset path it is about (if any) and a
+message. C has the same three for the last failure on the thread:
+`ponko_last_error_kind()`, `ponko_last_error_path()` (empty when the failure
+names no asset) and `ponko_last_error()`; `ponko_error_kind_name(kind)` gives
+a short name for logs ("not found", "decode", ...). C++ throws
+`ponko::error`, with `kind()`, `path()` and `what()`, and `ponko::kind_name`.
+
+The `try_` loaders return the error instead of panicking (Rust) or throwing
+(C++): `try_load_texture`, `try_load_font`, `try_load_sound`,
+`try_load_stream` and `try_load_mesh`, plus `try_load_shader`,
+`try_load_effect` and `try_load_compute` in C++. C++ returns a
+`ponko::result<T>`: test it like a bool, `*` or `value()` for the value (which
+throws the error if it failed), `value_or(fallback)`, `error()` and `kind()`.
+
+<div class="lang-pair">
+<div>
+
+```rust
+fn gold_skin(ctx: &mut Ctx) -> Option<Texture> {
+    match ctx.gfx.try_load_texture("skins/gold.png") {
+        Ok(skin) => Some(skin),
+        Err(e) => {
+            eprintln!("{} ({:?}): {}", e.path().unwrap_or(""), e.kind(), e.message());
+            None
+        }
+    }
+}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:try_load}}
+```
+
+</div>
+</div>
+
+C: `ponko_ctx_try_load_texture`, `_font`, `_sound`, `_stream` and `_mesh`
+return `PONKO_NOT_FOUND` for a missing file and `PONKO_INVALID_ARGUMENT` for
+any other error, with the kind and path set, and leave the output untouched.
+The older `ponko_ctx_load_texture` and friends keep their status codes; the
+C++ `load_*` calls now use the `try_` functions, so the `ponko::error` they
+throw has the real kind and path.
+
 ## Still Rust-only
 
 C and C++ resources and components are plain structs (no `std::string`
 or `std::vector` inside), copied in and out.
 
 Most chapters show Rust and C++ side by side. These features exist only in
-Rust today; the chapters say so where they use them, and
-[#262](https://github.com/ponkoengine/ponko/issues/262) tracks the bindings:
+Rust today; the chapters say so where they use them:
 
 | Rust feature | Where | From C and C++ |
 |---|---|---|
-| `ActionId` and the `actions!` macro | [Named input actions](actions.md) | Query actions by name |
-| `InputScenario`, `Game::input_scenario`, `run_headless_scenario`, scenario checks and reports | [Input scenarios](actions.md#input-scenarios) | Feed events yourself with `feed_input`; tools can still load the JSON scenario file through the control endpoint |
-| `AssetSource`, `MemorySource`, `Assets::add_source`, `Audio::try_load_stream` | [Asset sources](asset-sources.md) | Files in `assets/` only |
-| `Assets::load_with`, `Assets::scene_asset_field` | [Asset sources](asset-sources.md) | Read the file and decode it yourself; load what a scene names before `load_scene` |
-| `UiTheme`, `ui.set_theme` | [Retained game UI](ui.md) | Set each node's paint |
-| Named grid spans in UI layouts | [Retained game UI](ui.md) | Named lines and areas, no named spans |
-| `World::resource_scope`, `resources_mut`, `Query::with_resources` | [Entities, components, queries](ecs.md#borrowing-several-things-at-once) | The existing resource calls, copied in and out |
+| `Assets::scene_asset_field` | [Asset sources](asset-sources.md) | Load what a scene names before `load_scene` |
 | `Query::with_lookup`, `World::get_many_mut` | [Entities, components, queries](ecs.md#borrowing-several-things-at-once) | Component pointers from `get`, which don't borrow |
-| `ponko::Error` and the `try_` loaders | [Getting started](getting-started.md) | `ponko_last_error()` and `ponko_last_error_kind()` (C++: `ponko::error::kind()`) |
 
 System phases, system ids, setup callbacks and plugins are not on this
 list. They have C and C++ calls, described in

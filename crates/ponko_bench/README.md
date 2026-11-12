@@ -94,6 +94,17 @@ Light updates are memory-bandwidth-bound, so extra cores help less. Heavy update
 Parallel queries across few huge versus many small archetypes, with their
 crossover thresholds: [PAR_ARCHETYPES.md](PAR_ARCHETYPES.md) (`-- par-arch`).
 
+Sparse, frequently toggled components (many independent tags and effects):
+archetypes against a sparse-set prototype and against flags in one dense
+component, and why the engine keeps archetype storage only:
+[SPARSE_SET.md](SPARSE_SET.md) (`-- sparse-set/`). The group makes a full,
+unfiltered benchmark run about 90 s longer, and its largest case peaks at
+about 170 MB of resident memory.
+
+Archetype membership and column lookup across widths, at query level hot
+and cache-cold, and structural-change costs: [MEMBERSHIP.md](MEMBERSHIP.md)
+(`-- membership`).
+
 Static instance batches, GPU-driven against CPU culling, over batch counts
 and sizes, occlusion and shadows, with the crossover the renderer uses:
 [STATIC_BATCHES.md](STATIC_BATCHES.md) (an offscreen renderer benchmark:
@@ -104,6 +115,11 @@ and after the renderer's split into subsystems:
 [RENDERER_FRAME.md](RENDERER_FRAME.md) (an offscreen renderer benchmark:
 `cargo test --release --lib --features 3d renderer_frame_benchmark -- --ignored --nocapture`).
 
+Levels of detail under a moving camera: picking every `LodGroup`'s level on
+the CPU against the same groups as a static batch whose levels the GPU's
+culling pass (or the CPU's cell culling) picks, with memory:
+[LOD_SPLIT.md](LOD_SPLIT.md) (`--features render -- render/lod`).
+
 What recording a 3D frame's passes into command buffers costs, offscreen:
 [RECORDING.md](RECORDING.md) (`--features render -- render/record`).
 
@@ -113,8 +129,20 @@ steps, GPU passes, draw calls, memory and frame-time distributions, as JSON
 and CSV, and three of them side by side with Bevy:
 [RENDER_SCENES.md](RENDER_SCENES.md) (`--features render -- render/scene`).
 
+Whether mesh shaders are worth adopting (issue #164): the support matrix
+from wgpu and naga, a meshlet prototype measured against indexed indirect
+draws with distance levels, the maintenance and portability cost, and the
+recommendation: [MESH_SHADERS.md](MESH_SHADERS.md)
+(`cargo test --release --lib --features 3d mesh_shader_benchmark -- --ignored --nocapture`).
+
 Whole systems at the same time (the parallel system scheduler), its
 overhead and its crossover: [SCHEDULE.md](SCHEDULE.md) (`-- schedule`).
+
+Hardware ray tracing through wgpu's ray queries: the backend support
+matrix, what screen-space reflections and probe GI miss, an isolated
+ray-query reflection prototype's cost and memory, and the decision (defer):
+[RAY_TRACING.md](RAY_TRACING.md) (offscreen tests:
+`cargo test --release --lib --features 3d -- --ignored --nocapture --test-threads=1 ray_query_reflection_cost`).
 
 ## Many small archetypes and query construction (2026-11-09)
 

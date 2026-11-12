@@ -43,6 +43,8 @@ pub(super) fn unavailable(ctx: &Ctx, method: &str) -> Option<String> {
             "input injection is off: start the game with PONKO_INPUT_INJECTION=1 or call Game::input_injection(true)"
                 .into(),
         ),
+        #[cfg(not(feature = "3d"))]
+        "quality.set" => Some(super::NO_QUALITY.into()),
         // Asks for no lines: errors only when output isn't captured.
         "logs.get" => crate::logs::get(None, 0).err(),
         _ => None,
@@ -53,6 +55,10 @@ pub(super) fn unavailable(ctx: &Ctx, method: &str) -> Option<String> {
 fn limited(ctx: &Ctx, method: &str) -> Option<&'static str> {
     match method {
         "perf.hud" if ctx.headless => Some("accepted, but a headless game draws no overlay"),
+        #[cfg(feature = "3d")]
+        "quality.set" if ctx.headless => Some(
+            "accepted (the settings change and perf.get reports them), but a headless game draws nothing, and `recommended` needs a GPU",
+        ),
         "perf.get" if ctx.headless => Some(
             "headless games report only simulation system timings, no frame or GPU numbers (render_inspector marks them unavailable)",
         ),

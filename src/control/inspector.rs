@@ -40,20 +40,85 @@ pub(super) struct Inputs<'a> {
     pub quality: Option<Value>,
     /// The render pipeline cache since the renderer started.
     pub pipelines: PipelineStats,
+    /// What the renderer's own tables hold on the GPU; `None` without one.
+    pub memory: Option<crate::inventory::GpuResidency>,
+    /// The GPU the renderer opened; `None` without one.
+    pub adapter: Option<&'a crate::render::GpuCapabilities>,
+    /// Recent drawn frames, oldest first: as many as the caller asked for.
+    pub history: &'a [crate::perf::RenderFrame],
+    /// Plain models outside the camera's view in the last frame, or why
+    /// they can't be counted now.
+    pub frustum_culled: Result<usize, &'static str>,
 }
 
 const NO_TIMESTAMPS: &str = "the GPU adapter doesn't support timestamp queries, so GPU time can't be measured";
 const NOT_TIMED_YET: &str = "no frame's GPU timestamps have come back yet";
-const MEMORY: &str = "GPU memory isn't estimated by the renderer yet";
-const FRUSTUM: &str =
-    "models skipped by frustum culling aren't counted yet; see counts.occluded_models for occlusion culling";
+const NO_GPU: &str = "headless runs open no GPU";
+const NO_GPU_YET: &str = "the renderer hasn't opened a GPU yet";
+/// Why `counts.frustum_culled_other_models` is always null.
+const FRUSTUM_OTHER: &str = "not counted: LOD groups, terrain tiles, skinned models, models with morph targets and shadow-only casters are culled anew every frame without a result kept to count from, and static instance batches are culled on the GPU (see counts.instance_batches); counts.frustum_culled_models covers plain models";
+/// Why `counts.frustum_culled_models` is null in a rush.
+#[cfg_attr(not(feature = "3d"), allow(dead_code))]
+pub(super) const FRUSTUM_STALE: &str = "most models changed in recent frames, so what is kept per model is stale and isn't counted from; it is again once they settle";
 
 pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
     let mut unavailable = Map::new();
     let mut gone = |path: &str, why: &str| {
         unavailable.insert(path.into(), json!(why));
     };
-    gone("memory_estimate_bytes", MEMORY);
+    let no_gpu = match inputs.source {
+        Source::Headless => NO_GPU,
+        _ => NO_GPU_YET,
+    };
+    // What the renderer's tables hold: its textures (render targets
+    // included), mesh buffers, GPU buffers and the instance batches' pools.
+    let memory = match &inputs.memory {
+        Some(m) => {
+            let pools = inputs.stats.instance_batches.pool_bytes;
+            json!({
+                "total": m.texture_bytes + m.mesh_bytes + m.gpu_buffer_bytes + pools,
+                "textures": m.texture_bytes,
+                "meshes": m.mesh_bytes,
+                "gpu_buffers": m.gpu_buffer_bytes,
+                "instance_pools": pools,
+            })
+        }
+        None => {
+            gone("memory_estimate_bytes", no_gpu);
+            Value::Null
+        }
+    };
+    let adapter = match inputs.adapter {
+        Some(caps) => json!({
+            "name": caps.adapter.name,
+            "backend": caps.adapter.backend,
+            "device_type": caps.adapter.device_type,
+            "driver": caps.adapter.driver,
+            "driver_info": caps.adapter.driver_info,
+            "tier": caps.tier,
+            "forced": caps.forced_tier.is_some(),
+        }),
+        None => {
+            gone("adapter", no_gpu);
+            Value::Null
+        }
+    };
+    let history: Vec<Value> = (inputs.history.iter())
+        .map(|f| {
+            json!({
+                "frame": f.frame,
+                "cpu_ms": f.cpu_ms,
+                "gpu_smoothed_ms": f.gpu_smoothed_ms,
+                "gpu_latest_ms": f.gpu_latest.map(|(ms, _)| ms),
+                "gpu_latest_frames_ago": f.gpu_latest.map(|(_, ago)| ago),
+                "draw_calls": f.draw_calls,
+                "models": f.models,
+                "triangles": f.triangles,
+                "shadow_triangles": f.shadow_triangles,
+                "upload_bytes": f.upload_bytes,
+            })
+        })
+        .collect();
 
     let (gpu_timing, cpu_ms, gpu_ms, counts, upload_bytes) = match inputs.source {
         Source::Headless | Source::NotDrawn => {
@@ -106,7 +171,14 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
                 };
                 (frame, Value::Array(passes))
             };
-            gone("counts.frustum_culled_models", FRUSTUM);
+            let frustum_culled = match inputs.frustum_culled {
+                Ok(n) => json!(n),
+                Err(why) => {
+                    gone("counts.frustum_culled_models", why);
+                    Value::Null
+                }
+            };
+            gone("counts.frustum_culled_other_models", FRUSTUM_OTHER);
             if detail.state_changes.is_none() {
                 gone("counts.state_changes", "3D model passes are not enabled");
             }
@@ -119,7 +191,8 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
                 "shadow_models": s.shadow_instances,
                 "shadow_triangles": s.shadow_triangles,
                 "occluded_models": s.occluded,
-                "frustum_culled_models": null,
+                "frustum_culled_models": frustum_culled,
+                "frustum_culled_other_models": null,
                 "pipelines_built": s.pipelines_built,
                 "instance_batches": instance_batches_json(&s.instance_batches),
             });
@@ -156,13 +229,19 @@ pub(super) fn render_inspector(inputs: &Inputs<'_>) -> Value {
             "_ms": "milliseconds; CPU times are the last drawn frame's, GPU times are smoothed over recent frames",
             "_bytes": "bytes",
             "counts": "per frame",
+            "memory_estimate_bytes": "what the renderer's tables hold for the game: its textures (render-target textures included), mesh buffers, its GPU buffers and the instance batch pools; not the frame's own targets (scene color and depth, post-processing, ambient occlusion and temporal history), shadow maps, the light shadow atlas, skinning or per-frame instance buffers; an estimate, not the driver's total",
+            "occluded_models": "models in the camera's view that occlusion culling hid in the last frame: plain models, and each LOD renderer once (a crossfade between two hidden levels counts both); shadow-only casters are not counted",
+            "frustum_culled_models": "plain Model entities (not LOD groups, terrain tiles, skinned models, models with morph targets, shadow-only casters or static instance batches) whose bounds were outside the camera's view in the last frame, counted when asked from what the renderer keeps per model; models hidden by occlusion culling are in the view and not counted here (see occluded_models)",
+            "history": "one entry per drawn frame, oldest first. gpu_smoothed_ms: the smoothed GPU time as it stood after that frame. gpu_latest_ms: the newest single frame's own GPU time that had come back by then, from gpu_latest_frames_ago drawn frames earlier (timestamps come back late, so a frame's own GPU time isn't known when it is kept). Both are null when GPU time wasn't measured",
         },
+        "adapter": adapter,
         "gpu_timing": gpu_timing,
         "cpu_ms": cpu_ms,
         "gpu_ms": gpu_ms,
         "counts": counts,
         "upload_bytes": upload_bytes,
-        "memory_estimate_bytes": null,
+        "memory_estimate_bytes": memory,
+        "history": history,
         "pipelines": pipelines,
         "quality": quality,
         "unavailable": unavailable,
@@ -245,6 +324,39 @@ pub(super) fn quality_json(q: &crate::render::GraphicsQuality) -> Value {
     })
 }
 
+/// Every null field outside arrays has a reason in `unavailable`, and
+/// every reason names a null field (also used on `perf.get`'s whole answer).
+#[cfg(test)]
+#[track_caller]
+pub(super) fn assert_nulls_explained(v: &Value) {
+    let unavailable = v["unavailable"].as_object().expect("unavailable is a map");
+    for (path, why) in unavailable {
+        let mut at = v;
+        for part in path.split('.') {
+            at = &at[part];
+        }
+        assert!(at.is_null(), "{path} has a reason but a value: {v}");
+        assert!(why.as_str().is_some_and(|w| !w.is_empty()), "{path}: {why}");
+    }
+    fn walk(v: &Value, path: &str, unavailable: &Map<String, Value>) {
+        match v {
+            Value::Null => assert!(unavailable.contains_key(path), "{path} is null without a reason"),
+            Value::Object(m) if path != "unavailable" && path != "units" => {
+                for (k, x) in m {
+                    let p = if path.is_empty() {
+                        k.clone()
+                    } else {
+                        format!("{path}.{k}")
+                    };
+                    walk(x, &p, unavailable);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(v, "", unavailable);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +367,7 @@ mod tests {
             gpu_frames_timed,
             prepare_ms: 1.5,
             state_changes: Some([2, 7, 3, 2, 11]),
+            gpu_latest: None,
         })
     }
 
@@ -273,6 +386,12 @@ mod tests {
             shadow_triangles: 300,
             occluded: 2,
             pipelines_built: 0,
+            uploads: crate::render::GpuUploads {
+                instances: 640,
+                uniforms: 256,
+                textures: 4096,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -288,6 +407,31 @@ mod tests {
         },
     ];
 
+    const HISTORY: [crate::perf::RenderFrame; 2] = [
+        crate::perf::RenderFrame {
+            frame: 10,
+            cpu_ms: 3.0,
+            gpu_smoothed_ms: None,
+            gpu_latest: None,
+            draw_calls: 6,
+            models: 9,
+            triangles: 1100,
+            shadow_triangles: 300,
+            upload_bytes: 512,
+        },
+        crate::perf::RenderFrame {
+            frame: 11,
+            cpu_ms: 4.0,
+            gpu_smoothed_ms: Some(2.0),
+            gpu_latest: Some((2.75, 3)),
+            draw_calls: 7,
+            models: 10,
+            triangles: 1200,
+            shadow_triangles: 300,
+            upload_bytes: 64,
+        },
+    ];
+
     fn inspect(source: Source, gpu_ms: Option<f32>) -> Value {
         render_inspector(&Inputs {
             source,
@@ -299,37 +443,34 @@ mod tests {
                 hits: 40,
                 ..Default::default()
             },
+            memory: matches!(source, Source::Drawn(_)).then(|| crate::inventory::GpuResidency {
+                textures: 3,
+                texture_bytes: 4096,
+                meshes: 2,
+                mesh_bytes: 1000,
+                gpu_buffers: 1,
+                gpu_buffer_bytes: 24,
+            }),
+            adapter: None,
+            history: &HISTORY,
+            frustum_culled: Ok(5),
         })
     }
 
-    /// Every null field has a reason, and every reason names a null field.
-    fn assert_nulls_explained(v: &Value) {
-        let unavailable = v["unavailable"].as_object().expect("unavailable is a map");
-        for (path, why) in unavailable {
-            let mut at = v;
-            for part in path.split('.') {
-                at = &at[part];
-            }
-            assert!(at.is_null(), "{path} has a reason but a value: {v}");
-            assert!(why.as_str().is_some_and(|w| !w.is_empty()), "{path}: {why}");
-        }
-        fn walk(v: &Value, path: &str, unavailable: &Map<String, Value>) {
-            match v {
-                Value::Null => assert!(unavailable.contains_key(path), "{path} is null without a reason"),
-                Value::Object(m) if path != "unavailable" && path != "units" => {
-                    for (k, x) in m {
-                        let p = if path.is_empty() {
-                            k.clone()
-                        } else {
-                            format!("{path}.{k}")
-                        };
-                        walk(x, &p, unavailable);
-                    }
-                }
-                _ => {}
-            }
-        }
-        walk(v, "", unavailable);
+    /// Negative control for [`assert_nulls_explained`]: a null field with
+    /// no `unavailable` entry fails it. The check walks objects only:
+    /// arrays are skipped, so a `null` inside `history[]` (an entry's GPU
+    /// times when they weren't measured) is explained by the `units` text
+    /// for `history`, not by `unavailable`.
+    #[test]
+    #[should_panic(expected = "counts.frustum_culled_models is null without a reason")]
+    fn a_null_without_a_reason_fails_the_check() {
+        let mut v = inspect(drawn(true, 5), Some(2.0));
+        // Arrays are skipped: this alone passes.
+        v["history"][0]["gpu_smoothed_ms"] = Value::Null;
+        assert_nulls_explained(&v);
+        v["counts"]["frustum_culled_models"] = Value::Null;
+        assert_nulls_explained(&v);
     }
 
     #[test]
@@ -344,13 +485,20 @@ mod tests {
             "counts",
             "upload_bytes",
             "memory_estimate_bytes",
+            "adapter",
+            "history",
             "pipelines",
             "quality",
             "unavailable",
         ] {
             assert!(v.get(key).is_some(), "{key} missing from {v}");
         }
-        assert!(v["upload_bytes"].is_u64(), "a drawn frame counts its uploads: {v}");
+        assert_eq!(
+            v["upload_bytes"],
+            stats(None).uploads.bytes(),
+            "a drawn frame counts all its uploads: {v}"
+        );
+        assert_eq!(v["upload_bytes"], 640 + 256 + 4096);
         assert_eq!(v["pipelines"]["misses"], 2, "pipeline cache totals: {v}");
         assert_eq!(v["pipelines"]["hits"], 40);
         for key in ["total", "extract", "prepare", "encode", "submit", "other"] {
@@ -368,6 +516,109 @@ mod tests {
         ] {
             assert!(v["counts"][key].is_u64(), "counts.{key}: {v}");
         }
+        assert_nulls_explained(&v);
+    }
+
+    #[test]
+    fn memory_is_the_sum_of_what_the_renderer_holds() {
+        let v = inspect(drawn(true, 5), Some(2.0));
+        let m = &v["memory_estimate_bytes"];
+        assert_eq!((m["textures"].as_u64(), m["meshes"].as_u64()), (Some(4096), Some(1000)));
+        assert_eq!(
+            (m["gpu_buffers"].as_u64(), m["instance_pools"].as_u64()),
+            (Some(24), Some(0))
+        );
+        assert_eq!(m["total"], 4096 + 1000 + 24);
+        assert!(
+            v["units"]["memory_estimate_bytes"]
+                .as_str()
+                .unwrap()
+                .contains("estimate")
+        );
+    }
+
+    #[test]
+    fn history_lists_the_frames_it_was_given_oldest_first() {
+        let v = inspect(drawn(true, 5), Some(2.0));
+        let frames = v["history"].as_array().unwrap();
+        assert_eq!(frames.len(), 2);
+        assert_eq!(
+            (frames[0]["frame"].as_u64(), frames[1]["frame"].as_u64()),
+            (Some(10), Some(11))
+        );
+        // A frame whose GPU time wasn't measured says so with null, not 0.
+        for key in ["gpu_smoothed_ms", "gpu_latest_ms", "gpu_latest_frames_ago"] {
+            assert!(frames[0][key].is_null(), "history.{key}: {v}");
+        }
+        // The smoothed time and the newest single frame's, with its age.
+        assert_eq!(frames[1]["gpu_smoothed_ms"], 2.0);
+        assert_eq!(
+            (
+                frames[1]["gpu_latest_ms"].clone(),
+                frames[1]["gpu_latest_frames_ago"].clone()
+            ),
+            (json!(2.75), json!(3))
+        );
+        for key in [
+            "cpu_ms",
+            "draw_calls",
+            "models",
+            "triangles",
+            "shadow_triangles",
+            "upload_bytes",
+        ] {
+            assert!(frames[1][key].is_number(), "history.{key}: {v}");
+        }
+    }
+
+    #[test]
+    fn frustum_culled_models_are_counted_or_explained() {
+        let v = inspect(drawn(true, 5), Some(2.0));
+        assert_eq!(v["counts"]["frustum_culled_models"], 5);
+        assert!(v["unavailable"].get("counts.frustum_culled_models").is_none());
+        // What isn't counted is named, with the reason.
+        assert!(v["counts"]["frustum_culled_other_models"].is_null());
+        let other = v["unavailable"]["counts.frustum_culled_other_models"].as_str().unwrap();
+        assert!(other.contains("LOD") && other.contains("GPU"), "{other}");
+        assert!(v["units"]["frustum_culled_models"].as_str().unwrap().contains("plain"));
+        assert_nulls_explained(&v);
+
+        let stale = render_inspector(&Inputs {
+            source: drawn(true, 5),
+            stats: stats(Some(2.0)),
+            passes: &PASSES,
+            quality: None,
+            pipelines: PipelineStats::default(),
+            memory: None,
+            adapter: None,
+            history: &[],
+            frustum_culled: Err(FRUSTUM_STALE),
+        });
+        assert!(stale["counts"]["frustum_culled_models"].is_null());
+        assert_eq!(stale["unavailable"]["counts.frustum_culled_models"], FRUSTUM_STALE);
+        assert_nulls_explained(&stale);
+    }
+
+    #[test]
+    fn the_adapter_is_named_with_its_tier() {
+        let caps = crate::render::GpuTier::Baseline.report();
+        let v = render_inspector(&Inputs {
+            source: drawn(false, 0),
+            stats: stats(None),
+            passes: &[],
+            quality: None,
+            pipelines: PipelineStats::default(),
+            memory: None,
+            adapter: Some(&caps),
+            history: &[],
+            frustum_culled: Ok(0),
+        });
+        let a = &v["adapter"];
+        for key in ["name", "backend", "device_type", "driver", "driver_info", "tier"] {
+            assert!(a[key].is_string(), "adapter.{key}: {v}");
+        }
+        assert_eq!(a["tier"], "baseline");
+        assert_eq!(a["forced"], false);
         assert_nulls_explained(&v);
     }
 
@@ -451,8 +702,14 @@ mod tests {
             passes: &[],
             quality: None,
             pipelines: PipelineStats::default(),
+            memory: None,
+            adapter: None,
+            history: &[],
+            frustum_culled: Ok(0),
         });
         assert!(v["pipelines"].is_null(), "headless: {v}");
+        assert!(v["memory_estimate_bytes"].is_null() && v["adapter"].is_null(), "{v}");
+        assert_eq!(v["history"], json!([]));
         assert!(v["quality"].is_null());
         assert_nulls_explained(&v);
     }
@@ -486,6 +743,10 @@ mod state_change_tests {
             passes: &[],
             quality: None,
             pipelines: PipelineStats::default(),
+            memory: None,
+            adapter: None,
+            history: &[],
+            frustum_culled: Ok(0),
         };
         let report = render_inspector(&input);
         assert_eq!(report["schema"], 1);

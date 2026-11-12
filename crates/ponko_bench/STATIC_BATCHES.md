@@ -133,14 +133,22 @@ Up to 8 million instance-triangles the two paths are within the noise of
 one another (the GPU path draws less, the CPU path records less). From 20
 million up the GPU path wins every row, by 0.1 to 1.5 ms a frame.
 
-So the switch is per batch: **a batch is GPU-driven when it has at least
-131,072 instances, or when its instances times the triangles of its
-heaviest level reach 16,777,216** (2^24, between the last tie and the
-first win above), where the device has compute culling. Other batches are
+So the switch is per batch: **a single-level batch is GPU-driven when it
+has at least 131,072 instances, or when its instances times the triangles
+of its mesh reach 16,777,216** (2^24, between the last tie and the first
+win above), where the device has compute culling. Other batches are
 culled on the CPU. `GpuCapabilities::instance_batches` reports both
-numbers (`min_gpu_instances`, `min_gpu_triangles`).
+numbers (`min_gpu_instances`, `min_gpu_triangles`). Both were measured on
+single-level batches.
 
-Two more rules:
+Three more rules:
+
+- A batch of several distance levels stays on the CPU path under the
+  automatic choice, at any size: it skips both the instance rule and the
+  triangle rule. The evidence is `LOD_SPLIT.md`: one scene of three levels
+  (480 triangles at the top level), where the GPU path was slower at every
+  size up to a million instances. Heavier level meshes were not measured;
+  `BatchCulling::PreferGpu` is the way to send such a batch to the GPU.
 
 - A batch with a see-through (blended) material stays on the CPU path
   under the automatic choice. The original compute pass had no fixed order.

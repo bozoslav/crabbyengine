@@ -190,6 +190,69 @@ agent narration as proof. Report incomplete work, test skips and platform limita
 and distinguish implemented behavior from proposals. Keep private code and assets
 out of public submissions and external services.
 
+## Releasing
+
+For maintainers. A release is a version tag; `.github/workflows/release.yml`
+does the rest, so the tag, the crates on crates.io and the CHANGELOG section
+always come from one commit. Never run `cargo publish` by hand.
+
+1. Fold the fragments in: `python3 scripts/changelog.py`. In `CHANGELOG.md`,
+   add a fresh empty `## [Unreleased]` heading above the folded content and
+   rename the folded one to `## [X.Y.Z] - YYYY-MM-DD`; point the
+   `[Unreleased]` link at `compare/vX.Y.Z...HEAD` and add `[X.Y.Z]` beside it.
+2. Set `version = "X.Y.Z"` in the root `Cargo.toml` and in every
+   `crates/*/Cargo.toml`, including the `version = "..."` requirements the
+   crates put on each other, and refresh `Cargo.lock` (`cargo check --workspace`).
+3. `python3 scripts/release-check.py check vX.Y.Z` lists what still disagrees
+   (it does not need the tag to exist). Open the pull request, let CI pass and
+   merge it.
+4. Tag the merge commit on `main` and push the tag:
+
+   ```sh
+   git switch main && git pull
+   git tag -a vX.Y.Z -m "Ponko X.Y.Z" && git push origin vX.Y.Z
+   ```
+
+   The workflow builds the C library on each OS, creates the GitHub release
+   from the CHANGELOG section, and publishes the crates to crates.io if the
+   `CARGO_REGISTRY_TOKEN` secret is set (otherwise that job says so and can be
+   re-run once it is). Its first job, `verify`, runs `release-check.py check`,
+   and every other job waits for it: nothing is built, released or published
+   unless the tag is `vX.Y.Z` on a commit merged to `main`, every crate is at
+   X.Y.Z, `CHANGELOG.md` has a non-empty `## [X.Y.Z]` section and no fragment is
+   left over. (It does not look at CI: tag a commit whose CI on `main` passed.)
+5. Publish the guide of the release: `gh workflow run pages.yml`. The Pages
+   workflow builds the guide of every `vX.Y.Z` tag from that tag's own
+   sources into `/ponko/vX.Y.Z/`, next to the guide for `main` (the
+   `main` guide builds on every merge). Each page says which version it
+   documents (`scripts/guide-versions.py`). The tag exists before the run, so
+   run Pages again after tagging rather than waiting for the next merge. If a
+   release's guide fails to build, the run warns, leaves that guide out and
+   still publishes `main`'s.
+
+`.github/workflows/release-audit.yml` runs weekly (and on demand) and fails if
+a version of our crates on crates.io has no matching tag, which is what a
+publish outside the workflow looks like (`python3 scripts/release-check.py
+published` does the same locally). To fix it, tag the commit the crate was
+published from. Its sha is in the `.crate` file:
+
+```sh
+curl -L https://static.crates.io/crates/ponko/ponko-X.Y.Z.crate | tar -xzOf - ponko-X.Y.Z/.cargo_vcs_info.json
+git tag vX.Y.Z <that sha> && git push origin vX.Y.Z
+```
+
+### What 0.0.1 was published from
+
+`0.0.1` (all six crates, published 2026-11-08) was built from `016857bb`, the
+last commit of the pull request that renamed the crates (#167). The pull
+request was then squash-merged, so that commit is not on `main`; the tag
+`v0.0.1` points at the squash commit `df5c1d4e`, whose tree differs from the
+published one only in repository URLs and wording in the docs and
+`Cargo.toml`'s `repository` field (nothing under `src/` or `crates/`). That is
+the tag to use, and the GitHub release `v0.0.1` is on it; nothing is left to
+tag. (To compare: `git diff 016857bb v0.0.1 --stat`, after
+`git fetch origin 016857bb` if your clone lacks the commit.)
+
 ## License
 
 By contributing, you agree that your contributions are dual licensed under

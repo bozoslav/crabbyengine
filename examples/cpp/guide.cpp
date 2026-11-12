@@ -2373,6 +2373,24 @@ static void build_shop(ponko::ctx& ctx) {
     // ANCHOR_END: ui_grid_areas
     tree.remove(dashboard);
 
+    // ANCHOR: ui_named_span
+    // Four 100-point columns; lines 3 and 5 are both called "edge".
+    auto strip = tree.add_panel(ui::none, ui::layout().grid({ui::track_points(100),
+        ui::track_points(100), ui::track_points(100), ui::track_points(100)}).size(400, 40));
+    tree.set_grid_line_names(strip, 0, {"", "", "edge", "", "edge"});
+    // From line 1 to the second "edge" line (CSS `span 2 edge`): all four columns.
+    auto banner = tree.add_label(strip, "Sale", ui::layout().grid_column(ui::line(1)));
+    tree.set_grid_named_span(banner, 0, true, "edge", 2);
+    // ANCHOR_END: ui_named_span
+    tree.remove(strip);
+
+    // ANCHOR: ui_theme
+    auto theme = tree.theme();
+    theme.accent = {1.0f, 0.6f, 0.1f, 1.0f};
+    theme.title_size = 32;
+    tree.set_theme(theme); // nodes keep the paint set on them
+    // ANCHOR_END: ui_theme
+
     // ANCHOR: shop_dialog
     // A detached screen can be reused after it is popped: 180 points from the
     // top here (without `top`, in the middle of the window).
@@ -2675,8 +2693,116 @@ static void parallel_systems_guide() {
 }
 // ANCHOR_END: parallel_systems
 
+// ANCHOR: action_ids
+struct player_controls { ponko::action_id jump, fire; };
+
+// Once, after set_actions: an unknown name throws here, not every frame.
+static player_controls resolve_controls(ponko::ctx& ctx) {
+    auto [jump, fire] = ctx.action_ids({"jump", "fire"});
+    return {jump, fire};
+}
+
+static bool shoots(ponko::ctx& ctx, const player_controls& c) {
+    return ctx.action_pressed(c.fire) && !ctx.action_down(c.jump);
+}
+// ANCHOR_END: action_ids
+
+static void action_ids_run() {
+    ponko::game("ids", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        ponko::action_map bindings;
+        bindings.set("jump", ponko::action::button({ponko::action_binding::key(PONKO_KEY_SPACE)}));
+        bindings.set("fire", ponko::action::button({ponko::action_binding::key(PONKO_KEY_F)}));
+        ctx.set_actions(bindings);
+        const player_controls c = resolve_controls(ctx);
+        ctx.feed_input(ponko::input_event::key(PONKO_KEY_F, true));
+        if (!shoots(ctx, c)) { std::fprintf(stderr, "action ids\n"); std::abort(); }
+    });
+}
+
+// ANCHOR: input_scenario
+static void jump_once() {
+    using ponko::scenario_check;
+    ponko::input_scenario scenario;
+    scenario.named("jump-once")
+        .at(10, ponko::input_event::key(PONKO_KEY_SPACE, true)) // pressed on tick 10, held after
+        .expect(10, scenario_check::action("jump").pressed(true).down(true))
+        .at(12, ponko::input_event::key(PONKO_KEY_SPACE, false))
+        .expect(12, scenario_check::action("jump").released(true));
+    auto run = ponko::game("test", 1, 1).run_headless_scenario(scenario, [](ponko::ctx& ctx) {
+        ponko::action_map bindings;
+        bindings.set("jump", ponko::action::button({ponko::action_binding::key(PONKO_KEY_SPACE)}));
+        ctx.set_actions(bindings);
+    });
+    if (!run.report.passed()) throw std::runtime_error(run.world.scenario_report_json());
+}
+// ANCHOR_END: input_scenario
+
+// ANCHOR: asset_sources
+static void embedded_assets(ponko::ctx& ctx) {
+    // Compiled into the executable: nothing to ship next to it.
+    static const char tuning[] = R"({"speed": 30})";
+    ctx.add_asset_source(ponko::memory_source("embedded")
+        .with("tuning.json", std::string(tuning))
+        .with("level.txt", std::string("#..#\n#..#\n")));
+
+    // Your own source: bytes for the names it has, nullopt for the rest.
+    ctx.add_asset_source("generated", [](const char* name) -> std::optional<std::vector<std::uint8_t>> {
+        if (std::string(name) == "noise.bin") return std::vector<std::uint8_t>(64, 7);
+        return std::nullopt; // the next source is asked
+    });
+
+    // Your own asset type: decode the bytes, keep the result.
+    auto walls = ctx.load_asset_with("level.txt", [](const std::uint8_t* data, std::size_t len) {
+        return std::count(data, data + len, '#');
+    });
+    // ANCHOR_END: asset_sources
+    if (walls != 4 || ctx.load_asset_with("noise.bin", [](const std::uint8_t*, std::size_t len) { return len; }) != 64) {
+        std::fprintf(stderr, "asset sources\n");
+        std::abort();
+    }
+}
+
+// ANCHOR: resource_scope
+struct Total { std::uint32_t value; };
+struct Coins { std::uint32_t value; };
+
+static void count_coins(ponko::world_view world) {
+    world.set_resource(Total{0});
+    // The resource and the rest of the world together; Total is back afterwards.
+    world.resource_scope<Total>([](ponko::world_view& w, Total& total) {
+        w.each([&](const Coins& coins) { total.value += coins.value; });
+    });
+}
+// ANCHOR_END: resource_scope
+
+static void resource_scope_run() {
+    ponko::world world;
+    world.spawn(Coins{3});
+    world.spawn(Coins{4});
+    count_coins(world);
+    if (world.resource<Total>().value != 7) { std::fprintf(stderr, "resource scope\n"); std::abort(); }
+}
+
+// ANCHOR: try_load
+static ponko::texture skin_or_default(ponko::ctx& ctx) {
+    auto skin = ctx.try_load_texture("skins/gold.png");
+    if (!skin) {
+        const ponko::error& e = skin.error();
+        std::fprintf(stderr, "%s (%s): %s\n", e.path().c_str(), ponko::kind_name(e.kind()), e.what());
+    }
+    return skin.value_or(ponko::texture{});
+}
+// ANCHOR_END: try_load
+
 int main() {
     builder_setup_runs_headless();
+    action_ids_run();
+    jump_once();
+    resource_scope_run();
+    ponko::game("asset source guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        embedded_assets(ctx);
+        if (skin_or_default(ctx).id != 0) std::abort();
+    });
     ponko::game("filter guide", 1, 1).run_headless(0, ecs_filters);
     ponko::game("query cache guide", 1, 1).run_headless(0, ecs_query_cache);
     plugins_run_headless();

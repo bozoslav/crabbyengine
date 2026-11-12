@@ -419,6 +419,18 @@ const _: () = {
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
+pub use crate::PonkoAssetContainsFn as CrabbyAssetContainsFn;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoAssetDecodeFn as CrabbyAssetDecodeFn;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoAssetReadFn as CrabbyAssetReadFn;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
 pub use crate::PonkoAttached as CrabbyAttached;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
@@ -428,6 +440,14 @@ pub use crate::PonkoAudioBus as CrabbyAudioBus;
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
 pub use crate::PonkoAudioEffects as CrabbyAudioEffects;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoMemorySource as CrabbyMemorySource;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoUserFreeFn as CrabbyUserFreeFn;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
@@ -4219,27 +4239,7 @@ const _: () = {
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
-pub use crate::PonkoCell as CrabbyCell;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoCellStreamer as CrabbyCellStreamer;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoClip as CrabbyClip;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoFarTerrain as CrabbyFarTerrain;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoJoint as CrabbyJoint;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoLine3D as CrabbyLine3D;
+pub use crate::PonkoInputScenario as CrabbyInputScenario;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
@@ -4247,19 +4247,7 @@ pub use crate::PonkoResidencyStats as CrabbyResidencyStats;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
-pub use crate::PonkoShaderStatus as CrabbyShaderStatus;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoSteamLobby as CrabbySteamLobby;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoTerrainTileData as CrabbyTerrainTileData;
-#[deprecated(
-    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
-)]
-pub use crate::PonkoTrail3D as CrabbyTrail3D;
+pub use crate::PonkoResourceScopeFn as CrabbyResourceScopeFn;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
@@ -4292,6 +4280,131 @@ pub use CrabbyAssetState::CRABBY_ASSET_UNKNOWN;
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
 pub use CrabbyAssetState::CRABBY_ASSET_UPLOADING;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(non_camel_case_types)]
+pub enum CrabbyScenarioStatus {
+    CRABBY_SCENARIO_PENDING = 0,
+
+    CRABBY_SCENARIO_RUNNING = 1,
+
+    CRABBY_SCENARIO_PASSED = 2,
+
+    CRABBY_SCENARIO_FAILED = 3,
+
+    CRABBY_SCENARIO_CANCELLED = 4,
+}
+impl From<crate::PonkoScenarioStatus> for CrabbyScenarioStatus {
+    fn from(value: crate::PonkoScenarioStatus) -> Self {
+        match value {
+            crate::PonkoScenarioStatus::PONKO_SCENARIO_PENDING => Self::CRABBY_SCENARIO_PENDING,
+            crate::PonkoScenarioStatus::PONKO_SCENARIO_RUNNING => Self::CRABBY_SCENARIO_RUNNING,
+            crate::PonkoScenarioStatus::PONKO_SCENARIO_PASSED => Self::CRABBY_SCENARIO_PASSED,
+            crate::PonkoScenarioStatus::PONKO_SCENARIO_FAILED => Self::CRABBY_SCENARIO_FAILED,
+            crate::PonkoScenarioStatus::PONKO_SCENARIO_CANCELLED => Self::CRABBY_SCENARIO_CANCELLED,
+        }
+    }
+}
+impl From<CrabbyScenarioStatus> for crate::PonkoScenarioStatus {
+    fn from(value: CrabbyScenarioStatus) -> Self {
+        match value {
+            CrabbyScenarioStatus::CRABBY_SCENARIO_PENDING => Self::PONKO_SCENARIO_PENDING,
+            CrabbyScenarioStatus::CRABBY_SCENARIO_RUNNING => Self::PONKO_SCENARIO_RUNNING,
+            CrabbyScenarioStatus::CRABBY_SCENARIO_PASSED => Self::PONKO_SCENARIO_PASSED,
+            CrabbyScenarioStatus::CRABBY_SCENARIO_FAILED => Self::PONKO_SCENARIO_FAILED,
+            CrabbyScenarioStatus::CRABBY_SCENARIO_CANCELLED => Self::PONKO_SCENARIO_CANCELLED,
+        }
+    }
+}
+const _: () = {
+    assert!(std::mem::size_of::<CrabbyScenarioStatus>() == std::mem::size_of::<crate::PonkoScenarioStatus>());
+    assert!(std::mem::align_of::<CrabbyScenarioStatus>() == std::mem::align_of::<crate::PonkoScenarioStatus>());
+    assert!(
+        CrabbyScenarioStatus::CRABBY_SCENARIO_PENDING as u32
+            == crate::PonkoScenarioStatus::PONKO_SCENARIO_PENDING as u32
+    );
+    assert!(
+        CrabbyScenarioStatus::CRABBY_SCENARIO_RUNNING as u32
+            == crate::PonkoScenarioStatus::PONKO_SCENARIO_RUNNING as u32
+    );
+    assert!(
+        CrabbyScenarioStatus::CRABBY_SCENARIO_PASSED as u32 == crate::PonkoScenarioStatus::PONKO_SCENARIO_PASSED as u32
+    );
+    assert!(
+        CrabbyScenarioStatus::CRABBY_SCENARIO_FAILED as u32 == crate::PonkoScenarioStatus::PONKO_SCENARIO_FAILED as u32
+    );
+    assert!(
+        CrabbyScenarioStatus::CRABBY_SCENARIO_CANCELLED as u32
+            == crate::PonkoScenarioStatus::PONKO_SCENARIO_CANCELLED as u32
+    );
+};
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoCell as CrabbyCell;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoCellStreamer as CrabbyCellStreamer;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoClip as CrabbyClip;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoFarTerrain as CrabbyFarTerrain;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoJoint as CrabbyJoint;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoLine3D as CrabbyLine3D;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoScenarioReport as CrabbyScenarioReport;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoShaderStatus as CrabbyShaderStatus;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoSteamLobby as CrabbySteamLobby;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoTerrainTileData as CrabbyTerrainTileData;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use crate::PonkoTrail3D as CrabbyTrail3D;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyScenarioStatus::CRABBY_SCENARIO_CANCELLED;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyScenarioStatus::CRABBY_SCENARIO_FAILED;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyScenarioStatus::CRABBY_SCENARIO_PASSED;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyScenarioStatus::CRABBY_SCENARIO_PENDING;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+pub use CrabbyScenarioStatus::CRABBY_SCENARIO_RUNNING;
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
@@ -6113,6 +6226,10 @@ pub unsafe extern "C" fn crabby_game_schedule_plan(
 #[deprecated(
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
+pub use crate::PONKO_ACTION_NONE as CRABBY_ACTION_NONE;
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
 #[unsafe(no_mangle)]
 pub extern "C" fn crabby_action_map_new() -> *mut CrabbyActionMap {
     crate::ponko_action_map_new()
@@ -6322,6 +6439,118 @@ pub unsafe extern "C" fn crabby_ctx_action_axis2(
     // pointer, lifetime, ownership and callback preconditions. Distinct value
     // types have identical repr(C) layouts and valid discriminants, checked above.
     (unsafe { crate::ponko_ctx_action_axis2(ctx, name, value) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_action_id`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_action_id(
+    ctx: *mut CrabbyCtx,
+    name: *const c_char,
+    out_id: *mut u32,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_action_id(ctx, name, out_id) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_action_ids`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_action_ids(
+    ctx: *mut CrabbyCtx,
+    names: *const *const c_char,
+    count: usize,
+    out_ids: *mut u32,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_action_ids(ctx, names, count, out_ids) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_action_down_id`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_action_down_id(ctx: *mut CrabbyCtx, action: u32, value: *mut bool) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_action_down_id(ctx, action, value) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_action_pressed_id`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_action_pressed_id(
+    ctx: *mut CrabbyCtx,
+    action: u32,
+    value: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_action_pressed_id(ctx, action, value) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_action_released_id`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_action_released_id(
+    ctx: *mut CrabbyCtx,
+    action: u32,
+    value: *mut bool,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_action_released_id(ctx, action, value) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_action_axis_id`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_action_axis_id(ctx: *mut CrabbyCtx, action: u32, value: *mut f32) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_action_axis_id(ctx, action, value) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_action_axis2_id`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_action_axis2_id(
+    ctx: *mut CrabbyCtx,
+    action: u32,
+    value: *mut CrabbyVec2,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_action_axis2_id(ctx, action, value) }).into()
 }
 
 /// # Safety
@@ -6907,6 +7136,104 @@ pub unsafe extern "C" fn crabby_ctx_animator_root_motion(
     // pointer, lifetime, ownership and callback preconditions. Distinct value
     // types have identical repr(C) layouts and valid discriminants, checked above.
     (unsafe { crate::ponko_ctx_animator_root_motion(ctx, entity_bits, out_position, out_rotation) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_add_asset_source`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_add_asset_source(
+    ctx: *mut CrabbyCtx,
+    id: *const c_char,
+    read: CrabbyAssetReadFn,
+    contains: CrabbyAssetContainsFn,
+    free_user: CrabbyUserFreeFn,
+    user: *mut c_void,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_add_asset_source(ctx, id, read, contains, free_user, user) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_memory_source_new`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_memory_source_new(id: *const c_char) -> *mut CrabbyMemorySource {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    unsafe { crate::ponko_memory_source_new(id) }
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_memory_source_free`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_memory_source_free(source: *mut CrabbyMemorySource) {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    unsafe { crate::ponko_memory_source_free(source) }
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_memory_source_insert`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_memory_source_insert(
+    source: *mut CrabbyMemorySource,
+    name: *const c_char,
+    data: *const u8,
+    len: usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_memory_source_insert(source, name, data, len) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_add_memory_source`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_add_memory_source(
+    ctx: *mut CrabbyCtx,
+    source: *const CrabbyMemorySource,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_add_memory_source(ctx, source) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_load_asset_with`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_load_asset_with(
+    ctx: *mut CrabbyCtx,
+    name: *const c_char,
+    decode: CrabbyAssetDecodeFn,
+    user: *mut c_void,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_load_asset_with(ctx, name, decode, user) }).into()
 }
 
 /// # Safety
@@ -9493,6 +9820,22 @@ pub extern "C" fn crabby_last_error_kind() -> CrabbyErrorKind {
     note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
 )]
 #[unsafe(no_mangle)]
+pub extern "C" fn crabby_last_error_path() -> *const c_char {
+    crate::ponko_last_error_path()
+}
+
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_error_kind_name(kind: u32) -> *const c_char {
+    crate::ponko_error_kind_name(kind)
+}
+
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
 pub extern "C" fn crabby_abi_version() -> u32 {
     crate::ponko_abi_version()
 }
@@ -9699,6 +10042,91 @@ pub unsafe extern "C" fn crabby_query_par(
     // pointer, lifetime, ownership and callback preconditions. Distinct value
     // types have identical repr(C) layouts and valid discriminants, checked above.
     (unsafe { crate::ponko_query_par(world, components, count, callback, user) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_try_load_texture`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_try_load_texture(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_texture: *mut CrabbyTexture,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_try_load_texture(ctx, path, out_texture) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_try_load_font`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_try_load_font(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_font: *mut CrabbyFont,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_try_load_font(ctx, path, out_font) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_try_load_sound`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_try_load_sound(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_sound: *mut CrabbySound,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_try_load_sound(ctx, path, out_sound) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_try_load_stream`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_try_load_stream(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_sound: *mut CrabbySound,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_try_load_stream(ctx, path, out_sound) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_try_load_mesh`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_try_load_mesh(
+    ctx: *mut CrabbyCtx,
+    path: *const c_char,
+    out_mesh: *mut CrabbyMesh,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_try_load_mesh(ctx, path, out_mesh) }).into()
 }
 
 #[deprecated(
@@ -13033,6 +13461,298 @@ pub unsafe extern "C" fn crabby_resource_reflect(
     // pointer, lifetime, ownership and callback preconditions. Distinct value
     // types have identical repr(C) layouts and valid discriminants, checked above.
     (unsafe { crate::ponko_resource_reflect(world, name, size, alignment, fields, len) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_resource_scope`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_resource_scope(
+    world: *mut CrabbyWorld,
+    name: *const c_char,
+    size: usize,
+    scope: CrabbyResourceScopeFn,
+    user: *mut c_void,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_resource_scope(world, name, size, scope, user) }).into()
+}
+
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub extern "C" fn crabby_input_scenario_new() -> *mut CrabbyInputScenario {
+    crate::ponko_input_scenario_new()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_free`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_free(scenario: *mut CrabbyInputScenario) {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    unsafe { crate::ponko_input_scenario_free(scenario) }
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_from_json`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_from_json(
+    json: *const c_char,
+    out_scenario: *mut *mut CrabbyInputScenario,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_input_scenario_from_json(json, out_scenario) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_to_json`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_to_json(
+    scenario: *const CrabbyInputScenario,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_input_scenario_to_json(scenario, buffer, capacity, out_len) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_at`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_at(
+    scenario: *mut CrabbyInputScenario,
+    tick: u64,
+    kind: u32,
+    slot: u32,
+    input: u32,
+    value: f32,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_input_scenario_at(scenario, tick, kind, slot, input, value) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_expect_action`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_expect_action(
+    scenario: *mut CrabbyInputScenario,
+    tick: u64,
+    name: *const c_char,
+    pressed: i32,
+    down: i32,
+    released: i32,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_input_scenario_expect_action(scenario, tick, name, pressed, down, released) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_expect_resource`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_expect_resource(
+    scenario: *mut CrabbyInputScenario,
+    tick: u64,
+    name: *const c_char,
+    pointer: *const c_char,
+    equals_json: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_input_scenario_expect_resource(scenario, tick, name, pointer, equals_json) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_expect_count`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_expect_count(
+    scenario: *mut CrabbyInputScenario,
+    tick: u64,
+    component: *const c_char,
+    count: u64,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_input_scenario_expect_count(scenario, tick, component, count) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_named`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_named(
+    scenario: *mut CrabbyInputScenario,
+    id: *const c_char,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_input_scenario_named(scenario, id) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_duration`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_duration(
+    scenario: *mut CrabbyInputScenario,
+    ticks: u64,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_input_scenario_duration(scenario, ticks) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_release_when_done`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_release_when_done(scenario: *mut CrabbyInputScenario) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_input_scenario_release_when_done(scenario) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_input_scenario_info`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_input_scenario_info(
+    scenario: *const CrabbyInputScenario,
+    out_ticks: *mut u64,
+    out_steps: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_input_scenario_info(scenario, out_ticks, out_steps) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_game_input_scenario`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_game_input_scenario(
+    game: *mut CrabbyGame,
+    scenario: *const CrabbyInputScenario,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_game_input_scenario(game, scenario) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_start_scenario`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_start_scenario(
+    ctx: *mut CrabbyCtx,
+    scenario: *const CrabbyInputScenario,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_start_scenario(ctx, scenario) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_cancel_scenario`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_cancel_scenario(ctx: *mut CrabbyCtx, out_was_running: *mut bool) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_cancel_scenario(ctx, out_was_running) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_world_scenario_report`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_scenario_report(
+    world: *mut CrabbyWorld,
+    out_report: *mut CrabbyScenarioReport,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_world_scenario_report(world, out_report) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_world_scenario_report_json`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_world_scenario_report_json(
+    world: *mut CrabbyWorld,
+    buffer: *mut c_char,
+    capacity: usize,
+    out_len: *mut usize,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_world_scenario_report_json(world, buffer, capacity, out_len) }).into()
 }
 
 /// # Safety
@@ -16911,6 +17631,27 @@ pub unsafe extern "C" fn crabby_ctx_ui_set_grid_named_line(
     // pointer, lifetime, ownership and callback preconditions. Distinct value
     // types have identical repr(C) layouts and valid discriminants, checked above.
     (unsafe { crate::ponko_ctx_ui_set_grid_named_line(ctx, target, id, axis, end, name, occurrence) }).into()
+}
+
+/// # Safety
+/// The caller must uphold the same preconditions as [`crate::ponko_ctx_ui_set_grid_named_span`].
+#[deprecated(
+    note = "Deprecated: use the Ponko spelling. Removal requires a major release, no earlier than 2027-11-10."
+)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn crabby_ctx_ui_set_grid_named_span(
+    ctx: *mut CrabbyCtx,
+    target: u64,
+    id: u64,
+    axis: u32,
+    end: bool,
+    name: *const c_char,
+    count: u32,
+) -> CrabbyStatus {
+    // SAFETY: ABI-2 forwarding preserves the primary function's exact
+    // pointer, lifetime, ownership and callback preconditions. Distinct value
+    // types have identical repr(C) layouts and valid discriminants, checked above.
+    (unsafe { crate::ponko_ctx_ui_set_grid_named_span(ctx, target, id, axis, end, name, count) }).into()
 }
 
 /// # Safety

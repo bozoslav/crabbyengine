@@ -387,6 +387,42 @@ fn agents_drive_several_games_through_mcp() {
         .unwrap_err();
     assert!(err.contains("read-only"), "{err}");
 
+    // Graphics quality: the tool follows what the game reports (this crate
+    // can't see the engine's features), and a read-only server hides it.
+    let tools = agent
+        .tool("instance_capabilities", json!({ "instance": port_a }))
+        .unwrap();
+    let quality = tools["mcp"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "set_graphics_quality")
+        .cloned()
+        .unwrap();
+    let set = agent.tool("set_graphics_quality", json!({ "instance": port_a, "level": "medium" }));
+    if quality["available"] == true {
+        let set = set.unwrap();
+        assert_eq!(set["quality"]["level"], "medium", "{set}");
+        let perf = agent
+            .tool("perf_report", json!({ "instance": port_a, "history": 4 }))
+            .unwrap();
+        assert_eq!(perf["render_inspector"]["quality"], set["quality"]);
+        assert_eq!(
+            perf["render_inspector"]["history"],
+            json!([]),
+            "headless: nothing drawn"
+        );
+    } else {
+        let reason = quality["reason"].as_str().unwrap();
+        assert!(reason.contains("3d"), "{quality}");
+        assert!(set.unwrap_err().contains(reason));
+    }
+    assert!(!names.iter().any(|n| n == "set_graphics_quality"));
+    let err = viewer
+        .tool("set_graphics_quality", json!({ "instance": port_a, "level": "low" }))
+        .unwrap_err();
+    assert!(err.contains("read-only"), "{err}");
+
     // Errors from the game come through as tool errors.
     let err = agent
         .tool("get_entity", json!({ "instance": "alpha", "entity": 123_456 }))

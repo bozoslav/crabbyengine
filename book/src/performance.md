@@ -286,11 +286,30 @@ are per frame.
 | `gpu_timing` | `available`: the GPU has timestamp queries; `frames_timed`: frames whose GPU times came back |
 | `cpu_ms` | the renderer's CPU time: `total`, split into `extract` (culling, collecting models), `prepare` (uploading 3D data), `encode` (recording command buffers), `submit` and `other` (sprites, overlays) |
 | `gpu_ms` | `frame` and `passes` (`[{name, ms}]` in the order they run), smoothed |
-| `counts` | `draw_calls`, `sprites`, `models`, `triangles`, `shadow_models`, `shadow_triangles`, `occluded_models`, `frustum_culled_models`, `pipelines_built`, and `instance_batches`: how the [static instance batches](3d.md#which-path-a-batch-takes) were culled (`batches`, `instances`, `gpu_driven`, `gpu_instances`, `cpu_small`, `cpu_no_compute`, `cpu_over_limit`, `dropped`, `pools`, `pages`, `pool_bytes`, `cull_dispatches`, `cull_jobs`, `views_skipped`) |
+| `counts` | `draw_calls`, `sprites`, `models`, `triangles`, `shadow_models`, `shadow_triangles`, `occluded_models`, `frustum_culled_models` (see below), `frustum_culled_other_models` (always `null`, see below), `pipelines_built`, and `instance_batches`: how the [static instance batches](3d.md#which-path-a-batch-takes) were culled (`batches`, `instances`, `gpu_driven`, `gpu_instances`, `cpu_small`, `cpu_no_compute`, `cpu_over_limit`, `dropped`, `pools`, `pages`, `pool_bytes`, `cull_dispatches`, `cull_jobs`, `views_skipped`) |
 | `upload_bytes` | bytes the renderer uploaded to the GPU in the last drawn frame (`render.uploads` in `perf.get` splits them by kind) |
-| `memory_estimate_bytes` | not measured yet |
-| `quality` | the active [graphics quality](3d.md) `level` (`low` ... `ultra`, or `custom`) and every setting (3D builds) |
+| `memory_estimate_bytes` | what the renderer's tables hold for the game: its `textures` (render-target textures included), `meshes`, its `gpu_buffers`, the `instance_pools` and their `total`. Not counted: the frame's own targets (scene color and depth, post-processing, ambient occlusion and temporal history), shadow maps, the light shadow atlas, skinning buffers and per-frame instance buffers. An estimate from what the engine allocated, not the driver's total |
+| `adapter` | the GPU the renderer opened: `name`, `backend` (`vulkan`, `metal`, `dx12`, `gl`, `webgpu`), `device_type`, `driver`, `driver_info`, its [capability](3d.md) `tier` (`webgl2`, `baseline`, `desktop`) and `forced` (`true` when `PONKO_GPU_TIER` set the tier) |
+| `history` | with `history: N` in the request, the last N drawn frames one by one, oldest first: `frame`, `cpu_ms`, `gpu_smoothed_ms` (the smoothed GPU time as it stood after that frame), `gpu_latest_ms` and `gpu_latest_frames_ago` (the newest single frame's own GPU time that had come back by then, and how many drawn frames earlier that frame was: timestamps come back a few frames late, so a frame's own GPU time isn't known yet when it is kept), `draw_calls`, `models`, `triangles`, `shadow_triangles` and `upload_bytes`. The GPU fields are `null` when GPU time wasn't measured. Up to 120 frames are kept, in a ring of 88-byte entries allocated once at the first drawn frame; without the parameter it is `[]` |
+| `quality` | the active [graphics quality](3d.md#graphics-quality) `level` (`low` ... `ultra`, or `custom`) and every setting (3D builds) |
 | `unavailable` | a reason for every metric that is `null` |
+
+`counts.frustum_culled_models` counts plain models (entities with a
+`Model`) whose bounds were outside the camera's view in the last frame. It
+is worked out when `perf.get` asks, from the bounds the renderer keeps per
+model, with the same test the culler uses, so a frame pays nothing for it
+and a still camera gives the same number every frame. Models hidden by
+occlusion culling are inside the view and counted in `occluded_models`
+instead (it counts plain models and each LOD renderer once, a crossfade
+between two hidden levels counting both, but not shadow-only casters).
+Models whose mesh isn't loaded yet aren't counted in `frustum_culled_models`. While most
+models move every frame the renderer stops keeping per-model results, and
+the field is `null` with that reason until they settle.
+`counts.frustum_culled_other_models` is always `null`: LOD groups, terrain
+tiles, skinned models, models with morph targets and shadow-only casters
+are culled anew every frame
+without a result kept to count from, and static instance batches are
+culled on the GPU (`counts.instance_batches` says how).
 
 A metric the engine can't measure is `null`, never `0`, and `unavailable`
 says why under its path, for example `"gpu_ms.frame": "the GPU adapter
@@ -298,7 +317,96 @@ doesn't support timestamp queries, so GPU time can't be measured"`.
 Headless runs and games that haven't drawn yet report `cpu_ms`, `gpu_ms`
 and `counts` as `null` the same way. The inspector is built only when
 `perf.get` is called, from numbers the renderer keeps anyway, so it
-costs a frame nothing.
+costs a frame nothing; the history is a fixed ring of 120 entries (about
+10 KB) filled in place after each drawn frame.
+
+#### Measuring what a quality level costs
+
+`quality.set` (the MCP tool `set_graphics_quality`) switches the
+[graphics quality](3d.md#graphics-quality) preset of a running 3D game: `low`, `medium`,
+`high`, `ultra`, or `recommended` (the engine's choice for the GPU).
+Nothing the GPU lacks is turned on: the preset is fitted to the adapter,
+and `fitted_to_gpu` says when it had to be (always `false` for
+`recommended`, which already fits); a fitted preset's `quality.level` can
+read `custom`. The answer has the settings before (`previous`) and after
+(`quality`). It changes only the picture, never the simulation, and pins
+render scale and shadow resolution against
+[automatic quality tuning](3d.md#optional-scene-quality-autotuning) so the
+comparison isn't undone; the pins stay until the game restarts. A headless
+game accepts it (the settings change and `perf.get` shows them) but draws
+nothing, and has no GPU to recommend for; neither has a windowed game
+before its first frame.
+
+An agent compares two levels in four steps: ask for the report, change the
+level, wait a few seconds for the smoothed GPU times to settle, ask again.
+The excerpts below are illustrative: the field names are the engine's, the
+numbers made up for the example (shapes as the engine's tests build them).
+
+1. `perf_report` with `history: 3`:
+
+   ```json
+   {
+     "fps": 58.9,
+     "render_inspector": {
+       "schema": 1,
+       "adapter": { "name": "Example GPU", "backend": "metal", "device_type": "integrated_gpu", "driver": "", "driver_info": "", "tier": "desktop", "forced": false },
+       "gpu_timing": { "available": true, "frames_timed": 412 },
+       "gpu_ms": { "frame": 14.8, "passes": [{ "name": "shadows 0", "ms": 1.3 }, { "name": "shadows 1", "ms": 1.0 }, { "name": "shadows 2", "ms": 0.9 }, { "name": "shadows 3", "ms": 0.7 }, { "name": "depth prepass", "ms": 1.2 }, { "name": "GTAO horizons", "ms": 0.6 }, { "name": "GTAO bilateral", "ms": 0.3 }, { "name": "opaque", "ms": 6.2 }, { "name": "post", "ms": 2.6 }] },
+       "counts": { "draw_calls": 412, "models": 3810, "triangles": 2954112, "shadow_triangles": 4101870, "occluded_models": 0, "frustum_culled_models": 1270, "frustum_culled_other_models": null },
+       "memory_estimate_bytes": { "total": 611319808, "textures": 402653184, "meshes": 150994944, "gpu_buffers": 41943040, "instance_pools": 15728640 },
+       "history": [
+         { "frame": 1840, "cpu_ms": 4.1, "gpu_smoothed_ms": 14.9, "gpu_latest_ms": 15.1, "gpu_latest_frames_ago": 2, "draw_calls": 412, "models": 3810, "triangles": 2954112, "shadow_triangles": 4101870, "upload_bytes": 65536 },
+         { "frame": 1841, "cpu_ms": 4.0, "gpu_smoothed_ms": 14.8, "gpu_latest_ms": 14.6, "gpu_latest_frames_ago": 2, "draw_calls": 412, "models": 3810, "triangles": 2954112, "shadow_triangles": 4101870, "upload_bytes": 65536 },
+         { "frame": 1842, "cpu_ms": 4.2, "gpu_smoothed_ms": 14.8, "gpu_latest_ms": 14.7, "gpu_latest_frames_ago": 2, "draw_calls": 412, "models": 3810, "triangles": 2954112, "shadow_triangles": 4101870, "upload_bytes": 65536 }
+       ],
+       "quality": { "level": "ultra", "render_scale": 1.0, "shadow_cascades": 4, "shadow_resolution": 4096, "ambient_occlusion": true, "anti_aliasing": "smaa" },
+       "quality_autotune": null,
+       "unavailable": { "counts.frustum_culled_other_models": "not counted: ...", "quality_autotune": "automatic quality tuning is off ..." }
+     }
+   }
+   ```
+
+2. `set_graphics_quality` with `level: "medium"`:
+
+   ```json
+   {
+     "requested": "medium",
+     "fitted_to_gpu": false,
+     "previous": { "level": "ultra", "render_scale": 1.0, "shadow_cascades": 4, "shadow_resolution": 4096, "ambient_occlusion": true, "anti_aliasing": "smaa" },
+     "quality": { "level": "medium", "render_scale": 1.0, "shadow_cascades": 3, "shadow_resolution": 2048, "ambient_occlusion": false, "anti_aliasing": "fxaa" }
+   }
+   ```
+
+3. Wait a few seconds: GPU times are smoothed over recent frames, and the
+   first frames after the switch build new shadow maps and targets.
+
+4. `perf_report` again, and compare:
+
+   ```json
+   {
+     "fps": 60.0,
+     "render_inspector": {
+       "gpu_ms": { "frame": 8.1, "passes": [{ "name": "shadows 0", "ms": 0.6 }, { "name": "shadows 1", "ms": 0.5 }, { "name": "shadows 2", "ms": 0.4 }, { "name": "depth prepass", "ms": 1.0 }, { "name": "opaque", "ms": 5.0 }, { "name": "post", "ms": 0.6 }] },
+       "counts": { "draw_calls": 377, "models": 3810, "triangles": 2954112, "shadow_triangles": 3011544, "occluded_models": 0, "frustum_culled_models": 1270, "frustum_culled_other_models": null },
+       "memory_estimate_bytes": { "total": 476053504, "textures": 268435456, "meshes": 150994944, "gpu_buffers": 41943040, "instance_pools": 14680064 },
+       "quality": { "level": "medium", "render_scale": 1.0, "shadow_cascades": 3, "shadow_resolution": 2048, "ambient_occlusion": false, "anti_aliasing": "fxaa" }
+     }
+   }
+   ```
+
+   Here the GPU frame went from 14.8 to 8.1 ms: the shadow passes
+   (`shadows 0` ... `shadows 3`) from 3.9 to 1.5 ms with one cascade fewer
+   and smaller maps, the ambient occlusion passes (`GTAO ...`) are gone,
+   and `post` is cheaper with FXAA instead of SMAA. The camera's
+   triangles didn't change, and
+   `fps` barely moved because the display's refresh rate capped it. Under
+   vsync, compare `gpu_ms`, not `fps`. If `gpu_timing.available` is
+   `false`, `gpu_ms` is `null` on both sides: compare the `cpu_ms` and the
+   `counts` instead, or benchmark with `PONKO_BENCH`.
+
+The control method and the MCP tool are Rust-engine features; C and C++
+games get them through the same endpoint, but the native headers have no
+call of their own to change the quality level yet.
 
 ### What usually helps in 3D
 

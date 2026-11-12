@@ -27,9 +27,6 @@ pub(super) struct Effects {
     /// Render targets target effects write: (texture id, texture, its view),
     /// made on first use.
     pub(super) targets: Vec<(u32, wgpu::Texture, wgpu::TextureView)>,
-    /// Target effects already warned about (effect, target), so a skipped
-    /// one is reported once rather than every frame.
-    warnings: Vec<(u32, u32)>,
     /// This frame's screen effects, in order: (effect, material).
     pub(super) frame: Vec<(u32, u32)>,
     /// This frame's target effects, in order: (effect, index in `targets`,
@@ -50,9 +47,10 @@ pub(super) struct EffectPass<'a, 't> {
 
 impl Effects {
     /// Keeps this frame's target effects that can run: a known effect,
-    /// material and render target, and a material that doesn't sample the
-    /// target it writes (a pass can't read and write one texture; those are
-    /// skipped with a warning). Builds their pipelines on first use.
+    /// material and render target, and not one `skipped` by the hazard
+    /// check (by its index in `wanted`; see `custom_passes.rs`, which also
+    /// leaves out a target effect whose material samples the target it
+    /// writes). Builds their pipelines on first use.
     pub(super) fn prepare_targets(
         &mut self,
         device: &wgpu::Device,
@@ -60,10 +58,11 @@ impl Effects {
         materials: &[GpuMaterial],
         render_targets: &[(u32, wgpu::Texture)],
         layout: &wgpu::PipelineLayout,
+        skipped: impl Fn(usize) -> bool,
     ) {
         self.target_frame.clear();
-        for &(effect, target, material) in wanted {
-            if effect as usize >= self.pipelines.len() || material as usize >= materials.len() {
+        for (i, &(effect, target, material)) in wanted.iter().enumerate() {
+            if effect as usize >= self.pipelines.len() || material as usize >= materials.len() || skipped(i) {
                 continue;
             }
             let index = match self.targets.iter().position(|&(t, _, _)| t == target) {
@@ -78,16 +77,6 @@ impl Effects {
                     self.targets.len() - 1
                 }
             };
-            let texture = &self.targets[index].1;
-            if materials[material as usize].bindings.textures.contains(texture) {
-                if !self.warnings.contains(&(effect, target)) {
-                    self.warnings.push((effect, target));
-                    eprintln!(
-                        "ponko: target effect {effect} skipped: its material samples render target {target}, which it writes"
-                    );
-                }
-                continue;
-            }
             if self.target_pipelines[effect as usize].is_none() {
                 self.target_pipelines[effect as usize] = Some(effect_pipeline(
                     device,

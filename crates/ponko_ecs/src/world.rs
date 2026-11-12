@@ -1307,35 +1307,58 @@ fn two_mut<T>(v: &mut [T], a: usize, b: usize) -> (&mut T, &mut T) {
     }
 }
 
-/// A heap slot for one value of a runtime layout (freed without dropping).
+/// Room for one value of a runtime layout, freed without dropping the value.
+/// On the stack when it fits [`TempInline`] (most components), so that
+/// removing a component with a destructor doesn't allocate; on the heap
+/// otherwise.
 struct TempValue {
-    ptr: *mut u8,
+    inline: std::mem::MaybeUninit<TempInline>,
+    /// Null unless the value needed the heap.
+    heap: *mut u8,
     layout: Layout,
 }
 
+#[repr(C, align(16))]
+struct TempInline([u8; 64]);
+
 impl TempValue {
     fn new(layout: Layout) -> Self {
-        let ptr = if layout.size() == 0 {
-            std::ptr::without_provenance_mut(layout.align())
+        let inline = layout.size() <= size_of::<TempInline>() && layout.align() <= align_of::<TempInline>();
+        let heap = if layout.size() == 0 || inline {
+            std::ptr::null_mut()
         } else {
+            // SAFETY: the layout has a non-zero size.
             let p = unsafe { std::alloc::alloc(layout) };
             if p.is_null() {
                 std::alloc::handle_alloc_error(layout);
             }
             p
         };
-        TempValue { ptr, layout }
+        TempValue {
+            inline: std::mem::MaybeUninit::uninit(),
+            heap,
+            layout,
+        }
     }
 
+    /// Where the value goes. Computed on each call (not stored), so the
+    /// inline buffer may move with `self`.
     fn ptr(&mut self) -> *mut u8 {
-        self.ptr
+        if self.layout.size() == 0 {
+            std::ptr::without_provenance_mut(self.layout.align())
+        } else if self.heap.is_null() {
+            self.inline.as_mut_ptr().cast()
+        } else {
+            self.heap
+        }
     }
 }
 
 impl Drop for TempValue {
     fn drop(&mut self) {
-        if self.layout.size() != 0 {
-            unsafe { std::alloc::dealloc(self.ptr, self.layout) }
+        if !self.heap.is_null() {
+            // SAFETY: allocated in `new` with this layout.
+            unsafe { std::alloc::dealloc(self.heap, self.layout) }
         }
     }
 }

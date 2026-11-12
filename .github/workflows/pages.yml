@@ -1,5 +1,8 @@
 # Publishes the guide (book/) with the API reference under /api and playable
 # web builds of the demos under /play to GitHub Pages on every push to main.
+# The guide of every release tag (v0.0.2, ...) is built from that tag's
+# sources into /<tag>/ next to it, and every page says which version it
+# documents (scripts/guide-versions.py, the book's preprocessor).
 
 name: Pages
 
@@ -21,8 +24,14 @@ jobs:
   build:
     name: Build site
     runs-on: ubuntu-latest
+    # It runs commands named by old tags' book.toml (the versioned guides):
+    # no write access, no deploy token.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the release tags, for the versioned guides
       - name: Install ALSA and udev headers (audio, gamepads)
         if: runner.os == 'Linux'
         run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
@@ -35,7 +44,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: mdbook@0.5.4,wasm-bindgen@${{ env.WASM_BINDGEN }}
-      - run: mdbook build book
+      # The guide for main in book/book and one per release tag in
+      # book/book/<tag>/; a tag whose guide fails is left out with a warning.
+      - name: Build the guide for main and for every release tag
+        run: python3 scripts/guide-versions.py build --out book/book
       - run: cargo doc --workspace --no-deps
       - run: cp -r target/doc book/book/api
       # Playable demos, built for the browser: /play/<example>/

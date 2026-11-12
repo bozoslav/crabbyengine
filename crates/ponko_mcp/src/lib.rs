@@ -366,12 +366,13 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "perf_report",
-            description: "Where a windowed game's frame time goes, over the last few seconds: fps and frame-time percentiles; CPU time in systems, rendering and waiting on the display; GPU time per pass (shadows, opaque, bloom, ...); draw calls and the 3D models and triangles drawn for the camera and the shadows; the slowest systems; optionally the meshes drawing the most triangles. Start here for any performance question: a large display wait means the GPU is the limit. For exact numbers, run the game with PONKO_BENCH=<frames> instead (a fixed-length, vsync-off run that prints a report and quits). Pass profiling=true to also time the game's own profile_scope!/PONKO_PROFILE_SCOPE scopes and count allocations per system; ask again a few seconds later and the answer has `report` with the slowest frames and warnings with advice. The answer always has `render_inspector` (versioned `schema`): the renderer's CPU ms split into extract, prepare, encode, submit and other; GPU ms per frame and per pass; draw/model/triangle/occlusion counts; `counts.state_changes` (model-pass pipeline, bind-group, vertex/index-buffer changes and recorded draws for the last frame); the active graphics quality preset and settings; `quality_autotune` (null when disabled) with active choices, pins, freeze state, reason and the last 16 GPU-driven decisions. A metric that can't be measured is null, never 0, and `unavailable` says why (for example a GPU without timestamp queries).",
+            description: "Where a windowed game's frame time goes, over the last few seconds: fps and frame-time percentiles; CPU time in systems, rendering and waiting on the display; GPU time per pass (shadows, opaque, bloom, ...); draw calls and the 3D models and triangles drawn for the camera and the shadows; the slowest systems; optionally the meshes drawing the most triangles. Start here for any performance question: a large display wait means the GPU is the limit. For exact numbers, run the game with PONKO_BENCH=<frames> instead (a fixed-length, vsync-off run that prints a report and quits). Pass profiling=true to also time the game's own profile_scope!/PONKO_PROFILE_SCOPE scopes and count allocations per system; ask again a few seconds later and the answer has `report` with the slowest frames and warnings with advice. The answer always has `render_inspector` (versioned `schema`): the renderer's CPU ms split into extract, prepare, encode, submit and other; GPU ms per frame and per pass; draw/model/triangle/occlusion counts; `counts.state_changes` (model-pass pipeline, bind-group, vertex/index-buffer changes and recorded draws for the last frame); the active graphics quality preset and settings; `quality_autotune` (null when disabled) with active choices, pins, freeze state, reason and the last 16 GPU-driven decisions; `memory_estimate_bytes` (what the renderer's tables hold for the game: its textures, meshes, GPU buffers and instance pools, with the total; not the frame's own render targets, shadow maps or skinning buffers); `adapter` (GPU name, backend, driver, tier); `counts.frustum_culled_models` (plain models outside the camera's view; LOD groups, terrain, skinned models, models with morph targets and GPU-culled batches aren't counted); and with `history`, the last drawn frames one by one. A metric that can't be measured is null, never 0, and `unavailable` says why (for example a GPU without timestamp queries). To see what a setting costs: perf_report, set_graphics_quality, wait a few seconds, perf_report again, and compare `render_inspector.gpu_ms.frame` (the inspector's top-level GPU time, and the answer's `frame_ms`), not the GPU fields of the `render_inspector.history` entries.",
             writes: false,
             params: || {
                 json!({
                     "meshes": { "type": "integer", "minimum": 0, "description": "Also list this many meshes drawing the most triangles (3D games; default 0)" },
-                    "profiling": { "type": "boolean", "description": "true turns on scope timing and allocation counting (and the deeper `report`), false turns it off" }
+                    "profiling": { "type": "boolean", "description": "true turns on scope timing and allocation counting (and the deeper `report`), false turns it off" },
+                    "history": { "type": "integer", "minimum": 0, "description": "Also list this many of the last drawn frames in `render_inspector.history`, oldest first (frame, cpu_ms, gpu_smoothed_ms: the smoothed GPU time then, gpu_latest_ms and gpu_latest_frames_ago: the newest single frame's GPU time that had come back and how many frames earlier it was drawn, draw_calls, models, triangles, shadow_triangles, upload_bytes); at most 120 are kept; default 0" }
                 })
             },
             required: &[],
@@ -394,6 +395,17 @@ fn tools() -> Vec<Tool> {
             writes: false,
             params: || json!({ "on": { "type": "boolean", "description": "true shows it, false hides it" } }),
             required: &["on"],
+        },
+        Tool {
+            name: "set_graphics_quality",
+            description: "Switch a 3D game's graphics quality preset while it runs (render scale, shadows, ambient occlusion, reflections, anti-aliasing), fitted to what its GPU can do. Returns the settings before (`previous`) and after (`quality`), and `fitted_to_gpu`: true when the preset had to be lowered for the GPU (always false for `recommended`, which already fits); after fitting, `quality.level` may read `custom`. Use it between two perf_report calls to measure what quality costs. It only changes the picture, never the simulation, and it pins render scale and shadow resolution against the game's automatic quality tuning until the game restarts. Not offered by a read-only server: it changes what the player sees.",
+            writes: true,
+            params: || {
+                json!({
+                    "level": { "type": "string", "enum": ["low", "medium", "high", "ultra", "recommended"], "description": "The preset; `recommended` is the engine's choice for this GPU" }
+                })
+            },
+            required: &["level"],
         },
         Tool {
             name: "list_events",
@@ -680,6 +692,7 @@ fn tool_methods(name: &str) -> Option<&'static [&'static str]> {
         "shader_status" => &["shaders.status"],
         "record_trace" => &["perf.trace"],
         "perf_hud" => &["perf.hud"],
+        "set_graphics_quality" => &["quality.set"],
         "list_events" => &["events.list"],
         "subscribe_events" => &["events.subscribe"],
         "take_events" => &["events.take"],
@@ -922,10 +935,13 @@ impl Server {
             "get_entity" => self.instance(args)?.call("entity.get", pass(&["entity"])),
             "system_timings" => self.instance(args)?.call("systems.timings", json!({})),
             "ecs_diagnostics" => self.instance(args)?.call("ecs.diagnostics", pass(&["with", "limit"])),
-            "perf_report" => self.instance(args)?.call("perf.get", pass(&["meshes", "profiling"])),
+            "perf_report" => self
+                .instance(args)?
+                .call("perf.get", pass(&["meshes", "profiling", "history"])),
             "shader_status" => self.instance(args)?.call("shaders.status", json!({})),
             "record_trace" => self.instance(args)?.call("perf.trace", pass(&["frames", "path"])),
             "perf_hud" => self.instance(args)?.call("perf.hud", pass(&["on"])),
+            "set_graphics_quality" => self.instance(args)?.call("quality.set", pass(&["level"])),
             "list_resources" => self.instance(args)?.call("resources.list", json!({})),
             "get_resource" => self.instance(args)?.call("resource.get", pass(&["resource"])),
             "set_resource" => self.instance(args)?.call("resource.set", pass(&["resource", "value"])),

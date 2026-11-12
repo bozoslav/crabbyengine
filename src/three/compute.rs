@@ -40,9 +40,43 @@ impl Compute {
     }
 }
 
-/// One entry of [`Ctx::compute_passes`](crate::Ctx::compute_passes): a
-/// shader, the render target it updates, and a material whose custom
-/// values and textures it reads.
+/// One entry of [`Ctx::compute_passes`](crate::Ctx::compute_passes) or
+/// [`Ctx::scene_compute_passes`](crate::Ctx::scene_compute_passes): a
+/// shader, the render target (or [`GpuBuffer`]) it updates, and a material
+/// whose custom values and textures it reads.
+///
+/// **Stages.** The list it is in decides when it runs, once per frame, in
+/// list order:
+/// - `compute_passes`: before anything is drawn. This frame's materials,
+///   target cameras, target effects and screen effects see its result; its
+///   shader sees no scene (`scene_color` is black).
+/// - `scene_compute_passes`: after the opaque and transparent surfaces and
+///   temporal antialiasing, before target effects, screen effects, bloom
+///   and tone mapping. Its shader reads this frame's lit image and depth
+///   (`scene_color`, `scene_position`, `scene_distance`, at a pixel of the
+///   frame: `frame.screen.xy` is its size). Target effects and screen
+///   effects see its result this frame; materials, target cameras and
+///   `compute_passes` see last frame's.
+///
+/// **Resources.** A pass declares what it writes (its `target` or `buffer`)
+/// and reads (its material's textures, its own target through `c.value` and
+/// `cell_at`, and the scene at the scene stage). It updates its target in
+/// place: a later pass writing the same target (a compute pass of either
+/// stage) reads what it left. A [`TargetCamera`](crate::render::TargetCamera)
+/// or [`TargetEffect`](crate::render::TargetEffect) instead replaces all of
+/// its target, so it can't come after another writer of that target in the
+/// frame: one result would be lost. Such a pair never runs: the target
+/// effect is skipped, or, under a target camera, the compute pass, with a
+/// warning naming the pass and the render target. A scene compute pass
+/// after a target camera reads the camera's picture, which is allowed. GPU
+/// buffers are always updated in place, in stage and list order.
+///
+/// **GPUs without compute shaders** (WebGL2,
+/// [`GpuFeature::Compute`](crate::render::GpuFeature::Compute) not
+/// [available](crate::render::GpuCapabilities::available)):
+/// [`Graphics::try_create_compute`] returns an error for a texture pass, and
+/// buffer passes do nothing, at both stages; the rest of the frame draws as
+/// without them.
 ///
 /// ```no_run
 /// # use ponko::prelude::*;
@@ -130,7 +164,10 @@ impl Graphics {
     /// first), where it is (`c.pixel`, `c.size`, `c.uv`) and its
     /// neighbours (`cell_at(pixel)`, which reads the target as it was
     /// before this pass). It reads `frame` (`frame.time.y` is the frame's
-    /// seconds) and `material` as material shaders do. With hot reload on,
+    /// seconds) and `material` as material shaders do; run as a
+    /// [scene compute pass](crate::Ctx::scene_compute_passes), it also reads
+    /// this frame's lit image and depth (`scene_color(pixel)`,
+    /// `scene_position(pixel)`). With hot reload on,
     /// saving the file in `assets/` updates the game (an error keeps the old one).
     /// Loading the same file again returns the same compute pass.
     ///
@@ -535,6 +572,40 @@ mod tests {
             assert_eq!(again.slot(), mesh.slot());
             assert_ne!(again, mesh);
             assert_eq!(ctx.gfx.assets3d.bounds[again.slot() as usize], own);
+        });
+    }
+
+    #[test]
+    fn scene_compute_passes_are_listed_apart_and_go_with_their_freed_buffer() {
+        crate::Game::new("stages", 1, 1).run_headless(0, |ctx| {
+            let simulate = ctx
+                .gfx
+                .create_compute("simulate", "fn update(i: u32) { items[i].x += 1.0; }");
+            let meter = ctx.gfx.create_compute(
+                "meter",
+                "fn compute(c: Cell) -> vec4<f32> { return vec4<f32>(scene_color(c.uv * frame.screen.xy), 1.0); }",
+            );
+            let light = ctx.gfx.create_render_target(4, 4);
+            let particles = ctx.gfx.create_gpu_buffer(8, &[]);
+            let material = ctx.gfx.default_material();
+            ctx.compute_passes.push(ComputePass::for_buffer(simulate, particles));
+            ctx.scene_compute_passes.push(ComputePass::new(meter, light));
+            ctx.scene_compute_passes
+                .push(ComputePass::for_buffer(simulate, particles));
+            ctx.collect_passes(Some(material));
+            let frame = &ctx.gfx.frame3d;
+            let buffer = particles.slot() | (1 << 31);
+            assert_eq!(frame.computes, [(simulate.id, buffer, material.id)]);
+            assert_eq!(
+                frame.scene_computes,
+                [(meter.id, light.id, material.id), (simulate.id, buffer, material.id)]
+            );
+            // Freeing the buffer takes its passes out of both stages.
+            ctx.gfx.free(particles);
+            ctx.collect_passes(Some(material));
+            assert!(ctx.compute_passes.is_empty());
+            assert_eq!(ctx.scene_compute_passes.len(), 1);
+            assert_eq!(ctx.gfx.frame3d.scene_computes, [(meter.id, light.id, material.id)]);
         });
     }
 
