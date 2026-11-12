@@ -736,6 +736,12 @@ fn pure_custom_functions_and_texture_channels_only_refresh_affected_shadows() {
     let (moved, kept) = compare(&mut renderers, &mut ctx);
     assert_eq!(kept, 0, "vertex shader reload refreshes depth");
     assert_eq!(compare(&mut renderers, &mut ctx).1, 1);
+    for r in &mut renderers {
+        r.free_shader(1);
+    }
+    let (freed, kept) = compare(&mut renderers, &mut ctx);
+    assert_eq!(kept, 0, "freeing a cached custom vertex shader refreshes depth");
+    assert_ne!(moved, freed, "shader removal restores the original geometry");
     // Built-in cutout: only alpha from its base texture affects shadows.
     desc.shader = None;
     for r in &mut renderers {
@@ -774,6 +780,23 @@ fn pure_custom_functions_and_texture_channels_only_refresh_affected_shadows() {
     let (holes, kept) = compare(&mut renderers, &mut ctx);
     assert_eq!(kept, 0, "base alpha updates refresh cutout shadows");
     assert_ne!(solid, holes, "the alpha change must be visible");
+    // Rebinding a freed base texture must invalidate its cached alpha.
+    rig.queue.write_texture(
+        rig.textures[0].texture.as_image_copy(),
+        &[255; 4],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: None,
+        },
+        rig.textures[0].texture.size(),
+    );
+    for r in &mut renderers {
+        r.rebind_materials(&rig.device, &rig.queue, &rig.textures, Some(0), None);
+    }
+    let (rebound, kept) = compare(&mut renderers, &mut ctx);
+    assert_eq!(kept, 0, "freeing/rebinding base textures refreshes cached cutout depth");
+    assert_ne!(holes, rebound);
     // A normal texture, even its alpha, cannot affect built-in cutout depth.
     desc.texture = None;
     desc.normal_map = Some(texture);
@@ -836,4 +859,31 @@ fn pure_custom_functions_and_texture_channels_only_refresh_affected_shadows() {
         0,
         "custom texture changes invalidate dependent depth"
     );
+    // Surface color changes on an opaque material change the camera image,
+    // but the shadow pass has no fragment stage and must retain its depth.
+    const COLOR: &str =
+        "fn surface(s: Surface) -> Surface { var out = s; out.albedo = vec3<f32>(0.2, 0.4, 0.7); return out; }";
+    let color_shader = ctx.gfx.create_shader("color", "");
+    let opaque = MaterialDesc {
+        shader: Some(color_shader),
+        ..floor_desc
+    };
+    for r in &mut renderers {
+        r.create_shader(&rig.device, "color", "").unwrap();
+        r.update_material(
+            &rig.device,
+            &rig.queue,
+            floor_material.id,
+            &GpuMaterialDesc::new(&opaque),
+            &rig.textures,
+        );
+    }
+    let (before, _) = compare(&mut renderers, &mut ctx);
+    compare(&mut renderers, &mut ctx);
+    for r in &mut renderers {
+        r.replace_shader(&rig.device, 2, "color", COLOR).unwrap();
+    }
+    let (after, kept) = compare(&mut renderers, &mut ctx);
+    assert_eq!(kept, 1, "opaque fragment-only shader reloads retain shadow depth");
+    assert_ne!(before, after, "the fragment shader reload must change the image");
 }

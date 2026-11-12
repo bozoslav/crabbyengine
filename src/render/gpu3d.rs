@@ -1125,6 +1125,9 @@ impl Renderer3D {
         texture: Option<u32>,
         array: Option<u32>,
     ) {
+        if let Some(texture) = texture {
+            self.texture_alpha_changed(texture, true);
+        }
         self.resources.rebind_materials(device, queue, textures, texture, array);
     }
 
@@ -1255,8 +1258,12 @@ impl Renderer3D {
         if id == 0 {
             return;
         }
-        for material in &mut self.resources.materials {
+        let vertex = self.shadow_cache.shaders.get(id as usize).is_none_or(|s| s.vertex);
+        for (index, material) in self.resources.materials.iter_mut().enumerate() {
             if material.shader == id {
+                if vertex || material.cutout {
+                    self.shadow_cache.material_changed(index as u32);
+                }
                 material.shader = 0;
             }
         }

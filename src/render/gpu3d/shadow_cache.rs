@@ -6,10 +6,11 @@
 //! its view-projection, its tile, its casters (meshes, transforms, tints
 //! and crossfades, compared exactly) and every resource their pass reads
 //! (meshes, materials, shaders, textures and the shadow maps themselves,
-//! tracked by an epoch for shared geometry and per-view material dependencies). Views drawn from
-//! data that can change without the renderer seeing it (skinned or
+//! tracked by an epoch for shared geometry and per-view material dependencies).
+//! Views drawn from data that can change without the renderer seeing it (skinned or
 //! morphing models, buffer-driven meshes, shaders with their own `vertex`
-//! function reading untracked inputs, cut-outs reading time, view inputs or a render target)
+//! function reading untracked inputs, cut-outs reading time, view inputs or
+//! a render target)
 //! are drawn every frame. So a kept view is the same depth the pass would
 //! draw again, and the frame is unchanged.
 //!
@@ -338,7 +339,8 @@ impl Renderer3D {
                     .any(|t| self.render_targets.textures.iter().any(|&(id, _)| id == *t)))
     }
 
-    /// A texture's pixels changed: cut-out shadows using it are drawn again.
+    /// A texture's pixels changed: only dependent shadow views are refreshed.
+    /// Built-in cutouts read alpha; custom functions may also read RGB.
     pub fn texture_alpha_changed(&mut self, id: u32, alpha_changed: bool) {
         for (material, m) in self.resources.materials.iter().enumerate() {
             let shader = self

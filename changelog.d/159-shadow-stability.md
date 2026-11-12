@@ -9,3 +9,6 @@
 - Compare uploaded texture alpha exactly so RGB-only changes and updates to
   normal, ORM and emissive maps retain built-in cutout shadows. CPU-uploaded
   textures retain one byte per texel for this comparison.
+### Fixed
+- Refresh retained shadow depth when a cached custom vertex shader is freed
+  or a cutout texture is freed and rebound to its fallback.
