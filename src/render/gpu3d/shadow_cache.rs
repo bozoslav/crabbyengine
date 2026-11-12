@@ -191,10 +191,10 @@ impl ShadowCache {
                 .iter()
                 .find(|(_, f)| f.name.as_deref() == Some(name))
                 .is_none_or(|(h, _)| {
-                    module
-                        .global_variables
-                        .iter()
-                        .any(|(g, global)| !info[h][g].is_empty() && global.name.as_deref() != Some("material"))
+                    module.global_variables.iter().any(|(g, global)| {
+                        !info[h][g].is_empty()
+                            && !global.binding.as_ref().is_some_and(|b| b.group == 1 && b.binding <= 7)
+                    })
                 })
         };
         ShaderShadow {
@@ -329,13 +329,13 @@ impl Renderer3D {
             .copied()
             .unwrap_or_else(ShaderShadow::unknown);
         shader.vertex_volatile
-            || (m.cutout
-                && (shader.surface_volatile
-                    || m.bindings
-                        .maps
-                        .iter()
-                        .flatten()
-                        .any(|t| self.render_targets.textures.iter().any(|&(id, _)| id == *t))))
+            || (m.cutout && shader.surface_volatile)
+            || ((shader.vertex || m.cutout)
+                && m.bindings
+                    .maps
+                    .iter()
+                    .flatten()
+                    .any(|t| self.render_targets.textures.iter().any(|&(id, _)| id == *t)))
     }
 
     /// A texture's pixels changed: cut-out shadows using it are drawn again.

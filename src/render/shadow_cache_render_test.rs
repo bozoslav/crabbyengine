@@ -796,4 +796,44 @@ fn pure_custom_functions_and_texture_channels_only_refresh_affected_shadows() {
         1,
         "normal-map changes retain depth"
     );
+    // A texture-sampling custom cutout can be retained too: its texture is
+    // tracked, whereas render targets and storage arrays remain volatile.
+    const SAMPLED: &str = "fn surface(s: Surface) -> Surface { var out = s; out.alpha = textureSample(base_texture, material_sampler, s.uv).a; return out; }";
+    desc.shader = Some(shader);
+    desc.texture = Some(texture);
+    desc.normal_map = None;
+    for r in &mut renderers {
+        r.replace_shader(&rig.device, 1, "sampled", SAMPLED).unwrap();
+        r.update_material(
+            &rig.device,
+            &rig.queue,
+            material.id,
+            &GpuMaterialDesc::new(&desc),
+            &rig.textures,
+        );
+    }
+    compare(&mut renderers, &mut ctx);
+    assert_eq!(
+        compare(&mut renderers, &mut ctx).1,
+        1,
+        "tracked custom texture inputs are reusable"
+    );
+    rig.queue.write_texture(
+        rig.textures[0].texture.as_image_copy(),
+        &[255; 4],
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: None,
+        },
+        rig.textures[0].texture.size(),
+    );
+    for r in &mut renderers {
+        r.texture_alpha_changed(0, true);
+    }
+    assert_eq!(
+        compare(&mut renderers, &mut ctx).1,
+        0,
+        "custom texture changes invalidate dependent depth"
+    );
 }

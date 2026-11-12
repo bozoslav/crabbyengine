@@ -3,7 +3,8 @@
   projections and caster content remain exactly unchanged, with stable
   camera-space bounds and direct light-space translation.
 - Reuse shadows from custom material functions whose inputs are tracked;
-  retain conservative redraws for time, view, GPU buffer and texture inputs.
+  retain conservative redraws for time, view, GPU buffer, texture array and
+  render-target inputs.
   Invalidate texture and shader changes only in views using affected materials.
 - Compare uploaded texture alpha exactly so RGB-only changes and updates to
   normal, ORM and emissive maps retain built-in cutout shadows. CPU-uploaded
