@@ -167,7 +167,7 @@ batch, image-reference and lifecycle suites pass; reference files are unchanged.
 The final single-material and many-material screenshots are byte-identical
 before/after. The alpha screenshots were inspected and intentionally differ
 because global ordering restores previously obscured surfaces:
-[before](draw-order-156-alpha-before.png), [after](draw-order-156-alpha-after.png).
+[before](fixtures/draw-order-156/alpha-before.png), [after](fixtures/draw-order-156/alpha-after.png).
 They are benchmark artifacts, not regenerated image references.
 
 `perf.get` keeps `render_inspector.schema = 1` and adds
