@@ -66,6 +66,11 @@ pub struct Perf {
     pub(crate) timings: Vec<SystemTiming>,
     /// Each timed system's place in the schedule, parallel to `timings`.
     pub(crate) schedule: Vec<crate::diagnostics::ScheduleSlot>,
+    /// What the schedule plan is built from when diagnostics ask for it.
+    pub(crate) plan_source: crate::diagnostics::PlanSource,
+    /// How batches were dispatched, parallel to `timings`: a batch counts
+    /// at the index of its first system.
+    pub(crate) dispatch: Vec<crate::diagnostics::Dispatch>,
     pub(crate) last_render_stats: RenderStats,
     /// The renderer's extra numbers for the last drawn frame, `None`
     /// before the first frame and without a renderer.
@@ -89,6 +94,8 @@ impl Perf {
         Self {
             timings: Vec::new(),
             schedule: Vec::new(),
+            plan_source: crate::diagnostics::PlanSource::default(),
+            dispatch: Vec::new(),
             last_render_stats: RenderStats::default(),
             last_render_detail: None,
             profiler: crate::profiler::Profiler::new(),

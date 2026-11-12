@@ -37,6 +37,18 @@ pub(super) struct Settings {
 }
 
 impl Settings {
+    /// The threshold in microseconds, for diagnostics.
+    pub(super) fn threshold_us(self) -> f32 {
+        self.threshold_us
+    }
+
+    /// Whether batches have other threads to go to, for diagnostics.
+    pub(super) fn threads(self) -> bool {
+        self.threads
+    }
+}
+
+impl Settings {
     /// `env`: whether the environment variable may override the builder.
     pub(super) fn new(on: bool, threshold: Option<Duration>, env: bool) -> Self {
         let value = env
@@ -270,6 +282,15 @@ fn run_batch(
     // allocation counter is the whole process's, so only systems that run
     // one at a time can be charged what they allocate.
     let parallel = settings.threads && !profiling && work_us - slowest_us >= settings.threshold_us;
+    // Two counters per batch, for `Ctx::ecs_diagnostics`.
+    if let Some(d) = ctx.perf.dispatch.get_mut(base) {
+        if parallel {
+            d.threaded_runs += 1;
+        } else {
+            d.inline_runs += 1;
+        }
+        d.usual_work_us = work_us;
+    }
     let shared = Shared {
         slots: &slots,
         input: &ctx.input,

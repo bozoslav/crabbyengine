@@ -2027,6 +2027,31 @@ impl Game {
             .collect()
     }
 
+    /// What `Ctx::ecs_diagnostics` builds the schedule plan from: the
+    /// planner's inputs, owned. Made when the systems are listed, not per
+    /// frame; the plan itself is only built when diagnostics are asked for.
+    fn plan_source(&self) -> crate::diagnostics::PlanSource {
+        let settings = batch::Settings::new(self.parallel, self.parallel_threshold, self.parallel_env);
+        crate::diagnostics::PlanSource {
+            systems: (self.plan_inputs().into_iter())
+                .map(|s| crate::diagnostics::PlanSystem {
+                    name: s.name,
+                    phase: s.phase,
+                    list: s.list,
+                    id: s.id,
+                    access: s.access.cloned(),
+                    view: s.view,
+                    interval: s.interval,
+                    barrier: s.barrier,
+                })
+                .collect(),
+            order: self.order.clone(),
+            parallel: settings.on,
+            threads: settings.threads(),
+            threshold_us: settings.threshold_us(),
+        }
+    }
+
     /// Makes sure there's one timing slot per system, and zeroes this frame's times.
     fn begin_timings(&self, ctx: &mut Ctx) {
         if ctx.perf.timings.len()
@@ -2048,6 +2073,9 @@ impl Game {
                 })
                 .collect();
             ctx.perf.schedule = self.schedule_slots();
+            ctx.perf.plan_source = self.plan_source();
+            ctx.perf.dispatch.clear();
+            ctx.perf.dispatch.resize(ctx.perf.timings.len(), crate::diagnostics::Dispatch::default());
         }
         for t in &mut ctx.perf.timings {
             t.last_ms = 0.0;

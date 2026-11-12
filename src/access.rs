@@ -523,6 +523,32 @@ impl SystemAccess {
         self.commands
     }
 
+    /// The declaration as names, for [`EcsDiagnostics`](crate::diagnostics::EcsDiagnostics).
+    pub(crate) fn describe(&self) -> crate::diagnostics::AccessDiagnostics {
+        let names = |items: &[Item], write: bool| -> Vec<String> {
+            (items.iter().filter(|i| i.write == write))
+                .map(|i| i.name.to_string())
+                .collect()
+        };
+        let services = |write: bool| -> Vec<String> {
+            (self.services.iter().filter(|(_, w)| *w == write))
+                .map(|(s, _)| s.name().to_string())
+                .collect()
+        };
+        crate::diagnostics::AccessDiagnostics {
+            exclusive: self.exclusive,
+            components_read: names(&self.components, false),
+            components_written: names(&self.components, true),
+            resources_read: names(&self.resources, false),
+            resources_written: names(&self.resources, true),
+            events_read: names(&self.events, false),
+            events_sent: names(&self.events, true),
+            services_read: services(false),
+            services_written: services(true),
+            commands: self.commands,
+        }
+    }
+
     /// `true` if `E` events may be read.
     pub(crate) fn reads_events(&self, id: TypeId) -> bool {
         self.events.iter().any(|i| i.key == Key::Type(id) && !i.write)
