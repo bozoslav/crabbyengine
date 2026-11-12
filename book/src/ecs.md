@@ -544,13 +544,28 @@ menu.0.push(session.0.clone());
 resource and the world next to it, for code that queries, spawns or reads
 other resources while it changes that one:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 struct Total(u32);
+struct Coins(u32);
 ctx.world.insert_resource(Total(0));
+// The resource and the rest of the world together; Total is back afterwards.
 ctx.world.resource_scope::<Total, _>(|world, total| {
-    world.query::<&u32>().for_each(|value| total.0 += *value);
+    world.query::<&Coins>().for_each(|coins| total.0 += coins.0);
 });
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:resource_scope}}
+```
+
+</div>
+</div>
 
 Inside the scope the resource is not in the world (looking it up finds
 nothing). It is back, with your changes, when the scope ends, also on an
@@ -609,8 +624,16 @@ if let Some([a, b]) = ctx.world.get_many_mut::<Health, 2>([a, b]) {
 | the same component of a few entities | `world.get_many_mut::<T, N>([a, b])` |
 | to spawn, despawn, add or remove in a loop | `ctx.commands` (above) |
 
-These are Rust calls. C and C++ work on whole columns and copy resources in
-and out, so they keep their existing calls (see [C and C++](c-cpp.md)).
+From C++, `world.resource_scope<T>(fn)` lends `fn` the world and a `T&`
+that it may change, and returns what `fn` returns. The resource is back,
+with the changes, when `fn` returns or throws (the exception is rethrown). Inside `fn` the world is unlocked, so it can
+query (the C++ form of `with_resources`), spawn, and open a scope for another
+resource (the form of `resources_mut`). C: `ponko_resource_scope(world, name,
+size, fn, user)` copies the resource out, removes it, calls `fn(world, value,
+user)`, and puts the value back (a resource of that name added inside the
+scope is replaced by it). `with_lookup` and `get_many_mut` stay Rust calls: C
+and C++ work on whole columns and component pointers instead (see [C and
+C++](c-cpp.md)).
 
 ## Sorting for cache locality
 

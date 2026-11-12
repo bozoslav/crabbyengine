@@ -66,6 +66,28 @@ Navigation scrolls the focused widget into view.
 
 Colors and text defaults come from the tree's theme:
 `ui.set_theme(UiTheme { panel, control, accent, text, title, text_size, title_size, .. })`.
+
+<div class="lang-pair">
+<div>
+
+```rust
+let mut tree = ponko::ui::Ui::default();
+let mut theme = tree.theme().clone();
+theme.accent = Color::rgb(1.0, 0.6, 0.1);
+theme.title_size = 32.0;
+tree.set_theme(theme); // nodes keep the paint set on them
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ui_theme}}
+```
+
+</div>
+</div>
+
 Every new node takes its `UiPaint` from the theme for its widget, and a title
 (`ui.title(parent, text)`) takes the theme's title color and size; paint set on
 a node (`.color(..)`, `.size(..)`, `set_paint`) overrides it, and a later
@@ -164,12 +186,53 @@ a repeat fragment. Supply exactly one more name set than repeated tracks.
 `tree.set_grid_named_line(node, 0, false, "middle", 1)` places a column start at
 the first matching line (axis 1 selects rows, `true` selects the end). Negative
 occurrences count backwards; zero also resolves implicit area start/end names.
-Unknown names follow taffy's implicit-line placement rules. Named spans are
-currently Rust-only. Nested repeats are not supported by taffy.
+Unknown names follow taffy's implicit-line placement rules. Nested repeats are
+not supported by taffy.
+
+A named span (CSS `span 2 edge`) reaches the `count`-th line called `name`
+from the other edge. It only means something when that other edge is a line
+number; against an automatic edge taffy treats it as a span of one track.
+
+<div class="lang-pair">
+<div>
+
+```rust
+use ponko::ui::layout::*;
+use ponko::ui::layout::style_helpers::*;
+let mut tree = ponko::ui::Ui::default();
+// Four 100-point columns; lines 3 and 5 are both called "edge".
+let strip = tree.add(ponko::ui::UiWidget::Panel, Style {
+    display: Display::Grid,
+    size: Size { width: length(400.0), height: length(40.0) },
+    grid_template_columns: vec![length(100.0), length(100.0), length(100.0), length(100.0)],
+    grid_template_column_names: vec![vec![], vec![], vec!["edge".into()], vec![], vec!["edge".into()]],
+    ..Style::default()
+});
+// From line 1 to the second "edge" line: all four columns.
+let banner = tree.add_child(strip, ponko::ui::UiWidget::Label, Style {
+    grid_column: Line { start: line(1), end: GridPlacement::NamedSpan("edge".into(), 2) },
+    ..Style::default()
+});
+tree.set_text(banner, "Sale");
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:ui_named_span}}
+```
+
+</div>
+</div>
+
+C: `ponko_ctx_ui_set_grid_named_span(ctx, target, node, axis, end, name, count)`,
+with `count` from 1 to 65535.
 
 C can use the layout descriptor fields or change existing nodes with
 `ponko_ctx_ui_set_grid_template_areas`, `ponko_ctx_ui_set_grid_line_names`,
-`ponko_ctx_ui_set_grid_area`, and `ponko_ctx_ui_set_grid_named_line`.
+`ponko_ctx_ui_set_grid_area`, `ponko_ctx_ui_set_grid_named_line` and
+`ponko_ctx_ui_set_grid_named_span`.
 Each takes the same screen or world-panel `target` as other UI calls. Inputs
 are copied during the call. Passing zero area/name rows clears those definitions;
 an empty area name restores automatic placement. `set_layout` replaces the whole

@@ -1292,7 +1292,7 @@ mod reference_workflow {
     }
 
     /// The files that may open a GPU device themselves, and why.
-    const OWN_DEVICE: [(&str, &str); 6] = [
+    const OWN_DEVICE: [(&str, &str); 7] = [
         ("src/render/gpu.rs", "the engine's own device"),
         ("src/render/render_test_support.rs", "the shared helpers"),
         (
@@ -1305,6 +1305,11 @@ mod reference_workflow {
             "src/render/gpu3d/scene_bench.rs",
             "benchmark support: `SceneBench::new` opens the high-performance adapter the benchmark reports; \
              its tests open theirs with gpu_with",
+        ),
+        (
+            "src/render/gpu3d/lod_bench.rs",
+            "benchmark support: `LodBench::new` opens the high-performance adapter the benchmark reports \
+             and applies PONKO_GPU_TIER; its test reports a missing one through no_gpu",
         ),
     ];
 

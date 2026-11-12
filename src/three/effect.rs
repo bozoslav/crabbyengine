@@ -105,14 +105,19 @@ impl ScreenEffect {
 /// bloom and tone mapping. Target effects run in list order. So in one frame:
 /// - screen effects (and later target effects) that sample `target` see
 ///   this frame's result;
-/// - materials, target cameras and compute passes, which run earlier, see the
-///   one from the frame before (all 0 at first).
+/// - materials, target cameras and compute passes of both stages
+///   ([`Ctx::compute_passes`](crate::Ctx::compute_passes),
+///   [`Ctx::scene_compute_passes`](crate::Ctx::scene_compute_passes)), which
+///   run earlier, see the one from the frame before (all 0 at first).
 ///
 /// **Resources.** `target` must be made by [`Graphics::create_render_target`](crate::gfx::Graphics::create_render_target);
 /// other textures are skipped. Its whole contents are replaced each frame. The
 /// game owns it and keeps it until it stops using it; the engine only writes
-/// it. An entry whose material samples its own `target` can't run (one pass
-/// can't read and write the same texture): it is skipped with a warning.
+/// it. These entries can't run, and are skipped with a warning naming the
+/// entry and the render target: one whose material samples its own `target`
+/// (one pass can't read and write the same texture), and one whose `target`
+/// something else wrote earlier in the frame (a compute pass, a target
+/// camera or an earlier target effect), whose result it would replace.
 /// Without a 3D scene nothing runs.
 ///
 /// ```no_run

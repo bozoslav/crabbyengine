@@ -600,3 +600,106 @@ fn a_history_reset_drops_the_last_frames_image_from_the_reflections() {
     assert!(reset < 40, "a reset frame reflects nothing stale: {reset}");
     assert!(after < 40, "and the next shows the dark box: {after}");
 }
+
+// What screen-space reflections cannot see, measured (the quality baseline
+// of `crates/ponko_bench/RAY_TRACING.md`): a mirror reflects only what the
+// depth buffer holds, so the box drops out of the floor wherever it is off
+// the screen or hidden behind something else, although the floor point and
+// its reflection ray are the same. A ray-traced reflection keeps it (see
+// `ray_query_prototype_render_test.rs`).
+
+/// The red at `reflection` once reflections have settled (a few frames, so
+/// the history holds this camera's image).
+fn settled_red(rig: &mut Rig, reflection: Vec3) -> i32 {
+    rig.ctx.post.ssr = 1.0;
+    let view_proj = rig.ctx.camera3d.view_proj();
+    let (x, y) = pixel(view_proj, reflection);
+    assert!(x < SIZE && y < SIZE, "the floor point is on screen");
+    let mut pixels = Vec::new();
+    for _ in 0..4 {
+        pixels = rig.draw();
+    }
+    i32::from(pixels[((y * SIZE + x) * 4) as usize])
+}
+
+/// The camera of `floor_rig`, turned down 48 degrees: the glowing box
+/// (corners from (-0.5, 0.5, -0.5) to (0.5, 1.5, 0.5)) is above the top of
+/// the screen, the floor point that mirrors it, (0, 0, 2), on it.
+fn look_below_the_box(rig: &mut Rig) {
+    let pitch = 48f32.to_radians();
+    let eye = rig.ctx.camera3d.position;
+    rig.ctx.camera3d.look_at(eye + vec3(0.0, -pitch.sin(), -pitch.cos()));
+    let view_proj = rig.ctx.camera3d.view_proj();
+    for corner in 0..8 {
+        let p = vec3(
+            if corner & 1 == 0 { -0.5 } else { 0.5 },
+            if corner & 2 == 0 { 0.5 } else { 1.5 },
+            if corner & 4 == 0 { -0.5 } else { 0.5 },
+        );
+        let clip = view_proj * p.extend(1.0);
+        assert!(clip.y / clip.w > 1.0, "box corner {p} is off the top of the screen");
+    }
+}
+
+/// Pins a known limitation, not wanted behaviour: screen-space reflections
+/// can't show what is off the screen. It is the measured baseline in §2 of
+/// `crates/ponko_bench/RAY_TRACING.md`. When the limitation is fixed, flip
+/// `lost < 40` to `lost > 120` and update the note.
+#[test]
+fn screen_space_reflections_lose_a_box_above_the_screen() {
+    let Some((mut on_screen, reflection, _)) = mirror_rig() else {
+        return;
+    };
+    // Positive control: the box on screen is reflected at the floor point.
+    let seen = settled_red(&mut on_screen, reflection);
+    drop(on_screen);
+    let Some((mut rig, _, _)) = mirror_rig() else {
+        return;
+    };
+    look_below_the_box(&mut rig);
+    let lost = settled_red(&mut rig, reflection);
+    eprintln!("ssr reflection of the glowing box: on screen {seen}, off screen {lost} (red, 0-255)");
+    assert!(seen > 120, "the box on screen is reflected: {seen}");
+    assert!(lost < 40, "the box above the screen is not: {lost}");
+}
+
+/// Pins a known limitation, not wanted behaviour: screen-space reflections
+/// can't show what is hidden behind something on screen. It is the
+/// measured baseline in §2 of `crates/ponko_bench/RAY_TRACING.md`. When the
+/// limitation is fixed, flip `hidden < 40` to `hidden > 120` and update the
+/// note.
+#[test]
+fn screen_space_reflections_lose_a_box_hidden_behind_a_wall() {
+    let Some((mut open, reflection, _)) = mirror_rig() else {
+        return;
+    };
+    let seen = settled_red(&mut open, reflection);
+    drop(open);
+    let Some((mut rig, _, _)) = mirror_rig() else {
+        return;
+    };
+    // A dark wall between the camera and the box, from y 0.6 to 2.4 at
+    // z 1.2: it hides the box from the camera at (0, 2, 6) (the box's
+    // lowest front edge is seen through y 0.69 there), while the floor
+    // point's ray to the box passes under it (y 0.4 at z 1.2).
+    let wall = rig.mesh(
+        &MeshData::cube(1.0),
+        MaterialDesc {
+            color: Color::BLACK,
+            roughness: 1.0,
+            ..Default::default()
+        },
+    );
+    rig.ctx.world.spawn((
+        Transform3D {
+            position: vec3(0.0, 1.5, 1.2),
+            scale: vec3(3.0, 1.8, 0.1),
+            ..Default::default()
+        },
+        Model::new(wall),
+    ));
+    let hidden = settled_red(&mut rig, reflection);
+    eprintln!("ssr reflection of the glowing box: in view {seen}, behind a wall {hidden} (red, 0-255)");
+    assert!(seen > 120, "the box in view is reflected: {seen}");
+    assert!(hidden < 40, "the box behind the wall is not: {hidden}");
+}

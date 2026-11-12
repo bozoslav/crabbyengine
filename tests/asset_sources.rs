@@ -253,6 +253,16 @@ fn source_ids_must_be_unique() {
 }
 
 #[test]
+fn has_source_says_which_ids_are_taken() {
+    game().run_headless(0, |ctx| {
+        assert!(!ctx.assets.has_source("mem"));
+        ctx.assets.add_source(MemorySource::new("mem"));
+        assert!(ctx.assets.has_source("mem"));
+        assert!(!ctx.assets.has_source("other"), "only the ids added");
+    });
+}
+
+#[test]
 fn hot_reload_skips_assets_from_added_sources() {
     // With hot reload on, a source's texture loads and frames run without
     // anything being watched or reloaded (only `assets/` files are watched).

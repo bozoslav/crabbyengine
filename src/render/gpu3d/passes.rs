@@ -63,6 +63,12 @@ pub(crate) enum Resource {
     ComputeScratch,
     /// The textures compute passes run on.
     ComputeTargets,
+    /// The buffers scene compute passes update in place, once the lit
+    /// frame is settled: what models draw from them is last frame's.
+    SceneStorageBuffers,
+    /// The textures scene compute passes run on: materials read last
+    /// frame's, effects this frame's.
+    SceneComputeTargets,
     /// The sky in every direction.
     SkyTexture,
     /// The filtered sky and probe maps that image-based lighting reads.
@@ -197,7 +203,7 @@ pub(crate) struct Desc {
 
 impl Resource {
     /// Every resource, in declaration order.
-    pub(crate) const ALL: [Resource; 41] = {
+    pub(crate) const ALL: [Resource; 43] = {
         use Resource::*;
         [
             VisibleDraws,
@@ -205,6 +211,8 @@ impl Resource {
             StorageBuffers,
             ComputeScratch,
             ComputeTargets,
+            SceneStorageBuffers,
+            SceneComputeTargets,
             SkyTexture,
             Environment,
             SunShadowMap,
@@ -263,6 +271,8 @@ impl Resource {
             Resource::StorageBuffers => desc("storage buffers", Persistent, F::Buffer, One),
             Resource::ComputeScratch => desc("compute scratch", Frame, F::Any, One),
             Resource::ComputeTargets => desc("compute targets", Persistent, F::Any, One),
+            Resource::SceneStorageBuffers => desc("scene storage buffers", Persistent, F::Buffer, One),
+            Resource::SceneComputeTargets => desc("scene compute targets", Persistent, F::Any, One),
             Resource::SkyTexture => desc("sky texture", Persistent, F::Hdr, One),
             Resource::Environment => desc("environment maps", Persistent, F::Hdr, One),
             Resource::SunShadowMap => desc("sun shadow map", Persistent, F::Depth, One),
@@ -394,6 +404,10 @@ features! {
     SSR_LEVELS = 33, "reflection levels";
     /// Global illumination's probes are updated from their views.
     GI_UPDATE = 34, "global illumination update";
+    /// Scene compute passes over GPU buffers.
+    SCENE_BUFFER_COMPUTE = 35, "scene buffer compute";
+    /// Scene compute passes over textures.
+    SCENE_TEXTURE_COMPUTE = 36, "scene texture compute";
 }
 
 impl Features {
@@ -592,6 +606,8 @@ pub(crate) enum Access {
     SampleMs,
     /// Sampled as the previous frame left it.
     SamplePrevious,
+    /// Read (a vertex or storage buffer) as the previous frame left it.
+    ReadPrevious,
     /// The source of a copy.
     CopyFrom,
     /// The destination of a copy.
@@ -631,7 +647,7 @@ impl Access {
     }
 
     const fn previous(self) -> bool {
-        matches!(self, Access::SamplePrevious)
+        matches!(self, Access::SamplePrevious | Access::ReadPrevious)
     }
 
     /// Whether it is an attachment of a render pass (not a resolve target).
@@ -653,6 +669,7 @@ impl Access {
             Access::Sample => "sampled texture",
             Access::SampleMs => "multisampled texture",
             Access::SamplePrevious => "last frame's texture",
+            Access::ReadPrevious => "last frame's buffer",
             Access::CopyFrom => "copy source",
             Access::CopyTo => "copy destination",
             Access::Read => "read",
@@ -749,7 +766,8 @@ const fn u(resource: Resource, access: Access) -> Use {
 }
 
 /// A step's uses: what drawing models reads in every pass (culled draws,
-/// posed vertices, what compute passes made), then the step's own.
+/// posed vertices, what compute passes made, and what scene compute passes
+/// made last frame), then the step's own.
 macro_rules! models {
     ($($rest:expr),* $(,)?) => {
         &[
@@ -757,6 +775,8 @@ macro_rules! models {
             u(SkinnedVertices, A::Read).on(F::SKINNING),
             u(StorageBuffers, A::Read).on(F::BUFFER_COMPUTE),
             u(ComputeTargets, A::Sample).on(F::TEXTURE_COMPUTE),
+            u(SceneStorageBuffers, A::ReadPrevious).on(F::SCENE_BUFFER_COMPUTE),
+            u(SceneComputeTargets, A::SamplePrevious).on(F::SCENE_TEXTURE_COMPUTE),
             $($rest),*
         ]
     };
@@ -1072,12 +1092,36 @@ pub(crate) const FRAME_PASSES: [Pass; 8] = [
                     u(Hdr, A::Color),
                 ],
             ),
+            // The game's scene compute passes read the settled frame and
+            // its depth, and update their buffers or textures in place
+            // (through the scratch, as the prelude's do).
+            step(
+                "scene buffer compute",
+                on(F::SCENE_BUFFER_COMPUTE),
+                &[
+                    u(Hdr, A::Sample),
+                    u(SceneDepth, A::SampleMs),
+                    u(SceneStorageBuffers, A::Write),
+                ],
+            ),
+            step(
+                "scene texture compute",
+                on(F::SCENE_TEXTURE_COMPUTE),
+                &[
+                    u(Hdr, A::Sample),
+                    u(SceneDepth, A::SampleMs),
+                    u(ComputeScratch, A::Write),
+                    u(ComputeScratch, A::CopyFrom),
+                    u(SceneComputeTargets, A::CopyTo),
+                ],
+            ),
             step(
                 "target effects",
                 on(F::TARGET_EFFECTS),
                 &[
                     u(Hdr, A::Sample),
                     u(SceneDepth, A::SampleMs),
+                    u(SceneComputeTargets, A::Sample).on(F::SCENE_TEXTURE_COMPUTE),
                     u(EffectTargets, A::Color),
                 ],
             ),
@@ -1090,6 +1134,7 @@ pub(crate) const FRAME_PASSES: [Pass; 8] = [
                     u(Hdr, A::Sample),
                     u(SceneDepth, A::SampleMs),
                     u(EffectTargets, A::Sample).on(F::TARGET_EFFECTS),
+                    u(SceneComputeTargets, A::Sample).on(F::SCENE_TEXTURE_COMPUTE),
                     u(EffectScratch, A::Color),
                 ],
             ),
@@ -1100,6 +1145,7 @@ pub(crate) const FRAME_PASSES: [Pass; 8] = [
                     u(EffectScratch, A::Sample),
                     u(SceneDepth, A::SampleMs),
                     u(EffectTargets, A::Sample).on(F::TARGET_EFFECTS),
+                    u(SceneComputeTargets, A::Sample).on(F::SCENE_TEXTURE_COMPUTE),
                     u(Hdr, A::Color),
                 ],
             ),
@@ -1485,9 +1531,10 @@ fn check_step(pass: &Pass, step: &'static Step) -> Result<(), PassError> {
             }
             A::SampleMs if desc.samples != Samples::Scene => return Err(invalid(a, "it has one sample")),
             A::Resolve if desc.samples != Samples::One => return Err(invalid(a, "it is multisampled")),
-            A::SamplePrevious if desc.lifetime == Lifetime::Frame => {
+            A::SamplePrevious | A::ReadPrevious if desc.lifetime == Lifetime::Frame => {
                 return Err(invalid(a, "it isn't kept across frames"));
             }
+            A::ReadPrevious if !buffer => return Err(invalid(a, "it isn't a buffer")),
             _ => {}
         }
         // What happens together with `a`: the uses whose conditions some

@@ -576,6 +576,7 @@ mod tests {
             morph_count: 2,
             material: u32::MAX,
             parts: (0, 0),
+            lod: u32::MAX,
         });
         // Another model's weight first, so `morph_first` matters.
         frame.weights = vec![9.0, 0.5, 0.25];
@@ -674,6 +675,7 @@ mod tests {
             morph_count: 1,
             material: u32::MAX,
             parts: (0, 0),
+            lod: u32::MAX,
         });
         frame.weights = vec![9.0, 0.5];
         let corners = (rest.len() * size_of::<super::Vertex>()) as u64;

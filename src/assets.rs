@@ -279,6 +279,11 @@ pub(crate) struct Sources {
 }
 
 impl Sources {
+    /// Whether a source with this id was added.
+    pub(crate) fn has(&self, id: &str) -> bool {
+        self.list.iter().any(|s| s.id() == id)
+    }
+
     /// Whether no source was added (only the default one is searched).
     #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     pub(crate) fn is_empty(&self) -> bool {
@@ -432,6 +437,11 @@ impl SharedSources {
     #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     pub(crate) fn locate(&self, name: &str) -> Option<Origin> {
         self.0.borrow().locate(name)
+    }
+
+    /// As [`Sources::has`].
+    pub(crate) fn has(&self, id: &str) -> bool {
+        self.0.borrow().has(id)
     }
 
     /// As [`Sources::is_empty`].
@@ -725,6 +735,22 @@ impl Assets {
     /// If the source's id is empty or a source with that id was already added.
     pub fn add_source(&mut self, source: impl crate::AssetSource) {
         self.asset_sources.add(Box::new(source));
+    }
+
+    /// Whether a source with id `id` was added with
+    /// [`add_source`](Self::add_source), for code that adds a source only
+    /// once (`add_source` panics on a duplicate id).
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     assert!(!ctx.assets.has_source("built-in"));
+    ///     ctx.assets.add_source(MemorySource::new("built-in"));
+    ///     assert!(ctx.assets.has_source("built-in"));
+    /// });
+    /// ```
+    pub fn has_source(&self, id: &str) -> bool {
+        self.asset_sources.has(id)
     }
 
     /// Reads asset `name` (from the added sources, then `assets/`) and

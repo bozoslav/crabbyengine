@@ -30,12 +30,15 @@ Frame edges clear after each frame (after each tick in headless runs).
 ## Input scenarios
 
 To replay input by simulation tick, build an `InputScenario` with
-`.at(tick, event)` and install it with `Game::input_scenario` (Rust only for
-now). Before each tick's simulation systems run, the scenario feeds that tick's
+`.at(tick, event)` and install it with `Game::input_scenario` (C++:
+`ponko::input_scenario`, `game::input_scenario`). Before each tick's simulation systems run, the scenario feeds that tick's
 events through `feed_input`, the same path as live input, so actions see
 ordinary pressed, held and released states. The same seed and scenario
 therefore give the same headless run. Nothing is injected unless a game calls
 `input_scenario` (or a tool is explicitly allowed to, see below).
+
+<div class="lang-pair">
+<div>
 
 ```rust
 # struct Jumps { count: u32 }
@@ -51,6 +54,16 @@ let (world, report) = Game::new("test", 1, 1)
     .run_headless_scenario(scenario, |ctx| {});
 report.assert_passed(); // or look at report.failure
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:input_scenario}}
+```
+
+</div>
+</div>
 
 - **Ticks.** The first tick of a run is 0. A step at tick `t` is fed before
   tick `t`'s systems run, and several steps on one tick keep the order they were
@@ -73,11 +86,16 @@ report.assert_passed(); // or look at report.failure
   passing), `resource` compares a reflected resource's JSON field, and `count`
   counts the entities with a reflected component. The first check that doesn't
   hold ends the run, and `ScenarioReport::failure` says which: its `step`, its
-  `tick`, what was `expected` and what was `actual`, as data.
+  `tick`, what was `expected` and what was `actual`, as data. In C++,
+  `scenario_check::action`, `resource` and `count` build the same checks.
 - **The report** is a `ScenarioReport` resource in the world (status `pending`,
   `running`, `passed`, `failed` or `cancelled`, ticks run, checks passed).
   `run_headless_scenario` runs exactly `scenario.ticks()` ticks, which is the
-  bound on a run, and hands it back with the world.
+  bound on a run, and hands it back with the world. C++: `run.report` (a
+  `ponko::scenario_report`: `status`, `passed()`, `ticks_run`,
+  `checks_passed`, `failure_step`, `failure_tick`, ...) and
+  `world.scenario_report_json()` for the whole report, failure included; C:
+  `ponko_world_scenario_report` and `ponko_world_scenario_report_json`.
 - **Releasing input.** `ctx.input.cancel_scenario(&mut ctx.world, &mut ctx.time)`, a scenario that replaces
   it, a failed check and a tool's disconnect release every key, button and axis
   the scenario still holds. A run in game code that simply finishes leaves its
@@ -88,12 +106,15 @@ report.assert_passed(); // or look at report.failure
   up until its next key event.
 - **Started from a system.** `ctx.input.start_scenario` called from a simulation
   system begins on the next tick; nothing of it (input or checks) happens on the
-  tick that started it.
+  tick that started it. C++: `ctx.start_scenario(s)`, `ctx.cancel_scenario()`
+  (true if one was running).
 
 ### The scenario file
 
 A scenario also has a small versioned JSON form, which tools send and tests can
-keep next to their fixtures (`InputScenario::from_json`, `to_json`):
+keep next to their fixtures (`InputScenario::from_json`, `to_json`; C++
+`input_scenario::from_json`, `to_json`; C `ponko_input_scenario_from_json`,
+`ponko_input_scenario_to_json`):
 
 ```json
 {
@@ -171,13 +192,43 @@ Use `action_down`, `action_pressed`, `action_released`, `action_axis` and
 return false or zero. Names are case-sensitive. Queries borrow their names
 and allocate nothing.
 
-In Rust, resolve each name once and keep the `Copy` `ActionId`: queries by id
-are an array index instead of a name lookup, and an unknown name is an error
-logged when you resolve it, not a silent `false` every frame. `ctx.input.action_id("jump")`
-resolves one, `ctx.input.action_ids(&["jump", "fire"])` several, and the `actions!`
-macro (as in the example above) declares the names in one place. Ids stay
-valid when you rebind with `set_actions`. The queries accept an id or a name,
-so both spellings work. C and C++ keep the name forms for now.
+Resolve each name once and keep the `ActionId` (C++ `ponko::action_id`):
+queries by id are an array index instead of a name lookup, and an unknown name
+is an error when you resolve it, not a silent `false` every frame.
+`ctx.input.action_id("jump")` resolves one, `ctx.input.action_ids(&["jump", "fire"])`
+several, and the Rust `actions!` macro (as in the example above) declares the
+names in one place. Ids stay valid when you rebind with `set_actions`. The
+queries accept an id or a name, so both spellings work.
+
+<div class="lang-pair">
+<div>
+
+```rust
+struct Controls { jump: ActionId, fire: ActionId }
+
+// Once, after set_actions: an unknown name is logged here, not every frame.
+let [jump, fire] = ctx.input.action_ids(&["jump", "fire"]);
+let controls = Controls { jump, fire };
+
+let shoots = ctx.input.action_pressed(controls.fire) && !ctx.input.action_down(controls.jump);
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:action_ids}}
+```
+
+</div>
+</div>
+
+Rust logs an unknown name and returns an id that reads false and zero; C++
+`action_id` and `action_ids` throw `ponko::error` (kind `not found`, the
+message lists the known names). C: `ponko_ctx_action_id` and
+`ponko_ctx_action_ids` give `PONKO_ACTION_NONE` for an unknown name and return
+`PONKO_NOT_FOUND`; `ponko_ctx_action_down_id`, `_pressed_id`, `_released_id`,
+`_axis_id` and `_axis2_id` query by id.
 
 To rebind, copy `ctx.input.actions()`, call `set` or `remove`, then install it with
 `ctx.set_actions`. Rust uses `.clone()` to copy the map; C++ returns an owned

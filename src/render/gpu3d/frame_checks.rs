@@ -172,6 +172,8 @@ impl Renderer3D {
             Features::SKINNING.only_if(self.skinning.has_work()),
             Features::BUFFER_COMPUTE.only_if(self.lists.computes.iter().any(buffer)),
             Features::TEXTURE_COMPUTE.only_if(self.lists.computes.iter().any(|c| !buffer(c))),
+            Features::SCENE_BUFFER_COMPUTE.only_if(self.lists.scene_computes.iter().any(buffer)),
+            Features::SCENE_TEXTURE_COMPUTE.only_if(self.lists.scene_computes.iter().any(|c| !buffer(c))),
             Features::SKY_TEXTURE.only_if(self.atmosphere && sky),
             Features::SKY_BRDF.only_if(self.environment.needs_lookup()),
             Features::SKY_MAPS.only_if(sky),
@@ -346,7 +348,7 @@ static LAST_STORES: std::sync::Mutex<std::collections::BTreeMap<(usize, usize, b
 /// What `renderer`'s last frame did with the scene depth at the end of its
 /// opaque pass (for tests).
 #[cfg(test)]
-fn depth_after_opaque(renderer: &Renderer3D) -> Option<wgpu::StoreOp> {
+pub(crate) fn depth_after_opaque(renderer: &Renderer3D) -> Option<wgpu::StoreOp> {
     let key = (std::ptr::from_ref(renderer) as usize, passes::OPAQUE, true);
     LAST_STORES.lock().unwrap().get(&key).copied()
 }

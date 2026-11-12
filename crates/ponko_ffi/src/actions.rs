@@ -2,11 +2,11 @@
 use crate::ctx::{ctx_access, out};
 use crate::keys::{button_from_c, gamepad_axis_from_c, gamepad_button_from_c, key_from_c};
 use crate::types::{PonkoVec2, to_c};
-use crate::{Failure, PonkoCtx, PonkoStatus, boundary, invalid, invalid_owned};
+use crate::{Failure, PonkoCtx, PonkoStatus, boundary, engine_error, invalid, invalid_owned};
 use ponko::actions::InputEvent;
 use ponko::input::Gamepad;
 use ponko::input::GamepadStick;
-use ponko::{Action, ActionMap, Axis2Binding, AxisBinding, ButtonBinding};
+use ponko::{Action, ActionId, ActionMap, Axis2Binding, AxisBinding, ButtonBinding};
 use std::ffi::{CStr, c_char};
 
 /// Owned binding configuration. Install a copy with `ponko_ctx_set_actions`.
@@ -322,17 +322,22 @@ pub unsafe extern "C" fn ponko_ctx_feed_input(
     // SAFETY: caller supplies callback context.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.input.feed(match kind {
-                0 => InputEvent::Key(key(input)?, value != 0.0),
-                1 => InputEvent::Mouse(mouse(input)?, value != 0.0),
-                2 => InputEvent::GamepadButton(pad(slot)?, button(input)?, value != 0.0),
-                3 => InputEvent::GamepadAxis(pad(slot)?, axis(input)?, value),
-                4 => InputEvent::FocusLost,
-                5 => InputEvent::GamepadDisconnected(pad(slot)?),
-                _ => return Err(invalid("unknown input event kind")),
-            });
+            c.input.feed(input_event(kind, slot, input, value)?);
             Ok(())
         })
+    })
+}
+
+/// The event `ponko_ctx_feed_input` (and a scenario's input step) describes.
+pub(crate) fn input_event(kind: u32, slot: u32, input: u32, value: f32) -> Result<InputEvent, Failure> {
+    Ok(match kind {
+        0 => InputEvent::Key(key(input)?, value != 0.0),
+        1 => InputEvent::Mouse(mouse(input)?, value != 0.0),
+        2 => InputEvent::GamepadButton(pad(slot)?, button(input)?, value != 0.0),
+        3 => InputEvent::GamepadAxis(pad(slot)?, axis(input)?, value),
+        4 => InputEvent::FocusLost,
+        5 => InputEvent::GamepadDisconnected(pad(slot)?),
+        _ => return Err(invalid("unknown input event kind")),
     })
 }
 
@@ -437,6 +442,187 @@ pub unsafe extern "C" fn ponko_ctx_action_axis2(
         ctx_access(ctx, |c| {
             let name = text(name)?;
             out(value, to_c(c.input.action_axis2(name)))
+        })
+    })
+}
+
+/// An unknown action name: `PONKO_NOT_FOUND`, naming the known actions.
+fn unknown_action(e: &ponko::actions::UnknownAction) -> Failure {
+    engine_error(ponko::Error::new(ponko::ErrorKind::NotFound, e.to_string()))
+}
+
+/// The action id of no action (Rust's `ActionId::NONE`): queries with it read
+/// false/zero. `ponko_ctx_action_id` gives it for an unknown name.
+pub const PONKO_ACTION_NONE: u32 = u32::MAX;
+
+/// Resolves action `name` once into an id for the `ponko_ctx_action_*_id`
+/// queries, which then skip the name lookup (Rust's `ctx.input.action_id`).
+/// Resolve in setup, after `ponko_ctx_set_actions`; rebinding later keeps the
+/// id valid. An id belongs to the game it came from. An unknown name writes
+/// `PONKO_ACTION_NONE` and returns `PONKO_NOT_FOUND`, with the known names in
+/// `ponko_last_error()`.
+/// ```
+/// let mut id = 0u32;
+/// assert_ne!(unsafe { ponko_ffi::ponko_ctx_action_id(std::ptr::null_mut(), c"jump".as_ptr(), &mut id) } as u32, 0);
+/// ```
+/// # Safety
+/// Context must be live or null, name NUL-terminated, output writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_ctx_action_id(ctx: *mut PonkoCtx, name: *const c_char, out_id: *mut u32) -> PonkoStatus {
+    // SAFETY: caller supplies callback context, string and independent output.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let name = text(name)?;
+            if out_id.is_null() {
+                return Err(invalid("output is null"));
+            }
+            match c.input.try_action_id(name) {
+                Ok(id) => out(out_id, id.to_bits()),
+                Err(e) => {
+                    out(out_id, PONKO_ACTION_NONE)?;
+                    Err(unknown_action(&e))
+                }
+            }
+        })
+    })
+}
+
+/// Resolves `count` names at once into `out_ids` (Rust's
+/// `ctx.input.action_ids`): every unknown one becomes `PONKO_ACTION_NONE`,
+/// and the call returns `PONKO_NOT_FOUND` naming the first.
+/// ```
+/// assert_ne!(unsafe { ponko_ffi::ponko_ctx_action_ids(std::ptr::null_mut(), std::ptr::null(), 0, std::ptr::null_mut()) } as u32, 0);
+/// ```
+/// # Safety
+/// Context must be live or null; `names` holds `count` NUL-terminated
+/// strings and `out_ids` room for `count` ids (either may be null with count 0).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_ctx_action_ids(
+    ctx: *mut PonkoCtx,
+    names: *const *const c_char,
+    count: usize,
+    out_ids: *mut u32,
+) -> PonkoStatus {
+    // SAFETY: caller supplies callback context, string array and output array.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            if count != 0 && (names.is_null() || out_ids.is_null()) {
+                return Err(invalid("names or output is null"));
+            }
+            let mut first_unknown = None;
+            for i in 0..count {
+                let name = text(*names.add(i))?;
+                let id = match c.input.try_action_id(name) {
+                    Ok(id) => id.to_bits(),
+                    Err(e) => {
+                        first_unknown.get_or_insert(e);
+                        PONKO_ACTION_NONE
+                    }
+                };
+                out_ids.add(i).write(id);
+            }
+            match first_unknown {
+                None => Ok(()),
+                Some(e) => Err(unknown_action(&e)),
+            }
+        })
+    })
+}
+
+/// `ponko_ctx_action_down` by an id from `ponko_ctx_action_id`. An id that
+/// names no action (`PONKO_ACTION_NONE`) reads zero.
+/// ```
+/// assert_ne!(unsafe { ponko_ffi::ponko_ctx_action_down_id(std::ptr::null_mut(), 0, &mut false) } as u32, 0);
+/// ```
+/// # Safety
+/// Context must be live or null, output writable and non-overlapping.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_ctx_action_down_id(ctx: *mut PonkoCtx, action: u32, value: *mut bool) -> PonkoStatus {
+    // SAFETY: caller supplies callback context and independent output.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let id = ActionId::from_bits(action);
+            out(value, c.input.action_down(id))
+        })
+    })
+}
+
+/// `ponko_ctx_action_pressed` by an id from `ponko_ctx_action_id`. An id that
+/// names no action (`PONKO_ACTION_NONE`) reads zero.
+/// ```
+/// assert_ne!(unsafe { ponko_ffi::ponko_ctx_action_pressed_id(std::ptr::null_mut(), 0, &mut false) } as u32, 0);
+/// ```
+/// # Safety
+/// Context must be live or null, output writable and non-overlapping.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_ctx_action_pressed_id(ctx: *mut PonkoCtx, action: u32, value: *mut bool) -> PonkoStatus {
+    // SAFETY: caller supplies callback context and independent output.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let id = ActionId::from_bits(action);
+            out(value, c.input.action_pressed(id))
+        })
+    })
+}
+
+/// `ponko_ctx_action_released` by an id from `ponko_ctx_action_id`. An id that
+/// names no action (`PONKO_ACTION_NONE`) reads zero.
+/// ```
+/// assert_ne!(unsafe { ponko_ffi::ponko_ctx_action_released_id(std::ptr::null_mut(), 0, &mut false) } as u32, 0);
+/// ```
+/// # Safety
+/// Context must be live or null, output writable and non-overlapping.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_ctx_action_released_id(
+    ctx: *mut PonkoCtx,
+    action: u32,
+    value: *mut bool,
+) -> PonkoStatus {
+    // SAFETY: caller supplies callback context and independent output.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let id = ActionId::from_bits(action);
+            out(value, c.input.action_released(id))
+        })
+    })
+}
+
+/// `ponko_ctx_action_axis` by an id from `ponko_ctx_action_id`. An id that
+/// names no action (`PONKO_ACTION_NONE`) reads zero.
+/// ```
+/// assert_ne!(unsafe { ponko_ffi::ponko_ctx_action_axis_id(std::ptr::null_mut(), 0, &mut 0.0) } as u32, 0);
+/// ```
+/// # Safety
+/// Context must be live or null, output writable and non-overlapping.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_ctx_action_axis_id(ctx: *mut PonkoCtx, action: u32, value: *mut f32) -> PonkoStatus {
+    // SAFETY: caller supplies callback context and independent output.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let id = ActionId::from_bits(action);
+            out(value, c.input.action_axis(id))
+        })
+    })
+}
+
+/// `ponko_ctx_action_axis2` by an id from `ponko_ctx_action_id`. An id that
+/// names no action (`PONKO_ACTION_NONE`) reads zero.
+/// ```
+/// assert_ne!(unsafe { ponko_ffi::ponko_ctx_action_axis2_id(std::ptr::null_mut(), 0, &mut ponko_ffi::PonkoVec2 { x: 0.0, y: 0.0 }) } as u32, 0);
+/// ```
+/// # Safety
+/// Context must be live or null, output writable and non-overlapping.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_ctx_action_axis2_id(
+    ctx: *mut PonkoCtx,
+    action: u32,
+    value: *mut PonkoVec2,
+) -> PonkoStatus {
+    // SAFETY: caller supplies callback context and independent output.
+    boundary(|| unsafe {
+        ctx_access(ctx, |c| {
+            let id = ActionId::from_bits(action);
+            out(value, to_c(c.input.action_axis2(id)))
         })
     })
 }

@@ -12,6 +12,7 @@
 
 use glam::{Mat4, Vec3};
 
+use super::custom_passes::{Stage, Writer};
 use super::*;
 
 /// The frame's screen and camera, decided first and read by the later steps.
@@ -333,6 +334,96 @@ impl Renderer3D {
         self.post.prepare_smaa(device, queue, size, made_for);
     }
 
+    /// The compute passes of `stage` that can run, from the frame's
+    /// `wanted` (compute, target texture or GPU buffer with the top bit
+    /// set, material), into `list` (compute, index into the render
+    /// targets' `computes` or the GPU buffer with the top bit set,
+    /// material). Freed passes, buffers and targets, and passes the hazard
+    /// check skips, are left out.
+    fn list_computes(
+        &mut self,
+        device: &wgpu::Device,
+        wanted: &[(u32, u32, u32)],
+        stage: Stage,
+        list: &mut Vec<(u32, usize, u32)>,
+    ) {
+        list.clear();
+        for (index, &(compute, target, material)) in wanted.iter().enumerate() {
+            if material as usize >= self.resources.materials.len() || self.custom_passes.skips(stage, index) {
+                continue;
+            }
+            if self.buffer_computes.get(compute as usize).copied() != Some(target & (1 << 31) != 0) {
+                continue;
+            }
+            // A freed pass has no pipeline.
+            if !self
+                .compute_pipelines
+                .get(compute as usize)
+                .is_some_and(Option::is_some)
+            {
+                continue;
+            }
+            if target & (1 << 31) != 0 {
+                let id = target & !(1 << 31);
+                if self
+                    .resources
+                    .storage_buffers
+                    .get(id as usize)
+                    .is_some_and(Option::is_some)
+                {
+                    list.push((compute, target as usize, material));
+                }
+                continue;
+            }
+            if let Some(state) =
+                self.render_targets
+                    .compute_state(device, target, self.compute_layouts.as_ref().map(|l| &l.0))
+            {
+                list.push((compute, state, material));
+            }
+        }
+    }
+
+    /// Lists the frame's writers of render targets in frame order and
+    /// checks them (see `custom_passes.rs`): `custom_passes.skips` then
+    /// says which passes this frame leaves out.
+    fn check_custom_passes(&mut self, frame: &Frame3D) {
+        let writers = &mut self.custom_passes.writers;
+        writers.clear();
+        fn textures(stage: Stage, list: &[(u32, u32, u32)]) -> impl Iterator<Item = Writer> + '_ {
+            list.iter()
+                .enumerate()
+                .filter(|(_, (_, target, _))| target & (1 << 31) == 0)
+                .map(move |(index, &(shader, target, _))| Writer {
+                    stage,
+                    index,
+                    shader,
+                    target,
+                })
+        }
+        writers.extend(textures(Stage::Compute, &frame.computes));
+        writers.extend(frame.views.iter().enumerate().map(|(index, view)| Writer {
+            stage: Stage::TargetCamera,
+            index,
+            shader: index as u32,
+            target: view.target,
+        }));
+        writers.extend(textures(Stage::SceneCompute, &frame.scene_computes));
+        writers.extend(textures(Stage::TargetEffect, &frame.target_effects));
+        let (materials, targets) = (&self.resources.materials, &self.render_targets.textures);
+        self.custom_passes.run(|pass| {
+            // Only target effects render to their target (see `check`).
+            let Some(&(_, _, material)) = frame.target_effects.get(pass.index) else {
+                return false;
+            };
+            let target = targets.iter().find(|(t, _)| *t == pass.target);
+            materials
+                .get(material as usize)
+                .zip(target)
+                .is_some_and(|(m, (_, texture))| m.bindings.textures.contains(texture))
+        });
+    }
+
     /// Step 5: this frame's draw lists (runs of every view, effects, compute
     /// passes, material overrides, posed skins), sorted for the passes.
     /// Returns how many instances the frame uploads.
@@ -389,12 +480,17 @@ impl Renderer3D {
                 .iter()
                 .filter(|&&(e, m)| (e as usize) < effects && (m as usize) < materials),
         );
+        // The game's passes that would break a resource rule are left out
+        // (see `custom_passes.rs`).
+        self.check_custom_passes(frame);
+        let custom = &self.custom_passes;
         self.effects.prepare_targets(
             device,
             &frame.target_effects,
             &self.resources.materials,
             &self.render_targets.textures,
             &self.shaders.layout,
+            |i| custom.skips(Stage::TargetEffect, i),
         );
         self.lists.cascades = frame.cascades;
         self.lists.redrawn = frame.redrawn;
@@ -405,43 +501,12 @@ impl Renderer3D {
             mine.clear();
             mine.extend_from_slice(theirs);
         }
-        self.lists.computes.clear();
-        for &(compute, target, material) in &frame.computes {
-            if material as usize >= self.resources.materials.len() {
-                continue;
-            }
-            if self.buffer_computes.get(compute as usize).copied() != Some(target & (1 << 31) != 0) {
-                continue;
-            }
-            if target & (1 << 31) != 0 {
-                let id = target & !(1 << 31);
-                if self
-                    .compute_pipelines
-                    .get(compute as usize)
-                    .is_some_and(Option::is_some)
-                    && self
-                        .resources
-                        .storage_buffers
-                        .get(id as usize)
-                        .is_some_and(Option::is_some)
-                {
-                    self.lists.computes.push((compute, target as usize, material));
-                }
-                continue;
-            }
-            // A freed pass has no pipeline.
-            if self
-                .compute_pipelines
-                .get(compute as usize)
-                .is_some_and(Option::is_some)
-                && (material as usize) < self.resources.materials.len()
-                && let Some(state) =
-                    self.render_targets
-                        .compute_state(device, target, self.compute_layouts.as_ref().map(|l| &l.0))
-            {
-                self.lists.computes.push((compute, state, material));
-            }
-        }
+        let mut computes = std::mem::take(&mut self.lists.computes);
+        self.list_computes(device, &frame.computes, Stage::Compute, &mut computes);
+        self.lists.computes = computes;
+        let mut computes = std::mem::take(&mut self.lists.scene_computes);
+        self.list_computes(device, &frame.scene_computes, Stage::SceneCompute, &mut computes);
+        self.lists.scene_computes = computes;
         // Target cameras' instances follow the main view's in one buffer,
         // then those of global illumination's probe views.
         let total = frame.instances.len()

@@ -189,6 +189,10 @@ name = "target_effect"
 required-features = ["3d"]
 
 [[example]]
+name = "scene_compute"
+required-features = ["3d"]
+
+[[example]]
 name = "web_smoke_3d"
 required-features = ["3d"]
 

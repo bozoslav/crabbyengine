@@ -170,6 +170,17 @@ impl ActionId {
     pub fn is_none(self) -> bool {
         self == Self::NONE
     }
+    /// The id as a number, for the C ABI. Not a stable format.
+    #[doc(hidden)]
+    pub fn to_bits(self) -> u32 {
+        self.0
+    }
+    /// An id from [`to_bits`](Self::to_bits). A number that names no action
+    /// of the context reads false/zero, like [`NONE`](Self::NONE).
+    #[doc(hidden)]
+    pub fn from_bits(bits: u32) -> Self {
+        Self(bits)
+    }
 }
 impl Default for ActionId {
     fn default() -> Self {

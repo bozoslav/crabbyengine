@@ -1777,6 +1777,26 @@ impl Tracked {
         self.rush
     }
 
+    /// How many tracked models with a mesh to cull have their bounding
+    /// sphere (`[x, y, z, radius]` in the world, as last culled) picked by
+    /// `pick`. Worked out when asked, from what is kept per model, so a
+    /// frame pays nothing for it and a still camera gives the same answer
+    /// every frame. Models whose mesh isn't loaded, or that skins or morph
+    /// targets draw instead, have no sphere and are never picked. `None`
+    /// while the kept spheres are stale: in a rush (see [`Tracked::rush`])
+    /// and in the frame after one.
+    pub fn count_spheres(&self, pick: impl Fn([f32; 4]) -> bool) -> Option<usize> {
+        if self.rush || self.renew {
+            return None;
+        }
+        let kept = (self.entities.iter().zip(&self.spheres)).filter(|&(&e, _)| e != DEAD);
+        let picked = kept
+            .map(|(_, sphere)| std::array::from_fn(|i| f32::from_bits(sphere[i].load(Ordering::Relaxed))))
+            .filter(|s: &[f32; 4]| s[3] >= 0.0 && pick(*s))
+            .count();
+        Some(picked)
+    }
+
     /// Bytes kept between frames.
     pub fn bytes(&self) -> usize {
         self.entities.capacity() * size_of::<u64>()

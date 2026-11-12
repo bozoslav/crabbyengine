@@ -3,12 +3,13 @@
 //!
 //! The post part of a frame is a fixed chain ([`POST_CHAIN`]):
 //! temporal antialiasing settles the frame into the HDR image, the game's
-//! target effects and screen effects run over it, bloom blurs its bright
+//! scene compute passes read it, its target effects and screen effects run
+//! over it, bloom blurs its bright
 //! parts, the post pass tone maps it (exposure, bloom, grading), FXAA or
 //! SMAA smooth it, and with a render scale a last pass scales it to the
 //! window. `Renderer3D::record_post` walks the chain; each link is recorded
-//! by its owner: the temporal resolve by `taa.rs`, the effects by
-//! `effects.rs`, the rest by [`PostChain`] here.
+//! by its owner: the temporal resolve by `taa.rs`, the scene compute
+//! passes by `record.rs`, the effects by `effects.rs`, the rest by [`PostChain`] here.
 //!
 //! [`PostChain`] owns the pipelines of its links, the post settings
 //! uniform, and this frame's choices (the antialiasing mode, whether bloom
@@ -53,7 +54,9 @@
 //! the scene's depth or motion (as GTAO and reflections do) belongs before
 //! the lit pass instead, and declares what it reads in `passes.rs`.
 
-use super::{BLOOM_MIPS, BLOOM_SCATTER, EffectPass, FrameParts, HDR_FORMAT, PassTimer, Renderer3D, passes};
+use super::{
+    BLOOM_MIPS, BLOOM_SCATTER, EffectPass, FrameParts, HDR_FORMAT, PassTimer, Renderer3D, SCENE_COMPUTE_STEPS, passes,
+};
 use crate::render::AntiAliasing;
 use crate::render::gpu::GpuTexture;
 use crate::render::smaa::Smaa;
@@ -64,8 +67,9 @@ use crate::three::PostUniform;
 /// one before it left.
 /// Documentation that a test holds the recording to.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(super) const POST_CHAIN: [&str; 7] = [
+pub(super) const POST_CHAIN: [&str; 8] = [
     "temporal antialiasing",
+    "scene compute passes",
     "target effects",
     "screen effects",
     "bloom",
@@ -675,6 +679,16 @@ impl Renderer3D {
             passes::mark("taa");
             taa.draw(encoder, images, self.history.taa_frame_read, &targets.hdr, time("taa"));
         }
+        // The game's scene compute passes: they read the settled frame
+        // (in `hdr`) and its depth, and write their own targets or buffers,
+        // so the effects below see this frame's results.
+        self.record_computes(
+            encoder,
+            &self.lists.scene_computes,
+            &targets.scene_of_hdr,
+            time,
+            SCENE_COMPUTE_STEPS,
+        );
         let ctx = EffectPass {
             frame: &self.frame_bind_group,
             materials: &self.resources.materials,
@@ -694,8 +708,9 @@ mod tests {
 
     /// What records each link of [`POST_CHAIN`]: `(link, the function it is
     /// recorded from, the text that records it)`.
-    const RECORDED: [(&str, &str, &str); 7] = [
+    const RECORDED: [(&str, &str, &str); 8] = [
         ("temporal antialiasing", "fn record_post(", "time(\"taa\")"),
+        ("scene compute passes", "fn record_post(", "SCENE_COMPUTE_STEPS"),
         ("target effects", "fn record_post(", ".record_targets("),
         ("screen effects", "fn record_post(", ".record_screen("),
         ("bloom", "fn record<'t>(", "\"bloom\","),

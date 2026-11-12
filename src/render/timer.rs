@@ -157,6 +157,15 @@ impl GpuTimer {
         }
     }
 
+    /// The newest frame whose timestamps came back: its own GPU time in ms,
+    /// unsmoothed, and how many frames ago it was drawn (counting the one
+    /// drawn now as 0; readbacks arrive a few frames late, so it is at
+    /// least 1). `None` before the first.
+    pub(crate) fn latest_frame(&self) -> Option<(f32, u64)> {
+        self.last_sample
+            .map(|(ms, frame, _)| (ms, self.frame_number.saturating_sub(frame)))
+    }
+
     /// Raw GPU time with source-frame age. A late readback is not fresh
     /// merely because it was collected just now. CPU time is never a proxy.
     #[cfg(feature = "3d")]

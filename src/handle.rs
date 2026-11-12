@@ -234,6 +234,8 @@ impl Ctx {
         }
         self.compute_passes
             .retain(|p| p.buffer.is_none_or(|b| !unlinking.contains(&b.id)));
+        self.scene_compute_passes
+            .retain(|p| p.buffer.is_none_or(|b| !unlinking.contains(&b.id)));
         self.gfx.assets3d.free_gpu_buffers.append(unlinking);
     }
 }
@@ -263,8 +265,9 @@ impl Graphics {
     /// table slots to the next ones made (streamed worlds make and free
     /// them all the time) under new ids, so the freed handle stays dead and
     /// freeing it again leaves the new resource alone; a freed buffer's
-    /// [compute passes](crate::Ctx::compute_passes) are removed before its
-    /// slot is reused.
+    /// [compute passes](crate::Ctx::compute_passes) (and
+    /// [scene compute passes](crate::Ctx::scene_compute_passes)) are removed
+    /// before its slot is reused.
     ///
     /// ```
     /// # use ponko::*;

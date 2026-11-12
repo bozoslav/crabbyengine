@@ -990,6 +990,7 @@ fn skinned_models_keep_up_as_their_number_changes() {
             morph_count: 0,
             material: u32::MAX,
             parts: (0, 0),
+            lod: u32::MAX,
         }
     };
     let plain = scene.check("no skinned model");
@@ -1081,6 +1082,76 @@ fn models_hidden_behind_an_earlier_frames_depth_keep_up_with_it() {
     scene.frame.occlusion = None;
     assert!(scene.check("no depth") > behind_left);
     assert_eq!(scene.frame.occluded, 0);
+}
+
+fn models_outside_the_view_are_counted_from_what_is_kept() {
+    let mut scene = Scene::new(1500);
+    scene.collect();
+    let outside = scene.frame.frustum_culled_models().unwrap();
+    // Plain models, no occlusion: what the camera doesn't draw is outside
+    // its view.
+    assert_eq!(outside, 1500 - scene.frame.visible);
+    assert!(outside > 100 && outside < 1400, "some in view, some not: {outside}");
+    // A still camera culls nothing again, and the count stays.
+    for _ in 0..3 {
+        scene.collect();
+        assert_eq!(scene.frame.frustum_culled_models(), Some(outside));
+    }
+    // One model taken into the view, then far behind the camera.
+    let e = scene.models[0];
+    scene.world.get_mut::<Transform3D>(e).unwrap().position = Vec3::ZERO;
+    scene.collect();
+    let one_in = scene.frame.frustum_culled_models().unwrap();
+    scene.world.get_mut::<Transform3D>(e).unwrap().position = Vec3::new(0.0, 0.0, 900.0);
+    scene.collect();
+    assert_eq!(scene.frame.frustum_culled_models(), Some(one_in + 1));
+    // A model whose mesh isn't loaded has nothing to cull: not counted.
+    let unloaded = scene
+        .world
+        .spawn((Transform3D::at(Vec3::new(0.0, 0.0, 900.0)), Model::new(Mesh { id: 99 })));
+    scene.collect();
+    assert_eq!(scene.frame.frustum_culled_models(), Some(one_in + 1));
+    scene.world.despawn(unloaded);
+    // Models hidden by occlusion culling are in the view: not counted.
+    scene.camera.occlusion_culling = true;
+    let depth = (0..64).map(|i| if i % 8 < 4 { 0.05 } else { 1.0 }).collect();
+    scene.frame.occlusion = Some(OcclusionGrid::new(
+        scene.camera.view_proj(),
+        scene.camera.position,
+        8,
+        8,
+        depth,
+    ));
+    scene.collect();
+    assert!(scene.frame.occluded > 0);
+    assert_eq!(scene.frame.frustum_culled_models(), Some(one_in + 1));
+    // A despawned model leaves the count.
+    scene.world.despawn(e);
+    scene.frame.occlusion = None;
+    scene.collect();
+    assert_eq!(scene.frame.frustum_culled_models(), Some(one_in));
+}
+
+fn while_most_models_move_their_culling_isnt_counted() {
+    let mut scene = Scene::new(6000);
+    scene.collect();
+    assert!(scene.frame.frustum_culled_models().is_some());
+    let mut rushed = false;
+    for frame in 2..20 {
+        bob(&mut scene, frame);
+        scene.collect();
+        if scene.frame.rushing() {
+            rushed = true;
+            assert_eq!(scene.frame.frustum_culled_models(), None, "what is kept is stale");
+        }
+    }
+    assert!(rushed, "most models moving every frame starts a rush");
+    // Settled again: counted again once what is kept is worked out anew.
+    for _ in 0..4 {
+        scene.collect();
+    }
+    let outside = scene.frame.frustum_culled_models().unwrap();
+    assert_eq!(outside, 6000 - scene.frame.visible);
 }
 
 fn a_target_cameras_view_keeps_up() {
@@ -1176,6 +1247,8 @@ both_ways!(
     skinned_models_keep_up_as_their_number_changes,
     point_and_spot_light_shadows_keep_up_with_their_lights,
     models_hidden_behind_an_earlier_frames_depth_keep_up_with_it,
+    models_outside_the_view_are_counted_from_what_is_kept,
+    while_most_models_move_their_culling_isnt_counted,
     a_target_cameras_view_keeps_up,
     the_views_around_the_probes_keep_up,
 );

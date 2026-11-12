@@ -57,6 +57,9 @@ pub(super) struct FrameLists {
     /// The compute passes, in order: (compute, index into the render
     /// targets' `computes` or a GPU buffer id with the top bit set, material).
     pub(super) computes: Vec<(u32, usize, u32)>,
+    /// The scene compute passes, in order, as `computes`: recorded in the
+    /// post part, once the lit frame is settled.
+    pub(super) scene_computes: Vec<(u32, usize, u32)>,
     /// Per skinned model, whether any pass draws it.
     pub(super) skin_drawn: Vec<bool>,
     /// The material overrides (see `Frame3D::material_overrides`): mesh id
@@ -93,6 +96,7 @@ impl Default for FrameLists {
             gi_face_runs: Vec::new(),
             gi_faces: Vec::new(),
             computes: Vec::new(),
+            scene_computes: Vec::new(),
             skin_drawn: Vec::new(),
             material_overrides: Vec::new(),
             // No run's mesh id reaches it: no overrides until a frame has some.

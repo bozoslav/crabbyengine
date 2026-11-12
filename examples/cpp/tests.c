@@ -1704,6 +1704,169 @@ static void command_barriers(void) {
     }
 }
 
+/* Action ids, asset sources, the try_ loaders and named grid spans (#262). */
+typedef struct { const char* name; const uint8_t* bytes; size_t len; int frees; } Pak;
+static uint32_t pak_read(void* user, const char* name, const uint8_t** data, size_t* len) {
+    Pak* pak = user;
+    if (strcmp(name, pak->name) != 0) return PONKO_NOT_FOUND;
+    *data = pak->bytes; *len = pak->len;
+    return PONKO_OK;
+}
+static void pak_free(void* user) { ((Pak*)user)->frees++; }
+typedef struct { size_t len; uint8_t first; } Decoded;
+static uint32_t decode_bytes(void* user, const uint8_t* data, size_t len) {
+    Decoded* d = user;
+    d->len = len; d->first = len ? data[0] : 0;
+    return len ? PONKO_OK : PONKO_INVALID_ARGUMENT;
+}
+static void native_setup(PonkoCtx* ctx, void* user) {
+    Pak* pak = user;
+    /* Action ids: resolved once, then queried without the name. */
+    PonkoActionMap* map = ponko_action_map_new();
+    PonkoActionBinding space = {PONKO_ACTION_KEY, 0, PONKO_KEY_SPACE, 0, 0, 0, 0};
+    CHECK(ponko_action_map_set(map, "jump", 0, &space, 1) == PONKO_OK);
+    CHECK(ponko_ctx_set_actions(ctx, map) == PONKO_OK);
+    ponko_action_map_free(map);
+    uint32_t jump = PONKO_ACTION_NONE, ids[2];
+    const char* names[2] = {"jump", "fly"};
+    CHECK(ponko_ctx_action_id(ctx, "jump", &jump) == PONKO_OK && jump != PONKO_ACTION_NONE);
+    CHECK(ponko_ctx_action_ids(ctx, names, 2, ids) == PONKO_NOT_FOUND);
+    CHECK(ids[0] == jump && ids[1] == PONKO_ACTION_NONE && ponko_last_error_kind() == PONKO_ERROR_NOT_FOUND);
+    CHECK(ponko_ctx_feed_input(ctx, 0, 0, PONKO_KEY_SPACE, 1) == PONKO_OK);
+    bool down = false, pressed = false, released = true;
+    float axis = 1;
+    PonkoVec2 axis2 = {1, 1};
+    CHECK(ponko_ctx_action_down_id(ctx, jump, &down) == PONKO_OK && down);
+    CHECK(ponko_ctx_action_pressed_id(ctx, jump, &pressed) == PONKO_OK && pressed);
+    CHECK(ponko_ctx_action_released_id(ctx, jump, &released) == PONKO_OK && !released);
+    CHECK(ponko_ctx_action_axis_id(ctx, jump, &axis) == PONKO_OK && axis == 0);
+    CHECK(ponko_ctx_action_axis2_id(ctx, PONKO_ACTION_NONE, &axis2) == PONKO_OK && axis2.x == 0);
+
+    /* The try_ loaders: kind and path, never a caught panic. */
+    PonkoTexture texture;
+    PonkoFont font;
+    PonkoSound sound;
+    PonkoMesh mesh;
+    CHECK(ponko_ctx_try_load_texture(ctx, "no/such.png", &texture) == PONKO_NOT_FOUND);
+    CHECK(ponko_last_error_kind() == PONKO_ERROR_NOT_FOUND && strcmp(ponko_last_error_path(), "no/such.png") == 0);
+    CHECK(strcmp(ponko_error_kind_name(PONKO_ERROR_NOT_FOUND), "not found") == 0);
+    CHECK(ponko_ctx_try_load_font(ctx, "no/such.ttf", &font) == PONKO_NOT_FOUND);
+    CHECK(ponko_ctx_try_load_sound(ctx, "no/such.ogg", &sound) == PONKO_NOT_FOUND);
+    CHECK(ponko_ctx_try_load_stream(ctx, "no/such.ogg", &sound) == PONKO_NOT_FOUND);
+    CHECK(ponko_ctx_try_load_mesh(ctx, "no/such.glb", &mesh) == PONKO_NOT_FOUND);
+
+    /* Asset sources: memory and callbacks, then your own decoder. */
+    PonkoMemorySource* memory = ponko_memory_source_new("embedded");
+    CHECK(memory && ponko_memory_source_insert(memory, "level.txt", (const uint8_t*)"##.", 3) == PONKO_OK);
+    CHECK(ponko_ctx_add_memory_source(ctx, memory) == PONKO_OK);
+    ponko_memory_source_free(memory);
+    CHECK(ponko_ctx_add_asset_source(ctx, "pak", pak_read, NULL, pak_free, pak) == PONKO_OK);
+    Decoded decoded = {0, 0};
+    CHECK(ponko_ctx_load_asset_with(ctx, "level.txt", decode_bytes, &decoded) == PONKO_OK);
+    CHECK(decoded.len == 3 && decoded.first == '#');
+    CHECK(ponko_ctx_load_asset_with(ctx, pak->name, decode_bytes, &decoded) == PONKO_OK && decoded.len == pak->len);
+    CHECK(ponko_ctx_load_asset_with(ctx, "missing.bin", decode_bytes, &decoded) == PONKO_NOT_FOUND);
+    CHECK(strcmp(ponko_last_error_path(), "missing.bin") == 0);
+
+    /* A named span: from line 1 to the second line called "edge". */
+    PonkoUiTemplateTrack columns[4];
+    for (int i = 0; i < 4; ++i) columns[i] = (PonkoUiTemplateTrack){{PONKO_UI_TRACK_POINTS, 100}, 0, 0, NULL, 0, NULL, 0};
+    PonkoUiLayout grid = ponko_ui_layout_default();
+    grid.display = PONKO_UI_DISPLAY_GRID;
+    grid.grid_template_columns = columns;
+    grid.grid_template_column_count = 4;
+    uint64_t root, item;
+    CHECK(ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &grid, &root) == PONKO_OK);
+    const char* lines[5] = {"", "", "edge", "", "edge"};
+    CHECK(ponko_ctx_ui_set_grid_line_names(ctx, PONKO_UI_SCREEN, root, 0, lines, 5) == PONKO_OK);
+    PonkoUiLayout cell = ponko_ui_layout_default();
+    cell.grid_column_start = (PonkoUiGridLine){PONKO_UI_GRID_LINE, 1};
+    CHECK(ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, root, &cell, &item) == PONKO_OK);
+    CHECK(ponko_ctx_ui_set_grid_named_span(ctx, PONKO_UI_SCREEN, item, 0, true, "edge", 2) == PONKO_OK);
+    CHECK(ponko_ctx_ui_set_grid_named_span(ctx, PONKO_UI_SCREEN, item, 0, true, "edge", 0) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false) == PONKO_OK);
+    CHECK(ponko_ctx_ui_layout(ctx, PONKO_UI_SCREEN, (PonkoVec2){800, 600}) == PONKO_OK);
+    PonkoRect r;
+    CHECK(ponko_ctx_ui_rect(ctx, PONKO_UI_SCREEN, item, &r) == PONKO_OK && r.min.x == 0 && r.max.x == 400);
+}
+typedef struct { uint32_t points; } Points;
+static void add_points(PonkoWorld* world, void* value, void* user) {
+    Points* points = value;
+    Points probe;
+    CHECK(ponko_resource_get(world, "Points", &probe, sizeof probe) == PONKO_NOT_FOUND); /* lent out */
+    points->points += *(uint32_t*)user;
+}
+static void scenario_setup(PonkoCtx* ctx, void* user) {
+    (void)user;
+    PonkoActionMap* map = ponko_action_map_new();
+    PonkoActionBinding space = {PONKO_ACTION_KEY, 0, PONKO_KEY_SPACE, 0, 0, 0, 0};
+    CHECK(ponko_action_map_set(map, "jump", 0, &space, 1) == PONKO_OK);
+    CHECK(ponko_ctx_set_actions(ctx, map) == PONKO_OK);
+    ponko_action_map_free(map);
+    /* Count checks name a reflected component. */
+    PonkoWorld* w = ponko_ctx_world(ctx);
+    PonkoField field = {"points", PONKO_FIELD_U32, 0};
+    uint32_t coin;
+    CHECK(ponko_component_register(w, "Coin", 4, 4, &coin) == PONKO_OK);
+    CHECK(ponko_component_reflect(w, coin, &field, 1) == PONKO_OK);
+}
+static void native_coverage(void) {
+    static const uint8_t blob[] = {1, 2, 3, 4};
+    Pak pak = {"blob.bin", blob, sizeof blob, 0};
+    PonkoGame* game = ponko_game_new("c natives", 1, 1);
+    PonkoWorld* w = NULL;
+    CHECK(ponko_game_run_headless(game, 0, native_setup, &pak, &w) == PONKO_OK);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+    CHECK(pak.frees == 1);
+
+    /* resource_scope: the resource and the world, lent together. */
+    w = ponko_world_new();
+    Points points = {1};
+    uint32_t add = 41;
+    CHECK(ponko_resource_set(w, "Points", &points, sizeof points, _Alignof(Points)) == PONKO_OK);
+    CHECK(ponko_resource_scope(w, "Points", sizeof points, add_points, &add) == PONKO_OK);
+    CHECK(ponko_resource_get(w, "Points", &points, sizeof points) == PONKO_OK && points.points == 42);
+    CHECK(ponko_resource_scope(w, "Nothing", 4, add_points, &add) == PONKO_NOT_FOUND);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+
+    /* Input scenarios: Space held on ticks 2-4, checked through the action. */
+    PonkoInputScenario* s = ponko_input_scenario_new();
+    CHECK(ponko_input_scenario_at(s, 2, 0, 0, PONKO_KEY_SPACE, 1) == PONKO_OK);
+    CHECK(ponko_input_scenario_at(s, 5, 0, 0, PONKO_KEY_SPACE, 0) == PONKO_OK);
+    CHECK(ponko_input_scenario_expect_action(s, 2, "jump", 1, 1, -1) == PONKO_OK);
+    CHECK(ponko_input_scenario_expect_action(s, 5, "jump", -1, 0, 1) == PONKO_OK);
+    CHECK(ponko_input_scenario_expect_count(s, 5, "Coin", 0) == PONKO_OK);
+    CHECK(ponko_input_scenario_expect_resource(s, 5, "Score", "/points", "3") == PONKO_OK);
+    CHECK(ponko_input_scenario_named(s, "jump") == PONKO_OK);
+    CHECK(ponko_input_scenario_duration(s, 6) == PONKO_OK);
+    CHECK(ponko_input_scenario_release_when_done(s) == PONKO_OK);
+    uint64_t ticks = 0;
+    size_t steps = 0, len = 0;
+    CHECK(ponko_input_scenario_info(s, &ticks, &steps) == PONKO_OK && ticks == 6 && steps == 6);
+    CHECK(ponko_input_scenario_to_json(s, NULL, 0, &len) == PONKO_OK && len > 0);
+    char* json = malloc(len + 1);
+    CHECK(ponko_input_scenario_to_json(s, json, len + 1, &len) == PONKO_OK);
+    PonkoInputScenario* copy = NULL;
+    CHECK(ponko_input_scenario_from_json(json, &copy) == PONKO_OK && copy);
+    free(json);
+    CHECK(ponko_input_scenario_from_json("{", &copy) == PONKO_INVALID_ARGUMENT && ponko_last_error_kind() == PONKO_ERROR_JSON);
+    game = ponko_game_new("c scenario", 1, 1);
+    CHECK(ponko_game_input_scenario(game, copy) == PONKO_OK);
+    ponko_input_scenario_free(copy);
+    ponko_input_scenario_free(s);
+    CHECK(ponko_game_run_headless(game, ticks, scenario_setup, NULL, &w) == PONKO_OK);
+    PonkoScenarioReport report;
+    CHECK(ponko_world_scenario_report(w, &report) == PONKO_OK);
+    /* Steps 0-3 held; the Score resource was never added, so step 5 fails on tick 5 (the last). */
+    CHECK(report.status == PONKO_SCENARIO_FAILED && report.failed && report.failure_step == 5);
+    CHECK(report.inputs_applied == 2 && report.checks_passed == 3);
+    CHECK(ponko_world_scenario_report_json(w, NULL, 0, &len) == PONKO_OK && len > 0);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+    bool was_running = true;
+    CHECK(ponko_ctx_cancel_scenario(NULL, &was_running) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_start_scenario(NULL, NULL) == PONKO_INVALID_ARGUMENT);
+}
+
 int main(void) {
     change_detection();
     declared_access();
@@ -1786,5 +1949,6 @@ int main(void) {
     query_filters();
     query_cache();
     wide_queries();
+    native_coverage();
     return 0;
 }

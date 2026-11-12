@@ -1735,6 +1735,53 @@ pub unsafe extern "C" fn ponko_ctx_ui_set_grid_named_line(
     })
 }
 
+/// Places one edge so the node spans to the `count`th line named `name`
+/// (CSS `span count name`; Rust `GridPlacement::NamedSpan`): axis 0
+/// columns/1 rows; `end` false sets the start edge, true the end edge.
+/// A named span counts from the other edge, so give that one a line number
+/// (`PONKO_UI_GRID_LINE` in the layout); against an automatic edge it spans
+/// one track. With fewer lines of that name, implicit lines count. `count`
+/// is 1 to 65535.
+/// ```
+/// assert_eq!(unsafe { ponko_ffi::ponko_ctx_ui_set_grid_named_span(std::ptr::null_mut(), ponko_ffi::PONKO_UI_SCREEN, 0, 0, true, c"edge".as_ptr(), 1) } as u32, 1);
+/// ```
+/// # Safety
+/// `ctx` is null or live; `name` readable NUL-terminated UTF-8.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_ctx_ui_set_grid_named_span(
+    ctx: *mut PonkoCtx,
+    target: u64,
+    id: u64,
+    axis: u32,
+    end: bool,
+    name: *const c_char,
+    count: u32,
+) -> PonkoStatus {
+    // SAFETY: forwarded caller contract.
+    boundary(|| unsafe {
+        let name = text(name)?;
+        ident(name)?;
+        let count = match u16::try_from(count) {
+            Ok(n) if n != 0 => n,
+            _ => return Err(invalid("UI grid span count must be from 1 to 65535")),
+        };
+        update_style(ctx, target, id, |s| {
+            let line = match axis {
+                0 => &mut s.grid_column,
+                1 => &mut s.grid_row,
+                _ => return Err(invalid("UI grid axis must be 0 or 1")),
+            };
+            let p = GridPlacement::NamedSpan(name.to_owned(), count);
+            if end {
+                line.end = p;
+            } else {
+                line.start = p;
+            }
+            Ok(())
+        })
+    })
+}
+
 /// Replaces a node's paint. A null `paint` restores the default. Fonts must
 /// come from `ponko_ctx_load_font`; an unknown one is an error.
 /// ```

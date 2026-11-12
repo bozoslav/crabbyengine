@@ -108,7 +108,8 @@ pub struct GpuLimits {
 /// ([`InstanceBatch`](crate::render::InstanceBatch)): [`GpuCapabilities::instance_batches`].
 ///
 /// A batch is *GPU-driven* when the device has compute culling and the
-/// batch has at least `min_gpu_instances` instances: one compute dispatch
+/// batch has one distance level and at least `min_gpu_instances` instances
+/// (or what [`BatchCulling`](crate::render::BatchCulling) asks): one compute dispatch
 /// culls every such batch per instance, and each is drawn with indirect
 /// draws. Every other batch is culled on the CPU, cell by cell, and drawn
 /// with direct draws. Both paths draw the same picture. A batch past a
@@ -130,13 +131,24 @@ pub struct GpuBatchLimits {
     /// Batches with at least this many instances are GPU-driven where
     /// `gpu_driven` is set. Smaller ones are culled on the CPU, unless
     /// `min_gpu_triangles` sends them to the GPU: below this crossover
-    /// (measured on one Apple GPU on Metal) that is cheaper.
+    /// (measured on one Apple GPU on Metal) that is cheaper. Batches of
+    /// several distance levels skip this rule and `min_gpu_triangles`:
+    /// they stay on the CPU at any size (see `min_gpu_triangles`).
     pub min_gpu_instances: u32,
     /// Smaller batches are GPU-driven all the same when their instances
     /// times the triangles of their heaviest mesh reach this: culling
     /// heavy meshes one by one saves more drawing than the compute pass
-    /// costs. Measured on the same one GPU; a batch can overrule both
-    /// with [`BatchCulling`](crate::render::BatchCulling).
+    /// costs. Measured on the same one GPU, with single-level batches only;
+    /// a batch can overrule both with
+    /// [`BatchCulling`](crate::render::BatchCulling).
+    ///
+    /// Batches of several distance levels skip both rules under
+    /// `BatchCulling::Auto` and stay on the CPU path, however many
+    /// instances and triangles they have. The evidence is one scene of
+    /// three levels with a 480-triangle top level, where the GPU path was
+    /// slower at every size up to a million instances; heavier level
+    /// meshes were not measured. `BatchCulling::PreferGpu` sends a level
+    /// batch of heavy meshes to the GPU.
     #[serde(default)]
     pub min_gpu_triangles: u64,
     /// A GPU-driven batch of up to this many instances always fits one

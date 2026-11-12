@@ -4,7 +4,7 @@
 
 use glam::Vec3;
 
-use super::{Camera3D, Mesh, Transform3D};
+use super::{Camera3D, InstanceLevel, Mesh, Transform3D};
 use crate::Color;
 
 /// One mesh of a [`LodLevel`], placed relative to the [`LodGroup`]'s
@@ -448,6 +448,115 @@ impl LodGroup {
         self.pick(self.screen_height(transform, camera), settings)
     }
 
+    /// The group as the distance levels of a static instance batch, for
+    /// many copies of it that never move: pass them with the copies'
+    /// transforms to
+    /// [`Graphics::create_instance_batch_levels`](crate::gfx::Graphics::create_instance_batch_levels).
+    /// The batch then picks each copy's level where it is culled (in the
+    /// GPU's culling pass on the GPU-driven path, see
+    /// [`BatchCulling`](crate::render::BatchCulling)) instead of the CPU
+    /// picking it for each entity every frame. A device without compute
+    /// culling culls and picks on the CPU, cell by cell, with the same bands.
+    ///
+    /// The copies' largest scale is `scale` (give copies of other scales
+    /// batches of their own); the camera's vertical field of view is
+    /// `fov_y` (radians) and the bias is `settings.bias`. Level `i` is drawn
+    /// from the distance where the group covers the previous levels'
+    /// thresholds to where it covers its own: the distances
+    /// [`pick`](Self::pick) switches at, up to rounding there. Its
+    /// renderers draw for the camera and cast shadows as the level's
+    /// [`shadow`](LodLevel::shadow) says.
+    ///
+    /// What a batch doesn't do, so a group needing it stays an entity:
+    /// crossfades (levels switch at once, as with
+    /// [`LodSettings::crossfade`] off), [`LodHysteresis`], a level per
+    /// render-target camera, a light's shadow picking by the main camera
+    /// (a batch measures a light's shadow from the light), and following
+    /// changes to the field of view or bias (make the batch again).
+    ///
+    /// `None` when the group can't be a batch: its [`center`](Self::center)
+    /// is away from the origin (a batch measures to each copy's origin), a
+    /// renderer has an offset or a color other than white (a batch has one
+    /// transform and color per copy), or nothing would ever be drawn: no
+    /// renderers, or a bias of 0 or less (or NaN) and no level with a
+    /// threshold of 0 or less. Such a bias is taken as `pick` takes it: the
+    /// group covers none of the screen, so only the first level whose
+    /// threshold is 0 or less is drawn, at every distance. As everywhere, a
+    /// batch doesn't crossfade: with [`LodSettings::crossfade`] on and a
+    /// fade width on that level, `pick` shows it fully faded into the next
+    /// level (into nothing past the last), where the batch draws it.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// # let (near, far) = (ponko::render::Mesh::NONE, ponko::render::Mesh::NONE);
+    /// let group = ponko::render::LodGroup::new(
+    ///     2.0,
+    ///     vec![
+    ///         ponko::render::LodLevel::new(0.2, vec![ponko::render::LodRenderer::new(near)]),
+    ///         ponko::render::LodLevel::new(0.05, vec![ponko::render::LodRenderer::new(far)]),
+    ///     ],
+    /// );
+    /// let fov = 60f32.to_radians();
+    /// let levels = group.instance_levels(1.0, fov, &ponko::render::LodSettings::default()).unwrap();
+    /// // The near mesh until the group is 20% of the screen tall, then the far one.
+    /// let switch = ponko::render::LodGroup::distance_at(2.0, 0.2, fov);
+    /// assert_eq!((levels[0].min_distance, levels[0].max_distance), (0.0, switch));
+    /// assert_eq!(levels[1].min_distance, switch);
+    /// // Then `ctx.gfx.create_instance_batch_levels(&levels, &transforms, &[], options)`.
+    /// ```
+    #[must_use]
+    pub fn instance_levels(&self, scale: f32, fov_y: f32, settings: &LodSettings) -> Option<Vec<InstanceLevel>> {
+        if self.center != Vec3::ZERO {
+            return None;
+        }
+        let plain = |r: &LodRenderer| r.offset == Transform3D::default() && r.color == Color::WHITE;
+        fn casters(l: &LodLevel) -> &[LodRenderer] {
+            match &l.shadow {
+                LodShadow::Casters(c) => c,
+                LodShadow::Same => &[],
+            }
+        }
+        if !self
+            .levels
+            .iter()
+            .all(|l| l.renderers.iter().all(plain) && casters(l).iter().all(plain))
+        {
+            return None;
+        }
+        // Where the group covers `height` of the screen after the bias
+        // (clamped as `pick` clamps it: NaN and below 0 count as 0, and a
+        // group of size 0 reaches only thresholds of 0 or less).
+        let size = self.size * scale.abs() * settings.bias.max(0.0);
+        let reach = |height: f32| {
+            if height > 0.0 {
+                Self::distance_at(size, height, fov_y)
+            } else {
+                f32::INFINITY
+            }
+        };
+        let mut levels = Vec::new();
+        // A level is drawn past the distance of every earlier threshold
+        // (it is picked only where none of them is reached).
+        let mut near = 0.0f32;
+        for level in &self.levels {
+            let far = reach(level.screen_height);
+            if far > near {
+                let band = |mesh, camera, shadows| InstanceLevel {
+                    mesh,
+                    min_distance: near,
+                    max_distance: far,
+                    camera,
+                    shadows,
+                };
+                let own = matches!(level.shadow, LodShadow::Same);
+                levels.extend(level.renderers.iter().map(|r| band(r.mesh, true, own)));
+                levels.extend(casters(level).iter().map(|r| band(r.mesh, false, true)));
+            }
+            near = near.max(far);
+        }
+        (!levels.is_empty()).then_some(levels)
+    }
+
     /// [`pick`](Self::pick), but holding `previous` (last frame's pick)
     /// while `height` (before bias) is within `band` (a fraction, see
     /// [`LodHysteresis`]) of that level's range. Crossfades pass through:
@@ -485,15 +594,29 @@ impl LodGroup {
     /// The levels drawn for `pick`, with each one's dither: 0 for none,
     /// else the share of pixels kept, negative for the pattern that is
     /// the complement of the positive one (see `Instance3D::with_fade`).
-    pub(crate) fn drawn(&self, pick: LodPick) -> [Option<(&LodLevel, f32)>; 2] {
+    pub(crate) fn drawn(&self, pick: LodPick) -> [Option<(usize, &LodLevel, f32)>; 2] {
+        let level = |i: usize, fade: f32| self.levels.get(i).map(|l| (i, l, fade));
         match pick {
             LodPick::Culled => [None, None],
-            LodPick::Level(i) => [self.levels.get(i).map(|l| (l, 0.0)), None],
-            LodPick::Fade { from, to, blend } => [
-                self.levels.get(from).map(|l| (l, -(1.0 - blend))),
-                to.and_then(|t| self.levels.get(t)).map(|l| (l, blend)),
-            ],
+            LodPick::Level(i) => [level(i, 0.0), None],
+            LodPick::Fade { from, to, blend } => [level(from, -(1.0 - blend)), to.and_then(|t| level(t, blend))],
         }
+    }
+
+    /// Where level `level`'s renderers start when every level's renderers
+    /// are counted in order, each level's own followed by its separate
+    /// shadow casters: what tells the renderers of a group apart.
+    pub(crate) fn first_renderer(&self, level: usize) -> u32 {
+        self.levels[..level.min(self.levels.len())]
+            .iter()
+            .map(|l| {
+                let casters = match &l.shadow {
+                    LodShadow::Casters(c) => c.len(),
+                    LodShadow::Same => 0,
+                };
+                (l.renderers.len() + casters) as u32
+            })
+            .sum()
     }
 }
 
@@ -686,12 +809,13 @@ mod tests {
             panic!("fading");
         };
         let [a, b] = g.drawn(LodPick::Fade { from, to, blend });
-        let (_, fa) = a.unwrap();
-        let (_, fb) = b.unwrap();
+        let (ia, _, fa) = a.unwrap();
+        let (ib, _, fb) = b.unwrap();
+        assert_eq!((ia, ib), (from, to.unwrap()));
         assert!(fa < 0.0 && fb > 0.0);
         // The outgoing level keeps what the incoming one doesn't.
         assert!((fa.abs() + fb - 1.0).abs() < 1e-6);
-        assert_eq!(g.drawn(LodPick::Level(1))[0].unwrap().1, 0.0);
+        assert_eq!(g.drawn(LodPick::Level(1))[0].unwrap().2, 0.0);
         assert!(g.drawn(LodPick::Culled)[0].is_none());
     }
 
@@ -807,6 +931,164 @@ mod tests {
         ] {
             camera.look_at(target);
             assert_eq!(g.pick_for(&t, &camera, &s), ahead, "looking at {target}");
+        }
+    }
+
+    /// The level whose band holds `distance`, among `levels` (one renderer
+    /// each, meshes numbered by level), or `None` past them all.
+    fn band_level(levels: &[InstanceLevel], distance: f32) -> Option<u32> {
+        let mut found = levels
+            .iter()
+            .filter(|l| l.camera && distance >= l.min_distance && distance < l.max_distance)
+            .map(|l| l.mesh.id);
+        let first = found.next();
+        assert!(found.next().is_none(), "bands overlap at {distance}");
+        first
+    }
+
+    fn numbered(thresholds: &[f32]) -> LodGroup {
+        LodGroup::new(
+            2.0,
+            thresholds
+                .iter()
+                .enumerate()
+                .map(|(i, &h)| LodLevel::new(h, vec![LodRenderer::new(Mesh { id: i as u32 })]))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn instance_levels_switch_at_the_distances_pick_switches_at() {
+        let fov = 50f32.to_radians();
+        for (scale, bias) in [(1.0, 1.0), (3.0, 1.0), (1.0, 0.5), (0.4, 2.0)] {
+            let g = numbered(&[0.4, 0.1, 0.02]);
+            let settings = LodSettings { bias, crossfade: false };
+            let levels = g.instance_levels(scale, fov, &settings).unwrap();
+            assert_eq!(levels.len(), 3);
+            // Away from the switch distances (a hair either side of them
+            // rounds either way), every distance gets the picked level.
+            for k in 1..4000 {
+                let distance = k as f32 * 0.05 * scale;
+                let height = LodGroup::screen_height_at(2.0 * scale, distance, fov);
+                let pick = g.pick(height, &settings);
+                let near_switch = levels
+                    .iter()
+                    .any(|l| (distance - l.max_distance).abs() <= 1e-4 * l.max_distance);
+                if near_switch {
+                    continue;
+                }
+                let expected = match pick {
+                    LodPick::Level(i) => Some(i as u32),
+                    LodPick::Culled => None,
+                    LodPick::Fade { .. } => panic!("crossfade is off"),
+                };
+                assert_eq!(
+                    band_level(&levels, distance),
+                    expected,
+                    "scale {scale}, bias {bias}, {distance} m"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn instance_levels_follow_the_shadow_setting_of_each_level() {
+        let caster = LodRenderer::new(Mesh { id: 9 });
+        let g = LodGroup::new(
+            1.0,
+            vec![
+                LodLevel::new(0.3, vec![LodRenderer::new(Mesh { id: 0 })]),
+                LodLevel::new(0.1, vec![LodRenderer::new(Mesh { id: 1 })])
+                    .with_shadow(LodShadow::Casters(vec![caster])),
+                LodLevel::new(0.05, vec![LodRenderer::new(Mesh { id: 2 })]).with_shadow(LodShadow::Casters(vec![])),
+            ],
+        );
+        let levels = g.instance_levels(1.0, 1.0, &LodSettings::default()).unwrap();
+        let flags: Vec<_> = levels.iter().map(|l| (l.mesh.id, l.camera, l.shadows)).collect();
+        assert_eq!(
+            flags,
+            [(0, true, true), (1, true, false), (9, false, true), (2, true, false)]
+        );
+        // A level's stand-in casts over exactly the level's band.
+        assert_eq!(
+            (levels[1].min_distance, levels[1].max_distance),
+            (levels[2].min_distance, levels[2].max_distance)
+        );
+    }
+
+    #[test]
+    fn instance_levels_skip_levels_that_are_never_picked_and_ignore_fades() {
+        // The middle threshold is above the first: never picked.
+        let mut g = numbered(&[0.2, 0.3, 0.05]);
+        g.levels[0].fade_width = 0.5;
+        let levels = g.instance_levels(1.0, 1.0, &LodSettings::default()).unwrap();
+        let ids: Vec<_> = levels.iter().map(|l| l.mesh.id).collect();
+        assert_eq!(ids, [0, 2]);
+        assert_eq!(levels[0].max_distance, levels[1].min_distance);
+        // A last threshold of 0 never culls.
+        let levels = numbered(&[0.2, 0.0])
+            .instance_levels(1.0, 1.0, &LodSettings::default())
+            .unwrap();
+        assert_eq!(levels[1].max_distance, f32::INFINITY);
+    }
+
+    #[test]
+    fn groups_a_batch_cannot_draw_have_no_instance_levels() {
+        let settings = LodSettings::default();
+        let plain = numbered(&[0.2]);
+        assert!(plain.instance_levels(1.0, 1.0, &settings).is_some());
+        assert!(
+            plain
+                .clone()
+                .with_center(Vec3::Y)
+                .instance_levels(1.0, 1.0, &settings)
+                .is_none()
+        );
+        let mut offset = plain.clone();
+        offset.levels[0].renderers[0].offset = Transform3D::at(Vec3::X);
+        assert!(offset.instance_levels(1.0, 1.0, &settings).is_none());
+        let mut tinted = plain.clone();
+        tinted.levels[0].renderers[0].color = Color::rgb(1.0, 0.0, 0.0);
+        assert!(tinted.instance_levels(1.0, 1.0, &settings).is_none());
+        assert!(numbered(&[]).instance_levels(1.0, 1.0, &settings).is_none());
+    }
+
+    #[test]
+    fn instance_levels_take_a_bias_of_zero_or_less_as_pick_does() {
+        let fov = 1.0;
+        for bias in [0.0, -1.0, f32::NAN] {
+            let settings = LodSettings { bias, crossfade: false };
+            // No threshold of 0: `pick` culls at every distance, and a
+            // batch would draw nothing.
+            let culled = numbered(&[0.2, 0.05]);
+            assert!(culled.instance_levels(1.0, fov, &settings).is_none(), "bias {bias}");
+            // A last level from 0: `pick` draws it at every distance, and
+            // so does the batch.
+            let always = numbered(&[0.2, 0.05, 0.0]);
+            let levels = always
+                .instance_levels(1.0, fov, &settings)
+                .expect("the last level is drawn");
+            assert_eq!(levels.len(), 1, "bias {bias}");
+            assert_eq!(
+                (levels[0].mesh.id, levels[0].min_distance, levels[0].max_distance),
+                (2, 0.0, f32::INFINITY),
+                "bias {bias}"
+            );
+            for k in 0..200 {
+                let distance = k as f32 * 0.5;
+                let height = LodGroup::screen_height_at(2.0, distance, fov);
+                assert_eq!(
+                    culled.pick(height, &settings),
+                    LodPick::Culled,
+                    "bias {bias}, {distance} m"
+                );
+                assert_eq!(
+                    always.pick(height, &settings),
+                    LodPick::Level(2),
+                    "bias {bias}, {distance} m"
+                );
+                assert_eq!(band_level(&levels, distance), Some(2), "bias {bias}, {distance} m");
+            }
         }
     }
 }

@@ -1,6 +1,9 @@
-//! Target effects: an effect shader run over the lit 3D frame that writes
-//! a render target of its own, at a fixed point of the frame (after the
-//! transparent surfaces, before screen effects). Skips without a GPU.
+//! The game's custom passes at their named stages: target effects (an
+//! effect shader run over the lit 3D frame that writes a render target of
+//! its own, after the transparent surfaces, before screen effects), compute
+//! passes before the scene and scene compute passes after it, and the
+//! hazard check over what they all write (`gpu3d/custom_passes.rs`).
+//! Skips without a GPU.
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
 #[allow(unused_imports)]
@@ -27,6 +30,8 @@ struct Rig {
     target_effects: Vec<(u32, u32, u32)>,
     /// Texture compute passes to run: (compute, render target id, material).
     computes: Vec<(u32, u32, u32)>,
+    /// Scene compute passes to run, as `computes`.
+    scene_computes: Vec<(u32, u32, u32)>,
     /// Materials made on the GPU so far (ids follow this count).
     materials: u32,
     /// The bind group layout of sprite textures (for render targets).
@@ -36,7 +41,26 @@ struct Rig {
 impl Rig {
     /// `None` without a GPU.
     fn new() -> Option<Self> {
-        let gpu = crate::render::render_test_support::gpu_with(|_| Ok(wgpu::DeviceDescriptor::default()))?;
+        Self::with_limits(wgpu::Limits::default())
+    }
+
+    /// A rig whose device asks for `limits` (WebGL2's: no compute shaders).
+    fn with_limits(limits: wgpu::Limits) -> Option<Self> {
+        Self::build(limits, 4)
+    }
+
+    /// A rig drawing with `samples` per pixel.
+    fn with_samples(samples: u32) -> Option<Self> {
+        Self::build(wgpu::Limits::default(), samples)
+    }
+
+    fn build(limits: wgpu::Limits, samples: u32) -> Option<Self> {
+        let gpu = crate::render::render_test_support::gpu_with(move |_| {
+            Ok(wgpu::DeviceDescriptor {
+                required_limits: limits,
+                ..Default::default()
+            })
+        })?;
         let (device, queue) = (gpu.device, gpu.queue);
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -119,7 +143,7 @@ impl Rig {
             view_formats: &[],
         });
         let target = output.create_view(&Default::default());
-        let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
+        let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, samples, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
         ctx.sky.atmosphere = false;
         Some(Self {
@@ -133,6 +157,7 @@ impl Rig {
             effects: Vec::new(),
             target_effects: Vec::new(),
             computes: Vec::new(),
+            scene_computes: Vec::new(),
             materials: 0,
             layout,
         })
@@ -251,6 +276,7 @@ impl Rig {
         frame.effects.clone_from(&self.effects);
         frame.target_effects.clone_from(&self.target_effects);
         frame.computes.clone_from(&self.computes);
+        frame.scene_computes.clone_from(&self.scene_computes);
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
@@ -559,4 +585,378 @@ fn a_texture_compute_pass_fills_its_target_before_the_frame_reads_it() {
     );
     let texels = rig.read_target(&texture);
     assert!(texels.iter().all(|t| t[1] > 0.9 && t[0] < 0.1), "{:?}", texels[0]);
+}
+
+/// Whether this device runs compute passes; skips the test (with the
+/// reason) when it doesn't.
+fn computes(rig: &Rig) -> bool {
+    crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::Compute)
+}
+
+/// A compute pass writing, at each texel, how far the scene is under the
+/// matching frame pixel (red) and how lit it is there (green).
+const SCENE_PROBE: &str = "fn compute(c: Cell) -> vec4<f32> {
+    let at = (vec2<f32>(c.pixel) + 0.5) / vec2<f32>(c.size) * frame.screen.xy;
+    return vec4<f32>(scene_distance(at), scene_color(at).r, 0.0, 1.0);
+}";
+
+#[test]
+fn scene_compute_passes_read_this_frames_scene_and_earlier_compute_passes_do_not() {
+    scene_and_early_probes(Rig::new());
+}
+
+#[test]
+fn scene_compute_passes_read_the_scene_without_multisampling() {
+    // The scene depth is then an ordinary depth texture: the shader is
+    // built for it.
+    scene_and_early_probes(Rig::with_samples(1));
+}
+
+fn scene_and_early_probes(rig: Option<Rig>) {
+    let Some(mut rig) = rig else { return };
+    if !computes(&rig) {
+        return;
+    }
+    half_ground(&mut rig);
+    let before = rig.draw();
+    let probe = rig.renderer.create_compute(&rig.device, "probe", SCENE_PROBE).unwrap();
+    let plain = rig.gpu_material(MaterialDesc::default());
+    let (scene_target, scene_texture) = rig.render_target(32, 16);
+    let (early_target, early_texture) = rig.render_target(32, 16);
+    // The same shader at both stages.
+    rig.scene_computes.push((probe, scene_target.id, plain));
+    rig.computes.push((probe, early_target.id, plain));
+    let mut after = Vec::new();
+    assert!(validation_error(&mut rig, |rig| after = rig.draw()).is_none());
+    let features = last_features().unwrap();
+    assert!(
+        features.contains(FrameFeatures::SCENE_TEXTURE_COMPUTE.with(FrameFeatures::TEXTURE_COMPUTE)),
+        "{features}"
+    );
+    assert_eq!(rig.renderer.custom_pass_state().0, 1);
+    assert!(before == after, "a compute pass leaves the frame alone");
+    let scene = rig.read_target(&scene_texture);
+    let early = rig.read_target(&early_texture);
+    for y in 0..16 {
+        for x in 0..32 {
+            let [distance, lit, _] = scene[(y * 32 + x) as usize];
+            // Away from the edge between ground and sky. The camera is 12
+            // above the ground; the sky is as far as the camera sees.
+            if x > 17 {
+                assert!((11.0..16.0).contains(&distance), "texel {x},{y}: ground at {distance}");
+                assert!(lit > 0.01, "texel {x},{y}: the lit ground: {lit}");
+            } else if x < 14 {
+                // As far as the camera sees: large, or not a number.
+                assert!(
+                    distance.is_nan() || distance >= 100.0,
+                    "texel {x},{y}: sky at {distance}"
+                );
+            }
+            // Negative control: before the scene is drawn, the same shader
+            // sees the 1x1 stand-in (black, one depth everywhere), never
+            // the ground.
+            let [distance, lit, _] = early[(y * 32 + x) as usize];
+            assert!(
+                !(11.0..16.0).contains(&distance),
+                "texel {x},{y}: no scene yet, but {distance}"
+            );
+            assert_eq!(lit, 0.0, "texel {x},{y}");
+        }
+    }
+}
+
+/// A ground block filling the view whose light is `target`'s first texel
+/// (its emissive map; black otherwise), seen from straight above.
+fn ground_lit_by(rig: &mut Rig, target: Texture) {
+    let ground = rig.mesh(
+        &MeshData::cube(1.0),
+        MaterialDesc {
+            color: Color::BLACK,
+            emissive: Color::WHITE,
+            emissive_map: Some(target),
+            ..Default::default()
+        },
+    );
+    rig.ctx.world.spawn((
+        Transform3D {
+            position: vec3(0.0, -0.5, 0.0),
+            scale: vec3(40.0, 1.0, 40.0),
+            ..Default::default()
+        },
+        Model::new(ground),
+    ));
+    rig.ctx.camera3d.position = vec3(0.0, 12.0, 0.01);
+    rig.ctx.camera3d.look_at(Vec3::ZERO);
+}
+
+#[test]
+fn materials_see_last_frames_scene_compute_results_and_effects_this_frames() {
+    let Some(mut rig) = Rig::new() else { return };
+    if !computes(&rig) {
+        return;
+    }
+    let (target, _) = rig.render_target(1, 1);
+    ground_lit_by(&mut rig, target);
+    let green = rig
+        .renderer
+        .create_compute(
+            &rig.device,
+            "green",
+            "fn compute(c: Cell) -> vec4<f32> { return vec4<f32>(0.0, 1.0, 0.0, 1.0); }",
+        )
+        .unwrap();
+    let plain = rig.gpu_material(MaterialDesc::default());
+    rig.scene_computes.push((green, target.id, plain));
+    // The opaque pass ran before the scene stage: the target still held 0.
+    let [r, g, b] = centre(&rig.draw());
+    assert!(
+        g < r + 20 && g < b + 20,
+        "first frame: last frame's 0, no green: {r} {g} {b}"
+    );
+    let [r, g, b] = centre(&rig.draw());
+    assert!(
+        g > 150 && g > r + 100 && g > b + 100,
+        "second frame: the first frame's green: {r} {g} {b}"
+    );
+    // A screen effect showing the target sees this frame's result.
+    let (fresh, _) = rig.render_target(1, 1);
+    let show = rig
+        .renderer
+        .create_effect(
+            &rig.device,
+            "show",
+            "fn effect(p: Pixel) -> vec3<f32> { return textureLoad(custom_texture0, vec2<i32>(0, 0), 0).rgb; }",
+        )
+        .unwrap();
+    let reads_fresh = rig.gpu_material(MaterialDesc {
+        custom_textures: [Some(fresh), None],
+        ..Default::default()
+    });
+    rig.scene_computes.push((green, fresh.id, plain));
+    rig.effects.push((show, reads_fresh));
+    let [r, g, b] = centre(&rig.draw());
+    assert!(
+        g > 150 && g > r + 100 && g > b + 100,
+        "the effect shows this frame's green: {r} {g} {b}"
+    );
+}
+
+#[test]
+fn materials_see_this_frames_compute_results_before_the_scene() {
+    // Negative control for the test above: the stage decides what the
+    // opaque pass sees.
+    let Some(mut rig) = Rig::new() else { return };
+    if !computes(&rig) {
+        return;
+    }
+    let (target, _) = rig.render_target(1, 1);
+    ground_lit_by(&mut rig, target);
+    let green = rig
+        .renderer
+        .create_compute(
+            &rig.device,
+            "green",
+            "fn compute(c: Cell) -> vec4<f32> { return vec4<f32>(0.0, 1.0, 0.0, 1.0); }",
+        )
+        .unwrap();
+    let plain = rig.gpu_material(MaterialDesc::default());
+    rig.computes.push((green, target.id, plain));
+    let [r, g, b] = centre(&rig.draw());
+    assert!(
+        g > 150 && g > r + 100 && g > b + 100,
+        "first frame: this frame's green: {r} {g} {b}"
+    );
+}
+
+#[test]
+fn a_target_effect_clearing_a_scene_compute_target_is_skipped_and_named() {
+    let Some(mut rig) = Rig::new() else { return };
+    if !computes(&rig) {
+        return;
+    }
+    half_ground(&mut rig);
+    let (shared, shared_texture) = rig.render_target(4, 4);
+    let (own, own_texture) = rig.render_target(4, 4);
+    let add = rig
+        .renderer
+        .create_compute(
+            &rig.device,
+            "add",
+            "fn compute(c: Cell) -> vec4<f32> { return c.value + vec4<f32>(0.25, 0.0, 0.0, 0.0); }",
+        )
+        .unwrap();
+    let fill = rig
+        .renderer
+        .create_effect(
+            &rig.device,
+            "fill",
+            "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(1.0); }",
+        )
+        .unwrap();
+    let plain = rig.gpu_material(MaterialDesc::default());
+    rig.scene_computes.push((add, shared.id, plain));
+    // Negative control: a target effect into a target of its own runs.
+    rig.target_effects.push((fill, own.id, plain));
+    rig.draw();
+    assert_eq!(rig.renderer.target_effect_count(), 1);
+    assert!(rig.renderer.custom_pass_state().2.is_empty());
+    assert_eq!(rig.read_target(&own_texture)[0], [1.0; 3]);
+    // The same target effect into the scene compute pass's target would
+    // replace what that pass accumulates: it is left out, by name.
+    rig.target_effects.push((fill, shared.id, plain));
+    assert!(validation_error(&mut rig, |rig| drop(rig.draw())).is_none());
+    assert_eq!(rig.renderer.target_effect_count(), 1, "only the first runs");
+    let (scene_passes, checked, hazards) = rig.renderer.custom_pass_state();
+    assert_eq!(scene_passes, 1, "the scene compute pass still runs");
+    assert!(checked >= 2);
+    assert_eq!(hazards.len(), 1, "{hazards:?}");
+    let named = &hazards[0];
+    assert!(
+        named.contains("target effect 1 (ctx.target_effects")
+            && named.contains(&format!("render target {}", shared.id))
+            && named.contains("scene compute pass 0 (ctx.scene_compute_passes"),
+        "{named}"
+    );
+    // The scene compute pass kept accumulating: 0.25 a frame, two frames.
+    let [red, ..] = rig.read_target(&shared_texture)[0];
+    assert!((red - 0.5).abs() < 1e-3, "{red}");
+}
+
+#[test]
+fn a_frame_without_custom_passes_does_no_custom_pass_work() {
+    let Some(mut rig) = Rig::new() else { return };
+    half_ground(&mut rig);
+    rig.draw();
+    let custom = FrameFeatures::BUFFER_COMPUTE
+        .with(FrameFeatures::TEXTURE_COMPUTE)
+        .with(FrameFeatures::SCENE_BUFFER_COMPUTE)
+        .with(FrameFeatures::SCENE_TEXTURE_COMPUTE)
+        .with(FrameFeatures::TARGET_EFFECTS)
+        .with(FrameFeatures::EFFECTS);
+    let features = last_features().unwrap();
+    // Debug builds also check that each part recorded exactly the steps
+    // these features declare: no custom pass step runs.
+    assert!(!features.intersects(custom), "{features}");
+    assert_eq!(
+        rig.renderer.custom_pass_state(),
+        (0, 0, Vec::new()),
+        "the check never ran"
+    );
+    // Nothing reads the scene depth after the opaque pass: a GPU that draws
+    // in tiles doesn't write it back to memory.
+    assert_eq!(depth_after_opaque(&rig.renderer), Some(wgpu::StoreOp::Discard));
+    if !computes(&rig) {
+        return;
+    }
+    // One custom pass turns its step and the check on, for that frame only.
+    let (target, _) = rig.render_target(4, 4);
+    let probe = rig.renderer.create_compute(&rig.device, "probe", SCENE_PROBE).unwrap();
+    let plain = rig.gpu_material(MaterialDesc::default());
+    rig.scene_computes.push((probe, target.id, plain));
+    rig.draw();
+    assert!(last_features().unwrap().contains(FrameFeatures::SCENE_TEXTURE_COMPUTE));
+    assert_eq!(rig.renderer.custom_pass_state().1, 1);
+    // The scene compute pass reads the depth, so the opaque pass keeps it.
+    assert_eq!(depth_after_opaque(&rig.renderer), Some(wgpu::StoreOp::Store));
+    rig.scene_computes.clear();
+    rig.draw();
+    assert!(!last_features().unwrap().intersects(custom));
+    assert_eq!(rig.renderer.custom_pass_state(), (0, 1, Vec::new()));
+    assert_eq!(depth_after_opaque(&rig.renderer), Some(wgpu::StoreOp::Discard));
+}
+
+#[test]
+fn without_compute_shaders_scene_compute_passes_are_refused_and_the_frame_draws() {
+    // WebGL2's limits: no compute shaders or storage.
+    let Some(mut rig) = Rig::with_limits(wgpu::Limits::downlevel_webgl2_defaults()) else {
+        return;
+    };
+    if crate::render::GpuLimits::of(&rig.device).compute() {
+        crate::render::render_test_support::skip("the device has compute shaders after all");
+        return;
+    }
+    half_ground(&mut rig);
+    let before = rig.draw();
+    let refused = rig
+        .renderer
+        .create_compute(&rig.device, "probe", SCENE_PROBE)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("can't run compute passes"), "{refused}");
+    // A buffer pass compiles to nothing there, and is left out of the frame.
+    let update = rig
+        .renderer
+        .create_compute(&rig.device, "update", "fn update(i: u32) { items[i].x += 1.0; }")
+        .unwrap();
+    let plain = rig.gpu_material(MaterialDesc::default());
+    rig.scene_computes.push((update, 1 << 31, plain));
+    let mut after = Vec::new();
+    assert!(validation_error(&mut rig, |rig| after = rig.draw()).is_none());
+    assert_eq!(rig.renderer.custom_pass_state().0, 0);
+    assert!(!last_features().unwrap().intersects(FrameFeatures::SCENE_BUFFER_COMPUTE));
+    assert!(before == after, "the frame draws as without the pass");
+}
+
+/// A shader constant of `examples/scene_compute.rs`, by name.
+fn example_shader(name: &str) -> String {
+    let source = include_str!("../../examples/scene_compute.rs").replace("\r\n", "\n");
+    let marker = format!("const {name}: &str = \"");
+    let start = source.find(&marker).expect("the constant") + marker.len();
+    source[start..start + source[start..].find("\";").unwrap()].to_string()
+}
+
+#[test]
+fn the_scene_compute_example_measures_the_frame_and_evens_out_its_light() {
+    let Some(mut rig) = Rig::new() else { return };
+    if !computes(&rig) {
+        return;
+    }
+    half_ground(&mut rig);
+    let (average, average_texture) = rig.render_target(1, 1);
+    let meter = rig
+        .renderer
+        .create_compute(&rig.device, "meter", &example_shader("METER"))
+        .unwrap();
+    let expose = rig
+        .renderer
+        .create_effect(&rig.device, "expose", &example_shader("EXPOSE"))
+        .unwrap();
+    // Adapting at once (a fast rate), to a key of 0.18.
+    let at_once = rig.gpu_material(MaterialDesc {
+        custom: [vec4(1e6, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
+        ..Default::default()
+    });
+    let settings = rig.gpu_material(MaterialDesc {
+        custom: [vec4(0.0, 0.18, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
+        custom_textures: [Some(average), None],
+        ..Default::default()
+    });
+    rig.scene_computes.push((meter, average.id, at_once));
+    // The ground's pixel, on the right half of the frame.
+    let ground = |frame: &[u8]| frame[((SIZE / 2 * SIZE + SIZE * 3 / 4) * 4) as usize];
+    let sun = rig.ctx.lighting.sun_intensity;
+    let measure = |rig: &mut Rig, intensity: f32| {
+        rig.ctx.lighting.sun_intensity = intensity;
+        let frame = rig.draw();
+        (rig.read_target(&average_texture)[0][0], ground(&frame))
+    };
+    let (dim, dim_raw) = measure(&mut rig, sun);
+    let (bright, bright_raw) = measure(&mut rig, sun * 4.0);
+    eprintln!("average light {dim} -> {bright}; ground pixel {dim_raw} -> {bright_raw} without the effect");
+    assert!(
+        dim > 0.0 && bright > dim * 2.0,
+        "the meter follows the frame: {dim} -> {bright}"
+    );
+    // Negative control above: without the effect the ground got brighter.
+    assert!(bright_raw > dim_raw + 20, "{dim_raw} -> {bright_raw}");
+    // With it, the light is scaled to the same average: the ground looks
+    // about the same under both suns.
+    rig.effects.push((expose, settings));
+    let (_, dim_exposed) = measure(&mut rig, sun);
+    let (_, bright_exposed) = measure(&mut rig, sun * 4.0);
+    eprintln!("ground pixel {dim_exposed} -> {bright_exposed} with the effect");
+    assert!(
+        dim_exposed.abs_diff(bright_exposed) <= 12,
+        "evened out: {dim_exposed} -> {bright_exposed}"
+    );
 }

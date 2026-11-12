@@ -1628,7 +1628,8 @@ impl Ctx {
         self.gfx.write_animated_morphs(&mut self.world);
     }
 
-    /// The screen effects, target effects and compute passes this frame runs (with their
+    /// The screen effects, target effects and compute passes (of both
+    /// stages) this frame runs (with their
     /// materials, `fallback` for none): freed ones, and passes into a freed
     /// target or buffer, are left out.
     pub(crate) fn collect_passes(&mut self, fallback: Option<Material>) {
@@ -1659,37 +1660,53 @@ impl Ctx {
                     .any(|t| t.id == e.target.id)
                     .then_some((e.effect.id, e.target.id, material.id))
             }));
-        self.gfx.frame3d.computes.clear();
-        let computes_live = &self.gfx.assets3d.computes_live;
-        self.gfx
-            .frame3d
-            .computes
-            .extend(self.compute_passes.iter().filter_map(|c| {
-                // A freed pass is skipped.
-                if !computes_live.contains(c.compute.id) {
-                    return None;
-                }
-                let material = c.material.or(fallback)?;
-                if let Some(b) = c.buffer {
-                    // A freed buffer's passes do nothing.
-                    self.gfx
-                        .assets3d
-                        .gpu_buffer_slot(b.id)
-                        .filter(|&slot| self.gfx.assets3d.gpu_buffers[slot] > 0)?;
-                    Some((c.compute.id, b.slot() | (1 << 31), material.id))
-                } else {
-                    targets
-                        .iter()
-                        .any(|t| t.id == c.target.id)
-                        .then_some((c.compute.id, c.target.id, material.id))
-                }
-            }));
+        let mut computes = std::mem::take(&mut self.gfx.frame3d.computes);
+        self.list_computes(&mut computes, false, fallback);
+        self.gfx.frame3d.computes = computes;
+        let mut scene_computes = std::mem::take(&mut self.gfx.frame3d.scene_computes);
+        self.list_computes(&mut scene_computes, true, fallback);
+        self.gfx.frame3d.scene_computes = scene_computes;
+    }
+
+    /// This frame's entries of [`Ctx::compute_passes`] (or, with `scene`,
+    /// [`Ctx::scene_compute_passes`]) into `list`: (compute, target texture
+    /// or GPU buffer slot with the top bit set, material). Freed passes, and
+    /// passes into a freed target or buffer, are left out.
+    fn list_computes(&self, list: &mut Vec<(u32, u32, u32)>, scene: bool, fallback: Option<Material>) {
+        list.clear();
+        let passes = if scene {
+            &self.scene_compute_passes
+        } else {
+            &self.compute_passes
+        };
+        let assets = &self.gfx.assets3d;
+        list.extend(passes.iter().filter_map(|c| {
+            // A freed pass is skipped.
+            if !assets.computes_live.contains(c.compute.id) {
+                return None;
+            }
+            let material = c.material.or(fallback)?;
+            if let Some(b) = c.buffer {
+                // A freed buffer's passes do nothing.
+                assets
+                    .gpu_buffer_slot(b.id)
+                    .filter(|&slot| assets.gpu_buffers[slot] > 0)?;
+                Some((c.compute.id, b.slot() | (1 << 31), material.id))
+            } else {
+                assets.render_targets.iter().any(|t| t.id == c.target.id).then_some((
+                    c.compute.id,
+                    c.target.id,
+                    material.id,
+                ))
+            }
+        }));
     }
 
     pub(crate) fn prepare_3d(&mut self) {
         if self.gfx.renderer.is_none()
             || (self.gfx.assets3d.bounds.is_empty()
                 && self.compute_passes.is_empty()
+                && self.scene_compute_passes.is_empty()
                 && self.gfx.frame3d.particles.runs.is_empty()
                 && self.gfx.frame3d.particles.strips.runs.is_empty()
                 && self.world.query::<&super::ParticleEmitter3D>().count() == 0
@@ -1706,6 +1723,7 @@ impl Ctx {
         let fallback = if self.effects.iter().any(|e| e.material.is_none())
             || self.target_effects.iter().any(|e| e.material.is_none())
             || self.compute_passes.iter().any(|c| c.material.is_none())
+            || self.scene_compute_passes.iter().any(|c| c.material.is_none())
         {
             Some(self.gfx.default_material())
         } else {

@@ -8,26 +8,36 @@
 //!
 //! - `membership/has/*`: `Archetype::has` (a linear scan of the sorted id
 //!   list) against candidate layouts built from the same ids: binary search,
-//!   a bitset, and a flat id→index table. Hits and misses, with the
+//!   a bitset, a flat id→index table, rank by counting, a width hybrid and an
+//!   8-wide block compare. Hits and misses, with the
 //!   archetype's ids packed at the bottom of the id space ("dense") or
 //!   scattered over 256 ids ("sparse"). Misses compare ids that are not in the
 //!   set, which scans the whole list.
 //! - `membership/index/*`: the same for a component's column index
 //!   (`column_index` in storage.rs): a linear `position`, the public
-//!   `column_ptr` wrapper, a bitset with popcount rank, the flat table and
-//!   binary search.
+//!   `column_ptr` wrapper, a bitset with popcount rank, the flat table,
+//!   binary search and the same three extra candidates.
 //! - `membership/colmap/*`: the column mapping `move_row` computes for every
 //!   structural change (for each column of the source, where is it in the
-//!   destination?). The engine does `n` linear scans; both id lists are
-//!   sorted, so a single merge pass is the obvious alternative.
+//!   destination?): `n` linear scans, as before #144, against the merge pass
+//!   over the two sorted id lists the engine uses now, a bitset and a table.
 //! - `membership/transition/*`: real `insert_dynamic`/`remove_dynamic` pairs
-//!   on a world: `warm` (edge cached, one component toggled), `cycle32` (32
+//!   on a world: `warm` (edge cached, one component toggled), the same for a
+//!   component with a drop function (`with-drop-fn`), `cycle32` (32
 //!   different components toggled in turn, so 64 edges are in use) and `cold`
 //!   (fresh world: the first add and remove, which resolve the edge and
 //!   create the archetype).
 //! - `membership/edge-lookup/*`: the transition-edge cache lookup itself
-//!   (`HashMap<ComponentId, usize>` with the default hasher, as in storage.rs)
-//!   against an identity-hash map and a short linear list, for 1 to 64 edges.
+//!   with SipHash (before #144) against the one-multiply hasher the engine
+//!   uses now (`ComponentIdHasher` in storage.rs) and a short linear list,
+//!   for 1 to 64 edges.
+//! - `membership/query/*`: a real `(&mut P, &V)` query over 4096 archetypes of
+//!   4 to 64 components (4 entities each), with the queried components the
+//!   first or the last ids of every archetype, hot and after a 128 MiB cache
+//!   flush (the first frame after the world was out of cache), with heap
+//!   allocations per run. `lookup-*` rows do only the two column lookups over
+//!   the same archetypes with each candidate. Results and the conclusion:
+//!   `crates/ponko_bench/MEMBERSHIP.md`.
 //!
 //! Candidates are interleaved round by round, so slow drift on a busy machine
 //! affects all of them alike. Each line shows nanoseconds per operation.
@@ -218,6 +228,46 @@ fn linear_index(ids: &[ComponentId], id: ComponentId) -> Option<usize> {
     ids.iter().position(|&c| c == id)
 }
 
+/// Linear scan up to 8 ids, binary search above.
+#[inline]
+fn hybrid_index(ids: &[ComponentId], id: ComponentId) -> Option<usize> {
+    if ids.len() <= 8 {
+        linear_index(ids, id)
+    } else {
+        ids.binary_search(&id).ok()
+    }
+}
+
+/// Eight ids at a time: an equality mask per block (no branch inside a block,
+/// so it can be one vector compare), and since the list is sorted, a block
+/// whose last id is above `id` ends the search.
+#[inline]
+fn chunked_index(ids: &[ComponentId], id: ComponentId) -> Option<usize> {
+    let (blocks, rest) = ids.as_chunks::<8>();
+    for (k, block) in blocks.iter().enumerate() {
+        let mut mask = 0u32;
+        for (i, &c) in block.iter().enumerate() {
+            mask |= u32::from(c == id) << i;
+        }
+        if mask != 0 {
+            return Some(8 * k + mask.trailing_zeros() as usize);
+        }
+        if block[7] > id {
+            return None;
+        }
+    }
+    rest.iter().position(|&c| c == id).map(|i| 8 * blocks.len() + i)
+}
+
+/// Rank by counting: the number of ids below `id` is its column if it is
+/// there. No early exit and no data-dependent branch, so the loop vectorizes
+/// and costs the same wherever `id` sits in the list.
+#[inline]
+fn rank_index(ids: &[ComponentId], id: ComponentId) -> Option<usize> {
+    let k = ids.iter().filter(|&&c| c < id).count();
+    (ids.get(k) == Some(&id)).then_some(k)
+}
+
 /// Column mapping with one merge pass over two sorted id lists. Returns the
 /// sum of the matched destination indexes (so the work cannot be optimized away).
 fn merge_map(src: &[ComponentId], dst: &[ComponentId]) -> usize {
@@ -332,6 +382,10 @@ fn lookups(filter: Option<&str>) {
                             leak(format!("{tag}/{kind}/table")),
                             Box::new(move || q.iter().filter(|&&id| table.index(id).is_some()).count()),
                         ),
+                        (
+                            leak(format!("{tag}/{kind}/rank-count")),
+                            Box::new(move || q.iter().filter(|&&id| rank_index(mine, id).is_some()).count()),
+                        ),
                     ],
                 );
                 compare(
@@ -359,6 +413,18 @@ fn lookups(filter: Option<&str>) {
                         (
                             leak(format!("{tag}/{kind}/binary-search")),
                             Box::new(move || q.iter().filter_map(|&id| mine.binary_search(&id).ok()).sum()),
+                        ),
+                        (
+                            leak(format!("{tag}/{kind}/rank-count")),
+                            Box::new(move || q.iter().filter_map(|&id| rank_index(mine, id)).sum()),
+                        ),
+                        (
+                            leak(format!("{tag}/{kind}/hybrid-linear8-binary")),
+                            Box::new(move || q.iter().filter_map(|&id| hybrid_index(mine, id)).sum()),
+                        ),
+                        (
+                            leak(format!("{tag}/{kind}/chunked8")),
+                            Box::new(move || q.iter().filter_map(|&id| chunked_index(mine, id)).sum()),
                         ),
                     ],
                 );
@@ -395,7 +461,7 @@ fn colmap(filter: Option<&str>) {
                     1000,
                     vec![
                         (
-                            leak(format!("{tag}/{dir}/linear(engine)")),
+                            leak(format!("{tag}/{dir}/linear(before-#144)")),
                             Box::new(move || {
                                 let mut s = 0;
                                 for _ in 0..COLMAP_REPS {
@@ -405,7 +471,7 @@ fn colmap(filter: Option<&str>) {
                             }),
                         ),
                         (
-                            leak(format!("{tag}/{dir}/merge")),
+                            leak(format!("{tag}/{dir}/merge(engine)")),
                             Box::new(move || {
                                 let mut s = 0;
                                 for _ in 0..COLMAP_REPS {
@@ -455,15 +521,18 @@ fn transitions(filter: Option<&str>) {
         }
         let (mut w, ids, e) = world_with(&set);
         let extra0 = ids[SPREAD];
+        // SAFETY: an 8-byte value whose drop function does nothing.
+        let with_drop = unsafe { w.register_component("with-drop", 8, 8, Some(noop_drop)) };
+        let drop_value = [0u8; 8];
+        // SAFETY: an 8-byte value of the 8-byte component.
+        assert!(unsafe { w.raw().insert_dynamic(e, with_drop, drop_value.as_ptr()) });
+        assert!(w.raw().remove_dynamic(e, with_drop));
         let extras: Vec<ComponentId> = ids[SPREAD..SPREAD + 32].to_vec();
-        let archetypes_before = {
-            // Visit every edge once, so each case below starts with the edges cached.
-            for &x in &extras {
-                add(&mut w, e, x);
-                assert!(w.raw().remove_dynamic(e, x));
-            }
-            w.raw_ref().archetypes().len()
-        };
+        // Visit every edge once, so each case below starts with the edges cached.
+        for &x in &extras {
+            add(&mut w, e, x);
+            assert!(w.raw().remove_dynamic(e, x));
+        }
         let w = std::cell::RefCell::new(w);
         compare(
             filter,
@@ -483,6 +552,18 @@ fn transitions(filter: Option<&str>) {
                     }),
                 ),
                 (
+                    leak(format!("{name}/warm-1-edge-with-drop-fn")),
+                    Box::new(|| {
+                        let mut w = w.borrow_mut();
+                        for _ in 0..TOGGLES {
+                            // SAFETY: an 8-byte value of the 8-byte component.
+                            unsafe { w.raw().insert_dynamic(e, with_drop, drop_value.as_ptr()) };
+                            w.raw().remove_dynamic(e, with_drop);
+                        }
+                        0
+                    }),
+                ),
+                (
                     leak(format!("{name}/cycle32-64-edges")),
                     Box::new(|| {
                         let mut w = w.borrow_mut();
@@ -496,8 +577,26 @@ fn transitions(filter: Option<&str>) {
                 ),
             ],
         );
-        // The edge cache never missed after the first visit: no archetype was created.
-        assert_eq!(w.borrow().raw_ref().archetypes().len(), archetypes_before);
+        // Every edge lookup hits after the first visit. A miss copies the id
+        // list (`to_vec`/`collect` in world.rs), which allocates even when the
+        // archetype it finds already exists, so the archetype count can't show
+        // a miss but the allocation count can: one more pass over every edge
+        // used above must not allocate.
+        {
+            let mut w = w.borrow_mut();
+            let before = crate::alloc::Counts::now();
+            add(&mut w, e, extra0);
+            w.raw().remove_dynamic(e, extra0);
+            // SAFETY: an 8-byte value of the 8-byte component.
+            unsafe { w.raw().insert_dynamic(e, with_drop, drop_value.as_ptr()) };
+            w.raw().remove_dynamic(e, with_drop);
+            for &x in &extras {
+                add(&mut w, e, x);
+                w.raw().remove_dynamic(e, x);
+            }
+            let allocs = crate::alloc::Counts::now().since(before).count;
+            assert_eq!(allocs, 0, "membership/transition/{name}: an edge lookup missed");
+        }
 
         // Cold: a fresh world, timing the first add and remove of one component.
         let full = format!("membership/transition/{name}/cold-first-add+remove");
@@ -524,7 +623,12 @@ fn transitions(filter: Option<&str>) {
     }
 }
 
-/// Multiplicative hash of the id, as an identity-like hasher.
+/// Drop function of the `with-drop` component: removing a component that has
+/// one moves the value out before dropping it.
+unsafe extern "C-unwind" fn noop_drop(_: *mut u8) {}
+
+/// Multiplicative hash of the id: the same `write_u32` as the engine's
+/// `ComponentIdHasher`, which is crate-private.
 #[derive(Default)]
 struct IdHasher(u64);
 
@@ -542,8 +646,8 @@ impl Hasher for IdHasher {
     }
 }
 
-/// The edge cache lookup alone: the engine's `HashMap` (default hasher)
-/// against an identity-style hasher and a short list.
+/// The edge cache lookup alone: SipHash (the engine before #144), the
+/// one-multiply hasher (the engine now) and a short list.
 fn edge_lookup(filter: Option<&str>) {
     let (_, ids) = registered_world();
     for edges in [1, 4, 16, 64] {
@@ -561,11 +665,11 @@ fn edge_lookup(filter: Option<&str>) {
             300,
             vec![
                 (
-                    leak(format!("e{edges}/hashmap-siphash(engine)")),
+                    leak(format!("e{edges}/hashmap-siphash(before-#144)")),
                     Box::new(move || q.iter().filter_map(|id| sip.get(id)).sum()),
                 ),
                 (
-                    leak(format!("e{edges}/hashmap-identity-hash")),
+                    leak(format!("e{edges}/hashmap-multiply-hash(engine)")),
                     Box::new(move || q.iter().filter_map(|id| fast.get(id)).sum()),
                 ),
                 (
@@ -593,11 +697,260 @@ fn memory(filter: Option<&str>) {
     println!(
         "membership/memory: per archetype, {REGISTERED} registered components: \
          bitset+rank {} B, flat table {} B; the id list it supplements is {} B at 16 components \
-         (4 B each), and a column is 24 B each.",
+         (4 B each), and a column is 32 B each.",
         Bits::new(&mine).bytes(),
         Table::new(&mine).bytes(),
         16 * 4,
     );
+}
+
+// ---- query level: many archetypes, hot and cache-cold ------------------------
+
+/// Archetypes in a query-level world; 4 entities each, so per-archetype work
+/// (matching, column lookup) is most of a query's cost, as in worlds with many
+/// component combinations.
+const QUERY_ARCHETYPES: usize = 4096;
+const QUERY_ROWS: usize = 4;
+/// Query-level widths: total components per archetype, the two queried ones
+/// included. Two would leave no room for 4096 distinct archetypes.
+const QUERY_WIDTHS: [usize; 5] = [4, 8, 16, 32, 64];
+/// Bytes written between cold samples: more than the M4 Max's last-level
+/// cache, so archetype structs, id lists and columns come from memory.
+const FLUSH_BYTES: usize = 128 << 20;
+
+#[derive(Clone, Copy)]
+struct P(f32);
+#[derive(Clone, Copy)]
+struct V(f32);
+/// In no archetype: `without::<Tag>()` matches everything and makes `has`
+/// scan the whole id list (a miss).
+struct Tag;
+
+/// Where the two queried components sit in every archetype's sorted id list.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Place {
+    /// Registered first: ids 0 and 1, so a linear scan finds them at once.
+    First,
+    /// Registered after the 257 others (`SPREAD` components and `Tag`): the last
+    /// two ids, the scan's worst case.
+    Last,
+}
+
+impl Place {
+    fn name(self) -> &'static str {
+        match self {
+            Place::First => "first",
+            Place::Last => "last",
+        }
+    }
+}
+
+/// `QUERY_ARCHETYPES` distinct archetypes of `width` components, each with
+/// `P`, `V` and `width - 2` of 256 four-byte components, spawned in one go
+/// (no intermediate archetypes). Returns the world and the ids of `P`, `V`.
+fn query_world(width: usize, place: Place) -> (World, ComponentId, ComponentId) {
+    let mut w = World::new();
+    let mut pv = Vec::new();
+    if place == Place::First {
+        pv = vec![w.register::<P>(), w.register::<V>()];
+    }
+    let pool: Vec<ComponentId> = (0..SPREAD)
+        // SAFETY: plain 4-byte values, no destructor.
+        .map(|i| unsafe { w.register_component(&format!("q{i}"), 4, 4, None) })
+        .collect();
+    w.register::<Tag>();
+    if place == Place::Last {
+        pv = vec![w.register::<P>(), w.register::<V>()];
+    }
+    let mut rng = Rng(0xD1B5_4A32_D192_ED03 ^ width as u64);
+    let mut seen = std::collections::HashSet::new();
+    let (p, v, zero) = (P(1.0), V(0.5), 0u32);
+    while seen.len() < QUERY_ARCHETYPES {
+        let mut picks = pool.clone();
+        // Partial shuffle: the first `width - 2` are a uniform random subset.
+        for i in 0..width - 2 {
+            let j = i + (rng.next() % (picks.len() - i) as u64) as usize;
+            picks.swap(i, j);
+        }
+        picks.truncate(width - 2);
+        picks.sort_unstable();
+        if !seen.insert(picks.clone()) {
+            continue;
+        }
+        let mut parts: Vec<(ComponentId, *const u8)> =
+            vec![(pv[0], (&raw const p).cast()), (pv[1], (&raw const v).cast())];
+        parts.extend(picks.iter().map(|&id| (id, (&raw const zero).cast::<u8>())));
+        for _ in 0..QUERY_ROWS {
+            // SAFETY: every pointer is to a valid, `Copy` value of its component.
+            unsafe { w.raw().spawn_dynamic(&parts) };
+        }
+    }
+    assert_eq!(
+        w.raw_ref().archetypes().iter().filter(|a| !a.is_empty()).count(),
+        QUERY_ARCHETYPES
+    );
+    (w, pv[0], pv[1])
+}
+
+/// Times `f` `samples` times, each after `prepare` (untimed). Returns ns per
+/// archetype (median, min) and the allocations of the last timed call.
+fn time_each(samples: usize, mut prepare: impl FnMut(), mut f: impl FnMut() -> usize) -> (f64, f64, u64) {
+    let mut times = Vec::with_capacity(samples);
+    let mut allocs = 0;
+    for round in 0..samples + 2 {
+        prepare();
+        let before = crate::alloc::Counts::now();
+        let t = Instant::now();
+        black_box(f());
+        let ns = t.elapsed().as_secs_f64() * 1e9 / QUERY_ARCHETYPES as f64;
+        allocs = crate::alloc::Counts::now().since(before).count;
+        if round >= 2 {
+            times.push(ns);
+        }
+    }
+    times.sort_by(f64::total_cmp);
+    (times[times.len() / 2], times[0], allocs)
+}
+
+/// A real query over 4096 archetypes: per archetype it matches the filters
+/// (`has`) and finds two columns (`column_index`), then visits 4 rows. Hot:
+/// back-to-back runs. Cold: 128 MiB written before every run, the first frame
+/// after the world was out of cache. `lookup-*` rows are the two column
+/// lookups alone over the same archetypes (no rows visited), with the engine's
+/// linear scan and with binary search, to show the share of the lookup.
+fn query_level(filter: Option<&str>) {
+    let mut flush = vec![0u64; FLUSH_BYTES / 8];
+    let mut generation = 0u64;
+    for place in [Place::First, Place::Last] {
+        for width in QUERY_WIDTHS {
+            let tag = format!("n{width}-{}", place.name());
+            if skips(filter, &format!("membership/query/{tag}")) {
+                continue;
+            }
+            let (mut w, p, v) = query_world(width, place);
+            let w = std::cell::RefCell::new(&mut w);
+            type Run<'a> = (&'static str, Box<dyn FnMut() -> usize + 'a>);
+            let cases: Vec<Run<'_>> = vec![
+                (
+                    "for_each(&mut P,&V)",
+                    Box::new(|| {
+                        let mut w = w.borrow_mut();
+                        let mut n = 0;
+                        w.query::<(&mut P, &V)>().for_each(|(a, b)| {
+                            a.0 += b.0;
+                            n += 1;
+                        });
+                        n
+                    }),
+                ),
+                (
+                    "for_each(&mut P,&V)+without<Tag>",
+                    Box::new(|| {
+                        let mut w = w.borrow_mut();
+                        let mut n = 0;
+                        w.query::<(&mut P, &V)>().without::<Tag>().for_each(|(a, b)| {
+                            a.0 += b.0;
+                            n += 1;
+                        });
+                        n
+                    }),
+                ),
+                (
+                    "lookup-linear",
+                    Box::new(|| {
+                        let w = w.borrow();
+                        w.raw_ref()
+                            .archetypes()
+                            .iter()
+                            .map(|a| {
+                                let ids = a.component_ids();
+                                linear_index(ids, p).unwrap_or(0) + linear_index(ids, v).unwrap_or(0)
+                            })
+                            .sum()
+                    }),
+                ),
+                (
+                    "lookup-binary-search",
+                    Box::new(|| {
+                        let w = w.borrow();
+                        w.raw_ref()
+                            .archetypes()
+                            .iter()
+                            .map(|a| {
+                                let ids = a.component_ids();
+                                ids.binary_search(&p).unwrap_or(0) + ids.binary_search(&v).unwrap_or(0)
+                            })
+                            .sum()
+                    }),
+                ),
+                (
+                    "lookup-hybrid-linear8-binary",
+                    Box::new(|| {
+                        let w = w.borrow();
+                        w.raw_ref()
+                            .archetypes()
+                            .iter()
+                            .map(|a| {
+                                let ids = a.component_ids();
+                                hybrid_index(ids, p).unwrap_or(0) + hybrid_index(ids, v).unwrap_or(0)
+                            })
+                            .sum()
+                    }),
+                ),
+                (
+                    "lookup-chunked8",
+                    Box::new(|| {
+                        let w = w.borrow();
+                        w.raw_ref()
+                            .archetypes()
+                            .iter()
+                            .map(|a| {
+                                let ids = a.component_ids();
+                                chunked_index(ids, p).unwrap_or(0) + chunked_index(ids, v).unwrap_or(0)
+                            })
+                            .sum()
+                    }),
+                ),
+                (
+                    "lookup-rank-count",
+                    Box::new(|| {
+                        let w = w.borrow();
+                        w.raw_ref()
+                            .archetypes()
+                            .iter()
+                            .map(|a| {
+                                let ids = a.component_ids();
+                                rank_index(ids, p).unwrap_or(0) + rank_index(ids, v).unwrap_or(0)
+                            })
+                            .sum()
+                    }),
+                ),
+            ];
+            for (name, mut f) in cases {
+                let hot = time_each(200, || {}, &mut f);
+                let cold = time_each(
+                    25,
+                    || {
+                        generation += 1;
+                        for x in flush.iter_mut().step_by(8) {
+                            *x = x.wrapping_add(generation);
+                        }
+                        black_box(&flush);
+                    },
+                    &mut f,
+                );
+                println!(
+                    "membership/query/{tag}/{name:<34} ns per archetype: hot median {:>6.2} min {:>6.2}   \
+                     cold median {:>6.2} min {:>6.2}   allocs {}",
+                    hot.0,
+                    hot.1,
+                    cold.0,
+                    cold.1,
+                    hot.2.max(cold.2)
+                );
+            }
+        }
+    }
 }
 
 pub fn run(filter: Option<&str>) {
@@ -606,6 +959,7 @@ pub fn run(filter: Option<&str>) {
     colmap(filter);
     edge_lookup(filter);
     transitions(filter);
+    query_level(filter);
 }
 
 #[cfg(test)]
@@ -628,6 +982,9 @@ mod tests {
                     assert_eq!(table.index(id), want);
                     assert_eq!(bits.has(id), want.is_some());
                     assert_eq!(mine.binary_search(&id).ok(), want);
+                    assert_eq!(rank_index(&mine, id), want);
+                    assert_eq!(hybrid_index(&mine, id), want);
+                    assert_eq!(chunked_index(&mine, id), want);
                 }
             }
         }

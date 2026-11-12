@@ -312,6 +312,31 @@ pub struct Ctx {
     /// ```
     #[cfg(feature = "3d")]
     pub compute_passes: Vec<crate::render::ComputePass>,
+    /// Compute passes run on the GPU each frame, in order, at the scene
+    /// stage (feature `3d`): after the opaque and transparent surfaces and
+    /// temporal antialiasing, before [`target_effects`](Self::target_effects),
+    /// [`effects`](Self::effects), bloom and tone mapping. Their shaders
+    /// read this frame's lit image and depth (`scene_color`,
+    /// `scene_position`, `scene_distance`). Same entries as
+    /// [`compute_passes`](Self::compute_passes); see
+    /// [`ComputePass`](crate::render::ComputePass) for the ordering and
+    /// resource rules of both stages.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// // Each texel keeps a running average of how bright the frame is there.
+    /// let meter = ctx.gfx.create_compute("meter", "
+    ///     fn compute(c: Cell) -> vec4<f32> {
+    ///         let seen = scene_color(c.uv * frame.screen.xy);
+    ///         return mix(c.value, vec4<f32>(seen, 1.0), 0.05);
+    ///     }");
+    /// let light = ctx.gfx.create_render_target(16, 9);
+    /// ctx.scene_compute_passes.push(ponko::render::ComputePass::new(meter, light));
+    /// # }
+    /// ```
+    #[cfg(feature = "3d")]
+    pub scene_compute_passes: Vec<crate::render::ComputePass>,
     /// The sky behind the 3D world and the fog in front of it (feature
     /// `3d`): a physical sky lit by the sun, by default.
     ///
@@ -471,6 +496,8 @@ impl Ctx {
             #[cfg(feature = "3d")]
             compute_passes: Vec::new(),
             #[cfg(feature = "3d")]
+            scene_compute_passes: Vec::new(),
+            #[cfg(feature = "3d")]
             sky: crate::render::Sky::default(),
             ui_state: UiState::default(),
             ui: crate::ui::Ui::default(),
@@ -518,6 +545,9 @@ impl Ctx {
             .settle(!matches!(status, FrameStatus::Occluded | FrameStatus::Skipped));
         self.perf.last_render_stats = self.gfx.renderer.as_ref().map(Renderer::stats).unwrap_or_default();
         self.perf.last_render_detail = self.gfx.renderer.as_ref().map(Renderer::detail);
+        if self.gfx.renderer.is_some() && status.drew() {
+            self.perf.push_render_frame(self.time.frame());
+        }
         if let Some(renderer) = &self.gfx.renderer {
             self.perf.gpu_passes.clear();
             self.perf.gpu_passes.extend_from_slice(renderer.gpu_passes());
@@ -1388,6 +1418,30 @@ mod tests {
         assert_eq!(ctx.gfx.sprite_count(), 2);
         assert_eq!(ctx.render_frame(), FrameStatus::Skipped);
         assert_eq!(ctx.gfx.sprite_count(), 0, "queue is cleared after each frame");
+    }
+
+    /// What `render_frame` keeps for the render inspector's history: only
+    /// frames the renderer drew. The real coverage is the
+    /// `FrameStatus::drew()` mapping that `render_frame` decides with: a
+    /// drawn frame needs a renderer, and the renderer needs a window, which
+    /// tests don't open (the offscreen GPU tests drive the 3D renderer
+    /// directly, without a `Ctx`). The `render_frame()` half below has no
+    /// renderer, so its push is skipped before `drew()` is even asked.
+    #[test]
+    fn only_drawn_frames_enter_the_render_history() {
+        for (status, drew) in [
+            (FrameStatus::Presented, true),
+            (FrameStatus::Offscreen, true),
+            (FrameStatus::Occluded, false),
+            (FrameStatus::Skipped, false),
+        ] {
+            assert_eq!(status.drew(), drew, "{status:?}");
+        }
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
+        for _ in 0..3 {
+            assert_eq!(ctx.render_frame(), FrameStatus::Skipped);
+        }
+        assert!(ctx.perf.render_history.is_empty(), "no renderer: nothing was drawn");
     }
 
     #[test]

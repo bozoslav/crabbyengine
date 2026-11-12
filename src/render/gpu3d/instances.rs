@@ -5,9 +5,9 @@
 //! ([`Renderer3D::set_instance_batch`]):
 //!
 //! - **GPU-driven** (devices with compute culling, batches the measured
-//!   crossover or the game's [`BatchCulling`] sends here: at least
-//!   [`GPU_BATCH_MIN`] instances, or [`GPU_BATCH_TRIANGLES`] triangles
-//!   over all instances, and no see-through material): the batch's records and
+//!   crossover or the game's [`BatchCulling`] sends here: one level, at
+//!   least [`GPU_BATCH_MIN`] instances, or [`GPU_BATCH_TRIANGLES`]
+//!   triangles over all instances, and no see-through material): the batch's records and
 //!   cells live in a [`Pool`] shared by all such batches, and each of its
 //!   views (a batch level seen by a camera or a shadow view) has a visible
 //!   list in one of the pool's [`Page`]s. Every frame a four-stage compute
@@ -76,7 +76,8 @@ pub(crate) enum BatchPath {
 pub(crate) enum Route {
     /// Culled by the compute pass, drawn indirectly.
     Gpu,
-    /// On the CPU: fewer than [`GPU_BATCH_MIN`] instances (or forced).
+    /// On the CPU: under the crossover (fewer than [`GPU_BATCH_MIN`]
+    /// instances, a see-through material or several levels), or forced.
     CpuSmall,
     /// On the CPU: the device has no compute culling.
     CpuNoCompute,
@@ -863,6 +864,13 @@ impl Renderer3D {
             (BatchPath::Auto, BatchCulling::PreferCpu) => false,
             // See-through instances blend in the order they are drawn:
             // the CPU path's is the batch's own, the same every frame.
+            // Several distance levels stay on the CPU path at any size: the
+            // compute pass tests every instance for every level and view,
+            // where the CPU skips whole cells out of view or out of a band,
+            // and it measured slower at every size up to a million
+            // (`crates/ponko_bench/LOD_SPLIT.md`). The crossover below was
+            // measured for single-level batches.
+            (BatchPath::Auto, _) if batch.levels.len() > 1 => false,
             (BatchPath::Auto, _) => {
                 let blends = batch.levels.iter().any(|l| self.blends(l.mesh.slot()));
                 let triangles = |l: &InstanceLevel| -> u64 {

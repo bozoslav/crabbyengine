@@ -11,6 +11,7 @@
 #define CRABBY_ACTION_KEYS PONKO_ACTION_KEYS
 #define CRABBY_ACTION_KEYS2 PONKO_ACTION_KEYS2
 #define CRABBY_ACTION_MOUSE PONKO_ACTION_MOUSE
+#define CRABBY_ACTION_NONE PONKO_ACTION_NONE
 #define CRABBY_ASSET_CLASS_COMPUTE PONKO_ASSET_CLASS_COMPUTE
 #define CRABBY_ASSET_CLASS_EFFECT PONKO_ASSET_CLASS_EFFECT
 #define CRABBY_ASSET_CLASS_GPU_BUFFER PONKO_ASSET_CLASS_GPU_BUFFER
@@ -274,6 +275,11 @@
 #define CRABBY_ROOT_MOTION_APPLY PONKO_ROOT_MOTION_APPLY
 #define CRABBY_ROOT_MOTION_EXTRACT PONKO_ROOT_MOTION_EXTRACT
 #define CRABBY_ROOT_MOTION_OFF PONKO_ROOT_MOTION_OFF
+#define CRABBY_SCENARIO_CANCELLED PONKO_SCENARIO_CANCELLED
+#define CRABBY_SCENARIO_FAILED PONKO_SCENARIO_FAILED
+#define CRABBY_SCENARIO_PASSED PONKO_SCENARIO_PASSED
+#define CRABBY_SCENARIO_PENDING PONKO_SCENARIO_PENDING
+#define CRABBY_SCENARIO_RUNNING PONKO_SCENARIO_RUNNING
 #define CRABBY_SERVICE_ASSETS PONKO_SERVICE_ASSETS
 #define CRABBY_SERVICE_AUDIO PONKO_SERVICE_AUDIO
 #define CRABBY_SERVICE_CAMERA PONKO_SERVICE_CAMERA
@@ -414,8 +420,11 @@
 #define CrabbyAnimationGraph PonkoAnimationGraph
 #define CrabbyAnimationGraphBuilder PonkoAnimationGraphBuilder
 #define CrabbyAssetClass PonkoAssetClass
+#define CrabbyAssetContainsFn PonkoAssetContainsFn
 #define CrabbyAssetCount PonkoAssetCount
+#define CrabbyAssetDecodeFn PonkoAssetDecodeFn
 #define CrabbyAssetOwner PonkoAssetOwner
+#define CrabbyAssetReadFn PonkoAssetReadFn
 #define CrabbyAssetRecord PonkoAssetRecord
 #define CrabbyAssetState PonkoAssetState
 #define CrabbyAttached PonkoAttached
@@ -477,6 +486,7 @@
 #define CrabbyHandleKind PonkoHandleKind
 #define CrabbyHeightfield PonkoHeightfield
 #define CrabbyHit3D PonkoHit3D
+#define CrabbyInputScenario PonkoInputScenario
 #define CrabbyInstanceBatch PonkoInstanceBatch
 #define CrabbyInstanceBatchOptions PonkoInstanceBatchOptions
 #define CrabbyInstanceLevel PonkoInstanceLevel
@@ -506,6 +516,7 @@
 #define CrabbyLodSettings PonkoLodSettings
 #define CrabbyMaterial PonkoMaterial
 #define CrabbyMaterialDesc PonkoMaterialDesc
+#define CrabbyMemorySource PonkoMemorySource
 #define CrabbyMesh PonkoMesh
 #define CrabbyMeshData PonkoMeshData
 #define CrabbyMeshView PonkoMeshView
@@ -547,9 +558,12 @@
 #define CrabbyReflectionProbe3D PonkoReflectionProbe3D
 #define CrabbyResidencyKind PonkoResidencyKind
 #define CrabbyResidencyStats PonkoResidencyStats
+#define CrabbyResourceScopeFn PonkoResourceScopeFn
 #define CrabbyRigidBody PonkoRigidBody
 #define CrabbyRigidBody3D PonkoRigidBody3D
 #define CrabbyRootMotion PonkoRootMotion
+#define CrabbyScenarioReport PonkoScenarioReport
+#define CrabbyScenarioStatus PonkoScenarioStatus
 #define CrabbyScreenEffect PonkoScreenEffect
 #define CrabbyService PonkoService
 #define CrabbyShader PonkoShader
@@ -617,6 +631,7 @@
 #define CrabbyUiTrackKind PonkoUiTrackKind
 #define CrabbyUpdateStamp PonkoUpdateStamp
 #define CrabbyUploadStats PonkoUploadStats
+#define CrabbyUserFreeFn PonkoUserFreeFn
 #define CrabbyValue PonkoValue
 #define CrabbyVec2 PonkoVec2
 #define CrabbyVec3 PonkoVec3
@@ -713,10 +728,19 @@
 #define crabby_contact_pair3d_set_surface_velocity ponko_contact_pair3d_set_surface_velocity
 #define crabby_ctx_action_axis ponko_ctx_action_axis
 #define crabby_ctx_action_axis2 ponko_ctx_action_axis2
+#define crabby_ctx_action_axis2_id ponko_ctx_action_axis2_id
+#define crabby_ctx_action_axis_id ponko_ctx_action_axis_id
 #define crabby_ctx_action_down ponko_ctx_action_down
+#define crabby_ctx_action_down_id ponko_ctx_action_down_id
+#define crabby_ctx_action_id ponko_ctx_action_id
+#define crabby_ctx_action_ids ponko_ctx_action_ids
 #define crabby_ctx_action_pressed ponko_ctx_action_pressed
+#define crabby_ctx_action_pressed_id ponko_ctx_action_pressed_id
 #define crabby_ctx_action_released ponko_ctx_action_released
+#define crabby_ctx_action_released_id ponko_ctx_action_released_id
 #define crabby_ctx_actions ponko_ctx_actions
+#define crabby_ctx_add_asset_source ponko_ctx_add_asset_source
+#define crabby_ctx_add_memory_source ponko_ctx_add_memory_source
 #define crabby_ctx_animator_add_layer ponko_ctx_animator_add_layer
 #define crabby_ctx_animator_crossfade ponko_ctx_animator_crossfade
 #define crabby_ctx_animator_layer_crossfade ponko_ctx_animator_layer_crossfade
@@ -751,6 +775,7 @@
 #define crabby_ctx_camera ponko_ctx_camera
 #define crabby_ctx_camera3d ponko_ctx_camera3d
 #define crabby_ctx_camera3d_look_at ponko_ctx_camera3d_look_at
+#define crabby_ctx_cancel_scenario ponko_ctx_cancel_scenario
 #define crabby_ctx_capabilities_json ponko_ctx_capabilities_json
 #define crabby_ctx_cast_capsule3d ponko_ctx_cast_capsule3d
 #define crabby_ctx_cast_ray ponko_ctx_cast_ray
@@ -830,6 +855,7 @@
 #define crabby_ctx_key_released ponko_ctx_key_released
 #define crabby_ctx_lighting ponko_ctx_lighting
 #define crabby_ctx_live_counts ponko_ctx_live_counts
+#define crabby_ctx_load_asset_with ponko_ctx_load_asset_with
 #define crabby_ctx_load_clip ponko_ctx_load_clip
 #define crabby_ctx_load_compute ponko_ctx_load_compute
 #define crabby_ctx_load_effect ponko_ctx_load_effect
@@ -1002,6 +1028,7 @@
 #define crabby_ctx_spawn_prefab_transform2d ponko_ctx_spawn_prefab_transform2d
 #define crabby_ctx_spawn_prefab_transform3d ponko_ctx_spawn_prefab_transform3d
 #define crabby_ctx_start_ragdoll ponko_ctx_start_ragdoll
+#define crabby_ctx_start_scenario ponko_ctx_start_scenario
 #define crabby_ctx_steam_invite ponko_ctx_steam_invite
 #define crabby_ctx_steam_lobby ponko_ctx_steam_lobby
 #define crabby_ctx_step ponko_ctx_step
@@ -1015,6 +1042,11 @@
 #define crabby_ctx_text3d_text ponko_ctx_text3d_text
 #define crabby_ctx_time ponko_ctx_time
 #define crabby_ctx_trail3d_point_count ponko_ctx_trail3d_point_count
+#define crabby_ctx_try_load_font ponko_ctx_try_load_font
+#define crabby_ctx_try_load_mesh ponko_ctx_try_load_mesh
+#define crabby_ctx_try_load_sound ponko_ctx_try_load_sound
+#define crabby_ctx_try_load_stream ponko_ctx_try_load_stream
+#define crabby_ctx_try_load_texture ponko_ctx_try_load_texture
 #define crabby_ctx_turns ponko_ctx_turns
 #define crabby_ctx_two_bone_ik ponko_ctx_two_bone_ik
 #define crabby_ctx_ui_access_action ponko_ctx_ui_access_action
@@ -1055,6 +1087,7 @@
 #define crabby_ctx_ui_set_grid_area ponko_ctx_ui_set_grid_area
 #define crabby_ctx_ui_set_grid_line_names ponko_ctx_ui_set_grid_line_names
 #define crabby_ctx_ui_set_grid_named_line ponko_ctx_ui_set_grid_named_line
+#define crabby_ctx_ui_set_grid_named_span ponko_ctx_ui_set_grid_named_span
 #define crabby_ctx_ui_set_grid_template_areas ponko_ctx_ui_set_grid_template_areas
 #define crabby_ctx_ui_set_layout ponko_ctx_ui_set_layout
 #define crabby_ctx_ui_set_live_region ponko_ctx_ui_set_live_region
@@ -1092,6 +1125,7 @@
 #define crabby_despawn ponko_despawn
 #define crabby_draw_params_default ponko_draw_params_default
 #define crabby_entity_bits ponko_entity_bits
+#define crabby_error_kind_name ponko_error_kind_name
 #define crabby_far_terrain_clear ponko_far_terrain_clear
 #define crabby_far_terrain_cut ponko_far_terrain_cut
 #define crabby_far_terrain_free ponko_far_terrain_free
@@ -1127,6 +1161,7 @@
 #define crabby_game_free ponko_game_free
 #define crabby_game_fullscreen ponko_game_fullscreen
 #define crabby_game_hot_reload ponko_game_hot_reload
+#define crabby_game_input_scenario ponko_game_input_scenario
 #define crabby_game_inspector ponko_game_inspector
 #define crabby_game_late_system ponko_game_late_system
 #define crabby_game_lockstep_host ponko_game_lockstep_host
@@ -1167,6 +1202,18 @@
 #define crabby_heightfield_at ponko_heightfield_at
 #define crabby_heightfield_free ponko_heightfield_free
 #define crabby_heightfield_new ponko_heightfield_new
+#define crabby_input_scenario_at ponko_input_scenario_at
+#define crabby_input_scenario_duration ponko_input_scenario_duration
+#define crabby_input_scenario_expect_action ponko_input_scenario_expect_action
+#define crabby_input_scenario_expect_count ponko_input_scenario_expect_count
+#define crabby_input_scenario_expect_resource ponko_input_scenario_expect_resource
+#define crabby_input_scenario_free ponko_input_scenario_free
+#define crabby_input_scenario_from_json ponko_input_scenario_from_json
+#define crabby_input_scenario_info ponko_input_scenario_info
+#define crabby_input_scenario_named ponko_input_scenario_named
+#define crabby_input_scenario_new ponko_input_scenario_new
+#define crabby_input_scenario_release_when_done ponko_input_scenario_release_when_done
+#define crabby_input_scenario_to_json ponko_input_scenario_to_json
 #define crabby_interest_changes ponko_interest_changes
 #define crabby_interest_config_default ponko_interest_config_default
 #define crabby_interest_entries ponko_interest_entries
@@ -1183,6 +1230,7 @@
 #define crabby_joint3d_spherical ponko_joint3d_spherical
 #define crabby_last_error ponko_last_error
 #define crabby_last_error_kind ponko_last_error_kind
+#define crabby_last_error_path ponko_last_error_path
 #define crabby_last_perf_report ponko_last_perf_report
 #define crabby_latest_wins_accept ponko_latest_wins_accept
 #define crabby_latest_wins_clear ponko_latest_wins_clear
@@ -1196,6 +1244,9 @@
 #define crabby_lod_screen_height_at ponko_lod_screen_height_at
 #define crabby_mark_changed ponko_mark_changed
 #define crabby_material_desc ponko_material_desc
+#define crabby_memory_source_free ponko_memory_source_free
+#define crabby_memory_source_insert ponko_memory_source_insert
+#define crabby_memory_source_new ponko_memory_source_new
 #define crabby_mesh_data_add_morph_frame ponko_mesh_data_add_morph_frame
 #define crabby_mesh_data_add_morph_target ponko_mesh_data_add_morph_target
 #define crabby_mesh_data_clear_morph_targets ponko_mesh_data_clear_morph_targets
@@ -1278,6 +1329,7 @@
 #define crabby_resource_get ponko_resource_get
 #define crabby_resource_reflect ponko_resource_reflect
 #define crabby_resource_remove ponko_resource_remove
+#define crabby_resource_scope ponko_resource_scope
 #define crabby_resource_set ponko_resource_set
 #define crabby_rigid_body ponko_rigid_body
 #define crabby_rigid_body3d ponko_rigid_body3d
@@ -1378,6 +1430,8 @@
 #define crabby_world_query_cache_policy ponko_world_query_cache_policy
 #define crabby_world_query_cache_stats ponko_world_query_cache_stats
 #define crabby_world_save ponko_world_save
+#define crabby_world_scenario_report ponko_world_scenario_report
+#define crabby_world_scenario_report_json ponko_world_scenario_report_json
 #define crabby_world_set_changes_since ponko_world_set_changes_since
 #define crabby_world_set_query_cache_policy ponko_world_set_query_cache_policy
 #define crabby_world_sort_spatial ponko_world_sort_spatial

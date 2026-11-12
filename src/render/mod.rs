@@ -48,7 +48,10 @@ pub(crate) use gpu3d::{
 };
 #[doc(hidden)]
 #[cfg(all(feature = "window", feature = "3d", not(target_arch = "wasm32")))]
-pub use gpu3d::{RecordBench, RecordScene, SceneBench, SceneFrame, SceneKind, SceneSetup};
+pub use gpu3d::{
+    LodBench, LodFrame, LodMemory, LodPath, LodScene, RecordBench, RecordScene, SceneBench, SceneFrame, SceneKind,
+    SceneSetup,
+};
 #[cfg(not(feature = "window"))]
 pub(crate) use none::Renderer;
 pub use pipeline_stats::PipelineStats;
@@ -293,6 +296,11 @@ pub(crate) struct RenderDetail {
     /// their data) in ms; includes `RenderStats::collect_ms`.
     pub prepare_ms: f32,
     pub state_changes: Option<[u32; 5]>,
+    /// The newest frame whose GPU timestamps came back: its own GPU ms and
+    /// how many drawn frames ago it was drawn (see
+    /// `GpuTimer::latest_frame`). `None` without timestamps or before the
+    /// first came back.
+    pub gpu_latest: Option<(f32, u64)>,
 }
 
 /// What happened when we tried to draw a frame.
@@ -306,6 +314,14 @@ pub(crate) enum FrameStatus {
     /// The window couldn't take the frame, so it was drawn offscreen
     /// instead (benchmark runs, which must measure every frame).
     Offscreen,
+}
+
+impl FrameStatus {
+    /// Whether the renderer drew the frame (to the window or offscreen):
+    /// what the render inspector's history keeps.
+    pub(crate) fn drew(self) -> bool {
+        matches!(self, Self::Presented | Self::Offscreen)
+    }
 }
 
 /// A captured frame: RGBA8 sRGB pixels, row by row from the top.
@@ -340,7 +356,15 @@ mod light_shadow_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod lights_bench;
 #[cfg(all(test, feature = "window", feature = "3d"))]
+mod lod_motion_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
 mod lod_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod mesh_shader_bench;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod mesh_shader_proto;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod mesh_shader_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod model_material_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
@@ -402,6 +426,11 @@ mod residency_render_test;
 
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod asset_lifetime_render_test;
+
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod ray_query_prototype_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
+mod ray_tracing_probe_render_test;
 
 #[cfg(feature = "3d")]
 pub use crate::three::{

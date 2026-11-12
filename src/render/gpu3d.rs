@@ -47,6 +47,7 @@
 //! | Pass encoding: the frame's parts, recorded in parallel | `Renderer3D::draw` | `record.rs` | one frame |
 //! | Temporal history: the jitter index, last frame's matrices, cuts | `History` | `history.rs` | frame to frame, until a reset |
 //! | Game effects: screen and target effects | `Effects` | `effects.rs` | pipelines: until freed; lists: one frame |
+//! | The game's passes as declared reads and writes, checked for hazards | `CustomPasses` | `custom_passes.rs` | one frame (warnings: for good) |
 //! | The post chain: bloom, tone mapping, antialiasing, scaling | `PostChain`, `PostTargets` | `post.rs` | pipelines: for good; images: with the scene's |
 //! | Screen-space passes (temporal antialiasing, ambient occlusion, reflections) and which run this frame | `ScreenSpace` over `Taa`, `Ao`, `Ssr` | `screen_space.rs`, `../taa.rs`, `../screen.rs`, `../ssr.rs` | pipelines: made when first used; flags: one frame |
 //! | Global illumination's probes, the sky, particles, skinning, occlusion culling | the renderer's own fields, each a type of its own | `../gi.rs`, `../environment.rs`, `../particles.rs`, `skinning.rs`, `../occlusion.rs` | made when first used |
@@ -66,6 +67,7 @@
 //! `targets.rs` makes their images, so a new one of those still touches
 //! pass preparation, the targets and `passes.rs`.
 
+mod custom_passes;
 mod draw_order;
 mod effects;
 mod frame;
@@ -76,7 +78,7 @@ mod lists;
 mod mesh_arena;
 mod passes;
 #[cfg(test)]
-pub(crate) use frame_checks::last_features;
+pub(crate) use frame_checks::{depth_after_opaque, last_features};
 #[cfg(test)]
 pub(crate) use passes::Features as FrameFeatures;
 pub(in crate::render) use passes::mark as mark_step;
@@ -88,6 +90,10 @@ mod record;
 mod record_bench;
 #[cfg(not(target_arch = "wasm32"))]
 pub use record_bench::{RecordBench, RecordScene};
+#[cfg(not(target_arch = "wasm32"))]
+mod lod_bench;
+#[cfg(not(target_arch = "wasm32"))]
+pub use lod_bench::{LodBench, LodFrame, LodMemory, LodPath, LodScene};
 #[cfg(not(target_arch = "wasm32"))]
 mod scene_bench;
 #[cfg(not(target_arch = "wasm32"))]
@@ -270,6 +276,8 @@ pub(crate) struct Renderer3D {
     post: PostChain,
     /// The game's screen and target effects (see `effects.rs`).
     effects: Effects,
+    /// The hazard check over the game's passes (see `custom_passes.rs`).
+    custom_passes: custom_passes::CustomPasses,
     /// Temporal antialiasing, ambient occlusion and reflections: their
     /// passes and whether each runs this frame (see `screen_space.rs`).
     screen: ScreenSpace,
@@ -886,6 +894,7 @@ impl Renderer3D {
             history: History::default(),
             post,
             effects: Effects::default(),
+            custom_passes: Default::default(),
             screen: ScreenSpace::new(can_compute(device)),
             lists: FrameLists::default(),
             moved: Synced::new(
@@ -971,6 +980,19 @@ impl Renderer3D {
         self.effects.target_frame.len()
     }
 
+    /// How many scene compute passes run this frame, how many frames ran
+    /// the hazard check over the game's passes, and this frame's hazards
+    /// (for tests).
+    #[cfg(test)]
+    pub(crate) fn custom_pass_state(&self) -> (usize, usize, Vec<String>) {
+        let passes = &self.custom_passes;
+        (
+            self.lists.scene_computes.len(),
+            passes.checked,
+            passes.hazards.iter().map(ToString::to_string).collect(),
+        )
+    }
+
     /// Compiles a compute pass from the game's WGSL; returns its id.
     pub fn create_compute(
         &mut self,
@@ -1005,7 +1027,7 @@ impl Renderer3D {
                 "this GPU can't run compute passes (WebGL2 has no compute shaders)".to_string(),
             ));
         };
-        let (pipeline, verdict) = self.checked_compute(device, layout, name, &source)?;
+        let (pipeline, verdict) = self.checked_compute(device, layout, name, &for_samples(&source, self.samples))?;
         let id = self.compute_pipelines.len() as u32;
         self.installed(ShaderKind::Compute, id);
         if let Some(verdict) = verdict {
@@ -1069,7 +1091,7 @@ impl Renderer3D {
         let Some((_, layout)) = layouts else {
             return Ok(());
         };
-        let (pipeline, verdict) = self.checked_compute(device, layout, name, &source)?;
+        let (pipeline, verdict) = self.checked_compute(device, layout, name, &for_samples(&source, self.samples))?;
         let i = id as usize;
         if i >= self.compute_pipelines.len() {
             return Ok(());
@@ -1618,6 +1640,7 @@ impl Renderer3D {
             || !self.lists.runs.is_empty()
             || self.particles.has_draws()
             || !self.lists.computes.is_empty()
+            || !self.lists.scene_computes.is_empty()
     }
 
     #[cfg(test)]

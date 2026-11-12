@@ -16,3 +16,10 @@ enable = true
 limit-results = 30
 boost-title = 2
 boost-hierarchy = 2
+
+# Puts a note under every chapter title saying which version the guide
+# documents (scripts/guide-versions.py). The command runs from the book folder.
+# Optional: a machine without python3 still builds the book, without the note.
+[preprocessor.guide-version]
+command = "python3 ../scripts/guide-versions.py preprocess"
+optional = true

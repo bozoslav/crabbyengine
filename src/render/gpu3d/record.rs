@@ -19,6 +19,29 @@ pub(super) type PassTimer<'a, 't> = dyn Fn(&'static str) -> Option<wgpu::RenderP
 #[cfg(target_arch = "wasm32")]
 pub(super) type PassTimer<'a, 't> = dyn Fn(&'static str) -> Option<wgpu::RenderPassTimestampWrites<'t>> + 'a;
 
+/// The names a stage of compute passes records under: its steps in
+/// `passes.rs` (for GPU buffers, for textures) and its GPU timer.
+#[derive(Clone, Copy)]
+pub(super) struct ComputeSteps {
+    pub(super) buffer: &'static str,
+    pub(super) texture: &'static str,
+    pub(super) timer: &'static str,
+}
+
+/// `Ctx::compute_passes`, in the prelude.
+pub(super) const COMPUTE_STEPS: ComputeSteps = ComputeSteps {
+    buffer: "buffer compute",
+    texture: "texture compute",
+    timer: "compute",
+};
+
+/// `Ctx::scene_compute_passes`, in the post part.
+pub(super) const SCENE_COMPUTE_STEPS: ComputeSteps = ComputeSteps {
+    buffer: "scene buffer compute",
+    texture: "scene texture compute",
+    timer: "scene compute",
+};
+
 /// A part of a frame, recorded into a command buffer of its own (see
 /// `Renderer3D::draw`).
 #[derive(Clone, Copy, Debug)]
@@ -136,6 +159,61 @@ impl Renderer3D {
             (&targets.color, Some(lit))
         } else {
             (lit, None)
+        }
+    }
+
+    /// Records the compute passes of `list` (see `FrameLists::computes`)
+    /// in order, with `scene` as what their shaders see of the scene, under
+    /// `steps`' names (buffer, texture) and timer.
+    pub(super) fn record_computes(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        list: &[(u32, usize, u32)],
+        scene: &wgpu::BindGroup,
+        time: &PassTimer<'_, '_>,
+        steps: ComputeSteps,
+    ) {
+        for &(compute, state, material) in list {
+            if state & (1 << 31) != 0 {
+                passes::mark(steps.buffer);
+                let buffer = self.resources.storage_buffers[state & !(1 << 31)].as_ref().unwrap();
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("GPU buffer update"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(self.compute_pipelines[compute as usize].as_ref().unwrap());
+                pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                pass.set_bind_group(1, &self.resources.materials[material as usize].bind_group, &[]);
+                pass.set_bind_group(2, scene, &[]);
+                pass.set_bind_group(3, &buffer.write, &[]);
+                pass.dispatch_workgroups(buffer.len.div_ceil(64), 1, 1);
+                continue;
+            }
+            let state = &self.render_targets.computes[state].1;
+            passes::mark(steps.texture);
+            {
+                let timestamps = time(steps.timer).map(|t| wgpu::ComputePassTimestampWrites {
+                    query_set: t.query_set,
+                    beginning_of_pass_write_index: t.beginning_of_pass_write_index,
+                    end_of_pass_write_index: t.end_of_pass_write_index,
+                });
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("3d compute"),
+                    timestamp_writes: timestamps,
+                });
+                pass.set_pipeline(self.compute_pipelines[compute as usize].as_ref().unwrap());
+                pass.set_bind_group(0, &self.frame_bind_group, &[]);
+                pass.set_bind_group(1, &self.resources.materials[material as usize].bind_group, &[]);
+                pass.set_bind_group(2, scene, &[]);
+                pass.set_bind_group(3, &state.group, &[]);
+                let size = state.target.size();
+                pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
+            }
+            encoder.copy_texture_to_texture(
+                state.scratch.as_image_copy(),
+                state.target.as_image_copy(),
+                state.target.size(),
+            );
         }
     }
 
@@ -278,48 +356,7 @@ impl Renderer3D {
                     self.skinning.record(encoder, timestamps);
                 }
                 // Compute passes first, so this frame's materials see their results.
-                for &(compute, state, material) in &self.lists.computes {
-                    if state & (1 << 31) != 0 {
-                        passes::mark("buffer compute");
-                        let buffer = self.resources.storage_buffers[state & !(1 << 31)].as_ref().unwrap();
-                        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                            label: Some("GPU buffer update"),
-                            timestamp_writes: None,
-                        });
-                        pass.set_pipeline(self.compute_pipelines[compute as usize].as_ref().unwrap());
-                        pass.set_bind_group(0, &self.frame_bind_group, &[]);
-                        pass.set_bind_group(1, &self.resources.materials[material as usize].bind_group, &[]);
-                        pass.set_bind_group(2, &self.no_scene, &[]);
-                        pass.set_bind_group(3, &buffer.write, &[]);
-                        pass.dispatch_workgroups(buffer.len.div_ceil(64), 1, 1);
-                        continue;
-                    }
-                    let state = &self.render_targets.computes[state].1;
-                    passes::mark("texture compute");
-                    {
-                        let timestamps = time("compute").map(|t| wgpu::ComputePassTimestampWrites {
-                            query_set: t.query_set,
-                            beginning_of_pass_write_index: t.beginning_of_pass_write_index,
-                            end_of_pass_write_index: t.end_of_pass_write_index,
-                        });
-                        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                            label: Some("3d compute"),
-                            timestamp_writes: timestamps,
-                        });
-                        pass.set_pipeline(self.compute_pipelines[compute as usize].as_ref().unwrap());
-                        pass.set_bind_group(0, &self.frame_bind_group, &[]);
-                        pass.set_bind_group(1, &self.resources.materials[material as usize].bind_group, &[]);
-                        pass.set_bind_group(2, &self.no_scene, &[]);
-                        pass.set_bind_group(3, &state.group, &[]);
-                        let size = state.target.size();
-                        pass.dispatch_workgroups(size.width.div_ceil(8), size.height.div_ceil(8), 1);
-                    }
-                    encoder.copy_texture_to_texture(
-                        state.scratch.as_image_copy(),
-                        state.target.as_image_copy(),
-                        state.target.size(),
-                    );
-                }
+                self.record_computes(encoder, &self.lists.computes, &self.no_scene, time, COMPUTE_STEPS);
                 if self.atmosphere && self.environment.needs_sky() {
                     passes::mark("sky texture");
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -526,8 +563,9 @@ impl Renderer3D {
                             view: &targets.depth,
                             depth_ops: Some(wgpu::Operations {
                                 load: wgpu::LoadOp::Load,
-                                // Later passes read it (the motion pass and
-                                // screen effects too); without a solid
+                                // Later passes read it (the motion pass,
+                                // scene compute passes and screen effects
+                                // too); without a solid
                                 // prepass, it's only complete here.
                                 store: checks.store(
                                     passes::OPAQUE,
@@ -537,6 +575,7 @@ impl Renderer3D {
                                         || self.screen.taa_on
                                         || !self.effects.frame.is_empty()
                                         || !self.effects.target_frame.is_empty()
+                                        || !self.lists.scene_computes.is_empty()
                                         || !self.full_prepass()
                                         // The occlusion grid is reduced from it below.
                                         || (!self.solid_prepass && self.occlusion.recording())

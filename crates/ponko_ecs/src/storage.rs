@@ -415,14 +415,17 @@ impl Archetype {
 
     #[inline]
     pub(crate) fn column_index(&self, id: ComponentId) -> Option<usize> {
-        // Archetypes have few components, so a linear scan is kept. Measured in isolation
-        // (benches `membership/*`, Apple M4 Max, hot cache): 1-2 ns at 2 components, 3 ns at 8,
-        // 5 ns at 16, 9 ns at 32, 14 ns at 64. A bitset or id-indexed table answers in under
-        // 1 ns but costs 50-640 B per archetype and a second cache line; binary search over the
-        // sorted ids is 2-7x faster than the scan from 8 components up, with no extra memory,
-        // but is not yet shown to matter in a query-level benchmark (lookups happen once per
-        // archetype and column, never per entity). Structural changes do not scan per column:
-        // `move_row` merges the two sorted id lists.
+        // A linear scan, kept on purpose (issue #144; numbers and the alternatives tried are in
+        // `crates/ponko_bench/MEMBERSHIP.md`). Its cost grows with where `id` sits in the sorted
+        // list: in a query over 4096 archetypes it is about as cheap as the loop itself when the
+        // queried components are the first ids, and 40-80 ns per archetype at 32-64 components
+        // when they are the last. Binary search is slower than the scan for early ids even on its
+        // own. An 8-wide block compare, and hybrids that keep this scan for short lists, fixed the
+        // late case in the engine but each made 4-16 component archetypes 2-10 ns slower per
+        // archetype in the same query: code larger than this scan changes how the query loop
+        // compiles (at first, `column_ptr` was no longer inlined). A bitset or id-indexed table
+        // costs 50-640 B per archetype. Structural changes do not scan per column: `move_row`
+        // merges the two sorted id lists.
         self.ids.iter().position(|&c| c == id)
     }
 
