@@ -169,15 +169,12 @@ impl Rig {
     /// Draws the world and reads the pixels back (RGBA).
     fn draw(&mut self) -> Vec<u8> {
         let ctx = &mut self.ctx;
+        let mut skins = SkinFrame::default();
+        skins.collect(&mut ctx.world, &ctx.gfx.assets3d);
         let mut frame = Frame3D::default();
         frame.lod = ctx.lod;
-        frame.collect(
-            &mut ctx.world,
-            &ctx.gfx.assets3d,
-            &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
-        );
+        frame.collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        frame.skins = skins;
         let scene = Scene3D {
             frame: &frame,
             lighting: &ctx.lighting,
@@ -297,28 +294,33 @@ fn no_validation_errors<T>(device: &wgpu::Device, what: &str, f: impl FnOnce() -
 #[test]
 fn every_documented_variant_builds_every_role_on_the_adapter() {
     for samples in [2, 4] {
-        let Some(mut rig) = Rig::new(samples) else { continue };
-        let device = rig.device.clone();
-        let id = no_validation_errors(&device, "creating the shader", || {
-            rig.renderer
-                .create_shader(&rig.device, "both hooks", BOTH_HOOKS)
-                .unwrap()
-        });
-        let mut built = 0;
-        for variant in ShaderVariant::ALL {
-            for role in PipelineRole::ALL {
-                let pipeline = no_validation_errors(&device, &format!("{variant:?} {role:?} x{samples}"), || {
-                    rig.renderer.shader_pipeline(id, variant, role).is_some()
-                });
-                // The 3D frame is always multisampled (2x or 4x), so the
-                // coverage roles exist too.
-                assert!(pipeline, "{variant:?} {role:?} x{samples}");
-                built += usize::from(pipeline);
+        for source in [
+            BOTH_HOOKS,
+            include_str!("../../tests/fixtures/shaders/material-unlit.wgsl"),
+        ] {
+            let Some(mut rig) = Rig::new(samples) else { continue };
+            let device = rig.device.clone();
+            let id = no_validation_errors(&device, "creating the shader", || {
+                rig.renderer
+                    .create_shader(&rig.device, "material hooks", source)
+                    .unwrap()
+            });
+            let mut built = 0;
+            for variant in ShaderVariant::ALL {
+                for role in PipelineRole::ALL {
+                    let pipeline = no_validation_errors(&device, &format!("{variant:?} {role:?} x{samples}"), || {
+                        rig.renderer.shader_pipeline(id, variant, role).is_some()
+                    });
+                    // The 3D frame is always multisampled (2x or 4x), so the
+                    // coverage roles exist too.
+                    assert!(pipeline, "{variant:?} {role:?} x{samples}");
+                    built += usize::from(pipeline);
+                }
             }
+            assert!(rig.renderer.shader_warm(id));
+            assert_eq!(built, ShaderVariant::ALL.len() * PipelineRole::ALL.len());
+            eprintln!("x{samples}: {built} pipelines built and validated");
         }
-        assert!(rig.renderer.shader_warm(id));
-        assert_eq!(built, ShaderVariant::ALL.len() * PipelineRole::ALL.len());
-        eprintln!("x{samples}: {built} pipelines built and validated");
     }
 }
 
@@ -477,4 +479,114 @@ fn a_shader_sharing_another_ones_pipelines_draws_the_same_pixels() {
     assert_eq!(shared_stats.compiles, own_stats.compiles);
     assert!(lit(&own) > 0);
     assert_eq!(own, shared, "identical pixels through the shared pipelines");
+}
+
+/// Every orthogonal material feature with a posed mesh and with static
+/// persistent instances. The old blend/back-face test supplies negative
+/// controls for coverage; this test compares lighting on/off as well.
+#[test]
+fn lit_and_unlit_features_render_on_skinned_and_instanced_geometry() {
+    use crate::three::{Joint, Skeleton};
+    for blend in [Blend::Opaque, Blend::Cutout, Blend::Transparent] {
+        for double_sided in [false, true] {
+            for path in ["plain", "skinned", "batch"] {
+                for unlit in [false, true] {
+                    let Some(mut rig) = Rig::new(4) else { continue };
+                    let source = include_str!("../../tests/fixtures/shaders/material-unlit.wgsl")
+                        .replace("out.unlit = true;", &format!("out.unlit = {unlit};"));
+                    let shader = rig.shader(&source);
+                    let desc = MaterialDesc {
+                        color: Color::rgba(1.0, 1.0, 1.0, if blend == Blend::Transparent { 0.3 } else { 1.0 }),
+                        blend,
+                        double_sided,
+                        shader: Some(shader),
+                        roughness: 1.0,
+                        ..Default::default()
+                    };
+                    let mut data = MeshData::plane(1.0);
+                    let skeleton = Skeleton::new(vec![Joint {
+                        name: "root".into(),
+                        parent: None,
+                        rest: Transform3D::default(),
+                    }]);
+                    let material = rig.ctx.gfx.create_material(desc);
+                    let mesh = if path == "skinned" {
+                        data.joints = vec![[0; 4]; data.positions.len()];
+                        data.weights = vec![[1.0, 0.0, 0.0, 0.0]; data.positions.len()];
+                        rig.ctx.gfx.create_skinned_mesh(&data, material, &skeleton)
+                    } else {
+                        rig.ctx.gfx.create_mesh(&data, material)
+                    };
+                    rig.renderer
+                        .create_material(&rig.device, &GpuMaterialDesc::new(&desc), &rig.textures);
+                    rig.renderer
+                        .create_mesh(&rig.device, &data, &[(0..data.indices.len() as u32, material)], true);
+                    let transform = Transform3D {
+                        scale: Vec3::splat(40.0),
+                        ..Default::default()
+                    };
+                    if path == "batch" {
+                        let b = rig.ctx.gfx.create_instance_batch(
+                            mesh,
+                            &[Mat4::from_scale(Vec3::splat(40.0))],
+                            crate::three::InstanceBatchOptions {
+                                culling: crate::three::BatchCulling::PreferGpu,
+                                ..Default::default()
+                            },
+                        );
+                        rig.renderer.set_instance_batch(
+                            &rig.device,
+                            &rig.queue,
+                            b.id(),
+                            rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
+                        );
+                    } else if path == "skinned" {
+                        rig.ctx.world.spawn((transform, Model::new(mesh), skeleton));
+                    } else {
+                        rig.ctx.world.spawn((transform, Model::new(mesh)));
+                    }
+                    rig.ctx.camera3d.position = vec3(0.0, 6.0, 0.001);
+                    rig.ctx.camera3d.look_at(Vec3::ZERO);
+                    // No lights: lit is black, unlit retains its albedo.
+                    rig.ctx.lighting.shadows = false;
+                    let device = rig.device.clone();
+                    let dark = no_validation_errors(&device, &source, || rig.draw());
+                    let count = lit(&dark);
+                    let all = (SIZE * SIZE) as usize;
+                    if unlit {
+                        match blend {
+                            Blend::Opaque => assert!(count > all * 95 / 100, "{path} {blend:?}: {count}"),
+                            _ => assert!(
+                                count > all * 40 / 100 && count < all * 60 / 100,
+                                "{path} {blend:?}: {count}"
+                            ),
+                        }
+                    } else {
+                        assert_eq!(count, 0, "unlit negative control {path} {blend:?}");
+                    }
+                    rig.ctx.lighting.shadows = true;
+                    let bright = no_validation_errors(&device, &source, || rig.draw());
+                    if std::env::var_os("PONKO_MATERIAL_IMAGES").is_some() && path == "plain" && !double_sided {
+                        let dir = std::path::Path::new("target/material-contract-images");
+                        std::fs::create_dir_all(dir).unwrap();
+                        for (name, pixels) in [("dark", &dark), ("sun", &bright)] {
+                            image::save_buffer(
+                                dir.join(format!("{blend:?}-unlit-{unlit}-{name}.png")),
+                                pixels,
+                                SIZE,
+                                SIZE,
+                                image::ColorType::Rgba8,
+                            )
+                            .unwrap();
+                        }
+                    }
+                    if unlit {
+                        assert_eq!(dark, bright, "unlit ignores sunlight: {path} {blend:?}");
+                    } else {
+                        assert!(lit(&bright) > all * 30 / 100, "lit receives sunlight: {path} {blend:?}");
+                    }
+                }
+            }
+        }
+    }
 }

@@ -208,11 +208,10 @@ impl Shaders {
         let storage = self.features.storage;
         let (decals, gi) = (self.features.decals, self.features.gi);
         let variant = material_variant(decals, gi, storage);
-        let source = if !storage && user.contains("items") {
-            compose_shader_storage("", decals, gi, false)
-        } else {
-            compose_shader_storage(user, decals, gi, storage)
-        };
+        if !storage {
+            crate::render::shader_diagnostics::require_material_storage(name, &variant, user)?;
+        }
+        let source = compose_shader_storage(user, decals, gi, storage);
         crate::render::diagnose(name, ShaderKind::Material, &variant, &source)?;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pipelines = build_pipelines(
@@ -425,19 +424,9 @@ pub(super) const COMPUTE_MAIN: &str = include_str!("../compute_main.wgsl");
 
 /// Whether WGSL `source` defines a function called `name`.
 pub(super) fn defines(source: &str, name: &str) -> bool {
-    let mut rest = source;
-    while let Some(at) = rest.find("fn") {
-        let before_ok = at == 0 || !rest[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_');
-        let after = rest[at + 2..].trim_start();
-        if before_ok && rest[at + 2..].starts_with(char::is_whitespace) && after.starts_with(name) {
-            let tail = after[name.len()..].trim_start();
-            if tail.starts_with('(') {
-                return true;
-            }
-        }
-        rest = &rest[at + 2..];
-    }
-    false
+    crate::render::shader_diagnostics::contract_tokens(source)
+        .windows(3)
+        .any(|t| t[0].0 == "fn" && t[1].0 == name && t[2].0 == "(")
 }
 
 /// Whether a shader reads the scene behind it.

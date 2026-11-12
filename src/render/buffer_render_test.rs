@@ -287,16 +287,11 @@ fn pixel(view_proj: Mat4, p: Vec3) -> (u32, u32) {
 
 #[test]
 fn buffer_compute_places_two_instances_before_drawing() {
-    buffer_draw(true);
+    buffer_draw();
 }
-#[test]
-fn buffer_draw_skips_devices_without_compute() {
-    buffer_draw(false);
-}
-fn buffer_draw(compute: bool) {
-    let rig = if compute { Rig::new() } else { Rig::with_compute(false) };
-    let Some(mut rig) = rig else { return };
-    if compute && rig.device.limits().max_storage_buffers_per_shader_stage == 0 {
+fn buffer_draw() {
+    let Some(mut rig) = Rig::new() else { return };
+    if rig.device.limits().max_storage_buffers_per_shader_stage == 0 {
         return;
     }
     let source = "fn vertex(v: Vertex) -> Vertex { var o = v; o.position += items[v.instance_index].xyz; return o; }";
@@ -334,16 +329,6 @@ fn buffer_draw(compute: bool) {
         let (x, y) = pixel(view_proj, p);
         pixels[((y * SIZE + x) * 4) as usize]
     };
-    if !compute {
-        assert!(
-            pixels
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .all(|p| p[0] < 20 && p[1] < 20 && p[2] < 20)
-        );
-        return;
-    }
     assert!(red(vec3(-1.0, 0.0, 0.0)) > 150, "first computed instance");
     assert!(red(vec3(1.0, 0.0, 0.0)) > 150, "second computed instance");
     assert!(red(Vec3::ZERO) < 20, "nothing at the identity origin");
@@ -1008,4 +993,50 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
         );
         rig.renderer.set_instance_batch(&rig.device, &rig.queue, b.id(), None);
     }
+}
+
+#[test]
+fn gpu_buffer_instances_explain_the_storage_requirement() {
+    // Open an actual downlevel device even on desktop, so the unsupported
+    // combination is checked without depending on the test runner's tier.
+    let Some(mut rig) = Rig::with_limits(false, |_| {}) else {
+        return;
+    };
+    let error = rig.renderer.create_shader(&rig.device, "storage.wgsl",
+        "// instance positions\nfn vertex(v: Vertex) -> Vertex { var out = v; out.position += items[v.instance_index].xyz; return out; }").unwrap_err();
+    assert_eq!((error.line, error.in_engine_code), (Some(2), false), "{error}");
+    assert!(error.message.contains("this GPU has none"), "{error}");
+    assert!(error.message.contains("use create_instance_batch"), "{error}");
+    rig.renderer
+        .create_shader(
+            &rig.device,
+            "comment.wgsl",
+            "// items is only a comment\nfn surface(s: Surface) -> Surface { return s; }",
+        )
+        .unwrap();
+    // A comment must not suppress validation of the custom shader either:
+    // the old text-based fallback incorrectly accepted this broken hook.
+    let error = rig
+        .renderer
+        .create_shader(
+            &rig.device,
+            "broken-comment.wgsl",
+            "// items is only a comment\nfn surface(s: Surface) -> Surface { return 1.0; }",
+        )
+        .unwrap_err();
+    assert_eq!((error.line, error.in_engine_code), (Some(2), false), "{error}");
+    assert!(error.message.contains("Surface"), "{error}");
+    let mesh = rig.mesh(&MeshData::cube(1.0), MaterialDesc::default());
+    rig.renderer.create_gpu_buffer(&rig.device, 0, 1, &[]);
+    let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rig.renderer.set_mesh_gpu_buffer(mesh.slot(), 0, 1);
+    }))
+    .expect_err("unsupported storage must be an actionable error, not an invisible draw");
+    let message = error
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| error.downcast_ref::<&str>().copied())
+        .unwrap();
+    assert!(message.contains("require vertex storage buffers"), "{message}");
+    assert!(message.contains("use create_instance_batch"), "{message}");
 }

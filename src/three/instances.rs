@@ -247,12 +247,14 @@ impl Batch {
 impl Graphics {
     /// Uploads transforms once; the mesh retains its normal materials.
     /// See [`InstanceBatch`] for an example. Empty batches are valid.
+    /// Panics for skinned meshes: use model entities with `Skeleton`/`SkinOf`.
     pub fn create_instance_batch(
         &mut self,
         mesh: Mesh,
         transforms: &[Mat4],
         options: InstanceBatchOptions,
     ) -> InstanceBatch {
+        self.check_static_instance_mesh(mesh);
         let bounds = self.assets3d.live_bounds(mesh.id).expect("invalid mesh");
         let batch = Batch::new(mesh, transforms, options, bounds);
         let id = self.assets3d.instance_batches.len() as u32;
@@ -284,6 +286,15 @@ impl Graphics {
         self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);
         InstanceBatch { id }
     }
+    fn check_static_instance_mesh(&self, mesh: Mesh) {
+        assert!(
+            self.assets3d
+                .skins
+                .get(mesh.slot() as usize)
+                .is_none_or(Option::is_none),
+            "skinned meshes cannot use persistent instance batches: spawn Model entities with Skeleton or SkinOf so each pose is evaluated"
+        );
+    }
     fn instance_level_bounds(&self, levels: &[InstanceLevel]) -> Option<(Vec3, f32)> {
         assert!(!levels.is_empty(), "instance batch requires at least one level");
         let mut lo = Vec3::splat(f32::INFINITY);
@@ -293,6 +304,7 @@ impl Graphics {
                 level.min_distance.is_finite() && level.min_distance >= 0.0 && level.max_distance > level.min_distance,
                 "invalid instance distance band"
             );
+            self.check_static_instance_mesh(level.mesh);
             let (center, radius) = self.assets3d.live_bounds(level.mesh.id)?;
             lo = lo.min(center - radius);
             hi = hi.max(center + radius);

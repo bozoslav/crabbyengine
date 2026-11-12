@@ -241,6 +241,7 @@ fn fs_fade(in: VertexOut) {
 var<private> contact_shadow: f32 = 0.0;
 
 fn shade(s: Surface) -> vec3<f32> {
+    if s.unlit { return s.albedo + s.emissive; }
     let n = s.normal;
     let f0 = mix(vec3<f32>(0.04), s.albedo, s.metallic);
     var sun = 0.0;

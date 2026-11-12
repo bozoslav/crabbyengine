@@ -404,8 +404,9 @@ mod asset_lifetime_render_test;
 pub use crate::three::{
     AmbientOcclusion, AntiAliasing, BatchCulling, Compute, ComputePass, Effect, ExtractionBench, ExtractionSample,
     GlobalIllumination, GpuBuffer, GraphicsQuality, InstanceBatch, InstanceBatchOptions, InstanceLevel, Lighting,
-    LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow, Material, MaterialDesc, Mesh,
-    MeshCost, MeshData, Model, ModelMaterial, ModelMaterials, ParticleCurve, ParticleGradient, Post, QualityLevel,
-    ReceivesDecals, ScreenEffect, Shader, ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus, ShadowMesh, Sky,
-    TargetCamera, TargetEffect, Tonemap, look_at_joint, two_bone_ik,
+    LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow, Material, MaterialDesc,
+    MaterialInstancing, MaterialSides, MaterialVariantKey, Mesh, MeshCost, MeshData, Model, ModelMaterial,
+    ModelMaterials, ParticleCurve, ParticleGradient, Post, QualityLevel, ReceivesDecals, ScreenEffect, Shader,
+    ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus, ShadowMesh, Sky, TargetCamera, TargetEffect, Tonemap,
+    look_at_joint, two_bone_ik,
 };

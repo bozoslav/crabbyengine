@@ -30,9 +30,11 @@ pub(crate) use gi::MAX_GI_PROBES_PER_FRAME;
 pub use ik::{look_at_joint, two_bone_ik};
 pub use lod::{LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow};
 pub(crate) mod lights;
+mod material_variant;
 mod mesh;
 pub use lights::{LIGHT_SHADOW_ATLAS_SIZE, LIGHT_SHADOW_SIZE, MAX_LIGHT_SHADOW_VIEWS, PointLight3D, SpotLight3D};
 pub(crate) use lights::{MAX_LIGHT_SHADOW_RESOLUTION, MIN_LIGHT_SHADOW_RESOLUTION};
+pub use material_variant::{MaterialInstancing, MaterialSides, MaterialVariantKey};
 pub(crate) mod shadow_atlas;
 pub(crate) use shadow_atlas::{MAX_LIGHT_SHADOW_ATLAS, MIN_LIGHT_SHADOW_ATLAS};
 pub(crate) mod particles;
@@ -492,6 +494,13 @@ impl Default for MaterialDesc {
 }
 
 impl MaterialDesc {
+    /// The pipeline set selected for this material and draw. Blend chooses
+    /// a role within the set; lighting and skinning do not change the key.
+    #[must_use]
+    pub fn variant_key(&self, instancing: MaterialInstancing) -> MaterialVariantKey {
+        MaterialVariantKey::new(MaterialSides::of(self.double_sided), instancing)
+    }
+
     /// A plain material of one color.
     ///
     /// ```
