@@ -73,9 +73,7 @@ a read-only draw pass over `(Pos, Spr)` without `Tag`.
 - **Memory**: `world_bytes` is `World::allocated_bytes()` (component columns
   and entity handles) after the timed runs, for ponko only. It is not process
   memory; bevy_ecs and hecs report no comparable number.
-- **Load**: `load_average` in the JSON is read when the runner starts (from
-  revision `1a4fe84` on; the two runs below read it when the file was
-  written, at the end, and the load before each run is quoted from `uptime`).
+- **Load**: `load_average` in the JSON is read when the runner starts.
 - **Build**: release profile of the workspace, `ponko_ecs` with its default
   features (`parallel`), `bevy_ecs` 0.20.1 with `default` and
   `multi_threaded`, `hecs` 0.11.2 with its defaults. All versions are pinned
@@ -135,98 +133,69 @@ a read-only draw pass over `(Pos, Spr)` without `Tag`.
 - Wall-clock numbers on a shared machine move with its load. Compare runs
   from the same machine, build and load, and prefer min and p50 to p95.
 
-## Baselines (2026-11-11)
+## Baselines (2026-11-12)
 
 Apple M4 Max (14 logical cores), macOS, rustc 1.99.1, release, revision
-`3f6e7df`. **The machine was not idle**: other builds and the user's work
-ran at the same time. The load average (1, 5, 15 minutes) was 12.5, 12.9,
-8.8 just before the run and 24.5, 16.8, 10.6 when it ended (the JSON's
-figure). Serial rows were stable (p95 within a few percent of p50 for most);
-parallel rows at 100k and the spawning rows' p95 show the load. Re-record on
-an idle machine before using these for decisions (the command above).
-p50 / p95 per timed run:
+`90bfe8e`. The machine was idle apart from a browser and an editor: the
+load average (1, 5, 15 minutes) was 1.91, 3.47, 2.75 when the run started
+(the JSON's figure) and 2.85, 3.60, 2.81 when it ended. One run of the
+command above produced every row here. p50 / p95 per timed run:
 
 | Case | Size | ponko_ecs | bevy_ecs | hecs |
 |---|---|---:|---:|---:|
-| iter | 1k | 0.12 µs / 0.17 µs | 0.12 µs / 0.17 µs | 0.21 µs / 0.25 µs |
-| iter | 100k | 17.0 µs / 17.3 µs | 42.5 µs / 47.2 µs | 19.5 µs / 20.3 µs |
-| iter | 1M | 169 µs / 174 µs | 415 µs / 459 µs | 192 µs / 200 µs |
-| spawn-loop | 1k | 14.2 µs / 14.6 µs | 23.3 µs / 24.2 µs | 17.6 µs / 34.5 µs |
-| spawn-loop | 100k | 1.37 ms / 2.74 ms | 1.95 ms / 6.39 ms | 1.81 ms / 3.25 ms |
-| spawn-loop | 1M | 13.39 ms / 13.45 ms | 20.82 ms / 21.00 ms | 15.97 ms / 16.08 ms |
-| spawn-batch | 1k | 10.8 µs / 10.9 µs | 13.5 µs / 13.8 µs | 15.2 µs / 20.7 µs |
-| spawn-batch | 100k | 995 µs / 1.62 ms | 1.28 ms / 4.30 ms | 1.21 ms / 3.18 ms |
-| spawn-batch | 1M | 9.97 ms / 10.02 ms | 12.65 ms / 12.70 ms | 11.55 ms / 11.75 ms |
-| spawn-despawn | 1k | 2.83 µs / 2.92 µs | 4.46 µs / 5.79 µs | 3.21 µs / 3.33 µs |
-| spawn-despawn | 100k | 238 µs / 246 µs | 472 µs / 1.21 ms | 311 µs / 825 µs |
-| spawn-despawn | 1M | 2.23 ms / 2.28 ms | 4.47 ms / 4.57 ms | 2.89 ms / 2.90 ms |
-| add-remove | 1k | 45.6 µs / 49.7 µs | 66.9 µs / 80.6 µs | 63.5 µs / 71.1 µs |
-| add-remove | 100k | 4.66 ms / 4.94 ms | 9.23 ms / 9.87 ms | 6.03 ms / 6.30 ms |
-| add-remove | 1M | 43.4 ms / 47.1 ms | 102.8 ms / 107.5 ms | 59.3 ms / 62.0 ms |
-| optional | 1k | 0.54 µs / 0.62 µs | 0.17 µs / 0.21 µs | 0.50 µs / 0.62 µs |
-| optional | 100k | 44.9 µs / 48.3 µs | 38.1 µs / 39.2 µs | 45.2 µs / 48.5 µs |
-| optional | 1M | 477 µs / 488 µs | 406 µs / 416 µs | 499 µs / 511 µs |
-| with | 1k | 0.08 µs / 0.12 µs | 0.08 µs / 0.17 µs | 0.12 µs / 0.12 µs |
-| with | 100k | 8.50 µs / 8.54 µs | 19.8 µs / 20.0 µs | 9.62 µs / 9.71 µs |
-| with | 1M | 94.5 µs / 97.1 µs | 205 µs / 212 µs | 101 µs / 105 µs |
-| without | 1k | 0.08 µs / 0.12 µs | 0.08 µs / 0.12 µs | 0.12 µs / 0.12 µs |
-| without | 100k | 8.46 µs / 8.50 µs | 19.0 µs / 19.6 µs | 9.50 µs / 9.71 µs |
-| without | 1M | 84.0 µs / 87.8 µs | 203 µs / 212 µs | 100 µs / 104 µs |
-| game | 10k | 14.3 µs / 17.9 µs | 15.8 µs / 23.8 µs | 15.3 µs / 20.5 µs |
-| game | 100k | 141 µs / 181 µs | 168 µs / 258 µs | 147 µs / 196 µs |
-| archetypes-1024 | 16k | 5.12 µs / 5.21 µs | 10.8 µs / 11.2 µs | 7.88 µs / 8.50 µs |
-| query-build-x1000 | 16k | 19.4 µs / 19.8 µs | 8.65 ms / 10.32 ms | 0.25 µs / 0.29 µs |
-| query-build+count-x1000 | 16k | 2.19 ms / 2.68 ms | 9.74 ms / 15.15 ms | 225 µs / 266 µs (cache hit) |
-
-### Second run: the cold query and the global-pool rows
-
-After review, only the rows below ran again at revision `1a4fe84`
-(`-- 'query-build+count|ecs/par-'`), with the load even higher: 36.2, 30.8,
-20.5 just before the run, 33.9, 30.4, 20.4 at its end. The results are the
-`supplement` document in [`baselines/ecs.json`](baselines/ecs.json); the
-rows above are the first run. p50 / p95, and min for the short cold row:
-
-| Case | ponko_ecs | bevy_ecs | hecs |
-|---|---:|---:|---:|
-| query-build+count-x1000 | 2.30 ms / 2.45 ms | 9.70 ms / 10.11 ms | 237 µs / 270 µs (cache hit) |
-| query-build+count-cold, p50 / p95 | 3 µs / 4 µs | 29 µs / 40 µs | 16 µs / 22 µs |
-| query-build+count-cold, min | 2 µs | 19 µs | 13 µs |
+| iter | 1k | 0.12 µs / 0.12 µs | 0.12 µs / 0.12 µs | 0.17 µs / 0.21 µs |
+| iter | 100k | 16.3 µs / 16.4 µs | 36.0 µs / 39.5 µs | 16.7 µs / 18.6 µs |
+| iter | 1M | 158 µs / 174 µs | 371 µs / 416 µs | 185 µs / 195 µs |
+| spawn-loop | 1k | 13.2 µs / 13.4 µs | 21.4 µs / 23.2 µs | 16.2 µs / 16.5 µs |
+| spawn-loop | 100k | 1.15 ms / 1.16 ms | 1.79 ms / 1.80 ms | 1.53 ms / 1.55 ms |
+| spawn-loop | 1M | 13.14 ms / 13.37 ms | 20.54 ms / 21.02 ms | 15.73 ms / 15.97 ms |
+| spawn-batch | 1k | 10.2 µs / 10.4 µs | 12.5 µs / 12.7 µs | 11.6 µs / 11.7 µs |
+| spawn-batch | 100k | 940 µs / 1.01 ms | 1.12 ms / 1.16 ms | 1.13 ms / 1.14 ms |
+| spawn-batch | 1M | 9.79 ms / 9.86 ms | 12.41 ms / 12.45 ms | 11.45 ms / 11.85 ms |
+| spawn-despawn | 1k | 2.08 µs / 2.12 µs | 3.96 µs / 5.42 µs | 3.00 µs / 3.12 µs |
+| spawn-despawn | 100k | 196 µs / 219 µs | 430 µs / 478 µs | 296 µs / 309 µs |
+| spawn-despawn | 1M | 2.06 ms / 2.12 ms | 4.51 ms / 4.64 ms | 3.04 ms / 3.06 ms |
+| add-remove | 1k | 42.6 µs / 45.0 µs | 63.4 µs / 69.1 µs | 57.1 µs / 63.2 µs |
+| add-remove | 100k | 4.26 ms / 4.30 ms | 8.33 ms / 8.57 ms | 5.82 ms / 5.89 ms |
+| add-remove | 1M | 42.5 ms / 43.4 ms | 99.7 ms / 103.6 ms | 57.4 ms / 57.9 ms |
+| optional | 1k | 0.50 µs / 0.54 µs | 0.17 µs / 0.17 µs | 0.50 µs / 0.50 µs |
+| optional | 100k | 44.7 µs / 47.8 µs | 34.0 µs / 39.1 µs | 44.1 µs / 52.2 µs |
+| optional | 1M | 470 µs / 480 µs | 368 µs / 389 µs | 492 µs / 506 µs |
+| with | 1k | 0.08 µs / 0.12 µs | 0.08 µs / 0.08 µs | 0.12 µs / 0.12 µs |
+| with | 100k | 8.21 µs / 8.29 µs | 16.8 µs / 23.0 µs | 9.38 µs / 9.46 µs |
+| with | 1M | 87.8 µs / 93.2 µs | 180 µs / 188 µs | 98.2 µs / 103 µs |
+| without | 1k | 0.08 µs / 0.12 µs | 0.04 µs / 0.08 µs | 0.12 µs / 0.12 µs |
+| without | 100k | 8.25 µs / 8.38 µs | 16.7 µs / 19.8 µs | 8.50 µs / 9.46 µs |
+| without | 1M | 80.8 µs / 82.7 µs | 180 µs / 187 µs | 98.4 µs / 101 µs |
+| game | 10k | 14.4 µs / 17.9 µs | 15.5 µs / 23.6 µs | 15.4 µs / 20.2 µs |
+| game | 100k | 140 µs / 175 µs | 161 µs / 244 µs | 145 µs / 191 µs |
+| archetypes-1024 | 16k | 5.17 µs / 5.42 µs | 8.75 µs / 9.75 µs | 7.08 µs / 8.29 µs |
+| query-build-x1000 | 16k | 16.7 µs / 18.6 µs | 7.80 ms / 8.04 ms | 0.25 µs / 0.25 µs |
+| query-build+count-x1000 | 16k | 1.96 ms / 1.98 ms | 8.41 ms / 8.66 ms | 217 µs / 237 µs (cache hit) |
+| query-build+count-cold | 16k | 2.17 µs / 3.21 µs | 12.4 µs / 33.1 µs | 12.8 µs / 16.0 µs |
+| query-build+count-cold, min | 16k | 1.92 µs | 8.25 µs | 11.7 µs |
 
 On a fresh world, with nothing cached anywhere, matching the 1024 archetypes
-once takes ponko about 2–3 µs, hecs 13–16 µs and bevy 19–29 µs.
+once takes ponko about 2 µs, bevy 8–12 µs and hecs 12–13 µs.
 
-Parallel scaling, the `par` steering workload, p50 / p95:
-
-| Size | ponko serial | ponko t1 | t2 | t4 | t8 | t14 | bevy serial | bevy par | hecs serial |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1k | 6.00 µs / 6.21 µs | 39.5 µs / 445 µs | 21.8 µs / 281 µs | 36.5 µs / 844 µs | 21.2 µs / 162 µs | 21.3 µs / 197 µs | 6.29 µs / 6.50 µs | 9.42 µs / 33.0 µs | 6.08 µs / 6.71 µs |
-| 100k | 593 µs / 691 µs | 652 µs / 1.55 ms | 586 µs / 1.67 ms | 477 µs / 1.86 ms | 343 µs / 1.17 ms | 666 µs / 2.43 ms | 608 µs / 1.40 ms | 326 µs / 1.43 ms | 616 µs / 696 µs |
-| 1M | 4.96 ms / 5.72 ms | 5.03 ms / 5.63 ms | 2.52 ms / 2.88 ms | 1.32 ms / 1.49 ms | 774 µs / 868 µs | 612 µs / 699 µs | 5.16 ms / 5.73 ms | 781 µs / 903 µs | 4.99 ms / 5.63 ms |
-
-At 1M the curve is near linear up to 4 threads (3.8×) and reaches 8.1× on
-14; bevy's pool reaches 6.6×. At 100k the minimums show the same scaling
-(0.16 ms from 4 threads on, against 0.47 ms serial), but the medians were
-dominated by the other load.
-
-The second run (same load note as above) adds ponko on the global pool
-without `install` (`ponko par`), the setup that matches bevy's:
+Parallel scaling, the `par` steering workload, p50 / p95. `ponko par` is
+ponko on the global pool without `install`, the setup that matches bevy's:
 
 | Size | ponko serial | ponko t1 | t2 | t4 | t8 | t14 | ponko par | bevy serial | bevy par | hecs serial |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1k | 6.0 µs / 7.0 µs | 11 µs / 27 µs | 11 µs / 23 µs | 11 µs / 22 µs | 22 µs / 40 µs | 27 µs / 60 µs | 28 µs / 64 µs | 6.0 µs / 8.0 µs | 11 µs / 24 µs | 6.0 µs / 8.0 µs |
-| 100k | 596 µs / 668 µs | 621 µs / 685 µs | 313 µs / 358 µs | 172 µs / 214 µs | 130 µs / 181 µs | 120 µs / 179 µs | 118 µs / 200 µs | 625 µs / 683 µs | 134 µs / 186 µs | 613 µs / 669 µs |
-| 1M | 5.41 ms / 6.15 ms | 5.40 ms / 6.21 ms | 2.70 ms / 3.27 ms | 1.39 ms / 1.57 ms | 792 µs / 1.10 ms | 624 µs / 789 µs | 613 µs / 836 µs | 5.55 ms / 6.40 ms | 828 µs / 941 µs | 5.36 ms / 6.29 ms |
+| 1k | 5.67 µs / 5.92 µs | 10.5 µs / 12.1 µs | 11.0 µs / 13.5 µs | 8.79 µs / 13.4 µs | 19.0 µs / 33.4 µs | 28.4 µs / 54.4 µs | 26.2 µs / 52.6 µs | 5.29 µs / 5.46 µs | 10.7 µs / 17.6 µs | 5.17 µs / 5.71 µs |
+| 100k | 558 µs / 572 µs | 526 µs / 550 µs | 289 µs / 306 µs | 162 µs / 174 µs | 131 µs / 162 µs | 101 µs / 133 µs | 104 µs / 171 µs | 566 µs / 586 µs | 132 µs / 140 µs | 556 µs / 566 µs |
+| 1M | 4.80 ms / 5.47 ms | 4.76 ms / 5.34 ms | 2.50 ms / 2.81 ms | 1.31 ms / 1.49 ms | 736 µs / 861 µs | 610 µs / 773 µs | 596 µs / 715 µs | 4.91 ms / 5.62 ms | 750 µs / 918 µs | 4.87 ms / 5.51 ms |
 
-- At 100k and 1M, `ponko par` matches the `t14` row (5.0× and 8.8× over
-  serial in this run); the `install` hop costs nothing measurable there.
-  bevy's pool reaches 4.7× and 6.7×.
-- At 1k every parallel row is slower than the serial loop (6 µs): ponko
-  11 µs with 1–4 threads and 22–28 µs with 8, 14 or the global pool; bevy
+- At 1M the curve is near linear up to 4 threads (3.7×) and reaches 6.5× on
+  8 and 7.9× on 14; at 100k it reaches 3.4× on 4 and 5.5× on 14. bevy's
+  pool reaches 6.5× at 1M and 4.3× at 100k.
+- At 100k and 1M, `ponko par` matches the `t14` row (5.4× and 8.1× over
+  serial); the `install` hop costs nothing measurable there.
+- At 1k every parallel row is slower than the serial loop (5.7 µs): ponko
+  9–11 µs with 1–4 threads and 19–28 µs with 8, 14 or the global pool; bevy
   11 µs. The cost grows with the number of threads woken, not with
   `install`: `ponko par` (no `install`, 14 threads) is as slow as `t14`.
-  The first run's 1k medians were 21–40 µs for every pool size and are
-  dominated by its load; the second run's are the better figure, still
-  under load.
 
 Allocations per timed run, where any library made one (all other rows make
 none in all three libraries):
@@ -237,7 +206,7 @@ none in all three libraries):
 | spawn-batch 1k / 100k / 1M | 29 / 36 / 39 | 43 / 50 / 53 | 13 / 13 / 13 |
 | spawn-despawn 1k / 100k / 1M | 0 | 0.04 / 0.24 / 0.6 | 0 |
 | add-remove 1k / 100k / 1M | 0 | 0.01 / 0.08 / 0.1 | 0 |
-| par (parallel row) | 0.02–0.09 (rayon) | 17.5 (task pool) | — |
+| par (parallel rows) | 0–0.03 (rayon) | 17.5 (task pool) | — |
 | game 10k / 100k | 0.02 / 0.11 | 0.11 / 0.6 | 0.02 / 0.11 |
 | query-build(+count)-x1000 | 0 | 29,000 (29 per build) | 0 |
 | query-build+count-cold | 1 | 29 | 11 |
@@ -249,6 +218,6 @@ entity lists, the game's list of expired projectiles, which all three share).
 1056 KiB for `archetypes-1024`, 474 KiB / 4.3 MiB for `game` at 10k / 100k.
 
 What the numbers point at, for later ECS work (each needs its own measured
-change): an `Option<&T>` query in ponko takes 2.8× as long as `iter` over
-the same number of entities and is 15–20% slower than bevy's at 100k and 1M; spawning one entity at a
-time costs a third more than `spawn_batch`.
+change): an `Option<&T>` query in ponko takes 2.7–3× as long as `iter` over
+the same number of entities and is about 30% slower than bevy's at 100k and
+1M; spawning one entity at a time costs a third more than `spawn_batch`.
