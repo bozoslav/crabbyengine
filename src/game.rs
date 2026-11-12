@@ -2075,7 +2075,9 @@ impl Game {
             ctx.perf.schedule = self.schedule_slots();
             ctx.perf.plan_source = self.plan_source();
             ctx.perf.dispatch.clear();
-            ctx.perf.dispatch.resize(ctx.perf.timings.len(), crate::diagnostics::Dispatch::default());
+            ctx.perf
+                .dispatch
+                .resize(ctx.perf.timings.len(), crate::diagnostics::Dispatch::default());
         }
         for t in &mut ctx.perf.timings {
             t.last_ms = 0.0;

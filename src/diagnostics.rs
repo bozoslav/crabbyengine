@@ -347,10 +347,9 @@ impl EcsDiagnostics {
     /// The first system whose name is `name` or ends with `::name`.
     #[must_use]
     pub fn system(&self, name: &str) -> Option<&SystemDiagnostics> {
-        self.systems.iter().find(|s| {
-            s.name == name
-                || (s.name.strip_suffix(name)).is_some_and(|rest| rest.ends_with("::"))
-        })
+        self.systems
+            .iter()
+            .find(|s| s.name == name || (s.name.strip_suffix(name)).is_some_and(|rest| rest.ends_with("::")))
     }
 
     /// How many archetypes and entities have all of `components`, named by

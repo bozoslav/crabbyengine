@@ -601,11 +601,17 @@ impl Ctx {
     /// A snapshot of the ECS for tools and tests: every archetype with its
     /// components, entity count and storage bytes; every component type
     /// with its size and how many entities have it; and every system in run
-    /// order with its [`Phase`](crate::Phase), interval and last timings.
+    /// order with its [`Phase`](crate::Phase), interval, last timings and
+    /// declared access. Its `schedule` explains the order: the stages the
+    /// systems run in, why each stage starts where it does, why a system
+    /// runs alone, and which declared systems must stay in order (see
+    /// [`diagnostics`](crate::diagnostics)).
     ///
-    /// Built only when called (nothing is collected otherwise), so it costs
-    /// nothing in a game that never asks. It allocates, so don't call it
-    /// every frame. The control endpoint serves it as `ecs.diagnostics`.
+    /// Built only when called, so it costs nothing in a game that never
+    /// asks (the game itself only counts how each batch of the parallel
+    /// scheduler was run). It allocates and works out the schedule plan,
+    /// so don't call it every frame. The control endpoint serves it as
+    /// `ecs.diagnostics`.
     ///
     /// ```
     /// use ponko::prelude::*;

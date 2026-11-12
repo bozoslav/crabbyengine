@@ -96,7 +96,7 @@ headless game waits for requests and runs only the ticks you step.
 | `input.scenario.status` | | the latest scenario's report (`status`, `ticks_run`, `checks_passed`, `released`, `still_held`, and for a failed check its `step`, `tick`, `expected` and `actual`), or `null` |
 | `input.scenario.cancel` | `reason?` | ends the running scenario, or releases what a finished one kept held, and releases the input; returns `{cancelled, report}`. A failed check or a cancel takes back only the steps the scenario queued itself (`queue_ticks`), not ticks queued with `sim.step` |
 | `systems.timings` | | each system's last and average ms |
-| `ecs.diagnostics` | `with?`, `limit?` (100) | archetypes, component storage and the schedule (see [ECS diagnostics](agents.md#ecs-diagnostics)); with `with`, also `matching` |
+| `ecs.diagnostics` | `with?`, `limit?` (100) | archetypes, component storage, every system's declared access, the schedule's stages and dependencies, and the query index's counters (see [ECS diagnostics](agents.md#ecs-diagnostics)); with `with`, also `matching` |
 | `events.list` | | reflected [event](events.md) types and how many are kept now |
 | `events.subscribe` | `types?` (all), `capacity?` (1000) | starts collecting new events between frames; the newest `capacity` are kept |
 | `events.take` | | `{events: [{tick, type, data}], dropped}` since the last take |

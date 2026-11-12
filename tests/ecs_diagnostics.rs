@@ -233,7 +233,10 @@ fn systems_list_their_declared_access_by_name() {
         )
         .add_view(
             Phase::AfterPhysics,
-            SystemAccess::new().send_events::<Hit>().commands().write_service(Service::Audio),
+            SystemAccess::new()
+                .send_events::<Hit>()
+                .commands()
+                .write_service(Service::Audio),
             sounds,
         )
         .add_with_access(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), checked)
@@ -280,7 +283,11 @@ fn systems_list_their_declared_access_by_name() {
 fn stages_say_which_systems_share_a_batch_and_why_each_stage_starts() {
     let build = || {
         game()
-            .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Pos>().read::<Vel>(), movement)
+            .add_view(
+                Phase::AfterPhysics,
+                SystemAccess::new().write::<Pos>().read::<Vel>(),
+                movement,
+            )
             .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), regenerate)
             .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Vel>(), stop)
             .barrier(Phase::AfterPhysics)
@@ -291,7 +298,11 @@ fn stages_say_which_systems_share_a_batch_and_why_each_stage_starts() {
     let plan = build().schedule_plan();
 
     // Every system is in exactly one stage, and the stages are the plan's.
-    assert_eq!(d.schedule.stages.len(), plan.stages.len() + 1, "plus the test's SimLast reader");
+    assert_eq!(
+        d.schedule.stages.len(),
+        plan.stages.len() + 1,
+        "plus the test's SimLast reader"
+    );
     let mut covered = 0;
     for (i, stage) in d.schedule.stages.iter().enumerate() {
         assert_eq!(stage.index, i);
@@ -309,7 +320,10 @@ fn stages_say_which_systems_share_a_batch_and_why_each_stage_starts() {
     let batch = stage_of("movement");
     assert_eq!((batch.len, batch.batch), (2, true));
     assert_eq!(batch.boundary, "phase");
-    assert_eq!(d.system("regenerate").unwrap().stage, d.system("movement").unwrap().stage);
+    assert_eq!(
+        d.system("regenerate").unwrap().stage,
+        d.system("movement").unwrap().stage
+    );
     assert_eq!(d.system("movement").unwrap().alone, None, "it can share a batch");
 
     // `stop` writes what `movement` reads.
@@ -346,7 +360,11 @@ fn ordered_systems_start_a_stage_after_the_one_they_follow() {
 #[test]
 fn view_systems_that_must_run_alone_say_why() {
     let game = game()
-        .add_view(Phase::AfterPhysics, SystemAccess::new().write_service(Service::Audio), sounds)
+        .add_view(
+            Phase::AfterPhysics,
+            SystemAccess::new().write_service(Service::Audio),
+            sounds,
+        )
         .add_view(
             Phase::AfterPhysics,
             SystemAccess::new().send_events::<Hit>().read_events::<Hit>(),
@@ -354,7 +372,10 @@ fn view_systems_that_must_run_alone_say_why() {
         );
     let d = diagnose(game, 1, |_| {});
     let why = |name: &str| d.system(name).unwrap().alone.clone().unwrap();
-    assert_eq!((why("sounds").reason.as_str(), why("sounds").item.as_deref()), ("service", Some("audio")));
+    assert_eq!(
+        (why("sounds").reason.as_str(), why("sounds").item.as_deref()),
+        ("service", Some("audio"))
+    );
     assert_eq!(why("echo").reason, "sends_and_reads");
     assert!(why("echo").item.unwrap().ends_with("::Hit"));
     for name in ["sounds", "echo"] {
@@ -365,7 +386,11 @@ fn view_systems_that_must_run_alone_say_why() {
 #[test]
 fn dependencies_list_the_declared_pairs_that_must_stay_in_order() {
     let game = game()
-        .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Pos>().read::<Vel>(), movement)
+        .add_view(
+            Phase::AfterPhysics,
+            SystemAccess::new().write::<Pos>().read::<Vel>(),
+            movement,
+        )
         .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), regenerate)
         .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Vel>(), stop)
         // Another phase: never a pair with the systems above.
@@ -373,7 +398,12 @@ fn dependencies_list_the_declared_pairs_that_must_stay_in_order() {
     let d = diagnose(game, 1, |_| {});
     let order = |name: &str| d.system(name).unwrap().order;
     let pairs: Vec<(usize, usize)> = d.schedule.dependencies.iter().map(|p| (p.first, p.second)).collect();
-    assert_eq!(pairs, [(order("movement"), order("stop"))], "{:#?}", d.schedule.dependencies);
+    assert_eq!(
+        pairs,
+        [(order("movement"), order("stop"))],
+        "{:#?}",
+        d.schedule.dependencies
+    );
     let conflicts = &d.schedule.dependencies[0].conflicts;
     assert_eq!(conflicts[0].kind, "component");
     assert!(conflicts[0].name.as_deref().unwrap().ends_with("::Vel"));
@@ -418,11 +448,15 @@ fn the_query_index_reports_its_policy_and_counters() {
         ctx.world.spawn((Pos([0.0; 2]),));
     });
     assert!(d.query_cache.enabled);
-    assert_eq!(d.query_cache.min_archetypes, ponko::ecs_core::QueryCachePolicy::new().min_archetypes);
+    assert_eq!(
+        d.query_cache.min_archetypes,
+        ponko::ecs_core::QueryCachePolicy::new().min_archetypes
+    );
     assert_eq!(d.query_cache.hits, 0, "a small world scans");
 
     let off = diagnose(Game::new("t", 1, 1), 1, |ctx| {
-        ctx.world.set_query_cache_policy(ponko::ecs_core::QueryCachePolicy::off());
+        ctx.world
+            .set_query_cache_policy(ponko::ecs_core::QueryCachePolicy::off());
     });
     assert!(!off.query_cache.enabled);
 }

@@ -45,7 +45,7 @@ ctx.world.reflect::<Health>();
 | `entity_stats` | | min, max, mean and value counts over every matching entity: "how many units per team, how hurt are they?" ([details](control.md#questions-about-many-entities)) |
 | `list_resources` / `get_resource` | | game-wide state: scores, rules, the current round |
 | `system_timings` | | which systems are slow |
-| `ecs_diagnostics` | | archetypes, component storage, and every system's phase, order and timings ([details](#ecs-diagnostics)) |
+| `ecs_diagnostics` | | archetypes, component storage, every system's phase, order, timings and declared access, and the schedule's stages with why each starts where it does ([details](#ecs-diagnostics)) |
 | `perf_report` | | why frames are slow: fps and frame-time percentiles, CPU vs GPU, GPU time per pass, triangles drawn for the camera and the shadows, the heaviest meshes ([details](performance.md#profiling-a-frame)) |
 | `shader_status` | | did a shader edit take effect? Each custom shader's last compile or hot reload result, and its errors with line and column in your `.wgsl` file ([details](3d.md)) |
 | `record_trace` | | the next N frames as a Perfetto trace, to find hitches |
@@ -74,9 +74,13 @@ ctx.world.reflect::<Health>();
 ## ECS diagnostics
 
 `ecs_diagnostics` (endpoint method `ecs.diagnostics`, Rust
-`ctx.ecs_diagnostics()`) answers "why does this tick cost what it does?".
-It is built only when asked, so a game that never asks pays nothing. The
-answer has a `version` (1); field names stay stable and new ones may be added.
+`ctx.ecs_diagnostics()`) answers "why does this tick cost what it does?"
+and "why doesn't this system run at the same time as that one?". It is
+built only when asked: the schedule plan, the access lists and the
+dependencies are worked out for the answer, and a running game keeps
+nothing for it beyond its system timings and two counters per batch of the
+[parallel scheduler](parallel-systems.md). The answer has a `version` (1);
+field names stay stable and new ones may be added.
 
 - `archetypes`: `index`, `components` (full type names), `entities`,
   `bytes_per_entity`, `allocated_bytes`. Empty ones are left out;
@@ -86,9 +90,46 @@ answer has a `version` (1); field names stay stable and new ones may be added.
 - `systems`, in run order: `name`, `phase` (`Input`, `BeforePhysics`,
   `Physics`, `AfterPhysics`, `SimLast`, `Frame`, `Animate`, `Late`, `Draw`),
   `order`, `sim`, `every`/`offset` (runs on ticks where
-  `tick % every == offset`), `access` and `last_ms`/`avg_ms`. Every system is
-  `exclusive` for now: it runs alone with `&mut Ctx`, and its commands are
-  applied right after it.
+  `tick % every == offset`), `last_ms`/`avg_ms`, and where it stands in the
+  schedule:
+  - `access`: `exclusive` (no declaration, or declared exclusive: it may
+    touch anything), `declared` (a `&mut Ctx` system with a
+    [declaration](system-access.md): checked in debug builds, still alone)
+    or `view` (a view system: it may share a batch).
+  - `declared`: the declaration by name, or `null`: `components_read`,
+    `components_written`, `resources_read`, `resources_written`,
+    `events_read`, `events_sent`, `services_read`, `services_written`,
+    `commands` and `exclusive`.
+  - `stage`: index into `schedule.stages`.
+  - `alone`: why it can't share a batch, or `null`. `reason` is
+    `undeclared`, `ctx_system`, `service` or `sends_and_reads` (with the
+    service or event type in `item`), or `interval`.
+- `schedule`:
+  - `parallel` (the scheduler is on), `threads` (it has other threads to
+    use) and `parallel_threshold_us`.
+  - `stages`, in run order: `index`, `phase`, `first` and `len` (systems
+    `first..first + len`), `batch` (more than one system), and why the stage
+    starts where it does: `boundary` is `phase` (first of its phase),
+    `alone` (its system or the one before runs alone), `conflict` (its first
+    system conflicts with system `after`, on `conflicts`), `barrier` (an
+    explicit `Game::barrier`) or `order` (`Game::order` puts it after system
+    `after`). A conflict has a `kind` (`component`, `resource`, `event`,
+    `service`, `commands`, `exclusive`, `between`) and usually a `name`.
+    `threaded_runs` and `inline_runs` count how a batch was run so far, and
+    `usual_work_us` is the work the threshold was last compared with (less
+    its slowest system).
+  - `dependencies`: pairs of declared systems in one phase that must stay
+    in order (`first`, `second`, `conflicts`). The endpoint lists at most
+    1000; `dependencies_total` counts all.
+
+  The stages are listed whether or not the scheduler is on; with it off,
+  every system runs alone in `order`. Either way **every stage ends with a
+  barrier**: its commands apply and its events become visible before the
+  next stage starts.
+- `query_cache`: the world's [archetype index](ecs.md) for queries:
+  `enabled`, `min_archetypes`, `signatures`, `indexed`, `indices`, `bytes`,
+  `hits` and `evictions`. `evictions` that keep growing mean the game runs
+  more query signatures than the policy keeps.
 - With `with: ["Pos", "Vel"]`, `matching` counts the archetypes and entities
   a query for those components visits.
 
@@ -101,6 +142,70 @@ Troubleshooting a slow tick, for example:
 3. So the query walks many archetypes. The fix is a `bool` field instead of
    the marker; then `ecs_diagnostics` again: 1 archetype, and `steer`'s
    `avg_ms` drops.
+
+Troubleshooting systems that don't run together: a game turned
+`parallel_systems` on, and its tick takes as long as before.
+
+1. `ecs_diagnostics`, then read `schedule`. `parallel` is `true`, so the
+   scheduler is on. If `threads` were `false`, there would be nothing to
+   run on (the web, one core).
+2. Find the slow systems in `systems` and look at each one's `alone`:
+
+   ```json
+   { "name": "game::score", "order": 3, "access": "exclusive", "declared": null,
+     "stage": 2, "alone": { "reason": "undeclared", "item": null } }
+   ```
+
+   `score` takes `&mut Ctx` and has no declaration, so it is a stage of its
+   own and ends the batch before it. Rewriting it as a view system with a
+   declaration (`Game::add_view`) lets it join one.
+3. For a view system with `"alone": null` that still has no company, read
+   its stage:
+
+   ```json
+   { "index": 1, "phase": "AfterPhysics", "first": 2, "len": 1, "batch": false,
+     "boundary": "conflict", "after": 0,
+     "conflicts": [{ "kind": "component", "name": "game::Vel" }] }
+   ```
+
+   System 2 (`friction`) writes `Vel`, which system 0 (`movement`) reads, so
+   it waits for `movement`'s batch to end. `dependencies` lists every such
+   pair. The fix depends on the game: split the component, or accept the
+   order.
+4. For a stage with `"batch": true` that still doesn't speed up, read its
+   counters:
+
+   ```json
+   { "index": 0, "first": 0, "len": 2, "batch": true, "boundary": "phase",
+     "threaded_runs": 0, "inline_runs": 3, "usual_work_us": 0.084 }
+   ```
+
+   Every run stayed on the game's thread: the batch's work (0.084 µs) is far
+   below `parallel_threshold_us` (50), where threads would cost more than
+   they save. Nothing to fix; see
+   [When it doesn't pay off](parallel-systems.md#when-it-doesnt-pay-off).
+
+The same from Rust, in a test or a debug key handler:
+
+```rust
+# use ponko::prelude::*;
+fn explain(ctx: &mut Ctx) {
+    let d = ctx.ecs_diagnostics();
+    for system in &d.systems {
+        if let Some(alone) = &system.alone {
+            println!("{} runs alone: {}", system.name, alone.reason);
+        }
+    }
+    for stage in d.schedule.stages.iter().filter(|s| s.boundary == "conflict") {
+        let (first, earlier) = (&d.systems[stage.first], &d.systems[stage.after.unwrap()]);
+        println!("{} waits for {}: {:?}", first.name, earlier.name, stage.conflicts);
+    }
+}
+# Game::new("t", 1, 1).sim_system(explain).run_headless(1, |_| {});
+```
+
+Not exposed to C and C++ yet: native code reads the same data through the
+control endpoint, or the text of `ponko_game_schedule_plan`.
 
 ## Several agents, several games
 

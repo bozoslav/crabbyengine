@@ -102,6 +102,13 @@ matters for speed: a `&mut Ctx` system between two view systems splits
 them into two stages. Register the view systems of a phase next to each
 other.
 
+A running game gives the same answer as data: `ctx.ecs_diagnostics()` (and
+the `ecs_diagnostics` tool for agents) lists every system's declaration,
+its stage, why it runs alone, why each stage starts where it does, and how
+often each batch went to other threads. See
+[ECS diagnostics](agents.md#ecs-diagnostics) for the fields and a worked
+example.
+
 ### Explicit barriers and order
 
 Declarations cover what the engine can see. For an order it can't see (two

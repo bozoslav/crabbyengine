@@ -824,8 +824,12 @@ fn shader_status_json(_gfx: &crate::gfx::Graphics) -> Value {
     json!({ "shaders": [], "note": "built without the `3d` feature: no custom shaders" })
 }
 
+/// Most pairs `ecs.diagnostics` lists in `schedule.dependencies`: the
+/// pairs grow with the square of the declared systems in a phase.
+const MAX_DEPENDENCIES: usize = 1000;
+
 /// `ecs.diagnostics`: [`Ctx::ecs_diagnostics`] as JSON, with the
-/// archetype list capped and an optional query match count.
+/// archetype and dependency lists capped and an optional query match count.
 fn ecs_diagnostics_json(ctx: &Ctx, params: &Value) -> Result<Value, String> {
     let limit = usize_param(params, "limit", 100)?.min(MAX_LIST);
     let with: Option<Vec<String>> = match params.get("with") {
@@ -840,8 +844,11 @@ fn ecs_diagnostics_json(ctx: &Ctx, params: &Value) -> Result<Value, String> {
     let total = d.archetypes.len();
     d.archetypes.retain(|a| a.entities > 0);
     d.archetypes.truncate(limit);
+    let dependencies = d.schedule.dependencies.len();
+    d.schedule.dependencies.truncate(MAX_DEPENDENCIES);
     let mut out = serde_json::to_value(&d).map_err(|e| e.to_string())?;
     out["archetypes_total"] = json!(total);
+    out["schedule"]["dependencies_total"] = json!(dependencies);
     if let (Some(with), Some(m)) = (with, matching) {
         out["matching"] = json!({ "with": with, "archetypes": m.archetypes, "entities": m.entities });
     }
@@ -1713,6 +1720,9 @@ mod tests {
         );
         assert!(d["archetypes"].as_array().unwrap().iter().all(|a| a["entities"] != 0));
         assert!(d["archetypes_total"].as_u64().unwrap() >= 2);
+        assert_eq!(d["schedule"]["dependencies_total"], 0);
+        assert_eq!(d["schedule"]["parallel"], false);
+        assert_eq!(d["query_cache"]["enabled"], true);
         let one = handle(&mut ctx, "ecs.diagnostics", &json!({ "limit": 1 })).unwrap();
         assert_eq!(one["archetypes"].as_array().unwrap().len(), 1);
         assert!(one.get("matching").is_none());
