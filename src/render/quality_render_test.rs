@@ -527,6 +527,7 @@ fn a_kept_far_cascade_still_shadows_the_frames_it_is_not_drawn_in() {
 #[test]
 fn quality_autotune_uses_live_gpu_samples_and_resets_scaled_history() {
     use crate::render::{QualityAutotune, QualityAutotuneReason};
+    const MAX_FRAMES: usize = 3000;
     let Some(mut f) = Fixture::new() else { return };
     f.ctx.post.anti_aliasing = AntiAliasing::Taa;
     f.ctx.gfx.set_quality_autotune(
@@ -540,10 +541,16 @@ fn quality_autotune_uses_live_gpu_samples_and_resets_scaled_history() {
         }),
     );
     let before = f.draw();
-    for _ in 0..185 {
+    // A decision needs 180 consecutive fresh GPU samples, and one late
+    // sample (a busy machine) restarts the count: draw until it lands, with
+    // a generous cap, rather than for a fixed number of frames.
+    for frame in 0..MAX_FRAMES {
         let sample = f.timer.as_ref().and_then(super::timer::GpuTimer::quality_sample);
         f.ctx.update_quality_autotune(sample, false);
         f.draw();
+        if frame >= 185 && (f.timer.is_none() || f.ctx.post.render_scale != 1.0) {
+            break;
+        }
     }
     let status = f.ctx.gfx.quality_autotune_status(&f.ctx.post, &f.ctx.lighting).unwrap();
     if f.timer.is_none() {
@@ -569,11 +576,15 @@ fn quality_autotune_uses_live_gpu_samples_and_resets_scaled_history() {
             ..Default::default()
         }),
     );
-    for _ in 0..180 {
+    for _ in 0..MAX_FRAMES {
         f.draw();
         f.ctx
             .update_quality_autotune(f.timer.as_ref().and_then(super::timer::GpuTimer::quality_sample), false);
+        if f.ctx.post.render_scale != 1.0 {
+            break;
+        }
     }
+    assert_eq!(f.ctx.post.render_scale, 1.05);
     assert!(f.ctx.gfx.frame3d.motion.reset);
     let after = f.draw();
     assert!(f.renderer.history_reset().requested);
@@ -589,10 +600,13 @@ fn quality_autotune_uses_live_gpu_samples_and_resets_scaled_history() {
             ..Default::default()
         }),
     );
-    for _ in 0..180 {
+    for _ in 0..MAX_FRAMES {
         f.draw();
         f.ctx
             .update_quality_autotune(f.timer.as_ref().and_then(super::timer::GpuTimer::quality_sample), false);
+        if f.ctx.lighting.shadow_resolution == 4096 {
+            break;
+        }
     }
     f.draw();
     assert_eq!(f.ctx.lighting.shadow_resolution, 4096);
