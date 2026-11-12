@@ -696,7 +696,7 @@ fn render_inspector_json(ctx: &Ctx) -> Value {
     });
     #[cfg(feature = "3d")]
     {
-        report["quality_autotune"] = json!(ctx.quality_autotune_status());
+        report["quality_autotune"] = json!(ctx.gfx.quality_autotune_status(&ctx.post, &ctx.lighting));
     }
     #[cfg(not(feature = "3d"))]
     {
@@ -1600,7 +1600,8 @@ mod tests {
         let mut ctx = ctx();
         let report = handle(&mut ctx, "perf.get", &json!({})).unwrap();
         assert!(report["render_inspector"].get("quality_autotune").unwrap().is_null());
-        ctx.set_quality_autotune(Some(QualityAutotune::default()));
+        ctx.gfx
+            .set_quality_autotune(&ctx.post, &ctx.lighting, Some(QualityAutotune::default()));
         for i in 1..=30 {
             ctx.update_quality_autotune(
                 Some(Sample {

@@ -529,19 +529,23 @@ fn quality_autotune_uses_live_gpu_samples_and_resets_scaled_history() {
     use crate::render::{QualityAutotune, QualityAutotuneReason};
     let Some(mut f) = Fixture::new() else { return };
     f.ctx.post.anti_aliasing = AntiAliasing::Taa;
-    f.ctx.set_quality_autotune(Some(QualityAutotune {
-        target_gpu_ms: 1000.0,
-        min_render_scale: 1.0,
-        max_render_scale: 1.05,
-        ..Default::default()
-    }));
+    f.ctx.gfx.set_quality_autotune(
+        &f.ctx.post,
+        &f.ctx.lighting,
+        Some(QualityAutotune {
+            target_gpu_ms: 1000.0,
+            min_render_scale: 1.0,
+            max_render_scale: 1.05,
+            ..Default::default()
+        }),
+    );
     let before = f.draw();
     for _ in 0..185 {
         let sample = f.timer.as_ref().and_then(super::timer::GpuTimer::quality_sample);
         f.ctx.update_quality_autotune(sample, false);
         f.draw();
     }
-    let status = f.ctx.quality_autotune_status().unwrap();
+    let status = f.ctx.gfx.quality_autotune_status(&f.ctx.post, &f.ctx.lighting).unwrap();
     if f.timer.is_none() {
         assert_eq!(status.changes, 0);
         assert_eq!(status.reason, QualityAutotuneReason::GpuUnavailable);
@@ -555,12 +559,16 @@ fn quality_autotune_uses_live_gpu_samples_and_resets_scaled_history() {
     // leave stale TAA/SSR/AO resources. The explicit reset is consumed by
     // the same prepare path as the normal targets invalidation.
     f.ctx.post.render_scale = 1.0;
-    f.ctx.set_quality_autotune(Some(QualityAutotune {
-        target_gpu_ms: 1000.0,
-        min_render_scale: 1.0,
-        max_render_scale: 1.05,
-        ..Default::default()
-    }));
+    f.ctx.gfx.set_quality_autotune(
+        &f.ctx.post,
+        &f.ctx.lighting,
+        Some(QualityAutotune {
+            target_gpu_ms: 1000.0,
+            min_render_scale: 1.0,
+            max_render_scale: 1.05,
+            ..Default::default()
+        }),
+    );
     for _ in 0..180 {
         f.draw();
         f.ctx
@@ -572,11 +580,15 @@ fn quality_autotune_uses_live_gpu_samples_and_resets_scaled_history() {
     assert!(f.renderer.history_reset().targets);
     assert_eq!(after.len(), before.len());
     assert!(lit_corners(&after)[2] > 0);
-    f.ctx.set_quality_autotune(Some(QualityAutotune {
-        target_gpu_ms: 1000.0,
-        max_shadow_resolution: 4096,
-        ..Default::default()
-    }));
+    f.ctx.gfx.set_quality_autotune(
+        &f.ctx.post,
+        &f.ctx.lighting,
+        Some(QualityAutotune {
+            target_gpu_ms: 1000.0,
+            max_shadow_resolution: 4096,
+            ..Default::default()
+        }),
+    );
     for _ in 0..180 {
         f.draw();
         f.ctx

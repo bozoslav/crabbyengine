@@ -3,7 +3,7 @@
 use serde::Serialize;
 
 /// Opt-in GPU quality policy for one scene. Disabled until passed to
-/// [`crate::Ctx::set_quality_autotune`]. Only render scale and sun shadow
+/// [`crate::gfx::Graphics::set_quality_autotune`]. Only render scale and sun shadow
 /// resolution are controlled; every other setting stays game-owned.
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct QualityAutotune {
@@ -278,7 +278,7 @@ impl Controller {
     }
 }
 
-impl crate::Ctx {
+impl crate::gfx::Graphics {
     /// Enables or disables automatic quality for this scene. Default is off.
     /// Existing non-default values and values set with `Graphics::set_quality`
     /// are pinned. Opting in delegates untouched defaults to the controller.
@@ -287,32 +287,39 @@ impl crate::Ctx {
     /// Values outside the policy bounds are also pinned rather than snapped.
     /// Scene replacement disables the policy; enable it again for the new scene.
     /// Disabling retains the last choices. Headless/capture/paused frames freeze it.
-    pub fn set_quality_autotune(&mut self, policy: Option<QualityAutotune>) {
-        self.gfx.autotune = policy.map(|q| {
+    pub fn set_quality_autotune(
+        &mut self,
+        post: &super::Post,
+        lighting: &super::Lighting,
+        policy: Option<QualityAutotune>,
+    ) {
+        self.autotune = policy.map(|q| {
             Controller::new(
                 q,
-                self.post.render_scale,
-                self.lighting.shadow_resolution,
-                self.gfx.quality_pinned
-                    || self.gfx.scale_pinned
-                    || self.post.render_scale != super::Post::default().render_scale,
-                self.gfx.quality_pinned
-                    || self.gfx.shadow_pinned
-                    || self.lighting.shadow_resolution != super::Lighting::default().shadow_resolution,
+                post.render_scale,
+                lighting.shadow_resolution,
+                self.quality_pinned || self.scale_pinned || post.render_scale != super::Post::default().render_scale,
+                self.quality_pinned
+                    || self.shadow_pinned
+                    || lighting.shadow_resolution != super::Lighting::default().shadow_resolution,
             )
         });
     }
 
     /// Current policy and bounded decision history, or `None` when disabled.
     #[must_use]
-    pub fn quality_autotune_status(&self) -> Option<QualityAutotuneStatus> {
-        self.gfx.autotune.as_ref().map(|c| {
+    pub fn quality_autotune_status(
+        &self,
+        post: &super::Post,
+        lighting: &super::Lighting,
+    ) -> Option<QualityAutotuneStatus> {
+        self.autotune.as_ref().map(|c| {
             let mut status = c.status();
-            status.render_scale = self.post.render_scale;
-            status.shadow_resolution = self.lighting.shadow_resolution;
-            status.render_scale_pinned |= self.post.render_scale != c.scale;
-            status.shadow_resolution_pinned |= self.lighting.shadow_resolution != c.shadow;
-            if self.headless || self.time.is_paused() || self.input.scenarios.run.is_some() || c.frozen {
+            status.render_scale = post.render_scale;
+            status.shadow_resolution = lighting.shadow_resolution;
+            status.render_scale_pinned |= post.render_scale != c.scale;
+            status.shadow_resolution_pinned |= lighting.shadow_resolution != c.shadow;
+            if self.headless || c.frozen || !self.screenshots.is_empty() {
                 status.reason = Reason::Frozen;
             }
             status
@@ -322,7 +329,7 @@ impl crate::Ctx {
     /// Freezes/unfreezes the policy without losing its choices/history.
     /// Use before a deterministic capture sequence, including its warm-up.
     pub fn freeze_quality_autotune(&mut self, frozen: bool) {
-        if let Some(c) = &mut self.gfx.autotune {
+        if let Some(c) = &mut self.autotune {
             c.frozen = frozen;
             c.over = 0;
             c.under = 0;
@@ -330,25 +337,27 @@ impl crate::Ctx {
     }
 
     /// Writes and pins render scale, even when equal to the automatic value.
-    pub fn pin_render_scale(&mut self, scale: f32) {
-        self.post.render_scale = scale;
-        if let Some(c) = &mut self.gfx.autotune {
+    pub fn pin_render_scale(&mut self, post: &mut super::Post, scale: f32) {
+        post.render_scale = scale;
+        if let Some(c) = &mut self.autotune {
             c.scale_pinned = true;
             c.scale = scale;
         }
-        self.gfx.scale_pinned = true;
+        self.scale_pinned = true;
     }
 
     /// Writes and pins sun shadow resolution, including same-value writes.
-    pub fn pin_shadow_resolution(&mut self, resolution: u32) {
-        self.lighting.shadow_resolution = resolution;
-        if let Some(c) = &mut self.gfx.autotune {
+    pub fn pin_shadow_resolution(&mut self, lighting: &mut super::Lighting, resolution: u32) {
+        lighting.shadow_resolution = resolution;
+        if let Some(c) = &mut self.autotune {
             c.shadow_pinned = true;
             c.shadow = resolution;
         }
-        self.gfx.shadow_pinned = true;
+        self.shadow_pinned = true;
     }
+}
 
+impl crate::Ctx {
     pub(crate) fn update_quality_autotune(&mut self, sample: Option<Sample>, frozen: bool) {
         if let Some(c) = &mut self.gfx.autotune {
             c.update(
@@ -512,10 +521,11 @@ mod regressions {
     #[test]
     fn explicit_settings_freeze_and_headless_win_even_with_gpu_samples() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ONE);
-        assert!(ctx.quality_autotune_status().is_none());
+        assert!(ctx.gfx.quality_autotune_status(&ctx.post, &ctx.lighting).is_none());
         ctx.gfx
             .set_quality(&mut ctx.post, &mut ctx.lighting, crate::render::GraphicsQuality::high());
-        ctx.set_quality_autotune(Some(QualityAutotune::default()));
+        ctx.gfx
+            .set_quality_autotune(&ctx.post, &ctx.lighting, Some(QualityAutotune::default()));
         let q = ctx.gfx.quality(&ctx.post, &ctx.lighting);
         for i in 1..4000 {
             ctx.update_quality_autotune(
@@ -528,11 +538,18 @@ mod regressions {
             );
         }
         assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting), q);
-        assert_eq!(ctx.quality_autotune_status().unwrap().changes, 0);
+        assert_eq!(
+            ctx.gfx
+                .quality_autotune_status(&ctx.post, &ctx.lighting)
+                .unwrap()
+                .changes,
+            0
+        );
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ONE);
-        ctx.set_quality_autotune(Some(QualityAutotune::default()));
-        ctx.pin_render_scale(1.0);
-        ctx.pin_shadow_resolution(2048);
+        ctx.gfx
+            .set_quality_autotune(&ctx.post, &ctx.lighting, Some(QualityAutotune::default()));
+        ctx.gfx.pin_render_scale(&mut ctx.post, 1.0);
+        ctx.gfx.pin_shadow_resolution(&mut ctx.lighting, 2048);
         for i in 1..4000 {
             ctx.update_quality_autotune(
                 Some(Sample {
@@ -543,11 +560,18 @@ mod regressions {
                 false,
             );
         }
-        assert_eq!(ctx.quality_autotune_status().unwrap().changes, 0);
+        assert_eq!(
+            ctx.gfx
+                .quality_autotune_status(&ctx.post, &ctx.lighting)
+                .unwrap()
+                .changes,
+            0
+        );
         for headless in [false, true] {
             let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ONE);
             ctx.set_headless(headless);
-            ctx.set_quality_autotune(Some(QualityAutotune::default()));
+            ctx.gfx
+                .set_quality_autotune(&ctx.post, &ctx.lighting, Some(QualityAutotune::default()));
             for i in 1..4000 {
                 ctx.update_quality_autotune(
                     Some(Sample {
@@ -558,7 +582,13 @@ mod regressions {
                     !headless,
                 );
             }
-            assert_eq!(ctx.quality_autotune_status().unwrap().changes, 0);
+            assert_eq!(
+                ctx.gfx
+                    .quality_autotune_status(&ctx.post, &ctx.lighting)
+                    .unwrap()
+                    .changes,
+                0
+            );
         }
     }
 
@@ -599,7 +629,8 @@ mod regressions {
     #[test]
     fn cpu_load_and_old_gpu_statistics_are_never_gpu_evidence() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ONE);
-        ctx.set_quality_autotune(Some(QualityAutotune::default()));
+        ctx.gfx
+            .set_quality_autotune(&ctx.post, &ctx.lighting, Some(QualityAutotune::default()));
         ctx.perf.last_render_stats.cpu_ms = 500.0;
         ctx.perf.last_render_stats.gpu_ms = Some(80.0); // stale smoothed statistic
         for _ in 0..4000 {
@@ -607,8 +638,14 @@ mod regressions {
         }
         assert_eq!(ctx.post.render_scale, 1.0);
         assert_eq!(ctx.lighting.shadow_resolution, 2048);
-        assert_eq!(ctx.quality_autotune_status().unwrap().changes, 0);
-        ctx.freeze_quality_autotune(true);
+        assert_eq!(
+            ctx.gfx
+                .quality_autotune_status(&ctx.post, &ctx.lighting)
+                .unwrap()
+                .changes,
+            0
+        );
+        ctx.gfx.freeze_quality_autotune(true);
         for i in 1..4000 {
             ctx.update_quality_autotune(
                 Some(Sample {
@@ -619,8 +656,14 @@ mod regressions {
                 false,
             );
         }
-        assert_eq!(ctx.quality_autotune_status().unwrap().changes, 0);
-        ctx.freeze_quality_autotune(false);
+        assert_eq!(
+            ctx.gfx
+                .quality_autotune_status(&ctx.post, &ctx.lighting)
+                .unwrap()
+                .changes,
+            0
+        );
+        ctx.gfx.freeze_quality_autotune(false);
         for i in 4000..4030 {
             ctx.update_quality_autotune(
                 Some(Sample {
@@ -631,7 +674,13 @@ mod regressions {
                 false,
             );
         }
-        assert_eq!(ctx.quality_autotune_status().unwrap().changes, 1);
+        assert_eq!(
+            ctx.gfx
+                .quality_autotune_status(&ctx.post, &ctx.lighting)
+                .unwrap()
+                .changes,
+            1
+        );
     }
 
     #[test]
@@ -658,10 +707,11 @@ mod regressions {
     #[test]
     fn scene_replacement_discards_the_old_scene_policy() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ONE);
-        ctx.set_quality_autotune(Some(QualityAutotune::default()));
+        ctx.gfx
+            .set_quality_autotune(&ctx.post, &ctx.lighting, Some(QualityAutotune::default()));
         let save = ctx.world.save();
         ctx.replace_world(&save).unwrap();
-        assert!(ctx.quality_autotune_status().is_none());
+        assert!(ctx.gfx.quality_autotune_status(&ctx.post, &ctx.lighting).is_none());
     }
 
     /// Run explicitly in release; this measures controller dispatch only,
@@ -674,7 +724,8 @@ mod regressions {
         for enabled in [false, true] {
             let mut ctx = Ctx::new(1.0 / 60.0, Vec2::ONE);
             if enabled {
-                ctx.set_quality_autotune(Some(QualityAutotune::default()));
+                ctx.gfx
+                    .set_quality_autotune(&ctx.post, &ctx.lighting, Some(QualityAutotune::default()));
             }
             for i in 1..10_000 {
                 ctx.update_quality_autotune(
