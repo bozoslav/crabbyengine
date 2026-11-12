@@ -173,10 +173,11 @@ fn a_panic_in_a_batch_leaves_the_game_and_the_world_whole() {
 
 #[test]
 fn a_batch_keeps_its_usual_run_time_for_the_thread_decision() {
+    const SLOW_MS: u64 = 40;
     let mut game = bare()
         .parallel_threshold(Duration::MAX)
         .add_view(Phase::Frame, SystemAccess::new().write::<A>(), |_: &mut SystemView| {
-            std::thread::sleep(Duration::from_millis(2));
+            std::thread::sleep(Duration::from_millis(SLOW_MS));
         })
         .add_view(Phase::Frame, SystemAccess::new().write::<B>(), bump_b);
     let mut ctx = ctx();
@@ -185,11 +186,16 @@ fn a_batch_keeps_its_usual_run_time_for_the_thread_decision() {
         Run::View(Some(runner)) => runner.task.usual_us,
         _ => panic!("a view system"),
     };
-    assert!(usual(&game.systems[0]) >= 2000.0, "{}", usual(&game.systems[0]));
-    assert!(usual(&game.systems[1]) < 2000.0);
+    // The sleeper's time is a lower bound; the other system's must stay its
+    // own. A wide margin keeps a loaded machine's scheduling jitter (a few
+    // milliseconds on shared CI runners) from mixing the two up.
+    let slow_us = SLOW_MS as f32 * 1000.0;
+    assert!(usual(&game.systems[0]) >= slow_us, "{}", usual(&game.systems[0]));
+    assert!(usual(&game.systems[1]) < slow_us / 2.0, "{}", usual(&game.systems[1]));
     // Both were timed, each with its own time.
     let t = ctx.perf.system_timings();
-    assert!(t[0].last_ms >= 2.0 && t[1].last_ms < 2.0, "{t:?}");
+    let slow_ms = SLOW_MS as f32;
+    assert!(t[0].last_ms >= slow_ms && t[1].last_ms < slow_ms / 2.0, "{t:?}");
 }
 
 struct Marker;
