@@ -891,7 +891,14 @@ impl Renderer3D {
         instances: &wgpu::Buffer,
         view: usize,
     ) {
-        if let Some(i) = self
+        if runs.as_ptr() == self.lists.solid_runs.as_ptr() && runs.len() == self.lists.solid_runs.len() {
+            self.record_model_parts(
+                pass,
+                self.lists.solid_parts.iter().map(|d| (d.run, Some(d.part))),
+                kind,
+                instances,
+            );
+        } else if let Some(i) = self
             .lists
             .views
             .iter()

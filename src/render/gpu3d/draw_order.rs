@@ -307,7 +307,7 @@ impl Renderer3D {
     pub(crate) fn flush_meshes_for_test(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         self.resources.mesh_arena.flush(device, queue);
     }
-    pub(crate) fn reverse_blended_for_test(&mut self) {
+    pub(crate) fn group_blended_by_mesh_for_test(&mut self) {
         self.lists.blended_runs.sort_unstable_by_key(|r| r.0);
     }
     pub(crate) fn solid_part_order_for_test(&self) -> Vec<(u32, usize)> {

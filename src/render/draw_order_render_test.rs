@@ -46,8 +46,9 @@ struct Rig {
     renderer: Renderer3D,
     ctx: Ctx,
     frame: Frame3D,
+    /// Force the old mesh ordering as a blending negative control.
+    mesh_order_blends: bool,
     /// Uncaptured GPU errors and device loss, so a wrong frame names its cause.
-    reverse_blends: bool,
     gpu_errors: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
@@ -163,7 +164,7 @@ impl Rig {
             ctx,
             frame: Frame3D::default(),
             gpu_errors,
-            reverse_blends: false,
+            mesh_order_blends: false,
         })
     }
 
@@ -259,8 +260,8 @@ impl Rig {
                 size: (SIZE, SIZE),
             },
         );
-        if self.reverse_blends {
-            self.renderer.reverse_blended_for_test();
+        if self.mesh_order_blends {
+            self.renderer.group_blended_by_mesh_for_test();
         }
         let prepared = t.elapsed();
         let t = std::time::Instant::now();
@@ -516,6 +517,16 @@ fn a_one_material_scene_draws_as_before() {
     let (after, sorted) = rig.settled(true);
     rig.assert_same_frame(&before, &after, "sorted and unsorted runs", false);
     assert_eq!(sorted, unsorted);
+    rig.render();
+    let counters = rig.renderer.state_changes();
+    assert!(counters[4] > 0);
+    assert_eq!(
+        rig.renderer.state_changes(),
+        counters,
+        "inspection does not consume counters"
+    );
+    rig.render();
+    assert_eq!(rig.renderer.state_changes(), counters, "each frame resets its counters");
 }
 
 /// CPU time and state changes of the many-material scene, mesh order vs
@@ -757,11 +768,12 @@ fn transparent_models_sort_globally_across_meshes_and_override_materials() {
         let (correct, _) = rig.settled(true);
         let c = center(&correct);
         assert!(c[0] > c[1] + 5000, "near red dominates: {c:?}");
-        rig.reverse_blends = true;
+        rig.mesh_order_blends = true;
         let (wrong, _) = rig.settled(true);
         let w = center(&wrong);
+        eprintln!("prepass {prepass}: correct red/blue {c:?}, mesh-order control {w:?}");
         assert!(w[1] > w[0] + 2000, "negative control: middle blue draws last: {w:?}");
-        rig.reverse_blends = false;
+        rig.mesh_order_blends = false;
         // Move blue in front of both red models; sorting must update with distance.
         rig.ctx.world.get_mut::<Transform3D>(entities[2]).unwrap().position.z = 2.0;
         let (moved, _) = rig.settled(true);

@@ -1,5 +1,5 @@
 //! Offscreen 3D scenes for the rendering performance baseline (`ponko_bench`,
-//! `render/scene`): seven reproducible worlds drawn with the real
+//! `render/scene`): eight reproducible worlds drawn with the real
 //! `Renderer3D` into a texture, without a window, each frame split into the
 //! steps a game's frame has (collect, prepare, encode, submit, the GPU's
 //! work) and counted (draw calls, triangles, uploads, GPU memory).
