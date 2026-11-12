@@ -161,6 +161,16 @@ fn a_paused_headless_game_is_driven_over_tcp() {
         ),
         (json!("AfterPhysics"), json!(true), json!("exclusive"))
     );
+    // The schedule: `count` has no declaration, so it is a stage of its own.
+    assert_eq!(counter["alone"]["reason"], "undeclared");
+    assert!(counter["declared"].is_null());
+    let stage = &diag["schedule"]["stages"][counter["stage"].as_u64().unwrap() as usize];
+    assert_eq!(
+        (stage["first"].clone(), stage["len"].clone()),
+        (counter["order"].clone(), json!(1))
+    );
+    assert_eq!(diag["schedule"]["dependencies_total"], 0);
+    assert!(diag["query_cache"]["enabled"].as_bool().unwrap());
 
     let info = c.call("info", json!({})).unwrap();
     assert!(info["render"].is_null(), "headless games draw nothing");
