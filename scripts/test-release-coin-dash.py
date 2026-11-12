@@ -1,11 +1,15 @@
 """Release packaging regressions; no credentials, compiler or network required."""
 import hashlib
+import contextlib
+import io
 import importlib.util
 import os
 from pathlib import Path
 import plistlib
 import sys
 import tempfile
+import tarfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +19,80 @@ spec.loader.exec_module(release)
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_linux_archive_normalizes_ownership_times_and_round_trips(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / "coin-dash-test-linux-x86_64"
+            package.mkdir()
+            exe = package / "coin_dash"
+            exe.write_bytes(b"binary fixture")
+            exe.chmod(0o755)
+            asset = package / "assets" / "coin.png"
+            asset.parent.mkdir()
+            asset.write_bytes(b"asset fixture")
+            first, second = root / "first.tar.gz", root / "second.tar.gz"
+            release.linux_archive(package, first)
+            for path in (exe, asset, asset.parent, package):
+                os.utime(path, (1234567890, 1234567890))
+            release.linux_archive(package, second)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            self.assertEqual(first.read_bytes()[4:8], b"\0\0\0\0")
+            with tarfile.open(first) as tar:
+                for member in tar.getmembers():
+                    self.assertEqual((member.uid, member.gid, member.uname, member.gname, member.mtime),
+                                     (0, 0, "root", "root", 0))
+                tar.extractall(root / "extracted", filter="data")
+            restored = root / "extracted" / package.name
+            self.assertEqual((restored / "coin_dash").read_bytes(), b"binary fixture")
+            self.assertEqual((restored / "assets/coin.png").read_bytes(), b"asset fixture")
+            if os.name != "nt":
+                self.assertEqual((restored / "coin_dash").stat().st_mode & 0o777, 0o755)
+
+    def test_signtool_missing_sdk_has_clean_error_without_environment_key(self):
+        with patch.dict(os.environ, {}, clear=True), patch.object(release.shutil, "which", return_value=None), \
+                patch.object(Path, "glob", return_value=[]):
+            with self.assertRaisesRegex(RuntimeError, "SignTool was not found"):
+                release.signtool()
+
+    def signing_environment(self):
+        return dict(zip(release.MACOS, ("Y2VydA==", "test-password", "Developer ID Application: Test")))
+
+    def test_keychain_cleanup_does_not_hide_signing_failure(self):
+        def command(*args):
+            if args[0] == "codesign":
+                raise RuntimeError("original signing failure")
+            if args[:2] == ("security", "delete-keychain"):
+                raise RuntimeError("cleanup failure")
+        with patch.dict(os.environ, self.signing_environment(), clear=True), \
+                patch.object(release, "run", side_effect=command), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, "original signing failure"):
+                release.sign_macos(Path("Coin Dash.app"))
+
+    def test_notary_rejection_fetches_log_and_never_staples(self):
+        environment = self.signing_environment() | dict.fromkeys(release.NOTARY, "test-value")
+        def command(*args):
+            if args[:3] == ("xcrun", "notarytool", "log"):
+                Path(args[-1]).write_text('{"issues": ["rejection detail"]}', encoding="utf-8")
+        result = subprocess.CompletedProcess([], 0, '{"id":"test-id","status":"Invalid"}', "")
+        output = io.StringIO()
+        with patch.dict(os.environ, environment, clear=True), \
+                patch.object(release, "run", side_effect=command) as run, \
+                patch.object(release.subprocess, "run", return_value=result), contextlib.redirect_stdout(output):
+            with self.assertRaisesRegex(RuntimeError, "Invalid"):
+                release.sign_macos(Path("Coin Dash.app"))
+            self.assertTrue(any(c.args[:4] == ("xcrun", "notarytool", "log", "test-id") for c in run.call_args_list))
+            self.assertFalse(any(c.args[:2] == ("xcrun", "stapler") for c in run.call_args_list))
+        self.assertIn("rejection detail", output.getvalue())
+
+    def test_notary_acceptance_staples_bundle(self):
+        environment = self.signing_environment() | dict.fromkeys(release.NOTARY, "test-value")
+        result = subprocess.CompletedProcess([], 0, '{"id":"test-id","status":"Accepted"}', "")
+        with patch.dict(os.environ, environment, clear=True), patch.object(release, "run") as run, \
+                patch.object(release.subprocess, "run", return_value=result):
+            app = Path("Coin Dash.app")
+            self.assertEqual(release.sign_macos(app), (True, True))
+            run.assert_any_call("xcrun", "stapler", "staple", app)
+
     def test_credentials_require_all_or_none_without_disclosing_values(self):
         for names in (release.WINDOWS, release.MACOS, release.NOTARY):
             with patch.dict(os.environ, {}, clear=True):

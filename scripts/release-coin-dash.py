@@ -3,6 +3,7 @@
 
 import argparse
 import base64
+import gzip
 import hashlib
 import importlib.util
 import json
@@ -91,6 +92,22 @@ def macos_app(package):
 
 def ditto_zip(path, archive):
     run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", path, archive)
+
+
+def linux_archive(package, archive):
+    """Repacking identical contents does not depend on the runner or file times."""
+    def normalize(info):
+        info.uid = info.gid = 0
+        info.uname = info.gname = "root"
+        info.mtime = 0
+        info.pax_headers = {}
+        return info
+
+    # Normalize both tar member times and the outer gzip header (including name).
+    with archive.open("wb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w", format=tarfile.PAX_FORMAT) as tar:
+                tar.add(package, arcname=package.name, filter=normalize)
 
 
 def sign_macos(app):
@@ -189,8 +206,8 @@ def archive_and_smoke(package, out, signed, notarized):
             with zipfile.ZipFile(archive) as file:
                 file.extractall(extracted)
         else:
-            archive = Path(shutil.make_archive(
-                temp / package.name, "gztar", root_dir=package.parent, base_dir=package.name))
+            archive = temp / f"{package.name}.tar.gz"
+            linux_archive(package, archive)
             with tarfile.open(archive) as file:
                 file.extractall(extracted, filter="data")
 

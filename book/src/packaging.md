@@ -75,6 +75,12 @@ headless package smoke test before upload. macOS also runs the executable in
 place inside that extracted bundle, from an unrelated directory, to exercise
 its actual asset symlinks, and verifies the bundle seal unconditionally.
 
+Linux tar archives normalize member ownership to root (uid/gid 0), member
+timestamps and the gzip timestamp to zero, and omit the gzip filename. Repacking
+the same payload with the same file modes and compression toolchain produces
+identical bytes despite different source file times or runner ownership. This
+does not claim reproducible Rust binaries or reproducible macOS/Windows ZIPs.
+
 The `Desktop release package` PR workflow exercises `selftest`, `sign` without
 credentials, `archive` and checksum verification on all three pinned images.
 It can also be run manually. `python scripts/release-coin-dash.py selftest`
