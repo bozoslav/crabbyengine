@@ -72,7 +72,8 @@ what they need with `with_*` methods (`with_scale`, `with_rotation`,
 
 ## Textures
 
-- `ctx.load_texture("path.png")` loads an image file.
+- `ctx.load_texture("path.png")` loads an image file. PNG and JPEG load
+  in every default build, with no `3d` feature (see [Image formats](#image-formats)).
 - `ctx.gfx.create_texture(w, h, &rgba)` makes one from pixels.
 
 - `ctx.gfx.update_texture(tex, &rgba)` replaces a texture's pixels, for
@@ -160,6 +161,42 @@ if ctx.key_pressed(Key::F12) {
 
 </div>
 </div>
+
+### Image formats
+
+The format of a file is read from its first bytes, so a JPEG saved as
+`background.png` still loads. PNG is always built in. The rest are cargo
+features, none of them tied to `3d`:
+
+| Feature | Format | On by default |
+|---|---|---|
+| (always) | PNG | yes |
+| `image-jpeg` | JPEG | yes |
+| `image-webp` | WebP | |
+| `image-bmp` | BMP | |
+| `image-tga` | TGA (found from the `.tga` extension) | |
+| `image-gif` | GIF (first frame) | |
+| `image-tiff` | TIFF | |
+| `image-ico` | ICO | |
+| `image-qoi` | QOI | |
+| `image-pnm` | PNM | |
+| `image-dds` | DDS (uncompressed) | |
+| `image-hdr`, `image-exr` | Radiance HDR, OpenEXR (read as 8-bit color) | |
+| `image-formats` | all of the above | |
+
+```toml
+# Cargo.toml: WebP too, and no JPEG decoder in the build
+ponko = { version = "0.1", default-features = false, features = ["window", "audio", "image-webp"] }
+```
+
+A file in a format the build leaves out fails with an `Unsupported` error
+(a panic from `load_texture`) that names the feature to turn on, for
+example: `"tile.webp" is a WebP image, but this build of ponko doesn't read
+WebP: turn on its `image-webp` cargo feature`. Builds without the default
+features, such as a headless server, carry no JPEG decoder. The `3d` feature
+turns on `image-jpeg`, `image-hdr` and `image-exr` for glTF textures and
+environment maps. The C library builds with the engine's defaults; choosing
+image formats from C is not exposed yet.
 
 `save_screenshot` saves the next frame as a PNG once it
 has been drawn, even while the window is hidden. Headless runs have no
