@@ -174,6 +174,10 @@ Mac. What the command doesn't do yet:
   the program as `icon.png` on Windows and Linux; it is not embedded in the
   Windows `.exe` (that takes a resource compiled into the build).
 - **One architecture per package**: no universal macOS binary.
+- **A console window on Windows**: a Rust program is a console program
+  unless its `main.rs` says `#![windows_subsystem = "windows"]` (best only in
+  release builds, `#![cfg_attr(not(debug_assertions), windows_subsystem =
+  "windows")]`); the command packages the program as it is built.
 - **The smoke run** proves the program starts, finds its assets and runs its
   systems headless; it draws nothing. Coin Dash's window walk-through
   ([below](#the-smoke-test)) is what opens a window.
