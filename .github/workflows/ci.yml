@@ -98,8 +98,12 @@ jobs:
           components: rustfmt
       - name: Naming inventory
         run: python3 scripts/check-naming.py
+      # The fragments (a breaking entry needs what to write instead and a
+      # before/after snippet) and the script's own rules.
       - name: Changelog fragments
-        run: python3 scripts/changelog.py --check
+        run: |
+          python3 scripts/changelog.py --check
+          python3 scripts/changelog.py --selftest
       # The release guard (CONTRIBUTING.md "Releasing") and the guide's note.
       - name: Release scripts
         run: |
@@ -625,7 +629,8 @@ jobs:
   # cargo-semver-checks. scripts/semver-checks.py decides what a break means:
   # on a release-* branch (or a pull request into one) any break fails; on
   # main, a break this change adds passes only with the `breaking` label and a
-  # `### Breaking changes` changelog fragment. Breaks that earlier merged
+  # `### Breaking changes` changelog fragment; and the label itself fails
+  # without such a fragment, break found or not. Breaks that earlier merged
   # changes announced don't fail later pull requests. Read CONTRIBUTING.md,
   # "Semver checks", for how to act on a failure.
   #

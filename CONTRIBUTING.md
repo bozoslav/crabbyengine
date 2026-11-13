@@ -135,6 +135,60 @@ lands (maintainers can add the `full-ci` label to run it on the PR first).
 Claims need numbers: measure in release builds before and after, and put
 both in the pull request. Avoid per-frame heap allocations on hot paths.
 
+### Breaking changes: the migration note
+
+[STABILITY.md](STABILITY.md) promises that every break comes with what to use
+instead. A change that breaks code written against the last release (a
+renamed, moved or removed item, a changed signature, behaviour or default; the
+semver check below finds some of them, you and the reviewer the rest) carries
+its migration note in its own pull request:
+
+- A changelog fragment with a `### Breaking changes` section
+  ([changelog.d/README.md](changelog.d/README.md)). Each entry says **what
+  changed**, **what to write instead**, and shows the code **before and
+  after**:
+
+  ````md
+  ### Breaking changes
+  - `Foo::bar` takes a `Baz` now.
+    Instead: wrap the argument, `Baz::new(x)`.
+    Before:
+    ```rust
+    foo.bar(x);
+    ```
+    After:
+    ```rust
+    foo.bar(Baz::new(x));
+    ```
+  ````
+
+  `python3 scripts/changelog.py --check` (CI runs it) refuses an entry that
+  lacks any of the three.
+- The **`breaking` label** on the pull request. The two go together, in both
+  directions: the Semver checks job fails a pull request that breaks the API
+  without the label and a fragment, and fails one that has the label but no
+  such fragment (the tool does not see every break, and a label is a promise
+  of a migration note). Labels don't start CI, so re-run the job after
+  adding one.
+- **Deprecate first where it is cheap**, as STABILITY.md's "Releases" says: a
+  replaced item stays for one minor as `#[deprecated(note = "use X")]` (Rust)
+  or with a note in the header (C), pointing at its replacement, and the next
+  minor removes it. It is cheap when the old item can forward to the new one
+  without keeping a second implementation alive: a rename, a moved item, a
+  method that became a builder step. It is not cheap when the old and new
+  behaviour can't coexist (a changed default, a changed data layout, a type
+  that gained a required field): remove it at once, with the entry above.
+  Deprecating is itself a change that goes under `### Deprecated`, not
+  `Breaking changes`, and names the replacement too. The removal, a minor
+  later, is the change that gets the `Breaking changes` entry.
+
+At release time `scripts/changelog.py --version X.Y.Z` folds the entries into
+the **Breaking changes** block of the CHANGELOG (the short form: what changed
+and what to write instead, which is also the GitHub release's notes) and writes
+the same entries, with their snippets, to `book/src/migrating-to-X.Y.md`, which
+it lists in `book/src/SUMMARY.md`. Nobody writes the chapter by hand. See
+[Releasing](#releasing).
+
 ### Semver checks
 
 The **Semver checks** job of CI compares the public API of every published
@@ -157,8 +211,10 @@ request without the full matrix, and takes a few minutes.
   fails a pull request is a break *it* adds (found by comparing with the commit
   it is based on), unless it carries the **`breaking` label** *and* a
   [changelog fragment](changelog.d/README.md) with a `### Breaking changes`
-  section that names the replacement. Both are needed: the label tells the
-  reviewer, the fragment becomes the migration guide.
+  entry (what changed, what to write instead, before and after code). Both
+  are needed: the label tells the reviewer, the fragment becomes the migration
+  chapter. The job also fails the other way round: the label without such a
+  fragment, whether or not the tool found a break.
 
 **Reading a failure.** Open the job summary (or the log group
 "before this change: <crate>"). Each failed lint has a name
@@ -276,7 +332,13 @@ For maintainers. A release is a version tag; `.github/workflows/release.yml`
 does the rest, so the tag, the crates on crates.io and the CHANGELOG section
 always come from one commit. Never run `cargo publish` by hand.
 
-1. Fold the fragments in: `python3 scripts/changelog.py`. In `CHANGELOG.md`,
+1. Fold the fragments in: `python3 scripts/changelog.py --version X.Y.Z`
+   (`--dry-run` shows the result first). If any fragment breaks the API, this
+   also writes the migration chapter, `book/src/migrating-to-X.Y.md` (named
+   after the minor: `migrating-to-0.2.md` for 0.2.0 and its candidates), from
+   the same entries and lists it in `book/src/SUMMARY.md`; read it, then check
+   the book (`mdbook build book`). A patch release may not carry breaking
+   entries. In `CHANGELOG.md`,
    add a fresh empty `## [Unreleased]` heading above the folded content and
    rename the folded one to `## [X.Y.Z] - YYYY-MM-DD`; point the
    `[Unreleased]` link at `compare/vX.Y.Z...HEAD` and add `[X.Y.Z]` beside it.
@@ -308,8 +370,10 @@ always come from one commit. Never run `cargo publish` by hand.
    job, `verify`, runs `release-check.py check`, and every other job waits for
    it: nothing is built, released or published unless the tag is `vX.Y.Z` on a
    commit merged to `main`, every crate is at X.Y.Z, `CHANGELOG.md` has a
-   non-empty `## [X.Y.Z]` section that fits in a release body, the sub-crates
-   carry the root license files and no fragment is left over. (It does not
+   non-empty `## [X.Y.Z]` section that fits in a release body, a release
+   whose section has **Breaking changes** is a minor one with its migration
+   chapter written, listed in the book's summary and holding every entry, the
+   sub-crates carry the root license files and no fragment is left over. (It does not
    look at CI: tag a commit whose CI on `main` passed.)
 5. Redeploy the website (https://ponko.dev/), which builds the guide from
    `main` (its own repository, `ponkoengine/ponko-website`). The API

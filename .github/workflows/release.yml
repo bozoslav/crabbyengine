@@ -1,10 +1,12 @@
 name: Release
 
-# First fold the changelog fragments in (python3 scripts/changelog.py) and
-# name the version in CHANGELOG.md, through a PR. Then push a tag like
+# First fold the changelog fragments in (python3 scripts/changelog.py
+# --version X.Y.Z, which also writes the migration chapter of a minor release)
+# and name the version in CHANGELOG.md, through a PR. Then push a tag like
 # v0.1.0 (on a commit of main whose CI passed):
 #   - checks the tag, the crate versions and the CHANGELOG section (which
-#     must fit in a GitHub release body) before anything is built;
+#     must fit in a GitHub release body) and, for a release with breaking
+#     changes, its migration chapter before anything is built;
 #   - packages every crate (`cargo publish --workspace --dry-run`), so a
 #     crate that can't be published stops the release before it exists;
 #   - builds the C library on each OS and attaches it, with the headers,

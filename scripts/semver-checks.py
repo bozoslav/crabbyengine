@@ -15,6 +15,10 @@ the last release on crates.io. What a break means depends on the branch:
              with the commit it is based on. It passes only with the
              `breaking` label and a changelog fragment that has a
              `### Breaking changes` section (CONTRIBUTING.md, "Semver checks").
+             The other way round, a pull request with the `breaking` label
+             must carry such a fragment, whether or not the tool found a
+             break: the label promises a migration note, and the tool does
+             not see every break (behaviour, defaults).
 
 Which packages and features are checked comes from Cargo: every package
 that can be published (not `publish = false`), with the features it builds on
@@ -106,6 +110,28 @@ def verdict(mode, breaks, new_breaks, errors, labeled, fragment):
         return False, lines + ['Missing: ' + ' and '.join(missing) + '.',
                                'Or undo the break: CONTRIBUTING.md, "Semver checks".']
     return True, lines + [f'Allowed: `{LABEL}` label and a `### {HEADING}` fragment are there.']
+
+
+def label_verdict(mode, labeled, fragment):
+    """(ok, message lines) for the `breaking` label itself, whatever the tool found.
+
+    The label promises a migration note: a changelog fragment with a
+    `### Breaking changes` entry (before/after code, validated by
+    `changelog.py --check`). A fragment without the label is only a notice:
+    contributors can't add labels, and a reviewer decides.
+    """
+    if labeled and mode == 'release':
+        return False, [f'The `{LABEL}` label is on a pull request into a release branch, '
+                       'which must not break the API (STABILITY.md). Target `main` instead.']
+    if labeled and not fragment:
+        return False, [f'The `{LABEL}` label needs a migration note: add a changelog fragment with a '
+                       f'`### {HEADING}` entry (what changed, what to write instead, a before/after '
+                       'snippet; changelog.d/README.md), then re-run this job. Or remove the label '
+                       'if nothing breaks.']
+    if fragment and not labeled:
+        return True, [f'This change has a `### {HEADING}` fragment but no `{LABEL}` label: a '
+                      'maintainer should add it.']
+    return True, []
 
 
 # Side effects: cargo, git and gh.
@@ -264,6 +290,13 @@ def main_run():
             has_fragment = breaking_fragment(base)
 
     ok, lines = verdict(mode, breaks, new_breaks, errors, is_labeled, has_fragment)
+    if pr:
+        if not new_breaks:
+            # Not read above: the label and fragment of a change the tool found no break in.
+            is_labeled = labeled(env, pr)
+            has_fragment = breaking_fragment(base_commit(env, target))
+        label_ok, label_lines = label_verdict(mode, is_labeled, has_fragment)
+        ok, lines = ok and label_ok, lines + label_lines
     print()
     for line in lines:
         print(f'::{"notice" if ok else "error"}::{line}' if os.environ.get('GITHUB_ACTIONS') else line)
@@ -305,6 +338,14 @@ def selftest():
     assert ok('main', ['ponko'], ['ponko'], [], True, True)
     assert 'label' in ' '.join(verdict('main', ['ponko'], ['ponko'], [], False, True)[1])
     assert 'fragment' in ' '.join(verdict('main', ['ponko'], ['ponko'], [], True, False)[1])
+    # The label without a migration note fails, with or without a break found.
+    assert not label_verdict('main', True, False)[0]
+    assert 'migration note' in ' '.join(label_verdict('main', True, False)[1])
+    assert label_verdict('main', True, True) == (True, [])
+    assert label_verdict('main', False, False) == (True, [])
+    assert label_verdict('main', False, True)[0] and 'label' in ' '.join(label_verdict('main', False, True)[1])
+    assert not label_verdict('release', True, True)[0], 'no break goes into a patch release'
+    assert label_verdict('release', False, False) == (True, [])
     print('semver-checks.py: self-test passed')
 
 
