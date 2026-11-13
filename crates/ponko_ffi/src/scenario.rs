@@ -125,7 +125,7 @@ unsafe fn scenario_ref<'a>(scenario: *const PonkoInputScenario) -> Result<&'a In
 /// arguments and returns the step; on bad arguments the scenario is left as
 /// it was. The step itself can't fail, so the scenario is moved through it
 /// rather than copied (a copy per step would make building O(n²)).
-unsafe fn edit<B: FnOnce(InputScenario) -> InputScenario>(
+pub(crate) unsafe fn edit<B: FnOnce(InputScenario) -> InputScenario>(
     scenario: *mut PonkoInputScenario,
     prepare: impl FnOnce() -> Result<B, Failure>,
 ) -> PonkoStatus {
@@ -254,7 +254,7 @@ pub unsafe extern "C" fn ponko_input_scenario_at(
     }
 }
 
-fn expectation(value: i32) -> Result<Option<bool>, Failure> {
+pub(crate) fn expectation(value: i32) -> Result<Option<bool>, Failure> {
     match value {
         -1 => Ok(None),
         0 => Ok(Some(false)),

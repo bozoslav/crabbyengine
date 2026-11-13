@@ -276,6 +276,8 @@ pub struct Game {
     input_scenario: Option<crate::scenario::InputScenario>,
     /// Whether tools may start input scenarios through the control endpoint.
     input_injection: bool,
+    /// From `headless_frames`: headless runs also run frames and the UI.
+    headless_frames: bool,
     /// From `parallel_systems`: batches of view systems may use other threads.
     parallel: bool,
     /// From `parallel_threshold`.
@@ -698,6 +700,7 @@ impl Game {
             inspector: cfg!(debug_assertions),
             input_scenario: None,
             input_injection: false,
+            headless_frames: false,
             parallel: false,
             parallel_threshold: None,
             parallel_env: true,
@@ -1457,6 +1460,64 @@ impl Game {
         self
     }
 
+    /// Makes headless runs ([`run_headless`](Self::run_headless),
+    /// [`run_headless_scenario`](Self::run_headless_scenario),
+    /// [`profile_headless`](Self::profile_headless) and
+    /// [`ConfiguredGame`]'s) run whole frames instead of simulation ticks
+    /// alone (off by default). Each frame is one tick, in the windowed
+    /// order: the retained UI takes the frame's input, the simulation tick
+    /// runs, then the frame, `Animate`, `Late` and `Draw` systems and the
+    /// closure `setup` returned. The window is virtual: `ctx.window_size()`
+    /// is the size given to [`Game::new`], and nothing is drawn (draw calls
+    /// are dropped) or played. No GPU or window is opened.
+    ///
+    /// With it, a test can drive a game's menus: an
+    /// [`InputScenario`](crate::scenario::InputScenario) feeds each tick's
+    /// input before the UI takes it, clicks and types into the UI by node
+    /// name ([`click`](crate::scenario::InputScenario::click),
+    /// [`type_text`](crate::scenario::InputScenario::type_text)), and checks
+    /// the UI tree ([`ScenarioCheck::ui`](crate::scenario::ScenarioCheck::ui))
+    /// after each frame's systems ran. Off, a headless run costs what it did
+    /// before: no UI, no frame systems.
+    ///
+    /// ```
+    /// use ponko::prelude::*;
+    /// use ponko::scenario::{InputScenario, ScenarioCheck};
+    ///
+    /// struct Menu { play: ponko::ui::UiId }
+    /// #[derive(Default)]
+    /// struct Started(bool);
+    ///
+    /// fn menu(ctx: &mut Ctx) {
+    ///     let play = ctx.world.resource::<Menu>().play;
+    ///     if ctx.ui.events().any(|e| e.clicked() == Some(play)) {
+    ///         ctx.world.resource_mut::<Started>().0 = true;
+    ///         ctx.ui.pop_screen();
+    ///     }
+    /// }
+    ///
+    /// let scenario = InputScenario::new()
+    ///     .expect(0, ScenarioCheck::ui("menu.play").shown(true).text("Play"))
+    ///     .click(2, "menu.play")
+    ///     .expect(2, ScenarioCheck::ui("menu.play").shown(false));
+    /// let (world, report) = Game::new("menu", 640, 480)
+    ///     .headless_frames(true)
+    ///     .system(menu)
+    ///     .run_headless_scenario(scenario, |ctx| {
+    ///         let root = ctx.ui.root().layout(ponko::ui::UiLayout::fill()).id();
+    ///         let play = ctx.ui.button(root, "Play").name("menu.play").id();
+    ///         ctx.ui.push_screen(root, false);
+    ///         ctx.world.insert_resource(Menu { play });
+    ///         ctx.world.insert_resource(Started::default());
+    ///     });
+    /// report.assert_passed();
+    /// assert!(world.resource::<Started>().0);
+    /// ```
+    pub fn headless_frames(mut self, on: bool) -> Self {
+        self.headless_frames = on;
+        self
+    }
+
     /// Runs `scenario` headlessly for its [`ticks`](crate::scenario::InputScenario::ticks)
     /// and returns the world with the scenario's report: the bounded runner
     /// for tests and CI. A failed check ends the run at that tick and the
@@ -1778,6 +1839,18 @@ impl Game {
     fn run_sim_tick(&mut self, ctx: &mut Ctx) {
         self.ensure_schedule();
         let tick = ctx.time.sim_tick();
+        self.install_input_scenario(ctx);
+        ctx.scenario_begin_tick();
+        self.exec.run_list(&mut self.sim_systems, 0, ctx, 0, Some(tick));
+        ctx.set_sim_steps(1);
+        ctx.scenario_end_tick(tick);
+        ctx.net.lockstep.end_tick(&ctx.world, tick);
+        ctx.advance_tick();
+    }
+
+    /// The scenario from [`input_scenario`](Self::input_scenario), started
+    /// on the first tick of the run.
+    fn install_input_scenario(&mut self, ctx: &mut Ctx) {
         if let Some(scenario) = self.input_scenario.take() {
             ctx.input.install_scenario(
                 &mut ctx.world,
@@ -1787,12 +1860,61 @@ impl Game {
                 crate::scenario::RunOrigin::default(),
             );
         }
+    }
+
+    /// One frame of a [`headless_frames`](Self::headless_frames) run: the
+    /// windowed frame of `run_systems` with one tick. The scenario's input
+    /// for the tick comes first, as a window's input arrives before its
+    /// frame, so the UI takes it too; its checks run after the whole frame.
+    fn run_headless_frame(&mut self, ctx: &mut Ctx) {
+        self.ensure_schedule();
+        let tick = ctx.time.sim_tick();
+        self.install_input_scenario(ctx);
         ctx.scenario_begin_tick();
+        ctx.frame_begin_services();
+        self.begin_timings(ctx);
+        ctx.set_in_sim(true);
         self.exec.run_list(&mut self.sim_systems, 0, ctx, 0, Some(tick));
         ctx.set_sim_steps(1);
-        ctx.scenario_end_tick();
         ctx.net.lockstep.end_tick(&ctx.world, tick);
         ctx.advance_tick();
+        ctx.set_in_sim(false);
+        let n_sim = self.sim_systems.len();
+        let n_frame = self.systems.len();
+        let n_late = self.late_systems.len();
+        self.exec.run_list(&mut self.systems, 1, ctx, n_sim, None);
+        self.exec
+            .run_list(&mut self.late_systems, 2, ctx, n_sim + n_frame, None);
+        self.exec
+            .run_list(&mut self.draw_systems, 3, ctx, n_sim + n_frame + n_late, None);
+        end_timings(ctx);
+        let frame = self.systems.iter().chain(&self.late_systems).chain(&self.draw_systems);
+        forget_seen_removals(ctx, self.sim_systems.iter().chain(frame));
+        ctx.scenario_end_tick(tick);
+    }
+
+    /// Adds the closure a `setup` returned as the last frame system.
+    fn add_setup_closure(&mut self, f: SystemFn) {
+        let index = self.systems.partition_point(|s| s.stage <= Phase::Frame);
+        let id = next_system_id();
+        self.systems.insert(
+            index,
+            System {
+                key: SystemId(id),
+                builtin: None,
+                name: "setup closure",
+                stage: Phase::Frame,
+                run: Run::Ctx(f),
+                every: 1,
+                phase: 0,
+                id,
+                access: None,
+                last: false,
+                changes_seen: Default::default(),
+                enforced: false,
+                barrier: false,
+            },
+        );
     }
 
     /// Checks the [`order`](Self::order) pairs against the run order: the
@@ -2024,7 +2146,11 @@ impl Game {
         let control = self.start_control(&mut ctx, true);
         ctx.set_in_setup(true);
         run_setups(std::mem::take(&mut self.setups), &mut ctx);
-        drop(setup(&mut ctx).into_frame_fn()); // no frames, so no frame closure
+        let frame_fn = setup(&mut ctx).into_frame_fn();
+        match frame_fn {
+            Some(f) if self.headless_frames => self.add_setup_closure(f),
+            other => drop(other), // no frames, so no frame closure
+        }
         ctx.set_in_setup(false);
         ctx.apply_commands();
         ctx.gfx.discard_draws();
@@ -2067,13 +2193,17 @@ impl Game {
             let tick_start = Instant::now();
             ctx.begin_frame(timing);
             ctx.frame_prepare_services();
-            self.begin_timings(&mut ctx);
-            ctx.set_in_sim(true);
-            self.run_sim_tick(&mut ctx);
-            ctx.set_in_sim(false);
-            end_timings(&mut ctx);
-            // Only simulation systems run headless, so only they hold removals back.
-            forget_seen_removals(&mut ctx, self.sim_systems.iter());
+            if self.headless_frames {
+                self.run_headless_frame(&mut ctx);
+            } else {
+                self.begin_timings(&mut ctx);
+                ctx.set_in_sim(true);
+                self.run_sim_tick(&mut ctx);
+                ctx.set_in_sim(false);
+                end_timings(&mut ctx);
+                // Only simulation systems run here, so only they hold removals back.
+                forget_seen_removals(&mut ctx, self.sim_systems.iter());
+            }
             ctx.gfx.discard_draws();
             ctx.input.end_frame();
             if ctx.perf.state.on {

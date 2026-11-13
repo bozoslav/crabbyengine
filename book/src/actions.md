@@ -141,6 +141,11 @@ errors, so a typo can't quietly weaken a test. The format is for reproducing
 gameplay on one build; it isn't a promise of identical replays across engine
 versions.
 
+With [headless frames](headless.md#menus-and-the-ui-headless-frames),
+scenarios also click and type into the retained UI by node name and check
+its tree: `ui_click`, `ui_type` and `expect_ui` steps (`InputScenario::click`,
+`type_text`, `ScenarioCheck::ui`).
+
 ### From tools
 
 With the [control endpoint](control.md) on, `input.scenario.load`,

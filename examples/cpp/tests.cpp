@@ -3043,6 +3043,40 @@ static void wrapper_coverage() {
     CHECK(sheet.morph_target_count() == 1);
 }
 
+// Headless frames: a form typed into and clicked by node name.
+static void headless_frames_ui() {
+    using ponko::scenario_check;
+    ponko::input_scenario s;
+    s.type_text(2, "form.name", "Ada")
+        .expect(2, scenario_check::ui("form.name").exists(true).shown(true).focused(true).text("Ada"))
+        .click(4, "form.ok")
+        .expect(4, scenario_check::ui("form").shown(false))
+        .duration(6);
+    int closed = 0;
+    auto run = ponko::game("c++ frames", 640, 480)
+                   .headless_frames(true)
+                   .system([&](ponko::ctx& ctx) {
+                       auto ui = ctx.ui_retained();
+                       auto clicked = ui.take_click();
+                       if (clicked && clicked == ui.find("form.ok")) {
+                           ui.pop_screen();
+                           ++closed;
+                       }
+                   })
+                   .run_headless_scenario(s, [](ponko::ctx& ctx) {
+                       namespace u = ponko::ui;
+                       auto ui = ctx.ui_retained();
+                       auto root = ui.add_panel(u::none, u::fill());
+                       ui.set_name(root, "form");
+                       ui.set_name(ui.add_text_input(root, "", u::fixed(200, 30)), "form.name");
+                       ui.set_name(ui.add_button(root, "OK", u::fixed(200, 30)), "form.ok");
+                       CHECK(!ui.is_shown(root));
+                       ui.push_screen(root);
+                       CHECK(ui.is_shown(root));
+                   });
+    CHECK(run.report.passed() && run.report.inputs_applied == 2 && closed == 1);
+}
+
 int main() {
     abi_version_is_checked();
     declared_access();
@@ -3101,5 +3135,6 @@ int main() {
     grid_views_match_engine_queries();
     native_coverage();
     wrapper_coverage();
+    headless_frames_ui();
     std::cout << "C++ wrapper tests passed\n";
 }

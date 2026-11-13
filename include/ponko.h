@@ -2906,6 +2906,30 @@ enum PonkoStatus ponko_ctx_asset_owner(struct PonkoCtx *ctx,
 
 enum PonkoStatus ponko_ctx_unload_mesh(struct PonkoCtx *ctx, const char *path, bool *out_unloaded);
 
+enum PonkoStatus ponko_game_headless_frames(struct PonkoGame *game, bool on);
+
+enum PonkoStatus ponko_input_scenario_click(struct PonkoInputScenario *scenario,
+                                            uint64_t tick,
+                                            const char *node);
+
+enum PonkoStatus ponko_input_scenario_type_text(struct PonkoInputScenario *scenario,
+                                                uint64_t tick,
+                                                const char *node,
+                                                const char *typed);
+
+enum PonkoStatus ponko_input_scenario_expect_ui(struct PonkoInputScenario *scenario,
+                                                uint64_t tick,
+                                                const char *node,
+                                                int32_t exists,
+                                                int32_t shown,
+                                                int32_t focused,
+                                                const char *expected_text);
+
+enum PonkoStatus ponko_ctx_ui_is_shown(struct PonkoCtx *ctx,
+                                       uint64_t target,
+                                       uint64_t id,
+                                       bool *out_shown);
+
 enum PonkoStatus ponko_ctx_try_load_texture(struct PonkoCtx *ctx,
                                             const char *path,
                                             struct PonkoTexture *out_texture);
