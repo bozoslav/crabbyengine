@@ -3481,6 +3481,14 @@ enum PonkoStatus ponko_ctx_physics3d_is_collider_active(struct PonkoCtx *ctx,
                                                         uint64_t entity,
                                                         bool *out_active);
 
+enum PonkoStatus ponko_ctx_prefab_parts(struct PonkoCtx *ctx,
+                                        uint64_t root,
+                                        uint64_t *out_entities,
+                                        size_t capacity,
+                                        size_t *out_count);
+
+enum PonkoStatus ponko_ctx_despawn_prefab(struct PonkoCtx *ctx, uint64_t root, size_t *out_count);
+
 struct PonkoQueryCachePolicy ponko_query_cache_policy_default(void);
 
 struct PonkoQueryCachePolicy ponko_query_cache_policy_off(void);

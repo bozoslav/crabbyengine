@@ -148,6 +148,23 @@ fn beach(ctx: &mut Ctx) -> Result<(), String> {
 }
 // ANCHOR_END: scenes
 
+// ANCHOR: prefab_tree
+fn carts(ctx: &mut Ctx) -> Result<(), String> {
+    // A cart: its body (the root), two wheels, a driver and the driver's hat.
+    let cart = ctx.spawn_prefab("prefabs/cart.json", vec2(200.0, 300.0))?;
+    let parts = ctx.world.get::<PrefabParts>(cart).map_or(0, |p| p.0.len()); // the four parts spawned with it
+    ctx.despawn_prefab(cart); // the body and its four parts
+    assert_eq!((parts, ctx.world.len()), (4, 0));
+    Ok(())
+}
+// ANCHOR_END: prefab_tree
+
+#[test]
+fn the_guide_cart_comes_and_goes_whole() {
+    let world = game().run_headless(0, |ctx| carts(ctx).unwrap());
+    assert_eq!(world.len(), 0);
+}
+
 #[test]
 fn the_guide_beach_has_five_palms() {
     let mut world = game().run_headless(0, |ctx| beach(ctx).unwrap());
