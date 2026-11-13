@@ -278,7 +278,7 @@ name = "web_smoke_3d"
 required-features = ["3d"]
 
 [workspace]
-members = [".", "crates/ponko_ecs", "crates/ponko_macros", "crates/ponko_bench", "crates/ponko_mcp", "crates/ponko_ffi", "crates/ponko_unity"]
+members = [".", "crates/ponko_ecs", "crates/ponko_macros", "crates/ponko_bench", "crates/ponko_mcp", "crates/ponko_ffi", "crates/ponko_unity", "crates/ponko_cli"]
 
 [workspace.package]
 edition = "2024"
