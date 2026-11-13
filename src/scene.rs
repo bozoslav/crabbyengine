@@ -1,8 +1,8 @@
 //! Scenes and prefabs: worlds and entities kept in files under `assets/`.
 //!
 //! A scene is a whole world (the [`WorldReflect::save`] format): a level, a
-//! menu, a test setup. A prefab is one entity's components, spawned as many
-//! times as you like: a tree, an enemy, a building. Both are JSON, so they
+//! menu, a test setup. A prefab is an entity or a tree of them, spawned as
+//! many times as you like: a tree, an enemy, a cart with its wheels. Both are JSON, so they
 //! diff well, and agents and the editor write them like any other file.
 
 use serde_json::{Value, json};
