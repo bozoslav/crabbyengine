@@ -999,7 +999,11 @@ impl Ui {
     /// The [immediate widgets](Ui::immediate) follow the theme by the same
     /// rule: every field of their [`UiStyle`] still equal to what the old
     /// theme gave them (see [`UiTheme::style`]) takes the new theme's, and a
-    /// field set by hand stays.
+    /// field set by hand stays. So do their font
+    /// ([`UiImmediate::font`](crate::ui::UiImmediate::font), the theme's
+    /// [`font`](UiTheme::font)) and button border
+    /// ([`UiImmediate::border_width`](crate::ui::UiImmediate::border_width),
+    /// the theme's [`border_width`](UiTheme::border_width)).
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
@@ -1032,6 +1036,15 @@ impl Ui {
             )*};
         }
         follow_style!(panel, button, button_hovered, button_pressed, accent, text, text_size);
+        // The font and the border are the theme's as they are: their
+        // defaults are the immediate widgets' own.
+        let immediate = &mut self.immediate;
+        if immediate.font == old.font {
+            immediate.font = theme.font;
+        }
+        if immediate.border_width == old.border_width {
+            immediate.border_width = theme.border_width;
+        }
         for n in self.nodes.iter_mut().flatten() {
             let (from, to) = if n.title {
                 (old.title_paint(), theme.title_paint())

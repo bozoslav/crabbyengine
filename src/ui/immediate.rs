@@ -8,12 +8,17 @@ use super::UiStyle;
 use crate::camera::Rect;
 use crate::gfx::Graphics;
 use crate::input::{Input, MouseButton};
-use crate::text::TextParams;
+use crate::text::{Font, TextParams};
 
 /// The immediate widgets of the screen's UI: `ctx.ui.immediate`.
 ///
-/// Each call draws one widget this frame, in window pixels on top of the
-/// world, in [`style`](Self::style). Nothing is kept between frames but the
+/// Each call draws one widget this frame, on top of the world, in
+/// [`style`](Self::style). Positions and sizes are in UI units, the units of
+/// the retained tree's layout: window pixels at the default scale, and
+/// multiplied by the screen's [`Ui::set_scale`](super::Ui::set_scale) like
+/// the retained tree is, so a debug overlay is as large as the menu next to
+/// it. The look follows the screen's [`UiTheme`](super::UiTheme)
+/// ([`Ui::set_theme`](super::Ui::set_theme)). Nothing is kept between frames but the
 /// rectangles drawn, so [`Ui::wants_pointer`](super::Ui::wants_pointer)
 /// knows the mouse is over them. The widgets say what they use: all draw
 /// through the graphics service, and a button also reads the mouse.
@@ -41,8 +46,34 @@ pub struct UiImmediate {
     /// # }
     /// ```
     pub style: UiStyle,
-    /// Every rectangle drawn this frame and the previous one, so
-    /// `covers` can answer before this frame's widgets are drawn.
+    /// The font of labels and buttons. The screen's theme font by default
+    /// ([`Ui::set_theme`](super::Ui::set_theme)); setting it here keeps it
+    /// through a later theme change.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// let font = ctx.gfx.load_font("mono.ttf");
+    /// ctx.ui.immediate.font = font;
+    /// # }
+    /// ```
+    pub font: Font,
+    /// Thickness of a button's border in UI units, drawn in the accent
+    /// color. The screen's theme [`border_width`](super::UiTheme::border_width)
+    /// when it sets one; 0 (no border, only the outline of a hovered
+    /// button) otherwise.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// ctx.ui.immediate.border_width = 2.0;
+    /// # }
+    /// ```
+    pub border_width: f32,
+    /// The screen's UI scale ([`Ui::set_scale`](super::Ui::set_scale)).
+    pub(super) scale: f32,
+    /// Every rectangle drawn this frame and the previous one, in window
+    /// pixels, so `covers` can answer before this frame's widgets are drawn.
     this_frame: Vec<Rect>,
     last_frame: Vec<Rect>,
     /// Where the left mouse button last went down, for button clicks.
@@ -53,6 +84,9 @@ impl Default for UiImmediate {
     fn default() -> Self {
         Self {
             style: UiStyle::default(),
+            font: Font::DEFAULT,
+            border_width: 0.0,
+            scale: 1.0,
             this_frame: Vec::new(),
             last_frame: Vec::new(),
             press_at: Vec2::splat(f32::NAN),
@@ -61,14 +95,38 @@ impl Default for UiImmediate {
 }
 
 impl UiImmediate {
+    /// The scale the widgets are drawn at: the screen's
+    /// [`Ui::set_scale`](super::Ui::set_scale), 1 by default. Multiply a
+    /// size in UI units by it for window pixels.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// assert_eq!(ui.immediate.scale(), 1.0);
+    /// ui.set_scale(2.0);
+    /// assert_eq!(ui.immediate.scale(), 2.0);
+    /// ```
+    #[must_use]
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// `rect` (UI units) in window pixels.
+    fn px(&self, rect: Rect) -> Rect {
+        Rect {
+            min: rect.min * self.scale,
+            max: rect.max * self.scale,
+        }
+    }
+
     /// Engine side: a new frame; last frame's rectangles still count.
     pub(crate) fn begin_frame(&mut self) {
         std::mem::swap(&mut self.this_frame, &mut self.last_frame);
         self.this_frame.clear();
     }
 
-    /// Whether `point` (window pixels) is on a widget drawn this frame or
-    /// the previous one.
+    /// Whether `point` (window pixels, such as the mouse) is on a widget
+    /// drawn this frame or the previous one.
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -87,7 +145,7 @@ impl UiImmediate {
             .any(|r| r.contains(point))
     }
 
-    /// A background panel at `rect` (window pixels), in the style's panel color.
+    /// A background panel at `rect` (UI units), in the style's panel color.
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -98,12 +156,13 @@ impl UiImmediate {
     /// # }
     /// ```
     pub fn panel(&mut self, gfx: &mut Graphics, rect: Rect) {
+        let rect = self.px(rect);
         gfx.ui_fill(rect, self.style.panel, -1.0);
         self.this_frame.push(rect);
     }
 
-    /// Text at `pos` (window pixels) in the style's text size and color.
-    /// Returns the space it took.
+    /// Text at `pos` (UI units) in the style's text size and color and the
+    /// immediate font. Returns the space it took, in UI units.
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -114,23 +173,25 @@ impl UiImmediate {
     /// # }
     /// ```
     pub fn label(&self, gfx: &mut Graphics, pos: Vec2, text: &str) -> Vec2 {
-        let style = self.style;
+        let (style, scale) = (self.style, self.scale);
+        let size = style.text_size * scale;
         gfx.draw_text_ex(
             text,
-            pos,
+            pos * scale,
             TextParams {
-                size: style.text_size,
+                font: self.font,
+                size,
                 color: style.text,
                 z: 1.0,
-                ..Default::default()
             },
         );
-        gfx.measure_text(text, style.text_size)
+        gfx.measure_text_ex(text, self.font, size) / scale
     }
 
-    /// A button at `rect` (window pixels) with `label` centered on it.
+    /// A button at `rect` (UI units) with `label` centered on it.
     /// Returns `true` on the frame it's clicked (mouse released over it
-    /// after being pressed over it), reading the mouse from `input`.
+    /// after being pressed over it), reading the mouse (window pixels) from
+    /// `input`.
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -141,7 +202,8 @@ impl UiImmediate {
     /// # }
     /// ```
     pub fn button(&mut self, gfx: &mut Graphics, input: &Input, rect: Rect, label: &str) -> bool {
-        let style = self.style;
+        let (style, scale) = (self.style, self.scale);
+        let rect = self.px(rect);
         let mouse = input.mouse_pos();
         if input.mouse_pressed(MouseButton::Left) {
             self.press_at = mouse;
@@ -156,20 +218,25 @@ impl UiImmediate {
         } else {
             style.button
         };
+        let border = self.border_width.max(0.0) * scale;
         if hovered {
-            gfx.ui_fill(rect.expand(1.0), style.accent, -0.5);
+            gfx.ui_fill(rect.expand(scale), style.accent, -0.5);
         }
-        gfx.ui_fill(rect, fill, 0.0);
-        let size = gfx.measure_text(label, style.text_size);
+        if border > 0.0 {
+            gfx.ui_fill(rect, style.accent, -0.25);
+        }
+        gfx.ui_fill(rect.expand(-border), fill, 0.0);
+        let text_size = style.text_size * scale;
+        let size = gfx.measure_text_ex(label, self.font, text_size);
         let at = (rect.center() - size / 2.0).round();
         gfx.draw_text_ex(
             label,
             at,
             TextParams {
-                size: style.text_size,
+                font: self.font,
+                size: text_size,
                 color: style.text,
                 z: 1.0,
-                ..Default::default()
             },
         );
         self.this_frame.push(rect);
@@ -205,5 +272,123 @@ mod tests {
             .sim_system(first)
             .sim_system(second)
             .run_headless(1, |_| {});
+    }
+
+    use crate::ui::UiTheme;
+
+    /// A frame of the mouse at `at` (window pixels), then a click on it.
+    fn click(ctx: &mut Ctx, at: Vec2, rect: Rect) -> bool {
+        ctx.input.set_mouse_pos(at);
+        ctx.input.set_mouse_button(MouseButton::Left, true);
+        ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, rect, "Go");
+        ctx.input.end_frame();
+        ctx.input.set_mouse_button(MouseButton::Left, false);
+        let clicked = ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, rect, "Go");
+        ctx.input.end_frame();
+        clicked
+    }
+
+    #[test]
+    fn the_screens_scale_sizes_the_widgets_like_the_retained_tree() {
+        let mut ctx = Ctx::new(1.0 / 60.0, vec2(800.0, 600.0));
+        ctx.set_headless(true);
+        let one = ctx.ui.immediate.label(&mut ctx.gfx, vec2(0.0, 0.0), "Simulation");
+        ctx.ui.set_scale(2.0);
+        assert_eq!(ctx.ui.immediate.scale(), 2.0);
+        let two = ctx.ui.immediate.label(&mut ctx.gfx, vec2(0.0, 0.0), "Simulation");
+        // The size is in UI units, so it doesn't depend on the scale.
+        assert!((one - two).abs().max_element() < 1.0, "{one} at 1x, {two} at 2x");
+        // The panel at (10, 10) in UI units is at (20, 20) in window pixels.
+        ctx.ui.immediate.panel(&mut ctx.gfx, Rect::new(10.0, 10.0, 100.0, 50.0));
+        assert!(!ctx.ui.immediate.covers(vec2(15.0, 15.0)));
+        assert!(ctx.ui.immediate.covers(vec2(25.0, 25.0)));
+        assert!(ctx.ui.immediate.covers(vec2(219.0, 119.0)));
+        assert!(!ctx.ui.immediate.covers(vec2(221.0, 121.0)));
+    }
+
+    #[test]
+    fn the_default_scale_leaves_the_widgets_where_they_were() {
+        let mut ctx = Ctx::new(1.0 / 60.0, vec2(800.0, 600.0));
+        ctx.set_headless(true);
+        assert_eq!(ctx.ui.immediate.scale(), 1.0);
+        ctx.ui.immediate.panel(&mut ctx.gfx, Rect::new(10.0, 10.0, 100.0, 50.0));
+        assert!(ctx.ui.immediate.covers(vec2(10.5, 10.5)));
+        assert!(!ctx.ui.immediate.covers(vec2(9.5, 9.5)));
+        assert!(ctx.ui.immediate.covers(vec2(109.5, 59.5)));
+        assert!(!ctx.ui.immediate.covers(vec2(110.5, 60.5)));
+        assert_eq!(ctx.ui.immediate.font, Font::DEFAULT);
+        assert_eq!(ctx.ui.immediate.border_width, 0.0);
+    }
+
+    #[test]
+    fn a_button_is_clicked_where_it_is_drawn_at_any_scale() {
+        for scale in [1.0, 2.0] {
+            let mut ctx = Ctx::new(1.0 / 60.0, vec2(800.0, 600.0));
+            ctx.set_headless(true);
+            ctx.ui.set_scale(scale);
+            let rect = Rect::new(20.0, 20.0, 100.0, 32.0);
+            // Its middle, in window pixels.
+            let middle = rect.center() * scale;
+            assert!(click(&mut ctx, middle, rect), "the middle at {scale}x");
+            // The place the button would be at 1x, when it isn't there.
+            if scale > 1.0 {
+                let mut ctx = Ctx::new(1.0 / 60.0, vec2(800.0, 600.0));
+                ctx.set_headless(true);
+                ctx.ui.set_scale(scale);
+                let outside = vec2(30.0, 30.0);
+                assert!(!click(&mut ctx, outside, rect), "unscaled place at {scale}x");
+            }
+        }
+    }
+
+    #[test]
+    fn the_theme_font_and_border_reach_the_immediate_widgets() {
+        let mut ctx = Ctx::new(1.0 / 60.0, vec2(800.0, 600.0));
+        ctx.set_headless(true);
+        let mono = ctx
+            .gfx
+            .text
+            .add_font(epaint_default_fonts::HACK_REGULAR)
+            .expect("a font");
+        let plain = ctx.ui.immediate.label(&mut ctx.gfx, vec2(0.0, 0.0), "Simulation");
+        ctx.ui.set_theme(UiTheme {
+            font: mono,
+            border_width: 2.0,
+            ..Default::default()
+        });
+        assert_eq!(ctx.ui.immediate.font, mono);
+        assert_eq!(ctx.ui.immediate.border_width, 2.0);
+        let themed = ctx.ui.immediate.label(&mut ctx.gfx, vec2(0.0, 0.0), "Simulation");
+        assert_eq!(themed, ctx.gfx.measure_text_ex("Simulation", mono, 16.0));
+        assert_ne!(plain.x, themed.x, "the monospace font is wider");
+        // Back to the default theme: the font and the border follow it.
+        ctx.ui.set_theme(UiTheme::default());
+        assert_eq!(ctx.ui.immediate.font, Font::DEFAULT);
+        assert_eq!(ctx.ui.immediate.border_width, 0.0);
+    }
+
+    #[test]
+    fn a_font_set_by_hand_stays_through_a_theme_change() {
+        let mut ctx = Ctx::new(1.0 / 60.0, vec2(800.0, 600.0));
+        let mine = ctx
+            .gfx
+            .text
+            .add_font(epaint_default_fonts::HACK_REGULAR)
+            .expect("a font");
+        let theirs = ctx
+            .gfx
+            .text
+            .add_font(epaint_default_fonts::HACK_REGULAR)
+            .expect("a font");
+        ctx.ui.immediate.font = mine;
+        ctx.ui.immediate.border_width = 3.0;
+        ctx.ui.set_theme(UiTheme {
+            font: theirs,
+            border_width: 1.0,
+            ..Default::default()
+        });
+        assert_eq!(ctx.ui.immediate.font, mine);
+        assert_eq!(ctx.ui.immediate.border_width, 3.0);
+        assert_eq!(ctx.ui.theme().font, theirs);
     }
 }

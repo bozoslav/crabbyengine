@@ -99,7 +99,8 @@ a node (`.color(..)`, `.size(..)`, `set_paint`) overrides it, and a later
 `set_theme` changes only the fields a node didn't set. The screen's theme also
 styles the immediate widgets: `set_theme` updates `ctx.ui.immediate.style`
 the same way (`UiTheme::style()` is the style it gives them), keeping fields
-set there by hand. C++: `tree.theme()`, `tree.set_theme(t)` with a `ui::theme`;
+set there by hand, and so do their font and button border (`UiTheme::font`,
+`UiTheme::border_width`). C++: `tree.theme()`, `tree.set_theme(t)` with a `ui::theme`;
 C: `ponko_ctx_ui_theme`, `ponko_ctx_ui_set_theme` with a `PonkoUiTheme`.
 `ui.paint(id)` (C++: `resolved_paint(id)`, C: `ponko_ctx_ui_paint`) reads what
 a node is drawn with.
@@ -318,7 +319,9 @@ so releasing a dialog button cannot activate an underlying screen.
 
 Layout and pointer coordinates use logical window units. DPI already belongs
 to the window/text renderer; `set_scale(1.25)` adds a user preference on top,
-scaling geometry, text and hit testing together. Percentage dimensions resolve
+scaling geometry, text and hit testing together; the
+[immediate widgets](camera-ui.md#one-look-for-both-styles) are drawn at that
+scale too. Percentage dimensions resolve
 against the available logical viewport, so roots can adapt to resolution.
 
 `Ui::frame(viewport, &UiInput)` runs without a GPU and allows deterministic tests
