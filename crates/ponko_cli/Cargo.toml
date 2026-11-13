@@ -1,0 +1,26 @@
+[package]
+name = "ponko_cli"
+version = "0.1.0"
+description = "The `ponko` command: new Ponko game projects from templates (2D, 3D, headless)"
+keywords = ["gamedev", "cli", "template", "scaffolding"]
+categories = ["game-development", "command-line-utilities", "development-tools"]
+documentation = "https://ponko.dev/guide/getting-started.html"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+# The templates are files of this package (crates.io gets only its own
+# folder), embedded into the binary. They are also cargo-generate templates:
+# their manifests are `Cargo.toml.liquid`, since a folder with a `Cargo.toml`
+# would be left out of the package.
+
+[[bin]]
+name = "ponko"
+path = "src/main.rs"
+
+# No dependencies: `cargo install ponko_cli` stays a few seconds, and the
+# command never pulls in the engine.
+[dependencies]
