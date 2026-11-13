@@ -269,6 +269,9 @@ jobs:
           - name: engine with only a window (2D)
             scope: -p ponko
             args: --no-default-features --features window
+          - name: engine with every image format
+            scope: -p ponko
+            args: --no-default-features --features window,image-formats
           # On Linux this lints the feature's shared code and the path that
           # does nothing; the macOS adapter itself is linted in the feature
           # tests' macOS leg (a second macOS runner per pull request would
@@ -570,6 +573,18 @@ jobs:
       - name: Tests, engine with no default features
         if: ${{ !cancelled() }}
         run: cargo test -p ponko --tests --no-fail-fast --no-default-features
+      # JPEG off (the no-default-features run above) names the feature in its
+      # error; a 2D build with only JPEG loads one; every format loads its own.
+      - name: Tests, 2D engine with JPEG only
+        if: ${{ !cancelled() }}
+        run: |
+          cargo test -p ponko --no-fail-fast --no-default-features --features image-jpeg --test image_formats
+          cargo test -p ponko --no-fail-fast --no-default-features --features image-jpeg --lib assets::
+      - name: Tests, engine with every image format
+        if: ${{ !cancelled() }}
+        run: |
+          cargo test -p ponko --no-fail-fast --features image-formats --test image_formats
+          cargo test -p ponko --no-fail-fast --features image-formats --lib assets::
       # Systems called through subsecond's jump table (no dx attached) behave the same.
       - name: Tests, engine with hotpatch
         if: ${{ !cancelled() }}
@@ -839,6 +854,8 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: web
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --examples
+      # Image decoders work in the browser build too, with every format on.
+      - run: cargo check -p ponko --target wasm32-unknown-unknown --features image-formats
       # The 3D examples (the 3D browser smoke fixture among them) need the feature.
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features 3d --examples
       # The accessibility feature has no web adapter: it must build and do nothing.

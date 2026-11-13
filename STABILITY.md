@@ -42,6 +42,14 @@ descriptors and settings, ...): matches need a `_` arm and such structs are
 built through their constructors or `Default`, so new variants and fields
 can arrive in a patch release.
 
+The image-format features (`image-jpeg`, `image-webp`, `image-bmp`, `image-tga`,
+`image-gif`, `image-tiff`, `image-ico`, `image-qoi`, `image-pnm`, `image-dds`,
+`image-hdr`, `image-exr` and `image-formats` for all of them) are covered like
+every cargo feature: they stay, and keep the formats they name. `image-jpeg`
+is a default feature, and `3d` turns on `image-jpeg`, `image-hdr` and
+`image-exr`. PNG is always built in. A new format arrives as a new feature,
+never as a change to what the existing ones turn on.
+
 ## Releases
 
 | Release | When | Contains |
