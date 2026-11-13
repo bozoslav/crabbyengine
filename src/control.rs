@@ -2964,23 +2964,37 @@ mod tests {
         // Every slot taken by a client that never says anything, and one
         // that trickles bytes without a newline.
         let idle: Vec<TcpStream> = (0..MAX_CONNECTIONS - 1).map(|_| connect()).collect();
-        let mut trickle = connect();
+        let trickle = connect();
+        trickle.set_nonblocking(true).unwrap();
+        // The trickler stops writing once the reply is there, like a real
+        // client: writing to a connection the server has closed resets it,
+        // and on Windows the reset throws away the reply not read yet.
         let trickler = thread::spawn(move || {
-            for _ in 0..20 {
-                if trickle.write_all(b"{").is_err() {
-                    break;
+            let (mut reply, mut buf) = (Vec::new(), [0u8; 256]);
+            let mut stream = &trickle;
+            let give_up = std::time::Instant::now() + Duration::from_secs(10);
+            while !reply.contains(&b'\n') && std::time::Instant::now() < give_up {
+                if reply.is_empty() {
+                    match stream.write(b"{") {
+                        Err(e) if e.kind() != std::io::ErrorKind::WouldBlock => panic!("the trickle was cut off: {e}"),
+                        _ => {}
+                    }
                 }
                 thread::sleep(Duration::from_millis(50));
+                match stream.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => reply.extend_from_slice(&buf[..n]),
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) => panic!("the trickling client lost its reply: {e}"),
+                }
             }
-            trickle
+            (trickle, String::from_utf8(reply).unwrap())
         });
         // They are told why and closed, so a real client gets in.
         let mut reply = String::new();
         BufReader::new(&idle[0]).read_line(&mut reply).unwrap();
         assert!(reply.contains("no request with the right token"), "{reply}");
-        let trickle = trickler.join().unwrap();
-        let mut reply = String::new();
-        BufReader::new(&trickle).read_line(&mut reply).unwrap();
+        let (_trickle, reply) = trickler.join().unwrap();
         assert!(
             reply.contains("no request with the right token"),
             "a trickle doesn't keep it open: {reply}"
