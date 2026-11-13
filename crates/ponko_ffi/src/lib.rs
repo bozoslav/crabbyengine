@@ -65,6 +65,7 @@ mod scenario;
 mod scene;
 mod shader_status;
 mod skin;
+mod sprite_material;
 mod steam;
 mod steam_lobby;
 mod stream;
@@ -123,6 +124,7 @@ pub use scenario::*;
 pub use scene::*;
 pub use shader_status::*;
 pub use skin::*;
+pub use sprite_material::*;
 pub use steam::*;
 pub use steam_lobby::*;
 pub use stream::*;
@@ -583,6 +585,7 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
             .or_else(|| crate::physics3d::kind3d(t))
             .or_else(|| crate::physics3d_stream::stream_kind(t))
             .or_else(|| crate::contacts3d::contact_kind(t))
+            .or_else(|| crate::sprite_material::sprite_kind(t))
         {
             Some(kind) => kind,
             None => {

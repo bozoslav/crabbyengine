@@ -100,6 +100,52 @@ using attached = PonkoAttached;
 /// transform2d. Get and set it like any component; it can't be a query column (the engine stores it in a Rust
 /// layout).
 using sprite = PonkoSprite;
+// ---- Sprite blend modes and sprite materials (Rust `BlendMode`, `SpriteShader`, `SpriteMaterial`).
+/// How a sprite combines with what's behind it (Rust `BlendMode`). Also a component: an entity with a sprite
+/// and one blends that way. Each mode is its own batch.
+enum class sprite_blend : std::uint32_t {
+    /// Covers what's behind by the pixel's alpha (the default).
+    alpha = PONKO_BLEND_ALPHA,
+    /// Adds the color, weighted by alpha: glows, fire, sparks, light. Never darkens.
+    additive = PONKO_BLEND_ADDITIVE,
+    /// Multiplies what's behind by the color: shadows, tinted glass. White leaves it unchanged.
+    multiply = PONKO_BLEND_MULTIPLY,
+    /// Like alpha, for colors already multiplied by their alpha.
+    premultiplied = PONKO_BLEND_PREMULTIPLIED,
+};
+/// A sprite shader: WGSL with a `fn fragment(p: SpritePixel) -> vec4<f32>` hook (ctx::load_sprite_shader,
+/// ctx::create_sprite_shader). A handle; free it with ctx::free.
+using sprite_shader = PonkoSpriteShader;
+/// A look for sprites (Rust `SpriteMaterial`): a sprite shader, its params and extra textures, from
+/// ctx::create_sprite_material. Also a component: an entity with a sprite and one draws with it. A handle;
+/// free it with ctx::free.
+using sprite_material = PonkoSpriteMaterial;
+/// What a sprite material is made of (Rust `SpriteMaterialDesc`): the shader (if `has_shader`), 16 floats
+/// the shader reads as `material.params[0..4]`, and two extra textures. Start from sprite_material_of.
+using sprite_material_desc = PonkoSpriteMaterialDesc;
+/// A sprite material drawn with `shader`: params zero, no extra textures.
+inline sprite_material_desc sprite_material_of(sprite_shader shader) {
+    sprite_material_desc d = ponko_sprite_material_desc_default();
+    d.has_shader = true;
+    d.shader = shader;
+    return d;
+}
+/// Sets `material.params[index]` (0 to 3) of `d`; throws std::out_of_range for a bigger index.
+inline sprite_material_desc& set_param(sprite_material_desc& d, std::size_t index, float x, float y, float z, float w) {
+    if (index > 3) throw std::out_of_range("a sprite material has params 0 to 3");
+    float* p = d.params + index * 4;
+    p[0] = x; p[1] = y; p[2] = z; p[3] = w;
+    return d;
+}
+/// Sets extra texture `index` (0 or 1, `material_sample0`/`1` in the shader) of `d`; throws
+/// std::out_of_range for a bigger index.
+inline sprite_material_desc& set_texture(sprite_material_desc& d, std::size_t index, PonkoTexture t) {
+    if (index > 1) throw std::out_of_range("a sprite material has textures 0 and 1");
+    d.has_textures[index] = true;
+    d.textures[index] = t;
+    return d;
+}
+// ---- end of sprite blend modes and sprite materials
 /// The 2D camera (Rust `Camera`): which world point is at the window's top-left, and the zoom (window pixels
 /// per world unit).
 using camera = PonkoCamera;
@@ -261,7 +307,7 @@ using effect = PonkoEffect;
 using screen_effect = PonkoScreenEffect;
 /// The latest compile or hot reload of one of the game's shaders (Rust
 /// `ShaderStatus`; ctx::shader_status). `info.kind` is PONKO_SHADER_MATERIAL,
-/// _EFFECT or _COMPUTE; `info.outcome` PONKO_SHADER_COMPILED, _RELOADED,
+/// _EFFECT, _COMPUTE or _SPRITE; `info.outcome` PONKO_SHADER_COMPILED, _RELOADED,
 /// _FAILED or _RELOAD_FAILED; `info.line` and `info.column` place the first
 /// error in the game's own WGSL (0: no place).
 struct shader_status {
@@ -1015,6 +1061,8 @@ template<> struct handle_kind<PonkoEffect> { static constexpr std::uint32_t valu
 template<> struct handle_kind<PonkoGpuBuffer> { static constexpr std::uint32_t value = PONKO_HANDLE_GPU_BUFFER; };
 template<> struct handle_kind<PonkoInstanceBatch> { static constexpr std::uint32_t value = PONKO_HANDLE_INSTANCE_BATCH; };
 template<> struct handle_kind<PonkoTextureArray> { static constexpr std::uint32_t value = PONKO_HANDLE_TEXTURE_ARRAY; };
+template<> struct handle_kind<PonkoSpriteShader> { static constexpr std::uint32_t value = PONKO_HANDLE_SPRITE_SHADER; };
+template<> struct handle_kind<PonkoSpriteMaterial> { static constexpr std::uint32_t value = PONKO_HANDLE_SPRITE_MATERIAL; };
 template<class T> constexpr bool pod = std::is_trivially_copyable<T>::value &&
     std::is_trivially_destructible<T>::value && std::is_standard_layout<T>::value;
 template<class T> using bare = typename std::remove_cv<typename std::remove_reference<T>::type>::type;
@@ -1430,6 +1478,8 @@ protected:
         PonkoStatus status;
         if constexpr (std::is_same<T, transform2d>::value) status = ponko_transform_component(world, &id);
         else if constexpr (std::is_same<T, sprite>::value) status = ponko_sprite_component(world, &id);
+        else if constexpr (std::is_same<T, sprite_blend>::value) status = ponko_blend_mode_component(world, &id);
+        else if constexpr (std::is_same<T, sprite_material>::value) status = ponko_sprite_material_component(world, &id);
         else if constexpr (std::is_same<T, attached>::value) status = ponko_attached_component(world, &id);
         else if constexpr (std::is_same<T, animation>::value) status = ponko_animation_component(world, &id);
         else if constexpr (std::is_same<T, rigid_body>::value) status = ponko_rigid_body_component(world, &id);
@@ -4482,6 +4532,46 @@ public:
     void draw(texture t, vec2 pos) { detail::check(ponko_ctx_draw(raw_, t, pos)); }
     /// Draws texture `t` at `pos` with options (start from draw_defaults()).
     void draw(texture t, vec2 pos, const draw_params& params) { detail::check(ponko_ctx_draw_ex(raw_, t, pos, &params)); }
+    // Sprite blend modes and sprite materials.
+    /// Draws texture `t` at `pos` with options, blended by `blend` and drawn with `material` (an id of
+    /// PONKO_HANDLE_NONE: the built-in look).
+    void draw(texture t, vec2 pos, const draw_params& params, sprite_blend blend,
+              sprite_material material = sprite_material{PONKO_HANDLE_NONE}) {
+        detail::check(ponko_ctx_draw_styled(raw_, t, pos, &params, static_cast<std::uint32_t>(blend), material));
+    }
+    /// Loads a sprite shader (WGSL) from assets/; with hot reload on, saving the file updates the game and an
+    /// edit that doesn't compile keeps the last good one. Throws ponko::error if it can't be read or doesn't
+    /// compile (the message says where; shader_status() lists it).
+    ponko::sprite_shader load_sprite_shader(const char* path) {
+        ponko::sprite_shader x{}; detail::check(ponko_ctx_load_sprite_shader(raw_, path, &x)); return x;
+    }
+    /// load_sprite_shader that returns the error instead of throwing.
+    result<ponko::sprite_shader> try_load_sprite_shader(const char* path) {
+        ponko::sprite_shader x{}; const PonkoStatus status = ponko_ctx_load_sprite_shader(raw_, path, &x); return detail::attempt(status, x);
+    }
+    /// Makes a sprite shader from WGSL source; `name` is for error messages.
+    ponko::sprite_shader create_sprite_shader(const char* name, const char* source) {
+        ponko::sprite_shader x{}; detail::check(ponko_ctx_create_sprite_shader(raw_, name, source, &x)); return x;
+    }
+    /// create_sprite_shader that returns the error instead of throwing.
+    result<ponko::sprite_shader> try_create_sprite_shader(const char* name, const char* source) {
+        ponko::sprite_shader x{}; const PonkoStatus status = ponko_ctx_create_sprite_shader(raw_, name, source, &x); return detail::attempt(status, x);
+    }
+    /// Makes a sprite material. Throws ponko::error for a shader this game didn't make.
+    ponko::sprite_material create_sprite_material(const sprite_material_desc& d) {
+        ponko::sprite_material m{}; detail::check(ponko_ctx_create_sprite_material(raw_, &d, &m)); return m;
+    }
+    /// Changes what a sprite material is made of; cheap enough every frame. Nothing for a freed one.
+    void update_sprite_material(ponko::sprite_material m, const sprite_material_desc& d) {
+        detail::check(ponko_ctx_update_sprite_material(raw_, m, &d));
+    }
+    /// What a sprite material is made of now; nothing once it's freed.
+    std::optional<sprite_material_desc> sprite_material_desc_of(ponko::sprite_material m) {
+        sprite_material_desc d{}; bool found = false;
+        detail::check(ponko_ctx_sprite_material_desc(raw_, m, &d, &found));
+        if (!found) return std::nullopt;
+        return d;
+    }
     /// Draws UTF-8 text with its top-left at `pos` in window pixels, `size` pixels tall, in the built-in
     /// font.
     void draw_text(const char* text, vec2 pos, float size, color c) { detail::check(ponko_ctx_draw_text(raw_, text, pos, size, c)); }
