@@ -198,7 +198,9 @@ published crate, one item per line, made with
 committed files, so a pull request that adds, renames, widens or removes a
 public item shows it as a diff, and the reviewer decides whether the surface
 is meant. 1.0 needs a deliberate surface; this is how it stays one. It is a
-quick check (no tests): about 1.5 minutes on a warm cache.
+quick check (no tests): measured on a busy laptop, a cold build of all
+feature sets took 3.6 minutes and a rerun 20 seconds; CI restores the
+dependency cache of `main`, so it lands in between.
 
 **After changing public API, run one command and commit the result:**
 
