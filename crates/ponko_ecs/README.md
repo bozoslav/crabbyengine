@@ -11,7 +11,8 @@ its own when you want only the ECS.
 
 - API reference: <https://docs.rs/ponko_ecs/>
 - Guide: <https://ponko.dev/guide/>
-- Features: `parallel` (default, rayon), `serde` (`Entity` as serde data).
+- Features: `parallel` (default, rayon), `derive` (default, `#[derive(Component)]`
+  from `ponko_macros`), `serde` (`Entity` as serde data).
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
 [MIT license](LICENSE-MIT) at your option.
