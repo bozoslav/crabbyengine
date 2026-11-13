@@ -1329,7 +1329,11 @@ mod tests {
         assert_eq!(input.pressed_this_frame_with_threshold(0.5).count(), 0);
         input.set_gamepad_axis(pad, GamepadAxis::RightTrigger, 1.0);
         input.disconnect_gamepad(pad);
-        assert_eq!(input.pressed_this_frame().count(), 0, "an unplugged stick is not a press");
+        assert_eq!(
+            input.pressed_this_frame().count(),
+            0,
+            "an unplugged stick is not a press"
+        );
     }
 
     #[test]

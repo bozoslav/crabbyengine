@@ -168,7 +168,11 @@ fn a_rebinding_prompt_binds_the_next_press_and_the_new_binding_works() {
         })
     );
     let jumped: Vec<u64> = jumps.iter().filter(|(_, j)| *j).map(|(t, _)| *t).collect();
-    assert_eq!(jumped, [1, 7], "Space on tick 1 and the new button on tick 7, not Space on tick 8");
+    assert_eq!(
+        jumped,
+        [1, 7],
+        "Space on tick 1 and the new button on tick 7, not Space on tick 8"
+    );
 }
 
 #[test]

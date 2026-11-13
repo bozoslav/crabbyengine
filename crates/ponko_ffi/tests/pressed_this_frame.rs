@@ -38,7 +38,13 @@ fn kinds(list: &[PonkoActionBinding]) -> Vec<(u32, u32, u32)> {
 #[test]
 fn every_device_is_described_as_an_action_binding() {
     run_ctx(|ctx| unsafe {
-        feed(ctx, 3, 1, PonkoGamepadAxis::PONKO_GAMEPAD_RIGHT_TRIGGER_AXIS as u32, 0.9);
+        feed(
+            ctx,
+            3,
+            1,
+            PonkoGamepadAxis::PONKO_GAMEPAD_RIGHT_TRIGGER_AXIS as u32,
+            0.9,
+        );
         feed(ctx, 2, 1, PonkoGamepadButton::PONKO_GAMEPAD_WEST as u32, 1.0);
         feed(ctx, 1, 0, PonkoMouseButton::PONKO_MOUSE_RIGHT as u32, 1.0);
         feed(ctx, 0, 0, PonkoKey::PONKO_KEY_J as u32, 1.0);
@@ -46,7 +52,11 @@ fn every_device_is_described_as_an_action_binding() {
         assert_eq!(
             kinds(&list),
             [
-                (PonkoActionSource::PONKO_ACTION_KEY as u32, 0, PonkoKey::PONKO_KEY_J as u32),
+                (
+                    PonkoActionSource::PONKO_ACTION_KEY as u32,
+                    0,
+                    PonkoKey::PONKO_KEY_J as u32
+                ),
                 (
                     PonkoActionSource::PONKO_ACTION_MOUSE as u32,
                     0,
@@ -131,12 +141,21 @@ fn a_short_buffer_keeps_the_first_and_reports_the_full_count() {
             fourth: 0,
             deadzone: 0.0,
         }; 3];
-        assert_eq!(ponko_ctx_pressed_this_frame(ctx, 0.0, two.as_mut_ptr(), 2, &mut count), PONKO_OK);
+        assert_eq!(
+            ponko_ctx_pressed_this_frame(ctx, 0.0, two.as_mut_ptr(), 2, &mut count),
+            PONKO_OK
+        );
         assert_eq!(count, 3);
-        assert_eq!((two[0].first, two[1].first), (PonkoKey::PONKO_KEY_A as u32, PonkoKey::PONKO_KEY_B as u32));
+        assert_eq!(
+            (two[0].first, two[1].first),
+            (PonkoKey::PONKO_KEY_A as u32, PonkoKey::PONKO_KEY_B as u32)
+        );
         assert_eq!(two[2].kind, 99, "nothing written past the capacity");
         // Counting only.
-        assert_eq!(ponko_ctx_pressed_this_frame(ctx, 0.0, null_mut(), 0, &mut count), PONKO_OK);
+        assert_eq!(
+            ponko_ctx_pressed_this_frame(ctx, 0.0, null_mut(), 0, &mut count),
+            PONKO_OK
+        );
         assert_eq!(count, 3);
     });
 }
@@ -154,10 +173,25 @@ fn bad_arguments_are_errors() {
             fourth: 0,
             deadzone: 0.0,
         }];
-        assert_eq!(ponko_ctx_pressed_this_frame(null_mut(), 0.0, one.as_mut_ptr(), 1, &mut count), PONKO_INVALID_ARGUMENT);
-        assert_eq!(ponko_ctx_pressed_this_frame(ctx, 0.0, one.as_mut_ptr(), 1, null_mut()), PONKO_INVALID_ARGUMENT);
-        assert_eq!(ponko_ctx_pressed_this_frame(ctx, 0.0, null_mut(), 1, &mut count), PONKO_INVALID_ARGUMENT);
-        assert_eq!(ponko_ctx_pressed_this_frame(ctx, -1.0, one.as_mut_ptr(), 1, &mut count), PONKO_INVALID_ARGUMENT);
-        assert_eq!(ponko_ctx_pressed_this_frame(ctx, f32::NAN, one.as_mut_ptr(), 1, &mut count), PONKO_INVALID_ARGUMENT);
+        assert_eq!(
+            ponko_ctx_pressed_this_frame(null_mut(), 0.0, one.as_mut_ptr(), 1, &mut count),
+            PONKO_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            ponko_ctx_pressed_this_frame(ctx, 0.0, one.as_mut_ptr(), 1, null_mut()),
+            PONKO_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            ponko_ctx_pressed_this_frame(ctx, 0.0, null_mut(), 1, &mut count),
+            PONKO_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            ponko_ctx_pressed_this_frame(ctx, -1.0, one.as_mut_ptr(), 1, &mut count),
+            PONKO_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            ponko_ctx_pressed_this_frame(ctx, f32::NAN, one.as_mut_ptr(), 1, &mut count),
+            PONKO_INVALID_ARGUMENT
+        );
     });
 }
