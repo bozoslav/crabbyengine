@@ -19,13 +19,6 @@
 
 #![warn(missing_docs)]
 
-/// cbindgen:ignore
-#[cfg(feature = "legacy-names")]
-mod legacy;
-#[cfg(feature = "legacy-names")]
-#[allow(deprecated)]
-pub use legacy::*;
-
 mod access;
 mod actions;
 mod animator;
@@ -735,13 +728,21 @@ pub extern "C" fn ponko_error_kind_name(kind: u32) -> *const c_char {
         .map_or(c"other".as_ptr(), |(_, name)| name.as_ptr())
 }
 
-/// ABI version, currently 2.
+/// The C ABI version this crate implements: `PONKO_ABI_VERSION` in `ponko.h`.
+/// The header a program compiles against and the library it loads must report
+/// the same number; `ponko.hpp` checks it once, when the first `ponko::game`
+/// is made. It stays 2 until an incompatible change to a released ABI.
+pub const PONKO_ABI_VERSION: u32 = 2;
+
+/// ABI version of the loaded library, the same number as `PONKO_ABI_VERSION`
+/// in the header the program was compiled against, currently 2.
 /// ```
+/// assert_eq!(ponko_ffi::ponko_abi_version(), ponko_ffi::PONKO_ABI_VERSION);
 /// assert_eq!(ponko_ffi::ponko_abi_version(), 2);
 /// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn ponko_abi_version() -> u32 {
-    2
+    PONKO_ABI_VERSION
 }
 
 /// Registers a POD component. Repeating a name and layout returns the same id.
@@ -792,7 +793,7 @@ pub unsafe extern "C" fn ponko_component_register(
                     }
                 }
                 // Caller promises POD values. Layout and collision are checked above.
-                let id = w.register_component(name, size, alignment, None);
+                let id = w.raw().register_component(name, size, alignment, None);
                 *out_id = id.index() as u32;
                 Ok(())
             })

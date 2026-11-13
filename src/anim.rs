@@ -2,8 +2,8 @@
 pub use crate::sheet::{Animation, SpriteSheet, animate_sprites};
 #[cfg(feature = "3d")]
 pub use crate::three::{
-    AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer, AnimationParameter,
-    AnimationState, AnimationTrack, AnimationTransition, Animator, AttachToJoint, Blend, Interpolation, Joint,
-    JointAnimation, JointMask, LayerBlend, MorphAnimation, MorphFrame, MorphTarget, MorphWeights, Motion, MotionChild,
-    RootMotion, Skeleton, SkinOf, look_at_joint, two_bone_ik,
+    AnimationClip, AnimationCondition, AnimationEvent, AnimationGraph, AnimationGraphError, AnimationLayer,
+    AnimationParameter, AnimationState, AnimationTrack, AnimationTransition, Animator, AttachToJoint, Interpolation,
+    Joint, JointAnimation, JointMask, LayerBlend, LayerId, MorphAnimation, MorphFrame, MorphTarget, MorphWeights,
+    Motion, MotionChild, ParamId, RootMotion, Skeleton, SkinOf, StateId, look_at_joint, two_bone_ik,
 };

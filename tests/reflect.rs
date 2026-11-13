@@ -536,7 +536,7 @@ fn c_world() -> (World, ponko::ecs_core::ComponentId) {
     let mut world = World::new();
     // SAFETY: CUnit is plain bytes; bool is only written as 0/1 by reflection.
     let id = unsafe {
-        world.register_component(
+        world.raw().register_component(
             "CUnit",
             std::mem::size_of::<CUnit>(),
             std::mem::align_of::<CUnit>(),
@@ -778,7 +778,7 @@ fn describing_again_replaces_the_fields() {
 fn fields_must_fit_in_the_component() {
     let mut world = World::new();
     // SAFETY: plain bytes.
-    let id = unsafe { world.register_component("Small", 4, 4, None) };
+    let id = unsafe { world.raw().register_component("Small", 4, 4, None) };
     // SAFETY: never reached: the call panics.
     unsafe {
         world.reflect_fields(
@@ -793,7 +793,7 @@ fn fields_must_fit_in_the_component() {
 fn field_names_must_be_unique() {
     let mut world = World::new();
     // SAFETY: plain bytes.
-    let id = unsafe { world.register_component("Twice", 8, 4, None) };
+    let id = unsafe { world.raw().register_component("Twice", 8, 4, None) };
     // SAFETY: never reached: the call panics.
     unsafe {
         world.reflect_fields(

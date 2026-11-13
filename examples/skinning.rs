@@ -76,7 +76,7 @@ fn sway(ctx: &mut Ctx) {
         bend.0.sample_blended(time.rem_euclid(bend.0.duration()), 0.5, s);
     });
     ctx.world.query::<&mut Animator>().for_each(|a| {
-        a.set_bool(0, ((time / 3.0) as u32).is_multiple_of(2));
+        a.set_bool(ParamId(0), ((time / 3.0) as u32).is_multiple_of(2));
     });
     if ctx.key_pressed(Key::Escape) {
         ctx.quit();
@@ -153,20 +153,21 @@ fn bend_animator(skeleton: &Skeleton) -> Animator {
         AnimationState::new(Motion::Clip(idle)),
         AnimationState::new(Motion::Clip(bend)),
     ];
-    let transition = |from, to, active| AnimationTransition {
-        from: Some(from),
-        to,
-        conditions: vec![AnimationCondition::Bool(0, active)],
-        exit_time: None,
-        duration: 0.12,
-        offset: 0.0,
+    let transition = |from, to, active| {
+        AnimationTransition::new(from, to)
+            .with_condition(AnimationCondition::Bool(ParamId(0), active))
+            .with_duration(0.12)
     };
     let graph = AnimationGraph::new(
         vec![AnimationParameter::Bool(false)],
         states,
-        vec![transition(0, 1, true), transition(1, 0, false)],
-        0,
-    );
+        vec![
+            transition(StateId(0), StateId(1), true),
+            transition(StateId(1), StateId(0), false),
+        ],
+        StateId(0),
+    )
+    .expect("a valid graph");
     Animator::new(graph)
 }
 // ANCHOR_END: animator_graph
@@ -177,10 +178,10 @@ fn animate_now() {
     let mut skeleton = chain();
     let mut animator = bend_animator(&skeleton);
     animator.manual = true;
-    animator.set_bool(0, true);
+    animator.set_bool(ParamId(0), true);
     animator.update(0.016, &mut skeleton);
     // Or spawn (Animator, Skeleton) together for automatic updates.
-    animator.crossfade(0, 0.12, 0.0);
+    animator.crossfade(StateId(0), 0.12, 0.0);
     animator.update(0.016, &mut skeleton);
     for name in animator.drain_events() {
         println!("Animation event: {name}");
@@ -192,7 +193,13 @@ fn animate_now() {
 fn layers_and_root_motion(skeleton: &Skeleton, wave: ponko::anim::AnimationClip) -> Animator {
     // ANCHOR: animator_layers
     let mut animator = bend_animator(skeleton);
-    let waving = AnimationGraph::new(vec![], vec![AnimationState::new(Motion::Clip(wave))], vec![], 0);
+    let waving = AnimationGraph::new(
+        vec![],
+        vec![AnimationState::new(Motion::Clip(wave))],
+        vec![],
+        StateId(0),
+    )
+    .expect("a valid graph");
     let mut layer = AnimationLayer::new(waving);
     layer.mask = ponko::anim::JointMask::descendants(skeleton, "joint_3"); // that joint and its children
     layer.weight = 0.8;
@@ -209,9 +216,8 @@ fn main() {
     Game::new("Ponko: skinned meshes", 1000, 700)
         .system(sway)
         .setup(|ctx| {
-            ctx.gfx.clear(Color::hex(0xABCBDD));
-            ctx.camera3d.position = vec3(6.0, 4.0, 9.0);
-            ctx.camera3d.look_at(vec3(0.0, 1.7, 0.0));
+            ctx.scene3d.camera.position = vec3(6.0, 4.0, 9.0);
+            ctx.scene3d.camera.look_at(vec3(0.0, 1.7, 0.0));
             let green = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x398F79)));
             let gold = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0xF2BD50)));
             let white = ctx.gfx.default_material();
@@ -257,18 +263,18 @@ fn main() {
 }
 
 // ANCHOR: skin_ik
-// Register this with Game::new(...).late_system(procedural_pose).
+// Register this with Game::new(...).add(Phase::Late, procedural_pose).
 #[allow(dead_code)]
 fn procedural_pose(ctx: &mut Ctx) {
     let target = vec3(0.7, 0.6, 0.2);
     ctx.world
         .query::<(&Transform, &mut Skeleton)>()
         .for_each(|(world, skeleton)| {
-            ponko::render::two_bone_ik(skeleton, world, [0, 1, 2], target, Vec3::Z, 1.0);
+            ponko::anim::two_bone_ik(skeleton, world, [0, 1, 2], target, Vec3::Z, 1.0);
             // Apply parent first when distributing aim across spine/neck/head.
-            ponko::render::look_at_joint(skeleton, world, 5, Vec3::Y, target, 0.3, 0.2);
-            ponko::render::look_at_joint(skeleton, world, 6, Vec3::Y, target, 0.5, 0.5);
-            ponko::render::look_at_joint(skeleton, world, 7, Vec3::Y, target, 0.8, 1.0);
+            ponko::anim::look_at_joint(skeleton, world, 5, Vec3::Y, target, 0.3, 0.2);
+            ponko::anim::look_at_joint(skeleton, world, 6, Vec3::Y, target, 0.5, 0.5);
+            ponko::anim::look_at_joint(skeleton, world, 7, Vec3::Y, target, 0.8, 1.0);
         });
 }
 

@@ -6,9 +6,9 @@
 - `PONKO_GPU_TIER=webgl2|baseline` opens the GPU with that tier's limits and
   without timestamp queries, to try a game on a weaker GPU; the offscreen
   render tests take it too, and CI runs them once per forced tier.
-- `GraphicsQuality::for_tier`, `GraphicsQuality::recommended` and
-  `GraphicsQuality::fitted_to`: quality presets that ask for nothing the GPU
-  lacks.
+- `SceneSettings::set_recommended_quality` and
+  `SceneSettings::fit_quality_to`: quality presets that ask for nothing the
+  GPU lacks.
 - C/C++: `ponko_ctx_gpu_capabilities` (the report as JSON),
   `ponko_ctx_gpu_tier`, `ponko_ctx_gpu_feature`,
   `ponko_ctx_recommended_graphics_quality`, `ponko_gpu_tier_report`,

@@ -106,10 +106,10 @@ impl BatchRig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&gpu.device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(setup.size.0 as f32, setup.size.1 as f32));
-        ctx.sky.atmosphere = false;
-        ctx.lighting.shadows = false;
+        ctx.scene3d.sky.atmosphere = false;
+        ctx.scene3d.lighting.shadows = false;
         // What every tier's textures hold (a game's renderer caps it too).
-        ctx.lighting.light_shadow_atlas = 2048;
+        ctx.scene3d.lighting.light_shadow_atlas = 2048;
         let timer = GpuTimer::new(&gpu.device, &gpu.queue);
         Some(Self {
             gpu,
@@ -169,8 +169,8 @@ impl BatchRig {
         self.renderer.set_instance_batch(
             &self.gpu.device,
             &self.gpu.queue,
-            batch.id(),
-            self.ctx.gfx.assets3d.instance_batches[batch.id() as usize].as_ref(),
+            batch.id,
+            self.ctx.gfx.assets3d.instance_batches[batch.id as usize].as_ref(),
         );
         batch
     }
@@ -243,7 +243,11 @@ impl BatchRig {
         self.ctx.set_headless(true);
         let handle = self.ctx.gfx.create_render_target(self.size.0, self.size.1);
         self.renderer.add_render_target(handle.id, &texture);
-        self.ctx.target_cameras.push(TargetCamera::new(camera, handle));
+        self.ctx
+            .scene3d
+            .passes
+            .target_cameras
+            .push(TargetCamera::new(camera, handle));
         texture
     }
 
@@ -251,22 +255,22 @@ impl BatchRig {
     pub fn free(&mut self, batch: InstanceBatch) {
         self.ctx.gfx.free(batch);
         self.renderer
-            .set_instance_batch(&self.gpu.device, &self.gpu.queue, batch.id(), None);
+            .set_instance_batch(&self.gpu.device, &self.gpu.queue, batch.id, None);
     }
 
     /// Collects and prepares the frame (everything before recording).
     fn prepare(&mut self) -> Frame3D {
         let ctx = &mut self.ctx;
         let mut frame = std::mem::take(&mut self.frame);
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.occlusion = self.grid.take();
-        frame.motion.enabled = ctx.post.anti_aliasing == AntiAliasing::Taa;
+        frame.motion.enabled = ctx.scene3d.post.anti_aliasing == AntiAliasing::Taa;
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         ctx.gfx.frame3d.views = std::mem::take(&mut frame.views);
         ctx.collect_views(&SkinFrame::default());
@@ -275,17 +279,17 @@ impl BatchRig {
         self.frames += 1;
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (time, 1.0 / 60.0),
-            occlusion: ctx.camera3d.occlusion_culling,
+            occlusion: ctx.scene3d.camera.occlusion_culling,
         };
         let (renderer, gpu, size) = (&mut self.renderer, &self.gpu, self.size);
         self.prepared_allocations = crate::three::lights::tests::count_marked_allocations(|| {
@@ -350,7 +354,10 @@ impl BatchRig {
     /// how often that allocated.
     pub fn batch_preparation_allocations(&mut self) -> usize {
         self.frame.occlusion = self.grid.take();
-        let (camera, occlusion) = (self.ctx.camera3d.position, self.ctx.camera3d.occlusion_culling);
+        let (camera, occlusion) = (
+            self.ctx.scene3d.camera.position,
+            self.ctx.scene3d.camera.occlusion_culling,
+        );
         let (renderer, gpu, frame) = (&mut self.renderer, &self.gpu, &self.frame);
         let count = crate::three::lights::tests::count_allocations(|| {
             renderer.prepare_batches(&gpu.device, &gpu.queue, frame, camera, occlusion)
@@ -468,7 +475,7 @@ fn field(rig: &mut BatchRig) -> Field {
     let mut at = Transform3D::at((WALL.0 + WALL.1) * 0.5);
     at.scale = WALL.1 - WALL.0;
     rig.ctx.world.spawn((at, Model::new(wall)));
-    rig.ctx.camera3d.far = 200.0;
+    rig.ctx.scene3d.camera.far = 200.0;
     Field { cubes, levels, halves }
 }
 
@@ -476,8 +483,8 @@ fn field(rig: &mut BatchRig) -> Field {
 /// and ahead and turns, so every frame sees other instances than the last.
 fn fly(rig: &mut BatchRig, k: usize) {
     let k = k as f32;
-    rig.ctx.camera3d.position = vec3(-5.0 + k * 0.9, 2.5 + 0.1 * k, 7.0 - k * 0.6);
-    rig.ctx.camera3d.look_at(vec3(-3.0 + k * 0.5, 1.0, -20.0));
+    rig.ctx.scene3d.camera.position = vec3(-5.0 + k * 0.9, 2.5 + 0.1 * k, 7.0 - k * 0.6);
+    rig.ctx.scene3d.camera.look_at(vec3(-3.0 + k * 0.5, 1.0, -20.0));
 }
 
 /// The depth grid a readback of the frame drawn from `view_proj` would
@@ -566,10 +573,10 @@ fn both_paths_draw_the_same_frames_as_the_camera_moves() {
         return;
     };
     for id in [field.cubes, field.levels, field.halves] {
-        assert_eq!(gpu.renderer.batch_route(id.id()), Some(Route::Gpu));
+        assert_eq!(gpu.renderer.batch_route(id.id), Some(Route::Gpu));
     }
     for id in [cpu_field.cubes, cpu_field.levels, cpu_field.halves] {
-        assert_eq!(cpu.renderer.batch_route(id.id()), Some(Route::CpuSmall));
+        assert_eq!(cpu.renderer.batch_route(id.id), Some(Route::CpuSmall));
     }
     let mut frames = Vec::new();
     for k in 0..14 {
@@ -609,12 +616,15 @@ fn late_occlusion_culling_pops_nothing_on_either_path() {
         let Some((mut rig, _)) = field_rig(RigSetup::default(), path) else {
             continue;
         };
-        rig.ctx.camera3d.occlusion_culling = true;
+        rig.ctx.scene3d.camera.occlusion_culling = true;
         let mut hidden = 0;
         for k in 0..14 {
             if k > 0 {
                 fly(&mut rig, k - 1);
-                rig.grid = Some(wall_grid(rig.ctx.camera3d.view_proj(), rig.ctx.camera3d.position));
+                rig.grid = Some(wall_grid(
+                    rig.ctx.scene3d.camera.view_proj(),
+                    rig.ctx.scene3d.camera.position,
+                ));
             }
             fly(&mut rig, k);
             fly(&mut reference, k);
@@ -671,8 +681,8 @@ fn both_paths_cast_the_same_sun_shadows_as_the_camera_moves() {
             })
             .collect();
         rig.batch(slab, &slabs, Default::default());
-        rig.ctx.lighting.shadows = true;
-        rig.ctx.lighting.shadow_distance = 60.0;
+        rig.ctx.scene3d.lighting.shadows = true;
+        rig.ctx.scene3d.lighting.shadow_distance = 60.0;
         Some(rig)
     });
     let [Some(mut gpu), Some(mut cpu)] = rigs else { return };
@@ -685,14 +695,14 @@ fn both_paths_cast_the_same_sun_shadows_as_the_camera_moves() {
     // From above the shadows are in plain sight: the two paths agree, and
     // the same frame without shadows is brighter where they fall.
     for rig in [&mut gpu, &mut cpu] {
-        rig.ctx.camera3d.position = vec3(0.0, 45.0, -19.0);
-        rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -20.0));
+        rig.ctx.scene3d.camera.position = vec3(0.0, 45.0, -19.0);
+        rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -20.0));
     }
     let (a, b) = (gpu.image(), cpu.image());
     assert_same("shadows from above", &a, &b, SAME_DEVICE, 0.3);
-    gpu.ctx.lighting.shadows = false;
+    gpu.ctx.scene3d.lighting.shadows = false;
     let unshadowed = gpu.image();
-    gpu.ctx.lighting.shadows = true;
+    gpu.ctx.scene3d.lighting.shadows = true;
     let pixels = a.rgba.as_chunks::<4>().0.iter().zip(unshadowed.rgba.as_chunks::<4>().0);
     let darker = pixels
         .filter(|(lit, plain)| plain[0] > lit[0].saturating_add(24))
@@ -759,7 +769,7 @@ fn both_paths_draw_the_same_into_a_target_camera() {
     let Some([mut gpu, mut cpu]) = both_paths(RigSetup::default(), |rig| {
         field(rig);
         // A second camera looks across the field from the side.
-        let mut camera = rig.ctx.camera3d;
+        let mut camera = rig.ctx.scene3d.camera;
         camera.position = vec3(-30.0, 9.0, -18.0);
         camera.look_at(vec3(0.0, 0.0, -20.0));
         camera.far = 200.0;
@@ -772,7 +782,7 @@ fn both_paths_draw_the_same_into_a_target_camera() {
         fly(&mut cpu, k);
         // The target camera moves too.
         for rig in [&mut gpu, &mut cpu] {
-            let camera = &mut rig.ctx.target_cameras[0].camera;
+            let camera = &mut rig.ctx.scene3d.passes.target_cameras[0].camera;
             camera.position = vec3(-30.0 + k as f32 * 1.5, 9.0, -18.0 - k as f32);
             camera.look_at(vec3(0.0, 0.0, -20.0));
         }
@@ -824,9 +834,9 @@ fn both_paths_cast_the_same_local_light_shadows() {
             })
             .collect();
         rig.batch(slab, &slabs, Default::default());
-        rig.ctx.lighting.sun_intensity = 0.2;
-        rig.ctx.lighting.shadows = true;
-        rig.ctx.lighting.light_shadow_views = 12;
+        rig.ctx.scene3d.lighting.sun_intensity = 0.2;
+        rig.ctx.scene3d.lighting.shadows = true;
+        rig.ctx.scene3d.lighting.light_shadow_views = 12;
         lamps.push(shadowed_lamp(rig, vec3(-4.0, 7.0, 2.0), 30.0));
         lamps.push(rig.ctx.world.spawn((
             Transform3D::at(vec3(6.0, 9.0, 0.0)).looking_at(vec3(5.0, 0.0, -2.0)),
@@ -844,8 +854,8 @@ fn both_paths_cast_the_same_local_light_shadows() {
     };
     for k in 0..8 {
         for rig in [&mut gpu, &mut cpu] {
-            rig.ctx.camera3d.position = vec3(-8.0 + 2.0 * k as f32, 14.0 + k as f32, 16.0 - k as f32);
-            rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -2.0));
+            rig.ctx.scene3d.camera.position = vec3(-8.0 + 2.0 * k as f32, 14.0 + k as f32, 16.0 - k as f32);
+            rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -2.0));
         }
         let (a, b) = (gpu.image(), cpu.image());
         assert_same(&format!("local light shadows, frame {k}"), &a, &b, SAME_DEVICE, 0.2);
@@ -924,16 +934,16 @@ fn both_paths_draw_the_same_transparent_cutout_and_coloured_batches() {
             .map(|i| [Color::RED, Color::BLUE, Color::YELLOW, Color::rgb(1.0, 0.0, 1.0)][i % 4])
             .collect();
         rig.batch_levels(&levels, &transforms, &colors, Default::default());
-        rig.ctx.lighting.shadows = true;
-        rig.ctx.lighting.shadow_distance = 80.0;
-        rig.ctx.camera3d.far = 200.0;
+        rig.ctx.scene3d.lighting.shadows = true;
+        rig.ctx.scene3d.lighting.shadow_distance = 80.0;
+        rig.ctx.scene3d.camera.far = 200.0;
     }) else {
         return;
     };
     for k in 0..8 {
         for rig in [&mut gpu, &mut cpu] {
-            rig.ctx.camera3d.position = vec3(-10.0 + 3.0 * k as f32, 5.0 + 0.5 * k as f32, 8.0 - 0.5 * k as f32);
-            rig.ctx.camera3d.look_at(vec3(-4.0 + k as f32, 1.0, -12.0));
+            rig.ctx.scene3d.camera.position = vec3(-10.0 + 3.0 * k as f32, 5.0 + 0.5 * k as f32, 8.0 - 0.5 * k as f32);
+            rig.ctx.scene3d.camera.look_at(vec3(-4.0 + k as f32, 1.0, -12.0));
         }
         let (a, b) = (gpu.image(), cpu.image());
         assert_same(&format!("blend modes and colours, frame {k}"), &a, &b, SAME_DEVICE, 0.2);
@@ -969,20 +979,26 @@ fn a_camera_cut_with_occlusion_culling_pops_nothing_on_either_path() {
         let Some((mut rig, _)) = field_rig(RigSetup::default(), path) else {
             continue;
         };
-        rig.ctx.camera3d.occlusion_culling = true;
+        rig.ctx.scene3d.camera.occlusion_culling = true;
         for (k, (position, target)) in cuts.into_iter().enumerate() {
             // A few frames in front of the wall, each with the grid of
             // the frame before.
             for step in 0..3 {
-                rig.grid = Some(wall_grid(rig.ctx.camera3d.view_proj(), rig.ctx.camera3d.position));
+                rig.grid = Some(wall_grid(
+                    rig.ctx.scene3d.camera.view_proj(),
+                    rig.ctx.scene3d.camera.position,
+                ));
                 fly(&mut rig, 3 + step);
                 rig.frame();
             }
             // The cut: the grid is the last one from before it.
-            rig.grid = Some(wall_grid(rig.ctx.camera3d.view_proj(), rig.ctx.camera3d.position));
+            rig.grid = Some(wall_grid(
+                rig.ctx.scene3d.camera.view_proj(),
+                rig.ctx.scene3d.camera.position,
+            ));
             for r in [&mut rig, &mut reference] {
-                r.ctx.camera3d.position = position;
-                r.ctx.camera3d.look_at(target);
+                r.ctx.scene3d.camera.position = position;
+                r.ctx.scene3d.camera.look_at(target);
             }
             let (culled, all) = (rig.image(), reference.image());
             assert_same(&format!("{path:?} cut {k}"), &culled, &all, SAME_DEVICE, 0.05);
@@ -1011,9 +1027,9 @@ fn a_view_at_rest_keeps_its_cpu_lists_and_a_move_or_an_update_builds_them_again(
         rig.renderer.batching.path = BatchPath::Cpu;
         let cube = rig.mesh(&MeshData::cube(0.4), glow(Color::RED));
         let batch = rig.batch(cube, &transforms(shift), options);
-        rig.ctx.camera3d.occlusion_culling = false;
-        rig.ctx.camera3d.position = vec3(x, 6.0, 8.0);
-        rig.ctx.camera3d.look_at(vec3(x, 0.0, -20.0));
+        rig.ctx.scene3d.camera.occlusion_culling = false;
+        rig.ctx.scene3d.camera.position = vec3(x, 6.0, 8.0);
+        rig.ctx.scene3d.camera.look_at(vec3(x, 0.0, -20.0));
         Some((rig, batch))
     };
     let Some((mut rig, batch)) = rig_at(0.0, 0.0) else {
@@ -1032,8 +1048,8 @@ fn a_view_at_rest_keeps_its_cpu_lists_and_a_move_or_an_update_builds_them_again(
 
     // The camera moves: the list is built again, and is the one a renderer
     // that never saw the old view builds.
-    rig.ctx.camera3d.position = vec3(14.3, 6.0, 8.0);
-    rig.ctx.camera3d.look_at(vec3(14.3, 0.0, -20.0));
+    rig.ctx.scene3d.camera.position = vec3(14.3, 6.0, 8.0);
+    rig.ctx.scene3d.camera.look_at(vec3(14.3, 0.0, -20.0));
     let moved = rig.image();
     let after_move = rig.renderer.batch_lists_built();
     assert!(after_move > built, "a moved view builds its list again");
@@ -1065,7 +1081,7 @@ fn the_webgl2_tier_draws_the_same_frames_as_the_gpu_driven_path() {
     let Some((mut low, field)) = field_rig(webgl2, BatchPath::Auto) else {
         return;
     };
-    assert_eq!(low.renderer.batch_route(field.cubes.id()), Some(Route::CpuNoCompute));
+    assert_eq!(low.renderer.batch_route(field.cubes.id), Some(Route::CpuNoCompute));
     assert_eq!(low.renderer.instance_batch_stats().cpu_no_compute, 3);
     assert_eq!(
         low.renderer.instance_batch_stats().pools,
@@ -1104,10 +1120,10 @@ fn the_path_follows_the_measured_crossover() {
         (true, true) => Route::Gpu,
         (true, false) => Route::CpuSmall,
     };
-    assert_eq!(rig.renderer.batch_route(small.id()), Some(expected(false)));
-    assert_eq!(rig.renderer.batch_route(large.id()), Some(expected(true)));
-    rig.ctx.camera3d.position = vec3(0.0, 20.0, 20.0);
-    rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -20.0));
+    assert_eq!(rig.renderer.batch_route(small.id), Some(expected(false)));
+    assert_eq!(rig.renderer.batch_route(large.id), Some(expected(true)));
+    rig.ctx.scene3d.camera.position = vec3(0.0, 20.0, 20.0);
+    rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -20.0));
     let image = rig.image();
     assert!(
         image.fraction(0..image.width, 0..image.height, |p| p[0] > 150) > 0.02,
@@ -1161,7 +1177,7 @@ fn heavy_meshes_and_the_batch_options_pick_the_path() {
     let enough = triangles.div_ceil(2024);
     let route = |rig: &mut BatchRig, mesh, n, culling| {
         let batch = rig.batch(mesh, &at(n), with(culling));
-        rig.renderer.batch_route(batch.id()).unwrap()
+        rig.renderer.batch_route(batch.id).unwrap()
     };
     use crate::render::BatchCulling::{Auto, PreferCpu, PreferGpu};
     assert_eq!(route(&mut rig, heavy, enough, Auto), Route::Gpu, "heavy enough");
@@ -1183,9 +1199,9 @@ fn heavy_meshes_and_the_batch_options_pick_the_path() {
     assert_eq!(route(&mut rig, glass, enough, Auto), Route::CpuSmall, "see-through");
     assert_eq!(route(&mut rig, glass, enough, PreferGpu), Route::Gpu);
     // Every one of them is drawn.
-    rig.ctx.camera3d.position = vec3(0.0, 40.0, 30.0);
-    rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -60.0));
-    rig.ctx.camera3d.far = 400.0;
+    rig.ctx.scene3d.camera.position = vec3(0.0, 40.0, 30.0);
+    rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -60.0));
+    rig.ctx.scene3d.camera.far = 400.0;
     let image = rig.image();
     assert!(image.fraction(0..image.width, 0..image.height, |p| p[0] > 100 || p[2] > 100) > 0.1);
     let stats = rig.renderer.instance_batch_stats();
@@ -1219,14 +1235,11 @@ fn neighbouring_visible_cells_are_one_draw_on_the_cpu_path() {
             ..Default::default()
         },
     );
-    rig.ctx.camera3d.position = vec3(0.0, 30.0, 10.0);
-    rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -25.0));
+    rig.ctx.scene3d.camera.position = vec3(0.0, 30.0, 10.0);
+    rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -25.0));
     rig.frame();
     let cost = rig.frame();
-    let runs = &rig.renderer.static_batches[batch.id() as usize]
-        .as_ref()
-        .unwrap()
-        .visible[0];
+    let runs = &rig.renderer.static_batches[batch.id as usize].as_ref().unwrap().visible[0];
     assert_eq!(runs, &[(0, 1024)], "every cell is visible: one run");
     // The depth prepass and the opaque pass: one draw each.
     assert_eq!(cost.changes.draws, 2, "{:?}", cost.changes);
@@ -1243,8 +1256,8 @@ fn neighbouring_visible_cells_are_one_draw_on_the_cpu_path() {
         },
     );
     rig.frame();
-    let b = rig.renderer.static_batches[batch.id() as usize].as_ref().unwrap();
-    let eye = rig.ctx.camera3d.position;
+    let b = rig.renderer.static_batches[batch.id as usize].as_ref().unwrap();
+    let eye = rig.ctx.scene3d.camera.position;
     let expected = transforms
         .iter()
         .filter(|m| m.w_axis.truncate().distance(eye) - 0.2 * 3f32.sqrt() / 2.0 * 1.0001 <= 45.0)
@@ -1274,8 +1287,8 @@ fn batches_of_one_mesh_share_their_draw_state() {
                 .collect();
             rig.batch(meshes[i % 2], &transforms, Default::default());
         }
-        rig.ctx.camera3d.position = vec3(0.0, 25.0, 5.0);
-        rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -20.0));
+        rig.ctx.scene3d.camera.position = vec3(0.0, 25.0, 5.0);
+        rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -20.0));
         rig.frame();
         let c = rig.frame().changes;
         eprintln!("{path:?}: {c:?}");
@@ -1307,8 +1320,8 @@ fn freed_ranges_are_reused_and_growth_keeps_the_batches() {
     gpu.renderer.batching.path = BatchPath::Gpu;
     cpu.renderer.batching.path = BatchPath::Cpu;
     let meshes = [&mut gpu, &mut cpu].map(|rig| {
-        rig.ctx.camera3d.position = vec3(0.0, 30.0, 12.0);
-        rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -20.0));
+        rig.ctx.scene3d.camera.position = vec3(0.0, 30.0, 12.0);
+        rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -20.0));
         rig.mesh(&MeshData::cube(0.4), glow(Color::GREEN))
     });
     let row = |z: usize, n: usize| -> Vec<Mat4> {
@@ -1361,7 +1374,7 @@ fn freed_batches_give_their_pages_and_pools_back() {
     let Some((mut rig, _)) = field_rig(RigSetup::default(), BatchPath::Gpu) else {
         return;
     };
-    rig.ctx.lighting.shadows = true;
+    rig.ctx.scene3d.lighting.shadows = true;
     rig.frame();
     let small = rig.renderer.instance_batch_stats();
     assert_eq!(small.pools, 1);
@@ -1421,7 +1434,7 @@ fn freed_batches_give_their_pages_and_pools_back() {
     );
     // And the emptied pool takes batches again.
     let again = rig.batch(cube, &many(0.0), Default::default());
-    assert_eq!(rig.renderer.batch_route(again.id()), Some(Route::Gpu));
+    assert_eq!(rig.renderer.batch_route(again.id), Some(Route::Gpu));
     let image = rig.image();
     assert!(
         image.fraction(0..image.width, 0..image.height, |p| p[1] > 150) > 0.01,
@@ -1448,15 +1461,18 @@ fn a_small_storage_binding_holds_the_frames_buffer_and_the_grid_gives_way() {
         return;
     };
     for rig in [&mut gpu, &mut cpu] {
-        rig.ctx.lighting.shadows = true;
-        rig.ctx.camera3d.occlusion_culling = true;
+        rig.ctx.scene3d.lighting.shadows = true;
+        rig.ctx.scene3d.camera.occlusion_culling = true;
     }
     traffic::take_too_big();
     for k in 0..4 {
         for rig in [&mut gpu, &mut cpu] {
             fly(rig, k);
             // A grid that still fits what is left for it.
-            rig.grid = Some(wall_grid(rig.ctx.camera3d.view_proj(), rig.ctx.camera3d.position));
+            rig.grid = Some(wall_grid(
+                rig.ctx.scene3d.camera.view_proj(),
+                rig.ctx.scene3d.camera.position,
+            ));
         }
         let (a, b) = (gpu.image(), cpu.image());
         assert_same(&format!("frame {k}"), &a, &b, SAME_DEVICE, 0.05);
@@ -1475,7 +1491,7 @@ fn views_past_the_frames_buffer_are_not_drawn_and_reported() {
         return;
     };
     for rig in [&mut gpu, &mut cpu] {
-        rig.ctx.lighting.shadows = true;
+        rig.ctx.scene3d.lighting.shadows = true;
         fly(rig, 2);
     }
     // Room for the camera and two sun cascades only.
@@ -1524,13 +1540,13 @@ fn a_batch_past_one_storage_binding_is_culled_on_the_cpu() {
     traffic::take_too_big();
     // 12,000 instances need 1.15 MB of records: more than a binding.
     let big = rig.batch(mesh, &at(12_000), Default::default());
-    assert_eq!(rig.renderer.batch_route(big.id()), Some(Route::CpuOverLimit));
+    assert_eq!(rig.renderer.batch_route(big.id), Some(Route::CpuOverLimit));
     assert_eq!(traffic::take_too_big(), 1, "said once, when the batch was made");
     // 8,000 fit.
     let fits = rig.batch(mesh, &at(8_000), Default::default());
-    assert_eq!(rig.renderer.batch_route(fits.id()), Some(Route::Gpu));
-    rig.ctx.camera3d.position = vec3(0.0, 25.0, 10.0);
-    rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -15.0));
+    assert_eq!(rig.renderer.batch_route(fits.id), Some(Route::Gpu));
+    rig.ctx.scene3d.camera.position = vec3(0.0, 25.0, 10.0);
+    rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -15.0));
     for _ in 0..3 {
         let image = rig.image();
         assert!(
@@ -1572,15 +1588,15 @@ fn batches_past_one_pool_get_another_and_draw_the_same() {
                 .collect();
             rig.batch(mesh, &transforms, Default::default());
         }
-        rig.ctx.camera3d.far = 300.0;
+        rig.ctx.scene3d.camera.far = 300.0;
     }
     let stats = gpu.renderer.instance_batch_stats();
     assert_eq!(stats.gpu_driven, 5, "{stats:?}");
     assert_eq!(stats.pools, 3, "{stats:?}");
     for k in 0..8 {
         for rig in [&mut gpu, &mut cpu] {
-            rig.ctx.camera3d.position = vec3(-10.0 + 3.0 * k as f32, 12.0, 12.0 - 6.0 * k as f32);
-            rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -40.0 - 6.0 * k as f32));
+            rig.ctx.scene3d.camera.position = vec3(-10.0 + 3.0 * k as f32, 12.0, 12.0 - 6.0 * k as f32);
+            rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -40.0 - 6.0 * k as f32));
         }
         let (a, b) = (gpu.image(), cpu.image());
         assert_same(&format!("three pools, frame {k}"), &a, &b, SAME_DEVICE, 0.02);
@@ -1669,15 +1685,15 @@ fn a_big_batch_keeps_every_view_past_one_page() {
         for (x, z) in [(-12.0, -8.0), (12.0, -8.0), (-12.0, -30.0), (12.0, -30.0)] {
             let _ = shadowed_lamp(rig, vec3(x, 6.0, z), 40.0);
         }
-        rig.ctx.lighting.shadows = true;
-        rig.ctx.lighting.shadow_distance = 80.0;
-        rig.ctx.camera3d.far = 300.0;
+        rig.ctx.scene3d.lighting.shadows = true;
+        rig.ctx.scene3d.lighting.shadow_distance = 80.0;
+        rig.ctx.scene3d.camera.far = 300.0;
     }
     assert_eq!(gpu.renderer.batch_route(0), Some(Route::Gpu));
     for k in 0..6 {
         for rig in [&mut gpu, &mut cpu] {
-            rig.ctx.camera3d.position = vec3(-14.0 + 5.0 * k as f32, 9.0 + k as f32, 16.0 - 4.0 * k as f32);
-            rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -20.0));
+            rig.ctx.scene3d.camera.position = vec3(-14.0 + 5.0 * k as f32, 9.0 + k as f32, 16.0 - 4.0 * k as f32);
+            rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -20.0));
         }
         let (a, b) = (gpu.image(), cpu.image());
         assert_same(&format!("views over three pages, frame {k}"), &a, &b, SAME_DEVICE, 0.2);
@@ -1740,11 +1756,11 @@ fn new_lights_views_of_many_batches_spill_into_another_page() {
             }
             rig.batch_levels(&levels, &transforms, &[], Default::default());
         }
-        rig.ctx.lighting.shadows = true;
-        rig.ctx.lighting.shadow_distance = 80.0;
-        rig.ctx.camera3d.far = 300.0;
-        rig.ctx.camera3d.position = vec3(0.0, 22.0, 14.0);
-        rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -14.0));
+        rig.ctx.scene3d.lighting.shadows = true;
+        rig.ctx.scene3d.lighting.shadow_distance = 80.0;
+        rig.ctx.scene3d.camera.far = 300.0;
+        rig.ctx.scene3d.camera.position = vec3(0.0, 22.0, 14.0);
+        rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -14.0));
     }
     for k in 0..2 {
         let (a, b, c) = (gpu.image(), cpu.image(), flipped.image());
@@ -1764,7 +1780,7 @@ fn new_lights_views_of_many_batches_spill_into_another_page() {
         "{before:?}"
     );
     for rig in [&mut gpu, &mut cpu, &mut flipped] {
-        rig.ctx.lighting.light_shadow_views = 24;
+        rig.ctx.scene3d.lighting.light_shadow_views = 24;
         for x in [-14.0, 0.0, 14.0] {
             let _ = shadowed_lamp(rig, vec3(x, 3.0, -12.0), 60.0);
         }
@@ -1832,9 +1848,9 @@ fn a_full_pool_keeps_drawing_when_more_views_arrive() {
         // 10,880 instances: 1,044,496 bytes of records and their cells,
         // of the 1,048,576 a binding holds.
         rig.batch(mesh, &at(10_880), Default::default());
-        rig.ctx.camera3d.far = 300.0;
-        rig.ctx.camera3d.position = vec3(0.0, 20.0, 12.0);
-        rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -14.0));
+        rig.ctx.scene3d.camera.far = 300.0;
+        rig.ctx.scene3d.camera.position = vec3(0.0, 20.0, 12.0);
+        rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -14.0));
     }
     assert_eq!(
         gpu.renderer.batch_route(0),
@@ -1862,8 +1878,8 @@ fn a_full_pool_keeps_drawing_when_more_views_arrive() {
     same(&mut gpu, &mut cpu, "camera only");
     assert!(used > (1 << 20) - (8 << 10), "the pool's records are full: {used}");
     for rig in [&mut gpu, &mut cpu] {
-        rig.ctx.lighting.shadows = true;
-        rig.ctx.lighting.shadow_distance = 80.0;
+        rig.ctx.scene3d.lighting.shadows = true;
+        rig.ctx.scene3d.lighting.shadow_distance = 80.0;
     }
     same(&mut gpu, &mut cpu, "sun shadows on");
     for rig in [&mut gpu, &mut cpu] {
@@ -1871,7 +1887,7 @@ fn a_full_pool_keeps_drawing_when_more_views_arrive() {
     }
     same(&mut gpu, &mut cpu, "a shadowed light");
     for rig in [&mut gpu, &mut cpu] {
-        let mut camera = rig.ctx.camera3d;
+        let mut camera = rig.ctx.scene3d.camera;
         camera.position = vec3(20.0, 10.0, -14.0);
         camera.look_at(vec3(0.0, 0.0, -14.0));
         rig.target_camera(camera);
@@ -1910,12 +1926,12 @@ fn an_updated_batch_over_a_limit_is_reported_once() {
     for step in 1..4 {
         rig.update(batch, &at(12_000, step as f32));
         rig.frame();
-        assert_eq!(rig.renderer.batch_route(batch.id()), Some(Route::CpuOverLimit));
+        assert_eq!(rig.renderer.batch_route(batch.id), Some(Route::CpuOverLimit));
     }
     assert_eq!(traffic::take_too_big(), 0, "three updates, no more reports");
     // Once it fits it is GPU-driven; growing past the limit again is news.
     rig.update(batch, &at(8_000, 0.0));
-    assert_eq!(rig.renderer.batch_route(batch.id()), Some(Route::Gpu));
+    assert_eq!(rig.renderer.batch_route(batch.id), Some(Route::Gpu));
     rig.update(batch, &at(12_000, 0.0));
     assert_eq!(traffic::take_too_big(), 1, "over the limit again: said again");
 }
@@ -1943,10 +1959,10 @@ fn a_batch_past_one_buffer_is_dropped_and_reported() {
         };
         traffic::take_too_big();
         let big = rig.batch(mesh, &at(14_000), Default::default());
-        assert_eq!(rig.renderer.batch_route(big.id()), Some(Route::Dropped));
+        assert_eq!(rig.renderer.batch_route(big.id), Some(Route::Dropped));
         assert_eq!(traffic::take_too_big(), 1);
-        rig.ctx.camera3d.position = vec3(0.0, 25.0, 10.0);
-        rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -15.0));
+        rig.ctx.scene3d.camera.position = vec3(0.0, 25.0, 10.0);
+        rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -15.0));
         let image = rig.image();
         assert_eq!(
             image.fraction(0..image.width, 0..image.height, |p| p[0] > 150),
@@ -1954,7 +1970,7 @@ fn a_batch_past_one_buffer_is_dropped_and_reported() {
             "the dropped batch draws nothing"
         );
         let fits = rig.batch(mesh, &at(13_000), Default::default());
-        assert_ne!(rig.renderer.batch_route(fits.id()), Some(Route::Dropped));
+        assert_ne!(rig.renderer.batch_route(fits.id), Some(Route::Dropped));
         let image = rig.image();
         assert!(image.fraction(0..image.width, 0..image.height, |p| p[0] > 150) > 0.05);
         let stats = rig.renderer.instance_batch_stats();
@@ -1996,8 +2012,8 @@ fn batch_views_past_one_dispatch_are_not_drawn_and_reported() {
         for b in 0..batches {
             rig.batch(mesh, &row(-4.0 - b as f32, 64), options);
         }
-        rig.ctx.camera3d.position = vec3(0.0, 25.0, 5.0);
-        rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -12.0));
+        rig.ctx.scene3d.camera.position = vec3(0.0, 25.0, 5.0);
+        rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -12.0));
     }
     // Every frame the same: a view left out of the dispatch is not drawn
     // with the counts an earlier frame left in its draw arguments.
@@ -2006,9 +2022,9 @@ fn batch_views_past_one_dispatch_are_not_drawn_and_reported() {
             assert_eq!(traffic::take_too_big(), 1, "two frames, one report");
             // The camera turns away and back: the jobs change in between,
             // and the limit bites anew (so it is said anew).
-            rig.ctx.camera3d.look_at(vec3(0.0, 50.0, 5.0));
+            rig.ctx.scene3d.camera.look_at(vec3(0.0, 50.0, 5.0));
             rig.frame();
-            rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -12.0));
+            rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -12.0));
         }
         let (a, b) = (rig.image(), cpu.image());
         assert_same(
@@ -2039,8 +2055,8 @@ fn batch_views_past_one_dispatch_are_not_drawn_and_reported() {
         for b in 0..6 {
             rig.batch(mesh, &row(-4.0 - b as f32, 64), options);
         }
-        rig.ctx.camera3d.position = vec3(0.0, 25.0, 5.0);
-        rig.ctx.camera3d.look_at(vec3(0.0, 0.0, -12.0));
+        rig.ctx.scene3d.camera.position = vec3(0.0, 25.0, 5.0);
+        rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -12.0));
     }
     let (a, b) = (rig.image(), cpu.image());
     assert_same("48 cells in a 4x4x4 dispatch", &a, &b, SAME_DEVICE, 0.01);
@@ -2058,16 +2074,16 @@ fn a_depth_grid_past_the_culling_buffer_is_left_out_and_reported() {
     };
     fly(&mut rig, 3);
     fly(&mut reference, 3);
-    rig.ctx.camera3d.occlusion_culling = true;
+    rig.ctx.scene3d.camera.occlusion_culling = true;
     traffic::take_too_big();
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let all = reference.image();
     for _ in 0..3 {
         // A grid that hides everything, of 1024 x 1024 depths: 4 MB, more
         // than the culling pass's buffer for it holds.
         rig.grid = Some(OcclusionGrid::new(
             view_proj,
-            rig.ctx.camera3d.position,
+            rig.ctx.scene3d.camera.position,
             1024,
             1024,
             vec![0.0; 1024 * 1024],
@@ -2080,7 +2096,7 @@ fn a_depth_grid_past_the_culling_buffer_is_left_out_and_reported() {
     // it (all but those reaching past the grid's view or the camera).
     rig.grid = Some(OcclusionGrid::new(
         view_proj,
-        rig.ctx.camera3d.position,
+        rig.ctx.scene3d.camera.position,
         16,
         16,
         vec![0.0; 256],
@@ -2101,14 +2117,17 @@ fn steady_frames_allocate_nothing_preparing_batches() {
         let Some((mut rig, _)) = field_rig(RigSetup::default(), path) else {
             continue;
         };
-        rig.ctx.lighting.shadows = true;
-        rig.ctx.camera3d.occlusion_culling = true;
+        rig.ctx.scene3d.lighting.shadows = true;
+        rig.ctx.scene3d.camera.occlusion_culling = true;
         // The whole flight once, so every list has its capacity and every
         // view its ranges and bind groups.
         let mut built = rig.renderer.batch_lists_built();
         for round in 0..2 {
             for k in 0..14 {
-                rig.grid = Some(wall_grid(rig.ctx.camera3d.view_proj(), rig.ctx.camera3d.position));
+                rig.grid = Some(wall_grid(
+                    rig.ctx.scene3d.camera.view_proj(),
+                    rig.ctx.scene3d.camera.position,
+                ));
                 fly(&mut rig, k);
                 rig.frame();
                 // The frame itself: the camera moved, so every view's
@@ -2162,7 +2181,7 @@ fn recording_batches_allocates_only_inside_wgpu() {
         let Some((mut rig, _)) = field_rig(RigSetup::default(), path) else {
             continue;
         };
-        rig.ctx.lighting.shadows = true;
+        rig.ctx.scene3d.lighting.shadows = true;
         for k in 0..3 {
             fly(&mut rig, k);
             rig.frame();
@@ -2237,7 +2256,7 @@ fn material_blend_changes_reroute_auto_batches_without_transform_updates() {
             ..Default::default()
         },
     );
-    assert_eq!(rig.renderer.batch_route(automatic.id()), Some(Route::Gpu));
+    assert_eq!(rig.renderer.batch_route(automatic.id), Some(Route::Gpu));
     // BatchRig mirrors the production Renderer wrapper's material update path.
     for (blend, expected) in [(Blend::Transparent, Route::CpuSmall), (Blend::Opaque, Route::Gpu)] {
         let gpu = GpuMaterialDesc::new(&MaterialDesc { blend, ..desc });
@@ -2251,8 +2270,8 @@ fn material_blend_changes_reroute_auto_batches_without_transform_updates() {
             0,
             &rig.ctx.gfx.assets3d.instance_batches,
         );
-        assert_eq!(rig.renderer.batch_route(automatic.id()), Some(expected));
-        assert_eq!(rig.renderer.batch_route(forced.id()), Some(Route::Gpu));
+        assert_eq!(rig.renderer.batch_route(automatic.id), Some(expected));
+        assert_eq!(rig.renderer.batch_route(forced.id), Some(Route::Gpu));
         assert!(
             !rig.renderer
                 .update_material(&rig.gpu.device, &rig.gpu.queue, 0, &gpu, &rig.textures),
@@ -2265,6 +2284,6 @@ fn material_blend_changes_reroute_auto_batches_without_transform_updates() {
     ] {
         assert!(rig.ctx.gfx.set_instance_batch_culling(automatic, preference));
         rig.upload(automatic);
-        assert_eq!(rig.renderer.batch_route(automatic.id()), Some(route));
+        assert_eq!(rig.renderer.batch_route(automatic.id), Some(route));
     }
 }

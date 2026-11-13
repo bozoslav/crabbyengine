@@ -3,8 +3,7 @@
 
 use std::ops::Index;
 
-use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
-use yaml_rust2::scanner::Marker;
+use yaml_rust2::parser::{Event, Parser};
 
 /// A field's value.
 ///
@@ -214,6 +213,11 @@ pub(crate) struct ParseError {
     pub message: String,
 }
 
+/// How deep maps and lists may nest in a text file. Unity's nest a
+/// handful of levels; values deeper than this would take a stack frame
+/// per level to build, compare and drop.
+pub(crate) const MAX_DEPTH: usize = 128;
+
 /// Builds values from the parser's events.
 #[derive(Default)]
 struct Builder {
@@ -240,31 +244,51 @@ impl Builder {
             Some(_) => unreachable!("only maps and lists are open"),
         }
     }
-}
 
-impl MarkedEventReceiver for Builder {
-    fn on_event(&mut self, ev: Event, _mark: Marker) {
-        match ev {
-            Event::Scalar(text, ..) => self.push_value(Value::Scalar(text)),
-            Event::SequenceStart(..) => self.stack.push((Value::Seq(Vec::new()), None)),
-            Event::MappingStart(..) => self.stack.push((Value::Map(Vec::new()), None)),
+    /// Takes one event; an error for nesting deeper than [`MAX_DEPTH`].
+    fn on_event(&mut self, ev: Event) -> Result<(), String> {
+        let open = match ev {
+            Event::Scalar(text, ..) => {
+                self.push_value(Value::Scalar(text));
+                return Ok(());
+            }
+            Event::SequenceStart(..) => Value::Seq(Vec::new()),
+            Event::MappingStart(..) => Value::Map(Vec::new()),
             Event::SequenceEnd | Event::MappingEnd => {
                 if let Some((v, _)) = self.stack.pop() {
                     self.push_value(v);
                 }
+                return Ok(());
             }
-            _ => {}
+            _ => return Ok(()),
+        };
+        if self.stack.len() >= MAX_DEPTH {
+            return Err(format!("maps and lists nested deeper than {MAX_DEPTH}"));
         }
+        self.stack.push((open, None));
+        Ok(())
     }
 }
 
-/// Parses one document's YAML.
+/// Parses one document's YAML. The parser is driven event by event here
+/// (its own loader recurses once per nesting level), so how deep a file
+/// nests is checked before anything is built for it.
 pub(crate) fn parse(text: &str) -> Result<Value, ParseError> {
     let mut builder = Builder::default();
     let mut parser = Parser::new_from_str(text);
-    parser.load(&mut builder, false).map_err(|e| ParseError {
-        line: e.marker().line(),
-        message: e.info().to_owned(),
-    })?;
+    loop {
+        let (ev, mark) = parser.next_token().map_err(|e| ParseError {
+            line: e.marker().line(),
+            message: e.info().to_owned(),
+        })?;
+        // One document: the first one's end (or the stream's) finishes it.
+        if matches!(ev, Event::DocumentEnd | Event::StreamEnd) {
+            break;
+        }
+        builder.on_event(ev).map_err(|message| ParseError {
+            line: mark.line(),
+            message,
+        })?;
+    }
     Ok(builder.done.unwrap_or_default())
 }

@@ -179,6 +179,7 @@ impl Ctx {
             // Motion history is keyed by entity id: a same-id model of the
             // new scene has no past in the old one.
             self.gfx.reset_temporal_history();
+            self.scene3d.set_quality_autotune(None);
             self.gfx.autotune = None;
         }
         Ok(())
@@ -335,8 +336,7 @@ fn field_names(json: &Value, component: &str, field: &str, out: &mut Vec<String>
 
 /// A prefab file's components, checked.
 fn components_of(prefab: &Value) -> Result<Value, String> {
-    // Deprecated identifier remains readable throughout the migration cycle.
-    if prefab["format"] != PREFAB_FORMAT && prefab["format"] != "crabby-prefab" {
+    if prefab["format"] != PREFAB_FORMAT {
         return Err(format!("not a prefab (expected \"format\": \"{PREFAB_FORMAT}\")"));
     }
     if prefab["version"].as_u64() != Some(PREFAB_VERSION) {
@@ -437,10 +437,11 @@ mod lockstep_tests {
     struct Tag(u32);
 
     /// A scene in `assets/` (for `load_scene`) and the same world in a plain
-    /// file (for the control endpoint's `world.load`), deleted afterwards.
+    /// file in the working folder (for the control endpoint's `world.load`,
+    /// which takes paths relative to it), deleted afterwards.
     struct Files {
         asset: &'static str,
-        plain: std::path::PathBuf,
+        plain: String,
     }
     impl Files {
         fn new(asset: &'static str) -> Self {
@@ -450,7 +451,7 @@ mod lockstep_tests {
             let text = serde_json::to_string(&world.save()).unwrap();
             let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
             std::fs::write(root.join("assets").join(asset), &text).unwrap();
-            let plain = std::env::temp_dir().join(format!("ponko-{}-{asset}", std::process::id()));
+            let plain = format!("ponko-test-{}-{asset}", std::process::id());
             std::fs::write(&plain, &text).unwrap();
             Self { asset, plain }
         }
@@ -473,7 +474,7 @@ mod lockstep_tests {
     /// leave the world as it was.
     fn assert_every_local_load_is_refused(ctx: &mut Ctx, files: &Files) {
         let before = WorldReflect::save(&ctx.world);
-        let plain = files.plain.to_str().unwrap();
+        let plain = files.plain.as_str();
         let errors: [String; 4] = [
             ctx.load_scene(files.asset).unwrap_err().into(),
             ctx.load_scene_lockstep(files.asset).unwrap_err().into(),

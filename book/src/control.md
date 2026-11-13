@@ -7,20 +7,28 @@ at once; each gets its own endpoint.
 
 ## Turning it on
 
-It's off by default, so shipped games never open a port. Any of these turns it
-on (C and C++ games too: `game.control_endpoint(true)` or the same
-environment variables):
+It's off by default, so shipped games never open a port. The game can turn
+it on in code (C and C++ games too: `game.control_endpoint(true)`):
 
 ```rust
 Game::new("Colony", 1280, 720).control_endpoint(true)
 ```
 
+Or, without code changes, the `PONKO_CONTROL=1` environment variable turns
+it on in a debug build, or in a release build made with the engine's
+`control-env` feature:
+
 ```sh
-PONKO_CONTROL=1 cargo run --release --example boids
-PONKO_CONTROL=1 PONKO_START_PAUSED=1 HEADLESS=1 cargo run --release --example boids
+PONKO_CONTROL=1 cargo run --example boids
+PONKO_CONTROL=1 PONKO_START_PAUSED=1 HEADLESS=1 cargo run --release --features control-env --example boids
 ```
 
-The environment variable works for every game without code changes.
+A release build without `control-env` ignores the variable (and says so on
+stderr), so a player can't open a port into a shipped game that didn't ask
+for one. [`ponko-mcp`'s `launch`](agents.md) adds the feature to the
+release builds it makes. Don't ship a game with it: Cargo turns a feature
+on for the whole build when any crate in it asks for it, so check
+`cargo tree -e features -i ponko` if you're unsure.
 `PONKO_START_PAUSED=1` starts the simulation paused, so a tool can set
 things up and step it tick by tick.
 
@@ -50,8 +58,44 @@ skip it.
 ## Security
 
 - The endpoint listens on `127.0.0.1` only.
-- Every request must carry the instance's `token`. The registry file is
-  readable only by your user (mode `0600` on Unix).
+- Every request must carry the instance's `token`, 128 bits from the
+  operating system's secure random source. The registry file is readable
+  only by your user (mode `0600` on Unix).
+- A request line may be at most 4 MiB, and at most 32 connections are
+  served at once; past either limit the client gets an error and is
+  disconnected. A new connection's first request must carry the right
+  token, within 10 seconds; otherwise it gets one error reply and is
+  closed. After that it may stay idle.
+- A release build honors `PONKO_CONTROL` only with the `control-env`
+  feature (see [Turning it on](#turning-it-on)).
+
+### File paths
+
+Methods that read or write files take paths relative to a folder of the
+game, and only of their own file type. Absolute paths, `..`, `.`, `\`,
+`:`, names starting with `.` and Windows device names (`CON`, `NUL`,
+`COM1`, `CONIN$`, ... with any extension) are refused, and so is a path
+that a link inside the folder leads out of it. An `assets/` folder that is
+itself a link (to assets shared between games, say) is trusted:
+
+- `world.save` and `world.load`: a `.json` file below the game's working
+  folder (the `cwd` in its registry file). `world.save` makes missing
+  folders and refuses an existing file unless `overwrite` is `true`; even
+  then it replaces only a plain file (not a link, a pipe or a device;
+  on unix also not one with other names, hard links) and not one a
+  `screenshot` or `perf.trace` will still write. On unix such a file is
+  recognized by its device and inode; on Windows only by its full path,
+  so another name for it (a hard link) isn't caught there.
+- `scene.*` and `prefab.*`: a `.json` file below `assets/`. `scene.save`
+  and `prefab.save` refuse a file a `screenshot` or `perf.trace` will
+  still write, too.
+- `screenshot` (`.png`) and `perf.trace` (`.json`): a new file below the
+  working folder (missing folders are made), created empty when the
+  request arrives and written through that handle, so they never replace a
+  file. If it can't be written, a newer `perf.trace` replaces the trace,
+  or the game shuts down first, the file is removed. Leave `path` out for a
+  new temp file with a random name. A headless game refuses `perf.trace`
+  (it draws no frames to trace) before it makes any file or folder.
 
 ## Protocol
 
@@ -84,7 +128,7 @@ headless game waits for requests and runs only the ticks you step.
 | `resources.list` | | `{resource: value}` for every reflected resource (`null` if it's not in the world) |
 | `resource.get` | `resource` | its value |
 | `resource.set` | `resource`, `value` | the new value (object fields merge; inserted if missing) |
-| `world.save` | `path` | writes a [save](determinism.md#saving-and-loading-the-world); entity and resource counts, bytes, tick |
+| `world.save` | `path`, `overwrite?` (false) | writes a [save](determinism.md#saving-and-loading-the-world) (see [file paths](#file-paths)); entity and resource counts, bytes, tick |
 | `world.load` | `path` | replaces every entity from a save (same ids; checked first) |
 | `scene.save` / `scene.load` | `path` | a [scene](scenes.md) in `assets/` (loading also loads sprite images) |
 | `prefab.spawn` | `path`, `at` | spawns a [prefab](scenes.md) at `[x, y]`; returns `entity` |
@@ -104,7 +148,7 @@ headless game waits for requests and runs only the ticks you step.
 | `logs.get` | `lines?` (100), `since?` | `{lines, next, missed}`: the game's recent stdout and stderr (see below) |
 | `perf.get` | `meshes?` (0), `profiling?`, `history?` (0) | where frame time goes, over the last few seconds: fps; avg, p50, p95, p99 and max ms; CPU in systems, render and display wait; GPU ms in total and per pass; draw calls and 3D models and triangles (camera and shadows); the slowest systems; with `meshes`, the meshes drawing the most triangles; `render_inspector`, the last frame's rendering cost in a versioned schema, with the GPU memory estimate, the adapter and, with `history`, the last N drawn frames (at most 120) (see [Profiling a frame](performance.md#the-render-pass-inspector)) |
 | `quality.set` | `level` | switches the 3D [graphics quality](3d.md#graphics-quality) preset (`low`, `medium`, `high`, `ultra` or `recommended`), fitted to the GPU; returns `{requested, fitted_to_gpu, previous, quality}` (`fitted_to_gpu` is always `false` for `recommended`; a fitted preset's `quality.level` can read `custom`). Pins render scale and shadow resolution against automatic quality tuning until the game restarts. Needs the `3d` feature (`capabilities` says so otherwise); headless games accept it but draw nothing, and `recommended` is refused until a GPU is open (headless, or before the first frame). See [measuring what a quality level costs](performance.md#measuring-what-a-quality-level-costs) |
-| `perf.trace` | `path?` (a temp file), `frames?` (120) | records the next frames as a Chrome/Perfetto trace; returns the path, written once the frames are done |
+| `perf.trace` | `path?` (a new file; a temp file if left out), `frames?` (120) | records the next frames as a Chrome/Perfetto trace; returns the path, written once the frames are done. Refused by a headless game |
 | `perf.hud` | `on` | shows or hides the performance overlay |
 | `shaders.status` | | each custom shader's last compile or hot reload result (`compiled`, `reloaded`, `failed`, `reload_failed`), reload count, frame, and errors with line and column in the game's own WGSL, cause and GPU variant |
 | `camera.get` | | position, zoom, center, visible rect |
@@ -208,7 +252,7 @@ keep; `logs.get` then says it isn't captured.
 ## Trying it by hand
 
 ```sh
-PONKO_CONTROL=1 cargo run --release --example boids &
+PONKO_CONTROL=1 cargo run --example boids &
 f=$(ls ~/.ponko/instances/*.json | head -1)
 port=$(jq .port "$f"); token=$(jq -r .token "$f")
 echo "{\"id\":1,\"token\":\"$token\",\"method\":\"info\"}" | nc -q1 127.0.0.1 "$port"

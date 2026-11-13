@@ -10,7 +10,7 @@ There are two kinds of coordinates:
 - **World units**: sprites, `ctx.draw`, and the shapes below. They go
   through the camera.
 - **Window pixels**: UI and text, drawn on top of the world. `(0, 0)` is the
-  window's top-left. Set `DrawParams { screen: true, .. }` to draw a sprite
+  window's top-left. Use `DrawParams::default().with_screen(true)` to draw a sprite
   in window pixels (an icon in a HUD).
 
 The default camera shows world point `(0, 0)` at the top-left at zoom 1, so
@@ -110,7 +110,7 @@ from a corner and a size, like Rust's `Rect::new`.
 ctx.draw_text("Hello", vec2(20.0, 20.0), 24.0, Color::WHITE);
 let size = ctx.gfx.measure_text("Paused", 32.0); // for centering
 let title = ctx.gfx.load_font("fonts/Title.ttf"); // TrueType or OpenType
-ctx.gfx.draw_text_ex("Colony", vec2(20.0, 60.0), TextParams { font: title, size: 40.0, ..Default::default() });
+ctx.gfx.draw_text_ex("Colony", vec2(20.0, 60.0), TextParams::default().with_font(title).with_size(40.0));
 ```
 
 </div>

@@ -21,11 +21,12 @@ use std::ffi::c_char;
 use ponko::ui::Ui;
 use ponko::ui::UiEvent;
 use ponko::ui::UiId;
+use ponko::ui::UiLayout;
 use ponko::ui::UiPaint;
 use ponko::ui::UiTextAlign;
 use ponko::ui::UiTheme;
 use ponko::ui::UiWidget;
-use ponko::ui::layout::{
+use ponko::ui::unstable_taffy::{
     AlignContent, AlignItems, Dimension, Display, FlexDirection, FlexWrap, GridPlacement, GridTemplateArea,
     GridTemplateAreas, GridTemplateComponent, GridTemplateRepetition, LengthPercentage, LengthPercentageAuto, Line,
     Position, Rect as Edges, RepetitionCount, Size, Style, TrackSizingFunction,
@@ -788,7 +789,7 @@ fn edges<T>(s: PonkoUiSides, f: impl Fn(PonkoUiLength) -> Result<T, Failure>) ->
 }
 
 fn track(t: PonkoUiTrack) -> Result<TrackSizingFunction, Failure> {
-    use ponko::ui::layout::style_helpers as h;
+    use ponko::ui::unstable_taffy::style_helpers as h;
     Ok(match pick(&TRACKS, t.kind, "unknown UI track kind")? {
         PonkoUiTrackKind::PONKO_UI_TRACK_AUTO => h::auto(),
         PonkoUiTrackKind::PONKO_UI_TRACK_POINTS => h::length(num(t.value)?),
@@ -1292,8 +1293,8 @@ unsafe fn add(
         with_ui(ctx, target, |ui| {
             let parent = (parent != PONKO_UI_NONE).then(|| existing(ui, parent)).transpose()?;
             let id = match parent {
-                Some(parent) => ui.add_child(parent, widget, style),
-                None => ui.add(widget, style),
+                Some(parent) => ui.add_child(parent, widget, UiLayout::custom(style)),
+                None => ui.add(widget, UiLayout::custom(style)),
             };
             ui.set_text(id, start.text);
             if let Some(paint) = start.paint {
@@ -1592,7 +1593,7 @@ pub unsafe extern "C" fn ponko_ctx_ui_set_layout(
         let style = style_or_default(layout)?;
         with_ui(ctx, target, |ui| {
             let id = existing(ui, id)?;
-            ui.set_layout(id, style);
+            ui.set_layout(id, UiLayout::custom(style));
             Ok(())
         })
     })
@@ -1609,12 +1610,12 @@ unsafe fn update_style(
         with_ui(ctx, target, |ui| {
             let id = existing(ui, id)?;
             let mut style = ui
-                .layout_style(id)
+                .node_layout(id)
                 .ok_or_else(|| invalid("UI node has no style"))?
-                .clone();
+                .into_style();
             f(&mut style)?;
             prepare_grid_names(&mut style);
-            ui.set_layout(id, style);
+            ui.set_layout(id, UiLayout::custom(style));
             Ok(())
         })
     }
@@ -2168,14 +2169,18 @@ pub unsafe extern "C" fn ponko_ctx_ui_next_event(
             return Err(invalid("output is null"));
         }
         with_ui(ctx, target, |ui| {
-            let Some(event) = ui.next_event() else {
-                return Err(error(PonkoStatus::PONKO_NOT_FOUND, "no UI events left"));
-            };
-            let (kind, id) = match event {
-                UiEvent::Clicked(id) => (PonkoUiEventKind::PONKO_UI_EVENT_CLICKED, id),
-                UiEvent::Changed(id) => (PonkoUiEventKind::PONKO_UI_EVENT_CHANGED, id),
-                UiEvent::Submitted(id) => (PonkoUiEventKind::PONKO_UI_EVENT_SUBMITTED, id),
-                UiEvent::ScreenPopped(id) => (PonkoUiEventKind::PONKO_UI_EVENT_SCREEN_POPPED, id),
+            // Events the C API has no kind for yet are skipped.
+            let (kind, id) = loop {
+                let Some(event) = ui.next_event() else {
+                    return Err(error(PonkoStatus::PONKO_NOT_FOUND, "no UI events left"));
+                };
+                break match event {
+                    UiEvent::Clicked(id) => (PonkoUiEventKind::PONKO_UI_EVENT_CLICKED, id),
+                    UiEvent::Changed(id) => (PonkoUiEventKind::PONKO_UI_EVENT_CHANGED, id),
+                    UiEvent::Submitted(id) => (PonkoUiEventKind::PONKO_UI_EVENT_SUBMITTED, id),
+                    UiEvent::ScreenPopped(id) => (PonkoUiEventKind::PONKO_UI_EVENT_SCREEN_POPPED, id),
+                    _ => continue,
+                };
             };
             out(out_event, PonkoUiEvent { kind, id: id.bits() })
         })
@@ -2590,7 +2595,10 @@ pub unsafe extern "C" fn ponko_ctx_ui_add_title(
                 return Err(invalid("a title needs a parent"));
             }
             let parent = existing(ui, parent)?;
-            out(out_id, ui.title(parent, text).layout(style).id().bits())
+            out(
+                out_id,
+                ui.title(parent, text).layout(UiLayout::custom(style)).id().bits(),
+            )
         })
     })
 }
@@ -2688,7 +2696,11 @@ pub unsafe extern "C" fn ponko_ctx_ui_take_click(ctx: *mut PonkoCtx, target: u64
         if out_id.is_null() {
             return Err(invalid("output is null"));
         }
-        with_ui(ctx, target, |ui| out(out_id, id_to_c(ui.take_click())))
+        with_ui(ctx, target, |ui| {
+            // The last click; the other queued events are taken too.
+            let clicked = ui.events().filter_map(UiEvent::clicked).last();
+            out(out_id, id_to_c(clicked))
+        })
     })
 }
 
@@ -2815,7 +2827,6 @@ mod tests {
 
     #[test]
     fn layout_presets_are_the_rust_presets() {
-        use ponko::ui::UiLayout;
         let pairs = [
             (ponko_ui_layout_row(20.0), UiLayout::row(20.0)),
             (ponko_ui_layout_column(150.0), UiLayout::column(150.0)),

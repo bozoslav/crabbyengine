@@ -8,7 +8,7 @@ mod common;
 
 #[cfg(feature = "physics")]
 #[test]
-fn filtered_2d_queries_exclude_entities_and_sensors_without_changing_legacy_calls() {
+fn filtered_2d_queries_exclude_entities_and_sensors() {
     use ponko::d2::*;
     let ran = Arc::new(AtomicBool::new(false));
     let checked = ran.clone();
@@ -18,7 +18,7 @@ fn filtered_2d_queries_exclude_entities_and_sensors_without_changing_legacy_call
             let solid = ctx.world.resource::<Entity>();
             let hit: Hit = ctx
                 .physics
-                .cast_ray_filtered(Vec2::ZERO, Vec2::X, 100.0, QueryFilter::default())
+                .cast_ray(Vec2::ZERO, Vec2::X, 100.0, QueryFilter::default())
                 .unwrap();
             assert_eq!(hit.entity, *solid);
             assert_eq!(hit.distance, 9.0);
@@ -26,21 +26,25 @@ fn filtered_2d_queries_exclude_entities_and_sensors_without_changing_legacy_call
             assert_eq!(hit.normal, Vec2::NEG_X);
             assert!(
                 ctx.physics
-                    .cast_ray_filtered(Vec2::ZERO, Vec2::X, 100.0, QueryFilter::default().exclude(*solid))
+                    .cast_ray(Vec2::ZERO, Vec2::X, 100.0, QueryFilter::default().exclude(*solid))
                     .is_none()
             );
-            assert_eq!(ctx.physics.cast_ray(Vec2::ZERO, Vec2::X, 100.0).unwrap().distance, 4.0);
+            let with_sensors = QueryFilter::default().with_sensors();
+            assert_eq!(
+                ctx.physics
+                    .cast_ray(Vec2::ZERO, Vec2::X, 100.0, with_sensors)
+                    .unwrap()
+                    .distance,
+                4.0
+            );
             let mut found = Vec::new();
             ctx.physics
-                .overlap_ball(vec2(5.0, 0.0), 1.0, QueryFilter::default(), &mut found);
+                .overlap_circle(vec2(5.0, 0.0), 1.0, QueryFilter::default(), &mut found);
             assert!(found.is_empty());
             ctx.physics
-                .overlap_ball(vec2(5.0, 0.0), 1.0, QueryFilter::default().with_sensors(), &mut found);
+                .overlap_circle(vec2(5.0, 0.0), 1.0, QueryFilter::default().with_sensors(), &mut found);
             assert_eq!(found.len(), 1);
-            // The legacy wrappers keep seeing sensors, as before.
-            ctx.physics.entities_in_circle(vec2(5.0, 0.0), 1.0, &mut found);
-            assert_eq!(found.len(), 1);
-            ctx.physics.entities_at(vec2(5.0, 0.0), &mut found);
+            ctx.physics.overlap_point(vec2(5.0, 0.0), with_sensors, &mut found);
             assert_eq!(found.len(), 1);
             ctx.physics
                 .overlap_point(vec2(5.0, 0.0), QueryFilter::default(), &mut found);
@@ -52,12 +56,16 @@ fn filtered_2d_queries_exclude_entities_and_sensors_without_changing_legacy_call
             let nan = vec2(f32::NAN, 0.0);
             assert!(
                 ctx.physics
-                    .cast_ray_filtered(nan, Vec2::X, 100.0, QueryFilter::default())
+                    .cast_ray(nan, Vec2::X, 100.0, QueryFilter::default())
                     .is_none()
             );
-            assert!(ctx.physics.cast_ray(vec2(f32::INFINITY, 0.0), Vec2::X, 100.0).is_none());
+            assert!(
+                ctx.physics
+                    .cast_ray(vec2(f32::INFINITY, 0.0), Vec2::X, 100.0, with_sensors)
+                    .is_none()
+            );
             ctx.physics
-                .overlap_ball(vec2(10.0, 0.0), -1.0, QueryFilter::default(), &mut found);
+                .overlap_circle(vec2(10.0, 0.0), -1.0, QueryFilter::default(), &mut found);
             assert_eq!(found, vec![*solid]);
             ctx.physics
                 .overlap_circle(vec2(10.0, 0.0), f32::NAN, QueryFilter::default(), &mut found);
@@ -93,7 +101,7 @@ fn filtered_3d_queries_use_the_same_spelling_and_hit_fields() {
             let solid = *ctx.world.resource::<Entity>();
             let hit: Hit = ctx
                 .physics3d
-                .cast_ray_filtered(Vec3::ZERO, Vec3::X, 100.0, QueryFilter::default())
+                .cast_ray(Vec3::ZERO, Vec3::X, 100.0, QueryFilter::default())
                 .unwrap();
             assert_eq!(hit.entity, solid);
             assert_eq!(hit.distance, 9.0);
@@ -101,7 +109,7 @@ fn filtered_3d_queries_use_the_same_spelling_and_hit_fields() {
             assert_eq!(hit.normal, Vec3::NEG_X);
             assert!(
                 ctx.physics3d
-                    .cast_ray_filtered(Vec3::ZERO, Vec3::X, 100.0, QueryFilter::default().exclude(solid))
+                    .cast_ray(Vec3::ZERO, Vec3::X, 100.0, QueryFilter::default().exclude(solid))
                     .is_none()
             );
             assert_eq!(
@@ -112,9 +120,9 @@ fn filtered_3d_queries_use_the_same_spelling_and_hit_fields() {
             );
             let mut found = Vec::new();
             ctx.physics3d
-                .overlap_ball(vec3(5.0, 0.0, 0.0), 1.0, QueryFilter::default(), &mut found);
+                .overlap_sphere(vec3(5.0, 0.0, 0.0), 1.0, QueryFilter::default(), &mut found);
             assert!(found.is_empty());
-            ctx.physics3d.overlap_ball(
+            ctx.physics3d.overlap_sphere(
                 vec3(5.0, 0.0, 0.0),
                 1.0,
                 QueryFilter::default().with_sensors(),
@@ -194,7 +202,7 @@ fn prefab_2d_transform_placement_sets_rotation_and_scale_as_well_as_position() {
 }
 
 /// The 3D examples are written with `use ponko::d3::*;` and bare names: no
-/// type in their code carries a `3D` suffix (fields like `ctx.camera3d` and
+/// type in their code carries a `3D` suffix (fields like `ctx.scene3d.camera` and
 /// prose like "Ponko: 3D" are not type names).
 #[test]
 fn the_3d_examples_use_the_d3_module_without_suffixed_names() {

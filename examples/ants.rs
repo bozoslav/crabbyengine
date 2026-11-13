@@ -14,8 +14,8 @@
 //!
 //! Shows: the built-in spatial grid (finding food and nests), a field shared
 //! by all ants (the pheromones), seeded randomness inside `par_for_each`,
-//! systems at reduced rates (`sim_system_every`), entities taking turns
-//! (`ctx.turns`), components that refer to other entities (`Ant::home`),
+//! systems at reduced rates (`system.every(n)`), entities taking turns
+//! (`ctx.time.turns`), components that refer to other entities (`Ant::home`),
 //! and reflection, so agents can inspect and save a running colony through
 //! `ponko-mcp`.
 
@@ -352,8 +352,8 @@ fn colonies(game: Game, bounds: Vec2) -> Game {
     game.sim_system(steer(bounds))
         .sim_system(lay_trails)
         .sim_system(forage)
-        .sim_system_every(4, evaporate)
-        .sim_system_every(30, grow(bounds))
+        .add(Phase::AfterPhysics, evaporate.every(4))
+        .add(Phase::AfterPhysics, grow(bounds).every(30))
 }
 
 /// Nests on a grid, one per `NEST_AREA`; ants and food around them.
@@ -479,17 +479,13 @@ fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             let b = (home.sqrt() * 120.0) as u8;
             [g / 3, g, b.max(g / 4), 255]
         }));
-        ctx.gfx.update_texture(&field_tex, &pixels);
+        ctx.gfx.update_texture(field_tex, &pixels);
         ctx.gfx.clear(Color::BLACK);
         let scale = bounds / vec2(w as f32, h as f32);
         ctx.gfx.draw_ex(
-            &field_tex,
+            field_tex,
             bounds * 0.5,
-            DrawParams {
-                scale,
-                z: -10.0,
-                ..Default::default()
-            },
+            DrawParams::default().with_scale(scale).with_z(-10.0),
         );
 
         dots.clear();

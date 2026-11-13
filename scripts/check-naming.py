@@ -29,12 +29,12 @@ def references():
 
 
 def classify(name):
-    if name.endswith('README.md') or name in ('AGENTS.md', 'CLAUDE.md', 'CHANGELOG.md', 'NOTICE', 'LICENSE-MIT') or name.endswith('CONTENT-NOTICES.txt'):
+    if name.endswith('README.md') or name in ('AGENTS.md', 'CLAUDE.md', 'CHANGELOG.md', 'NOTICE', 'LICENSE-MIT') or name.endswith('CONTENT-NOTICES.txt') or name.startswith('changelog.d/'):
         return 'intentional history', 'Preserved project instructions, README text, release history or legal attribution.'
     if '/fixtures/' in name:
         return 'intentional history', 'Immutable historical ABI or saved-format baseline and its provenance/generator.'
-    if name.startswith(('include/crabby', 'crates/ponko_ffi/src/legacy')):
-        return 'deprecated compatibility', 'Optional legacy native exports and source shims; removal requires a major release no earlier than 2027-11-10.'
+    if name.startswith('changelog.d/'):
+        return 'intentional history', 'Release notes that name the removed legacy names.'
     if name.startswith('book/') or name == 'STABILITY.md':
         return 'deprecated compatibility', 'Migration instructions and deprecation schedule for legacy names.'
     if name.startswith('src/') or name == 'crates/ponko_mcp/src/lib.rs':

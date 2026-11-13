@@ -7,6 +7,7 @@ use crate::gfx::Graphics;
 /// What a [`TextureArray`]'s pixels hold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u32)]
+#[non_exhaustive]
 pub enum TextureKind {
     /// Colors, stored as sRGB (as images are painted); shaders read them as
     /// linear light.

@@ -44,7 +44,10 @@ fn fill(world: &mut World, keep: impl Fn(u32) -> bool) {
 /// world) and without it.
 fn answers(world: &mut World) -> [Vec<(Entity, u32)>; 3] {
     let rows = |hint: QueryCache, world: &mut World| -> Vec<(Entity, u32)> {
-        let q = world.query::<(Entity, &Height)>().with::<Tag<0>>().without::<Tag<1>>();
+        let q = world
+            .query::<(Entity, &Height)>()
+            .filter::<With<Tag<0>>>()
+            .filter::<Without<Tag<1>>>();
         let mut q = match hint {
             QueryCache::Always => q.cached(),
             QueryCache::Never => q.uncached(),

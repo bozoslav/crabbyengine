@@ -86,17 +86,17 @@ mod pipeline_cache;
 mod post;
 mod prepare;
 mod record;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "bench-internals")))]
 mod record_bench;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "bench-internals")))]
 pub use record_bench::{RecordBench, RecordScene};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "bench-internals")))]
 mod lod_bench;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "bench-internals")))]
 pub use lod_bench::{LodBench, LodFrame, LodMemory, LodPath, LodScene};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "bench-internals")))]
 mod scene_bench;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "bench-internals")))]
 pub use scene_bench::{SceneBench, SceneFrame, SceneKind, SceneSetup};
 mod resources;
 mod screen_space;

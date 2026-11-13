@@ -10,7 +10,7 @@
 /// let orange = Color::hex(0xFF8800);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
-#[repr(C)] // shared with C/C++ (`CrabbyColor`)
+#[repr(C)] // shared with C/C++ (`PonkoColor`)
 pub struct Color {
     /// Red, 0 to 1.
     pub r: f32,
@@ -41,9 +41,6 @@ impl Color {
     pub const TRANSPARENT: Color = Color::rgba(0.0, 0.0, 0.0, 0.0);
     /// A soft dark blue-gray, the default clear color.
     pub const PONKO_DARK: Color = Color::rgb(0.11, 0.12, 0.15);
-    /// Legacy spelling of [`Color::PONKO_DARK`].
-    #[deprecated(note = "Use PONKO_DARK; removal in a major release, no earlier than 2027-11-10")]
-    pub const CRABBY_DARK: Color = Self::PONKO_DARK;
 
     /// An opaque color from red, green and blue (each 0.0 to 1.0).
     ///

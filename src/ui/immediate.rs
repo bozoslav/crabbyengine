@@ -206,17 +206,4 @@ mod tests {
             .sim_system(second)
             .run_headless(1, |_| {});
     }
-
-    #[test]
-    #[allow(deprecated)]
-    fn the_flat_spelling_reads_the_mouse_as_it_is_now() {
-        Game::new("t", 800, 600).run_headless(0, |ctx| {
-            ctx.ui
-                .immediate
-                .panel(&mut ctx.gfx, Rect::new(100.0, 100.0, 50.0, 50.0));
-            ctx.input.set_mouse_pos(vec2(120.0, 120.0));
-            assert!(ctx.mouse_over_ui());
-            assert!(!ctx.ui.wants_pointer());
-        });
-    }
 }

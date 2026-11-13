@@ -2,7 +2,7 @@
 """Fail when a C ABI export has no test and no reasoned allowlist entry.
 
 An export (`extern "C" fn` in crates/ponko_ffi/src) counts as tested when its
-`crabby_` or `ponko_` spelling appears, outside comments and string literals
+name appears, outside comments and string literals
 (a name in a message or a path is not a call), in an FFI test
 (crates/ponko_ffi/tests/*.rs) or a native suite (examples/cpp/*.c, *.cpp).
 Doctests in src/ don't count: most only pass a null pointer.
@@ -48,7 +48,7 @@ def code_only(text):
 def exports():
     names = set()
     for source in sorted((ROOT / 'crates/ponko_ffi/src').rglob('*.rs')):
-        names.update(n.replace('crabby_', 'ponko_', 1) for n in EXPORT.findall(source.read_text()))
+        names.update(EXPORT.findall(source.read_text()))
     return names
 
 
@@ -61,8 +61,7 @@ def test_text():
 def untested(names, text):
     result = set()
     for name in names:
-        short = name.removeprefix('ponko_')
-        if not re.search(rf'(^|[^a-z0-9_])({name}|crabby_{short})([^a-z0-9_]|$)', text):
+        if not re.search(rf'(^|[^a-z0-9_]){name}([^a-z0-9_]|$)', text):
             result.add(name)
     return result
 

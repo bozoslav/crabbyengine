@@ -481,15 +481,15 @@ AXGroup
         assert_eq!(menu.after_request(), []);
 
         // Hidden: gone, with nothing left behind.
-        let mut hidden: ponko::ui::layout::Style = UiLayout::row(20.0).into();
-        hidden.display = ponko::ui::layout::Display::None;
-        menu.ui.set_layout(menu.volume, hidden);
+        let mut hidden: ponko::ui::unstable_taffy::Style = UiLayout::row(20.0).into_style();
+        hidden.display = ponko::ui::unstable_taffy::Display::None;
+        menu.ui.set_layout(menu.volume, ponko::ui::UiLayout::custom(hidden));
         menu.frame(UiInput::default());
         assert!(try_find(&menu.view, "AXSlider", "Volume").is_none());
         assert_eq!(children(&children(&children(&menu.view)[0])[0]).len(), 5);
 
         // Shown again.
-        menu.ui.set_layout(menu.volume, UiLayout::row(20.0).into());
+        menu.ui.set_layout(menu.volume, UiLayout::row(20.0));
         menu.frame(UiInput::default());
         assert_eq!(value(&find(&menu.view, "AXSlider", "Volume")), Value::Number(0.5));
     }

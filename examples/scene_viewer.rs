@@ -68,7 +68,7 @@ fn main() {
             }
             let dt = ctx.dt();
             if ctx.time.frame() == 1 {
-                let (y, x, _) = ctx.camera3d.rotation.to_euler(glam::EulerRot::YXZ);
+                let (y, x, _) = ctx.scene3d.camera.rotation.to_euler(glam::EulerRot::YXZ);
                 (yaw, pitch) = (y, x);
             }
             let turn = 1.2 * dt;
@@ -103,8 +103,8 @@ fn main() {
             if ctx.key_down(Key::Q) {
                 go -= Vec3::Y;
             }
-            ctx.camera3d.position += go * speed;
-            ctx.camera3d.rotation = rotation;
+            ctx.scene3d.camera.position += go * speed;
+            ctx.scene3d.camera.rotation = rotation;
             if ctx.time.frame() == 300
                 && let Some(path) = &shot
             {
@@ -116,15 +116,15 @@ fn main() {
         })
         .setup(move |ctx| {
             ctx.load_scene(&scene).unwrap_or_else(|e| panic!("{e}"));
-            ctx.lighting.sun_direction = Sky::sun_direction_at(15.0);
-            ctx.lighting.shadow_distance = 400.0;
-            ctx.camera3d.far = 3000.0;
-            ctx.post.bloom = 0.05;
+            ctx.scene3d.lighting.sun_direction = Sky::sun_direction_at(15.0);
+            ctx.scene3d.lighting.shadow_distance = 400.0;
+            ctx.scene3d.camera.far = 3000.0;
+            ctx.scene3d.post.bloom = 0.05;
             let (middle, size) = extent(&mut ctx.world);
             let (at, yaw, pitch) =
                 camera_from_env().unwrap_or((middle + vec3(0.0, size * 0.25, size * 0.4), 0.0, -0.5));
-            ctx.camera3d.position = at;
-            ctx.camera3d.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch);
+            ctx.scene3d.camera.position = at;
+            ctx.scene3d.camera.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch);
         })
         .run();
 }

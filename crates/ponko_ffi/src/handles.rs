@@ -4,6 +4,7 @@
 
 use std::ffi::c_char;
 
+use ponko::__ffi;
 use ponko::handle::LiveCounts;
 use ponko::inventory::{AssetClass, AssetOwner};
 use ponko::render::Compute;
@@ -14,7 +15,7 @@ use ponko::render::Material;
 use ponko::render::Mesh;
 use ponko::render::Shader;
 use ponko::terrain::TextureArray;
-use ponko::{Font, Handle, Sound, Texture};
+use ponko::{Font, Sound, Texture};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::{PonkoCtx, PonkoStatus, boundary, invalid};
@@ -118,47 +119,47 @@ macro_rules! with_handle {
     ($kind:expr, $id:expr, |$h:ident| $body:expr) => {
         match $kind {
             0 => {
-                let $h = Texture::from_id($id);
+                let $h = __ffi::from_id::<Texture>($id);
                 Ok($body)
             }
             1 => {
-                let $h = Sound::from_id($id);
+                let $h = __ffi::from_id::<Sound>($id);
                 Ok($body)
             }
             2 => {
-                let $h = Font::from_id($id);
+                let $h = __ffi::from_id::<Font>($id);
                 Ok($body)
             }
             3 => {
-                let $h = Mesh::from_id($id);
+                let $h = __ffi::from_id::<Mesh>($id);
                 Ok($body)
             }
             4 => {
-                let $h = Material::from_id($id);
+                let $h = __ffi::from_id::<Material>($id);
                 Ok($body)
             }
             5 => {
-                let $h = Shader::from_id($id);
+                let $h = __ffi::from_id::<Shader>($id);
                 Ok($body)
             }
             6 => {
-                let $h = Compute::from_id($id);
+                let $h = __ffi::from_id::<Compute>($id);
                 Ok($body)
             }
             7 => {
-                let $h = Effect::from_id($id);
+                let $h = __ffi::from_id::<Effect>($id);
                 Ok($body)
             }
             8 => {
-                let $h = GpuBuffer::from_id($id);
+                let $h = __ffi::from_id::<GpuBuffer>($id);
                 Ok($body)
             }
             9 => {
-                let $h = InstanceBatch::from_id($id);
+                let $h = __ffi::from_id::<InstanceBatch>($id);
                 Ok($body)
             }
             10 => {
-                let $h = TextureArray::from_id($id);
+                let $h = __ffi::from_id::<TextureArray>($id);
                 Ok($body)
             }
             _ => Err(invalid("unknown handle kind")),

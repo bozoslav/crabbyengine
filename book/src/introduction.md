@@ -36,7 +36,7 @@ fn main() {
             if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
             if ctx.key_down(Key::Left) { pos.x -= 200.0 * ctx.dt(); }
             if ctx.key_pressed(Key::Escape) { ctx.quit(); }
-            ctx.draw(&crab, pos);
+            ctx.draw(crab, pos);
         }
     });
 }
@@ -52,8 +52,7 @@ fn main() {
 </div>
 </div>
 
-The C++ wrapper provides `ponko::` through `ponko.hpp`; legacy spellings remain supported during
-the rename. Continue with [Getting started](getting-started.md) for installation
+The C++ wrapper provides `ponko::` through `ponko.hpp`. Continue with [Getting started](getting-started.md) for installation
 and the paired API examples.
 
 Grow into [entities and systems](ecs.md), fixed-step simulation and parallel

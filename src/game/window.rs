@@ -39,7 +39,7 @@ where
     if ctx.perf.profiler.benchmarking() {
         game.vsync = false;
     }
-    match crate::environment::var("PONKO_VSYNC").as_deref() {
+    match std::env::var("PONKO_VSYNC").as_deref() {
         Ok("0") => game.vsync = false,
         Ok("1") => game.vsync = true,
         _ => {}
@@ -107,7 +107,7 @@ fn print_mesh_costs(ctx: &Ctx) {
         );
     }
     // Every mesh, for sorting and grouping elsewhere.
-    if let Some(path) = crate::environment::var_os("PONKO_BENCH_MESHES") {
+    if let Some(path) = std::env::var_os("PONKO_BENCH_MESHES") {
         let mut csv = String::from("models,triangles,shadow_models,shadow_triangles,name\n");
         for c in &costs {
             csv.push_str(&format!(
@@ -327,7 +327,7 @@ where
         // Benchmarks draw offscreen: a window is shown at most once per display
         // refresh, so above that rate presenting stalls now and then.
         // PONKO_BENCH_PRESENT=1 draws to the window when it can take a frame.
-        let present = crate::environment::var("PONKO_BENCH_PRESENT").is_ok_and(|v| v == "1");
+        let present = std::env::var("PONKO_BENCH_PRESENT").is_ok_and(|v| v == "1");
         let benchmarking = self.ctx.perf.profiler.benchmarking();
         renderer.set_draw_hidden(benchmarking, benchmarking && !present);
         self.ctx.gfx.renderer = Some(renderer);
@@ -352,6 +352,8 @@ where
             let frame_fn = setup(&mut self.ctx).into_frame_fn();
             self.ctx.set_in_setup(false);
             self.ctx.apply_commands();
+            // A sample count set in setup, before the first frame is drawn.
+            self.ctx.follow_msaa();
             if let Some(f) = frame_fn {
                 let index = self.config.systems.partition_point(|s| s.stage <= Phase::Frame);
                 let id = next_system_id();
@@ -427,7 +429,13 @@ where
         self.window = Some(window.clone());
         let display = event_loop.owned_display_handle();
         let vsync = self.config.vsync;
-        let msaa = self.config.msaa;
+        // The 3D frame's samples per pixel so far (setup hasn't run yet: the
+        // default). A count set by a setup callback applies right after it
+        // (`Ctx::follow_msaa`), before the first frame.
+        #[cfg(feature = "3d")]
+        let msaa = self.ctx.scene3d.post.msaa;
+        #[cfg(not(feature = "3d"))]
+        let msaa = 4;
 
         // Desktop: open the GPU and start right away.
         #[cfg(not(target_arch = "wasm32"))]

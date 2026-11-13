@@ -217,7 +217,7 @@ fn moving_the_transform_teleports_the_body() {
             if ctx.time.sim_tick() == 5 {
                 ctx.world
                     .query::<&mut Transform3D>()
-                    .with::<RigidBody3D>()
+                    .filter::<With<RigidBody3D>>()
                     .for_each(|t| t.position = vec3(50.0, 7.0, -3.0));
             }
         })
@@ -257,7 +257,12 @@ fn bodies_leave_the_world_when_despawned() {
         .physics3d(GRAVITY)
         .sim_system(move |ctx: &mut Ctx| {
             if ctx.time.sim_tick() == 2 {
-                let all: Vec<Entity> = ctx.world.query::<Entity>().with::<RigidBody3D>().iter().collect();
+                let all: Vec<Entity> = ctx
+                    .world
+                    .query::<Entity>()
+                    .filter::<With<RigidBody3D>>()
+                    .iter()
+                    .collect();
                 for e in all {
                     ctx.world.despawn(e);
                 }
@@ -543,13 +548,13 @@ fn convex_hulls_and_trimeshes_collide() {
 fn freed_meshes_are_gone_and_their_handles_stay_dead() {
     let mut physics = Physics3D::default();
     let a = physics.heightfield(&[0.0; 4], 1.0);
-    assert!(physics.is_mesh_live(a));
-    physics.free_mesh(a);
-    assert!(!physics.is_mesh_live(a));
+    assert!(physics.is_live(a));
+    physics.free(a);
+    assert!(!physics.is_live(a));
     let b = physics.heightfield(&[0.0; 4], 1.0);
     assert_ne!(a, b, "the slot is reused under a new generation");
-    physics.free_mesh(a);
-    assert!(physics.is_mesh_live(b), "freeing a stale handle does nothing");
+    physics.free(a);
+    assert!(physics.is_live(b), "freeing a stale handle does nothing");
 }
 
 #[test]
@@ -559,7 +564,13 @@ fn impulses_push_dynamic_bodies() {
         .physics3d(Vec3::ZERO)
         .sim_system(|ctx: &mut Ctx| {
             if ctx.time.sim_tick() == 1 {
-                let e = ctx.world.query::<Entity>().with::<RigidBody3D>().iter().next().unwrap();
+                let e = ctx
+                    .world
+                    .query::<Entity>()
+                    .filter::<With<RigidBody3D>>()
+                    .iter()
+                    .next()
+                    .unwrap();
                 let mass = ctx.physics3d.mass(e).unwrap();
                 assert!(ctx.physics3d.apply_impulse(e, vec3(2.0 * mass, 0.0, 0.0)));
             }
@@ -603,7 +614,7 @@ fn walk(start: Vec3, speed: f32, ticks: u64, level: impl FnOnce(&mut Ctx) + 'sta
             // Facing where it walks: turning isn't moving.
             ctx.world
                 .query::<&mut Transform3D>()
-                .with::<Character3D>()
+                .filter::<With<Character3D>>()
                 .for_each(|t| t.rotation = Quat::from_rotation_y(0.1) * t.rotation);
         })
         .physics3d(GRAVITY)
@@ -735,7 +746,7 @@ fn a_character_jumps_and_lands() {
                 let y = ctx
                     .world
                     .query::<&Transform3D>()
-                    .with::<Character3D>()
+                    .filter::<With<Character3D>>()
                     .iter()
                     .next()
                     .unwrap()

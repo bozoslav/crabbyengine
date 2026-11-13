@@ -455,12 +455,11 @@ pub unsafe extern "C" fn ponko_ctx_draw_text_ex(
             c.gfx.draw_text_ex(
                 string,
                 to_c(pos),
-                TextParams {
-                    font: font_from_c(p.font),
-                    size: p.size,
-                    color: to_c(p.color),
-                    z: p.z,
-                },
+                TextParams::default()
+                    .with_font(font_from_c(p.font))
+                    .with_size(p.size)
+                    .with_color(to_c(p.color))
+                    .with_z(p.z),
             );
             Ok(())
         })
@@ -583,7 +582,7 @@ pub unsafe extern "C" fn ponko_ctx_play_sound(
                 *params
             };
             let playing = c.audio.play_ex(
-                &sound_from_c(sound),
+                sound_from_c(sound),
                 SoundParams {
                     volume: p.volume,
                     speed: p.speed,

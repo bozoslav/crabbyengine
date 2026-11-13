@@ -44,7 +44,7 @@ fn moving_the_transform_teleports_the_body() {
             if ctx.time.sim_tick() == 5 {
                 ctx.world
                     .query::<&mut Transform2D>()
-                    .with::<RigidBody>()
+                    .filter::<With<RigidBody>>()
                     .for_each(|t| t.position = vec2(500.0, 7.0));
             }
         })
@@ -86,7 +86,7 @@ fn body_counts_follow_the_world() {
     let seen = counts.clone();
     Game::new("t", 1, 1)
         .add(Phase::BeforePhysics, |ctx: &mut Ctx| {
-            let bodies: Vec<Entity> = ctx.world.query::<Entity>().with::<RigidBody>().iter().collect();
+            let bodies: Vec<Entity> = ctx.world.query::<Entity>().filter::<With<RigidBody>>().iter().collect();
             match ctx.time.sim_tick() {
                 1 => {
                     ctx.world.despawn(bodies[0]);
@@ -168,13 +168,15 @@ fn rays_and_overlap_queries_find_entities() {
         .sim_system(|ctx: &mut Ctx| {
             // Queries see the bodies once they have been stepped.
             if ctx.time.sim_tick() == 1 {
+                let sensors = ponko::d2::QueryFilter::default().with_sensors();
                 let mut found = Found {
-                    ray: ctx.physics.cast_ray(vec2(0.0, 0.0), vec2(1.0, 0.0), 1000.0),
-                    behind: ctx.physics.cast_ray(vec2(0.0, 0.0), vec2(-1.0, 0.0), 1000.0),
+                    ray: ctx.physics.cast_ray(vec2(0.0, 0.0), vec2(1.0, 0.0), 1000.0, sensors),
+                    behind: ctx.physics.cast_ray(vec2(0.0, 0.0), vec2(-1.0, 0.0), 1000.0, sensors),
                     ..Found::default()
                 };
-                ctx.physics.entities_at(vec2(300.0, 5.0), &mut found.at);
-                ctx.physics.entities_in_circle(vec2(200.0, 0.0), 95.0, &mut found.near);
+                ctx.physics.overlap_point(vec2(300.0, 5.0), sensors, &mut found.at);
+                ctx.physics
+                    .overlap_circle(vec2(200.0, 0.0), 95.0, sensors, &mut found.near);
                 ctx.world.insert_resource(found);
             }
         })
@@ -207,7 +209,13 @@ fn impulses_push_dynamic_bodies() {
         .physics(Vec2::ZERO)
         .sim_system(|ctx: &mut Ctx| {
             if ctx.time.sim_tick() == 1 {
-                let e = ctx.world.query::<Entity>().with::<RigidBody>().iter().next().unwrap();
+                let e = ctx
+                    .world
+                    .query::<Entity>()
+                    .filter::<With<RigidBody>>()
+                    .iter()
+                    .next()
+                    .unwrap();
                 let mass = ctx.physics.mass(e).unwrap();
                 assert!(
                     (mass - std::f32::consts::PI * 100.0).abs() < 1.0,
@@ -236,7 +244,7 @@ fn pile(seed_offset: f32) -> Vec<(Vec2, f32)> {
     });
     world
         .query::<&Transform2D>()
-        .with::<RigidBody>()
+        .filter::<With<RigidBody>>()
         .iter()
         .map(|t| (t.position, t.rotation))
         .collect()
@@ -256,7 +264,12 @@ fn physics_components_are_reflected() {
         let (t, r, c) = ball(vec2(1.0, 2.0));
         ctx.world.spawn((t, r, c, Velocity::default()));
     });
-    let e = world.query::<Entity>().with::<RigidBody>().iter().next().unwrap();
+    let e = world
+        .query::<Entity>()
+        .filter::<With<RigidBody>>()
+        .iter()
+        .next()
+        .unwrap();
     let json = world.entity_json(e).unwrap();
     assert_eq!(json["RigidBody"]["kind"], "Dynamic");
     assert_eq!(json["Collider"]["shape"]["Circle"]["radius"], 10.0);
@@ -271,11 +284,14 @@ fn changing_a_collider_rebuilds_it() {
         .sim_system(|ctx: &mut Ctx| {
             if ctx.time.sim_tick() == 10 {
                 // The ball turns into a sensor and falls through the ground.
-                ctx.world.query::<&mut Collider>().with::<RigidBody>().for_each(|c| {
-                    if matches!(c.shape, Shape::Circle { .. }) {
-                        c.sensor = true;
-                    }
-                });
+                ctx.world
+                    .query::<&mut Collider>()
+                    .filter::<With<RigidBody>>()
+                    .for_each(|c| {
+                        if matches!(c.shape, Shape::Circle { .. }) {
+                            c.sensor = true;
+                        }
+                    });
             }
         })
         .run_headless(120, |ctx| {

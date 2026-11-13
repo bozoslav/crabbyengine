@@ -11,7 +11,7 @@ use crate::entity::Entity;
 /// Identifies a component type inside one [`World`](crate::World).
 ///
 /// Rust types get one automatically the first time they are used; other
-/// languages get one from [`World::register_component`](crate::World::register_component).
+/// languages get one from [`RawWorld::register_component`](crate::RawWorld::register_component).
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, PartialOrd, Ord, Default)]
 pub struct ComponentId(pub(crate) u32);
 
@@ -430,10 +430,40 @@ impl Archetype {
     }
 
     /// Start of the column for component `id` (`len()` values, tightly packed),
-    /// or `None` if entities here don't have it. This is what C/C++ systems use.
+    /// or `None` if entities here don't have it: for tools that read whole
+    /// columns, such as the inspector.
+    ///
+    /// The pointer is for reading only: an archetype reached through a shared
+    /// world doesn't give the right to write its values. To write whole
+    /// columns, use [`RawWorld::for_each_chunk`](crate::RawWorld::for_each_chunk)
+    /// or [`RawWorld::query_chunks`](crate::RawWorld::query_chunks), which
+    /// hold the world exclusively and hand out `*mut` pointers.
+    ///
+    /// ```
+    /// use ponko_ecs::World;
+    ///
+    /// let mut world = World::new();
+    /// world.spawn((7u32,));
+    /// let id = world.component_id::<u32>().unwrap();
+    /// let table = world.raw_ref().archetypes().iter().find(|a| a.has(id)).unwrap();
+    /// let column = table.column_ptr(id).unwrap().cast::<u32>();
+    /// // SAFETY: the column holds `table.len()` (one) `u32`, and nothing
+    /// // changes the world while it is read.
+    /// assert_eq!(unsafe { *column }, 7);
+    /// ```
     #[inline]
     #[must_use]
-    pub fn column_ptr(&self, id: ComponentId) -> Option<*mut u8> {
+    pub fn column_ptr(&self, id: ComponentId) -> Option<*const u8> {
+        self.column_base(id).map(<*mut u8>::cast_const)
+    }
+
+    /// [`column_ptr`](Self::column_ptr) for this crate's own writers: queries
+    /// that fetch `&mut T` and the chunk loops. A column is a raw allocation,
+    /// so its pointer allows writing whatever borrow of the archetype it came
+    /// through; whoever writes must hold the world exclusively, or be a view
+    /// that declared writing the component.
+    #[inline]
+    pub(crate) fn column_base(&self, id: ComponentId) -> Option<*mut u8> {
         self.column_index(id).map(|i| self.columns[i].base())
     }
 

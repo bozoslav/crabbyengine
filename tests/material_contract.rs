@@ -1,8 +1,8 @@
 //! Executable guide examples and public shader contract regressions.
 #![cfg(feature = "3d")]
-use ponko::anim::{Blend, Joint, Skeleton};
+use ponko::anim::{Joint, Skeleton};
 use ponko::prelude::*;
-use ponko::render::{MaterialDesc, MaterialInstancing, MaterialSides, MaterialVariantKey, MeshData, Model};
+use ponko::render::{Blend, MaterialDesc, MeshData, Model};
 
 // ANCHOR: material_features
 const UNLIT: &str = include_str!("fixtures/shaders/material-unlit.wgsl");
@@ -13,15 +13,16 @@ fn material_features(ctx: &mut Ctx) {
     for blend in [Blend::Opaque, Blend::Cutout, Blend::Transparent] {
         for double_sided in [false, true] {
             for shader in [None, Some(unlit)] {
-                let desc = MaterialDesc {
-                    color: Color::rgba(1.0, 1.0, 1.0, if blend == Blend::Transparent { 0.3 } else { 1.0 }),
-                    blend,
-                    double_sided,
-                    shader,
-                    ..Default::default()
-                };
-                let key = desc.variant_key(MaterialInstancing::Plain);
-                assert_eq!(key.sides, MaterialSides::of(double_sided));
+                let desc = MaterialDesc::default()
+                    .with_color(Color::rgba(
+                        1.0,
+                        1.0,
+                        1.0,
+                        if blend == Blend::Transparent { 0.3 } else { 1.0 },
+                    ))
+                    .with_blend(blend)
+                    .with_double_sided(double_sided)
+                    .with_shader(shader);
                 let material = ctx.gfx.create_material(desc);
                 let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
                 ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
@@ -70,10 +71,7 @@ fn vertex(v: Vertex) -> Vertex {
     return out;
 }",
     );
-    let material = ctx.gfx.create_material(MaterialDesc {
-        shader: Some(shader),
-        ..Default::default()
-    });
+    let material = ctx.gfx.create_material(MaterialDesc::default().with_shader(shader));
     let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
     // The cube's radius plus the maximum two-unit world displacement.
     // This bound assumes unit scale; adapt it when changing the transform.
@@ -90,18 +88,6 @@ fn every_guide_feature_sample_runs() {
         instanced_material(ctx);
         displaced_material(ctx);
     });
-}
-
-#[test]
-fn variant_keys_cover_the_renderer_sets_without_device_handles() {
-    let keys: std::collections::HashSet<_> = MaterialVariantKey::ALL.into_iter().collect();
-    assert_eq!(keys.len(), 6);
-    for sides in MaterialSides::ALL {
-        for instancing in MaterialInstancing::ALL {
-            assert!(keys.contains(&MaterialVariantKey::new(sides, instancing)));
-        }
-    }
-    assert_eq!(MaterialInstancing::of(true, true), MaterialInstancing::Shared);
 }
 
 #[cfg(feature = "window")]

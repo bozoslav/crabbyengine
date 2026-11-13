@@ -281,8 +281,8 @@ pub struct GpuFeatureStatus {
 /// the per-feature entries of [`GpuCapabilities`] are the exact answer.
 /// Nothing in the table fails on a weaker tier: each unavailable feature
 /// falls back as its [`GpuFeatureStatus`] says.
-/// [`GraphicsQuality::for_tier`](crate::render::GraphicsQuality::for_tier) picks a
-/// preset per tier.
+/// [`SceneSettings::set_recommended_quality`](crate::render::SceneSettings::set_recommended_quality)
+/// picks a preset per tier.
 ///
 /// ```
 /// use ponko::prelude::*;
@@ -633,15 +633,7 @@ pub(crate) fn report(
                             limits.max_sampled_textures_per_shader_stage
                         ),
                     ),
-                    GpuFeature::Multisampling => (
-                        msaa.0 == msaa.1,
-                        if msaa.1 <= 1 {
-                            "no multisampling: edges are smoothed only by FXAA or SMAA, if chosen".into()
-                        } else {
-                            format!("{}x multisampling", msaa.1)
-                        },
-                        format!("the GPU can't multisample the 3D frame's color and depth {}x", msaa.0),
-                    ),
+                    GpuFeature::Multisampling => multisampling(msaa.0, msaa.1),
                 }
             };
             GpuFeatureStatus {
@@ -659,6 +651,40 @@ pub(crate) fn report(
         limits,
         features,
         forced_tier: None,
+    }
+}
+
+/// Multisampling's entry: available when the 3D frame uses the `requested`
+/// sample count; otherwise `used` is the fallback.
+fn multisampling(requested: u32, used: u32) -> (bool, String, String) {
+    (
+        requested == used,
+        if used <= 1 {
+            "no multisampling: edges are smoothed only by FXAA or SMAA, if chosen".into()
+        } else {
+            format!("{used}x multisampling")
+        },
+        if matches!(requested, 2 | 4) {
+            format!("the GPU can't multisample the 3D frame's color and depth {requested}x")
+        } else {
+            format!("the 3D frame takes 2 or 4 samples, not {requested}x")
+        },
+    )
+}
+
+/// Updates the Multisampling entry of `caps` after the game asked for
+/// `requested` samples and the 3D frame uses `used` (`Post::msaa`).
+#[cfg(all(feature = "window", feature = "3d"))]
+pub(crate) fn set_multisampling(caps: &mut GpuCapabilities, requested: u32, used: u32) {
+    let (available, fallback, reason) = multisampling(requested, used);
+    if let Some(status) = caps
+        .features
+        .iter_mut()
+        .find(|s| s.feature == GpuFeature::Multisampling)
+    {
+        status.available = available;
+        status.fallback = (!available).then_some(fallback);
+        status.reason = (!available).then_some(reason);
     }
 }
 
@@ -847,6 +873,23 @@ mod tests {
         assert!(!msaa.available);
         assert_eq!(msaa.fallback.as_deref(), Some("4x multisampling"));
         assert!(msaa.reason.as_deref().unwrap().contains("8x"));
+    }
+
+    #[cfg(all(feature = "window", feature = "3d"))]
+    #[test]
+    fn a_later_request_updates_the_multisampling_entry() {
+        let mut r = report(GpuAdapter::default(), webgpu(24), true, (4, 4), true);
+        set_multisampling(&mut r, 2, 4);
+        let msaa = r.feature(GpuFeature::Multisampling).unwrap();
+        assert!(!msaa.available);
+        assert_eq!(msaa.fallback.as_deref(), Some("4x multisampling"));
+        assert!(msaa.reason.as_deref().unwrap().contains("2x"));
+        set_multisampling(&mut r, 8, 4);
+        let reason = r.feature(GpuFeature::Multisampling).unwrap().reason.clone().unwrap();
+        assert!(reason.contains("takes 2 or 4 samples, not 8x"), "{reason}");
+        set_multisampling(&mut r, 2, 2);
+        assert!(r.available(GpuFeature::Multisampling));
+        assert_eq!(r.feature(GpuFeature::Multisampling).unwrap().fallback, None);
     }
 
     #[test]

@@ -743,7 +743,9 @@ mod imp {
             // SAFETY: forwarded caller contract.
             let hit = unsafe {
                 ctx_access(ctx, |c| {
-                    Ok(c.physics.cast_ray(to_c(origin), to_c(direction), max_distance))
+                    // The C call has no filter: it sees sensors too.
+                    let sensors = ponko::d2::QueryFilter::default().with_sensors();
+                    Ok(c.physics.cast_ray(to_c(origin), to_c(direction), max_distance, sensors))
                 })?
             };
             // SAFETY: checked non-null; the caller supplies writable outputs.
@@ -779,9 +781,11 @@ mod imp {
                 // SAFETY: forwarded caller contract.
                 unsafe {
                     ctx_access(ctx, |c| {
+                        // The C calls have no filter: they see sensors too.
+                        let sensors = ponko::d2::QueryFilter::default().with_sensors();
                         match radius {
-                            None => c.physics.entities_at(to_c(at), found),
-                            Some(r) => c.physics.entities_in_circle(to_c(at), r, found),
+                            None => c.physics.overlap_point(to_c(at), sensors, found),
+                            Some(r) => c.physics.overlap_circle(to_c(at), r, sensors, found),
                         }
                         Ok(())
                     })?;

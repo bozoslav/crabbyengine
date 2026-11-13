@@ -106,7 +106,7 @@ three runs of the current engine:
 | 32 | 7.1 | 26.3 | 43.4 | 58.4 |
 | 64 | 8.8 | 25.5 | 85.6 | 147 |
 
-Adding `.without::<Tag>()` (a `has` miss, which scans the whole list) costs
+Adding `.filter::<Without<Tag>>()` (a `has` miss, which scans the whole list) costs
 another 2-20 ns per archetype hot, growing with the width.
 
 - **Membership cost depends on where the id sits, not only on the width.**

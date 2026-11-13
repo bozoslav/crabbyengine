@@ -31,8 +31,7 @@
   `ctx.gfx.write_animated_morphs(&mut ctx.world)`,
   `ctx.gfx.bake_reflection_probe(&mut ctx.world, entity)`,
   `ctx.gfx.load_reflection_probe(&mut ctx.world, entity, name)`,
-  `ctx.gfx.quality(&ctx.post, &ctx.lighting)`,
-  `ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, quality)`,
+  `ctx.scene3d.quality()`, `ctx.scene3d.set_quality(quality)`,
   `ctx.ui.immediate.panel(&mut ctx.gfx, rect)`,
   `ctx.ui.immediate.label(&mut ctx.gfx, pos, text)` and
   `ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, rect, label)`. The

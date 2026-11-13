@@ -25,11 +25,11 @@ fn setup(ctx: &mut Ctx) {
     };
     ctx.world
         .spawn((Transform::at(vec3(4.0, 0.0, 0.0)), AudioSource::new(hum, settings)));
-    ctx.audio.play_at(&hum, vec3(-4.0, 0.0, 0.0), AudioSettings::default());
+    ctx.audio.play_at(hum, vec3(-4.0, 0.0, 0.0), AudioSettings::default());
 }
 
 fn main() {
-    // The sounds follow their entities and the listener (ctx.camera3d) by themselves.
+    // The sounds follow their entities and the listener (ctx.scene3d.camera) by themselves.
     Game::new("Spatial audio", 800, 600).setup(setup).run();
 }
 // ANCHOR_END: sound3d
@@ -40,7 +40,7 @@ fn buses_and_effects(ctx: &mut Ctx, sound: Sound) {
     let music = ctx.audio.bus("music"); // Save this handle; names are looked up once.
     ctx.audio.set_bus_volume(music, 0.6);
     let voice = ctx.audio.play_on(
-        &sound,
+        sound,
         SoundParams {
             looping: true,
             ..Default::default()
@@ -68,7 +68,7 @@ fn buses_and_effects(ctx: &mut Ctx, sound: Sound) {
         },
         ..Default::default()
     };
-    ctx.audio.play_at(&sound, vec3(3.0, 0.0, 0.0), settings);
+    ctx.audio.play_at(sound, vec3(3.0, 0.0, 0.0), settings);
 }
 // ANCHOR_END: audio_mixer
 
@@ -78,7 +78,7 @@ fn streaming_music(ctx: &mut Ctx) {
     let music = ctx.audio.bus("music");
     let song = ctx.audio.load_stream("music.ogg");
     let voice = ctx.audio.play_on(
-        &song,
+        song,
         SoundParams {
             looping: true,
             ..Default::default()

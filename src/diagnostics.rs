@@ -36,8 +36,8 @@
 //!     assert_eq!(d.system("check").unwrap().alone.as_ref().unwrap().reason, "undeclared");
 //! }
 //! Game::new("t", 1, 1)
-//!     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Pos>().read::<Vel>(), movement)
-//!     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Vel>(), friction)
+//!     .add(Phase::AfterPhysics, movement.access(SystemAccess::new().write::<Pos>().read::<Vel>()))
+//!     .add(Phase::AfterPhysics, friction.access(SystemAccess::new().write::<Vel>()))
 //!     .add(Phase::SimLast, check)
 //!     .run_headless(1, |_| {});
 //! ```
@@ -138,11 +138,12 @@ pub struct SystemDiagnostics {
     /// - `exclusive`: anything. It has no declaration (or declares
     ///   [`SystemAccess::exclusive`]), so nothing can run beside it.
     /// - `declared`: a `&mut Ctx` system with a declaration
-    ///   ([`Game::add_with_access`](crate::Game::add_with_access), C and
-    ///   C++ systems). The declaration is only checked in debug builds, so
-    ///   it still runs alone.
-    /// - `view`: a view system ([`Game::add_view`](crate::Game::add_view)).
-    ///   It can reach nothing beyond its declaration and may share a batch.
+    ///   ([`IntoSystem::access`](crate::IntoSystem::access), C and C++
+    ///   systems). The declaration is only checked in debug builds, so it
+    ///   still runs alone.
+    /// - `view`: a view system (one that takes `&mut SystemView`; see
+    ///   [`Game::add`](crate::Game::add)). It can reach nothing beyond its
+    ///   declaration and may share a batch.
     pub access: String,
     /// The declaration, by name; `None` for an undeclared system.
     pub declared: Option<AccessDiagnostics>,
@@ -535,7 +536,7 @@ pub(crate) fn snapshot(ctx: &Ctx) -> EcsDiagnostics {
 /// `Game::order` pair is wrong (the game panics on that when it starts).
 fn plan_of(source: &PlanSource) -> Option<SchedulePlan> {
     let ids = source.systems.iter().map(|s| (s.id, s.name));
-    if source.systems.is_empty() || crate::schedule::order_problem(ids, &source.order).is_some() {
+    if source.systems.is_empty() || crate::schedule::check_order(ids, &source.order).is_err() {
         return None;
     }
     let inputs: Vec<PlanInput<'_>> = (source.systems.iter())
@@ -616,6 +617,7 @@ fn schedule(source: &PlanSource, plan: Option<&SchedulePlan>, dispatch: &[Dispat
     let report = AccessReport::new(
         (source.systems.iter())
             .map(|s| ReportedSystem {
+                id: s.id,
                 name: s.name,
                 phase: s.phase,
                 access: s.access.clone(),

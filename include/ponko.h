@@ -38,6 +38,26 @@
  * PonkoUi* layout and paint enums) are passed as uint32_t.
  * Last-error text is thread-local, borrowed until the next failed call;
  * successful calls leave it unchanged.
+ *
+ * ABI version: PONKO_ABI_VERSION is the version this header describes;
+ * ponko_abi_version() is the version of the loaded library. A program that
+ * loads the library at run time compares them at startup (ponko.hpp does this
+ * when the first game or world is made).
+ *
+ * Constructors, for new functions: return a PonkoStatus and write the new
+ * object through an out-pointer (ponko_clip_new, ponko_snapshot_stream_new,
+ * ponko_interest_new, the ponko_ctx_create_* and ponko_ctx_load_* families).
+ * The older constructors of standalone owned objects return the pointer, null
+ * on failure with ponko_last_error() set (ponko_world_new, ponko_game_new,
+ * ponko_nav_new, ponko_grid_new, ...).
+ *
+ * Destructors of owned objects (ponko_*_free) return void, except
+ * ponko_world_free: a world can be busy (a query is running) or borrowed (it
+ * belongs to a game or context), and then it is NOT freed. The returned
+ * status (PONKO_BUSY) tells the caller that the handle is still live and
+ * still theirs. ponko_ctx_handle_free is not a destructor of an owned object:
+ * it frees an engine handle by id inside a context and returns a status like
+ * the other ponko_ctx_* calls.
  */
 
 
@@ -51,6 +71,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+
+#define PONKO_ABI_VERSION 2
 
 #define PONKO_ACTION_NONE UINT32_MAX
 

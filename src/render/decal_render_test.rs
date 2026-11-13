@@ -73,10 +73,10 @@ impl Rig {
         let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         renderer.create_material(&device, &GpuMaterialDesc::new(&matte), &textures);
         ctx.gfx.assets3d.decals_supported = decals;
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         // A plain light: ambient and sun the same everywhere.
-        ctx.lighting.shadows = false;
-        ctx.lighting.sun_direction = vec3(0.0, -1.0, 0.0);
+        ctx.scene3d.lighting.shadows = false;
+        ctx.scene3d.lighting.sun_direction = vec3(0.0, -1.0, 0.0);
         Some(Rig {
             device,
             queue,
@@ -127,8 +127,8 @@ impl Rig {
 
     /// Looks at the origin from `from`.
     fn camera(&mut self, from: Vec3) {
-        self.ctx.camera3d.position = from;
-        self.ctx.camera3d.look_at(Vec3::ZERO);
+        self.ctx.scene3d.camera.position = from;
+        self.ctx.scene3d.camera.look_at(Vec3::ZERO);
     }
 
     fn draw(&mut self) -> Vec<u8> {
@@ -138,26 +138,26 @@ impl Rig {
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: {
                 let rgb = |c| {
                     let [r, g, b, _] = linear(c);
                     vec3(r, g, b)
                 };
                 SkyLight {
-                    sun: rgb(ctx.lighting.sun_color) * ctx.lighting.sun_intensity,
-                    sky: rgb(ctx.lighting.sky_color),
-                    ground: rgb(ctx.lighting.ground_color),
+                    sun: rgb(ctx.scene3d.lighting.sun_color) * ctx.scene3d.lighting.sun_intensity,
+                    sky: rgb(ctx.scene3d.sky.sky_color),
+                    ground: rgb(ctx.scene3d.sky.ground_color),
                 }
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -180,7 +180,7 @@ impl Rig {
 
     /// The color where world point `p` lands on screen.
     fn at(&self, pixels: &[u8], p: Vec3) -> [i32; 3] {
-        let ndc = self.ctx.camera3d.view_proj().project_point3(p);
+        let ndc = self.ctx.scene3d.camera.view_proj().project_point3(p);
         let x = ((ndc.x * 0.5 + 0.5) * self.size.0 as f32) as u32;
         let y = ((0.5 - ndc.y * 0.5) * self.size.1 as f32) as u32;
         let i = ((y * self.size.0 + x) * 4) as usize;
@@ -395,8 +395,8 @@ fn a_decal_is_lit_and_shadowed_with_its_surface() {
         Transform3D::at(vec3(0.0, 0.2, 0.0)).rotated(down()),
         red_decal(vec3(14.0, 14.0, 1.0)),
     ));
-    rig.ctx.lighting.shadows = true;
-    rig.ctx.lighting.ambient_intensity = 0.1;
+    rig.ctx.scene3d.lighting.shadows = true;
+    rig.ctx.scene3d.lighting.ambient_intensity = 0.1;
     rig.camera(vec3(0.0, 9.0, 8.0));
     let pixels = rig.draw();
     let shadowed = rig.at(&pixels, vec3(0.0, 0.0, 0.0));
@@ -420,8 +420,8 @@ fn a_normal_map_tilts_the_surface_towards_the_light() {
     };
     let (towards, away) = (lean(1), lean(-1));
     rig.decal_images(2, &[&towards, &away]);
-    rig.ctx.lighting.sun_direction = vec3(-1.0, -0.6, 0.0); // the sun is on the +X side
-    rig.ctx.lighting.ambient_intensity = 0.0;
+    rig.ctx.scene3d.lighting.sun_direction = vec3(-1.0, -0.6, 0.0); // the sun is on the +X side
+    rig.ctx.scene3d.lighting.ambient_intensity = 0.0;
     let flat = Decal3D {
         image: Decal3D::NO_IMAGE,
         color: Color::rgb(0.5, 0.5, 0.5),
@@ -486,7 +486,7 @@ fn decal_cost() {
     };
     let floor = rig.mesh(&MeshData::plane(60.0));
     rig.ctx.world.spawn((Transform3D::default(), Model::new(floor)));
-    rig.ctx.lighting.shadows = false;
+    rig.ctx.scene3d.lighting.shadows = false;
     rig.camera(vec3(0.0, 14.0, 12.0));
     let mut seed = 7u32;
     let mut random = move || {
@@ -525,8 +525,8 @@ fn decal_cost() {
                 &mut rig.ctx.world,
                 &rig.ctx.gfx.assets3d,
                 &SkinFrame::default(),
-                &rig.ctx.camera3d,
-                &rig.ctx.lighting,
+                &rig.ctx.scene3d.camera,
+                &rig.ctx.scene3d.lighting,
             );
         }
         let cpu = cpu_start.elapsed().as_secs_f64() * 1000.0 / frames as f64;

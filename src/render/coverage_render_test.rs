@@ -4,10 +4,10 @@
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
 #[allow(unused_imports)]
-use crate::anim::Blend;
-#[allow(unused_imports)]
 use crate::d3::Transform as Transform3D;
 use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::Blend;
 #[allow(unused_imports)]
 use crate::render::{MaterialDesc, Mesh, MeshData, Model, Shader};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
@@ -113,7 +113,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, samples, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -147,31 +147,31 @@ impl Rig {
     fn draw(&mut self) -> Vec<u8> {
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // Sunlight only in the shadow scene: elsewhere the cubes glow
             // on black.
             light: SkyLight {
-                sun: if ctx.lighting.shadows {
-                    Vec3::splat(ctx.lighting.sun_intensity)
+                sun: if ctx.scene3d.lighting.shadows {
+                    Vec3::splat(ctx.scene3d.lighting.sun_intensity)
                 } else {
                     Vec3::ZERO
                 },
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -237,8 +237,8 @@ fn diagonal_cutout(rig: &mut Rig) {
         },
         Model::new(plane),
     ));
-    rig.ctx.camera3d.position = vec3(0.0, 6.0, 0.001);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 6.0, 0.001);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
 }
 
 /// (background, inside, between) pixel counts, by brightness against the

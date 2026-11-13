@@ -9,7 +9,7 @@ use crate::Texture;
 use crate::gfx::Graphics;
 
 /// A camera drawing the 3D world into a render target each frame, before
-/// the main view: one entry of [`Ctx::target_cameras`](crate::Ctx::target_cameras).
+/// the main view: one entry of [`RenderPasses::target_cameras`](crate::render::RenderPasses::target_cameras).
 ///
 /// The target holds the lit scene with its sky and fog, as linear HDR
 /// light, before screen effects, bloom and tone mapping. It uses the main
@@ -23,16 +23,14 @@ use crate::gfx::Graphics;
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let screen = ctx.gfx.create_render_target(512, 512);
-/// let mut camera = ctx.camera3d;
+/// let mut camera = ctx.scene3d.camera;
 /// camera.position = vec3(0.0, 10.0, 0.0);
 /// camera.look_at(Vec3::ZERO);
-/// ctx.target_cameras.push(ponko::render::TargetCamera::new(camera, screen));
+/// ctx.scene3d.passes.target_cameras.push(ponko::render::TargetCamera::new(camera, screen));
 /// // A monitor showing it: a material with the target as its texture.
-/// let monitor = ctx.gfx.create_material(ponko::render::MaterialDesc {
-///     emissive_map: Some(screen),
-///     emissive: Color::WHITE,
-///     ..ponko::render::MaterialDesc::color(Color::BLACK)
-/// });
+/// let monitor = ctx.gfx.create_material(
+///     ponko::render::MaterialDesc::color(Color::BLACK).with_emissive_map(screen).with_emissive(Color::WHITE),
+/// );
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -55,7 +53,7 @@ impl TargetCamera {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let target = ctx.gfx.create_render_target(256, 256);
-    /// ctx.target_cameras.push(ponko::render::TargetCamera::new(ctx.camera3d, target));
+    /// ctx.scene3d.passes.target_cameras.push(ponko::render::TargetCamera::new(ctx.scene3d.camera, target));
     /// # }
     /// ```
     #[must_use]
@@ -76,10 +74,10 @@ impl TargetCamera {
     /// # use ponko::prelude::*;
     /// Game::new("lake", 640, 360).run_headless(0, |ctx| {
     ///     let reflection = ctx.gfx.create_render_target(640, 360);
-    ///     ctx.camera3d.position = vec3(0.0, 5.0, 0.0);
-    ///     let mirrored = ponko::render::TargetCamera::reflection(ctx.camera3d, reflection, 1.0);
+    ///     ctx.scene3d.camera.position = vec3(0.0, 5.0, 0.0);
+    ///     let mirrored = ponko::render::TargetCamera::reflection(ctx.scene3d.camera, reflection, 1.0);
     ///     assert_eq!(mirrored.camera.position, vec3(0.0, -3.0, 0.0));
-    ///     ctx.target_cameras.push(mirrored);
+    ///     ctx.scene3d.passes.target_cameras.push(mirrored);
     /// });
     /// ```
     #[must_use]
@@ -130,7 +128,7 @@ fn kept(plane: Vec4, p: Vec3) -> bool {
 
 impl Graphics {
     /// A texture of `width` x `height` pixels that a [`TargetCamera`] in
-    /// [`Ctx::target_cameras`](crate::Ctx::target_cameras) draws the 3D world into (feature `3d`).
+    /// [`RenderPasses::target_cameras`](crate::render::RenderPasses::target_cameras) draws the 3D world into (feature `3d`).
     /// Use it in a material like any texture; it holds linear HDR light.
     ///
     /// ```no_run

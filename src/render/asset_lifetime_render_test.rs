@@ -41,8 +41,8 @@ fn a_batch_whose_mesh_was_freed_never_draws_the_mesh_made_in_its_slot() {
         .map(|x| Mat4::from_translation(Vec3::new(x as f32 * 1.5, 0.0, 0.0)))
         .collect();
     let batch = rig.batch(red, &transforms, InstanceBatchOptions::default());
-    rig.ctx.camera3d.position = Vec3::new(0.0, 2.0, 9.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = Vec3::new(0.0, 2.0, 9.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let drawn = rig.image();
     let (r, g) = (share(&drawn, 0), share(&drawn, 1));
     eprintln!("live mesh: red {r:.3}, green {g:.3}");
@@ -128,8 +128,8 @@ fn renderers_made_filled_emptied_and_dropped_leave_nothing_behind() {
         let batch = game
             .gfx
             .create_instance_batch(mesh, &[Mat4::IDENTITY; 64], InstanceBatchOptions::default());
-        let made = game.gfx.assets3d.instance_batches[batch.id() as usize].as_ref();
-        renderer.set_instance_batch(&gpu.device, &gpu.queue, batch.id(), made);
+        let made = game.gfx.assets3d.instance_batches[batch.id as usize].as_ref();
+        renderer.set_instance_batch(&gpu.device, &gpu.queue, batch.id, made);
         assert_ne!(holdings(&renderer), new, "round {round}: filled");
         for id in meshes {
             renderer.free_mesh(id);
@@ -137,7 +137,7 @@ fn renderers_made_filled_emptied_and_dropped_leave_nothing_behind() {
         for slot in 0..4 {
             renderer.free_gpu_buffer(slot);
         }
-        renderer.set_instance_batch(&gpu.device, &gpu.queue, batch.id(), None);
+        renderer.set_instance_batch(&gpu.device, &gpu.queue, batch.id, None);
         let emptied = holdings(&renderer);
         assert_eq!(
             (emptied.0, emptied.1, emptied.2, emptied.3, emptied.4),

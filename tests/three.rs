@@ -7,17 +7,17 @@ mod common;
 use common::TempAsset;
 #[allow(unused_imports)]
 #[cfg(feature = "3d")]
-use ponko::anim::Blend;
-#[allow(unused_imports)]
-#[cfg(feature = "3d")]
 use ponko::d3::{PointLight, SpotLight, Transform};
 use ponko::prelude::*;
+#[allow(unused_imports)]
+#[cfg(feature = "3d")]
+use ponko::render::Blend;
 #[allow(unused_imports)]
 #[cfg(feature = "3d")]
 use ponko::render::{
     AmbientOcclusion, AntiAliasing, ComputePass, GlobalIllumination, GpuBuffer, GraphicsQuality, InstanceBatchOptions,
     InstanceLevel, LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodShadow, Material, MaterialDesc, Mesh,
-    MeshData, Model, ModelMaterial, Post, QualityLevel, ScreenEffect, Sky, TargetCamera, TargetEffect, Tonemap,
+    MeshData, Model, ModelMaterial, Post, ScreenEffect, Sky, TargetCamera, TargetEffect, Tonemap,
 };
 #[allow(unused_imports)]
 use ponko::render::{GpuFeature, GpuTier};
@@ -30,10 +30,9 @@ use ponko::terrain::{FarTerrain, Heightfield, TerrainMaterialDesc, TerrainTile, 
 struct Spin(f32);
 
 fn village(ctx: &mut Ctx) {
-    let grass = ctx.gfx.create_material(MaterialDesc {
-        roughness: 0.9,
-        ..MaterialDesc::color(Color::hex(0x5E8C4A))
-    });
+    let grass = ctx
+        .gfx
+        .create_material(MaterialDesc::color(Color::hex(0x5E8C4A)).with_roughness(0.9));
     let ground = ctx.gfx.create_mesh(&MeshData::plane(100.0), grass);
     ctx.world.spawn((Transform::default(), Model::new(ground)));
 
@@ -43,9 +42,9 @@ fn village(ctx: &mut Ctx) {
         ctx.world.spawn((Transform::at(at), Model::new(house), Spin(0.5)));
     }
 
-    ctx.camera3d.position = vec3(0.0, 6.0, 12.0);
-    ctx.camera3d.look_at(vec3(0.0, 0.0, -4.0));
-    ctx.lighting.sun_direction = vec3(-0.8, -0.6, -0.4); // late afternoon: long shadows
+    ctx.scene3d.camera.position = vec3(0.0, 6.0, 12.0);
+    ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -4.0));
+    ctx.scene3d.lighting.sun_direction = vec3(-0.8, -0.6, -0.4); // late afternoon: long shadows
 }
 
 fn spin(ctx: &mut Ctx) {
@@ -75,11 +74,11 @@ fn the_guide_village_has_five_spinning_houses() {
 // ANCHOR: sky
 /// A misty morning: the sun low in the east, fog lying in the valleys.
 fn misty_morning(ctx: &mut Ctx) {
-    ctx.lighting.sun_direction = Sky::sun_direction_at(7.5);
-    ctx.sky.haze = 2.0; // a paler sky, a bigger glow around the sun
-    ctx.sky.fog_density = 0.03; // thick near the ground
-    ctx.sky.fog_height = 0.0;
-    ctx.sky.fog_falloff = 10.0; // and thin ten meters up
+    ctx.scene3d.lighting.sun_direction = Sky::sun_direction_at(7.5);
+    ctx.scene3d.sky.haze = 2.0; // a paler sky, a bigger glow around the sun
+    ctx.scene3d.sky.fog_density = 0.03; // thick near the ground
+    ctx.scene3d.sky.fog_height = 0.0;
+    ctx.scene3d.sky.fog_falloff = 10.0; // and thin ten meters up
 }
 // ANCHOR_END: sky
 
@@ -143,7 +142,7 @@ fn shadow_meshes_round_trip_through_scenes() {
         let only_shadows = ctx
             .world
             .query::<&ponko::render::ShadowMesh>()
-            .without::<Model>()
+            .filter::<Without<Model>>()
             .iter()
             .count();
         assert_eq!(only_shadows, 1);
@@ -177,21 +176,21 @@ fn shadow_meshes_round_trip_through_scenes() {
 // ANCHOR: distance_fog
 /// A big open world fading out far away, glowing toward the sun.
 fn far_haze(ctx: &mut Ctx) {
-    ctx.sky.fog_start = 500.0; // clear up to half a kilometre
-    ctx.sky.fog_end = 1200.0; // and gone in the haze past 1.2 km
-    ctx.sky.fog_sun_glow = 0.06; // the haze glows toward the sun
-    ctx.sky.fog_sun_focus = 0.7; // most of all close around it
+    ctx.scene3d.sky.fog_start = 500.0; // clear up to half a kilometre
+    ctx.scene3d.sky.fog_end = 1200.0; // and gone in the haze past 1.2 km
+    ctx.scene3d.sky.fog_sun_glow = 0.06; // the haze glows toward the sun
+    ctx.scene3d.sky.fog_sun_focus = 0.7; // most of all close around it
 }
 // ANCHOR_END: distance_fog
 
 // ANCHOR: light_shafts
 /// Beams of morning sun through the trees.
 fn sunbeams(ctx: &mut Ctx) {
-    ctx.sky.fog_density = 0.03; // low mist to light up
-    ctx.sky.fog_sun_glow = 0.1; // glowing in the sun
-    ctx.sky.light_shafts = 1.0; // but not in the shade
-    ctx.lighting.shadows = true; // shafts follow the sun's shadows
-    ctx.post.anti_aliasing = AntiAliasing::Taa; // and smooth out their grain
+    ctx.scene3d.sky.fog_density = 0.03; // low mist to light up
+    ctx.scene3d.sky.fog_sun_glow = 0.1; // glowing in the sun
+    ctx.scene3d.sky.light_shafts = 1.0; // but not in the shade
+    ctx.scene3d.lighting.shadows = true; // shafts follow the sun's shadows
+    ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa; // and smooth out their grain
 }
 // ANCHOR_END: light_shafts
 
@@ -199,8 +198,8 @@ fn sunbeams(ctx: &mut Ctx) {
 /// A street at night: a sharp shadow for the lamp beside the player,
 /// rough ones for the street lights down the road.
 fn street_lights(ctx: &mut Ctx) {
-    ctx.lighting.light_shadow_atlas = 8192; // room for more shadow views
-    ctx.lighting.light_shadow_views = 24; // as many as there can be
+    ctx.scene3d.lighting.light_shadow_atlas = 8192; // room for more shadow views
+    ctx.scene3d.lighting.light_shadow_views = 24; // as many as there can be
     let lamp = PointLight {
         color: Color::rgb(1.0, 0.8, 0.6),
         intensity: 40.0,
@@ -227,13 +226,13 @@ fn street_lights(ctx: &mut Ctx) {
 #[test]
 fn light_shadow_atlas_settings_stay_as_set() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {
-        let l = ctx.lighting;
+        let l = ctx.scene3d.lighting;
         assert_eq!(
             (l.light_shadow_atlas, l.light_shadow_views, l.light_shadow_resolution),
             (4096, 12, 1024)
         );
         street_lights(ctx);
-        assert_eq!(ctx.lighting.light_shadow_atlas, 8192);
+        assert_eq!(ctx.scene3d.lighting.light_shadow_atlas, 8192);
         let hinted: Vec<u32> = ctx
             .world
             .query::<&PointLight>()
@@ -248,22 +247,22 @@ fn light_shadow_atlas_settings_stay_as_set() {
 #[test]
 fn sky_settings_stay_as_set() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {
-        assert_eq!(ctx.sky, Sky::default());
-        assert!(ctx.sky.atmosphere);
+        assert_eq!(ctx.scene3d.sky, Sky::default());
+        assert!(ctx.scene3d.sky.atmosphere);
         misty_morning(ctx);
-        assert_eq!(ctx.sky.fog_density, 0.03);
+        assert_eq!(ctx.scene3d.sky.fog_density, 0.03);
         assert_eq!(
-            (ctx.sky.fog_start, ctx.sky.fog_end),
+            (ctx.scene3d.sky.fog_start, ctx.scene3d.sky.fog_end),
             (0.0, 0.0),
             "no distance fog by default"
         );
         far_haze(ctx);
-        assert_eq!(ctx.sky.fog_end, 1200.0);
-        assert_eq!(ctx.sky.fog_density, 0.03, "both kinds of fog at once");
-        assert_eq!(ctx.sky.light_shafts, 0.0, "no light shafts by default");
+        assert_eq!(ctx.scene3d.sky.fog_end, 1200.0);
+        assert_eq!(ctx.scene3d.sky.fog_density, 0.03, "both kinds of fog at once");
+        assert_eq!(ctx.scene3d.sky.light_shafts, 0.0, "no light shafts by default");
         sunbeams(ctx);
-        assert_eq!(ctx.sky.light_shafts, 1.0);
-        let to_sun = -ctx.lighting.sun_direction;
+        assert_eq!(ctx.scene3d.sky.light_shafts, 1.0);
+        let to_sun = -ctx.scene3d.lighting.sun_direction;
         assert!(to_sun.x > 0.0 && to_sun.y > 0.0, "morning: low in the east");
     });
 }
@@ -271,12 +270,12 @@ fn sky_settings_stay_as_set() {
 // ANCHOR: post
 /// A warm, glowing evening look.
 fn golden_hour(ctx: &mut Ctx) {
-    ctx.post.exposure = 0.3; // a third of a stop brighter
-    ctx.post.bloom = 0.2; // highlights glow
-    ctx.post.temperature = 0.4; // warmer
-    ctx.post.saturation = 1.1;
-    ctx.post.vignette = 0.3; // darker corners
-    ctx.post.tonemap = Tonemap::AgX;
+    ctx.scene3d.post.exposure = 0.3; // a third of a stop brighter
+    ctx.scene3d.post.bloom = 0.2; // highlights glow
+    ctx.scene3d.post.temperature = 0.4; // warmer
+    ctx.scene3d.post.saturation = 1.1;
+    ctx.scene3d.post.vignette = 0.3; // darker corners
+    ctx.scene3d.post.tonemap = Tonemap::AgX;
 }
 // ANCHOR_END: post
 
@@ -284,9 +283,9 @@ fn golden_hour(ctx: &mut Ctx) {
 /// The rush of speed: colors split at the edges, the middle pinches in.
 fn speed_lens(ctx: &mut Ctx, speed: f32) {
     let rush = (speed / 40.0).clamp(0.0, 1.0);
-    ctx.post.chromatic_aberration = 0.8 * rush;
-    ctx.post.lens_distortion = -0.26 * rush;
-    ctx.post.lens_scale = 1.0 + 0.04 * rush; // hide the pulled-in edges
+    ctx.scene3d.post.chromatic_aberration = 0.8 * rush;
+    ctx.scene3d.post.lens_distortion = -0.26 * rush;
+    ctx.scene3d.post.lens_scale = 1.0 + 0.04 * rush; // hide the pulled-in edges
 }
 // ANCHOR_END: lens
 
@@ -294,21 +293,21 @@ fn speed_lens(ctx: &mut Ctx, speed: f32) {
 fn lens_settings_stay_as_set() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {
         speed_lens(ctx, 40.0);
-        assert_eq!(ctx.post.chromatic_aberration, 0.8);
-        assert_eq!(ctx.post.lens_distortion, -0.26);
-        assert_eq!(ctx.post.lens_scale, 1.04);
+        assert_eq!(ctx.scene3d.post.chromatic_aberration, 0.8);
+        assert_eq!(ctx.scene3d.post.lens_distortion, -0.26);
+        assert_eq!(ctx.scene3d.post.lens_scale, 1.04);
     });
 }
 
 #[test]
 fn post_settings_stay_as_set() {
     Game::new("t", 1, 1).run_headless(1, |ctx| {
-        assert_eq!(ctx.post, Post::default());
+        assert_eq!(ctx.scene3d.post, Post::default());
         golden_hour(ctx);
-        assert_eq!(ctx.post.tonemap, Tonemap::AgX);
+        assert_eq!(ctx.scene3d.post.tonemap, Tonemap::AgX);
         let (w, h, pixels) = Post::neutral_lut(16);
-        ctx.post.lut = Some(ctx.gfx.create_texture(w, h, &pixels));
-        assert_eq!(ctx.post.lut.map(|t| (t.width(), t.height())), Some((256, 16)));
+        ctx.scene3d.post.lut = Some(ctx.gfx.create_texture(w, h, &pixels));
+        assert_eq!(ctx.scene3d.post.lut.map(|t| (t.width(), t.height())), Some((256, 16)));
     });
 }
 
@@ -330,12 +329,12 @@ fn vertex(v: Vertex) -> Vertex {
 
 fn meadow(ctx: &mut Ctx) {
     let wind = ctx.gfx.create_shader("wind", WIND);
-    let grass = ctx.gfx.create_material(MaterialDesc {
-        shader: Some(wind),
-        double_sided: true,
-        custom: [vec4(0.2, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
-        ..MaterialDesc::color(Color::hex(0x7FA83C))
-    });
+    let grass = ctx.gfx.create_material(
+        MaterialDesc::color(Color::hex(0x7FA83C))
+            .with_shader(wind)
+            .with_double_sided(true)
+            .with_custom([vec4(0.2, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO]),
+    );
     let blade = ctx.gfx.create_mesh(&MeshData::plane(0.5), grass);
     ctx.world.spawn((Transform::default(), Model::new(blade)));
 }
@@ -347,18 +346,13 @@ fn shaders_and_their_materials_are_made() {
         meadow(ctx);
         let water = ctx.gfx.load_shader("shaders/water.wgsl");
         assert_eq!(ctx.gfx.load_shader("shaders/water.wgsl"), water, "loaded once");
-        let lake = ctx.gfx.create_material(MaterialDesc {
-            shader: Some(water),
-            blend: Blend::Transparent,
-            ..Default::default()
-        });
-        ctx.gfx.update_material(
-            lake,
-            MaterialDesc {
-                roughness: 0.1,
-                ..Default::default()
-            },
+        let lake = ctx.gfx.create_material(
+            MaterialDesc::default()
+                .with_shader(water)
+                .with_blend(Blend::Transparent),
         );
+        ctx.gfx
+            .update_material(lake, MaterialDesc::default().with_roughness(0.1));
     });
 }
 
@@ -375,11 +369,11 @@ fn transparent_shaders_can_read_the_scene_behind_them() {
                 return out;
             }",
         );
-        ctx.gfx.create_material(MaterialDesc {
-            shader: Some(glass),
-            blend: Blend::Transparent,
-            ..Default::default()
-        });
+        ctx.gfx.create_material(
+            MaterialDesc::default()
+                .with_shader(glass)
+                .with_blend(Blend::Transparent),
+        );
     });
 }
 
@@ -398,10 +392,7 @@ fn materials_only_take_this_games_shaders() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let mut shader = None;
         Game::new("v", 1, 1).run_headless(0, |c| shader = Some(c.gfx.create_shader("s", "")));
-        ctx.gfx.create_material(MaterialDesc {
-            shader,
-            ..Default::default()
-        });
+        ctx.gfx.create_material(MaterialDesc::default().with_shader(shader));
     });
 }
 
@@ -426,13 +417,7 @@ fn loaded_materials_are_found_by_name_and_can_be_changed() {
             "fn surface(s: Surface) -> Surface { var o = s; o.albedo *= 0.8; o.roughness = 0.95; return o; }",
         );
         for (walls, desc) in ctx.gfx.loaded_materials("walls") {
-            ctx.gfx.update_material(
-                walls,
-                MaterialDesc {
-                    shader: Some(weathered),
-                    ..desc
-                },
-            );
+            ctx.gfx.update_material(walls, desc.with_shader(weathered));
         }
         // ANCHOR_END: loaded_materials
         assert!(ctx.gfx.loaded_materials("no such material").is_empty());
@@ -463,10 +448,7 @@ fn a_missing_model_names_the_file() {
 #[should_panic(expected = "roughness and metallic go from 0 to 1")]
 fn materials_check_their_numbers() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        let _ = ctx.gfx.create_material(MaterialDesc {
-            metallic: 1.5,
-            ..Default::default()
-        });
+        let _ = ctx.gfx.create_material(MaterialDesc::default().with_metallic(1.5));
     });
 }
 
@@ -521,8 +503,8 @@ fn hills(ctx: &mut Ctx) {
             ctx.world.spawn((Transform::at(corner), tile));
         }
     }
-    ctx.camera3d.position = vec3(64.0, 30.0, 220.0);
-    ctx.camera3d.look_at(vec3(64.0, 0.0, 64.0));
+    ctx.scene3d.camera.position = vec3(64.0, 30.0, 220.0);
+    ctx.scene3d.camera.look_at(vec3(64.0, 0.0, 64.0));
 }
 // ANCHOR_END: terrain
 
@@ -558,7 +540,7 @@ fn the_guide_trees_stand_on_the_ground() {
 
 // ANCHOR: terrain_material
 /// Three ground layers, speckled so they don't look flat (in a game,
-/// `ctx.load_texture_array` from image files), and one weight map over
+/// `ctx.gfx.load_texture_array` from image files), and one weight map over
 /// all nine tiles from the heights: red grass, green dirt, blue rock.
 fn hill_ground(ctx: &mut Ctx, height: impl Fn(f32, f32) -> f32) -> Material {
     let speckled = |base: [u8; 3]| -> Vec<u8> {
@@ -597,10 +579,8 @@ fn hill_ground(ctx: &mut Ctx, height: impl Fn(f32, f32) -> f32) -> Material {
     let weights = ctx
         .gfx
         .create_texture_array(cells, cells, &[&weights], TextureKind::Data);
-    let desc = TerrainMaterialDesc {
-        layer_size: [6.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 4.0],
-        ..TerrainMaterialDesc::new(layers, weights, vec2(-128.0, -128.0), vec2(area, area))
-    };
+    let desc = TerrainMaterialDesc::new(layers, weights, vec2(-128.0, -128.0), vec2(area, area))
+        .with_layer_size([6.0, 4.0, 8.0, 4.0, 4.0, 4.0, 4.0, 4.0]);
     ctx.gfx.create_terrain_material(&desc)
 }
 // ANCHOR_END: terrain_material
@@ -610,8 +590,8 @@ fn the_guide_hills_are_nine_tiles_of_four_details() {
     let mut world = Game::new("hills", 640, 480).run_headless(1, hills);
     let mut meshes = std::collections::HashSet::new();
     world.query::<&TerrainTile>().for_each(|tile| {
-        assert_eq!(tile.lod_distance, 128.0);
-        meshes.extend(tile.lods.map(|m| m));
+        assert_eq!(tile.lod_distance(), 128.0);
+        meshes.extend(tile.lods());
     });
     assert_eq!(
         meshes.len(),
@@ -635,11 +615,16 @@ fn effect(p: Pixel) -> vec3<f32> {
 
 fn dive(ctx: &mut Ctx) {
     let underwater = ctx.gfx.create_effect("underwater.wgsl", UNDERWATER);
-    let lake = ctx.gfx.create_material(MaterialDesc {
-        custom: [vec4(2.0, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO], // water at y = 2
-        ..Default::default()
-    });
-    ctx.effects.push(ScreenEffect::new(underwater).with_material(lake));
+    let lake = ctx.gfx.create_material(MaterialDesc::default().with_custom([
+        vec4(2.0, 0.0, 0.0, 0.0), // water at y = 2
+        Vec4::ZERO,
+        Vec4::ZERO,
+        Vec4::ZERO,
+    ]));
+    ctx.scene3d
+        .passes
+        .effects
+        .push(ScreenEffect::new(underwater).with_material(lake));
 }
 // ANCHOR_END: effect
 
@@ -659,21 +644,23 @@ fn pond(ctx: &mut Ctx) {
     let size = ctx.window_size();
     let reflection = ctx.gfx.create_render_target(size.x as u32 / 2, size.y as u32 / 2);
     let mirror = ctx.gfx.create_shader("mirror", MIRROR);
-    let water = ctx.gfx.create_material(MaterialDesc {
-        shader: Some(mirror),
-        custom_textures: [Some(reflection), None],
-        ..Default::default()
-    });
+    let water = ctx.gfx.create_material(
+        MaterialDesc::default()
+            .with_shader(mirror)
+            .with_custom_textures([Some(reflection), None]),
+    );
     let surface = ctx.gfx.create_mesh(&MeshData::plane(20.0), water);
     ctx.world.spawn((Transform::default(), Model::new(surface)));
-    ctx.target_cameras
-        .push(TargetCamera::reflection(ctx.camera3d, reflection, 0.0));
+    ctx.scene3d
+        .passes
+        .target_cameras
+        .push(TargetCamera::reflection(ctx.scene3d.camera, reflection, 0.0));
 }
 
 /// Every frame: the mirrored camera follows the real one.
 fn follow_reflections(ctx: &mut Ctx) {
-    for t in &mut ctx.target_cameras {
-        *t = TargetCamera::reflection(ctx.camera3d, t.target, 0.0);
+    for t in &mut ctx.scene3d.passes.target_cameras {
+        *t = TargetCamera::reflection(ctx.scene3d.camera, t.target, 0.0);
     }
 }
 // ANCHOR_END: mirror
@@ -700,7 +687,9 @@ fn ripples(ctx: &mut Ctx) -> (Texture, Material) {
     let heights = ctx.gfx.create_render_target(256, 256);
     let ripples = ctx.gfx.create_compute("ripples", RIPPLES);
     let stones = ctx.gfx.create_material(MaterialDesc::default());
-    ctx.compute_passes
+    ctx.scene3d
+        .passes
+        .compute
         .push(ComputePass::new(ripples, heights).with_material(stones));
     (heights, stones)
 }
@@ -711,10 +700,7 @@ fn drop_stone(ctx: &mut Ctx, stones: Material, uv: Vec2, strength: f32) {
     let stone = uv.extend(strength).extend(0.0);
     ctx.gfx.update_material(
         stones,
-        MaterialDesc {
-            custom: [stone, Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
-            ..Default::default()
-        },
+        MaterialDesc::default().with_custom([stone, Vec4::ZERO, Vec4::ZERO, Vec4::ZERO]),
     );
 }
 // ANCHOR_END: compute
@@ -725,8 +711,8 @@ fn the_guide_ripples_run_on_a_render_target() {
         let (heights, stones) = ripples(ctx);
         drop_stone(ctx, stones, vec2(0.5, 0.5), 1.0);
         assert!(ctx.gfx.is_render_target(heights));
-        assert_eq!(ctx.compute_passes.len(), 1);
-        assert_eq!(ctx.compute_passes[0].material, Some(stones));
+        assert_eq!(ctx.scene3d.passes.compute.len(), 1);
+        assert_eq!(ctx.scene3d.passes.compute[0].material, Some(stones));
     });
 }
 
@@ -743,9 +729,9 @@ fn compute_errors_say_which_pass() {
 fn the_guide_pond_mirrors_the_camera() {
     Game::new("pond", 64, 64).run_headless(0, |ctx| {
         pond(ctx);
-        ctx.camera3d.position = vec3(3.0, 5.0, 1.0);
+        ctx.scene3d.camera.position = vec3(3.0, 5.0, 1.0);
         follow_reflections(ctx);
-        let below = ctx.target_cameras[0];
+        let below = ctx.scene3d.passes.target_cameras[0];
         assert!(ctx.gfx.is_render_target(below.target));
         assert_eq!(below.target.width(), 32);
         assert_eq!(below.camera.position, vec3(3.0, -5.0, 1.0));
@@ -766,7 +752,7 @@ fn render_targets_need_a_size() {
 fn render_targets_take_no_pixels() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let target = ctx.gfx.create_render_target(1, 1);
-        ctx.gfx.update_texture(&target, &[0; 4]);
+        ctx.gfx.update_texture(target, &[0; 4]);
     });
 }
 
@@ -775,7 +761,7 @@ fn the_guide_effect_is_added_once() {
     let mut effects = Vec::new();
     Game::new("dive", 64, 64).run_headless(2, |ctx| {
         dive(ctx);
-        effects = ctx.effects.clone();
+        effects = ctx.scene3d.passes.effects.clone();
     });
     assert_eq!(effects.len(), 1);
     assert!(effects[0].material.is_some());
@@ -827,7 +813,7 @@ fn texture_arrays_hold_one_image_per_layer() {
         );
         let mut custom_arrays = [None; 3];
         custom_arrays[0] = Some(tints);
-        let _ = ctx.gfx.create_material(MaterialDesc { shader: Some(wind), custom_arrays, ..Default::default() });
+        let _ = ctx.gfx.create_material(MaterialDesc::default().with_shader(wind).with_custom_arrays(custom_arrays));
     });
 }
 
@@ -857,15 +843,10 @@ fn terrain_materials_check_their_layers() {
         };
         assert!(err(ctx, desc(five, one_weight)).contains("need 2 weight images"));
         assert!(err(ctx, desc(nine, two_weights)).contains("at most 8 layers"));
-        let no_size = TerrainMaterialDesc {
-            weights_size: Vec2::ZERO,
-            ..desc(five, two_weights)
-        };
+        let mut no_size = desc(five, two_weights);
+        no_size.weights_size = Vec2::ZERO;
         assert!(err(ctx, no_size).contains("size must be above 0"));
-        let few_normals = TerrainMaterialDesc {
-            normals: Some(one_weight),
-            ..desc(five, two_weights)
-        };
+        let few_normals = desc(five, two_weights).with_normals(one_weight);
         assert!(err(ctx, few_normals).contains("need 5 normal maps"));
         // Two terrain materials share the one built-in shader.
         let a = ctx.gfx.create_terrain_material(&desc(five, two_weights));
@@ -935,7 +916,7 @@ impl Ground {
     /// Every frame: start up to 4 tiles, drop the far ones, and put up to
     /// 2 finished ones in the world.
     fn update(&mut self, ctx: &mut Ctx) {
-        self.cells.update(ctx.camera3d.position, 4);
+        self.cells.update(ctx.scene3d.camera.position, 4);
         for &cell in self.cells.to_load() {
             let corner = self.cells.corner(cell);
             let job = ponko::stream::Job::spawn(move || {
@@ -950,7 +931,7 @@ impl Ground {
         for cell in self.cells.to_drop() {
             if let Some(Tile::Live(entity, tile)) = self.tiles.remove(cell) {
                 ctx.world.despawn(entity);
-                ctx.gfx.free_terrain_tile(tile);
+                ctx.free(tile);
                 self.far.uncut(*cell);
             }
         }
@@ -998,7 +979,7 @@ fn the_guide_ground_streams_in_and_out() {
         );
         assert_eq!(ground.far.mesh_count(), 16);
         // Far away: the old tiles are freed.
-        ctx.camera3d.position = vec3(10_000.0, 0.0, 0.0);
+        ctx.scene3d.camera.position = vec3(10_000.0, 0.0, 0.0);
         ground.update(ctx);
         assert_eq!(ground.cells.to_drop().len(), first);
         assert!(ground.tiles.keys().all(|&(x, _)| x > 50));
@@ -1181,7 +1162,7 @@ fn model_material_overrides_save_and_load_by_file_and_material_name() {
                 .set_json(e, "ModelMaterials", unloaded)
                 .unwrap_err()
                 .to_string();
-            assert!(err.contains("ctx.load_mesh(\"nope.glb\")"), "{err}");
+            assert!(err.contains("ctx.gfx.load_mesh(\"nope.glb\")"), "{err}");
 
             // A freed material is no longer named.
             ctx.free(roof);
@@ -1211,33 +1192,33 @@ fn models_name_meshes_that_must_be_files() {
 #[test]
 fn occlusion_culling_is_off_until_turned_on() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        assert!(!ctx.camera3d.occlusion_culling);
+        assert!(!ctx.scene3d.camera.occlusion_culling);
         // ANCHOR: occlusion
         // A town or a forest: skip what houses, hills and trunks hide.
-        ctx.camera3d.occlusion_culling = true;
+        ctx.scene3d.camera.occlusion_culling = true;
         // ANCHOR_END: occlusion
         // Headless, there's no depth to cull with: everything in view is drawn.
         let white = ctx.gfx.default_material();
         let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), white);
         ctx.world.spawn((Transform::default(), Model::new(mesh)));
-        ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
-        ctx.camera3d.look_at(Vec3::ZERO);
+        ctx.scene3d.camera.position = vec3(0.0, 0.0, 5.0);
+        ctx.scene3d.camera.look_at(Vec3::ZERO);
         assert_eq!(ctx.perf.render_stats().occluded, 0);
     });
 }
 
 #[test]
-fn a_three_color_ambient_is_set_on_the_lighting() {
+fn a_three_color_ambient_is_set_on_the_flat_sky() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
-        assert_eq!(ctx.lighting.equator_color, None);
+        assert_eq!(ctx.scene3d.sky.equator_color, None);
         // ANCHOR: trilight
-        // Without an atmosphere: a blue sky, a green-grey horizon and brown ground.
-        ctx.sky.atmosphere = false;
-        ctx.lighting.sky_color = Color::hex(0x8FB3D9);
-        ctx.lighting.equator_color = Some(Color::hex(0x8C9A86));
-        ctx.lighting.ground_color = Color::hex(0x4D4135);
+        // A flat sky (no atmosphere): a blue sky, a green-grey horizon and brown ground.
+        ctx.scene3d.sky.atmosphere = false;
+        ctx.scene3d.sky.sky_color = Color::hex(0x8FB3D9);
+        ctx.scene3d.sky.equator_color = Some(Color::hex(0x8C9A86));
+        ctx.scene3d.sky.ground_color = Color::hex(0x4D4135);
         // ANCHOR_END: trilight
-        assert!(ctx.lighting.equator_color.is_some());
+        assert!(ctx.scene3d.sky.equator_color.is_some());
     });
 }
 
@@ -1260,15 +1241,15 @@ fn lod_groups_pick_levels_by_screen_height() {
         );
         let e = ctx.world.spawn((Transform::default(), group));
         // Lower quality: drop detail at 70% of the distance.
-        ctx.lod.bias = 0.7;
+        ctx.scene3d.lod.bias = 0.7;
         // ANCHOR_END: lod
         let group = ctx.world.get::<LodGroup>(e).unwrap().clone();
         let at = |ctx: &mut Ctx, d: f32| {
-            ctx.camera3d.position = vec3(0.0, 0.0, d);
-            ctx.camera3d.look_at(Vec3::ZERO);
-            group.pick_for(&Transform::default(), &ctx.camera3d, &ctx.lod)
+            ctx.scene3d.camera.position = vec3(0.0, 0.0, d);
+            ctx.scene3d.camera.look_at(Vec3::ZERO);
+            group.pick_for(&Transform::default(), &ctx.scene3d.camera, &ctx.scene3d.lod)
         };
-        ctx.lod.bias = 1.0;
+        ctx.scene3d.lod.bias = 1.0;
         assert_eq!(at(ctx, 2.0), LodPick::Level(0));
         assert_eq!(at(ctx, 10.0), LodPick::Level(1));
         assert_eq!(at(ctx, 100.0), LodPick::Culled);
@@ -1281,10 +1262,10 @@ fn lod_groups_pick_levels_by_screen_height() {
             }
         ));
         // A distance to the screen height and back.
-        let fov = ctx.camera3d.fov_y;
+        let fov = ctx.scene3d.camera.fov_y;
         let d = LodGroup::distance_at(2.0, 0.25, fov);
         assert!((LodGroup::screen_height_at(2.0, d, fov) - 0.25).abs() < 1e-5);
-        ctx.lod.bias = 0.7;
+        ctx.scene3d.lod.bias = 0.7;
         assert_eq!(at(ctx, 5.0), LodPick::Level(1), "the bias drops detail sooner");
     });
 }
@@ -1340,77 +1321,72 @@ fn lod_groups_of_loaded_meshes_save_and_load_by_file_name() {
 #[test]
 fn temporal_antialiasing_is_a_setting_and_can_forget_its_history() {
     Game::new("taa settings", 64, 64).run_headless(1, |ctx| {
-        assert_eq!(ctx.post.taa_sharpness, 0.25);
+        assert_eq!(ctx.scene3d.post.taa_sharpness, 0.25);
         // ANCHOR: taa
-        ctx.post.anti_aliasing = AntiAliasing::Taa;
-        ctx.post.taa_sharpness = 0.3; // it softens the image a little
+        ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
+        ctx.scene3d.post.taa_sharpness = 0.3; // it softens the image a little
         // After teleporting the camera (or an object), forget the old view:
-        ctx.camera3d.position = vec3(400.0, 3.0, 0.0);
+        ctx.scene3d.camera.position = vec3(400.0, 3.0, 0.0);
         ctx.gfx.reset_temporal_history();
         // ANCHOR_END: taa
-        assert_eq!(ctx.post.anti_aliasing, AntiAliasing::Taa);
+        assert_eq!(ctx.scene3d.post.anti_aliasing, AntiAliasing::Taa);
     });
 }
 
 #[test]
 fn ao_and_aa_settings_preserve_existing_defaults() {
     Game::new("post settings", 64, 64).run_headless(0, |ctx| {
-        assert_eq!(ctx.post.anti_aliasing, AntiAliasing::None);
-        assert!(!ctx.post.ambient_occlusion.enabled);
-        assert!(!ctx.post.ao_half_resolution && !ctx.post.ao_temporal);
+        assert_eq!(ctx.scene3d.post.anti_aliasing, AntiAliasing::None);
+        assert!(!ctx.scene3d.post.ambient_occlusion.enabled);
+        assert!(!ctx.scene3d.post.ao_half_resolution && !ctx.scene3d.post.ao_temporal);
         // ANCHOR: ao_aa
-        ctx.post.ao_half_resolution = true;
-        ctx.post.ao_temporal = true;
-        ctx.post.ambient_occlusion = AmbientOcclusion {
+        ctx.scene3d.post.ao_half_resolution = true;
+        ctx.scene3d.post.ao_temporal = true;
+        ctx.scene3d.post.ambient_occlusion = AmbientOcclusion {
             enabled: true,
             radius: 1.5,
             intensity: 1.0,
             slices: 3,
             steps: 6,
         };
-        ctx.post.contact_shadows = 0.3; // small, sharp sun shadows under feet and props
-        ctx.post.anti_aliasing = AntiAliasing::Smaa;
+        ctx.scene3d.post.contact_shadows = 0.3; // small, sharp sun shadows under feet and props
+        ctx.scene3d.post.anti_aliasing = AntiAliasing::Smaa;
         // ANCHOR_END: ao_aa
-        assert_eq!(ctx.post.ambient_occlusion.radius, 1.5);
-        assert_eq!(ctx.post.contact_shadows, 0.3);
+        assert_eq!(ctx.scene3d.post.ambient_occlusion.radius, 1.5);
+        assert_eq!(ctx.scene3d.post.contact_shadows, 0.3);
     });
 }
 
 #[test]
 fn screen_space_reflections_are_off_until_turned_on() {
     Game::new("ssr settings", 64, 64).run_headless(0, |ctx| {
-        assert_eq!((ctx.post.ssr, ctx.post.ssr_max_distance), (0.0, 30.0));
+        assert_eq!((ctx.scene3d.post.ssr, ctx.scene3d.post.ssr_max_distance), (0.0, 30.0));
         // ANCHOR: ssr
         // Wet streets and polished floors reflect what's on screen.
-        ctx.post.ssr = 1.0;
-        ctx.post.ssr_max_distance = 40.0; // world units along the reflected ray
-        ctx.post.anti_aliasing = AntiAliasing::Taa; // smooths their grain
+        ctx.scene3d.post.ssr = 1.0;
+        ctx.scene3d.post.ssr_max_distance = 40.0; // world units along the reflected ray
+        ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa; // smooths their grain
         // Glossy surfaces blur it: full strength up to roughness 0.4, gone by 0.7.
-        let wet = MaterialDesc {
-            roughness: 0.1,
-            ..MaterialDesc::color(Color::rgb(0.2, 0.2, 0.22))
-        };
+        let wet = MaterialDesc::color(Color::rgb(0.2, 0.2, 0.22)).with_roughness(0.1);
         // ANCHOR_END: ssr
         assert_eq!(
-            (ctx.post.ssr, ctx.post.ssr_max_distance, wet.roughness),
+            (ctx.scene3d.post.ssr, ctx.scene3d.post.ssr_max_distance, wet.roughness),
             (1.0, 40.0, 0.1)
         );
-        ctx.gfx
-            .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::medium());
-        assert_eq!(ctx.post.ssr, 0.0, "medium turns them off");
-        ctx.gfx
-            .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::high());
-        assert_eq!(ctx.post.ssr, 1.0, "high turns them on");
+        ctx.scene3d.set_quality(GraphicsQuality::Medium);
+        assert_eq!(ctx.scene3d.post.ssr, 0.0, "medium turns them off");
+        ctx.scene3d.set_quality(GraphicsQuality::High);
+        assert_eq!(ctx.scene3d.post.ssr, 1.0, "high turns them on");
     });
 }
 
 #[test]
 fn global_illumination_is_off_until_turned_on() {
     Game::new("gi settings", 64, 64).run_headless(0, |ctx| {
-        assert!(!ctx.lighting.gi.enabled);
+        assert!(!ctx.scene3d.lighting.gi.enabled);
         // ANCHOR: gi
         // Sunlight bounces off walls and floors onto other surfaces.
-        ctx.lighting.gi = GlobalIllumination {
+        ctx.scene3d.lighting.gi = GlobalIllumination {
             enabled: true,
             extent: vec3(48.0, 16.0, 48.0), // the probe grid around the camera
             spacing: 2.0,                   // a probe every 2 world units
@@ -1418,14 +1394,16 @@ fn global_illumination_is_off_until_turned_on() {
             intensity: 1.0,
         };
         // ANCHOR_END: gi
-        assert_eq!(ctx.lighting.gi.probe_counts(), [25, 9, 25]);
-        ctx.gfx
-            .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::high());
-        assert!(!ctx.lighting.gi.enabled, "high turns it off");
-        ctx.gfx
-            .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::ultra());
-        assert!(ctx.lighting.gi.enabled, "ultra turns it on");
-        assert_eq!(ctx.lighting.gi.extent, vec3(48.0, 16.0, 48.0), "and keeps the rest");
+        assert_eq!(ctx.scene3d.lighting.gi.probe_counts(), [25, 9, 25]);
+        ctx.scene3d.set_quality(GraphicsQuality::High);
+        assert!(!ctx.scene3d.lighting.gi.enabled, "high turns it off");
+        ctx.scene3d.set_quality(GraphicsQuality::Ultra);
+        assert!(ctx.scene3d.lighting.gi.enabled, "ultra turns it on");
+        assert_eq!(
+            ctx.scene3d.lighting.gi.extent,
+            vec3(48.0, 16.0, 48.0),
+            "and keeps the rest"
+        );
     });
 }
 
@@ -1434,22 +1412,19 @@ fn quality_presets_switch_at_run_time() {
     Game::new("quality", 64, 64).run_headless(0, |ctx| {
         // ANCHOR: quality
         // An options menu: pick a preset ...
-        ctx.gfx
-            .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::medium());
-        // ... then change single settings on top of it.
-        let mut quality = ctx.gfx.quality(&ctx.post, &ctx.lighting);
-        quality.render_scale = 0.8; // draw the 3D scene at 80% and scale it up
-        quality.sharpen = 0.3;
-        quality.shadow_resolution = 4096;
-        ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, quality);
-        // The settings are the ordinary ones in ctx.post and ctx.lighting.
-        ctx.post.ambient_occlusion.radius = 2.0;
-        let level = ctx.gfx.quality(&ctx.post, &ctx.lighting).level(); // QualityLevel::Custom
+        ctx.scene3d.set_quality(GraphicsQuality::Medium);
+        // ... then change single settings on top of it: they are the
+        // ordinary ones in ctx.scene3d.post and ctx.scene3d.lighting.
+        ctx.scene3d.post.render_scale = 0.8; // draw the 3D scene at 80% and scale it up
+        ctx.scene3d.post.sharpen = 0.3;
+        ctx.scene3d.lighting.shadow_resolution = 4096;
+        ctx.scene3d.post.ambient_occlusion.radius = 2.0;
+        let preset = ctx.scene3d.quality(); // None: custom
         // ANCHOR_END: quality
-        assert_eq!(level, QualityLevel::Custom);
-        assert_eq!(ctx.post.render_scale, 0.8);
-        assert_eq!(ctx.lighting.shadow_resolution, 4096);
-        assert_eq!(ctx.post.render_size((1000, 500)), (800, 400));
+        assert_eq!(preset, None);
+        assert_eq!(ctx.scene3d.post.render_scale, 0.8);
+        assert_eq!(ctx.scene3d.lighting.shadow_resolution, 4096);
+        assert_eq!(ctx.scene3d.post.render_size((1000, 500)), (800, 400));
     });
 }
 
@@ -1460,11 +1435,10 @@ fn quality_follows_the_gpu_tier() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         // ANCHOR: gpu_tiers
         // At startup: the preset for this GPU's tier, fitted to what it has.
-        let quality = match ctx.gfx.gpu_capabilities() {
-            Some(caps) => GraphicsQuality::recommended(caps),
-            None => GraphicsQuality::for_tier(GpuTier::Desktop), // no GPU opened (headless)
-        };
-        ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, quality);
+        match ctx.gfx.gpu_capabilities() {
+            Some(caps) => ctx.scene3d.set_recommended_quality(caps),
+            None => ctx.scene3d.set_recommended_quality(&GpuTier::Desktop.report()), // no GPU opened (headless)
+        }
         // What a weaker GPU lacks, with no such GPU at hand: the report of
         // the tier's floor, each missing feature with its fallback and reason.
         let baseline = GpuTier::Baseline.report();
@@ -1477,7 +1451,7 @@ fn quality_follows_the_gpu_tier() {
             );
         }
         // ANCHOR_END: gpu_tiers
-        assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::High);
+        assert_eq!(ctx.scene3d.quality(), Some(GraphicsQuality::High));
         assert!(!baseline.available(GpuFeature::Decals));
         assert_eq!(
             GpuTier::Baseline.unavailable_features(),
@@ -1536,15 +1510,12 @@ fn gpu_particles(ctx: &mut Ctx) -> GpuBuffer {
     let update = ctx
         .gfx
         .create_compute("particles", "fn update(i: u32) { items[i].y += frame.time.y; }");
-    ctx.compute_passes.push(ComputePass::for_buffer(update, items));
+    ctx.scene3d.passes.compute.push(ComputePass::for_buffer(update, items));
     let shader = ctx.gfx.create_shader(
         "particles",
         "fn vertex(v: Vertex) -> Vertex { var o = v; o.position += items[v.instance_index].xyz; return o; }",
     );
-    let material = ctx.gfx.create_material(MaterialDesc {
-        shader: Some(shader),
-        ..Default::default()
-    });
+    let material = ctx.gfx.create_material(MaterialDesc::default().with_shader(shader));
     let mesh = ctx.gfx.create_mesh(&MeshData::cube(0.05), material);
     ctx.gfx.set_mesh_gpu_buffer(mesh, items, 128);
     // The emitter's extent around its entity, for culling.
@@ -1560,7 +1531,7 @@ fn gpu_buffers_support_headless_setup_and_writes() {
         assert_eq!(ctx.gfx.gpu_buffer_len(b), Some(128));
         ctx.gfx.write_gpu_buffer(b, 127, &[Vec4::ONE]);
         ctx.gfx.write_gpu_buffer(b, 128, &[]);
-        assert_eq!(ctx.compute_passes[0].buffer, Some(b));
+        assert_eq!(ctx.scene3d.passes.compute[0].buffer, Some(b));
     });
 }
 #[test]
@@ -1569,12 +1540,16 @@ fn freed_gpu_buffers_reuse_slots_under_new_ids_and_drop_their_passes() {
         let b = ctx.gfx.create_gpu_buffer(4, &[]);
         let other = ctx.gfx.create_gpu_buffer(2, &[]);
         let update = ctx.gfx.create_compute("up", "fn update(i: u32) { items[i].x += 1.0; }");
-        ctx.compute_passes.push(ComputePass::for_buffer(update, b));
-        ctx.compute_passes.push(ComputePass::for_buffer(update, other));
+        ctx.scene3d.passes.compute.push(ComputePass::for_buffer(update, b));
+        ctx.scene3d.passes.compute.push(ComputePass::for_buffer(update, other));
         ctx.free(b);
         assert_eq!(ctx.gfx.gpu_buffer_len(b), None);
-        assert_eq!(ctx.compute_passes.len(), 1, "only the other buffer's pass is left");
-        assert_eq!(ctx.compute_passes[0].buffer, Some(other));
+        assert_eq!(
+            ctx.scene3d.passes.compute.len(),
+            1,
+            "only the other buffer's pass is left"
+        );
+        assert_eq!(ctx.scene3d.passes.compute[0].buffer, Some(other));
         ctx.free(b); // again: nothing
         let again = ctx.gfx.create_gpu_buffer(8, &[]);
         assert_ne!(again, b, "the freed slot comes back under a new id");
@@ -1583,7 +1558,8 @@ fn freed_gpu_buffers_reuse_slots_under_new_ids_and_drop_their_passes() {
         assert!(!ctx.is_live(b));
         ctx.free(b); // a stale free leaves the new buffer alone
         assert_eq!(ctx.gfx.gpu_buffer_len(again), Some(8));
-        assert_eq!(ctx.gfx.create_gpu_buffer(1, &[]).id(), 2, "then a new slot");
+        let next = ctx.gfx.create_gpu_buffer(1, &[]);
+        assert_eq!(ponko::__ffi::id(next), 2, "then a new slot");
     });
 }
 #[test]
@@ -1639,17 +1615,17 @@ fn hundred_thousand_static_instances_need_no_entities() {
 fn target_effects_run_headless_and_keep_their_settings() {
     let mut kept = Vec::new();
     Game::new("t", 64, 64).run_headless(2, |ctx| {
-        if ctx.target_effects.is_empty() {
+        if ctx.scene3d.passes.target_effects.is_empty() {
             let copy = ctx
                 .gfx
                 .create_effect("copy", "fn effect(p: Pixel) -> vec3<f32> { return p.color; }");
             let target = ctx.gfx.create_render_target(16, 16);
             let image = ctx.gfx.create_texture(1, 1, &[255; 4]);
-            ctx.target_effects.push(TargetEffect::new(copy, target));
+            ctx.scene3d.passes.target_effects.push(TargetEffect::new(copy, target));
             // Not a render target: skipped, not an error.
-            ctx.target_effects.push(TargetEffect::new(copy, image));
+            ctx.scene3d.passes.target_effects.push(TargetEffect::new(copy, image));
         }
-        kept = ctx.target_effects.clone();
+        kept = ctx.scene3d.passes.target_effects.clone();
     });
     assert_eq!(kept.len(), 2);
     assert!(kept.iter().all(|e| e.material.is_none()));
@@ -1744,7 +1720,7 @@ fn batch_culling_setter_accepts_live_and_empty_batches_and_rejects_freed_handles
         assert!(!ctx.gfx.set_instance_batch_culling(batch, BatchCulling::Auto));
         assert!(
             !ctx.gfx
-                .set_instance_batch_culling(InstanceBatch::from_id(u32::MAX), BatchCulling::Auto)
+                .set_instance_batch_culling(InstanceBatch::NONE, BatchCulling::Auto)
         );
     });
 }
@@ -1754,27 +1730,23 @@ fn quality_autotune_is_scene_opt_in_and_headless_stays_fixed() {
     // ANCHOR: quality-autotune
     use ponko::render::QualityAutotune;
     Game::new("Quality policy", 640, 360).run_headless(2, |ctx| {
-        assert!(ctx.gfx.quality_autotune_status(&ctx.post, &ctx.lighting).is_none()); // default: off
-        ctx.gfx.set_quality_autotune(
-            &ctx.post,
-            &ctx.lighting,
-            Some(QualityAutotune {
-                target_gpu_ms: 1000.0 / 60.0,
-                min_render_scale: 0.6,
-                max_render_scale: 1.0,
-                min_shadow_resolution: 512,
-                max_shadow_resolution: 2048,
-            }),
-        );
+        assert!(ctx.scene3d.quality_autotune_status(&ctx.gfx).is_none()); // default: off
+        ctx.scene3d.set_quality_autotune(Some(QualityAutotune {
+            target_gpu_ms: 1000.0 / 60.0,
+            min_render_scale: 0.6,
+            max_render_scale: 1.0,
+            min_shadow_resolution: 512,
+            max_shadow_resolution: 2048,
+        }));
         // An options-menu choice always wins, including same-value writes.
-        ctx.gfx.pin_shadow_resolution(&mut ctx.lighting, 2048);
+        ctx.scene3d.pin_shadow_resolution(2048);
         // Freeze before a deterministic screenshot sequence and its warm-up.
-        ctx.gfx.freeze_quality_autotune(true);
-        let status = ctx.gfx.quality_autotune_status(&ctx.post, &ctx.lighting).unwrap();
+        ctx.scene3d.freeze_quality_autotune(true);
+        let status = ctx.scene3d.quality_autotune_status(&ctx.gfx).unwrap();
         assert!(status.shadow_resolution_pinned);
         assert_eq!(status.changes, 0); // headless never tunes
-        ctx.gfx.freeze_quality_autotune(false);
-        ctx.gfx.set_quality_autotune(&ctx.post, &ctx.lighting, None); // retain choices, stop tuning
+        ctx.scene3d.freeze_quality_autotune(false);
+        ctx.scene3d.set_quality_autotune(None); // retain choices, stop tuning
     });
     // ANCHOR_END: quality-autotune
 }

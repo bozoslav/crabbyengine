@@ -105,8 +105,8 @@ fn count_with(w: &mut World, k: usize) -> usize {
             let mut q = q;
             q.count()
         }
-        1 => q.with::<Marker<0>>().count(),
-        2 => q.with::<Marker<0>>().with::<Marker<1>>().count(),
+        1 => q.filter::<With<Marker<0>>>().count(),
+        2 => q.filter::<With<Marker<0>>>().filter::<With<Marker<1>>>().count(),
         4 => q
             .filter::<(With<Marker<0>>, With<Marker<1>>, With<Marker<2>>, With<Marker<3>>)>()
             .count(),
@@ -129,8 +129,8 @@ fn sum_with(w: &mut World, k: usize) -> u64 {
     let q = w.query::<&Value>();
     let mut q = match k {
         0 => q,
-        1 => q.with::<Marker<0>>(),
-        2 => q.with::<Marker<0>>().with::<Marker<1>>(),
+        1 => q.filter::<With<Marker<0>>>(),
+        2 => q.filter::<With<Marker<0>>>().filter::<With<Marker<1>>>(),
         4 => q.filter::<(With<Marker<0>>, With<Marker<1>>, With<Marker<2>>, With<Marker<3>>)>(),
         _ => q.filter::<(
             With<Marker<0>>,
@@ -181,7 +181,11 @@ fn selectivity(b: &mut Bench) {
 
 /// Four signatures a system might repeat: 1/4, 1/16, 3/4 (an `Or`) and 1/8.
 fn four_queries(w: &mut World) -> usize {
-    let a = w.query::<&Value>().with::<Marker<0>>().with::<Marker<1>>().count();
+    let a = w
+        .query::<&Value>()
+        .filter::<With<Marker<0>>>()
+        .filter::<With<Marker<1>>>()
+        .count();
     let b = count_with(w, 4);
     let c = w
         .query::<&Value>()
@@ -286,7 +290,7 @@ fn churn(b: &mut Bench) {
                     s.step += 1;
                     let name = format!("late-{}", s.step);
                     // SAFETY: a plain 4-byte component without a destructor.
-                    black_box(unsafe { s.w.register_component(&name, 4, 4, None) });
+                    black_box(unsafe { s.w.raw().register_component(&name, 4, 4, None) });
                     black_box(four_queries(&mut s.w));
                 }
             },
@@ -370,16 +374,16 @@ fn frame(g: &mut Game) -> f32 {
     acc += w.query::<&Pos>().count() as f32;
     // Selective gameplay queries: 1/4 to 1/64 of the layouts.
     w.query::<&mut Pos>()
-        .with::<Marker<1>>()
-        .with::<Marker<2>>()
+        .filter::<With<Marker<1>>>()
+        .filter::<With<Marker<2>>>()
         .for_each(|p| p.y += dt);
     w.query::<&mut Pos>()
-        .with::<Marker<2>>()
-        .without::<Marker<3>>()
+        .filter::<With<Marker<2>>>()
+        .filter::<Without<Marker<3>>>()
         .for_each(|p| p.y -= dt);
     w.query::<(&mut Pos, &Vel)>()
-        .with::<Marker<3>>()
-        .with::<Marker<4>>()
+        .filter::<With<Marker<3>>>()
+        .filter::<With<Marker<4>>>()
         .for_each(|(p, v)| p.x -= v.x * dt);
     w.query::<&Pos>()
         .filter::<(With<Marker<1>>, With<Marker<3>>, With<Marker<5>>)>()
@@ -401,9 +405,9 @@ fn frame(g: &mut Game) -> f32 {
         )>()
         .for_each(|p| acc += p.x);
     w.query::<(&Pos, &Vel)>()
-        .without::<Marker<1>>()
-        .without::<Marker<2>>()
-        .without::<Marker<3>>()
+        .filter::<Without<Marker<1>>>()
+        .filter::<Without<Marker<2>>>()
+        .filter::<Without<Marker<3>>>()
         .for_each(|(p, v)| acc += p.x * v.y);
     // `Or` filters: 3/4 of the layouts, and 5/8.
     w.query::<&Pos>()
@@ -416,39 +420,43 @@ fn frame(g: &mut Game) -> f32 {
         .filter::<(Or<(With<Marker<4>>, Without<Marker<5>>)>, With<Marker<3>>)>()
         .for_each(|p| acc += p.x);
     // Counts and an iterator.
-    acc += w.query::<&Vel>().with::<Marker<5>>().count() as f32;
-    acc += w.query::<Entity>().without::<Marker<0>>().with::<Marker<4>>().count() as f32;
-    acc += w.query::<&Pos>().with::<Marker<3>>().with::<Marker<5>>().count() as f32;
+    acc += w.query::<&Vel>().filter::<With<Marker<5>>>().count() as f32;
+    acc += w
+        .query::<Entity>()
+        .filter::<Without<Marker<0>>>()
+        .filter::<With<Marker<4>>>()
+        .count() as f32;
     acc += w
         .query::<&Pos>()
-        .with::<Marker<1>>()
-        .with::<Marker<4>>()
+        .filter::<With<Marker<3>>>()
+        .filter::<With<Marker<5>>>()
+        .count() as f32;
+    acc += w
+        .query::<&Pos>()
+        .filter::<With<Marker<1>>>()
+        .filter::<With<Marker<4>>>()
         .iter()
         .map(|p| p.x)
         .sum::<f32>();
     acc += w
         .query::<(Entity, &Pos)>()
-        .with::<Marker<2>>()
-        .with::<Marker<5>>()
+        .filter::<With<Marker<2>>>()
+        .filter::<With<Marker<5>>>()
         .iter()
         .map(|(_, p)| p.y)
         .sum::<f32>();
     // A parallel loop over 1/4 of the layouts.
     w.query::<&mut Pos>()
-        .with::<Marker<4>>()
-        .with::<Marker<5>>()
+        .filter::<With<Marker<4>>>()
+        .filter::<With<Marker<5>>>()
         .par_for_each(|p| p.x += dt);
     // The C path: raw chunks with a runtime filter.
     let ids = [g.pos];
     let mut rows = 0;
-    w.query_chunks_filtered(
-        ChunkQuery {
-            writes: 0,
-            ..ChunkQuery::new(&ids)
-        },
-        &g.filter,
-        |chunk| rows += chunk.len(),
-    );
+    w.raw()
+        .query_chunks(ChunkQuery::new(&ids).writes(0).filter(&g.filter), |chunk| {
+            rows += chunk.len()
+        });
     acc += rows as f32;
     // Structural changes: moves between layouts, despawns and spawns.
     let bits = g.layouts.trailing_zeros() as usize;

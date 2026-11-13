@@ -1,8 +1,11 @@
 //! Residency budgets: an opt-in byte budget per kind of asset, and the set
 //! of assets loaded by name under it.
 //!
+//! Private to the engine: the public types are re-exported from
+//! [`crate::streaming`], which documents the whole asset service.
+//!
 //! A game asks for an asset by name each time it needs it
-//! ([`Ctx::resident_mesh`](crate::Ctx::resident_mesh)); the asset loads if
+//! ([`Graphics::resident_mesh`](crate::gfx::Graphics::resident_mesh)); the asset loads if
 //! it isn't resident, and when the resident bytes of its kind go over the
 //! kind's budget, the least recently used assets that nothing needs are
 //! evicted until they fit. Evicted assets load again (from their asset
@@ -18,15 +21,17 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use ponko_ecs::World;
+
 /// A kind of asset with its own residency budget.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ResidencyKind {
-    /// Meshes loaded from files with [`Ctx::resident_mesh`](crate::Ctx::resident_mesh):
+    /// Meshes loaded from files with [`Graphics::resident_mesh`](crate::gfx::Graphics::resident_mesh):
     /// their vertex and index buffers.
     Mesh,
-    /// Images loaded with [`Ctx::resident_texture`](crate::Ctx::resident_texture)
-    /// or [`Ctx::stream_texture`](crate::Ctx::stream_texture): the pixels of
+    /// Images loaded with [`Graphics::resident_texture`](crate::gfx::Graphics::resident_texture)
+    /// or [`Graphics::stream_texture`](crate::gfx::Graphics::stream_texture): the pixels of
     /// the resolution each one is at now. Evicted textures keep a small
     /// stand-in (at most 32 pixels a side) that the budget doesn't count.
     Texture,
@@ -60,8 +65,8 @@ impl ResidencyKind {
 /// ```
 /// # use ponko::prelude::*;
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-///     ctx.set_residency_budget(ponko::residency::ResidencyKind::Mesh, Some(64 << 20));
-///     let meshes = ctx.gfx.residency(ponko::residency::ResidencyKind::Mesh);
+///     ctx.gfx.set_residency_budget(ponko::streaming::ResidencyKind::Mesh, Some(64 << 20));
+///     let meshes = ctx.gfx.residency(ponko::streaming::ResidencyKind::Mesh);
 ///     assert_eq!(meshes.budget, Some(64 << 20));
 ///     assert_eq!((meshes.resident, meshes.evictions), (0, 0));
 /// });
@@ -373,45 +378,50 @@ impl Residency {
     }
 }
 
-impl crate::Ctx {
+impl crate::gfx::Graphics {
     /// Sets the byte budget for resident assets of `kind`; `None` (the
-    /// default) for no limit. Lowering it evicts at once what it can.
+    /// default) for no limit. A lower budget evicts what it can at the start
+    /// of the next frame, in the engine's streaming step.
     ///
     /// The budget counts the engine's estimates of the assets' GPU memory,
-    /// and only assets loaded through residency (such as
+    /// and only assets loaded through residency or streaming (such as
     /// [`resident_mesh`](Self::resident_mesh)). It can be exceeded: assets
     /// that are pinned, shown by entities, or asked for in this or the
     /// previous frame or tick are never evicted, and [`ResidencyStats::over_budget_bytes`] says by
-    /// how much.
+    /// how much. The other budget, [`set_upload_budget`](Self::set_upload_budget),
+    /// limits the bytes sent to the GPU per frame instead.
     ///
-    /// The budget is checked when an asset loads and at the start of every
-    /// frame. While `kind` stays over its budget, that check looks at every
+    /// The budget is checked at the start of every frame, before the game's
+    /// systems (and while uploading streamed assets), never in the call that
+    /// loads an asset: a load can put `kind` over its budget for at most one
+    /// frame, until that check evicts what may go. Eviction never takes what
+    /// an entity of the game's world shows. While `kind` stays over its budget, that check looks at every
     /// entity showing an asset of the kind each frame (no allocation, but a
     /// cost that grows with the scene): keep the budget above what the scene
     /// shows at once.
     pub fn set_residency_budget(&mut self, kind: ResidencyKind, bytes: Option<u64>) {
-        self.gfx.residency.set_mut(kind).set_budget(bytes);
-        self.enforce_residency(kind);
+        self.residency.set_mut(kind).set_budget(bytes);
     }
 
     /// The frame and tick now: residency protects assets asked for in them
     /// or the ones before.
     pub(crate) fn residency_now(&self) -> (u64, u64) {
-        (self.time.frame(), self.time.sim_tick())
+        (self.frame, self.sim_tick)
     }
 
-    /// Evicts what `kind`'s budget needs gone.
-    pub(crate) fn enforce_residency(&mut self, kind: ResidencyKind) {
+    /// Evicts what `kind`'s budget needs gone. Only the engine calls it,
+    /// with the game's world (`pump_streaming`, the upload step).
+    pub(crate) fn enforce_residency(&mut self, world: &mut World, kind: ResidencyKind) {
         let now = self.residency_now();
-        if !self.gfx.residency.set(kind).wants_eviction(now) {
+        if !self.residency.set(kind).wants_eviction(now) {
             return;
         }
         match kind {
             #[cfg(feature = "3d")]
-            ResidencyKind::Mesh => self.evict_meshes(now),
+            ResidencyKind::Mesh => self.evict_meshes(world, now),
             #[cfg(not(feature = "3d"))]
             ResidencyKind::Mesh => {}
-            ResidencyKind::Texture => self.evict_textures(now),
+            ResidencyKind::Texture => self.evict_textures(world, now),
         }
     }
 }

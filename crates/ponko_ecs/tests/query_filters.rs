@@ -53,7 +53,7 @@ const GHOST: i32 = 8;
 fn typed_with_and_without_match_the_builder_methods() {
     let mut w = world_of_combinations();
     let typed = matched(w.query::<&Health>().filter::<(With<Player>, Without<Dead>)>());
-    let builder = matched(w.query::<&Health>().with::<Player>().without::<Dead>());
+    let builder = matched(w.query::<&Health>().filter::<With<Player>>().filter::<Without<Dead>>());
     assert_eq!(typed, builder);
     assert_eq!(typed, expected(|b| b & PLAYER != 0 && b & DEAD == 0));
 }
@@ -77,7 +77,7 @@ fn or_mixes_with_and_without_terms() {
 fn or_combines_with_other_filters_as_and() {
     let mut w = world_of_combinations();
     type Visible = (Or<(With<Player>, With<Enemy>)>, Or<(Without<Dead>, With<Ghost>)>);
-    let got = matched(w.query::<&Health>().filter::<Visible>().without::<Ghost>());
+    let got = matched(w.query::<&Health>().filter::<Visible>().filter::<Without<Ghost>>());
     assert_eq!(
         got,
         expected(|b| b & (PLAYER | ENEMY) != 0 && (b & DEAD == 0 || b & GHOST != 0) && b & GHOST == 0)
@@ -112,7 +112,13 @@ fn repeated_filter_calls_accumulate() {
 #[test]
 fn contradictory_filters_match_nothing() {
     let mut w = world_of_combinations();
-    assert_eq!(w.query::<&Health>().with::<Player>().without::<Player>().count(), 0);
+    assert_eq!(
+        w.query::<&Health>()
+            .filter::<With<Player>>()
+            .filter::<Without<Player>>()
+            .count(),
+        0
+    );
 }
 
 #[test]
@@ -143,7 +149,7 @@ fn filter_on_a_fetched_mutable_component_is_allowed() {
     let mut w = world_of_combinations();
     w.query::<&mut Health>()
         .filter::<Or<(With<Health>, With<Dead>)>>()
-        .with::<Health>()
+        .filter::<With<Health>>()
         .for_each(|h| h.0 += 100);
     assert!(w.query::<&Health>().iter().all(|h| h.0 >= 100));
 }
@@ -162,21 +168,21 @@ fn more_than_four_with_and_without_filters_fit() {
     w.spawn((Pos(0.0, 0.0), Vel(0.0, 0.0), Tag, Frozen));
     let n = w
         .query::<&Pos>()
-        .with::<C0>()
-        .with::<C1>()
-        .with::<C2>()
-        .with::<C3>()
-        .with::<C4>()
-        .with::<C5>()
+        .filter::<With<C0>>()
+        .filter::<With<C1>>()
+        .filter::<With<C2>>()
+        .filter::<With<C3>>()
+        .filter::<With<C4>>()
+        .filter::<With<C5>>()
         .count();
     assert_eq!(n, 1);
     let n = w
         .query::<&Pos>()
-        .without::<C5>()
-        .without::<Vel>()
-        .without::<Tag>()
-        .without::<Frozen>()
-        .without::<Health>()
+        .filter::<Without<C5>>()
+        .filter::<Without<Vel>>()
+        .filter::<Without<Tag>>()
+        .filter::<Without<Frozen>>()
+        .filter::<Without<Health>>()
         .count();
     assert_eq!(n, 1);
 }
@@ -187,7 +193,7 @@ fn repeated_with_filters_use_one_slot() {
     w.spawn((Pos(0.0, 0.0), Tag));
     let mut q = w.query::<&Pos>();
     for _ in 0..20 {
-        q = q.with::<Tag>().without::<Frozen>();
+        q = q.filter::<With<Tag>>().filter::<Without<Frozen>>();
     }
     assert_eq!(q.count(), 1);
 }
@@ -217,7 +223,7 @@ fn too_many_with_filters_panic() {
             With<C6>,
             With<C7>,
         )>()
-        .with::<C8>();
+        .filter::<With<C8>>();
 }
 
 #[test]

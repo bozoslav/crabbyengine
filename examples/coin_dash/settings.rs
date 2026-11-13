@@ -776,9 +776,8 @@ fn drive(ctx: &mut Ctx, state: &mut SettingsUi, on_screen: bool) {
         state.open = true;
     }
 
-    // Drain first, then change the tree (the events borrow it).
-    let events: Vec<ponko::ui::UiEvent> = ctx.ui.events().collect();
-    for event in events {
+    // One at a time: the body changes the tree between events.
+    while let Some(event) = ctx.ui.next_event() {
         match event {
             ponko::ui::UiEvent::Clicked(id) => click(ctx, state, id),
             ponko::ui::UiEvent::Changed(id) if id == state.volume => {

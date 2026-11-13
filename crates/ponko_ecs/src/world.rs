@@ -18,8 +18,9 @@ struct BundleInfo {
 }
 
 /// One chunk of entities handed to [`RawWorld::for_each_chunk`](crate::RawWorld::for_each_chunk) or
-/// [`World::query_chunks`]: `len` entities and one column pointer per
+/// [`RawWorld::query_chunks`](crate::RawWorld::query_chunks): `len` entities and one column pointer per
 /// requested component, in request order.
+#[non_exhaustive]
 pub struct Chunk<'a> {
     /// The entities in this chunk; row `i` of each column belongs to `entities[i]`.
     pub entities: &'a [Entity],
@@ -287,19 +288,35 @@ impl World {
     }
 
     /// Despawns every entity **and forgets every entity id**, as if the world
-    /// were new; resources and registered components stay. Afterwards, old
-    /// handles may match new entities, so use this only when replacing the
-    /// whole world, such as when loading a save (whose ids then come back
-    /// with [`spawn_at`](Self::spawn_at)). For everything else use
-    /// [`clear`](Self::clear).
+    /// were new; resources and registered components stay. For everything
+    /// but replacing the whole world, use [`clear`](Self::clear).
+    ///
+    /// **Old handles can match new entities afterwards.** Generations start
+    /// over, so a handle kept from before the reset (in a component, a
+    /// resource, a system's own state) may name an entity spawned after it,
+    /// and `get`, `despawn` and the rest then act on that entity. That is
+    /// the point of resetting: a save is loaded by resetting and spawning
+    /// its entities again under their saved handles with
+    /// [`spawn_at`](Self::spawn_at), so the handles stored inside the save
+    /// stay valid. It also means every handle that isn't part of what is
+    /// loaded must be dropped before, or looked up again after.
     ///
     /// ```
     /// use ponko_ecs::World;
     ///
     /// let mut world = World::new();
-    /// let e = world.spawn((1u8,));
+    /// let old = world.spawn((1u8,));
     /// world.reset();
-    /// assert!(world.spawn_at(e, (2u8,))); // the id is free again
+    /// assert!(!world.is_alive(old));
+    /// // The first handle after a reset is the first handle of a new world:
+    /// // the one `old` holds.
+    /// let new = world.spawn((2u8,));
+    /// assert_eq!(new, old);
+    /// assert_eq!(world.get::<u8>(old), Some(&2));
+    ///
+    /// // What it is for: the saved handle is free again.
+    /// world.reset();
+    /// assert!(world.spawn_at(old, (3u8,)));
     /// ```
     pub fn reset(&mut self) {
         self.recorder.note(|l| l.structural = true);
@@ -521,7 +538,7 @@ impl World {
         let mut keyed: Vec<(u64, u32)> = Vec::new();
         for a in 0..self.archetypes.len() {
             let arch = &self.archetypes[a];
-            let Some(base) = arch.column_ptr(id) else { continue };
+            let Some(base) = arch.column_base(id) else { continue };
             let len = arch.len();
             if len < 2 {
                 continue;
@@ -676,7 +693,10 @@ impl World {
         self.dynamic_resources.insert(name.to_string(), raw);
     }
 
-    /// Implementation of [`RawWorld::get_resource_dynamic`](crate::RawWorld::get_resource_dynamic).
+    /// Implementation of [`RawWorld::get_resource_dynamic`](crate::RawWorld::get_resource_dynamic)
+    /// and [`get_resource_dynamic_mut`](crate::RawWorld::get_resource_dynamic_mut):
+    /// the value is its own allocation, so the pointer allows writing for
+    /// callers that hold the world exclusively.
     #[must_use]
     pub(crate) fn get_resource_dynamic_inner(&self, name: &str) -> Option<*mut u8> {
         self.recorder.note(|l| l.dynamic_resource(name));
@@ -868,19 +888,8 @@ impl World {
         id
     }
 
-    /// Registers a component known only by name, size and alignment: the path
-    /// for components defined in C/C++ or loaded at runtime.
-    ///
-    /// Registering the same name again with the same layout returns the same id.
-    ///
-    /// # Safety
-    /// Values of this component must be safe to move with `memcpy`, and to send
-    /// and share between threads. `drop`, if given, must accept any value
-    /// written as this component.
-    ///
-    /// # Panics
-    /// If the name is taken with a different layout, or the layout is invalid.
-    pub unsafe fn register_component(
+    /// Implementation of [`RawWorld::register_component`](crate::RawWorld::register_component).
+    pub(crate) unsafe fn register_component_inner(
         &mut self,
         name: &str,
         size: usize,
@@ -982,11 +991,13 @@ impl World {
         Some(self.archetypes[loc.archetype as usize].component_ids())
     }
 
-    /// Implementation of [`RawWorld::get_dynamic`](crate::RawWorld::get_dynamic).
+    /// Implementation of [`RawWorld::get_dynamic`](crate::RawWorld::get_dynamic)
+    /// (`write: false`, and the caller hands the pointer out as `*const`) and
+    /// [`get_dynamic_mut`](crate::RawWorld::get_dynamic_mut) (`write: true`,
+    /// for callers that hold the world exclusively).
     #[must_use]
-    pub(crate) fn get_dynamic_inner(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
-        // The pointer allows writing: count it as a write.
-        self.recorder.note(|l| l.component(id, true));
+    pub(crate) fn get_dynamic_inner(&self, e: Entity, id: ComponentId, write: bool) -> Option<*mut u8> {
+        self.recorder.note(|l| l.component(id, write));
         self.locate(e, id)
     }
 
@@ -1146,7 +1157,7 @@ impl World {
                 continue;
             }
             for (i, &id) in ids.iter().enumerate() {
-                match arch.column_ptr(id) {
+                match arch.column_base(id) {
                     Some(p) => ptrs[i] = p,
                     None => continue 'arch,
                 }

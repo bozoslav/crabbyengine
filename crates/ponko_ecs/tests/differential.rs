@@ -424,7 +424,7 @@ fn check(world: &mut World, model: &mut Model, log: &DropLog) -> Result<(), Stri
 
     let marked: Vec<_> = world
         .query::<(Entity, Option<&Tracked>)>()
-        .with::<Marker>()
+        .filter::<With<Marker>>()
         .iter()
         .map(|(e, t)| (e, t.map(|t| t.serial)))
         .collect();
@@ -438,7 +438,7 @@ fn check(world: &mut World, model: &mut Model, log: &DropLog) -> Result<(), Stri
         return Err("query (Entity, Option<&Tracked>) with Marker differs from the model".into());
     }
 
-    let without = world.query::<Entity>().without::<Num>().count();
+    let without = world.query::<Entity>().filter::<Without<Num>>().count();
     let want = model.live.values().filter(|r| r.num.is_none()).count();
     if without != want {
         return Err(format!("query Entity without Num counts {without}, model {want}"));

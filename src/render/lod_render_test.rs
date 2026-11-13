@@ -118,7 +118,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, solid_prepass);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -146,31 +146,31 @@ impl Rig {
     fn draw(&mut self) -> Vec<u8> {
         let ctx = &mut self.ctx;
         let frame = &mut self.frame;
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // Sunlight only in the shadow scene: elsewhere the cubes glow
             // on black.
             light: SkyLight {
-                sun: if ctx.lighting.shadows {
-                    Vec3::splat(ctx.lighting.sun_intensity)
+                sun: if ctx.scene3d.lighting.shadows {
+                    Vec3::splat(ctx.scene3d.lighting.sun_intensity)
                 } else {
                     Vec3::ZERO
                 },
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -247,8 +247,8 @@ fn count(pixels: &[u8]) -> Count {
 
 /// The camera `d` in front of the origin.
 fn camera_at(ctx: &mut Ctx, d: f32) {
-    ctx.camera3d.position = vec3(0.0, 0.0, d);
-    ctx.camera3d.look_at(Vec3::ZERO);
+    ctx.scene3d.camera.position = vec3(0.0, 0.0, d);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
 }
 
 /// Level 0 is a small red cube, level 1 a bigger, nearer blue one (so a
@@ -295,7 +295,7 @@ fn the_level_for_the_distance_is_the_one_drawn() {
         // The bias moves the switch: at the far distance, a bigger bias
         // brings the red cube back (5 x 0.15 is above the fade band).
         camera_at(&mut rig.ctx, distance_for(0.15));
-        rig.ctx.lod.bias = 5.0;
+        rig.ctx.scene3d.lod.bias = 5.0;
         let biased = count(&rig.draw());
         assert!(biased.red > 20 && biased.blue == 0, "bias 4: {biased:?}");
     }
@@ -321,7 +321,7 @@ fn a_crossfade_draws_both_levels_through_complementary_dither() {
         // No holes: wherever the red cube is solid in an undithered frame
         // (crossfades off, level 0 only), the dithered one shows red or
         // blue, never the background.
-        rig.ctx.lod.crossfade = false;
+        rig.ctx.scene3d.lod.crossfade = false;
         camera_at(&mut rig.ctx, distance_for(0.475));
         let solid = rig.draw();
         let (red_only, blue_only) = (count(&solid).red, count(&solid).blue);
@@ -424,8 +424,8 @@ fn the_dither_follows_the_blend() {
 /// ground under the cube is in its shadow, but not if the level shown casts
 /// none.
 fn shadow_scene(rig: &mut Rig) -> impl Fn(&[u8]) -> u32 + use<> {
-    rig.ctx.lighting.sun_direction = vec3(0.0, -1.0, 0.0001);
-    rig.ctx.lighting.shadows = true;
+    rig.ctx.scene3d.lighting.sun_direction = vec3(0.0, -1.0, 0.0001);
+    rig.ctx.scene3d.lighting.shadows = true;
     let matte = MaterialDesc {
         roughness: 1.0,
         ..Default::default()
@@ -434,12 +434,12 @@ fn shadow_scene(rig: &mut Rig) -> impl Fn(&[u8]) -> u32 + use<> {
     rig.ctx.world.spawn((Transform3D::default(), Model::new(ground)));
     let red = rig.mesh(&MeshData::cube(1.0), glowing(Color::rgb(1.0, 0.0, 0.0)));
     let blue = rig.mesh(&MeshData::cube(1.0), glowing(Color::rgb(0.0, 0.0, 1.0)));
-    rig.ctx.camera3d.position = vec3(0.0, 6.0, 6.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 6.0, 6.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     // 6.7 from the camera; size chosen so the group covers 60% of the
     // screen: half way through the fade band (50% to 70%).
-    let distance = rig.ctx.camera3d.position.distance(vec3(0.0, 3.0, 0.0));
-    let size = LodGroup::screen_height_at(1.0, distance, rig.ctx.camera3d.fov_y).recip() * 0.6;
+    let distance = rig.ctx.scene3d.camera.position.distance(vec3(0.0, 3.0, 0.0));
+    let size = LodGroup::screen_height_at(1.0, distance, rig.ctx.scene3d.camera.fov_y).recip() * 0.6;
     let group = LodGroup::new(
         size,
         vec![
@@ -450,7 +450,7 @@ fn shadow_scene(rig: &mut Rig) -> impl Fn(&[u8]) -> u32 + use<> {
     )
     .with_center(Vec3::ZERO);
     rig.ctx.world.spawn((Transform3D::at(vec3(0.0, 3.0, 0.0)), group));
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     move |pixels: &[u8]| {
         let ndc = view_proj.project_point3(vec3(0.0, 0.0, 0.3));
         let x = ((ndc.x * 0.5 + 0.5) * SIZE as f32) as u32;
@@ -473,11 +473,11 @@ fn shadows_follow_the_level_and_its_fade() {
         return;
     };
     let ground_at = shadow_scene(&mut rig);
-    rig.ctx.lod.bias = 2.0; // 120% of the screen: level 0 alone
+    rig.ctx.scene3d.lod.bias = 2.0; // 120% of the screen: level 0 alone
     let near = ground_at(&rig.draw());
-    rig.ctx.lod.bias = 0.5; // 30%: level 1 alone, which casts no shadow
+    rig.ctx.scene3d.lod.bias = 0.5; // 30%: level 1 alone, which casts no shadow
     let far = ground_at(&rig.draw());
-    rig.ctx.lod.bias = 1.0; // 60%: a crossfade of the two
+    rig.ctx.scene3d.lod.bias = 1.0; // 60%: a crossfade of the two
     let mid = ground_at(&rig.draw());
     assert!(
         near * 3 < far,
@@ -597,8 +597,8 @@ fn a_group_the_camera_does_not_see_casts_its_shadow_with_the_cameras_level() {
     let Some(mut rig) = Rig::new(true) else {
         return;
     };
-    rig.ctx.lighting.sun_direction = vec3(0.0, -1.0, 0.0001);
-    rig.ctx.lighting.shadows = true;
+    rig.ctx.scene3d.lighting.sun_direction = vec3(0.0, -1.0, 0.0001);
+    rig.ctx.scene3d.lighting.shadows = true;
     let matte = MaterialDesc {
         roughness: 1.0,
         ..Default::default()
@@ -610,12 +610,12 @@ fn a_group_the_camera_does_not_see_casts_its_shadow_with_the_cameras_level() {
     // Looking down at the ground from low; the group hangs 5 m above the
     // middle of the view, out of the top of the picture, its shadow in the
     // middle.
-    rig.ctx.camera3d.position = vec3(0.0, 1.0, 6.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 1.0, 6.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let at = vec3(0.0, 5.0, 0.0);
-    let distance = rig.ctx.camera3d.position.distance(at);
+    let distance = rig.ctx.scene3d.camera.position.distance(at);
     // 60% of the screen at bias 1.
-    let size = LodGroup::screen_height_at(1.0, distance, rig.ctx.camera3d.fov_y).recip() * 0.6;
+    let size = LodGroup::screen_height_at(1.0, distance, rig.ctx.scene3d.camera.fov_y).recip() * 0.6;
     let group = LodGroup::new(
         size,
         vec![
@@ -624,7 +624,7 @@ fn a_group_the_camera_does_not_see_casts_its_shadow_with_the_cameras_level() {
         ],
     );
     rig.ctx.world.spawn((Transform3D::at(at), group));
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let ground_at = move |pixels: &[u8]| {
         let ndc = view_proj.project_point3(Vec3::ZERO);
         let x = ((ndc.x * 0.5 + 0.5) * SIZE as f32) as u32;
@@ -638,9 +638,9 @@ fn a_group_the_camera_does_not_see_casts_its_shadow_with_the_cameras_level() {
         }
         sum
     };
-    rig.ctx.lod.bias = 2.0; // level 0, which casts
+    rig.ctx.scene3d.lod.bias = 2.0; // level 0, which casts
     let near = rig.draw();
-    rig.ctx.lod.bias = 0.5; // level 1, which casts nothing
+    rig.ctx.scene3d.lod.bias = 0.5; // level 1, which casts nothing
     let far = rig.draw();
     for (name, pixels) in [("near", &near), ("far", &far)] {
         let c = count(pixels);

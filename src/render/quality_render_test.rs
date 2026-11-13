@@ -144,10 +144,10 @@ impl Fixture {
                 ..Default::default()
             },
         ));
-        ctx.camera3d.position = vec3(0.0, 5.0, 6.0);
-        ctx.camera3d.look_at(Vec3::ZERO);
-        ctx.sky.atmosphere = false;
-        ctx.post.bloom = 0.0;
+        ctx.scene3d.camera.position = vec3(0.0, 5.0, 6.0);
+        ctx.scene3d.camera.look_at(Vec3::ZERO);
+        ctx.scene3d.sky.atmosphere = false;
+        ctx.scene3d.post.bloom = 0.0;
 
         let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         renderer.create_material(&device, &GpuMaterialDesc::new(&matte), &textures);
@@ -183,20 +183,20 @@ impl Fixture {
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::ONE,
                 ground: Vec3::ONE,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -294,18 +294,23 @@ fn switching_presets_back_and_forth_renders_clean_full_size_frames() {
         lit[2] > 0 && lit[3] > 0,
         "the ground reaches the bottom corners: {lit:?}"
     );
+    // `None`: back to the engine's defaults, which are none of the presets.
+    let start = (f.ctx.scene3d.lighting, f.ctx.scene3d.post);
     let levels = [
-        GraphicsQuality::low(),
-        GraphicsQuality::ultra(),
-        GraphicsQuality::medium(),
-        GraphicsQuality::high(),
-        GraphicsQuality::low(),
-        GraphicsQuality::default(),
-        GraphicsQuality::ultra(),
-        GraphicsQuality::medium(),
+        Some(GraphicsQuality::Low),
+        Some(GraphicsQuality::Ultra),
+        Some(GraphicsQuality::Medium),
+        Some(GraphicsQuality::High),
+        Some(GraphicsQuality::Low),
+        None,
+        Some(GraphicsQuality::Ultra),
+        Some(GraphicsQuality::Medium),
     ];
     for (round, quality) in levels.into_iter().enumerate() {
-        f.ctx.gfx.set_quality(&mut f.ctx.post, &mut f.ctx.lighting, quality);
+        match quality {
+            Some(quality) => f.ctx.scene3d.set_quality(quality),
+            None => (f.ctx.scene3d.lighting, f.ctx.scene3d.post) = start,
+        }
         let first = f.draw();
         let second = f.draw();
         assert_eq!(
@@ -313,7 +318,7 @@ fn switching_presets_back_and_forth_renders_clean_full_size_frames() {
             (W * H * 4) as usize,
             "round {round}: the output is the window's size"
         );
-        if quality.ao_temporal {
+        if f.ctx.scene3d.post.ao_temporal {
             // Rotating AO slices and history deliberately change between frames.
             let delta = difference(&first, &second);
             assert!(delta < 1.0, "round {round}: temporal AO difference {delta}");
@@ -323,8 +328,7 @@ fn switching_presets_back_and_forth_renders_clean_full_size_frames() {
         let lit = lit_corners(&first);
         assert!(
             lit[2] > 0 && lit[3] > 0,
-            "round {round} ({:?}): a scaled scene still reaches the window's bottom corners: {lit:?}",
-            quality.level()
+            "round {round} ({quality:?}): a scaled scene still reaches the window's bottom corners: {lit:?}"
         );
         let scene = f.renderer.scene_size().unwrap();
         assert_eq!(
@@ -332,37 +336,35 @@ fn switching_presets_back_and_forth_renders_clean_full_size_frames() {
             ctx_scene_size(&f.ctx),
             "round {round}: the scene is drawn at the scaled size"
         );
-        assert_eq!(f.renderer.scales_output(), quality.render_scale != 1.0);
+        assert_eq!(f.renderer.scales_output(), f.ctx.scene3d.post.render_scale != 1.0);
     }
     // Back to where it started: the same picture as the first time.
-    f.ctx
-        .gfx
-        .set_quality(&mut f.ctx.post, &mut f.ctx.lighting, GraphicsQuality::default());
+    (f.ctx.scene3d.lighting, f.ctx.scene3d.post) = start;
     let again = f.draw();
     assert_eq!(again, reference, "switching away and back changes nothing");
 }
 
 fn ctx_scene_size(ctx: &Ctx) -> (u32, u32) {
-    ctx.post.render_size((W, H))
+    ctx.scene3d.post.render_size((W, H))
 }
 
 #[test]
 fn a_scaled_scene_is_the_same_picture_at_the_windows_size() {
     let Some(mut f) = Fixture::new() else { return };
-    f.ctx.lighting.shadows = false;
+    f.ctx.scene3d.lighting.shadows = false;
     let full = f.draw();
     assert_eq!(f.renderer.scene_size(), Some((W, H)));
     assert!(!f.renderer.scales_output(), "no extra pass at scale 1");
-    f.ctx.post.render_scale = 0.5;
+    f.ctx.scene3d.post.render_scale = 0.5;
     let soft = f.draw();
-    f.ctx.post.sharpen = 1.0;
+    f.ctx.scene3d.post.sharpen = 1.0;
     let sharp = f.draw();
     assert_ne!(soft, sharp, "sharpening changes a scaled picture");
-    f.ctx.post.sharpen = 0.0;
-    f.ctx.post.render_scale = 1.0;
+    f.ctx.scene3d.post.sharpen = 0.0;
+    f.ctx.scene3d.post.render_scale = 1.0;
     for (scale, sharpen) in [(0.5, 0.0), (0.5, 1.0), (0.75, 0.5), (1.5, 0.0), (2.0, 0.5)] {
-        f.ctx.post.render_scale = scale;
-        f.ctx.post.sharpen = sharpen;
+        f.ctx.scene3d.post.render_scale = scale;
+        f.ctx.scene3d.post.sharpen = sharpen;
         let scaled = f.draw();
         let expect = ((W as f32 * scale).round() as u32, (H as f32 * scale).round() as u32);
         assert_eq!(f.renderer.scene_size(), Some(expect), "scale {scale}");
@@ -377,15 +379,15 @@ fn a_scaled_scene_is_the_same_picture_at_the_windows_size() {
     }
     // Antialiasing runs at the scene's size, then scales.
     for mode in [AntiAliasing::Fxaa, AntiAliasing::Smaa] {
-        f.ctx.post.render_scale = 0.5;
-        f.ctx.post.anti_aliasing = mode;
+        f.ctx.scene3d.post.render_scale = 0.5;
+        f.ctx.scene3d.post.anti_aliasing = mode;
         let aa = f.draw();
         assert_eq!(f.renderer.scene_size(), Some((W / 2, H / 2)));
         assert!(difference(&full, &aa) < 14.0, "{mode:?}");
     }
     // And back to full size, with the extra target freed.
-    f.ctx.post.render_scale = 1.0;
-    f.ctx.post.anti_aliasing = AntiAliasing::None;
+    f.ctx.scene3d.post.render_scale = 1.0;
+    f.ctx.scene3d.post.anti_aliasing = AntiAliasing::None;
     let back = f.draw();
     assert_eq!(back, full);
     assert_eq!(f.renderer.scene_size(), Some((W, H)));
@@ -401,7 +403,7 @@ fn shadow_maps_are_made_again_at_the_new_resolution_and_count() {
     assert_eq!(f.renderer.shadow_map(), (2048, 4), "the engine's defaults");
     assert_eq!(f.renderer.light_shadow_map(), atlas, "one 4096² atlas");
 
-    f.ctx.lighting.shadow_resolution = 512;
+    f.ctx.scene3d.lighting.shadow_resolution = 512;
     f.draw();
     assert_eq!(f.renderer.shadow_map(), (512, 4));
     assert_eq!(
@@ -410,53 +412,53 @@ fn shadow_maps_are_made_again_at_the_new_resolution_and_count() {
         "the light shadow map is left alone"
     );
 
-    f.ctx.lighting.shadow_cascades = 2;
+    f.ctx.scene3d.lighting.shadow_cascades = 2;
     f.draw();
     assert_eq!(f.renderer.shadow_map(), (512, 2));
 
     // Fewer or smaller views share the same atlas; a new atlas size makes it again.
-    f.ctx.lighting.light_shadow_resolution = 256;
-    f.ctx.lighting.light_shadow_views = 4;
+    f.ctx.scene3d.lighting.light_shadow_resolution = 256;
+    f.ctx.scene3d.lighting.light_shadow_views = 4;
     f.draw();
     assert_eq!(f.renderer.light_shadow_map(), atlas);
-    f.ctx.lighting.light_shadow_atlas = 2048;
+    f.ctx.scene3d.lighting.light_shadow_atlas = 2048;
     f.draw();
     assert_eq!(f.renderer.light_shadow_map(), Some(2048));
     assert_eq!(f.renderer.shadow_map(), (512, 2));
 
     // Point and spot light shadows off: the map is freed.
-    f.ctx.lighting.light_shadow_views = 0;
+    f.ctx.scene3d.lighting.light_shadow_views = 0;
     f.draw();
     assert_eq!(f.renderer.light_shadow_map(), None);
     // ... and made again when they come back.
-    f.ctx.lighting.light_shadow_views = 1;
+    f.ctx.scene3d.lighting.light_shadow_views = 1;
     f.draw();
     assert_eq!(f.renderer.light_shadow_map(), Some(2048));
     // Not a power of two: rounded down.
-    f.ctx.lighting.light_shadow_atlas = 3000;
+    f.ctx.scene3d.lighting.light_shadow_atlas = 3000;
     f.draw();
     assert_eq!(f.renderer.light_shadow_map(), Some(2048));
-    f.ctx.lighting.light_shadow_atlas = 1;
+    f.ctx.scene3d.lighting.light_shadow_atlas = 1;
     f.draw();
     assert_eq!(f.renderer.light_shadow_map(), Some(1024));
 
     // A resolution beyond the allowed range is clamped.
-    f.ctx.lighting.shadow_resolution = 1 << 20;
+    f.ctx.scene3d.lighting.shadow_resolution = 1 << 20;
     f.draw();
     assert_eq!(
         f.renderer.shadow_map().0,
         4096.min(f.device.limits().max_texture_dimension_2d)
     );
-    f.ctx.lighting.shadow_resolution = 1;
+    f.ctx.scene3d.lighting.shadow_resolution = 1;
     f.draw();
     assert_eq!(f.renderer.shadow_map().0, 256);
 
     // All shadows off: stand-ins of 1x1.
-    f.ctx.lighting.shadows = false;
+    f.ctx.scene3d.lighting.shadows = false;
     f.draw();
     assert_eq!(f.renderer.shadow_map(), (1, 1));
     assert_eq!(f.renderer.light_shadow_map(), None);
-    f.ctx.lighting.shadows = true;
+    f.ctx.scene3d.lighting.shadows = true;
     f.draw();
     assert_eq!(f.renderer.shadow_map(), (256, 2));
 }
@@ -466,17 +468,11 @@ fn a_bigger_shadow_map_changes_the_picture_less_than_it_changes_the_map() {
     // Presets differ in shadow detail but the lit ground and the box's
     // shadow stay: the picture is about the same.
     let Some(mut f) = Fixture::new() else { return };
-    f.ctx.gfx.set_quality(
-        &mut f.ctx.post,
-        &mut f.ctx.lighting,
-        GraphicsQuality {
-            anti_aliasing: AntiAliasing::None,
-            ambient_occlusion: false,
-            ..GraphicsQuality::medium()
-        },
-    );
+    f.ctx.scene3d.set_quality(GraphicsQuality::Medium);
+    f.ctx.scene3d.post.anti_aliasing = AntiAliasing::None;
+    f.ctx.scene3d.post.ambient_occlusion.enabled = false;
     let medium = f.draw();
-    f.ctx.lighting.shadow_resolution = 4096;
+    f.ctx.scene3d.lighting.shadow_resolution = 4096;
     let sharp = f.draw();
     assert!(difference(&medium, &sharp) < 6.0, "{}", difference(&medium, &sharp));
 }
@@ -485,31 +481,31 @@ fn a_bigger_shadow_map_changes_the_picture_less_than_it_changes_the_map() {
 fn a_kept_far_cascade_still_shadows_the_frames_it_is_not_drawn_in() {
     let Some(mut f) = Fixture::new() else { return };
     // Two cascades, and the box far enough away to be in the far one.
-    f.ctx.lighting.shadow_cascades = 2;
-    f.ctx.lighting.light_shadow_views = 0;
-    f.ctx.lighting.sun_intensity = 1.0;
-    f.ctx.lighting.sun_direction = vec3(-1.0, -0.6, 0.0); // a long shadow
-    f.ctx.lighting.ambient_intensity = 0.1;
-    f.ctx.post.exposure = -1.0;
+    f.ctx.scene3d.lighting.shadow_cascades = 2;
+    f.ctx.scene3d.lighting.light_shadow_views = 0;
+    f.ctx.scene3d.lighting.sun_intensity = 1.0;
+    f.ctx.scene3d.lighting.sun_direction = vec3(-1.0, -0.6, 0.0); // a long shadow
+    f.ctx.scene3d.lighting.ambient_intensity = 0.1;
+    f.ctx.scene3d.post.exposure = -1.0;
     f.ctx.world.query::<&mut Transform3D>().for_each(|t| {
         if t.position.y > 0.0 {
             t.scale = Vec3::splat(4.0); // the box: big enough to see
         }
     });
-    f.ctx.camera3d.position = vec3(0.0, 24.0, 30.0);
-    f.ctx.camera3d.look_at(Vec3::ZERO);
-    f.ctx.camera3d.fov_y = 20f32.to_radians(); // zoomed in on the box
-    f.ctx.post.anti_aliasing = AntiAliasing::None;
-    f.ctx.post.ambient_occlusion.enabled = false;
-    f.ctx.lighting.shadow_refresh = 1;
+    f.ctx.scene3d.camera.position = vec3(0.0, 24.0, 30.0);
+    f.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    f.ctx.scene3d.camera.fov_y = 20f32.to_radians(); // zoomed in on the box
+    f.ctx.scene3d.post.anti_aliasing = AntiAliasing::None;
+    f.ctx.scene3d.post.ambient_occlusion.enabled = false;
+    f.ctx.scene3d.lighting.shadow_refresh = 1;
     let every_frame = f.draw();
-    f.ctx.lighting.shadows = false;
+    f.ctx.scene3d.lighting.shadows = false;
     let unshadowed = f.draw();
     let shadow = difference(&every_frame, &unshadowed);
     assert!(shadow > 0.5, "the box casts a visible shadow: {shadow}");
 
-    f.ctx.lighting.shadows = true;
-    f.ctx.lighting.shadow_refresh = 2;
+    f.ctx.scene3d.lighting.shadows = true;
+    f.ctx.scene3d.lighting.shadow_refresh = 2;
     let mut kept = 0;
     for _ in 0..4 {
         let picture = f.draw();
@@ -529,17 +525,13 @@ fn quality_autotune_uses_live_gpu_samples_and_resets_scaled_history() {
     use crate::render::{QualityAutotune, QualityAutotuneReason};
     const MAX_FRAMES: usize = 3000;
     let Some(mut f) = Fixture::new() else { return };
-    f.ctx.post.anti_aliasing = AntiAliasing::Taa;
-    f.ctx.gfx.set_quality_autotune(
-        &f.ctx.post,
-        &f.ctx.lighting,
-        Some(QualityAutotune {
-            target_gpu_ms: 1000.0,
-            min_render_scale: 1.0,
-            max_render_scale: 1.05,
-            ..Default::default()
-        }),
-    );
+    f.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
+    f.ctx.scene3d.set_quality_autotune(Some(QualityAutotune {
+        target_gpu_ms: 1000.0,
+        min_render_scale: 1.0,
+        max_render_scale: 1.05,
+        ..Default::default()
+    }));
     let before = f.draw();
     // A decision needs 180 consecutive fresh GPU samples, and one late
     // sample (a busy machine) restarts the count: draw until it lands, with
@@ -548,68 +540,60 @@ fn quality_autotune_uses_live_gpu_samples_and_resets_scaled_history() {
         let sample = f.timer.as_ref().and_then(super::timer::GpuTimer::quality_sample);
         f.ctx.update_quality_autotune(sample, false);
         f.draw();
-        if frame >= 185 && (f.timer.is_none() || f.ctx.post.render_scale != 1.0) {
+        if frame >= 185 && (f.timer.is_none() || f.ctx.scene3d.post.render_scale != 1.0) {
             break;
         }
     }
-    let status = f.ctx.gfx.quality_autotune_status(&f.ctx.post, &f.ctx.lighting).unwrap();
+    let status = f.ctx.scene3d.quality_autotune_status(&f.ctx.gfx).unwrap();
     if f.timer.is_none() {
         assert_eq!(status.changes, 0);
         assert_eq!(status.reason, QualityAutotuneReason::GpuUnavailable);
-        assert_eq!(f.ctx.post.render_scale, 1.0);
+        assert_eq!(f.ctx.scene3d.post.render_scale, 1.0);
         return;
     }
     assert_eq!(status.changes, 1, "{status:?}");
-    assert_eq!(f.ctx.post.render_scale, 1.05);
+    assert_eq!(f.ctx.scene3d.post.render_scale, 1.05);
     assert!(status.history[0].gpu_ms > 0.0);
     // Prove an automatic scale decision uses the central reset and cannot
     // leave stale TAA/SSR/AO resources. The explicit reset is consumed by
     // the same prepare path as the normal targets invalidation.
-    f.ctx.post.render_scale = 1.0;
-    f.ctx.gfx.set_quality_autotune(
-        &f.ctx.post,
-        &f.ctx.lighting,
-        Some(QualityAutotune {
-            target_gpu_ms: 1000.0,
-            min_render_scale: 1.0,
-            max_render_scale: 1.05,
-            ..Default::default()
-        }),
-    );
+    f.ctx.scene3d.post.render_scale = 1.0;
+    f.ctx.scene3d.set_quality_autotune(Some(QualityAutotune {
+        target_gpu_ms: 1000.0,
+        min_render_scale: 1.0,
+        max_render_scale: 1.05,
+        ..Default::default()
+    }));
     for _ in 0..MAX_FRAMES {
         f.draw();
         f.ctx
             .update_quality_autotune(f.timer.as_ref().and_then(super::timer::GpuTimer::quality_sample), false);
-        if f.ctx.post.render_scale != 1.0 {
+        if f.ctx.scene3d.post.render_scale != 1.0 {
             break;
         }
     }
-    assert_eq!(f.ctx.post.render_scale, 1.05);
+    assert_eq!(f.ctx.scene3d.post.render_scale, 1.05);
     assert!(f.ctx.gfx.frame3d.motion.reset);
     let after = f.draw();
     assert!(f.renderer.history_reset().requested);
     assert!(f.renderer.history_reset().targets);
     assert_eq!(after.len(), before.len());
     assert!(lit_corners(&after)[2] > 0);
-    f.ctx.gfx.set_quality_autotune(
-        &f.ctx.post,
-        &f.ctx.lighting,
-        Some(QualityAutotune {
-            target_gpu_ms: 1000.0,
-            max_shadow_resolution: 4096,
-            ..Default::default()
-        }),
-    );
+    f.ctx.scene3d.set_quality_autotune(Some(QualityAutotune {
+        target_gpu_ms: 1000.0,
+        max_shadow_resolution: 4096,
+        ..Default::default()
+    }));
     for _ in 0..MAX_FRAMES {
         f.draw();
         f.ctx
             .update_quality_autotune(f.timer.as_ref().and_then(super::timer::GpuTimer::quality_sample), false);
-        if f.ctx.lighting.shadow_resolution == 4096 {
+        if f.ctx.scene3d.lighting.shadow_resolution == 4096 {
             break;
         }
     }
     f.draw();
-    assert_eq!(f.ctx.lighting.shadow_resolution, 4096);
+    assert_eq!(f.ctx.scene3d.lighting.shadow_resolution, 4096);
     assert_eq!(
         f.renderer.shadow_map().0,
         4096.min(f.device.limits().max_texture_dimension_2d)

@@ -36,12 +36,46 @@
 //!
 //! Under the hood every component, Rust or not, is a runtime-registered column
 //! (name, size, alignment, drop). Rust types are registered on first use;
-//! C/C++ code uses [`World::register_component`] and [`RawWorld::for_each_chunk`](crate::RawWorld::for_each_chunk).
+//! C/C++ code uses [`RawWorld::register_component`] and [`RawWorld::for_each_chunk`]
+//! (see [`World::raw`]).
 
 #![warn(missing_docs)]
 
 mod raw;
 pub use raw::{RawWorld, RawWorldRef};
+
+/// Seals the traits this crate implements for its own types only
+/// ([`QueryData`], [`ReadOnlyQueryData`], [`Bundle`], [`ResourceSet`],
+/// [`ResourceTuple`]): each has a `SEAL` item of this type, and code outside
+/// the crate can't write one because it can't name the type. Public but not
+/// exported, like the `Filters` that seal the filter traits.
+///
+/// An impl that has everything but the seal doesn't compile:
+///
+/// ```compile_fail
+/// use ponko_ecs::{ResourceTuple, World};
+/// struct Mine;
+/// impl ResourceTuple for Mine {
+///     type Refs<'w> = ();
+///     fn fetch(_: &mut World) -> Self::Refs<'_> {}
+/// }
+/// ```
+///
+/// and neither does one that tries to name it:
+///
+/// ```compile_fail
+/// use ponko_ecs::{ResourceTuple, World};
+/// struct Mine;
+/// impl ResourceTuple for Mine {
+///     const SEAL: ponko_ecs::seal::Seal = ponko_ecs::seal::Seal;
+///     type Refs<'w> = ();
+///     fn fetch(_: &mut World) -> Self::Refs<'_> {}
+/// }
+/// ```
+mod seal {
+    #[doc(hidden)]
+    pub struct Seal;
+}
 mod access;
 mod borrow;
 mod bundle;
@@ -61,8 +95,9 @@ pub use commands::Commands;
 pub use entity::Entity;
 pub use query::{
     CompiledFilter, DynFilter, FilterError, FilterShape, FilterTree, MAX_FILTER_DEPTH, Or, OrTerm, OrTerms, Query,
-    QueryCache, QueryCachePolicy, QueryCacheStats, QueryData, QueryFilter, QueryIter, With, Without, compile_tree,
+    QueryCache, QueryCachePolicy, QueryCacheStats, QueryData, QueryFilter, QueryIter, SingleError, With, Without,
+    compile_tree,
 };
 pub use storage::{Archetype, ComponentId, ComponentInfo, DropFn};
-pub use view::{ViewAccess, ViewGroup, ViewQuery, ViewState, WorldView};
+pub use view::{ViewGroup, ViewQuery, ViewState, WorldView};
 pub use world::{Chunk, World};

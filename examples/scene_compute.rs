@@ -55,7 +55,7 @@ fn main() {
             }
             // A day in 40 seconds: the sun rises, crosses and sets.
             let hours = 6.0 + (ctx.time.elapsed() as f32 * 0.3) % 13.0;
-            ctx.lighting.sun_direction = Sky::sun_direction_at(hours);
+            ctx.scene3d.lighting.sun_direction = Sky::sun_direction_at(hours);
             if ctx.time.frame() == 60
                 && let Ok(path) = std::env::var("SHOT")
             {
@@ -66,36 +66,42 @@ fn main() {
             }
         })
         .setup(|ctx| {
-            ctx.camera3d.position = vec3(0.0, 2.0, 6.0);
-            ctx.camera3d.look_at(vec3(0.0, 0.5, 0.0));
+            ctx.scene3d.camera.position = vec3(0.0, 2.0, 6.0);
+            ctx.scene3d.camera.look_at(vec3(0.0, 0.5, 0.0));
 
             // The meter's memory: one texel, written only by the compute pass.
             let average = ctx.gfx.create_render_target(1, 1);
             match ctx.gfx.try_create_compute("meter", METER) {
                 Ok(meter) => {
-                    let adapt = ctx.gfx.create_material(MaterialDesc {
-                        custom: [vec4(1.5, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
-                        ..Default::default()
-                    });
-                    ctx.scene_compute_passes
+                    let adapt = ctx.gfx.create_material(MaterialDesc::default().with_custom([
+                        vec4(1.5, 0.0, 0.0, 0.0),
+                        Vec4::ZERO,
+                        Vec4::ZERO,
+                        Vec4::ZERO,
+                    ]));
+                    ctx.scene3d
+                        .passes
+                        .scene_compute
                         .push(ComputePass::new(meter, average).with_material(adapt));
                     // The screen effect reads this frame's average.
                     let expose = ctx.gfx.create_effect("expose", EXPOSE);
-                    let settings = ctx.gfx.create_material(MaterialDesc {
-                        custom: [vec4(0.0, 0.18, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
-                        custom_textures: [Some(average), None],
-                        ..Default::default()
-                    });
-                    ctx.effects.push(ScreenEffect::new(expose).with_material(settings));
+                    let settings = ctx.gfx.create_material(
+                        MaterialDesc::default()
+                            .with_custom([vec4(0.0, 0.18, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO])
+                            .with_custom_textures([Some(average), None]),
+                    );
+                    ctx.scene3d
+                        .passes
+                        .effects
+                        .push(ScreenEffect::new(expose).with_material(settings));
                 }
                 // No compute shaders here (WebGL2): the frame draws as it is.
                 Err(e) => println!("eye adaptation is off on this GPU: {e}"),
             }
 
-            let stone = ctx.gfx.create_material(MaterialDesc {
-                roughness: 0.7,
-                ..MaterialDesc::color(Color::hex(0xC0A080))
-            });
+            let stone = ctx
+                .gfx
+                .create_material(MaterialDesc::color(Color::hex(0xC0A080)).with_roughness(0.7));
             let block = ctx.gfx.create_mesh(&MeshData::cube(1.0), stone);
             for i in 0..12 {
                 let z = -(i as f32) * 2.5;
@@ -103,10 +109,9 @@ fn main() {
                     ctx.world.spawn((Transform::at(vec3(x, 0.5, z)), Model::new(block)));
                 }
             }
-            let grass = ctx.gfx.create_material(MaterialDesc {
-                roughness: 0.95,
-                ..MaterialDesc::color(Color::hex(0x4E6B33))
-            });
+            let grass = ctx
+                .gfx
+                .create_material(MaterialDesc::color(Color::hex(0x4E6B33)).with_roughness(0.95));
             let ground = ctx.gfx.create_mesh(&MeshData::plane(200.0), grass);
             ctx.world.spawn((Transform::default(), Model::new(ground)));
         })

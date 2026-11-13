@@ -69,7 +69,7 @@ fn every_reader_sees_every_event_exactly_once() {
 fn slow_systems_see_every_event_since_their_last_run() {
     let world = Game::new("events", 320, 240)
         .sim_system(send_ping)
-        .sim_system_every(4, reader("slow"))
+        .add(Phase::AfterPhysics, reader("slow").every(4))
         .run_headless(12, setup);
     let got: Vec<u64> = seen_by(&world, "slow").iter().map(|s| s.1).collect();
     let all: Vec<u64> = (0..12).collect();

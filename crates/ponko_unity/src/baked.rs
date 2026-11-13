@@ -18,8 +18,13 @@ pub(crate) struct SKey {
 /// Standard CRC-32 (the one Unity hashes transform paths and property
 /// names with).
 pub(crate) fn crc32(text: &str) -> u32 {
-    let mut crc = !0u32;
-    for &byte in text.as_bytes() {
+    !crc32_extend(!0, text.as_bytes())
+}
+
+/// The CRC-32 state after `bytes`, from the state `crc` (`!0` to start;
+/// the checksum is `!` the final state).
+pub(crate) fn crc32_extend(mut crc: u32, bytes: &[u8]) -> u32 {
+    for &byte in bytes {
         crc ^= u32::from(byte);
         for _ in 0..8 {
             crc = if crc & 1 != 0 {
@@ -29,7 +34,7 @@ pub(crate) fn crc32(text: &str) -> u32 {
             };
         }
     }
-    !crc
+    crc
 }
 
 // --- Reading numeric lists out of the value tree ---
@@ -122,9 +127,16 @@ impl Bits<'_> {
 }
 
 /// `m_NumItems` unsigned integers of `m_BitSize` bits.
+/// The most items a packed vector with no bits per item (so no data to
+/// check its count against) may unpack to.
+const MAX_UNPACKED: usize = 1 << 20;
+
 pub(crate) fn packed_ints(v: &Value) -> Result<Vec<u32>, Error> {
     let items = count(&v["m_NumItems"]);
     let size = v["m_BitSize"].as_i64().unwrap_or(0).clamp(0, 32) as u32;
+    if size == 0 && items > MAX_UNPACKED {
+        return Err(Error::new("packed animation data: too many items"));
+    }
     let data = bytes_of(&v["m_Data"]);
     if (items as u64 * u64::from(size)).div_ceil(8) > data.len() as u64 {
         return Err(Error::new("packed animation data ends early"));
@@ -141,7 +153,10 @@ pub(crate) fn packed_floats(v: &Value) -> Result<Vec<f32>, Error> {
     let range = v["m_Range"].as_f32().unwrap_or(0.0);
     let start = v["m_Start"].as_f32().unwrap_or(0.0);
     if size == 0 {
-        return Ok(vec![start; items.min(1 << 24)]);
+        if items > MAX_UNPACKED {
+            return Err(Error::new("packed animation data: too many items"));
+        }
+        return Ok(vec![start; items]);
     }
     let data = bytes_of(&v["m_Data"]);
     if (items as u64 * u64::from(size)).div_ceil(8) > data.len() as u64 {
@@ -200,15 +215,21 @@ pub(crate) struct CompressedKeys {
 /// Decodes one compressed rotation curve. Times are stored as differences
 /// in hundredths of a second.
 pub(crate) fn compressed_rotation(entry: &Value) -> Result<Vec<CompressedKeys>, Error> {
-    let times = packed_ints(&entry["m_Times"])?;
+    // The values' count is checked against their data; the others' counts
+    // are checked against it before anything is unpacked (with no bits per
+    // item, they have no data to check).
     let values = packed_quats(&entry["m_Values"])?;
-    let slopes = packed_floats(&entry["m_Slopes"])?;
-    let n = times.len();
-    if values.len() != n {
+    let n = values.len();
+    if count(&entry["m_Times"]["m_NumItems"]) != n {
         return Err(Error::new(
             "compressed rotation curve: times and values differ in count",
         ));
     }
+    if ![0, n * 4, n * 8].contains(&count(&entry["m_Slopes"]["m_NumItems"])) {
+        return Err(Error::new("compressed rotation curve: unexpected slope count"));
+    }
+    let times = packed_ints(&entry["m_Times"])?;
+    let slopes = packed_floats(&entry["m_Slopes"])?;
     // Per key either in then out tangents (eight floats), one set used for
     // both (four), or none.
     let stride = match slopes.len() {
@@ -274,7 +295,9 @@ impl Cubic {
 fn streamed(clip: &Value) -> Result<Vec<Vec<SKey>>, Error> {
     let curves = count(&clip["curveCount"]);
     let words = u32s_of(&clip["data"]);
-    if curves > 1 << 20 {
+    // Each curve has keys in the data (5 words each), so a count past the
+    // data's size is corrupt.
+    if curves > words.len() {
         return Err(Error::new("streamed clip: too many curves"));
     }
     let mut keys: Vec<Vec<Cubic>> = (0..curves).map(|_| Vec::new()).collect();
@@ -314,15 +337,11 @@ fn streamed(clip: &Value) -> Result<Vec<Vec<SKey>>, Error> {
 
 fn cubic_keys(mut cubics: Vec<Cubic>, initial: Option<f32>) -> Vec<SKey> {
     cubics.sort_by(|a, b| a.time.total_cmp(&b.time));
-    // A later key at the same time replaces an earlier one.
-    let mut i = 0;
-    while i + 1 < cubics.len() {
-        if cubics[i].time == cubics[i + 1].time {
-            cubics.remove(i);
-        } else {
-            i += 1;
-        }
-    }
+    // A later key at the same time replaces an earlier one (the sort is
+    // stable): backwards, the first of each time is kept.
+    cubics.reverse();
+    cubics.dedup_by(|later, kept| later.time == kept.time);
+    cubics.reverse();
     if cubics.is_empty() {
         return initial
             .map(|value| SKey {
@@ -364,7 +383,11 @@ fn dense(clip: &Value) -> Result<Vec<Vec<SKey>>, Error> {
     let begin = clip["m_BeginTime"].as_f32().unwrap_or(0.0);
     let samples = f32s_of(&clip["m_SampleArray"]);
     if curves == 0 || frames == 0 {
-        return Ok(vec![Vec::new(); curves.min(1 << 20)]);
+        // Curves with no frames: empty, but each still takes its binding.
+        if curves > MAX_UNPACKED {
+            return Err(Error::new("dense clip: too many curves"));
+        }
+        return Ok(vec![Vec::new(); curves]);
     }
     if !(rate.is_finite() && rate > 0.0) || !begin.is_finite() {
         return Err(Error::new("dense clip: invalid sample rate"));

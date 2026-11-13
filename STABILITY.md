@@ -2,28 +2,20 @@
 
 The compatibility contract inherited from Crabby Engine 1.0.
 
-## Ponko rename and compatibility continuity
+## Ponko rename
 
-Ponko's package metadata starts a new version line at `0.0.1`. That naming
-and numbering change does **not** revoke the compatibility commitments
-below for inherited APIs, Cargo features, C/C++ layouts and symbols, saved
-worlds, or MCP tools. The existing 1.x policy remains the reference for
-compatible evolution. Any proposal that conflicts with it needs an explicit
-migration and major-version decision; a 0.x number is not permission for an
-undocumented break. Source directories use `ponko_*`. Primary native declarations, headers and
-exports now use `Ponko*`, `PONKO_*`, `ponko_*` and `ponko::`. This is an
-**additive ABI-2 migration**, not an ABI-3 break: layouts, numeric values,
-calling conventions and ownership stay unchanged. Default builds retain old
-binary exports through the optional, enabled-by-default `ponko_ffi/legacy-names`
-feature; legacy headers are thin shims and Rust low-level aliases are deprecated.
-Disabling that feature deliberately excludes old binary exports.
-
-Legacy names were deprecated on **2026-11-10**. They remain supported through
-at least one minor release and **2027-11-10**; removal requires a future major
-release on or after that date and an explicit changelog notice. This includes
-native exports/headers, Rust aliases, old environment/cache settings, persisted
-format IDs, registry/canvas fallbacks and protocol metadata aliases. No removal
-happens automatically on that date. See the [migration guide](book/src/naming.md).
+Ponko was formerly Crabby Engine. The rename and the `0.1.0` release were the
+one deliberate breaking change: before `0.1.0` every legacy name was removed,
+and the compatibility commitments below apply to the names Ponko ships with.
+The existing 1.x policy remains the reference for compatible evolution; a 0.x
+version number is not permission for an undocumented break.
+There is no legacy spelling left to fall back on: the `Crabby*`, `crabby_*` and
+`CRABBY_*` native names and headers, the deprecated Rust aliases and flat
+`Ctx` forwarders, the old environment, registry and cache settings, the
+persisted format identifiers, the canvas id and the protocol metadata aliases
+were all deleted. Source directories use `ponko_*`, and native declarations,
+headers and exports use `Ponko*`, `PONKO_*`, `ponko_*` and `ponko::`. See the
+[migration guide](book/src/naming.md) for the old and new names.
 
 ## Semantic versioning
 
@@ -149,7 +141,7 @@ throws `ponko::error`, a `std::runtime_error` with `kind()`.
 ## Saved worlds
 
 `World::save` writes JSON tagged `"format": "ponko-world"` and a save version
-(currently 1). Readers also accept the deprecated `"crabby-world"` tag. Every 1.x release loads saves from every earlier 1.x
+(currently 1). Every 1.x release loads saves from every earlier 1.x
 release. Your own components are yours to migrate: give a component
 `#[serde(default)]` and saves written before you added a field still load.
 

@@ -1,4 +1,4 @@
-//! View systems (`Game::add_view`): what a `SystemView` offers, that
+//! View systems (systems that take `&mut SystemView`): what a `SystemView` offers, that
 //! anything undeclared panics in every build, service declarations, the
 //! ordered barrier rules and the report. Headless.
 
@@ -47,7 +47,7 @@ fn run(game: Game, ticks: u64) -> World {
 
 fn one(access: SystemAccess, system: impl FnMut(&mut SystemView) + Send + 'static) -> World {
     run(
-        Game::new("views", 1, 1).add_view(Phase::AfterPhysics, access, system),
+        Game::new("views", 1, 1).add(Phase::AfterPhysics, system.access(access)),
         1,
     )
 }
@@ -57,18 +57,20 @@ fn one(access: SystemAccess, system: impl FnMut(&mut SystemView) + Send + 'stati
 #[test]
 fn a_view_system_moves_declared_components_each_tick() {
     let world = run(
-        Game::new("views", 1, 1).add_view(
+        Game::new("views", 1, 1).add(
             Phase::AfterPhysics,
-            SystemAccess::new()
-                .write::<Pos>()
-                .read::<Vel>()
-                .read_service(Service::Time),
-            |sys| {
+            (|sys: &mut SystemView| {
                 let dt = sys.dt();
                 sys.world
                     .query::<(&mut Pos, &Vel)>()
                     .for_each(|(p, v)| p.0 += v.0 * dt * 60.0);
-            },
+            })
+            .access(
+                SystemAccess::new()
+                    .write::<Pos>()
+                    .read::<Vel>()
+                    .read_service(Service::Time),
+            ),
         ),
         3,
     );
@@ -81,13 +83,13 @@ fn a_view_system_moves_declared_components_each_tick() {
 fn written_resources_are_back_in_the_world_after_the_system() {
     let world = run(
         Game::new("views", 1, 1)
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().write_resource::<Score>().read_resource::<Gravity>(),
-                |sys| {
+                (|sys: &mut SystemView| {
                     let g = sys.world.resource::<Gravity>().0;
                     sys.world.resource_mut::<Score>().0 += (-g) as u32;
-                },
+                })
+                .access(SystemAccess::new().write_resource::<Score>().read_resource::<Gravity>()),
             )
             // A plain Ctx system after it sees the resource where it belongs.
             .sim_system(|ctx: &mut Ctx| {
@@ -104,9 +106,13 @@ fn written_resources_are_back_in_the_world_after_the_system() {
 fn commands_from_a_view_apply_before_the_next_system() {
     let world = run(
         Game::new("views", 1, 1)
-            .add_view(Phase::AfterPhysics, SystemAccess::new().commands(), |sys| {
-                sys.commands().spawn((Health(9),));
-            })
+            .add(
+                Phase::AfterPhysics,
+                (|sys: &mut SystemView| {
+                    sys.commands.spawn((Health(9),));
+                })
+                .access(SystemAccess::new().commands()),
+            )
             .sim_system(|ctx: &mut Ctx| {
                 let n = ctx.world.query::<&Health>().count();
                 ctx.world.resource_mut::<Log>().0.push(format!("{n}"));
@@ -136,7 +142,7 @@ fn reading_an_undeclared_resource_panics() {
 #[should_panic(expected = "doesn't declare that it records commands")]
 fn undeclared_commands_panic() {
     one(SystemAccess::new(), |sys| {
-        sys.commands().spawn((Health(1),));
+        sys.commands.spawn((Health(1),));
     });
 }
 
@@ -155,18 +161,21 @@ fn the_message_names_the_system() {
 fn view_events_follow_the_declaration_and_the_usual_visibility() {
     let world = run(
         Game::new("views", 1, 1)
-            .add_view(Phase::AfterPhysics, SystemAccess::new().send_events::<Hit>(), |sys| {
-                sys.events().send(Hit(1));
-            })
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().read_events::<Hit>().write_resource::<Log>(),
-                |sys| {
-                    let mut events = sys.events();
-                    let n = events.read::<Hit>().len();
-                    let kept = events.peek::<Hit>().len();
+                (|sys: &mut SystemView| {
+                    sys.events.send(Hit(1));
+                })
+                .access(SystemAccess::new().send_events::<Hit>()),
+            )
+            .add(
+                Phase::AfterPhysics,
+                (|sys: &mut SystemView| {
+                    let n = sys.events.read::<Hit>().len();
+                    let kept = sys.events.peek::<Hit>().len();
                     sys.world.resource_mut::<Log>().0.push(format!("read {n} kept {kept}"));
-                },
+                })
+                .access(SystemAccess::new().read_events::<Hit>().write_resource::<Log>()),
             ),
         2,
     );
@@ -176,16 +185,14 @@ fn view_events_follow_the_declaration_and_the_usual_visibility() {
 #[test]
 #[should_panic(expected = "doesn't declare that it may send events `system_views::Hit`")]
 fn sending_undeclared_events_panics() {
-    one(SystemAccess::new().read_events::<Hit>(), |sys| {
-        sys.events().send(Hit(0))
-    });
+    one(SystemAccess::new().read_events::<Hit>(), |sys| sys.events.send(Hit(0)));
 }
 
 #[test]
 #[should_panic(expected = "doesn't declare that it may read events")]
 fn reading_events_declared_only_as_sent_panics() {
     one(SystemAccess::new().send_events::<Hit>(), |sys| {
-        let _ = sys.events().read::<Hit>().len();
+        let _ = sys.events.read::<Hit>().len();
     });
 }
 
@@ -193,7 +200,7 @@ fn reading_events_declared_only_as_sent_panics() {
 #[should_panic(expected = "doesn't declare that it may read events")]
 fn peeking_undeclared_events_panics() {
     one(SystemAccess::new(), |sys| {
-        let _ = sys.events().peek::<Hit>().len();
+        let _ = sys.events.peek::<Hit>().len();
     });
 }
 
@@ -215,23 +222,23 @@ fn declared_services_are_offered() {
             let line = format!(
                 "key {} mouse {} {} {} pos {} tick {} frame {} time {} fixed {} spatial {} player {}",
                 sys.key_down(Key::Space) || sys.key_pressed(Key::Space) || sys.key_released(Key::Space),
-                sys.mouse_down(MouseButton::Left),
-                sys.mouse_pressed(MouseButton::Left),
-                sys.mouse_released(MouseButton::Left),
+                sys.input.mouse_down(MouseButton::Left),
+                sys.input.mouse_pressed(MouseButton::Left),
+                sys.input.mouse_released(MouseButton::Left),
                 sys.mouse_pos(),
-                sys.sim_tick(),
-                sys.frame(),
-                sys.time() >= 0.0,
-                sys.fixed_dt() > 0.0,
-                sys.spatial().len(),
-                sys.net().player(),
+                sys.time.sim_tick(),
+                sys.time.frame(),
+                sys.time.elapsed() >= 0.0,
+                sys.time.fixed_dt() > 0.0,
+                sys.spatial.len(),
+                sys.net.player(),
             );
             let r = sys.random().stream(0).u64();
             let same = sys.random().stream(0).u64();
             assert_eq!(r, same, "one stream per system and tick");
-            sys.camera_mut().zoom = 2.0;
-            assert_eq!(sys.camera().zoom, 2.0);
-            let _ = sys.net_mut().players();
+            sys.camera.zoom = 2.0;
+            assert_eq!(sys.camera.zoom, 2.0);
+            let _ = sys.net.players();
             assert_eq!(sys.name(), sys.name());
             assert!(sys.access().service(Service::Audio).unwrap());
             sys.world.resource_mut::<Log>().0.push(line);
@@ -246,15 +253,17 @@ fn declared_services_are_offered() {
 fn view_random_matches_ctx_random_for_the_same_slot() {
     // The view's stream is the one `ctx.random()` gives that system.
     let world = run(
-        Game::new("views", 1, 1).add_view(
+        Game::new("views", 1, 1).add(
             Phase::AfterPhysics,
-            SystemAccess::new()
-                .read_service(Service::Random)
-                .write_resource::<Log>(),
-            |sys| {
+            (|sys: &mut SystemView| {
                 let v = sys.random().stream(3).u64();
                 sys.world.resource_mut::<Log>().0.push(v.to_string());
-            },
+            })
+            .access(
+                SystemAccess::new()
+                    .read_service(Service::Random)
+                    .write_resource::<Log>(),
+            ),
         ),
         2,
     );
@@ -280,10 +289,51 @@ fn undeclared_time_panics() {
 }
 
 #[test]
+#[should_panic(expected = "doesn't declare that it may read service `input`")]
+fn an_undeclared_service_field_panics_when_used() {
+    one(SystemAccess::new(), |sys| {
+        let _ = sys.input.mouse_down(MouseButton::Left);
+    });
+}
+
+#[test]
+#[should_panic(expected = "doesn't declare that it may read service `time`")]
+fn an_undeclared_time_field_panics_when_used() {
+    one(SystemAccess::new(), |sys| {
+        let _ = sys.time.sim_tick();
+    });
+}
+
+#[test]
+fn a_service_field_is_the_service_ctx_has() {
+    // Whatever `ctx.input` and `ctx.time` offer for reading, the view does.
+    let world = one(
+        SystemAccess::new()
+            .read_service(Service::Input)
+            .read_service(Service::Time)
+            .write_resource::<Log>(),
+        |sys| {
+            let line = format!(
+                "wheel {} paused {} sim_dt {} dt {}",
+                sys.input.mouse_wheel() == Vec2::ZERO,
+                sys.time.is_paused(),
+                sys.time.sim_dt() == sys.time.fixed_dt(),
+                sys.dt() == sys.time.dt(),
+            );
+            sys.world.resource_mut::<Log>().0.push(line);
+        },
+    );
+    assert_eq!(
+        world.resource::<Log>().0,
+        ["wheel true paused false sim_dt true dt true"]
+    );
+}
+
+#[test]
 #[should_panic(expected = "doesn't declare that it may write service `camera`")]
 fn reading_a_service_does_not_allow_writing_it() {
     one(SystemAccess::new().read_service(Service::Camera), |sys| {
-        sys.camera_mut().zoom = 3.0;
+        sys.camera.zoom = 3.0;
     });
 }
 
@@ -291,7 +341,7 @@ struct Click(Sound);
 
 fn with_sound(access: SystemAccess, system: impl FnMut(&mut SystemView) + Send + 'static) -> World {
     Game::new("views", 1, 1)
-        .add_view(Phase::AfterPhysics, access, system)
+        .add(Phase::AfterPhysics, system.access(access))
         .run_headless(1, |ctx| {
             setup(ctx);
             let sound = ctx.audio.create(8000, &[0.0; 80]);
@@ -308,8 +358,8 @@ fn declared_audio_plays_sounds_and_is_silent_headless() {
             .write_resource::<Log>(),
         |sys| {
             let sound = sys.world.resource::<Click>().0;
-            let a = sys.play_sound(&sound);
-            let b = sys.play_sound_ex(&sound, SoundParams::default());
+            let a = sys.play_sound(sound);
+            let b = sys.audio.play_ex(sound, SoundParams::default());
             sys.world.resource_mut::<Log>().0.push(format!("{}", a == b));
         },
     );
@@ -321,36 +371,44 @@ fn declared_audio_plays_sounds_and_is_silent_headless() {
 fn playing_sound_needs_audio() {
     with_sound(SystemAccess::new().read_resource::<Click>(), |sys| {
         let sound = sys.world.resource::<Click>().0;
-        let _ = sys.play_sound(&sound);
+        let _ = sys.play_sound(sound);
     });
 }
 
 #[test]
 #[should_panic(expected = "declares service `gfx`, which a view doesn't offer")]
 fn services_a_view_cannot_offer_are_rejected_at_registration() {
-    let _ = Game::new("views", 1, 1).add_view(Phase::Frame, SystemAccess::new().write_service(Service::Gfx), |_| {});
+    let _ = Game::new("views", 1, 1).add(
+        Phase::Frame,
+        (|_: &mut SystemView| {}).access(SystemAccess::new().write_service(Service::Gfx)),
+    );
 }
 
 #[test]
 #[should_panic(expected = "declares writing service `time`, which a view only reads")]
 fn writing_a_read_only_service_is_rejected_at_registration() {
-    let _ = Game::new("views", 1, 1).add_view(
+    let _ = Game::new("views", 1, 1).add(
         Phase::AfterPhysics,
-        SystemAccess::new().write_service(Service::Time),
-        |_| {},
+        (|_: &mut SystemView| {}).access(SystemAccess::new().write_service(Service::Time)),
     );
 }
 
 #[test]
 #[should_panic(expected = "is exclusive")]
 fn an_exclusive_view_is_rejected() {
-    let _ = Game::new("views", 1, 1).add_view(Phase::AfterPhysics, SystemAccess::exclusive(), |_| {});
+    let _ = Game::new("views", 1, 1).add(
+        Phase::AfterPhysics,
+        (|_: &mut SystemView| {}).access(SystemAccess::exclusive()),
+    );
 }
 
 #[test]
 #[should_panic(expected = "which has no Rust type")]
 fn named_items_are_rejected_for_views() {
-    let _ = Game::new("views", 1, 1).add_view(Phase::AfterPhysics, SystemAccess::new().read_named("pos"), |_| {});
+    let _ = Game::new("views", 1, 1).add(
+        Phase::AfterPhysics,
+        (|_: &mut SystemView| {}).access(SystemAccess::new().read_named("pos")),
+    );
 }
 
 #[test]
@@ -432,35 +490,45 @@ fn sequential_runs_show_what_the_ordered_rules_rely_on() {
     let reader = SystemAccess::new().read_events::<Hit>().write_resource::<Log>();
     let world = run(
         Game::new("views", 1, 1)
-            .add_view(Phase::AfterPhysics, reader.clone().read::<Health>(), |sys| {
-                let hits: Vec<u32> = sys.events().read::<Hit>().iter().map(|h| h.0).collect();
-                let n = sys.world.query::<&Health>().count();
-                log(sys, format!("early {hits:?} health {n}"));
-            })
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new()
-                    .send_events::<Hit>()
-                    .commands()
-                    .read_service(Service::Time),
-                |sys| {
-                    let t = sys.sim_tick() as u32;
-                    sys.events().send(Hit(t * 10 + 1));
-                    sys.commands().spawn((Health(1),));
-                },
+                (|sys: &mut SystemView| {
+                    let hits: Vec<u32> = sys.events.read::<Hit>().iter().map(|h| h.0).collect();
+                    let n = sys.world.query::<&Health>().count();
+                    log(sys, format!("early {hits:?} health {n}"));
+                })
+                .access(reader.clone().read::<Health>()),
             )
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().send_events::<Hit>().read_service(Service::Time),
-                |sys| {
-                    let t = sys.sim_tick() as u32;
-                    sys.events().send(Hit(t * 10 + 2));
-                },
+                (|sys: &mut SystemView| {
+                    let t = sys.time.sim_tick() as u32;
+                    sys.events.send(Hit(t * 10 + 1));
+                    sys.commands.spawn((Health(1),));
+                })
+                .access(
+                    SystemAccess::new()
+                        .send_events::<Hit>()
+                        .commands()
+                        .read_service(Service::Time),
+                ),
             )
-            .add_view(Phase::AfterPhysics, reader, |sys| {
-                let hits: Vec<u32> = sys.events().read::<Hit>().iter().map(|h| h.0).collect();
-                log(sys, format!("late {hits:?}"));
-            }),
+            .add(
+                Phase::AfterPhysics,
+                (|sys: &mut SystemView| {
+                    let t = sys.time.sim_tick() as u32;
+                    sys.events.send(Hit(t * 10 + 2));
+                })
+                .access(SystemAccess::new().send_events::<Hit>().read_service(Service::Time)),
+            )
+            .add(
+                Phase::AfterPhysics,
+                (|sys: &mut SystemView| {
+                    let hits: Vec<u32> = sys.events.read::<Hit>().iter().map(|h| h.0).collect();
+                    log(sys, format!("late {hits:?}"));
+                })
+                .access(reader),
+            ),
         2,
     );
     assert_eq!(
@@ -483,13 +551,21 @@ fn a_view_without_declared_data_sees_earlier_commands() {
     assert_eq!(spawner.conflicts_before(&counter), [AccessConflict::Commands]);
     let world = run(
         Game::new("views", 1, 1)
-            .add_view(Phase::AfterPhysics, spawner, |sys| {
-                sys.commands().spawn((Pos(0.0),));
-            })
-            .add_view(Phase::AfterPhysics, counter, |sys| {
-                let (n, alive) = (sys.world.len(), sys.world.query::<Entity>().count());
-                sys.world.resource_mut::<Log>().0.push(format!("{n} {alive}"));
-            }),
+            .add(
+                Phase::AfterPhysics,
+                (|sys: &mut SystemView| {
+                    sys.commands.spawn((Pos(0.0),));
+                })
+                .access(spawner),
+            )
+            .add(
+                Phase::AfterPhysics,
+                (|sys: &mut SystemView| {
+                    let (n, alive) = (sys.world.len(), sys.world.query::<Entity>().count());
+                    sys.world.resource_mut::<Log>().0.push(format!("{n} {alive}"));
+                })
+                .access(counter),
+            ),
         2,
     );
     // setup spawns one entity; each tick's spawn is seen in the same tick.
@@ -514,13 +590,15 @@ fn ctx_mover(ctx: &mut Ctx) {
 #[test]
 fn only_view_systems_are_parallel_candidates() {
     let game = Game::new("views", 1, 1)
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().write::<Vel>().read_resource::<Gravity>(),
-            fall,
+            fall.access(SystemAccess::new().write::<Vel>().read_resource::<Gravity>()),
         )
-        .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), decay)
-        .add_with_access(Phase::AfterPhysics, SystemAccess::new().write::<Pos>(), ctx_mover);
+        .add(Phase::AfterPhysics, decay.access(SystemAccess::new().write::<Health>()))
+        .add(
+            Phase::AfterPhysics,
+            ctx_mover.access(SystemAccess::new().write::<Pos>()),
+        );
     let report = game.access_report();
     let short = |n: &str| n.rsplit("::").next().unwrap().to_string();
     let enforced: Vec<String> = report
@@ -562,9 +640,9 @@ fn a_system_between_two_views_keeps_them_apart() {
     let b = || SystemAccess::new().write::<Health>();
     // An undeclared (exclusive) system between them.
     let report = Game::new("views", 1, 1)
-        .add_view(Phase::AfterPhysics, a(), |_| {})
+        .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(a()))
         .add(Phase::AfterPhysics, noop_ctx)
-        .add_view(Phase::AfterPhysics, b(), |_| {})
+        .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(b()))
         .access_report();
     assert_eq!(report.pairs.len(), 1);
     let between = &report.pairs[0].conflicts;
@@ -578,9 +656,12 @@ fn a_system_between_two_views_keeps_them_apart() {
 
     // A view between them that conflicts with one of them.
     let report = Game::new("views", 1, 1)
-        .add_view(Phase::AfterPhysics, a(), |_| {})
-        .add_view(Phase::AfterPhysics, SystemAccess::new().read::<Vel>(), |_| {})
-        .add_view(Phase::AfterPhysics, b(), |_| {})
+        .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(a()))
+        .add(
+            Phase::AfterPhysics,
+            (|_: &mut SystemView| {}).access(SystemAccess::new().read::<Vel>()),
+        )
+        .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(b()))
         .access_report();
     let first_last = report.pairs.iter().find(|p| p.second - p.first == 2).unwrap();
     assert!(matches!(first_last.conflicts[..], [AccessConflict::Between(_)]));
@@ -589,27 +670,30 @@ fn a_system_between_two_views_keeps_them_apart() {
 
     // A view between them that conflicts with neither: all three could.
     let report = Game::new("views", 1, 1)
-        .add_view(Phase::AfterPhysics, a(), |_| {})
-        .add_view(Phase::AfterPhysics, SystemAccess::new().read::<Pos>(), |_| {})
-        .add_view(Phase::AfterPhysics, b(), |_| {})
+        .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(a()))
+        .add(
+            Phase::AfterPhysics,
+            (|_: &mut SystemView| {}).access(SystemAccess::new().read::<Pos>()),
+        )
+        .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(b()))
         .access_report();
     assert_eq!(report.parallel_pairs().count(), 3);
 
     // A declared `Ctx` system between them that conflicts with neither: the
     // declarations allow it, but its declaration isn't trusted to move.
     let report = Game::new("views", 1, 1)
-        .add_view(Phase::AfterPhysics, a(), |_| {})
-        .add_with_access(Phase::AfterPhysics, SystemAccess::new().read::<Pos>(), noop_ctx)
-        .add_view(Phase::AfterPhysics, b(), |_| {})
+        .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(a()))
+        .add(Phase::AfterPhysics, noop_ctx.access(SystemAccess::new().read::<Pos>()))
+        .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(b()))
         .access_report();
     assert_eq!(report.compatible_pairs().count(), 3);
     assert_eq!(report.parallel_pairs().count(), 0);
 
     // Systems in other phases don't count.
     let report = Game::new("views", 1, 1)
-        .add_view(Phase::AfterPhysics, a(), |_| {})
+        .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(a()))
         .add(Phase::Frame, noop_ctx)
-        .add_view(Phase::AfterPhysics, b(), |_| {})
+        .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(b()))
         .access_report();
     assert_eq!(report.parallel_pairs().count(), 1);
 }
@@ -617,9 +701,18 @@ fn a_system_between_two_views_keeps_them_apart() {
 #[test]
 fn the_report_uses_the_ordered_rules() {
     let report = Game::new("views", 1, 1)
-        .add_view(Phase::AfterPhysics, SystemAccess::new().read_events::<Hit>(), |_| {})
-        .add_view(Phase::AfterPhysics, SystemAccess::new().send_events::<Hit>(), |_| {})
-        .add_view(Phase::AfterPhysics, SystemAccess::new().read_events::<Hit>(), |_| {})
+        .add(
+            Phase::AfterPhysics,
+            (|_: &mut SystemView| {}).access(SystemAccess::new().read_events::<Hit>()),
+        )
+        .add(
+            Phase::AfterPhysics,
+            (|_: &mut SystemView| {}).access(SystemAccess::new().send_events::<Hit>()),
+        )
+        .add(
+            Phase::AfterPhysics,
+            (|_: &mut SystemView| {}).access(SystemAccess::new().read_events::<Hit>()),
+        )
         .access_report();
     let conflicts: Vec<(usize, usize, usize)> = report
         .pairs
@@ -689,21 +782,23 @@ mod guide {
 
     fn game() -> Game {
         Game::new("falling", 320, 240)
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new()
-                    .write::<Vel>()
-                    .read_resource::<Gravity>()
-                    .read_service(Service::Time),
-                fall,
+                fall.access(
+                    SystemAccess::new()
+                        .write::<Vel>()
+                        .read_resource::<Gravity>()
+                        .read_service(Service::Time),
+                ),
             )
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new()
-                    .write::<Pos>()
-                    .read::<Vel>()
-                    .read_service(Service::Time),
-                movement,
+                movement.access(
+                    SystemAccess::new()
+                        .write::<Pos>()
+                        .read::<Vel>()
+                        .read_service(Service::Time),
+                ),
             )
     }
     // ANCHOR_END: view_system
@@ -751,17 +846,17 @@ mod physics2d {
     fn with_physics(access: SystemAccess, system: impl FnMut(&mut SystemView) + Send + 'static) -> World {
         Game::new("views", 1, 1)
             .physics(vec2(0.0, 10.0))
-            .add_view(Phase::AfterPhysics, access, system)
+            .add(Phase::AfterPhysics, system.access(access))
             .run_headless(1, |_| {})
     }
 
     #[test]
     fn declared_physics_is_offered() {
         with_physics(SystemAccess::new().write_service(Service::Physics), |sys| {
-            assert_eq!(sys.physics().gravity(), vec2(0.0, 10.0));
-            sys.physics_mut().set_gravity(vec2(0.0, -5.0));
-            assert_eq!(sys.physics().gravity(), vec2(0.0, -5.0));
-            assert_eq!(sys.physics().body_count(), 0);
+            assert_eq!(sys.physics.gravity(), vec2(0.0, 10.0));
+            sys.physics.set_gravity(vec2(0.0, -5.0));
+            assert_eq!(sys.physics.gravity(), vec2(0.0, -5.0));
+            assert_eq!(sys.physics.body_count(), 0);
         });
     }
 
@@ -769,7 +864,7 @@ mod physics2d {
     #[should_panic(expected = "doesn't declare that it may read service `physics`")]
     fn undeclared_physics_panics() {
         with_physics(SystemAccess::new(), |sys| {
-            let _ = sys.physics().gravity();
+            let _ = sys.physics.gravity();
         });
     }
 
@@ -777,7 +872,7 @@ mod physics2d {
     #[should_panic(expected = "doesn't declare that it may write service `physics`")]
     fn reading_physics_does_not_allow_changing_it() {
         with_physics(SystemAccess::new().read_service(Service::Physics), |sys| {
-            sys.physics_mut().set_gravity(Vec2::ZERO);
+            sys.physics.set_gravity(Vec2::ZERO);
         });
     }
 }
@@ -809,17 +904,17 @@ mod physics3d {
     fn with_physics(access: SystemAccess, system: impl FnMut(&mut SystemView) + Send + 'static) -> World {
         Game::new("views", 1, 1)
             .physics3d(vec3(0.0, -10.0, 0.0))
-            .add_view(Phase::AfterPhysics, access, system)
+            .add(Phase::AfterPhysics, system.access(access))
             .run_headless(1, |_| {})
     }
 
     #[test]
     fn declared_physics3d_is_offered() {
         with_physics(SystemAccess::new().write_service(Service::Physics3D), |sys| {
-            assert_eq!(sys.physics3d().gravity(), vec3(0.0, -10.0, 0.0));
-            sys.physics3d_mut().set_gravity(vec3(0.0, -1.0, 0.0));
-            assert_eq!(sys.physics3d().gravity(), vec3(0.0, -1.0, 0.0));
-            assert_eq!(sys.physics3d().body_count(), 0);
+            assert_eq!(sys.physics3d.gravity(), vec3(0.0, -10.0, 0.0));
+            sys.physics3d.set_gravity(vec3(0.0, -1.0, 0.0));
+            assert_eq!(sys.physics3d.gravity(), vec3(0.0, -1.0, 0.0));
+            assert_eq!(sys.physics3d.body_count(), 0);
         });
     }
 
@@ -827,7 +922,7 @@ mod physics3d {
     #[should_panic(expected = "doesn't declare that it may read service `physics3d`")]
     fn undeclared_physics3d_panics() {
         with_physics(SystemAccess::new(), |sys| {
-            let _ = sys.physics3d().gravity();
+            let _ = sys.physics3d.gravity();
         });
     }
 
@@ -835,7 +930,7 @@ mod physics3d {
     #[should_panic(expected = "doesn't declare that it may write service `physics3d`")]
     fn reading_physics3d_does_not_allow_changing_it() {
         with_physics(SystemAccess::new().read_service(Service::Physics3D), |sys| {
-            sys.physics3d_mut().set_gravity(Vec3::ZERO);
+            sys.physics3d.set_gravity(Vec3::ZERO);
         });
     }
 }

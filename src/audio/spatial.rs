@@ -67,7 +67,7 @@ impl Default for AudioSettings3D {
     }
 }
 
-/// Where the ears are. By default they follow `ctx.camera3d`; set your own with
+/// Where the ears are. By default they follow `ctx.scene3d.camera`; set your own with
 /// [`Audio::set_listener`]. Velocity (for doppler) is estimated from frame
 /// to frame.
 /// ```
@@ -137,7 +137,7 @@ pub(crate) struct SpatialState {
     listener: Option<AudioListener3D>,
     /// The game's own listener, instead of the camera.
     custom: Option<AudioListener3D>,
-    /// Where `ctx.camera3d` was when the running system started (and when
+    /// Where `ctx.scene3d.camera` was when the running system started (and when
     /// the frame's positional sound was updated): the default listener.
     pub(crate) camera: AudioListener3D,
     voices: Vec<Voice>,
@@ -200,10 +200,10 @@ impl Audio {
     /// ```
     /// use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, sound: Sound) {
-    /// ctx.audio.play_at(&sound, vec3(3.0, 0.0, -5.0), ponko::d3::AudioSettings::default());
+    /// ctx.audio.play_at(sound, vec3(3.0, 0.0, -5.0), ponko::d3::AudioSettings::default());
     /// # }
     /// ```
-    pub fn play_at(&mut self, sound: &Sound, position: Vec3, settings: AudioSettings3D) -> Playing {
+    pub fn play_at(&mut self, sound: Sound, position: Vec3, settings: AudioSettings3D) -> Playing {
         let listener = self.listener();
         let offset = position - listener.position;
         let mut params = settings.sound;
@@ -234,7 +234,7 @@ impl Audio {
 
 impl Audio {
     /// Puts the ears somewhere other than the camera, such as on the player in
-    /// a third-person game. `None` goes back to following `ctx.camera3d`.
+    /// a third-person game. `None` goes back to following `ctx.scene3d.camera`.
     /// ```
     /// use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, player: Vec3) {
@@ -245,13 +245,8 @@ impl Audio {
         self.backend.spatial.custom = listener;
     }
 
-    /// The listener set with [`set_listener`](Self::set_listener), if any.
-    pub(crate) fn custom_listener(&self) -> Option<AudioListener3D> {
-        self.backend.spatial.custom
-    }
-
     /// Where the ears are: the listener set with
-    /// [`set_listener`](Self::set_listener), or else `ctx.camera3d` as it
+    /// [`set_listener`](Self::set_listener), or else `ctx.scene3d.camera` as it
     /// was when the running system started. The frame's positional sound
     /// update, after the last system, uses the camera's final place.
     /// ```

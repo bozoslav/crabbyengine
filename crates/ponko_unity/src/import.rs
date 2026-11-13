@@ -1202,7 +1202,7 @@ fn run(job: &Job) -> Option<image::RgbaImage> {
                 let file = UnityFile::read(p).ok()?;
                 let t = UnityTexture::from_object(file.get(*id)?).ok()?;
                 // An array's first layer.
-                let one = (t.width * t.height * 4) as usize;
+                let one = t.width as usize * t.height as usize * 4;
                 let rgba = image::RgbaImage::from_raw(t.width, t.height, t.rgba[..one].to_vec())?;
                 image::DynamicImage::ImageRgba8(rgba)
             }

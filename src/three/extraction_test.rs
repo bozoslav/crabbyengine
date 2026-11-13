@@ -460,10 +460,11 @@ fn models_keeping_a_reused_mesh_slots_old_id_draw_nothing() {
     assert!(ones > 0);
     // Slot 1 is freed and made again in one frame, with the same bounds,
     // under a new id: the models holding the old id draw nothing.
+    scene.assets.mesh_ids.release(1);
     let new = Mesh {
-        id: super::next_generation(1),
+        id: scene.assets.mesh_ids.make(scene.assets.bounds.len(), "mesh"),
     };
-    super::set_slot_id(&mut scene.assets.mesh_ids, new.id);
+    assert_eq!(new.slot(), 1);
     assert_eq!(scene.check("slot reused"), seen - ones);
     // Pointed at the new id, they draw again, as slot 1.
     let holders: Vec<Entity> = (scene.models.iter().copied())

@@ -39,7 +39,7 @@ fn sorted(mut v: Vec<Entity>) -> Vec<Entity> {
 #[test]
 fn added_and_changed_pick_rows_in_for_each_iter_count_and_get() {
     let (mut w, [a, b, c], _) = world();
-    let mut state = ViewState::new(ViewAccess::new().read::<Pos>());
+    let mut state = ViewState::new().read::<Pos>();
     state.run(&mut w, |mut view| {
         let added: Vec<_> = view.query::<Entity>().filter::<Added<Pos>>().iter().collect();
         assert_eq!(added, [c]);
@@ -72,7 +72,7 @@ fn added_and_changed_pick_rows_in_for_each_iter_count_and_get() {
 fn since_overrides_the_worlds_window() {
     let (mut w, [a, b, c], _) = world();
     let now = w.change_tick();
-    let mut state = ViewState::new(ViewAccess::new().read::<Pos>());
+    let mut state = ViewState::new().read::<Pos>();
     state.run(&mut w, |mut view| {
         let all = view
             .query::<Entity>()
@@ -90,7 +90,7 @@ fn since_overrides_the_worlds_window() {
 fn a_mutable_fetch_with_a_change_filter_marks_only_the_rows_it_visits() {
     let (mut w, [a, _, c], _) = world();
     let before = w.advance_change_tick();
-    let mut state = ViewState::new(ViewAccess::new().read::<Pos>().write::<Health>());
+    let mut state = ViewState::new().read::<Pos>().write::<Health>();
     state.run(&mut w, |mut view| {
         view.query::<&mut Health>()
             .filter::<Changed<Pos>>()
@@ -133,7 +133,7 @@ fn removals_are_listed_through_the_view() {
     let (mut w, [a, b, _], seen) = world();
     w.remove::<Health>(a);
     w.despawn(b);
-    let mut state = ViewState::new(ViewAccess::new().read::<Health>());
+    let mut state = ViewState::new().read::<Health>();
     state.run(&mut w, |view| {
         assert_eq!(view.removed::<Health>(), [a, b]);
         assert_eq!(view.removed_since::<Health>(seen), [a, b]);
@@ -145,7 +145,7 @@ fn removals_are_listed_through_the_view() {
 fn components_no_entity_ever_had_resolve_without_registering() {
     let (mut w, [a, b, c], _) = world();
     let components = w.components().len();
-    let mut state = ViewState::new(ViewAccess::new().read::<Pos>());
+    let mut state = ViewState::new().read::<Pos>();
     state.run(&mut w, |mut view| {
         assert_eq!(view.query::<Entity>().filter::<With<Never>>().count(), 0);
         assert_eq!(view.query::<Entity>().filter::<Without<Never>>().count(), 3);
@@ -177,20 +177,23 @@ fn a_world_that_tracks_nothing_filters_by_archetype_only() {
     let mut w = World::new();
     w.spawn((Pos(0.0), Frozen));
     w.spawn((Pos(1.0),));
-    let mut state = ViewState::new(ViewAccess::new().write::<Pos>());
+    let mut state = ViewState::new().write::<Pos>();
     state.run(&mut w, |mut view| {
         let mut q = view.query::<&mut Pos>().filter::<Or<(With<Frozen>, With<Never>)>>();
         assert_eq!(q.count(), 1);
         q.for_each(|p| p.0 = 7.0);
     });
-    assert_eq!(w.query::<&Pos>().with::<Frozen>().iter().next(), Some(&Pos(7.0)));
+    assert_eq!(
+        w.query::<&Pos>().filter::<With<Frozen>>().iter().next(),
+        Some(&Pos(7.0))
+    );
 }
 
 #[test]
 #[should_panic(expected = "mover doesn't declare that it may read component")]
 fn an_undeclared_change_filter_panics_naming_the_view() {
     let (mut w, _, _) = world();
-    let mut state = ViewState::new(ViewAccess::new().write::<Vel>()).labeled("mover");
+    let mut state = ViewState::new().write::<Vel>().labeled("mover");
     state.run(&mut w, |mut view| {
         let _ = view.query::<&mut Vel>().filter::<Changed<Pos>>();
     });
@@ -200,17 +203,17 @@ fn an_undeclared_change_filter_panics_naming_the_view() {
 #[should_panic(expected = "mover doesn't declare that it may read component")]
 fn an_undeclared_change_term_in_an_or_panics() {
     let (mut w, _, _) = world();
-    let mut state = ViewState::new(ViewAccess::new().write::<Vel>()).labeled("mover");
+    let mut state = ViewState::new().write::<Vel>().labeled("mover");
     state.run(&mut w, |mut view| {
         let _ = view.query::<&mut Vel>().filter::<Or<(With<Frozen>, Added<Health>)>>();
     });
 }
 
 #[test]
-#[should_panic(expected = "a view can't start tracking")]
+#[should_panic(expected = "this view: `Changed<view_changes::Vel>` needs `view_changes::Vel`'s changes tracked")]
 fn a_change_filter_on_an_untracked_component_panics() {
     let (mut w, _, _) = world();
-    let mut state = ViewState::new(ViewAccess::new().read::<Vel>());
+    let mut state = ViewState::new().read::<Vel>();
     state.run(&mut w, |mut view| {
         let _ = view.query::<&Vel>().filter::<Changed<Vel>>();
     });
@@ -220,7 +223,7 @@ fn a_change_filter_on_an_untracked_component_panics() {
 #[should_panic(expected = "doesn't declare that it may read component")]
 fn reading_removals_of_an_undeclared_component_panics() {
     let (mut w, _, _) = world();
-    let mut state = ViewState::new(ViewAccess::new().read::<Pos>());
+    let mut state = ViewState::new().read::<Pos>();
     state.run(&mut w, |view| {
         let _ = view.removed::<Health>();
     });
@@ -231,7 +234,7 @@ fn a_panicking_filter_still_returns_lent_resources() {
     struct Score(u32);
     let (mut w, _, _) = world();
     w.insert_resource(Score(1));
-    let mut state = ViewState::new(ViewAccess::new().write_resource::<Score>());
+    let mut state = ViewState::new().write_resource::<Score>();
     let r = catch_unwind(AssertUnwindSafe(|| {
         state.run(&mut w, |mut view| {
             let _ = view.query::<Entity>().filter::<Added<Pos>>();
@@ -257,38 +260,32 @@ fn two_views_filter_by_change_on_two_threads() {
     let fresh = w.spawn((Pos(0.0), Vel(0.0), Health(1)));
     w.set_changes_since(seen);
 
-    let mut push = ViewState::new(ViewAccess::new().read::<Pos>().write::<Vel>());
-    let mut heal = ViewState::new(ViewAccess::new().write::<Health>());
-    assert!(!push.access().overlaps(heal.access()));
-    push.prepare(&mut w);
-    heal.prepare(&mut w);
-    let (pushed, healed) = {
-        let shared = &w;
-        // SAFETY: the declarations don't overlap and nothing changes the
-        // world while the views live.
-        let (mut a, mut b) = unsafe { (push.view(shared), heal.view(shared)) };
-        std::thread::scope(|s| {
-            let pushed = s.spawn(move || {
-                let mut n = 0;
-                a.query::<&mut Vel>().filter::<Changed<Pos>>().for_each(|v| {
+    let push = ViewState::new().read::<Pos>().write::<Vel>();
+    let heal = ViewState::new().write::<Health>();
+    assert!(!push.overlaps(&heal));
+    // Each state with its job and how many entities its view visited.
+    let mut states = [(push, (0u8, 0usize)), (heal, (1u8, 0usize))];
+    let group = ViewGroup::new(states.iter().map(|s| &s.0)).unwrap();
+    group.run(
+        &mut w,
+        &mut states,
+        true,
+        |s| (&mut s.0, &mut s.1),
+        |(job, n), mut view| {
+            if *job == 0 {
+                view.query::<&mut Vel>().filter::<Changed<Pos>>().for_each(|v| {
                     v.0 = 1.0;
-                    n += 1;
+                    *n += 1;
                 });
-                n
-            });
-            let healed = s.spawn(move || {
-                let mut n = 0;
-                b.query::<&mut Health>().filter::<Added<Health>>().for_each(|h| {
+            } else {
+                view.query::<&mut Health>().filter::<Added<Health>>().for_each(|h| {
                     h.0 = 10;
-                    n += 1;
+                    *n += 1;
                 });
-                n
-            });
-            (pushed.join().unwrap(), healed.join().unwrap())
-        })
-    };
-    push.finish(&mut w);
-    heal.finish(&mut w);
+            }
+        },
+    );
+    let (pushed, healed) = (states[0].1.1, states[1].1.1);
     assert_eq!(pushed, moved.len() + 1, "the moved ones and the fresh one");
     assert_eq!(healed, 1);
     assert_eq!(w.get::<Health>(fresh), Some(&Health(10)));

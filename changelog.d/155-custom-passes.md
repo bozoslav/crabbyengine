@@ -1,5 +1,5 @@
 ### Added
-- `Ctx::scene_compute_passes`: compute passes at a named scene stage, after
+- `ctx.scene3d.passes.scene_compute`: compute passes at a named scene stage, after
   the opaque and transparent models and temporal antialiasing and before
   target effects, screen effects, bloom and tone mapping. Their shaders read
   this frame's lit image and depth (`scene_color`, `scene_position`,
@@ -21,7 +21,7 @@
 - A target effect whose target another pass wrote earlier in the frame
   is now skipped (it used to silently replace that result); the warning
   for a target effect sampling its own target names its list and index.
-- A `Ctx::compute_passes` entry whose render target a target camera
+- A `ctx.scene3d.passes.compute` entry whose render target a target camera
   clears later in the same frame is now skipped with a warning naming the
   entry and the target (it used to run, and its result was lost).
 

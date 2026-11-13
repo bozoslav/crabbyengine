@@ -290,37 +290,40 @@ fn pipelines_json(p: &PipelineStats) -> Value {
     })
 }
 
-/// The active graphics quality: its preset level and every setting.
+/// The active graphics quality: its preset level and every setting a preset
+/// writes, read from `ctx.scene3d` as the renderer uses them (clamped).
 #[cfg(feature = "3d")]
-pub(super) fn quality_json(q: &crate::render::GraphicsQuality) -> Value {
-    let level = match q.level() {
-        crate::render::QualityLevel::Low => "low",
-        crate::render::QualityLevel::Medium => "medium",
-        crate::render::QualityLevel::High => "high",
-        crate::render::QualityLevel::Ultra => "ultra",
-        crate::render::QualityLevel::Custom => "custom",
+pub(super) fn quality_json(s: &crate::render::SceneSettings) -> Value {
+    use crate::render::GraphicsQuality;
+    let level = match s.quality() {
+        Some(GraphicsQuality::Low) => "low",
+        Some(GraphicsQuality::Medium) => "medium",
+        Some(GraphicsQuality::High) => "high",
+        Some(GraphicsQuality::Ultra) => "ultra",
+        _ => "custom",
     };
+    let (l, p) = s.clamped_quality();
     json!({
         "level": level,
-        "render_scale": q.render_scale,
-        "sharpen": q.sharpen,
-        "shadows": q.shadows,
-        "shadow_distance": q.shadow_distance,
-        "shadow_cascades": q.shadow_cascades,
-        "shadow_resolution": q.shadow_resolution,
-        "shadow_refresh": q.shadow_refresh,
-        "shadow_filter": q.shadow_filter,
-        "light_shadow_views": q.light_shadow_views,
-        "light_shadow_resolution": q.light_shadow_resolution,
-        "light_shadow_atlas": q.light_shadow_atlas,
-        "ambient_occlusion": q.ambient_occlusion,
-        "ao_half_resolution": q.ao_half_resolution,
-        "ao_temporal": q.ao_temporal,
-        "ao_slices": q.ao_slices,
-        "ao_steps": q.ao_steps,
-        "ssr": q.ssr,
-        "gi": q.gi,
-        "anti_aliasing": format!("{:?}", q.anti_aliasing).to_lowercase(),
+        "render_scale": p.render_scale,
+        "sharpen": p.sharpen,
+        "shadows": l.shadows,
+        "shadow_distance": l.shadow_distance,
+        "shadow_cascades": l.shadow_cascades,
+        "shadow_resolution": l.shadow_resolution,
+        "shadow_refresh": l.shadow_refresh,
+        "shadow_filter": l.shadow_filter as u32,
+        "light_shadow_views": l.light_shadow_views,
+        "light_shadow_resolution": l.light_shadow_resolution,
+        "light_shadow_atlas": l.light_shadow_atlas,
+        "ambient_occlusion": p.ambient_occlusion.enabled,
+        "ao_half_resolution": p.ao_half_resolution,
+        "ao_temporal": p.ao_temporal,
+        "ao_slices": p.ambient_occlusion.slices,
+        "ao_steps": p.ambient_occlusion.steps,
+        "ssr": p.ssr,
+        "gi": l.gi.enabled,
+        "anti_aliasing": format!("{:?}", p.anti_aliasing).to_lowercase(),
     })
 }
 
@@ -717,15 +720,25 @@ mod tests {
     #[cfg(feature = "3d")]
     #[test]
     fn quality_names_its_preset() {
-        let q = quality_json(&crate::render::GraphicsQuality::medium());
+        let mut s = crate::render::SceneSettings::default();
+        s.set_quality(crate::render::GraphicsQuality::Medium);
+        let q = quality_json(&s);
         assert_eq!(q["level"], "medium");
         assert_eq!(q["anti_aliasing"], "fxaa");
-        let q = quality_json(&crate::render::GraphicsQuality {
-            shadow_cascades: 1,
-            ..crate::render::GraphicsQuality::high()
-        });
+        assert_eq!(q["shadow_filter"], 2);
+        s.set_quality(crate::render::GraphicsQuality::High);
+        s.lighting.shadow_cascades = 1;
+        let q = quality_json(&s);
         assert_eq!(q["level"], "custom");
         assert_eq!(q["shadow_cascades"], 1);
+        // Values the renderer clamps are shown as it draws them.
+        s.post.render_scale = 9.0;
+        s.post.sharpen = f32::NAN;
+        s.lighting.light_shadow_atlas = 5000;
+        let q = quality_json(&s);
+        assert_eq!(q["render_scale"], crate::render::Post::MAX_RENDER_SCALE);
+        assert_eq!(q["sharpen"], 0.0);
+        assert_eq!(q["light_shadow_atlas"], 4096);
     }
 }
 

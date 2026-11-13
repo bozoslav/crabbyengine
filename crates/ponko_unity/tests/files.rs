@@ -235,3 +235,106 @@ fn projects_map_guids_to_files() {
     assert!(Project::open(dir.join("Assets")).is_err(), "no Assets folder inside");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Maps and lists nest at most 128 deep: a file of `- - - - ...` (two
+/// bytes a level) or of nested maps can't overflow the stack while it is
+/// built or dropped.
+#[test]
+fn deeply_nested_yaml_is_an_error_not_a_stack_overflow() {
+    let deep_list = format!("--- !u!1 &1\nGameObject:\n  a:\n  {}x\n", "- ".repeat(200_000));
+    let err = UnityFile::parse(&deep_list).unwrap_err();
+    assert!(err.message.contains("nested deeper than 128"), "{err}");
+    let mut deep_map = String::from("--- !u!1 &1\nGameObject:\n");
+    for level in 1..200 {
+        deep_map.push_str(&format!("{}a:\n", " ".repeat(level)));
+    }
+    let err = UnityFile::parse(&deep_map).unwrap_err();
+    assert!(err.message.contains("nested deeper than 128"), "{err}");
+    let deep_flow = format!(
+        "--- !u!1 &1\nGameObject: {}{}\n",
+        "{a: ".repeat(100_000),
+        "}".repeat(100_000)
+    );
+    assert!(UnityFile::parse(&deep_flow).is_err());
+    // Well within the limit: fine.
+    let fine = format!("--- !u!1 &1\nGameObject:\n  a:\n  {}x\n", "- ".repeat(100));
+    let fine = UnityFile::parse(&fine).unwrap();
+    let mut v = &fine.objects[0].body["a"];
+    for _ in 0..99 {
+        v = &v[0];
+    }
+    assert_eq!(v[0].as_str(), Some("x"));
+}
+
+/// Counts and sizes in mesh, texture and terrain assets that their data
+/// can't back are errors, not huge allocations or arithmetic overflow.
+#[test]
+fn counts_without_data_are_errors_not_huge_allocations() {
+    let mesh = |vertex_data: &str, shapes: &str| {
+        let text = format!(
+            "--- !u!43 &1\nMesh:\n  m_Name: M\n  m_VertexData:\n{vertex_data}  m_Shapes:\n{shapes}  m_SubMeshes:\n  - {{topology: 0, firstByte: 0, indexCount: 0, baseVertex: 0}}\n  m_IndexBuffer: ''\n"
+        );
+        UnityMesh::from_object(&UnityFile::parse(&text).unwrap().objects[0])
+    };
+    let shapes = "    vertices: []\n    shapes:\n    - {firstVertex: 0, vertexCount: 0, hasNormals: 1}\n    channels:\n    - {name: s, frameIndex: 0, frameCount: 1}\n    fullWeights: [100]\n";
+    // A vertex count with no vertex data: no channel reads it, and blend
+    // shapes expand to the vertices there are.
+    let huge = mesh(
+        "    m_VertexCount: 1000000000000\n    m_Channels: []\n    _typelessdata: ''\n",
+        shapes,
+    )
+    .unwrap();
+    assert_eq!(huge.blend_shapes[0].positions.len(), 0);
+    assert!(
+        mesh(
+            "    m_VertexCount: -1\n    m_Channels: []\n    _typelessdata: ''\n",
+            shapes
+        )
+        .is_err()
+    );
+    let stream = "    m_VertexCount: 4\n    m_Channels:\n    - {stream: 1000000000000000, offset: 0, format: 0, dimension: 3}\n    _typelessdata: ''\n";
+    assert!(
+        mesh(stream, shapes)
+            .unwrap_err()
+            .message
+            .contains("stream out of range")
+    );
+    let long = "    m_VertexCount: 4611686018427387904\n    m_Channels:\n    - {stream: 0, offset: 0, format: 0, dimension: 3}\n    _typelessdata: ''\n";
+    assert!(mesh(long, shapes).is_err());
+
+    let texture = UnityFile::parse(
+        "--- !u!28 &1\nTexture2D:\n  m_Name: T\n  m_TextureFormat: 4\n  m_Width: 4294967295\n  m_Height: 4294967295\n  image data: ''\n",
+    )
+    .unwrap();
+    assert!(UnityTexture::from_object(&texture.objects[0]).is_err());
+
+    let terrain = UnityFile::parse(
+        "--- !u!156 &1\nTerrainData:\n  m_Name: T\n  m_Heightmap:\n    m_Resolution: 4294967296\n    m_Heights: []\n    m_Scale: {x: 1, y: 1, z: 1}\n",
+    )
+    .unwrap();
+    assert!(UnityTerrain::from_object(&terrain.objects[0]).is_err());
+}
+
+/// Blend shape channels each own a range of frames: many channels naming
+/// the same frames (of a mesh with no vertices, so nothing else is
+/// charged) would make channels times frames shapes from a small file.
+#[test]
+fn blend_shape_channels_sharing_frames_are_errors() {
+    let mesh = |channels: &str| {
+        let text = format!(
+            "--- !u!43 &1\nMesh:\n  m_Name: M\n  m_VertexData:\n    m_VertexCount: 0\n    m_Channels: []\n    _typelessdata: ''\n  m_Shapes:\n    vertices: []\n    shapes:\n{}    channels:\n{channels}    fullWeights: []\n  m_SubMeshes: []\n  m_IndexBuffer: ''\n",
+            "    - {firstVertex: 0, vertexCount: 0, hasNormals: 0}\n".repeat(2000)
+        );
+        UnityMesh::from_object(&UnityFile::parse(&text).unwrap().objects[0])
+    };
+    let apart =
+        "    - {name: a, frameIndex: 0, frameCount: 1000}\n    - {name: b, frameIndex: 1000, frameCount: 1000}\n";
+    assert_eq!(mesh(apart).unwrap().blend_shapes.len(), 2000);
+    let shared = "    - {name: s, frameIndex: 0, frameCount: 2000}\n".repeat(2000);
+    let started = std::time::Instant::now();
+    let err = mesh(&shared).unwrap_err();
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(err.message.contains("share frames"), "{err}");
+    let partly = "    - {name: a, frameIndex: 0, frameCount: 10}\n    - {name: b, frameIndex: 5, frameCount: 10}\n";
+    assert!(mesh(partly).is_err());
+}

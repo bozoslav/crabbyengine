@@ -136,7 +136,7 @@ fn walk(ctx: &mut Ctx) {
 /// Left click shoves whatever is in front of the eye, up to 30 m away.
 fn shove(ctx: &mut Ctx) {
     let me = ctx.world.resource::<Player>().id;
-    let (eye, forward) = (ctx.camera3d.position, ctx.camera3d.rotation * Vec3::NEG_Z);
+    let (eye, forward) = (ctx.scene3d.camera.position, ctx.scene3d.camera.rotation * Vec3::NEG_Z);
     let filter = QueryFilter::default().exclude(me);
     if let Some(hit) = ctx.physics3d.cast_ray(eye, forward, 30.0, filter)
         && let Some(mass) = ctx.physics3d.mass(hit.entity)
@@ -175,8 +175,8 @@ fn eyes(ctx: &mut Ctx) {
     p.pitch = (p.pitch - turn.y).clamp(-1.5, 1.5);
     let (id, yaw, pitch) = (p.id, p.yaw, p.pitch);
     if let Some(t) = ctx.world.get::<Transform>(id) {
-        ctx.camera3d.position = t.position + Vec3::Y * 1.65;
-        ctx.camera3d.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch);
+        ctx.scene3d.camera.position = t.position + Vec3::Y * 1.65;
+        ctx.scene3d.camera.rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch);
     }
 }
 // ANCHOR_END: look
@@ -189,7 +189,6 @@ fn main() {
         .system(eyes)
         // ANCHOR_END: setup
         .setup(|ctx| {
-            ctx.gfx.clear(Color::hex(0x9CC4E4));
             build_world(ctx);
         })
         .run();

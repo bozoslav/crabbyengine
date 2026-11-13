@@ -17,7 +17,7 @@ functions with a flat `PonkoUiLayout` (from `ponko_ui_layout_row`, `_column`,
 The tree is owned by `Ui`, independently of ECS entities. Stable `UiId` handles
 identify widgets and events. Removing a subtree invalidates its IDs permanently.
 Taffy supplies flexbox, grid, percentage sizes, min/max constraints, padding,
-margin, gap and absolute positioning through `ui::layout` (the Taffy crate). It owns
+margin, gap and absolute positioning behind `UiLayout`, the one layout type. It owns
 neither the renderer nor the event loop. Ponko owns interaction and appearance.
 
 ## A shop and inventory grid
@@ -56,8 +56,11 @@ root), `centered(w, h)` for dialogs and `grid(columns, row_height)` for
 inventories, refined with `gap`, `padding`, `grow`, `horizontal`/`vertical` and
 `width`/`height`, and placed in points with `top(y)` and `left(x)` (a
 centered dialog near the top: `UiLayout::centered(360.0, 180.0).top(180.0)`).
-Children stack top to bottom, except in a row. Any Taffy
-`ui::layout::Style` is still accepted, and `UiLayout::custom(style)` wraps one.
+Children stack top to bottom, except in a row. For a Taffy setting the
+presets don't cover (named grid lines, templates), `UiLayout::custom(style)`
+wraps a `ui::unstable_taffy::Style` and `style_mut()` edits one. That module
+is the Taffy crate itself: it is outside ponko's stability promise and changes
+when ponko upgrades Taffy.
 Give a scroll view a bounded size; `fill()` shrinks to the space its siblings
 leave. `UiWidget::Scroll` clips descendants and supports wheel scrolling,
 content dragging and a vertical scrollbar. `set_scroll` uses unscaled layout
@@ -106,9 +109,10 @@ of ids is needed: `.name("shop.buy")` on a builder (or `ui.set_name(id, ..)`)
 names a node, and `ui.find("shop.buy")` returns its id; `ui.name(id)` reads it
 back. A name belongs to one node of the tree: naming another node the same
 moves it, an empty name takes it off, and removing the node frees it. Dotted
-names are only a convention. For a screen that reacts only to clicks,
-`ui.take_click()` takes the queued events and returns the last clicked node.
-C++: `set_name`, `find`, `name`, `take_click` on the tree; C:
+names are only a convention. For a screen that reacts only to clicks, take
+the last click, `ui.events().filter_map(UiEvent::clicked).last()` (C and C++
+have `take_click`, which does that). C++: `set_name`, `find`, `name`, `take_click`
+on the tree; C:
 `ponko_ctx_ui_set_name`, `ponko_ctx_ui_find`, `ponko_ctx_ui_name`,
 `ponko_ctx_ui_take_click`.
 
@@ -131,10 +135,10 @@ CSS escapes; reserved CSS keywords and names starting with digits are rejected.
 <div>
 
 ```rust
-use ponko::ui::{Ui, UiWidget, layout::*};
-use ponko::ui::layout::style_helpers::*;
+use ponko::ui::{Ui, UiWidget, unstable_taffy::*};
+use ponko::ui::unstable_taffy::style_helpers::*;
 let mut tree = ponko::ui::Ui::default();
-let dashboard = tree.add(ponko::ui::UiWidget::Panel, Style {
+let dashboard = tree.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::custom(Style {
     display: Display::Grid,
     size: Size { width: length(600.0), height: length(400.0) },
     grid_template_columns: vec![repeat(2, vec![fr(1.0)])],
@@ -148,13 +152,13 @@ let dashboard = tree.add(ponko::ui::UiWidget::Panel, Style {
         ],
     }),
     ..Style::default()
-});
+}));
 let placement = GridPlacement::NamedLine("main".into(), 0);
-let main = tree.add_child(dashboard, ponko::ui::UiWidget::Label, Style {
+let main = tree.add_child(dashboard, ponko::ui::UiWidget::Label, ponko::ui::UiLayout::custom(Style {
     grid_column: Line { start: placement.clone(), end: placement.clone() },
     grid_row: Line { start: placement.clone(), end: placement },
     ..Style::default()
-});
+}));
 tree.set_text(main, "Content");
 ```
 
@@ -197,22 +201,22 @@ number; against an automatic edge taffy treats it as a span of one track.
 <div>
 
 ```rust
-use ponko::ui::layout::*;
-use ponko::ui::layout::style_helpers::*;
+use ponko::ui::unstable_taffy::*;
+use ponko::ui::unstable_taffy::style_helpers::*;
 let mut tree = ponko::ui::Ui::default();
 // Four 100-point columns; lines 3 and 5 are both called "edge".
-let strip = tree.add(ponko::ui::UiWidget::Panel, Style {
+let strip = tree.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::custom(Style {
     display: Display::Grid,
     size: Size { width: length(400.0), height: length(40.0) },
     grid_template_columns: vec![length(100.0), length(100.0), length(100.0), length(100.0)],
     grid_template_column_names: vec![vec![], vec![], vec!["edge".into()], vec![], vec!["edge".into()]],
     ..Style::default()
-});
+}));
 // From line 1 to the second "edge" line: all four columns.
-let banner = tree.add_child(strip, ponko::ui::UiWidget::Label, Style {
+let banner = tree.add_child(strip, ponko::ui::UiWidget::Label, ponko::ui::UiLayout::custom(Style {
     grid_column: Line { start: line(1), end: GridPlacement::NamedSpan("edge".into(), 2) },
     ..Style::default()
-});
+}));
 tree.set_text(banner, "Sale");
 ```
 
@@ -285,11 +289,14 @@ be popped; game code decides whether to reopen it.
 </div>
 </div>
 
-`events()` drains `Clicked`, `Changed`, `Submitted` and `ScreenPopped` events
+`events()` takes `Clicked`, `Changed`, `Submitted` and `ScreenPopped` events,
+oldest first, and events left untaken (stopping early) stay queued for the
+frame; `ui.next_event()` takes one at a time, for a loop that changes the tree
 (C++: `tree.events()` or `tree.next_event()`; C: `ponko_ctx_ui_next_event`, one
 tagged `PonkoUiEvent` at a time, `PONKO_NOT_FOUND` when none are left).
-Unread events expire at the next UI frame. Event IDs avoid callbacks borrowing
-the context and game state simultaneously. Drain events before mutating the tree.
+Unread events expire at the next UI frame. `UiEvent` and `UiWidget` are
+`#[non_exhaustive]`: a `match` on them needs a `_` arm. Event IDs avoid callbacks borrowing
+the context and game state simultaneously.
 
 Tab/Shift-Tab traverses enabled controls. Arrows/d-pad use spatial navigation;
 Enter, Space or gamepad South activates the focused control. Text inputs reserve

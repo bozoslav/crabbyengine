@@ -28,14 +28,14 @@ pub(super) struct ComputeSteps {
     pub(super) timer: &'static str,
 }
 
-/// `Ctx::compute_passes`, in the prelude.
+/// `RenderPasses::compute`, in the prelude.
 pub(super) const COMPUTE_STEPS: ComputeSteps = ComputeSteps {
     buffer: "buffer compute",
     texture: "texture compute",
     timer: "compute",
 };
 
-/// `Ctx::scene_compute_passes`, in the post part.
+/// `RenderPasses::scene_compute`, in the post part.
 pub(super) const SCENE_COMPUTE_STEPS: ComputeSteps = ComputeSteps {
     buffer: "scene buffer compute",
     texture: "scene texture compute",

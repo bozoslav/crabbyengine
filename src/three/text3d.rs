@@ -183,7 +183,7 @@ impl Ctx {
         let frame = &mut self.gfx.frame3d.particles.texts;
         frame.vertices.clear();
         frame.order.clear();
-        let camera = &self.camera3d;
+        let camera = &self.scene3d.camera;
         let (eye, forward) = (camera.position, camera.forward());
         self.world
             .query::<(crate::Entity, &Text3D, &Transform3D)>()
@@ -210,7 +210,7 @@ impl Ctx {
             let (Some(t), Some(at)) = (self.world.get::<Text3D>(e), self.world.get::<Transform3D>(e)) else {
                 continue;
             };
-            frame.push(t, at, &self.camera3d, &mut self.gfx.text);
+            frame.push(t, at, &self.scene3d.camera, &mut self.gfx.text);
         }
         if let Some(renderer) = self.gfx.renderer.as_mut() {
             for (at, size, rgba) in self.gfx.text.sdf.uploads.drain(..) {

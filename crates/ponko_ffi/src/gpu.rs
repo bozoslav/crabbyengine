@@ -10,7 +10,7 @@ use ponko::render::GpuTier;
 
 use crate::ctx::{ctx_access, out};
 use crate::perf::write_text;
-use crate::three::{PonkoGraphicsQuality, quality_to_c};
+use crate::three::{PonkoGraphicsQuality, scratch_quality};
 use crate::{PonkoCtx, PonkoStatus, PonkoStatus::PONKO_NOT_FOUND, boundary, error, invalid};
 
 /// A class of GPU (Rust `GpuTier`): what every device of the class draws.
@@ -222,8 +222,9 @@ pub unsafe extern "C" fn ponko_gpu_tier_feature(
     })
 }
 
-/// The quality preset meant for `tier` (Rust `GraphicsQuality::for_tier`):
-/// low with FXAA, medium, or high, asking for nothing the tier lacks.
+/// The quality meant for `tier` (Rust
+/// `SceneSettings::set_recommended_quality` with `GpuTier::report`): low
+/// with FXAA, medium, or high, asking for nothing the tier lacks.
 /// ```
 /// let mut q = std::mem::MaybeUninit::<ponko_ffi::PonkoGraphicsQuality>::uninit();
 /// assert_eq!(unsafe { ponko_ffi::ponko_graphics_quality_for_tier(0, q.as_mut_ptr()) } as u32, 0);
@@ -239,15 +240,13 @@ pub unsafe extern "C" fn ponko_graphics_quality_for_tier(
 ) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        out(
-            out_quality,
-            quality_to_c(ponko::render::GraphicsQuality::for_tier(tier(tier_id)?)),
-        )
+        let caps = tier(tier_id)?.report();
+        out(out_quality, scratch_quality(|s| s.set_recommended_quality(&caps)))
     })
 }
 
 /// The preset for the open GPU, fitted to everything it has (Rust
-/// `GraphicsQuality::recommended`). Apply it with
+/// `SceneSettings::set_recommended_quality`). Apply it with
 /// `ponko_ctx_set_graphics_quality`. `PONKO_NOT_FOUND` before a GPU opens.
 /// # Safety
 /// `ctx` null or live; `out_quality` writable.
@@ -258,8 +257,8 @@ pub unsafe extern "C" fn ponko_ctx_recommended_graphics_quality(
 ) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        let q = with_caps(ctx, ponko::render::GraphicsQuality::recommended)?;
-        out(out_quality, quality_to_c(q))
+        let q = with_caps(ctx, |caps| scratch_quality(|s| s.set_recommended_quality(caps)))?;
+        out(out_quality, q)
     })
 }
 

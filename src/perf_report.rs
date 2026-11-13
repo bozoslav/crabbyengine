@@ -973,7 +973,7 @@ pub(crate) fn analyze(report: &mut PerfReport) {
             ),
             hint: "Wrap parts of it in profile_scope! to see where the time goes. Then: iterate with for_each / \
                    par_for_each, spread per-entity work over frames with ctx.time.turns(n), or run it less often with \
-                   sim_system_every."
+                   an interval: system.every(n)."
                 .into(),
         });
     }
@@ -995,7 +995,7 @@ pub(crate) fn analyze(report: &mut PerfReport) {
             ),
             hint: "Spikes come from allocation bursts, loading assets, spawning many entities at once, or a system \
                    that sometimes does a lot (path searches, rebuilds). Spread such work over frames with \
-                   ctx.time.turns(n), or do it ahead of time. ctx.record_trace shows a slow frame on a timeline."
+                   ctx.time.turns(n), or do it ahead of time. ctx.perf.record_trace shows a slow frame on a timeline."
                 .into(),
         });
     }
@@ -1012,12 +1012,12 @@ pub(crate) fn analyze(report: &mut PerfReport) {
                 ),
                 Some(p) => (
                     format!("; the slowest pass is `{}` ({:.2} ms)", p.name, p.ms),
-                    "Draw fewer or smaller things, lower Game::msaa, or use cheaper shaders. gpu_passes says which \
+                    "Draw fewer or smaller things, lower ctx.scene3d.post.msaa, or use cheaper shaders. gpu_passes says which \
                      pass; render_stats says whether it's triangles or pixels.",
                 ),
                 None => (
                     String::new(),
-                    "Draw fewer or smaller things, or lower Game::msaa. Compare render_stats triangles with pixels.",
+                    "Draw fewer or smaller things, or lower ctx.scene3d.post.msaa. Compare render_stats triangles with pixels.",
                 ),
             };
             w.push(PerfWarning {
@@ -1056,7 +1056,7 @@ pub(crate) fn analyze(report: &mut PerfReport) {
                 message: format!("{} draw calls per frame", r.draw_calls),
                 hint: "Each run of sprites sharing a texture, and each mesh part with its material, is one call. \
                        Pack sprites into an atlas, share meshes and materials between objects, and merge static \
-                       geometry. ctx.mesh_costs lists the meshes."
+                       geometry. ctx.gfx.mesh_costs lists the meshes."
                     .into(),
             });
         }

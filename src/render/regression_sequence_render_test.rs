@@ -20,7 +20,7 @@ fn edge_frame_after(step: impl FnOnce(&mut Stage)) -> Option<(Image, super::gpu3
         return None;
     }
     edge(&mut stage);
-    stage.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    stage.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     stage.settled(40);
     step(&mut stage);
     let image = stage.image();
@@ -65,7 +65,7 @@ fn a_small_turn_keeps_the_history_and_a_turn_past_the_threshold_drops_it() {
     let turn = |angle: f32| {
         move |stage: &mut Stage| {
             let (sin, cos) = angle.sin_cos();
-            stage.ctx.camera3d.look_at(vec3(-5.0 * sin, 0.0, 5.0 - 5.0 * cos));
+            stage.ctx.scene3d.camera.look_at(vec3(-5.0 * sin, 0.0, 5.0 - 5.0 * cos));
         }
     };
     let (Some((_, small)), Some((_, large))) = (edge_frame_after(turn(0.5)), edge_frame_after(turn(1.0))) else {
@@ -89,10 +89,10 @@ fn mirror_frame_after(step: impl FnOnce(&mut Stage)) -> Option<Image> {
         }
     }
     mirror(&mut stage);
-    stage.ctx.post.anti_aliasing = AntiAliasing::Taa;
-    stage.ctx.post.ssr = 1.0;
-    stage.ctx.post.ambient_occlusion.enabled = true;
-    stage.ctx.post.ao_temporal = true;
+    stage.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
+    stage.ctx.scene3d.post.ssr = 1.0;
+    stage.ctx.scene3d.post.ambient_occlusion.enabled = true;
+    stage.ctx.scene3d.post.ao_temporal = true;
     stage.settled(24);
     step(&mut stage);
     let image = stage.image();
@@ -108,7 +108,7 @@ fn a_teleport_with_every_temporal_effect_on_draws_what_an_explicit_reset_draws()
     // over, exactly as when the game asks.
     let teleport = |stage: &mut Stage| {
         let jump = vec3(200.0, 0.0, 0.0);
-        stage.ctx.camera3d.position += jump;
+        stage.ctx.scene3d.camera.position += jump;
         stage
             .ctx
             .world
@@ -185,8 +185,8 @@ fn every_size_in_a_resize_sequence_draws_what_a_fresh_renderer_draws() {
     // again at each size, and nothing of the old size shows.
     resized_frames_match_fresh_ones("the shadowed box", SAME_PICTURE, |stage| {
         shadowed(stage);
-        stage.ctx.post.anti_aliasing = AntiAliasing::Fxaa;
-        stage.ctx.post.bloom = 0.2;
+        stage.ctx.scene3d.post.anti_aliasing = AntiAliasing::Fxaa;
+        stage.ctx.scene3d.post.bloom = 0.2;
     });
 }
 
@@ -211,9 +211,9 @@ fn resized_frames_with_screen_space_effects_match_a_fresh_renderers() {
     };
     resized_frames_match_fresh_ones("the mirror floor", noisy_edges, |stage| {
         mirror(stage);
-        stage.ctx.post.ssr = 1.0;
-        stage.ctx.post.ambient_occlusion.enabled = true;
-        stage.ctx.post.ao_temporal = false;
+        stage.ctx.scene3d.post.ssr = 1.0;
+        stage.ctx.scene3d.post.ambient_occlusion.enabled = true;
+        stage.ctx.scene3d.post.ao_temporal = false;
     });
 }
 
@@ -323,7 +323,7 @@ const EFFECTS: [Effect; 4] = [
         scene: |stage| {
             mirror(stage);
         },
-        on: |stage| stage.ctx.post.ssr = 1.0,
+        on: |stage| stage.ctx.scene3d.post.ssr = 1.0,
         fallback: |_| {},
         frames: 4,
     },
@@ -333,8 +333,8 @@ const EFFECTS: [Effect; 4] = [
             crease(stage);
         },
         on: |stage| {
-            stage.ctx.post.ambient_occlusion.enabled = true;
-            stage.ctx.post.ao_temporal = false;
+            stage.ctx.scene3d.post.ambient_occlusion.enabled = true;
+            stage.ctx.scene3d.post.ao_temporal = false;
         },
         fallback: |_| {},
         frames: 3,
@@ -344,7 +344,7 @@ const EFFECTS: [Effect; 4] = [
         scene: |stage| {
             red_room(stage, false);
         },
-        on: |stage| stage.ctx.lighting.gi.enabled = true,
+        on: |stage| stage.ctx.scene3d.lighting.gi.enabled = true,
         fallback: |_| {},
         frames: 40,
     },
@@ -352,8 +352,8 @@ const EFFECTS: [Effect; 4] = [
         // Without compute shaders TAA is drawn as FXAA.
         feature: GpuFeature::TemporalAntialiasing,
         scene: edge,
-        on: |stage| stage.ctx.post.anti_aliasing = AntiAliasing::Taa,
-        fallback: |stage| stage.ctx.post.anti_aliasing = AntiAliasing::Fxaa,
+        on: |stage| stage.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa,
+        fallback: |stage| stage.ctx.scene3d.post.anti_aliasing = AntiAliasing::Fxaa,
         frames: 12,
     },
 ];
@@ -473,7 +473,7 @@ fn a_reload_while_taa_is_settled_shows_the_new_shader_without_a_trail_of_the_old
     }
     let (shader, _) = cutout(&mut stage, HOLES_SHADER);
     let between_holes = STRIPE_NOT_HOLE;
-    stage.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    stage.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     stage.settled(24);
     stage.reload(shader, "holes.wgsl", STRIPES_SHADER).unwrap();
     // A few frames on, the history has let go of the old sheet...
@@ -487,7 +487,7 @@ fn a_reload_while_taa_is_settled_shows_the_new_shader_without_a_trail_of_the_old
     // settles on.
     let Some(mut always) = Stage::new() else { return };
     cutout(&mut always, STRIPES_SHADER);
-    always.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    always.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     always.settled(24);
     assert_similar(
         &stage.settled(24),

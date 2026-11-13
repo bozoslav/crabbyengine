@@ -123,6 +123,15 @@ fn the_control_endpoint_opens_registers_answers_and_closes() {
             serde_json::json!({"id": 1, "token": "wrong", "method": "info"}),
         );
         assert!(refused["error"].as_str().unwrap().contains("token"), "{refused}");
+        // A wrong first token gets one reply and the connection is closed.
+        let mut rest = String::new();
+        assert!(
+            matches!(reader.read_line(&mut rest), Ok(0) | Err(_)),
+            "the connection stayed open: {rest:?}"
+        );
+        let mut stream = TcpStream::connect(("127.0.0.1", port as u16)).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
         let reply = ask(
             &mut stream,
             &mut reader,

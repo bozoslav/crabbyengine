@@ -54,7 +54,7 @@ fn setup_runs_before_the_first_tick_and_its_commands_are_applied_first() {
 
 #[test]
 fn headless_runs_neither_update_the_retained_ui_nor_run_frame_late_or_draw_steps() {
-    use ponko::ui::layout::{Dimension, Size, Style};
+    use ponko::ui::unstable_taffy::{Dimension, Size, Style};
     let log: Log = Log::default();
     let focus = Rc::new(RefCell::new(None));
     let f = focus.clone();
@@ -74,8 +74,11 @@ fn headless_runs_neither_update_the_retained_ui_nor_run_frame_late_or_draw_steps
                 flex_shrink: 0.0,
                 ..Default::default()
             };
-            let root = ctx.ui.add(UiWidget::Panel, size(300.0, 200.0));
-            ctx.ui.add_child(root, UiWidget::Button, size(70.0, 30.0));
+            let root = ctx
+                .ui
+                .add(UiWidget::Panel, ponko::ui::UiLayout::custom(size(300.0, 200.0)));
+            ctx.ui
+                .add_child(root, UiWidget::Button, ponko::ui::UiLayout::custom(size(70.0, 30.0)));
             ctx.ui.push_screen(root, false);
             ctx.input.feed(InputEvent::Key(Key::Tab, true));
         });
@@ -94,9 +97,9 @@ fn audio_stays_silent_and_usable_in_headless_runs() {
         assert!((beep.seconds() - 1.0).abs() < 1e-3);
         let bus = ctx.audio.bus("music");
         ctx.audio.set_bus_volume(bus, 0.5);
-        let playing = ctx.audio.play(&beep);
+        let playing = ctx.audio.play(beep);
         let again = ctx.audio.play_ex(
-            &beep,
+            beep,
             SoundParams {
                 looping: true,
                 ..Default::default()

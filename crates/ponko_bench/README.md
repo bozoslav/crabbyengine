@@ -1,6 +1,6 @@
 # Benchmarks
 
-Started as the M3 ECS spike: it compares a minimal archetype ECS of our own (`src/own.rs`, the spike that became `crabby_ecs`) with `bevy_ecs` 0.20 and `hecs` 0.11. It answers two questions:
+Started as the M3 ECS spike: it compares a minimal archetype ECS of our own (`src/own.rs`, the spike that became `ponko_ecs`) with `bevy_ecs` 0.20 and `hecs` 0.11. It answers two questions:
 
 1. Which ECS do we build the engine on?
 2. **D12 condition:** does routing every component through runtime registration (needed for the C/C++ API) cost the Rust path anything?
@@ -80,7 +80,7 @@ Baselines for the iteration loop:
 
 ## Simulation at scale: `par_for_each` (M4, 2026-11-02)
 
-`crabby_ecs` only, M4 Max (14 cores), release. *Light* = `pos += vel*dt`; *heavy* = wander steering with `sin`/`sin_cos`/`rem_euclid` per agent (closer to a real sim tick).
+`ponko_ecs` only, M4 Max (14 cores), release. *Light* = `pos += vel*dt`; *heavy* = wander steering with `sin`/`sin_cos`/`rem_euclid` per agent (closer to a real sim tick).
 
 | | 1 core (`for_each`) | all cores (`par_for_each`) | speedup |
 |---|---:|---:|---:|

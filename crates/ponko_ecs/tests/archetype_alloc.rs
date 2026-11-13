@@ -84,7 +84,7 @@ fn wide_world() -> (World, Vec<ComponentId>, ComponentId, ComponentId) {
     let mut w = World::new();
     // SAFETY: plain 4-byte values without a destructor.
     let pool: Vec<ComponentId> = (0..64)
-        .map(|i| unsafe { w.register_component(&format!("c{i}"), 4, 4, None) })
+        .map(|i| unsafe { w.raw().register_component(&format!("c{i}"), 4, 4, None) })
         .collect();
     let (p, v) = (w.register::<P>(), w.register::<V>());
     w.register::<Tag>();
@@ -115,8 +115,11 @@ fn queries_over_wide_archetypes_do_not_allocate() {
             n += 1;
         });
         assert_eq!(n, 2 * ARCHETYPES);
-        assert_eq!(w.query::<(&P, &V)>().without::<Tag>().iter().count(), 2 * ARCHETYPES);
-        assert_eq!(w.query::<&P>().with::<Tag>().count(), 0);
+        assert_eq!(
+            w.query::<(&P, &V)>().filter::<Without<Tag>>().iter().count(),
+            2 * ARCHETYPES
+        );
+        assert_eq!(w.query::<&P>().filter::<With<Tag>>().count(), 0);
         let mut rows = 0;
         w.raw().for_each_chunk(&[v, p, pool[63]], |c| rows += c.len());
         assert!(rows > 0 && rows < 2 * ARCHETYPES);
@@ -135,8 +138,8 @@ fn queries_over_wide_archetypes_do_not_allocate() {
 fn warm_transitions_on_a_wide_entity_do_not_allocate() {
     let (mut w, pool, _, _) = wide_world();
     // SAFETY: 8-byte and 256-byte values; the drop functions only read them.
-    let small = unsafe { w.register_component("small-drop", 8, 8, Some(drop_small)) };
-    let large = unsafe { w.register_component("large-drop", 256, 16, Some(drop_large)) };
+    let small = unsafe { w.raw().register_component("small-drop", 8, 8, Some(drop_small)) };
+    let large = unsafe { w.raw().register_component("large-drop", 256, 16, Some(drop_large)) };
     let e = w.query::<Entity>().iter().next().unwrap();
     let plain = *pool
         .iter()

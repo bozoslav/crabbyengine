@@ -4,7 +4,7 @@
 #[allow(unused_imports)]
 use ponko::input::Gamepad;
 use ponko::prelude::*;
-use ponko::ui::layout::{Display, Style};
+use ponko::ui::unstable_taffy::{Display, Style};
 #[allow(unused_imports)]
 use ponko::ui::{Ui, UiAccessValue, UiId, UiInput, UiLayout, UiRole, UiWidget};
 
@@ -252,10 +252,10 @@ fn hidden_subtrees_are_left_out_and_disabled_inherits() {
     let inner = m.ui.button(group, "Inner").layout(UiLayout::fixed(60.0, 30.0)).id();
     m.ui.set_layout(
         m.play,
-        Style {
+        ponko::ui::UiLayout::custom(Style {
             display: Display::None,
             ..UiLayout::row(30.0).into_style()
-        },
+        }),
     );
     m.ui.set_enabled(group, false);
     press(&mut m.ui, next());
@@ -273,17 +273,17 @@ fn hidden_subtrees_are_left_out_and_disabled_inherits() {
     // Hiding a parent hides its whole subtree.
     m.ui.set_layout(
         group,
-        Style {
+        ponko::ui::UiLayout::custom(Style {
             display: Display::None,
             ..Default::default()
-        },
+        }),
     );
     m.ui.layout(VIEW);
     let tree = m.ui.accessibility_tree();
     assert!(tree.get(group).is_none() && tree.get(inner.id).is_none());
 
     // Showing and re-enabling brings the semantics back.
-    m.ui.set_layout(m.play, UiLayout::row(30.0).into());
+    m.ui.set_layout(m.play, UiLayout::row(30.0));
     m.ui.set_enabled(m.quit, true);
     m.ui.layout(VIEW);
     let tree = m.ui.accessibility_tree();
@@ -381,9 +381,9 @@ fn images_scrolls_and_panels_have_roles() {
     let root = ui.root().layout(UiLayout::fill()).id();
     let list = ui.scroll_area(root).layout(UiLayout::fixed(100.0, 50.0)).id();
     // Images normally come from `ui.image(parent, texture)`; the role is the same.
-    let icon = ui.add_child(list, UiWidget::Image, UiLayout::fixed(16.0, 16.0).into());
+    let icon = ui.add_child(list, UiWidget::Image, UiLayout::fixed(16.0, 16.0));
     ui.set_accessible_name(icon, "Coin");
-    let deco = ui.add_child(list, UiWidget::Image, UiLayout::fixed(16.0, 16.0).into());
+    let deco = ui.add_child(list, UiWidget::Image, UiLayout::fixed(16.0, 16.0));
     let box_ = ui.panel(list).id();
     ui.push_screen(root, false);
     ui.layout(VIEW);

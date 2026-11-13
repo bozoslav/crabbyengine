@@ -78,7 +78,7 @@ assert!(!ctx.world.is_alive(e));   // old handles stay dead, even if the slot is
 # struct Enemy;
 ctx.world
     .query::<(&mut ponko::d2::Transform, &Health)>()
-    .without::<Enemy>()
+    .filter::<Without<Enemy>>()
     .for_each(|(t, h)| t.position.y += h.0);
 ```
 
@@ -120,12 +120,13 @@ What you can ask for (Rust):
 | `Entity` | the entity's id |
 | a tuple of the above | all of them, up to 12 (nest tuples for more) |
 
-Filters `with::<T>()` and `without::<T>()` narrow the match without fetching
-data (C++: `ponko::with<T>`, `ponko::without<T>` in the list of `each`, `query`
-and `count`). For "either" matches, or a filter you reuse across systems, pass a
-typed filter to `filter::<F>()`: `With<T>`, `Without<T>`, `Or<(...)>`, or a
-tuple of them that must all hold (C++: `ponko::or_<...>` and `ponko::all_of<...>`,
-which mirror `Or` and tuples; `or` is a C++ keyword):
+Filters narrow the match without fetching data: `filter::<With<T>>()` and
+`filter::<Without<T>>()` (C++: `ponko::with<T>`, `ponko::without<T>` in the
+list of `each`, `query` and `count`). `filter::<F>()` takes every typed
+filter: `With<T>`, `Without<T>`, `Or<(...)>` for "either" matches, or a tuple
+of them that must all hold, which can be a type alias you reuse across systems
+(C++: `ponko::or_<...>` and `ponko::all_of<...>`, which mirror `Or` and
+tuples; `or` is a C++ keyword):
 
 <div class="lang-pair">
 <div>
@@ -214,7 +215,7 @@ What is indexed automatically:
 
 - Only worlds with at least 64 archetypes. Below that every query scans.
 - A query's *signature*: the components it needs and its `with`, `without`
-  and `Or` filters, however they are written (`.with::<A>()`, `With<A>` in a
+  and `Or` filters, however they are written (`.filter::<With<A>>()` twice, `With<A>` in a
   tuple, a filter built at run time from C, and filters in another order
   are one signature). `Added` and `Changed` aren't part of it; they pick
   rows inside the archetypes.
@@ -241,9 +242,9 @@ Two hints change the choice for one query, and a policy for a whole world:
 # struct Boss;
 // Runs rarely, but must not test every archetype of a big world when it
 // does: index it on first use.
-let bosses = world.query::<&Health>().with::<Boss>().cached().count();
+let bosses = world.query::<&Health>().filter::<With<Boss>>().cached().count();
 // Never use the index for this query.
-let by_scan = world.query::<&Health>().with::<Boss>().uncached().count();
+let by_scan = world.query::<&Health>().filter::<With<Boss>>().uncached().count();
 // Or opt the whole world out.
 world.set_query_cache_policy(QueryCachePolicy::off());
 # let _ = (bosses, by_scan);
@@ -352,6 +353,10 @@ when its transform changes. Ask for them with the filters `Changed<T>` and
 ```rust
 # struct Health(f32);
 # struct HealthBar { width: f32 }
+fn setup(ctx: &mut Ctx) {
+    // Once, before the first system that filters on Health.
+    ctx.world.track_changes::<Health>();
+}
 fn resize_health_bars(ctx: &mut Ctx) {
     // Only the entities whose Health changed since this system last ran.
     ctx.world
@@ -380,13 +385,15 @@ fn regenerate(ctx: &mut Ctx) {
 </div>
 </div>
 
-**It is opt-in, per component.** Nothing is tracked until a component is
-asked for: by a `Changed<T>` or `Added<T>` filter (C++: `ponko::changed<T>`,
-`ponko::added<T>`), or by `world.track_changes::<T>()` (C++:
-`world.track_changes<T>()`). Call `track_changes` in `setup` for components
-whose removals you read, because `removed::<T>()` panics for a component that
-isn't tracked. A game that tracks nothing keeps no stamps and runs the same
-loops as before.
+**It is opt-in, per component, and explicit.** Nothing is tracked until
+`world.track_changes::<T>()` asks for it (C++: `world.track_changes<T>()`).
+Call it in `setup` for every component whose changes or removals you read:
+in Rust a `Changed<T>` or `Added<T>` filter and `removed::<T>()` panic for a
+component that isn't tracked, and say which call is missing. In C and C++ a
+`changed` or `added` filter (`ponko::changed<T>`, `ponko::added<T>`) still
+starts tracking on its first use; `removed` needs `track_changes` there too.
+A game that tracks nothing keeps no stamps and runs the same loops as
+before.
 
 **Each system has its own view.** In a system, the filters and `removed`
 report what happened since that system last ran, so every system sees each

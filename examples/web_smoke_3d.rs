@@ -35,12 +35,10 @@ fn main() {
         .system(frame(ticks))
         .setup(|ctx| {
             let smoke = smoke::Smoke::new("web_smoke_3d");
-            ctx.gfx.clear(Color::hex(0x9CC4E4));
-            ctx.lighting.sun_direction = vec3(-0.8, -0.6, -0.4);
-            let ground_material = ctx.gfx.create_material(MaterialDesc {
-                roughness: 0.95,
-                ..MaterialDesc::color(Color::hex(0x5E8C4A))
-            });
+            ctx.scene3d.lighting.sun_direction = vec3(-0.8, -0.6, -0.4);
+            let ground_material = ctx
+                .gfx
+                .create_material(MaterialDesc::color(Color::hex(0x5E8C4A)).with_roughness(0.95));
             let ground = ctx.gfx.create_mesh(&MeshData::plane(60.0), ground_material);
             ctx.world.spawn((Transform::default(), Model::new(ground)));
 
@@ -52,11 +50,11 @@ fn main() {
             let white = ctx.gfx.default_material();
             let ball = ctx.gfx.create_mesh(&MeshData::sphere(0.45, 24), white);
             for i in 0..6 {
-                let material = ctx.gfx.create_material(MaterialDesc {
-                    roughness: 0.1 + i as f32 * 0.17,
-                    metallic: (i % 2) as f32,
-                    ..MaterialDesc::color(Color::hex(0xD8453B))
-                });
+                let material = ctx.gfx.create_material(
+                    MaterialDesc::color(Color::hex(0xD8453B))
+                        .with_roughness(0.1 + i as f32 * 0.17)
+                        .with_metallic((i % 2) as f32),
+                );
                 ctx.world.spawn((
                     Transform::at(vec3(i as f32 * 1.1 - 2.75, 0.45, 2.0)),
                     Model::new(ball),
@@ -70,11 +68,11 @@ fn main() {
             let (bumps, orm) = data_maps();
             let normal_map = ctx.gfx.create_texture(16, 16, &bumps);
             let orm_map = ctx.gfx.create_texture(16, 16, &orm);
-            let bumpy = ctx.gfx.create_material(MaterialDesc {
-                normal_map: Some(normal_map),
-                orm_map: Some(orm_map),
-                ..MaterialDesc::color(Color::hex(0xD8D8D8))
-            });
+            let bumpy = ctx.gfx.create_material(
+                MaterialDesc::color(Color::hex(0xD8D8D8))
+                    .with_normal_map(normal_map)
+                    .with_orm_map(orm_map),
+            );
             let bumpy_ball = ctx.gfx.create_mesh(&MeshData::sphere(0.9, 32), bumpy);
             ctx.world
                 .spawn((Transform::at(vec3(3.0, 0.9, -1.0)), Model::new(bumpy_ball)));
@@ -92,8 +90,8 @@ fn frame(ticks: Rc<Cell<u64>>) -> impl FnMut(&mut Ctx) {
         // The camera orbits on the simulation clock, so a stalled
         // simulation also freezes the picture.
         let angle = ticks.get() as f32 / 240.0;
-        ctx.camera3d.position = vec3(angle.sin() * 12.0, 6.0, angle.cos() * 12.0);
-        ctx.camera3d.look_at(vec3(0.0, 1.0, 0.0));
+        ctx.scene3d.camera.position = vec3(angle.sin() * 12.0, 6.0, angle.cos() * 12.0);
+        ctx.scene3d.camera.look_at(vec3(0.0, 1.0, 0.0));
         // Taken out while it runs, as `Smoke::frame` needs all of `ctx`.
         let mut fixture = ctx.world.remove_resource::<Fixture>().expect("made in setup");
         fixture.0.frame(

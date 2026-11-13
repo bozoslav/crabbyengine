@@ -1,14 +1,34 @@
-//! Asynchronous asset streaming: an upload queue with a per-frame byte
-//! budget, deterministic asset states, and textures that stream in from a
-//! small stand-in up to full resolution.
+//! GPU asset loading by name: residency budgets, asynchronous streaming
+//! with a per-frame upload budget, deterministic asset states, and textures
+//! that stream in from a small stand-in up to full resolution.
 //!
-//! [`Ctx::stream_texture`] (and, with the `3d` feature,
-//! [`Ctx::stream_mesh`]) never wait: the first call starts decoding the file
+//! [`Graphics`](crate::gfx::Graphics) (`ctx.gfx`) is the one service that
+//! owns GPU assets. Which loader to use:
+//!
+//! | Call | Waits for the file | Under a residency budget |
+//! |---|---|---|
+//! | [`load_texture`](crate::gfx::Graphics::load_texture), `load_mesh` | yes | no: kept until freed |
+//! | [`resident_texture`](crate::gfx::Graphics::resident_texture), `resident_mesh` | the first time | yes |
+//! | [`stream_texture`](crate::gfx::Graphics::stream_texture), `stream_mesh` | never | yes |
+//!
+//! Two budgets, both on `Graphics`:
+//! [`set_upload_budget`](crate::gfx::Graphics::set_upload_budget) limits
+//! the bytes uploaded per frame, and
+//! [`set_residency_budget`](crate::gfx::Graphics::set_residency_budget) the
+//! bytes of each [`ResidencyKind`] kept on the GPU. The calls that can evict
+//! take the [`World`] too, because eviction never takes what an entity shows.
+//!
+//! [`crate::stream`] is different: it holds no assets, only the tools for a
+//! game's own background work ([`Job`]) and cell grids
+//! (`CellStreamer`).
+//!
+//! [`Graphics::stream_texture`](crate::gfx::Graphics::stream_texture) (and, with the `3d` feature,
+//! [`Graphics::stream_mesh`](crate::gfx::Graphics::stream_mesh)) never wait: the first call starts decoding the file
 //! on a [`Job`] thread and returns `None`; once decoded, the
 //! asset is uploaded at the start of a frame, within the
 //! [upload budget](crate::gfx::Graphics::set_upload_budget). A texture appears first as a
 //! stand-in at most 32 pixels a side and doubles in resolution each upload
-//! until it is full size or its [residency budget](Ctx::set_residency_budget)
+//! until it is full size or its [residency budget](crate::gfx::Graphics::set_residency_budget)
 //! is reached. Evicted textures drop back to that stand-in; evicted meshes
 //! keep their id for when they come back.
 //!
@@ -25,8 +45,9 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::assets::{self, Origin};
-use crate::residency::ResidencyKind;
+pub use crate::residency::{ResidencyKind, ResidencyStats};
 use crate::{Ctx, Texture, stream::Job};
+use ponko_ecs::World;
 
 /// The longest side of a streamed texture's stand-in.
 pub(crate) const STAND_IN: u32 = 32;
@@ -106,7 +127,7 @@ pub struct UploadStats {
     pub oversized: u64,
     /// Times the game thread waited for a decode: only with
     /// [deterministic uploads](crate::gfx::Graphics::set_deterministic_uploads) or in
-    /// [`Ctx::finish_uploads`].
+    /// [`Ctx::finish_uploads`](crate::Ctx::finish_uploads).
     pub decode_waits: u64,
     /// Texture uploads held back because the texture budget was full.
     pub held_by_budget: u64,
@@ -330,6 +351,48 @@ pub(crate) enum Step {
 }
 
 impl Ctx {
+    /// The engine's per-frame streaming work, before the game's systems:
+    /// streamed LOD groups ask for their levels, then the upload step.
+    pub(crate) fn pump_streaming(&mut self) {
+        #[cfg(feature = "3d")]
+        self.stream_lod_levels();
+        // What entities stopped showing (LOD levels, despawned models) can
+        // go now. While a kind is over its budget this looks, every frame,
+        // at each entity that shows an asset of that kind (it allocates
+        // nothing); under budget it costs a comparison.
+        for kind in ResidencyKind::ALL {
+            self.gfx.enforce_residency(&mut self.world, kind);
+        }
+        if !self.gfx.streaming.queue.is_empty() {
+            self.gfx.upload_step(&mut self.world);
+        } else {
+            self.gfx.streaming.stats.frame_bytes = 0;
+            self.gfx.streaming.stats.frame_uploads = 0;
+        }
+    }
+
+    /// Waits until every streamed asset asked for so far is loaded (or
+    /// failed, or held by its residency budget), uploading without the
+    /// per-frame budget, and evicting what the residency budgets need gone
+    /// as the frame's streaming step does. For loading screens and tests; it
+    /// blocks the game thread. On `Ctx` because eviction looks at what the
+    /// game's world shows.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     assert_eq!(ctx.gfx.stream_texture("missing.png"), None);
+    ///     ctx.finish_uploads(); // a loading screen; games just keep asking
+    ///     let state = ctx.gfx.asset_state(ponko::streaming::ResidencyKind::Texture, "missing.png");
+    ///     assert_eq!(state, ponko::streaming::AssetState::Failed);
+    /// });
+    /// ```
+    pub fn finish_uploads(&mut self) {
+        self.gfx.finish_uploads(&mut self.world);
+    }
+}
+
+impl crate::gfx::Graphics {
     /// Texture `path`, streamed in without waiting: `None` the first time
     /// (it starts loading on a worker thread) and until a small stand-in
     /// (at most 32 pixels a side) is uploaded; from then on the same
@@ -355,18 +418,17 @@ impl Ctx {
     ///         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
     ///         .unwrap();
     ///     ctx.assets.add_source(MemorySource::new("mem").with("grass.png", png));
-    ///     assert_eq!(ctx.stream_texture("grass.png"), None); // loading
+    ///     assert_eq!(ctx.gfx.stream_texture("grass.png"), None); // loading
     ///     ctx.finish_uploads(); // a loading screen; games just keep asking
-    ///     let grass = ctx.stream_texture("grass.png").unwrap();
+    ///     let grass = ctx.gfx.stream_texture("grass.png").unwrap();
     ///     assert_eq!((grass.width(), grass.height()), (256, 128));
-    ///     assert_eq!(ctx.gfx.asset_state(ponko::residency::ResidencyKind::Texture, "grass.png"), ponko::streaming::AssetState::Resident);
+    ///     assert_eq!(ctx.gfx.asset_state(ponko::streaming::ResidencyKind::Texture, "grass.png"), ponko::streaming::AssetState::Resident);
     /// });
     /// ```
     pub fn stream_texture(&mut self, path: &str) -> Option<Texture> {
         let now = self.residency_now();
         self.forget_freed_texture(path);
         let state = self
-            .gfx
             .streaming
             .textures
             .get(path)
@@ -374,7 +436,7 @@ impl Ctx {
         match state {
             None => {
                 self.start_texture_decode(path);
-                self.gfx.streaming.textures.get(path).and_then(|t| t.texture)
+                self.streaming.textures.get(path).and_then(|t| t.texture)
             }
             Some((AssetState::Evicted, texture, queued)) => {
                 // Asked for again while its decode runs: wait for that one.
@@ -386,14 +448,14 @@ impl Ctx {
             // Not retried each frame: see `asset_error`.
             Some((AssetState::Failed, texture, _)) => texture,
             Some((AssetState::Streaming, texture, queued)) => {
-                self.gfx.residency.set_mut(ResidencyKind::Texture).touch(path, now);
+                self.residency.set_mut(ResidencyKind::Texture).touch(path, now);
                 if !queued && self.held_texture_may_fit(path, now) {
                     self.start_texture_decode(path);
                 }
                 texture
             }
             Some((_, texture, _)) => {
-                self.gfx.residency.set_mut(ResidencyKind::Texture).touch(path, now);
+                self.residency.set_mut(ResidencyKind::Texture).touch(path, now);
                 texture
             }
         }
@@ -422,10 +484,10 @@ impl Ctx {
     ///         .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
     ///         .unwrap();
     ///     ctx.assets.add_source(MemorySource::new("mem").with("brick.png", png));
-    ///     ctx.set_residency_budget(ponko::residency::ResidencyKind::Texture, Some(64 << 20));
-    ///     let brick = ctx.resident_texture("brick.png");
+    ///     ctx.gfx.set_residency_budget(ponko::streaming::ResidencyKind::Texture, Some(64 << 20));
+    ///     let brick = ctx.gfx.resident_texture("brick.png");
     ///     assert_eq!(brick.width(), 64);
-    ///     assert!(ctx.gfx.is_resident(ponko::residency::ResidencyKind::Texture, "brick.png"));
+    ///     assert!(ctx.gfx.is_resident(ponko::streaming::ResidencyKind::Texture, "brick.png"));
     /// });
     /// ```
     ///
@@ -438,7 +500,7 @@ impl Ctx {
     }
 
     /// [`resident_texture`](Self::resident_texture) with errors as values,
-    /// the same ones [`try_load_texture`](Self::try_load_texture) returns.
+    /// the same ones [`try_load_texture`](crate::gfx::Graphics::try_load_texture) returns.
     ///
     /// # Errors
     ///
@@ -446,11 +508,11 @@ impl Ctx {
     pub fn try_resident_texture(&mut self, path: &str) -> Result<Texture, crate::Error> {
         let now = self.residency_now();
         self.forget_freed_texture(path);
-        if let Some(t) = self.gfx.streaming.textures.get(path)
+        if let Some(t) = self.streaming.textures.get(path)
             && t.state == AssetState::Resident
             && let Some(texture) = t.texture
         {
-            self.gfx.residency.set_mut(ResidencyKind::Texture).touch(path, now);
+            self.residency.set_mut(ResidencyKind::Texture).touch(path, now);
             return Ok(texture);
         }
         let (origin, levels) = self.decode_texture_now(path)?;
@@ -459,7 +521,7 @@ impl Ctx {
         entry.origin = Some(origin);
         entry.job = None;
         self.upload_texture_level(path, 0);
-        let texture = self.gfx.streaming.textures[path].texture.expect("uploaded");
+        let texture = self.streaming.textures[path].texture.expect("uploaded");
         Ok(texture)
     }
 
@@ -471,78 +533,49 @@ impl Ctx {
     /// As `resident_texture`.
     pub fn pin_resident_texture(&mut self, path: &str) -> Texture {
         let texture = self.resident_texture(path);
-        self.gfx
-            .residency
-            .set_mut(ResidencyKind::Texture)
-            .set_pinned(path, true);
+        self.residency.set_mut(ResidencyKind::Texture).set_pinned(path, true);
         texture
     }
 
     /// Lets a [pinned](Self::pin_resident_texture) texture be evicted
-    /// again, and evicts what the budget needs gone.
+    /// again, from the start of the next frame if the budget needs it gone.
     pub fn unpin_resident_texture(&mut self, path: &str) {
-        self.gfx
-            .residency
-            .set_mut(ResidencyKind::Texture)
-            .set_pinned(path, false);
-        self.enforce_residency(ResidencyKind::Texture);
+        self.residency.set_mut(ResidencyKind::Texture).set_pinned(path, false);
     }
 
-    /// Waits until every streamed asset asked for so far is loaded (or
-    /// failed, or held by its residency budget), uploading without the
-    /// per-frame budget. For loading screens and tests; it blocks the game
-    /// thread.
-    pub fn finish_uploads(&mut self) {
-        let (budget, deterministic) = (self.gfx.streaming.budget, self.gfx.streaming.deterministic);
-        self.gfx.streaming.budget = None;
-        self.gfx.streaming.deterministic = true;
-        while !self.gfx.streaming.queue.is_empty() {
-            self.upload_step();
+    /// Uploads everything queued, without the per-frame budget
+    /// ([`Ctx::finish_uploads`]).
+    pub(crate) fn finish_uploads(&mut self, world: &mut World) {
+        let (budget, deterministic) = (self.streaming.budget, self.streaming.deterministic);
+        self.streaming.budget = None;
+        self.streaming.deterministic = true;
+        while !self.streaming.queue.is_empty() {
+            self.upload_step(world);
         }
-        self.gfx.streaming.budget = budget;
-        self.gfx.streaming.deterministic = deterministic;
-    }
-
-    /// The engine's per-frame streaming work, before the game's systems:
-    /// streamed LOD groups ask for their levels, then the upload step.
-    pub(crate) fn pump_streaming(&mut self) {
-        #[cfg(feature = "3d")]
-        self.stream_lod_levels();
-        // What entities stopped showing (LOD levels, despawned models) can
-        // go now. While a kind is over its budget this looks, every frame,
-        // at each entity that shows an asset of that kind (it allocates
-        // nothing); under budget it costs a comparison.
-        for kind in ResidencyKind::ALL {
-            self.enforce_residency(kind);
-        }
-        if !self.gfx.streaming.queue.is_empty() {
-            self.upload_step();
-        } else {
-            self.gfx.streaming.stats.frame_bytes = 0;
-            self.gfx.streaming.stats.frame_uploads = 0;
-        }
+        self.streaming.budget = budget;
+        self.streaming.deterministic = deterministic;
     }
 
     /// Uploads queued assets in order, within the budget.
-    fn upload_step(&mut self) {
+    pub(crate) fn upload_step(&mut self, world: &mut World) {
         let start = crate::perf::Instant::now();
-        let budget = self.gfx.streaming.budget.unwrap_or(u64::MAX);
+        let budget = self.streaming.budget.unwrap_or(u64::MAX);
         let (mut spent, mut uploads) = (0u64, 0u32);
         let mut later = Vec::new();
-        while let Some(request) = self.gfx.streaming.queue.pop_front() {
+        while let Some(request) = self.streaming.queue.pop_front() {
             if uploads > 0 && spent >= budget {
-                self.gfx.streaming.queue.push_front(request);
+                self.streaming.queue.push_front(request);
                 break;
             }
             let step = match &request {
-                Request::Texture(name) => self.texture_step(name, budget.saturating_sub(spent), uploads == 0),
+                Request::Texture(name) => self.texture_step(world, name, budget.saturating_sub(spent), uploads == 0),
                 #[cfg(feature = "3d")]
-                Request::Mesh(name) => self.mesh_step(name, budget.saturating_sub(spent), uploads == 0),
+                Request::Mesh(name) => self.mesh_step(world, name, budget.saturating_sub(spent), uploads == 0),
             };
             match step {
                 Step::Uploaded { bytes, again } => {
                     if uploads == 0 && bytes > budget {
-                        self.gfx.streaming.stats.oversized += 1;
+                        self.streaming.stats.oversized += 1;
                     }
                     spent += bytes;
                     uploads += 1;
@@ -556,8 +589,8 @@ impl Ctx {
         }
         // Requests that go on (or aren't ready) wait behind the rest, in
         // their order.
-        self.gfx.streaming.queue.extend(later);
-        let stats = &mut self.gfx.streaming.stats;
+        self.streaming.queue.extend(later);
+        let stats = &mut self.streaming.stats;
         stats.frame_bytes = spent;
         stats.frame_uploads = uploads;
         stats.total_bytes += spent;
@@ -574,31 +607,31 @@ impl Ctx {
             *job = None;
             return ready;
         }
-        if !self.gfx.streaming.deterministic {
+        if !self.streaming.deterministic {
             return None;
         }
-        self.gfx.streaming.stats.decode_waits += 1;
+        self.streaming.stats.decode_waits += 1;
         job.take().map(Job::wait)
     }
 
     /// One upload of streamed texture `name`: its stand-in first, then each
     /// larger resolution.
-    fn texture_step(&mut self, name: &str, room: u64, first: bool) -> Step {
+    fn texture_step(&mut self, world: &mut World, name: &str, room: u64, first: bool) -> Step {
         self.forget_freed_texture(name);
-        let Some(t) = self.gfx.streaming.textures.get_mut(name) else {
+        let Some(t) = self.streaming.textures.get_mut(name) else {
             return Step::Dropped;
         };
         if t.job.is_some() {
             let mut job = t.job.take();
             let decoded = self.take_decoded(&mut job);
-            let t = self.gfx.streaming.textures.get_mut(name).expect("still there");
+            let t = self.streaming.textures.get_mut(name).expect("still there");
             t.job = job;
             match decoded {
                 None => return Step::NotReady,
                 Some(Err(e)) => {
                     t.state = AssetState::Failed;
                     t.queued = false;
-                    self.gfx.streaming.fail(ResidencyKind::Texture, name, e);
+                    self.streaming.fail(ResidencyKind::Texture, name, e);
                     return Step::Dropped;
                 }
                 Some(Ok((origin, levels))) => {
@@ -618,7 +651,7 @@ impl Ctx {
                 }
             }
         }
-        let t = self.gfx.streaming.textures.get_mut(name).expect("still there");
+        let t = self.streaming.textures.get_mut(name).expect("still there");
         if t.levels.is_empty() {
             t.queued = false;
             return Step::Dropped;
@@ -638,20 +671,21 @@ impl Ctx {
             return Step::NotReady;
         }
         // The texture budget: make room, or stay at this resolution.
-        if t.texture.is_some() && !self.texture_fits(name, bytes.saturating_sub(current)) {
-            let set = self.gfx.residency.set(ResidencyKind::Texture);
+        if t.texture.is_some() && !self.texture_fits(world, name, bytes.saturating_sub(current)) {
+            let set = self.residency.set(ResidencyKind::Texture);
             let held = (set.budget(), set.resident_bytes(), bytes.saturating_sub(current));
-            let t = self.gfx.streaming.textures.get_mut(name).expect("still there");
+            let t = self.streaming.textures.get_mut(name).expect("still there");
             t.queued = false;
             t.levels.clear();
             t.held = Some(held);
-            self.gfx.streaming.stats.held_by_budget += 1;
+            self.streaming.stats.held_by_budget += 1;
             return Step::Dropped;
         }
         self.upload_texture_level(name, next);
-        let t = &self.gfx.streaming.textures[name];
+        self.enforce_residency(world, ResidencyKind::Texture);
+        let t = &self.streaming.textures[name];
         let again = t.state == AssetState::Streaming;
-        if !again && let Some(t) = self.gfx.streaming.textures.get_mut(name) {
+        if !again && let Some(t) = self.streaming.textures.get_mut(name) {
             t.queued = false;
         }
         Step::Uploaded { bytes, again }
@@ -659,8 +693,8 @@ impl Ctx {
 
     /// Whether `extra` more texture bytes fit the texture budget, evicting
     /// others (never `name`) to make room.
-    fn texture_fits(&mut self, name: &str, extra: u64) -> bool {
-        let set = self.gfx.residency.set(ResidencyKind::Texture);
+    fn texture_fits(&mut self, world: &mut World, name: &str, extra: u64) -> bool {
+        let set = self.residency.set(ResidencyKind::Texture);
         let Some(budget) = set.budget() else {
             return true;
         };
@@ -668,29 +702,23 @@ impl Ctx {
             return true;
         }
         let now = self.residency_now();
-        let keep = self
-            .gfx
-            .streaming
-            .textures
-            .get(name)
-            .and_then(|t| t.texture)
-            .map(|t| t.id);
-        let shown = self.shown_textures();
+        let keep = self.streaming.textures.get(name).and_then(|t| t.texture).map(|t| t.id);
+        let shown = self.shown_textures(world);
         // Evict as if the budget were lower by `extra`.
-        let set = self.gfx.residency.set_mut(ResidencyKind::Texture);
+        let set = self.residency.set_mut(ResidencyKind::Texture);
         set.set_budget(Some(budget.saturating_sub(extra)));
         let evicted = set.evict(now, |id| Some(id) == keep || shown.contains(&id));
         set.set_budget(Some(budget));
-        self.gfx.residency.shown = shown;
+        self.residency.shown = shown;
         self.drop_to_stand_ins(evicted);
-        self.gfx.residency.set(ResidencyKind::Texture).resident_bytes() + extra <= budget
+        self.residency.set(ResidencyKind::Texture).resident_bytes() + extra <= budget
     }
 
     /// Uploads resolution `index` of streamed texture `name` (making the
     /// texture if it has none yet) and updates its state and bytes.
     fn upload_texture_level(&mut self, name: &str, index: usize) {
         let now = self.residency_now();
-        let t = self.gfx.streaming.textures.get_mut(name).expect("a streamed texture");
+        let t = self.streaming.textures.get_mut(name).expect("a streamed texture");
         let levels = std::mem::take(&mut t.levels);
         let existing = t.texture;
         if t.stand_in.is_none() {
@@ -716,7 +744,7 @@ impl Ctx {
                 texture.id
             }
         };
-        let t = self.gfx.streaming.textures.get_mut(name).expect("a streamed texture");
+        let t = self.streaming.textures.get_mut(name).expect("a streamed texture");
         t.levels = levels;
         t.at = index;
         t.size = [w, h];
@@ -729,50 +757,46 @@ impl Ctx {
         };
         let bytes = crate::inventory::rgba8_bytes(w, h);
         let origin = t.origin.clone().unwrap_or(Origin::File(name.into()));
-        let set = self.gfx.residency.set_mut(ResidencyKind::Texture);
+        let set = self.residency.set_mut(ResidencyKind::Texture);
         if set.get(name).is_some() {
             set.set_bytes(name, bytes);
             set.touch(name, now);
         } else {
             set.insert(name, (id, origin), bytes, false, now);
         }
-        self.enforce_residency(ResidencyKind::Texture);
     }
 
     /// Makes a game texture of `logical` size holding `w` × `h` pixels.
     fn make_streamed_texture(&mut self, logical: (u32, u32), w: u32, h: u32, rgba: &[u8]) -> Texture {
-        let small = self.gfx.make_texture(w, h, rgba);
-        self.gfx.textures_live.insert(small.id);
+        let small = self.make_texture(w, h, rgba);
+        self.textures_live.insert(small.id);
         Texture::new(small.id, logical.0, logical.1)
     }
 
     fn name_streamed_texture(&mut self, name: &str, texture: Texture) {
-        let t = self.gfx.streaming.textures.get_mut(name).expect("a streamed texture");
+        let t = self.streaming.textures.get_mut(name).expect("a streamed texture");
         t.texture = Some(texture);
         let file = match &t.origin {
             Some(Origin::File(file)) => Some(file.clone()),
             _ => None,
         };
-        self.gfx.streaming.texture_names.insert(texture.id, name.to_string());
-        self.gfx.texture_names.add(texture.id, name, texture);
-        self.gfx
-            .asset_ledger
+        self.streaming.texture_names.insert(texture.id, name.to_string());
+        self.texture_names.add(texture.id, name, texture);
+        self.asset_ledger
             .own(crate::inventory::AssetClass::Texture, texture.id, name);
         if let Some(file) = file {
-            self.gfx
-                .watcher
+            self.watcher
                 .watch(name, file, crate::hot_reload::Asset::Texture(texture));
         }
     }
 
     /// Puts `w` × `h` pixels into texture `id`, which may change its resolution.
     fn set_texture_pixels(&mut self, id: u32, w: u32, h: u32, rgba: &[u8]) {
-        self.gfx
-            .asset_ledger
+        self.asset_ledger
             .textures
             .insert(id, crate::inventory::rgba8_bytes(w, h));
         if !self.headless
-            && let Some(renderer) = self.gfx.renderer.as_mut()
+            && let Some(renderer) = self.renderer.as_mut()
         {
             renderer.replace_texture(id, w, h, rgba);
         }
@@ -781,10 +805,10 @@ impl Ctx {
     /// Drops the evicted textures to their stand-ins.
     fn drop_to_stand_ins(&mut self, evicted: Vec<(String, crate::residency::Entry)>) {
         for (name, entry) in evicted {
-            if !self.gfx.textures_live.contains(entry.handle) {
+            if !self.textures_live.contains(entry.handle) {
                 continue;
             }
-            let Some(t) = self.gfx.streaming.textures.get_mut(&name) else {
+            let Some(t) = self.streaming.textures.get_mut(&name) else {
                 continue;
             };
             let Some(stand_in) = t.stand_in.take() else {
@@ -795,28 +819,27 @@ impl Ctx {
             t.state = AssetState::Evicted;
             t.size = [stand_in.width, stand_in.height];
             self.set_texture_pixels(entry.handle, stand_in.width, stand_in.height, &stand_in.rgba);
-            self.gfx.streaming.textures.get_mut(&name).expect("there").stand_in = Some(stand_in);
+            self.streaming.textures.get_mut(&name).expect("there").stand_in = Some(stand_in);
         }
     }
 
     /// Evicts textures to fit the budget (`enforce_residency`).
-    pub(crate) fn evict_textures(&mut self, now: (u64, u64)) {
-        let shown = self.shown_textures();
+    pub(crate) fn evict_textures(&mut self, world: &mut World, now: (u64, u64)) {
+        let shown = self.shown_textures(world);
         let evicted = self
-            .gfx
             .residency
             .set_mut(ResidencyKind::Texture)
             .evict(now, |id| shown.contains(&id));
-        self.gfx.residency.shown = shown;
+        self.residency.shown = shown;
         self.drop_to_stand_ins(evicted);
     }
 
     /// Ids of the textures sprites show, in the reused set taken from
     /// `residency.shown` (put it back after use, so it doesn't allocate).
-    fn shown_textures(&mut self) -> std::collections::HashSet<u32> {
-        let mut ids = std::mem::take(&mut self.gfx.residency.shown);
+    fn shown_textures(&mut self, world: &mut World) -> std::collections::HashSet<u32> {
+        let mut ids = std::mem::take(&mut self.residency.shown);
         ids.clear();
-        self.world.query::<&crate::d2::Sprite>().for_each(|s| {
+        world.query::<&crate::d2::Sprite>().for_each(|s| {
             ids.insert(s.texture.id);
         });
         ids
@@ -828,10 +851,10 @@ impl Ctx {
     /// be evicted). Otherwise retrying would decode the file only to be
     /// held again.
     fn held_texture_may_fit(&self, name: &str, now: (u64, u64)) -> bool {
-        let Some((budget, resident, extra)) = self.gfx.streaming.textures.get(name).and_then(|t| t.held) else {
+        let Some((budget, resident, extra)) = self.streaming.textures.get(name).and_then(|t| t.held) else {
             return true;
         };
-        let set = self.gfx.residency.set(ResidencyKind::Texture);
+        let set = self.residency.set(ResidencyKind::Texture);
         if set.budget() != budget {
             return true;
         }
@@ -846,8 +869,7 @@ impl Ctx {
 
     /// The entry for streamed texture `name`, made if new.
     fn texture_entry(&mut self, name: &str) -> &mut StreamedTexture {
-        self.gfx
-            .streaming
+        self.streaming
             .textures
             .entry(name.to_string())
             .or_insert_with(|| StreamedTexture {
@@ -866,34 +888,33 @@ impl Ctx {
 
     /// Forgets streamed texture `name` if the game freed it.
     fn forget_freed_texture(&mut self, name: &str) {
-        let Some(t) = self.gfx.streaming.textures.get(name) else {
+        let Some(t) = self.streaming.textures.get(name) else {
             return;
         };
         if let Some(texture) = t.texture
-            && !self.gfx.textures_live.contains(texture.id)
+            && !self.textures_live.contains(texture.id)
         {
-            self.gfx.streaming.texture_names.remove(&texture.id);
-            self.gfx.streaming.textures.remove(name);
-            self.gfx.residency.set_mut(ResidencyKind::Texture).forget(name);
+            self.streaming.texture_names.remove(&texture.id);
+            self.streaming.textures.remove(name);
+            self.residency.set_mut(ResidencyKind::Texture).forget(name);
         }
     }
 
     /// Reads and decodes texture `name` on this thread.
     fn decode_texture_now(&mut self, name: &str) -> Result<(Origin, Pyramid), crate::Error> {
-        let found = self.gfx.asset_sources.find(name)?;
+        let found = self.asset_sources.find(name)?;
         let max = self.max_texture_side();
         decode_texture(name, found.origin.clone(), found.into_bytes(), max)
     }
 
     /// Starts decoding texture `name` on a worker, and queues its uploads.
     fn start_texture_decode(&mut self, name: &str) {
-        self.gfx
-            .streaming
+        self.streaming
             .errors
             .remove(&(kind_key(ResidencyKind::Texture), name.to_string()));
         let max = self.max_texture_side();
         // Find it here: added sources are read on the game thread.
-        let job = match self.gfx.asset_sources.find(name) {
+        let job = match self.asset_sources.find(name) {
             Ok(found) => {
                 let origin = found.origin.clone();
                 let name_owned = name.to_string();
@@ -916,7 +937,7 @@ impl Ctx {
         }
         if !entry.queued {
             entry.queued = true;
-            self.gfx.streaming.queue.push_back(Request::Texture(name.to_string()));
+            self.streaming.queue.push_back(Request::Texture(name.to_string()));
         }
     }
 
@@ -924,8 +945,7 @@ impl Ctx {
         if self.headless {
             return u32::MAX;
         }
-        self.gfx
-            .renderer
+        self.renderer
             .as_ref()
             .map_or(u32::MAX, crate::render::Renderer::max_texture_size)
     }
@@ -946,11 +966,11 @@ impl crate::gfx::Graphics {
     /// ```
     /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     assert_eq!(ctx.gfx.asset_state(ponko::residency::ResidencyKind::Texture, "sky.png"), ponko::streaming::AssetState::Unknown);
-    ///     ctx.stream_texture("sky.png"); // not there: fails on a worker
+    ///     assert_eq!(ctx.gfx.asset_state(ponko::streaming::ResidencyKind::Texture, "sky.png"), ponko::streaming::AssetState::Unknown);
+    ///     ctx.gfx.stream_texture("sky.png"); // not there: fails on a worker
     ///     ctx.finish_uploads();
-    ///     assert_eq!(ctx.gfx.asset_state(ponko::residency::ResidencyKind::Texture, "sky.png"), ponko::streaming::AssetState::Failed);
-    ///     assert_eq!(ctx.gfx.asset_error(ponko::residency::ResidencyKind::Texture, "sky.png").unwrap().kind(), ErrorKind::NotFound);
+    ///     assert_eq!(ctx.gfx.asset_state(ponko::streaming::ResidencyKind::Texture, "sky.png"), ponko::streaming::AssetState::Failed);
+    ///     assert_eq!(ctx.gfx.asset_error(ponko::streaming::ResidencyKind::Texture, "sky.png").unwrap().kind(), ErrorKind::NotFound);
     /// });
     /// ```
     #[must_use]

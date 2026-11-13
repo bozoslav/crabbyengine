@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use crate::bundle::Component;
 use crate::change::{self, Clock, RowFilter, Tick};
 use crate::entity::Entity;
+use crate::seal::Seal;
 use crate::storage::{Archetype, ComponentId};
 use crate::view::SharedFilters;
 use crate::world::World;
@@ -19,11 +20,28 @@ pub use dynamic::{CompiledFilter, DynFilter, FilterError, FilterShape, FilterTre
 /// `Option<&mut T>`, [`Entity`], or a tuple of those (up to 12; nest tuples
 /// for more).
 ///
+/// Fetching `&mut T` (or `Option<&mut T>`) counts as a change of `T` for
+/// every entity the query visits, written or not: see
+/// [change detection](World::track_changes).
+///
+/// Implemented by this crate only: the trait is sealed, so the contract
+/// below is one this crate keeps, not one callers can be asked to keep.
+///
 /// # Safety
 /// `state`/`fetch` may only create references into columns listed by `access`,
 /// with the mutability listed there. `state` returns `Some` exactly when the
 /// archetype has every component that `access` reports as required.
+///
+/// `fetch` must be callable from several threads at once for different rows
+/// of one archetype, each with a copy of the same `State`, and the items it
+/// returns must be usable on the thread that fetched them: the parallel
+/// loops ([`Query::par_for_each`]) and views that share a world
+/// ([`ViewGroup`](crate::ViewGroup)) do exactly that. The implementations
+/// here only make `&T` and `&mut T` to [`Component`]s, which are
+/// `Send + Sync`, and copy [`Entity`] ids.
 pub unsafe trait QueryData {
+    #[doc(hidden)]
+    const SEAL: Seal;
     /// What the loop body receives.
     type Item<'a>;
     /// Parallel queries read the ids from every worker thread.
@@ -51,6 +69,7 @@ pub unsafe trait QueryData {
 }
 
 unsafe impl<T: Component> QueryData for &T {
+    const SEAL: Seal = Seal;
     type Item<'a> = &'a T;
     type Ids = ComponentId;
     type State = *const T;
@@ -65,7 +84,7 @@ unsafe impl<T: Component> QueryData for &T {
     }
     #[inline]
     fn state(arch: &Archetype, id: &ComponentId) -> Option<*const T> {
-        arch.column_ptr(*id).map(|p| p as *const T)
+        arch.column_base(*id).map(|p| p as *const T)
     }
     #[inline(always)]
     unsafe fn fetch<'a>(state: *const T, row: usize) -> &'a T {
@@ -74,6 +93,7 @@ unsafe impl<T: Component> QueryData for &T {
 }
 
 unsafe impl<T: Component> QueryData for &mut T {
+    const SEAL: Seal = Seal;
     type Item<'a> = &'a mut T;
     type Ids = ComponentId;
     type State = *mut T;
@@ -88,7 +108,7 @@ unsafe impl<T: Component> QueryData for &mut T {
     }
     #[inline]
     fn state(arch: &Archetype, id: &ComponentId) -> Option<*mut T> {
-        arch.column_ptr(*id).map(|p| p as *mut T)
+        arch.column_base(*id).map(|p| p as *mut T)
     }
     #[inline(always)]
     unsafe fn fetch<'a>(state: *mut T, row: usize) -> &'a mut T {
@@ -97,6 +117,7 @@ unsafe impl<T: Component> QueryData for &mut T {
 }
 
 unsafe impl<T: Component> QueryData for Option<&T> {
+    const SEAL: Seal = Seal;
     type Item<'a> = Option<&'a T>;
     type Ids = ComponentId;
     type State = Option<*const T>;
@@ -111,7 +132,7 @@ unsafe impl<T: Component> QueryData for Option<&T> {
     }
     #[inline]
     fn state(arch: &Archetype, id: &ComponentId) -> Option<Option<*const T>> {
-        Some(arch.column_ptr(*id).map(|p| p as *const T))
+        Some(arch.column_base(*id).map(|p| p as *const T))
     }
     #[inline(always)]
     unsafe fn fetch<'a>(state: Option<*const T>, row: usize) -> Option<&'a T> {
@@ -120,6 +141,7 @@ unsafe impl<T: Component> QueryData for Option<&T> {
 }
 
 unsafe impl<T: Component> QueryData for Option<&mut T> {
+    const SEAL: Seal = Seal;
     type Item<'a> = Option<&'a mut T>;
     type Ids = ComponentId;
     type State = Option<*mut T>;
@@ -134,7 +156,7 @@ unsafe impl<T: Component> QueryData for Option<&mut T> {
     }
     #[inline]
     fn state(arch: &Archetype, id: &ComponentId) -> Option<Option<*mut T>> {
-        Some(arch.column_ptr(*id).map(|p| p as *mut T))
+        Some(arch.column_base(*id).map(|p| p as *mut T))
     }
     #[inline(always)]
     unsafe fn fetch<'a>(state: Option<*mut T>, row: usize) -> Option<&'a mut T> {
@@ -143,6 +165,7 @@ unsafe impl<T: Component> QueryData for Option<&mut T> {
 }
 
 unsafe impl QueryData for Entity {
+    const SEAL: Seal = Seal;
     type Item<'a> = Entity;
     type Ids = ();
     type State = *const Entity;
@@ -164,6 +187,7 @@ unsafe impl QueryData for Entity {
 macro_rules! query_tuple {
     ($($t:ident $i:tt),*) => {
         unsafe impl<$($t: QueryData),*> QueryData for ($($t,)*) {
+            const SEAL: Seal = Seal;
             type Item<'a> = ($($t::Item<'a>,)*);
             type Ids = ($($t::Ids,)*);
             type State = ($($t::State,)*);
@@ -225,9 +249,8 @@ pub(crate) fn check_aliasing<Q: QueryData>(world: &World, ids: &Q::Ids) {
     });
 }
 
-/// Filters added with [`Query::with`], [`Query::without`] and
-/// [`Query::filter`]. Inline storage, so running a filtered query doesn't
-/// allocate.
+/// Filters added with [`Query::filter`]. Inline storage, so running a
+/// filtered query doesn't allocate.
 ///
 /// An archetype matches when it has every `with` component, none of the
 /// `without` components, and satisfies each `Or` clause: clause `c` holds
@@ -665,7 +688,9 @@ struct ParWork<'a, Q: QueryData> {
 // `Send + Sync`), tasks, and `Q::Ids` (bounded `Send + Sync` by
 // `QueryData`). Only the `Q` parameter keeps this from being automatic, and
 // no `Q` value is stored. Fetching rows through the shared archetypes is what
-// `ParWork::visit`'s contract covers.
+// `ParWork::visit`'s contract covers; that `Q::fetch` may run on any thread
+// is part of `QueryData`'s contract, which only this crate implements (the
+// trait is sealed).
 #[cfg(feature = "parallel")]
 unsafe impl<Q: QueryData> Sync for ParWork<'_, Q> {}
 
@@ -726,11 +751,13 @@ impl<Q: QueryData> ParWork<'_, Q> {
 /// Implemented by this crate only: combine the provided filters.
 pub trait QueryFilter {
     #[doc(hidden)]
+    #[track_caller]
     fn add(world: &mut World, filters: &mut Filters);
 
     /// Adds the filter for a [`ViewQuery`](crate::ViewQuery): from a
     /// shared world, checked against the view's declaration.
     #[doc(hidden)]
+    #[track_caller]
     fn add_shared(cx: &mut SharedFilters<'_>);
 }
 
@@ -743,9 +770,11 @@ pub trait OrTerm: QueryFilter {}
 /// The terms of an [`Or`] filter: a tuple of 0 to 8 [`OrTerm`]s.
 pub trait OrTerms {
     #[doc(hidden)]
+    #[track_caller]
     fn add_terms(world: &mut World, filters: &mut Filters);
 
     #[doc(hidden)]
+    #[track_caller]
     fn add_shared_terms(cx: &mut SharedFilters<'_>);
 }
 
@@ -873,7 +902,7 @@ filter_tuple!(A, B, C, D, E, F, G, H);
 /// world.spawn((Pos(0.0), Vel(1.0)));
 /// world.spawn((Pos(0.0), Vel(1.0), Frozen));
 ///
-/// world.query::<(&mut Pos, &Vel)>().without::<Frozen>().for_each(|(p, v)| p.0 += v.0);
+/// world.query::<(&mut Pos, &Vel)>().filter::<Without<Frozen>>().for_each(|(p, v)| p.0 += v.0);
 ///
 /// let moved = world.query::<&Pos>().iter().filter(|p| p.0 > 0.0).count();
 /// assert_eq!(moved, 1);
@@ -975,7 +1004,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// struct Boss;
     /// let mut world = World::new();
     /// world.spawn((Health(100), Boss));
-    /// assert_eq!(world.query::<&Health>().with::<Boss>().cached().count(), 1);
+    /// assert_eq!(world.query::<&Health>().filter::<With<Boss>>().cached().count(), 1);
     /// ```
     pub fn cached(mut self) -> Self {
         self.cache = QueryCache::Always;
@@ -1000,36 +1029,26 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         self
     }
 
-    /// Only match entities that also have component `T` (without fetching it).
-    /// Shorthand for `.filter::<With<T>>()`.
-    ///
-    /// # Panics
-    ///
-    /// With more than 8 different `with` components on one query.
-    pub fn with<T: Component>(mut self) -> Self {
-        let id = self.world.register::<T>();
-        self.filters.add_with(id);
-        self
-    }
-
-    /// Skip entities that have component `T`. Shorthand for
-    /// `.filter::<Without<T>>()`.
-    ///
-    /// # Panics
-    ///
-    /// With more than 8 different `without` components on one query.
-    pub fn without<T: Component>(mut self) -> Self {
-        let id = self.world.register::<T>();
-        self.filters.add_without(id);
-        self
-    }
-
     /// Only match entities that pass the typed filter `F`: [`With`],
     /// [`Without`], [`Added`](crate::Added), [`Changed`](crate::Changed),
-    /// [`Or`], or a tuple of them that must all hold. Calls combine with
-    /// each other and with [`with`](Self::with) / [`without`](Self::without):
-    /// every filter must hold. `Added` and `Changed` pick single entities
-    /// (see [`World::track_changes`]); the others pick whole archetypes.
+    /// [`Or`], or a tuple of them that must all hold. Calls combine: every
+    /// filter must hold. `Added` and `Changed` pick single entities, and
+    /// their component must be tracked (see [`World::track_changes`]); the
+    /// others pick whole archetypes.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// struct Pos(f32);
+    /// struct Player;
+    /// struct Frozen;
+    /// let mut world = World::new();
+    /// world.spawn((Pos(0.0), Player));
+    /// world.spawn((Pos(0.0), Player, Frozen));
+    ///
+    /// // Has `Player` (not fetched), and no `Frozen`.
+    /// let moving = world.query::<&Pos>().filter::<(With<Player>, Without<Frozen>)>().count();
+    /// assert_eq!(moving, 1);
+    /// ```
     ///
     /// ```
     /// # use ponko_ecs::*;
@@ -1050,6 +1069,8 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// With more than 8 different `With` or `Without` components, more than
     /// 4 expanded `Or` clauses, more than 16 terms across those clauses
     /// (see [`Or`]), or more than 4 `Added`/`Changed` filters outside an `Or`.
+    /// With an `Added<T>` or `Changed<T>` whose `T` isn't tracked.
+    #[track_caller]
     pub fn filter<F: QueryFilter>(mut self) -> Self {
         F::add(self.world, &mut self.filters);
         self
@@ -1518,7 +1539,89 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         }
         Some(unsafe { Q::fetch(state, loc.row as usize) })
     }
+
+    /// The item of the only matching entity: for the things a game has one
+    /// of, such as the player or the camera's target. `Err` says whether
+    /// none matched or several did.
+    ///
+    /// It ends the query, so the item can be kept for as long as the world
+    /// stays borrowed.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// struct Pos(f32);
+    /// struct Player;
+    /// let mut world = World::new();
+    /// assert_eq!(world.query::<&Pos>().single().err(), Some(SingleError::NoEntities));
+    /// world.spawn((Pos(1.0), Player));
+    /// world.spawn((Pos(2.0),));
+    ///
+    /// let pos = world.query::<&mut Pos>().filter::<With<Player>>().single().unwrap();
+    /// pos.0 += 10.0;
+    /// assert_eq!(world.query::<&Pos>().single().err(), Some(SingleError::MultipleEntities(2)));
+    /// ```
+    ///
+    /// Nothing counts as changed when it returns `Err`. With `Ok`, a
+    /// `&mut T` in the query counts as a change, as in every query.
+    ///
+    /// # Errors
+    /// If no entity matches, or more than one does.
+    pub fn single(mut self) -> Result<Q::Item<'w>, SingleError>
+    where
+        Q: 'w,
+    {
+        match self.count() {
+            0 => return Err(SingleError::NoEntities),
+            1 => {}
+            n => return Err(SingleError::MultipleEntities(n)),
+        }
+        let clock = self.clock();
+        let tracking = self.tracking();
+        // The query is over: what it borrowed of the world goes to the
+        // item. Counting used the world's archetype index where it applies;
+        // this scan stops at the one match.
+        let world: &'w World = self.world;
+        let mut matches = QueryIter::<'w, Q> {
+            archetypes: Archetypes {
+                all: &world.archetypes,
+                indices: None,
+                next: 0,
+            },
+            ids: self.ids,
+            filters: self.filters,
+            state: None,
+            row: 0,
+            len: 0,
+            clock,
+            tracking,
+            filtered: None,
+            _q: PhantomData,
+        };
+        matches.next().ok_or(SingleError::NoEntities)
+    }
 }
+
+/// Why [`Query::single`] has no item: the query didn't match exactly one
+/// entity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SingleError {
+    /// No entity matches the query.
+    NoEntities,
+    /// More than one entity matches the query: this many.
+    MultipleEntities(usize),
+}
+
+impl std::fmt::Display for SingleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SingleError::NoEntities => f.write_str("no entity matches the query"),
+            SingleError::MultipleEntities(n) => write!(f, "{n} entities match the query, not one"),
+        }
+    }
+}
+
+impl std::error::Error for SingleError {}
 
 /// Iterator returned by [`Query::iter`].
 pub struct QueryIter<'a, Q: QueryData> {

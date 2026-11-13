@@ -1,7 +1,7 @@
 //! A retained shop: item grid, scrolling, input and modal confirmation.
 use ponko::prelude::*;
 #[allow(unused_imports)]
-use ponko::ui::UiLayout;
+use ponko::ui::{UiEvent, UiLayout};
 
 pub fn build(ctx: &mut Ctx) {
     // ANCHOR: shop_tree
@@ -49,8 +49,8 @@ pub fn shop(ctx: &mut Ctx) {
     // UI input and layout ran before this system. Nodes are found by name.
     let ui = &mut ctx.ui;
     let [title, buy, message, dialog] = ["title", "buy", "message", "dialog"].map(|name| ui.find(name).unwrap());
-    let clicked = ui.take_click().and_then(|id| ui.name(id));
-    let clicked = clicked.unwrap_or_default().to_owned();
+    let clicked = ui.events().filter_map(UiEvent::clicked).last();
+    let clicked = clicked.and_then(|id| ui.name(id)).unwrap_or_default().to_owned();
     if let Some(item) = clicked.strip_prefix("item.") {
         ui.set_enabled(buy, true);
         ui.set_text(buy, format!("Buy item {item}"));

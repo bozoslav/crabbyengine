@@ -54,12 +54,15 @@ fn fragmented() -> World {
 }
 
 fn reads_values() -> ViewState {
-    ViewState::new(ViewAccess::new().read::<Value>())
+    ViewState::new().read::<Value>()
 }
 
 /// What a view's selective query visits, in order.
 fn selective(view: &mut WorldView<'_>, hint: QueryCache) -> Vec<usize> {
-    let q = view.query::<&Value>().with::<Marker<0>>().without::<Marker<1>>();
+    let q = view
+        .query::<&Value>()
+        .filter::<With<Marker<0>>>()
+        .filter::<Without<Marker<1>>>();
     let mut q = match hint {
         QueryCache::Never => q.uncached(),
         QueryCache::Always => q.cached(),
@@ -97,8 +100,8 @@ fn a_view_query_is_indexed_once_the_world_is_held_again() {
     // The entry is the one an exclusive query of the same signature uses.
     let exclusive: Vec<usize> = w
         .query::<&Value>()
-        .with::<Marker<0>>()
-        .without::<Marker<1>>()
+        .filter::<With<Marker<0>>>()
+        .filter::<Without<Marker<1>>>()
         .iter()
         .map(|v| v.0)
         .collect();
@@ -184,11 +187,17 @@ fn parts(item: &mut Item) -> (&mut ViewState, &mut Vec<Vec<usize>>) {
 fn work(job: usize, seen: &mut Vec<Vec<usize>>, mut view: WorldView<'_>) {
     seen.clear();
     seen.push(selective(&mut view, QueryCache::Auto));
-    seen.push(view.query::<&Value>().with::<Marker<2>>().iter().map(|v| v.0).collect());
+    seen.push(
+        view.query::<&Value>()
+            .filter::<With<Marker<2>>>()
+            .iter()
+            .map(|v| v.0)
+            .collect(),
+    );
     seen.push(
         view.query::<&Value>()
             .filter::<Or<(With<Marker<3>>, With<Marker<4>>)>>()
-            .without::<Marker<5>>()
+            .filter::<Without<Marker<5>>>()
             .iter()
             .map(|v| v.0)
             .collect(),
@@ -197,9 +206,9 @@ fn work(job: usize, seen: &mut Vec<Vec<usize>>, mut view: WorldView<'_>) {
         ($($n:literal)*) => {
             match job % 7 {
                 $($n => {
-                    seen.push(view.query::<&Value>().with::<Marker<$n>>().with::<Marker<6>>().iter().map(|v| v.0).collect());
-                    seen.push(view.query::<&Value>().without::<Marker<$n>>().with::<Marker<0>>().with::<Marker<1>>().iter().map(|v| v.0).collect());
-                    seen.push(view.query::<&Value>().cached().without::<Marker<$n>>().iter().map(|v| v.0).collect());
+                    seen.push(view.query::<&Value>().filter::<With<Marker<$n>>>().filter::<With<Marker<6>>>().iter().map(|v| v.0).collect());
+                    seen.push(view.query::<&Value>().filter::<Without<Marker<$n>>>().filter::<With<Marker<0>>>().filter::<With<Marker<1>>>().iter().map(|v| v.0).collect());
+                    seen.push(view.query::<&Value>().cached().filter::<Without<Marker<$n>>>().iter().map(|v| v.0).collect());
                 })*
                 _ => unreachable!(),
             }
@@ -218,11 +227,10 @@ fn views_on_several_threads_read_one_index_and_see_what_a_scan_sees() {
         w.set_query_cache_policy(policy);
         let mut items: Vec<(usize, Item)> = (0..8)
             .map(|job| {
-                let access = ViewAccess::new().read::<Value>().read_resource::<Total>();
                 (
                     job,
                     Item {
-                        state: ViewState::new(access),
+                        state: ViewState::new().read::<Value>().read_resource::<Total>(),
                         seen: Vec::new(),
                     },
                 )

@@ -250,20 +250,20 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
             ..Transform3D::at(vec3(0.0, -0.7, 0.0))
         },
     );
-    ctx.lighting.sun_direction = vec3(-0.4, -1.0, -0.3);
-    ctx.lighting.gi = GlobalIllumination {
+    ctx.scene3d.lighting.sun_direction = vec3(-0.4, -1.0, -0.3);
+    ctx.scene3d.lighting.gi = GlobalIllumination {
         enabled: true,
         extent: vec3(8.0, 4.0, 8.0),
         spacing: 1.0,
         probes_per_frame: crate::render::GlobalIllumination::MAX_PROBES_PER_FRAME,
         intensity: 1.0,
     };
-    ctx.post.anti_aliasing = AntiAliasing::Taa;
-    ctx.post.ambient_occlusion.enabled = true;
-    ctx.post.contact_shadows = 1.0;
-    ctx.post.ssr = 1.0;
-    ctx.camera3d.position = vec3(2.5, 2.0, 3.0);
-    ctx.camera3d.look_at(Vec3::ZERO);
+    ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
+    ctx.scene3d.post.ambient_occlusion.enabled = true;
+    ctx.scene3d.post.contact_shadows = 1.0;
+    ctx.scene3d.post.ssr = 1.0;
+    ctx.scene3d.camera.position = vec3(2.5, 2.0, 3.0);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
     setup(&mut ctx);
 
     let mut pixels = Vec::new();
@@ -275,8 +275,8 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let rgb = |c| {
             let [r, g, b, _] = linear(c);
@@ -284,15 +284,15 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
         };
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
-                sun: rgb(ctx.lighting.sun_color) * ctx.lighting.sun_intensity,
-                sky: rgb(ctx.lighting.sky_color),
-                ground: rgb(ctx.lighting.ground_color),
+                sun: rgb(ctx.scene3d.lighting.sun_color) * ctx.scene3d.lighting.sun_intensity,
+                sky: rgb(ctx.scene3d.sky.sky_color),
+                ground: rgb(ctx.scene3d.sky.ground_color),
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: true,
         };
@@ -317,12 +317,12 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
     let on = |f| report.available(f);
     assert_eq!(
         renderer.screen.taa_on,
-        on(GpuFeature::TemporalAntialiasing) && ctx.post.anti_aliasing == AntiAliasing::Taa,
+        on(GpuFeature::TemporalAntialiasing) && ctx.scene3d.post.anti_aliasing == AntiAliasing::Taa,
         "{}: TAA",
         profile.name
     );
     // TAA where the device has it, FXAA instead; other modes as asked.
-    let aa = match ctx.post.anti_aliasing {
+    let aa = match ctx.scene3d.post.anti_aliasing {
         AntiAliasing::Taa if !on(GpuFeature::TemporalAntialiasing) => AntiAliasing::Fxaa,
         asked => asked,
     };
@@ -334,19 +334,20 @@ fn draw_with(profile: &Profile, size: (u32, u32), setup: impl Fn(&mut Ctx)) -> O
     );
     assert_eq!(
         renderer.screen.ao_enabled,
-        on(GpuFeature::AmbientOcclusion) && (ctx.post.ambient_occlusion.enabled || ctx.post.contact_shadows > 0.0),
+        on(GpuFeature::AmbientOcclusion)
+            && (ctx.scene3d.post.ambient_occlusion.enabled || ctx.scene3d.post.contact_shadows > 0.0),
         "{}: GTAO",
         profile.name
     );
     assert_eq!(
         renderer.screen.ssr_on,
-        on(GpuFeature::ScreenSpaceReflections) && ctx.post.ssr > 0.0,
+        on(GpuFeature::ScreenSpaceReflections) && ctx.scene3d.post.ssr > 0.0,
         "{}: SSR",
         profile.name
     );
     assert_eq!(
         renderer.gi.is_some(),
-        on(GpuFeature::GlobalIllumination) && ctx.lighting.gi.enabled,
+        on(GpuFeature::GlobalIllumination) && ctx.scene3d.lighting.gi.enabled,
         "{}: GI",
         profile.name
     );
@@ -565,17 +566,19 @@ fn forced_tiers_report_their_tier_and_cache_distinct_pipelines() {
 
 #[test]
 fn every_quality_preset_draws_on_every_tier_without_gpu_errors() {
+    // `None`: the tier's recommended preset, fitted to its floor.
     let presets = [
-        ("low", GraphicsQuality::low()),
-        ("medium", GraphicsQuality::medium()),
-        ("high", GraphicsQuality::high()),
-        ("ultra", GraphicsQuality::ultra()),
+        ("low", Some(GraphicsQuality::Low)),
+        ("medium", Some(GraphicsQuality::Medium)),
+        ("high", Some(GraphicsQuality::High)),
+        ("ultra", Some(GraphicsQuality::Ultra)),
+        ("for_tier", None),
     ];
     for (tier, profile) in &TIERS {
-        let fitted = ("for_tier", GraphicsQuality::for_tier(*tier));
-        for (name, quality) in presets.iter().chain([&fitted]) {
-            let Some(out) = draw_with(profile, (SIZE, SIZE), |ctx| {
-                ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, *quality)
+        for (name, quality) in &presets {
+            let Some(out) = draw_with(profile, (SIZE, SIZE), |ctx| match quality {
+                Some(quality) => ctx.scene3d.set_quality(*quality),
+                None => ctx.scene3d.set_recommended_quality(&tier.report()),
             }) else {
                 return;
             };
@@ -587,8 +590,11 @@ fn every_quality_preset_draws_on_every_tier_without_gpu_errors() {
             );
             assert_drawn(&format!("{} with the {name} preset", profile.name), &out.pixels);
             // The preset fitted to the device asks for nothing it lacks.
-            let fit = GraphicsQuality::recommended(&out.report);
-            assert_eq!(fit, fit.fitted_to(&out.report));
+            let mut fit = crate::render::SceneSettings::default();
+            fit.set_recommended_quality(&out.report);
+            let recommended = (fit.lighting, fit.post);
+            fit.fit_quality_to(&out.report);
+            assert_eq!(recommended, (fit.lighting, fit.post));
         }
     }
 }

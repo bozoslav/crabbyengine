@@ -89,8 +89,9 @@ fn graph(motions: Vec<Motion>) -> std::sync::Arc<AnimationGraph> {
         vec![AnimationParameter::Float(0.5)],
         motions.into_iter().map(AnimationState::new).collect(),
         vec![],
-        0,
+        ponko::anim::StateId(0),
     )
+    .expect("a valid graph")
 }
 #[test]
 fn scalar_sampling_modes_preserve_unanimated_weights() {
@@ -122,7 +123,7 @@ fn morphs_blend_in_trees_crossfades_and_masked_additive_layers() {
     let a = morph_clip(&s, "smile", 0.2);
     let b = morph_clip(&s, "smile", 0.8);
     let tree = Motion::Blend1D {
-        parameter: 0,
+        parameter: ponko::anim::ParamId(0),
         children: vec![
             (
                 0.,
@@ -149,11 +150,11 @@ fn morphs_blend_in_trees_crossfades_and_masked_additive_layers() {
     };
     animator.update(0., &mut s);
     assert_eq!(read(&s), [0.5, 0.3]);
-    animator.crossfade(1, 1., 0.);
+    animator.crossfade(ponko::anim::StateId(1), 1., 0.);
     animator.update(0.5, &mut s);
     assert!((read(&s)[0] - 0.65).abs() < 1e-6);
     // Interrupting a fade uses the sampled morph snapshot.
-    animator.crossfade(2, 1., 0.);
+    animator.crossfade(ponko::anim::StateId(2), 1., 0.);
     animator.update(0.5, &mut s);
     assert!((read(&s)[0] - 0.425).abs() < 1e-6);
     let mut layer = AnimationLayer::new(graph(vec![Motion::Clip(b)]));
@@ -161,7 +162,7 @@ fn morphs_blend_in_trees_crossfades_and_masked_additive_layers() {
     layer.weight = 0.5;
     layer.mask = Some(ponko::anim::JointMask::new(vec![]));
     animator.add_layer(layer);
-    animator.play(2, 0.);
+    animator.play(ponko::anim::StateId(2), 0.);
     animator.update(0., &mut s);
     assert!((read(&s)[0] - 0.6).abs() < 1e-6);
 }
@@ -213,16 +214,17 @@ fn morphs_blend_in_2d_and_override_layers_without_touching_other_targets() {
         time_scale: 1.,
     };
     let tree = Motion::Blend2D {
-        x: 0,
-        y: 1,
+        x: ponko::anim::ParamId(0),
+        y: ponko::anim::ParamId(1),
         children: vec![(Vec2::ZERO, child(0.2)), (Vec2::ONE, child(0.8))],
     };
     let graph = AnimationGraph::new(
         vec![AnimationParameter::Float(0.5), AnimationParameter::Float(0.5)],
         vec![AnimationState::new(tree)],
         vec![],
-        0,
-    );
+        ponko::anim::StateId(0),
+    )
+    .expect("a valid graph");
     let mut animator = Animator::new(graph);
     let mut layer = AnimationLayer::new(crate::graph(vec![Motion::Clip(morph_clip(&skeleton, "smile", 1.))]));
     layer.weight = 0.5;

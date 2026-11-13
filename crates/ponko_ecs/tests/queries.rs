@@ -47,12 +47,18 @@ fn filters() {
     w.spawn((Pos(0.0, 0.0), Vel(1.0, 0.0), Frozen));
     w.spawn((Pos(0.0, 0.0), Tag));
     w.query::<(&mut Pos, &Vel)>()
-        .without::<Frozen>()
+        .filter::<Without<Frozen>>()
         .for_each(|(p, v)| p.0 += v.0);
     assert_eq!(w.query::<&Pos>().iter().filter(|p| p.0 == 1.0).count(), 1);
-    assert_eq!(w.query::<&Pos>().with::<Tag>().count(), 1);
-    assert_eq!(w.query::<&Pos>().with::<Vel>().without::<Frozen>().count(), 1);
-    assert_eq!(w.query::<&Pos>().without::<Vel>().iter().count(), 1);
+    assert_eq!(w.query::<&Pos>().filter::<With<Tag>>().count(), 1);
+    assert_eq!(
+        w.query::<&Pos>()
+            .filter::<With<Vel>>()
+            .filter::<Without<Frozen>>()
+            .count(),
+        1
+    );
+    assert_eq!(w.query::<&Pos>().filter::<Without<Vel>>().iter().count(), 1);
 }
 
 #[test]
@@ -171,8 +177,8 @@ fn tuple_or_filters_allow_optional_mutable_fetches_and_builder_filters() {
     let mut w = filter_world(1);
     w.query::<(&mut Bits, Option<&mut Bit<0>>)>()
         .filter::<Or<((With<Bits>, With<Bit<0>>), Without<Bit<1>>)>>()
-        .with::<Bit<2>>()
-        .without::<Bit<3>>()
+        .filter::<With<Bit<2>>>()
+        .filter::<Without<Bit<3>>>()
         .for_each(|(v, optional)| {
             assert_eq!(optional.is_some(), v.0 & 1 != 0);
             assert!(v.0 & 1 != 0 || v.0 & 2 == 0);
@@ -239,7 +245,7 @@ fn parallel_tuple_or_filters_match_sequential_order_and_mutation() {
 fn view_tuple_or_filters_handle_unregistered_components_per_arm() {
     struct Never;
     let mut w = filter_world(1);
-    let mut state = ViewState::new(ViewAccess::new().write::<Bits>().read::<Bit<0>>());
+    let mut state = ViewState::new().write::<Bits>().read::<Bit<0>>();
     state.run(&mut w, |mut view| {
         assert_eq!(
             view.query::<Entity>()
@@ -289,4 +295,31 @@ fn expanded_tuple_or_terms_fit_at_the_inline_limit() {
 fn expanded_tuple_or_terms_panic_above_the_inline_limit() {
     let mut w = World::new();
     let _ = w.query::<Entity>().filter::<Or<(FullOr, With<Bit<1>>)>>();
+}
+
+// ---- the only match ------------------------------------------------------------------------
+
+#[test]
+fn single_gives_the_only_match_and_says_why_there_is_none() {
+    let mut w = World::new();
+    assert_eq!(w.query::<&Pos>().single().err(), Some(SingleError::NoEntities));
+    let player = w.spawn((Pos(1.0, 2.0), Tag));
+    assert_eq!(w.query::<(Entity, &Pos)>().single(), Ok((player, &Pos(1.0, 2.0))));
+    w.query::<&mut Pos>().single().unwrap().0 = 5.0;
+    assert_eq!(w.get::<Pos>(player), Some(&Pos(5.0, 2.0)));
+
+    w.spawn((Pos(0.0, 0.0),));
+    w.spawn((Pos(0.0, 0.0),));
+    assert_eq!(w.query::<&Pos>().single().err(), Some(SingleError::MultipleEntities(3)));
+    // Filters narrow it to one again, across archetypes.
+    assert_eq!(w.query::<Entity>().filter::<With<Tag>>().single(), Ok(player));
+    assert_eq!(
+        w.query::<Entity>().filter::<With<Vel>>().single(),
+        Err(SingleError::NoEntities)
+    );
+    assert_eq!(SingleError::NoEntities.to_string(), "no entity matches the query");
+    assert_eq!(
+        SingleError::MultipleEntities(3).to_string(),
+        "3 entities match the query, not one"
+    );
 }

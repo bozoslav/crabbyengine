@@ -83,19 +83,38 @@ fn values_that_exist_when_tracking_starts_count_as_added_and_changed() {
 }
 
 #[test]
-fn the_filters_start_tracking_themselves() {
+#[should_panic(expected = "`Changed<changes::Health>` needs `changes::Health`'s changes tracked")]
+fn a_change_filter_on_an_untracked_component_panics() {
+    let mut w = World::new();
+    w.spawn((Health(1),));
+    // Tracking is explicit: the filter doesn't start it.
+    let _ = w.query::<Entity>().filter::<Changed<Health>>().count();
+}
+
+#[test]
+#[should_panic(expected = "`Added<changes::Armor>` needs `changes::Armor`'s changes tracked")]
+fn a_change_filter_inside_an_or_needs_tracking_too() {
+    let mut w = World::new();
+    w.spawn((Armor(1),));
+    let _ = w.query::<Entity>().filter::<Or<(Added<Armor>, With<Player>)>>().count();
+}
+
+#[test]
+fn a_refused_change_filter_leaves_the_component_untracked() {
     let mut w = World::new();
     let e = w.spawn((Health(1),));
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = w.query::<Entity>().filter::<Changed<Health>>().count();
+    }));
+    assert!(refused.is_err());
+    assert!(!w.component_info(w.component_id::<Health>().unwrap()).tracks_changes());
+    // Asked for, it is tracked from then on: what exists counts as changed.
+    w.track_changes::<Health>();
     assert_eq!(w.query::<Entity>().filter::<Changed<Health>>().count(), 1);
-    assert!(w.component_info(w.component_id::<Health>().unwrap()).tracks_changes());
     let seen = w.advance_change_tick();
     assert_eq!(changed::<Health>(&mut w, seen), []);
     w.get_mut::<Health>(e).unwrap().0 = 2;
     assert_eq!(changed::<Health>(&mut w, seen), [e]);
-    // Inside an `Or` too.
-    w.spawn((Armor(1),));
-    let _ = w.query::<Entity>().filter::<Or<(Added<Armor>, With<Player>)>>().count();
-    assert!(w.component_info(w.component_id::<Armor>().unwrap()).tracks_changes());
 }
 
 #[test]
@@ -141,8 +160,8 @@ fn tracking_keeps_every_existing_query_result() {
             .map(|(e, h, a)| (e, *h, a.copied()))
             .collect();
         assert_eq!(for_each, iter);
-        let players = w.query::<&Health>().with::<Player>().count();
-        let unarmored = w.query::<&Health>().without::<Armor>().count();
+        let players = w.query::<&Health>().filter::<With<Player>>().count();
+        let unarmored = w.query::<&Health>().filter::<Without<Armor>>().count();
         let one = for_each[3].0;
         let got = w.query::<&mut Health>().get(one).map(|h| *h);
         (for_each, players, unarmored, got)
@@ -224,11 +243,13 @@ fn a_mutable_query_marks_every_entity_it_visits() {
     assert_eq!(changed::<Health>(&mut w, seen), [armored, player]);
 
     let seen = w.advance_change_tick();
-    w.query::<&mut Health>().with::<Player>().for_each(|h| h.0 += 1);
+    w.query::<&mut Health>().filter::<With<Player>>().for_each(|h| h.0 += 1);
     assert_eq!(changed::<Health>(&mut w, seen), [player]);
 
     let seen = w.advance_change_tick();
-    w.query::<&mut Health>().without::<Armor>().for_each(|h| h.0 += 1);
+    w.query::<&mut Health>()
+        .filter::<Without<Armor>>()
+        .for_each(|h| h.0 += 1);
     assert_eq!(changed::<Health>(&mut w, seen), [plain]);
     assert_eq!(added::<Health>(&mut w, seen), []);
 }
@@ -284,7 +305,7 @@ fn query_get_marks_one_entity_and_count_marks_none() {
     w.query::<&mut Health>().get(b).unwrap().0 = 9;
     assert_eq!(changed::<Health>(&mut w, seen), [b]);
     // A handle the query doesn't match marks nothing.
-    assert!(w.query::<&mut Health>().with::<Player>().get(c).is_none());
+    assert!(w.query::<&mut Health>().filter::<With<Player>>().get(c).is_none());
     assert_eq!(changed::<Health>(&mut w, seen), [b]);
 }
 
@@ -772,7 +793,7 @@ fn change_filters_combine_with_the_other_filters() {
         [both, armor, fresh]
     );
     assert_eq!(
-        matches(w.query::<Entity>().filter::<Changed<Armor>>().with::<Health>()),
+        matches(w.query::<Entity>().filter::<Changed<Armor>>().filter::<With<Health>>()),
         [both, player]
     );
     // A presence term inside the `Or` passes its whole archetype.
@@ -803,6 +824,7 @@ fn change_filters_combine_with_the_other_filters() {
 #[test]
 fn a_changed_filter_also_requires_the_component() {
     let mut w = World::new();
+    w.track_changes::<Health>();
     w.spawn((Armor(1),));
     let e = w.spawn((Health(1),));
     assert_eq!(
@@ -835,6 +857,11 @@ fn too_many_change_filters_panic() {
     struct B;
     struct C;
     let mut w = World::new();
+    w.track_changes::<Health>();
+    w.track_changes::<Armor>();
+    w.track_changes::<A>();
+    w.track_changes::<B>();
+    w.track_changes::<C>();
     let _ = w
         .query::<Entity>()
         .filter::<(Changed<Health>, Changed<Armor>, Changed<A>, Changed<B>, Changed<C>)>();
@@ -987,7 +1014,7 @@ mod parallel {
         let expected: Vec<Entity> = sorted(
             touched
                 .into_iter()
-                .chain(w.query::<Entity>().with::<Armor>().iter())
+                .chain(w.query::<Entity>().filter::<With<Armor>>().iter())
                 .collect(),
         );
         let mut expected = expected;
@@ -995,6 +1022,36 @@ mod parallel {
         assert_eq!(sorted(out), expected);
         assert_eq!(changed::<Health>(&mut w, latest), expected);
     }
+}
+
+#[test]
+fn single_marks_a_mutable_fetch_and_a_failed_one_marks_nothing() {
+    let (mut w, [a, b, c], seen) = three();
+    // Three matches: an error, and nothing counts as changed.
+    assert_eq!(
+        w.query::<&mut Health>().single().err(),
+        Some(SingleError::MultipleEntities(3))
+    );
+    assert_eq!(changed::<Health>(&mut w, seen), []);
+    // A change filter picks the row: the only one that changed.
+    w.get_mut::<Health>(b).unwrap().0 = 20;
+    let later = w.advance_change_tick();
+    let only = w
+        .query::<(Entity, &Health)>()
+        .filter::<Changed<Health>>()
+        .since(seen)
+        .single();
+    assert_eq!(only, Ok((b, &Health(20))));
+    assert_eq!(changed::<Health>(&mut w, later), [], "reading it changed nothing");
+    // Fetching `&mut` through it is a change, as in every query.
+    w.query::<&mut Health>()
+        .filter::<Changed<Health>>()
+        .since(seen)
+        .single()
+        .unwrap()
+        .0 = 21;
+    assert_eq!(changed::<Health>(&mut w, later), [b]);
+    let _ = (a, c);
 }
 
 // ---- runtime-registered components (the C/C++ path) -------------------------------------
@@ -1015,10 +1072,10 @@ mod dynamic {
     fn raw_spawns_inserts_and_removals_are_tracked() {
         let mut w = World::new();
         let speed = w.register::<Speed>();
-        w.track_changes_dynamic(speed);
+        w.raw().track_changes_dynamic(speed);
         assert!(w.component_info(speed).tracks_changes());
         // SAFETY: f32 is plain bytes.
-        let mass = unsafe { w.register_component("Mass", 4, 4, None) };
+        let mass = unsafe { w.raw().register_component("Mass", 4, 4, None) };
         let seen = w.advance_change_tick();
 
         // SAFETY: each pointer is to a live f32 of the right component.
@@ -1044,7 +1101,7 @@ mod dynamic {
         assert!(!w.raw().remove_dynamic(a, speed));
         assert!(w.raw().remove_dynamic(saved, mass), "an untracked neighbor");
         w.despawn(b);
-        assert_eq!(w.removed_dynamic(speed, seen), [a, b]);
+        assert_eq!(w.raw_ref().removed_dynamic(speed, seen), [a, b]);
         assert_eq!(w.removed_since::<Speed>(seen), [a, b]);
         assert_eq!(changed::<Speed>(&mut w, seen), [], "the kept value moved, unchanged");
     }
@@ -1058,15 +1115,15 @@ mod dynamic {
         }
         let mut w = World::new();
         // SAFETY: plain bytes with a destructor that only counts.
-        let id = unsafe { w.register_component("Counted", 4, 4, Some(count)) };
-        w.track_changes_dynamic(id);
+        let id = unsafe { w.raw().register_component("Counted", 4, 4, Some(count)) };
+        w.raw().track_changes_dynamic(id);
         // SAFETY: valid values of the component.
         let e = unsafe { w.raw().spawn_dynamic(&[(id, ptr(&1.0))]) };
         assert!(unsafe { w.raw().insert_dynamic(e, id, ptr(&2.0)) });
         assert_eq!(DROPS.load(Ordering::Relaxed), 1);
         assert!(w.raw().remove_dynamic(e, id));
         assert_eq!(DROPS.load(Ordering::Relaxed), 2);
-        assert_eq!(w.removed_dynamic(id, Tick::default()), [e]);
+        assert_eq!(w.raw_ref().removed_dynamic(id, Tick::default()), [e]);
         let kept = unsafe { w.raw().spawn_dynamic(&[(id, ptr(&3.0))]) };
         drop(w);
         assert_eq!(DROPS.load(Ordering::Relaxed), 3);
@@ -1106,21 +1163,21 @@ mod dynamic {
         let a = w.spawn((Speed(1.0),));
         let b = w.spawn((Speed(2.0),));
         let seen = w.advance_change_tick();
-        let p = w.raw_ref().get_dynamic(a, speed).unwrap().cast::<Speed>();
+        let p = w.raw().get_dynamic_mut(a, speed).unwrap().cast::<Speed>();
         // SAFETY: the pointer is to `a`'s live value.
         unsafe { (*p).0 = 9.0 };
         assert_eq!(changed::<Speed>(&mut w, seen), [], "the world can't see the write");
-        assert!(w.mark_changed_dynamic(a, speed));
+        assert!(w.raw().mark_changed_dynamic(a, speed));
         assert_eq!(changed::<Speed>(&mut w, seen), [a]);
-        assert!(!w.mark_changed_dynamic(Entity::from_bits(999), speed));
+        assert!(!w.raw().mark_changed_dynamic(Entity::from_bits(999), speed));
         let _ = b;
     }
 
     /// The entities a chunk query visits, and the chunk sizes it used.
     fn chunks(w: &mut World, query: ChunkQuery<'_>) -> (Vec<Entity>, Vec<usize>) {
         let (mut entities, mut sizes) = (Vec::new(), Vec::new());
-        w.query_chunks(query, |chunk| {
-            assert_eq!(chunk.columns.len(), query.ids.len());
+        w.raw().query_chunks(query, |chunk| {
+            assert_eq!(chunk.columns.len(), query.ids().len());
             assert!(!chunk.is_empty());
             entities.extend_from_slice(chunk.entities);
             sizes.push(chunk.len());
@@ -1138,24 +1195,12 @@ mod dynamic {
         let seen = w.advance_change_tick();
         let ids = [speed, health];
         // Read-only: nothing changes.
-        let all = chunks(
-            &mut w,
-            ChunkQuery {
-                writes: 0,
-                ..ChunkQuery::new(&ids)
-            },
-        );
+        let all = chunks(&mut w, ChunkQuery::new(&ids).writes(0));
         assert_eq!(all, (vec![a, b], vec![1, 1]));
         assert_eq!(changed::<Speed>(&mut w, seen), []);
         assert_eq!(changed::<Health>(&mut w, seen), []);
         // Writing the second column only.
-        chunks(
-            &mut w,
-            ChunkQuery {
-                writes: 0b10,
-                ..ChunkQuery::new(&ids)
-            },
-        );
+        chunks(&mut w, ChunkQuery::new(&ids).writes(0b10));
         assert_eq!(changed::<Speed>(&mut w, seen), []);
         assert_eq!(changed::<Health>(&mut w, seen), [a, b]);
         // The default writes everything, like `for_each_chunk`.
@@ -1176,16 +1221,12 @@ mod dynamic {
             assert!(w.mark_changed::<Speed>(es[i]));
         }
         let ids = [speed, health];
-        let query = ChunkQuery {
-            writes: 0,
-            changed: 0b01,
-            since: Some(seen),
-            ..ChunkQuery::new(&ids)
-        };
+        let world_window = ChunkQuery::new(&ids).writes(0).changed(0b01);
+        let query = world_window.since(seen);
         // Three runs: rows 1..4, 7 and 9.
         let mut rows = Vec::new();
         let mut sizes = Vec::new();
-        w.query_chunks(query, |chunk| {
+        w.raw().query_chunks(query, |chunk| {
             // SAFETY: each column holds `len` live values of its component,
             // starting at the chunk's first row.
             let (speeds, healths) = unsafe {
@@ -1206,15 +1247,15 @@ mod dynamic {
         assert_eq!(chunks(&mut w, query).0.len(), 5);
         // Writing through a filtered query marks only the rows it visited.
         let later = w.advance_change_tick();
-        chunks(&mut w, ChunkQuery { writes: 0b01, ..query });
+        chunks(&mut w, query.writes(0b01));
         assert_eq!(changed::<Speed>(&mut w, later).len(), 5);
         // `since` defaults to the world's tick.
         w.set_changes_since(w.change_tick());
-        assert_eq!(chunks(&mut w, ChunkQuery { since: None, ..query }).0, []);
+        assert_eq!(chunks(&mut w, world_window).0, []);
     }
 
     #[test]
-    fn chunk_query_filters_combine_as_all_or_any_and_start_tracking() {
+    fn chunk_query_filters_combine_as_all_or_any() {
         let mut w = World::new();
         let speed = w.register::<Speed>();
         let health = w.register::<Health>();
@@ -1223,15 +1264,13 @@ mod dynamic {
         let hurt = w.spawn((Speed(3.0), Health(3)));
         let idle = w.spawn((Speed(4.0), Health(4)));
         let ids = [speed, health];
-        let filter = ChunkQuery {
-            writes: 0,
-            changed: 0b11,
-            ..ChunkQuery::new(&ids)
-        };
-        // The first use starts tracking: everything counts as changed.
+        let filter = ChunkQuery::new(&ids).writes(0).changed(0b11);
+        // Tracking starts when it is asked for: what exists then counts as
+        // changed.
+        w.raw().track_changes_dynamic(speed);
+        w.raw().track_changes_dynamic(health);
         assert_eq!(chunks(&mut w, filter).0.len(), 4);
-        assert!(w.component_info(speed).tracks_changes() && w.component_info(health).tracks_changes());
-        let seen = Some(w.advance_change_tick());
+        let seen = w.advance_change_tick();
         for e in [both, fast] {
             w.get_mut::<Speed>(e).unwrap().0 += 1.0;
         }
@@ -1239,22 +1278,14 @@ mod dynamic {
             w.get_mut::<Health>(e).unwrap().0 += 1;
         }
         let fresh = w.spawn((Speed(5.0), Health(5)));
-        let all = ChunkQuery { since: seen, ..filter };
+        let all = filter.since(seen);
         assert_eq!(chunks(&mut w, all).0, [both, fresh]);
-        let any = ChunkQuery { any: true, ..all };
+        let any = all.match_any(true);
         assert_eq!(chunks(&mut w, any), (vec![both, fast, hurt, fresh], vec![3, 1]));
-        let added = ChunkQuery {
-            changed: 0,
-            added: 0b10,
-            ..all
-        };
+        let added = all.changed(0).added(0b10);
         assert_eq!(chunks(&mut w, added).0, [fresh]);
         // Bits past the last column are ignored.
-        let stray = ChunkQuery {
-            changed: 0b01 | 1 << 20,
-            added: 1 << 31,
-            ..all
-        };
+        let stray = all.changed(0b01 | 1 << 20).added(1 << 31);
         assert_eq!(chunks(&mut w, stray).0, [both, fast, fresh]);
         let _ = idle;
     }
@@ -1266,15 +1297,21 @@ mod dynamic {
         let ids: Vec<ComponentId> = (0..5)
             .map(|i| {
                 // SAFETY: plain bytes.
-                unsafe { w.register_component(&format!("C{i}"), 4, 4, None) }
+                unsafe { w.raw().register_component(&format!("C{i}"), 4, 4, None) }
             })
             .collect();
-        let query = ChunkQuery {
-            changed: 0b11111,
-            added: 0b01111,
-            ..ChunkQuery::new(&ids)
-        };
-        w.query_chunks(query, |_| {});
+        let query = ChunkQuery::new(&ids).changed(0b11111).added(0b01111);
+        w.raw().query_chunks(query, |_| {});
+    }
+
+    #[test]
+    #[should_panic(expected = "a `changed` or `added` filter needs `Mass`'s changes tracked")]
+    fn a_chunk_query_filter_on_an_untracked_component_panics() {
+        let mut w = World::new();
+        // SAFETY: f32 is plain bytes.
+        let mass = unsafe { w.raw().register_component("Mass", 4, 4, None) };
+        // Tracking is explicit: the filter doesn't start it.
+        w.raw().query_chunks(ChunkQuery::new(&[mass]).added(1), |_| {});
     }
 
     #[test]
@@ -1282,8 +1319,8 @@ mod dynamic {
     fn removals_of_an_untracked_runtime_component_panic() {
         let mut w = World::new();
         // SAFETY: f32 is plain bytes.
-        let mass = unsafe { w.register_component("Mass", 4, 4, None) };
-        let _ = w.removed_dynamic(mass, Tick::default());
+        let mass = unsafe { w.raw().register_component("Mass", 4, 4, None) };
+        let _ = w.raw_ref().removed_dynamic(mass, Tick::default());
     }
 }
 
@@ -1436,9 +1473,9 @@ fn generated_sequences_report_exactly_what_the_model_changed() {
                     let players = rng.one_in(2);
                     let mut q = w.query::<(&mut Armor, Option<&Health>)>();
                     if players {
-                        q = q.with::<Player>();
+                        q = q.filter::<With<Player>>();
                     } else {
-                        q = q.without::<Player>();
+                        q = q.filter::<Without<Player>>();
                     }
                     if rng.one_in(2) {
                         q.for_each(|(a, _)| a.0 += 1);
@@ -1537,7 +1574,7 @@ fn a_view_marks_what_it_borrows_mutably_like_a_world_query() {
     let (mut w, [a, b, c], _) = three();
     w.insert(c, Armor(1));
     let seen = w.advance_change_tick();
-    let mut state = ViewState::new(ViewAccess::new().write::<Health>().read::<Armor>());
+    let mut state = ViewState::new().write::<Health>().read::<Armor>();
 
     // Reading marks nothing.
     state.run(&mut w, |mut view| {
@@ -1591,25 +1628,25 @@ fn views_on_two_threads_stamp_their_own_components() {
     let only_health = w.spawn((Health(-1),));
     let seen = w.advance_change_tick();
 
-    let mut heal = ViewState::new(ViewAccess::new().write::<Health>());
-    let mut plate = ViewState::new(ViewAccess::new().write::<Armor>());
-    heal.prepare(&mut w);
-    plate.prepare(&mut w);
-    {
-        let shared = &w;
-        // SAFETY: both states are prepared for `w`, their declarations
-        // don't overlap, and nothing uses `&mut World` until they are done.
-        let (mut a, mut b) = unsafe { (heal.view(shared), plate.view(shared)) };
-        let first = es[0];
-        std::thread::scope(|s| {
-            s.spawn(move || a.query::<&mut Health>().for_each(|h| h.0 += 1));
-            s.spawn(move || {
-                b.get_mut::<Armor>(first).unwrap().0 += 1;
-            });
-        });
-    }
-    heal.finish(&mut w);
-    plate.finish(&mut w);
+    let heal = ViewState::new().write::<Health>();
+    let plate = ViewState::new().write::<Armor>();
+    let first = es[0];
+    // Each state with its job: 0 heals everyone, 1 plates the first.
+    let mut states = [(heal, 0u8), (plate, 1u8)];
+    let group = ViewGroup::new(states.iter().map(|s| &s.0)).unwrap();
+    group.run(
+        &mut w,
+        &mut states,
+        true,
+        |s| (&mut s.0, &mut s.1),
+        |job, mut view| {
+            if *job == 0 {
+                view.query::<&mut Health>().for_each(|h| h.0 += 1);
+            } else {
+                view.get_mut::<Armor>(first).unwrap().0 += 1;
+            }
+        },
+    );
 
     let mut all = es.clone();
     all.push(only_health);

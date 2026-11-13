@@ -154,6 +154,13 @@ unsafe fn rigged(ctx: *mut PonkoCtx, run: &Run, graph: *const PonkoAnimationGrap
     }
 }
 
+/// The message of this thread's last failed call.
+fn last_error() -> String {
+    unsafe { std::ffi::CStr::from_ptr(ponko_last_error()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn near(a: f32, b: f32) {
     assert!((a - b).abs() < 1e-4, "{a} != {b}");
 }
@@ -661,7 +668,12 @@ unsafe fn bad_arguments(ctx: *mut PonkoCtx, run: &Run, idle: *const PonkoClip, s
             OK
         );
         let mut g = null_mut();
-        assert_ne!(ponko_animation_graph_build(b, 0, &mut g), OK);
+        assert_eq!(ponko_animation_graph_build(b, 0, &mut g), BAD);
+        assert!(
+            last_error().contains("transition 0 names a state that is not in the graph"),
+            "{}",
+            last_error()
+        );
         assert!(g.is_null());
         let b = builder_with_parameters();
         assert_eq!(
@@ -676,16 +688,31 @@ unsafe fn bad_arguments(ctx: *mut PonkoCtx, run: &Run, idle: *const PonkoClip, s
             ponko_animation_graph_add_condition(b, 0, PONKO_CONDITION_GREATER, 1, 0.5),
             OK
         );
-        assert_ne!(ponko_animation_graph_build(b, 0, &mut g), OK, "parameter 1 is a bool");
+        assert_eq!(ponko_animation_graph_build(b, 0, &mut g), BAD, "parameter 1 is a bool");
+        assert!(
+            last_error().contains("parameter 1 is not a float parameter"),
+            "{}",
+            last_error()
+        );
         // No states, a bad initial state, and a null output.
         let b = ponko_animation_graph_builder_new();
-        assert_ne!(ponko_animation_graph_build(b, 0, &mut g), OK);
+        assert_eq!(ponko_animation_graph_build(b, 0, &mut g), BAD);
+        assert!(
+            last_error().contains("initial state 0 is not in the graph"),
+            "{}",
+            last_error()
+        );
         let b = ponko_animation_graph_builder_new();
         assert_eq!(
             ponko_animation_graph_add_state(b, clip_motion(idle), 1.0, -1, true, null_mut()),
             OK
         );
-        assert_ne!(ponko_animation_graph_build(b, 3, &mut g), OK);
+        assert_eq!(ponko_animation_graph_build(b, 3, &mut g), BAD);
+        assert!(
+            last_error().contains("initial state 3 is not in the graph"),
+            "{}",
+            last_error()
+        );
         assert_eq!(ponko_animation_graph_build(null_mut(), 0, &mut g), BAD);
         let b = ponko_animation_graph_builder_new();
         assert_eq!(ponko_animation_graph_build(b, 0, null_mut()), BAD);

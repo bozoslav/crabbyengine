@@ -35,7 +35,7 @@ Where tests live:
 | Private internals (clock math, schedule order) | `#[cfg(test)] mod tests` at the bottom of the file | `src/time.rs` |
 | Usage examples in docs | doctests for public usage and behavior where useful | `World::spawn` |
 | Engine and game logic | headless runs, no window or GPU (`Game::run_headless`) | `tests/` in the root crate |
-| Performance | `crates/ponko_bench` (`cargo run --release -p ponko_bench [-- filter]`) | `iter/crabby` |
+| Performance | `crates/ponko_bench` (`cargo run --release -p ponko_bench [-- filter]`) | `iter/ponko` |
 
 Rules:
 - New public behavior gets a test in the matching area file. A new area is just a new file: CI's `test` job runs `cargo test --workspace` (on every OS on `main`, not on a PR: run it locally), so it picks the file up. Only a new feature combination needs its own step in `.github/workflows/ci.yml`.
@@ -107,19 +107,19 @@ MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --t
 
 Measure first, in release builds; the book's "Profiling a frame"
 (`book/src/performance.md`) has the details.
-- Benchmark a game at a fixed camera: `CRABBY_BENCH=600 CRABBY_BENCH_OUT=x.json
-  CRABBY_BENCH_MESHES=x.csv cargo run --release`. It prints fps and
+- Benchmark a game at a fixed camera: `PONKO_BENCH=600 PONKO_BENCH_OUT=x.json
+  PONKO_BENCH_MESHES=x.csv cargo run --release`. It prints fps and
   percentiles, CPU vs GPU, GPU time per pass, triangles for the camera and
   the shadows, the slowest systems and the heaviest meshes, then quits.
   Frames are drawn offscreen, so the display's refresh rate doesn't cap them.
 - Where the time and allocations go: `profile_scope!("name")` around suspect code,
   `Game::profile_headless(warmup, ticks, setup)` for a `PerfReport` (systems, scopes,
   allocations with `CountingAllocator`, worst frames, warnings), `report.assert_within(&Budget)`
-  in tests; `CRABBY_BENCH_REPORT=now.json` saves one from a benchmark run. See
+  in tests; `PONKO_BENCH_REPORT=now.json` saves one from a benchmark run. See
   `book/src/profiling.md`.
-- Hitches: `CRABBY_TRACE=trace.json` (a Perfetto trace of every system,
+- Hitches: `PONKO_TRACE=trace.json` (a Perfetto trace of every system,
   render, display wait and GPU pass); look for the slow frames in it.
-- A running game (`CRABBY_CONTROL=1`): the MCP tools `perf_report`,
+- A running game (`PONKO_CONTROL=1`): the MCP tools `perf_report`,
   `record_trace` and `perf_hud`.
 - CPU hot spots: `sample <pid> 5` on macOS, or `--features profiling` with
   puffin_viewer.

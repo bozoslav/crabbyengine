@@ -18,7 +18,7 @@ use crate::ctx::Ctx;
 use crate::events::EventSlot;
 use crate::random::Random;
 use crate::schedule::{DEFAULT_PARALLEL_THRESHOLD, SchedulePlan};
-use crate::system_view::{Clock, Shared, ViewRunner};
+use crate::system_view::{Shared, ViewRunner};
 
 /// Turns the scheduler on or off whatever the game says: `1`, `0`, or
 /// `always` (on, and every batch goes to the thread pool).
@@ -51,9 +51,7 @@ impl Settings {
 impl Settings {
     /// `env`: whether the environment variable may override the builder.
     pub(super) fn new(on: bool, threshold: Option<Duration>, env: bool) -> Self {
-        let value = env
-            .then(|| crate::environment::var(ENV_PARALLEL_SYSTEMS).ok())
-            .flatten();
+        let value = env.then(|| std::env::var(ENV_PARALLEL_SYSTEMS).ok()).flatten();
         let (on, threshold) = resolve(on, threshold, value.as_deref());
         Settings {
             on,
@@ -230,7 +228,6 @@ fn run_batch(
     slot_store: &mut Vec<EventSlot<'static>>,
 ) {
     ctx.sync_services();
-    let clock = Clock::of(ctx);
     let tick = ctx.time.sim_tick();
     let profiling = ctx.perf.state.on;
     // Run one at a time, every system has a change tick of its own. The
@@ -251,16 +248,15 @@ fn run_batch(
             unreachable!("a batch only has view systems");
         };
         let mut runner = taken.take().expect("a batch gives its systems back");
-        runner.task.clock = clock;
         // The stream `Ctx::random` gives this system.
         runner.task.random = Random::new(ctx.seed, tick, base + i);
         // Each view compares changes against its own system's last run.
         runner
             .state
-            .set_changes_since(Some(s.changes_seen.in_world(&ctx.world)));
+            .override_changes_since(Some(s.changes_seen.in_world(&ctx.world)));
         runner
             .state
-            .set_change_tick(Some(crate::Tick::from_bits(first_tick + i as u64)));
+            .override_change_tick(Some(crate::Tick::from_bits(first_tick + i as u64)));
         // The events it may read: what is kept now. Nothing reaches the
         // store before the batch ends.
         let first = slots.len();
@@ -294,6 +290,7 @@ fn run_batch(
     let shared = Shared {
         slots: &slots,
         input: &ctx.input,
+        time: &ctx.time,
         spatial: &ctx.spatial,
         count_allocs: profiling,
     };

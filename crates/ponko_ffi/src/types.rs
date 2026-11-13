@@ -320,13 +320,13 @@ impl crate::CMirror for Sprite {
     }
 }
 pub(crate) fn draw_params_from_c(p: &PonkoDrawParams) -> DrawParams {
-    DrawParams {
-        scale: to_c(p.scale),
-        rotation: p.rotation,
-        color: to_c(p.color),
-        z: p.z,
-        pivot: to_c(p.pivot),
-        screen: p.screen,
-        region: rect_from_c(p.has_region, p.region),
-    }
+    let mut params = DrawParams::default()
+        .with_scale(to_c(p.scale))
+        .with_rotation(p.rotation)
+        .with_color(to_c(p.color))
+        .with_z(p.z)
+        .with_pivot(to_c(p.pivot))
+        .with_screen(p.screen);
+    params.region = rect_from_c(p.has_region, p.region);
+    params
 }

@@ -32,7 +32,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -59,26 +59,26 @@ impl Rig {
     fn draw(&mut self) -> Vec<u8> {
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // Sunlight only: the fog glows with nothing else.
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -120,16 +120,16 @@ fn shadows_cut_the_fogs_sun_glow_into_shafts() {
         },
         Model::new(black),
     ));
-    rig.ctx.lighting.shadows = true;
-    rig.ctx.lighting.sun_direction = vec3(0.1, -1.0, 0.05);
-    rig.ctx.camera3d.position = vec3(0.0, 2.0, 0.0);
-    rig.ctx.camera3d.look_at(vec3(0.0, 2.0, -1.0));
+    rig.ctx.scene3d.lighting.shadows = true;
+    rig.ctx.scene3d.lighting.sun_direction = vec3(0.1, -1.0, 0.05);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 2.0, 0.0);
+    rig.ctx.scene3d.camera.look_at(vec3(0.0, 2.0, -1.0));
     // Black fog, so all its light is the sun's glow, the same all around.
-    rig.ctx.sky.fog_density = 0.05;
-    rig.ctx.sky.fog_height = 50.0;
-    rig.ctx.sky.fog_color = Color::BLACK;
-    rig.ctx.sky.fog_sun_glow = 1.0;
-    rig.ctx.sky.fog_sun_focus = 0.0;
+    rig.ctx.scene3d.sky.fog_density = 0.05;
+    rig.ctx.scene3d.sky.fog_height = 50.0;
+    rig.ctx.scene3d.sky.fog_color = Color::BLACK;
+    rig.ctx.scene3d.sky.fog_sun_glow = 1.0;
+    rig.ctx.scene3d.sky.fog_sun_focus = 0.0;
     let (left, right) = ((SIZE / 4, SIZE / 2), (SIZE * 3 / 4, SIZE / 2));
     let red = |pixels: &[u8], (x, y): (u32, u32)| i32::from(pixels[((y * SIZE + x) * 4) as usize]);
 
@@ -140,7 +140,7 @@ fn shadows_cut_the_fogs_sun_glow_into_shafts() {
         "without shafts, all glows: {shade} {sun}"
     );
 
-    rig.ctx.sky.light_shafts = 1.0;
+    rig.ctx.scene3d.sky.light_shafts = 1.0;
     let pixels = rig.draw();
     let (shade, sun) = (red(&pixels, left), red(&pixels, right));
     assert!(shade < 30, "the fog under the roof is dark: {shade}");

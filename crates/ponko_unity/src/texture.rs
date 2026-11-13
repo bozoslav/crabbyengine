@@ -41,7 +41,7 @@ impl UnityTexture {
         let (layers, layout) = match object.class_id {
             28 => (1, b["m_TextureFormat"].as_i64().and_then(texture_format)),
             187 => (
-                b["m_Depth"].as_i64().unwrap_or(1).max(1) as u32,
+                u32::try_from(b["m_Depth"].as_i64().unwrap_or(1).max(1)).unwrap_or(u32::MAX),
                 b["m_Format"].as_i64().and_then(graphics_format),
             ),
             _ => {
@@ -53,17 +53,19 @@ impl UnityTexture {
         };
         let name = b["m_Name"].as_str().unwrap_or("").to_string();
         let layout = layout.ok_or_else(|| Error::new(format!("{name}: a compressed or unknown texture format")))?;
-        let (width, height) = (
-            b["m_Width"].as_i64().unwrap_or(0) as u32,
-            b["m_Height"].as_i64().unwrap_or(0) as u32,
-        );
+        let size = |key: &str| u32::try_from(b[key].as_i64().unwrap_or(0)).unwrap_or(0);
+        let (width, height) = (size("m_Width"), size("m_Height"));
         let data: Vec<u8> = match &b["image data"] {
             Value::Bytes(bytes) => bytes.clone(),
             Value::Numbers(n) => n.iter().map(|&v| v as u8).collect(),
             _ => crate::mesh::hex(b["_typelessdata"].as_str().unwrap_or_default()),
         };
         // Each layer holds its mips; only the top one is wanted.
-        let level = (width * height) as usize * layout.size;
+        // Checked against the data below; 0 if it can't even be counted.
+        let level = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|pixels| pixels.checked_mul(layout.size))
+            .unwrap_or(0);
         let per_layer = if layers > 1 {
             data.len() / layers as usize
         } else {

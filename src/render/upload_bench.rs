@@ -28,8 +28,8 @@ fn ground(n: i32) -> Option<(Rig, Vec<Entity>, Mesh)> {
             cubes.push(rig.ctx.world.spawn((Transform3D::at(at), Model::new(mesh))));
         }
     }
-    rig.ctx.camera3d.position = vec3(0.0, n as f32 * 0.6, n as f32 * 0.6);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, n as f32 * 0.6, n as f32 * 0.6);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     Some((rig, cubes, mesh))
 }
 
@@ -127,7 +127,7 @@ fn upload_benchmark() {
     measure("still, 1024 models", &mut rig, FRAMES, |_, _| {});
 
     let Some((mut rig, cubes, _)) = ground(32) else { return };
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     measure("1% moving, 1024 models, TAA", &mut rig, FRAMES, |rig, i| {
         for &e in cubes.iter().step_by(100) {
             rig.ctx.world.get_mut::<Transform3D>(e).unwrap().position.y = (i % 20) as f32 * 0.02;
@@ -137,8 +137,8 @@ fn upload_benchmark() {
     let Some((mut rig, _, _)) = ground(32) else { return };
     measure("camera panning, 1024 models", &mut rig, FRAMES, |rig, i| {
         let x = (i as f32 * 0.05).sin() * 6.0;
-        rig.ctx.camera3d.position = vec3(x, 19.0, 19.0);
-        rig.ctx.camera3d.look_at(vec3(x, 0.0, 0.0));
+        rig.ctx.scene3d.camera.position = vec3(x, 19.0, 19.0);
+        rig.ctx.scene3d.camera.look_at(vec3(x, 0.0, 0.0));
     });
 
     let Some((mut rig, mut cubes, mesh)) = ground(32) else {

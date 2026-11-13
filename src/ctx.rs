@@ -52,21 +52,44 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
 /// | [`ui`](Self::ui) | [`Ui`](crate::ui::Ui): the retained widget tree and the immediate debug widgets. |
 /// | [`assets`](Self::assets) | [`Assets`](crate::Assets): asset sources, data files, saving scenes and prefabs, hot reload. |
 /// | [`perf`](Self::perf) | [`Perf`](crate::perf::Perf): timings, the HUD, traces, profiling reports. |
-/// | [`camera`](Self::camera), `camera3d`, `lighting`, `sky`, `post`, `lod` | What the renderer reads when the frame is drawn. |
+/// | [`camera`](Self::camera), `scene3d` | What the renderer reads when the frame is drawn: the 2D camera, and with `3d` the [`SceneSettings`](crate::render::SceneSettings) (camera, lighting, sky, post-processing, levels of detail, GPU passes, quality). |
 /// | [`spatial`](Self::spatial), `physics`, `physics3d`, [`net`](Self::net) | Neighbor queries, the physics worlds, [`Networking`](crate::net::Networking): lockstep, messages, snapshots. |
 ///
-/// The calls nearly every system makes are also methods here:
+/// # Shortcuts
+///
+/// These common calls are also on `Ctx`, each one a deliberate shortcut:
 /// [`dt`](Self::dt), [`key_down`](Self::key_down),
 /// [`key_pressed`](Self::key_pressed), [`key_released`](Self::key_released),
-/// [`mouse_pos`](Self::mouse_pos), [`draw`](Self::draw),
-/// [`draw_text`](Self::draw_text), [`load_texture`](Self::load_texture),
-/// [`load_sound`](Self::load_sound), [`play_sound`](Self::play_sound) and
-/// [`quit`](Self::quit). They forward to their service. The other methods
-/// that stay on `Ctx` need more than one area at once: handles
-/// ([`free`](Self::free), [`is_live`](Self::is_live)), loading a scene or
-/// spawning a prefab (the world, textures and sounds together),
-/// [`random`](Self::random) (the seed and the running system),
-/// [`mouse_world`](Self::mouse_world) (the mouse through the camera).
+/// [`mouse_pos`](Self::mouse_pos), [`mouse_world`](Self::mouse_world),
+/// [`window_size`](Self::window_size), [`quit`](Self::quit),
+/// [`draw`](Self::draw), [`draw_text`](Self::draw_text),
+/// [`load_texture`](Self::load_texture), [`load_sound`](Self::load_sound),
+/// [`play_sound`](Self::play_sound) and [`random`](Self::random). Most just
+/// call their service; [`mouse_world`](Self::mouse_world) (the mouse through
+/// the camera) and [`random`](Self::random) (the seed and the running system)
+/// need more than one area.
+///
+/// # Calls that span services
+///
+/// A method that needs several services at once can't live on one of them, so
+/// it stays on `Ctx`:
+/// - handles: [`free`](Self::free), [`is_live`](Self::is_live);
+/// - scenes and prefabs (the world, textures and sounds together):
+///   [`load_scene`](Self::load_scene),
+///   [`load_scene_lockstep`](Self::load_scene_lockstep),
+///   [`spawn_prefab`](Self::spawn_prefab);
+/// - streaming and residency (the world, the GPU and the asset sources):
+///   `stream_mesh`, `stream_texture`, `resident_mesh`, `resident_texture`,
+///   their `try_` forms, `pin_resident_*`, `unpin_resident_*`,
+///   `set_residency_budget` and `finish_uploads`;
+/// - ragdolls and skeleton debugging (the world with the 3D physics or the
+///   drawing): `start_ragdoll`, `stop_ragdoll`, `draw_skeleton`;
+/// - reports that look across services: [`live_counts`](Self::live_counts),
+///   `asset_inventory`, `ecs_diagnostics`, `capabilities_json` and
+///   [`control_addr`](Self::control_addr).
+///
+/// Every other call is on its service: `ctx.input.mouse_down(..)`,
+/// `ctx.gfx.create_mesh(..)`, `ctx.audio.play_at(..)`.
 ///
 /// ```
 /// use ponko::prelude::*;
@@ -111,7 +134,7 @@ pub struct Ctx {
     ///   [`Phase::BeforePhysics`](crate::Phase::BeforePhysics) are in the
     ///   world when the physics step runs, and frame systems see the commands
     ///   of every tick in their frame.
-    /// - A system skipped by [`sim_system_every`](crate::Game::sim_system_every)
+    /// - A system skipped by its interval ([`IntoSystem::every`](crate::IntoSystem::every))
     ///   doesn't run, so it records nothing.
     ///
     /// Changes made directly through [`world`](Self::world) are immediate.
@@ -212,143 +235,22 @@ pub struct Ctx {
     /// # }
     /// ```
     pub camera: crate::d2::Camera,
-    /// The 3D camera (feature `3d`): position, rotation, field of view.
+    /// How the 3D world is drawn (feature `3d`): the camera, lighting, sky
+    /// and fog, post-processing, levels of detail, the game's own GPU passes,
+    /// graphics quality presets and automatic quality. See
+    /// [`SceneSettings`](crate::render::SceneSettings).
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// ctx.camera3d.position = vec3(0.0, 5.0, 10.0);
-    /// ctx.camera3d.look_at(Vec3::ZERO);
+    /// ctx.scene3d.camera.position = vec3(0.0, 5.0, 10.0);
+    /// ctx.scene3d.camera.look_at(Vec3::ZERO);
+    /// ctx.scene3d.lighting.sun_intensity = 1.0; // overcast
+    /// ctx.scene3d.set_quality(ponko::render::GraphicsQuality::High);
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub camera3d: crate::d3::Camera,
-    /// The 3D world's sun and ambient light (feature `3d`).
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// ctx.lighting.sun_intensity = 1.0; // overcast
-    /// # }
-    /// ```
-    #[cfg(feature = "3d")]
-    pub lighting: crate::render::Lighting,
-    /// Global settings for [`LodGroup`](crate::render::LodGroup)s (feature `3d`):
-    /// the bias that a graphics quality setting drives, and crossfades on
-    /// or off.
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// ctx.lod.bias = 1.5; // keep detail up to 50% farther
-    /// # }
-    /// ```
-    #[cfg(feature = "3d")]
-    pub lod: crate::render::LodSettings,
-    /// What happens to the lit 3D frame on its way to the screen (feature
-    /// `3d`): exposure, bloom, color grading, tone mapping.
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// ctx.post.bloom = 0.2;
-    /// ctx.post.vignette = 0.3;
-    /// # }
-    /// ```
-    #[cfg(feature = "3d")]
-    pub post: crate::render::Post,
-    /// Screen effects run over the lit 3D frame each frame, in order,
-    /// before bloom and tone mapping (feature `3d`). Each reads what the
-    /// one before it left.
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// let haze = ctx.gfx.load_effect("effects/haze.wgsl");
-    /// ctx.effects.push(ponko::render::ScreenEffect::new(haze));
-    /// # }
-    /// ```
-    #[cfg(feature = "3d")]
-    pub effects: Vec<crate::render::ScreenEffect>,
-    /// Effects run over the lit 3D frame each frame, in order, that write
-    /// into render targets instead of the frame (feature `3d`): after the
-    /// transparent surfaces, before [`effects`](Self::effects). See
-    /// [`TargetEffect`](crate::render::TargetEffect) for the ordering and resource
-    /// rules.
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx, glow: ponko::render::Effect) {
-    /// let mask = ctx.gfx.create_render_target(256, 256);
-    /// ctx.target_effects.push(ponko::render::TargetEffect::new(glow, mask));
-    /// # }
-    /// ```
-    #[cfg(feature = "3d")]
-    pub target_effects: Vec<crate::render::TargetEffect>,
-    /// Cameras drawing the 3D world into render targets each frame, before
-    /// the main view (feature `3d`): mirrors, reflections, security
-    /// cameras. See [`TargetCamera`](crate::render::TargetCamera).
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// let lake = ctx.gfx.create_render_target(960, 540);
-    /// ctx.target_cameras.push(ponko::render::TargetCamera::reflection(ctx.camera3d, lake, 0.0));
-    /// # }
-    /// ```
-    #[cfg(feature = "3d")]
-    pub target_cameras: Vec<crate::render::TargetCamera>,
-    /// Compute passes run on the GPU each frame, in order, before anything
-    /// is drawn (feature `3d`): each updates a render target texel by
-    /// texel. See [`ComputePass`](crate::render::ComputePass).
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// let ripples = ctx.gfx.load_compute("compute/ripples.wgsl");
-    /// let water = ctx.gfx.create_render_target(256, 256);
-    /// ctx.compute_passes.push(ponko::render::ComputePass::new(ripples, water));
-    /// # }
-    /// ```
-    #[cfg(feature = "3d")]
-    pub compute_passes: Vec<crate::render::ComputePass>,
-    /// Compute passes run on the GPU each frame, in order, at the scene
-    /// stage (feature `3d`): after the opaque and transparent surfaces and
-    /// temporal antialiasing, before [`target_effects`](Self::target_effects),
-    /// [`effects`](Self::effects), bloom and tone mapping. Their shaders
-    /// read this frame's lit image and depth (`scene_color`,
-    /// `scene_position`, `scene_distance`). Same entries as
-    /// [`compute_passes`](Self::compute_passes); see
-    /// [`ComputePass`](crate::render::ComputePass) for the ordering and
-    /// resource rules of both stages.
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// // Each texel keeps a running average of how bright the frame is there.
-    /// let meter = ctx.gfx.create_compute("meter", "
-    ///     fn compute(c: Cell) -> vec4<f32> {
-    ///         let seen = scene_color(c.uv * frame.screen.xy);
-    ///         return mix(c.value, vec4<f32>(seen, 1.0), 0.05);
-    ///     }");
-    /// let light = ctx.gfx.create_render_target(16, 9);
-    /// ctx.scene_compute_passes.push(ponko::render::ComputePass::new(meter, light));
-    /// # }
-    /// ```
-    #[cfg(feature = "3d")]
-    pub scene_compute_passes: Vec<crate::render::ComputePass>,
-    /// The sky behind the 3D world and the fog in front of it (feature
-    /// `3d`): a physical sky lit by the sun, by default.
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// # fn f(ctx: &mut Ctx) {
-    /// ctx.lighting.sun_direction = ponko::render::Sky::sun_direction_at(7.0); // morning
-    /// ctx.sky.fog_density = 0.01;
-    /// # }
-    /// ```
-    #[cfg(feature = "3d")]
-    pub sky: crate::render::Sky,
+    pub scene3d: crate::render::SceneSettings,
     /// Engine-side UI scratch: the spare tree, typed text, world panels.
     pub(crate) ui_state: UiState,
     /// The screen's UI: the retained widget tree and its screen stack
@@ -359,7 +261,7 @@ pub struct Ctx {
     /// ```
     /// use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
-    /// let root = ctx.ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let root = ctx.ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
     /// ctx.ui.push_screen(root, false);
     /// # }
     /// ```
@@ -372,7 +274,7 @@ pub struct Ctx {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, crab: Texture) {
     /// ctx.gfx.draw_circle(vec2(100.0, 100.0), 20.0, Color::WHITE);
-    /// ctx.gfx.draw(&crab, vec2(400.0, 300.0));
+    /// ctx.gfx.draw(crab, vec2(400.0, 300.0));
     /// # }
     /// ```
     pub gfx: crate::gfx::Graphics,
@@ -395,7 +297,7 @@ pub struct Ctx {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let hit = ctx.audio.load("hit.ogg");
-    /// ctx.audio.play(&hit);
+    /// ctx.audio.play(hit);
     /// # }
     /// ```
     pub audio: Audio,
@@ -480,25 +382,7 @@ impl Ctx {
             quit_requested: false,
             camera: Camera2D::new(window_size),
             #[cfg(feature = "3d")]
-            camera3d: crate::d3::Camera::new(window_size),
-            #[cfg(feature = "3d")]
-            lighting: crate::render::Lighting::default(),
-            #[cfg(feature = "3d")]
-            lod: crate::render::LodSettings::default(),
-            #[cfg(feature = "3d")]
-            post: crate::render::Post::default(),
-            #[cfg(feature = "3d")]
-            effects: Vec::new(),
-            #[cfg(feature = "3d")]
-            target_effects: Vec::new(),
-            #[cfg(feature = "3d")]
-            target_cameras: Vec::new(),
-            #[cfg(feature = "3d")]
-            compute_passes: Vec::new(),
-            #[cfg(feature = "3d")]
-            scene_compute_passes: Vec::new(),
-            #[cfg(feature = "3d")]
-            sky: crate::render::Sky::default(),
+            scene3d: crate::render::SceneSettings::new(window_size),
             ui_state: UiState::default(),
             ui: crate::ui::Ui::default(),
             perf: crate::perf::Perf::new(),
@@ -513,12 +397,14 @@ impl Ctx {
         self.draw_retained_ui();
         let capture = !self.gfx.screenshots.is_empty();
         #[cfg(feature = "3d")]
-        if self.gfx.autotune.is_some() {
+        if self.scene3d.autotune.policy.is_some() || self.gfx.autotune.is_some() {
             let sample = self.gfx.renderer.as_ref().and_then(Renderer::quality_sample);
             self.update_quality_autotune(sample, capture);
         }
+        self.follow_msaa();
         #[cfg(feature = "3d")]
         self.draw_ui_panels();
+        self.follow_window_size();
         #[cfg(feature = "3d")]
         self.prepare_3d();
         #[cfg(feature = "3d")]
@@ -557,7 +443,10 @@ impl Ctx {
         self.gfx.ui_list.clear();
         if let Some(shot) = self.gfx.renderer.as_mut().and_then(Renderer::take_screenshot) {
             for req in self.gfx.screenshots.drain(..) {
-                let result = save_png(&req.path, &shot, req.max_size);
+                let result = match req.claimed {
+                    Some(claimed) => save_claimed_png(claimed, &shot, req.max_size),
+                    None => save_png(&req.path, &shot, req.max_size),
+                };
                 match req.reply {
                     Some(reply) => {
                         let _ = reply.send(result);
@@ -587,8 +476,27 @@ impl Ctx {
     /// reloads changed asset files and runs the streaming and residency
     /// step. Windowed and headless loops both run it.
     pub(crate) fn frame_prepare_services(&mut self) {
+        self.follow_window_size();
         self.reload_changed_assets();
         self.pump_streaming();
+    }
+
+    /// The 3D frame takes the sample count in `scene3d.post.msaa`, when the
+    /// GPU can (see `Renderer::follow_msaa`). Runs after each setup callback,
+    /// so a count set there applies before a later one builds 3D state and
+    /// before the first frame, and at every frame.
+    pub(crate) fn follow_msaa(&mut self) {
+        #[cfg(all(feature = "3d", feature = "window"))]
+        if let Some(renderer) = self.gfx.renderer.as_mut() {
+            renderer.follow_msaa(self.scene3d.post.msaa);
+        }
+    }
+
+    /// The 3D camera's view takes the window's size again, also after the
+    /// game replaced `scene3d` (its `Default` has a 1×1 view).
+    fn follow_window_size(&mut self) {
+        #[cfg(feature = "3d")]
+        self.scene3d.camera.set_viewport(self.window_size);
     }
 
     /// Engine side, before the frame's first simulation tick or frame
@@ -621,7 +529,7 @@ impl Ctx {
         self.window_size = size;
         self.camera.set_viewport(size);
         #[cfg(feature = "3d")]
-        self.camera3d.set_viewport(size);
+        self.scene3d.camera.set_viewport(size);
     }
 
     pub(crate) fn quit_requested(&self) -> bool {
@@ -708,6 +616,9 @@ impl Ctx {
     pub(crate) fn advance_tick(&mut self) {
         self.time.advance_tick();
         self.events.set_tick(self.time.sim_tick());
+        // Residency tells ticks apart by this (it is also set before each
+        // system), so loads between ticks see the new one.
+        self.gfx.sim_tick = self.time.sim_tick();
     }
 
     pub(crate) fn set_sim_steps(&mut self, steps: u32) {
@@ -772,7 +683,7 @@ impl Ctx {
         /// Below this many sprites, one thread is faster than many.
         const PARALLEL_MIN: usize = 20_000;
         fn instance(t: &Transform2D, s: &Sprite) -> SpriteInstance {
-            let (size, uv) = region(&s.texture, s.region);
+            let (size, uv) = region(s.texture, s.region);
             SpriteInstance::new(
                 t.position.into(),
                 (size * t.scale).into(),
@@ -880,7 +791,7 @@ impl Ctx {
             };
             match assets::load_image_at(&file, &name) {
                 Ok(image) if (image.width, image.height) == (texture.width(), texture.height()) => {
-                    self.gfx.update_texture(&texture, &image.rgba);
+                    self.gfx.update_texture(texture, &image.rgba);
                     self.assets.reloaded_textures.push(texture);
                     self.assets.reloaded_files.push(name.clone());
                     eprintln!("ponko: reloaded {name}");
@@ -936,8 +847,8 @@ impl Ctx {
     #[inline]
     pub(crate) fn sync_audio_camera(&mut self) {
         self.audio.backend.spatial.camera = crate::d3::AudioListener {
-            position: self.camera3d.position,
-            rotation: self.camera3d.rotation,
+            position: self.scene3d.camera.position,
+            rotation: self.scene3d.camera.rotation,
         };
     }
 
@@ -949,10 +860,10 @@ impl Ctx {
     /// ```
     /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, crab: Texture) {
-    /// ctx.draw(&crab, vec2(400.0, 300.0));
+    /// ctx.draw(crab, vec2(400.0, 300.0));
     /// # }
     /// ```
-    pub fn draw(&mut self, texture: &Texture, pos: Vec2) {
+    pub fn draw(&mut self, texture: Texture, pos: Vec2) {
         self.gfx.draw(texture, pos);
     }
 
@@ -984,7 +895,7 @@ impl Ctx {
     /// # use ponko::prelude::*;
     /// Game::new("Crabs", 800, 600).run(|ctx| {
     ///     let crab = ctx.load_texture("crab.png");
-    ///     move |ctx: &mut Ctx| ctx.draw(&crab, vec2(400.0, 300.0))
+    ///     move |ctx: &mut Ctx| ctx.draw(crab, vec2(400.0, 300.0))
     /// });
     /// ```
     pub fn load_texture(&mut self, path: &str) -> Texture {
@@ -1003,7 +914,7 @@ impl Ctx {
     /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let hit = ctx.load_sound("hit.ogg");
-    /// ctx.play_sound(&hit);
+    /// ctx.play_sound(hit);
     /// # }
     /// ```
     pub fn load_sound(&mut self, path: &str) -> crate::Sound {
@@ -1018,10 +929,10 @@ impl Ctx {
     /// ```
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, hit: Sound) {
-    /// ctx.play_sound(&hit);
+    /// ctx.play_sound(hit);
     /// # }
     /// ```
-    pub fn play_sound(&mut self, sound: &crate::Sound) -> crate::Playing {
+    pub fn play_sound(&mut self, sound: crate::Sound) -> crate::Playing {
         self.audio.play(sound)
     }
 
@@ -1079,8 +990,8 @@ impl Ctx {
     /// Inside a simulation system (added with
     /// [`Game::sim_system`](crate::Game::sim_system)) this is the fixed step
     /// instead, so simulation code just uses `dt()` too. In a system added
-    /// with [`Game::sim_system_every`](crate::Game::sim_system_every) it is
-    /// that many fixed steps.
+    /// with an interval ([`IntoSystem::every`](crate::IntoSystem::every)) it
+    /// is that many fixed steps.
     ///
     /// The meaning follows the running system. To say which clock you mean,
     /// use the explicit pair: [`ctx.time.frame_dt()`](crate::Time::frame_dt)
@@ -1199,6 +1110,43 @@ fn save_png(path: &Path, shot: &Screenshot, max_size: u32) -> Result<Value, Stri
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     }
+    let image = fitted(shot, max_size)?;
+    image
+        .save(path)
+        .map_err(|e| format!("could not save the screenshot to {}: {e}", path.display()))?;
+    Ok(serde_json::json!({ "path": path, "width": image.width(), "height": image.height() }))
+}
+
+/// [`save_png`] into a file the control endpoint claimed, through its
+/// handle; the file is removed if it can't be written.
+fn save_claimed_png(
+    mut claimed: crate::control::ClaimedFile,
+    shot: &Screenshot,
+    max_size: u32,
+) -> Result<Value, String> {
+    let path = claimed.path.clone();
+    let written = fitted(shot, max_size).and_then(|image| {
+        let mut out = std::io::BufWriter::new(claimed.file());
+        image
+            .write_to(&mut out, image::ImageFormat::Png)
+            .and_then(|()| std::io::Write::flush(&mut out).map_err(image::ImageError::IoError))
+            .map_err(|e| format!("could not save the screenshot to {}: {e}", path.display()))?;
+        Ok((image.width(), image.height()))
+    });
+    match written {
+        Ok((width, height)) => {
+            let reply = serde_json::json!({ "path": claimed.path, "width": width, "height": height });
+            claimed.keep();
+            Ok(reply)
+        }
+        // The drop removes it.
+        Err(e) => Err(e),
+    }
+}
+
+/// The captured frame, scaled down so neither side exceeds `max_size`
+/// (0: full size).
+fn fitted(shot: &Screenshot, max_size: u32) -> Result<image::RgbaImage, String> {
     let image = image::RgbaImage::from_raw(shot.width, shot.height, shot.rgba.clone())
         .ok_or("the captured frame has the wrong size")?;
     let longest = shot.width.max(shot.height);
@@ -1211,15 +1159,12 @@ fn save_png(path: &Path, shot: &Screenshot, max_size: u32) -> Result<Value, Stri
     } else {
         image
     };
-    image
-        .save(path)
-        .map_err(|e| format!("could not save the screenshot to {}: {e}", path.display()))?;
-    Ok(serde_json::json!({ "path": path, "width": image.width(), "height": image.height() }))
+    Ok(image)
 }
 
 /// The drawn size (texture pixels) and UV of `region` of `texture`.
 #[inline]
-pub(crate) fn region(texture: &Texture, region: Option<Rect>) -> (Vec2, [u16; 4]) {
+pub(crate) fn region(texture: Texture, region: Option<Rect>) -> (Vec2, [u16; 4]) {
     match region {
         None => (texture.size(), FULL_UV),
         Some(r) => {
@@ -1406,9 +1351,9 @@ mod tests {
     fn draw_without_gpu_queues_sprites() {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
         let tex = Texture::new(0, 16, 8);
-        ctx.draw(&tex, Vec2::new(10.0, 20.0));
+        ctx.draw(tex, Vec2::new(10.0, 20.0));
         ctx.gfx.draw_ex(
-            &tex,
+            tex,
             Vec2::ZERO,
             DrawParams {
                 scale: Vec2::splat(2.0),

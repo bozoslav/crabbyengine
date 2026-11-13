@@ -6,6 +6,7 @@ use crate::Texture;
 /// How HDR light (which can be far brighter than white) is mapped to the
 /// screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u32)]
 pub enum Tonemap {
     /// Film-like: rich contrast, bright colors drift towards white.
@@ -20,16 +21,19 @@ pub enum Tonemap {
     None = 3,
 }
 
-/// Antialiasing of the 3D frame. FXAA and SMAA work on the tone mapped image
-/// before sprites/UI; [`Taa`](Self::Taa) works on the lit HDR frame.
+/// Post antialiasing of the 3D frame ([`Post::anti_aliasing`]). FXAA and
+/// SMAA work on the tone mapped image before sprites/UI; [`Taa`](Self::Taa)
+/// works on the lit HDR frame. Multisampling ([`Post::msaa`]) smooths the
+/// edges of what is drawn as well, under any of these.
 /// ```
 /// use ponko::render::AntiAliasing;
 /// assert_eq!(ponko::render::AntiAliasing::default(), ponko::render::AntiAliasing::None);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 #[repr(u32)]
 pub enum AntiAliasing {
-    /// Preserve the image (MSAA still operates on geometry).
+    /// Preserve the image (multisampling still smooths geometry edges).
     #[default]
     None = 0,
     /// Fast approximate antialiasing, one full-screen pass.
@@ -53,14 +57,10 @@ pub enum AntiAliasing {
     Taa = 3,
 }
 
-/// Smallest and largest [`Post::render_scale`].
-/// ```
-/// assert_eq!(ponko::render::GraphicsQuality::MIN_RENDER_SCALE, 0.25);
-/// assert_eq!(ponko::render::GraphicsQuality::MAX_RENDER_SCALE, 2.0);
-/// ```
-pub const MIN_RENDER_SCALE: f32 = 0.25;
-/// See [`GraphicsQuality::MIN_RENDER_SCALE`](crate::render::GraphicsQuality::MIN_RENDER_SCALE).
-pub const MAX_RENDER_SCALE: f32 = 2.0;
+/// Smallest [`Post::render_scale`]: [`Post::MIN_RENDER_SCALE`].
+pub(crate) const MIN_RENDER_SCALE: f32 = 0.25;
+/// Largest [`Post::render_scale`]: [`Post::MAX_RENDER_SCALE`].
+pub(crate) const MAX_RENDER_SCALE: f32 = 2.0;
 
 /// Ground-truth ambient occlusion. Radius is in world units; quality controls
 /// angular slices and horizon steps. Disabled by default to preserve scenes.
@@ -95,26 +95,30 @@ impl Default for AmbientOcclusion {
     }
 }
 
-/// What happens to the lit 3D frame before it reaches the screen. Sprites
-/// and UI drawn on top are not changed.
+/// What happens to the lit 3D frame before it reaches the screen: the
+/// resolution it is drawn at, antialiasing, ambient occlusion, reflections,
+/// exposure, bloom, color grading and tone mapping. At
+/// [`SceneSettings::post`](crate::render::SceneSettings::post)
+/// (`ctx.scene3d.post`). Sprites and UI drawn on top are not changed.
 ///
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// ctx.post.exposure = 0.5; // half a stop brighter
-/// ctx.post.bloom = 0.15;
-/// ctx.post.tonemap = ponko::render::Tonemap::Neutral;
-/// ctx.post.temperature = 0.2; // warmer
+/// ctx.scene3d.post.exposure = 0.5; // half a stop brighter
+/// ctx.scene3d.post.bloom = 0.15;
+/// ctx.scene3d.post.tonemap = ponko::render::Tonemap::Neutral;
+/// ctx.scene3d.post.temperature = 0.2; // warmer
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Post {
     /// The 3D scene is drawn at this fraction of the window's size in each
     /// direction, then scaled to the window before sprites and UI, which stay
     /// at the window's resolution: below 1 is cheaper and softer, above 1
-    /// (supersampling) sharper and costlier. From [`GraphicsQuality::MIN_RENDER_SCALE`](crate::render::GraphicsQuality::MIN_RENDER_SCALE) to
-    /// [`GraphicsQuality::MAX_RENDER_SCALE`](crate::render::GraphicsQuality::MAX_RENDER_SCALE); anything else is clamped. Default 1 (no extra
-    /// pass).
+    /// (supersampling) sharper and costlier. From [`Post::MIN_RENDER_SCALE`]
+    /// to [`Post::MAX_RENDER_SCALE`]; anything else is clamped. Default 1
+    /// (no extra pass).
     pub render_scale: f32,
     /// How much the scaled image is sharpened, 0 to 1 (an adaptive
     /// contrast filter that only touches soft edges). Only used with a
@@ -153,7 +157,8 @@ pub struct Post {
     /// ```
     /// use ponko::prelude::*;
     /// assert_eq!(ponko::render::Post::default().ssr, 0.0);
-    /// let wet_street = ponko::render::Post { ssr: 1.0, ..Default::default() };
+    /// let mut wet_street = ponko::render::Post::default();
+    /// wet_street.ssr = 1.0;
     /// assert_eq!(wet_street.ssr_max_distance, 30.0);
     /// ```
     pub ssr: f32,
@@ -162,6 +167,33 @@ pub struct Post {
     pub ssr_max_distance: f32,
     /// Post antialiasing. Default off to preserve existing scenes.
     pub anti_aliasing: AntiAliasing,
+    /// Samples per pixel of the 3D frame (multisampling), smoothing the
+    /// edges of what is drawn: 4 (the default) or 2, which costs about a
+    /// third less GPU time on a large screen, with a little more
+    /// stair-stepping on thin edges. Not part of the quality presets.
+    ///
+    /// Set in a setup callback, it applies right after that callback, before
+    /// the first frame. Set before any 3D asset is loaded (in its own, earlier
+    /// callback or a plugin), the 3D pipelines are built only once, with it;
+    /// otherwise, and for a change while the game runs, the 3D targets and
+    /// pipelines are made again (meshes, materials and shaders stay) and
+    /// temporal history restarts.
+    ///
+    /// Only 2 and 4 are counts: any other value keeps the current one. GPUs
+    /// that can't take 2 keep 4, and a browser's WebGL2 has no multisampling
+    /// at all, so turn on FXAA or SMAA there. A count that isn't used is
+    /// said once on stderr and is the Multisampling fallback in
+    /// [`GpuCapabilities`](crate::render::GpuCapabilities).
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// Game::new("game", 1280, 720)
+    ///     .setup(|ctx| ctx.scene3d.post.msaa = 2) // before the rest of the setup
+    ///     .setup(|ctx| {
+    ///         // load models ...
+    ///     })
+    ///     .run();
+    /// ```
+    pub msaa: u32,
     /// How much [`AntiAliasing::Taa`] sharpens the result (it softens the
     /// image a little), 0 to 1. Default 0.25.
     pub taa_sharpness: f32,
@@ -186,11 +218,13 @@ pub struct Post {
     pub vignette: f32,
     /// Color fringes toward the edges, as a cheap lens splits red, green
     /// and blue apart, 0 to 1. Default 0.
-    /// ```
-    /// use ponko::prelude::*;
-    /// let speed = ponko::render::Post { chromatic_aberration: 0.8, lens_distortion: -0.26, lens_scale: 1.04, ..Default::default() };
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
     /// assert_eq!(ponko::render::Post::default().chromatic_aberration, 0.0);
-    /// # let _ = speed;
+    /// let speed = &mut ctx.scene3d.post;
+    /// (speed.chromatic_aberration, speed.lens_distortion, speed.lens_scale) = (0.8, -0.26, 1.04);
+    /// # }
     /// ```
     pub chromatic_aberration: f32,
     /// Bends the picture as a lens would, -1 to 1: above 0 bulges the
@@ -219,6 +253,7 @@ impl Default for Post {
             ssr: 0.0,
             ssr_max_distance: 30.0,
             anti_aliasing: AntiAliasing::None,
+            msaa: 4,
             taa_sharpness: 0.25,
             exposure: 0.0,
             tonemap: Tonemap::Aces,
@@ -238,13 +273,25 @@ impl Default for Post {
 }
 
 impl Post {
+    /// Smallest [`render_scale`](Self::render_scale).
+    /// ```
+    /// assert_eq!(ponko::render::Post::MIN_RENDER_SCALE, 0.25);
+    /// ```
+    pub const MIN_RENDER_SCALE: f32 = MIN_RENDER_SCALE;
+    /// Largest [`render_scale`](Self::render_scale).
+    /// ```
+    /// assert_eq!(ponko::render::Post::MAX_RENDER_SCALE, 2.0);
+    /// ```
+    pub const MAX_RENDER_SCALE: f32 = MAX_RENDER_SCALE;
+
     /// The size the 3D scene is drawn at in a window of `window` pixels:
     /// scaled by [`render_scale`](Self::render_scale) (clamped; a NaN counts
     /// as 1), at least 1 pixel and at most `limit` wide (0: no limit).
     ///
     /// ```
     /// use ponko::prelude::*;
-    /// let post = ponko::render::Post { render_scale: 0.5, ..Default::default() };
+    /// let mut post = ponko::render::Post::default();
+    /// post.render_scale = 0.5;
     /// assert_eq!(post.render_size((1920, 1080)), (960, 540));
     /// ```
     #[must_use]
@@ -259,7 +306,7 @@ impl Post {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let (w, h, pixels) = ponko::render::Post::neutral_lut(32);
-    /// ctx.post.lut = Some(ctx.gfx.create_texture(w, h, &pixels));
+    /// ctx.scene3d.post.lut = Some(ctx.gfx.create_texture(w, h, &pixels));
     /// # }
     /// ```
     ///
@@ -413,6 +460,19 @@ fn white_balance(temperature: f32, tint: f32) -> [f32; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn msaa_is_a_post_setting_that_headless_runs_keep() {
+        crate::Game::new("samples", 32, 32).run_headless(2, |ctx| {
+            assert_eq!(ctx.scene3d.post.msaa, 4, "the default");
+            // Without a GPU nothing is switched; any count, even one no GPU
+            // takes, is kept as the setting and ignored.
+            for samples in [0, 1, 2, 8] {
+                ctx.scene3d.post.msaa = samples;
+                assert_eq!(ctx.scene3d.post.msaa, samples);
+            }
+        });
+    }
 
     #[test]
     fn scaled_sizes_round_clamp_and_never_reach_zero() {

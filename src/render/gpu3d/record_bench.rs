@@ -160,11 +160,11 @@ impl RecordBench {
         let target = output.create_view(&Default::default());
         let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(scene.size.0 as f32, scene.size.1 as f32));
-        ctx.sky.atmosphere = scene.effects;
+        ctx.scene3d.sky.atmosphere = scene.effects;
         if scene.effects {
-            ctx.post.anti_aliasing = AntiAliasing::Taa;
-            ctx.post.ambient_occlusion.enabled = true;
-            ctx.post.ssr = 1.0;
+            ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
+            ctx.scene3d.post.ambient_occlusion.enabled = true;
+            ctx.scene3d.post.ssr = 1.0;
         }
         let meshes: Vec<Mesh> = (0..scene.meshes.max(1))
             .map(|i| {
@@ -193,9 +193,9 @@ impl RecordBench {
             let mesh = meshes[(i as u32).wrapping_mul(2_654_435_761) as usize % meshes.len()];
             ctx.world.spawn((Transform3D::at(at), Model::new(mesh)));
         }
-        ctx.camera3d.position = Vec3::new(0.0, side as f32 * 0.5, side as f32 * 0.4);
-        ctx.camera3d.look_at(Vec3::new(0.0, 0.0, -(side as f32) * 0.6));
-        ctx.camera3d.far = side as f32 * 4.0;
+        ctx.scene3d.camera.position = Vec3::new(0.0, side as f32 * 0.5, side as f32 * 0.4);
+        ctx.scene3d.camera.look_at(Vec3::new(0.0, 0.0, -(side as f32) * 0.6));
+        ctx.scene3d.camera.far = side as f32 * 4.0;
         Some(Self {
             device,
             queue,
@@ -222,31 +222,31 @@ impl RecordBench {
     pub fn frame(&mut self) -> (Duration, usize) {
         let ctx = &mut self.ctx;
         // The camera drifts, as a game's does: every frame's uniforms change.
-        ctx.camera3d.position.x = (self.frames as f32 * 0.01).sin();
+        ctx.scene3d.camera.position.x = (self.frames as f32 * 0.01).sin();
         let mut frame = std::mem::take(&mut self.frame);
-        frame.lod = ctx.lod;
-        frame.motion.enabled =
-            ctx.post.anti_aliasing == AntiAliasing::Taa || (ctx.post.ao_temporal && ctx.post.ambient_occlusion.enabled);
+        frame.lod = ctx.scene3d.lod;
+        frame.motion.enabled = ctx.scene3d.post.anti_aliasing == AntiAliasing::Taa
+            || (ctx.scene3d.post.ao_temporal && ctx.scene3d.post.ambient_occlusion.enabled);
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::splat(0.2),
                 ground: Vec3::splat(0.1),
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (self.frames as f32 / 60.0, 1.0 / 60.0),
-            occlusion: ctx.camera3d.occlusion_culling,
+            occlusion: ctx.scene3d.camera.occlusion_culling,
         };
         self.renderer.prepare(
             &self.device,

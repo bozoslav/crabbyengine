@@ -1,9 +1,11 @@
 //! The control endpoint: lets tools (agents through `ponko-mcp`, the
 //! inspector, scripts) look inside a running game and drive it.
 //!
-//! Off by default. Turned on with [`Game::control_endpoint`](crate::Game::control_endpoint)
-//! or the `PONKO_CONTROL=1` environment variable, so tools can enable it
-//! for any game without code changes.
+//! Off by default. Turned on with [`Game::control_endpoint`](crate::Game::control_endpoint),
+//! or by the `PONKO_CONTROL=1` environment variable in builds that honor it
+//! (debug builds, and release builds with the `control-env` feature), so
+//! tools can enable it for a game under development without code changes. A
+//! release build of a game that did neither never opens a port.
 //!
 //! Protocol: TCP on `127.0.0.1`, one JSON object per line each way.
 //! Request: `{"id": 1, "token": "...", "method": "entity.get", "params": {...}}`.
@@ -13,11 +15,11 @@
 //! Requests are applied by the game loop between frames (or between ticks
 //! when headless), so they never race the simulation or each other.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -59,42 +61,83 @@ const EXIT_FLUSH_TIMEOUT: Duration = Duration::from_secs(2);
 /// How often the accept loop checks whether the game has shut down.
 const ACCEPT_POLL: Duration = Duration::from_millis(20);
 
+/// The longest request line a connection may send. Reading stops there,
+/// before the token is checked, so a stranger can't make the game buffer
+/// an endless line.
+const MAX_LINE: usize = 4 * 1024 * 1024;
+
+/// How long a new connection may take to send its first request with the
+/// right token. Until then it holds one of the [`MAX_CONNECTIONS`] slots, so
+/// connections that never say anything can't lock tools out. Afterwards a
+/// connection may stay idle (one bound to an input scenario, say).
+const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How many connections may be open at once. Each has a thread; past this
+/// a new connection is told why and closed.
+const MAX_CONNECTIONS: usize = 32;
+
 /// Upper bound for `entities.list`, so one request can't produce gigabytes.
 const MAX_LIST: usize = 10_000;
 
 pub(crate) fn env_flag(name: &str) -> bool {
-    crate::environment::var(name).is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    std::env::var(name).is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
 }
 
+/// Whether this build lets [`ENV_CONTROL`] open the endpoint: debug builds,
+/// and release builds with the `control-env` feature (which the MCP `launch`
+/// tool turns on). A shipped release build without it ignores the variable,
+/// so players can't open a port into a game that didn't ask for one.
+pub(crate) const ENV_CONTROL_HONORED: bool = cfg!(any(debug_assertions, feature = "control-env"));
+
+/// Whether `PONKO_CONTROL=1` turns the endpoint on in this build. Says so on
+/// stderr when the variable is set but ignored, so a tool waiting for the
+/// endpoint can tell why it never opens.
+pub(crate) fn env_control() -> bool {
+    env_control_with(env_flag(ENV_CONTROL), ENV_CONTROL_HONORED)
+}
+
+fn env_control_with(requested: bool, honored: bool) -> bool {
+    if requested && !honored {
+        eprintln!("{ENV_CONTROL_IGNORED}");
+    }
+    requested && honored
+}
+
+/// What a release build without `control-env` prints when `PONKO_CONTROL` is
+/// set. `ponko-mcp` looks for the start of it in a launched game's log.
+pub(crate) const ENV_CONTROL_IGNORED: &str = "ponko: PONKO_CONTROL is ignored: this release build opens the control endpoint only with the `control-env` feature or `Game::control_endpoint(true)`";
+
 /// The directory where running instances register: `$PONKO_INSTANCES_DIR`,
-/// else `~/.ponko/instances` (`%LOCALAPPDATA%\crabby\instances` on Windows).
+/// else `~/.ponko/instances` (`%LOCALAPPDATA%\ponko\instances` on Windows).
 pub(crate) fn instances_dir() -> Option<PathBuf> {
-    if let Some(dir) = crate::environment::var_os(ENV_INSTANCES_DIR) {
+    if let Some(dir) = std::env::var_os(ENV_INSTANCES_DIR) {
         return Some(PathBuf::from(dir));
     }
     if cfg!(windows) {
-        crate::environment::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("ponko").join("instances"))
+        std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("ponko").join("instances"))
     } else {
-        crate::environment::var_os("HOME").map(|d| PathBuf::from(d).join(".ponko").join("instances"))
+        std::env::var_os("HOME").map(|d| PathBuf::from(d).join(".ponko").join("instances"))
     }
 }
 
-/// A random token. The keys of `RandomState` come from the OS's random
-/// source, which is plenty for telling local tools apart from strangers.
-fn random_token() -> String {
-    use std::hash::{BuildHasher, Hasher};
-    let mut out = String::new();
-    for _ in 0..2 {
-        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-        h.write_u128(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos(),
-        );
-        out.push_str(&format!("{:016x}", h.finish()));
-    }
-    out
+/// A random 128-bit token, hex, from the operating system's secure random
+/// source. Any local program that can read the registry file may connect;
+/// the token keeps out everything else (other users, web pages talking to
+/// localhost), so it must not be guessable.
+#[cfg(any(unix, windows))]
+fn random_token() -> std::io::Result<String> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(format!("no secure random source: {e}")))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// No TCP endpoint on other platforms (the web), so no token either.
+#[cfg(not(any(unix, windows)))]
+fn random_token() -> std::io::Result<String> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "the control endpoint needs a secure random source",
+    ))
 }
 
 struct Request {
@@ -185,10 +228,20 @@ impl Control {
     /// stderr for `logs.get`. The capture is one per process, so tests that
     /// open endpoints side by side leave it off.
     fn start_with(name: &str, headless: bool, capture_logs: bool) -> std::io::Result<Self> {
+        Self::start_with_auth_timeout(name, headless, capture_logs, AUTH_TIMEOUT)
+    }
+
+    /// [`start_with`](Self::start_with), with another [`AUTH_TIMEOUT`].
+    fn start_with_auth_timeout(
+        name: &str,
+        headless: bool,
+        capture_logs: bool,
+        auth_timeout: Duration,
+    ) -> std::io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         listener.set_nonblocking(true)?;
         let addr = listener.local_addr()?;
-        let token: Arc<str> = random_token().into();
+        let token: Arc<str> = random_token()?.into();
         let (tx, requests) = mpsc::channel();
         let shutdown = Arc::new(AtomicBool::new(false));
 
@@ -204,7 +257,7 @@ impl Control {
                 "started": SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()),
                 "engine_version": env!("CARGO_PKG_VERSION"),
                 // Set by tools that launch games, to find the instance they started.
-                "launch_id": crate::environment::var(ENV_LAUNCH_ID).ok(),
+                "launch_id": std::env::var(ENV_LAUNCH_ID).ok(),
             });
             match write_registry(&dir, addr.port(), &info) {
                 Ok(path) => Some(path),
@@ -222,7 +275,7 @@ impl Control {
         let counted = owed.clone();
         thread::Builder::new()
             .name("ponko-control".into())
-            .spawn(move || accept_loop(listener, token, tx, stop, counted))?;
+            .spawn(move || accept_loop(listener, token, tx, stop, counted, auth_timeout))?;
         let logs = capture_logs.then(crate::logs::Capture::start).flatten();
         if capture_logs {
             eprintln!("ponko: control endpoint on {addr}");
@@ -310,14 +363,28 @@ fn accept_loop(
     tx: Sender<Request>,
     shutdown: Arc<AtomicBool>,
     owed: Arc<Owed>,
+    auth_timeout: Duration,
 ) {
+    let open = Arc::new(AtomicUsize::new(0));
     while !shutdown.load(Ordering::Relaxed) {
         match listener.accept() {
-            Ok((stream, _)) => {
+            Ok((mut stream, _)) => {
+                let Some(slot) = ConnectionSlot::take(&open) else {
+                    let _ = stream.set_nonblocking(false);
+                    let _ = writeln!(
+                        stream,
+                        "{}",
+                        json!({ "id": null, "error": format!("too many connections (at most {MAX_CONNECTIONS}); close one and retry") })
+                    );
+                    // Not drained here, so the accept loop never waits.
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                    continue;
+                };
                 let (token, tx, owed) = (token.clone(), tx.clone(), owed.clone());
-                let _ = thread::Builder::new()
-                    .name("ponko-control-conn".into())
-                    .spawn(move || serve_connection(stream, &token, &tx, &owed));
+                let _ = thread::Builder::new().name("ponko-control-conn".into()).spawn(move || {
+                    let _slot = slot;
+                    serve_connection(stream, &token, &tx, &owed, auth_timeout);
+                });
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(ACCEPT_POLL),
             Err(_) => thread::sleep(ACCEPT_POLL),
@@ -325,11 +392,117 @@ fn accept_loop(
     }
 }
 
-fn serve_connection(stream: TcpStream, token: &str, tx: &Sender<Request>, owed: &Arc<Owed>) {
+/// One of the [`MAX_CONNECTIONS`] open connections; frees it when dropped.
+struct ConnectionSlot(Arc<AtomicUsize>);
+
+impl ConnectionSlot {
+    fn take(open: &Arc<AtomicUsize>) -> Option<Self> {
+        // Counted in first; past the cap, dropping it counts it out again.
+        let slot = Self(open.clone());
+        if open.fetch_add(1, Ordering::AcqRel) < MAX_CONNECTIONS {
+            Some(slot)
+        } else {
+            None
+        }
+    }
+}
+
+impl Drop for ConnectionSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// Reads one request line of at most [`MAX_LINE`] bytes, without the
+/// newline. `Ok(None)`: the client closed the connection.
+fn read_request_line(reader: &mut impl BufRead) -> std::io::Result<Option<String>> {
+    let mut buf = Vec::new();
+    let read = reader.take(MAX_LINE as u64 + 1).read_until(b'\n', &mut buf)?;
+    if read == 0 {
+        return Ok(None);
+    }
+    if buf.last() == Some(&b'\n') {
+        buf.pop();
+    } else if buf.len() > MAX_LINE {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("request line longer than {MAX_LINE} bytes"),
+        ));
+    }
+    if buf.last() == Some(&b'\r') {
+        buf.pop();
+    }
+    String::from_utf8(buf)
+        .map(Some)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+/// A connection's reading side: until `deadline` (while the client hasn't
+/// sent the right token yet), every read waits only for the time left, so
+/// a client trickling bytes can't hold its slot either.
+struct DeadlineReader {
+    stream: TcpStream,
+    deadline: Option<std::time::Instant>,
+}
+
+impl Read for DeadlineReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(deadline) = self.deadline {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return Err(std::io::ErrorKind::TimedOut.into());
+            }
+            self.stream.set_read_timeout(Some(left))?;
+        }
+        self.stream.read(buf)
+    }
+}
+
+impl DeadlineReader {
+    /// The client proved it has the token: no deadlines from now on (the
+    /// write timeout is the socket's, shared with the writing handle).
+    fn trust(&mut self) {
+        if self.deadline.take().is_some() {
+            let _ = self.stream.set_read_timeout(None);
+            let _ = self.stream.set_write_timeout(None);
+        }
+    }
+
+    fn trusted(&self) -> bool {
+        self.deadline.is_none()
+    }
+}
+
+/// Ends a connection we refuse after the last reply: says we're done
+/// writing, then reads (and drops) what the client still sends for a moment.
+/// Closing a socket with unread input resets the connection, and a reset
+/// can throw away the reply before the client read it (Windows does).
+fn hang_up(stream: &TcpStream) {
+    const DRAIN_FOR: Duration = Duration::from_millis(200);
+    const DRAIN_AT_MOST: usize = 1024 * 1024;
+    if stream.shutdown(std::net::Shutdown::Write).is_err() {
+        return;
+    }
+    let until = std::time::Instant::now() + DRAIN_FOR;
+    let (mut drained, mut buf) = (0, [0u8; 8192]);
+    let mut stream = stream;
+    while drained < DRAIN_AT_MOST {
+        let left = until.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() || stream.set_read_timeout(Some(left)).is_err() {
+            return;
+        }
+        match stream.read(&mut buf) {
+            Ok(0) | Err(_) => return,
+            Ok(n) => drained += n,
+        }
+    }
+}
+
+fn serve_connection(stream: TcpStream, token: &str, tx: &Sender<Request>, owed: &Arc<Owed>, auth_timeout: Duration) {
     static NEXT_CONNECTION: AtomicU64 = AtomicU64::new(1);
     let connection = NEXT_CONNECTION.fetch_add(1, Ordering::Relaxed);
     let mut bound_scenario = false;
-    serve_lines(stream, token, tx, connection, &mut bound_scenario, owed);
+    serve_lines(stream, token, tx, connection, &mut bound_scenario, owed, auth_timeout);
     if bound_scenario {
         // The client that started the scenario is gone: let go of its input.
         let (reply, _) = mpsc::channel();
@@ -348,14 +521,36 @@ fn serve_lines(
     connection: u64,
     bound_scenario: &mut bool,
     owed: &Arc<Owed>,
+    auth_timeout: Duration,
 ) {
     let _ = stream.set_nonblocking(false);
+    // A client that doesn't read its replies can't hold the connection
+    // either: until it sends the token, a blocked write gives up too.
+    let _ = stream.set_write_timeout(Some(auth_timeout));
     let Ok(mut writer) = stream.try_clone() else {
         return;
     };
-    for line in BufReader::new(stream).lines() {
-        let Ok(line) = line else {
-            return;
+    let mut reader = BufReader::new(DeadlineReader {
+        stream,
+        deadline: Some(std::time::Instant::now() + auth_timeout),
+    });
+    loop {
+        let line = match read_request_line(&mut reader) {
+            Ok(Some(line)) => line,
+            Ok(None) => return,
+            Err(e) => {
+                // Too long, not UTF-8, or no token in time: say why, then
+                // hang up (the rest of an over-long line can't be told apart
+                // from a new request).
+                let error = if matches!(e.kind(), std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock) {
+                    format!("no request with the right token within {auth_timeout:?}; closing")
+                } else {
+                    e.to_string()
+                };
+                let _ = writeln!(writer, "{}", json!({ "id": null, "error": error }));
+                hang_up(&writer);
+                return;
+            }
         };
         if line.trim().is_empty() {
             continue;
@@ -363,7 +558,17 @@ fn serve_lines(
         // Owed from before the game can see the request until the reply is
         // written: a game that exits in between waits for this.
         let owed_reply = owed.one_more();
-        let reply = handle_line(&line, token, tx, connection);
+        let (reply, trusted) = handle_line(&line, token, tx, connection);
+        if trusted {
+            reader.get_mut().trust();
+        } else if !reader.get_ref().trusted() {
+            // The first request must carry the token: say why, then hang
+            // up, so strangers get one reply and no more.
+            drop(owed_reply);
+            let _ = writeln!(writer, "{reply}").and_then(|()| writer.flush());
+            hang_up(&writer);
+            return;
+        }
         if reply["result"]["bound_to_connection"] == true {
             *bound_scenario = true;
         }
@@ -375,19 +580,41 @@ fn serve_lines(
     }
 }
 
-fn handle_line(line: &str, token: &str, tx: &Sender<Request>, connection: u64) -> Value {
+/// Whether `sent` is `token`, in time that doesn't depend on where they
+/// differ, so the token can't be guessed a byte at a time.
+fn token_matches(sent: Option<&str>, token: &str) -> bool {
+    let Some(sent) = sent else {
+        return false;
+    };
+    let (a, b) = (sent.as_bytes(), token.as_bytes());
+    let mut diff = u8::from(a.len() != b.len());
+    for (i, &t) in b.iter().enumerate() {
+        diff |= t ^ a.get(i).copied().unwrap_or(!t);
+    }
+    std::hint::black_box(diff) == 0
+}
+
+/// The reply to one request line, and whether it carried the right token.
+fn handle_line(line: &str, token: &str, tx: &Sender<Request>, connection: u64) -> (Value, bool) {
     let msg: Value = match serde_json::from_str(line) {
         Ok(v) => v,
-        Err(e) => return json!({ "id": null, "error": format!("invalid JSON: {e}") }),
+        Err(e) => return (json!({ "id": null, "error": format!("invalid JSON: {e}") }), false),
     };
+    if !token_matches(msg.get("token").and_then(Value::as_str), token) {
+        let id = msg.get("id").cloned().unwrap_or(Value::Null);
+        let error = "missing or wrong token (see the instance's registry file)";
+        return (json!({ "id": id, "error": error }), false);
+    }
+    (handle_request(&msg, tx, connection), true)
+}
+
+/// A request with the right token.
+fn handle_request(msg: &Value, tx: &Sender<Request>, connection: u64) -> Value {
     let id = msg.get("id").cloned().unwrap_or(Value::Null);
     let reply = |r: Result<Value, String>| match r {
         Ok(result) => json!({ "id": id, "result": result }),
         Err(error) => json!({ "id": id, "error": error }),
     };
-    if msg.get("token").and_then(Value::as_str) != Some(token) {
-        return reply(Err("missing or wrong token (see the instance's registry file)".into()));
-    }
     let Some(method) = msg.get("method").and_then(Value::as_str) else {
         return reply(Err("missing `method`".into()));
     };
@@ -500,10 +727,10 @@ fn logs_get(params: &Value) -> Result<Value, String> {
 fn answer(ctx: &mut Ctx, req: Request) {
     if req.method == "screenshot" && !ctx.headless {
         // Answered after the next frame is drawn.
-        match screenshot_path(ctx, &req.params) {
-            Ok(path) => {
+        match screenshot_path(&req.params) {
+            Ok(claimed) => {
                 let max_size = req.params.get("max_size").and_then(Value::as_u64).unwrap_or(0) as u32;
-                ctx.gfx.queue_screenshot(path, max_size, Some(req.reply));
+                ctx.gfx.queue_claimed_screenshot(claimed, max_size, req.reply);
             }
             Err(e) => {
                 let _ = req.reply.send(Err(e));
@@ -526,17 +753,359 @@ fn camera_json(ctx: &Ctx) -> Value {
     })
 }
 
-/// The `path` param, or a fresh file in the temp dir.
-fn screenshot_path(ctx: &Ctx, params: &Value) -> Result<PathBuf, String> {
+/// The `path` param (a new `.png` in the game's folder, see [`new_game_file`]),
+/// or a new file in the temp dir. Either way the file is made here, empty,
+/// so the name is ours before anything is written to it.
+fn screenshot_path(params: &Value) -> Result<ClaimedFile, String> {
     match params.get("path") {
-        None | Some(Value::Null) => Ok(std::env::temp_dir().join(format!(
-            "ponko-screenshot-{}-{}.png",
-            std::process::id(),
-            ctx.time.frame()
-        ))),
-        Some(Value::String(p)) => Ok(PathBuf::from(p)),
+        None | Some(Value::Null) => new_temp_file("screenshot", "png"),
+        Some(Value::String(p)) => new_game_file(p, "png"),
         Some(_) => Err("`path` must be a string".into()),
     }
+}
+
+/// Names Windows keeps for devices, with any extension (`nul.json` is the
+/// null device there).
+fn is_reserved_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end().to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$")
+        || ["COM", "LPT"].iter().any(|p| {
+            stem.strip_prefix(p).is_some_and(|n| {
+                let mut digits = n.chars();
+                // Windows counts 0 and the superscript digits too.
+                matches!(
+                    (digits.next(), digits.next()),
+                    (Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
+                )
+            })
+        })
+}
+
+/// Checks a file path a tool sent: relative, made only of plain names (no
+/// `..`, `.`, root or drive, no hidden names starting with `.`, no Windows
+/// device names), ending in `.{extension}`. So a tool can only name files
+/// of that type below the folder the path is taken from.
+fn check_tool_path(path: &str, extension: &str) -> Result<(), String> {
+    use std::path::Component;
+    let p = Path::new(path);
+    let plain = !path.is_empty()
+        && p.components().all(|c| match c {
+            Component::Normal(name) => name
+                .to_str()
+                .is_some_and(|n| !n.starts_with('.') && !is_reserved_name(n)),
+            _ => false,
+        });
+    // `\` separates folders on Windows only; refuse it everywhere, so a path
+    // means the same on every system.
+    if !plain || path.contains('\\') || path.contains(':') {
+        return Err(format!(
+            "`path` must be relative, below the game's folder, without `..`, hidden or device names (got {path:?})"
+        ));
+    }
+    if p.extension().and_then(|e| e.to_str()) != Some(extension) {
+        return Err(format!("`path` must end in .{extension} (got {path:?})"));
+    }
+    Ok(())
+}
+
+/// Fails unless `file`, with links followed as far as it exists, is below
+/// `root`: a link inside the game's folder must not lead a tool outside it.
+fn check_below(root: &Path, file: &Path) -> Result<(), String> {
+    let root = root
+        .canonicalize()
+        .map_err(|e| format!("can't resolve {}: {e}", root.display()))?;
+    // The nearest part of the path that exists (a dangling link counts, and
+    // then fails to resolve).
+    let mut existing = file;
+    while existing.symlink_metadata().is_err() {
+        match existing.parent() {
+            Some(parent) => existing = parent,
+            None => return Err(format!("{} is not below {}", file.display(), root.display())),
+        }
+    }
+    let real = existing
+        .canonicalize()
+        .map_err(|e| format!("can't resolve {}: {e}", existing.display()))?;
+    if real.starts_with(&root) {
+        Ok(())
+    } else {
+        Err(format!(
+            "`path` leads outside {} (through a link to {})",
+            root.display(),
+            real.display()
+        ))
+    }
+}
+
+/// The game's working folder, where tools' files go (the `cwd` of its
+/// registry entry).
+fn game_folder() -> Result<PathBuf, String> {
+    std::env::current_dir().map_err(|e| format!("the game has no working folder: {e}"))
+}
+
+/// A file a tool names, in the game's working folder. See
+/// [`check_tool_path`] and [`check_below`].
+fn game_file(path: &str, extension: &str) -> Result<PathBuf, String> {
+    check_tool_path(path, extension)?;
+    let cwd = game_folder()?;
+    let file = cwd.join(path);
+    check_below(&cwd, &file)?;
+    Ok(file)
+}
+
+/// Makes the folders `file` (below `root`) needs with `create`, checking
+/// before and after that no link leads out of `root`: a folder swapped for
+/// a link in between is caught by the second check.
+fn make_folders(root: &Path, file: &Path, create: impl FnOnce(&Path) -> std::io::Result<()>) -> Result<(), String> {
+    check_below(root, file)?;
+    if let Some(dir) = file.parent() {
+        create(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    }
+    check_below(root, file)
+}
+
+/// Writes `bytes` to a [`game_file`], making missing folders: only to a new
+/// file unless `overwrite`, and never through a link.
+fn write_game_file(path: &str, extension: &str, bytes: &[u8], overwrite: bool) -> Result<PathBuf, String> {
+    let file = game_file(path, extension)?;
+    make_folders(&game_folder()?, &file, |dir| std::fs::create_dir_all(dir))?;
+    if !overwrite {
+        let mut out = claim_new_file(&file, "pass overwrite: true")?;
+        return match out.write_all(bytes) {
+            Ok(()) => Ok(file),
+            Err(e) => {
+                let _ = std::fs::remove_file(&file);
+                Err(format!("could not write {}: {e}", file.display()))
+            }
+        };
+    }
+    if file.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(format!(
+            "{} is a link; overwrite replaces only plain files",
+            file.display()
+        ));
+    }
+    let mut out = open_to_overwrite(&file)?;
+    out.write_all(bytes)
+        .map_err(|e| format!("could not write {}: {e}", file.display()))?;
+    Ok(file)
+}
+
+/// Opens `file` to replace it, emptied, if it is a plain file of its own:
+/// not a link (on unix the open itself refuses one, `O_NOFOLLOW`, also one
+/// made after [`write_game_file`] checked), not a pipe or device (opened
+/// without waiting, `O_NONBLOCK`, and refused), not a file with other
+/// names (hard links; unix only), and not a file a screenshot or trace has
+/// claimed (on Windows recognized by its full path only, see [`FileId`]).
+/// It is emptied only once all that is checked.
+fn open_to_overwrite(file: &Path) -> Result<std::fs::File, String> {
+    let fail = |why: String| format!("could not write {}: {why}", file.display());
+    let busy = || fail("a screenshot or trace will be written there; name another file, or wait for it".into());
+    if is_claimed_path(file) {
+        return Err(busy());
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    let out = options.open(file).map_err(|e| fail(e.to_string()))?;
+    let meta = out.metadata().map_err(|e| fail(e.to_string()))?;
+    if !meta.is_file() {
+        return Err(fail("not a plain file".into()));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if meta.nlink() > 1 {
+            return Err(fail(
+                "the file has other names (hard links); overwrite replaces only plain files".into(),
+            ));
+        }
+        // Claimed between the check above and the open.
+        if ClaimedFile::is_claimed(&(meta.dev(), meta.ino())) {
+            return Err(busy());
+        }
+    }
+    out.set_len(0).map_err(|e| fail(e.to_string()))?;
+    Ok(out)
+}
+
+/// Makes `file` new and empty (never one that exists, or a link) and
+/// returns it open for writing, so what is written can't end up anywhere
+/// else. `instead` says what to do when it exists.
+fn claim_new_file(file: &Path, instead: &str) -> Result<std::fs::File, String> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(file)
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                format!("{} already exists; name a new file, or {instead}", file.display())
+            } else {
+                format!("could not create {}: {e}", file.display())
+            }
+        })
+}
+
+/// A new file a tool will have written later (screenshots, traces),
+/// claimed when it asked: written through [`file`](Self::file), never
+/// reopened by name. Removed when dropped unless [`keep`](Self::keep) was
+/// called, so a game that shuts down (or a request that fails) before
+/// writing it leaves no empty file behind. While claimed, `world.save`
+/// won't overwrite it, and it is removed only if the path still names it.
+pub(crate) struct ClaimedFile {
+    pub(crate) path: PathBuf,
+    file: Option<std::fs::File>,
+    /// Which file it is, while it is claimed.
+    id: Option<FileId>,
+}
+
+/// Which file a path or handle is: its device and inode on unix; elsewhere
+/// its full path, in lower case (Windows' names ignore case).
+#[cfg(unix)]
+type FileId = (u64, u64);
+#[cfg(not(unix))]
+type FileId = PathBuf;
+
+/// The [`FileId`] of what `path` names (not following a link), if anything.
+fn file_id(path: &Path) -> Option<FileId> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = path.symlink_metadata().ok()?;
+        Some((meta.dev(), meta.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let full = path.canonicalize().ok()?;
+        Some(PathBuf::from(full.to_string_lossy().to_lowercase()))
+    }
+}
+
+/// Whether `path` names a file a screenshot or trace has claimed and not
+/// written yet: other writers leave it alone (writing over it would lose
+/// what they wrote when the claim is given up).
+pub(crate) fn is_claimed_path(path: &Path) -> bool {
+    file_id(path).is_some_and(|id| ClaimedFile::is_claimed(&id))
+}
+
+/// Files claimed and neither kept nor given up yet.
+static CLAIMED: std::sync::Mutex<Vec<FileId>> = std::sync::Mutex::new(Vec::new());
+
+fn claimed_files() -> std::sync::MutexGuard<'static, Vec<FileId>> {
+    CLAIMED.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl ClaimedFile {
+    fn new(path: PathBuf, file: std::fs::File) -> Self {
+        #[cfg(unix)]
+        let id = {
+            use std::os::unix::fs::MetadataExt;
+            file.metadata().ok().map(|m| (m.dev(), m.ino()))
+        };
+        #[cfg(not(unix))]
+        let id = file_id(&path);
+        claimed_files().extend(id.iter().cloned());
+        Self {
+            path,
+            file: Some(file),
+            id,
+        }
+    }
+
+    fn is_claimed(id: &FileId) -> bool {
+        claimed_files().contains(id)
+    }
+
+    fn unclaim(&mut self) -> Option<FileId> {
+        let id = self.id.take()?;
+        let mut claimed = claimed_files();
+        if let Some(at) = claimed.iter().position(|c| *c == id) {
+            claimed.swap_remove(at);
+        }
+        Some(id)
+    }
+
+    /// The claimed file, to write it.
+    pub(crate) fn file(&mut self) -> &mut std::fs::File {
+        self.file
+            .as_mut()
+            .expect("a claimed file is open until it is kept or dropped")
+    }
+
+    /// The file is written: keep it.
+    pub(crate) fn keep(mut self) {
+        // Closed here; with no handle left, the drop removes nothing.
+        let _ = self.file.take();
+        self.unclaim();
+    }
+
+    /// Gives the file up unwritten (or half written): removes it, so the
+    /// same path can be asked for again. The same as dropping it.
+    pub(crate) fn abandon(self) {}
+}
+
+impl Drop for ClaimedFile {
+    fn drop(&mut self) {
+        let id = self.unclaim();
+        // Closed first: Windows can't remove an open file.
+        if self.file.take().is_none() {
+            return;
+        }
+        // Only if the path still names the claimed file: not one that
+        // replaced it since.
+        if id.is_none_or(|id| file_id(&self.path) == Some(id)) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+/// [`game_file`] for tools that only look (screenshots, traces): a new
+/// file, with its folders made and the file claimed here, never one that
+/// exists.
+fn new_game_file(path: &str, extension: &str) -> Result<ClaimedFile, String> {
+    let file = game_file(path, extension)?;
+    make_folders(&game_folder()?, &file, |dir| std::fs::create_dir_all(dir))?;
+    let claimed = claim_new_file(&file, "leave out `path` for a temp file")?;
+    Ok(ClaimedFile::new(file, claimed))
+}
+
+/// A new file in the temp dir, with a random name, claimed here.
+fn new_temp_file(kind: &str, extension: &str) -> Result<ClaimedFile, String> {
+    let random = random_token().map_err(|e| e.to_string())?;
+    let file = std::env::temp_dir().join(format!(
+        "ponko-{kind}-{}-{}.{extension}",
+        std::process::id(),
+        &random[..16]
+    ));
+    let claimed = claim_new_file(&file, "try again")?;
+    Ok(ClaimedFile::new(file, claimed))
+}
+
+/// The `path` param, a `.json` file in `assets/` (scenes and prefabs). See
+/// [`check_asset_path`].
+fn asset_path_param(params: &Value) -> Result<&str, String> {
+    let path = str_param(params, "path")?;
+    #[cfg(not(target_arch = "wasm32"))]
+    let roots = crate::assets::asset_roots();
+    #[cfg(target_arch = "wasm32")]
+    let roots: Vec<PathBuf> = Vec::new();
+    check_asset_path(path, &roots)?;
+    Ok(path)
+}
+
+/// Checks an asset path a tool sent: [`check_tool_path`], and no link
+/// inside an `assets/` folder (`roots`) leads out of it. A folder that is
+/// itself a link (a shared `assets/` folder, say) is trusted: the check
+/// starts where it leads.
+fn check_asset_path(path: &str, roots: &[PathBuf]) -> Result<(), String> {
+    check_tool_path(path, "json")?;
+    for root in roots {
+        if root.is_dir() {
+            check_below(root, &root.join(path))?;
+        }
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------------ methods
@@ -588,27 +1157,27 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "world.save",
-        "save every entity with reflected components, and reflected resources, to a JSON file; params: path. Returns counts",
+        "save every entity with reflected components, and reflected resources, to a JSON file; params: path (a .json file relative to the game's folder, no `..`), overwrite? (false: an existing file is refused). Returns counts",
     ),
     (
         "world.load",
-        "replace every entity with a save file's (same ids); params: path. Checked first: on error nothing changes",
+        "replace every entity with a save file's (same ids); params: path (a .json file relative to the game's folder, no `..`). Checked first: on error nothing changes",
     ),
     (
         "scene.save",
-        "save the world as a scene in assets/ (what ctx.load_scene and the editor read); params: path (relative to assets/)",
+        "save the world as a scene in assets/ (what ctx.load_scene and the editor read); params: path (a .json file relative to assets/, no `..`)",
     ),
     (
         "scene.load",
-        "replace the world with a scene from assets/, loading the images its sprites name; params: path",
+        "replace the world with a scene from assets/, loading the images its sprites name; params: path (a .json file relative to assets/)",
     ),
     (
         "prefab.spawn",
-        "spawn a prefab from assets/ at a point; params: path, at [x, y]. Returns the entity",
+        "spawn a prefab from assets/ at a point; params: path (a .json file relative to assets/), at [x, y]. Returns the entity",
     ),
     (
         "prefab.save",
-        "save an entity's reflected components (without its position) as a prefab in assets/; params: entity, path",
+        "save an entity's reflected components (without its position) as a prefab in assets/; params: entity, path (a .json file relative to assets/)",
     ),
     ("sim.pause", "pause simulation systems"),
     ("sim.resume", "resume simulation systems"),
@@ -654,7 +1223,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "screenshot",
-        "save the next frame as a PNG (windowed games only); params: path? (default: a temp file), max_size? (scale down to fit, 0 = full size). Returns path, width, height",
+        "save the next frame as a PNG (windowed games only); params: path? (a new .png file relative to the game's folder; default: a temp file), max_size? (scale down to fit, 0 = full size). Returns path, width, height",
     ),
     (
         "shaders.status",
@@ -666,7 +1235,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "perf.trace",
-        "record the next frames as a Chrome/Perfetto trace (systems, render, display wait, GPU passes; windowed games only); params: path? (default: a temp file), frames? (120). Returns the path; it's written when the frames are done",
+        "record the next frames as a Chrome/Perfetto trace (systems, render, display wait, GPU passes; windowed games only); params: path? (a new .json file relative to the game's folder; default: a temp file), frames? (120). Returns the path; it's written when the frames are done",
     ),
     (
         "perf.hud",
@@ -688,7 +1257,7 @@ fn render_inspector_json(ctx: &Ctx, history: usize) -> Value {
         (false, Some(detail)) => inspector::Source::Drawn(detail),
     };
     #[cfg(feature = "3d")]
-    let quality = Some(inspector::quality_json(&ctx.gfx.quality(&ctx.post, &ctx.lighting)));
+    let quality = Some(inspector::quality_json(&ctx.scene3d));
     #[cfg(not(feature = "3d"))]
     let quality = None;
     // The newest `history` frames, oldest first.
@@ -713,8 +1282,8 @@ fn render_inspector_json(ctx: &Ctx, history: usize) -> Value {
     });
     #[cfg(feature = "3d")]
     let (autotune, off) = (
-        json!(ctx.gfx.quality_autotune_status(&ctx.post, &ctx.lighting)),
-        "automatic quality tuning is off (Graphics::set_quality_autotune turns it on)",
+        json!(ctx.scene3d.quality_autotune_status(&ctx.gfx)),
+        "automatic quality tuning is off (SceneSettings::set_quality_autotune turns it on)",
     );
     #[cfg(not(feature = "3d"))]
     let (autotune, off) = (Value::Null, "automatic quality tuning needs the `3d` feature");
@@ -734,18 +1303,16 @@ fn quality_set(ctx: &mut Ctx, params: &Value) -> Result<Value, String> {
     let level = str_param(params, "level")?;
     let caps = ctx.gfx.gpu_capabilities().cloned();
     let wanted = match level {
-        "low" => GraphicsQuality::low(),
-        "medium" => GraphicsQuality::medium(),
-        "high" => GraphicsQuality::high(),
-        "ultra" => GraphicsQuality::ultra(),
+        "low" => Some(GraphicsQuality::Low),
+        "medium" => Some(GraphicsQuality::Medium),
+        "high" => Some(GraphicsQuality::High),
+        "ultra" => Some(GraphicsQuality::Ultra),
+        "recommended" if caps.is_some() => None,
+        "recommended" if ctx.headless => return Err("`recommended` needs a GPU: this game runs headless".into()),
         "recommended" => {
-            match &caps {
-                Some(caps) => GraphicsQuality::recommended(caps),
-                None if ctx.headless => return Err("`recommended` needs a GPU: this game runs headless".into()),
-                None => {
-                    return Err("`recommended` needs a GPU: the renderer hasn't opened one yet; try again after the first frame".into());
-                }
-            }
+            return Err(
+                "`recommended` needs a GPU: the renderer hasn't opened one yet; try again after the first frame".into(),
+            );
         }
         other => {
             return Err(format!(
@@ -753,16 +1320,28 @@ fn quality_set(ctx: &mut Ctx, params: &Value) -> Result<Value, String> {
             ));
         }
     };
+    let previous = inspector::quality_json(&ctx.scene3d);
     // Nothing the GPU lacks is asked for.
-    let fitted = caps.as_ref().map_or(wanted, |caps| wanted.fitted_to(caps));
-    let previous = inspector::quality_json(&ctx.gfx.quality(&ctx.post, &ctx.lighting));
-    ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, fitted);
-    let now = ctx.gfx.quality(&ctx.post, &ctx.lighting);
+    let fitted_to_gpu = match (wanted, &caps) {
+        (Some(quality), caps) => {
+            ctx.scene3d.set_quality(quality);
+            let preset = inspector::quality_json(&ctx.scene3d);
+            if let Some(caps) = caps {
+                ctx.scene3d.fit_quality_to(caps);
+            }
+            inspector::quality_json(&ctx.scene3d) != preset
+        }
+        (None, Some(caps)) => {
+            ctx.scene3d.set_recommended_quality(caps);
+            false
+        }
+        (None, None) => unreachable!("`recommended` without a GPU returned above"),
+    };
     Ok(json!({
         "requested": level,
-        "fitted_to_gpu": fitted != wanted,
+        "fitted_to_gpu": fitted_to_gpu,
         "previous": previous,
-        "quality": inspector::quality_json(&now),
+        "quality": inspector::quality_json(&ctx.scene3d),
     }))
 }
 
@@ -967,7 +1546,7 @@ fn streaming_json(ctx: &Ctx) -> Value {
 
 /// Residency budgets and counters, by kind name.
 fn residency_json(ctx: &Ctx) -> Value {
-    crate::residency::ResidencyKind::ALL
+    crate::streaming::ResidencyKind::ALL
         .iter()
         .map(|&kind| {
             let r = ctx.gfx.residency(kind);
@@ -1175,9 +1754,15 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         }
         "world.save" => {
             let path = str_param(params, "path")?;
+            let overwrite = match params.get("overwrite") {
+                None | Some(Value::Null) => false,
+                Some(v) => v.as_bool().ok_or("`overwrite` must be true or false")?,
+            };
+            // Checked before the world is serialized, which can be slow.
+            check_tool_path(path, "json")?;
             let save = ctx.world.save();
             let text = serde_json::to_string(&save).map_err(|e| e.to_string())?;
-            std::fs::write(path, &text).map_err(|e| format!("could not write {path}: {e}"))?;
+            let path = write_game_file(path, "json", text.as_bytes(), overwrite)?;
             json!({
                 "path": path,
                 "entities": save["entities"].as_array().map_or(0, Vec::len),
@@ -1188,17 +1773,17 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             })
         }
         "scene.save" => {
-            let path = str_param(params, "path")?;
+            let path = asset_path_param(params)?;
             ctx.assets.save_scene(&ctx.world, path)?;
             json!({ "path": path, "entities": ctx.world.len() })
         }
         "scene.load" => {
-            let path = str_param(params, "path")?;
+            let path = asset_path_param(params)?;
             ctx.load_scene(path)?;
             json!({ "path": path, "entities": ctx.world.len() })
         }
         "prefab.spawn" => {
-            let path = str_param(params, "path")?;
+            let path = asset_path_param(params)?;
             let at: [f32; 2] = serde_json::from_value(param(params, "at")?.clone())
                 .map_err(|e| format!("`at` must be [x, y]: {e}"))?;
             let e = ctx.spawn_prefab(path, crate::vec2(at[0], at[1]))?;
@@ -1206,14 +1791,15 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         }
         "prefab.save" => {
             let e = entity_param(params)?;
-            let path = str_param(params, "path")?;
+            let path = asset_path_param(params)?;
             ctx.assets.save_prefab(&ctx.world, e, path)?;
             json!({ "path": path })
         }
         "world.load" => {
-            let path = str_param(params, "path")?;
-            let text = std::fs::read_to_string(path).map_err(|e| format!("could not read {path}: {e}"))?;
-            let save: Value = serde_json::from_str(&text).map_err(|e| format!("{path} is not JSON: {e}"))?;
+            let path = game_file(str_param(params, "path")?, "json")?;
+            let text = std::fs::read_to_string(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
+            let save: Value =
+                serde_json::from_str(&text).map_err(|e| format!("{} is not JSON: {e}", path.display()))?;
             ctx.replace_world(&save)?;
             json!({ "path": path, "entities": ctx.world.len() })
         }
@@ -1327,13 +1913,17 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
         }
         "perf.trace" => {
             let frames = usize_param(params, "frames", 120)?.clamp(1, 10_000);
-            let path = match params.get("path").and_then(Value::as_str) {
-                Some(p) => PathBuf::from(p),
-                None => {
-                    std::env::temp_dir().join(format!("ponko-trace-{}-{}.json", std::process::id(), ctx.time.frame()))
-                }
+            // Checked before any file or folder is made.
+            if ctx.perf.headless {
+                return Err(crate::perf::HEADLESS_TRACE.into());
+            }
+            let claimed = match params.get("path") {
+                None | Some(Value::Null) => new_temp_file("trace", "json")?,
+                Some(Value::String(p)) => new_game_file(p, "json")?,
+                Some(_) => return Err("`path` must be a string".into()),
             };
-            ctx.perf.record_trace(path.clone(), frames);
+            let path = claimed.path.clone();
+            ctx.perf.record_claimed_trace(claimed, frames)?;
             json!({ "path": path, "frames": frames, "written_after_frame": ctx.time.frame() + frames as u64 })
         }
         "perf.hud" => {
@@ -1687,8 +2277,7 @@ mod tests {
         let mut ctx = ctx();
         let report = handle(&mut ctx, "perf.get", &json!({})).unwrap();
         assert!(report["render_inspector"].get("quality_autotune").unwrap().is_null());
-        ctx.gfx
-            .set_quality_autotune(&ctx.post, &ctx.lighting, Some(QualityAutotune::default()));
+        ctx.scene3d.set_quality_autotune(Some(QualityAutotune::default()));
         for i in 1..=30 {
             ctx.update_quality_autotune(
                 Some(Sample {
@@ -1773,11 +2362,9 @@ mod tests {
         {
             // A world with nothing to cull: counted, 0.
             assert_eq!(r["counts"]["frustum_culled_models"], 0);
-            windowed.gfx.set_quality_autotune(
-                &windowed.post,
-                &windowed.lighting,
-                Some(crate::render::QualityAutotune::default()),
-            );
+            windowed
+                .scene3d
+                .set_quality_autotune(Some(crate::render::QualityAutotune::default()));
             let r = check(&mut windowed, "autotune on");
             assert!(r["quality_autotune"].is_object());
             assert!(r["unavailable"].get("quality_autotune").is_none());
@@ -1864,13 +2451,14 @@ mod tests {
             "{inspector}"
         );
         assert_eq!(inspector["quality"].is_object(), cfg!(feature = "3d"), "{inspector}");
-        ctx.set_residency_budget(crate::residency::ResidencyKind::Mesh, Some(1024));
+        ctx.gfx
+            .set_residency_budget(crate::streaming::ResidencyKind::Mesh, Some(1024));
         let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
         assert_eq!(perf["residency"]["mesh"]["budget"], 1024, "{perf}");
         assert_eq!(perf["residency"]["mesh"]["evictions"], 0, "{perf}");
         assert_eq!(perf["residency"]["texture"]["evictions"], 0, "{perf}");
         assert_eq!(perf["streaming"]["uploads"]["pending"], 0, "{perf}");
-        ctx.stream_texture("missing.png");
+        ctx.gfx.stream_texture("missing.png");
         let perf = handle(&mut ctx, "perf.get", &json!({})).unwrap();
         let asset = &perf["streaming"]["assets"][0];
         assert_eq!(
@@ -1939,6 +2527,603 @@ mod tests {
         let err = handle(&mut ctx, "ecs.diagnostics", &json!({ "with": ["Nope"] })).unwrap_err();
         assert!(err.contains("unknown component `Nope`"), "{err}");
         assert!(handle(&mut ctx, "ecs.diagnostics", &json!({ "with": 3 })).is_err());
+    }
+
+    #[test]
+    fn tokens_are_128_random_bits() {
+        let a = random_token().unwrap();
+        let b = random_token().unwrap();
+        assert_eq!(a.len(), 32);
+        assert!(a.bytes().all(|c| c.is_ascii_hexdigit()), "{a}");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn ponko_control_is_ignored_where_the_build_does_not_honor_it() {
+        assert!(env_control_with(true, true));
+        assert!(!env_control_with(true, false), "a shipped release build opened a port");
+        assert!(!env_control_with(false, true));
+        assert!(!env_control_with(false, false));
+        assert_eq!(
+            ENV_CONTROL_HONORED,
+            cfg!(any(debug_assertions, feature = "control-env"))
+        );
+    }
+
+    #[test]
+    fn tool_paths_stay_below_their_folder() {
+        for ok in ["save.json", "saves/slot 1.json", "a/b/c.json"] {
+            assert_eq!(check_tool_path(ok, "json"), Ok(()), "{ok}");
+        }
+        for bad in [
+            "",
+            "/etc/passwd.json",
+            "../up.json",
+            "saves/../../up.json",
+            "./save.json",
+            "saves\\..\\up.json",
+            "C:\\up.json",
+            "save.txt",
+            "save",
+            ".hidden.json",
+            "saves/.git/x.json",
+            "c:up.json",
+            "nul.json",
+            "saves/CON.json",
+            "com1.json",
+            "LPT9.backup.json",
+            "aux .json",
+            "CONIN$.json",
+            "conout$.json",
+            "COM\u{b9}.json",
+            "lpt\u{b3}.json",
+            "com0.json",
+            "LPT0.json",
+        ] {
+            assert!(check_tool_path(bad, "json").is_err(), "{bad:?} was accepted");
+        }
+        for ok in [
+            "console.json",
+            "com10.json",
+            "lpt.json",
+            "saves/nullable.json",
+            "com\u{b9}\u{b9}.json",
+            "conin.json",
+        ] {
+            assert_eq!(check_tool_path(ok, "json"), Ok(()), "{ok}");
+        }
+        assert!(check_tool_path("shot.png", "json").is_err());
+        assert_eq!(check_tool_path("shot.png", "png"), Ok(()));
+    }
+
+    #[test]
+    fn file_methods_refuse_paths_outside_the_game() {
+        let mut ctx = ctx();
+        let outside = std::env::temp_dir().join(format!("ponko-escape-{}.json", std::process::id()));
+        let absolute = outside.to_str().unwrap();
+        for method in ["world.save", "world.load", "scene.save", "scene.load", "prefab.spawn"] {
+            for path in [absolute, "../escape.json", "saves/../../escape.json"] {
+                let params = json!({ "path": path, "at": [0.0, 0.0] });
+                let err = handle(&mut ctx, method, &params).unwrap_err();
+                assert!(err.contains("relative"), "{method} {path}: {err}");
+            }
+        }
+        let e = ctx.world.spawn((Transform2D::default(),));
+        let err = handle(
+            &mut ctx,
+            "prefab.save",
+            &json!({ "entity": e.to_bits(), "path": "../p.json" }),
+        )
+        .unwrap_err();
+        assert!(err.contains("relative"), "{err}");
+        for method in ["screenshot", "perf.trace"] {
+            assert!(
+                handle(&mut ctx, method, &json!({ "path": absolute })).is_err(),
+                "{method}"
+            );
+        }
+        assert!(!outside.exists());
+    }
+
+    #[test]
+    fn tokens_are_compared_whole() {
+        let token = "0123456789abcdef0123456789abcdef";
+        assert!(token_matches(Some(token), token));
+        for wrong in [
+            "",
+            "0",
+            "0123456789abcdef0123456789abcde",
+            "0123456789abcdef0123456789abcdeg",
+            "0123456789abcdef0123456789abcdef0",
+        ] {
+            assert!(!token_matches(Some(wrong), token), "{wrong:?}");
+        }
+        assert!(!token_matches(None, token));
+    }
+
+    /// A folder of the test's own, removed when dropped (for the link
+    /// tests, which are unix only).
+    #[cfg(unix)]
+    struct TempDir(PathBuf);
+    #[cfg(unix)]
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("ponko-{name}-{}", random_token().unwrap()));
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir.canonicalize().unwrap())
+        }
+    }
+    #[cfg(unix)]
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn links_inside_the_folder_must_not_lead_out_of_it() {
+        let root = TempDir::new("root");
+        let outside = TempDir::new("outside");
+        let root = &root.0;
+        std::fs::create_dir(root.join("saves")).unwrap();
+        std::os::unix::fs::symlink(&outside.0, root.join("escape")).unwrap();
+        std::os::unix::fs::symlink(outside.0.join("file.json"), root.join("dangling.json")).unwrap();
+        std::os::unix::fs::symlink(root.join("saves"), root.join("inside")).unwrap();
+        assert_eq!(check_below(root, &root.join("saves/new/a.json")), Ok(()));
+        assert_eq!(
+            check_below(root, &root.join("inside/a.json")),
+            Ok(()),
+            "a link that stays inside is fine"
+        );
+        let err = check_below(root, &root.join("escape/a.json")).unwrap_err();
+        assert!(err.contains("leads outside"), "{err}");
+        assert!(check_below(root, &root.join("escape/deeper/a.json")).is_err());
+        assert!(
+            check_below(root, &root.join("dangling.json")).is_err(),
+            "a dangling link out"
+        );
+        // Asset paths: a link inside an assets/ folder that leads out is
+        // refused; the folder itself may be a link (shared assets).
+        let assets = TempDir::new("assets");
+        std::os::unix::fs::symlink(&outside.0, assets.0.join("shared")).unwrap();
+        std::fs::create_dir(assets.0.join("levels")).unwrap();
+        let roots = [assets.0.clone()];
+        assert_eq!(check_asset_path("levels/a.json", &roots), Ok(()));
+        let err = check_asset_path("shared/a.json", &roots).unwrap_err();
+        assert!(err.contains("leads outside"), "{err}");
+        let linked_root = TempDir::new("linked-root");
+        std::os::unix::fs::symlink(&assets.0, linked_root.0.join("assets")).unwrap();
+        assert_eq!(
+            check_asset_path("levels/a.json", &[linked_root.0.join("assets")]),
+            Ok(()),
+            "a linked assets/ folder is trusted"
+        );
+        // A folder that turns into a link while the folders are made (a
+        // race) is caught by the check after making them.
+        let outside_path = outside.0.clone();
+        let err = make_folders(root, &root.join("made/a.json"), |dir| {
+            std::os::unix::fs::symlink(&outside_path, dir)
+        })
+        .unwrap_err();
+        assert!(err.contains("leads outside"), "{err}");
+    }
+
+    #[test]
+    fn world_save_makes_new_files_unless_told_to_overwrite() {
+        let mut ctx = ctx();
+        ctx.world.spawn((Transform2D::default(),));
+        // Relative to the working folder (the crate's, under cargo test).
+        let dir = format!("ponko-test-saves-{}", random_token().unwrap());
+        let path = format!("{dir}/slot.json");
+        let save = |ctx: &mut Ctx, params: Value| handle(ctx, "world.save", &params);
+        let first = save(&mut ctx, json!({ "path": path }));
+        let again = save(&mut ctx, json!({ "path": path }));
+        let overwritten = save(&mut ctx, json!({ "path": path, "overwrite": true }));
+        let bad = save(&mut ctx, json!({ "path": path, "overwrite": "yes" }));
+        let loaded = handle(&mut ctx, "world.load", &json!({ "path": path }));
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(first.unwrap()["entities"], 1);
+        assert!(again.unwrap_err().contains("already exists"));
+        assert_eq!(overwritten.unwrap()["entities"], 1);
+        assert!(bad.is_err());
+        assert_eq!(loaded.unwrap()["entities"], 1);
+    }
+
+    #[test]
+    fn claimed_files_are_removed_unless_kept() {
+        let dir = format!("ponko-test-claims-{}", random_token().unwrap());
+        let dropped = new_game_file(&format!("{dir}/dropped.png"), "png").unwrap();
+        let dropped_path = dropped.path.clone();
+        // A queued screenshot or unfinished trace when the game shuts down.
+        let made = dropped_path.exists();
+        {
+            let _quit = dropped;
+        }
+        let dropped_left = dropped_path.exists();
+        let mut kept = new_game_file(&format!("{dir}/kept.json"), "json").unwrap();
+        std::io::Write::write_all(kept.file(), b"{}").unwrap();
+        let kept_path = kept.path.clone();
+        kept.keep();
+        let kept_contents = std::fs::read(&kept_path);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(made);
+        assert!(!dropped_left, "an unwritten claimed file was left behind");
+        assert_eq!(kept_contents.unwrap(), b"{}");
+    }
+
+    /// `world.save` with `overwrite` into a file a trace claimed would be
+    /// removed with the claim when the game shut down before the trace was
+    /// written: it is refused, and the claim removes only its own file.
+    #[test]
+    fn overwrite_leaves_claimed_files_alone() {
+        let dir = format!("ponko-test-claimed-{}", random_token().unwrap());
+        let claimed = new_game_file(&format!("{dir}/x.json"), "json").unwrap();
+        let saved = write_game_file(&format!("{dir}/x.json"), "json", b"{\"world\":1}", true);
+        let claimed_path = claimed.path.clone();
+        drop(claimed);
+        let gone = !claimed_path.exists();
+        // Once the claim is gone, the path is free again.
+        let later = write_game_file(&format!("{dir}/x.json"), "json", b"{}", true);
+        let later_kept = std::fs::read(&claimed_path).ok();
+        // A file that replaced the claimed one by name is left alone.
+        #[cfg(unix)]
+        let replaced_kept = {
+            let claimed = new_game_file(&format!("{dir}/y.json"), "json").unwrap();
+            std::fs::write(format!("{dir}/other.json"), "{}").unwrap();
+            std::fs::rename(format!("{dir}/other.json"), &claimed.path).unwrap();
+            let path = claimed.path.clone();
+            drop(claimed);
+            std::fs::read(path).ok()
+        };
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(
+            saved
+                .unwrap_err()
+                .contains("a screenshot or trace will be written there")
+        );
+        assert!(gone, "the unwritten claim is removed");
+        assert!(later.is_ok(), "{later:?}");
+        assert_eq!(later_kept.as_deref(), Some(&b"{}"[..]));
+        #[cfg(unix)]
+        assert_eq!(
+            replaced_kept.as_deref(),
+            Some(&b"{}"[..]),
+            "removed a file it didn't claim"
+        );
+    }
+
+    /// `scene.save` and `prefab.save` leave a claimed file alone too.
+    #[test]
+    fn asset_saves_leave_claimed_files_alone() {
+        let dir = format!("ponko-test-claimed-asset-{}", random_token().unwrap());
+        let claimed = new_game_file(&format!("assets/{dir}/scene.json"), "json").unwrap();
+        let saved = crate::assets::write(&format!("{dir}/scene.json"), b"{}");
+        let unchanged = std::fs::metadata(&claimed.path).map(|m| m.len());
+        drop(claimed);
+        let later = crate::assets::write(&format!("{dir}/scene.json"), b"{}");
+        std::fs::remove_dir_all(format!("assets/{dir}")).unwrap();
+        assert!(
+            saved
+                .unwrap_err()
+                .contains("a screenshot or trace will be written there")
+        );
+        assert_eq!(unchanged.unwrap(), 0);
+        assert!(later.is_ok(), "{later:?}");
+    }
+
+    /// `overwrite` replaces only a plain file with no other names, and
+    /// replaces all of it.
+    #[cfg(unix)]
+    #[test]
+    fn overwrite_refuses_pipes_and_hard_links() {
+        let dir = format!("ponko-test-special-{}", random_token().unwrap());
+        std::fs::create_dir(&dir).unwrap();
+        let fifo = std::ffi::CString::new(format!("{dir}/pipe.json")).unwrap();
+        // SAFETY: a valid NUL-terminated path.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        let started = std::time::Instant::now();
+        let pipe = write_game_file(&format!("{dir}/pipe.json"), "json", b"{}", true);
+        let waited = started.elapsed();
+        std::fs::write(format!("{dir}/a.json"), "{\"long\": \"old contents\"}").unwrap();
+        std::fs::hard_link(format!("{dir}/a.json"), format!("{dir}/b.json")).unwrap();
+        let linked = write_game_file(&format!("{dir}/b.json"), "json", b"{}", true);
+        let linked_target = std::fs::read_to_string(format!("{dir}/a.json")).unwrap();
+        std::fs::write(format!("{dir}/c.json"), "{\"long\": \"old contents\"}").unwrap();
+        let plain = write_game_file(&format!("{dir}/c.json"), "json", b"{}", true);
+        let plain_now = std::fs::read_to_string(format!("{dir}/c.json")).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(pipe.is_err(), "{pipe:?}");
+        assert!(waited < Duration::from_secs(5), "waited {waited:?} on a pipe");
+        assert!(linked.unwrap_err().contains("hard links"));
+        assert_eq!(linked_target, "{\"long\": \"old contents\"}");
+        assert!(plain.is_ok(), "{plain:?}");
+        assert_eq!(plain_now, "{}", "replaced whole");
+    }
+
+    #[test]
+    fn traces_and_screenshots_claim_a_new_file_first() {
+        let mut ctx = ctx();
+        ctx.headless = false;
+        // Relative to the working folder (the crate's, under cargo test).
+        let dir = format!("ponko-test-files-{}", random_token().unwrap());
+        let name = format!("{dir}/traces/t.json");
+        let first = handle(&mut ctx, "perf.trace", &json!({ "path": name, "frames": 1 }));
+        let claimed = std::fs::metadata(&name).map(|m| m.len());
+        let again = handle(&mut ctx, "perf.trace", &json!({ "path": name, "frames": 1 }));
+        // A second trace replaces the first, whose file nobody will write
+        // now: it is removed, so the path can be asked for again.
+        let other = format!("{dir}/traces/other.json");
+        let replaced = handle(&mut ctx, "perf.trace", &json!({ "path": other, "frames": 1 }));
+        let first_left = Path::new(&name).exists();
+        let retried = handle(&mut ctx, "perf.trace", &json!({ "path": name, "frames": 1 }));
+        // A screenshot into a new folder.
+        let shot = screenshot_path(&json!({ "path": format!("{dir}/shots/a.png") }));
+        let shot_made = shot.as_ref().is_ok_and(|c| c.path.exists());
+        if let Ok(shot) = shot {
+            shot.abandon();
+        }
+        let shot_removed = !Path::new(&format!("{dir}/shots/a.png")).exists();
+        // Where nothing would write the trace: refused, and nothing left.
+        ctx.perf.headless = true;
+        let headless_name = format!("{dir}/headless/h.json");
+        let headless = handle(&mut ctx, "perf.trace", &json!({ "path": headless_name }));
+        let headless_left = Path::new(&format!("{dir}/headless")).exists();
+        ctx.perf.headless = false;
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(first.is_ok(), "into a new folder: {first:?}");
+        assert_eq!(claimed.unwrap(), 0, "made empty when asked, written later");
+        assert!(again.unwrap_err().contains("already exists"));
+        assert!(replaced.is_ok(), "{replaced:?}");
+        assert!(!first_left, "the replaced trace's file was left behind");
+        assert!(retried.is_ok(), "{retried:?}");
+        assert!(shot_made, "a screenshot can go into a new folder");
+        assert!(shot_removed, "an abandoned file is removed");
+        assert!(headless.unwrap_err().contains("headless"));
+        assert!(!headless_left, "refused before its folder was made");
+        // Temp files get a fresh random name each time.
+        let temp =
+            |ctx: &mut Ctx| PathBuf::from(handle(ctx, "perf.trace", &json!({})).unwrap()["path"].as_str().unwrap());
+        let a = temp(&mut ctx);
+        let a_exists = a.exists();
+        let b = temp(&mut ctx);
+        assert_ne!(a, b);
+        assert!(a_exists && !a.exists(), "replaced, so removed");
+        assert!(b.exists());
+        let _ = std::fs::remove_file(b);
+        assert!(screenshot_path(&json!({ "path": "../x.png" })).is_err());
+    }
+
+    // Unix only: making a link on Windows needs a privilege tests can't
+    // count on. There `overwrite` relies on the link check alone (no
+    // `O_NOFOLLOW`), which the same `symlink_metadata` test covers.
+    #[cfg(unix)]
+    #[test]
+    fn overwrite_never_writes_through_a_link() {
+        let dir = format!("ponko-test-links-{}", random_token().unwrap());
+        std::fs::create_dir(&dir).unwrap();
+        std::os::unix::fs::symlink(
+            std::fs::canonicalize(&dir).unwrap().join("real.json"),
+            format!("{dir}/link.json"),
+        )
+        .unwrap();
+        std::fs::write(format!("{dir}/real.json"), "{}").unwrap();
+        let result = write_game_file(&format!("{dir}/link.json"), "json", b"[]", true);
+        let real = std::fs::read_to_string(format!("{dir}/real.json")).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(result.unwrap_err().contains("is a link"));
+        assert_eq!(real, "{}", "the link's target is untouched");
+    }
+
+    /// The open itself refuses a link too (`O_NOFOLLOW`), for one made
+    /// after the check.
+    #[cfg(unix)]
+    #[test]
+    fn the_overwriting_open_refuses_a_link_by_itself() {
+        let dir = format!("ponko-test-nofollow-{}", random_token().unwrap());
+        std::fs::create_dir(&dir).unwrap();
+        std::fs::write(format!("{dir}/real.json"), "{}").unwrap();
+        std::os::unix::fs::symlink("real.json", format!("{dir}/link.json")).unwrap();
+        let opened = open_to_overwrite(Path::new(&format!("{dir}/link.json")));
+        let real = std::fs::read_to_string(format!("{dir}/real.json")).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(opened.is_err());
+        assert_eq!(real, "{}");
+    }
+
+    #[test]
+    fn an_idle_connection_without_the_token_is_dropped_and_frees_its_slot() {
+        let control = Control::start_with_auth_timeout("idle", true, false, Duration::from_millis(300)).unwrap();
+        let connect = || {
+            let c = TcpStream::connect(control.addr()).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            c
+        };
+        // Every slot taken by a client that never says anything, and one
+        // that trickles bytes without a newline.
+        let idle: Vec<TcpStream> = (0..MAX_CONNECTIONS - 1).map(|_| connect()).collect();
+        let mut trickle = connect();
+        let trickler = thread::spawn(move || {
+            for _ in 0..20 {
+                if trickle.write_all(b"{").is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            trickle
+        });
+        // They are told why and closed, so a real client gets in.
+        let mut reply = String::new();
+        BufReader::new(&idle[0]).read_line(&mut reply).unwrap();
+        assert!(reply.contains("no request with the right token"), "{reply}");
+        let trickle = trickler.join().unwrap();
+        let mut reply = String::new();
+        BufReader::new(&trickle).read_line(&mut reply).unwrap();
+        assert!(
+            reply.contains("no request with the right token"),
+            "a trickle doesn't keep it open: {reply}"
+        );
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let c = connect();
+            if ask(&c)["error"].as_str().unwrap().contains("token") {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the idle connections' slots were never freed"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+        drop(idle);
+    }
+
+    #[test]
+    fn a_connection_that_sent_the_token_may_stay_idle() {
+        let control = Control::start_with_auth_timeout("trusted", true, false, Duration::from_millis(200)).unwrap();
+        let client = TcpStream::connect(control.addr()).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut writer = client.try_clone().unwrap();
+        let mut reader = BufReader::new(&client);
+        let mut request = |id: u64| {
+            writeln!(
+                writer,
+                "{}",
+                json!({ "id": id, "token": &*control.token, "method": "logs.get" })
+            )
+            .unwrap();
+            let mut reply = String::new();
+            reader.read_line(&mut reply).unwrap();
+            serde_json::from_str::<Value>(&reply).unwrap()
+        };
+        assert_eq!(request(1)["id"], 1);
+        thread::sleep(Duration::from_millis(600));
+        assert_eq!(request(2)["id"], 2, "still served after idling past the token deadline");
+    }
+
+    /// Sends `logs.get` (answered without the game loop) with `token`.
+    /// `Null` if the connection was refused or closed instead.
+    fn ask_with(client: &TcpStream, token: &str) -> Value {
+        let mut writer = client.try_clone().unwrap();
+        let mut reply = String::new();
+        let asked = writeln!(writer, "{}", json!({ "id": 1, "token": token, "method": "logs.get" }))
+            .and_then(|()| BufReader::new(client).read_line(&mut reply));
+        asked
+            .ok()
+            .and_then(|_| serde_json::from_str(&reply).ok())
+            .unwrap_or(Value::Null)
+    }
+
+    #[test]
+    fn a_stranger_gets_one_reply_and_is_disconnected() {
+        let control = Control::start_with("stranger", true, false).unwrap();
+        let client = TcpStream::connect(control.addr()).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        assert!(ask(&client)["error"].as_str().unwrap().contains("token"));
+        let mut rest = Vec::new();
+        assert!(
+            BufReader::new(&client)
+                .read_to_end(&mut rest)
+                .map_or(true, |_| rest.is_empty())
+        );
+    }
+
+    #[test]
+    fn clients_that_never_read_their_replies_dont_hold_slots() {
+        let control = Control::start_with("no-readers", true, false).unwrap();
+        // Every slot taken by a client that sends a megabyte of bad lines
+        // and never reads a reply.
+        let flooders: Vec<_> = (0..MAX_CONNECTIONS)
+            .map(|_| {
+                let mut c = TcpStream::connect(control.addr()).unwrap();
+                thread::spawn(move || {
+                    let lines = b"not json\n".repeat(1024 * 1024 / 9);
+                    let _ = c.write_all(&lines);
+                    c // kept open, never read
+                })
+            })
+            .collect();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let c = TcpStream::connect(control.addr()).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            if ask_with(&c, &control.token)["id"] == 1 {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "the flooders kept every slot");
+            thread::sleep(Duration::from_millis(10));
+        }
+        let held: Vec<TcpStream> = flooders.into_iter().map(|f| f.join().unwrap()).collect();
+        drop(held);
+    }
+
+    /// Sends a request with a wrong token and reads the reply: a connection
+    /// that is being served answers it at once, without the game loop.
+    fn ask(client: &TcpStream) -> Value {
+        let mut writer = client.try_clone().unwrap();
+        writeln!(
+            writer,
+            "{}",
+            json!({ "id": 1, "token": "wrong", "method": "sim.status" })
+        )
+        .unwrap();
+        let mut reply = String::new();
+        BufReader::new(client).read_line(&mut reply).unwrap();
+        serde_json::from_str(&reply).unwrap()
+    }
+
+    #[test]
+    fn an_over_long_line_is_refused_before_the_token_is_read() {
+        let control = Control::start_with("long-line", true, false).unwrap();
+        let client = TcpStream::connect(control.addr()).unwrap();
+        client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut writer = client.try_clone().unwrap();
+        // One byte past the limit, without a newline. Exactly that much, so
+        // the server has read everything when it hangs up (unread bytes
+        // would turn its close into a reset that loses the reply).
+        let sender = thread::spawn(move || writer.write_all(&vec![b'x'; MAX_LINE + 1]).unwrap());
+        let mut reply = String::new();
+        let mut reader = BufReader::new(&client);
+        reader.read_line(&mut reply).unwrap();
+        let reply: Value = serde_json::from_str(&reply).unwrap();
+        assert!(reply["error"].as_str().unwrap().contains("longer than"), "{reply}");
+        sender.join().unwrap();
+        // Then the connection is closed.
+        let mut rest = Vec::new();
+        assert!(reader.read_to_end(&mut rest).map_or(true, |_| rest.is_empty()));
+    }
+
+    #[test]
+    fn connections_past_the_limit_are_refused_until_one_closes() {
+        let control = Control::start_with("connections", true, false).unwrap();
+        let connect = || {
+            let c = TcpStream::connect(control.addr()).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            c
+        };
+        let mut open: Vec<TcpStream> = (0..MAX_CONNECTIONS).map(|_| connect()).collect();
+        for (i, c) in open.iter().enumerate() {
+            assert_eq!(ask_with(c, &control.token)["id"], 1, "connection {i}");
+        }
+        let extra = connect();
+        let mut reply = String::new();
+        BufReader::new(&extra).read_line(&mut reply).unwrap();
+        assert!(reply.contains("too many connections"), "{reply}");
+        // Closing one frees its slot once its thread notices.
+        drop(open.pop());
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let c = connect();
+            if ask(&c)["error"].as_str().unwrap().contains("token") {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the closed connection's slot was never freed"
+            );
+            drop(c);
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[test]

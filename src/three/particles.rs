@@ -6,7 +6,7 @@ use crate::{Color, Rng, Texture, Vec3, World};
 /// strictly increasing, and in 0..=1; sampling clamps to the endpoints.
 /// ```
 /// use ponko::prelude::*;
-/// let curve = ponko::render::ParticleCurve::new(vec![(0.0, 1.0), (1.0, 0.0)]);
+/// let curve = ponko::d3::ParticleCurve::new(vec![(0.0, 1.0), (1.0, 0.0)]);
 /// assert_eq!(curve.sample(0.5), 0.5);
 /// ```
 #[derive(Debug, Clone)]
@@ -15,7 +15,7 @@ impl ParticleCurve {
     /// Creates a curve; panics for empty, unordered or nonfinite keys/values.
     /// ```
     /// use ponko::prelude::*;
-    /// let c = ponko::render::ParticleCurve::new(vec![(0.0, 2.0)]);
+    /// let c = ponko::d3::ParticleCurve::new(vec![(0.0, 2.0)]);
     /// assert_eq!(c.sample(1.0), 2.0);
     /// ```
     pub fn new(keys: Vec<(f32, f32)>) -> Self {
@@ -29,7 +29,7 @@ impl ParticleCurve {
     /// Evaluates the curve; NaN samples the start.
     /// ```
     /// use ponko::prelude::*;
-    /// assert_eq!(ponko::render::ParticleCurve::default().sample(0.5), 1.0);
+    /// assert_eq!(ponko::d3::ParticleCurve::default().sample(0.5), 1.0);
     /// ```
     pub fn sample(&self, t: f32) -> f32 {
         let (a, b, f) = segment(&self.0, t);
@@ -45,7 +45,7 @@ impl Default for ParticleCurve {
 /// A piecewise linear RGBA gradient, interpolated in the supplied color space.
 /// ```
 /// use ponko::prelude::*;
-/// let g = ponko::render::ParticleGradient::new(vec![(0.0, Color::WHITE), (1.0, Color::BLACK)]);
+/// let g = ponko::d3::ParticleGradient::new(vec![(0.0, Color::WHITE), (1.0, Color::BLACK)]);
 /// assert_eq!(g.sample(0.5).r, 0.5);
 /// ```
 #[derive(Debug, Clone)]
@@ -54,7 +54,7 @@ impl ParticleGradient {
     /// Creates a gradient; panics for empty, unordered or nonfinite keys/colors.
     /// ```
     /// use ponko::prelude::*;
-    /// let g = ponko::render::ParticleGradient::new(vec![(0.0, Color::WHITE)]);
+    /// let g = ponko::d3::ParticleGradient::new(vec![(0.0, Color::WHITE)]);
     /// assert_eq!(g.sample(1.0), Color::WHITE);
     /// ```
     pub fn new(keys: Vec<(f32, Color)>) -> Self {
@@ -69,7 +69,7 @@ impl ParticleGradient {
     /// Evaluates RGBA at normalized age, clamping beyond the keys.
     /// ```
     /// use ponko::prelude::*;
-    /// assert_eq!(ponko::render::ParticleGradient::default().sample(0.0), Color::WHITE);
+    /// assert_eq!(ponko::d3::ParticleGradient::default().sample(0.0), Color::WHITE);
     /// ```
     pub fn sample(&self, t: f32) -> Color {
         let (a, b, f) = segment(&self.0, t);
@@ -114,6 +114,7 @@ fn segment<T: Copy>(keys: &[(f32, T)], t: f32) -> (T, T, f32) {
 /// # let _ = shape;
 /// ```
 #[derive(Debug, Clone, Copy, Default)]
+#[non_exhaustive]
 pub enum ParticleShape3D {
     /// Origin, with velocity along +Y.
     #[default]
@@ -141,6 +142,7 @@ pub enum ParticleShape3D {
 /// # let _ = blend;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum ParticleBlend3D {
     /// Ordinary alpha compositing (particles sorted back to front).
     #[default]
@@ -168,11 +170,15 @@ pub enum ParticleSpace3D {
 /// (rotation may be negative). Invalid settings panic in `ParticleEmitter3D::new`.
 /// ```
 /// use ponko::prelude::*;
-/// let settings = ponko::d3::ParticleSettings { rate: 40.0, blend: ponko::d3::ParticleBlend::Additive, ..Default::default() };
+/// let settings = ponko::d3::ParticleSettings::default().with_rate(40.0).with_blend(ponko::d3::ParticleBlend::Additive);
 /// let emitter = ponko::d3::ParticleEmitter::new(settings);
 /// assert_eq!(emitter.live_count(), 0);
 /// ```
+///
+/// New fields may be added in any release: start from [`Default`] and use
+/// the `with_*` methods, or set the public fields of a `mut` value.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ParticleSettings3D {
     /// Continuous particles per second. Zero emits only bursts.
     pub rate: f32,
@@ -238,6 +244,74 @@ impl Default for ParticleSettings3D {
         }
     }
 }
+impl ParticleSettings3D {
+    with_fields! {
+        /// Sets [`rate`](Self::rate), continuous particles per second.
+        rate: f32 => with_rate;
+        /// Sets [`burst`](Self::burst), the particles emitted on the first frame.
+        burst: usize => with_burst;
+        /// Sets [`duration`](Self::duration), seconds of continuous emission.
+        duration: f32 => with_duration;
+        /// Sets [`looping`](Self::looping).
+        looping: bool => with_looping;
+        /// Sets [`shape`](Self::shape), where particles spawn.
+        shape: ParticleShape3D => with_shape;
+        /// Sets [`gravity`](Self::gravity).
+        gravity: Vec3 => with_gravity;
+        /// Sets [`drag`](Self::drag), velocity damping per second.
+        drag: f32 => with_drag;
+        /// Sets [`size_over_life`](Self::size_over_life).
+        size_over_life: ParticleCurve => with_size_over_life;
+        /// Sets [`color_over_life`](Self::color_over_life).
+        color_over_life: ParticleGradient => with_color_over_life;
+        /// Sets [`texture`](Self::texture).
+        texture: Option<Texture> => with_texture;
+        /// Sets [`blend`](Self::blend).
+        blend: ParticleBlend3D => with_blend;
+        /// Sets [`max_particles`](Self::max_particles), the live-particle limit.
+        max_particles: usize => with_max_particles;
+        /// Sets [`space`](Self::space).
+        space: ParticleSpace3D => with_space;
+        /// Sets [`seed`](Self::seed).
+        seed: u64 => with_seed;
+    }
+
+    /// Sets [`lifetime`](Self::lifetime): seconds, from `min` to `max`.
+    #[must_use]
+    pub fn with_lifetime(mut self, min: f32, max: f32) -> Self {
+        self.lifetime = (min, max);
+        self
+    }
+
+    /// Sets [`speed`](Self::speed): units per second, from `min` to `max`.
+    #[must_use]
+    pub fn with_speed(mut self, min: f32, max: f32) -> Self {
+        self.speed = (min, max);
+        self
+    }
+
+    /// Sets [`size`](Self::size): billboard size, from `min` to `max`.
+    #[must_use]
+    pub fn with_size(mut self, min: f32, max: f32) -> Self {
+        self.size = (min, max);
+        self
+    }
+
+    /// Sets [`rotation`](Self::rotation): radians, from `min` to `max`.
+    #[must_use]
+    pub fn with_rotation(mut self, min: f32, max: f32) -> Self {
+        self.rotation = (min, max);
+        self
+    }
+
+    /// Sets [`sheet`](Self::sheet): a sprite sheet of `columns` by `rows`.
+    #[must_use]
+    pub fn with_sheet(mut self, columns: u32, rows: u32) -> Self {
+        self.sheet = (columns, rows);
+        self
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Particle {
     position: Vec3,
@@ -288,7 +362,7 @@ impl ParticleEmitter3D {
     /// Allocates the entire particle pool. Panics for invalid settings.
     /// ```
     /// use ponko::prelude::*;
-    /// let e = ponko::d3::ParticleEmitter::new(ponko::d3::ParticleSettings { max_particles: 64, ..Default::default() });
+    /// let e = ponko::d3::ParticleEmitter::new(ponko::d3::ParticleSettings::default().with_max_particles(64));
     /// assert_eq!(e.live_count(), 0);
     /// ```
     pub fn new(settings: ParticleSettings3D) -> Self {

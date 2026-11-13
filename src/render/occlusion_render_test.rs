@@ -113,7 +113,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, solid_prepass);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -148,28 +148,28 @@ impl Rig {
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // Sunlight only in the shadow scene: elsewhere the cubes glow
             // on black.
             light: SkyLight {
-                sun: if ctx.lighting.shadows {
-                    Vec3::splat(ctx.lighting.sun_intensity)
+                sun: if ctx.scene3d.lighting.shadows {
+                    Vec3::splat(ctx.scene3d.lighting.sun_intensity)
                 } else {
                     Vec3::ZERO
                 },
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
-            occlusion: ctx.camera3d.occlusion_culling,
+            occlusion: ctx.scene3d.camera.occlusion_culling,
         };
         self.renderer.prepare(
             &self.device,
@@ -244,8 +244,8 @@ fn wall_scene(rig: &mut Rig) -> Entity {
         },
         Model::new(wall),
     ));
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, 10.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, 10.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     wall
 }
 
@@ -259,7 +259,7 @@ fn a_box_behind_a_wall_is_culled_and_comes_back_when_the_wall_moves() {
             return;
         }
         let wall = wall_scene(&mut rig);
-        rig.ctx.camera3d.occlusion_culling = true;
+        rig.ctx.scene3d.camera.occlusion_culling = true;
         // The first frame has no depth to go by: both are drawn.
         rig.draw();
         assert_eq!((rig.frame.visible, rig.frame.occluded), (2, 0));
@@ -291,7 +291,7 @@ fn a_box_behind_a_wall_is_culled_and_comes_back_when_the_wall_moves() {
             rig.draw();
         }
         assert_eq!(rig.frame.occluded, 1);
-        rig.ctx.camera3d.occlusion_culling = false;
+        rig.ctx.scene3d.camera.occlusion_culling = false;
         rig.draw();
         assert_eq!((rig.frame.visible, rig.frame.occluded), (2, 0));
     }

@@ -8,14 +8,14 @@ use crate::{Texture, Vec3};
 
 /// A compute pass shader, made with [`Graphics::load_compute`](crate::gfx::Graphics::load_compute) or
 /// [`Graphics::create_compute`](crate::gfx::Graphics::create_compute); a cheap handle. Run it by adding a
-/// [`ComputePass`] to [`Ctx::compute_passes`](crate::Ctx::compute_passes).
+/// [`ComputePass`] to [`RenderPasses::compute`](crate::render::RenderPasses::compute).
 ///
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let melt = ctx.gfx.load_compute("compute/melt.wgsl");
 /// let snow = ctx.gfx.create_render_target(512, 512);
-/// ctx.compute_passes.push(ponko::render::ComputePass::new(melt, snow));
+/// ctx.scene3d.passes.compute.push(ponko::render::ComputePass::new(melt, snow));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -24,24 +24,8 @@ pub struct Compute {
     pub(crate) id: u32,
 }
 
-impl Compute {
-    /// The engine's id of this compute pass (for the C API).
-    #[doc(hidden)]
-    #[must_use]
-    pub fn id(self) -> u32 {
-        self.id
-    }
-
-    /// A compute handle from an id (for the C API; check it with `Graphics::has_compute`).
-    #[doc(hidden)]
-    #[must_use]
-    pub fn from_id(id: u32) -> Self {
-        Self { id }
-    }
-}
-
-/// One entry of [`Ctx::compute_passes`](crate::Ctx::compute_passes) or
-/// [`Ctx::scene_compute_passes`](crate::Ctx::scene_compute_passes): a
+/// One entry of [`RenderPasses::compute`](crate::render::RenderPasses::compute) or
+/// [`RenderPasses::scene_compute`](crate::render::RenderPasses::scene_compute): a
 /// shader, the render target (or [`GpuBuffer`]) it updates, and a material
 /// whose custom values and textures it reads.
 ///
@@ -81,11 +65,10 @@ impl Compute {
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx, trails: ponko::render::Compute, snow: Texture, player: Vec3) {
-/// let feet = ctx.gfx.create_material(ponko::render::MaterialDesc {
-///     custom: [player.extend(0.5), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
-///     ..Default::default()
-/// });
-/// ctx.compute_passes.push(ponko::render::ComputePass::new(trails, snow).with_material(feet));
+/// let feet = ctx.gfx.create_material(
+///     ponko::render::MaterialDesc::default().with_custom([player.extend(0.5), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO]),
+/// );
+/// ctx.scene3d.passes.compute.push(ponko::render::ComputePass::new(trails, snow).with_material(feet));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,7 +92,7 @@ impl ComputePass {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, c: ponko::render::Compute) {
     /// let b = ctx.gfx.create_gpu_buffer(64, &[]);
-    /// ctx.compute_passes.push(ponko::render::ComputePass::for_buffer(c, b));
+    /// ctx.scene3d.passes.compute.push(ponko::render::ComputePass::for_buffer(c, b));
     /// # }
     pub fn for_buffer(compute: Compute, buffer: GpuBuffer) -> Self {
         Self {
@@ -125,7 +108,7 @@ impl ComputePass {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, c: ponko::render::Compute, t: Texture) {
-    /// ctx.compute_passes.push(ponko::render::ComputePass::new(c, t));
+    /// ctx.scene3d.passes.compute.push(ponko::render::ComputePass::new(c, t));
     /// # }
     /// ```
     #[must_use]
@@ -165,7 +148,7 @@ impl Graphics {
     /// neighbours (`cell_at(pixel)`, which reads the target as it was
     /// before this pass). It reads `frame` (`frame.time.y` is the frame's
     /// seconds) and `material` as material shaders do; run as a
-    /// [scene compute pass](crate::Ctx::scene_compute_passes), it also reads
+    /// [scene compute pass](crate::render::RenderPasses::scene_compute), it also reads
     /// this frame's lit image and depth (`scene_color(pixel)`,
     /// `scene_position(pixel)`). With hot reload on,
     /// saving the file in `assets/` updates the game (an error keeps the old one).
@@ -263,7 +246,7 @@ impl Graphics {
     ///             return c.value * max(1.0 - 2.0 * frame.time.y, 0.0);
     ///         }");
     ///     let target = ctx.gfx.create_render_target(64, 64);
-    ///     ctx.compute_passes.push(ponko::render::ComputePass::new(fade, target));
+    ///     ctx.scene3d.passes.compute.push(ponko::render::ComputePass::new(fade, target));
     /// });
     /// ```
     ///
@@ -325,17 +308,8 @@ impl Graphics {
         Ok(self.record_shader(name, super::ShaderKind::Compute, true, compiled)?)
     }
 
-    /// Whether this game made `compute` and hasn't freed it (for the C API,
-    /// which takes ids): [`Ctx::is_live`](crate::Ctx::is_live).
-    #[doc(hidden)]
-    #[must_use]
-    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
-    pub fn has_compute(&self, compute: Compute) -> bool {
-        self.is_live(compute)
-    }
-
     /// Frees compute pass `id` (see [`Ctx::free`](crate::Ctx::free)): entries of
-    /// [`Ctx::compute_passes`](crate::Ctx::compute_passes) running it are skipped from now on.
+    /// [`RenderPasses::compute`](crate::render::RenderPasses::compute) running it are skipped from now on.
     pub(crate) fn free_compute_id(&mut self, id: u32) {
         if !self.assets3d.computes_live.remove(id) {
             return;
@@ -372,16 +346,6 @@ impl GpuBuffer {
     pub(crate) fn slot(self) -> u32 {
         self.id & super::SLOT_MASK
     }
-    /// Internal handle ID for language bindings.
-    #[doc(hidden)]
-    pub fn id(self) -> u32 {
-        self.id
-    }
-    /// Internal handle conversion for language bindings; validate before use.
-    #[doc(hidden)]
-    pub fn from_id(id: u32) -> Self {
-        Self { id }
-    }
 }
 impl Graphics {
     /// Creates `len` elements. Initial data may be empty or exactly `len` elements.
@@ -393,17 +357,12 @@ impl Graphics {
             len > 0 && (data.is_empty() || data.len() == len as usize),
             "invalid GPU buffer length"
         );
-        let id = match self.assets3d.free_gpu_buffers.pop() {
-            Some(freed) => super::next_generation(freed),
-            None => {
-                let slot = super::new_slot(self.assets3d.gpu_buffers.len(), "GPU buffer");
-                self.assets3d.gpu_buffers.push(0);
-                slot
-            }
-        };
+        let id = (self.assets3d.gpu_buffer_ids).make(self.assets3d.gpu_buffers.len(), "GPU buffer");
         let b = GpuBuffer { id };
+        if b.slot() as usize == self.assets3d.gpu_buffers.len() {
+            self.assets3d.gpu_buffers.push(0);
+        }
         self.assets3d.gpu_buffers[b.slot() as usize] = len;
-        super::set_slot_id(&mut self.assets3d.gpu_buffer_ids, id);
         self.asset_ledger.made(crate::inventory::AssetClass::GpuBuffer, id);
         if let Some(r) = self.renderer.as_mut()
             && !self.headless
@@ -588,9 +547,14 @@ mod tests {
             let light = ctx.gfx.create_render_target(4, 4);
             let particles = ctx.gfx.create_gpu_buffer(8, &[]);
             let material = ctx.gfx.default_material();
-            ctx.compute_passes.push(ComputePass::for_buffer(simulate, particles));
-            ctx.scene_compute_passes.push(ComputePass::new(meter, light));
-            ctx.scene_compute_passes
+            ctx.scene3d
+                .passes
+                .compute
+                .push(ComputePass::for_buffer(simulate, particles));
+            ctx.scene3d.passes.scene_compute.push(ComputePass::new(meter, light));
+            ctx.scene3d
+                .passes
+                .scene_compute
                 .push(ComputePass::for_buffer(simulate, particles));
             ctx.collect_passes(Some(material));
             let frame = &ctx.gfx.frame3d;
@@ -603,8 +567,8 @@ mod tests {
             // Freeing the buffer takes its passes out of both stages.
             ctx.gfx.free(particles);
             ctx.collect_passes(Some(material));
-            assert!(ctx.compute_passes.is_empty());
-            assert_eq!(ctx.scene_compute_passes.len(), 1);
+            assert!(ctx.scene3d.passes.compute.is_empty());
+            assert_eq!(ctx.scene3d.passes.scene_compute.len(), 1);
             assert_eq!(ctx.gfx.frame3d.scene_computes, [(meter.id, light.id, material.id)]);
         });
     }

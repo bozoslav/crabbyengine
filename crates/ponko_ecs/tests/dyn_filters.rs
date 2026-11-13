@@ -48,7 +48,9 @@ fn typed<F: QueryFilter>(w: &mut World) -> Vec<Entity> {
 fn dynamic(w: &mut World, filter: &DynFilter) -> Result<Vec<Entity>, FilterError> {
     let compiled = filter.compile()?;
     let mut out = Vec::new();
-    w.query_chunks_filtered(ChunkQuery::new(&[]), &compiled, |c| out.extend_from_slice(c.entities));
+    w.raw().query_chunks(ChunkQuery::new(&[]).filter(&compiled), |c| {
+        out.extend_from_slice(c.entities)
+    });
     out.sort();
     Ok(out)
 }
@@ -183,7 +185,7 @@ fn filters_reach_the_same_entities_with_columns_and_empty_archetypes() {
     // The filtered components needn't be columns, and columns narrow it too.
     let filter = Any(vec![Has(i.player), Has(i.enemy)]).compile().unwrap();
     let mut rows = 0;
-    w.query_chunks_filtered(ChunkQuery::new(&[health]), &filter, |c| {
+    w.raw().query_chunks(ChunkQuery::new(&[health]).filter(&filter), |c| {
         assert_eq!(c.columns.len(), 1);
         rows += c.entities.len();
     });
@@ -242,17 +244,17 @@ fn compile_fails_where_the_typed_filters_panic() {
     for (name, with) in [("With", true), ("Without", false)] {
         let fits = catch_unwind(AssertUnwindSafe(|| {
             if with {
-                let _ = eight!(w, With).with::<C0>();
+                let _ = eight!(w, With).filter::<With<C0>>();
             } else {
-                let _ = eight!(w, Without).without::<C0>();
+                let _ = eight!(w, Without).filter::<Without<C0>>();
             }
         }));
         assert!(fits.is_ok(), "8 `{name}` plus a repeat is within the limit");
         let panics = catch_unwind(AssertUnwindSafe(|| {
             if with {
-                let _ = eight!(w, With).with::<C8>();
+                let _ = eight!(w, With).filter::<With<C8>>();
             } else {
-                let _ = eight!(w, Without).without::<C8>();
+                let _ = eight!(w, Without).filter::<Without<C8>>();
             }
         }));
         assert!(
@@ -356,8 +358,10 @@ fn parallel_and_serial_visits_are_the_same_through_a_compiled_filter() {
     let copy = filter;
     let mut a = 0;
     let mut b = 0;
-    w.query_chunks_filtered(ChunkQuery::new(&[]), &filter, |c| a += c.entities.len());
-    w.query_chunks_filtered(ChunkQuery::new(&[]), &copy, |c| b += c.entities.len());
+    w.raw()
+        .query_chunks(ChunkQuery::new(&[]).filter(&filter), |c| a += c.entities.len());
+    w.raw()
+        .query_chunks(ChunkQuery::new(&[]).filter(&copy), |c| b += c.entities.len());
     assert_eq!((a, b), (8, 8));
 }
 
@@ -378,7 +382,8 @@ fn compile_tree_looks_components_up_and_reports_unknown_ones() {
     let filter = All(vec![Has(i.player), Lacks(i.dead)]);
     let compiled = compile_tree(&filter, |index| w.component_at(index as usize)).unwrap();
     let mut seen = 0;
-    w.query_chunks_filtered(ChunkQuery::new(&[]), &compiled, |c| seen += c.entities.len());
+    w.raw()
+        .query_chunks(ChunkQuery::new(&[]).filter(&compiled), |c| seen += c.entities.len());
     assert_eq!(seen, 0, "an empty world");
     assert_eq!(
         compile_tree(&Has(i.player), |_| None).err(),

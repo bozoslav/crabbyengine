@@ -213,10 +213,10 @@ fn draw_bent(morph: bool, mixed: bool, downlevel: bool, grow: bool) {
         }
         ctx.world.spawn((Transform3D::default(), Model::new(mesh), skeleton))
     };
-    ctx.camera3d.position = vec3(0.0, 1.0, 6.0);
-    ctx.camera3d.look_at(vec3(0.0, 1.0, 0.0));
-    ctx.lighting.shadows = true; // the shadow passes draw it too
-    ctx.sky.atmosphere = false; // a black background
+    ctx.scene3d.camera.position = vec3(0.0, 1.0, 6.0);
+    ctx.scene3d.camera.look_at(vec3(0.0, 1.0, 0.0));
+    ctx.scene3d.lighting.shadows = true; // the shadow passes draw it too
+    ctx.scene3d.sky.atmosphere = false; // a black background
 
     let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
     renderer.create_material(&device, &GpuMaterialDesc::new(&glow), &textures);
@@ -230,19 +230,25 @@ fn draw_bent(morph: bool, mixed: bool, downlevel: bool, grow: bool) {
         let mut skins = SkinFrame::default();
         skins.collect(&mut ctx.world, &ctx.gfx.assets3d);
         let mut frame = Frame3D::default();
-        frame.collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        frame.collect(
+            &mut ctx.world,
+            &ctx.gfx.assets3d,
+            &skins,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
+        );
         frame.skins = skins;
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
                 sun: Vec3::ZERO,
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -283,7 +289,7 @@ fn draw_bent(morph: bool, mixed: bool, downlevel: bool, grow: bool) {
     };
     // Brightness of the pixel where the camera sees `at`.
     let lit = |pixels: &[u8], ctx: &Ctx, at: Vec3| {
-        let clip = ctx.camera3d.view_proj() * at.extend(1.0);
+        let clip = ctx.scene3d.camera.view_proj() * at.extend(1.0);
         let ndc = clip.truncate() / clip.w;
         let x = ((ndc.x * 0.5 + 0.5) * SIZE as f32) as usize;
         let y = ((0.5 - ndc.y * 0.5) * SIZE as f32) as usize;

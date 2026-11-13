@@ -7,10 +7,10 @@ use super::gpu::GpuTexture;
 use super::gpu3d::StateChanges;
 use super::gpu3d::*;
 #[allow(unused_imports)]
-use crate::anim::Blend;
-#[allow(unused_imports)]
 use crate::d3::Transform as Transform3D;
 use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::Blend;
 #[allow(unused_imports)]
 use crate::render::{Material, MaterialDesc, Mesh, MeshData, Model, ModelMaterial, Shader};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
@@ -151,9 +151,9 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, solid_prepass);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
-        ctx.lighting.shadows = true;
-        ctx.lighting.sun_direction = vec3(-0.4, -1.0, -0.3);
+        ctx.scene3d.sky.atmosphere = false;
+        ctx.scene3d.lighting.shadows = true;
+        ctx.scene3d.lighting.sun_direction = vec3(-0.4, -1.0, -0.3);
         Some(Self {
             device,
             queue,
@@ -228,25 +228,25 @@ impl Rig {
     fn render(&mut self) -> [std::time::Duration; 2] {
         let ctx = &mut self.ctx;
         let frame = &mut self.frame;
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::splat(0.3),
                 ground: Vec3::splat(0.1),
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -451,10 +451,10 @@ fn many_materials(rig: &mut Rig, meshes: usize) {
             ));
         }
     }
-    rig.ctx.camera3d.position = vec3(0.0, 18.0, 26.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
-    rig.ctx.camera3d.far = 200.0;
-    rig.ctx.lighting.shadow_distance = 80.0;
+    rig.ctx.scene3d.camera.position = vec3(0.0, 18.0, 26.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.far = 200.0;
+    rig.ctx.scene3d.lighting.shadow_distance = 80.0;
 }
 
 #[test]
@@ -464,7 +464,7 @@ fn sorted_runs_draw_the_same_pixels_with_fewer_state_changes() {
             return;
         };
         many_materials(&mut rig, 300);
-        rig.ctx.lighting.shadow_refresh = 1;
+        rig.ctx.scene3d.lighting.shadow_refresh = 1;
         let (before, unsorted) = rig.settled(false);
         let (again, _) = rig.settled(false);
         rig.assert_same_frame(
@@ -511,8 +511,8 @@ fn a_one_material_scene_draws_as_before() {
         let at = vec3(i as f32 * 1.5 - 7.0, 0.5, 0.0);
         rig.ctx.world.spawn((Transform3D::at(at), Model::new(cube)));
     }
-    rig.ctx.camera3d.position = vec3(0.0, 4.0, 12.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 4.0, 12.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let (before, unsorted) = rig.settled(false);
     let (after, sorted) = rig.settled(true);
     rig.assert_same_frame(&before, &after, "sorted and unsorted runs", false);
@@ -548,8 +548,8 @@ fn bench_draw_order() {
                 let at = vec3((i % 10) as f32 * 1.5 - 7.0, 0.5, (i / 10) as f32 * -1.5);
                 rig.ctx.world.spawn((Transform3D::at(at), Model::new(cube)));
             }
-            rig.ctx.camera3d.position = vec3(0.0, 6.0, 12.0);
-            rig.ctx.camera3d.look_at(Vec3::ZERO);
+            rig.ctx.scene3d.camera.position = vec3(0.0, 6.0, 12.0);
+            rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
         } else {
             many_materials(&mut rig, meshes);
         }
@@ -717,9 +717,9 @@ fn frames_differing_by_gpu_noise_pass_and_by_more_fail() {
 fn transparent_models_sort_globally_across_meshes_and_override_materials() {
     for prepass in [false, true] {
         let Some(mut rig) = Rig::new(prepass) else { return };
-        rig.ctx.lighting.shadows = false;
-        rig.ctx.camera3d.position = vec3(0.0, 0.0, 8.0);
-        rig.ctx.camera3d.look_at(Vec3::ZERO);
+        rig.ctx.scene3d.lighting.shadows = false;
+        rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, 8.0);
+        rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
         let unlit = rig.shader(
             "glass_unlit",
             "fn surface(s: Surface) -> Surface { var o = s; o.unlit = true; return o; }",
@@ -795,17 +795,17 @@ fn shared_mesh_buffers_preserve_pixels_after_free_reuse_and_growth() {
             .world
             .spawn((Transform3D::at(vec3(x, 0.0, 0.0)), Model::new(mesh)));
     }
-    rig.ctx.camera3d.position = vec3(0.0, 2.0, 7.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 2.0, 7.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let (before, _) = rig.settled(true);
-    rig.renderer.free_mesh(a.id());
+    rig.renderer.free_mesh(a.id);
     // Consume its hole, then force both arenas to grow. b must survive.
     for i in 0..12 {
         rig.mesh(&MeshData::sphere(0.1, 12 + i), material);
     }
     rig.renderer.create_mesh_at(
         &rig.device,
-        a.id(),
+        a.id,
         &data,
         &[(0..data.indices.len() as u32, material)],
         false,
@@ -814,7 +814,7 @@ fn shared_mesh_buffers_preserve_pixels_after_free_reuse_and_growth() {
     rig.assert_same_frame(&before, &after, "shared arenas free/reuse/regrow", false);
     assert!(changes.index_buffers < changes.draws, "shared bindings: {changes:?}");
     // Negative control: a live mesh's removal must change its pixels.
-    rig.renderer.free_mesh(b.id());
+    rig.renderer.free_mesh(b.id);
     let (missing, _) = rig.settled(true);
     assert!(missing.iter().zip(after.iter()).filter(|(a, b)| a != b).count() > 1000);
     rig.assert_healthy("shared arena growth");
@@ -833,24 +833,24 @@ fn part_runs_group_resolved_materials_and_depth_without_extra_draws() {
     let far = rig.mesh(&data, a);
     // Two material parts, deliberately alternating across meshes.
     rig.renderer
-        .create_mesh_at(&rig.device, near.id(), &data, &[(0..18, b), (18..36, a)], false);
+        .create_mesh_at(&rig.device, near.id, &data, &[(0..18, b), (18..36, a)], false);
     rig.renderer
-        .create_mesh_at(&rig.device, far.id(), &data, &[(0..18, b), (18..36, a)], false);
+        .create_mesh_at(&rig.device, far.id, &data, &[(0..18, b), (18..36, a)], false);
     rig.ctx
         .world
         .spawn((Transform3D::at(vec3(0.0, 0.0, -2.0)), Model::new(near)));
     rig.ctx
         .world
         .spawn((Transform3D::at(vec3(0.0, 0.0, 2.0)), Model::new(far)));
-    rig.ctx.camera3d.position = vec3(0.0, 1.0, 8.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 1.0, 8.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let (before, unsorted) = rig.settled(false);
     let (after, sorted) = rig.settled(true);
     rig.assert_same_frame(&before, &after, "per-part material and depth order", false);
     // A parts first, B parts second; the nearer run within each group first.
     assert_eq!(
         rig.renderer.solid_part_order_for_test(),
-        [(far.id(), 1), (near.id(), 1), (far.id(), 0), (near.id(), 0)]
+        [(far.id, 1), (near.id, 1), (far.id, 0), (near.id, 0)]
     );
     assert_eq!(sorted.draws, unsorted.draws);
     assert!(sorted.bind_groups < unsorted.bind_groups);

@@ -16,7 +16,7 @@ use ponko::d2::{Sprite, Transform as Transform2D};
 use ponko::prelude::*;
 
 fn registry_file(addr: SocketAddr) -> PathBuf {
-    let dir = match std::env::var_os("PONKO_INSTANCES_DIR").or_else(|| std::env::var_os("CRABBY_INSTANCES_DIR")) {
+    let dir = match std::env::var_os("PONKO_INSTANCES_DIR") {
         Some(d) => PathBuf::from(d),
         None if cfg!(windows) => PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap()).join("ponko/instances"),
         None => PathBuf::from(std::env::var_os("HOME").unwrap()).join(".ponko/instances"),
@@ -98,9 +98,12 @@ fn a_paused_headless_game_is_driven_over_tcp() {
     assert_eq!(info["headless"], true);
     let mut c = Client::connect(addr, info["token"].as_str().unwrap().to_string());
 
-    // Wrong token: refused, and nothing happens.
+    // Wrong token: refused, nothing happens, and the stranger is hung up on.
     let reply = c.raw(json!({ "id": 7, "token": "nope", "method": "game.quit" }));
     assert!(reply["error"].as_str().unwrap().contains("token"), "{reply}");
+    let mut rest = String::new();
+    assert!(c.reader.read_line(&mut rest).map_or(true, |n| n == 0), "{rest}");
+    let mut c = Client::connect(addr, info["token"].as_str().unwrap().to_string());
 
     let status = c.call("info", json!({})).unwrap();
     assert_eq!(

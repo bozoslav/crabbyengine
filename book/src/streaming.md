@@ -6,11 +6,25 @@ right for what a game needs all the time. A large world needs more than
 fits in GPU memory at once, and can't stop for a frame while a file
 decodes. For that, ask for assets **by name, every frame you need them**:
 
-| | Waits for the file | Under a memory budget |
-|---|---|---|
-| `load_texture`, `load_mesh` | yes | no: kept until freed |
-| `resident_texture`, `resident_mesh` | yes, the first time | yes |
-| `stream_texture`, `stream_mesh` | never | yes |
+All of them are on `ctx.gfx`, the one service that owns GPU assets, their
+upload budget and their residency budgets. Which loader do I use?
+
+| | Waits for the file | Under a memory budget | Use it for |
+|---|---|---|---|
+| `load_texture`, `load_mesh` | yes | no: kept until freed | what the game needs all the time |
+| `resident_texture`, `resident_mesh` | yes, the first time | yes | what must be there this frame (cell props, a level's set) |
+| `stream_texture`, `stream_mesh` | never | yes | what can pop in a few frames later (far cells, LOD levels) |
+
+None of these calls evicts anything: the engine checks the budgets at the
+start of every frame, before your systems, with the world your entities are
+in (see [Budgets](#budgets-staying-in-memory)). The one exception is
+`ctx.finish_uploads()`, for loading screens, which uploads everything asked
+for and evicts as that check would. The two budgets
+are separate: `set_upload_budget` limits the bytes sent to the GPU per frame,
+`set_residency_budget` the bytes kept on it. `ponko::stream` is something
+else: [`Job`](api/ponko/stream/struct.Job.html) runs your own work on a
+worker thread and `CellStreamer` says which cells of a grid to load, for
+games that build their own content; it holds no assets.
 
 <div class="lang-pair">
 <div>
@@ -65,17 +79,19 @@ their ids in) depends on how fast the workers are. With
 so every state changes in a frame that depends only on the order of
 requests and the budget: replays, lockstep games and tests see the same
 frames every run. States are fixed per frame, not per simulation tick: a
-frame can run several ticks or none, so replays need the same frames too. `finish_uploads()` waits for everything asked for so far,
+frame can run several ticks or none, so replays need the same frames too. `finish_uploads(&mut ctx.world)` waits for everything asked for so far,
 for loading screens and tests.
 
 ## Budgets: staying in memory
 
-`set_residency_budget(kind, bytes)` caps the bytes of meshes or textures
+`ctx.gfx.set_residency_budget(kind, bytes)` caps the bytes of meshes or textures
 loaded by name (estimates of their GPU memory). When resident assets go
 over it, the **least recently used** ones are evicted until they fit. The
-budget is checked when an asset loads and at the start of every frame, so
-what entities stop showing goes without waiting for the next load. Never
-evicted:
+budget is checked at the start of every frame (and while uploading streamed
+assets), never inside the call that loads: a load, a lower budget or an
+unpin can leave usage over the budget for **at most one frame**, until the
+next frame's check evicts what may go. What entities stop showing goes
+then too, without waiting for the next load. Never evicted:
 
 - assets asked for in this or the previous frame or tick: a handle you just
   got stays good while you use it, and what you ask for every frame (or

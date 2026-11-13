@@ -38,17 +38,17 @@
 //!
 //! A declaration is a promise; the engine must not trust it blindly.
 //!
-//! 1. **View systems enforce it.** A system registered with
-//!    [`Game::add_view`](crate::Game::add_view) gets a
-//!    [`SystemView`](crate::system_view::SystemView) instead of `&mut Ctx`: a restricted
+//! 1. **View systems enforce it.** A system that takes a
+//!    [`SystemView`](crate::system_view::SystemView) instead of `&mut Ctx`
+//!    (see [`Game::add`](crate::Game::add)) gets exactly that: a restricted
 //!    [`WorldView`](crate::ecs_core::WorldView) of its declared components and
 //!    resources, and checked access to its events, commands and services,
 //!    in every build. Nothing else is reachable, so such a system can't go
 //!    beyond its declaration. Only view systems may ever share a parallel
 //!    batch ([`AccessReport::parallel_pairs`]).
-//! 2. **`Ctx` systems are checked in debug builds.** A system registered
-//!    with [`Game::add_with_access`](crate::Game::add_with_access) (or a C
-//!    or C++ system with a declaration) keeps `&mut Ctx`. In builds with
+//! 2. **`Ctx` systems are checked in debug builds.** A `&mut Ctx` system
+//!    with a declaration ([`IntoSystem::access`](crate::IntoSystem::access),
+//!    or a C or C++ system with one) keeps `&mut Ctx`. In builds with
 //!    debug assertions it runs with access recording on
 //!    ([`World::record_access`](crate::World::record_access) and the same
 //!    for events); afterwards any component, resource or event it used
@@ -84,17 +84,18 @@
 //! struct Vel(f32);
 //! struct Health(i32);
 //!
+//! use ponko::access::SystemAccess;
+//!
+//! fn movement(ctx: &mut Ctx) {
+//!     ctx.world.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| p.0 += v.0);
+//! }
+//! fn decay(ctx: &mut Ctx) {
+//!     ctx.world.query::<&mut Health>().for_each(|h| h.0 -= 1);
+//! }
+//!
 //! let game = Game::new("access", 320, 240)
-//!     .add_with_access(
-//!         Phase::AfterPhysics,
-//!         ponko::access::SystemAccess::new().write::<Pos>().read::<Vel>(),
-//!         |ctx| ctx.world.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| p.0 += v.0),
-//!     )
-//!     .add_with_access(
-//!         Phase::AfterPhysics,
-//!         ponko::access::SystemAccess::new().write::<Health>(),
-//!         |ctx| ctx.world.query::<&mut Health>().for_each(|h| h.0 -= 1),
-//!     );
+//!     .add(Phase::AfterPhysics, movement.access(SystemAccess::new().write::<Pos>().read::<Vel>()))
+//!     .add(Phase::AfterPhysics, decay.access(SystemAccess::new().write::<Health>()));
 //! let report = game.access_report();
 //! assert_eq!(report.compatible_pairs().count(), 1);
 //! ```
@@ -102,7 +103,7 @@
 use std::any::TypeId;
 use std::fmt;
 
-use ponko_ecs::{AccessLog, Component, ViewAccess, World};
+use ponko_ecs::{AccessLog, Component, ViewState, World};
 
 #[cfg(debug_assertions)]
 use crate::Ctx;
@@ -112,12 +113,11 @@ use crate::Phase;
 /// beside its components, resources, events and commands.
 ///
 /// Names follow the service fields of `Ctx`. Two declarations conflict on
-/// a service when both use it and at least one writes it. View systems
-/// ([`Game::add_view`](crate::Game::add_view)) can use the services marked
-/// "view" below, through [`SystemView`](crate::system_view::SystemView); the others
-/// hold state that belongs to the window, renderer or asset tables, so a
-/// system that needs them keeps `&mut Ctx` (declared with
-/// [`Game::add_with_access`](crate::Game::add_with_access), or exclusive).
+/// a service when both use it and at least one writes it. View systems can
+/// use the services marked "view" below, through
+/// [`SystemView`](crate::system_view::SystemView); the others hold state
+/// that belongs to the window, renderer or asset tables, so a system that
+/// needs them keeps `&mut Ctx` (declared, or exclusive).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Service {
@@ -139,7 +139,7 @@ pub enum Service {
     Ui,
     /// Profiling, statistics, the HUD and traces (`ctx.perf`).
     Perf,
-    /// The 2D and 3D cameras (`ctx.camera`, `ctx.camera3d`). View: read and write.
+    /// The 2D and 3D cameras (`ctx.camera`, `ctx.scene3d.camera`). View: read and write.
     Camera,
     /// The spatial grid (`ctx.spatial`). View: read.
     Spatial,
@@ -278,8 +278,11 @@ fn add_event(items: &mut Vec<Item>, it: Item) {
 /// has the finer rules for a known order. In builds with debug assertions,
 /// each declared `Ctx` system runs with access recording on and panics on
 /// any component, resource, event or command it used without declaring
-/// it; a view system ([`Game::add_view`](crate::Game::add_view)) can't
-/// reach anything undeclared at all.
+/// it; a view system (one that takes `&mut SystemView`) can't reach
+/// anything undeclared at all.
+///
+/// The one declaration type: attach it to a system of either kind with
+/// [`IntoSystem::access`](crate::IntoSystem::access).
 ///
 /// [`SystemAccess::new`] declares nothing; chain the builder methods to add
 /// to it. Declaring a write also covers reading the same type.
@@ -306,9 +309,29 @@ pub struct SystemAccess {
     /// Declared services and whether each is written.
     services: Vec<(Service, bool)>,
     /// The typed components and resources, as the ECS view takes them.
-    world: ViewAccess,
+    world: WorldDecls,
     /// For each typed event type read: how to share its kept events.
     event_items: Vec<EventItems>,
+}
+
+/// How to declare each typed component and resource on an ECS
+/// [`ViewState`], in declaration order. It repeats what `components` and
+/// `resources` list, so it takes no part in comparing declarations.
+#[derive(Clone, Default)]
+struct WorldDecls(Vec<fn(ViewState) -> ViewState>);
+
+impl PartialEq for WorldDecls {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for WorldDecls {}
+
+impl fmt::Debug for WorldDecls {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} declared", self.0.len())
+    }
 }
 
 /// How to get the kept events of one type as a value threads can share.
@@ -368,7 +391,7 @@ impl SystemAccess {
     #[must_use]
     pub fn read<T: Component>(mut self) -> Self {
         add(&mut self.components, item::<T>(false));
-        self.world = self.world.read::<T>();
+        self.world.0.push(ViewState::read::<T>);
         self
     }
 
@@ -376,7 +399,7 @@ impl SystemAccess {
     #[must_use]
     pub fn write<T: Component>(mut self) -> Self {
         add(&mut self.components, item::<T>(true));
-        self.world = self.world.write::<T>();
+        self.world.0.push(ViewState::write::<T>);
         self
     }
 
@@ -384,7 +407,7 @@ impl SystemAccess {
     #[must_use]
     pub fn read_resource<R: Send + Sync + 'static>(mut self) -> Self {
         add(&mut self.resources, item::<R>(false));
-        self.world = self.world.read_resource::<R>();
+        self.world.0.push(ViewState::read_resource::<R>);
         self
     }
 
@@ -392,7 +415,7 @@ impl SystemAccess {
     #[must_use]
     pub fn write_resource<R: Send + Sync + 'static>(mut self) -> Self {
         add(&mut self.resources, item::<R>(true));
-        self.world = self.world.write_resource::<R>();
+        self.world.0.push(ViewState::write_resource::<R>);
         self
     }
 
@@ -578,15 +601,18 @@ impl SystemAccess {
             .map(|a| Unbatchable::SendsAndReads(a.name))
     }
 
-    /// The typed component and resource part, for an ECS view.
-    pub(crate) fn world_access(&self) -> &ViewAccess {
-        &self.world
+    /// An ECS view state that declares the typed components and resources.
+    pub(crate) fn view_state(&self) -> ViewState {
+        self.world
+            .0
+            .iter()
+            .fold(ViewState::new(), |state, declare| declare(state))
     }
 
     /// Why a view system can't have this declaration, if it can't.
     pub(crate) fn view_problem(&self) -> Option<String> {
         if self.exclusive {
-            return Some("is exclusive; register it with `add` instead".into());
+            return Some("is exclusive; a system that may use anything takes `&mut Ctx`".into());
         }
         let untyped = |items: &[Item]| items.iter().find(|i| !matches!(i.key, Key::Type(_))).map(|i| i.name);
         if let Some(name) = untyped(&self.components)
@@ -599,12 +625,12 @@ impl SystemAccess {
             match s.in_view() {
                 None => {
                     return Some(format!(
-                        "declares service `{s}`, which a view doesn't offer; use `add_with_access`"
+                        "declares service `{s}`, which a view doesn't offer; take `&mut Ctx` instead"
                     ));
                 }
                 Some(false) if write => {
                     return Some(format!(
-                        "declares writing service `{s}`, which a view only reads; use `add_with_access`"
+                        "declares writing service `{s}`, which a view only reads; take `&mut Ctx` instead"
                     ));
                 }
                 _ => {}
@@ -862,17 +888,23 @@ pub(crate) fn end_check(ctx: &mut Ctx, system: &str, access: &SystemAccess) {
 
 /// One registered system, as the report sees it.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct ReportedSystem {
-    /// The system's name (its function path).
+    /// The registration's id: what [`Game::add_system`](crate::Game::add_system)
+    /// returned for it, for [`Game::remove`](crate::Game::remove) and
+    /// [`Game::order`](crate::Game::order).
+    pub id: crate::SystemId,
+    /// The system's name: its function path, or the name it was given
+    /// ([`IntoSystem::named`](crate::IntoSystem::named)).
     pub name: &'static str,
     /// The phase it runs in.
     pub phase: Phase,
     /// Its declaration; `None` means undeclared, which counts as exclusive.
     pub access: Option<SystemAccess>,
-    /// `true` for a view system ([`Game::add_view`](crate::Game::add_view)):
-    /// it can reach nothing beyond its declaration, so the scheduler
-    /// may put it in a batch. Declared `&mut Ctx` systems (`add_with_access`) are
-    /// only checked in debug builds and must stay sequential.
+    /// `true` for a view system (one that takes `&mut SystemView`): it can
+    /// reach nothing beyond its declaration, so the scheduler may put it in
+    /// a batch. Declared `&mut Ctx` systems are only checked in debug builds
+    /// and must stay sequential.
     pub enforced: bool,
 }
 
@@ -899,6 +931,7 @@ pub struct ReportedPair {
 /// [`Game::schedule_plan`](crate::Game::schedule_plan) shows what really
 /// runs together.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct AccessReport {
     /// Every registered system, in run order.
     pub systems: Vec<ReportedSystem>,
@@ -1020,11 +1053,9 @@ mod tests {
     fn exclusive_declares_nothing_else_and_covers_everything() {
         let mut world = World::new();
         let id = world.register::<Pos>();
-        let used = AccessLog {
-            components: vec![(id, true)],
-            structural: true,
-            ..AccessLog::default()
-        };
+        let mut used = AccessLog::default();
+        used.components.push((id, true));
+        used.structural = true;
         let events = EventUse {
             raw: vec![(7, true)],
             ..EventUse::default()

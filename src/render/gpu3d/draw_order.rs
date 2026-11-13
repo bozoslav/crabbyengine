@@ -235,7 +235,7 @@ impl Renderer3D {
 
     /// The state changes and draws the model passes recorded since the last
     /// call (for tests and benchmarks).
-    #[cfg(any(test, not(target_arch = "wasm32")))]
+    #[cfg(any(test, all(not(target_arch = "wasm32"), feature = "bench-internals")))]
     pub(crate) fn take_state_changes(&self) -> StateChanges {
         self.state_counters.take()
     }

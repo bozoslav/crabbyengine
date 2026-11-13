@@ -97,21 +97,21 @@ impl Stage {
         ctx.gfx.assets3d.gi_supported = supports_gi(&device);
         // A black background, and the picture as lit: no curve, no glow.
         // Scenes about those turn them on.
-        ctx.sky.atmosphere = false;
-        ctx.post.tonemap = Tonemap::None;
-        ctx.post.bloom = 0.0;
+        ctx.scene3d.sky.atmosphere = false;
+        ctx.scene3d.post.tonemap = Tonemap::None;
+        ctx.scene3d.post.bloom = 0.0;
         // White light from one side and a little from everywhere.
-        let lighting = &mut ctx.lighting;
+        let lighting = &mut ctx.scene3d.lighting;
         lighting.sun_direction = vec3(-0.5, -1.0, -0.35);
         lighting.sun_color = Color::WHITE;
         lighting.sun_intensity = 1.0;
-        lighting.sky_color = Color::WHITE;
-        lighting.ground_color = Color::WHITE;
+        ctx.scene3d.sky.sky_color = Color::WHITE;
+        ctx.scene3d.sky.ground_color = Color::WHITE;
         lighting.ambient_intensity = 0.05;
         lighting.shadows = false;
         lighting.shadow_distance = 30.0;
-        ctx.camera3d.position = vec3(0.0, 2.4, 5.0);
-        ctx.camera3d.look_at(vec3(0.0, 0.6, 0.0));
+        ctx.scene3d.camera.position = vec3(0.0, 2.4, 5.0);
+        ctx.scene3d.camera.look_at(vec3(0.0, 0.6, 0.0));
         Some(Self {
             device,
             queue,
@@ -152,7 +152,10 @@ impl Stage {
     pub fn resize(&mut self, size: (u32, u32)) {
         self.output = Self::target(&self.device, size, self.output.format(), self.view_format);
         self.size = size;
-        self.ctx.camera3d.set_viewport(Vec2::new(size.0 as f32, size.1 as f32));
+        self.ctx
+            .scene3d
+            .camera
+            .set_viewport(Vec2::new(size.0 as f32, size.1 as f32));
     }
 
     /// A material shader made from `source`, on the CPU and the GPU, and
@@ -170,9 +173,9 @@ impl Stage {
     /// with the camera put back afterwards: the whole picture shifted, for
     /// a reference's negative control.
     pub fn shifted(&mut self, by: Vec3, frames: usize) -> Image {
-        self.ctx.camera3d.position += by;
+        self.ctx.scene3d.camera.position += by;
         let image = self.settled(frames);
-        self.ctx.camera3d.position -= by;
+        self.ctx.scene3d.camera.position -= by;
         image
     }
 
@@ -220,15 +223,19 @@ impl Stage {
     /// Collects and draws one frame into `output`.
     pub fn render(&mut self) {
         let ctx = &mut self.ctx;
-        let post = &ctx.post;
+        let post = &ctx.scene3d.post;
         ctx.gfx.frame3d.motion.enabled = post.anti_aliasing == crate::render::AntiAliasing::Taa
             || (post.ao_temporal && post.ambient_occlusion.enabled);
-        ctx.gfx.frame3d.lod = ctx.lod;
+        ctx.gfx.frame3d.lod = ctx.scene3d.lod;
         let mut skins = std::mem::take(&mut ctx.gfx.frame3d.skins);
         skins.collect(&mut ctx.world, &ctx.gfx.assets3d);
-        ctx.gfx
-            .frame3d
-            .collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        ctx.gfx.frame3d.collect(
+            &mut ctx.world,
+            &ctx.gfx.assets3d,
+            &skins,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
+        );
         ctx.gfx.frame3d.skins = skins;
         let rgb = |c| {
             let [r, g, b, _] = linear(c);
@@ -237,15 +244,15 @@ impl Stage {
         // The light as a game without an atmosphere gets it.
         let scene = Scene3D {
             frame: &ctx.gfx.frame3d,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
-                sun: rgb(ctx.lighting.sun_color) * ctx.lighting.sun_intensity,
-                sky: rgb(ctx.lighting.sky_color),
-                ground: rgb(ctx.lighting.ground_color),
+                sun: rgb(ctx.scene3d.lighting.sun_color) * ctx.scene3d.lighting.sun_intensity,
+                sky: rgb(ctx.scene3d.sky.sky_color),
+                ground: rgb(ctx.scene3d.sky.ground_color),
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -287,7 +294,7 @@ impl Stage {
 
     /// The pixel the camera sees the world point `p` at.
     pub fn pixel(&self, p: Vec3) -> (u32, u32) {
-        let ndc = self.ctx.camera3d.view_proj().project_point3(p);
+        let ndc = self.ctx.scene3d.camera.view_proj().project_point3(p);
         let (w, h) = (self.size.0 as f32, self.size.1 as f32);
         let x = ((ndc.x * 0.5 + 0.5) * w).clamp(0.0, w - 1.0);
         let y = ((0.5 - ndc.y * 0.5) * h).clamp(0.0, h - 1.0);
@@ -441,10 +448,10 @@ pub(super) fn panes(stage: &mut Stage, order: [usize; 3]) {
         ..Default::default()
     };
     let pane = stage.mesh(&MeshData::cube(1.0), glass);
-    stage.ctx.lighting.sun_intensity = 0.0;
-    stage.ctx.lighting.ambient_intensity = 1.0;
-    stage.ctx.camera3d.position = vec3(0.0, -0.2, 5.5);
-    stage.ctx.camera3d.look_at(vec3(0.0, -0.2, 0.0));
+    stage.ctx.scene3d.lighting.sun_intensity = 0.0;
+    stage.ctx.scene3d.lighting.ambient_intensity = 1.0;
+    stage.ctx.scene3d.camera.position = vec3(0.0, -0.2, 5.5);
+    stage.ctx.scene3d.camera.look_at(vec3(0.0, -0.2, 0.0));
     for i in order {
         let (position, [r, g, b]) = PANES[i];
         stage.ctx.world.spawn((
@@ -506,11 +513,11 @@ pub(super) fn cutout(stage: &mut Stage, source: &str) -> (u32, [Vec3; 4]) {
         },
         Model::new(sheet),
     ));
-    let lighting = &mut stage.ctx.lighting;
+    let lighting = &mut stage.ctx.scene3d.lighting;
     lighting.sun_direction = vec3(1.0, -1.0, 0.0);
     lighting.shadows = true;
-    stage.ctx.camera3d.position = vec3(-0.5, 5.5, 3.5);
-    stage.ctx.camera3d.look_at(vec3(-0.9, 0.3, 0.0));
+    stage.ctx.scene3d.camera.position = vec3(-0.5, 5.5, 3.5);
+    stage.ctx.scene3d.camera.look_at(vec3(-0.9, 0.3, 0.0));
     // The middle cell's hole is at the sheet's centre; between two holes
     // the sheet is solid. The sun comes down at 45 degrees towards +x: the
     // shadow lies 1 further along x than the sheet, so the holes of the
@@ -526,7 +533,7 @@ pub(super) fn shadowed(stage: &mut Stage) -> (Entity, Vec3, Vec3) {
     stage.floor();
     let white = stage.cube(Color::WHITE);
     let entity = stage.block(white, vec3(-1.5, 0.0, -0.5), vec3(-0.5, 1.5, 0.5));
-    let lighting = &mut stage.ctx.lighting;
+    let lighting = &mut stage.ctx.scene3d.lighting;
     lighting.sun_direction = vec3(1.0, -1.0, 0.0);
     lighting.shadows = true;
     (entity, vec3(0.3, 0.0, 0.0), vec3(0.3, 0.0, 2.0))
@@ -576,7 +583,7 @@ pub(super) fn skinned(stage: &mut Stage) -> Entity {
     stage
         .renderer
         .create_mesh(&stage.device, &bar, &[(0..bar.indices.len() as u32, material)], true);
-    let lighting = &mut stage.ctx.lighting;
+    let lighting = &mut stage.ctx.scene3d.lighting;
     lighting.sun_direction = vec3(1.0, -1.0, 0.0);
     lighting.shadows = true;
     stage
@@ -614,10 +621,10 @@ pub(super) fn mirror(stage: &mut Stage) -> (Vec3, Vec3) {
     );
     stage.block(floor, vec3(-10.0, -1.0, -10.0), vec3(10.0, 0.0, 10.0));
     stage.block(glow, vec3(-0.5, 0.5, -0.5), vec3(0.5, 1.5, 0.5));
-    stage.ctx.lighting.sun_intensity = 0.0;
-    stage.ctx.lighting.ambient_intensity = 0.0;
-    stage.ctx.camera3d.position = vec3(0.0, 2.0, 6.0);
-    stage.ctx.camera3d.look_at(vec3(0.0, 0.5, 0.0));
+    stage.ctx.scene3d.lighting.sun_intensity = 0.0;
+    stage.ctx.scene3d.lighting.ambient_intensity = 0.0;
+    stage.ctx.scene3d.camera.position = vec3(0.0, 2.0, 6.0);
+    stage.ctx.scene3d.camera.look_at(vec3(0.0, 0.5, 0.0));
     // The box's centre mirrored is (0, -1, 0): seen through the floor at
     // (0, 0, 2).
     (vec3(0.0, 0.0, 2.0), vec3(2.5, 0.0, 2.0))
@@ -630,11 +637,11 @@ pub(super) fn crease(stage: &mut Stage) -> (Vec3, Vec3) {
     let white = stage.cube(Color::WHITE);
     stage.block(white, vec3(-10.0, -1.0, -10.0), vec3(10.0, 0.0, 10.0));
     stage.block(white, vec3(-10.0, 0.0, -3.0), vec3(10.0, 6.0, -1.0));
-    let lighting = &mut stage.ctx.lighting;
+    let lighting = &mut stage.ctx.scene3d.lighting;
     lighting.sun_intensity = 0.0;
     lighting.ambient_intensity = 0.6;
-    stage.ctx.camera3d.position = vec3(0.0, 2.5, 6.0);
-    stage.ctx.camera3d.look_at(vec3(0.0, 0.5, -1.0));
+    stage.ctx.scene3d.camera.position = vec3(0.0, 2.5, 6.0);
+    stage.ctx.scene3d.camera.look_at(vec3(0.0, 0.5, -1.0));
     (vec3(0.0, 0.0, -0.85), vec3(0.0, 0.0, 2.5))
 }
 
@@ -656,11 +663,11 @@ pub(super) fn red_room(stage: &mut Stage, gi: bool) -> (Vec3, Vec3, Vec3) {
     stage.block(white, vec3(0.0, 3.5, -outer), vec3(outer, 3.9, outer));
     stage.block(white, vec3(-2.0, 3.5, -outer), vec3(0.0, 3.9, -1.5));
     stage.block(white, vec3(-2.0, 3.5, 1.5), vec3(0.0, 3.9, outer));
-    let lighting = &mut stage.ctx.lighting;
+    let lighting = &mut stage.ctx.scene3d.lighting;
     lighting.sun_direction = vec3(-1.0, -1.0, 0.0);
     lighting.sun_intensity = 4.0;
-    lighting.sky_color = Color::rgb(0.5, 0.5, 0.5);
-    lighting.ground_color = Color::rgb(0.5, 0.5, 0.5);
+    stage.ctx.scene3d.sky.sky_color = Color::rgb(0.5, 0.5, 0.5);
+    stage.ctx.scene3d.sky.ground_color = Color::rgb(0.5, 0.5, 0.5);
     lighting.ambient_intensity = 0.3;
     lighting.shadows = true;
     lighting.gi = crate::render::GlobalIllumination {
@@ -670,8 +677,8 @@ pub(super) fn red_room(stage: &mut Stage, gi: bool) -> (Vec3, Vec3, Vec3) {
         probes_per_frame: crate::render::GlobalIllumination::MAX_PROBES_PER_FRAME,
         intensity: 1.0,
     };
-    stage.ctx.camera3d.position = vec3(2.0, 1.3, 0.3);
-    stage.ctx.camera3d.look_at(vec3(-3.5, -0.2, 0.0));
+    stage.ctx.scene3d.camera.position = vec3(2.0, 1.3, 0.3);
+    stage.ctx.scene3d.camera.look_at(vec3(-3.5, -0.2, 0.0));
     (vec3(-3.0, -0.5, -0.8), vec3(-0.5, -0.5, -0.8), vec3(-3.5, 1.0, 0.0))
 }
 
@@ -681,10 +688,10 @@ pub(super) fn red_room(stage: &mut Stage, gi: bool) -> (Vec3, Vec3, Vec3) {
 /// leaves the background's clear colour alone: a glow shows on models.)
 /// Returns a point on each bar, and one on the wall between the last two.
 pub(super) fn bars(stage: &mut Stage) -> ([Vec3; 3], Vec3) {
-    stage.ctx.lighting.sun_intensity = 0.0;
-    stage.ctx.lighting.ambient_intensity = 0.0;
-    stage.ctx.camera3d.position = vec3(0.0, 0.0, 8.0);
-    stage.ctx.camera3d.look_at(Vec3::ZERO);
+    stage.ctx.scene3d.lighting.sun_intensity = 0.0;
+    stage.ctx.scene3d.lighting.ambient_intensity = 0.0;
+    stage.ctx.scene3d.camera.position = vec3(0.0, 0.0, 8.0);
+    stage.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let glows = [Color::rgb(0.25, 0.25, 0.25), Color::WHITE, Color::rgb(6.0, 3.0, 0.6)];
     let wall = stage.mesh(
         &MeshData::cube(1.0),
@@ -727,10 +734,10 @@ pub(super) fn edge(stage: &mut Stage) {
             ..Default::default()
         },
     );
-    stage.ctx.lighting.sun_intensity = 0.0;
-    stage.ctx.lighting.ambient_intensity = 0.0;
-    stage.ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
-    stage.ctx.camera3d.look_at(Vec3::ZERO);
+    stage.ctx.scene3d.lighting.sun_intensity = 0.0;
+    stage.ctx.scene3d.lighting.ambient_intensity = 0.0;
+    stage.ctx.scene3d.camera.position = vec3(0.0, 0.0, 5.0);
+    stage.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let quarter = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
     for turn in [Quat::IDENTITY, quarter] {
         stage.ctx.world.spawn((
@@ -747,5 +754,5 @@ pub(super) fn edge(stage: &mut Stage) {
 
 /// Turns the camera of [`edge`] a quarter turn left, to face the twin.
 pub(super) fn face_twin(stage: &mut Stage) {
-    stage.ctx.camera3d.look_at(vec3(-5.0, 0.0, 5.0));
+    stage.ctx.scene3d.camera.look_at(vec3(-5.0, 0.0, 5.0));
 }

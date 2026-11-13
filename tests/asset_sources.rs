@@ -338,7 +338,7 @@ fn a_sound_loads_by_name_from_a_memory_source() {
             tone,
             "loading again returns the same handle"
         );
-        ctx.play_sound(&tone);
+        ctx.play_sound(tone);
     });
 }
 
@@ -488,7 +488,7 @@ fn music_streams_by_name_from_a_memory_source() {
             "the same name decoded whole is another sound"
         );
         ctx.audio.play_ex(
-            &theme,
+            theme,
             SoundParams {
                 looping: true,
                 ..Default::default()

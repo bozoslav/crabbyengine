@@ -26,7 +26,7 @@ use crate::{Ctx, Entity, MouseButton, Texture};
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
 ///     // A 1.2 x 0.8 m terminal, 600 x 400 pixels.
 ///     let (mut panel, model) = ctx.gfx.create_ui_panel(600, 400, vec2(1.2, 0.8));
-///     let buy = panel.ui.add(ponko::ui::UiWidget::Button, Default::default());
+///     let buy = panel.ui.add(ponko::ui::UiWidget::Button, ponko::ui::UiLayout::auto());
 ///     panel.ui.set_text(buy, "Buy");
 ///     ctx.world.spawn((ponko::d3::Transform::at(vec3(0.0, 1.5, -2.0)), model, panel));
 /// });
@@ -216,7 +216,7 @@ impl Graphics {
             texture: Some(texture),
             emissive: crate::Color::WHITE,
             emissive_map: Some(texture),
-            blend: crate::anim::Blend::Transparent,
+            blend: crate::render::Blend::Transparent,
             ..Default::default()
         });
         let mesh = self.create_mesh(&panel.mesh(), material);
@@ -240,7 +240,7 @@ impl Ctx {
         let (origin, direction) = self
             .ui
             .pointer_ray
-            .unwrap_or_else(|| self.camera3d.screen_ray(self.mouse_pos()));
+            .unwrap_or_else(|| self.scene3d.camera.screen_ray(self.mouse_pos()));
         // The screen's UI comes first.
         let screen_has_it = self.ui.wants_pointer();
         let mut nearest: Option<(Entity, f32, Vec2)> = None;
@@ -388,16 +388,16 @@ mod tests {
     #[test]
     fn the_mouse_clicks_buttons_on_the_nearest_panel() {
         let mut ctx = Ctx::new(1.0 / 60.0, V2::new(800.0, 600.0));
-        ctx.camera3d = crate::d3::Camera::new(V2::new(800.0, 600.0));
-        ctx.camera3d.position = Vec3::ZERO;
-        ctx.camera3d.look_at(-Vec3::Z);
+        ctx.scene3d.camera = crate::d3::Camera::new(V2::new(800.0, 600.0));
+        ctx.scene3d.camera.position = Vec3::ZERO;
+        ctx.scene3d.camera.look_at(-Vec3::Z);
         let mut spawn = |z: f32| {
             let mut p = UiPanel3D::new(Texture::new(1, 200, 100), V2::new(2.0, 1.0));
             let style = taffy::Style {
                 size: taffy::Size::from_percent(1.0, 1.0),
                 ..Default::default()
             };
-            let button = p.ui.add(UiWidget::Button, style);
+            let button = p.ui.add(UiWidget::Button, crate::ui::UiLayout::custom(style));
             p.ui.push_screen(button, false);
             (ctx.world.spawn((Transform3D::at(vec3(0.0, 0.0, z)), p)), button)
         };

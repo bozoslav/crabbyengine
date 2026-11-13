@@ -89,10 +89,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Naming inventory and generated aliases
-        run: |
-          python3 scripts/check-naming.py
-          python3 scripts/generate-ponko-header.py --check
+      - name: Naming inventory
+        run: python3 scripts/check-naming.py
       - name: Changelog fragments
         run: python3 scripts/changelog.py --check
       # The release guard and the versioned guides (CONTRIBUTING.md "Releasing").
@@ -235,6 +233,8 @@ jobs:
             args: --features ponko/physics-determinism
           - name: steam
             args: --features ponko/steam,ponko_ffi/steam
+          - name: control endpoint switch for release builds
+            args: --features ponko/control-env,ponko_ffi/control-env
           - name: ECS without parallel
             scope: -p ponko_ecs
             args: --no-default-features
@@ -715,7 +715,7 @@ jobs:
           sys.exit(expected != actual)
           PYTHON
       - run: cargo build -p ponko_ffi --release
-      - name: Verify primary and legacy dynamic exports
+      - name: Verify dynamic exports
         shell: bash
         run: |
           case "$RUNNER_OS" in

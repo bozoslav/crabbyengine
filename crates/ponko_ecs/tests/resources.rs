@@ -31,7 +31,7 @@ fn dynamic_resources_are_stored_by_name_and_replaced_in_place() {
     let a: [u32; 2] = [3, 1];
     unsafe { w.raw().insert_resource_dynamic("Score", layout, a.as_ptr().cast()) };
     assert_eq!(w.raw_ref().resource_layout_dynamic("Score"), Some(layout));
-    let p = w.raw_ref().get_resource_dynamic("Score").unwrap().cast::<[u32; 2]>();
+    let p = w.raw().get_resource_dynamic_mut("Score").unwrap().cast::<[u32; 2]>();
     unsafe {
         assert_eq!(*p, [3, 1]);
         (*p)[1] = 7; // written through the pointer

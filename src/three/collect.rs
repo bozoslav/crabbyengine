@@ -10,7 +10,7 @@ use super::{
     ModelMaterial, ModelMaterials, ReceivesDecals, ShadowMesh, SkinFrame, TERRAIN_LODS, TerrainTile, Transform3D,
     linear,
 };
-use crate::{Or, With, World};
+use crate::{Or, With, Without, World};
 
 /// Default width and height of each of the sun's shadow maps, in texels.
 pub(crate) const SHADOW_MAP_SIZE: u32 = 2048;
@@ -142,7 +142,7 @@ pub(crate) struct Frame3D {
     /// How many models (and shadow-only casters) in view were culled as
     /// hidden this frame.
     pub occluded: usize,
-    /// What each target camera draws, in `Ctx::target_cameras` order (only
+    /// What each target camera draws, in `RenderPasses::target_cameras` order (only
     /// the main frame has these).
     pub views: Vec<ViewFrame>,
     /// The light the sky gave last, and what it was worked out from.
@@ -568,7 +568,7 @@ impl Frame3D {
         overrides.clear();
         world
             .query::<(&Model, &ModelMaterial)>()
-            .without::<ModelMaterials>()
+            .filter::<Without<ModelMaterials>>()
             .for_each(|(m, o)| overrides.add(m.mesh.slot(), Some(o), None));
         world
             .query::<(&Model, &ModelMaterials, Option<&ModelMaterial>)>()
@@ -629,7 +629,7 @@ impl Frame3D {
         // Shadows with no model: only the cascades that see them.
         world
             .query::<(&Transform3D, &ShadowMesh)>()
-            .without::<Model>()
+            .filter::<Without<Model>>()
             .par_collect_into(flags, |(t, shadow)| {
                 // Never drawn for the camera: not counted as hidden from it.
                 shadow_only(shadow).map_or(0, |(_, bounds)| {
@@ -639,7 +639,7 @@ impl Frame3D {
         let mut at = 0;
         world
             .query::<(crate::Entity, &Transform3D, &ShadowMesh)>()
-            .without::<Model>()
+            .filter::<Without<Model>>()
             .for_each(|(e, t, shadow)| {
                 let f = flags[at];
                 at += 1;
@@ -934,6 +934,7 @@ impl Frame3D {
 
     /// Bytes the model collection keeps between frames: its buffers'
     /// capacity (instances, lists and what is remembered per model).
+    #[cfg(any(test, feature = "bench-internals"))]
     pub(crate) fn extraction_bytes(&self) -> usize {
         let runs = self.runs.capacity() + self.shadow_runs.iter().map(Vec::capacity).sum::<usize>();
         self.instances.capacity() * size_of::<Instance3D>()

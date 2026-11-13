@@ -269,7 +269,7 @@ pub unsafe extern "C" fn ponko_ctx_play_sound_on(
         ctx_access(ctx, |c| {
             let p = params.as_ref().copied().unwrap_or_else(|| ponko_sound_params_default());
             let playing = c.audio.play_on(
-                &sound_from_c(sound),
+                sound_from_c(sound),
                 params_from_c(p),
                 bus_from_c(bus),
                 effects_from_c(effects),
@@ -352,7 +352,7 @@ pub unsafe extern "C" fn ponko_ctx_play_sound_at(
         ctx_access(ctx, |c| {
             let playing = c
                 .audio
-                .play_at(&sound_from_c(sound), to_c(position), settings_from_c(settings));
+                .play_at(sound_from_c(sound), to_c(position), settings_from_c(settings));
             if !out_playing.is_null() {
                 out_playing.write(playing_to_c(playing));
             }

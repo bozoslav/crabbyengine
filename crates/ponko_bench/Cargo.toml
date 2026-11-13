@@ -12,7 +12,7 @@ homepage.workspace = true
 
 [dependencies]
 ponko_ecs = { path = "../../crates/ponko_ecs", version = "0.0.1" }
-ponko = { path = "../..", version = "0.0.1", default-features = false, features = ["physics", "physics3d", "navmesh"] }
+ponko = { path = "../..", version = "0.0.1", default-features = false, features = ["physics", "physics3d", "navmesh", "bench-internals"] }
 rapier2d = "0.36.1"
 rapier3d = "0.36.1"
 rayon = "1.12.0"

@@ -393,7 +393,7 @@ impl FieldLayout {
     }
 
     /// The bytes for `value`: from `current` (or zero) with the given fields written.
-    fn bytes(&self, current: Option<*mut u8>, value: &Value) -> Result<Vec<u8>, String> {
+    fn bytes(&self, current: Option<*const u8>, value: &Value) -> Result<Vec<u8>, String> {
         let Value::Object(map) = value else {
             return Err(format!("expected an object with the fields of `{}`", self.component));
         };
@@ -499,7 +499,8 @@ pub trait WorldReflect {
     fn reflect<T: Component + Serialize + DeserializeOwned>(&mut self);
 
     /// Makes a component that has no Rust type (one registered with
-    /// [`World::register_component`], such as a C or C++ component) visible
+    /// [`RawWorld::register_component`](crate::ecs_core::RawWorld::register_component),
+    /// such as a C or C++ component) visible
     /// to reflection, by describing its fields. Its JSON is an object with
     /// one entry per field; bytes no field covers are zero in new values.
     /// Describing the same component again replaces its fields.
@@ -510,7 +511,7 @@ pub trait WorldReflect {
     /// let mut world = World::new();
     /// // A C struct { float current; uint32_t max; }.
     /// // SAFETY: plain bytes, no destructor.
-    /// let id = unsafe { world.register_component("Health", 8, 4, None) };
+    /// let id = unsafe { world.raw().register_component("Health", 8, 4, None) };
     /// // SAFETY: any values of these fields make a valid Health.
     /// unsafe {
     ///     world.reflect_fields(id, &[
@@ -1223,8 +1224,7 @@ impl WorldReflect for World {
             component: "<save>".into(),
             message,
         };
-        // Deprecated identifier remains readable throughout the migration cycle.
-        if save["format"] != SAVE_FORMAT && save["format"] != "crabby-world" {
+        if save["format"] != SAVE_FORMAT {
             return Err(bad(format!(
                 "not a world save (expected \"format\": \"{SAVE_FORMAT}\")"
             )));
@@ -1586,7 +1586,7 @@ fn shadow_mesh_from_json(world: &World, value: Value) -> Result<crate::render::S
     Ok(crate::render::ShadowMesh(Some(mesh)))
 }
 
-/// The materials of meshes loaded from files (`Ctx::load_mesh`), so a
+/// The materials of meshes loaded from files (`Graphics::load_mesh`), so a
 /// [`ModelMaterial`](crate::render::ModelMaterial) is saved as the file and the
 /// material's name in it. One table shared by the world (a resource) and
 /// the graphics service, like [`Names`].
@@ -1668,7 +1668,7 @@ impl MaterialNames {
         let list = table
             .by_file
             .get(file)
-            .ok_or_else(|| format!("mesh \"{file}\" isn't loaded: ctx.load_mesh(\"{file}\") first"))?;
+            .ok_or_else(|| format!("mesh \"{file}\" isn't loaded: ctx.gfx.load_mesh(\"{file}\") first"))?;
         let found = match &json.material {
             MaterialRef::Name(name) => list.iter().find(|(_, n)| n == name),
             MaterialRef::Index(i) => list.get(*i),
@@ -2120,31 +2120,61 @@ pub(crate) fn collider_file(value: &Value) -> Option<&Value> {
     value.pointer("/shape/Mesh").filter(|m| m.get("file").is_some())
 }
 
+/// `None` for a collider of a mesh made in code: it has no file to name, so
+/// the collider isn't saved (the rest of the entity is), as with a model.
 #[cfg(feature = "physics3d")]
 fn collider_json(world: &World, c: &crate::d3::Collider) -> Option<Result<Value, String>> {
+    let file = match c.shape {
+        crate::d3::Shape::Mesh(mesh) => Some(world.get_resource::<ColliderFiles>()?.by_mesh.get(&mesh)?),
+        _ => None,
+    };
     let mut value = match serde_json::to_value(c) {
         Ok(v) => v,
         Err(err) => return Some(Err(err.to_string())),
     };
-    if let crate::d3::Shape::Mesh(mesh) = c.shape
-        && let Some(file) = world.get_resource::<ColliderFiles>().and_then(|f| f.by_mesh.get(&mesh))
-    {
+    if let Some(file) = file {
         value["shape"] = serde_json::json!({ "Mesh": file });
     }
     Some(Ok(value))
 }
 
+/// A mesh collider names its mesh file; only loaded files give a mesh.
 #[cfg(feature = "physics3d")]
-fn collider_from_json(world: &World, mut value: Value) -> Result<crate::d3::Collider, String> {
-    if let Some(file) = collider_file(&value) {
-        let mesh = world
-            .get_resource::<ColliderFiles>()
-            .and_then(|f| f.by_file.get(&collider_file_key(file)))
-            .copied()
-            .ok_or_else(|| format!("collision mesh {file} isn't loaded: load the scene with ctx.load_scene"))?;
-        value["shape"] = serde_json::json!({ "Mesh": mesh });
+fn collider_mesh_json(world: &World, value: &Value) -> Result<Option<crate::physics3d::CollisionMesh>, String> {
+    let Some(mesh) = value.pointer("/shape/Mesh") else {
+        return Ok(None);
+    };
+    let Some(file) = collider_file(value) else {
+        return Err(format!(
+            "a mesh collider names its mesh file, like {{\"Mesh\": {{\"file\": \"rock.glb\"}}}}, not {mesh}"
+        ));
+    };
+    world
+        .get_resource::<ColliderFiles>()
+        .and_then(|f| f.by_file.get(&collider_file_key(file)))
+        .copied()
+        .map(Some)
+        .ok_or_else(|| format!("collision mesh {file} isn't loaded: load the scene with ctx.load_scene"))
+}
+
+/// The JSON with a named mesh replaced by the `null` that serde reads.
+#[cfg(feature = "physics3d")]
+fn without_mesh_file(mut value: Value) -> Value {
+    if collider_file(&value).is_some() {
+        value["shape"] = serde_json::json!({ "Mesh": null });
     }
-    serde_json::from_value(value).map_err(|err| err.to_string())
+    value
+}
+
+#[cfg(feature = "physics3d")]
+fn collider_from_json(world: &World, value: Value) -> Result<crate::d3::Collider, String> {
+    let mesh = collider_mesh_json(world, &value)?;
+    let mut collider: crate::d3::Collider =
+        serde_json::from_value(without_mesh_file(value)).map_err(|err| err.to_string())?;
+    if let Some(mesh) = mesh {
+        collider.shape = crate::d3::Shape::Mesh(mesh);
+    }
+    Ok(collider)
 }
 
 /// Reflects [`Collider3D`](crate::d3::Collider) as `"Collider3D"`; a mesh
@@ -2187,11 +2217,10 @@ pub(crate) fn reflect_collider(world: &mut World) {
             Ok(w.spawn_at(e, (c,)))
         }),
         check: Arc::new(|v: &Value| {
-            let mut v = v.clone();
-            if collider_file(&v).is_some() {
-                v["shape"] = serde_json::json!({ "Mesh": crate::physics3d::CollisionMesh::default() });
+            if v.pointer("/shape/Mesh").is_some() && collider_file(v).is_none() {
+                return Err("a mesh collider names its mesh file, like {\"Mesh\": {\"file\": \"rock.glb\"}}".into());
             }
-            check::<crate::d3::Collider>(&v)
+            check::<crate::d3::Collider>(&without_mesh_file(v.clone()))
         }),
         remove: Arc::new(remove::<crate::d3::Collider>),
     });

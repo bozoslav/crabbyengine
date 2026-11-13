@@ -1,6 +1,6 @@
 //! # Ponko
 //!
-//! A fast 2D engine for games with huge numbers of things on screen.
+//! A fast 2D and 3D engine for games with huge numbers of things on screen.
 //!
 //! ```no_run
 //! use ponko::prelude::*;
@@ -14,7 +14,7 @@
 //!             if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
 //!             if ctx.key_down(Key::Left)  { pos.x -= 200.0 * ctx.dt(); }
 //!             if ctx.key_pressed(Key::Escape) { ctx.quit(); }
-//!             ctx.draw(&crab, pos);
+//!             ctx.draw(crab, pos);
 //!         }
 //!     });
 //! }
@@ -75,11 +75,10 @@ pub mod attach;
 pub mod audio;
 pub mod camera;
 #[cfg(any(feature = "physics", feature = "physics3d"))]
-mod collision;
+pub mod collision;
 pub mod color;
 mod control;
 mod ctx;
-mod ctx_compat;
 pub mod diagnostics;
 mod ecs;
 #[cfg(feature = "inspector")]
@@ -92,6 +91,35 @@ pub mod game;
 mod gamepad;
 pub mod gfx;
 pub mod handle;
+
+/// Raw handle ids, for the engine's own language bindings (`ponko_ffi`),
+/// whose C handles are plain ids. **Not part of the API**: hidden, unstable,
+/// and changed or removed in any release without notice. Games never need
+/// it: handles come from the engine, and a made-up id names nothing, or
+/// something else.
+#[doc(hidden)]
+pub mod __ffi {
+    use crate::handle::raw::RawHandle;
+
+    /// The id inside a handle of one id. Unstable (see the [module](self)).
+    #[must_use]
+    pub fn id<H: RawHandle>(handle: H) -> u32 {
+        handle.raw_id()
+    }
+
+    /// A handle from an id from [`id`]. Sizes and lengths read 0; check it
+    /// with `Ctx::is_live` before trusting it. Unstable (see the
+    /// [module](self)).
+    #[must_use]
+    pub fn from_id<H: RawHandle>(id: u32) -> H {
+        H::from_raw_id(id)
+    }
+
+    /// The slot bits of a mesh's, GPU buffer's or collision mesh's id: the
+    /// bits above count how often the slot was given out. Unstable.
+    #[cfg(feature = "3d")]
+    pub const SLOT_MASK: u32 = crate::handle::INDEX_MASK;
+}
 mod hot_reload;
 pub mod input;
 pub mod inventory;
@@ -118,7 +146,7 @@ mod query;
 pub mod random;
 pub mod reflect;
 pub mod render;
-pub mod residency;
+mod residency;
 pub mod scenario;
 mod scene;
 pub mod schedule;
@@ -161,7 +189,7 @@ pub use error::{Error, ErrorKind};
 pub use events::Events;
 
 #[doc(hidden)]
-pub use game::{ConfiguredGame, Game, Phase, Plugin, SetupResult, SystemId, Systems};
+pub use game::{ConfiguredGame, Game, IntoSystem, Phase, Plugin, SetupResult, SystemConfig, SystemId, Systems};
 #[doc(hidden)]
 pub use handle::Handle;
 #[doc(hidden)]
@@ -211,8 +239,6 @@ pub use glam::{Vec2, vec2};
 /// The `json!` macro used by reflection (re-exported from `serde_json`).
 #[doc(hidden)]
 pub use serde_json::json;
-
-mod environment;
 
 /// The prelude's short names for the dimension types.
 #[doc(hidden)]

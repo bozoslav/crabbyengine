@@ -138,20 +138,20 @@ fn offscreen_light_benchmark() {
                 &mut ctx.world,
                 &ctx.gfx.assets3d,
                 &crate::three::SkinFrame::default(),
-                &ctx.camera3d,
-                &ctx.lighting,
+                &ctx.scene3d.camera,
+                &ctx.scene3d.lighting,
             );
             let scene = Scene3D {
                 frame: &frame,
-                lighting: &ctx.lighting,
-                sky: &ctx.sky,
+                lighting: &ctx.scene3d.lighting,
+                sky: &ctx.scene3d.sky,
                 light: SkyLight {
                     sun: Vec3::ZERO,
                     sky: Vec3::splat(0.25),
                     ground: Vec3::splat(0.1),
                 },
-                camera: ctx.camera3d.position,
-                post: &ctx.post,
+                camera: ctx.scene3d.camera.position,
+                post: &ctx.scene3d.post,
                 time: (0.0, 1.0 / 60.0),
                 occlusion: false,
             };

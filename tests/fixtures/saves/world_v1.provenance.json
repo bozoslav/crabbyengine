@@ -1,6 +1,6 @@
 {
   "fixture": "world_v1.json",
-  "format": "crabby-world",
+  "format": "ponko-world",
   "version": 1,
   "engine_version": "ponko 0.0.1",
   "engine_revision": "51323ef3c1537674d75befea5fa786b59415efd2",

@@ -7,13 +7,13 @@ use crate::gfx::Graphics;
 
 /// A screen effect shader, made with [`Graphics::load_effect`](crate::gfx::Graphics::load_effect) or
 /// [`Graphics::create_effect`](crate::gfx::Graphics::create_effect); a cheap handle. Run it by adding a
-/// [`ScreenEffect`] to [`Ctx::effects`](crate::Ctx::effects).
+/// [`ScreenEffect`] to [`RenderPasses::effects`](crate::render::RenderPasses::effects).
 ///
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let underwater = ctx.gfx.load_effect("effects/underwater.wgsl");
-/// ctx.effects.push(ponko::render::ScreenEffect::new(underwater));
+/// ctx.scene3d.passes.effects.push(ponko::render::ScreenEffect::new(underwater));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -22,31 +22,15 @@ pub struct Effect {
     pub(crate) id: u32,
 }
 
-impl Effect {
-    /// The engine's id of this effect (for the C API).
-    #[doc(hidden)]
-    #[must_use]
-    pub fn id(self) -> u32 {
-        self.id
-    }
-
-    /// An effect handle from an id (for the C API; check it with `Graphics::has_effect`).
-    #[doc(hidden)]
-    #[must_use]
-    pub fn from_id(id: u32) -> Self {
-        Self { id }
-    }
-}
-
-/// One effect in [`Ctx::effects`](crate::Ctx::effects): its shader, and a
+/// One effect in [`RenderPasses::effects`](crate::render::RenderPasses::effects): its shader, and a
 /// material whose custom values and textures the shader reads
 /// (`material.custom[0]` to `[3]`, `custom_texture0`, ...).
 ///
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx, tint: ponko::render::Effect) {
-/// let strength = ctx.gfx.create_material(ponko::render::MaterialDesc { custom: [vec4(0.5, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO], ..Default::default() });
-/// ctx.effects.push(ponko::render::ScreenEffect::new(tint).with_material(strength));
+/// let strength = ctx.gfx.create_material(ponko::render::MaterialDesc::default().with_custom([vec4(0.5, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO]));
+/// ctx.scene3d.passes.effects.push(ponko::render::ScreenEffect::new(tint).with_material(strength));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,7 +48,7 @@ impl ScreenEffect {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, e: ponko::render::Effect) {
-    /// ctx.effects.push(ponko::render::ScreenEffect::new(e));
+    /// ctx.scene3d.passes.effects.push(ponko::render::ScreenEffect::new(e));
     /// # }
     /// ```
     #[must_use]
@@ -90,7 +74,7 @@ impl ScreenEffect {
     }
 }
 
-/// One entry of [`Ctx::target_effects`](crate::Ctx::target_effects): an
+/// One entry of [`RenderPasses::target_effects`](crate::render::RenderPasses::target_effects): an
 /// effect shader run over the lit 3D frame that writes its result into a
 /// render target of its own, leaving the frame unchanged.
 ///
@@ -101,13 +85,13 @@ impl ScreenEffect {
 /// cheap, coarse copy.
 ///
 /// **When it runs.** Once per frame, after the opaque and transparent
-/// surfaces and temporal antialiasing, and before [`Ctx::effects`](crate::Ctx::effects),
+/// surfaces and temporal antialiasing, and before [`RenderPasses::effects`](crate::render::RenderPasses::effects),
 /// bloom and tone mapping. Target effects run in list order. So in one frame:
 /// - screen effects (and later target effects) that sample `target` see
 ///   this frame's result;
 /// - materials, target cameras and compute passes of both stages
-///   ([`Ctx::compute_passes`](crate::Ctx::compute_passes),
-///   [`Ctx::scene_compute_passes`](crate::Ctx::scene_compute_passes)), which
+///   ([`RenderPasses::compute`](crate::render::RenderPasses::compute),
+///   [`RenderPasses::scene_compute`](crate::render::RenderPasses::scene_compute)), which
 ///   run earlier, see the one from the frame before (all 0 at first).
 ///
 /// **Resources.** `target` must be made by [`Graphics::create_render_target`](crate::gfx::Graphics::create_render_target);
@@ -126,7 +110,7 @@ impl ScreenEffect {
 /// // A quarter-size map of how far each pixel is, for a later effect to blur.
 /// let far = ctx.gfx.create_effect("far", "fn effect(p: Pixel) -> vec3<f32> { return vec3<f32>(p.distance); }");
 /// let depth = ctx.gfx.create_render_target(320, 180);
-/// ctx.target_effects.push(ponko::render::TargetEffect::new(far, depth));
+/// ctx.scene3d.passes.target_effects.push(ponko::render::TargetEffect::new(far, depth));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,7 +130,7 @@ impl TargetEffect {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, e: ponko::render::Effect, t: Texture) {
-    /// ctx.target_effects.push(ponko::render::TargetEffect::new(e, t));
+    /// ctx.scene3d.passes.target_effects.push(ponko::render::TargetEffect::new(e, t));
     /// # }
     /// ```
     #[must_use]
@@ -190,7 +174,7 @@ impl Graphics {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let haze = ctx.gfx.load_effect("effects/haze.wgsl");
-    /// ctx.effects.push(ponko::render::ScreenEffect::new(haze));
+    /// ctx.scene3d.passes.effects.push(ponko::render::ScreenEffect::new(haze));
     /// # }
     /// ```
     ///
@@ -265,7 +249,7 @@ impl Graphics {
     ///     fn effect(p: Pixel) -> vec3<f32> {
     ///         return vec3<f32>(dot(p.color, vec3<f32>(0.2126, 0.7152, 0.0722)));
     ///     }");
-    /// ctx.effects.push(ponko::render::ScreenEffect::new(grey));
+    /// ctx.scene3d.passes.effects.push(ponko::render::ScreenEffect::new(grey));
     /// # }
     /// ```
     ///
@@ -327,17 +311,8 @@ impl Graphics {
         Ok(self.record_shader(name, super::ShaderKind::Effect, true, compiled)?)
     }
 
-    /// Whether this game made `effect` and hasn't freed it (for the C API,
-    /// which takes ids): [`Ctx::is_live`](crate::Ctx::is_live).
-    #[doc(hidden)]
-    #[must_use]
-    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
-    pub fn has_effect(&self, effect: Effect) -> bool {
-        self.is_live(effect)
-    }
-
     /// Frees screen effect `id` (see [`Ctx::free`](crate::Ctx::free)): entries of
-    /// [`Ctx::effects`](crate::Ctx::effects) showing it are skipped from now on.
+    /// [`RenderPasses::effects`](crate::render::RenderPasses::effects) showing it are skipped from now on.
     pub(crate) fn free_effect_id(&mut self, id: u32) {
         if !self.assets3d.effects_live.remove(id) {
             return;

@@ -3,9 +3,15 @@
 //! The typed API (`spawn`, `query`, `get`) is the way to use a [`World`] from
 //! Rust. What C, C++ and tools need on top of it (components by id and
 //! pointer, resources by name and layout, whole archetype chunks) goes
-//! through [`World::raw`] and [`World::raw_ref`]. The same methods on `World`
-//! itself still work, deprecated, and forward here.
-use crate::{Archetype, Chunk, ComponentId, Entity, World};
+//! through [`World::raw`] and [`World::raw_ref`], and nowhere else: `World`
+//! itself has no method that takes a component id and a pointer.
+//!
+//! Pointers follow the borrow they came from. What the shared view
+//! ([`RawWorldRef`]) and `&self` methods hand out is `*const`: for reading.
+//! Pointers for writing come from `&mut self` methods
+//! ([`RawWorld::get_dynamic_mut`], [`RawWorld::get_resource_dynamic_mut`],
+//! the chunk loops).
+use crate::{Archetype, Chunk, ChunkQuery, ComponentId, DropFn, Entity, Tick, World};
 use std::alloc::Layout;
 use std::ops::{Deref, DerefMut};
 
@@ -50,11 +56,72 @@ impl World {
 }
 
 impl<'a> RawWorld<'a> {
-    /// Pointer to component `id` of entity `e`, or `None`.
+    /// Registers a component known only by name, size and alignment: the path
+    /// for components defined in C/C++ or loaded at runtime.
+    ///
+    /// Registering the same name again with the same layout returns the same id.
+    ///
+    /// ```
+    /// use ponko_ecs::World;
+    ///
+    /// let mut world = World::new();
+    /// // SAFETY: f32 is plain bytes.
+    /// let speed = unsafe { world.raw().register_component("Speed", 4, 4, None) };
+    /// assert_eq!(world.component_info(speed).name(), "Speed");
+    /// assert_eq!(world.raw_ref().component_by_name("Speed"), Some(speed));
+    /// ```
+    ///
+    /// # Safety
+    /// Values of this component must be safe to move with `memcpy`, and to send
+    /// and share between threads. `drop`, if given, must accept any value
+    /// written as this component.
+    ///
+    /// # Panics
+    /// If the name is taken with a different layout, or the layout is invalid.
+    #[inline]
+    pub unsafe fn register_component(
+        &mut self,
+        name: &str,
+        size: usize,
+        align: usize,
+        drop: Option<DropFn>,
+    ) -> ComponentId {
+        // SAFETY: forwarded from the caller.
+        unsafe { self.0.register_component_inner(name, size, align, drop) }
+    }
+
+    /// Pointer to component `id` of entity `e`, for reading, or `None`.
+    /// To write the value, use [`get_dynamic_mut`](Self::get_dynamic_mut).
     #[must_use]
     #[inline]
-    pub fn get_dynamic(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
-        self.0.get_dynamic_inner(e, id)
+    pub fn get_dynamic(&self, e: Entity, id: ComponentId) -> Option<*const u8> {
+        self.0.get_dynamic_inner(e, id, false).map(<*mut u8>::cast_const)
+    }
+
+    /// Pointer to component `id` of entity `e`, for reading and writing, or
+    /// `None`. It stays valid until the world changes structurally (a spawn,
+    /// despawn, insert or remove may move the value).
+    ///
+    /// Writing through it doesn't count as a change: the world can't see the
+    /// write. Call [`mark_changed_dynamic`](Self::mark_changed_dynamic)
+    /// afterwards if the component is tracked.
+    ///
+    /// ```
+    /// use ponko_ecs::World;
+    ///
+    /// let mut world = World::new();
+    /// let e = world.spawn((1.5f32,));
+    /// let id = world.component_id::<f32>().unwrap();
+    /// let p = world.raw().get_dynamic_mut(e, id).unwrap().cast::<f32>();
+    /// // SAFETY: the pointer is to this entity's live f32, and the world
+    /// // isn't used between getting it and writing through it.
+    /// unsafe { *p = 3.0 };
+    /// assert_eq!(world.get::<f32>(e), Some(&3.0));
+    /// ```
+    #[must_use]
+    #[inline]
+    pub fn get_dynamic_mut(&mut self, e: Entity, id: ComponentId) -> Option<*mut u8> {
+        self.0.get_dynamic_inner(e, id, true)
     }
 
     /// Removes component `id` from `e`, dropping the value. Returns `false` if
@@ -99,7 +166,7 @@ impl<'a> RawWorld<'a> {
     ///
     /// let mut world = World::new();
     /// // SAFETY: f32 is plain bytes.
-    /// let id = unsafe { world.register_component("Speed", 4, 4, None) };
+    /// let id = unsafe { world.raw().register_component("Speed", 4, 4, None) };
     /// let saved = Entity::from_bits(5 | 2 << 32);
     /// let speed = 1.5f32;
     /// // SAFETY: points to a valid f32, which needs no drop.
@@ -121,11 +188,37 @@ impl<'a> RawWorld<'a> {
     }
 
     /// Pointer to resource `name` (one stored with
-    /// [`insert_resource_dynamic`](Self::insert_resource_dynamic)), or `None`.
-    /// It stays valid until the resource is replaced or removed.
+    /// [`insert_resource_dynamic`](Self::insert_resource_dynamic)), for
+    /// reading, or `None`. It stays valid until the resource is replaced or
+    /// removed. To write the value, use
+    /// [`get_resource_dynamic_mut`](Self::get_resource_dynamic_mut).
     #[must_use]
     #[inline]
-    pub fn get_resource_dynamic(&self, name: &str) -> Option<*mut u8> {
+    pub fn get_resource_dynamic(&self, name: &str) -> Option<*const u8> {
+        self.0.get_resource_dynamic_inner(name).map(<*mut u8>::cast_const)
+    }
+
+    /// Pointer to resource `name`, for reading and writing, or `None`. It
+    /// stays valid until the resource is replaced or removed.
+    ///
+    /// ```
+    /// use ponko_ecs::World;
+    /// use std::alloc::Layout;
+    ///
+    /// let mut world = World::new();
+    /// let score = 3u32;
+    /// // SAFETY: `score` is 4 readable bytes.
+    /// unsafe { world.raw().insert_resource_dynamic("Score", Layout::new::<u32>(), (&score as *const u32).cast()) };
+    /// let p = world.raw().get_resource_dynamic_mut("Score").unwrap().cast::<u32>();
+    /// // SAFETY: the resource holds a u32, and the world isn't used in between.
+    /// unsafe { *p += 1 };
+    /// let p = world.raw_ref().get_resource_dynamic("Score").unwrap().cast::<u32>();
+    /// // SAFETY: as above.
+    /// assert_eq!(unsafe { *p }, 4);
+    /// ```
+    #[must_use]
+    #[inline]
+    pub fn get_resource_dynamic_mut(&mut self, name: &str) -> Option<*mut u8> {
         self.0.get_resource_dynamic_inner(name)
     }
 
@@ -141,7 +234,7 @@ impl<'a> RawWorld<'a> {
     /// let score: [u32; 2] = [3, 1];
     /// // SAFETY: `score` is 8 readable bytes.
     /// unsafe { world.raw().insert_resource_dynamic("Score", Layout::new::<[u32; 2]>(), score.as_ptr().cast()) };
-    /// let p = world.raw_ref().get_resource_dynamic("Score").unwrap() as *const [u32; 2];
+    /// let p = world.raw_ref().get_resource_dynamic("Score").unwrap().cast::<[u32; 2]>();
     /// // SAFETY: the resource holds the bytes of a [u32; 2].
     /// assert_eq!(unsafe { *p }, [3, 1]);
     /// ```
@@ -183,6 +276,110 @@ impl<'a> RawWorld<'a> {
         self.0.for_each_chunk_inner(ids, f)
     }
 
+    /// [`for_each_chunk`](Self::for_each_chunk) with what a [`ChunkQuery`]
+    /// adds: per-column access (only the columns in its `writes` count as
+    /// changed), change filters (with `changed` or `added` set, `f` gets the
+    /// runs of consecutive rows that pass instead of whole archetypes), an
+    /// archetype [`filter`](ChunkQuery::filter) and a
+    /// [`cache`](ChunkQuery::cache) hint.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// let mut world = World::new();
+    /// // SAFETY: f32 is plain bytes.
+    /// let speed = unsafe { world.raw().register_component("Speed", 4, 4, None) };
+    /// world.raw().track_changes_dynamic(speed);
+    /// let spawn = |world: &mut World, value: f32| {
+    ///     // SAFETY: points to a valid f32, which needs no drop.
+    ///     unsafe { world.raw().spawn_dynamic(&[(speed, (&value as *const f32).cast())]) }
+    /// };
+    /// let (a, b) = (spawn(&mut world, 1.0), spawn(&mut world, 2.0));
+    /// let seen = world.advance_change_tick();
+    /// assert!(world.raw().mark_changed_dynamic(b, speed));
+    ///
+    /// // Read-only, and only the rows whose `Speed` changed after `seen`.
+    /// let ids = [speed];
+    /// let query = ChunkQuery::new(&ids).writes(0).changed(1).since(seen);
+    /// let mut changed = Vec::new();
+    /// world.raw().query_chunks(query, |chunk| changed.extend_from_slice(chunk.entities));
+    /// assert_eq!(changed, [b]);
+    /// # let _ = a;
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// With more than 32 component ids, more than 8 `changed` and `added`
+    /// bits together, or a `changed` or `added` bit on a component that
+    /// isn't tracked ([`track_changes_dynamic`](Self::track_changes_dynamic)):
+    /// tracking is explicit, as for [`Changed`](crate::Changed).
+    #[track_caller]
+    #[inline]
+    pub fn query_chunks(&mut self, query: ChunkQuery<'_>, f: impl FnMut(Chunk<'_>)) {
+        self.0.query_chunks_inner(query, f)
+    }
+
+    /// [`World::track_changes`] for a component by id: the path for
+    /// components registered with
+    /// [`register_component`](Self::register_component).
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// let mut world = World::new();
+    /// // SAFETY: f32 is plain bytes.
+    /// let speed = unsafe { world.raw().register_component("Speed", 4, 4, None) };
+    /// world.raw().track_changes_dynamic(speed);
+    /// assert!(world.component_info(speed).tracks_changes());
+    /// ```
+    ///
+    /// # Panics
+    /// If `id` came from a different world.
+    #[inline]
+    pub fn track_changes_dynamic(&mut self, id: ComponentId) {
+        self.0.track_changes_dynamic_inner(id)
+    }
+
+    /// [`World::mark_changed`] by component id: call it after writing
+    /// through a pointer from [`get_dynamic_mut`](Self::get_dynamic_mut).
+    /// Returns `false` if `e` is dead or doesn't have the component; does
+    /// nothing (and returns `true`) if the component isn't tracked.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// let mut world = World::new();
+    /// // SAFETY: f32 is plain bytes.
+    /// let speed = unsafe { world.raw().register_component("Speed", 4, 4, None) };
+    /// world.raw().track_changes_dynamic(speed);
+    /// let value = 1.5f32;
+    /// // SAFETY: points to a valid f32, which needs no drop.
+    /// let e = unsafe { world.raw().spawn_dynamic(&[(speed, (&value as *const f32).cast())]) };
+    /// let seen = world.advance_change_tick();
+    ///
+    /// let p = world.raw().get_dynamic_mut(e, speed).unwrap().cast::<f32>();
+    /// // SAFETY: the pointer is to this entity's live f32.
+    /// unsafe { *p = 3.0 };
+    /// assert!(world.raw().mark_changed_dynamic(e, speed));
+    /// # let _ = seen;
+    /// ```
+    #[inline]
+    pub fn mark_changed_dynamic(&mut self, e: Entity, id: ComponentId) -> bool {
+        self.0.mark_changed_dynamic_inner(e, id)
+    }
+
+    /// [`World::removed_since`] by component id: the entities that lost
+    /// tracked component `id` after `since`, oldest first.
+    ///
+    /// The slice borrows this view; take it from [`World::raw_ref`] to keep
+    /// it for as long as the world is borrowed.
+    ///
+    /// # Panics
+    /// If `id` isn't tracked, or came from a different world.
+    #[track_caller]
+    #[must_use]
+    #[inline]
+    pub fn removed_dynamic(&self, id: ComponentId, since: Tick) -> &[Entity] {
+        self.0.removed_dynamic_inner(id, since)
+    }
+
     /// Looks a component up by name (registered name, or Rust type name).
     #[must_use]
     #[inline]
@@ -203,20 +400,44 @@ impl<'a> RawWorld<'a> {
 }
 
 impl<'a> RawWorldRef<'a> {
-    /// Pointer to component `id` of entity `e`, or `None`.
+    /// Pointer to component `id` of entity `e`, for reading, or `None`. A
+    /// shared world doesn't give the right to write: use
+    /// [`RawWorld::get_dynamic_mut`] for that.
     #[must_use]
     #[inline]
-    pub fn get_dynamic(&self, e: Entity, id: ComponentId) -> Option<*mut u8> {
-        self.0.get_dynamic_inner(e, id)
+    pub fn get_dynamic(&self, e: Entity, id: ComponentId) -> Option<*const u8> {
+        self.0.get_dynamic_inner(e, id, false).map(<*mut u8>::cast_const)
     }
 
     /// Pointer to resource `name` (one stored with
-    /// [`insert_resource_dynamic`](RawWorld::insert_resource_dynamic)), or `None`.
-    /// It stays valid until the resource is replaced or removed.
+    /// [`insert_resource_dynamic`](RawWorld::insert_resource_dynamic)), for
+    /// reading, or `None`. It stays valid until the resource is replaced or
+    /// removed. To write, use [`RawWorld::get_resource_dynamic_mut`].
     #[must_use]
     #[inline]
-    pub fn get_resource_dynamic(&self, name: &str) -> Option<*mut u8> {
-        self.0.get_resource_dynamic_inner(name)
+    pub fn get_resource_dynamic(&self, name: &str) -> Option<*const u8> {
+        self.0.get_resource_dynamic_inner(name).map(<*mut u8>::cast_const)
+    }
+
+    /// [`World::removed_since`] by component id: the entities that lost
+    /// tracked component `id` after `since`, oldest first.
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// let mut world = World::new();
+    /// let id = world.track_changes::<u8>();
+    /// let e = world.spawn((1u8,));
+    /// world.despawn(e);
+    /// assert_eq!(world.raw_ref().removed_dynamic(id, Tick::default()), [e]);
+    /// ```
+    ///
+    /// # Panics
+    /// If `id` isn't tracked, or came from a different world.
+    #[track_caller]
+    #[must_use]
+    #[inline]
+    pub fn removed_dynamic(&self, id: ComponentId, since: Tick) -> &'a [Entity] {
+        self.0.removed_dynamic_inner(id, since)
     }
 
     /// The size and alignment of resource `name`, if it exists.

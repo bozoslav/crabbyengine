@@ -28,7 +28,11 @@ pub const TERRAIN_LAYERS: usize = 8;
 /// let terrain = ctx.gfx.create_terrain_material(&desc);
 /// # }
 /// ```
+///
+/// New fields may be added in any release: build one with
+/// [`TerrainMaterialDesc::new`] and the `with_*` methods.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct TerrainMaterialDesc {
     /// Each layer's color texture ([`TextureKind::Color`](crate::terrain::TextureKind::Color)),
     /// up to [`TerrainTile::LAYERS`](crate::terrain::TerrainTile::LAYERS).
@@ -63,7 +67,7 @@ impl TerrainMaterialDesc {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ground: ponko::terrain::TextureArray, weights: ponko::terrain::TextureArray) {
-    /// let desc = ponko::terrain::TerrainMaterialDesc { roughness: 0.8, ..ponko::terrain::TerrainMaterialDesc::new(ground, weights, Vec2::ZERO, vec2(256.0, 256.0)) };
+    /// let desc = ponko::terrain::TerrainMaterialDesc::new(ground, weights, Vec2::ZERO, vec2(256.0, 256.0)).with_roughness(0.8);
     /// # }
     /// ```
     #[must_use]
@@ -78,6 +82,17 @@ impl TerrainMaterialDesc {
             layer_size: [4.0; TERRAIN_LAYERS],
             roughness: 0.9,
         }
+    }
+
+    with_fields! {
+        /// Sets [`normals`](Self::normals), the layers' normal maps.
+        normals: Option<TextureArray> => with_normals;
+        /// Sets [`normal_strength`](Self::normal_strength).
+        normal_strength: f32 => with_normal_strength;
+        /// Sets [`layer_size`](Self::layer_size), the world units each layer's texture covers.
+        layer_size: [f32; TERRAIN_LAYERS] => with_layer_size;
+        /// Sets [`roughness`](Self::roughness).
+        roughness: f32 => with_roughness;
     }
 
     /// Says what's wrong, if anything.
@@ -132,10 +147,13 @@ pub const TERRAIN_LODS: usize = 4;
 /// times that, and every 8th beyond. Skirts hide the cracks where tiles of
 /// different detail meet.
 ///
+/// A [`Handle`](crate::Handle): check it with `ctx.is_live(tile)` (live
+/// while all its meshes are) and free all its meshes with `ctx.free(tile)`.
+///
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let grass = ctx.gfx.create_material(ponko::render::MaterialDesc { roughness: 0.95, ..ponko::render::MaterialDesc::color(Color::hex(0x5A8A3C)) });
+/// let grass = ctx.gfx.create_material(ponko::render::MaterialDesc::color(Color::hex(0x5A8A3C)).with_roughness(0.95));
 /// // 65 x 65 heights, 2 m apart: a 128 m tile with gentle hills.
 /// let n = 65;
 /// let heights: Vec<f32> = (0..n * n)
@@ -145,14 +163,34 @@ pub const TERRAIN_LODS: usize = 4;
 /// ctx.world.spawn((ponko::d3::Transform::at(vec3(-64.0, 0.0, -64.0)), tile));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(C)] // shared with C/C++ (`PonkoTerrainTile`)
+#[derive(Debug, Clone, Copy)]
+#[repr(C)] // shared with C/C++ (`PonkoTerrainTile`): the meshes, then the distance
 pub struct TerrainTile {
     /// The meshes, finest first.
-    pub lods: [Mesh; TERRAIN_LODS],
+    pub(crate) lods: [Mesh; TERRAIN_LODS],
     /// Up to how far from the camera the finest mesh is drawn, in world
     /// units. Default: the tile's size.
-    pub lod_distance: f32,
+    pub(crate) lod_distance: f32,
+}
+
+// The C library reads a tile as `PonkoTerrainTile` and can only check its
+// size and alignment (the fields are private), which a reorder would keep:
+// pin the offsets here, and the same numbers on the C struct there.
+const _: () =
+    assert!(core::mem::offset_of!(TerrainTile, lods) == 0 && core::mem::offset_of!(TerrainTile, lod_distance) == 16);
+
+// A handle: equal (and hashed) by the meshes it frees, whatever its
+// distance, so `tile.with_lod_distance(d) == tile`.
+impl PartialEq for TerrainTile {
+    fn eq(&self, other: &Self) -> bool {
+        self.lods == other.lods
+    }
+}
+impl Eq for TerrainTile {}
+impl std::hash::Hash for TerrainTile {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.lods.hash(state);
+    }
 }
 
 impl TerrainTile {
@@ -163,12 +201,56 @@ impl TerrainTile {
     /// # use ponko::prelude::*;
     /// # fn f(tile: ponko::terrain::TerrainTile) {
     /// assert_eq!(tile.lod(0.0), 0);
-    /// assert_eq!(tile.lod(tile.lod_distance * 10.0), 3);
+    /// assert_eq!(tile.lod(tile.lod_distance() * 10.0), 3);
     /// # }
     /// ```
     #[must_use]
     pub fn lod(&self, distance: f32) -> usize {
         lod_at(distance, self.lod_distance)
+    }
+
+    /// Its meshes, one per detail level, finest first: to set their
+    /// shadows or look up what they cost. Free the tile, not them.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let ground = ctx.gfx.default_material();
+    ///     let tile = ctx.gfx.create_terrain_tile(&[0.0; 9 * 9], 16.0, ground);
+    ///     assert!(tile.lods().iter().all(|&m| ctx.is_live(m)));
+    /// });
+    /// ```
+    #[must_use]
+    pub fn lods(&self) -> [Mesh; TERRAIN_LODS] {
+        self.lods
+    }
+
+    /// Up to how far from the camera the finest mesh is drawn, in world
+    /// units. The tile's size unless changed with
+    /// [`with_lod_distance`](Self::with_lod_distance).
+    #[must_use]
+    pub fn lod_distance(&self) -> f32 {
+        self.lod_distance
+    }
+
+    /// The same tile, drawn at full detail up to `distance` (and each
+    /// coarser level to twice the last). It is still equal to `self`: the
+    /// same meshes, so freeing either frees both.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// # fn f(tile: ponko::terrain::TerrainTile) {
+    /// let sharper = tile.with_lod_distance(2.0 * tile.lod_distance());
+    /// assert_eq!(sharper.lod(tile.lod_distance()), 0);
+    /// assert_eq!(sharper, tile);
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_lod_distance(self, distance: f32) -> Self {
+        Self {
+            lod_distance: distance,
+            ..self
+        }
     }
 }
 
@@ -286,7 +368,7 @@ impl Graphics {
     ///     let ground = ctx.gfx.default_material();
     ///     let job = ponko::stream::Job::spawn(|| ponko::terrain::TerrainTileData::new(&[0.0; 33 * 33], 64.0));
     ///     let tile = ctx.gfx.upload_terrain_tile(&job.wait(), ground);
-    ///     assert_eq!(tile.lod_distance, 64.0);
+    ///     assert_eq!(tile.lod_distance(), 64.0);
     /// });
     /// ```
     ///
@@ -298,24 +380,6 @@ impl Graphics {
         TerrainTile {
             lods,
             lod_distance: data.size(),
-        }
-    }
-
-    /// Frees the GPU memory of every detail level of `tile` (see
-    /// [`Graphics::free_mesh`](crate::gfx::Graphics::free_mesh)); despawn its entity too.
-    ///
-    /// ```
-    /// # use ponko::prelude::*;
-    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let ground = ctx.gfx.default_material();
-    ///     let tile = ctx.gfx.create_terrain_tile(&[0.0; 9 * 9], 16.0, ground);
-    ///     ctx.gfx.free_terrain_tile(tile);
-    ///     assert!(!ctx.gfx.is_live(tile.lods[0]));
-    /// });
-    /// ```
-    pub fn free_terrain_tile(&mut self, tile: TerrainTile) {
-        for mesh in tile.lods {
-            self.free(mesh);
         }
     }
 }

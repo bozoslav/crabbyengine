@@ -56,14 +56,14 @@ fn frame_late_and_draw_phases_run_their_batches() {
     let a = || SystemAccess::new().write::<A>();
     let b = || SystemAccess::new().write::<B>();
     let mut game = bare()
-        .add_view(Phase::AfterPhysics, a(), bump_a)
-        .add_view(Phase::AfterPhysics, b(), bump_b)
-        .add_view(Phase::Frame, a(), bump_a)
-        .add_view(Phase::Frame, b(), bump_b)
-        .add_view(Phase::Late, a(), bump_a)
-        .add_view(Phase::Late, b(), bump_b)
-        .add_view(Phase::Draw, a(), bump_a)
-        .add_view(Phase::Draw, b(), bump_b);
+        .add(Phase::AfterPhysics, bump_a.access(a()))
+        .add(Phase::AfterPhysics, bump_b.access(b()))
+        .add(Phase::Frame, bump_a.access(a()))
+        .add(Phase::Frame, bump_b.access(b()))
+        .add(Phase::Late, bump_a.access(a()))
+        .add(Phase::Late, bump_b.access(b()))
+        .add(Phase::Draw, bump_a.access(a()))
+        .add(Phase::Draw, bump_b.access(b()));
     let plan = game.schedule_plan();
     assert_eq!(plan.batches().count(), 4);
     let mut ctx = ctx();
@@ -80,28 +80,28 @@ fn frame_late_and_draw_phases_run_their_batches() {
 #[test]
 fn a_batch_in_a_frame_phase_delivers_events_and_commands_at_its_end() {
     let mut game = bare()
-        .add_view(
+        .add(
             Phase::Frame,
-            SystemAccess::new().write::<A>().send_events::<Tick>(),
-            |sys: &mut SystemView| sys.events().send(Tick(1)),
+            (|sys: &mut SystemView| sys.events.send(Tick(1)))
+                .access(SystemAccess::new().write::<A>().send_events::<Tick>()),
         )
-        .add_view(
+        .add(
             Phase::Frame,
-            SystemAccess::new().write::<B>().send_events::<Tick>().commands(),
-            |sys: &mut SystemView| {
-                sys.events().send(Tick(2));
-                sys.commands().spawn((A(100), B(100)));
-            },
+            (|sys: &mut SystemView| {
+                sys.events.send(Tick(2));
+                sys.commands.spawn((A(100), B(100)));
+            })
+            .access(SystemAccess::new().write::<B>().send_events::<Tick>().commands()),
         )
-        .add_view(
+        .add(
             Phase::Late,
-            SystemAccess::new().read_events::<Tick>().write_resource::<Total>(),
-            |sys: &mut SystemView| {
-                let seen: Vec<u32> = sys.events().read::<Tick>().iter().map(|t| t.0).collect();
+            (|sys: &mut SystemView| {
+                let seen: Vec<u32> = sys.events.read::<Tick>().iter().map(|t| t.0).collect();
                 assert_eq!(seen, [1, 2]);
                 // The batch's spawn was applied before this phase.
                 sys.world.resource_mut::<Total>().0 += sys.world.len() as u32;
-            },
+            })
+            .access(SystemAccess::new().read_events::<Tick>().write_resource::<Total>()),
         );
     let mut ctx = ctx();
     game.run_systems(&mut ctx, 0);
@@ -113,8 +113,8 @@ fn a_batch_in_a_frame_phase_delivers_events_and_commands_at_its_end() {
 fn the_scheduler_off_runs_view_systems_one_at_a_time() {
     let mut game = bare()
         .parallel_systems(false)
-        .add_view(Phase::Frame, SystemAccess::new().write::<A>(), bump_a)
-        .add_view(Phase::Frame, SystemAccess::new().write::<B>(), bump_b);
+        .add(Phase::Frame, bump_a.access(SystemAccess::new().write::<A>()))
+        .add(Phase::Frame, bump_b.access(SystemAccess::new().write::<B>()));
     let mut ctx = ctx();
     game.run_systems(&mut ctx, 0);
     assert_eq!(values(&mut ctx), (1, 10, 0));
@@ -124,10 +124,10 @@ fn the_scheduler_off_runs_view_systems_one_at_a_time() {
 
 #[test]
 fn systems_added_after_a_run_join_the_schedule() {
-    let mut game = bare().add_view(Phase::Frame, SystemAccess::new().write::<A>(), bump_a);
+    let mut game = bare().add(Phase::Frame, bump_a.access(SystemAccess::new().write::<A>()));
     let mut ctx = ctx();
     game.run_systems(&mut ctx, 0);
-    let mut game = game.add_view(Phase::Frame, SystemAccess::new().write::<B>(), bump_b);
+    let mut game = game.add(Phase::Frame, bump_b.access(SystemAccess::new().write::<B>()));
     game.run_systems(&mut ctx, 0);
     assert_eq!(values(&mut ctx), (2, 10, 0));
     let mut game = game.barrier(Phase::Frame).add(Phase::Frame, |ctx: &mut Ctx| {
@@ -140,25 +140,25 @@ fn systems_added_after_a_run_join_the_schedule() {
 #[test]
 fn a_panic_in_a_batch_leaves_the_game_and_the_world_whole() {
     let mut game = bare()
-        .add_view(
+        .add(
             Phase::Frame,
-            SystemAccess::new().write::<A>().write_resource::<Total>(),
-            |sys: &mut SystemView| {
+            (|sys: &mut SystemView| {
                 sys.world.resource_mut::<Total>().0 += 1;
                 sys.world.query::<&mut A>().for_each(|a| a.0 += 1);
-            },
+            })
+            .access(SystemAccess::new().write::<A>().write_resource::<Total>()),
         )
-        .add_view(
+        .add(
             Phase::Frame,
-            SystemAccess::new().write::<B>(),
-            |sys: &mut SystemView| {
+            (|sys: &mut SystemView| {
                 let mut fail = false;
                 sys.world.query::<&mut B>().for_each(|b| {
                     b.0 += 10;
                     fail = b.0 == 20;
                 });
                 assert!(!fail, "second frame fails");
-            },
+            })
+            .access(SystemAccess::new().write::<B>()),
         );
     let mut ctx = ctx();
     game.run_systems(&mut ctx, 0);
@@ -176,10 +176,14 @@ fn a_batch_keeps_its_usual_run_time_for_the_thread_decision() {
     const SLOW_MS: u64 = 40;
     let mut game = bare()
         .parallel_threshold(Duration::MAX)
-        .add_view(Phase::Frame, SystemAccess::new().write::<A>(), |_: &mut SystemView| {
-            std::thread::sleep(Duration::from_millis(SLOW_MS));
-        })
-        .add_view(Phase::Frame, SystemAccess::new().write::<B>(), bump_b);
+        .add(
+            Phase::Frame,
+            (|_: &mut SystemView| {
+                std::thread::sleep(Duration::from_millis(SLOW_MS));
+            })
+            .access(SystemAccess::new().write::<A>()),
+        )
+        .add(Phase::Frame, bump_b.access(SystemAccess::new().write::<B>()));
     let mut ctx = ctx();
     game.run_systems(&mut ctx, 0);
     let usual = |s: &System| match &s.run {
@@ -209,42 +213,46 @@ fn a_panic_in_a_batch_drops_what_the_batch_recorded_on_threads_and_in_order() {
             .parallel_threshold(threshold)
             // Sends an event every frame, and notes how many of its own
             // writes it is shown as changes.
-            .add_view(
+            .add(
                 Phase::Frame,
-                (SystemAccess::new().write::<A>())
-                    .write_resource::<OwnChanges>()
-                    .send_events::<Tick>(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     let own = sys.world.query::<&A>().filter::<crate::Changed<A>>().count() as u32;
                     sys.world.resource_mut::<OwnChanges>().0 = own;
-                    sys.events().send(Tick(1));
+                    sys.events.send(Tick(1));
                     sys.world.query::<&mut A>().for_each(|a| a.0 += 1);
-                },
+                })
+                .access(
+                    (SystemAccess::new().write::<A>())
+                        .write_resource::<OwnChanges>()
+                        .send_events::<Tick>(),
+                ),
             )
             // Panics in the second frame.
-            .add_view(
+            .add(
                 Phase::Frame,
-                SystemAccess::new().write::<B>(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     let mut fail = false;
                     sys.world.query::<&mut B>().for_each(|b| {
                         b.0 += 10;
                         fail = b.0 == 20;
                     });
                     assert!(!fail, "second frame fails");
-                },
+                })
+                .access(SystemAccess::new().write::<B>()),
             )
             // After it in the batch: sends, records a spawn, counts its runs.
-            .add_view(
+            .add(
                 Phase::Frame,
-                (SystemAccess::new().send_events::<Tick>())
-                    .write_resource::<Runs>()
-                    .commands(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     sys.world.resource_mut::<Runs>().0 += 1;
-                    sys.events().send(Tick(2));
-                    sys.commands().spawn((Marker,));
-                },
+                    sys.events.send(Tick(2));
+                    sys.commands.spawn((Marker,));
+                })
+                .access(
+                    (SystemAccess::new().send_events::<Tick>())
+                        .write_resource::<Runs>()
+                        .commands(),
+                ),
             )
             // The next stage counts the events it is shown.
             .add(Phase::Late, |ctx: &mut Ctx| {

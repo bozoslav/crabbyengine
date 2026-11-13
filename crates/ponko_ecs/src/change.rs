@@ -1,7 +1,11 @@
 //! Change detection: which components were added, changed or removed, and when.
 //!
-//! It is opt-in per component. A world that tracks nothing keeps no stamps
-//! and does no extra work: every hook sits behind one flag per archetype.
+//! It is opt-in per component, and always explicit: call
+//! [`World::track_changes`] for each component whose changes matter. Nothing
+//! starts tracking on its own; an [`Added`] or [`Changed`] filter on a
+//! component that isn't tracked panics and says so. A world that tracks
+//! nothing keeps no stamps and does no extra work: every hook sits behind
+//! one flag per archetype.
 //!
 //! # How it works
 //!
@@ -23,7 +27,7 @@
 //! | `for_each_chunk` | no | yes, every requested column of every chunk |
 //! | `mark_changed`, `mark_changed_dynamic` | no | yes |
 //! | `get`, `has`, `&T` in a query, `count`, `sort_by` | no | no |
-//! | `get_dynamic` (a raw pointer) | no | no: call `mark_changed_dynamic` after writing |
+//! | `get_dynamic`, `get_dynamic_mut` (raw pointers) | no | no: call `mark_changed_dynamic` after writing |
 //! | `remove`, `remove_dynamic`, `despawn`, `clear`, `reset` | logged as a removal; the entity's other components keep their stamps |
 //!
 //! A mutable borrow counts as a change whether or not the value is written:
@@ -77,7 +81,9 @@ impl Tick {
 /// looked: the entity was spawned with it, or it was inserted on an entity
 /// that didn't have one. Replacing a value isn't adding one.
 ///
-/// Using the filter starts tracking `T` (see [`World::track_changes`]).
+/// `T`'s changes must be tracked: call [`World::track_changes`] first (in a
+/// game, in setup). The filter panics on a component that isn't, in a world
+/// query and in a [`WorldView`](crate::WorldView) query alike.
 ///
 /// ```
 /// # use ponko_ecs::*;
@@ -96,8 +102,17 @@ pub struct Added<T>(PhantomData<fn() -> T>);
 /// Filter: component `T` was added or changed since the reader last looked.
 /// See the [list of what counts as a change](World::track_changes).
 ///
-/// Using the filter starts tracking `T`. Combine filters as usual:
-/// `Or<(Changed<A>, Changed<B>)>` matches when either changed.
+/// `T`'s changes must be tracked: call [`World::track_changes`] first (in a
+/// game, in setup). The filter panics on a component that isn't, in a world
+/// query and in a [`WorldView`](crate::WorldView) query alike. Combine
+/// filters as usual: `Or<(Changed<A>, Changed<B>)>` matches when either
+/// changed.
+///
+/// A query that fetches `&mut T` marks `T` changed for every entity it
+/// visits, written or not. So a system that filters on `Changed<T>` and
+/// fetches `&mut T` keeps every entity it sees changed for every other
+/// reader; read with `&T` and use [`World::get_mut`] where a value really
+/// changes.
 ///
 /// ```
 /// # use ponko_ecs::*;
@@ -118,18 +133,36 @@ pub struct Added<T>(PhantomData<fn() -> T>);
 /// ```
 pub struct Changed<T>(PhantomData<fn() -> T>);
 
-/// The id of `T` for an [`Added`] or [`Changed`] filter: starts tracking it,
-/// and records the filter as reading `T` for declared-access checks (its
-/// stamps are written by whoever writes `T`).
-fn filtered<T: Component>(world: &mut World) -> ComponentId {
-    let id = world.track_changes::<T>();
+/// The id of `T` for an [`Added`] or [`Changed`] filter named `filter`:
+/// `T` must be tracked already. Records the filter as reading `T` for
+/// declared-access checks (its stamps are written by whoever writes `T`).
+#[track_caller]
+fn filtered<T: Component>(world: &mut World, filter: &str) -> ComponentId {
+    let id = world.register::<T>();
+    if !world.infos[id.index()].tracked {
+        untracked_filter(None, filter, std::any::type_name::<T>());
+    }
     world.recorder.note(|l| l.component(id, false));
     id
 }
 
+/// The panic of an `Added`/`Changed` filter (`filter`) on component `name`,
+/// which isn't tracked: the same in a world query and in a view's (which
+/// names itself with `label`).
+#[cold]
+#[track_caller]
+pub(crate) fn untracked_filter(label: Option<&str>, filter: &str, name: &str) -> ! {
+    let who = label.map(|label| format!("{label}: ")).unwrap_or_default();
+    panic!(
+        "{who}`{filter}<{name}>` needs `{name}`'s changes tracked; \
+         call `world.track_changes::<{name}>()` first (in a game: in setup or a `&mut Ctx` system)"
+    );
+}
+
 impl<T: Component> QueryFilter for Added<T> {
+    #[track_caller]
     fn add(world: &mut World, filters: &mut Filters) {
-        filters.add_tick(filtered::<T>(world), true);
+        filters.add_tick(filtered::<T>(world, "Added"), true);
     }
     fn add_shared(cx: &mut SharedFilters<'_>) {
         cx.tick::<T>("Added", true);
@@ -137,8 +170,9 @@ impl<T: Component> QueryFilter for Added<T> {
 }
 
 impl<T: Component> QueryFilter for Changed<T> {
+    #[track_caller]
     fn add(world: &mut World, filters: &mut Filters) {
-        filters.add_tick(filtered::<T>(world), false);
+        filters.add_tick(filtered::<T>(world, "Changed"), false);
     }
     fn add_shared(cx: &mut SharedFilters<'_>) {
         cx.tick::<T>("Changed", false);
@@ -462,35 +496,46 @@ pub(crate) fn mark_columns(arch: &Archetype, ids: &[ComponentId], stamp: u32) {
 }
 
 /// A chunk query that says which columns it writes and which rows it wants:
-/// what a typed query's `&T`/`&mut T` and [`Added`]/[`Changed`] filters say,
-/// for components known only by id (the C/C++ path). Run it with
-/// [`World::query_chunks`].
+/// what a typed query's `&T`/`&mut T`, its filters and its
+/// [`cached`](crate::Query::cached) hint say, for components known only by
+/// id (the C/C++ path). Run it with
+/// [`RawWorld::query_chunks`](crate::RawWorld::query_chunks).
 ///
-/// Bit `i` of each mask is about `ids[i]`.
+/// Start from [`new`](Self::new) and chain what differs. Bit `i` of each
+/// mask is about `ids[i]`.
+///
+/// ```
+/// # use ponko_ecs::*;
+/// let mut world = World::new();
+/// let health = world.track_changes::<i32>();
+/// world.spawn((10i32,));
+/// let seen = world.advance_change_tick();
+/// let hurt = world.spawn((3i32,));
+///
+/// // Read-only, and only the rows whose value was added after `seen`.
+/// let ids = [health];
+/// let query = ChunkQuery::new(&ids).writes(0).added(1).since(seen);
+/// let mut found = Vec::new();
+/// world.raw().query_chunks(query, |chunk| found.extend_from_slice(chunk.entities));
+/// assert_eq!(found, [hurt]);
+/// ```
 #[derive(Clone, Copy, Debug)]
+#[must_use = "a chunk query does nothing until it is run with `RawWorld::query_chunks`"]
 pub struct ChunkQuery<'a> {
-    /// The components to visit; every entity visited has all of them.
-    pub ids: &'a [ComponentId],
-    /// Columns the callback may write. Their rows count as changed, written
-    /// or not; the other columns must only be read.
-    pub writes: u32,
-    /// Only visit rows where these columns changed after `since`.
-    pub changed: u32,
-    /// Only visit rows where these columns were added after `since`. At most
-    /// 8 `changed` and `added` bits together.
-    pub added: u32,
-    /// `false`: a row must pass every `changed` and `added` bit. `true`: one
-    /// of them is enough.
-    pub any: bool,
-    /// The reader's tick; `None` for the world's
-    /// [`changes_since`](World::changes_since).
-    pub since: Option<Tick>,
+    ids: &'a [ComponentId],
+    writes: u32,
+    changed: u32,
+    added: u32,
+    any: bool,
+    since: Option<Tick>,
+    filter: Option<&'a crate::CompiledFilter>,
+    cache: QueryCache,
 }
 
 impl<'a> ChunkQuery<'a> {
-    /// Every row of every archetype with all of `ids`, with every column
-    /// writable: what [`RawWorld::for_each_chunk`](crate::RawWorld::for_each_chunk) does.
-    #[must_use]
+    /// Every row of every archetype with all of `ids` (every entity visited
+    /// has all of them), with every column writable: what
+    /// [`RawWorld::for_each_chunk`](crate::RawWorld::for_each_chunk) does.
     pub fn new(ids: &'a [ComponentId]) -> Self {
         ChunkQuery {
             ids,
@@ -499,7 +544,75 @@ impl<'a> ChunkQuery<'a> {
             added: 0,
             any: false,
             since: None,
+            filter: None,
+            cache: QueryCache::Auto,
         }
+    }
+
+    /// The components this query visits, in the order of the chunk's columns.
+    #[must_use]
+    pub fn ids(&self) -> &'a [ComponentId] {
+        self.ids
+    }
+
+    /// The columns the callback may write (every one, unless set). Their
+    /// rows count as changed, written or not; the other columns must only
+    /// be read.
+    pub fn writes(mut self, mask: u32) -> Self {
+        self.writes = mask;
+        self
+    }
+
+    /// Only visit rows where these columns changed after
+    /// [`since`](Self::since). Their components must be tracked
+    /// ([`RawWorld::track_changes_dynamic`](crate::RawWorld::track_changes_dynamic)).
+    /// At most 8 `changed` and `added` bits together.
+    pub fn changed(mut self, mask: u32) -> Self {
+        self.changed = mask;
+        self
+    }
+
+    /// Only visit rows where these columns were added after
+    /// [`since`](Self::since). Their components must be tracked. At most 8
+    /// `changed` and `added` bits together.
+    pub fn added(mut self, mask: u32) -> Self {
+        self.added = mask;
+        self
+    }
+
+    /// `false` (the default): a row must pass every `changed` and `added`
+    /// bit. `true`: one of them is enough.
+    pub fn match_any(mut self, any: bool) -> Self {
+        self.any = any;
+        self
+    }
+
+    /// The reader's tick, instead of the world's
+    /// [`changes_since`](World::changes_since).
+    pub fn since(mut self, tick: Tick) -> Self {
+        self.since = Some(tick);
+        self
+    }
+
+    /// Only visit the archetypes that also pass `filter`, a
+    /// [`DynFilter`](crate::DynFilter) compiled once (the runtime form of
+    /// [`With`](crate::With), [`Without`](crate::Without) and
+    /// [`Or`](crate::Or)). The entities are the ones the typed query with
+    /// the same filters visits.
+    pub fn filter(mut self, filter: &'a crate::CompiledFilter) -> Self {
+        self.filter = Some(filter);
+        self
+    }
+
+    /// Whether this query uses the world's archetype index: what
+    /// [`Query::cached`](crate::Query::cached) and
+    /// [`Query::uncached`](crate::Query::uncached) say for a typed query.
+    /// Unset, the world's [`QueryCachePolicy`](crate::QueryCachePolicy)
+    /// decides, as [`QueryCache::Auto`] says. The chunks are the same either
+    /// way.
+    pub fn cache(mut self, cache: QueryCache) -> Self {
+        self.cache = cache;
+        self
     }
 }
 
@@ -508,10 +621,11 @@ impl World {
     /// removed, and returns its id. Tracking stays on for the life of the
     /// world; calling this again does nothing.
     ///
-    /// Values that already exist count as added and changed now. The
-    /// [`Added`] and [`Changed`] filters call this themselves, so a game only
-    /// needs it to start tracking before anything is spawned, or to use
-    /// [`removed`](Self::removed) without a filter.
+    /// Values that already exist count as added and changed now. Tracking
+    /// is always explicit: the [`Added`] and [`Changed`] filters and
+    /// [`removed`](Self::removed) need the component tracked and panic
+    /// otherwise, so call this once, before the first query that filters on
+    /// `T` (in a game, in setup).
     ///
     /// Tracking costs 8 bytes per entity that has `T`, and a stamp whenever
     /// one of the operations below touches `T`. Components that aren't
@@ -528,9 +642,9 @@ impl World {
     /// | a query fetching `&mut T` or `Option<&mut T>` | no | yes, for every entity it visits |
     /// | the same in a [`WorldView`](crate::WorldView) query, and its `get_mut` | no | yes |
     /// | [`for_each_chunk`](crate::RawWorld::for_each_chunk) | no | yes, every requested column of every chunk |
-    /// | [`mark_changed`](Self::mark_changed), [`mark_changed_dynamic`](Self::mark_changed_dynamic) | no | yes |
+    /// | [`mark_changed`](Self::mark_changed), [`mark_changed_dynamic`](crate::RawWorld::mark_changed_dynamic) | no | yes |
     /// | [`get`](Self::get), [`has`](Self::has), `&T` in a query, [`Query::count`](crate::Query::count), [`sort_by`](Self::sort_by) | no | no |
-    /// | [`get_dynamic`](crate::RawWorldRef::get_dynamic) | no | no: it returns a raw pointer, so call `mark_changed_dynamic` after writing through it |
+    /// | [`get_dynamic`](crate::RawWorldRef::get_dynamic), [`get_dynamic_mut`](crate::RawWorld::get_dynamic_mut) | no | no: they return raw pointers, so call `mark_changed_dynamic` after writing through the `_mut` one |
     ///
     /// - **A mutable borrow counts as a change**, written or not: the world
     ///   can't see writes through a `&mut T`. A query marks the entities it
@@ -567,26 +681,12 @@ impl World {
     /// ```
     pub fn track_changes<T: Component>(&mut self) -> ComponentId {
         let id = self.register::<T>();
-        self.track_changes_dynamic(id);
+        self.track_changes_dynamic_inner(id);
         id
     }
 
-    /// [`track_changes`](Self::track_changes) for a component by id: the
-    /// path for components registered with
-    /// [`register_component`](Self::register_component).
-    ///
-    /// ```
-    /// # use ponko_ecs::*;
-    /// let mut world = World::new();
-    /// // SAFETY: f32 is plain bytes.
-    /// let speed = unsafe { world.register_component("Speed", 4, 4, None) };
-    /// world.track_changes_dynamic(speed);
-    /// assert!(world.component_info(speed).tracks_changes());
-    /// ```
-    ///
-    /// # Panics
-    /// If `id` came from a different world.
-    pub fn track_changes_dynamic(&mut self, id: ComponentId) {
+    /// Implementation of [`RawWorld::track_changes_dynamic`](crate::RawWorld::track_changes_dynamic).
+    pub(crate) fn track_changes_dynamic_inner(&mut self, id: ComponentId) {
         let info = &mut self.infos[id.index()];
         if info.tracked {
             return;
@@ -633,6 +733,7 @@ impl World {
     /// # use ponko_ecs::*;
     /// struct Pos(f32);
     /// let mut world = World::new();
+    /// world.track_changes::<Pos>();
     /// let e = world.spawn((Pos(0.0),));
     /// let mut seen = Tick::default();
     /// let mut moved = Vec::new();
@@ -689,30 +790,11 @@ impl World {
     /// has no `T`. Does nothing (and returns `true`) if `T` isn't tracked.
     pub fn mark_changed<T: Component>(&mut self, e: Entity) -> bool {
         self.component_id::<T>()
-            .is_some_and(|id| self.mark_changed_dynamic(e, id))
+            .is_some_and(|id| self.mark_changed_dynamic_inner(e, id))
     }
 
-    /// [`mark_changed`](Self::mark_changed) by component id: call it after
-    /// writing through a pointer from [`get_dynamic`](crate::RawWorldRef::get_dynamic).
-    ///
-    /// ```
-    /// # use ponko_ecs::*;
-    /// let mut world = World::new();
-    /// // SAFETY: f32 is plain bytes.
-    /// let speed = unsafe { world.register_component("Speed", 4, 4, None) };
-    /// world.track_changes_dynamic(speed);
-    /// let value = 1.5f32;
-    /// // SAFETY: points to a valid f32, which needs no drop.
-    /// let e = unsafe { world.raw().spawn_dynamic(&[(speed, (&value as *const f32).cast())]) };
-    /// let seen = world.advance_change_tick();
-    ///
-    /// let p = world.raw_ref().get_dynamic(e, speed).unwrap().cast::<f32>();
-    /// // SAFETY: the pointer is to this entity's live f32.
-    /// unsafe { *p = 3.0 };
-    /// assert!(world.mark_changed_dynamic(e, speed));
-    /// # let _ = seen;
-    /// ```
-    pub fn mark_changed_dynamic(&mut self, e: Entity, id: ComponentId) -> bool {
+    /// Implementation of [`RawWorld::mark_changed_dynamic`](crate::RawWorld::mark_changed_dynamic).
+    pub(crate) fn mark_changed_dynamic_inner(&mut self, e: Entity, id: ComponentId) -> bool {
         let Some(loc) = self.entities.get(e) else { return false };
         let arch = &self.archetypes[loc.archetype as usize];
         let Some(col) = arch.column_index(id) else { return false };
@@ -759,18 +841,15 @@ impl World {
     #[must_use]
     pub fn removed_since<T: Component>(&self, since: Tick) -> &[Entity] {
         match self.component_id::<T>() {
-            Some(id) if self.infos[id.index()].tracked => self.removed_dynamic(id, since),
+            Some(id) if self.infos[id.index()].tracked => self.removed_dynamic_inner(id, since),
             _ => untracked(std::any::type_name::<T>()),
         }
     }
 
-    /// [`removed_since`](Self::removed_since) by component id.
-    ///
-    /// # Panics
-    /// If `id` isn't tracked, or came from a different world.
+    /// Implementation of [`RawWorld::removed_dynamic`](crate::RawWorld::removed_dynamic).
     #[track_caller]
     #[must_use]
-    pub fn removed_dynamic(&self, id: ComponentId, since: Tick) -> &[Entity] {
+    pub(crate) fn removed_dynamic_inner(&self, id: ComponentId, since: Tick) -> &[Entity] {
         let Some(log) = self.changes.removed.iter().find(|log| log.id == id) else {
             untracked(self.infos[id.index()].name())
         };
@@ -782,101 +861,11 @@ impl World {
         &log.entities[first..]
     }
 
-    /// [`for_each_chunk`](crate::RawWorld::for_each_chunk) with per-column access and
-    /// change filters: only the columns in `query.writes` count as changed,
-    /// and with `query.changed` or `query.added` set, `f` gets the runs of
-    /// consecutive rows that pass instead of whole archetypes. A filter
-    /// starts tracking its component, as [`Changed`] does.
-    ///
-    /// ```
-    /// # use ponko_ecs::*;
-    /// let mut world = World::new();
-    /// // SAFETY: f32 is plain bytes.
-    /// let speed = unsafe { world.register_component("Speed", 4, 4, None) };
-    /// world.track_changes_dynamic(speed);
-    /// let spawn = |world: &mut World, value: f32| {
-    ///     // SAFETY: points to a valid f32, which needs no drop.
-    ///     unsafe { world.raw().spawn_dynamic(&[(speed, (&value as *const f32).cast())]) }
-    /// };
-    /// let (a, b) = (spawn(&mut world, 1.0), spawn(&mut world, 2.0));
-    /// let seen = world.advance_change_tick();
-    /// assert!(world.mark_changed_dynamic(b, speed));
-    ///
-    /// // Read-only, and only the rows whose `Speed` changed after `seen`.
-    /// let ids = [speed];
-    /// let query = ChunkQuery { writes: 0, changed: 1, since: Some(seen), ..ChunkQuery::new(&ids) };
-    /// let mut changed = Vec::new();
-    /// world.query_chunks(query, |chunk| changed.extend_from_slice(chunk.entities));
-    /// assert_eq!(changed, [b]);
-    /// # let _ = a;
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// With more than 32 component ids, or more than 8 `changed` and
-    /// `added` bits together.
-    pub fn query_chunks(&mut self, query: ChunkQuery<'_>, f: impl FnMut(Chunk<'_>)) {
-        self.query_chunks_inner(query, None, QueryCache::Auto, f);
-    }
-
-    /// [`query_chunks`](Self::query_chunks) over the archetypes that also
-    /// pass `filter`, a [`DynFilter`](crate::DynFilter) compiled once (the
-    /// runtime form of [`With`](crate::With), [`Without`](crate::Without) and
-    /// [`Or`](crate::Or)). The entities are the ones the typed query with the
-    /// same filters visits.
-    ///
-    /// # Panics
-    ///
-    /// As [`query_chunks`](Self::query_chunks).
-    pub fn query_chunks_filtered(
-        &mut self,
-        query: ChunkQuery<'_>,
-        filter: &crate::CompiledFilter,
-        f: impl FnMut(Chunk<'_>),
-    ) {
-        self.query_chunks_inner(query, Some(filter.filters()), QueryCache::Auto, f);
-    }
-
-    /// [`query_chunks`](Self::query_chunks) or
-    /// [`query_chunks_filtered`](Self::query_chunks_filtered) (with a
-    /// `filter`), saying whether this query uses the world's archetype
-    /// index: what [`Query::cached`](crate::Query::cached) and
-    /// [`Query::uncached`](crate::Query::uncached) say for a typed query.
-    /// Without it the world's [`QueryCachePolicy`](crate::QueryCachePolicy)
-    /// decides, as [`QueryCache::Auto`] does here. The chunks are the same
-    /// either way.
-    ///
-    /// ```
-    /// # use ponko_ecs::*;
-    /// struct Speed(f32);
-    /// let mut world = World::new();
-    /// world.spawn((Speed(1.0),));
-    /// let ids = [world.register::<Speed>()];
-    /// let mut rows = 0;
-    /// world.query_chunks_cached(ChunkQuery::new(&ids), None, QueryCache::Always, |chunk| rows += chunk.len());
-    /// assert_eq!(rows, 1);
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// As [`query_chunks`](Self::query_chunks).
-    pub fn query_chunks_cached(
-        &mut self,
-        query: ChunkQuery<'_>,
-        filter: Option<&crate::CompiledFilter>,
-        cache: QueryCache,
-        f: impl FnMut(Chunk<'_>),
-    ) {
-        self.query_chunks_inner(query, filter.map(crate::CompiledFilter::filters), cache, f);
-    }
-
-    fn query_chunks_inner(
-        &mut self,
-        query: ChunkQuery<'_>,
-        filter: Option<&Filters>,
-        cache: QueryCache,
-        mut f: impl FnMut(Chunk<'_>),
-    ) {
+    /// Implementation of [`RawWorld::query_chunks`](crate::RawWorld::query_chunks).
+    #[track_caller]
+    pub(crate) fn query_chunks_inner(&mut self, query: ChunkQuery<'_>, mut f: impl FnMut(Chunk<'_>)) {
+        let filter = query.filter.map(crate::CompiledFilter::filters);
+        let cache = query.cache;
         const MAX: usize = 32;
         let ids = query.ids;
         assert!(ids.len() <= MAX, "query_chunks: at most {MAX} components");
@@ -898,7 +887,14 @@ impl World {
         let mut filtered = false;
         for (i, &id) in ids.iter().enumerate() {
             if bit(query.changed | query.added, i) {
-                self.track_changes_dynamic(id);
+                // Tracking is explicit here too, as for the typed filters.
+                let info = &self.infos[id.index()];
+                assert!(
+                    info.tracked,
+                    "query_chunks: a `changed` or `added` filter needs `{}`'s changes tracked; \
+                     call `world.raw().track_changes_dynamic(id)` first",
+                    info.name()
+                );
                 filtered = true;
             }
         }

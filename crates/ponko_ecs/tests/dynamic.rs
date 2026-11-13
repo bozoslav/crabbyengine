@@ -8,9 +8,9 @@ use ponko_ecs::*;
 #[test]
 fn dynamic_components_and_chunks() {
     let mut w = World::new();
-    let p = unsafe { w.register_component("Pos", 8, 4, None) };
-    let v = unsafe { w.register_component("Vel", 8, 4, None) };
-    assert_eq!(unsafe { w.register_component("Pos", 8, 4, None) }, p);
+    let p = unsafe { w.raw().register_component("Pos", 8, 4, None) };
+    let v = unsafe { w.raw().register_component("Vel", 8, 4, None) };
+    assert_eq!(unsafe { w.raw().register_component("Pos", 8, 4, None) }, p);
     assert_eq!(w.raw_ref().component_by_name("Vel"), Some(v));
     let mut es = Vec::new();
     for i in 0..100 {
@@ -36,7 +36,7 @@ fn dynamic_components_and_chunks() {
     assert_eq!(unsafe { *ptr.cast::<[f32; 2]>() }, [11.0, 2.0]);
 
     // Add/remove a dynamic component.
-    let hp = unsafe { w.register_component("Hp", 4, 4, None) };
+    let hp = unsafe { w.raw().register_component("Hp", 4, 4, None) };
     let val = 7i32;
     assert!(unsafe { w.raw().insert_dynamic(es[0], hp, (&val as *const i32).cast()) });
     assert_eq!(unsafe { *w.raw_ref().get_dynamic(es[0], hp).unwrap().cast::<i32>() }, 7);
@@ -50,8 +50,8 @@ fn dynamic_components_and_chunks() {
 fn dynamic_name_clash_panics() {
     let mut w = World::new();
     unsafe {
-        w.register_component("Pos", 8, 4, None);
-        w.register_component("Pos", 4, 4, None);
+        w.raw().register_component("Pos", 8, 4, None);
+        w.raw().register_component("Pos", 4, 4, None);
     }
 }
 
@@ -72,8 +72,8 @@ fn rust_and_dynamic_views_share_storage() {
 #[test]
 fn spawn_at_dynamic_restores_ids_and_refuses_taken_slots() {
     let mut w = World::new();
-    let pos = unsafe { w.register_component("Pos", 8, 4, None) };
-    let name = unsafe { w.register_component("Name", 16, 8, None) };
+    let pos = unsafe { w.raw().register_component("Pos", 8, 4, None) };
+    let name = unsafe { w.raw().register_component("Name", 16, 8, None) };
     let saved = Entity::from_bits(9 | 4 << 32);
     let p = [3.0f32, 4.0];
     let n = [7u64, 8];
@@ -111,7 +111,7 @@ fn spawn_at_dynamic_restores_ids_and_refuses_taken_slots() {
 #[should_panic(expected = "spawn_at_dynamic: the same component was given twice")]
 fn spawn_at_dynamic_rejects_duplicate_components() {
     let mut w = World::new();
-    let hp = unsafe { w.register_component("Hp", 4, 4, None) };
+    let hp = unsafe { w.raw().register_component("Hp", 4, 4, None) };
     let v = 1i32;
     let v = (&v as *const i32).cast();
     unsafe { w.raw().spawn_at_dynamic(Entity::from_bits(3), &[(hp, v), (hp, v)]) };
@@ -125,7 +125,7 @@ fn structural_changes_keep_values_in_wide_archetypes() {
     const WIDE: u32 = 40;
     let mut w = World::new();
     let ids: Vec<ComponentId> = (0..WIDE)
-        .map(|i| unsafe { w.register_component(&format!("wide{i}"), 4, 4, None) })
+        .map(|i| unsafe { w.raw().register_component(&format!("wide{i}"), 4, 4, None) })
         .collect();
     // The value of component `c` on entity `n` is `c * 100 + n`.
     let value = |c: u32, n: u32| c * 100 + n;

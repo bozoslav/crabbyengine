@@ -99,8 +99,9 @@ Collision meshes are made once and shared by any number of colliders:
 - `ctx.physics3d.trimesh(&vertices, &triangles)`: any triangle mesh, for
   static buildings and level geometry (it has no inside, so give it to
   fixed bodies).
-- `ctx.physics3d.free_mesh(m)` lets go of one; colliders still using it
-  keep it until they're removed.
+- `ctx.free(m)` (or `ctx.physics3d.free(m)`) lets go of one; colliders
+  still using it keep it until they're removed. A collision mesh is a
+  [handle](handles.md): `ctx.is_live(m)` tells whether it still is.
 
 Each of these has a twin in `CollisionMeshData` (C++
 `ponko::collision_mesh_data`) that builds the mesh on any thread, for
@@ -125,6 +126,10 @@ them this way):
 ```json
 "Collider3D": { "shape": { "Mesh": { "file": "town/meshes/wall.glb", "scale": [1, 1, 1], "convex": false } } }
 ```
+
+A collider of a mesh made in code has no file to name, so saves and the
+editor leave it out, like a sprite of a texture made in code: make it
+again in code after loading.
 
 **`d3::Transform` stays the source of truth**, as in 2D: after each step,
 dynamic bodies write their pose into it; set a transform yourself and the

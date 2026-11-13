@@ -1,4 +1,4 @@
-// The built-in terrain material (Ctx::create_terrain_material): up to 8
+// The built-in terrain material (Graphics::create_terrain_material): up to 8
 // ground layers, blended by a weight map, their textures lined up with the
 // world so neighbouring tiles match.
 //

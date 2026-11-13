@@ -25,7 +25,7 @@ use crate::render::gpu::GpuTexture;
 use crate::render::timer::GpuTimer;
 use crate::render::{
     GpuCapabilities, GpuTier, GpuUploads, GraphicsQuality, InstanceBatchOptions, InstanceBatchStats, InstanceLevel,
-    Material, MaterialDesc, Mesh, MeshData, Model, QualityLevel,
+    Material, MaterialDesc, Mesh, MeshData, Model, ShadowFilter,
 };
 use crate::texture::Texture;
 use crate::three::{Blend, GpuMaterialDesc, Joint, Scene3D, Skeleton, SkyLight};
@@ -126,7 +126,7 @@ pub struct SceneSetup {
     pub scale: f32,
     /// The preset every scene starts from (`GraphicsQuality`); a scene then
     /// changes what it is about (see `SceneBench::quality_json`).
-    pub quality: QualityLevel,
+    pub quality: GraphicsQuality,
     /// Draw only what another engine's copy of the scene can draw too: a
     /// plain sky instead of the atmosphere, no bloom, ambient occlusion or
     /// screen-space reflections, FXAA, and every shadow cascade redrawn
@@ -140,7 +140,7 @@ impl Default for SceneSetup {
             size: (1280, 720),
             samples: 4,
             scale: 1.0,
-            quality: QualityLevel::High,
+            quality: GraphicsQuality::High,
             matched: false,
         }
     }
@@ -414,9 +414,7 @@ impl SceneBench {
             solid_prepass,
         );
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(setup.size.0 as f32, setup.size.1 as f32));
-        if let Some(quality) = setup.quality.quality() {
-            ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, quality);
-        }
+        ctx.scene3d.set_quality(setup.quality);
         ctx.gfx.assets3d.decals_supported = super::supports_decals(&device);
         let timer = GpuTimer::new(&device, &queue);
         let mut bench = Self {
@@ -449,15 +447,15 @@ impl SceneBench {
         bench.build();
         if setup.matched {
             let ctx = &mut bench.ctx;
-            ctx.sky.atmosphere = false;
-            ctx.post.bloom = 0.0;
-            ctx.post.ambient_occlusion.enabled = false;
-            ctx.post.ssr = 0.0;
-            ctx.post.anti_aliasing = crate::render::AntiAliasing::Fxaa;
-            ctx.lighting.shadow_refresh = 1;
+            ctx.scene3d.sky.atmosphere = false;
+            ctx.scene3d.post.bloom = 0.0;
+            ctx.scene3d.post.ambient_occlusion.enabled = false;
+            ctx.scene3d.post.ssr = 0.0;
+            ctx.scene3d.post.anti_aliasing = crate::render::AntiAliasing::Fxaa;
+            ctx.scene3d.lighting.shadow_refresh = 1;
         }
         if bench.shadow_workload.is_some() {
-            bench.ctx.lighting.shadow_refresh = 1;
+            bench.ctx.scene3d.lighting.shadow_refresh = 1;
         }
         bench.place_camera();
         let _ = bench.device.poll(wgpu::PollType::wait_indefinitely());
@@ -616,7 +614,7 @@ impl SceneBench {
             .ctx
             .gfx
             .create_instance_batch(mesh, transforms, InstanceBatchOptions::default());
-        self.upload_batch(batch.id(), transforms.len());
+        self.upload_batch(batch.id, transforms.len());
     }
 
     /// A static batch drawing `near` up to `split` away and `far` beyond.
@@ -633,7 +631,7 @@ impl SceneBench {
             self.ctx
                 .gfx
                 .create_instance_batch_levels(&levels, transforms, &[], InstanceBatchOptions::default());
-        self.upload_batch(batch.id(), transforms.len());
+        self.upload_batch(batch.id, transforms.len());
     }
 
     /// A model that stays where it is.
@@ -810,7 +808,7 @@ impl SceneBench {
                         .collect();
                     self.batch(mesh, &transforms);
                 }
-                self.ctx.lighting.shadow_distance = 80.0;
+                self.ctx.scene3d.lighting.shadow_distance = 80.0;
                 self.orbit = (Vec3::ZERO, 60.0, 25.0);
             }
             SceneKind::DynamicWorld => {
@@ -894,13 +892,13 @@ impl SceneBench {
             SceneKind::ShadowHeavy => {
                 let half = 45.0;
                 self.ground(half * 2.4, Color::rgb(0.45, 0.45, 0.45));
-                let lighting = &mut self.ctx.lighting;
+                let lighting = &mut self.ctx.scene3d.lighting;
                 lighting.shadows = true;
                 lighting.shadow_cascades = 4;
                 lighting.shadow_resolution = 4096;
                 lighting.shadow_refresh = 1;
                 lighting.shadow_distance = 120.0;
-                lighting.shadow_filter = 3;
+                lighting.shadow_filter = ShadowFilter::Softest;
                 lighting.light_shadow_views = 24;
                 lighting.light_shadow_resolution = 1024;
                 lighting.light_shadow_atlas = 4096;
@@ -1201,9 +1199,9 @@ impl SceneBench {
         self.model(lake, Transform3D::at(Vec3::new(town + 80.0, -1.5, town + 60.0)));
         self.content.transparent_models += panes + 1;
 
-        self.ctx.post.bloom = 0.3;
-        self.ctx.camera3d.occlusion_culling = true;
-        self.ctx.lighting.shadow_distance = 100.0;
+        self.ctx.scene3d.post.bloom = 0.3;
+        self.ctx.scene3d.camera.occlusion_culling = true;
+        self.ctx.scene3d.lighting.shadow_distance = 100.0;
         self.orbit = (Vec3::new(0.0, 3.0, 0.0), town * 0.55 + 12.0, 26.0);
     }
 
@@ -1219,7 +1217,7 @@ impl SceneBench {
             _ => 0.004,
         };
         let angle = 0.6 + self.frames as f32 * step;
-        let camera = &mut self.ctx.camera3d;
+        let camera = &mut self.ctx.scene3d.camera;
         camera.position = center + Vec3::new(angle.cos() * distance, height, angle.sin() * distance);
         camera.look_at(center);
         camera.far = (distance * 6.0).max(300.0);
@@ -1233,7 +1231,7 @@ impl SceneBench {
             return;
         }
         if self.shadow_workload.as_deref() == Some("thrash") {
-            self.ctx.lighting.sun_direction = Vec3::new(time.sin(), -1.0, time.cos());
+            self.ctx.scene3d.lighting.sun_direction = Vec3::new(time.sin(), -1.0, time.cos());
         }
         let mut movers = self.ctx.world.query::<(&mut Transform3D, &Mover)>();
         movers.for_each(|(transform, mover)| {
@@ -1267,22 +1265,28 @@ impl SceneBench {
         ctx.collect_views(&skins);
         let frame = &mut ctx.gfx.frame3d;
         frame.size_limit = self.device.limits().max_texture_dimension_2d;
-        frame.lod = ctx.lod;
-        frame.motion.enabled = ctx.post.anti_aliasing == crate::render::AntiAliasing::Taa
-            || (ctx.post.ao_temporal && ctx.post.ambient_occlusion.enabled);
-        if !ctx.camera3d.occlusion_culling {
+        frame.lod = ctx.scene3d.lod;
+        frame.motion.enabled = ctx.scene3d.post.anti_aliasing == crate::render::AntiAliasing::Taa
+            || (ctx.scene3d.post.ao_temporal && ctx.scene3d.post.ambient_occlusion.enabled);
+        if !ctx.scene3d.camera.occlusion_culling {
             frame.occlusion = None;
         } else if let Some(grid) = self.renderer.take_occlusion() {
             frame.occlusion = Some(grid);
         }
-        frame.collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        frame.collect(
+            &mut ctx.world,
+            &ctx.gfx.assets3d,
+            &skins,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
+        );
         frame.skins = skins;
-        if ctx.sky.atmosphere {
+        if ctx.scene3d.sky.atmosphere {
             match frame.sky_light {
-                Some((lighting, sky, light)) if lighting == ctx.lighting && sky == ctx.sky => light,
+                Some((lighting, sky, light)) if lighting == ctx.scene3d.lighting && sky == ctx.scene3d.sky => light,
                 _ => {
-                    let light = SkyLight::new(&ctx.lighting, &ctx.sky);
-                    frame.sky_light = Some((ctx.lighting, ctx.sky, light));
+                    let light = SkyLight::new(&ctx.scene3d.lighting, &ctx.scene3d.sky);
+                    frame.sky_light = Some((ctx.scene3d.lighting, ctx.scene3d.sky, light));
                     light
                 }
             }
@@ -1292,9 +1296,9 @@ impl SceneBench {
                 Vec3::new(r, g, b)
             };
             SkyLight {
-                sun: rgb(ctx.lighting.sun_color) * ctx.lighting.sun_intensity,
-                sky: rgb(ctx.lighting.sky_color),
-                ground: rgb(ctx.lighting.ground_color),
+                sun: rgb(ctx.scene3d.lighting.sun_color) * ctx.scene3d.lighting.sun_intensity,
+                sky: rgb(ctx.scene3d.sky.sky_color),
+                ground: rgb(ctx.scene3d.sky.ground_color),
             }
         }
     }
@@ -1310,13 +1314,13 @@ impl SceneBench {
         let ctx = &mut self.ctx;
         let scene = Scene3D {
             frame: &ctx.gfx.frame3d,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light,
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (self.frames as f32 / 60.0, 1.0 / 60.0),
-            occlusion: ctx.camera3d.occlusion_culling,
+            occlusion: ctx.scene3d.camera.occlusion_culling,
         };
         self.renderer.prepare(
             &self.device,
@@ -1490,8 +1494,8 @@ impl SceneBench {
     #[must_use]
     pub fn scene_json(&self) -> String {
         let (ctx, c) = (&self.ctx, &self.content);
-        let q: GraphicsQuality = ctx.gfx.quality(&ctx.post, &ctx.lighting);
-        let level = |l: QualityLevel| format!("{l:?}").to_lowercase();
+        let (l, p) = (&ctx.scene3d.lighting, &ctx.scene3d.post);
+        let level = |q: Option<GraphicsQuality>| q.map_or("custom".to_owned(), |q| format!("{q:?}").to_lowercase());
         serde_json::json!({
             "name": self.kind.name(),
             "shadow_workload": self.shadow_workload,
@@ -1513,32 +1517,32 @@ impl SceneBench {
                 "shadowed_lights": c.shadowed_lights,
             },
             "quality": {
-                "preset": level(self.setup.quality),
+                "preset": level(Some(self.setup.quality)),
                 "matched": self.setup.matched,
-                "level": level(q.level()),
-                "render_scale": q.render_scale,
-                "sharpen": q.sharpen,
-                "shadows": q.shadows,
-                "shadow_distance": q.shadow_distance,
-                "shadow_cascades": q.shadow_cascades,
-                "shadow_resolution": q.shadow_resolution,
-                "shadow_refresh": q.shadow_refresh,
-                "shadow_filter": q.shadow_filter,
-                "light_shadow_views": q.light_shadow_views,
-                "light_shadow_resolution": q.light_shadow_resolution,
-                "light_shadow_atlas": q.light_shadow_atlas,
-                "ambient_occlusion": q.ambient_occlusion,
-                "ao_half_resolution": q.ao_half_resolution,
-                "ao_temporal": q.ao_temporal,
-                "ao_slices": q.ao_slices,
-                "ao_steps": q.ao_steps,
-                "ssr": q.ssr,
-                "gi": q.gi,
-                "anti_aliasing": format!("{:?}", q.anti_aliasing).to_lowercase(),
-                "bloom": ctx.post.bloom,
-                "tonemap": format!("{:?}", ctx.post.tonemap).to_lowercase(),
-                "atmosphere": ctx.sky.atmosphere,
-                "occlusion_culling": ctx.camera3d.occlusion_culling,
+                "level": level(ctx.scene3d.quality()),
+                "render_scale": p.render_scale,
+                "sharpen": p.sharpen,
+                "shadows": l.shadows,
+                "shadow_distance": l.shadow_distance,
+                "shadow_cascades": l.shadow_cascades,
+                "shadow_resolution": l.shadow_resolution,
+                "shadow_refresh": l.shadow_refresh,
+                "shadow_filter": l.shadow_filter as u32,
+                "light_shadow_views": l.light_shadow_views,
+                "light_shadow_resolution": l.light_shadow_resolution,
+                "light_shadow_atlas": l.light_shadow_atlas,
+                "ambient_occlusion": p.ambient_occlusion.enabled,
+                "ao_half_resolution": p.ao_half_resolution,
+                "ao_temporal": p.ao_temporal,
+                "ao_slices": p.ambient_occlusion.slices,
+                "ao_steps": p.ambient_occlusion.steps,
+                "ssr": p.ssr,
+                "gi": l.gi.enabled,
+                "anti_aliasing": format!("{:?}", p.anti_aliasing).to_lowercase(),
+                "bloom": ctx.scene3d.post.bloom,
+                "tonemap": format!("{:?}", ctx.scene3d.post.tonemap).to_lowercase(),
+                "atmosphere": ctx.scene3d.sky.atmosphere,
+                "occlusion_culling": ctx.scene3d.camera.occlusion_culling,
             },
         })
         .to_string()
@@ -1675,7 +1679,7 @@ mod render_test {
             SceneBench::on_device(kind, setup, gpu.info, gpu.device, gpu.queue, samples.get()).map(|mut bench| {
                 // Small shadow maps: the benchmark's 4096² cascades are slow
                 // and large on a software adapter, and no test needs them.
-                let lighting = &mut bench.ctx.lighting;
+                let lighting = &mut bench.ctx.scene3d.lighting;
                 lighting.shadow_resolution = lighting.shadow_resolution.min(256);
                 lighting.light_shadow_resolution = lighting.light_shadow_resolution.min(128);
                 lighting.light_shadow_atlas = lighting.light_shadow_atlas.min(512);
@@ -1955,8 +1959,8 @@ mod render_test {
             // Occlusion culling drops what the GPU's depth from earlier
             // frames hides, and when that depth comes back is the device's
             // business: this compares what the scene itself hands over.
-            a.ctx.camera3d.occlusion_culling = false;
-            b.ctx.camera3d.occlusion_culling = false;
+            a.ctx.scene3d.camera.occlusion_culling = false;
+            b.ctx.scene3d.camera.occlusion_culling = false;
             let (x, y) = (a.frame(), b.frame());
             assert_eq!(
                 (x.instances, x.triangles, x.shadow_instances, x.draw_calls),

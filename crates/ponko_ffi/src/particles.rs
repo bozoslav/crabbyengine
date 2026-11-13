@@ -8,7 +8,7 @@ use ponko::d3::ParticleEmitter as ParticleEmitter3D;
 use ponko::d3::ParticleSettings as ParticleSettings3D;
 use ponko::d3::ParticleShape as ParticleShape3D;
 use ponko::d3::ParticleSpace as ParticleSpace3D;
-use ponko::{Color, Ctx, Entity, Vec3, render::ParticleCurve, render::ParticleGradient};
+use ponko::{Color, Ctx, Entity, Vec3, d3::ParticleCurve, d3::ParticleGradient};
 
 use crate::ctx::{ctx_access, out};
 use crate::three::PonkoVec3;
@@ -304,27 +304,26 @@ unsafe fn settings_from_c(s: &PonkoParticleSettings3D) -> Result<ParticleSetting
     let color_keys = unsafe { keys(s.color_keys, s.color_key_count, "color_keys")? };
     let (size_curve, color_gradient) = (curve_from_c(size_keys)?, gradient_from_c(color_keys)?);
     let defaults = ParticleSettings3D::default();
-    Ok(ParticleSettings3D {
-        rate: s.rate,
-        burst: s.burst as usize,
-        duration: s.duration,
-        looping: s.looping,
-        lifetime: (s.lifetime_min, s.lifetime_max),
-        speed: (s.speed_min, s.speed_max),
-        shape,
-        gravity: to_c::<_, Vec3>(gravity),
-        drag: s.drag,
-        size: (s.size_min, s.size_max),
-        rotation: (s.rotation_min, s.rotation_max),
-        size_over_life: size_curve.unwrap_or(defaults.size_over_life),
-        color_over_life: color_gradient.unwrap_or(defaults.color_over_life),
-        texture: s.has_texture.then(|| texture_from_c(s.texture)),
-        sheet: (s.sheet_columns, s.sheet_rows),
-        blend,
-        max_particles: s.max_particles as usize,
-        space,
-        seed: s.seed,
-    })
+    Ok(ParticleSettings3D::default()
+        .with_rate(s.rate)
+        .with_burst(s.burst as usize)
+        .with_duration(s.duration)
+        .with_looping(s.looping)
+        .with_lifetime(s.lifetime_min, s.lifetime_max)
+        .with_speed(s.speed_min, s.speed_max)
+        .with_shape(shape)
+        .with_gravity(to_c::<_, Vec3>(gravity))
+        .with_drag(s.drag)
+        .with_size(s.size_min, s.size_max)
+        .with_rotation(s.rotation_min, s.rotation_max)
+        .with_size_over_life(size_curve.unwrap_or(defaults.size_over_life))
+        .with_color_over_life(color_gradient.unwrap_or(defaults.color_over_life))
+        .with_texture(s.has_texture.then(|| texture_from_c(s.texture)))
+        .with_sheet(s.sheet_columns, s.sheet_rows)
+        .with_blend(blend)
+        .with_max_particles(s.max_particles as usize)
+        .with_space(space)
+        .with_seed(s.seed))
 }
 
 /// # Safety

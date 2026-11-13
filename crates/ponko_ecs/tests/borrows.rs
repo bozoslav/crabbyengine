@@ -69,7 +69,7 @@ fn a_query_reads_and_writes_resources_in_its_loop() {
     w.spawn((Pos(2.0, 0.0), Frozen));
     w.spawn((Pos(3.0, 0.0),));
     w.query::<&mut Pos>()
-        .without::<Frozen>()
+        .filter::<Without<Frozen>>()
         .with_resources::<(&Speed, &mut Score)>()
         .for_each(|p, (speed, score)| {
             p.0 *= speed.0;
@@ -291,7 +291,7 @@ fn a_lookup_ignores_the_querys_filters_and_misses_cleanly() {
     w.spawn((Target(frozen),));
     let mut seen = 0;
     w.query::<&Target>()
-        .without::<Frozen>()
+        .filter::<Without<Frozen>>()
         .with_lookup::<&mut Health>()
         .for_each(|target, others| {
             assert!(others.contains(target.0));
@@ -365,6 +365,74 @@ fn a_lookup_works_across_many_archetypes_with_a_cached_query() {
             });
     }
     assert_eq!(w.get::<Health>(hub).unwrap().0, 512);
+}
+
+/// A cached query writes the world's archetype index inside `for_each`,
+/// after the lookup took its pointers to the entity table and the
+/// archetypes; in a tracked world the lookup then stamps what it hands out
+/// while the query's own loop stamps what it fetches. Miri checks that none
+/// of those writes ends the others' pointers.
+#[test]
+fn a_lookup_reads_and_writes_while_a_cached_query_builds_its_index_and_stamps() {
+    struct Marker<const N: usize>;
+    let mut w = World::new();
+    // Index from the first archetype on, so this small world takes the
+    // same path as a big one.
+    let mut policy = QueryCachePolicy::new();
+    policy.min_archetypes = 1;
+    w.set_query_cache_policy(policy);
+    w.track_changes::<Health>();
+    w.track_changes::<Damage>();
+    let hub = w.spawn((Health(0),));
+    let mut attackers = Vec::new();
+    for bits in 0..8u32 {
+        let e = w.spawn((Target(hub), Damage(1)));
+        if bits & 1 != 0 {
+            w.insert(e, Marker::<0>);
+        }
+        if bits & 2 != 0 {
+            w.insert(e, Marker::<1>);
+        }
+        if bits & 4 != 0 {
+            w.insert(e, Marker::<2>);
+        }
+        attackers.push(e);
+    }
+    let seen = w.advance_change_tick();
+    // The first round builds both indexes inside the loops; the others hit.
+    for round in 1..=3 {
+        w.query::<(&Target, &mut Damage)>()
+            .cached()
+            .with_lookup::<&mut Health>()
+            .for_each(|(target, damage), others| {
+                damage.0 += 1;
+                others.get_mut(target.0).unwrap().0 += damage.0;
+            });
+        // A reading lookup, with several results held at once.
+        let mut read = 0;
+        w.query::<&Target>()
+            .filter::<With<Marker<0>>>()
+            .cached()
+            .with_lookup::<(Entity, &Health)>()
+            .for_each(|target, others| {
+                let (first, second) = (others.get(target.0).unwrap(), others.get(target.0).unwrap());
+                assert_eq!((first.0, first.1.0), (hub, second.1.0));
+                read += 1;
+            });
+        assert_eq!(read, 4);
+        assert_eq!(w.query_cache_stats().indexed, 2, "round {round}");
+    }
+    // 8 attackers hit for 2, 3 and 4.
+    assert_eq!(w.get::<Health>(hub).unwrap().0, 8 * (2 + 3 + 4));
+    assert_eq!(changed_health(&mut w, seen), [hub]);
+    let mut hit: Vec<Entity> = w
+        .query::<Entity>()
+        .filter::<Changed<Damage>>()
+        .since(seen)
+        .iter()
+        .collect();
+    hit.sort_by_key(|e| e.to_bits());
+    assert_eq!(hit, attackers);
 }
 
 // ---- lookups and change detection ---------------------------------------------

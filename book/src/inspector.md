@@ -94,7 +94,7 @@ While the inspector is closed it costs nothing: egui doesn't run and no
 input goes to it. While it's open, clicks, keys and the mouse wheel over
 the panel stay in the panel, and `ctx.ui.wants_pointer()` is `true` there,
 so a game that checks it doesn't also act on clicks in the panel. The
-panel isn't in screenshots taken with `ctx.save_screenshot` or by agents.
+panel isn't in screenshots taken with `ctx.gfx.save_screenshot` or by agents.
 
 The overlay is built with [egui](https://github.com/emilk/egui), behind
 the `inspector` cargo feature (on by default). Games that don't want egui

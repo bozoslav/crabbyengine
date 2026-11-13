@@ -456,7 +456,7 @@ impl SharedSources {
 /// 2. next to the executable (shipped games)
 /// 3. the current working directory
 #[cfg(not(target_arch = "wasm32"))]
-fn asset_roots() -> Vec<PathBuf> {
+pub(crate) fn asset_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Some(dir) = std::env::var_os("CARGO_MANIFEST_DIR") {
         roots.push(PathBuf::from(dir).join("assets"));
@@ -516,6 +516,14 @@ pub(crate) fn write(name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     };
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    }
+    // A file a screenshot or trace has claimed (it would remove it, and
+    // what is written here, if it's given up).
+    if crate::control::is_claimed_path(&path) {
+        return Err(format!(
+            "could not write {}: a screenshot or trace will be written there; name another file",
+            path.display()
+        ));
     }
     std::fs::write(&path, bytes).map_err(|e| format!("could not write {}: {e}", path.display()))?;
     Ok(path)

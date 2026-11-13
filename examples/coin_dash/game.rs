@@ -296,7 +296,7 @@ fn sfx(ctx: &mut Ctx, pick: fn(&Sounds) -> Sound) {
     let volume = ctx.world.resource::<Settings>().volume;
     if volume > 0.0 {
         ctx.audio.play_ex(
-            &sound,
+            sound,
             SoundParams {
                 volume,
                 ..Default::default()

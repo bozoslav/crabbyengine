@@ -111,7 +111,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -138,26 +138,26 @@ impl Rig {
     fn draw(&mut self) -> Vec<u8> {
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // Sunlight only: the fog glows with nothing else.
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -237,11 +237,11 @@ fn contact_shadows_shade_what_something_close_blocks() {
         },
         Model::new(block),
     ));
-    rig.ctx.lighting.shadows = false;
-    rig.ctx.lighting.sun_direction = vec3(1.0, -1.0, 0.0);
-    rig.ctx.camera3d.position = vec3(0.0, 4.0, 0.01);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
-    let view_proj = rig.ctx.camera3d.view_proj();
+    rig.ctx.scene3d.lighting.shadows = false;
+    rig.ctx.scene3d.lighting.sun_direction = vec3(1.0, -1.0, 0.0);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 4.0, 0.01);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let red = |pixels: &[u8], p: Vec3| {
         let (x, y) = pixel(view_proj, p);
         i32::from(pixels[((y * SIZE + x) * 4) as usize])
@@ -255,16 +255,16 @@ fn contact_shadows_shade_what_something_close_blocks() {
         red(&pixels, beside)
     );
 
-    rig.ctx.post.contact_shadows = 1.0;
+    rig.ctx.scene3d.post.contact_shadows = 1.0;
     let pixels = rig.draw();
     let (shade, sun) = (red(&pixels, beside), red(&pixels, open));
     assert!(shade < 60, "beside the pebble, in its shadow: {shade}");
     assert!(sun > 150, "out in the sun: {sun}");
     // Switching AO off while contacts stay on restores the full-size trace.
-    rig.ctx.post.ao_half_resolution = true;
-    rig.ctx.post.ambient_occlusion.enabled = true;
+    rig.ctx.scene3d.post.ao_half_resolution = true;
+    rig.ctx.scene3d.post.ambient_occlusion.enabled = true;
     let _ = rig.draw();
-    rig.ctx.post.ambient_occlusion.enabled = false;
+    rig.ctx.scene3d.post.ambient_occlusion.enabled = false;
     assert_eq!(
         rig.draw(),
         pixels,

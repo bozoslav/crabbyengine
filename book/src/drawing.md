@@ -44,13 +44,12 @@ For UI, effects and quick prototypes, draw directly every frame:
 ```rust
 # let crab = ctx.load_texture("crab.png");
 ctx.gfx.clear(Color::hex(0x203040));
-ctx.draw(&crab, vec2(100.0, 100.0));
-ctx.gfx.draw_ex(&crab, vec2(200.0, 100.0), DrawParams {
-    rotation: 0.5,
-    scale: vec2(2.0, 2.0),
-    color: Color::RED,
-    ..Default::default()
-});
+ctx.draw(crab, vec2(100.0, 100.0));
+let params = DrawParams::default()
+    .with_rotation(0.5)
+    .with_scale(vec2(2.0, 2.0))
+    .with_color(Color::RED);
+ctx.gfx.draw_ex(crab, vec2(200.0, 100.0), params);
 ```
 
 </div>
@@ -66,12 +65,17 @@ ctx.gfx.draw_ex(&crab, vec2(200.0, 100.0), DrawParams {
 Coordinates are world units, which are window pixels (`(0, 0)` at the
 top-left) until you move the camera; see [Camera, text and UI](camera-ui.md).
 
+`DrawParams` (and `TextParams` for text) start from `default()` and change
+what they need with `with_*` methods (`with_scale`, `with_rotation`,
+`with_color`, `with_z`, `with_pivot`, `with_screen`, `with_region`). They are
+`#[non_exhaustive]`, so they can't be written as struct literals.
+
 ## Textures
 
 - `ctx.load_texture("path.png")` loads an image file.
 - `ctx.gfx.create_texture(w, h, &rgba)` makes one from pixels.
 
-- `ctx.gfx.update_texture(&tex, &rgba)` replaces a texture's pixels, for
+- `ctx.gfx.update_texture(tex, &rgba)` replaces a texture's pixels, for
   images that change while the game runs (a minimap, a heat map, a
   simulated field). The ants example draws its pheromone field this way
   every frame.

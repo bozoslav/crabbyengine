@@ -8,8 +8,11 @@ use glam::Vec2;
 use ponko_ecs::World;
 
 mod batch;
+mod system;
 #[cfg(feature = "window")]
 mod window;
+
+pub use system::{IntoSystem, SystemConfig};
 
 use crate::control::{self, Control};
 use crate::ctx::Ctx;
@@ -76,7 +79,7 @@ pub enum Phase {
 /// struct Score;
 /// impl Plugin for Score {
 ///     fn build(&self, game: Game) -> Game {
-///         game.add(Phase::AfterPhysics, |ctx| *ctx.world.resource_mut::<u32>() += 1)
+///         game.add(Phase::AfterPhysics, |ctx: &mut Ctx| *ctx.world.resource_mut::<u32>() += 1)
 ///     }
 ///     fn setup(&self, ctx: &mut Ctx) {
 ///         ctx.world.insert_resource(0u32);
@@ -93,9 +96,10 @@ pub trait Plugin {
     fn setup(&self, _ctx: &mut Ctx) {}
 }
 
-/// An opaque registration handle. Registration IDs are unique across game builders
-/// and never reused. Constants in [`Systems`] identify all registrations of a
-/// built-in function. IDs are not persistence identifiers.
+/// An opaque registration handle, from [`Game::add_system`], for
+/// [`Game::remove`] and [`Game::order`]. Registration IDs are unique across
+/// game builders and never reused. Constants in [`Systems`] identify all
+/// registrations of a built-in function. IDs are not persistence identifiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SystemId(u32);
 
@@ -150,8 +154,7 @@ impl SystemId {
 }
 
 /// The id of built-in system function `name` (a type name), with the name
-/// it is listed under. The old crate-root spellings re-export the same
-/// functions, so they have the same type name.
+/// it is listed under.
 fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
     /// The function in `ponko::systems`, listed once under its own name.
     macro_rules! builtin {
@@ -211,7 +214,7 @@ fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
 ///     move |ctx: &mut Ctx| {
 ///         if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
 ///         if ctx.key_pressed(Key::Escape) { ctx.quit(); }
-///         ctx.draw(&crab, pos);
+///         ctx.draw(crab, pos);
 ///     }
 /// });
 /// ```
@@ -244,8 +247,6 @@ pub struct Game {
     fixed_hz_set: bool,
     seed: u64,
     vsync: bool,
-    /// Samples per pixel of the 3D frame (see `msaa`).
-    msaa: u32,
     fullscreen: bool,
     sim_systems: Vec<System>,
     systems: Vec<System>,
@@ -264,7 +265,8 @@ pub struct Game {
     net: Option<crate::net::Net>,
     /// The message endpoint from `messages`, moved into `ctx.net` at start.
     messages: Option<crate::net::NetMessages>,
-    /// Open the control endpoint (also on with `PONKO_CONTROL=1`).
+    /// Open the control endpoint (also on with `PONKO_CONTROL=1` where the
+    /// build honors it, see `control_endpoint`).
     control: bool,
     /// Reload asset and data files when they change (`PONKO_HOT_RELOAD` overrides).
     hot_reload: bool,
@@ -293,9 +295,9 @@ type SetupFn = Box<dyn FnOnce(&mut Ctx)>;
 ///
 /// Returned by [`Game::setup`], or by [`Game::configured`] for a game with
 /// no setup of its own. Configure systems and window options on `Game`
-/// first, then register one or more setup callbacks. This separate type lets
-/// existing `Game::run(setup)` calls keep compiling: Rust cannot overload
-/// inherent methods by argument count.
+/// first, then register one or more setup callbacks. It is a separate type
+/// because its `run()` takes no closure and [`Game::run`] takes one, and
+/// Rust has no two methods of one name on a type.
 #[must_use = "a configured game does nothing until run or run_headless"]
 pub struct ConfiguredGame {
     game: Game,
@@ -305,6 +307,7 @@ fn run_setups(setups: Vec<SetupFn>, ctx: &mut Ctx) {
     for setup in setups {
         setup(ctx);
         ctx.apply_commands();
+        ctx.follow_msaa();
     }
 }
 
@@ -365,7 +368,7 @@ struct System {
     phase: u32,
     /// Unique per system: its read position for events.
     id: u32,
-    /// Declared access from `add_with_access` or `add_view`; `None` is exclusive.
+    /// Declared access (`IntoSystem::access`); `None` is exclusive.
     access: Option<crate::access::SystemAccess>,
     /// Stays at the end of its phase: systems added later go before it.
     /// Set for the built-ins that must see what the phase's other systems did.
@@ -373,7 +376,7 @@ struct System {
     /// Where this system last finished: its `Added` and `Changed` filters
     /// and `removed` report what happened after it.
     changes_seen: ChangesSeen,
-    /// A view system (`add_view`): it can't reach anything undeclared.
+    /// A view system: it can't reach anything undeclared.
     enforced: bool,
     /// `Game::barrier` was called before it was added: it starts a stage.
     barrier: bool,
@@ -508,47 +511,50 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
 }
 
 impl System {
+    /// A `Ctx` system with no options set.
     fn new<F: FnMut(&mut Ctx) + 'static>(f: F) -> Self {
-        let id = next_system_id();
-        let builtin = builtin_id(std::any::type_name::<F>());
-        System {
-            key: SystemId(id),
-            builtin: builtin.map(|b| b.0),
-            name: builtin.map_or(std::any::type_name::<F>(), |b| b.1),
-            stage: Phase::AfterPhysics,
-            run: Run::Ctx(hot(f)),
-            every: 1,
-            phase: 0,
-            id,
-            access: None,
-            last: false,
-            changes_seen: ChangesSeen::default(),
-            enforced: false,
-            barrier: false,
-        }
+        Self::from_config(f.into_system())
     }
 
-    /// A view system: `f` gets only what `access` declares.
-    fn view<F>(access: crate::access::SystemAccess, f: F) -> Self
-    where
-        F: FnMut(&mut crate::system_view::SystemView<'_>) + Send + 'static,
-    {
+    /// The system `config` describes, not yet in a phase.
+    ///
+    /// # Panics
+    /// If it is a view system whose declaration a view can't have.
+    #[track_caller]
+    fn from_config(config: SystemConfig) -> Self {
+        let SystemConfig {
+            run,
+            name,
+            builtin,
+            every,
+            access,
+        } = config;
         let id = next_system_id();
-        let name = std::any::type_name::<F>();
-        let runner = crate::system_view::ViewRunner::new(name, access.clone(), hot_view(f));
+        let (run, access, enforced) = match run {
+            system::ConfigRun::Ctx(f) => (Run::Ctx(f), access, false),
+            system::ConfigRun::View(f) => {
+                // A view system that declares nothing can reach nothing.
+                let access = access.unwrap_or_default();
+                if let Some(problem) = access.view_problem() {
+                    panic!("Game::add: view system `{name}` {problem}");
+                }
+                let runner = crate::system_view::ViewRunner::new(name, access.clone(), f);
+                (Run::View(Some(Box::new(runner))), Some(access), true)
+            }
+        };
         System {
             key: SystemId(id),
-            builtin: None,
+            builtin,
             name,
             stage: Phase::AfterPhysics,
-            run: Run::View(Some(Box::new(runner))),
-            every: 1,
+            run,
+            every,
             phase: 0,
             id,
-            access: Some(access),
+            access,
             last: false,
             changes_seen: ChangesSeen::default(),
-            enforced: true,
+            enforced,
             barrier: false,
         }
     }
@@ -666,7 +672,6 @@ impl Game {
             fixed_hz_set: false,
             seed: crate::random::DEFAULT_SEED,
             vsync: true,
-            msaa: 4,
             fullscreen: false,
             sim_systems: Vec::new(),
             systems: Vec::new(),
@@ -683,7 +688,7 @@ impl Game {
             gravity3d: None,
             net: None,
             messages: None,
-            control: control::env_flag(control::ENV_CONTROL),
+            control: control::env_control(),
             hot_reload: cfg!(debug_assertions),
             inspector: cfg!(debug_assertions),
             input_scenario: None,
@@ -704,122 +709,114 @@ impl Game {
         game
     }
 
-    /// Registers a system in an explicit execution phase.
+    /// Registers a system in an execution phase: the general form of
+    /// [`sim_system`](Self::sim_system) (`Phase::AfterPhysics`) and
+    /// [`system`](Self::system) (`Phase::Frame`).
     ///
-    /// Compatibility mappings: `sim_system` (including interval/named forms)
-    /// uses `AfterPhysics`, `system` uses `Frame`, and `late_system` uses `Late`.
-    /// Built-in physics always uses `Physics`; use `BeforePhysics` for logic
-    /// that must affect the current physics step. This is sequential scheduling.
+    /// `system` is anything that is [`IntoSystem`]:
     ///
-    /// ```
-    /// use ponko::{Game, Phase};
-    /// let world = Game::new("server", 1, 1)
-    ///     .add(Phase::BeforePhysics, |_| {})
-    ///     .add(Phase::AfterPhysics, |_| {})
-    ///     .run_headless(1, |_| {});
-    /// assert!(world.is_empty());
-    /// ```
-    pub fn add(mut self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> Self {
-        self.add_system(phase, system);
-        self
-    }
-
-    /// Registers a system and returns its removal handle. Unlike the chainable
-    /// [`add`](Self::add), this method borrows the builder to return an ID.
-    pub fn add_system(&mut self, phase: Phase, system: impl FnMut(&mut Ctx) + 'static) -> SystemId {
-        self.insert_system(phase, System::new(system))
-    }
-
-    /// Like [`add`](Self::add), with a declaration of what the system
-    /// reads and writes. Opt-in metadata for tools and a future scheduler:
-    /// the system still runs in order with the whole `Ctx`. In debug builds,
-    /// using anything beyond the declaration panics after the system runs.
-    /// See [`SystemAccess`] and [`access_report`](Self::access_report).
+    /// - a function or closure that takes `&mut Ctx`. It may use the whole
+    ///   engine and always runs alone, in order;
+    /// - a **view system**: a `Send` function or closure that takes
+    ///   `&mut SystemView` and gets exactly what its declaration lists, so
+    ///   the declaration is enforced by the view, not trusted. View systems
+    ///   run one at a time, in order, unless
+    ///   [`parallel_systems`](Self::parallel_systems) is on: then the ones
+    ///   that are next to each other in a phase and don't conflict share a
+    ///   batch and may run at the same time;
+    /// - either of them with options: [`named`](IntoSystem::named),
+    ///   [`every`](IntoSystem::every) (an interval in ticks) and
+    ///   [`access`](IntoSystem::access) (what it reads and writes).
     ///
-    /// [`SystemAccess`]: crate::access::SystemAccess
-    pub fn add_with_access(
-        mut self,
-        phase: Phase,
-        access: crate::access::SystemAccess,
-        system: impl FnMut(&mut Ctx) + 'static,
-    ) -> Self {
-        let mut s = System::new(system);
-        s.access = Some(access);
-        self.insert_system(phase, s);
-        self
-    }
-
-    /// Registers a view system: it declares what it reads and writes, and
-    /// gets a [`SystemView`](crate::system_view::SystemView) that offers exactly that,
-    /// instead of the whole `Ctx`. Anything undeclared is unreachable (its
-    /// accessors panic, in every build), so the declaration is enforced by
-    /// the view, not trusted. View systems run one at a time, in order,
-    /// unless [`parallel_systems`](Self::parallel_systems) is on: then the
-    /// ones that are next to each other in a phase and don't conflict share
-    /// a batch and may run at the same time, which is why a view system is
-    /// `Send`. See [`SystemAccess`](crate::access::SystemAccess), the
-    /// [`schedule`](crate::schedule) module and the guide's "Declared
-    /// system access" and "Parallel systems" chapters.
+    /// A closure names its parameter type (`|ctx: &mut Ctx| ...`): that is
+    /// how Rust tells the two kinds of system apart.
+    ///
+    /// Built-in physics always uses `Phase::Physics`; use `BeforePhysics` for
+    /// logic that must affect the current physics step. See
+    /// [`SystemAccess`](crate::access::SystemAccess), the
+    /// [`schedule`](crate::schedule) module and the guide's "Systems",
+    /// "Declared system access" and "Parallel systems" chapters.
     ///
     /// ```
+    /// use ponko::access::{Service, SystemAccess};
     /// use ponko::prelude::*;
+    /// use ponko::system_view::SystemView;
+    ///
     /// struct Pos(f32);
     /// struct Vel(f32);
     ///
-    /// fn movement(sys: &mut ponko::system_view::SystemView) {
+    /// fn steer(ctx: &mut Ctx) {
+    ///     ctx.world.query::<&mut Vel>().for_each(|v| v.0 = 1.0);
+    /// }
+    /// fn movement(sys: &mut SystemView) {
     ///     let dt = sys.dt();
     ///     sys.world.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| p.0 += v.0 * dt);
     /// }
     ///
-    /// let world = Game::new("view", 1, 1)
-    ///     .add_view(
+    /// let mut world = Game::new("add", 1, 1)
+    ///     .add(Phase::BeforePhysics, steer)
+    ///     .add(
     ///         Phase::AfterPhysics,
-    ///         ponko::access::SystemAccess::new().write::<Pos>().read::<Vel>().read_service(ponko::access::Service::Time),
-    ///         movement,
+    ///         movement.access(SystemAccess::new().write::<Pos>().read::<Vel>().read_service(Service::Time)),
     ///     )
+    ///     .add(Phase::SimLast, (|_: &mut Ctx| {}).named("bookkeeping").every(30))
     ///     .run_headless(60, |ctx| {
-    ///         ctx.world.spawn((Pos(0.0), Vel(1.0)));
+    ///         ctx.world.spawn((Pos(0.0), Vel(0.0)));
     ///     });
-    /// # let _ = world;
+    /// let x = world.query::<&Pos>().iter().next().unwrap().0;
+    /// assert!((x - 1.0).abs() < 1e-4);
     /// ```
     ///
     /// # Panics
-    /// If `access` can't be a view's: exclusive, items without a Rust type
-    /// (the C/C++ path), or a service the view doesn't offer (`gfx`, `ui`,
-    /// `assets`, `perf`, or writing `input`, `time` or `spatial`). Those
-    /// systems take `&mut Ctx`: use [`add_with_access`](Self::add_with_access).
+    /// - If the system has an interval ([`every`](IntoSystem::every)) above 1
+    ///   and `phase` is a per-frame phase (`Frame` through `Draw`).
+    /// - If it is a view system and its declaration can't be a view's:
+    ///   exclusive, items without a Rust type (the C/C++ path), or a service
+    ///   the view doesn't offer (`gfx`, `ui`, `assets`, `perf`, or writing
+    ///   `input`, `time` or `spatial`). Those systems take `&mut Ctx`.
     #[track_caller]
-    pub fn add_view(
-        mut self,
-        phase: Phase,
-        access: crate::access::SystemAccess,
-        system: impl FnMut(&mut crate::system_view::SystemView<'_>) + Send + 'static,
-    ) -> Self {
-        self.add_view_system(phase, access, system);
+    pub fn add<T>(mut self, phase: Phase, system: impl IntoSystem<T>) -> Self {
+        self.add_config(phase, system.into_system());
         self
     }
 
-    /// [`add_view`](Self::add_view) that returns the system's id, for
-    /// [`remove`](Self::remove) and [`order`](Self::order). Like
-    /// [`add_system`](Self::add_system), it borrows the builder.
+    /// [`add`](Self::add) that returns the system's id, for
+    /// [`remove`](Self::remove) and [`order`](Self::order). It is the one
+    /// builder method that borrows the game instead of taking and
+    /// returning it, because it has something else to return.
+    ///
+    /// ```
+    /// use ponko::prelude::*;
+    /// let mut game = Game::new("ids", 1, 1);
+    /// let id = game.add_system(Phase::AfterPhysics, |_: &mut Ctx| {});
+    /// assert_eq!(game.system_count(id), 1);
+    /// assert_eq!(game.remove(id).system_count(id), 0);
+    /// ```
     ///
     /// # Panics
-    /// As [`add_view`](Self::add_view).
+    /// As [`add`](Self::add).
     #[track_caller]
-    pub fn add_view_system(
-        &mut self,
-        phase: Phase,
-        access: crate::access::SystemAccess,
-        system: impl FnMut(&mut crate::system_view::SystemView<'_>) + Send + 'static,
-    ) -> SystemId {
-        let name = crate::system_view::name_of(&system);
-        if let Some(problem) = access.view_problem() {
-            panic!("Game::add_view: system `{name}` {problem}");
-        }
-        self.insert_system(phase, System::view(access, system))
+    pub fn add_system<T>(&mut self, phase: Phase, system: impl IntoSystem<T>) -> SystemId {
+        self.add_config(phase, system.into_system())
     }
 
-    /// Lets view systems ([`add_view`](Self::add_view)) that don't conflict
+    #[track_caller]
+    fn add_config(&mut self, phase: Phase, config: SystemConfig) -> SystemId {
+        assert!(
+            config.every == 1 || phase <= Phase::SimLast,
+            "Game::add: system `{}` has an interval, and only fixed-tick phases take one",
+            config.name
+        );
+        let mut s = System::from_config(config);
+        if s.every > 1 {
+            // Spread systems of one interval over its ticks.
+            let same = self.sim_systems.iter().filter(|x| x.every == s.every).count() as u32;
+            s.phase = same % s.every;
+        }
+        self.insert_system(phase, s)
+    }
+
+    /// Lets view systems (see [`add`](Self::add)) that don't conflict
     /// run at the same time, on several threads. Off by default: then every
     /// system runs alone, in order, as always.
     ///
@@ -871,8 +868,8 @@ impl Game {
     ///
     /// let mut world = Game::new("parallel", 1, 1)
     ///     .parallel_systems(true)
-    ///     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Pos>(), drift)
-    ///     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), decay)
+    ///     .add(Phase::AfterPhysics, drift.access(SystemAccess::new().write::<Pos>()))
+    ///     .add(Phase::AfterPhysics, decay.access(SystemAccess::new().write::<Health>()))
     ///     .run_headless(10, |ctx| {
     ///         ctx.world.spawn((Pos(0.0), Health(100)));
     ///     });
@@ -932,12 +929,13 @@ impl Game {
     /// ```
     /// use ponko::access::SystemAccess;
     /// use ponko::prelude::*;
+    /// use ponko::system_view::SystemView;
     /// struct A;
     /// struct B;
     /// let plan = Game::new("barrier", 1, 1)
-    ///     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<A>(), |_| {})
+    ///     .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(SystemAccess::new().write::<A>()))
     ///     .barrier(Phase::AfterPhysics)
-    ///     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<B>(), |_| {})
+    ///     .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(SystemAccess::new().write::<B>()))
     ///     .schedule_plan();
     /// assert_eq!(plan.stages_in(Phase::AfterPhysics).len(), 2);
     /// ```
@@ -953,7 +951,6 @@ impl Game {
     /// the declarations can't show, such as two systems that talk through
     /// a file or a channel). `first` must already run before `second`: an
     /// earlier phase, or registered first in the same phase. Ids come from
-    /// [`add_view_system`](Self::add_view_system) and
     /// [`add_system`](Self::add_system); a removed system's pair is ignored.
     ///
     /// # Panics
@@ -965,11 +962,12 @@ impl Game {
     /// ```
     /// use ponko::access::SystemAccess;
     /// use ponko::prelude::*;
+    /// use ponko::system_view::SystemView;
     /// struct A;
     /// struct B;
     /// let mut game = Game::new("order", 1, 1);
-    /// let first = game.add_view_system(Phase::AfterPhysics, SystemAccess::new().write::<A>(), |_| {});
-    /// let second = game.add_view_system(Phase::AfterPhysics, SystemAccess::new().write::<B>(), |_| {});
+    /// let first = game.add_system(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(SystemAccess::new().write::<A>()));
+    /// let second = game.add_system(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(SystemAccess::new().write::<B>()));
     /// assert_eq!(game.schedule_plan().stages_in(Phase::AfterPhysics).len(), 1);
     /// let game = game.order(first, second);
     /// assert_eq!(game.schedule_plan().stages_in(Phase::AfterPhysics).len(), 2);
@@ -1020,24 +1018,6 @@ impl Game {
             .collect()
     }
 
-    /// For language bindings (the C API): `named_add` with a declaration
-    /// (checked in debug builds, like [`add_with_access`](Self::add_with_access)).
-    #[doc(hidden)]
-    #[track_caller]
-    pub fn named_add_with_access(
-        mut self,
-        phase: Phase,
-        name: &'static str,
-        ticks: u32,
-        access: crate::access::SystemAccess,
-        system: impl FnMut(&mut Ctx) + 'static,
-    ) -> Self {
-        let mut s = self.build_named_system(phase, name, ticks, system);
-        s.access = Some(access);
-        self.insert_system(phase, s);
-        self
-    }
-
     /// Every system in run order with its declared access, and which
     /// declared systems in the same phase could run together.
     #[must_use]
@@ -1047,6 +1027,7 @@ impl Game {
             .chain(&self.late_systems)
             .chain(&self.draw_systems)
             .map(|s| crate::access::ReportedSystem {
+                id: s.key,
                 name: s.name,
                 phase: s.stage,
                 access: s.access.clone(),
@@ -1054,69 +1035,6 @@ impl Game {
             })
             .collect();
         crate::access::AccessReport::new(systems)
-    }
-
-    /// For language bindings (the C API): `add` with a name for timings and
-    /// tools, and an interval in ticks for fixed-tick phases (like
-    /// `sim_system_every`). Frame phases need `ticks == 1`.
-    #[doc(hidden)]
-    #[track_caller]
-    pub fn named_add(
-        mut self,
-        phase: Phase,
-        name: &'static str,
-        ticks: u32,
-        system: impl FnMut(&mut Ctx) + 'static,
-    ) -> Self {
-        self.named_add_system(phase, name, ticks, system);
-        self
-    }
-
-    /// For language bindings (the C API): [`named_add`](Self::named_add)
-    /// that returns the system's removal handle, like `add_system`.
-    #[doc(hidden)]
-    #[track_caller]
-    pub fn named_add_system(
-        &mut self,
-        phase: Phase,
-        name: &'static str,
-        ticks: u32,
-        system: impl FnMut(&mut Ctx) + 'static,
-    ) -> SystemId {
-        let s = self.build_named_system(phase, name, ticks, system);
-        self.insert_system(phase, s)
-    }
-
-    /// For language bindings (the C API): a startup callback on the builder
-    /// itself. It joins the same ordered queue as [`setup`](Self::setup) and
-    /// plugin setup, and runs before the closure passed to `run`.
-    #[doc(hidden)]
-    pub fn add_setup(mut self, setup: impl FnOnce(&mut Ctx) + 'static) -> Self {
-        self.setups.push(Box::new(setup));
-        self
-    }
-
-    #[track_caller]
-    fn build_named_system(
-        &self,
-        phase: Phase,
-        name: &'static str,
-        ticks: u32,
-        system: impl FnMut(&mut Ctx) + 'static,
-    ) -> System {
-        assert!(ticks > 0, "Game::named_add: the interval must be at least 1 tick");
-        assert!(
-            ticks == 1 || phase <= Phase::SimLast,
-            "Game::named_add: only fixed-tick phases take an interval"
-        );
-        let mut s = System::new(system);
-        s.name = name;
-        if ticks > 1 {
-            let same = self.sim_systems.iter().filter(|s| s.every == ticks).count() as u32;
-            s.every = ticks;
-            s.phase = same % ticks;
-        }
-        s
     }
 
     fn insert_system(&mut self, phase: Phase, mut s: System) -> SystemId {
@@ -1197,8 +1115,9 @@ impl Game {
         ConfiguredGame { game: self }
     }
 
-    /// Composes an optional module. Its build runs now; setup runs before the
-    /// legacy run closure or in registration order with [`Game::setup`].
+    /// Composes an optional module. Its build runs now; its setup runs in
+    /// registration order with the [`Game::setup`] callbacks, before the
+    /// closure passed to `run`.
     pub fn plugin(self, plugin: impl Plugin + 'static) -> Self {
         let mut game = plugin.build(self);
         game.setups.push(Box::new(move |ctx| plugin.setup(ctx)));
@@ -1294,24 +1213,15 @@ impl Game {
         ctx.net.lockstep.begin(ctx.seed);
     }
 
-    /// Adds a per-frame system after automatic animation and before drawing.
-    /// Runs in registration order, with frame dt and ordinary system timings.
-    /// Like frame systems, it does not run in `run_headless`.
-    ///
-    /// ```no_run
-    /// use ponko::prelude::*;
-    /// Game::new("Pose", 800, 600).late_system(|ctx| { let _ = ctx.dt(); }).run(|_| {});
-    /// ```
-    pub fn late_system<F: FnMut(&mut Ctx) + 'static>(self, system: F) -> Self {
-        self.add(Phase::Late, system)
-    }
-
     /// Adds a simulation system: it runs at the fixed rate
     /// ([`fixed_hz`](Self::fixed_hz), default 60 per second), zero or more
     /// times per frame, and `ctx.dt()` inside it is the fixed step.
     /// Put game logic here so it behaves the same at any frame rate.
     ///
-    /// Systems run in `Phase::AfterPhysics`, in registration order.
+    /// Systems run in `Phase::AfterPhysics`, in registration order: this is
+    /// [`add`](Self::add)`(Phase::AfterPhysics, system)`. Use `add` for
+    /// another phase, or to give the system a name, an interval or a
+    /// declaration.
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -1322,115 +1232,6 @@ impl Game {
     /// ```
     pub fn sim_system<F: FnMut(&mut Ctx) + 'static>(self, system: F) -> Self {
         self.add(Phase::AfterPhysics, system)
-    }
-
-    /// Adds a simulation system that runs only every `ticks`-th tick, for
-    /// work that doesn't need the full rate: AI that thinks a few times a
-    /// second, slow growth, pathfinding, statistics. Inside it, `ctx.dt()`
-    /// is `ticks` fixed steps, so rates stay right.
-    ///
-    /// Systems added with the same interval are spread over different ticks,
-    /// so their cost doesn't land on the same frame.
-    ///
-    /// ```
-    /// use ponko::prelude::*;
-    ///
-    /// struct Hunger(f32);
-    ///
-    /// fn get_hungry(ctx: &mut Ctx) {
-    ///     let dt = ctx.dt(); // 10 ticks' worth of time
-    ///     ctx.world.query::<&mut Hunger>().for_each(|h| h.0 += 1.0 * dt);
-    /// }
-    ///
-    /// // 60 ticks at 60 Hz: runs 6 times, 1/6 s each.
-    /// let mut world = Game::new("t", 1, 1)
-    ///     .sim_system_every(10, get_hungry)
-    ///     .run_headless(60, |ctx| { ctx.world.spawn((Hunger(0.0),)); });
-    /// let h = world.query::<&Hunger>().iter().next().unwrap().0;
-    /// assert!((h - 1.0).abs() < 1e-4);
-    /// ```
-    ///
-    /// # Panics
-    /// If `ticks` is 0.
-    #[track_caller]
-    pub fn sim_system_every<F: FnMut(&mut Ctx) + 'static>(self, ticks: u32, system: F) -> Self {
-        assert!(
-            ticks > 0,
-            "Game::sim_system_every: the interval must be at least 1 tick"
-        );
-        self.push_sim_system(System::new(system), ticks)
-    }
-
-    fn push_sim_system(mut self, mut s: System, ticks: u32) -> Self {
-        let same = self.sim_systems.iter().filter(|s| s.every == ticks).count() as u32;
-        s.every = ticks;
-        s.phase = same % ticks;
-        if let Some(i) = self.pending_barriers.iter().position(|&p| p == Phase::AfterPhysics) {
-            self.pending_barriers.swap_remove(i);
-            s.barrier = true;
-        }
-        self.exec.invalidate();
-        let index = self.sim_systems.partition_point(|s| s.stage <= Phase::AfterPhysics);
-        self.sim_systems.insert(index, s);
-        self
-    }
-
-    /// For language bindings (the C API): `sim_system_every` with a name for
-    /// timings and tools, since all foreign systems share one Rust type.
-    #[doc(hidden)]
-    #[track_caller]
-    pub fn named_sim_system(self, name: &'static str, ticks: u32, system: impl FnMut(&mut Ctx) + 'static) -> Self {
-        assert!(
-            ticks > 0,
-            "Game::named_sim_system: the interval must be at least 1 tick"
-        );
-        let mut s = System::new(system);
-        s.name = name;
-        self.push_sim_system(s, ticks)
-    }
-
-    /// For language bindings (the C API): `late_system` with a name.
-    #[doc(hidden)]
-    pub fn named_late_system(mut self, name: &'static str, system: impl FnMut(&mut Ctx) + 'static) -> Self {
-        let mut s = System::new(system);
-        s.name = name;
-        self.insert_system(Phase::Late, s);
-        self
-    }
-
-    /// For language bindings (the C API): `system` with a name.
-    #[doc(hidden)]
-    pub fn named_system(mut self, name: &'static str, system: impl FnMut(&mut Ctx) + 'static) -> Self {
-        let mut s = System::new(system);
-        s.name = name;
-        self.insert_system(Phase::Frame, s);
-        self
-    }
-
-    /// Removes every system named `name` (Rust systems are named by their
-    /// path, e.g. `ponko::ecs::draw_sprites`). Returns how many were removed.
-    #[doc(hidden)]
-    #[deprecated(note = "use `Game::remove` with a `SystemId`: a `Systems` constant for a built-in, \
-                         or the id `Game::add_system` returned")]
-    pub fn remove_named_system(&mut self, name: &str) -> usize {
-        self.remove_named(name)
-    }
-
-    fn remove_named(&mut self, name: &str) -> usize {
-        let ids: Vec<_> = self
-            .sim_systems
-            .iter()
-            .chain(&self.systems)
-            .chain(&self.late_systems)
-            .chain(&self.draw_systems)
-            .filter(|s| s.name == name)
-            .map(|s| s.key)
-            .collect();
-        let count = ids.len();
-        for id in ids {
-            self.remove_id(id);
-        }
-        count
     }
 
     /// How many registrations `id` names: 1 for an id from
@@ -1479,10 +1280,9 @@ impl Game {
     pub fn physics(mut self, gravity: Vec2) -> Self {
         self.gravity = Some(gravity);
         if !self.sim_systems.iter().any(|s| s.builtin == Some(Systems::PHYSICS)) {
-            self = self.add_with_access(
+            self = self.add(
                 Phase::Physics,
-                crate::systems::step_physics_access(),
-                crate::systems::step_physics,
+                crate::systems::step_physics.access(crate::systems::step_physics_access()),
             );
         }
         self
@@ -1523,10 +1323,9 @@ impl Game {
             self.fixed_hz = crate::physics3d::PHYSICS3D_HZ;
         }
         if !self.sim_systems.iter().any(|s| s.builtin == Some(Systems::PHYSICS3D)) {
-            self = self.add_with_access(
+            self = self.add(
                 Phase::Physics,
-                crate::systems::step_physics3d_access(),
-                crate::systems::step_physics3d,
+                crate::systems::step_physics3d.access(crate::systems::step_physics3d_access()),
             );
         }
         if !self
@@ -1534,10 +1333,9 @@ impl Game {
             .iter()
             .any(|s| s.builtin == Some(Systems::INTERPOLATE_PHYSICS3D))
         {
-            self = self.add_with_access(
+            self = self.add(
                 Phase::Frame,
-                crate::systems::interpolate_physics3d_access(),
-                crate::systems::interpolate_physics3d,
+                crate::systems::interpolate_physics3d.access(crate::systems::interpolate_physics3d_access()),
             );
         }
         self
@@ -1567,7 +1365,9 @@ impl Game {
     }
 
     /// Adds a frame system: it runs once per rendered frame, after the
-    /// simulation systems. Use it for input, camera and drawing.
+    /// simulation systems. Use it for input, camera and drawing. This is
+    /// [`add`](Self::add)`(Phase::Frame, system)`; frame systems do not run
+    /// in `run_headless`.
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -1579,41 +1379,6 @@ impl Game {
     /// ```
     pub fn system<F: FnMut(&mut Ctx) + 'static>(self, system: F) -> Self {
         self.add(Phase::Frame, system)
-    }
-
-    /// Removes a system by the function that was added.
-    ///
-    /// Deprecated: remove by id instead. [`Game::remove`] takes a [`Systems`]
-    /// constant for a built-in (`Systems::DRAW_SPRITES`), or the
-    /// [`SystemId`] that [`Game::add_system`] returned for one of yours.
-    /// Unlike this method, it also tells apart two closures of the same
-    /// type, and removing an absent system is not an error.
-    ///
-    /// # Panics
-    /// If no such system was added.
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// // A headless-style simulation that draws nothing by itself.
-    /// Game::new("Sim", 800, 600).remove(Systems::DRAW_SPRITES).run(|_| {});
-    /// ```
-    #[deprecated(note = "use `Game::remove` with a `SystemId`: a `Systems` constant for a built-in \
-                         (`Systems::DRAW_SPRITES`), or the id `Game::add_system` returned")]
-    #[track_caller]
-    pub fn remove_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
-        drop(system);
-        let name = std::any::type_name::<F>();
-        // A built-in is found by its id, whichever spelling named it.
-        let removed = match builtin_id(name) {
-            Some((id, _)) => {
-                let n = self.system_count(id);
-                self.remove_id(id);
-                n
-            }
-            None => self.remove_named(name),
-        };
-        assert_ne!(removed, 0, "Game::remove_system: no system `{name}` was added");
-        self
     }
 
     /// Feeds scheduled input into the game by simulation tick, for
@@ -1724,7 +1489,9 @@ impl Game {
     /// token written to the instance registry (`~/.ponko/instances`),
     /// which only your user can read. Off by default; setting the
     /// environment variable `PONKO_CONTROL=1` turns it on without code
-    /// changes, and `PONKO_START_PAUSED=1` starts the simulation paused.
+    /// changes in a debug build, or in a release build with the
+    /// `control-env` feature (a shipped release build without it ignores
+    /// the variable). `PONKO_START_PAUSED=1` starts the simulation paused.
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -1882,28 +1649,6 @@ impl Game {
         self
     }
 
-    /// How many samples per pixel the 3D frame takes to smooth its edges:
-    /// 4 (default) or 2. 2 costs about a third less GPU time on a large
-    /// screen, with a little more stair-stepping on thin edges. GPUs that
-    /// can't take 2 everywhere (WebGL2, some mobile ones) keep 4.
-    ///
-    /// ```no_run
-    /// # use ponko::prelude::*;
-    /// Game::new("Open world", 1280, 720).msaa(2).run(|_| |_: &mut Ctx| {});
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// If `samples` is not 2 or 4.
-    pub fn msaa(mut self, samples: u32) -> Self {
-        assert!(
-            matches!(samples, 2 | 4),
-            "the 3D frame takes 2 or 4 samples per pixel, not {samples}"
-        );
-        self.msaa = samples;
-        self
-    }
-
     /// Fills the screen with the game instead of opening a window (off by
     /// default). On macOS, windowed games are shown at most once per display
     /// refresh even with vsync off; fullscreen ones aren't. Web builds
@@ -1972,15 +1717,28 @@ impl Game {
         ctx.advance_tick();
     }
 
-    /// What is wrong with the [`order`](Self::order) pairs, if anything.
-    /// For language bindings: lets them refuse before
-    /// [`schedule_plan`](Self::schedule_plan) panics.
-    #[doc(hidden)]
-    #[must_use]
-    pub fn order_problem(&self) -> Option<String> {
+    /// Checks the [`order`](Self::order) pairs against the run order: the
+    /// error names the first pair whose second system already runs before
+    /// its first. The game panics with that error when it starts (and
+    /// [`schedule_plan`](Self::schedule_plan) when it is made); call this to
+    /// refuse earlier, as language bindings do.
+    ///
+    /// ```
+    /// use ponko::prelude::*;
+    /// let mut game = Game::new("order", 1, 1);
+    /// let first = game.add_system(Phase::AfterPhysics, (|_: &mut Ctx| {}).named("first"));
+    /// let second = game.add_system(Phase::AfterPhysics, (|_: &mut Ctx| {}).named("second"));
+    /// let game = game.order(second, first);
+    /// let error = game.check_order().unwrap_err();
+    /// assert_eq!((error.first, error.second), ("second", "first"));
+    /// ```
+    ///
+    /// # Errors
+    /// An [`OrderError`](crate::schedule::OrderError) for the first such pair.
+    pub fn check_order(&self) -> Result<(), crate::schedule::OrderError> {
         let lists = [&self.sim_systems, &self.systems, &self.late_systems, &self.draw_systems];
         let systems = lists.into_iter().flat_map(|l| l.iter().map(|s| (s.key, s.name)));
-        crate::schedule::order_problem(systems, &self.order)
+        crate::schedule::check_order(systems, &self.order)
     }
 
     /// Builds the stages the systems run in, if the systems or the settings
@@ -1998,7 +1756,7 @@ impl Game {
         let settings = batch::Settings::new(self.parallel, self.parallel_threshold, self.parallel_env);
         // Checked on or off: a wrong `order` must not wait for the day the
         // scheduler is turned on (which the environment can do).
-        if let Some(problem) = self.order_problem() {
+        if let Err(problem) = self.check_order() {
             panic!("{problem}");
         }
         let plan = settings.on.then(|| self.schedule_plan());
@@ -2354,22 +2112,25 @@ mod tests {
             rest: Transform3D::default(),
         }]);
         let clip = AnimationClip::new("rest", &skeleton, vec![]);
-        let animator = Animator::new(AnimationGraph::new(
-            vec![],
-            vec![AnimationState::new(Motion::Clip(clip))],
-            vec![],
-            0,
-        ));
+        let animator = Animator::new(
+            AnimationGraph::new(
+                vec![],
+                vec![AnimationState::new(Motion::Clip(clip))],
+                vec![],
+                crate::anim::StateId(0),
+            )
+            .expect("a valid graph"),
+        );
         let mut ctx = ctx();
         let entity = ctx.world.spawn((skeleton, animator));
         // Keeps the built-in animator system; it has nothing to draw.
         let mut game = Game::new("t", 1, 1)
             .system(move |ctx| ctx.world.get_mut::<Skeleton>(entity).unwrap().pose[0].position.x = 7.0)
-            .add(Phase::Animate, move |ctx| {
+            .add(Phase::Animate, move |ctx: &mut Ctx| {
                 // Before the built-in animators, although it was added after them.
                 assert_eq!(ctx.world.get::<Skeleton>(entity).unwrap().pose[0].position.x, 7.0);
             })
-            .late_system(move |ctx| {
+            .add(Phase::Late, move |ctx: &mut Ctx| {
                 let s = ctx.world.get_mut::<Skeleton>(entity).unwrap();
                 assert_eq!(s.pose[0].position.x, 0.0);
                 s.pose[0].position.x = 2.0;
@@ -2386,7 +2147,8 @@ mod tests {
         fn draw(ctx: &mut Ctx) {
             log(ctx, "draw");
         }
-        let mut game = bare(Game::new("t", 1, 1)).system(frame_b).late_system(late);
+        let mut game = bare(Game::new("t", 1, 1)).system(frame_b);
+        let late = game.add_system(Phase::Late, late);
         game.draw_systems.push(System::new(draw));
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 0);
@@ -2396,8 +2158,7 @@ mod tests {
         );
         assert_eq!(ctx.perf.system_timings().len(), 3);
         assert!(ctx.perf.system_timings()[1].name.ends_with("::late"));
-        #[allow(deprecated)]
-        let game = game.remove_system(late);
+        let game = game.remove(late);
         assert!(game.late_systems.is_empty());
     }
 
@@ -2415,7 +2176,7 @@ mod tests {
             Phase::Late,
             Phase::Draw,
         ] {
-            let id = game.add_system(phase, |_| panic!("removed system ran"));
+            let id = game.add_system(phase, |_: &mut Ctx| panic!("removed system ran"));
             game = game.remove(id);
             assert!(
                 !game
@@ -2443,16 +2204,16 @@ mod tests {
     #[test]
     fn explicit_phases_sort_without_changing_order_within_a_phase() {
         let mut game = bare(Game::new("t", 1, 1))
-            .add(Phase::Draw, |ctx| log(ctx, "draw"))
-            .add(Phase::Late, |ctx| log(ctx, "late"))
-            .add(Phase::Animate, |ctx| log(ctx, "animate"))
-            .add(Phase::Frame, |ctx| log(ctx, "frame1"))
+            .add(Phase::Draw, |ctx: &mut Ctx| log(ctx, "draw"))
+            .add(Phase::Late, |ctx: &mut Ctx| log(ctx, "late"))
+            .add(Phase::Animate, |ctx: &mut Ctx| log(ctx, "animate"))
+            .add(Phase::Frame, |ctx: &mut Ctx| log(ctx, "frame1"))
             .system(|ctx| log(ctx, "frame2"))
-            .add(Phase::SimLast, |ctx| log(ctx, "sim_last"))
-            .add(Phase::AfterPhysics, |ctx| log(ctx, "after"))
-            .add(Phase::Physics, |ctx| log(ctx, "physics"))
-            .add(Phase::BeforePhysics, |ctx| log(ctx, "before"))
-            .add(Phase::Input, |ctx| log(ctx, "input"));
+            .add(Phase::SimLast, |ctx: &mut Ctx| log(ctx, "sim_last"))
+            .add(Phase::AfterPhysics, |ctx: &mut Ctx| log(ctx, "after"))
+            .add(Phase::Physics, |ctx: &mut Ctx| log(ctx, "physics"))
+            .add(Phase::BeforePhysics, |ctx: &mut Ctx| log(ctx, "before"))
+            .add(Phase::Input, |ctx: &mut Ctx| log(ctx, "input"));
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 1);
         let names: Vec<_> = ctx
@@ -2501,16 +2262,14 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
-    fn deprecated_remove_system_still_removes_builtin_and_user_systems() {
-        // Built-ins are found under their `ponko::systems` path and under
-        // the old crate-root spelling.
-        let game = Game::new("t", 1, 1)
-            .sim_system(sim_a)
-            .remove_system(sim_a)
-            .remove_system(crate::systems::animate_sprites)
-            .remove_system(crate::systems::draw_tilemaps)
-            .remove_system(crate::systems::draw_sprites);
+    fn remove_takes_user_ids_and_builtin_constants() {
+        let mut game = Game::new("t", 1, 1);
+        let user = game.add_system(Phase::AfterPhysics, sim_a);
+        let game = game
+            .remove(user)
+            .remove(Systems::ANIMATE_SPRITES)
+            .remove(Systems::DRAW_TILEMAPS)
+            .remove(Systems::DRAW_SPRITES);
         assert!(game.sim_systems.is_empty());
         // Only positional audio (feature `3d`) is left in `Draw`.
         assert!(
@@ -2518,16 +2277,16 @@ mod tests {
                 .iter()
                 .all(|s| s.builtin == Some(Systems::UPDATE_AUDIO3D))
         );
-        let mut game = Game::new("t", 1, 1);
-        assert_eq!(game.remove_named_system(std::any::type_name_of_val(&draw_sprites)), 1);
-        assert_eq!(game.system_count(Systems::DRAW_SPRITES), 0);
     }
 
     #[test]
-    #[allow(deprecated)]
-    #[should_panic(expected = "no system")]
-    fn removing_unknown_system_panics() {
-        let _ = Game::new("t", 1, 1).remove_system(sim_a);
+    fn removing_an_absent_system_does_nothing() {
+        let mut game = Game::new("t", 1, 1);
+        let before = game.sim_systems.len();
+        let id = game.add_system(Phase::AfterPhysics, sim_a);
+        let game = game.remove(id).remove(id);
+        assert_eq!(game.sim_systems.len(), before);
+        assert_eq!(game.system_count(id), 0);
     }
 
     #[test]
@@ -2559,8 +2318,8 @@ mod tests {
         }
         // Added after the built-ins: they still end their phase.
         let mut game = Game::new("t", 1, 1)
-            .late_system(late)
-            .add(Phase::Animate, |ctx| log(ctx, "animate"))
+            .add(Phase::Late, late)
+            .add(Phase::Animate, |ctx: &mut Ctx| log(ctx, "animate"))
             .add(Phase::Draw, user_draw);
         let mut ctx = ctx();
         game.run_systems(&mut ctx, 0);

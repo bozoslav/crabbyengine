@@ -45,17 +45,17 @@ struct Item {
 }
 
 fn items() -> Vec<Item> {
-    let accesses = [
-        ViewAccess::new().write::<Vel>().read_resource::<Gravity>(),
-        ViewAccess::new()
+    let states = [
+        ViewState::new().write::<Vel>().read_resource::<Gravity>(),
+        ViewState::new()
             .write::<Health>()
             .read::<Pos>()
             .write_resource::<Score>(),
-        ViewAccess::new().read::<Pos>().write_resource::<Steps>(),
+        ViewState::new().read::<Pos>().write_resource::<Steps>(),
     ];
-    (accesses.into_iter().enumerate())
-        .map(|(i, a)| Item {
-            state: ViewState::new(a),
+    (states.into_iter().enumerate())
+        .map(|(i, state)| Item {
+            state,
             rest: Rest { job: i as u8, ran: 0 },
         })
         .collect()
@@ -111,19 +111,19 @@ fn a_group_accepts_states_that_do_not_overlap() {
 
 #[test]
 fn a_group_names_the_first_two_states_that_overlap() {
-    let a = ViewState::new(ViewAccess::new().write::<Pos>());
-    let b = ViewState::new(ViewAccess::new().write::<Vel>());
-    let reads_pos = ViewState::new(ViewAccess::new().read::<Pos>());
+    let a = ViewState::new().write::<Pos>();
+    let b = ViewState::new().write::<Vel>();
+    let reads_pos = ViewState::new().read::<Pos>();
     assert_eq!(ViewGroup::new([&a, &b, &reads_pos]).unwrap_err(), (0, 2));
-    let score = ViewState::new(ViewAccess::new().write_resource::<Score>());
-    let reads_score = ViewState::new(ViewAccess::new().read_resource::<Score>());
+    let score = ViewState::new().write_resource::<Score>();
+    let reads_score = ViewState::new().read_resource::<Score>();
     assert_eq!(ViewGroup::new([&b, &score, &reads_score]).unwrap_err(), (1, 2));
 }
 
 #[test]
 fn a_group_refuses_the_same_state_twice() {
     // Two views of one state would share its lent resources.
-    let nothing = ViewState::new(ViewAccess::new());
+    let nothing = ViewState::new();
     assert_eq!(ViewGroup::new([&nothing, &nothing]).unwrap_err(), (0, 1));
 }
 
@@ -135,7 +135,7 @@ fn a_group_runs_every_item_once_and_returns_lent_resources() {
     let mut items = items();
     let group = ViewGroup::new(items.iter().map(|i| &i.state)).unwrap();
     group.run(&mut w, &mut items, true, parts, work);
-    assert!(items.iter().all(|i| i.rest.ran == 1 && !i.state.is_prepared()));
+    assert!(items.iter().all(|i| i.rest.ran == 1));
     let (score, steps, rows) = outcome(&mut w);
     assert_eq!((score, steps), (ENTITIES as u32, ENTITIES as u32));
     assert!(rows.iter().all(|r| r.1 == -2.0 && r.2 == 9));
@@ -171,7 +171,8 @@ fn a_panicking_item_still_returns_every_lent_resource() {
         }));
         let message = *result.unwrap_err().downcast::<&str>().unwrap();
         assert_eq!(message, "job 1 failed");
-        assert!(items.iter().all(|i| !i.state.is_prepared()));
+        // Every state was finished: the group runs again.
+        group.run(&mut w, &mut items, parallel, parts, |_, _| {});
         // Written resources were lent out; they are back.
         assert!(w.get_resource::<Score>().is_some());
         assert!(w.get_resource::<Steps>().is_some());
@@ -200,6 +201,19 @@ fn a_group_refuses_states_it_did_not_check() {
 }
 
 #[test]
+#[should_panic(expected = "isn't the state this group checked")]
+fn a_group_refuses_a_state_declared_again_after_the_check() {
+    let mut w = world();
+    let mut items = items();
+    let group = ViewGroup::new(items.iter().map(|i| &i.state)).unwrap();
+    // Item 0 now also writes Health, which item 1 writes: the group's check
+    // no longer holds, so the state must not be accepted as the checked one.
+    let state = std::mem::take(&mut items[0].state);
+    items[0].state = state.write::<Health>();
+    group.run(&mut w, &mut items, true, parts, work);
+}
+
+#[test]
 fn a_refused_run_leaves_every_state_unprepared() {
     let mut w = world();
     let mut items = items();
@@ -209,7 +223,9 @@ fn a_refused_run_leaves_every_state_unprepared() {
         group.run(&mut w, &mut items, false, parts, work);
     }));
     assert!(refused.is_err());
-    assert!(items.iter().all(|i| !i.state.is_prepared()));
+    // Every state was finished: in the checked order, the group runs.
+    items.swap(1, 2);
+    group.run(&mut w, &mut items, false, parts, |_, _| {});
     assert!(w.get_resource::<Score>().is_some());
 }
 
@@ -231,8 +247,8 @@ fn each_view_state_has_its_own_change_window() {
         entities: Vec<Entity>,
     }
     let state = |since| {
-        let mut s = ViewState::new(ViewAccess::new().read::<Health>());
-        s.set_changes_since(since);
+        let mut s = ViewState::new().read::<Health>();
+        s.override_changes_since(since);
         s
     };
     let mut items: Vec<Seen> = [None, Some(first), Some(second)]
@@ -266,11 +282,11 @@ fn a_view_states_window_also_limits_removed() {
     w.remove::<Health>(a);
     let seen = w.advance_change_tick();
     w.remove::<Health>(b);
-    let mut state = ViewState::new(ViewAccess::new().read::<Health>());
+    let mut state = ViewState::new().read::<Health>();
     assert_eq!(state.run(&mut w, |view| view.removed::<Health>().to_vec()), [a, b]);
-    state.set_changes_since(Some(seen));
+    state.override_changes_since(Some(seen));
     assert_eq!(state.run(&mut w, |view| view.removed::<Health>().to_vec()), [b]);
-    state.set_changes_since(None);
+    state.override_changes_since(None);
     assert_eq!(state.run(&mut w, |view| view.removed::<Health>().len()), 2);
 }
 
@@ -323,7 +339,8 @@ fn the_first_panic_in_order_is_the_one_passed_on() {
         }));
         let message = *result.unwrap_err().downcast::<&str>().unwrap();
         assert_eq!(message, "job 0 failed", "parallel: {parallel}");
-        assert!(items.iter().all(|i| !i.state.is_prepared()));
+        // Every state was finished: the group runs again.
+        group.run(&mut w, &mut items, parallel, parts, |_, _| {});
     }
 }
 
@@ -356,24 +373,23 @@ fn views_with_their_own_change_ticks_stamp_and_report_them() {
         reported: None,
         entity: e,
     };
-    let state = |access: ViewAccess, tick| {
-        let mut s = ViewState::new(access);
-        s.set_change_tick(tick);
+    let state = |mut s: ViewState, tick| {
+        s.override_change_tick(tick);
         s
     };
     let mut items = vec![
         // A query write in the first tick, a `get_mut` in the second, and
         // a view with no tick of its own.
         Writer {
-            state: state(ViewAccess::new().write::<Pos>(), Some(ticks[0])),
+            state: state(ViewState::new().write::<Pos>(), Some(ticks[0])),
             rest: rest(),
         },
         Writer {
-            state: state(ViewAccess::new().write::<Vel>(), Some(ticks[1])),
+            state: state(ViewState::new().write::<Vel>(), Some(ticks[1])),
             rest: rest(),
         },
         Writer {
-            state: state(ViewAccess::new(), None),
+            state: state(ViewState::new(), None),
             rest: rest(),
         },
     ];
@@ -413,9 +429,9 @@ fn a_change_tick_after_the_worlds_counts_as_the_worlds() {
     w.track_changes::<Pos>();
     w.spawn((Pos(0.0),));
     let now = w.change_tick();
-    let mut state = ViewState::new(ViewAccess::new().write::<Pos>());
-    state.set_change_tick(Some(Tick::from_bits(now.to_bits() + 5)));
+    let mut state = ViewState::new().write::<Pos>();
+    state.override_change_tick(Some(Tick::from_bits(now.to_bits() + 5)));
     assert_eq!(state.run(&mut w, |view| view.change_tick()), now);
-    state.set_change_tick(None);
+    state.override_change_tick(None);
     assert_eq!(state.run(&mut w, |view| view.change_tick()), now);
 }

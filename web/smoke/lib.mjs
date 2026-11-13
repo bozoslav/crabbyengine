@@ -170,7 +170,7 @@ export function launchConfig(browser, platform, args = {}) {
   return { options: { headless: true, args: extra } };
 }
 
-/** What the engine's backend name (adapter.backend, from Ctx::gpu_capabilities) means for the page's canvas. */
+/** What the engine's backend name (adapter.backend, from Graphics::gpu_capabilities) means for the page's canvas. */
 export function canvasBackendOf(engineBackend) {
   if (engineBackend === "gl") return "webgl2";
   if (engineBackend === "webgpu") return "webgpu";
@@ -185,7 +185,7 @@ export function canvasBackendOf(engineBackend) {
  */
 export function checkEngineGpu(gpu, canvasBackend, required) {
   if (!gpu) {
-    return required ? "the engine published no GPU report (data-smoke-gpu): Ctx::gpu_capabilities was never available" : null;
+    return required ? "the engine published no GPU report (data-smoke-gpu): Graphics::gpu_capabilities was never available" : null;
   }
   const adapter = gpu.adapter ?? {};
   const engine = canvasBackendOf(adapter.backend);

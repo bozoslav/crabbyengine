@@ -52,29 +52,29 @@ fn frame(game: &mut Game, ctx: &mut Ctx, ticks: u32) {
 
 #[test]
 fn retained_ui_updates_before_simulation_and_frame_systems() {
-    use crate::ui::layout::{Dimension, Size, Style};
+    use crate::ui::unstable_taffy::{Dimension, Size, Style};
     let mut ctx = ctx();
     let root = ctx.ui.add(
         crate::ui::UiWidget::Panel,
-        Style {
+        crate::ui::UiLayout::custom(Style {
             size: Size {
                 width: Dimension::length(300.0),
                 height: Dimension::length(200.0),
             },
             ..Default::default()
-        },
+        }),
     );
     let button = ctx.ui.add_child(
         root,
         crate::ui::UiWidget::Button,
-        Style {
+        crate::ui::UiLayout::custom(Style {
             size: Size {
                 width: Dimension::length(70.0),
                 height: Dimension::length(30.0),
             },
             flex_shrink: 0.0,
             ..Default::default()
-        },
+        }),
     );
     ctx.ui.push_screen(root, false);
     let mut game = bare(Game::new("t", 1, 1))
@@ -130,7 +130,7 @@ mod positional_audio {
                 let silent = ctx.audio.backend.spatial.voice_positions().len();
                 note(ctx, format!("frame voices={silent}"));
             })
-            .late_system(move |ctx: &mut Ctx| {
+            .add(Phase::Late, move |ctx: &mut Ctx| {
                 let started = ctx.world.get::<AudioSource3D>(moved).unwrap().started();
                 note(ctx, format!("late started={started}"));
                 ctx.world.get_mut::<Transform3D>(moved).unwrap().position = Vec3::X * 4.0;
@@ -211,7 +211,7 @@ mod positional_audio {
     fn emitters_spawned_by_late_systems_start_in_the_same_frame() {
         let mut ctx = ctx();
         let sound = ctx.audio.create(100, &[0.0; 100]);
-        let mut game = bare(Game::new("t", 1, 1)).late_system(move |ctx: &mut Ctx| {
+        let mut game = bare(Game::new("t", 1, 1)).add(Phase::Late, move |ctx: &mut Ctx| {
             ctx.commands.spawn((
                 Transform3D::default(),
                 AudioSource3D::new(sound, AudioSettings3D::default()),
@@ -225,8 +225,8 @@ mod positional_audio {
     #[test]
     fn the_listener_is_the_cameras_final_place_of_the_frame() {
         let mut ctx = ctx();
-        let mut game = bare(Game::new("t", 1, 1)).late_system(|ctx: &mut Ctx| {
-            ctx.camera3d.position = Vec3::new(1.0, 2.0, 3.0);
+        let mut game = bare(Game::new("t", 1, 1)).add(Phase::Late, |ctx: &mut Ctx| {
+            ctx.scene3d.camera.position = Vec3::new(1.0, 2.0, 3.0);
         });
         frame(&mut game, &mut ctx, 0);
         assert_eq!(ctx.audio.listener().position, Vec3::new(1.0, 2.0, 3.0));
@@ -239,22 +239,22 @@ fn a_frame_runs_ticks_then_frame_then_late_then_draw_and_applies_commands_betwee
     let mut ctx = ctx();
     let mut game = bare(Game::new("t", 1, 1))
         .sim_system(|ctx: &mut Ctx| note(ctx, "sim"))
-        .add(Phase::Frame, |ctx| {
+        .add(Phase::Frame, |ctx: &mut Ctx| {
             note(ctx, "frame");
             ctx.commands.spawn((Spawned,));
             // The recording system never sees its own commands.
             let n = ctx.world.query::<&Spawned>().count();
             note(ctx, format!("frame sees {n}"));
         })
-        .add(Phase::Animate, |ctx| {
+        .add(Phase::Animate, |ctx: &mut Ctx| {
             let n = ctx.world.query::<&Spawned>().count();
             note(ctx, format!("animate sees {n}"));
         })
-        .late_system(|ctx: &mut Ctx| {
+        .add(Phase::Late, |ctx: &mut Ctx| {
             let n = ctx.world.query::<&Spawned>().count();
             note(ctx, format!("late sees {n}"));
         })
-        .add(Phase::Draw, |ctx| {
+        .add(Phase::Draw, |ctx: &mut Ctx| {
             let n = ctx.world.query::<&Spawned>().count();
             note(ctx, format!("draw sees {n}"));
         });
@@ -291,12 +291,15 @@ fn builtin_animation_and_particles_run_between_frame_and_late_systems() {
         rest: Transform3D::default(),
     }]);
     let clip = AnimationClip::new("rest", &skeleton, vec![]);
-    let animator = Animator::new(AnimationGraph::new(
-        vec![],
-        vec![AnimationState::new(Motion::Clip(clip))],
-        vec![],
-        0,
-    ));
+    let animator = Animator::new(
+        AnimationGraph::new(
+            vec![],
+            vec![AnimationState::new(Motion::Clip(clip))],
+            vec![],
+            crate::anim::StateId(0),
+        )
+        .expect("a valid graph"),
+    );
     let mut ctx = ctx();
     let rig = ctx.world.spawn((skeleton, animator));
     let emitter = ctx.world.spawn((
@@ -315,7 +318,7 @@ fn builtin_animation_and_particles_run_between_frame_and_late_systems() {
             let live = ctx.world.get::<ParticleEmitter3D>(emitter).unwrap().live_count();
             note(ctx, format!("frame live={live}"));
         })
-        .late_system(move |ctx: &mut Ctx| {
+        .add(Phase::Late, move |ctx: &mut Ctx| {
             let x = ctx.world.get::<Skeleton>(rig).unwrap().pose[0].position.x;
             let live = ctx.world.get::<ParticleEmitter3D>(emitter).unwrap().live_count();
             note(ctx, format!("late pose={x} live={live}"));

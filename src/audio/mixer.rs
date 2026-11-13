@@ -148,15 +148,15 @@ impl Audio {
         self.backend.bus_changed(bus);
     }
     /// Plays a decoded or streamed sound on a bus with per-voice effects.
-    /// Ordinary `play_sound` and `play_sound_ex` use `sfx` and default effects.
+    /// `ctx.play_sound` and `ctx.audio.play_ex` use `sfx` and default effects.
     /// ```
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, sound: Sound) {
     /// let music = ctx.audio.bus("music");
-    /// ctx.audio.play_on(&sound, SoundParams::default(), music, ponko::audio::AudioEffects::default());
+    /// ctx.audio.play_on(sound, SoundParams::default(), music, ponko::audio::AudioEffects::default());
     /// # }
     /// ```
-    pub fn play_on(&mut self, sound: &Sound, params: SoundParams, bus: AudioBus, effects: AudioEffects) -> Playing {
+    pub fn play_on(&mut self, sound: Sound, params: SoundParams, bus: AudioBus, effects: AudioEffects) -> Playing {
         if self.headless {
             return Playing(0);
         }
@@ -190,7 +190,7 @@ impl Audio {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let music = ctx.audio.load_stream("music.ogg");
-    /// ctx.audio.play_ex(&music, SoundParams { looping: true, ..Default::default() });
+    /// ctx.audio.play_ex(music, SoundParams { looping: true, ..Default::default() });
     /// # }
     /// ```
     pub fn load_stream(&mut self, path: &str) -> Sound {
@@ -283,7 +283,7 @@ mod tests {
             let sound = ctx.audio.create(100, &[0.0; 100]);
             let voice = ctx
                 .audio
-                .play_on(&sound, SoundParams::default(), music, AudioEffects::default());
+                .play_on(sound, SoundParams::default(), music, AudioEffects::default());
             ctx.audio.set_effects(
                 voice,
                 AudioEffects {

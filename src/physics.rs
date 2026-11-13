@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 use crate::d2::Transform as Transform2D;
-use crate::{Ctx, Entity, Events, Vec2, World};
+use crate::{Ctx, Entity, Events, Vec2, With, World};
 
 /// Makes an entity a physics body. It also needs a [`Collider`] and a
 /// [`Transform2D`].
@@ -409,28 +409,6 @@ impl Physics {
             .map(|c| Entity::from_bits(c.user_data as u64))
     }
 
-    /// The first collider a ray from `origin` towards `direction` hits
-    /// within `max_distance`. Up to date as of the last physics step.
-    ///
-    /// ```
-    /// use ponko::prelude::*;
-    /// let world = Game::new("t", 1, 1).physics(Vec2::ZERO).run_headless(1, |ctx| {
-    ///     ctx.world.spawn((ponko::d2::Transform::at(vec2(100.0, 0.0)), ponko::d2::RigidBody::fixed(), ponko::d2::Collider::circle(10.0)));
-    /// });
-    /// # let _ = world;
-    /// ```
-    pub fn cast_ray(&self, origin: Vec2, direction: Vec2, max_distance: f32) -> Option<RayHit> {
-        self.cast_ray_filtered(
-            origin,
-            direction,
-            max_distance,
-            QueryFilter {
-                sensors: true,
-                ..Default::default()
-            },
-        )
-    }
-
     fn query_filter(&self, filter: QueryFilter) -> rp::QueryFilter<'static> {
         let mut result = rp::QueryFilter::default();
         if !filter.sensors {
@@ -442,16 +420,27 @@ impl Physics {
         result
     }
 
-    /// Closest solid hit, with the same explicit filter convention as 3D.
-    /// The three-argument `cast_ray` remains available for source compatibility.
-    /// A zero direction or a non-finite origin hits nothing, as in 3D.
-    pub fn cast_ray_filtered(
-        &self,
-        origin: Vec2,
-        direction: Vec2,
-        max_distance: f32,
-        filter: QueryFilter,
-    ) -> Option<RayHit> {
+    /// The first collider a ray from `origin` towards `direction` hits
+    /// within `max_distance`, among those `filter` lets through (solid
+    /// colliders by default; `QueryFilter::default().with_sensors()` for
+    /// sensors too). Up to date as of the last physics step. A zero
+    /// direction or a non-finite origin hits nothing, as in 3D.
+    ///
+    /// ```
+    /// use ponko::prelude::*;
+    /// fn look_right(ctx: &mut Ctx) {
+    ///     let filter = ponko::d2::QueryFilter::default();
+    ///     if let Some(hit) = ctx.physics.cast_ray(Vec2::ZERO, Vec2::X, 500.0, filter) {
+    ///         ctx.world.insert_resource(hit);
+    ///     }
+    /// }
+    /// let world = Game::new("t", 1, 1).physics(Vec2::ZERO).sim_system(look_right).run_headless(2, |ctx| {
+    ///     ctx.world.spawn((ponko::d2::Transform::at(vec2(100.0, 0.0)), ponko::d2::RigidBody::fixed(), ponko::d2::Collider::circle(10.0)));
+    /// });
+    /// // Queries see bodies once they have been stepped: the second tick hits.
+    /// assert_eq!(world.resource::<ponko::d2::Hit>().distance, 90.0);
+    /// ```
+    pub fn cast_ray(&self, origin: Vec2, direction: Vec2, max_distance: f32, filter: QueryFilter) -> Option<RayHit> {
         let dir = direction.normalize_or_zero();
         if dir == Vec2::ZERO || !origin.is_finite() {
             return None;
@@ -468,42 +457,12 @@ impl Physics {
         })
     }
 
-    /// Every entity whose collider contains `point`, into `out` (cleared first).
-    pub fn entities_at(&self, point: Vec2, out: &mut Vec<Entity>) {
-        self.overlap_point(
-            point,
-            QueryFilter {
-                sensors: true,
-                ..Default::default()
-            },
-            out,
-        );
-    }
-
     /// Every collider overlapping a point; clears `out` first.
     pub fn overlap_point(&self, point: Vec2, filter: QueryFilter, out: &mut Vec<Entity>) {
         out.clear();
         for (handle, _) in self.world.intersect_point(to_rp(point), self.query_filter(filter)) {
             out.extend(self.entity_of(handle));
         }
-    }
-
-    /// Compatibility wrapper including sensors.
-    pub fn entities_in_circle(&self, center: Vec2, radius: f32, out: &mut Vec<Entity>) {
-        self.overlap_circle(
-            center,
-            radius,
-            QueryFilter {
-                sensors: true,
-                ..Default::default()
-            },
-            out,
-        );
-    }
-
-    /// Dimension-neutral ball overlap (a circle in 2D).
-    pub fn overlap_ball(&self, center: Vec2, radius: f32, filter: QueryFilter, out: &mut Vec<Entity>) {
-        self.overlap_circle(center, radius, filter, out);
     }
 
     /// Every collider overlapping a circle; clears `out` first. A radius
@@ -654,8 +613,8 @@ pub fn step_physics(ctx: &mut Ctx) {
 /// [`Game::physics`](crate::Game::physics) registers the step with this
 /// declaration, so [`Game::access_report`](crate::Game::access_report) lists
 /// what the step touches and debug builds check that it stays inside it.
-/// Pass it to [`Game::add_with_access`](crate::Game::add_with_access) when
-/// you place the step yourself. The step keeps `&mut Ctx` and its place in
+/// Declare it ([`IntoSystem::access`](crate::IntoSystem::access)) when you
+/// place the step yourself. The step keeps `&mut Ctx` and its place in
 /// the order; see [`access`](crate::access).
 ///
 /// ```
@@ -665,7 +624,7 @@ pub fn step_physics(ctx: &mut Ctx) {
 /// let game = Game::new("Order", 800, 600)
 ///     .physics(vec2(0.0, 980.0))
 ///     .remove(Systems::PHYSICS)
-///     .add_with_access(Phase::BeforePhysics, systems::step_physics_access(), systems::step_physics);
+///     .add(Phase::BeforePhysics, systems::step_physics.access(systems::step_physics_access()));
 /// # let _ = game;
 /// ```
 ///
@@ -780,8 +739,8 @@ fn sync_into(physics: &mut Physics, world: &mut World) {
 fn write_back(physics: &mut Physics, world: &mut World) {
     world
         .query::<(Entity, &mut Transform2D, Option<&mut Velocity>)>()
-        .with::<RigidBody>()
-        .with::<Collider>()
+        .filter::<With<RigidBody>>()
+        .filter::<With<Collider>>()
         .for_each(|(e, t, velocity)| {
             let Some(link) = physics
                 .links

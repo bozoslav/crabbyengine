@@ -110,11 +110,11 @@ impl Rig {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
         // Probe captures get size-only handles; `Rig::draw` backs them.
         ctx.set_headless(true);
-        ctx.lighting.sun_intensity = 0.0;
-        ctx.lighting.shadows = false;
-        ctx.sky.atmosphere = false;
-        ctx.post.bloom = 0.0;
-        ctx.post.ambient_occlusion.enabled = false;
+        ctx.scene3d.lighting.sun_intensity = 0.0;
+        ctx.scene3d.lighting.shadows = false;
+        ctx.scene3d.sky.atmosphere = false;
+        ctx.scene3d.post.bloom = 0.0;
+        ctx.scene3d.post.ambient_occlusion.enabled = false;
         Some(Rig {
             device,
             queue,
@@ -171,28 +171,32 @@ impl Rig {
         let ctx = &mut self.ctx;
         let skins = SkinFrame::default();
         ctx.collect_views(&skins);
-        ctx.gfx
-            .frame3d
-            .collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        ctx.gfx.frame3d.collect(
+            &mut ctx.world,
+            &ctx.gfx.assets3d,
+            &skins,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
+        );
         let rgb = |c| {
             let [r, g, b, _] = crate::three::linear(c);
             Vec3::new(r, g, b)
         };
         let scene = Scene3D {
             frame: &ctx.gfx.frame3d,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
-            light: if ctx.sky.atmosphere {
-                SkyLight::new(&ctx.lighting, &ctx.sky)
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
+            light: if ctx.scene3d.sky.atmosphere {
+                SkyLight::new(&ctx.scene3d.lighting, &ctx.scene3d.sky)
             } else {
                 SkyLight {
                     sun: Vec3::ZERO,
-                    sky: rgb(ctx.lighting.sky_color),
-                    ground: rgb(ctx.lighting.ground_color),
+                    sky: rgb(ctx.scene3d.sky.sky_color),
+                    ground: rgb(ctx.scene3d.sky.ground_color),
                 }
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -282,25 +286,25 @@ fn a_rough_spheres_ambient_follows_the_sky_colour() {
     let sphere = MeshData::sphere(1.5, 32);
     let mesh = rig.mesh(&sphere, matte(Color::WHITE));
     rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, -6.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
-    rig.ctx.lighting.ground_color = Color::BLACK;
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, -6.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.sky.ground_color = Color::BLACK;
     let top = |rig: &mut Rig| {
-        let view_proj = rig.ctx.camera3d.view_proj();
+        let view_proj = rig.ctx.scene3d.camera.view_proj();
         let p = screen(view_proj, vec3(0.0, 1.0, -1.0));
         let pixels = rig.draw();
         rgb(&pixels, p.x as u32, p.y as u32)
     };
-    rig.ctx.lighting.sky_color = Color::rgb(1.0, 0.1, 0.1);
+    rig.ctx.scene3d.sky.sky_color = Color::rgb(1.0, 0.1, 0.1);
     let red = top(&mut rig);
-    rig.ctx.lighting.sky_color = Color::rgb(0.1, 0.1, 1.0);
+    rig.ctx.scene3d.sky.sky_color = Color::rgb(0.1, 0.1, 1.0);
     let blue = top(&mut rig);
     assert!(red.x > 4.0 * red.z.max(1.0), "a red sky lights the sphere red: {red}");
     assert!(
         blue.z > 4.0 * blue.x.max(1.0),
         "a blue sky lights the sphere blue: {blue}"
     );
-    rig.ctx.lighting.ambient_intensity = 0.0;
+    rig.ctx.scene3d.lighting.ambient_intensity = 0.0;
     let dark = top(&mut rig);
     assert!(dark.max_element() < 3.0, "no ambient, no light: {dark}");
 }
@@ -311,13 +315,13 @@ fn a_three_color_ambient_lights_the_sides_with_the_equator_color() {
     let sphere = MeshData::sphere(1.5, 32);
     let mesh = rig.mesh(&sphere, matte(Color::WHITE));
     rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, -6.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
-    rig.ctx.lighting.sky_color = Color::rgb(1.0, 0.05, 0.05);
-    rig.ctx.lighting.ground_color = Color::rgb(0.05, 0.05, 1.0);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, -6.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.sky.sky_color = Color::rgb(1.0, 0.05, 0.05);
+    rig.ctx.scene3d.sky.ground_color = Color::rgb(0.05, 0.05, 1.0);
     // The sphere's top, the side facing the camera, and its bottom.
     let points = |rig: &mut Rig| {
-        let view_proj = rig.ctx.camera3d.view_proj();
+        let view_proj = rig.ctx.scene3d.camera.view_proj();
         let pixels = rig.draw();
         [vec3(0.0, 1.35, -0.6), vec3(0.0, 0.0, -1.5), vec3(0.0, -1.35, -0.6)].map(|p| {
             let p = screen(view_proj, p);
@@ -329,7 +333,7 @@ fn a_three_color_ambient_lights_the_sides_with_the_equator_color() {
         two_color_side.y < 0.3 * two_color_side.x.max(two_color_side.z),
         "without an equator, the side is sky and ground mixed: {two_color_side}"
     );
-    rig.ctx.lighting.equator_color = Some(Color::rgb(0.05, 1.0, 0.05));
+    rig.ctx.scene3d.sky.equator_color = Some(Color::rgb(0.05, 1.0, 0.05));
     let [top, side, bottom] = points(&mut rig);
     assert!(
         top.x > top.y && top.x > 2.0 * top.z,
@@ -346,7 +350,7 @@ fn a_three_color_ambient_lights_the_sides_with_the_equator_color() {
 /// How many red pixels the sphere's disc has on each side of its middle, as
 /// (screen left, screen right), plus how many are blue.
 fn sphere_redness(rig: &mut Rig) -> (f32, f32, f32) {
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let center = screen(view_proj, Vec3::ZERO);
     let radius = (screen(view_proj, vec3(1.5, 0.0, 0.0)) - center).length() * 0.8;
     let pixels = rig.draw();
@@ -377,10 +381,10 @@ fn sphere_redness(rig: &mut Rig) -> (f32, f32, f32) {
 fn a_probe_reflects_a_bright_wall_inside_its_box_and_the_sky_outside() {
     let Some(mut rig) = Rig::new() else { return };
     // The camera looks along +Z, so +X is on the screen's left.
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, -6.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
-    rig.ctx.lighting.sky_color = Color::rgb(0.3, 0.4, 0.8);
-    rig.ctx.lighting.ground_color = Color::rgb(0.3, 0.4, 0.8);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, -6.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.sky.sky_color = Color::rgb(0.3, 0.4, 0.8);
+    rig.ctx.scene3d.sky.ground_color = Color::rgb(0.3, 0.4, 0.8);
     let wall = rig.mesh(&MeshData::cube(1.0), glowing(6.0));
     let wall_transform = Transform3D {
         scale: vec3(0.2, 8.0, 8.0),
@@ -417,7 +421,7 @@ fn a_probe_reflects_a_bright_wall_inside_its_box_and_the_sky_outside() {
 
 /// The red weight centre of the floor's reflection, ignoring the patch seen directly.
 fn reflection_centre(rig: &mut Rig, patch: &[Vec3]) -> Option<Vec2> {
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let corners: Vec<Vec2> = patch.iter().map(|&p| screen(view_proj, p)).collect();
     let low = corners.iter().fold(Vec2::splat(f32::MAX), |a, &c| a.min(c)) - 3.0;
     let high = corners.iter().fold(Vec2::splat(f32::MIN), |a, &c| a.max(c)) + 3.0;
@@ -444,10 +448,10 @@ fn box_projection_moves_the_reflection_where_infinite_projection_puts_it_elsewhe
     // A mirror floor at y = 0 in a 16 x 10 x 16 room whose middle is at y = 3,
     // and a glowing patch high on the +X wall. The camera looks across the
     // floor towards that wall.
-    rig.ctx.camera3d.position = vec3(-4.0, 3.0, 0.0);
-    rig.ctx.camera3d.look_at(vec3(2.5, 0.0, 1.0));
-    rig.ctx.lighting.sky_color = Color::rgb(0.05, 0.05, 0.05);
-    rig.ctx.lighting.ground_color = Color::rgb(0.05, 0.05, 0.05);
+    rig.ctx.scene3d.camera.position = vec3(-4.0, 3.0, 0.0);
+    rig.ctx.scene3d.camera.look_at(vec3(2.5, 0.0, 1.0));
+    rig.ctx.scene3d.sky.sky_color = Color::rgb(0.05, 0.05, 0.05);
+    rig.ctx.scene3d.sky.ground_color = Color::rgb(0.05, 0.05, 0.05);
     let at = vec3(7.8, 5.5, 1.5);
     let patch = rig.mesh(&MeshData::cube(1.0), glowing(8.0));
     let patch_transform = Transform3D {
@@ -483,7 +487,7 @@ fn box_projection_moves_the_reflection_where_infinite_projection_puts_it_elsewhe
         .box_projection = false;
     let infinite = reflection_centre(&mut rig, &corners).expect("the floor reflects the patch");
     // A mirror shows a point where its mirror image through the floor is.
-    let image = screen(rig.ctx.camera3d.view_proj(), vec3(at.x, -at.y, at.z));
+    let image = screen(rig.ctx.scene3d.camera.view_proj(), vec3(at.x, -at.y, at.z));
     assert!(
         boxed.distance(infinite) > 10.0,
         "box projection shifts the reflection: {boxed} vs {infinite}"
@@ -497,10 +501,10 @@ fn box_projection_moves_the_reflection_where_infinite_projection_puts_it_elsewhe
 #[test]
 fn a_loaded_equirect_image_lights_the_ball_from_the_right_direction() {
     let Some(mut rig) = Rig::new() else { return };
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, -6.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
-    rig.ctx.lighting.sky_color = Color::rgb(0.05, 0.05, 0.05);
-    rig.ctx.lighting.ground_color = Color::rgb(0.05, 0.05, 0.05);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, -6.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.sky.sky_color = Color::rgb(0.05, 0.05, 0.05);
+    rig.ctx.scene3d.sky.ground_color = Color::rgb(0.05, 0.05, 0.05);
     // A bright patch from +X (the image's middle) a tenth of the way back
     // towards -Z, around the horizon: it lies off to one side of the middle.
     let mut image = image::Rgb32FImage::from_pixel(128, 64, image::Rgb([0.0, 0.0, 0.5]));
@@ -537,7 +541,7 @@ fn a_loaded_equirect_image_lights_the_ball_from_the_right_direction() {
     assert!(blue > 500.0, "the rest of the image is blue: {blue}");
     // Its direction matters, not only its side: from the camera at -Z the
     // patch reflects between the ball's middle and 45 degrees round it.
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let (centre, edge) = (screen(view_proj, Vec3::ZERO), screen(view_proj, vec3(1.5, 0.0, 0.0)));
     let pixels = rig.draw();
     let radius = (edge - centre).length();
@@ -562,10 +566,10 @@ fn a_loaded_equirect_image_lights_the_ball_from_the_right_direction() {
 #[test]
 fn a_probe_inside_a_bigger_one_wins_and_the_bigger_one_shows_around_it() {
     let Some(mut rig) = Rig::new() else { return };
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, -6.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
-    rig.ctx.lighting.sky_color = Color::rgb(0.02, 0.02, 0.02);
-    rig.ctx.lighting.ground_color = Color::rgb(0.02, 0.02, 0.02);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, -6.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.sky.sky_color = Color::rgb(0.02, 0.02, 0.02);
+    rig.ctx.scene3d.sky.ground_color = Color::rgb(0.02, 0.02, 0.02);
     let wall = Transform3D {
         scale: vec3(0.2, 8.0, 8.0),
         ..Transform3D::at(vec3(4.0, 0.0, 0.0))
@@ -615,22 +619,22 @@ fn the_atmosphere_lights_a_rough_sphere_and_follows_the_sun_down() {
     rig.ctx.world.spawn((Transform3D::default(), Model::new(ball)));
     // The camera is on the -X side, where the low sun (in +X) doesn't light
     // the ball directly: what's seen is the sky's light alone.
-    rig.ctx.camera3d.position = vec3(-6.0, 0.0, 0.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
-    rig.ctx.sky.atmosphere = true;
-    rig.ctx.sky.night_light = Color::BLACK;
-    rig.ctx.lighting.sun_intensity = 3.0;
+    rig.ctx.scene3d.camera.position = vec3(-6.0, 0.0, 0.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.sky.atmosphere = true;
+    rig.ctx.scene3d.sky.night_light = Color::BLACK;
+    rig.ctx.scene3d.lighting.sun_intensity = 3.0;
     let centre = |rig: &mut Rig| {
         let pixels = rig.draw();
         rgb(&pixels, SIZE / 2, SIZE / 2)
     };
-    rig.ctx.lighting.sun_direction = vec3(-1.0, -0.3, 0.0);
+    rig.ctx.scene3d.lighting.sun_direction = vec3(-1.0, -0.3, 0.0);
     let day = centre(&mut rig);
     assert!(
         day.z > 30.0 && day.z >= day.x,
         "the daytime sky lights the ball blue-ish: {day}"
     );
-    rig.ctx.lighting.sun_direction = vec3(-1.0, 0.5, 0.0);
+    rig.ctx.scene3d.lighting.sun_direction = vec3(-1.0, 0.5, 0.0);
     let night = centre(&mut rig);
     assert!(
         night.max_element() * 3.0 < day.max_element(),
@@ -648,15 +652,15 @@ fn the_atmosphere_has_no_dark_streak_at_negative_x() {
     rig.ctx
         .world
         .spawn((Transform3D::at(vec3(0.0, -2.0, 0.0)), Model::new(floor)));
-    rig.ctx.sky.atmosphere = true;
-    rig.ctx.sky.stars = 0.0;
-    rig.ctx.sky.night_light = Color::BLACK;
-    rig.ctx.lighting.sun_direction = Vec3::NEG_Y;
-    rig.ctx.lighting.sun_intensity = 3.0;
-    rig.ctx.camera3d.position = Vec3::ZERO;
-    rig.ctx.camera3d.look_at(vec3(1.0, 0.3, 0.0));
+    rig.ctx.scene3d.sky.atmosphere = true;
+    rig.ctx.scene3d.sky.stars = 0.0;
+    rig.ctx.scene3d.sky.night_light = Color::BLACK;
+    rig.ctx.scene3d.lighting.sun_direction = Vec3::NEG_Y;
+    rig.ctx.scene3d.lighting.sun_intensity = 3.0;
+    rig.ctx.scene3d.camera.position = Vec3::ZERO;
+    rig.ctx.scene3d.camera.look_at(vec3(1.0, 0.3, 0.0));
     let reference = rig.draw();
-    rig.ctx.camera3d.look_at(vec3(-1.0, 0.3, 0.0));
+    rig.ctx.scene3d.camera.look_at(vec3(-1.0, 0.3, 0.0));
     let seam = rig.draw();
     for pixels in [&reference, &seam] {
         super::render_test_support::keep_image(&super::render_test_support::Image {

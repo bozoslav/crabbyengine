@@ -207,24 +207,54 @@ pub struct SkinNode {
     pub matrix: [f32; 16],
 }
 
+/// The most blend shape work a mesh may take: a position or normal per
+/// vertex per frame (each frame is stored sparse, but expanded to every
+/// vertex), at least one per frame, and one per sparse offset read.
+const MAX_SHAPE_ENTRIES: usize = 1 << 25;
+
 /// All authored frames from a mesh asset, with sparse offsets expanded.
-fn blend_shapes(shapes: &crate::Value, count: usize) -> Vec<BlendShape> {
+fn blend_shapes(shapes: &crate::Value, count: usize) -> Result<Vec<BlendShape>, Error> {
     let vertices = shapes["vertices"].as_seq().unwrap_or_default();
     let frames = shapes["shapes"].as_seq().unwrap_or_default();
     let weights = shapes["fullWeights"].as_seq().unwrap_or_default();
     let xyz = |v: &crate::Value| ["x", "y", "z"].map(|k| v[k].as_f32().unwrap_or(0.0));
+    let channels = shapes["channels"].as_seq().unwrap_or_default();
+    // Each channel owns its own range of frames, as Unity writes them: no
+    // two overlap, so there are at most as many shapes as frames.
+    let index = |v: &crate::Value| usize::try_from(v.as_i64().unwrap_or(0)).unwrap_or(0);
+    let mut ranges: Vec<(usize, usize)> = channels
+        .iter()
+        .map(|c| {
+            let first = index(&c["frameIndex"]).min(frames.len());
+            (first, first + index(&c["frameCount"]).min(frames.len() - first))
+        })
+        .filter(|(first, end)| first < end)
+        .collect();
+    ranges.sort_unstable();
+    if ranges.windows(2).any(|w| w[1].0 < w[0].1) {
+        return Err(Error::new("blend shapes: two channels share frames"));
+    }
     let mut out = Vec::new();
-    for c in shapes["channels"].as_seq().unwrap_or_default() {
-        let first_frame = c["frameIndex"].as_i64().unwrap_or(0).max(0) as usize;
-        let nframes = c["frameCount"].as_i64().unwrap_or(0).max(0) as usize;
+    let mut entries = 0usize;
+    for c in channels {
+        let first_frame = index(&c["frameIndex"]);
+        let nframes = index(&c["frameCount"]);
         let channel = c["name"].as_str().unwrap_or_default();
         for (k, frame) in frames.iter().enumerate().skip(first_frame).take(nframes) {
-            let first = frame["firstVertex"].as_i64().unwrap_or(0).max(0) as usize;
-            let n = frame["vertexCount"].as_i64().unwrap_or(0).max(0) as usize;
+            let first = index(&frame["firstVertex"]);
+            let n = index(&frame["vertexCount"]);
             let normals = frame["hasNormals"].as_i64().unwrap_or(0) != 0;
             let weight = weights.get(k).and_then(crate::Value::as_f32).unwrap_or(100.) / 100.;
+            let expanded = if normals { 2 * count } else { count };
+            let read = n.min(vertices.len().saturating_sub(first));
+            entries = entries.saturating_add(expanded.max(1)).saturating_add(read);
+            if entries > MAX_SHAPE_ENTRIES {
+                return Err(Error::new(format!(
+                    "blend shapes: more than {MAX_SHAPE_ENTRIES} vertex offsets to expand or read"
+                )));
+            }
             let mut shape = BlendShape {
-                name: if k + 1 == first_frame + nframes {
+                name: if k + 1 == first_frame.saturating_add(nframes) {
                     channel.into()
                 } else {
                     format!("{channel}@{weight}")
@@ -251,7 +281,7 @@ fn blend_shapes(shapes: &crate::Value, count: usize) -> Vec<BlendShape> {
             out.push(shape);
         }
     }
-    out
+    Ok(out)
 }
 
 /// Unity's four-influence import policy.
@@ -302,15 +332,24 @@ impl UnityMesh {
             return Err(fail("compressed meshes aren't supported (turn Mesh Compression off)"));
         }
         let vd = &m["m_VertexData"];
-        let count = vd["m_VertexCount"].as_i64().ok_or_else(|| fail("no m_VertexCount"))? as usize;
+        let count = vd["m_VertexCount"].as_i64().ok_or_else(|| fail("no m_VertexCount"))?;
+        let count = usize::try_from(count).map_err(|_| fail("a negative m_VertexCount"))?;
         let channels: Vec<Channel> = vd["m_Channels"]
             .as_seq()
             .ok_or_else(|| fail("no m_Channels"))?
             .iter()
             .map(|c| {
+                let small = |key: &str, max: usize| {
+                    usize::try_from(c[key].as_i64().unwrap_or(0))
+                        .ok()
+                        .filter(|&v| v <= max)
+                        .ok_or_else(|| fail(&format!("vertex channel {key} out of range")))
+                };
                 Ok(Channel {
-                    stream: c["stream"].as_i64().unwrap_or(0) as usize,
-                    offset: c["offset"].as_i64().unwrap_or(0) as usize,
+                    // Unity has at most 4 streams, and vertices of at most
+                    // a few hundred bytes.
+                    stream: small("stream", 31)?,
+                    offset: small("offset", 4096)?,
                     format: VertexFormat::from_unity(c["format"].as_i64().unwrap_or(0))
                         .ok_or_else(|| fail("unknown vertex format"))?,
                     dimension: (c["dimension"].as_i64().unwrap_or(0) & 0xf) as usize,
@@ -330,10 +369,14 @@ impl UnityMesh {
             strides[c.stream] = strides[c.stream].max(c.offset + c.format.size() * c.dimension);
         }
         let mut starts = vec![0usize; streams];
-        let mut at = 0;
+        let mut at = 0usize;
         for s in 0..streams {
             starts[s] = at;
-            at = (at + strides[s] * count).next_multiple_of(16);
+            at = strides[s]
+                .checked_mul(count)
+                .and_then(|len| at.checked_add(len))
+                .and_then(|end| end.checked_next_multiple_of(16))
+                .ok_or_else(|| fail("vertex data too short"))?;
         }
         let read = |ch: usize, n: usize| -> Result<Vec<[f32; 4]>, Error> {
             let Some(c) = channels.get(ch).filter(|c| c.dimension > 0) else {
@@ -366,8 +409,10 @@ impl UnityMesh {
             submeshes: Vec::new(),
             name: name.clone(),
             skin: None,
-            blend_shapes: blend_shapes(&m["m_Shapes"], count),
+            blend_shapes: Vec::new(),
         };
+        // As many vertices as the data holds positions for.
+        mesh.blend_shapes = blend_shapes(&m["m_Shapes"], mesh.positions.len()).map_err(|e| fail(&e.message))?;
         for (slot, uv) in mesh.uvs.iter_mut().zip(uvs) {
             *slot = uv?;
         }
@@ -430,26 +475,39 @@ impl UnityMesh {
         let indices = hex(m["m_IndexBuffer"].as_str().unwrap_or_default());
         let index = |i: usize| -> Option<u32> {
             if wide {
+                let at = i.checked_mul(4)?;
                 indices
-                    .get(i * 4..i * 4 + 4)
+                    .get(at..at.checked_add(4)?)
                     .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
             } else {
+                let at = i.checked_mul(2)?;
                 indices
-                    .get(i * 2..i * 2 + 2)
+                    .get(at..at.checked_add(2)?)
                     .map(|b| u32::from(u16::from_le_bytes([b[0], b[1]])))
             }
         };
+        // Submeshes may share indices, but not read the buffer over and
+        // over: at most four times its size in all.
+        let mut budget = indices.len() / if wide { 4 } else { 2 } * 4;
+        let short = || fail("index buffer too short or out of range");
         for sub in m["m_SubMeshes"].as_seq().unwrap_or_default() {
             if sub["topology"].as_i64().unwrap_or(0) != 0 {
                 return Err(fail("only triangle submeshes are supported"));
             }
-            let first = sub["firstByte"].as_i64().unwrap_or(0) as usize / if wide { 4 } else { 2 };
-            let n = sub["indexCount"].as_i64().unwrap_or(0) as usize;
-            let base = sub["baseVertex"].as_i64().unwrap_or(0) as u32;
-            let list = (first..first + n)
-                .map(|i| index(i).map(|v| v + base).filter(|&v| (v as usize) < count))
+            let first = usize::try_from(sub["firstByte"].as_i64().unwrap_or(0)).map_err(|_| short())?
+                / if wide { 4 } else { 2 };
+            let n = usize::try_from(sub["indexCount"].as_i64().unwrap_or(0)).map_err(|_| short())?;
+            let base = u32::try_from(sub["baseVertex"].as_i64().unwrap_or(0)).map_err(|_| short())?;
+            budget = budget.checked_sub(n).ok_or_else(short)?;
+            let end = first.checked_add(n).ok_or_else(short)?;
+            let list = (first..end)
+                .map(|i| {
+                    index(i)
+                        .and_then(|v| v.checked_add(base))
+                        .filter(|&v| (v as usize) < count)
+                })
                 .collect::<Option<Vec<u32>>>()
-                .ok_or_else(|| fail("index buffer too short or out of range"))?;
+                .ok_or_else(short)?;
             mesh.submeshes.push(list);
         }
         Ok(mesh)
@@ -483,7 +541,7 @@ mod tests {
     fn mesh_assets_keep_all_blend_shape_frames() {
         let file = crate::UnityFile::parse("--- !u!43 &1\nMesh:\n  m_Shapes:\n    channels: [{name: Raise, frameIndex: 0, frameCount: 2}]\n    fullWeights: [50, 100]\n    shapes: [{firstVertex: 0, vertexCount: 1, hasNormals: 1}, {firstVertex: 1, vertexCount: 1, hasNormals: 0}]\n    vertices:\n    - {index: 0, vertex: {x: 1, y: 2, z: 3}, normal: {x: 0, y: 1, z: 0}}\n    - {index: 0, vertex: {x: 4, y: 5, z: 6}}\n").unwrap();
         let mesh = file.of_class(43).next().unwrap();
-        let frames = blend_shapes(&mesh.body["m_Shapes"], 2);
+        let frames = blend_shapes(&mesh.body["m_Shapes"], 2).unwrap();
         assert_eq!(frames.len(), 2);
         assert_eq!((frames[0].frame_weight, frames[1].frame_weight), (0.5, 1.));
         assert_eq!(frames[0].channel, "Raise");

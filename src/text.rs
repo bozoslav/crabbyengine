@@ -16,11 +16,8 @@ use crate::color::Color;
 /// ```
 /// # use ponko::prelude::*;
 /// # fn hud(ctx: &mut Ctx) {
-/// ctx.gfx.draw_text_ex("Score: 120", vec2(16.0, 16.0), TextParams {
-///     font: Font::DEFAULT,
-///     size: 24.0,
-///     ..Default::default()
-/// });
+/// let params = TextParams::default().with_font(Font::DEFAULT).with_size(24.0);
+/// ctx.gfx.draw_text_ex("Score: 120", vec2(16.0, 16.0), params);
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -37,10 +34,15 @@ impl Font {
 ///
 /// ```
 /// # use ponko::prelude::*;
-/// let title = TextParams { size: 48.0, color: Color::hex(0xffcc00), ..Default::default() };
-/// # let _ = title;
+/// let title = TextParams::default().with_size(48.0).with_color(Color::hex(0xffcc00));
+/// assert_eq!((title.size, title.z), (48.0, 0.0));
 /// ```
+///
+/// It is `#[non_exhaustive]`, so later versions can add settings: start
+/// from `TextParams::default()` and chain the `with_*` methods (or set the
+/// public fields on a mutable value).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct TextParams {
     /// The font to draw with.
     pub font: Font,
@@ -60,6 +62,29 @@ impl Default for TextParams {
             color: Color::WHITE,
             z: 0.0,
         }
+    }
+}
+
+impl TextParams {
+    /// Same settings drawn with `font`.
+    #[must_use]
+    pub fn with_font(self, font: Font) -> Self {
+        Self { font, ..self }
+    }
+    /// Same settings with line height `size` in window pixels.
+    #[must_use]
+    pub fn with_size(self, size: f32) -> Self {
+        Self { size, ..self }
+    }
+    /// Same settings with text color `color`.
+    #[must_use]
+    pub fn with_color(self, color: Color) -> Self {
+        Self { color, ..self }
+    }
+    /// Same settings with draw order `z` among screen-space drawing.
+    #[must_use]
+    pub fn with_z(self, z: f32) -> Self {
+        Self { z, ..self }
     }
 }
 

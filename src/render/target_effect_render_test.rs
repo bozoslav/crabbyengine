@@ -145,7 +145,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, samples, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -272,7 +272,7 @@ impl Rig {
     fn draw(&mut self) -> Vec<u8> {
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.effects.clone_from(&self.effects);
         frame.target_effects.clone_from(&self.target_effects);
         frame.computes.clone_from(&self.computes);
@@ -281,21 +281,21 @@ impl Rig {
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // Sunlight only.
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -350,8 +350,8 @@ fn half_ground(rig: &mut Rig) {
         },
         Model::new(ground),
     ));
-    rig.ctx.camera3d.position = vec3(0.0, 12.0, 0.01);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 12.0, 0.01);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
 }
 
 /// Whether the device reported a validation error while running `f`.
@@ -685,8 +685,8 @@ fn ground_lit_by(rig: &mut Rig, target: Texture) {
         },
         Model::new(ground),
     ));
-    rig.ctx.camera3d.position = vec3(0.0, 12.0, 0.01);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 12.0, 0.01);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
 }
 
 #[test]
@@ -812,9 +812,9 @@ fn a_target_effect_clearing_a_scene_compute_target_is_skipped_and_named() {
     assert_eq!(hazards.len(), 1, "{hazards:?}");
     let named = &hazards[0];
     assert!(
-        named.contains("target effect 1 (ctx.target_effects")
+        named.contains("target effect 1 (ctx.scene3d.passes.target_effects")
             && named.contains(&format!("render target {}", shared.id))
-            && named.contains("scene compute pass 0 (ctx.scene_compute_passes"),
+            && named.contains("scene compute pass 0 (ctx.scene3d.passes.scene_compute"),
         "{named}"
     );
     // The scene compute pass kept accumulating: 0.25 a frame, two frames.
@@ -934,9 +934,9 @@ fn the_scene_compute_example_measures_the_frame_and_evens_out_its_light() {
     rig.scene_computes.push((meter, average.id, at_once));
     // The ground's pixel, on the right half of the frame.
     let ground = |frame: &[u8]| frame[((SIZE / 2 * SIZE + SIZE * 3 / 4) * 4) as usize];
-    let sun = rig.ctx.lighting.sun_intensity;
+    let sun = rig.ctx.scene3d.lighting.sun_intensity;
     let measure = |rig: &mut Rig, intensity: f32| {
-        rig.ctx.lighting.sun_intensity = intensity;
+        rig.ctx.scene3d.lighting.sun_intensity = intensity;
         let frame = rig.draw();
         (rig.read_target(&average_texture)[0][0], ground(&frame))
     };

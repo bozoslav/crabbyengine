@@ -17,8 +17,8 @@ fn fly(ctx: &mut Ctx) {
 }
 
 fn setup(ctx: &mut Ctx) {
-    ctx.camera3d.position = vec3(0.0, 4.0, 9.0);
-    ctx.camera3d.look_at(vec3(0.0, 0.5, 0.0));
+    ctx.scene3d.camera.position = vec3(0.0, 4.0, 9.0);
+    ctx.scene3d.camera.look_at(vec3(0.0, 0.5, 0.0));
     let floor_material = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x6B7B58)));
     let floor_data = MeshData::plane(12.0);
     let floor = ctx.gfx.create_mesh(&floor_data, floor_material);
@@ -28,7 +28,7 @@ fn setup(ctx: &mut Ctx) {
     // A glowing tracer behind a flying ball: a quarter second long, thin at
     // the end and fading out.
     let mut tracer = Trail::new(0.25, 0.12);
-    tracer.color = ponko::render::ParticleGradient::new(vec![
+    tracer.color = ponko::d3::ParticleGradient::new(vec![
         (0.0, Color::rgb(1.0, 0.8, 0.3)),
         (1.0, Color::rgba(1.0, 0.3, 0.0, 0.0)),
     ]);
@@ -56,10 +56,9 @@ fn setup(ctx: &mut Ctx) {
     let projector = Mat4::from_scale_rotation_translation(vec3(1.0, 1.0, 0.4), up, vec3(1.0, 0.0, -1.0));
     let mark = floor_data.decal(projector, 0.003);
     if !mark.indices.is_empty() {
-        let scorch = ctx.gfx.create_material(MaterialDesc {
-            blend: Blend::Transparent,
-            ..MaterialDesc::color(Color::rgba(0.05, 0.04, 0.03, 0.8))
-        });
+        let scorch = ctx
+            .gfx
+            .create_material(MaterialDesc::color(Color::rgba(0.05, 0.04, 0.03, 0.8)).with_blend(Blend::Transparent));
         let mark = ctx.gfx.create_mesh(&mark, scorch);
         // Drawn where the floor is.
         ctx.world.spawn((Transform::default(), Model::new(mark)));

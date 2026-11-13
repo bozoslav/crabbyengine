@@ -7,7 +7,7 @@ use glam::{Mat4, Vec3};
 
 use super::collect::Instance3D;
 use super::{Assets3D, LodGroup, LodShadow, MeshData, Model, ModelMaterial, ModelMaterials, Transform3D, linear};
-use crate::{Entity, World};
+use crate::{Entity, Without, World};
 
 /// One joint of a [`Skeleton`]: its name, the joint it hangs from, and
 /// where it sits relative to that joint when nothing moves it (its rest
@@ -555,7 +555,7 @@ impl SkinFrame {
                 Option<&ModelMaterial>,
                 Option<&ModelMaterials>,
             )>()
-            .without::<SkinOf>()
+            .filter::<Without<SkinOf>>()
             .for_each(|(e, t, m, w, r, material, parts)| {
                 if assets.skin(m.mesh.id).is_none() && assets.morph(m.mesh.id).is_some() {
                     add(out, assets, e, placed(t), m, None, w, r, (material, parts));

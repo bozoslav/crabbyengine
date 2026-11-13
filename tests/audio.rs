@@ -44,7 +44,7 @@ fn generated_sounds_know_their_length() {
     in_tick(|ctx| {
         let beep = ctx.audio.create(8000, &vec![0.0; 4000]);
         assert!((beep.seconds() - 0.5).abs() < 1e-3, "{}", beep.seconds());
-        let playing = ctx.play_sound(&beep);
+        let playing = ctx.play_sound(beep);
         ctx.audio.stop(playing); // silent headless, but fine to call
     });
 }
@@ -57,7 +57,7 @@ fn wav_files_load() {
         let tone = ctx.load_sound(&path);
         assert!((tone.seconds() - 0.25).abs() < 0.01, "{}", tone.seconds());
         ctx.audio.play_ex(
-            &tone,
+            tone,
             SoundParams {
                 volume: 0.5,
                 speed: 2.0,

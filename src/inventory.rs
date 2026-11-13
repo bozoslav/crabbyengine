@@ -136,7 +136,8 @@ pub struct DanglingHandle {
     pub component: &'static str,
     /// What was freed.
     pub class: AssetClass,
-    /// The freed handle's id.
+    /// The freed handle's raw id, as its `Debug` output shows it: to tell
+    /// records apart in reports, not a way back to the handle.
     pub id: u32,
 }
 
@@ -313,12 +314,12 @@ pub enum AssetOwner {
 /// # use ponko::prelude::*;
 /// use ponko::inventory::{AssetClass, AssetOwner};
 /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-///     let made = ctx.gfx.create_texture(2, 2, &[255; 16]);
-///     let loaded = ctx.load_texture("crab.png");
+///     let _made = ctx.gfx.create_texture(2, 2, &[255; 16]);
+///     let _loaded = ctx.load_texture("crab.png");
 ///     let records = ctx.gfx.asset_handles(AssetClass::Texture);
-///     let made = records.iter().find(|r| r.id == made.id()).unwrap();
-///     assert_eq!((made.owner.clone(), made.bytes), (AssetOwner::Code, 16));
-///     let loaded = records.iter().find(|r| r.id == loaded.id()).unwrap();
+///     let made = records.iter().find(|r| r.owner == AssetOwner::Code).unwrap();
+///     assert_eq!(made.bytes, 16);
+///     let loaded = records.iter().find(|r| matches!(r.owner, AssetOwner::File(_))).unwrap();
 ///     assert_eq!(loaded.owner, AssetOwner::File("crab.png".into()));
 /// });
 /// ```
@@ -327,7 +328,9 @@ pub enum AssetOwner {
 pub struct AssetRecord {
     /// What it is.
     pub class: AssetClass,
-    /// Its id ([`Handle::id`](crate::Handle::id)).
+    /// Its raw id, as the handle's `Debug` output shows it: to tell
+    /// records apart in reports (ids are per class), not a way back to the
+    /// handle.
     pub id: u32,
     /// Estimated bytes it holds, as [`AssetCount::bytes`] counts them.
     pub bytes: u64,

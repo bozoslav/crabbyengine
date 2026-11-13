@@ -63,14 +63,6 @@ unsafe extern "C" fn setup(ctx: *mut PonkoCtx, user: *mut c_void) {
         for mode in 0..=2 {
             assert_eq!(ponko_ctx_set_instance_batch_culling(ctx, batch, mode), PONKO_OK);
         }
-        #[cfg(feature = "legacy-names")]
-        #[allow(deprecated)]
-        {
-            assert_eq!(
-                crabby_ctx_set_instance_batch_culling(ctx, batch, 2),
-                CrabbyStatus::CRABBY_OK
-            );
-        }
         assert_eq!(
             ponko_ctx_set_instance_batch_culling(ctx, batch, 3),
             PONKO_INVALID_ARGUMENT
@@ -264,6 +256,16 @@ unsafe extern "C" fn setup(ctx: *mut PonkoCtx, user: *mut c_void) {
         let mut back = std::mem::zeroed::<PonkoLighting>();
         assert_eq!(ponko_ctx_lighting(ctx, &mut back), PONKO_OK);
         assert!(back.has_equator && back.equator_color.g == 1.0);
+        // The ambient colors are the sky's in Rust: setting the sky keeps them.
+        let mut sky_now = std::mem::zeroed::<PonkoSky>();
+        assert_eq!(ponko_ctx_sky(ctx, &mut sky_now), PONKO_OK);
+        assert_eq!(ponko_ctx_set_sky(ctx, &sky_now), PONKO_OK);
+        assert_eq!(ponko_ctx_lighting(ctx, &mut back), PONKO_OK);
+        assert!(back.has_equator && back.equator_color.g == 1.0);
+        assert_eq!(
+            (back.sky_color, back.ground_color),
+            (light.sky_color, light.ground_color)
+        );
         assert_eq!(ponko_ctx_set_lighting(ctx, &light), PONKO_OK);
         let many = PonkoLighting {
             shadow_cascades: 5,
@@ -989,7 +991,8 @@ unsafe extern "C" fn target_cameras(ctx: *mut PonkoCtx, user: *mut c_void) {
             ponko_ctx_create_gpu_buffer(ctx, 4, std::ptr::null(), 0, &mut buffer),
             PONKO_OK
         );
-        assert_eq!(buffer.id & 0x00FF_FFFF, freed.id & 0x00FF_FFFF);
+        let slot = ponko::__ffi::SLOT_MASK;
+        assert_eq!(buffer.id & slot, freed.id & slot);
         assert_ne!(buffer.id, freed.id);
         assert_eq!(
             ponko_ctx_write_gpu_buffer(ctx, freed, 0, data.as_ptr(), 1),

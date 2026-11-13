@@ -56,6 +56,8 @@ accesskit = { version = "0.25.2", optional = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"
+# The control endpoint's token: the OS's secure random source.
+getrandom = "0.4"
 
 # The screen-reader adapter (feature `accessibility`): AccessKit's macOS
 # adapter, which answers the system's accessibility queries for the window's
@@ -93,6 +95,10 @@ objc2-foundation = { version = "0.2.2", features = ["NSArray", "NSString", "NSVa
 web-sys = { version = "0.3.107", features = ["Window", "Document", "Element", "Location"] }
 
 [features]
+# Unstable benchmark drivers for `crates/ponko_bench` (`ponko::render::SceneBench`,
+# `LodBench`, `RecordBench`, `ExtractionBench`). Not part of the public API:
+# they change without notice in any release.
+bench-internals = []
 # Pure Rust Recast baking and Detour queries; no window, Bevy or async runtime.
 navmesh = ["3d", "dep:navmesh-rs"]
 default = ["audio", "window", "inspector", "gamepad"]
@@ -112,8 +118,13 @@ inspector = ["window", "dep:egui", "dep:egui-wgpu", "dep:egui-winit"]
 # `Ui::accessibility_tree` and `UiAccessTracker` are always there.
 accessibility = ["window", "dep:accesskit", "dep:accesskit_macos"]
 # Gamepads through gilrs (Xbox, PlayStation, Switch and other controllers).
-# Off: `ctx.gamepads()` is always empty. On Linux it needs libudev headers.
+# Off: `ctx.input.gamepads()` is always empty. On Linux it needs libudev headers.
 gamepad = ["window", "dep:gilrs"]
+# Lets a release build honor `PONKO_CONTROL=1` (debug builds always do), for
+# tools that launch release builds, such as ponko-mcp's `launch`. Off: a
+# release build opens the control endpoint only if the game asks for it with
+# `Game::control_endpoint(true)`, so a shipped game never opens a port.
+control-env = []
 # Frame profiler: per-system scopes, viewable live with `puffin_viewer`
 # (cargo install puffin_viewer; connects to 127.0.0.1:8585).
 profiling = ["dep:puffin", "dep:puffin_http"]
@@ -138,7 +149,7 @@ steam = ["dep:steamworks"]
 physics-determinism = ["physics", "rapier2d/enhanced-determinism", "rapier3d?/enhanced-determinism"]
 
 # 3D: meshes, materials, glTF models, a perspective camera and sun light,
-# drawn under the 2D layer (`Transform3D`, `Model`, `ctx.camera3d`).
+# drawn under the 2D layer (`Transform3D`, `Model`, `ctx.scene3d`).
 # Off: no 3D pass, no glTF loader in the build.
 3d = ["dep:gltf", "image/jpeg", "image/hdr", "image/exr"]
 

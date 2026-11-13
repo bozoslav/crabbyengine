@@ -11,7 +11,7 @@
 //! two, driven from whichever side is smaller.
 //!
 //! It is safe Rust except [`dense_ref`] and [`dense_mut`], which cast the
-//! raw pointer `RawWorld::get_dynamic` returns to the component's type; they
+//! raw pointers `RawWorld::get_dynamic` and `get_dynamic_mut` return to the component's type; they
 //! are `unsafe fn`s because a [`DenseId`] from another world could name a
 //! different type there. What a real integration would add (despawn hooks,
 //! change stamps, commands, views, the scheduler's access sets, the C ABI,
@@ -60,7 +60,7 @@ pub unsafe fn dense_ref<D: Component>(world: &World, id: DenseId<D>, e: Entity) 
 /// `id` came from [`DenseId::of`] on this same `world`.
 #[inline]
 pub unsafe fn dense_mut<D: Component>(world: &mut World, id: DenseId<D>, e: Entity) -> Option<&mut D> {
-    let p = world.raw().get_dynamic(e, id.0)?;
+    let p = world.raw().get_dynamic_mut(e, id.0)?;
     // SAFETY: as in `dense_ref`; `world` is borrowed mutably, so nothing
     // else refers to the value.
     Some(unsafe { &mut *p.cast::<D>() })

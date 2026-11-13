@@ -3,8 +3,8 @@
 //!
 //! Systems run phase after phase, and inside a phase in registration order.
 //! The plan cuts that order into **stages**: a stage is either one system
-//! that runs alone, or a **batch** of view systems
-//! ([`Game::add_view`](crate::Game::add_view)) that are next to each other
+//! that runs alone, or a **batch** of view systems (systems that take
+//! `&mut SystemView`; see [`Game::add`](crate::Game::add)) that are next to each other
 //! in the order and whose declarations don't conflict
 //! ([`SystemAccess::conflicts_before`](crate::access::SystemAccess::conflicts_before)).
 //! Stages run one after another; with
@@ -101,9 +101,9 @@
 //!
 //! let game = Game::new("plan", 1, 1)
 //!     .parallel_systems(true)
-//!     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Pos>().read::<Vel>(), movement)
-//!     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), regenerate)
-//!     .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Vel>(), stop);
+//!     .add(Phase::AfterPhysics, movement.access(SystemAccess::new().write::<Pos>().read::<Vel>()))
+//!     .add(Phase::AfterPhysics, regenerate.access(SystemAccess::new().write::<Health>()))
+//!     .add(Phase::AfterPhysics, stop.access(SystemAccess::new().write::<Vel>()));
 //! let plan = game.schedule_plan();
 //! // `movement` and `regenerate` share a batch; `stop` writes what
 //! // `movement` reads, so it waits for the batch to end.
@@ -130,7 +130,7 @@ pub enum Alone {
     /// It has no declaration: it may use anything.
     Undeclared,
     /// It is declared but takes `&mut Ctx`
-    /// ([`Game::add_with_access`](crate::Game::add_with_access), C and C++
+    /// ([`IntoSystem::access`](crate::IntoSystem::access), C and C++
     /// systems): its declaration is only checked in debug builds, so it
     /// isn't trusted to share the world.
     CtxSystem,
@@ -157,8 +157,36 @@ impl fmt::Display for Alone {
     }
 }
 
+/// A [`Game::order`](crate::Game::order) pair that contradicts the run
+/// order: from [`Game::check_order`](crate::Game::check_order). `order` can
+/// keep two systems apart, not swap them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct OrderError {
+    /// The name of the system the pair puts first.
+    pub first: &'static str,
+    /// The name of the system the pair puts second, which already runs
+    /// before `first`: in an earlier phase, or registered first in the same
+    /// phase.
+    pub second: &'static str,
+}
+
+impl fmt::Display for OrderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let OrderError { first, second } = self;
+        write!(
+            f,
+            "Game::order: `{second}` already runs before `{first}` (an earlier phase, or registered first in \
+             the same phase); order can keep two systems apart, not swap them"
+        )
+    }
+}
+
+impl std::error::Error for OrderError {}
+
 /// One system of a [`SchedulePlan`].
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct PlannedSystem {
     /// The system's name (its function path).
     pub name: &'static str,
@@ -198,6 +226,7 @@ pub enum Boundary {
 /// One stage of a [`SchedulePlan`]: systems `first..first + len` of
 /// [`SchedulePlan::systems`]. More than one system is a batch.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct Stage {
     /// The phase of its systems.
     pub phase: Phase,
@@ -232,6 +261,7 @@ impl Stage {
 /// what turning it on would run together. Printing it (`{plan}`) lists every
 /// stage with the reason it starts there.
 #[derive(Clone, Debug, Default)]
+#[non_exhaustive]
 pub struct SchedulePlan {
     /// Every registered system, in run order.
     pub systems: Vec<PlannedSystem>,
@@ -337,20 +367,16 @@ fn why_alone(s: &PlanInput<'_>) -> Option<Alone> {
 /// round. Checked whether the scheduler is on or not, so that turning it
 /// on can't be what makes a game panic. Allocates nothing unless there is
 /// a problem.
-pub(crate) fn order_problem(
+pub(crate) fn check_order(
     systems: impl Iterator<Item = (SystemId, &'static str)> + Clone,
     order: &[(SystemId, SystemId)],
-) -> Option<String> {
-    order.iter().find_map(|&(first, second)| {
+) -> Result<(), OrderError> {
+    let wrong = order.iter().find_map(|&(first, second)| {
         let find = |id: SystemId| systems.clone().enumerate().find(|(_, s)| s.0 == id);
         let ((a, (_, first)), (b, (_, second))) = (find(first)?, find(second)?);
-        (a >= b).then(|| {
-            format!(
-                "Game::order: `{second}` already runs before `{first}` (an earlier phase, or registered first in \
-                 the same phase); order can keep two systems apart, not swap them"
-            )
-        })
-    })
+        (a >= b).then_some(OrderError { first, second })
+    });
+    wrong.map_or(Ok(()), Err)
 }
 
 /// Cuts `systems` (in run order) into stages. `order` lists pairs of
@@ -360,7 +386,7 @@ pub(crate) fn order_problem(
 /// If a pair in `order` names two registered systems the wrong way round.
 #[track_caller]
 pub(crate) fn plan(systems: &[PlanInput<'_>], order: &[(SystemId, SystemId)]) -> SchedulePlan {
-    if let Some(problem) = order_problem(systems.iter().map(|s| (s.id, s.name)), order) {
+    if let Err(problem) = check_order(systems.iter().map(|s| (s.id, s.name)), order) {
         panic!("{problem}");
     }
     let mut out = SchedulePlan::default();
@@ -641,15 +667,16 @@ mod tests {
         };
         let systems = ids(&["a", "b", "c"]);
         let id = |i: usize| systems[i].0;
-        let check = |order: &[(SystemId, SystemId)]| order_problem(systems.iter().copied(), order);
-        assert_eq!(check(&[]), None);
-        assert_eq!(check(&[(id(0), id(1)), (id(1), id(2))]), None);
-        let problem = check(&[(id(0), id(1)), (id(2), id(0))]).unwrap();
-        assert!(problem.contains("`a` already runs before `c`"), "{problem}");
+        let check = |order: &[(SystemId, SystemId)]| check_order(systems.iter().copied(), order);
+        assert_eq!(check(&[]), Ok(()));
+        assert_eq!(check(&[(id(0), id(1)), (id(1), id(2))]), Ok(()));
+        let problem = check(&[(id(0), id(1)), (id(2), id(0))]).unwrap_err();
+        assert_eq!((problem.first, problem.second), ("c", "a"));
+        assert!(problem.to_string().contains("`a` already runs before `c`"), "{problem}");
         // A system can't be ordered after itself either.
-        assert!(check(&[(id(1), id(1))]).is_some());
+        assert!(check(&[(id(1), id(1))]).is_err());
         // A pair that names a removed system is ignored.
-        assert_eq!(check(&[(id(2), SystemId::from_bits(9999))]), None);
+        assert_eq!(check(&[(id(2), SystemId::from_bits(9999))]), Ok(()));
     }
 
     #[test]

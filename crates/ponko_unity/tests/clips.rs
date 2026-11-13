@@ -729,3 +729,34 @@ fn files_are_read_as_text_or_binary() {
     check_baked(&AnimationClip::read(dir.join("b.anim")).unwrap());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A clip of a few curves can say it lasts hours: sampling it would make a
+/// value per frame per curve. Too many samples is an error at parse time.
+#[test]
+fn clips_too_long_to_sample_are_errors() {
+    let clip = |curves: usize| {
+        let mut text =
+            String::from("--- !u!74 &1\nAnimationClip:\n  m_Name: Long\n  m_SampleRate: 60\n  m_PositionCurves:\n");
+        for c in 0..curves {
+            text.push_str(&format!(
+                "  - path: A{c}\n    curve:\n      m_Curve:\n      - {{time: 0, value: {{x: 0, y: 0, z: 0}}}}\n"
+            ));
+        }
+        text.push_str("  m_AnimationClipSettings:\n    m_StartTime: 0\n    m_StopTime: 16000\n");
+        AnimationClip::parse(&text)
+    };
+    assert!(clip(2).is_ok());
+    let err = clip(40).unwrap_err();
+    assert!(err.message.contains("too long to sample"), "{err}");
+}
+
+/// Packed vectors with no bits per item have no data to check their count
+/// against: a huge count is an error, not a huge allocation.
+#[test]
+fn packed_vectors_without_bits_cant_claim_huge_counts() {
+    let text = "--- !u!74 &1\nAnimationClip:\n  m_Name: C\n  m_SampleRate: 30\n  m_CompressedRotationCurves:\n  - m_Path: A\n    m_Times: {m_NumItems: 1000000000000, m_BitSize: 0, m_Data: []}\n    m_Values: {m_NumItems: 0, m_Data: []}\n    m_Slopes: {m_NumItems: 1000000000000, m_BitSize: 0, m_Range: 0, m_Start: 0, m_Data: []}\n";
+    let started = std::time::Instant::now();
+    let err = AnimationClip::parse(text).unwrap_err();
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(err.message.contains("differ in count"), "{err}");
+}

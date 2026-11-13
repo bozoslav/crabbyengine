@@ -29,7 +29,7 @@
 //!     // `ctx.ui` and `ctx.audio` are separate fields.
 //!     for event in ctx.ui.events() {
 //!         if let ponko::ui::UiEvent::Clicked(_) = event {
-//!             ctx.audio.play(&click);
+//!             ctx.audio.play(click);
 //!         }
 //!     }
 //! }
@@ -37,7 +37,7 @@
 //! Game::new("ui", 320, 240).sim_system(menu).run_headless(1, |ctx| {
 //!     let click = ctx.audio.create(8000, &[0.0; 80]);
 //!     ctx.world.insert_resource(click);
-//!     let start = ctx.ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+//!     let start = ctx.ui.add(ponko::ui::UiWidget::Button, ponko::ui::UiLayout::auto());
 //!     ctx.ui.push_screen(start, false);
 //! });
 //! ```
@@ -134,5 +134,9 @@ pub use immediate::UiImmediate;
 pub use panel3d::UiPanel3D;
 pub use retained::{Ui, UiEvent, UiId, UiInput, UiPaint, UiTextAlign, UiWidget};
 
-/// Layout engine types for retained UI.
-pub use taffy as layout;
+/// Unstable: the [Taffy](https://docs.rs/taffy/0.15.1/taffy/) layout crate
+/// behind [`UiLayout`], for the settings its presets and refinements don't
+/// cover ([`UiLayout::custom`], [`UiLayout::style_mut`]). Not covered by
+/// ponko's stability promise: its types change when ponko upgrades Taffy.
+/// Prefer [`UiLayout`]'s own methods.
+pub use taffy as unstable_taffy;

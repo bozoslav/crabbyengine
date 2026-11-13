@@ -7,7 +7,6 @@
 use std::ffi::c_char;
 use std::sync::Arc;
 
-use ponko::anim::AnimationCondition;
 use ponko::anim::AnimationEvent;
 use ponko::anim::AnimationGraph;
 use ponko::anim::AnimationLayer;
@@ -19,6 +18,7 @@ use ponko::anim::LayerBlend;
 use ponko::anim::Motion;
 use ponko::anim::MotionChild;
 use ponko::anim::Skeleton;
+use ponko::anim::{AnimationCondition, LayerId, ParamId, StateId};
 use ponko::{Ctx, Entity, Vec2, anim::JointMask};
 
 use crate::ctx::{ctx_access, out, text};
@@ -136,7 +136,7 @@ pub unsafe extern "C" fn ponko_motion_blend1d(parameter: usize, out_motion: *mut
     boundary(|| {
         motion_out(
             Motion::Blend1D {
-                parameter,
+                parameter: ParamId(parameter),
                 children: Vec::new(),
             },
             out_motion,
@@ -158,8 +158,8 @@ pub unsafe extern "C" fn ponko_motion_blend2d(x: usize, y: usize, out_motion: *m
     boundary(|| {
         motion_out(
             Motion::Blend2D {
-                x,
-                y,
+                x: ParamId(x),
+                y: ParamId(y),
                 children: Vec::new(),
             },
             out_motion,
@@ -358,7 +358,7 @@ pub unsafe extern "C" fn ponko_animation_graph_add_state(
         let b = builder(builder_ptr)?;
         let mut state = AnimationState::new(motion);
         state.speed = speed;
-        state.speed_parameter = usize::try_from(speed_parameter).ok();
+        state.speed_parameter = usize::try_from(speed_parameter).ok().map(ParamId);
         state.looping = looping;
         b.states.push(state);
         index_out(out_index, b.states.len() - 1)
@@ -417,14 +417,16 @@ pub unsafe extern "C" fn ponko_animation_graph_add_transition(
 ) -> PonkoStatus {
     boundary(|| {
         let b = builder(builder_ptr)?;
-        b.transitions.push(AnimationTransition {
-            from: usize::try_from(from).ok(),
-            to,
-            conditions: Vec::new(),
-            exit_time: (exit_time >= 0.0).then_some(exit_time),
-            duration,
-            offset,
-        });
+        let transition = match usize::try_from(from) {
+            Ok(from) => AnimationTransition::new(StateId(from), StateId(to)),
+            Err(_) => AnimationTransition::from_any(StateId(to)),
+        };
+        b.transitions.push(
+            transition
+                .with_exit_time((exit_time >= 0.0).then_some(exit_time))
+                .with_duration(duration)
+                .with_offset(offset),
+        );
         index_out(out_index, b.transitions.len() - 1)
     })
 }
@@ -451,10 +453,10 @@ pub unsafe extern "C" fn ponko_animation_graph_add_condition(
             .get_mut(transition)
             .ok_or_else(|| invalid_owned(format!("no transition {transition}")))?;
         t.conditions.push(match kind {
-            PonkoAnimationCondition::PONKO_CONDITION_GREATER => AnimationCondition::Greater(parameter, value),
-            PonkoAnimationCondition::PONKO_CONDITION_LESS => AnimationCondition::Less(parameter, value),
-            PonkoAnimationCondition::PONKO_CONDITION_BOOL => AnimationCondition::Bool(parameter, value != 0.0),
-            PonkoAnimationCondition::PONKO_CONDITION_TRIGGER => AnimationCondition::Trigger(parameter),
+            PonkoAnimationCondition::PONKO_CONDITION_GREATER => AnimationCondition::Greater(ParamId(parameter), value),
+            PonkoAnimationCondition::PONKO_CONDITION_LESS => AnimationCondition::Less(ParamId(parameter), value),
+            PonkoAnimationCondition::PONKO_CONDITION_BOOL => AnimationCondition::Bool(ParamId(parameter), value != 0.0),
+            PonkoAnimationCondition::PONKO_CONDITION_TRIGGER => AnimationCondition::Trigger(ParamId(parameter)),
         });
         Ok(())
     })
@@ -483,7 +485,8 @@ pub unsafe extern "C" fn ponko_animation_graph_build(
         if out_graph.is_null() {
             return Err(invalid("output is null"));
         }
-        let graph = AnimationGraph::new(b.parameters, b.states, b.transitions, initial);
+        let graph = AnimationGraph::new(b.parameters, b.states, b.transitions, StateId(initial))
+            .map_err(|e| invalid_owned(e.to_string()))?;
         // SAFETY: checked non-null; the caller passes writable storage.
         unsafe { out_graph.write(Box::into_raw(Box::new(PonkoAnimationGraph(graph)))) };
         Ok(())
@@ -553,7 +556,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_set_float(
         ctx_access(ctx, |c| {
             let a = animator(c, entity_bits)?;
             check_float(a, parameter, value)?;
-            a.set_float(parameter, value);
+            a.set_float(ParamId(parameter), value);
             Ok(())
         })
     })
@@ -577,7 +580,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_set_bool(
         ctx_access(ctx, |c| {
             let a = animator(c, entity_bits)?;
             check_bool(a, parameter)?;
-            a.set_bool(parameter, value);
+            a.set_bool(ParamId(parameter), value);
             Ok(())
         })
     })
@@ -602,7 +605,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_set_trigger(
         ctx_access(ctx, |c| {
             let a = animator(c, entity_bits)?;
             check_trigger(a, parameter)?;
-            a.set_trigger(parameter, value);
+            a.set_trigger(ParamId(parameter), value);
             Ok(())
         })
     })
@@ -626,7 +629,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_state(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let a = animator(c, entity_bits)?;
-            index_out(out_state, a.state())?;
+            index_out(out_state, a.state().0)?;
             if !out_normalized_time.is_null() {
                 out_normalized_time.write(a.normalized_time());
             }
@@ -655,7 +658,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_crossfade(
         ctx_access(ctx, |c| {
             let a = animator(c, entity_bits)?;
             check_crossfade(a, state, duration, offset)?;
-            a.crossfade(state, duration, offset);
+            a.crossfade(StateId(state), duration, offset);
             Ok(())
         })
     })
@@ -794,21 +797,21 @@ fn check_float(a: &Animator, parameter: usize, value: f32) -> Result<(), Failure
     if !value.is_finite() {
         return Err(invalid("value must be finite"));
     }
-    match a.parameter(parameter) {
+    match a.parameter(ParamId(parameter)) {
         Some(AnimationParameter::Float(_)) => Ok(()),
         _ => Err(invalid("that parameter is not a float")),
     }
 }
 
 fn check_bool(a: &Animator, parameter: usize) -> Result<(), Failure> {
-    match a.parameter(parameter) {
+    match a.parameter(ParamId(parameter)) {
         Some(AnimationParameter::Bool(_)) => Ok(()),
         _ => Err(invalid("that parameter is not a bool")),
     }
 }
 
 fn check_trigger(a: &Animator, parameter: usize) -> Result<(), Failure> {
-    match a.parameter(parameter) {
+    match a.parameter(ParamId(parameter)) {
         Some(AnimationParameter::Trigger(_)) => Ok(()),
         _ => Err(invalid("that parameter is not a trigger")),
     }
@@ -832,7 +835,7 @@ fn layer(c: &mut Ctx, bits: u64, index: usize) -> Result<&mut Animator, Failure>
     if index >= a.layer_count() {
         return Err(invalid("no such animation layer"));
     }
-    Ok(&mut a.layer_mut(index).animator)
+    Ok(&mut a.layer_mut(LayerId(index)).animator)
 }
 
 /// Adds a layer playing `graph` over `entity`'s animator, with its own
@@ -882,7 +885,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_add_layer(
             l.mask = mask;
             let index = animator(c, entity_bits)?.add_layer(l);
             if !out_layer.is_null() {
-                out_layer.write(index);
+                out_layer.write(index.0);
             }
             Ok(())
         })
@@ -912,7 +915,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_set_layer_weight(
             if layer >= a.layer_count() {
                 return Err(invalid("no such animation layer"));
             }
-            a.layer_mut(layer).weight = weight.clamp(0., 1.);
+            a.layer_mut(LayerId(layer)).weight = weight.clamp(0., 1.);
             Ok(())
         })
     })
@@ -937,7 +940,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_layer_set_float(
         ctx_access(ctx, |c| {
             let a = layer(c, entity_bits, layer_index)?;
             check_float(a, parameter, value)?;
-            a.set_float(parameter, value);
+            a.set_float(ParamId(parameter), value);
             Ok(())
         })
     })
@@ -962,7 +965,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_layer_set_bool(
         ctx_access(ctx, |c| {
             let a = layer(c, entity_bits, layer_index)?;
             check_bool(a, parameter)?;
-            a.set_bool(parameter, value);
+            a.set_bool(ParamId(parameter), value);
             Ok(())
         })
     })
@@ -987,7 +990,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_layer_set_trigger(
         ctx_access(ctx, |c| {
             let a = layer(c, entity_bits, layer_index)?;
             check_trigger(a, parameter)?;
-            a.set_trigger(parameter, value);
+            a.set_trigger(ParamId(parameter), value);
             Ok(())
         })
     })
@@ -1014,7 +1017,7 @@ pub unsafe extern "C" fn ponko_ctx_animator_layer_crossfade(
         ctx_access(ctx, |c| {
             let a = layer(c, entity_bits, layer_index)?;
             check_crossfade(a, state, duration, offset)?;
-            a.crossfade(state, duration, offset);
+            a.crossfade(StateId(state), duration, offset);
             Ok(())
         })
     })

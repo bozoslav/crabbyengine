@@ -3,7 +3,7 @@
 //! the sun.
 use std::ffi::c_char;
 
-use ponko::anim::Blend;
+use ponko::__ffi;
 use ponko::d3::Camera as Camera3D;
 use ponko::d3::Decal as Decal3D;
 use ponko::d3::PointLight as PointLight3D;
@@ -12,29 +12,28 @@ use ponko::d3::SpotLight as SpotLight3D;
 use ponko::d3::Transform as Transform3D;
 use ponko::render::AmbientOcclusion;
 use ponko::render::AntiAliasing;
+use ponko::render::Blend;
 use ponko::render::Compute;
 use ponko::render::ComputePass;
 use ponko::render::Effect;
 use ponko::render::GlobalIllumination;
 use ponko::render::GpuBuffer;
 use ponko::render::GraphicsQuality;
-use ponko::render::Lighting;
 use ponko::render::LodGroup;
 use ponko::render::LodLevel;
 use ponko::render::LodPick;
 use ponko::render::LodRenderer;
-use ponko::render::LodSettings;
 use ponko::render::LodShadow;
 use ponko::render::Material;
 use ponko::render::MaterialDesc;
 use ponko::render::Mesh;
 use ponko::render::MeshData;
 use ponko::render::Model;
-use ponko::render::Post;
-use ponko::render::QualityLevel;
 use ponko::render::ReceivesDecals;
+use ponko::render::SceneSettings;
 use ponko::render::ScreenEffect;
 use ponko::render::Shader;
+use ponko::render::ShadowFilter;
 use ponko::render::Sky;
 use ponko::render::TargetCamera;
 use ponko::render::Tonemap;
@@ -335,7 +334,7 @@ pub struct PonkoShader {
 
 /// What a material is made from (Rust `MaterialDesc`). Start from
 /// `ponko_material_desc`. Each texture is used when its `has_` flag is set.
-/// `blend`: 0 opaque, 1 transparent.
+/// `blend`: 0 opaque, 1 transparent, 2 cutout.
 /// ```
 /// let d = ponko_ffi::ponko_material_desc(ponko_ffi::PonkoColor { r: 1.0, g: 0.0, b: 0.0, a: 1.0 });
 /// assert_eq!((d.roughness, d.metallic, d.has_texture, d.normal_strength), (0.6, 0.0, false, 1.0));
@@ -449,7 +448,7 @@ pub const PONKO_TEXTURE_DATA: u32 = 1;
 const _: () =
     assert!(PONKO_TEXTURE_COLOR == TextureKind::Color as u32 && PONKO_TEXTURE_DATA == TextureKind::Data as u32);
 
-/// The 3D camera (Rust `ctx.camera3d`).
+/// The 3D camera (Rust `ctx.scene3d.camera`).
 /// ```
 /// let c = ponko_ffi::PonkoCamera3D { position: Default::default(), rotation: ponko_ffi::ponko_quat_identity(), fov_y: 1.0, near: 0.1, far: 100.0 };
 /// assert!(c.near < c.far);
@@ -469,7 +468,7 @@ pub struct PonkoCamera3D {
     pub far: f32,
 }
 
-/// The sun and the sky's light (Rust `ctx.lighting`).
+/// The sun and the sky's light (Rust `ctx.scene3d.lighting`).
 /// ```
 /// let mut l = std::mem::MaybeUninit::<ponko_ffi::PonkoLighting>::uninit();
 /// assert_eq!(unsafe { ponko_ffi::ponko_ctx_lighting(std::ptr::null_mut(), l.as_mut_ptr()) } as u32, 1);
@@ -534,7 +533,7 @@ pub struct PonkoLighting {
 }
 
 /// The sky behind the 3D world and the fog in front of it (Rust
-/// `ctx.sky`, `Sky`).
+/// `ctx.scene3d.sky`, `Sky`).
 /// ```
 /// let mut s = std::mem::MaybeUninit::<ponko_ffi::PonkoSky>::uninit();
 /// assert_eq!(unsafe { ponko_ffi::ponko_ctx_sky(std::ptr::null_mut(), s.as_mut_ptr()) } as u32, 1);
@@ -584,7 +583,7 @@ pub extern "C" fn ponko_sun_direction_at(hour: f32) -> PonkoVec3 {
 }
 
 /// What happens to the lit 3D frame on its way to the screen (Rust
-/// `ctx.post`). `tonemap`: 0 ACES (default), 1 AgX, 2 Khronos PBR Neutral,
+/// `ctx.scene3d.post`). `tonemap`: 0 ACES (default), 1 AgX, 2 Khronos PBR Neutral,
 /// 3 none. `lut` is used when `has_lut`.
 /// ```
 /// let mut p = std::mem::MaybeUninit::<ponko_ffi::PonkoPost>::uninit();
@@ -686,7 +685,12 @@ pub struct PonkoMeshView {
 
 same_layout!(PonkoVec3, Vec3, x = x, y = y, z = z);
 same_layout!(PonkoModel, Model, mesh = mesh, color = color);
-same_layout!(PonkoTerrainTile, TerrainTile, lods = lods, lod_distance = lod_distance);
+// TerrainTile is repr(C) { lods, lod_distance }; its fields are private to
+// ponko, which pins their offsets to these.
+same_layout!(PonkoTerrainTile, TerrainTile);
+const _: () = assert!(
+    std::mem::offset_of!(PonkoTerrainTile, lods) == 0 && std::mem::offset_of!(PonkoTerrainTile, lod_distance) == 16
+);
 const _: () = {
     assert!(size_of::<PonkoTransform3D>() == size_of::<Transform3D>());
     assert!(std::mem::offset_of!(PonkoTransform3D, rotation) == std::mem::offset_of!(Transform3D, rotation));
@@ -860,15 +864,15 @@ fn material_to_c(d: &MaterialDesc) -> PonkoMaterialDesc {
         orm_map,
         has_emissive_map,
         emissive_map,
-        blend: match d.blend {
-            Blend::Opaque => 0,
-            Blend::Transparent => 1,
-            Blend::Cutout => 2,
-        },
+        // `Blend` is `repr(u32)` with the C values as its discriminants
+        // (checked below). This crate can't match it exhaustively, as it is
+        // `#[non_exhaustive]`; ponko's `c_api_mirror` test stops the build
+        // when a variant is added.
+        blend: d.blend as u32,
         double_sided: d.double_sided,
         has_shader: d.shader.is_some(),
         shader: PonkoShader {
-            id: d.shader.map_or(0, |s| s.id()),
+            id: d.shader.map_or(0, __ffi::id),
         },
         custom,
         has_custom_textures: customs.map(|c| c.0),
@@ -891,7 +895,7 @@ fn material_from_c(c: &ponko::Ctx, d: &PonkoMaterialDesc) -> Result<MaterialDesc
         2 => Blend::Cutout,
         _ => return Err(invalid("blend must be 0 (opaque), 1 (transparent) or 2 (cut out)")),
     };
-    let shader = d.has_shader.then_some(Shader::from_id(d.shader.id));
+    let shader = d.has_shader.then_some(__ffi::from_id::<Shader>(d.shader.id));
     if shader.is_some_and(|s| !c.gfx.is_live(s)) {
         return Err(invalid("that shader wasn't made by this game"));
     }
@@ -908,27 +912,28 @@ fn material_from_c(c: &ponko::Ctx, d: &PonkoMaterialDesc) -> Result<MaterialDesc
             d.custom[i * 4 + 3],
         )
     };
-    Ok(MaterialDesc {
-        color: to_c(d.color),
-        texture: map(d.has_texture, d.texture),
-        roughness: d.roughness,
-        metallic: d.metallic,
-        emissive: to_c(d.emissive),
-        normal_map: map(d.has_normal_map, d.normal_map),
-        normal_strength: d.normal_strength,
-        orm_map: map(d.has_orm_map, d.orm_map),
-        emissive_map: map(d.has_emissive_map, d.emissive_map),
-        blend,
-        double_sided: d.double_sided,
-        shader,
-        custom: [v(0), v(1), v(2), v(3)],
-        custom_textures: [
+    Ok(MaterialDesc::default()
+        .with_color(to_c(d.color))
+        .with_texture(map(d.has_texture, d.texture))
+        .with_roughness(d.roughness)
+        .with_metallic(d.metallic)
+        .with_emissive(to_c(d.emissive))
+        .with_normal_map(map(d.has_normal_map, d.normal_map))
+        .with_normal_strength(d.normal_strength)
+        .with_orm_map(map(d.has_orm_map, d.orm_map))
+        .with_emissive_map(map(d.has_emissive_map, d.emissive_map))
+        .with_blend(blend)
+        .with_double_sided(d.double_sided)
+        .with_shader(shader)
+        .with_custom([v(0), v(1), v(2), v(3)])
+        .with_custom_textures([
             map(d.has_custom_textures[0], d.custom_textures[0]),
             map(d.has_custom_textures[1], d.custom_textures[1]),
-        ],
-        custom_arrays: arrays,
-    })
+        ])
+        .with_custom_arrays(arrays))
 }
+
+const _: () = assert!(Blend::Opaque as u32 == 0 && Blend::Transparent as u32 == 1 && Blend::Cutout as u32 == 2);
 
 const _: () = assert!(
     size_of::<PonkoTextureArray>() == size_of::<TextureArray>()
@@ -1082,16 +1087,16 @@ pub unsafe extern "C" fn ponko_ctx_create_terrain_material(
             if out_material.is_null() {
                 return Err(invalid("output is null"));
             }
-            let rust = TerrainMaterialDesc {
-                layers: array_from_c(d.layers),
-                normals: d.has_normals.then(|| array_from_c(d.normals)),
-                normal_strength: d.normal_strength,
-                weights: array_from_c(d.weights),
-                weights_corner: to_c(d.weights_corner),
-                weights_size: to_c(d.weights_size),
-                layer_size: d.layer_size,
-                roughness: d.roughness,
-            };
+            let rust = TerrainMaterialDesc::new(
+                array_from_c(d.layers),
+                array_from_c(d.weights),
+                to_c(d.weights_corner),
+                to_c(d.weights_size),
+            )
+            .with_normals(d.has_normals.then(|| array_from_c(d.normals)))
+            .with_normal_strength(d.normal_strength)
+            .with_layer_size(d.layer_size)
+            .with_roughness(d.roughness);
             let material = c.gfx.try_create_terrain_material(&rust).map_err(invalid_owned)?;
             out(out_material, to_c(material))
         })
@@ -1512,7 +1517,7 @@ pub unsafe extern "C" fn ponko_ctx_load_shader(
                 return Err(invalid("output is null"));
             }
             let shader = c.gfx.try_load_shader(path).map_err(invalid_owned)?;
-            out(out_shader, PonkoShader { id: shader.id() })
+            out(out_shader, PonkoShader { id: __ffi::id(shader) })
         })
     })
 }
@@ -1540,7 +1545,7 @@ pub unsafe extern "C" fn ponko_ctx_create_shader(
                 return Err(invalid("output is null"));
             }
             let shader = c.gfx.try_create_shader(name, source).map_err(invalid_owned)?;
-            out(out_shader, PonkoShader { id: shader.id() })
+            out(out_shader, PonkoShader { id: __ffi::id(shader) })
         })
     })
 }
@@ -1569,7 +1574,7 @@ pub unsafe extern "C" fn ponko_ctx_load_compute(
                 return Err(invalid("output is null"));
             }
             let compute = c.gfx.try_load_compute(path).map_err(invalid_owned)?;
-            out(out_compute, PonkoCompute { id: compute.id() })
+            out(out_compute, PonkoCompute { id: __ffi::id(compute) })
         })
     })
 }
@@ -1597,13 +1602,13 @@ pub unsafe extern "C" fn ponko_ctx_create_compute(
                 return Err(invalid("output is null"));
             }
             let compute = c.gfx.try_create_compute(name, source).map_err(invalid_owned)?;
-            out(out_compute, PonkoCompute { id: compute.id() })
+            out(out_compute, PonkoCompute { id: __ffi::id(compute) })
         })
     })
 }
 
 /// Replaces the compute passes run each frame with `count` of them, in
-/// order (Rust `ctx.compute_passes`); 0 runs none.
+/// order (Rust `ctx.scene3d.passes.compute`); 0 runs none.
 /// # Safety
 /// `ctx` null or live; `passes` holds `count` values (may be null when 0).
 /// ```
@@ -1628,12 +1633,12 @@ pub unsafe extern "C" fn ponko_ctx_set_compute_passes(
             };
             let mut list = Vec::with_capacity(count);
             for p in given {
-                let compute = Compute::from_id(p.compute.id);
+                let compute = __ffi::from_id::<Compute>(p.compute.id);
                 if !c.gfx.is_live(compute) {
                     return Err(invalid("that compute pass wasn't made by this game"));
                 }
                 let target = texture_from_c(p.target);
-                let buffer = p.has_buffer.then(|| GpuBuffer::from_id(p.buffer.id));
+                let buffer = p.has_buffer.then(|| __ffi::from_id::<GpuBuffer>(p.buffer.id));
                 if buffer.is_some_and(|b| c.gfx.gpu_buffer_len(b).is_none()) {
                     return Err(invalid("invalid GPU buffer"));
                 }
@@ -1651,7 +1656,7 @@ pub unsafe extern "C" fn ponko_ctx_set_compute_passes(
                     material,
                 });
             }
-            c.compute_passes = list;
+            c.scene3d.passes.compute = list;
             Ok(())
         })
     })
@@ -1659,7 +1664,7 @@ pub unsafe extern "C" fn ponko_ctx_set_compute_passes(
 
 /// The compute passes run each frame: writes up to `capacity` of them to
 /// `out_passes` and how many there are to `out_count` (Rust
-/// `ctx.compute_passes`).
+/// `ctx.scene3d.passes.compute`).
 /// # Safety
 /// `ctx` null or live; `out_passes` holds `capacity` values (may be null
 /// when 0); `out_count` writable.
@@ -1679,19 +1684,21 @@ pub unsafe extern "C" fn ponko_ctx_compute_passes(
             if out_count.is_null() || (out_passes.is_null() && capacity > 0) {
                 return Err(invalid("output is null"));
             }
-            for (i, p) in c.compute_passes.iter().take(capacity).enumerate() {
+            for (i, p) in c.scene3d.passes.compute.iter().take(capacity).enumerate() {
                 out_passes.add(i).write(PonkoComputePass {
                     has_buffer: p.buffer.is_some(),
                     buffer: PonkoGpuBuffer {
-                        id: p.buffer.map_or(0, |b| b.id()),
+                        id: p.buffer.map_or(0, __ffi::id),
                     },
-                    compute: PonkoCompute { id: p.compute.id() },
+                    compute: PonkoCompute {
+                        id: __ffi::id(p.compute),
+                    },
                     target: texture_to_c(p.target),
                     has_material: p.material.is_some(),
                     material: p.material.map(to_c).unwrap_or_default(),
                 });
             }
-            out(out_count, c.compute_passes.len())
+            out(out_count, c.scene3d.passes.compute.len())
         })
     })
 }
@@ -1720,7 +1727,7 @@ pub unsafe extern "C" fn ponko_ctx_load_effect(
                 return Err(invalid("output is null"));
             }
             let effect = c.gfx.try_load_effect(path).map_err(invalid_owned)?;
-            out(out_effect, PonkoEffect { id: effect.id() })
+            out(out_effect, PonkoEffect { id: __ffi::id(effect) })
         })
     })
 }
@@ -1748,13 +1755,13 @@ pub unsafe extern "C" fn ponko_ctx_create_effect(
                 return Err(invalid("output is null"));
             }
             let effect = c.gfx.try_create_effect(name, source).map_err(invalid_owned)?;
-            out(out_effect, PonkoEffect { id: effect.id() })
+            out(out_effect, PonkoEffect { id: __ffi::id(effect) })
         })
     })
 }
 
 /// Replaces the screen effects run each frame with `count` of them, in
-/// order (Rust `ctx.effects`); 0 runs none.
+/// order (Rust `ctx.scene3d.passes.effects`); 0 runs none.
 /// # Safety
 /// `ctx` null or live; `effects` holds `count` values (may be null when 0).
 /// ```
@@ -1779,7 +1786,7 @@ pub unsafe extern "C" fn ponko_ctx_set_effects(
             };
             let mut list = Vec::with_capacity(count);
             for e in given {
-                let effect = Effect::from_id(e.effect.id);
+                let effect = __ffi::from_id::<Effect>(e.effect.id);
                 if !c.gfx.is_live(effect) {
                     return Err(invalid("that effect wasn't made by this game"));
                 }
@@ -1789,14 +1796,14 @@ pub unsafe extern "C" fn ponko_ctx_set_effects(
                 }
                 list.push(ScreenEffect { effect, material });
             }
-            c.effects = list;
+            c.scene3d.passes.effects = list;
             Ok(())
         })
     })
 }
 
 /// The screen effects run each frame: writes up to `capacity` of them to
-/// `out_effects` and how many there are to `out_count` (Rust `ctx.effects`).
+/// `out_effects` and how many there are to `out_count` (Rust `ctx.scene3d.passes.effects`).
 /// # Safety
 /// `ctx` null or live; `out_effects` holds `capacity` values (may be null
 /// when 0); `out_count` writable.
@@ -1816,14 +1823,16 @@ pub unsafe extern "C" fn ponko_ctx_effects(
             if out_count.is_null() || (out_effects.is_null() && capacity > 0) {
                 return Err(invalid("output is null"));
             }
-            for (i, e) in c.effects.iter().take(capacity).enumerate() {
+            for (i, e) in c.scene3d.passes.effects.iter().take(capacity).enumerate() {
                 out_effects.add(i).write(PonkoScreenEffect {
-                    effect: PonkoEffect { id: e.effect.id() },
+                    effect: PonkoEffect {
+                        id: __ffi::id(e.effect),
+                    },
                     has_material: e.material.is_some(),
                     material: e.material.map(to_c).unwrap_or_default(),
                 });
             }
-            out(out_count, c.effects.len())
+            out(out_count, c.scene3d.passes.effects.len())
         })
     })
 }
@@ -2083,7 +2092,7 @@ pub unsafe extern "C" fn ponko_ctx_reflection_camera(
             if !level.is_finite() {
                 return Err(invalid("level must be finite"));
             }
-            let eye = camera_from_c(c.camera3d, cam)?;
+            let eye = camera_from_c(c.scene3d.camera, cam)?;
             let reflection = TargetCamera::reflection(eye, texture_from_c(target), level);
             out(out_camera, target_camera_to_c(&reflection))
         })
@@ -2091,7 +2100,7 @@ pub unsafe extern "C" fn ponko_ctx_reflection_camera(
 }
 
 /// Replaces the target cameras drawn each frame with `count` of them
-/// (Rust `ctx.target_cameras`); 0 draws none. Each target must come from
+/// (Rust `ctx.scene3d.passes.target_cameras`); 0 draws none. Each target must come from
 /// `ponko_ctx_create_render_target`.
 /// # Safety
 /// `ctx` null or live; `cameras` holds `count` values (may be null when 0).
@@ -2126,12 +2135,12 @@ pub unsafe extern "C" fn ponko_ctx_set_target_cameras(
                     return Err(invalid("the clip plane needs a finite, nonzero normal"));
                 }
                 list.push(TargetCamera {
-                    camera: camera_from_c(c.camera3d, &t.camera)?,
+                    camera: camera_from_c(c.scene3d.camera, &t.camera)?,
                     target,
                     clip_plane: t.has_clip_plane.then_some(plane),
                 });
             }
-            c.target_cameras = list;
+            c.scene3d.passes.target_cameras = list;
             Ok(())
         })
     })
@@ -2139,7 +2148,7 @@ pub unsafe extern "C" fn ponko_ctx_set_target_cameras(
 
 /// The target cameras drawn each frame: writes up to `capacity` of them
 /// to `out_cameras` and how many there are to `out_count` (Rust
-/// `ctx.target_cameras`).
+/// `ctx.scene3d.passes.target_cameras`).
 /// # Safety
 /// `ctx` null or live; `out_cameras` holds `capacity` values (may be null
 /// when 0); `out_count` writable.
@@ -2159,10 +2168,10 @@ pub unsafe extern "C" fn ponko_ctx_target_cameras(
             if out_count.is_null() || (out_cameras.is_null() && capacity > 0) {
                 return Err(invalid("output is null"));
             }
-            for (i, t) in c.target_cameras.iter().take(capacity).enumerate() {
+            for (i, t) in c.scene3d.passes.target_cameras.iter().take(capacity).enumerate() {
                 out_cameras.add(i).write(target_camera_to_c(t));
             }
-            out(out_count, c.target_cameras.len())
+            out(out_count, c.scene3d.passes.target_cameras.len())
         })
     })
 }
@@ -2176,7 +2185,7 @@ pub unsafe extern "C" fn ponko_ctx_target_cameras(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ponko_ctx_camera3d(ctx: *mut PonkoCtx, out_camera: *mut PonkoCamera3D) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_camera, camera_to_c(&c.camera3d))) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_camera, camera_to_c(&c.scene3d.camera))) })
 }
 
 /// Moves or turns the 3D camera. `fov_y` must be between 0 and pi, and
@@ -2194,7 +2203,7 @@ pub unsafe extern "C" fn ponko_ctx_set_camera3d(ctx: *mut PonkoCtx, camera: *con
             let Some(cam) = camera.as_ref() else {
                 return Err(invalid("camera is null"));
             };
-            c.camera3d = camera_from_c(c.camera3d, cam)?;
+            c.scene3d.camera = camera_from_c(c.scene3d.camera, cam)?;
             Ok(())
         })
     })
@@ -2215,7 +2224,7 @@ pub unsafe extern "C" fn ponko_ctx_set_occlusion_culling(ctx: *mut PonkoCtx, on:
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.camera3d.occlusion_culling = on;
+            c.scene3d.camera.occlusion_culling = on;
             Ok(())
         })
     })
@@ -2230,7 +2239,7 @@ pub unsafe extern "C" fn ponko_ctx_set_occlusion_culling(ctx: *mut PonkoCtx, on:
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ponko_ctx_occlusion_culling(ctx: *mut PonkoCtx, out_on: *mut bool) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { ctx_access(ctx, |c| out(out_on, c.camera3d.occlusion_culling)) })
+    boundary(|| unsafe { ctx_access(ctx, |c| out(out_on, c.scene3d.camera.occlusion_culling)) })
 }
 
 /// Turns the 3D camera to look at `target`, +Y up.
@@ -2244,7 +2253,7 @@ pub unsafe extern "C" fn ponko_ctx_camera3d_look_at(ctx: *mut PonkoCtx, target: 
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.camera3d.look_at(to_c(target));
+            c.scene3d.camera.look_at(to_c(target));
             Ok(())
         })
     })
@@ -2271,7 +2280,7 @@ pub unsafe extern "C" fn ponko_ctx_screen_ray(
             if out_origin.is_null() || out_direction.is_null() {
                 return Err(invalid("output is null"));
             }
-            let (origin, direction) = c.camera3d.screen_ray(to_c(screen));
+            let (origin, direction) = c.scene3d.camera.screen_ray(to_c(screen));
             out(out_origin, to_c(origin))?;
             out(out_direction, to_c(direction))
         })
@@ -2286,15 +2295,15 @@ pub unsafe extern "C" fn ponko_ctx_lighting(ctx: *mut PonkoCtx, out_lighting: *m
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let l = &c.lighting;
+            let (l, sky) = (&c.scene3d.lighting, &c.scene3d.sky);
             out(
                 out_lighting,
                 PonkoLighting {
                     sun_direction: to_c(l.sun_direction),
                     sun_color: to_c(l.sun_color),
                     sun_intensity: l.sun_intensity,
-                    sky_color: to_c(l.sky_color),
-                    ground_color: to_c(l.ground_color),
+                    sky_color: to_c(sky.sky_color),
+                    ground_color: to_c(sky.ground_color),
                     ambient_intensity: l.ambient_intensity,
                     shadows: l.shadows,
                     shadow_distance: l.shadow_distance,
@@ -2304,9 +2313,9 @@ pub unsafe extern "C" fn ponko_ctx_lighting(ctx: *mut PonkoCtx, out_lighting: *m
                     light_shadow_resolution: l.light_shadow_resolution,
                     light_shadow_atlas: l.light_shadow_atlas,
                     shadow_refresh: l.shadow_refresh,
-                    shadow_filter: l.shadow_filter,
-                    has_equator: l.equator_color.is_some(),
-                    equator_color: to_c(l.equator_color.unwrap_or(l.sky_color)),
+                    shadow_filter: l.shadow_filter as u32,
+                    has_equator: sky.equator_color.is_some(),
+                    equator_color: to_c(sky.equator_color.unwrap_or(sky.sky_color)),
                     gi_enabled: l.gi.enabled,
                     gi_extent: to_c(l.gi.extent),
                     gi_spacing: l.gi.spacing,
@@ -2345,9 +2354,7 @@ pub unsafe extern "C" fn ponko_ctx_set_lighting(ctx: *mut PonkoCtx, lighting: *c
             if !(1..=8).contains(&l.shadow_refresh) {
                 return Err(invalid("shadow_refresh must be 1 to 8"));
             }
-            if !(1..=3).contains(&l.shadow_filter) {
-                return Err(invalid("shadow_filter must be 1 to 3"));
-            }
+            let shadow_filter = shadow_filter_from_c(l.shadow_filter)?;
             if !(256..=4096).contains(&l.shadow_resolution)
                 || !(128..=2048).contains(&l.light_shadow_resolution)
                 || l.light_shadow_views > ponko::d3::PointLight::MAX_SHADOW_VIEWS as u32
@@ -2374,30 +2381,31 @@ pub unsafe extern "C" fn ponko_ctx_set_lighting(ctx: *mut PonkoCtx, lighting: *c
                 ));
             }
             let color = |c: PonkoColor| -> Color { to_c(c) };
-            c.lighting = Lighting {
-                sun_direction: to_c(l.sun_direction),
-                sun_color: color(l.sun_color),
-                sun_intensity: l.sun_intensity,
-                sky_color: color(l.sky_color),
-                ground_color: color(l.ground_color),
-                ambient_intensity: l.ambient_intensity,
-                shadows: l.shadows,
-                shadow_distance: l.shadow_distance,
-                shadow_cascades: l.shadow_cascades,
-                shadow_resolution: l.shadow_resolution,
-                light_shadow_views: l.light_shadow_views,
-                light_shadow_resolution: l.light_shadow_resolution,
-                light_shadow_atlas: l.light_shadow_atlas,
-                shadow_refresh: l.shadow_refresh,
-                shadow_filter: l.shadow_filter,
-                equator_color: l.has_equator.then(|| color(l.equator_color)),
-                gi: GlobalIllumination {
-                    enabled: l.gi_enabled,
-                    extent,
-                    spacing: l.gi_spacing,
-                    probes_per_frame: l.gi_probes_per_frame,
-                    intensity: l.gi_intensity,
-                },
+            // The ambient colors live on the sky in Rust; the C struct keeps them.
+            let sky = &mut c.scene3d.sky;
+            sky.sky_color = color(l.sky_color);
+            sky.ground_color = color(l.ground_color);
+            sky.equator_color = l.has_equator.then(|| color(l.equator_color));
+            let lighting = &mut c.scene3d.lighting;
+            lighting.sun_direction = to_c(l.sun_direction);
+            lighting.sun_color = color(l.sun_color);
+            lighting.sun_intensity = l.sun_intensity;
+            lighting.ambient_intensity = l.ambient_intensity;
+            lighting.shadows = l.shadows;
+            lighting.shadow_distance = l.shadow_distance;
+            lighting.shadow_cascades = l.shadow_cascades;
+            lighting.shadow_resolution = l.shadow_resolution;
+            lighting.light_shadow_views = l.light_shadow_views;
+            lighting.light_shadow_resolution = l.light_shadow_resolution;
+            lighting.light_shadow_atlas = l.light_shadow_atlas;
+            lighting.shadow_refresh = l.shadow_refresh;
+            lighting.shadow_filter = shadow_filter;
+            lighting.gi = GlobalIllumination {
+                enabled: l.gi_enabled,
+                extent,
+                spacing: l.gi_spacing,
+                probes_per_frame: l.gi_probes_per_frame,
+                intensity: l.gi_intensity,
             };
             Ok(())
         })
@@ -2412,7 +2420,7 @@ pub unsafe extern "C" fn ponko_ctx_sky(ctx: *mut PonkoCtx, out_sky: *mut PonkoSk
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let s = &c.sky;
+            let s = &c.scene3d.sky;
             out(
                 out_sky,
                 PonkoSky {
@@ -2485,22 +2493,22 @@ pub unsafe extern "C" fn ponko_ctx_set_sky(ctx: *mut PonkoCtx, sky: *const Ponko
             if s.sun_size <= 0.0 || s.fog_falloff <= 0.0 {
                 return Err(invalid("sun_size and fog_falloff must be above 0"));
             }
-            c.sky = Sky {
-                atmosphere: s.atmosphere,
-                haze: s.haze,
-                sun_size: s.sun_size,
-                stars: s.stars,
-                night_light: to_c(s.night_light),
-                fog_density: s.fog_density,
-                fog_height: s.fog_height,
-                fog_falloff: s.fog_falloff,
-                fog_color: to_c(s.fog_color),
-                fog_start: s.fog_start,
-                fog_end: s.fog_end,
-                fog_sun_glow: s.fog_sun_glow,
-                fog_sun_focus: s.fog_sun_focus,
-                light_shafts: s.light_shafts,
-            };
+            // Every field but the ambient colors, which `ponko_ctx_set_lighting` sets.
+            let sky = &mut c.scene3d.sky;
+            sky.atmosphere = s.atmosphere;
+            sky.haze = s.haze;
+            sky.sun_size = s.sun_size;
+            sky.stars = s.stars;
+            sky.night_light = to_c(s.night_light);
+            sky.fog_density = s.fog_density;
+            sky.fog_height = s.fog_height;
+            sky.fog_falloff = s.fog_falloff;
+            sky.fog_color = to_c(s.fog_color);
+            sky.fog_start = s.fog_start;
+            sky.fog_end = s.fog_end;
+            sky.fog_sun_glow = s.fog_sun_glow;
+            sky.fog_sun_focus = s.fog_sun_focus;
+            sky.light_shafts = s.light_shafts;
             Ok(())
         })
     })
@@ -2514,7 +2522,7 @@ pub unsafe extern "C" fn ponko_ctx_post(ctx: *mut PonkoCtx, out_post: *mut Ponko
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let p = &c.post;
+            let p = &c.scene3d.post;
             out(
                 out_post,
                 PonkoPost {
@@ -2610,7 +2618,7 @@ pub unsafe extern "C" fn ponko_ctx_set_post(ctx: *mut PonkoCtx, post: *const Pon
                     "chromatic_aberration must be 0 to 1, lens_distortion -1 to 1 and lens_scale above zero",
                 ));
             }
-            if !(ponko::render::GraphicsQuality::MIN_RENDER_SCALE..=ponko::render::GraphicsQuality::MAX_RENDER_SCALE)
+            if !(ponko::render::Post::MIN_RENDER_SCALE..=ponko::render::Post::MAX_RENDER_SCALE)
                 .contains(&p.render_scale)
                 || !(0.0..=1.0).contains(&p.sharpen)
             {
@@ -2638,37 +2646,37 @@ pub unsafe extern "C" fn ponko_ctx_set_post(ctx: *mut PonkoCtx, post: *const Pon
             if !finite || p.bloom < 0.0 || p.bloom_threshold < 0.0 || p.contrast < 0.0 || p.saturation < 0.0 {
                 return Err(invalid("bloom, threshold, contrast and saturation can't be negative"));
             }
-            c.post = Post {
-                render_scale: p.render_scale,
-                sharpen: p.sharpen,
-                anti_aliasing,
-                taa_sharpness: p.taa_sharpness,
-                ambient_occlusion: AmbientOcclusion {
-                    enabled: p.ao_enabled,
-                    radius: p.ao_radius,
-                    intensity: p.ao_intensity,
-                    slices: p.ao_slices,
-                    steps: p.ao_steps,
-                },
-                ao_half_resolution: p.ao_half_resolution,
-                ao_temporal: p.ao_temporal,
-                exposure: p.exposure,
-                tonemap,
-                bloom: p.bloom,
-                bloom_threshold: p.bloom_threshold,
-                contrast: p.contrast,
-                saturation: p.saturation,
-                temperature: p.temperature,
-                tint: p.tint,
-                vignette: p.vignette,
-                chromatic_aberration: p.chromatic_aberration,
-                lens_distortion: p.lens_distortion,
-                lens_scale: p.lens_scale,
-                lut: p.has_lut.then(|| texture_from_c(p.lut)),
-                contact_shadows: p.contact_shadows,
-                ssr: p.ssr,
-                ssr_max_distance: p.ssr_max_distance,
+            // Every field but the MSAA sample count, which C sets with `ponko_game_msaa`.
+            let post = &mut c.scene3d.post;
+            post.render_scale = p.render_scale;
+            post.sharpen = p.sharpen;
+            post.anti_aliasing = anti_aliasing;
+            post.taa_sharpness = p.taa_sharpness;
+            post.ambient_occlusion = AmbientOcclusion {
+                enabled: p.ao_enabled,
+                radius: p.ao_radius,
+                intensity: p.ao_intensity,
+                slices: p.ao_slices,
+                steps: p.ao_steps,
             };
+            post.ao_half_resolution = p.ao_half_resolution;
+            post.ao_temporal = p.ao_temporal;
+            post.exposure = p.exposure;
+            post.tonemap = tonemap;
+            post.bloom = p.bloom;
+            post.bloom_threshold = p.bloom_threshold;
+            post.contrast = p.contrast;
+            post.saturation = p.saturation;
+            post.temperature = p.temperature;
+            post.tint = p.tint;
+            post.vignette = p.vignette;
+            post.chromatic_aberration = p.chromatic_aberration;
+            post.lens_distortion = p.lens_distortion;
+            post.lens_scale = p.lens_scale;
+            post.lut = p.has_lut.then(|| texture_from_c(p.lut));
+            post.contact_shadows = p.contact_shadows;
+            post.ssr = p.ssr;
+            post.ssr_max_distance = p.ssr_max_distance;
             Ok(())
         })
     })
@@ -2725,28 +2733,37 @@ pub struct PonkoGraphicsQuality {
     pub gi: bool,
 }
 
-pub(crate) fn quality_to_c(q: GraphicsQuality) -> PonkoGraphicsQuality {
+pub(crate) fn quality_to_c(s: &SceneSettings) -> PonkoGraphicsQuality {
+    let (l, p) = (&s.lighting, &s.post);
     PonkoGraphicsQuality {
-        render_scale: q.render_scale,
-        sharpen: q.sharpen,
-        shadows: q.shadows,
-        shadow_distance: q.shadow_distance,
-        shadow_cascades: q.shadow_cascades,
-        shadow_resolution: q.shadow_resolution,
-        light_shadow_views: q.light_shadow_views,
-        light_shadow_resolution: q.light_shadow_resolution,
-        light_shadow_atlas: q.light_shadow_atlas,
-        ambient_occlusion: q.ambient_occlusion,
-        ao_half_resolution: q.ao_half_resolution,
-        ao_temporal: q.ao_temporal,
-        ao_slices: q.ao_slices,
-        ao_steps: q.ao_steps,
-        anti_aliasing: q.anti_aliasing as u32,
-        shadow_refresh: q.shadow_refresh,
-        shadow_filter: q.shadow_filter,
-        ssr: q.ssr,
-        gi: q.gi,
+        render_scale: p.render_scale,
+        sharpen: p.sharpen,
+        shadows: l.shadows,
+        shadow_distance: l.shadow_distance,
+        shadow_cascades: l.shadow_cascades,
+        shadow_resolution: l.shadow_resolution,
+        light_shadow_views: l.light_shadow_views,
+        light_shadow_resolution: l.light_shadow_resolution,
+        light_shadow_atlas: l.light_shadow_atlas,
+        ambient_occlusion: p.ambient_occlusion.enabled,
+        ao_half_resolution: p.ao_half_resolution,
+        ao_temporal: p.ao_temporal,
+        ao_slices: p.ambient_occlusion.slices,
+        ao_steps: p.ambient_occlusion.steps,
+        anti_aliasing: p.anti_aliasing as u32,
+        shadow_refresh: l.shadow_refresh,
+        shadow_filter: l.shadow_filter as u32,
+        ssr: p.ssr,
+        gi: l.gi.enabled,
     }
+}
+
+/// The quality fields `apply` writes into default scene settings: Rust
+/// keeps quality in the scene settings, not in a struct of its own.
+pub(crate) fn scratch_quality(apply: impl FnOnce(&mut SceneSettings)) -> PonkoGraphicsQuality {
+    let mut settings = SceneSettings::default();
+    apply(&mut settings);
+    quality_to_c(&settings)
 }
 
 /// Whether a light shadow atlas size is allowed: a power of two, 1024 to 8192.
@@ -2754,9 +2771,19 @@ fn light_atlas_ok(size: u32) -> bool {
     (1024..=8192).contains(&size) && size.is_power_of_two()
 }
 
-/// Checks every field of a C quality struct against its range, and makes
-/// the Rust one.
-fn quality_from_c(q: &PonkoGraphicsQuality) -> Result<GraphicsQuality, crate::Failure> {
+/// The sun shadow filter for C's 1 (sharp) to 3 (softest).
+fn shadow_filter_from_c(filter: u32) -> Result<ShadowFilter, crate::Failure> {
+    match filter {
+        1 => Ok(ShadowFilter::Sharp),
+        2 => Ok(ShadowFilter::Soft),
+        3 => Ok(ShadowFilter::Softest),
+        _ => Err(invalid("shadow_filter must be 1 to 3")),
+    }
+}
+
+/// Checks every field of a C quality struct against its range and, only
+/// when all are valid, writes them into `settings`' lighting and post.
+fn quality_from_c(q: &PonkoGraphicsQuality, settings: &mut SceneSettings) -> Result<(), crate::Failure> {
     let anti_aliasing = match q.anti_aliasing {
         0 => AntiAliasing::None,
         1 => AntiAliasing::Fxaa,
@@ -2764,8 +2791,7 @@ fn quality_from_c(q: &PonkoGraphicsQuality) -> Result<GraphicsQuality, crate::Fa
         3 => AntiAliasing::Taa,
         _ => return Err(invalid("anti_aliasing must be 0 to 3")),
     };
-    if !(ponko::render::GraphicsQuality::MIN_RENDER_SCALE..=ponko::render::GraphicsQuality::MAX_RENDER_SCALE)
-        .contains(&q.render_scale)
+    if !(ponko::render::Post::MIN_RENDER_SCALE..=ponko::render::Post::MAX_RENDER_SCALE).contains(&q.render_scale)
         || !(0.0..=1.0).contains(&q.sharpen)
     {
         return Err(invalid("render_scale must be 0.25 to 2 and sharpen 0 to 1"));
@@ -2792,37 +2818,48 @@ fn quality_from_c(q: &PonkoGraphicsQuality) -> Result<GraphicsQuality, crate::Fa
     if !(1..=8).contains(&q.shadow_refresh) {
         return Err(invalid("shadow_refresh must be 1 to 8"));
     }
-    if !(1..=3).contains(&q.shadow_filter) {
-        return Err(invalid("shadow_filter must be 1 to 3"));
-    }
+    let shadow_filter = shadow_filter_from_c(q.shadow_filter)?;
     if !(0.0..=1.0).contains(&q.ssr) {
         return Err(invalid("ssr must be 0 to 1"));
     }
-    Ok(GraphicsQuality {
-        render_scale: q.render_scale,
-        sharpen: q.sharpen,
-        shadows: q.shadows,
-        shadow_distance: q.shadow_distance,
-        shadow_cascades: q.shadow_cascades,
-        shadow_resolution: q.shadow_resolution,
-        light_shadow_views: q.light_shadow_views,
-        light_shadow_resolution: q.light_shadow_resolution,
-        light_shadow_atlas: q.light_shadow_atlas,
-        ambient_occlusion: q.ambient_occlusion,
-        ao_half_resolution: q.ao_half_resolution,
-        ao_temporal: q.ao_temporal,
-        ao_slices: q.ao_slices,
-        ao_steps: q.ao_steps,
-        ssr: q.ssr,
-        gi: q.gi,
-        anti_aliasing,
-        shadow_refresh: q.shadow_refresh,
-        shadow_filter: q.shadow_filter,
-    })
+    let (l, p) = (&mut settings.lighting, &mut settings.post);
+    p.render_scale = q.render_scale;
+    p.sharpen = q.sharpen;
+    p.anti_aliasing = anti_aliasing;
+    p.ambient_occlusion.enabled = q.ambient_occlusion;
+    p.ambient_occlusion.slices = q.ao_slices;
+    p.ambient_occlusion.steps = q.ao_steps;
+    p.ao_half_resolution = q.ao_half_resolution;
+    p.ao_temporal = q.ao_temporal;
+    p.ssr = q.ssr;
+    l.gi.enabled = q.gi;
+    l.shadows = q.shadows;
+    l.shadow_distance = q.shadow_distance;
+    l.shadow_cascades = q.shadow_cascades;
+    l.shadow_resolution = q.shadow_resolution;
+    l.shadow_refresh = q.shadow_refresh;
+    l.shadow_filter = shadow_filter;
+    l.light_shadow_views = q.light_shadow_views;
+    l.light_shadow_resolution = q.light_shadow_resolution;
+    l.light_shadow_atlas = q.light_shadow_atlas;
+    Ok(())
+}
+
+/// C's preset level for `quality`: 0 low, 1 medium, 2 high, 3 ultra; 4
+/// (custom) for a preset C doesn't know.
+fn level_to_c(quality: GraphicsQuality) -> u32 {
+    match quality {
+        GraphicsQuality::Low => 0,
+        GraphicsQuality::Medium => 1,
+        GraphicsQuality::High => 2,
+        GraphicsQuality::Ultra => 3,
+        _ => 4,
+    }
 }
 
 /// Writes preset `level` into `out_quality`: 0 low, 1 medium, 2 high, 3
-/// ultra (Rust `GraphicsQuality::low` and so on). Any other level is
+/// ultra (Rust `GraphicsQuality::Low` and so on, applied with
+/// `SceneSettings::set_quality`). Any other level is
 /// `PONKO_INVALID_ARGUMENT`.
 /// # Safety
 /// `out_quality` writable.
@@ -2840,21 +2877,19 @@ pub unsafe extern "C" fn ponko_graphics_quality_preset(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let quality = match level {
-            0 => QualityLevel::Low,
-            1 => QualityLevel::Medium,
-            2 => QualityLevel::High,
-            3 => QualityLevel::Ultra,
+            0 => GraphicsQuality::Low,
+            1 => GraphicsQuality::Medium,
+            2 => GraphicsQuality::High,
+            3 => GraphicsQuality::Ultra,
             _ => return Err(invalid("level must be 0 (low), 1 (medium), 2 (high) or 3 (ultra)")),
-        }
-        .quality()
-        .expect("a preset");
-        out(out_quality, quality_to_c(quality))
+        };
+        out(out_quality, scratch_quality(|s| s.set_quality(quality)))
     })
 }
 
 /// Which preset `quality` is: 0 low, 1 medium, 2 high, 3 ultra, or 4 when
-/// it is none of them (Rust `GraphicsQuality::level`). `quality` must be
-/// valid (see `ponko_ctx_set_graphics_quality`).
+/// it is none of them (Rust `SceneSettings::quality`, `None` for custom).
+/// `quality` must be valid (see `ponko_ctx_set_graphics_quality`).
 /// # Safety
 /// `quality` valid; `out_level` writable.
 /// ```
@@ -2870,12 +2905,16 @@ pub unsafe extern "C" fn ponko_graphics_quality_level(
         let Some(q) = quality.as_ref() else {
             return Err(invalid("quality is null"));
         };
-        out(out_level, quality_from_c(q)?.level() as u32)
+        let mut settings = SceneSettings::default();
+        quality_from_c(q, &mut settings)?;
+        out(out_level, settings.quality().map_or(4, level_to_c))
     })
 }
 
-/// Reads the current graphics quality (Rust `ctx.gfx.quality(&ctx.post, &ctx.lighting)`),
-/// gathered from the post and lighting settings.
+/// Reads the current graphics quality, gathered from the post and lighting
+/// settings (Rust `ctx.scene3d.post` and `ctx.scene3d.lighting`) as the
+/// renderer draws them (Rust `SceneSettings::clamp_quality`): always in
+/// range, so `ponko_ctx_set_graphics_quality` takes it back.
 /// # Safety
 /// `ctx` null or live; output writable.
 #[unsafe(no_mangle)]
@@ -2886,16 +2925,21 @@ pub unsafe extern "C" fn ponko_ctx_graphics_quality(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            out(out_quality, quality_to_c(c.gfx.quality(&c.post, &c.lighting)))
+            let quality = scratch_quality(|s| {
+                (s.lighting, s.post) = (c.scene3d.lighting, c.scene3d.post);
+                s.clamp_quality();
+            });
+            out(out_quality, quality)
         })
     })
 }
 
-/// Switches the 3D picture to `quality` without a restart (Rust
-/// `ctx.gfx.set_quality`): writes the matching post and lighting
-/// settings; the next frame draws at the new resolution and shadow map
-/// sizes. Fields outside their ranges (see `PonkoGraphicsQuality`) are
-/// `PONKO_INVALID_ARGUMENT` and change nothing.
+/// Switches the 3D picture to `quality` without a restart (like Rust
+/// `ctx.scene3d.set_quality`): writes the matching post and lighting
+/// settings and pins render scale and sun shadow resolution against
+/// automatic quality; the next frame draws at the new resolution and
+/// shadow map sizes. Fields outside their ranges (see
+/// `PonkoGraphicsQuality`) are `PONKO_INVALID_ARGUMENT` and change nothing.
 /// # Safety
 /// `ctx` null or live; `quality` valid.
 /// ```
@@ -2912,7 +2956,9 @@ pub unsafe extern "C" fn ponko_ctx_set_graphics_quality(
             let Some(q) = quality.as_ref() else {
                 return Err(invalid("quality is null"));
             };
-            c.gfx.set_quality(&mut c.post, &mut c.lighting, quality_from_c(q)?);
+            quality_from_c(q, &mut c.scene3d)?;
+            c.scene3d.pin_render_scale(q.render_scale);
+            c.scene3d.pin_shadow_resolution(q.shadow_resolution);
             Ok(())
         })
     })
@@ -3674,7 +3720,7 @@ pub struct PonkoLodLevel {
     pub shadow_caster_count: usize,
 }
 
-/// Global LOD settings (Rust `ctx.lod`).
+/// Global LOD settings (Rust `ctx.scene3d.lod`).
 /// ```
 /// let s = ponko_ffi::PonkoLodSettings { bias: 1.0, crossfade: true };
 /// assert!(s.crossfade);
@@ -3800,7 +3846,7 @@ pub unsafe extern "C" fn ponko_ctx_lod_pick(
             else {
                 return Err(invalid("that entity has no LOD group and transform"));
             };
-            let pick = match group.pick_for(transform, &c.camera3d, &c.lod) {
+            let pick = match group.pick_for(transform, &c.scene3d.camera, &c.scene3d.lod) {
                 LodPick::Culled => PonkoLodPick::default(),
                 LodPick::Level(i) => PonkoLodPick {
                     kind: 1,
@@ -3838,8 +3884,8 @@ pub unsafe extern "C" fn ponko_ctx_lod_settings(
             out(
                 out_settings,
                 PonkoLodSettings {
-                    bias: c.lod.bias,
-                    crossfade: c.lod.crossfade,
+                    bias: c.scene3d.lod.bias,
+                    crossfade: c.scene3d.lod.crossfade,
                 },
             )
         })
@@ -3862,10 +3908,8 @@ pub unsafe extern "C" fn ponko_ctx_set_lod_settings(ctx: *mut PonkoCtx, settings
             if !settings.bias.is_finite() || settings.bias < 0.0 {
                 return Err(invalid("bias must be 0 or more"));
             }
-            c.lod = LodSettings {
-                bias: settings.bias,
-                crossfade: settings.crossfade,
-            };
+            c.scene3d.lod.bias = settings.bias;
+            c.scene3d.lod.crossfade = settings.crossfade;
             Ok(())
         })
     })
@@ -3931,7 +3975,7 @@ pub unsafe extern "C" fn ponko_ctx_create_gpu_buffer(
                     .collect()
             };
             let b = c.gfx.create_gpu_buffer(len, &data);
-            out(output, PonkoGpuBuffer { id: b.id() })
+            out(output, PonkoGpuBuffer { id: __ffi::id(b) })
         })
     })
 }
@@ -3949,7 +3993,7 @@ pub unsafe extern "C" fn ponko_ctx_write_gpu_buffer(
     // SAFETY: caller supplies the described array.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let b = GpuBuffer::from_id(buffer.id);
+            let b = __ffi::from_id::<GpuBuffer>(buffer.id);
             let len = c.gfx.gpu_buffer_len(b).ok_or_else(|| invalid("invalid GPU buffer"))?;
             if offset > len || count > (len - offset) as usize || (count > 0 && data.is_null()) {
                 return Err(invalid("invalid GPU buffer write"));
@@ -3978,7 +4022,7 @@ pub unsafe extern "C" fn ponko_ctx_free_gpu_buffer(ctx: *mut PonkoCtx, buffer: P
     // SAFETY: forwarded context contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let b = GpuBuffer::from_id(buffer.id);
+            let b = __ffi::from_id::<GpuBuffer>(buffer.id);
             if c.gfx.gpu_buffer_len(b).is_none() {
                 return Err(invalid("invalid GPU buffer"));
             }
@@ -4026,7 +4070,7 @@ pub unsafe extern "C" fn ponko_ctx_set_mesh_gpu_buffer(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let mesh = to_c(mesh);
-            let b = GpuBuffer::from_id(buffer.id);
+            let b = __ffi::from_id::<GpuBuffer>(buffer.id);
             if !c.gfx.is_live(mesh) || c.gfx.gpu_buffer_len(b).is_none_or(|len| count > len) {
                 return Err(invalid("invalid GPU instance arguments"));
             }
@@ -4078,7 +4122,7 @@ pub unsafe extern "C" fn ponko_ctx_set_instance_batch_culling(
             };
             if !c
                 .gfx
-                .set_instance_batch_culling(ponko::render::InstanceBatch::from_id(batch.id), culling)
+                .set_instance_batch_culling(__ffi::from_id::<ponko::render::InstanceBatch>(batch.id), culling)
             {
                 return Err(invalid("invalid instance batch"));
             }
@@ -4133,7 +4177,7 @@ pub unsafe extern "C" fn ponko_ctx_create_instance_batch(
                     ..Default::default()
                 },
             );
-            out(output, PonkoInstanceBatch { id: b.id() })
+            out(output, PonkoInstanceBatch { id: __ffi::id(b) })
         })
     })
 }
@@ -4150,7 +4194,7 @@ pub unsafe extern "C" fn ponko_ctx_update_instance_batch(
     // SAFETY: caller supplies the described matrix array.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let b = ponko::render::InstanceBatch::from_id(batch.id);
+            let b = __ffi::from_id::<ponko::render::InstanceBatch>(batch.id);
             if c.gfx.instance_batch_len(b).is_none() || count > 16_777_216 || (count > 0 && matrices.is_null()) {
                 return Err(invalid("invalid instance batch update"));
             }
@@ -4180,7 +4224,7 @@ pub unsafe extern "C" fn ponko_ctx_free_instance_batch(ctx: *mut PonkoCtx, batch
     // SAFETY: forwarded context contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.gfx.free(ponko::render::InstanceBatch::from_id(batch.id));
+            c.gfx.free(__ffi::from_id::<ponko::render::InstanceBatch>(batch.id));
             Ok(())
         })
     })
@@ -4264,7 +4308,7 @@ pub unsafe extern "C" fn ponko_ctx_create_instance_batch_levels(
                     ..Default::default()
                 },
             );
-            out(output, PonkoInstanceBatch { id: b.id() })
+            out(output, PonkoInstanceBatch { id: __ffi::id(b) })
         })
     })
 }
@@ -4286,7 +4330,7 @@ pub unsafe extern "C" fn ponko_ctx_update_instance_batch_colors(
         ctx_access(ctx, |c| {
             let (transforms, colors) = instance_arrays(matrices, count, colors, color_count)?;
             if !c.gfx.update_instance_batch_colors(
-                ponko::render::InstanceBatch::from_id(batch.id),
+                __ffi::from_id::<ponko::render::InstanceBatch>(batch.id),
                 &transforms,
                 &colors,
             ) {
@@ -4333,4 +4377,67 @@ unsafe fn instance_arrays(
             .collect()
     };
     Ok((transforms, colors))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::PonkoStatus::PONKO_OK;
+    use crate::ctx::with_ctx;
+
+    #[test]
+    fn preset_levels_follow_the_c_numbering() {
+        let levels = [
+            (GraphicsQuality::Low, 0),
+            (GraphicsQuality::Medium, 1),
+            (GraphicsQuality::High, 2),
+            (GraphicsQuality::Ultra, 3),
+        ];
+        for (quality, level) in levels {
+            assert_eq!(level_to_c(quality), level, "{quality:?}");
+        }
+    }
+
+    #[test]
+    fn out_of_range_settings_read_back_clamped_and_round_trip() {
+        ponko::Game::new("quality", 8, 8).run_headless(0, |ctx| {
+            ctx.scene3d.post.render_scale = 9.0;
+            ctx.scene3d.post.sharpen = f32::NAN;
+            ctx.scene3d.lighting.shadow_distance = f32::INFINITY;
+            ctx.scene3d.lighting.shadow_cascades = 0;
+            ctx.scene3d.lighting.light_shadow_atlas = 5000;
+            with_ctx(ctx, |c| {
+                // SAFETY: `c` is live for this closure; the outputs are locals.
+                unsafe {
+                    let mut q = std::mem::zeroed::<PonkoGraphicsQuality>();
+                    assert_eq!(ponko_ctx_graphics_quality(c, &mut q), PONKO_OK);
+                    assert_eq!((q.render_scale, q.sharpen), (2.0, 0.0));
+                    assert_eq!((q.shadow_distance, q.shadow_cascades), (f32::MAX, 1));
+                    assert_eq!(q.light_shadow_atlas, 4096);
+                    assert_eq!(ponko_ctx_set_graphics_quality(c, &q), PONKO_OK, "takes it back");
+                    let mut back = std::mem::zeroed::<PonkoGraphicsQuality>();
+                    assert_eq!(ponko_ctx_graphics_quality(c, &mut back), PONKO_OK);
+                    assert_eq!(back, q);
+                }
+            });
+        });
+    }
+
+    #[test]
+    fn setting_the_post_keeps_the_sample_count() {
+        ponko::Game::new("post", 8, 8).run_headless(0, |ctx| {
+            ctx.scene3d.post.msaa = 2;
+            with_ctx(ctx, |c| {
+                // SAFETY: `c` is live for this closure; the output is a local.
+                unsafe {
+                    let mut post = std::mem::zeroed::<PonkoPost>();
+                    assert_eq!(ponko_ctx_post(c, &mut post), PONKO_OK);
+                    post.bloom = 0.5;
+                    assert_eq!(ponko_ctx_set_post(c, &post), PONKO_OK);
+                }
+            });
+            assert_eq!(ctx.scene3d.post.bloom, 0.5);
+            assert_eq!(ctx.scene3d.post.msaa, 2, "PonkoPost has no sample count");
+        });
+    }
 }

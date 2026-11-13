@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 use crate::d3::Transform as Transform3D;
-use crate::{Ctx, Entity, Events, Quat, Vec3, World};
+use crate::{Ctx, Entity, Events, Quat, Vec3, Without, World};
 
 mod character;
 mod contacts;
@@ -157,29 +157,37 @@ impl RigidBody3D {
 /// A convex hull, triangle mesh or heightfield, built once with
 /// [`Physics3D::convex_hull`], [`Physics3D::trimesh`],
 /// [`Physics3D::heightfield`] or [`Physics3D::add_mesh`] and shared by any
-/// number of [`Collider3D::mesh`] colliders and [`TerrainCollider`]s. A handle: copying it doesn't copy the
-/// data. Handles are only meaningful in the game that made them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+/// number of [`Collider3D::mesh`] colliders and [`TerrainCollider`]s. A
+/// [`Handle`](crate::Handle): copying it doesn't copy the data; check it
+/// with [`Physics3D::is_live`] (or `ctx.is_live`) and release it with
+/// [`Physics3D::free`] (or `ctx.free`). Handles are only meaningful in the
+/// run that made them, so serde never reads or writes one: in a
+/// [`Shape3D`] or [`TerrainCollider`] it is saved as `null` and loaded as
+/// [`CollisionMesh::NONE`](crate::Handle::NONE). Scenes name the mesh file
+/// instead (see [`Shape3D::Mesh`]).
+///
+/// ```compile_fail,E0277
+/// // No handle from a number, through serde either.
+/// let mesh: ponko::d3::CollisionMesh = serde_json::from_str(r#"{"id": 0}"#).unwrap();
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CollisionMesh {
-    index: u32,
-    generation: u32,
+    pub(crate) id: u32,
 }
 
-impl CollisionMesh {
-    /// The handle as one number (for C).
-    #[doc(hidden)]
-    #[must_use]
-    pub fn to_bits(self) -> u64 {
-        u64::from(self.generation) << 32 | u64::from(self.index)
+/// Serde for a [`CollisionMesh`] field: written as `null`, read back as
+/// [`CollisionMesh::NONE`](crate::Handle::NONE), so no saved number
+/// becomes a handle.
+pub(crate) mod unsaved_mesh {
+    use super::CollisionMesh;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub(crate) fn serialize<S: Serializer>(_: &CollisionMesh, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_unit()
     }
-    /// A handle from [`to_bits`](Self::to_bits).
-    #[doc(hidden)]
-    #[must_use]
-    pub fn from_bits(bits: u64) -> Self {
-        Self {
-            index: bits as u32,
-            generation: (bits >> 32) as u32,
-        }
+
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<CollisionMesh, D::Error> {
+        <()>::deserialize(d).map(|()| <CollisionMesh as crate::Handle>::NONE)
     }
 }
 
@@ -206,7 +214,12 @@ pub enum Shape3D {
         radius: f32,
     },
     /// A convex hull, triangle mesh or heightfield made by [`Physics3D`].
-    Mesh(CollisionMesh),
+    /// Serde writes it as `{"Mesh": null}` and reads that back as
+    /// [`CollisionMesh::NONE`](crate::Handle::NONE): a handle only means
+    /// something in the run that made it. In a scene, name the mesh file
+    /// instead (`{"Mesh": {"file": "rock.glb"}}`); reflection leaves out
+    /// colliders of meshes made in code.
+    Mesh(#[serde(with = "unsaved_mesh")] CollisionMesh),
 }
 
 /// Which colliders touch which: a collider is a member of the groups in
@@ -468,7 +481,6 @@ struct MeshSlot {
     /// From the entity's position to the shape's center (a heightfield is
     /// placed by its corner, rapier's by its center).
     offset: Vec3,
-    generation: u32,
 }
 
 /// Collects collision events during a step, into a buffer that's reused.
@@ -533,7 +545,8 @@ pub struct Physics3D {
     /// Events taken from the collector, kept to reuse its memory.
     events: Vec<rp::CollisionEvent>,
     meshes: Vec<MeshSlot>,
-    free_meshes: Vec<u32>,
+    /// The id each mesh slot was last given out as, and the freed ones.
+    mesh_ids: crate::handle::SlotIds,
     /// Reused by the character controller.
     character: character::Scratch,
     /// Reused when posing ragdolls.
@@ -595,7 +608,7 @@ impl Physics3D {
             collector: Collector::default(),
             events: Vec::new(),
             meshes: Vec::new(),
-            free_meshes: Vec::new(),
+            mesh_ids: crate::handle::SlotIds::default(),
             character: character::Scratch::default(),
             ragdolls: Vec::new(),
             contact_table: Vec::new(),
@@ -766,48 +779,62 @@ impl Physics3D {
         ))
     }
 
-    /// Lets go of a mesh made here. Colliders already using it keep it
-    /// until they're removed; new colliders with this handle get no shape.
-    pub fn free_mesh(&mut self, mesh: CollisionMesh) {
-        if let Some(slot) = self.meshes.get_mut(mesh.index as usize)
-            && slot.generation == mesh.generation
-            && slot.shape.take().is_some()
+    /// Lets go of a mesh made here, as [`Ctx::free`](crate::Ctx::free)
+    /// does. Colliders already using it keep it until they're removed; new
+    /// colliders with this handle get no shape. Its slot goes to the next
+    /// mesh made, under a new handle, so this one stays dead. Freeing it
+    /// again, or freeing [`Handle::NONE`](crate::Handle::NONE), does nothing.
+    ///
+    /// ```
+    /// use ponko::prelude::*;
+    /// let mut physics = ponko::d3::Physics::default();
+    /// let ground = physics.heightfield(&[0.0; 4], 2.0);
+    /// assert!(physics.is_live(ground));
+    /// physics.free(ground);
+    /// assert!(!physics.is_live(ground));
+    /// let next = physics.heightfield(&[0.0; 4], 2.0);
+    /// assert!(physics.is_live(next) && next != ground);
+    /// ```
+    pub fn free(&mut self, mesh: CollisionMesh) {
+        if let Some(slot) = self.mesh_ids.slot(mesh.id)
+            && let Some(s) = self.meshes.get_mut(slot)
+            && s.shape.take().is_some()
         {
-            slot.generation = slot.generation.wrapping_add(1);
-            self.free_meshes.push(mesh.index);
+            self.mesh_ids.release(mesh.id);
         }
     }
 
-    /// Whether `mesh` is a live mesh of this world.
-    pub fn is_mesh_live(&self, mesh: CollisionMesh) -> bool {
+    /// Whether `mesh` is a live mesh of this world, as
+    /// [`Ctx::is_live`](crate::Ctx::is_live) tells. False for
+    /// [`Handle::NONE`](crate::Handle::NONE).
+    #[must_use]
+    pub fn is_live(&self, mesh: CollisionMesh) -> bool {
         self.mesh(mesh).is_some()
     }
 
+    /// How many collision meshes are live.
+    pub(crate) fn live_count(&self) -> usize {
+        self.meshes.iter().filter(|s| s.shape.is_some()).count()
+    }
+
     fn mesh(&self, mesh: CollisionMesh) -> Option<&MeshSlot> {
-        self.meshes
-            .get(mesh.index as usize)
-            .filter(|s| s.generation == mesh.generation && s.shape.is_some())
+        let slot = self.mesh_ids.slot(mesh.id)?;
+        self.meshes.get(slot).filter(|s| s.shape.is_some())
     }
 
     fn add_shape(&mut self, shape: rp::SharedShape, offset: Vec3) -> CollisionMesh {
-        if let Some(index) = self.free_meshes.pop() {
-            let slot = &mut self.meshes[index as usize];
-            slot.shape = Some(shape);
-            slot.offset = offset;
-            return CollisionMesh {
-                index,
-                generation: slot.generation,
-            };
-        }
-        self.meshes.push(MeshSlot {
+        let id = self.mesh_ids.make(self.meshes.len(), "collision mesh");
+        let slot = (id & crate::handle::INDEX_MASK) as usize;
+        let made = MeshSlot {
             shape: Some(shape),
             offset,
-            generation: 0,
-        });
-        CollisionMesh {
-            index: (self.meshes.len() - 1) as u32,
-            generation: 0,
+        };
+        if slot == self.meshes.len() {
+            self.meshes.push(made);
+        } else {
+            self.meshes[slot] = made;
         }
+        CollisionMesh { id }
     }
 
     /// A rapier collider for `c` (a speck touching nothing for a freed mesh).
@@ -1053,8 +1080,8 @@ pub fn step_physics3d(ctx: &mut Ctx) {
 /// [`Game::physics3d`](crate::Game::physics3d) registers the step with this
 /// declaration, so [`Game::access_report`](crate::Game::access_report) lists
 /// what the step touches and debug builds check that it stays inside it.
-/// Pass it to [`Game::add_with_access`](crate::Game::add_with_access) when
-/// you place the step yourself. The step keeps `&mut Ctx` and its place in
+/// Declare it ([`IntoSystem::access`](crate::IntoSystem::access)) when you
+/// place the step yourself. The step keeps `&mut Ctx` and its place in
 /// the order; see [`access`](crate::access).
 ///
 /// The [`Service`](crate::access::Service) entries of the declaration are
@@ -1210,7 +1237,7 @@ fn sync_into(physics: &mut Physics3D, world: &mut World) {
     }
     world
         .query::<(Entity, &Transform3D, &RigidBody3D, &Collider3D, Option<&Velocity3D>)>()
-        .without::<Character3D>()
+        .filter::<Without<Character3D>>()
         .for_each(|(e, t, rigid, shape, velocity)| {
             let kind = LinkKind::Body(*rigid, *shape);
             sync_one(physics, e, t, kind, velocity.copied(), step);
@@ -1223,8 +1250,8 @@ fn sync_into(physics: &mut Physics3D, world: &mut World) {
         });
     world
         .query::<(Entity, &Transform3D, &TerrainCollider)>()
-        .without::<RigidBody3D>()
-        .without::<Character3D>()
+        .filter::<Without<RigidBody3D>>()
+        .filter::<Without<Character3D>>()
         .for_each(|(e, t, terrain)| {
             let kind = LinkKind::Terrain(*terrain, t.scale);
             sync_one(physics, e, t, kind, None, step);

@@ -60,7 +60,7 @@ use crate::reflect::{raw_json, short_name};
 ///   simulation systems on the next tick that runs.
 /// - At the start of each frame (each tick in headless runs), events are
 ///   dropped once they are at least one whole frame old **and** older than
-///   the slowest `sim_system_every` interval in ticks. Headless, with every
+///   the slowest system interval (`IntoSystem::every`) in ticks. Headless, with every
 ///   system running every tick, an event sent in tick `t` is kept through
 ///   tick `t + 1`. While the simulation is paused no ticks pass, so events
 ///   from frame systems are kept until simulation readers run again.
@@ -75,7 +75,7 @@ pub struct Events {
     pub(crate) reader: u32,
     frame: u64,
     tick: u64,
-    /// Events live at least this many ticks: the slowest `sim_system_every`.
+    /// Events live at least this many ticks: the slowest system interval.
     pub(crate) keep_ticks: u32,
     /// Types tools can see as JSON.
     reflected: Vec<ReflectedEvent>,
@@ -120,7 +120,7 @@ enum Key {
 
 impl Events {
     /// Sends an event to every system that reads `T`.
-    pub fn send<T: 'static>(&mut self, event: T) {
+    pub fn send<T: Send + Sync + 'static>(&mut self, event: T) {
         self.note::<T>(true);
         let (frame, tick) = (self.frame, self.tick);
         let ch = self.typed::<T>();
@@ -632,7 +632,7 @@ trait Out: Send {
 
 struct OutOf<T>(Vec<T>);
 
-impl<T: Send + 'static> Out for OutOf<T> {
+impl<T: Send + Sync + 'static> Out for OutOf<T> {
     fn id(&self) -> TypeId {
         TypeId::of::<T>()
     }
@@ -650,7 +650,7 @@ impl<T: Send + 'static> Out for OutOf<T> {
 }
 
 impl Outbox {
-    pub(crate) fn send<T: Send + 'static>(&mut self, event: T) {
+    pub(crate) fn send<T: Send + Sync + 'static>(&mut self, event: T) {
         let id = TypeId::of::<T>();
         let i = match self.channels.iter().position(|c| c.id() == id) {
             Some(i) => i,
@@ -806,7 +806,7 @@ mod tests {
         let mut world = World::new();
         // A C struct { float damage; uint32_t target; }.
         // SAFETY: plain bytes, no destructor; any field values are valid.
-        let hit = unsafe { world.register_component("Hit", 8, 4, None) };
+        let hit = unsafe { world.raw().register_component("Hit", 8, 4, None) };
         unsafe {
             world.reflect_fields(
                 hit,

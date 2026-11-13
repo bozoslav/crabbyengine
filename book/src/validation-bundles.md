@@ -221,5 +221,6 @@ macOS.
   frame was inspected and recorded as described above.
 - The native script is not run on Windows in CI.
 - A launched run needs the game to open the control endpoint
-  (`PONKO_CONTROL=1`, which `launch` sets); a game built without it is
+  (`PONKO_CONTROL=1`, which `launch` sets and which a release build honors
+  only with the `control-env` feature); a game built without it is
   reported as a `launch_timeout`.

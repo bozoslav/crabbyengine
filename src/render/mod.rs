@@ -1,5 +1,10 @@
-//! Rendering: the GPU side (wgpu setup, textures, the instanced sprite pass)
-//! lives in `gpu`, behind the `window` feature; without it, `none` stands in.
+//! Rendering: GPU capabilities and frame statistics, and with the `3d`
+//! feature the home of the 3D rendering types: meshes, materials, models,
+//! shaders and effects, levels of detail, instancing and render settings.
+//! [`d3`](crate::d3) re-exports them for `use ponko::d3::*;`.
+
+// The GPU side (wgpu setup, textures, the instanced sprite pass) lives in
+// `gpu`, behind the `window` feature; without it, `none` stands in.
 
 pub(crate) mod batch;
 pub(crate) mod capabilities;
@@ -46,8 +51,14 @@ pub(crate) use gpu::Renderer;
 pub(crate) use gpu3d::{
     COMPUTE_VARIANT, EFFECT_VARIANT, FULL_MATERIAL_VARIANT, compose_compute, compose_effect, compose_shader,
 };
+/// Unstable benchmark drivers for `ponko_bench` (feature `bench-internals`).
 #[doc(hidden)]
-#[cfg(all(feature = "window", feature = "3d", not(target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "window",
+    feature = "3d",
+    not(target_arch = "wasm32"),
+    any(test, feature = "bench-internals")
+))]
 pub use gpu3d::{
     LodBench, LodFrame, LodMemory, LodPath, LodScene, RecordBench, RecordScene, SceneBench, SceneFrame, SceneKind,
     SceneSetup,
@@ -434,14 +445,17 @@ mod ray_tracing_probe_render_test;
 
 #[cfg(feature = "3d")]
 pub use crate::three::{
-    AmbientOcclusion, AntiAliasing, BatchCulling, Compute, ComputePass, Effect, ExtractionBench, ExtractionSample,
-    GlobalIllumination, GpuBuffer, GraphicsQuality, InstanceBatch, InstanceBatchOptions, InstanceLevel, Lighting,
-    LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow, Material, MaterialDesc,
-    MaterialInstancing, MaterialSides, MaterialVariantKey, Mesh, MeshCost, MeshData, Model, ModelMaterial,
-    ModelMaterials, ParticleCurve, ParticleGradient, Post, QualityLevel, ReceivesDecals, ScreenEffect, Shader,
-    ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus, ShadowMesh, Sky, TargetCamera, TargetEffect, Tonemap,
-    look_at_joint, two_bone_ik,
+    AmbientOcclusion, AntiAliasing, BatchCulling, Blend, Compute, ComputePass, Effect, GlobalIllumination, GpuBuffer,
+    GraphicsQuality, InstanceBatch, InstanceBatchOptions, InstanceLevel, Lighting, LodGroup, LodHysteresis, LodLevel,
+    LodPick, LodRenderer, LodSettings, LodShadow, Material, MaterialDesc, Mesh, MeshCost, MeshData, Model,
+    ModelMaterial, ModelMaterials, Post, ReceivesDecals, RenderPasses, SceneSettings, ScreenEffect, Shader,
+    ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus, ShadowFilter, ShadowMesh, Sky, StreamedLod,
+    TargetCamera, TargetEffect, Tonemap,
 };
+/// Unstable extraction benchmark driver for `ponko_bench` (feature `bench-internals`).
+#[doc(hidden)]
+#[cfg(all(feature = "3d", any(test, feature = "bench-internals")))]
+pub use crate::three::{ExtractionBench, ExtractionSample};
 
 /// Shared additive JSON shape for the inspector and frame benchmarks.
 pub(crate) fn state_changes_json(changes: Option<[u32; 5]>) -> serde_json::Value {

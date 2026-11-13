@@ -17,7 +17,7 @@ fn common_game_names_do_not_collide_with_the_prelude() {
 fn constants_are_discovered_from_their_owning_types() {
     assert_eq!(d3::Decal::MAX, 4096);
     assert_eq!(ponko::spatial::SpatialGrid::<()>::SORT_EVERY, 32);
-    assert_eq!(ponko::render::GraphicsQuality::MIN_RENDER_SCALE, 0.25);
+    assert_eq!(ponko::render::Post::MIN_RENDER_SCALE, 0.25);
     assert_eq!(ponko::terrain::TerrainTile::LODS, 4);
 }
 

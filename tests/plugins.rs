@@ -1,11 +1,11 @@
-use ponko::{Ctx, Game, Phase, Plugin, Systems};
+use ponko::{Ctx, Game, IntoSystem, Phase, Plugin, Systems};
 
 struct Marker;
 struct Area(&'static str);
 impl Plugin for Area {
     fn build(&self, game: Game) -> Game {
         let name = self.0;
-        game.add(Phase::BeforePhysics, move |ctx| {
+        game.add(Phase::BeforePhysics, move |ctx: &mut Ctx| {
             ctx.world.resource_mut::<Vec<&str>>().push(name)
         })
     }
@@ -64,11 +64,12 @@ fn ids_distinguish_instances_of_the_same_closure_and_do_not_recycle() {
 }
 
 #[test]
-#[allow(deprecated)] // the legacy spellings are what this pins
-fn builtin_ids_and_legacy_removal_coexist() {
+fn builtin_ids_remove_builtin_systems() {
     let game = Game::new("ids", 1, 1)
         .remove(Systems::DRAW_SPRITES)
-        .remove_system(ponko::systems::animate_sprites);
+        .remove(Systems::ANIMATE_SPRITES);
+    assert_eq!(game.system_count(Systems::DRAW_SPRITES), 0);
+    assert_eq!(game.system_count(Systems::ANIMATE_SPRITES), 0);
     game.run_headless(0, |_| {});
 }
 
@@ -101,18 +102,22 @@ fn stable_physics_id_removes_step_after_repeated_configuration() {
 }
 
 #[test]
-#[allow(deprecated)] // the legacy spellings are what this pins
-fn builtin_registrations_have_individual_handles_and_named_removal_stays_exact() {
+fn builtin_registrations_have_individual_handles_and_removal_by_handle_stays_exact() {
     let mut game = Game::new("ids", 1, 1);
     let first = game.add_system(Phase::Input, ponko::systems::rebuild_spatial_grid);
     let second = game.add_system(Phase::Input, ponko::systems::rebuild_spatial_grid);
     assert_ne!(first, second);
-    let mut game = game
-        .remove(first)
-        .named_system("custom sprites", ponko::systems::draw_sprites);
-    assert_eq!(game.remove_named_system("custom sprites"), 1);
-    // The default registration must remain removable by its original spelling.
-    game.remove_system(ponko::systems::draw_sprites).run_headless(0, |_| {});
+    let mut game = game.remove(first);
+    // A second, renamed registration of a built-in counts under its constant
+    // and is removed alone by its own handle.
+    let custom = game.add_system(Phase::Frame, ponko::systems::draw_sprites.named("custom sprites"));
+    assert_eq!(game.system_count(Systems::DRAW_SPRITES), 2);
+    let game = game.remove(custom);
+    assert_eq!(game.system_count(Systems::DRAW_SPRITES), 1);
+    // The default registration stays removable by its constant.
+    let game = game.remove(Systems::DRAW_SPRITES);
+    assert_eq!(game.system_count(Systems::DRAW_SPRITES), 0);
+    game.run_headless(0, |_| {});
 }
 
 #[test]
@@ -127,9 +132,9 @@ fn plugin_setup_is_shared_by_profiled_runs() {
 #[test]
 fn user_ids_from_other_builders_are_harmless() {
     let mut first = Game::new("first", 1, 1);
-    let foreign = first.add_system(Phase::Input, |_| {});
+    let foreign = first.add_system(Phase::Input, |_: &mut Ctx| {});
     let mut second = Game::new("second", 1, 1);
-    let local = second.add_system(Phase::Input, |ctx| ctx.world.insert_resource(42usize));
+    let local = second.add_system(Phase::Input, |ctx: &mut Ctx| ctx.world.insert_resource(42usize));
     assert_ne!(foreign, local);
     let world = second.remove(foreign).run_headless(1, |_| {});
     assert_eq!(*world.resource::<usize>(), 42);
@@ -140,10 +145,10 @@ fn plugin_systems_run_by_phase_not_by_plugin_order() {
     struct Late;
     impl Plugin for Late {
         fn build(&self, game: Game) -> Game {
-            game.add(Phase::SimLast, |ctx| {
+            game.add(Phase::SimLast, |ctx: &mut Ctx| {
                 ctx.world.resource_mut::<Vec<&str>>().push("sim last")
             })
-            .add(Phase::AfterPhysics, |ctx| {
+            .add(Phase::AfterPhysics, |ctx: &mut Ctx| {
                 ctx.world.resource_mut::<Vec<&str>>().push("after physics")
             })
         }
@@ -151,10 +156,12 @@ fn plugin_systems_run_by_phase_not_by_plugin_order() {
     struct Early;
     impl Plugin for Early {
         fn build(&self, game: Game) -> Game {
-            game.add(Phase::Input, |ctx| ctx.world.resource_mut::<Vec<&str>>().push("input"))
-                .add(Phase::BeforePhysics, |ctx| {
-                    ctx.world.resource_mut::<Vec<&str>>().push("before physics")
-                })
+            game.add(Phase::Input, |ctx: &mut Ctx| {
+                ctx.world.resource_mut::<Vec<&str>>().push("input")
+            })
+            .add(Phase::BeforePhysics, |ctx: &mut Ctx| {
+                ctx.world.resource_mut::<Vec<&str>>().push("before physics")
+            })
         }
     }
     let world = Game::new("phases", 1, 1)
@@ -173,9 +180,13 @@ fn removing_a_plugin_system_by_id_keeps_its_siblings() {
     struct Counter;
     impl Plugin for Counter {
         fn build(&self, mut game: Game) -> Game {
-            let doomed = game.add_system(Phase::AfterPhysics, |ctx| *ctx.world.resource_mut::<u32>() += 100);
-            game.add(Phase::AfterPhysics, |ctx| *ctx.world.resource_mut::<u32>() += 1)
-                .remove(doomed)
+            let doomed = game.add_system(Phase::AfterPhysics, |ctx: &mut Ctx| {
+                *ctx.world.resource_mut::<u32>() += 100
+            });
+            game.add(Phase::AfterPhysics, |ctx: &mut Ctx| {
+                *ctx.world.resource_mut::<u32>() += 1
+            })
+            .remove(doomed)
         }
         fn setup(&self, ctx: &mut Ctx) {
             ctx.world.insert_resource(0u32);

@@ -523,10 +523,12 @@ pub fn optional_hecs(w: &mut hecs::World, dt: f32) {
 }
 
 pub fn with_ponko(w: &mut ponko_ecs::World, dt: f32) {
-    w.query::<(&mut Pos, &Vel)>().with::<Tag>().for_each(|(p, v)| {
-        p.x += v.x * dt;
-        p.y += v.y * dt;
-    });
+    w.query::<(&mut Pos, &Vel)>()
+        .filter::<ponko_ecs::With<Tag>>()
+        .for_each(|(p, v)| {
+            p.x += v.x * dt;
+            p.y += v.y * dt;
+        });
 }
 pub fn with_bevy(w: &mut bevy_ecs::world::World, q: &mut BevyWith, dt: f32) {
     q.iter_mut(w).for_each(|(mut p, v)| {
@@ -545,10 +547,12 @@ pub fn with_hecs(w: &mut hecs::World, dt: f32) {
 }
 
 pub fn without_ponko(w: &mut ponko_ecs::World, dt: f32) {
-    w.query::<(&mut Pos, &Vel)>().without::<Tag>().for_each(|(p, v)| {
-        p.x += v.x * dt;
-        p.y += v.y * dt;
-    });
+    w.query::<(&mut Pos, &Vel)>()
+        .filter::<ponko_ecs::Without<Tag>>()
+        .for_each(|(p, v)| {
+            p.x += v.x * dt;
+            p.y += v.y * dt;
+        });
 }
 pub fn without_bevy(w: &mut bevy_ecs::world::World, q: &mut BevyWithout, dt: f32) {
     q.iter_mut(w).for_each(|(mut p, v)| {
@@ -787,7 +791,7 @@ pub fn tick_ponko(g: &mut PonkoGame, dt: f32) {
     }
     let mut acc = 0;
     w.query::<(&Pos, &Spr)>()
-        .without::<Tag>()
+        .filter::<ponko_ecs::Without<Tag>>()
         .for_each(|(p, s)| acc = draw(acc, p, s));
     g.drawn = acc;
 }

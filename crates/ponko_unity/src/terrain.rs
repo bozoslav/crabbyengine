@@ -71,7 +71,7 @@ impl UnityTerrain {
                 .map(|v| v.as_f32().map_or(f64::NAN, f64::from))
                 .collect(),
         };
-        if n < 2 || raw.len() != n * n {
+        if n < 2 || n.checked_mul(n) != Some(raw.len()) {
             return Err(Error::new(format!(
                 "{name}: {} heights for a resolution of {n}",
                 raw.len()

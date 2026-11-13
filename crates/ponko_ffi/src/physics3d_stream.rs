@@ -253,13 +253,13 @@ mod imp {
     use ponko::Vec3;
     use ponko::physics3d::ColliderFocus;
     use ponko::physics3d::CollisionGroups;
-    use ponko::physics3d::CollisionMesh;
     use ponko::physics3d::CollisionMeshData;
     use ponko::physics3d::TerrainCollider;
     use ponko_ecs::Entity;
 
     use super::*;
     use crate::ctx::{ctx_access, out};
+    use crate::physics3d::{mesh_from_c, mesh_to_c};
     use crate::types::to_c;
     use crate::{CMirror, Failure, Kind, Mirror, boundary, builtin, invalid, mirror};
 
@@ -280,16 +280,14 @@ mod imp {
                     Err(invalid("friction and restitution must not be negative"))
                 }
             };
-            Ok(TerrainCollider::new(CollisionMesh::from_bits(c.mesh.id))
+            Ok(TerrainCollider::new(mesh_from_c(c.mesh))
                 .friction(amount(c.friction)?)
                 .restitution(amount(c.restitution)?)
                 .groups(CollisionGroups::new(c.groups.memberships, c.groups.filter)))
         }
         fn to_c(&self) -> PonkoTerrainCollider {
             PonkoTerrainCollider {
-                mesh: PonkoCollisionMesh {
-                    id: self.mesh.to_bits(),
-                },
+                mesh: mesh_to_c(self.mesh),
                 friction: self.friction,
                 restitution: self.restitution,
                 groups: PonkoCollisionGroups {
@@ -406,7 +404,7 @@ mod imp {
                     return Err(invalid("collision mesh data is null"));
                 };
                 let mesh = c.physics3d.add_mesh(&data.data);
-                out(out_mesh, PonkoCollisionMesh { id: mesh.to_bits() })
+                out(out_mesh, mesh_to_c(mesh))
             })
         })
     }

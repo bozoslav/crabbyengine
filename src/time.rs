@@ -137,7 +137,7 @@ struct SimClock {
 pub struct Time {
     /// `true` while simulation systems run: `dt()` then returns the fixed step.
     in_sim: bool,
-    /// Fixed steps the running sim system covers (`sim_system_every`).
+    /// Fixed steps the running sim system covers (`IntoSystem::every`).
     sim_steps: u32,
     sim: SimClock,
     timing: FrameTiming,
@@ -273,8 +273,8 @@ impl Time {
     }
 
     /// Simulated seconds one run of the current simulation system covers:
-    /// the fixed step, times `every` inside a system added with
-    /// [`Game::sim_system_every`](crate::Game::sim_system_every). Outside
+    /// the fixed step, times the interval of a system added with one
+    /// ([`IntoSystem::every`](crate::IntoSystem::every)). Outside
     /// simulation systems it is one fixed step, the same as
     /// [`fixed_dt`](Self::fixed_dt).
     ///
@@ -284,7 +284,7 @@ impl Time {
     /// fn slow(ctx: &mut Ctx) {
     ///     assert_eq!(ctx.time.sim_dt(), 4.0 * ctx.time.fixed_dt());
     /// }
-    /// Game::new("t", 1, 1).sim_system_every(4, slow).run_headless(8, |_| {});
+    /// Game::new("t", 1, 1).add(Phase::AfterPhysics, slow.every(4)).run_headless(8, |_| {});
     /// ```
     #[must_use]
     pub fn sim_dt(&self) -> f32 {
@@ -636,7 +636,7 @@ mod tests {
         assert_eq!(time.dt(), 1.0 / 50.0);
         assert_eq!(time.frame_dt(), 0.004);
         assert_eq!(time.sim_dt(), 1.0 / 50.0);
-        // `sim_system_every(3, ..)`: one run covers three steps.
+        // `system.every(3)`: one run covers three steps.
         time.set_sim_steps(3);
         assert_eq!(time.dt(), 3.0 / 50.0);
         assert_eq!(time.sim_dt(), 3.0 / 50.0);

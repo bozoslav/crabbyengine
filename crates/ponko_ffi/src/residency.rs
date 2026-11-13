@@ -1,15 +1,16 @@
-//! Residency budgets and asset streaming (Rust `Ctx::set_residency_budget`,
+//! Residency budgets and asset streaming (Rust `Graphics::set_residency_budget`,
 //! `resident_mesh`, `resident_texture`, `stream_texture`, `stream_mesh`,
 //! `asset_state`, `set_upload_budget`, `upload_stats`, `finish_uploads`,
 //! and the `StreamedLod` component).
 
 use std::ffi::c_char;
 
-use ponko::residency::ResidencyKind;
-use ponko::residency::ResidencyStats;
+use ponko::__ffi;
+use ponko::d3::StreamedLod;
 use ponko::streaming::AssetState;
+use ponko::streaming::ResidencyKind;
+use ponko::streaming::ResidencyStats;
 use ponko::streaming::UploadStats;
-use ponko::{Handle, d3::StreamedLod};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::three::PonkoMesh;
@@ -184,7 +185,8 @@ fn state_to_c(state: AssetState) -> u32 {
 }
 
 /// Sets the byte budget of `kind` (a `PonkoResidencyKind`); `has_budget`
-/// false for no limit (the default). Lowering it evicts at once what it can.
+/// false for no limit (the default). A lower budget evicts what it can at
+/// the start of the next frame, when the engine checks every budget.
 /// # Safety
 /// `ctx` null or live.
 /// ```
@@ -200,7 +202,8 @@ pub unsafe extern "C" fn ponko_ctx_set_residency_budget(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.set_residency_budget(kind_from(kind)?, has_budget.then_some(bytes));
+            c.gfx
+                .set_residency_budget(kind_from(kind)?, has_budget.then_some(bytes));
             Ok(())
         })
     })
@@ -311,7 +314,7 @@ pub unsafe extern "C" fn ponko_ctx_asset_error(
 }
 
 /// Texture `path` at full resolution under the texture budget, loaded now
-/// if it isn't (Rust `Ctx::try_resident_texture`). Ask each frame you need
+/// if it isn't (Rust `Graphics::try_resident_texture`). Ask each frame you need
 /// it; evicted ones show a small stand-in under the same handle.
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
@@ -332,9 +335,9 @@ pub unsafe extern "C" fn ponko_ctx_resident_texture(
             if out_texture.is_null() {
                 return Err(invalid("output is null"));
             }
-            let texture = c.try_resident_texture(path).map_err(|e| invalid_error(&e))?;
+            let texture = c.gfx.try_resident_texture(path).map_err(|e| invalid_error(&e))?;
             if pin {
-                c.pin_resident_texture(path);
+                c.gfx.pin_resident_texture(path);
             }
             out(out_texture, texture_to_c(texture))
         })
@@ -342,7 +345,7 @@ pub unsafe extern "C" fn ponko_ctx_resident_texture(
 }
 
 /// Mesh `path` under the mesh budget, loaded now if it isn't (Rust
-/// `Ctx::try_resident_mesh`); with `pin`, never evicted until unpinned.
+/// `Graphics::try_resident_mesh`); with `pin`, never evicted until unpinned.
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; output writable.
 /// ```
@@ -362,16 +365,17 @@ pub unsafe extern "C" fn ponko_ctx_resident_mesh(
             if out_mesh.is_null() {
                 return Err(invalid("output is null"));
             }
-            let mesh = c.try_resident_mesh(path).map_err(|e| invalid_error(&e))?;
+            let mesh = c.gfx.try_resident_mesh(path).map_err(|e| invalid_error(&e))?;
             if pin {
-                c.pin_resident_mesh(path);
+                c.gfx.pin_resident_mesh(path);
             }
-            out(out_mesh, PonkoMesh { id: mesh.id() })
+            out(out_mesh, PonkoMesh { id: __ffi::id(mesh) })
         })
     })
 }
 
-/// Lets a pinned asset of `kind` called `path` be evicted again.
+/// Lets a pinned asset of `kind` called `path` be evicted again (from the
+/// next frame's budget check).
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string.
 /// ```
@@ -384,8 +388,8 @@ pub unsafe extern "C" fn ponko_ctx_unpin_resident(ctx: *mut PonkoCtx, kind: u32,
         ctx_access(ctx, |c| {
             let path = text(path)?;
             match kind_from(kind)? {
-                ResidencyKind::Mesh => c.unpin_resident_mesh(path),
-                _ => c.unpin_resident_texture(path),
+                ResidencyKind::Mesh => c.gfx.unpin_resident_mesh(path),
+                _ => c.gfx.unpin_resident_texture(path),
             }
             Ok(())
         })
@@ -393,7 +397,7 @@ pub unsafe extern "C" fn ponko_ctx_unpin_resident(ctx: *mut PonkoCtx, kind: u32,
 }
 
 /// Texture `path`, streamed in without waiting (Rust
-/// `Ctx::stream_texture`): `*out_ready` false until its stand-in is
+/// `Graphics::stream_texture`): `*out_ready` false until its stand-in is
 /// uploaded; then the same texture each call, getting sharper.
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; outputs writable.
@@ -415,7 +419,7 @@ pub unsafe extern "C" fn ponko_ctx_stream_texture(
             if out_texture.is_null() || out_ready.is_null() {
                 return Err(invalid("output is null"));
             }
-            let texture = c.stream_texture(path);
+            let texture = c.gfx.stream_texture(path);
             if let Some(t) = texture {
                 out(out_texture, texture_to_c(t))?;
             }
@@ -424,7 +428,7 @@ pub unsafe extern "C" fn ponko_ctx_stream_texture(
     })
 }
 
-/// Mesh `path`, streamed in without waiting (Rust `Ctx::stream_mesh`):
+/// Mesh `path`, streamed in without waiting (Rust `Graphics::stream_mesh`):
 /// `*out_ready` false until it is uploaded.
 /// # Safety
 /// `ctx` null or live; `path` a NUL-terminated string; outputs writable.
@@ -446,9 +450,9 @@ pub unsafe extern "C" fn ponko_ctx_stream_mesh(
             if out_mesh.is_null() || out_ready.is_null() {
                 return Err(invalid("output is null"));
             }
-            let mesh = c.stream_mesh(path);
+            let mesh = c.gfx.stream_mesh(path);
             if let Some(m) = mesh {
-                out(out_mesh, PonkoMesh { id: m.id() })?;
+                out(out_mesh, PonkoMesh { id: __ffi::id(m) })?;
             }
             out(out_ready, mesh.is_some())
         })

@@ -99,7 +99,7 @@ use super::{
     Assets3D, Model, ModelMaterial, ModelMaterials, ReceivesDecals, SLOT_MASK, ShadowMesh, Skeleton, SkinOf,
     Transform3D, linear,
 };
-use crate::World;
+use crate::{With, Without, World};
 
 /// The views a frame draws models into: the camera (view 0), then the
 /// shadow views (view `1 + v`). A thing's pass flags have bit `view` set
@@ -459,6 +459,7 @@ impl Lists {
     }
 
     /// Bytes kept between frames, without the instance array itself.
+    #[cfg(any(test, feature = "bench-internals"))]
     pub fn bytes(&self) -> usize {
         let views: usize = self
             .views
@@ -1156,7 +1157,7 @@ impl Tracked {
         arena: &mut Vec<Instance3D>,
         motion: &mut Motion,
     ) -> (usize, usize) {
-        let count = world.query::<ModelItem<'_>>().without::<SkinOf>().count();
+        let count = world.query::<ModelItem<'_>>().filter::<Without<SkinOf>>().count();
         let rush = self.rush && !how.force;
         self.rush = rush;
         if !rush {
@@ -1178,7 +1179,7 @@ impl Tracked {
         };
         let (mut found, mut new) = (0, 0);
         let mut tally = Tally::default();
-        let mut models = world.query::<ModelItem<'_>>().without::<SkinOf>();
+        let mut models = world.query::<ModelItem<'_>>().filter::<Without<SkinOf>>();
         if !rush {
             models.for_each(|(entity, t, m, shadow, skeleton, receives, material, parts)| {
                 let k = match self.find(entity) {
@@ -1424,9 +1425,9 @@ impl Tracked {
         let before = self.entities.len() - self.free.len();
         world
             .query::<crate::Entity>()
-            .with::<Transform3D>()
-            .with::<Model>()
-            .without::<SkinOf>()
+            .filter::<With<Transform3D>>()
+            .filter::<With<Model>>()
+            .filter::<Without<SkinOf>>()
             .for_each(|entity| {
                 if self.find(entity).is_none() {
                     self.add(entity);
@@ -1469,7 +1470,7 @@ impl Tracked {
             let pass = tracked.pass(assets, culler, overrides, how, rush, lists, arena);
             world
                 .query::<ModelItem<'_>>()
-                .without::<SkinOf>()
+                .filter::<Without<SkinOf>>()
                 .par_collect_into(results, |item| pass.check(item));
         };
         // In a rush: the objects this frame finds drawn.
@@ -1480,7 +1481,7 @@ impl Tracked {
         let nothing = self.live == 0;
         if nothing {
             results.clear();
-            new = world.query::<ModelItem<'_>>().without::<SkinOf>().count();
+            new = world.query::<ModelItem<'_>>().filter::<Without<SkinOf>>().count();
         } else {
             pass(self, how, rush, (&mut results, lists, arena), world);
             for &result in &results {
@@ -1532,9 +1533,9 @@ impl Tracked {
                 let mut at = 0;
                 world
                     .query::<crate::Entity>()
-                    .with::<Transform3D>()
-                    .with::<Model>()
-                    .without::<SkinOf>()
+                    .filter::<With<Transform3D>>()
+                    .filter::<With<Model>>()
+                    .filter::<Without<SkinOf>>()
                     .for_each(|entity| {
                         at += 1;
                         if nothing || results[at - 1] == NEW {
@@ -1563,7 +1564,7 @@ impl Tracked {
                     }
                 }
             } else {
-                let mut models = world.query::<ModelItem<'_>>().without::<SkinOf>();
+                let mut models = world.query::<ModelItem<'_>>().filter::<Without<SkinOf>>();
                 for &(k, entity) in &fresh {
                     let Some(item) = models.get(entity) else { continue };
                     if self
@@ -1742,9 +1743,9 @@ impl Tracked {
         seen.resize(self.entities.len(), false);
         world
             .query::<crate::Entity>()
-            .with::<Transform3D>()
-            .with::<Model>()
-            .without::<SkinOf>()
+            .filter::<With<Transform3D>>()
+            .filter::<With<Model>>()
+            .filter::<Without<SkinOf>>()
             .for_each(|entity| {
                 let bits = entity.to_bits();
                 if let Some(&slot) = self.slot_of.get(entity.index() as usize)
@@ -1798,6 +1799,7 @@ impl Tracked {
     }
 
     /// Bytes kept between frames.
+    #[cfg(any(test, feature = "bench-internals"))]
     pub fn bytes(&self) -> usize {
         self.entities.capacity() * size_of::<u64>()
             + self.hot.capacity() * size_of::<Hot>()
@@ -1962,6 +1964,7 @@ impl Transients {
     }
 
     /// Bytes kept between frames.
+    #[cfg(any(test, feature = "bench-internals"))]
     pub fn bytes(&self) -> usize {
         self.items.capacity() * size_of::<Transient>()
             + (self.free.capacity() + self.order.capacity() + self.next.capacity()) * size_of::<u32>()

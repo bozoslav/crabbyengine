@@ -118,12 +118,12 @@ fn main() {
             }
             // Fly on, keeping above the hills ahead.
             let rotation = Quat::from_rotation_y(yaw);
-            let mut at = ctx.camera3d.position + rotation * Vec3::NEG_Z * speed * dt;
+            let mut at = ctx.scene3d.camera.position + rotation * Vec3::NEG_Z * speed * dt;
             let ahead = at + rotation * Vec3::NEG_Z * 120.0;
             let floor = height(at.x, at.z).max(height(ahead.x, ahead.z));
             at.y += (floor + altitude - at.y) * (dt * 1.5).min(1.0);
-            ctx.camera3d.position = at;
-            ctx.camera3d.rotation = rotation * Quat::from_rotation_x(-0.22);
+            ctx.scene3d.camera.position = at;
+            ctx.scene3d.camera.rotation = rotation * Quat::from_rotation_x(-0.22);
 
             // Which tiles to start and drop.
             cells.update(at, STARTS);
@@ -135,17 +135,14 @@ fn main() {
                 // A job still building is dropped with its result.
                 if let Some(Tile::Live(entity, tile)) = tiles.remove(cell) {
                     ctx.world.despawn(entity);
-                    ctx.gfx.free_terrain_tile(tile);
+                    ctx.free(tile);
                     freed += 1;
                 }
             }
             // Finished tiles go on the GPU, a few a frame.
             let ground = *ground.get_or_insert_with(|| {
                 let shader = ctx.gfx.create_shader("ground", GROUND);
-                ctx.gfx.create_material(MaterialDesc {
-                    shader: Some(shader),
-                    ..MaterialDesc::color(Color::WHITE)
-                })
+                ctx.gfx.create_material(MaterialDesc::color(Color::WHITE).with_shader(shader))
             });
             let mut uploads = 0;
             for (&cell, tile) in tiles.iter_mut() {
@@ -186,14 +183,14 @@ fn main() {
             }
         })
         .setup(move |ctx| {
-            ctx.post.bloom = 0.08;
-            ctx.lighting.sun_direction = Sky::sun_direction_at(15.5);
-            ctx.lighting.shadow_distance = 500.0;
-            ctx.camera3d.far = LOAD + TILE;
+            ctx.scene3d.post.bloom = 0.08;
+            ctx.scene3d.lighting.sun_direction = Sky::sun_direction_at(15.5);
+            ctx.scene3d.lighting.shadow_distance = 500.0;
+            ctx.scene3d.camera.far = LOAD + TILE;
             // Fog thick enough that tiles appear behind it, not at an edge.
-            ctx.sky.fog_density = 0.0007;
-            ctx.sky.fog_height = 40.0;
-            ctx.sky.fog_falloff = 90.0;
-            ctx.camera3d.position = vec3(0.0, height(0.0, 0.0) + 60.0, 0.0);
+            ctx.scene3d.sky.fog_density = 0.0007;
+            ctx.scene3d.sky.fog_height = 40.0;
+            ctx.scene3d.sky.fog_falloff = 90.0;
+            ctx.scene3d.camera.position = vec3(0.0, height(0.0, 0.0) + 60.0, 0.0);
         }).run();
 }
