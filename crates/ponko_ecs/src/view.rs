@@ -946,6 +946,7 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         if self.empty {
             return Archetypes {
                 all: &[],
+                occupied: &[],
                 indices: None,
                 next: 0,
             };
@@ -959,6 +960,7 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         };
         Archetypes {
             all: &world.archetypes,
+            occupied: &world.slots.occupied,
             indices: indices.map(<[u32]>::iter),
             next: 0,
         }
@@ -1083,11 +1085,7 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         // a second match; then the item from the one archetype that has it.
         let index = single_archetype::<Q>(self.archetypes(), &self.ids, &self.filters, tracking, clock)?;
         let mut matches = QueryIter::<'v, Q> {
-            archetypes: Archetypes {
-                all: &self.world.archetypes,
-                indices: None,
-                next: index,
-            },
+            archetypes: Archetypes::scan(self.world, index),
             ids: self.ids,
             filters: self.filters,
             state: None,

@@ -72,6 +72,8 @@ pub struct World {
     // Append-only: query matching caches use indices and len() as a generation.
     pub(crate) archetypes: Vec<Archetype>,
     pub(crate) query_matches: crate::query::MatchCache,
+    /// Which archetypes hold entities (queries skip the others by it).
+    pub(crate) slots: crate::slots::Slots,
     /// Reused work-plan storage of parallel queries.
     #[cfg(feature = "parallel")]
     pub(crate) par_plan: crate::query::ParPlan,
@@ -183,6 +185,7 @@ impl World {
             by_name: HashMap::new(),
             archetypes: Vec::new(),
             query_matches: Default::default(),
+            slots: Default::default(),
             #[cfg(feature = "parallel")]
             par_plan: Default::default(),
             archetype_by_ids: HashMap::new(),
@@ -349,6 +352,9 @@ impl World {
             });
         }
         arch.entities.push(e);
+        if row == 0 {
+            self.slots.filled(a);
+        }
         self.entities.set(
             e,
             Location {
@@ -370,9 +376,13 @@ impl World {
             self.changes
                 .log_despawn(&self.infos, &self.archetypes[loc.archetype as usize], e);
         }
-        let moved = unsafe { self.archetypes[loc.archetype as usize].swap_remove_drop(loc.row as usize) };
+        let a = loc.archetype as usize;
+        let moved = unsafe { self.archetypes[a].swap_remove_drop(loc.row as usize) };
         if let Some(moved) = moved {
             self.entities.set_row(moved, loc.row as usize);
+        }
+        if self.archetypes[a].is_empty() {
+            self.slots.emptied(a);
         }
         true
     }
@@ -1085,6 +1095,9 @@ impl World {
             unsafe { std::ptr::copy_nonoverlapping(src, c.ptr(row), c.size()) };
         }
         arch.entities.push(e);
+        if row == 0 {
+            self.slots.filled(a);
+        }
         self.entities.set(
             e,
             Location {
@@ -1175,9 +1188,13 @@ impl World {
         assert!(ids.len() <= MAX, "for_each_chunk: at most {MAX} components");
         self.recorder.note(|l| ids.iter().for_each(|&id| l.component(id, true)));
         let mut ptrs = [std::ptr::null_mut(); MAX];
-        let archetypes = self
-            .query_matches
-            .chunk_archetypes(&self.archetypes, ids, None, crate::QueryCache::Auto);
+        let archetypes = self.query_matches.chunk_archetypes(
+            &self.archetypes,
+            &self.slots.occupied,
+            ids,
+            None,
+            crate::QueryCache::Auto,
+        );
         'arch: for arch in archetypes {
             if arch.is_empty() {
                 continue;
@@ -1208,6 +1225,7 @@ impl World {
         }
         let a = self.archetypes.len();
         self.archetypes.push(Archetype::new(ids.into(), &self.infos));
+        self.slots.add(a);
         self.archetype_by_ids.insert(ids.into(), a);
         a
     }
@@ -1298,6 +1316,12 @@ impl World {
                 row: new_row as u32,
             },
         );
+        if new_row == 0 {
+            self.slots.filled(dst);
+        }
+        if last == 0 {
+            self.slots.emptied(src);
+        }
         new_row
     }
 }
