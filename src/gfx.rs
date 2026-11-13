@@ -466,14 +466,20 @@ impl Graphics {
         Ok(font)
     }
 
-    /// Loads an image from the `assets/` folder (PNG for now).
+    /// Loads an image from the `assets/` folder: PNG, and JPEG with the
+    /// default `image-jpeg` feature. WebP, BMP, TGA, GIF, TIFF, ICO, QOI,
+    /// PNM, DDS, HDR and EXR each have an opt-in `image-*` cargo feature
+    /// (`image-formats` turns them all on), none of which needs `3d`. The
+    /// format is found from the file's first bytes, not its extension (TGA,
+    /// which has none, from the extension).
     ///
     /// Do this once in setup and keep the [`Texture`]; it's a cheap handle.
     /// Loading the same file again returns the same texture (use
     /// [`create_texture`](Self::create_texture) for a copy of your own).
     ///
     /// # Panics
-    /// With a clear message if the file is missing or isn't a valid image.
+    /// With a clear message if the file is missing, isn't a valid image, or is
+    /// in a format the build doesn't read (the message names the feature to turn on).
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -489,9 +495,11 @@ impl Graphics {
     /// [`load_texture`](Self::load_texture) with errors as values, for
     /// optional assets: [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound)
     /// if no source has it, [`Io`](crate::error::ErrorKind::Io) if it can't be
-    /// read, [`Decode`](crate::error::ErrorKind::Decode) if it isn't an image.
-    /// Like `load_texture`, it also names the texture, so sprites showing it
-    /// can be saved.
+    /// read, [`Decode`](crate::error::ErrorKind::Decode) if it isn't an image,
+    /// [`Unsupported`](crate::error::ErrorKind::Unsupported) if it is an image in
+    /// a format this build leaves out (the message names the `image-*`
+    /// feature to enable). Like `load_texture`, it also names the texture, so
+    /// sprites showing it can be saved.
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -511,9 +519,7 @@ impl Graphics {
                 // Acquire, decode (CPU only), then create on the GPU (game thread).
                 let origin = found.origin.clone();
                 let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
-                let image = assets::decode_image(&bytes).map_err(|e| {
-                    crate::error::Error::decode(path, format!("{} is not a valid image: {e}", origin.describe(path)))
-                })?;
+                let image = assets::decode_image(&bytes, path, &origin.describe(path))?;
                 let texture = self.create_texture(image.width, image.height, &image.rgba);
                 self.asset_ledger
                     .own(crate::inventory::AssetClass::Texture, texture.id, path);

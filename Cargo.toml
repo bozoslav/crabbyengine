@@ -126,7 +126,7 @@ web-sys = { version = "0.3.107", features = ["Window", "Document", "Element", "L
 bench-internals = []
 # Pure Rust Recast baking and Detour queries; no window, Bevy or async runtime.
 navmesh = ["3d", "dep:navmesh-rs"]
-default = ["audio", "window", "inspector", "gamepad"]
+default = ["audio", "window", "inspector", "gamepad", "image-jpeg"]
 # A window and GPU rendering (winit + wgpu). Off: `Game::run_headless` only,
 # for simulation servers and CI; drawing calls do nothing, `Game::run` panics.
 window = ["dep:wgpu", "dep:winit", "dep:pollster"]
@@ -176,7 +176,52 @@ physics-determinism = ["physics", "rapier2d/enhanced-determinism", "rapier3d?/en
 # 3D: meshes, materials, glTF models, a perspective camera and sun light,
 # drawn under the 2D layer (`Transform3D`, `Model`, `ctx.scene3d`).
 # Off: no 3D pass, no glTF loader in the build.
-3d = ["dep:gltf", "dep:half", "image/jpeg", "image/hdr", "image/exr"]
+3d = ["dep:gltf", "dep:half", "image-jpeg", "image-hdr", "image-exr"]
+
+# Image formats `load_texture` and the other texture loaders can read, chosen
+# without the `3d` feature. PNG is always built in (screenshots are PNG files).
+# The format of a file is found from its first bytes, so a JPEG named
+# `.png` still loads; a file in a format that is left out fails with an
+# `Unsupported` error that names the feature to enable.
+# JPEG, on by default (photos, backgrounds). `3d` needs it for glTF textures.
+image-jpeg = ["image/jpeg"]
+# WebP, lossy and lossless.
+image-webp = ["image/webp"]
+# BMP.
+image-bmp = ["image/bmp"]
+# TGA (no magic bytes: found from the `.tga` extension).
+image-tga = ["image/tga"]
+# GIF (the first frame).
+image-gif = ["image/gif"]
+# TIFF.
+image-tiff = ["image/tiff"]
+# Windows icons (`.ico`).
+image-ico = ["image/ico"]
+# QOI.
+image-qoi = ["image/qoi"]
+# PNM (`.pbm`, `.pgm`, `.ppm`, `.pam`).
+image-pnm = ["image/pnm"]
+# DDS (the formats the image crate decodes, not the GPU-compressed ones).
+image-dds = ["image/dds"]
+# Radiance HDR; loaded as 8-bit color. `3d` turns it on for environment maps.
+image-hdr = ["image/hdr"]
+# OpenEXR; loaded as 8-bit color. `3d` turns it on for environment maps.
+image-exr = ["image/exr"]
+# Every format above.
+image-formats = [
+    "image-jpeg",
+    "image-webp",
+    "image-bmp",
+    "image-tga",
+    "image-gif",
+    "image-tiff",
+    "image-ico",
+    "image-qoi",
+    "image-pnm",
+    "image-dds",
+    "image-hdr",
+    "image-exr",
+]
 
 # Runs on the main thread (AppKit requires it), so it is its own program
 # without the test harness. Does nothing off macOS.
