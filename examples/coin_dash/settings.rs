@@ -583,6 +583,7 @@ impl SettingsUi {
             .root()
             .layout(ponko::ui::UiLayout::fill().padding(16.0).gap(6.0))
             .background(Color::hex(0x14181f))
+            .name("settings")
             .id();
         ui.label(root, "Settings")
             .layout(ponko::ui::UiLayout::row(40.0))
@@ -596,11 +597,16 @@ impl SettingsUi {
             .layout(ponko::ui::UiLayout::fixed(40.0, 34.0))
             .accessible_name("Smaller UI")
             .id();
-        let scale_label = ui.label(strip, "").layout(ponko::ui::UiLayout::fixed(70.0, 34.0)).id();
+        let scale_label = ui
+            .label(strip, "")
+            .layout(ponko::ui::UiLayout::fixed(70.0, 34.0))
+            .name("settings.scale")
+            .id();
         let scale_up = ui
             .button(strip, "+")
             .layout(ponko::ui::UiLayout::fixed(40.0, 34.0))
             .accessible_name("Larger UI")
+            .name("settings.scale_up")
             .id();
 
         let strip = ui.panel(root).layout(ponko::ui::UiLayout::row(34.0).gap(8.0)).id();
@@ -653,6 +659,7 @@ impl SettingsUi {
         let back = ui
             .button(strip, "Back")
             .layout(ponko::ui::UiLayout::fixed(120.0, 36.0))
+            .name("settings.back")
             .id();
         let status = ui
             .label(root, "")

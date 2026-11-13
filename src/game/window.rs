@@ -355,26 +355,7 @@ where
             // A sample count set in setup, before the first frame is drawn.
             self.ctx.follow_msaa();
             if let Some(f) = frame_fn {
-                let index = self.config.systems.partition_point(|s| s.stage <= Phase::Frame);
-                let id = next_system_id();
-                self.config.systems.insert(
-                    index,
-                    System {
-                        key: SystemId(id),
-                        builtin: None,
-                        name: "setup closure",
-                        stage: Phase::Frame,
-                        run: super::Run::Ctx(f),
-                        every: 1,
-                        phase: 0,
-                        id,
-                        access: None,
-                        last: false,
-                        changes_seen: Default::default(),
-                        enforced: false,
-                        barrier: false,
-                    },
-                );
+                self.config.add_setup_closure(f);
             }
             self.started = true;
         }
