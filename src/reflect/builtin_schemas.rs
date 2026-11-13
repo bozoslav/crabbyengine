@@ -426,13 +426,13 @@ fn shape3d() -> ValueSchema {
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::reflect) mod tests {
     use super::*;
     use serde_json::{Value, json};
 
     /// Panics unless `value` has exactly the shape `schema` describes: every
     /// field present and of its type, no field more.
-    fn validate(schema: &ValueSchema, value: &Value) {
+    pub(in crate::reflect) fn validate(schema: &ValueSchema, value: &Value) {
         match schema {
             Object(fields) | StrictObject(fields) => {
                 let object = value.as_object().unwrap_or_else(|| panic!("object: {value}"));

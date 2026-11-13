@@ -782,7 +782,7 @@ impl Graphics {
         self.font_atlas = Some(crate::texture::Texture::new(1, Text::ATLAS_SIZE, Text::ATLAS_SIZE));
     }
 
-    fn white_texture(&mut self) -> crate::texture::Texture {
+    pub(crate) fn white_texture(&mut self) -> crate::texture::Texture {
         if let Some(t) = self.white {
             return t;
         }

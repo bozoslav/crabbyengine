@@ -476,6 +476,20 @@ impl core::fmt::Debug for ponko_ffi::PonkoParticleBlend3D
 pub fn ponko_ffi::PonkoParticleBlend3D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for ponko_ffi::PonkoParticleBlend3D
 impl core::marker::StructuralPartialEq for ponko_ffi::PonkoParticleBlend3D
+#[repr(C)] pub enum ponko_ffi::PonkoParticleShape2D
+pub ponko_ffi::PonkoParticleShape2D::PONKO_PARTICLES2D_CIRCLE
+pub ponko_ffi::PonkoParticleShape2D::PONKO_PARTICLES2D_CONE
+pub ponko_ffi::PonkoParticleShape2D::PONKO_PARTICLES2D_POINT
+pub ponko_ffi::PonkoParticleShape2D::PONKO_PARTICLES2D_RECT
+impl core::clone::Clone for ponko_ffi::PonkoParticleShape2D
+pub fn ponko_ffi::PonkoParticleShape2D::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ffi::PonkoParticleShape2D
+impl core::cmp::PartialEq for ponko_ffi::PonkoParticleShape2D
+pub fn ponko_ffi::PonkoParticleShape2D::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_ffi::PonkoParticleShape2D
+pub fn ponko_ffi::PonkoParticleShape2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_ffi::PonkoParticleShape2D
+impl core::marker::StructuralPartialEq for ponko_ffi::PonkoParticleShape2D
 #[repr(C)] pub enum ponko_ffi::PonkoParticleShape3D
 pub ponko_ffi::PonkoParticleShape3D::PONKO_PARTICLES_BOX
 pub ponko_ffi::PonkoParticleShape3D::PONKO_PARTICLES_CONE
@@ -2001,6 +2015,42 @@ impl core::fmt::Debug for ponko_ffi::PonkoParticleKey
 pub fn ponko_ffi::PonkoParticleKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for ponko_ffi::PonkoParticleKey
 impl core::marker::StructuralPartialEq for ponko_ffi::PonkoParticleKey
+#[repr(C)] pub struct ponko_ffi::PonkoParticleSettings2D
+pub ponko_ffi::PonkoParticleSettings2D::blend: u32
+pub ponko_ffi::PonkoParticleSettings2D::burst: u32
+pub ponko_ffi::PonkoParticleSettings2D::color_key_count: usize
+pub ponko_ffi::PonkoParticleSettings2D::color_keys: *const ponko_ffi::PonkoParticleColorKey
+pub ponko_ffi::PonkoParticleSettings2D::drag: f32
+pub ponko_ffi::PonkoParticleSettings2D::duration: f32
+pub ponko_ffi::PonkoParticleSettings2D::gravity: ponko_ffi::PonkoVec2
+pub ponko_ffi::PonkoParticleSettings2D::has_texture: bool
+pub ponko_ffi::PonkoParticleSettings2D::lifetime_max: f32
+pub ponko_ffi::PonkoParticleSettings2D::lifetime_min: f32
+pub ponko_ffi::PonkoParticleSettings2D::looping: bool
+pub ponko_ffi::PonkoParticleSettings2D::material: ponko_ffi::PonkoSpriteMaterial
+pub ponko_ffi::PonkoParticleSettings2D::max_particles: u32
+pub ponko_ffi::PonkoParticleSettings2D::rate: f32
+pub ponko_ffi::PonkoParticleSettings2D::rotation_max: f32
+pub ponko_ffi::PonkoParticleSettings2D::rotation_min: f32
+pub ponko_ffi::PonkoParticleSettings2D::seed: u64
+pub ponko_ffi::PonkoParticleSettings2D::shape: u32
+pub ponko_ffi::PonkoParticleSettings2D::shape_size: ponko_ffi::PonkoVec2
+pub ponko_ffi::PonkoParticleSettings2D::sheet_columns: u32
+pub ponko_ffi::PonkoParticleSettings2D::sheet_rows: u32
+pub ponko_ffi::PonkoParticleSettings2D::size_key_count: usize
+pub ponko_ffi::PonkoParticleSettings2D::size_keys: *const ponko_ffi::PonkoParticleKey
+pub ponko_ffi::PonkoParticleSettings2D::size_max: f32
+pub ponko_ffi::PonkoParticleSettings2D::size_min: f32
+pub ponko_ffi::PonkoParticleSettings2D::space: u32
+pub ponko_ffi::PonkoParticleSettings2D::speed_max: f32
+pub ponko_ffi::PonkoParticleSettings2D::speed_min: f32
+pub ponko_ffi::PonkoParticleSettings2D::texture: ponko_ffi::PonkoTexture
+pub ponko_ffi::PonkoParticleSettings2D::z: f32
+impl core::clone::Clone for ponko_ffi::PonkoParticleSettings2D
+pub fn ponko_ffi::PonkoParticleSettings2D::clone(&self) -> Self
+impl core::fmt::Debug for ponko_ffi::PonkoParticleSettings2D
+pub fn ponko_ffi::PonkoParticleSettings2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_ffi::PonkoParticleSettings2D
 #[repr(C)] pub struct ponko_ffi::PonkoParticleSettings3D
 pub ponko_ffi::PonkoParticleSettings3D::blend: u32
 pub ponko_ffi::PonkoParticleSettings3D::burst: u32
@@ -3172,6 +3222,7 @@ pub const ponko_ffi::PONKO_SHADER_RELOAD_FAILED: u32
 pub const ponko_ffi::PONKO_SHADER_SPRITE: u32
 pub const ponko_ffi::PONKO_SINCE_LAST_RUN: u64
 pub const ponko_ffi::PONKO_SYSTEM_ANIMATE_SPRITES: u32
+pub const ponko_ffi::PONKO_SYSTEM_DRAW_PARTICLES: u32
 pub const ponko_ffi::PONKO_SYSTEM_DRAW_SPRITES: u32
 pub const ponko_ffi::PONKO_SYSTEM_DRAW_TILEMAPS: u32
 pub const ponko_ffi::PONKO_SYSTEM_FOLLOW_ATTACHMENTS: u32
@@ -3467,7 +3518,10 @@ pub const ponko_ffi::PONKO_UI_SCREEN: u64
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_overlap_capsule3d(*mut ponko_ffi::PonkoCtx, ponko_ffi::PonkoVec3, f32, f32, ponko_ffi::PonkoQueryFilter3D, *mut ponko_ffi::PonkoEntity, usize, *mut usize) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_overlap_sphere3d(*mut ponko_ffi::PonkoCtx, ponko_ffi::PonkoVec3, f32, ponko_ffi::PonkoQueryFilter3D, *mut ponko_ffi::PonkoEntity, usize, *mut usize) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_particle_burst(*mut ponko_ffi::PonkoCtx, u64, u32) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_particle_burst2d(*mut ponko_ffi::PonkoCtx, u64, u32) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_particle_live_count(*mut ponko_ffi::PonkoCtx, u64, *mut u32) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_particle_live_count2d(*mut ponko_ffi::PonkoCtx, u64, *mut u32) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_particle_update2d(*mut ponko_ffi::PonkoCtx, u64, f32) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_pause(*mut ponko_ffi::PonkoCtx) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_perf_report(*const ponko_ffi::PonkoCtx, *mut core::ffi::primitives::c_char, usize, *mut usize) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_physics3d_add_mesh(*mut ponko_ffi::PonkoCtx, *const ponko_ffi::PonkoCollisionMeshData, *mut ponko_ffi::PonkoCollisionMesh) -> ponko_ffi::PonkoStatus
@@ -3499,6 +3553,7 @@ pub const ponko_ffi::PONKO_UI_SCREEN: u64
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_remove_later(*mut ponko_ffi::PonkoCtx, u64, u32) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_remove_line3d(*mut ponko_ffi::PonkoCtx, u64) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_remove_nav(*mut ponko_ffi::PonkoCtx, u64) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_remove_particle_emitter2d(*mut ponko_ffi::PonkoCtx, u64) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_remove_particle_emitter3d(*mut ponko_ffi::PonkoCtx, u64) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_remove_text3d(*mut ponko_ffi::PonkoCtx, u64) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_remove_trail3d(*mut ponko_ffi::PonkoCtx, u64) -> ponko_ffi::PonkoStatus
@@ -3552,6 +3607,7 @@ pub const ponko_ffi::PONKO_UI_SCREEN: u64
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_set_nav_destination(*mut ponko_ffi::PonkoCtx, u64, *const ponko_ffi::PonkoVec3) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_set_nav_obstacle(*mut ponko_ffi::PonkoCtx, u64, ponko_ffi::PonkoVec3, ponko_ffi::PonkoVec3) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_set_occlusion_culling(*mut ponko_ffi::PonkoCtx, bool) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_set_particle_emitter2d(*mut ponko_ffi::PonkoCtx, u64, *const ponko_ffi::PonkoParticleSettings2D) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_set_particle_emitter3d(*mut ponko_ffi::PonkoCtx, u64, *const ponko_ffi::PonkoParticleSettings3D) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_set_perf_hud(*mut ponko_ffi::PonkoCtx, bool) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_set_post(*mut ponko_ffi::PonkoCtx, *const ponko_ffi::PonkoPost) -> ponko_ffi::PonkoStatus
@@ -3885,6 +3941,7 @@ pub const ponko_ffi::PONKO_UI_SCREEN: u64
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_net_messages_steam_lobby_set_metadata(*mut ponko_ffi::PonkoNetMessages, *const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_net_messages_steam_peer(*mut ponko_ffi::PonkoNetMessages, u64, *mut u64) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub c fn ponko_ffi::ponko_note_allocation(usize)
+#[no_mangle] pub c fn ponko_ffi::ponko_particle_settings2d_default() -> ponko_ffi::PonkoParticleSettings2D
 #[no_mangle] pub c fn ponko_ffi::ponko_particle_settings3d_default() -> ponko_ffi::PonkoParticleSettings3D
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_perf_check(*const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char, *mut core::ffi::primitives::c_char, usize, *mut usize) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_perf_compare(*const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char, f32, *mut core::ffi::primitives::c_char, usize, *mut usize) -> ponko_ffi::PonkoStatus

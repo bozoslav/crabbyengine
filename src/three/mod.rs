@@ -67,10 +67,7 @@ pub(crate) use material_variant::{MaterialInstancing, MaterialSides, MaterialVar
 pub(crate) mod shadow_atlas;
 pub(crate) use shadow_atlas::{MAX_LIGHT_SHADOW_ATLAS, MIN_LIGHT_SHADOW_ATLAS};
 pub(crate) mod particles;
-pub use particles::{
-    ParticleBlend3D, ParticleCurve, ParticleEmitter3D, ParticleGradient, ParticleSettings3D, ParticleShape3D,
-    ParticleSpace3D,
-};
+pub use particles::{ParticleBlend3D, ParticleEmitter3D, ParticleSettings3D, ParticleShape3D};
 mod decal;
 mod post;
 pub(crate) mod projected;

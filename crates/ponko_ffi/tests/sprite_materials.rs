@@ -245,3 +245,90 @@ fn the_default_sprite_material_desc_is_the_built_in_look() {
     assert_eq!(d.shader.id, PONKO_HANDLE_NONE);
     assert_eq!(d.params, [0.0; 16]);
 }
+
+#[derive(Default)]
+struct Loaded {
+    first: Option<PonkoSpriteShader>,
+    again: Option<PonkoSpriteShader>,
+    missing: Option<PonkoStatus>,
+    broken: Option<PonkoStatus>,
+    done: bool,
+}
+
+unsafe extern "C" fn load_setup(ctx: *mut PonkoCtx, user: *mut c_void) {
+    unsafe {
+        let loaded = &mut *user.cast::<Loaded>();
+        let source = ponko_memory_source_new(c"shaders".as_ptr());
+        let tint = TINT.to_bytes();
+        let broken = BROKEN.to_bytes();
+        assert_eq!(
+            ponko_memory_source_insert(source, c"tint.wgsl".as_ptr(), tint.as_ptr(), tint.len()),
+            PONKO_OK
+        );
+        assert_eq!(
+            ponko_memory_source_insert(source, c"broken.wgsl".as_ptr(), broken.as_ptr(), broken.len()),
+            PONKO_OK
+        );
+        assert_eq!(ponko_ctx_add_memory_source(ctx, source), PONKO_OK);
+        ponko_memory_source_free(source);
+
+        let mut shader = PonkoSpriteShader { id: PONKO_HANDLE_NONE };
+        assert_eq!(
+            ponko_ctx_load_sprite_shader(ctx, c"tint.wgsl".as_ptr(), &mut shader),
+            PONKO_OK
+        );
+        loaded.first = Some(shader);
+        let mut again = PonkoSpriteShader { id: PONKO_HANDLE_NONE };
+        assert_eq!(
+            ponko_ctx_load_sprite_shader(ctx, c"tint.wgsl".as_ptr(), &mut again),
+            PONKO_OK
+        );
+        loaded.again = Some(again);
+
+        let mut untouched = shader;
+        loaded.missing = Some(ponko_ctx_load_sprite_shader(
+            ctx,
+            c"missing.wgsl".as_ptr(),
+            &mut untouched,
+        ));
+        loaded.broken = Some(ponko_ctx_load_sprite_shader(
+            ctx,
+            c"broken.wgsl".as_ptr(),
+            &mut untouched,
+        ));
+        assert_eq!(untouched, shader, "a failed load leaves the output alone");
+        assert_eq!(
+            ponko_ctx_load_sprite_shader(ctx, null(), &mut untouched),
+            PONKO_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            ponko_ctx_load_sprite_shader(ctx, c"tint.wgsl".as_ptr(), null_mut()),
+            PONKO_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            ponko_ctx_load_sprite_shader(null_mut(), c"tint.wgsl".as_ptr(), &mut untouched),
+            PONKO_INVALID_ARGUMENT
+        );
+        loaded.done = true;
+    }
+}
+
+#[test]
+fn sprite_shaders_load_from_asset_sources_once() {
+    let mut loaded = Loaded::default();
+    unsafe {
+        let g = ponko_game_new(c"sprite shaders".as_ptr(), 64, 64);
+        let mut world = null_mut();
+        assert_eq!(
+            ponko_game_run_headless(g, 1, Some(load_setup), (&raw mut loaded).cast(), &mut world),
+            PONKO_OK
+        );
+        ponko_world_free(world);
+    }
+    assert!(loaded.done);
+    let first = loaded.first.unwrap();
+    assert_ne!(first.id, PONKO_HANDLE_NONE);
+    assert_eq!(loaded.again, Some(first), "a second load is the cached shader");
+    assert_ne!(loaded.missing, Some(PONKO_OK));
+    assert_ne!(loaded.broken, Some(PONKO_OK));
+}

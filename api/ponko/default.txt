@@ -631,6 +631,38 @@ pub fn ponko::d2::ObjectShape::eq(&self, &Self) -> bool
 impl core::fmt::Debug for ponko::d2::ObjectShape
 pub fn ponko::d2::ObjectShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::d2::ObjectShape
+#[non_exhaustive] pub enum ponko::d2::ParticleShape
+pub ponko::d2::ParticleShape::Circle
+pub ponko::d2::ParticleShape::Circle::radius: f32
+pub ponko::d2::ParticleShape::Cone
+pub ponko::d2::ParticleShape::Cone::angle: f32
+pub ponko::d2::ParticleShape::Point
+pub ponko::d2::ParticleShape::Rect
+pub ponko::d2::ParticleShape::Rect::half_extents: glam::f32::vec2::Vec2
+impl core::clone::Clone for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::particles::ParticleShape2D
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleShape2D
+pub enum ponko::d2::ParticleSpace
+pub ponko::d2::ParticleSpace::Local
+pub ponko::d2::ParticleSpace::World
+impl core::clone::Clone for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::clone(&self) -> Self
+impl core::cmp::Eq for ponko::particles::ParticleSpace
+impl core::cmp::PartialEq for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::particles::ParticleSpace
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleSpace
 #[repr(C)] pub struct ponko::d2::Animation
 pub ponko::d2::Animation::first: u32
 pub ponko::d2::Animation::fps: f32
@@ -857,6 +889,101 @@ pub fn ponko::flow::NavGrid::eq(&self, &Self) -> bool
 impl core::fmt::Debug for ponko::flow::NavGrid
 pub fn ponko::flow::NavGrid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::flow::NavGrid
+pub struct ponko::d2::ParticleCurve(_)
+impl ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::keys(&self) -> &[(f32, f32)]
+pub fn ponko::particles::ParticleCurve::new(alloc::vec::Vec<(f32, f32)>) -> Self
+pub fn ponko::particles::ParticleCurve::sample(&self, f32) -> f32
+impl core::clone::Clone for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleCurve
+pub struct ponko::d2::ParticleEmitter
+impl ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::burst(&mut self, usize)
+pub fn ponko::particles::ParticleEmitter2D::live_count(&self) -> usize
+pub fn ponko::particles::ParticleEmitter2D::new(ponko::particles::ParticleSettings2D) -> Self
+pub fn ponko::particles::ParticleEmitter2D::settings(&self) -> &ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleEmitter2D::update(&mut self, f32, &ponko::d2::Transform)
+impl core::clone::Clone for ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::clone(&self) -> Self
+impl core::default::Default for ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl ponko_ecs::bundle::Component for ponko::particles::ParticleEmitter2D
+pub struct ponko::d2::ParticleGradient(_)
+impl ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::keys(&self) -> &[(f32, ponko::color::Color)]
+pub fn ponko::particles::ParticleGradient::new(alloc::vec::Vec<(f32, ponko::color::Color)>) -> Self
+pub fn ponko::particles::ParticleGradient::sample(&self, f32) -> ponko::color::Color
+impl core::clone::Clone for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleGradient
+#[non_exhaustive] pub struct ponko::d2::ParticleSettings
+pub ponko::d2::ParticleSettings::blend: ponko::d2::BlendMode
+pub ponko::d2::ParticleSettings::burst: usize
+pub ponko::d2::ParticleSettings::color_over_life: ponko::particles::ParticleGradient
+pub ponko::d2::ParticleSettings::drag: f32
+pub ponko::d2::ParticleSettings::duration: f32
+pub ponko::d2::ParticleSettings::gravity: glam::f32::vec2::Vec2
+pub ponko::d2::ParticleSettings::lifetime: (f32, f32)
+pub ponko::d2::ParticleSettings::looping: bool
+pub ponko::d2::ParticleSettings::material: core::option::Option<ponko::d2::SpriteMaterial>
+pub ponko::d2::ParticleSettings::max_particles: usize
+pub ponko::d2::ParticleSettings::rate: f32
+pub ponko::d2::ParticleSettings::rotation: (f32, f32)
+pub ponko::d2::ParticleSettings::seed: u64
+pub ponko::d2::ParticleSettings::shape: ponko::particles::ParticleShape2D
+pub ponko::d2::ParticleSettings::sheet: (u32, u32)
+pub ponko::d2::ParticleSettings::size: (f32, f32)
+pub ponko::d2::ParticleSettings::size_over_life: ponko::particles::ParticleCurve
+pub ponko::d2::ParticleSettings::space: ponko::particles::ParticleSpace
+pub ponko::d2::ParticleSettings::speed: (f32, f32)
+pub ponko::d2::ParticleSettings::texture: core::option::Option<ponko::texture::Texture>
+pub ponko::d2::ParticleSettings::z: f32
+impl ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::with_blend(self, ponko::d2::BlendMode) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_burst(self, usize) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_color_over_life(self, ponko::particles::ParticleGradient) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_drag(self, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_duration(self, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_gravity(self, glam::f32::vec2::Vec2) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_lifetime(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_looping(self, bool) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_material(self, impl core::convert::Into<core::option::Option<ponko::d2::SpriteMaterial>>) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_max_particles(self, usize) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_rate(self, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_rotation(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_seed(self, u64) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_shape(self, ponko::particles::ParticleShape2D) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_sheet(self, u32, u32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_size(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_size_over_life(self, ponko::particles::ParticleCurve) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_space(self, ponko::particles::ParticleSpace) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_speed(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_texture(self, impl core::convert::Into<core::option::Option<ponko::texture::Texture>>) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_z(self, f32) -> Self
+impl core::clone::Clone for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleSettings2D
 #[non_exhaustive] pub struct ponko::d2::PlacedTile
 pub ponko::d2::PlacedTile::cell: glam::u32::uvec2::UVec2
 pub ponko::d2::PlacedTile::flip: u8
@@ -1559,6 +1686,7 @@ impl core::marker::StructuralPartialEq for ponko::game::SystemId
 pub struct ponko::game::Systems
 impl ponko::game::Systems
 pub const ponko::game::Systems::ANIMATE_SPRITES: ponko::game::SystemId
+pub const ponko::game::Systems::DRAW_PARTICLES: ponko::game::SystemId
 pub const ponko::game::Systems::DRAW_SPRITES: ponko::game::SystemId
 pub const ponko::game::Systems::DRAW_TILEMAPS: ponko::game::SystemId
 pub const ponko::game::Systems::FOLLOW_ATTACHMENTS: ponko::game::SystemId
@@ -2667,6 +2795,134 @@ pub fn ponko::net::Pose::extrapolate(&Self, &Self, f32, f32) -> Self
 pub fn ponko::net::Pose::interpolate(&Self, &Self, f32, f32) -> Self
 pub const fn ponko::net::seq_diff(u16, u16) -> i16
 pub const fn ponko::net::seq_newer(u16, u16) -> bool
+pub mod ponko::particles
+#[non_exhaustive] pub enum ponko::particles::ParticleShape2D
+pub ponko::particles::ParticleShape2D::Circle
+pub ponko::particles::ParticleShape2D::Circle::radius: f32
+pub ponko::particles::ParticleShape2D::Cone
+pub ponko::particles::ParticleShape2D::Cone::angle: f32
+pub ponko::particles::ParticleShape2D::Point
+pub ponko::particles::ParticleShape2D::Rect
+pub ponko::particles::ParticleShape2D::Rect::half_extents: glam::f32::vec2::Vec2
+impl core::clone::Clone for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::particles::ParticleShape2D
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleShape2D
+pub enum ponko::particles::ParticleSpace
+pub ponko::particles::ParticleSpace::Local
+pub ponko::particles::ParticleSpace::World
+impl core::clone::Clone for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::clone(&self) -> Self
+impl core::cmp::Eq for ponko::particles::ParticleSpace
+impl core::cmp::PartialEq for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::particles::ParticleSpace
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleSpace
+pub struct ponko::particles::ParticleCurve(_)
+impl ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::keys(&self) -> &[(f32, f32)]
+pub fn ponko::particles::ParticleCurve::new(alloc::vec::Vec<(f32, f32)>) -> Self
+pub fn ponko::particles::ParticleCurve::sample(&self, f32) -> f32
+impl core::clone::Clone for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleCurve
+pub struct ponko::particles::ParticleEmitter2D
+impl ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::burst(&mut self, usize)
+pub fn ponko::particles::ParticleEmitter2D::live_count(&self) -> usize
+pub fn ponko::particles::ParticleEmitter2D::new(ponko::particles::ParticleSettings2D) -> Self
+pub fn ponko::particles::ParticleEmitter2D::settings(&self) -> &ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleEmitter2D::update(&mut self, f32, &ponko::d2::Transform)
+impl core::clone::Clone for ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::clone(&self) -> Self
+impl core::default::Default for ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl ponko_ecs::bundle::Component for ponko::particles::ParticleEmitter2D
+pub struct ponko::particles::ParticleGradient(_)
+impl ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::keys(&self) -> &[(f32, ponko::color::Color)]
+pub fn ponko::particles::ParticleGradient::new(alloc::vec::Vec<(f32, ponko::color::Color)>) -> Self
+pub fn ponko::particles::ParticleGradient::sample(&self, f32) -> ponko::color::Color
+impl core::clone::Clone for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleGradient
+#[non_exhaustive] pub struct ponko::particles::ParticleSettings2D
+pub ponko::particles::ParticleSettings2D::blend: ponko::d2::BlendMode
+pub ponko::particles::ParticleSettings2D::burst: usize
+pub ponko::particles::ParticleSettings2D::color_over_life: ponko::particles::ParticleGradient
+pub ponko::particles::ParticleSettings2D::drag: f32
+pub ponko::particles::ParticleSettings2D::duration: f32
+pub ponko::particles::ParticleSettings2D::gravity: glam::f32::vec2::Vec2
+pub ponko::particles::ParticleSettings2D::lifetime: (f32, f32)
+pub ponko::particles::ParticleSettings2D::looping: bool
+pub ponko::particles::ParticleSettings2D::material: core::option::Option<ponko::d2::SpriteMaterial>
+pub ponko::particles::ParticleSettings2D::max_particles: usize
+pub ponko::particles::ParticleSettings2D::rate: f32
+pub ponko::particles::ParticleSettings2D::rotation: (f32, f32)
+pub ponko::particles::ParticleSettings2D::seed: u64
+pub ponko::particles::ParticleSettings2D::shape: ponko::particles::ParticleShape2D
+pub ponko::particles::ParticleSettings2D::sheet: (u32, u32)
+pub ponko::particles::ParticleSettings2D::size: (f32, f32)
+pub ponko::particles::ParticleSettings2D::size_over_life: ponko::particles::ParticleCurve
+pub ponko::particles::ParticleSettings2D::space: ponko::particles::ParticleSpace
+pub ponko::particles::ParticleSettings2D::speed: (f32, f32)
+pub ponko::particles::ParticleSettings2D::texture: core::option::Option<ponko::texture::Texture>
+pub ponko::particles::ParticleSettings2D::z: f32
+impl ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::with_blend(self, ponko::d2::BlendMode) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_burst(self, usize) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_color_over_life(self, ponko::particles::ParticleGradient) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_drag(self, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_duration(self, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_gravity(self, glam::f32::vec2::Vec2) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_lifetime(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_looping(self, bool) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_material(self, impl core::convert::Into<core::option::Option<ponko::d2::SpriteMaterial>>) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_max_particles(self, usize) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_rate(self, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_rotation(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_seed(self, u64) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_shape(self, ponko::particles::ParticleShape2D) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_sheet(self, u32, u32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_size(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_size_over_life(self, ponko::particles::ParticleCurve) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_space(self, ponko::particles::ParticleSpace) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_speed(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_texture(self, impl core::convert::Into<core::option::Option<ponko::texture::Texture>>) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_z(self, f32) -> Self
+impl core::clone::Clone for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleSettings2D
 pub mod ponko::perf
 pub use ponko::perf::Instant
 #[non_exhaustive] pub enum ponko::perf::WarningKind
@@ -3297,6 +3553,38 @@ pub fn ponko::d2::ObjectShape::eq(&self, &Self) -> bool
 impl core::fmt::Debug for ponko::d2::ObjectShape
 pub fn ponko::d2::ObjectShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::d2::ObjectShape
+#[non_exhaustive] pub enum ponko::prelude::d2::ParticleShape
+pub ponko::prelude::d2::ParticleShape::Circle
+pub ponko::prelude::d2::ParticleShape::Circle::radius: f32
+pub ponko::prelude::d2::ParticleShape::Cone
+pub ponko::prelude::d2::ParticleShape::Cone::angle: f32
+pub ponko::prelude::d2::ParticleShape::Point
+pub ponko::prelude::d2::ParticleShape::Rect
+pub ponko::prelude::d2::ParticleShape::Rect::half_extents: glam::f32::vec2::Vec2
+impl core::clone::Clone for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleShape2D
+pub fn ponko::particles::ParticleShape2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::particles::ParticleShape2D
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleShape2D
+pub enum ponko::prelude::d2::ParticleSpace
+pub ponko::prelude::d2::ParticleSpace::Local
+pub ponko::prelude::d2::ParticleSpace::World
+impl core::clone::Clone for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::clone(&self) -> Self
+impl core::cmp::Eq for ponko::particles::ParticleSpace
+impl core::cmp::PartialEq for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleSpace
+pub fn ponko::particles::ParticleSpace::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::particles::ParticleSpace
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleSpace
 #[repr(C)] pub struct ponko::prelude::d2::Animation
 pub ponko::prelude::d2::Animation::first: u32
 pub ponko::prelude::d2::Animation::fps: f32
@@ -3523,6 +3811,101 @@ pub fn ponko::flow::NavGrid::eq(&self, &Self) -> bool
 impl core::fmt::Debug for ponko::flow::NavGrid
 pub fn ponko::flow::NavGrid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::flow::NavGrid
+pub struct ponko::prelude::d2::ParticleCurve(_)
+impl ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::keys(&self) -> &[(f32, f32)]
+pub fn ponko::particles::ParticleCurve::new(alloc::vec::Vec<(f32, f32)>) -> Self
+pub fn ponko::particles::ParticleCurve::sample(&self, f32) -> f32
+impl core::clone::Clone for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleCurve
+pub fn ponko::particles::ParticleCurve::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleCurve
+pub struct ponko::prelude::d2::ParticleEmitter
+impl ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::burst(&mut self, usize)
+pub fn ponko::particles::ParticleEmitter2D::live_count(&self) -> usize
+pub fn ponko::particles::ParticleEmitter2D::new(ponko::particles::ParticleSettings2D) -> Self
+pub fn ponko::particles::ParticleEmitter2D::settings(&self) -> &ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleEmitter2D::update(&mut self, f32, &ponko::d2::Transform)
+impl core::clone::Clone for ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::clone(&self) -> Self
+impl core::default::Default for ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleEmitter2D
+pub fn ponko::particles::ParticleEmitter2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl ponko_ecs::bundle::Component for ponko::particles::ParticleEmitter2D
+pub struct ponko::prelude::d2::ParticleGradient(_)
+impl ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::keys(&self) -> &[(f32, ponko::color::Color)]
+pub fn ponko::particles::ParticleGradient::new(alloc::vec::Vec<(f32, ponko::color::Color)>) -> Self
+pub fn ponko::particles::ParticleGradient::sample(&self, f32) -> ponko::color::Color
+impl core::clone::Clone for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleGradient
+pub fn ponko::particles::ParticleGradient::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleGradient
+#[non_exhaustive] pub struct ponko::prelude::d2::ParticleSettings
+pub ponko::prelude::d2::ParticleSettings::blend: ponko::d2::BlendMode
+pub ponko::prelude::d2::ParticleSettings::burst: usize
+pub ponko::prelude::d2::ParticleSettings::color_over_life: ponko::particles::ParticleGradient
+pub ponko::prelude::d2::ParticleSettings::drag: f32
+pub ponko::prelude::d2::ParticleSettings::duration: f32
+pub ponko::prelude::d2::ParticleSettings::gravity: glam::f32::vec2::Vec2
+pub ponko::prelude::d2::ParticleSettings::lifetime: (f32, f32)
+pub ponko::prelude::d2::ParticleSettings::looping: bool
+pub ponko::prelude::d2::ParticleSettings::material: core::option::Option<ponko::d2::SpriteMaterial>
+pub ponko::prelude::d2::ParticleSettings::max_particles: usize
+pub ponko::prelude::d2::ParticleSettings::rate: f32
+pub ponko::prelude::d2::ParticleSettings::rotation: (f32, f32)
+pub ponko::prelude::d2::ParticleSettings::seed: u64
+pub ponko::prelude::d2::ParticleSettings::shape: ponko::particles::ParticleShape2D
+pub ponko::prelude::d2::ParticleSettings::sheet: (u32, u32)
+pub ponko::prelude::d2::ParticleSettings::size: (f32, f32)
+pub ponko::prelude::d2::ParticleSettings::size_over_life: ponko::particles::ParticleCurve
+pub ponko::prelude::d2::ParticleSettings::space: ponko::particles::ParticleSpace
+pub ponko::prelude::d2::ParticleSettings::speed: (f32, f32)
+pub ponko::prelude::d2::ParticleSettings::texture: core::option::Option<ponko::texture::Texture>
+pub ponko::prelude::d2::ParticleSettings::z: f32
+impl ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::with_blend(self, ponko::d2::BlendMode) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_burst(self, usize) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_color_over_life(self, ponko::particles::ParticleGradient) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_drag(self, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_duration(self, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_gravity(self, glam::f32::vec2::Vec2) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_lifetime(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_looping(self, bool) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_material(self, impl core::convert::Into<core::option::Option<ponko::d2::SpriteMaterial>>) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_max_particles(self, usize) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_rate(self, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_rotation(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_seed(self, u64) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_shape(self, ponko::particles::ParticleShape2D) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_sheet(self, u32, u32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_size(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_size_over_life(self, ponko::particles::ParticleCurve) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_space(self, ponko::particles::ParticleSpace) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_speed(self, f32, f32) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_texture(self, impl core::convert::Into<core::option::Option<ponko::texture::Texture>>) -> Self
+pub fn ponko::particles::ParticleSettings2D::with_z(self, f32) -> Self
+impl core::clone::Clone for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::default() -> Self
+impl core::fmt::Debug for ponko::particles::ParticleSettings2D
+pub fn ponko::particles::ParticleSettings2D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::particles::ParticleSettings2D
 #[non_exhaustive] pub struct ponko::prelude::d2::PlacedTile
 pub ponko::prelude::d2::PlacedTile::cell: glam::u32::uvec2::UVec2
 pub ponko::prelude::d2::PlacedTile::flip: u8
@@ -3789,10 +4172,12 @@ impl<'de> serde_core::de::Deserialize<'de> for ponko::d2::Transform where ponko:
 pub fn ponko::d2::Transform::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub mod ponko::prelude::systems
 pub fn ponko::prelude::systems::animate_sprites(&mut ponko::prelude::Ctx)
+pub fn ponko::prelude::systems::draw_particles(&mut ponko::prelude::Ctx)
 pub fn ponko::prelude::systems::draw_sprites(&mut ponko::prelude::Ctx)
 pub fn ponko::prelude::systems::draw_tilemaps(&mut ponko::prelude::Ctx)
 pub fn ponko::prelude::systems::follow_attachments(&mut ponko::prelude::Ctx)
 pub fn ponko::prelude::systems::rebuild_spatial_grid(&mut ponko::prelude::Ctx)
+pub fn ponko::prelude::systems::update_particles(&mut ponko::prelude::Ctx)
 pub enum ponko::prelude::Action
 pub ponko::prelude::Action::Axis(alloc::vec::Vec<ponko::actions::AxisBinding>)
 pub ponko::prelude::Action::Axis2(alloc::vec::Vec<ponko::actions::Axis2Binding>)
@@ -4576,6 +4961,7 @@ impl core::marker::StructuralPartialEq for ponko::game::SystemId
 pub struct ponko::prelude::Systems
 impl ponko::game::Systems
 pub const ponko::game::Systems::ANIMATE_SPRITES: ponko::game::SystemId
+pub const ponko::game::Systems::DRAW_PARTICLES: ponko::game::SystemId
 pub const ponko::game::Systems::DRAW_SPRITES: ponko::game::SystemId
 pub const ponko::game::Systems::DRAW_TILEMAPS: ponko::game::SystemId
 pub const ponko::game::Systems::FOLLOW_ATTACHMENTS: ponko::game::SystemId
@@ -5962,10 +6348,12 @@ impl<T> core::ops::deref::DerefMut for ponko::system_view::ViewService<'_, T>
 pub fn ponko::system_view::ViewService<'_, T>::deref_mut(&mut self) -> &mut T
 pub mod ponko::systems
 pub fn ponko::systems::animate_sprites(&mut ponko::prelude::Ctx)
+pub fn ponko::systems::draw_particles(&mut ponko::prelude::Ctx)
 pub fn ponko::systems::draw_sprites(&mut ponko::prelude::Ctx)
 pub fn ponko::systems::draw_tilemaps(&mut ponko::prelude::Ctx)
 pub fn ponko::systems::follow_attachments(&mut ponko::prelude::Ctx)
 pub fn ponko::systems::rebuild_spatial_grid(&mut ponko::prelude::Ctx)
+pub fn ponko::systems::update_particles(&mut ponko::prelude::Ctx)
 pub mod ponko::text
 #[repr(transparent)] pub struct ponko::text::Font(_)
 impl ponko::text::Font

@@ -2456,6 +2456,24 @@ static void campfire(ponko::ctx& ctx) {
     // ANCHOR_END: particles
 }
 
+static void sparks2d(ponko::ctx& ctx) {
+    // ANCHOR: particles2d
+    auto sparks = ponko::particle_settings2d()
+                      .rate(80)
+                      .cone(0.4f)
+                      .speed(120, 240)
+                      .lifetime(0.6f, 1.2f)
+                      .gravity({0, 260})
+                      .size(2, 4)
+                      .color_over_life({{0, {1, 0.9f, 0.4f, 1}}, {1, {1, 0.3f, 0, 0}}})
+                      .blend(ponko::sprite_blend::additive)
+                      .z(2);
+    auto e = ctx.world().spawn(ponko::transform_at({400, 300}));
+    ctx.set_particle_emitter2d(e, sparks);
+    ctx.particle_burst2d(e, 30); // more at any time
+    // ANCHOR_END: particles2d
+}
+
 static void ribbons(ponko::ctx& ctx) {
     auto white = ctx.default_material();
     auto floor_data = ponko::mesh_data::plane(12);
@@ -3148,6 +3166,7 @@ int main() {
     ponko::game("panel guide", 960, 640).run_headless(0, panel_guide);
     ponko::game("particle guide", 1, 1).run_headless(0, campfire);
     ponko::game("ribbon guide", 1, 1).run_headless(0, ribbons);
+    ponko::game("particle 2d guide", 1, 1).run_headless(0, sparks2d);
     if (!messages_round_trip()) { std::fprintf(stderr, "no message\n"); std::abort(); }
     if (!replication_snippets()) { std::fprintf(stderr, "replication snippets failed\n"); std::abort(); }
     ponko::game("sound guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
