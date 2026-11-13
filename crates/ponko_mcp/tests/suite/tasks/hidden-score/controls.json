@@ -1,0 +1,10 @@
+[
+  { "name": "nothing", "why": "the label is still hidden and misspelled", "steps": [],
+    "fails": ["score label shown", "label reads the score"] },
+  { "name": "shown only", "why": "shows the label, keeps the wrong text",
+    "steps": [ { "write": "assets/hud.json", "text": "{\n  \"score_text\": \"Scroe {points}\",\n  \"show_score\": true\n}\n" }, { "until": { "call": "get_resource", "args": { "resource": "HudStyle" }, "pointer": "/show_score", "equals": true }, "each": { "call": "run_ticks", "args": { "ticks": 1 } } } ],
+    "fails": ["label reads the score"] },
+  { "name": "fixed text", "why": "a text that ignores the score",
+    "steps": [ { "write": "assets/hud.json", "text": "{\n  \"score_text\": \"Score: 0\",\n  \"show_score\": true\n}\n" }, { "until": { "call": "get_resource", "args": { "resource": "HudStyle" }, "pointer": "/show_score", "equals": true }, "each": { "call": "run_ticks", "args": { "ticks": 1 } } } ],
+    "fails": ["label reads the score"] }
+]

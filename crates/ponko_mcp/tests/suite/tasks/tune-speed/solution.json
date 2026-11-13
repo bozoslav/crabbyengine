@@ -1,0 +1,12 @@
+{
+  "steps": [
+    { "call": "world_summary" },
+    { "call": "get_resource", "args": { "resource": "Settings" } },
+    { "call": "get_resource", "args": { "resource": "Flag" } },
+    { "write": "assets/settings.json", "text": "{\n  \"speed\": 340\n}\n" },
+    { "until": { "call": "get_resource", "args": { "resource": "Settings" }, "pointer": "/speed", "equals": 340.0 },
+      "each": { "call": "run_ticks", "args": { "ticks": 1 } } },
+    { "call": "run_input_scenario", "args": { "scenario": { "version": 1, "duration": 130, "steps": [{ "tick": 0, "type": "key", "key": "Right", "down": true }] } } },
+    { "call": "get_resource", "args": { "resource": "Flag" } }
+  ]
+}
