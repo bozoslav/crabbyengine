@@ -90,6 +90,99 @@ In C++, `Sprite` values are `ponko::sprite` (`sprite_of(texture, tint, z)`).
 They can be spawned, read and set, but not used as query columns, because
 the engine stores sprites in a Rust layout. `Transform2D` can.
 
+## Blend modes and sprite shaders
+
+A sprite blends with what's behind it by its alpha. Add a `BlendMode` next to
+its `Sprite` (or pass one with `DrawParams::with_blend`) to change that:
+
+| `BlendMode` | What it does | For |
+|---|---|---|
+| `Alpha` (default) | covers what's behind by the pixel's alpha | most sprites |
+| `Additive` | adds the color, weighted by alpha; never darkens | glows, fire, sparks, light |
+| `Multiply` | multiplies what's behind by the color; white changes nothing | shadows, tinted glass |
+| `Premultiplied` | like `Alpha`, for colors already multiplied by their alpha | premultiplied art and shaders |
+
+For a look of your own, write a **sprite shader**: WGSL with one function,
+`fn fragment(p: SpritePixel) -> vec4<f32>`, that returns each pixel's color.
+A `SpriteMaterial` puts it together with four `vec4` parameters and two extra
+textures; add it next to a `Sprite`, or pass it with
+`DrawParams::with_material`. This one burns a sprite away with a glowing edge
+(the `sprite_effects` example animates it, next to an additive glow and an
+outline):
+
+```wgsl
+{{#include ../../assets/shaders/sprite_dissolve.wgsl}}
+```
+
+<div class="lang-pair">
+<div>
+
+```rust
+# use ponko::d2::{BlendMode, SpriteMaterialDesc};
+let crab = ctx.load_texture("crab.png");
+let noise = ctx.load_texture("noise.png"); // grey: where it burns first
+// A glow that brightens what's behind it:
+ctx.world.spawn((
+    ponko::d2::Transform::at(vec2(400.0, 300.0)),
+    ponko::d2::Sprite::new(crab),
+    BlendMode::Additive,
+));
+// A sprite with a shader of its own:
+let dissolve = ctx.gfx.load_sprite_shader("shaders/sprite_dissolve.wgsl");
+let burn = ctx.gfx.create_sprite_material(
+    SpriteMaterialDesc::new(dissolve)
+        .with_param(1, vec4(1.0, 0.5, 0.1, 1.0)) // the edge's color
+        .with_texture(0, noise),
+);
+ctx.world.spawn((ponko::d2::Transform::at(vec2(200.0, 300.0)), ponko::d2::Sprite::new(crab), burn));
+// Immediate draws take both too:
+let glow = DrawParams::default().with_blend(BlendMode::Additive).with_material(burn);
+ctx.gfx.draw_ex(crab, vec2(100.0, 100.0), glow);
+// Each frame: burn a little further.
+if let Some(desc) = ctx.gfx.sprite_material_desc(burn) {
+    let t = (ctx.time.elapsed() as f32 * 0.25).fract();
+    ctx.gfx.update_sprite_material(burn, desc.with_param(0, vec4(t, 0.0, 0.0, 0.0)));
+}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:sprite_materials}}
+```
+
+</div>
+</div>
+
+What a sprite shader can use:
+
+- `p.color`: what the built-in look would draw (texture × tint), and its
+  parts `p.texture` and `p.tint`; `p.uv` (in the texture), `p.local` (0 to 1
+  across the sprite) and `p.world` (world units).
+- `material.params[0]` to `[3]`: the material's four `vec4<f32>`.
+- `sprite_sample(uv)` and `sprite_texel()` (the size of one texel in uv, for
+  outlines and blurs), and `material_sample0(uv)` and `material_sample1(uv)`
+  for the extra textures (white when the material has none).
+
+It returns a color with straight alpha (premultiplied for
+`BlendMode::Premultiplied`) and may `discard`. Every binding is the
+engine's, so a sprite shader declares no `@group`/`@binding` and no entry
+points; it works with every blend mode.
+
+Loaded sprite shaders hot reload like textures. One that doesn't compile is
+an error with the line in your file (`dissolve.wgsl:6:12: error: ...`), also
+listed by `ctx.gfx.shader_status()` with kind `ShaderKind::Sprite` (see
+[Shader errors and reloads](3d.md#shader-errors-and-reloads)). An edit that
+doesn't compile keeps the last good version drawing. Shaders are checked against what every supported
+GPU runs, WebGL2 included, so an error shows up on your machine rather than
+in a player's browser.
+
+Sprites are batched by texture, blend mode and material together, so many
+sprites with one material cost one draw call, and sprites without a blend
+mode or material draw as before. Each different material or blend mode in a
+row is its own draw call.
+
 ## Hot reload
 
 Save an image in your editor and the running game shows the new version
