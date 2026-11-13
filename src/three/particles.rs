@@ -1,113 +1,10 @@
 //! CPU particle pools and lifetime curves. Pools retain their storage between frames.
 use super::{Camera3D, Transform3D, linear};
-use crate::{color::Color, random::Rng, texture::Texture};
+use crate::particles::{Emission, advance, sheet_frame, validate};
+use crate::particles::{ParticleCurve, ParticleGradient, ParticleSpace as ParticleSpace3D};
+use crate::{random::Rng, texture::Texture};
 use glam::Vec3;
 use ponko_ecs::{Component, World};
-
-/// A piecewise linear size multiplier over normalized lifetime. Keys must be finite,
-/// strictly increasing, and in 0..=1; sampling clamps to the endpoints.
-/// ```
-/// use ponko::prelude::*;
-/// let curve = ponko::d3::ParticleCurve::new(vec![(0.0, 1.0), (1.0, 0.0)]);
-/// assert_eq!(curve.sample(0.5), 0.5);
-/// ```
-#[derive(Debug, Clone)]
-pub struct ParticleCurve(Vec<(f32, f32)>);
-impl ParticleCurve {
-    /// Creates a curve; panics for empty, unordered or nonfinite keys/values.
-    /// ```
-    /// use ponko::prelude::*;
-    /// let c = ponko::d3::ParticleCurve::new(vec![(0.0, 2.0)]);
-    /// assert_eq!(c.sample(1.0), 2.0);
-    /// ```
-    pub fn new(keys: Vec<(f32, f32)>) -> Self {
-        check_keys(&keys);
-        assert!(
-            keys.iter().all(|k| k.1.is_finite()),
-            "particle curve values must be finite"
-        );
-        Self(keys)
-    }
-    /// Evaluates the curve; NaN samples the start.
-    /// ```
-    /// use ponko::prelude::*;
-    /// assert_eq!(ponko::d3::ParticleCurve::default().sample(0.5), 1.0);
-    /// ```
-    pub fn sample(&self, t: f32) -> f32 {
-        let (a, b, f) = segment(&self.0, t);
-        a + (b - a) * f
-    }
-}
-impl Default for ParticleCurve {
-    fn default() -> Self {
-        Self(vec![(0.0, 1.0)])
-    }
-}
-
-/// A piecewise linear RGBA gradient, interpolated in the supplied color space.
-/// ```
-/// use ponko::prelude::*;
-/// let g = ponko::d3::ParticleGradient::new(vec![(0.0, Color::WHITE), (1.0, Color::BLACK)]);
-/// assert_eq!(g.sample(0.5).r, 0.5);
-/// ```
-#[derive(Debug, Clone)]
-pub struct ParticleGradient(Vec<(f32, Color)>);
-impl ParticleGradient {
-    /// Creates a gradient; panics for empty, unordered or nonfinite keys/colors.
-    /// ```
-    /// use ponko::prelude::*;
-    /// let g = ponko::d3::ParticleGradient::new(vec![(0.0, Color::WHITE)]);
-    /// assert_eq!(g.sample(1.0), Color::WHITE);
-    /// ```
-    pub fn new(keys: Vec<(f32, Color)>) -> Self {
-        check_keys(&keys);
-        assert!(
-            keys.iter()
-                .all(|k| [k.1.r, k.1.g, k.1.b, k.1.a].iter().all(|v| v.is_finite())),
-            "particle colors must be finite"
-        );
-        Self(keys)
-    }
-    /// Evaluates RGBA at normalized age, clamping beyond the keys.
-    /// ```
-    /// use ponko::prelude::*;
-    /// assert_eq!(ponko::d3::ParticleGradient::default().sample(0.0), Color::WHITE);
-    /// ```
-    pub fn sample(&self, t: f32) -> Color {
-        let (a, b, f) = segment(&self.0, t);
-        Color::rgba(
-            a.r + (b.r - a.r) * f,
-            a.g + (b.g - a.g) * f,
-            a.b + (b.b - a.b) * f,
-            a.a + (b.a - a.a) * f,
-        )
-    }
-}
-impl Default for ParticleGradient {
-    fn default() -> Self {
-        Self(vec![(0.0, Color::WHITE), (1.0, Color::rgba(1.0, 1.0, 1.0, 0.0))])
-    }
-}
-fn check_keys<T>(keys: &[(f32, T)]) {
-    assert!(
-        !keys.is_empty()
-            && keys.iter().all(|k| k.0.is_finite() && (0.0..=1.0).contains(&k.0))
-            && keys.windows(2).all(|w| w[0].0 < w[1].0),
-        "particle keys must be nonempty, ordered and in 0..=1"
-    );
-}
-fn segment<T: Copy>(keys: &[(f32, T)], t: f32) -> (T, T, f32) {
-    let t = if t.is_nan() { 0.0 } else { t };
-    let i = keys.partition_point(|k| k.0 <= t);
-    if i == 0 {
-        return (keys[0].1, keys[0].1, 0.0);
-    }
-    if i == keys.len() {
-        return (keys[i - 1].1, keys[i - 1].1, 0.0);
-    }
-    let (a, b) = (keys[i - 1], keys[i]);
-    (a.1, b.1, (t - a.0) / (b.0 - a.0))
-}
 
 /// Emission volume in the entity's coordinates; cone directions point along +Y.
 /// ```
@@ -152,21 +49,6 @@ pub enum ParticleBlend3D {
     /// Emitted light adds to the scene, weighted by alpha.
     Additive,
 }
-/// Whether existing particles follow the emitter's transform.
-/// ```
-/// use ponko::prelude::*;
-/// let space = ponko::d3::ParticleSpace::Local;
-/// # let _ = space;
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ParticleSpace3D {
-    /// Spawn transform is applied once; gravity is in world coordinates.
-    #[default]
-    World,
-    /// Position and gravity stay in entity coordinates; scale affects billboard size.
-    Local,
-}
-
 /// Settings copied into an emitter. Change settings by creating a new emitter.
 /// All numeric inputs must be finite; ranges must be ordered and nonnegative
 /// (rotation may be negative). Invalid settings panic in `ParticleEmitter3D::new`.
@@ -314,15 +196,7 @@ impl ParticleSettings3D {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Particle {
-    position: Vec3,
-    velocity: Vec3,
-    age: f32,
-    lifetime: f32,
-    size: f32,
-    rotation: f32,
-}
+type Particle = crate::particles::Particle<Vec3>;
 
 /// A CPU particle pool component, paired with `Transform3D`. Simulation runs after
 /// frame systems; no meshes are required. `run_headless` skips this visual frame phase.
@@ -337,9 +211,7 @@ pub struct ParticleEmitter3D {
     settings: ParticleSettings3D,
     particles: Vec<Particle>,
     rng: Rng,
-    pending: usize,
-    elapsed: f64,
-    fraction: f64,
+    emission: Emission,
 }
 impl Clone for ParticleEmitter3D {
     fn clone(&self) -> Self {
@@ -349,9 +221,7 @@ impl Clone for ParticleEmitter3D {
             settings: self.settings.clone(),
             particles,
             rng: self.rng.clone(),
-            pending: self.pending,
-            elapsed: self.elapsed,
-            fraction: self.fraction,
+            emission: self.emission.clone(),
         }
     }
 }
@@ -369,28 +239,13 @@ impl ParticleEmitter3D {
     /// ```
     pub fn new(settings: ParticleSettings3D) -> Self {
         let s = &settings;
-        for (a, b) in [s.lifetime, s.speed, s.size, s.rotation] {
-            assert!(
-                a.is_finite() && b.is_finite() && a <= b,
-                "particle ranges must be finite and ordered"
-            );
-        }
-        assert!(
-            s.lifetime.0 > 0.0
-                && s.speed.0 >= 0.0
-                && s.size.0 >= 0.0
-                && s.rate.is_finite()
-                && s.rate >= 0.0
-                && s.duration.is_finite()
-                && s.duration > 0.0
-                && s.drag.is_finite()
-                && s.drag >= 0.0
-                && s.gravity.is_finite(),
-            "invalid particle settings"
-        );
-        assert!(
-            s.sheet.0 > 0 && s.sheet.1 > 0 && s.sheet.0.checked_mul(s.sheet.1).is_some(),
-            "invalid particle sheet"
+        validate(
+            [s.lifetime, s.speed, s.size, s.rotation],
+            s.rate,
+            s.duration,
+            s.drag,
+            s.gravity.is_finite(),
+            s.sheet,
         );
         match s.shape {
             ParticleShape3D::Sphere { radius } => assert!(radius.is_finite(), "invalid particle sphere"),
@@ -401,9 +256,7 @@ impl ParticleEmitter3D {
         Self {
             particles: Vec::with_capacity(s.max_particles),
             rng: Rng::new(s.seed),
-            pending: s.burst.min(s.max_particles),
-            elapsed: 0.0,
-            fraction: 0.0,
+            emission: Emission::new(s.burst, s.max_particles),
             settings,
         }
     }
@@ -414,7 +267,7 @@ impl ParticleEmitter3D {
     /// e.burst(20);
     /// ```
     pub fn burst(&mut self, count: usize) {
-        self.pending = self.pending.saturating_add(count).min(self.settings.max_particles);
+        self.emission.burst(count, self.settings.max_particles);
     }
     /// Number of currently living particles.
     /// ```
@@ -430,26 +283,9 @@ impl ParticleEmitter3D {
             return;
         }
         let s = &self.settings;
-        for p in &mut self.particles {
-            p.age += dt;
-            p.velocity = (p.velocity + s.gravity * dt) * (-s.drag * dt).exp();
-            p.position += p.velocity * dt;
-        }
-        self.particles.retain(|p| p.age < p.lifetime);
-        let active = if s.looping {
-            f64::from(dt)
-        } else {
-            f64::from(dt).min((f64::from(s.duration) - self.elapsed).max(0.0))
-        };
-        self.elapsed += f64::from(dt);
-        self.fraction += active * f64::from(s.rate);
-        let rate_count = self.fraction.floor() as usize;
-        self.fraction -= self.fraction.floor();
-        let count = self
-            .pending
-            .saturating_add(rate_count)
-            .min(s.max_particles - self.particles.len());
-        self.pending = 0;
+        advance(&mut self.particles, dt, s.gravity, s.drag);
+        let free = s.max_particles - self.particles.len();
+        let count = self.emission.take(dt, s.rate, s.duration, s.looping, free);
         for _ in 0..count {
             let (position, direction) = spawn_shape(s.shape, &mut self.rng);
             let velocity = direction * self.rng.range(s.speed.0, s.speed.1);
@@ -553,9 +389,7 @@ impl ParticleFrame {
                     color: linear(s.color_over_life.sample(age)),
                     rotation_sheet: [
                         p.rotation,
-                        (age * (s.sheet.0 * s.sheet.1) as f32)
-                            .floor()
-                            .min((s.sheet.0 * s.sheet.1 - 1) as f32),
+                        sheet_frame(age, s.sheet) as f32,
                         s.sheet.0 as f32,
                         s.sheet.1 as f32,
                     ],
@@ -585,6 +419,7 @@ impl ParticleFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::color::Color;
 
     fn emitter() -> ParticleEmitter3D {
         ParticleEmitter3D::new(ParticleSettings3D {

@@ -17,7 +17,7 @@ pub use system::{IntoSystem, SystemConfig};
 use crate::control::{self, Control};
 use crate::ctx::Ctx;
 use crate::perf::SystemTiming;
-use crate::systems::{animate_sprites, draw_sprites, draw_tilemaps, rebuild_spatial_grid};
+use crate::systems::{animate_sprites, draw_particles, draw_sprites, draw_tilemaps, rebuild_spatial_grid};
 use crate::time::{Clock, DEFAULT_FIXED_HZ, FrameTiming};
 
 /// Trackpads report scrolling in pixels; this many logical pixels count as one
@@ -51,10 +51,10 @@ pub enum Phase {
     SimLast,
     /// Per-frame gameplay, after the due simulation ticks.
     Frame,
-    /// Per-frame pose work after frame gameplay. With the `3d` feature, the
-    /// built-in animator and particle updates ([`Systems::UPDATE_ANIMATORS`],
-    /// [`Systems::UPDATE_PARTICLES`]) run at the end of this phase, after
-    /// your systems in it.
+    /// Per-frame pose work after frame gameplay. The built-in particle
+    /// update ([`Systems::UPDATE_PARTICLES`]) runs at the end of this phase,
+    /// after your systems in it; with the `3d` feature, the animators
+    /// ([`Systems::UPDATE_ANIMATORS`]) run just before it.
     Animate,
     /// Per-frame work after animation and before drawing.
     Late,
@@ -129,13 +129,16 @@ impl Systems {
     /// Advances every [`Animator`](crate::anim::Animator) and poses its skeleton
     /// (feature `3d`). Stays at the end of [`Phase::Animate`].
     pub const UPDATE_ANIMATORS: SystemId = SystemId(10);
-    /// Advances particle emitters and trails (feature `3d`). Stays at the
-    /// end of [`Phase::Animate`], after the animators.
+    /// Advances particle emitters (2D, and with feature `3d` the 3D ones
+    /// and trails). Stays at the end of [`Phase::Animate`], after the
+    /// animators.
     pub const UPDATE_PARTICLES: SystemId = SystemId(11);
     /// Moves positional sounds to this frame's listener and emitters
     /// (feature `3d`). Stays at the end of [`Phase::Draw`], after the
     /// drawing systems.
     pub const UPDATE_AUDIO3D: SystemId = SystemId(12);
+    /// 2D particle drawing, after the sprites.
+    pub const DRAW_PARTICLES: SystemId = SystemId(13);
 }
 
 impl SystemId {
@@ -169,6 +172,8 @@ fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
         (builtin!(animate_sprites), Systems::ANIMATE_SPRITES),
         (builtin!(draw_tilemaps), Systems::DRAW_TILEMAPS),
         (builtin!(draw_sprites), Systems::DRAW_SPRITES),
+        (builtin!(draw_particles), Systems::DRAW_PARTICLES),
+        (builtin!(update_particles), Systems::UPDATE_PARTICLES),
         (builtin!(rebuild_spatial_grid), Systems::REBUILD_SPATIAL_GRID),
         (builtin!(follow_attachments), Systems::FOLLOW_ATTACHMENTS),
         #[cfg(feature = "physics")]
@@ -183,11 +188,6 @@ fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
         (
             one(std::any::type_name_of_val(&crate::systems::update_animators)),
             Systems::UPDATE_ANIMATORS,
-        ),
-        #[cfg(feature = "3d")]
-        (
-            one(std::any::type_name_of_val(&crate::systems::update_particles)),
-            Systems::UPDATE_PARTICLES,
         ),
         #[cfg(feature = "3d")]
         (
@@ -567,7 +567,6 @@ impl System {
     }
 
     /// A built-in that stays at the end of its phase.
-    #[cfg(feature = "3d")]
     fn last<F: FnMut(&mut Ctx) + 'static>(f: F) -> Self {
         let mut s = System::new(f);
         s.last = true;
@@ -669,7 +668,6 @@ impl Game {
     /// Game::new("Space Crab", 1280, 720).run(|_| |_: &mut Ctx| {});
     /// ```
     pub fn new(title: impl Into<String>, width: u32, height: u32) -> Self {
-        #[cfg_attr(not(feature = "3d"), allow(unused_mut))]
         let mut game = Self {
             setups: Vec::new(),
             title: title.into(),
@@ -687,6 +685,7 @@ impl Game {
                 System::new(animate_sprites),
                 System::new(draw_tilemaps),
                 System::new(draw_sprites),
+                System::new(draw_particles),
             ],
             spatial_cell: None,
             #[cfg(feature = "physics")]
@@ -711,11 +710,10 @@ impl Game {
             data_dir: None,
         };
         #[cfg(feature = "3d")]
-        {
-            game.insert_system(Phase::Animate, System::last(crate::systems::update_animators));
-            game.insert_system(Phase::Animate, System::last(crate::systems::update_particles));
-            game.insert_system(Phase::Draw, System::last(crate::systems::update_audio3d));
-        }
+        game.insert_system(Phase::Animate, System::last(crate::systems::update_animators));
+        game.insert_system(Phase::Animate, System::last(crate::systems::update_particles));
+        #[cfg(feature = "3d")]
+        game.insert_system(Phase::Draw, System::last(crate::systems::update_audio3d));
         game
     }
 

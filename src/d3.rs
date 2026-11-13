@@ -35,17 +35,11 @@ pub use crate::three::Line3D as Line;
 #[doc(inline)]
 pub use crate::three::ParticleBlend3D as ParticleBlend;
 #[doc(inline)]
-pub use crate::three::ParticleCurve;
-#[doc(inline)]
 pub use crate::three::ParticleEmitter3D as ParticleEmitter;
-#[doc(inline)]
-pub use crate::three::ParticleGradient;
 #[doc(inline)]
 pub use crate::three::ParticleSettings3D as ParticleSettings;
 #[doc(inline)]
 pub use crate::three::ParticleShape3D as ParticleShape;
-#[doc(inline)]
-pub use crate::three::ParticleSpace3D as ParticleSpace;
 #[doc(inline)]
 pub use crate::three::PointLight3D as PointLight;
 #[doc(inline)]
@@ -76,6 +70,8 @@ pub use crate::audio::{
 #[cfg(feature = "navmesh")]
 #[doc(no_inline)]
 pub use crate::nav::{NavAgent, NavMesh, NavObstacle};
+#[doc(no_inline)]
+pub use crate::particles::{ParticleCurve, ParticleGradient, ParticleSpace};
 #[cfg(feature = "physics3d")]
 #[doc(no_inline)]
 pub use crate::physics3d::{
