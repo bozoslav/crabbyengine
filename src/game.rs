@@ -288,6 +288,10 @@ pub struct Game {
     order: Vec<(SystemId, SystemId)>,
     /// The stages the systems run in, built when the game starts.
     exec: batch::Exec,
+    /// From `app_id`: names the game's folder in the player's data folder.
+    app_id: Option<String>,
+    /// From `data_dir`: the exact folder for `ctx.storage`.
+    data_dir: Option<std::path::PathBuf>,
 }
 
 type SetupFn = Box<dyn FnOnce(&mut Ctx)>;
@@ -700,6 +704,8 @@ impl Game {
             pending_barriers: Vec::new(),
             order: Vec::new(),
             exec: batch::Exec::default(),
+            app_id: None,
+            data_dir: None,
         };
         #[cfg(feature = "3d")]
         {
@@ -1601,6 +1607,7 @@ impl Game {
             crate::physics3d::start(&mut ctx, gravity);
         }
         self.start_networking(&mut ctx);
+        ctx.storage = crate::storage::Storage::for_game(self.app_id.as_deref(), self.data_dir.clone());
         ctx
     }
 
@@ -1627,6 +1634,56 @@ impl Game {
                 None
             }
         }
+    }
+
+    /// Names the game for [`ctx.storage`](crate::ctx::Ctx::storage): its files
+    /// go in the folder `app_id` inside the player's data folder (Windows
+    /// `%APPDATA%`, macOS `~/Library/Application Support`, Linux
+    /// `$XDG_DATA_HOME` or `~/.local/share`), or in the browser database
+    /// `ponko:<app_id>` on the web. Without one, the game keeps no files.
+    ///
+    /// Pick it once and keep it: a new id is a new folder, and the player's
+    /// old saves stay in the old one. A reverse domain (`"com.example.crabs"`)
+    /// or a plain name (`"space-crab"`) both work.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// let game = Game::new("Space Crab", 1280, 720).app_id("space-crab");
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// If `app_id` is empty, starts with a `.`, or has characters other
+    /// than letters, digits, `-`, `_` and `.`.
+    pub fn app_id(mut self, app_id: impl Into<String>) -> Self {
+        let app_id = app_id.into();
+        assert!(
+            !app_id.is_empty()
+                && !app_id.starts_with('.')
+                && app_id.len() <= 128
+                && app_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')),
+            "ponko: app id {app_id:?} must be 1 to 128 letters, digits, '-', '_' or '.', not starting with '.'"
+        );
+        self.app_id = Some(app_id);
+        self
+    }
+
+    /// Keeps [`ctx.storage`](crate::ctx::Ctx::storage)'s files in `dir`
+    /// itself instead of the player's data folder: for tests, and for
+    /// portable installs that keep saves beside the game. Wins over
+    /// [`app_id`](Self::app_id)'s folder and `PONKO_DATA_DIR`; the web build
+    /// has no folders and ignores it.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// let dir = std::env::temp_dir().join("crab-test-saves");
+    /// Game::new("Space Crab", 1280, 720).data_dir(&dir).run_headless(0, |ctx| {
+    ///     assert_eq!(ctx.storage.dir(), Some(dir.as_path()));
+    /// });
+    /// ```
+    pub fn data_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.data_dir = Some(dir.into());
+        self
     }
 
     /// Sets the seed for [`Ctx::random`]. Same seed, same simulation: runs

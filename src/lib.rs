@@ -203,6 +203,7 @@ pub mod scope;
 pub mod sheet;
 pub mod spatial;
 pub mod stream;
+pub mod storage;
 pub mod streaming;
 pub mod system_view;
 pub mod systems;

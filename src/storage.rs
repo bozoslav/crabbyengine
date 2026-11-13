@@ -1,0 +1,799 @@
+//! [`Storage`] (`ctx.storage`): the player's own files, such as saves and
+//! settings, kept in the per-user data folder on the desktop and in the
+//! browser's storage on the web.
+//!
+//! The folder comes from the game's app id ([`Game::app_id`](crate::game::Game::app_id)):
+//!
+//! | System | Folder |
+//! |---|---|
+//! | Windows | `%APPDATA%\<app id>` |
+//! | macOS | `~/Library/Application Support/<app id>` |
+//! | Linux and other Unix | `$XDG_DATA_HOME/<app id>`, else `~/.local/share/<app id>` |
+//! | Web | The page's IndexedDB database `ponko:<app id>` (see below) |
+//!
+//! `PONKO_DATA_DIR` replaces the system's base folder (the app id is still
+//! added), and [`Game::data_dir`](crate::game::Game::data_dir) names the exact
+//! folder (tests, portable installs).
+//!
+//! # Safe writes
+//!
+//! [`write`](Storage::write) never leaves a half-written file under the
+//! name: the bytes go to `<name>.tmp` first and are flushed to the disk,
+//! the old file is kept as `<name>.bak`, and only then does a rename put the
+//! new file in its place. A crash or power cut at any point leaves either
+//! the old file or the new one, and [`read_backup`](Storage::read_backup)
+//! has the one before. Names ending in `.tmp` or `.bak` are reserved for this.
+//!
+//! # The web
+//!
+//! Browser storage can only be reached asynchronously, so the web build reads
+//! every stored file into memory while it loads the page's assets, before
+//! setup runs. After that the same calls work the same way: reads and lists
+//! answer from memory, and each write or delete changes memory at once and is
+//! stored in one IndexedDB transaction (the file and its backup together, so
+//! a closed tab never leaves half of it). Browsers may clear a site's storage
+//! when space runs low; [`is_persistent`](Storage::is_persistent) is `false`
+//! when the page couldn't open its database (some private windows), and then
+//! files last only until the page closes.
+
+use std::path::{Path, PathBuf};
+
+use crate::error::{Error, ErrorKind};
+
+/// The environment variable that replaces the system's data folder (the
+/// app id is still added below it).
+pub const ENV_DATA_DIR: &str = "PONKO_DATA_DIR";
+
+/// Suffix of the file a write goes to before it is renamed into place.
+const TEMP: &str = ".tmp";
+/// Suffix of the previous version of a file.
+const BACKUP: &str = ".bak";
+/// Where [`Storage::save_world`] keeps its slots.
+const SLOTS: &str = "saves/";
+
+/// The player's own files: saves, settings, anything the game keeps between
+/// runs. `ctx.storage`; see the [module](self) for where they live.
+///
+/// Names are relative, with `/` between folders (`"saves/slot1.json"`); each
+/// part uses letters, digits, spaces, `-`, `_` and `.`, and doesn't start
+/// with a `.`.
+///
+/// ```
+/// use ponko::prelude::*;
+/// # let dir = std::env::temp_dir().join(format!("ponko-doc-storage-{}", std::process::id()));
+/// Game::new("Crabs", 800, 600).data_dir(&dir).run_headless(0, |ctx| {
+///     ctx.storage.write("settings.json", br#"{"volume":0.5}"#).unwrap();
+///     assert_eq!(ctx.storage.read("settings.json").unwrap(), br#"{"volume":0.5}"#);
+///     assert_eq!(ctx.storage.list().unwrap(), ["settings.json"]);
+/// });
+/// # let _ = std::fs::remove_dir_all(dir);
+/// ```
+#[derive(Debug, Default)]
+pub struct Storage {
+    backend: Backend,
+}
+
+#[derive(Debug, Default)]
+enum Backend {
+    /// No app id and no folder: every call fails with `Unsupported`.
+    #[default]
+    Off,
+    /// A folder on the disk.
+    Folder(PathBuf),
+    /// The browser's storage, preloaded into memory.
+    #[cfg(target_arch = "wasm32")]
+    Browser,
+}
+
+/// Where a write stops in tests that simulate a crash.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Crash {
+    Never,
+    /// The new bytes are in `<name>.tmp`; nothing else changed.
+    AfterTemp,
+    /// The old file is also `<name>.bak`; the rename hasn't happened.
+    AfterBackup,
+}
+
+impl Storage {
+    /// The storage a game gets: `dir` if given ([`Game::data_dir`](crate::game::Game::data_dir)),
+    /// else the system's data folder (or `PONKO_DATA_DIR`) with `app_id`
+    /// below it, else off.
+    pub(crate) fn for_game(app_id: Option<&str>, dir: Option<PathBuf>) -> Self {
+        if let Some(dir) = dir {
+            return Self::in_folder(dir);
+        }
+        let Some(app_id) = app_id else {
+            return Self::default();
+        };
+        #[cfg(target_arch = "wasm32")]
+        {
+            web::open(app_id);
+            Self {
+                backend: Backend::Browser,
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        match base_dir(&|name| std::env::var_os(name)) {
+            Some(base) => Self::in_folder(base.join(app_id)),
+            None => Self::default(),
+        }
+    }
+
+    /// Storage in the folder `dir`, created at the first write. For tools and
+    /// tests that look at a game's files from outside it; a game gets its
+    /// own as `ctx.storage`.
+    ///
+    /// ```
+    /// # let dir = std::env::temp_dir().join(format!("ponko-doc-in-folder-{}", std::process::id()));
+    /// let mut files = ponko::storage::Storage::in_folder(&dir);
+    /// files.write("a.txt", b"hello").unwrap();
+    /// assert_eq!(std::fs::read(dir.join("a.txt")).unwrap(), b"hello");
+    /// # let _ = std::fs::remove_dir_all(dir);
+    /// ```
+    pub fn in_folder(dir: impl Into<PathBuf>) -> Self {
+        Self {
+            backend: Backend::Folder(dir.into()),
+        }
+    }
+
+    /// The folder the files are in: `None` on the web, and when the game has
+    /// no app id.
+    #[must_use]
+    pub fn dir(&self) -> Option<&Path> {
+        match &self.backend {
+            Backend::Folder(dir) => Some(dir),
+            _ => None,
+        }
+    }
+
+    /// Whether the game can keep files at all: `false` without an app id
+    /// ([`Game::app_id`](crate::game::Game::app_id)), or on a desktop with no
+    /// home folder. Every call fails with
+    /// [`ErrorKind::Unsupported`] then.
+    #[must_use]
+    pub fn is_available(&self) -> bool {
+        !matches!(self.backend, Backend::Off)
+    }
+
+    /// Whether files outlive the run: `true` for a folder, and on the web
+    /// when the page's database opened (some private windows refuse it;
+    /// files then last only until the page closes).
+    #[must_use]
+    pub fn is_persistent(&self) -> bool {
+        match self.backend {
+            Backend::Off => false,
+            Backend::Folder(_) => true,
+            #[cfg(target_arch = "wasm32")]
+            Backend::Browser => web::is_persistent(),
+        }
+    }
+
+    /// Writes `bytes` as the file `name`, creating its folders. Safe against
+    /// crashes: the old file stays whole until the new one is complete, and
+    /// is then kept as the backup ([`read_backup`](Self::read_backup)).
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::Invalid`] for a bad name, [`ErrorKind::Unsupported`]
+    /// when storage is off, [`ErrorKind::Io`] when the disk refuses (read-only,
+    /// full). The file named `name` is unchanged after an error.
+    pub fn write(&mut self, name: &str, bytes: &[u8]) -> Result<(), Error> {
+        self.write_until(name, bytes, Crash::Never)
+    }
+
+    fn write_until(&mut self, name: &str, bytes: &[u8], crash: Crash) -> Result<(), Error> {
+        check_name(name)?;
+        match &self.backend {
+            Backend::Off => Err(off(name)),
+            Backend::Folder(dir) => write_file(&dir.join(name), bytes, crash).map_err(|e| io(name, &e)),
+            #[cfg(target_arch = "wasm32")]
+            Backend::Browser => {
+                let _ = crash;
+                web::write(name, bytes)
+            }
+        }
+    }
+
+    /// The bytes of the file `name`.
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::NotFound`] if there is no such file, [`ErrorKind::Io`] if
+    /// it can't be read, [`ErrorKind::Invalid`] for a bad name,
+    /// [`ErrorKind::Unsupported`] when storage is off.
+    pub fn read(&self, name: &str) -> Result<Vec<u8>, Error> {
+        check_name(name)?;
+        self.read_raw(name)
+    }
+
+    /// The file `name` as it was before its last [`write`](Self::write): for
+    /// a game that finds its save damaged (by hand, by another program) and
+    /// wants the one before.
+    ///
+    /// # Errors
+    ///
+    /// As [`read`](Self::read); [`ErrorKind::NotFound`] if `name` was never
+    /// written over.
+    pub fn read_backup(&self, name: &str) -> Result<Vec<u8>, Error> {
+        check_name(name)?;
+        self.read_raw(&format!("{name}{BACKUP}"))
+    }
+
+    fn read_raw(&self, name: &str) -> Result<Vec<u8>, Error> {
+        match &self.backend {
+            Backend::Off => Err(off(name)),
+            Backend::Folder(dir) => std::fs::read(dir.join(name)).map_err(|e| io(name, &e)),
+            #[cfg(target_arch = "wasm32")]
+            Backend::Browser => web::read(name).ok_or_else(|| missing(name)),
+        }
+    }
+
+    /// Whether the file `name` exists (`false` for a bad name or when
+    /// storage is off).
+    #[must_use]
+    pub fn exists(&self, name: &str) -> bool {
+        if check_name(name).is_err() {
+            return false;
+        }
+        match &self.backend {
+            Backend::Off => false,
+            Backend::Folder(dir) => dir.join(name).is_file(),
+            #[cfg(target_arch = "wasm32")]
+            Backend::Browser => web::read(name).is_some(),
+        }
+    }
+
+    /// Every file's name, in sorted order, including those in folders
+    /// (`"saves/slot1.json"`). Backups and unfinished writes aren't listed.
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::Io`] if the folder can't be read,
+    /// [`ErrorKind::Unsupported`] when storage is off. A folder that doesn't
+    /// exist yet has no files.
+    pub fn list(&self) -> Result<Vec<String>, Error> {
+        let mut names = match &self.backend {
+            Backend::Off => return Err(off("")),
+            Backend::Folder(dir) => {
+                let mut names = Vec::new();
+                list_folder(dir, "", &mut names).map_err(|e| io("", &e))?;
+                names
+            }
+            #[cfg(target_arch = "wasm32")]
+            Backend::Browser => web::names(),
+        };
+        names.retain(|n| is_listed(n));
+        names.sort();
+        Ok(names)
+    }
+
+    /// Deletes the file `name` and its backup. A file that isn't there is
+    /// already deleted.
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::Io`] if the disk refuses, [`ErrorKind::Invalid`] for a bad
+    /// name, [`ErrorKind::Unsupported`] when storage is off.
+    pub fn delete(&mut self, name: &str) -> Result<(), Error> {
+        check_name(name)?;
+        match &self.backend {
+            Backend::Off => Err(off(name)),
+            Backend::Folder(dir) => {
+                for file in [name.to_string(), format!("{name}{BACKUP}")] {
+                    match std::fs::remove_file(dir.join(&file)) {
+                        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(io(name, &e)),
+                        _ => {}
+                    }
+                }
+                Ok(())
+            }
+            #[cfg(target_arch = "wasm32")]
+            Backend::Browser => web::delete(name),
+        }
+    }
+
+    /// Writes `value` as pretty-printed JSON, safely as [`write`](Self::write).
+    ///
+    /// # Errors
+    ///
+    /// As `write`, and [`ErrorKind::Json`] if `value` can't be written as JSON.
+    pub fn write_json<T: serde::Serialize + ?Sized>(&mut self, name: &str, value: &T) -> Result<(), Error> {
+        let bytes = serde_json::to_vec_pretty(value).map_err(|e| Error::from(e).with_path(name))?;
+        self.write(name, &bytes)
+    }
+
+    /// Reads the JSON file `name` as a `T`.
+    ///
+    /// # Errors
+    ///
+    /// As [`read`](Self::read), and [`ErrorKind::Json`] if the file isn't JSON
+    /// for a `T`.
+    pub fn read_json<T: serde::de::DeserializeOwned>(&self, name: &str) -> Result<T, Error> {
+        let bytes = self.read(name)?;
+        serde_json::from_slice(&bytes).map_err(|e| Error::from(e).context(name).with_path(name))
+    }
+
+    /// Saves the world's reflected components and resources (as
+    /// [`WorldReflect::save`](crate::reflect::WorldReflect::save) and
+    /// [`save_scene`](crate::assets::Assets::save_scene) do) in the save slot
+    /// `slot`, the file `saves/<slot>.json`; [`Ctx::load_world`](crate::ctx::Ctx::load_world)
+    /// reads it back. Safe against crashes, like [`write`](Self::write).
+    ///
+    /// ```
+    /// use ponko::prelude::*;
+    /// # let dir = std::env::temp_dir().join(format!("ponko-doc-slots-{}", std::process::id()));
+    /// Game::new("Crabs", 800, 600).data_dir(&dir).run_headless(0, |ctx| {
+    ///     ctx.world.spawn((ponko::d2::Transform::at(vec2(1.0, 2.0)),));
+    ///     ctx.storage.save_world(&ctx.world, "slot1").unwrap();
+    ///     assert_eq!(ctx.storage.world_slots().unwrap(), ["slot1"]);
+    ///     ctx.load_world("slot1").unwrap();
+    /// });
+    /// # let _ = std::fs::remove_dir_all(dir);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// As `write`, and [`ErrorKind::Invalid`] for a slot name that isn't one
+    /// part of a file name (no `/`).
+    pub fn save_world(&mut self, world: &ponko_ecs::World, slot: &str) -> Result<(), Error> {
+        let name = slot_file(slot)?;
+        let save = crate::reflect::WorldReflect::save(world);
+        self.write_json(&name, &save)
+    }
+
+    /// The save slots [`save_world`](Self::save_world) wrote, sorted.
+    ///
+    /// # Errors
+    ///
+    /// As [`list`](Self::list).
+    pub fn world_slots(&self) -> Result<Vec<String>, Error> {
+        Ok(self
+            .list()?
+            .into_iter()
+            .filter_map(|n| {
+                n.strip_prefix(SLOTS)
+                    .and_then(|n| n.strip_suffix(".json"))
+                    .filter(|n| !n.contains('/'))
+                    .map(str::to_string)
+            })
+            .collect())
+    }
+
+    /// Deletes the save slot `slot` and its backup.
+    ///
+    /// # Errors
+    ///
+    /// As [`delete`](Self::delete).
+    pub fn delete_world(&mut self, slot: &str) -> Result<(), Error> {
+        let name = slot_file(slot)?;
+        self.delete(&name)
+    }
+}
+
+impl crate::ctx::Ctx {
+    /// Replaces the world with the save slot `slot` written by
+    /// [`Storage::save_world`]: the same load as
+    /// [`load_scene`](Self::load_scene) (its table says what is replaced and
+    /// what is kept), from the player's storage instead of the assets.
+    ///
+    /// A save is this player's own, so loading one is refused while a
+    /// lockstep session is connecting or running: the other peers don't have
+    /// the file.
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorKind::NotFound`] if there is no such slot, [`ErrorKind::Json`]
+    /// if it isn't a world save, the error of an asset it names,
+    /// [`ErrorKind::Unsupported`] when storage is off or a session runs. The
+    /// world is unchanged then.
+    pub fn load_world(&mut self, slot: &str) -> Result<(), Error> {
+        let name = slot_file(slot)?;
+        let save: serde_json::Value = self.storage.read_json(&name)?;
+        self.replace_world(&save).map_err(|e| {
+            if e.kind() == ErrorKind::Unsupported {
+                Error::new(
+                    ErrorKind::Unsupported,
+                    "a lockstep session is running: a save slot is this player's own, the other peers can't load it",
+                )
+                .with_path(&name)
+            } else {
+                e.context(&name).with_path(&name)
+            }
+        })
+    }
+}
+
+/// The name of slot `slot`'s file.
+fn slot_file(slot: &str) -> Result<String, Error> {
+    if slot.contains('/') {
+        return Err(Error::new(ErrorKind::Invalid, format!("save slot {slot:?} has a '/'")).with_path(slot));
+    }
+    let name = format!("{SLOTS}{slot}.json");
+    check_name(&name)?;
+    Ok(name)
+}
+
+/// Checks a file name: relative parts with safe characters, no reserved
+/// suffix.
+fn check_name(name: &str) -> Result<(), Error> {
+    let bad = |why: &str| Err(Error::new(ErrorKind::Invalid, format!("file name {name:?} {why}")).with_path(name));
+    if name.is_empty() {
+        return bad("is empty");
+    }
+    if name.len() > 255 {
+        return bad("is longer than 255 bytes");
+    }
+    for part in name.split('/') {
+        if part.is_empty() {
+            return bad("has an empty part (a leading, trailing or double '/')");
+        }
+        if part.starts_with('.') {
+            return bad("has a part starting with '.'");
+        }
+        if part.ends_with(' ') {
+            return bad("has a part ending with a space");
+        }
+        let stem = part.split('.').next().unwrap_or(part).to_ascii_uppercase();
+        let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+                && stem.len() == 4
+                && stem.as_bytes()[3].is_ascii_digit());
+        if device {
+            return bad("has a part Windows keeps for devices (CON, NUL, COM1, ...)");
+        }
+        if let Some(c) = part
+            .chars()
+            .find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' ')))
+        {
+            return bad(&format!("has {c:?}: use letters, digits, spaces, '-', '_', '.' and '/'"));
+        }
+    }
+    if name.ends_with(TEMP) || name.ends_with(BACKUP) {
+        return bad("ends with .tmp or .bak, which storage keeps for itself");
+    }
+    Ok(())
+}
+
+/// A name `list` shows: not a backup or an unfinished write.
+fn is_listed(name: &str) -> bool {
+    !name.ends_with(TEMP) && !name.ends_with(BACKUP)
+}
+
+fn off(name: &str) -> Error {
+    let e = Error::new(
+        ErrorKind::Unsupported,
+        "this game keeps no files: give it an app id with Game::app_id (or a folder with Game::data_dir)",
+    );
+    if name.is_empty() { e } else { e.with_path(name) }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+fn missing(name: &str) -> Error {
+    Error::new(ErrorKind::NotFound, format!("no stored file {name:?}")).with_path(name)
+}
+
+fn io(name: &str, e: &std::io::Error) -> Error {
+    let kind = if e.kind() == std::io::ErrorKind::NotFound {
+        ErrorKind::NotFound
+    } else {
+        ErrorKind::Io
+    };
+    let what = if name.is_empty() {
+        "the storage folder".to_string()
+    } else {
+        format!("stored file {name:?}")
+    };
+    let e = Error::new(kind, format!("{what}: {e}"));
+    if name.is_empty() { e } else { e.with_path(name) }
+}
+
+/// The system's per-user data folder (before the app id), read through `var`
+/// so tests can give their own environment.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn base_dir(var: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let var = |name: &str| var(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(dir) = var(ENV_DATA_DIR) {
+        return Some(dir);
+    }
+    if cfg!(windows) {
+        var("APPDATA").or_else(|| var("USERPROFILE").map(|h| h.join("AppData").join("Roaming")))
+    } else if cfg!(target_os = "macos") {
+        var("HOME").map(|h| h.join("Library").join("Application Support"))
+    } else {
+        // XDG says a relative value is invalid and must be ignored.
+        var("XDG_DATA_HOME")
+            .filter(|d| d.is_absolute())
+            .or_else(|| var("HOME").map(|h| h.join(".local").join("share")))
+    }
+}
+
+/// `path` with `suffix` added to its file name.
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// The safe write: temporary file (flushed), backup of the old file, rename.
+fn write_file(path: &Path, bytes: &[u8], crash: Crash) -> std::io::Result<()> {
+    use std::io::Write;
+    let dir = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let temp = with_suffix(path, TEMP);
+    {
+        let mut file = std::fs::File::create(&temp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+    }
+    if crash == Crash::AfterTemp {
+        return Err(std::io::Error::other("simulated crash after the temporary file"));
+    }
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file()) {
+        keep_backup(path)?;
+    }
+    if crash == Crash::AfterBackup {
+        return Err(std::io::Error::other("simulated crash before the rename"));
+    }
+    // Atomic on every desktop system: the name is the old file or the new one.
+    // (On Windows, std's rename replaces an existing file.)
+    if let Err(e) = std::fs::rename(&temp, path) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(e);
+    }
+    sync_dir(dir);
+    Ok(())
+}
+
+/// Makes `<path>.bak` the current `path`: a second name for the same file
+/// where the file system has them (the rename then only moves `path`), else a
+/// copy, made whole before it gets the backup's name.
+fn keep_backup(path: &Path) -> std::io::Result<()> {
+    let backup = with_suffix(path, BACKUP);
+    match std::fs::remove_file(&backup) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => {}
+    }
+    if std::fs::hard_link(path, &backup).is_ok() {
+        return Ok(());
+    }
+    let temp = with_suffix(&backup, TEMP);
+    std::fs::copy(path, &temp)?;
+    std::fs::rename(&temp, &backup)
+}
+
+/// Flushes the folder's entries, so the rename itself survives a power cut
+/// (Unix; Windows has no such call for folders). Best effort.
+fn sync_dir(dir: &Path) {
+    #[cfg(unix)]
+    if let Ok(dir) = std::fs::File::open(dir) {
+        let _ = dir.sync_all();
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+}
+
+/// Adds the files below `dir` to `names`, as `prefix<name>`.
+fn list_folder(dir: &Path, prefix: &str, names: &mut Vec<String>) -> std::io::Result<()> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound && prefix.is_empty() => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    for entry in entries {
+        let entry = entry?;
+        // Names storage couldn't have written (not UTF-8) aren't its files.
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            list_folder(&entry.path(), &format!("{prefix}{name}/"), names)?;
+        } else if file_type.is_file() {
+            names.push(format!("{prefix}{name}"));
+        }
+    }
+    Ok(())
+}
+
+/// Files kept in memory with the same rules as the folder: a write keeps the
+/// old bytes as the backup. The web build's copy of its browser storage.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[derive(Debug, Default)]
+pub(crate) struct MemoryFiles {
+    files: std::collections::BTreeMap<String, Vec<u8>>,
+}
+
+/// One change to store: a file's new bytes, or its removal.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+#[derive(Debug, PartialEq)]
+pub(crate) enum Change {
+    Put(String, Vec<u8>),
+    Remove(String),
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+impl MemoryFiles {
+    pub(crate) fn insert(&mut self, name: String, bytes: Vec<u8>) {
+        self.files.insert(name, bytes);
+    }
+
+    pub(crate) fn get(&self, name: &str) -> Option<Vec<u8>> {
+        self.files.get(name).cloned()
+    }
+
+    pub(crate) fn names(&self) -> Vec<String> {
+        self.files.keys().cloned().collect()
+    }
+
+    /// Writes `name`, keeping the old bytes as its backup; returns the
+    /// changes to store, all in one transaction.
+    pub(crate) fn write(&mut self, name: &str, bytes: &[u8]) -> Vec<Change> {
+        let mut changes = Vec::with_capacity(2);
+        if let Some(old) = self.files.insert(name.to_string(), bytes.to_vec()) {
+            let backup = format!("{name}{BACKUP}");
+            changes.push(Change::Put(backup.clone(), old.clone()));
+            self.files.insert(backup, old);
+        }
+        changes.push(Change::Put(name.to_string(), bytes.to_vec()));
+        changes
+    }
+
+    /// Removes `name` and its backup; returns the changes to store.
+    pub(crate) fn delete(&mut self, name: &str) -> Vec<Change> {
+        let backup = format!("{name}{BACKUP}");
+        self.files.remove(name);
+        self.files.remove(&backup);
+        vec![Change::Remove(name.to_string()), Change::Remove(backup)]
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+mod web;
+
+/// Reads the game's browser storage into memory (web builds, before setup).
+#[cfg(target_arch = "wasm32")]
+pub(crate) async fn preload_web() {
+    web::preload().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A fresh, empty folder for one test.
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ponko-storage-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn a_crash_between_the_temporary_file_and_the_rename_never_leaves_a_corrupt_save() {
+        for crash in [Crash::AfterTemp, Crash::AfterBackup] {
+            let dir = temp_dir(&format!("crash-{crash:?}"));
+            let mut storage = Storage::in_folder(&dir);
+            storage.write("saves/slot.json", b"{\"level\":1}").unwrap();
+
+            // The game dies while writing level 2.
+            let err = storage
+                .write_until("saves/slot.json", b"{\"level\":2}", crash)
+                .unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::Io, "{crash:?}");
+
+            // A new run (a new process, in effect) finds the whole old save.
+            let storage = Storage::in_folder(&dir);
+            assert_eq!(storage.read("saves/slot.json").unwrap(), b"{\"level\":1}", "{crash:?}");
+            assert_eq!(storage.list().unwrap(), ["saves/slot.json"], "the leftover isn't listed");
+
+            // And the next write goes through, keeping level 1 as the backup.
+            let mut storage = storage;
+            storage.write("saves/slot.json", b"{\"level\":3}").unwrap();
+            assert_eq!(storage.read("saves/slot.json").unwrap(), b"{\"level\":3}");
+            assert_eq!(storage.read_backup("saves/slot.json").unwrap(), b"{\"level\":1}");
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+
+    #[test]
+    fn a_half_written_temporary_file_from_a_killed_process_is_ignored_and_replaced() {
+        let dir = temp_dir("torn");
+        let mut storage = Storage::in_folder(&dir);
+        storage.write("progress.json", b"complete").unwrap();
+        // What a process killed in the middle of writing the bytes leaves.
+        std::fs::write(dir.join("progress.json.tmp"), b"comp").unwrap();
+        assert_eq!(storage.read("progress.json").unwrap(), b"complete");
+        assert_eq!(storage.list().unwrap(), ["progress.json"]);
+        storage.write("progress.json", b"newer").unwrap();
+        assert_eq!(storage.read("progress.json").unwrap(), b"newer");
+        assert!(!dir.join("progress.json.tmp").exists(), "the rename used it up");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn the_first_write_has_no_backup_and_each_later_one_keeps_the_previous_file() {
+        let dir = temp_dir("backup");
+        let mut storage = Storage::in_folder(&dir);
+        storage.write("a.txt", b"1").unwrap();
+        assert_eq!(storage.read_backup("a.txt").unwrap_err().kind(), ErrorKind::NotFound);
+        storage.write("a.txt", b"2").unwrap();
+        storage.write("a.txt", b"3").unwrap();
+        assert_eq!(storage.read("a.txt").unwrap(), b"3");
+        assert_eq!(storage.read_backup("a.txt").unwrap(), b"2");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn unsafe_and_reserved_names_are_refused() {
+        for name in [
+            "",
+            "/abs",
+            "a//b",
+            "../up",
+            "a/../b",
+            ".hidden",
+            "back\\slash",
+            "c:drive",
+            "x.tmp",
+            "x.bak",
+            "trailing ",
+            "new\nline",
+            "nul.json",
+            "saves/COM1",
+        ] {
+            assert_eq!(check_name(name).unwrap_err().kind(), ErrorKind::Invalid, "{name:?}");
+        }
+        for name in ["a", "saves/slot 1.json", "x.tmp.json", "A-b_c.d"] {
+            assert!(check_name(name).is_ok(), "{name:?}");
+        }
+        assert_eq!(slot_file("a/b").unwrap_err().kind(), ErrorKind::Invalid);
+    }
+
+    #[test]
+    fn the_data_folder_follows_each_system_and_the_override() {
+        let env = |pairs: &'static [(&'static str, &'static str)]| {
+            move |name: &str| {
+                pairs
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| std::ffi::OsString::from(v))
+            }
+        };
+        let home = env(&[("HOME", "/home/p"), ("APPDATA", "C:\\Users\\p\\AppData\\Roaming")]);
+        let expected = if cfg!(windows) {
+            PathBuf::from("C:\\Users\\p\\AppData\\Roaming")
+        } else if cfg!(target_os = "macos") {
+            PathBuf::from("/home/p/Library/Application Support")
+        } else {
+            PathBuf::from("/home/p/.local/share")
+        };
+        assert_eq!(base_dir(&home), Some(expected));
+        let over = env(&[(ENV_DATA_DIR, "/elsewhere"), ("HOME", "/home/p")]);
+        assert_eq!(base_dir(&over), Some(PathBuf::from("/elsewhere")));
+        assert_eq!(base_dir(&env(&[])), None, "no home: no folder");
+        if !cfg!(windows) && !cfg!(target_os = "macos") {
+            let xdg = env(&[("XDG_DATA_HOME", "/xdg"), ("HOME", "/home/p")]);
+            assert_eq!(base_dir(&xdg), Some(PathBuf::from("/xdg")));
+            let relative = env(&[("XDG_DATA_HOME", "rel"), ("HOME", "/home/p")]);
+            assert_eq!(base_dir(&relative), Some(PathBuf::from("/home/p/.local/share")));
+        }
+    }
+
+    #[test]
+    fn memory_files_keep_the_backup_and_store_the_file_and_backup_together() {
+        let mut files = MemoryFiles::default();
+        assert_eq!(files.write("a", b"1"), [Change::Put("a".into(), b"1".to_vec())]);
+        assert_eq!(
+            files.write("a", b"2"),
+            [
+                Change::Put("a.bak".into(), b"1".to_vec()),
+                Change::Put("a".into(), b"2".to_vec())
+            ]
+        );
+        assert_eq!(files.get("a").unwrap(), b"2");
+        assert_eq!(files.get("a.bak").unwrap(), b"1");
+        assert_eq!(files.names(), ["a", "a.bak"]);
+        files.delete("a");
+        assert!(files.names().is_empty());
+    }
+}

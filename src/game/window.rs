@@ -441,12 +441,14 @@ where
         #[cfg(not(target_arch = "wasm32"))]
         self.start(Renderer::new(window, display, vsync, msaa));
 
-        // Web: the browser can't block, so fetch the assets and open the GPU
+        // Web: the browser can't block, so fetch the assets, read the
+        // player's stored files (`ctx.storage`) and open the GPU
         // in a task, which sends `Ready` when done.
         #[cfg(target_arch = "wasm32")]
         if let Some(proxy) = self.proxy.take() {
             wasm_bindgen_futures::spawn_local(async move {
                 crate::web::fetch_assets().await;
+                crate::storage::preload_web().await;
                 let renderer = Renderer::new_async(window, display, vsync, msaa).await;
                 let _ = proxy.send_event(Ready(renderer));
             });
