@@ -69,7 +69,7 @@ unsafe extern "C" fn lifecycle(ctx: *mut PonkoCtx, user: *mut c_void) {
         errors.push(ponko_ctx_create_mesh(ctx, data, material, &mut mesh));
         ponko_mesh_data_free(data);
         // No handle of any kind has the NONE id.
-        for kind in 0..=10 {
+        for kind in 0..=12 {
             let mut live = true;
             assert_eq!(
                 ponko_ctx_handle_is_live(ctx, kind, PONKO_HANDLE_NONE, &mut live),
@@ -83,7 +83,7 @@ unsafe extern "C" fn lifecycle(ctx: *mut PonkoCtx, user: *mut c_void) {
         assert_eq!(ponko_ctx_handle_free(ctx, PONKO_HANDLE_FONT as u32, 0), PONKO_OK);
         assert!(is_live(ctx, PONKO_HANDLE_FONT, 0));
         // Errors.
-        errors.push(ponko_ctx_handle_free(ctx, 11, 0));
+        errors.push(ponko_ctx_handle_free(ctx, 13, 0));
         errors.push(ponko_ctx_handle_is_live(ctx, 0, 0, null_mut()));
         errors.push(ponko_ctx_live_counts(ctx, null_mut()));
     }

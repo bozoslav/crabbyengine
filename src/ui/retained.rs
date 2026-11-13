@@ -874,13 +874,17 @@ impl Ui {
     pub fn top_screen(&self) -> Option<UiId> {
         self.screens.last().map(|s| s.root)
     }
-    /// User scale, multiplied with the window's existing DPI handling.
+    /// User scale, multiplied with the window's existing DPI handling. The
+    /// [immediate widgets](Ui::immediate) are drawn at it too: their sizes
+    /// are in the same units as the tree's layout.
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default(); ui.set_scale(1.5);
+    /// assert_eq!(ui.immediate.scale(), 1.5);
     /// ```
     pub fn set_scale(&mut self, scale: f32) {
         self.scale = if scale.is_finite() { scale.clamp(0.25, 8.0) } else { 1.0 };
+        self.immediate.scale = self.scale;
     }
     /// The node's rectangle in logical window coordinates (including user
     /// scale) as of the last layout: [`Ui::frame`] (run by the engine before

@@ -134,7 +134,8 @@ In C++, `draw_text(text, pos, params)` is `draw_text_ex`, with
 
 ## UI
 
-A few immediate-mode widgets, drawn in window pixels, for debug overlays and
+A few immediate-mode widgets, in the same units as the retained tree's layout
+(window pixels at the default scale), for debug overlays and
 quick prototypes; a game's menus and HUD belong in the [retained UI](ui.md).
 Call them every frame:
 
@@ -168,9 +169,54 @@ draw through `ctx.gfx`, and a button also reads the mouse from `ctx.input`
   `set_ui_style(s)`). It follows the screen UI's theme: `ctx.ui.set_theme(..)`
   styles the retained tree and these widgets together, and keeps the fields
   set here by hand ([Retained game UI](ui.md)).
+- One scale and one theme for both styles: `ctx.ui.set_scale(2.0)` and
+  `ctx.ui.set_theme(..)` set the look of the retained tree and of these
+  widgets together (see below).
 - `ctx.ui.wants_pointer()` says whether the mouse is over UI, so a click on a
   button doesn't also act on the world behind it. `camera_controls` checks
   it before zooming.
+
+### One look for both styles
+
+The immediate widgets read the same scale and theme as the screen's retained
+tree, so a debug overlay next to a menu looks like part of it, on a
+high-density display too. Positions and sizes you pass are in UI units, the
+units of the tree's layout, and the screen's scale multiplies them (text,
+the padding in the style, a button's border): `label` returns the size it
+took in UI units, so stacking lines needs no change. The mouse and
+`covers` stay in window pixels.
+
+```rust
+# use ponko::ui::UiTheme;
+# fn setup(ctx: &mut Ctx) {
+ctx.ui.set_scale(2.0); // the tree and the immediate widgets, together
+ctx.ui.set_theme(UiTheme {
+    accent: Color::hex(0x2e8b57),
+    text_size: 20.0,
+    ..Default::default()
+});
+// An immediate button now has the theme's accent and text size, twice as
+// large as the 1x layout says: the tree's buttons look the same.
+# }
+```
+
+| Retained theme / tree | Immediate widgets |
+|---|---|
+| `Ui::set_scale` | geometry, text and hit testing, at the same scale |
+| `UiTheme` colors (`panel`, `control`, `hover`, `pressed`, `accent`, `text`) | `style` (`panel`, `button`, `button_hovered`, `button_pressed`, `accent`, `text`) |
+| `UiTheme::text_size` | `style.text_size` |
+| `UiTheme::font` | `ctx.ui.immediate.font` |
+| `UiTheme::border_width` | `ctx.ui.immediate.border_width` (a button's border) |
+
+A theme field left at its default keeps the immediate widgets' own default
+(their panels are see-through, for overlays; their text is 16 units, not
+18), so a game that sets no theme sees no change. A field set by hand, such
+as `ctx.ui.immediate.style.text_size = 14.0`, stays through a later
+`set_theme`. The retained theme has no spacing besides `border_width`: the
+immediate `style.padding` is its own, and scales with the screen. From C,
+`ponko_ctx_ui_set_scale` and `ponko_ctx_ui_set_theme` do the same; C++:
+`ctx.ui_retained().set_scale(..)` and `.set_theme(..)`. This snippet is
+Rust-only; the C and C++ calls need no new functions.
 
 The whole scene from `cargo run --release --example ui`:
 

@@ -28,6 +28,10 @@ PHYSICS="rapier2d rapier3d"
 NAVMESH="navmesh-rs"
 TOOLS="puffin puffin_http subsecond dioxus-devtools"
 STEAM="steamworks"
+# Image decoders beyond PNG. Each is an opt-in `image-*` feature; JPEG is a
+# default one (`image-jpeg`), so builds without defaults must not carry it.
+JPEG="zune-jpeg"
+OTHER_IMAGES="image-webp gif tiff qoi exr"
 # The screen-reader adapter is opt-in (`accessibility`). The `accesskit` data
 # types alone also come with the inspector's egui, so builds that may have
 # the inspector forbid only the adapter (ACCESS); builds without a window or
@@ -37,10 +41,12 @@ ACCESS_ALL="$ACCESS accesskit"
 
 # name | cargo package and feature arguments | forbidden crates
 CONTRACTS=(
-  "headless|-p ponko --no-default-features|$RENDER $AUDIO $INSPECTOR $GAMEPAD $MODELS $PHYSICS $NAVMESH $TOOLS $STEAM $ACCESS_ALL"
-  "headless with audio|-p ponko --no-default-features --features audio|$RENDER $INSPECTOR $GAMEPAD $MODELS $PHYSICS $NAVMESH $TOOLS $STEAM $ACCESS_ALL"
-  "window-only 2D|-p ponko --no-default-features --features window|$AUDIO $INSPECTOR $GAMEPAD $MODELS $PHYSICS $NAVMESH $TOOLS $STEAM $ACCESS"
-  "default|-p ponko|$MODELS $PHYSICS $NAVMESH $TOOLS $STEAM $ACCESS"
+  "headless|-p ponko --no-default-features|$RENDER $AUDIO $INSPECTOR $GAMEPAD $MODELS $PHYSICS $NAVMESH $TOOLS $STEAM $ACCESS_ALL $JPEG $OTHER_IMAGES"
+  "headless with audio|-p ponko --no-default-features --features audio|$RENDER $INSPECTOR $GAMEPAD $MODELS $PHYSICS $NAVMESH $TOOLS $STEAM $ACCESS_ALL $JPEG $OTHER_IMAGES"
+  "window-only 2D|-p ponko --no-default-features --features window|$AUDIO $INSPECTOR $GAMEPAD $MODELS $PHYSICS $NAVMESH $TOOLS $STEAM $ACCESS $JPEG $OTHER_IMAGES"
+  # A 2D game with JPEG backgrounds and WebP tiles: image decoders, no 3D.
+  "2D with image formats|-p ponko --no-default-features --features window,image-jpeg,image-webp|$AUDIO $INSPECTOR $GAMEPAD $MODELS $PHYSICS $NAVMESH $TOOLS $STEAM $ACCESS"
+  "default|-p ponko|$MODELS $PHYSICS $NAVMESH $TOOLS $STEAM $ACCESS $OTHER_IMAGES"
   # The C library always turns on the engine's `3d` and `navmesh` features:
   # its 3D and navigation functions are exported unconditionally (the C
   # header declares them all). So its smallest build carries glTF and Recast,
@@ -99,6 +105,12 @@ case "${1:-check}" in
     if check "headless + 3d,physics" "-p ponko --no-default-features --features 3d,physics" \
       "${CONTRACTS[0]##*|}" >/dev/null; then
       echo "self-test failed: the headless contract accepted glTF and rapier2d" >&2
+      exit 1
+    fi
+    # And one that turns the JPEG decoder on must fail it too.
+    if check "headless + image-jpeg" "-p ponko --no-default-features --features image-jpeg" \
+      "${CONTRACTS[0]##*|}" >/dev/null; then
+      echo "self-test failed: the headless contract accepted the JPEG decoder" >&2
       exit 1
     fi
     echo "self-test ok: an accidentally enabled subsystem fails the headless contract."

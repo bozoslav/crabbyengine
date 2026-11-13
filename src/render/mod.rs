@@ -27,10 +27,13 @@ mod particles;
 mod pipeline_stats;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod screen;
-#[cfg(all(feature = "window", feature = "3d"))]
+#[cfg(feature = "window")]
 mod shader_diagnostics;
+mod shader_status;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod smaa;
+#[cfg(feature = "window")]
+mod sprite_pipelines;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod ssr;
 #[cfg(feature = "window")]
@@ -42,6 +45,7 @@ mod timer;
 #[cfg(feature = "window")]
 pub(crate) mod traffic;
 
+pub use crate::sprite_material::{BlendMode, SpriteMaterial, SpriteMaterialDesc, SpriteShader};
 #[cfg(feature = "3d")]
 pub use crate::three::{QualityAutotune, QualityAutotuneReason, QualityAutotuneStatus, QualityChange};
 pub use capabilities::{GpuAdapter, GpuBatchLimits, GpuCapabilities, GpuFeature, GpuFeatureStatus, GpuLimits, GpuTier};
@@ -66,8 +70,9 @@ pub use gpu3d::{
 #[cfg(not(feature = "window"))]
 pub(crate) use none::Renderer;
 pub use pipeline_stats::PipelineStats;
-#[cfg(all(feature = "window", feature = "3d"))]
+#[cfg(feature = "window")]
 pub(crate) use shader_diagnostics::{diagnose, without_location};
+pub use shader_status::{ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus};
 
 /// What drawing the last frame cost, from [`Perf::render_stats`](crate::perf::Perf::render_stats).
 ///
@@ -397,6 +402,8 @@ mod single_sample_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod skin_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
+mod sprite_material_render_test;
+#[cfg(all(test, feature = "window", feature = "3d"))]
 mod ssr_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod static_batch_bench;
@@ -449,8 +456,7 @@ pub use crate::three::{
     GraphicsQuality, InstanceBatch, InstanceBatchOptions, InstanceLevel, Lighting, LodGroup, LodHysteresis, LodLevel,
     LodPick, LodRenderer, LodSettings, LodShadow, Material, MaterialDesc, Mesh, MeshCost, MeshData, Model,
     ModelMaterial, ModelMaterials, Post, ReceivesDecals, RenderPasses, SceneSettings, ScreenEffect, Shader,
-    ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus, ShadowFilter, ShadowMesh, Sky, StreamedLod,
-    TargetCamera, TargetEffect, Tonemap,
+    ShadowFilter, ShadowMesh, Sky, StreamedLod, TargetCamera, TargetEffect, Tonemap,
 };
 /// Unstable extraction benchmark driver for `ponko_bench` (feature `bench-internals`).
 #[doc(hidden)]

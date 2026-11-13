@@ -422,6 +422,75 @@ static void count_neighbors(ponko::ctx& ctx) {
     // ANCHOR_END: pixels
 }
 
+// ANCHOR: sprite_materials
+/// Burns a sprite away where its noise texture is below `material.params[0].x`.
+static const char* dissolve_shader = R"(
+fn fragment(p: SpritePixel) -> vec4<f32> {
+    if material_sample0(p.local).r < material.params[0].x {
+        discard;
+    }
+    return p.color;
+})";
+
+static ponko::sprite_material sprite_looks(ponko::ctx& ctx, ponko::texture crab, ponko::texture noise) {
+    auto world = ctx.world();
+    // A glow that brightens what's behind it:
+    world.spawn(ponko::transform_at({400, 300}), ponko::sprite_of(crab), ponko::sprite_blend::additive);
+    // A sprite with a shader of its own:
+    auto desc = ponko::sprite_material_of(ctx.create_sprite_shader("dissolve.wgsl", dissolve_shader));
+    ponko::set_texture(desc, 0, noise);
+    auto dissolve = ctx.create_sprite_material(desc);
+    world.spawn(ponko::transform_at({200, 300}), ponko::sprite_of(crab), dissolve);
+    // Immediate draws take both too:
+    ctx.draw(crab, {100, 100}, ponko::draw_defaults(), ponko::sprite_blend::additive, dissolve);
+    return dissolve;
+}
+
+/// Burns it a little further (call it every frame).
+static void burn(ponko::ctx& ctx, ponko::sprite_material dissolve, float progress) {
+    if (auto desc = ctx.sprite_material_desc_of(dissolve)) {
+        ponko::set_param(*desc, 0, progress, 0, 0, 0);
+        ctx.update_sprite_material(dissolve, *desc);
+    }
+}
+// ANCHOR_END: sprite_materials
+
+/// Runs the sprite material snippet headless and checks what it made.
+static void sprite_looks_run() {
+    ponko::game("sprite material guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        std::uint8_t white[4] = {255, 255, 255, 255};
+        const auto pixel = ctx.create_texture(1, 1, white, sizeof white);
+        const auto dissolve = sprite_looks(ctx, pixel, pixel);
+        burn(ctx, dissolve, 0.5f);
+        const auto desc = ctx.sprite_material_desc_of(dissolve);
+        if (!desc || desc->params[0] != 0.5f || !desc->has_textures[0] || desc->has_textures[1]) {
+            std::fprintf(stderr, "sprite material guide: params\n");
+            std::abort();
+        }
+        std::size_t glows = 0, burning = 0;
+        // A blend mode is checked as it's stored, so it isn't a query column: get it by entity.
+        std::vector<ponko::entity> placed;
+        ctx.world().each([&](ponko::entity e, const ponko::transform2d&) { placed.push_back(e); });
+        for (auto e : placed)
+            glows += ctx.world().has<ponko::sprite_blend>(e) &&
+                     ctx.world().get<ponko::sprite_blend>(e) == ponko::sprite_blend::additive;
+        ctx.world().each([&](const ponko::sprite_material& m) { burning += m.id == dissolve.id; });
+        const auto status = ctx.shader_status();
+        if (glows != 1 || burning != 1 || status.size() != 1 || status[0].info.kind != PONKO_SHADER_SPRITE) {
+            std::fprintf(stderr, "sprite material guide: components or status\n");
+            std::abort();
+        }
+        ctx.free(dissolve);
+        if (ctx.is_live(dissolve) || ctx.sprite_material_desc_of(dissolve)) std::abort();
+        // A broken shader is an error that says where, in its own lines.
+        const auto broken = ctx.try_create_sprite_shader("flash.wgsl", "// white\nfn fragment(p: SpritePixel) -> vec4<f32> {\n    return 1.0;\n}");
+        if (broken || ctx.shader_status()[1].info.line != 3) {
+            std::fprintf(stderr, "sprite material guide: errors\n");
+            std::abort();
+        }
+    });
+}
+
 // ---- Sprite sheets, animation and tilemaps ------------------------------------------
 [[maybe_unused]] static void sheets(ponko::ctx& ctx, ponko::vec2 pos) {
     auto world = ctx.world();
@@ -467,6 +536,53 @@ static void paint(ponko::ctx& ctx, ponko::entity map) {
     if (auto tile = tiles.tile_at(origin, ctx.mouse_world())) tiles.set((*tile)[0], (*tile)[1], STONE);
 }
 // ANCHOR_END: paint
+
+// ANCHOR: level_spawn
+static ponko::entity spawn_meadow(ponko::ctx& ctx) {
+    ponko::level_options options;
+    options.prefabs = {{"Chest", "prefabs/chest.json"}}; // objects of this class become prefab instances
+    options.solid = {"Ground"};                          // tiles of this layer collide too
+    return ponko::spawn_level(ctx, "levels/meadow.tmx", {0, 0}, options);
+}
+// ANCHOR_END: level_spawn
+
+// ANCHOR: level_objects
+static ponko::vec2 start_position(ponko::ctx& ctx, ponko::entity level) {
+    for (ponko::entity e : ponko::level_entities(ctx, level)) {
+        if (!ctx.world().try_get<ponko::transform2d>(e)) continue;
+        try {
+            if (ponko::level_object_class(ctx, e) == "Spawn") return ponko::level_object_of(ctx, e).position;
+        } catch (const ponko::error&) {} // a layer or a collider, not an object
+    }
+    return {48, 120};
+}
+// ANCHOR_END: level_objects
+
+// ANCHOR: autotile
+static void build_wall(ponko::ctx& ctx, ponko::entity walls, std::uint32_t x, std::uint32_t y) {
+    ponko::autotile_rule rule;
+    rule.frames = {7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7}; // one piece per mask N=1 E=2 S=4 W=8
+    ponko::tilemap_paint_autotile(ctx, walls, rule, x, y, true);
+    const std::size_t bodies = ponko::tilemap_spawn_colliders(ctx, walls, {7});
+    (void)bodies;
+}
+// ANCHOR_END: autotile
+
+static void levels_guide(ponko::ctx& ctx) {
+    const ponko::entity level = spawn_meadow(ctx);
+    const ponko::vec2 start = start_position(ctx, level);
+    if (start.x != 48.0f) { std::fprintf(stderr, "level start\n"); std::abort(); }
+    // ANCHOR: tile_extras
+    const ponko::entity sky = ctx.world().spawn(ponko::transform_at({0, 0}));
+    ctx.world().add_tilemap(sky, ponko::sheet_of(ctx.load_texture("levels/meadow.png"), 16, 16), 40, 15);
+    ponko::tilemap_set_parallax(ctx, sky, {0.3f, 0.3f});                 // far away: scrolls slowly
+    ponko::tilemap_animate(ctx, sky, 4, {{4, 0.4f}, {5, 0.4f}});         // tile 4 shows 4, 5, 4, 5, ...
+    ponko::tilemap_set_flipped(ctx, sky, 3, 2, 7, PONKO_TILE_FLIP_X);   // a mirrored tile
+    // ANCHOR_END: tile_extras
+    build_wall(ctx, sky, 10, 10);
+    if (ponko::tilemap_flip(ctx, sky, 3, 2) != PONKO_TILE_FLIP_X) { std::fprintf(stderr, "flip\n"); std::abort(); }
+    ponko::despawn_level(ctx, level);
+}
 
 // ---- Camera, text and UI ---------------------------------------------------------
 [[maybe_unused]] static void camera(ponko::ctx& ctx, ponko::vec2 bounds) {
@@ -2340,6 +2456,24 @@ static void campfire(ponko::ctx& ctx) {
     // ANCHOR_END: particles
 }
 
+static void sparks2d(ponko::ctx& ctx) {
+    // ANCHOR: particles2d
+    auto sparks = ponko::particle_settings2d()
+                      .rate(80)
+                      .cone(0.4f)
+                      .speed(120, 240)
+                      .lifetime(0.6f, 1.2f)
+                      .gravity({0, 260})
+                      .size(2, 4)
+                      .color_over_life({{0, {1, 0.9f, 0.4f, 1}}, {1, {1, 0.3f, 0, 0}}})
+                      .blend(ponko::sprite_blend::additive)
+                      .z(2);
+    auto e = ctx.world().spawn(ponko::transform_at({400, 300}));
+    ctx.set_particle_emitter2d(e, sparks);
+    ctx.particle_burst2d(e, 30); // more at any time
+    // ANCHOR_END: particles2d
+}
+
 static void ribbons(ponko::ctx& ctx) {
     auto white = ctx.default_material();
     auto floor_data = ponko::mesh_data::plane(12);
@@ -3012,6 +3146,7 @@ static void run_all() {
 
 int main() {
     builder_setup_runs_headless();
+    sprite_looks_run();
     action_ids_run();
     jump_once();
     menu_opens_settings();
@@ -3031,6 +3166,7 @@ int main() {
     ponko::game("panel guide", 960, 640).run_headless(0, panel_guide);
     ponko::game("particle guide", 1, 1).run_headless(0, campfire);
     ponko::game("ribbon guide", 1, 1).run_headless(0, ribbons);
+    ponko::game("particle 2d guide", 1, 1).run_headless(0, sparks2d);
     if (!messages_round_trip()) { std::fprintf(stderr, "no message\n"); std::abort(); }
     if (!replication_snippets()) { std::fprintf(stderr, "replication snippets failed\n"); std::abort(); }
     ponko::game("sound guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
@@ -3044,6 +3180,7 @@ int main() {
         } catch (const std::exception&) {}
         if (report_shader_errors(ctx) != 1 || ctx.shader_status()[0].info.line != 3) std::abort();
     });
+    ponko::game("level guide", 1, 1).physics({0, 700}).run_headless(0, levels_guide);
     ponko::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
     ponko::game("morph guide", 1, 1).run_headless(0, morphed_sheet);
     ponko::game("joint guide", 1, 1).physics3d({0, 0, 0}).run_headless(5, joints_and_dominance);

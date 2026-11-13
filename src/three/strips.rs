@@ -9,8 +9,9 @@ use std::collections::VecDeque;
 
 use glam::Vec3;
 
-use super::particles::{ParticleBlend3D, ParticleCurve, ParticleGradient};
+use super::particles::ParticleBlend3D;
 use super::{Camera3D, Transform3D};
+use crate::particles::{ParticleCurve, ParticleGradient};
 use crate::{color::Color, texture::Texture};
 use ponko_ecs::Component;
 

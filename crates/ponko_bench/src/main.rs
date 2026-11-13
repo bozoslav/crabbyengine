@@ -18,6 +18,7 @@ mod net;
 #[allow(dead_code)] // spike: API surface kept for the M3 port
 mod own;
 mod par_archetypes;
+mod particles2d;
 mod physics;
 mod physics3d;
 mod query_cache;
@@ -32,7 +33,9 @@ mod render_scenes;
 mod report;
 mod schedule;
 mod sparse_set;
+mod sprites;
 mod streaming;
+mod tilemap;
 
 use bevy_ecs::component::Component;
 use std::hint::black_box;
@@ -230,7 +233,10 @@ fn main() {
     let render: Option<String> = None;
     schedule::run(&mut b);
     streaming::run(&mut b);
+    tilemap::run(&mut b);
     sparse_set::run(&mut b);
+    sprites::run(&mut b);
+    particles2d::run(&mut b);
 
     // Resource scoping versus the previous public take/put workaround.
     for scoped in [false, true] {

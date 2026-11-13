@@ -1,0 +1,18 @@
+pub mod ponko_mcp
+pub struct ponko_mcp::Config
+pub ponko_mcp::Config::instances_dir: std::path::PathBuf
+pub ponko_mcp::Config::logs_dir: std::path::PathBuf
+pub ponko_mcp::Config::read_only: bool
+impl ponko_mcp::Config
+pub fn ponko_mcp::Config::from_env() -> Self
+impl core::clone::Clone for ponko_mcp::Config
+pub fn ponko_mcp::Config::clone(&self) -> Self
+impl core::fmt::Debug for ponko_mcp::Config
+pub fn ponko_mcp::Config::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct ponko_mcp::Server
+impl ponko_mcp::Server
+pub fn ponko_mcp::Server::handle(&mut self, &serde_json::value::Value) -> core::option::Option<serde_json::value::Value>
+pub fn ponko_mcp::Server::new(ponko_mcp::Config) -> Self
+pub fn ponko_mcp::control_env_feature(&std::path::Path, core::option::Option<&str>) -> core::option::Option<alloc::string::String>
+pub fn ponko_mcp::default_instances_dir() -> core::option::Option<std::path::PathBuf>
+pub fn ponko_mcp::serve_stdio(ponko_mcp::Config) -> core::io::error::Result<()>

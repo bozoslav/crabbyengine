@@ -43,7 +43,8 @@ mod sealed {
 }
 
 /// A handle to a resource the engine holds for the game: [`Texture`](crate::texture::Texture),
-/// [`Sound`](crate::audio::Sound), [`Font`](crate::text::Font), and with the `3d` feature [`Mesh`](crate::render::Mesh),
+/// [`Sound`](crate::audio::Sound), [`Font`](crate::text::Font),
+/// [`SpriteShader`](crate::render::SpriteShader), [`SpriteMaterial`](crate::render::SpriteMaterial), and with the `3d` feature [`Mesh`](crate::render::Mesh),
 /// [`Material`](crate::render::Material), [`Shader`](crate::render::Shader),
 /// [`Compute`](crate::render::Compute), [`Effect`](crate::render::Effect),
 /// [`GpuBuffer`](crate::render::GpuBuffer), [`InstanceBatch`](crate::render::InstanceBatch),
@@ -163,6 +164,10 @@ pub struct LiveCounts {
     pub fonts: usize,
     /// Collision meshes (feature `physics3d`).
     pub collision_meshes: usize,
+    /// Sprite shaders.
+    pub sprite_shaders: usize,
+    /// Sprite materials.
+    pub sprite_materials: usize,
 }
 
 impl Ctx {
@@ -307,6 +312,8 @@ impl Graphics {
         let mut counts = LiveCounts {
             textures: self.textures_live.len(),
             fonts: self.text.loaded_fonts(),
+            sprite_shaders: self.sprites.shaders_live.len(),
+            sprite_materials: self.sprites.materials_live.len(),
             ..LiveCounts::default()
         };
         #[cfg(feature = "3d")]
@@ -520,7 +527,6 @@ impl SlotIds {
 }
 
 /// `Handle` for a handle type whose only field is `id: u32`.
-#[cfg(feature = "3d")]
 macro_rules! id_handle {
     ($ty:ty, $live:expr, $free:expr) => {
         impl sealed::Sealed for $ty {}
@@ -626,6 +632,17 @@ impl GfxHandle for crate::text::Font {
         gfx.free_font_id(self.0);
     }
 }
+
+id_handle!(
+    crate::sprite_material::SpriteShader,
+    |g: &Graphics, h: crate::sprite_material::SpriteShader| g.sprites.shaders_live.contains(h.id),
+    |g: &mut Graphics, h: crate::sprite_material::SpriteShader| g.free_sprite_shader_id(h.id)
+);
+id_handle!(
+    crate::sprite_material::SpriteMaterial,
+    |g: &Graphics, h: crate::sprite_material::SpriteMaterial| g.sprites.materials_live.contains(h.id),
+    |g: &mut Graphics, h: crate::sprite_material::SpriteMaterial| g.free_sprite_material_id(h.id)
+);
 
 #[cfg(feature = "3d")]
 mod three {

@@ -1,0 +1,19 @@
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# The engine with its default features: a window, sound, gamepads and the
+# inspector. https://ponko.dev/guide/
+ponko = { version = "0.1" }
+serde = { version = "1", features = ["derive"] }
+
+# Fast debug builds: your code with light optimization, the engine and the
+# other dependencies fully optimized. Games and tests run many times faster
+# than a plain debug build; edit -> build stays quick, debug info stays.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

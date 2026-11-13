@@ -15,11 +15,12 @@
 //! | [`step_physics3d`] | `PHYSICS3D` | `Game::physics3d` | `Physics` |
 //! | [`interpolate_physics3d`] | `INTERPOLATE_PHYSICS3D` | `Game::physics3d` | `Frame` |
 //! | [`update_animators`] | `UPDATE_ANIMATORS` | always (`3d`) | end of `Animate` |
-//! | [`update_particles`] | `UPDATE_PARTICLES` | always (`3d`) | end of `Animate` |
+//! | [`update_particles`] | `UPDATE_PARTICLES` | always | end of `Animate` |
 //! | [`update_audio3d`] | `UPDATE_AUDIO3D` | always (`3d`) | end of `Draw` |
 //! | [`animate_sprites`] | `ANIMATE_SPRITES` | always | `Draw` |
 //! | [`draw_tilemaps`] | `DRAW_TILEMAPS` | always | `Draw` |
 //! | [`draw_sprites`] | `DRAW_SPRITES` | always | `Draw` |
+//! | [`draw_particles`] | `DRAW_PARTICLES` | always | `Draw` |
 //! | [`follow_attachments`] | `FOLLOW_ATTACHMENTS` | you | your choice |
 //! | [`step_navmesh3d`] | `STEP_NAVMESH3D` | you | your choice |
 //! | [`apply_net_poses`] | | you | your choice |
@@ -38,7 +39,6 @@
 //! [`Game::remove`]: crate::game::Game::remove
 //! [`Phase`]: crate::game::Phase
 
-#[cfg(feature = "3d")]
 use crate::ctx::Ctx;
 
 pub use crate::attach::follow_attachments;
@@ -68,13 +68,24 @@ pub fn update_animators(ctx: &mut Ctx) {
     ctx.update_animators();
 }
 
-/// Advances every [`ParticleEmitter3D`](crate::d3::ParticleEmitter) and
-/// [`Trail3D`](crate::d3::Trail) by this frame's time. The game runs it at
-/// the end of [`Phase::Animate`](crate::game::Phase::Animate), after the animators
+/// Advances every 2D [`ParticleEmitter`](crate::d2::ParticleEmitter) and,
+/// with `3d`, every 3D particle emitter and trail by this frame's time.
+/// The game runs it at the end of [`Phase::Animate`](crate::game::Phase::Animate),
+/// after the animators
 /// ([`Systems::UPDATE_PARTICLES`](crate::game::Systems::UPDATE_PARTICLES)).
-#[cfg(feature = "3d")]
 pub fn update_particles(ctx: &mut Ctx) {
+    let dt = ctx.dt();
+    ctx.update_particles2d(dt);
+    #[cfg(feature = "3d")]
     ctx.update_particles();
+}
+
+/// Draws every 2D [`ParticleEmitter`](crate::d2::ParticleEmitter)'s
+/// particles as sprites, at the emitter's `z` with its blend mode and
+/// material. [`Game`](crate::game::Game) runs it every frame after
+/// [`draw_sprites`] ([`Systems::DRAW_PARTICLES`](crate::game::Systems::DRAW_PARTICLES)).
+pub fn draw_particles(ctx: &mut Ctx) {
+    ctx.draw_particles2d();
 }
 
 /// Moves every positional sound ([`AudioSource3D`](crate::d3::AudioSource))

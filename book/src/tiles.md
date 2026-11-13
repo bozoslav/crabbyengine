@@ -134,3 +134,170 @@ engine's tiles directly (`set`, `get`, `tiles()` for bulk writes), with no copy:
 - Maps are drawn before sprites, so sprites with the same `z` are on top.
 
 `cargo run --release --example tiles`, or `MAP=4000` for 16 million tiles.
+
+### Animated, flipped and parallax tiles
+
+A map can animate a tile: every cell showing it cycles through frames, each
+for its own time, with no system of your own. Cells can be mirrored, and a
+map can scroll slower than the world, for far-away layers:
+
+<div class="lang-pair">
+<div>
+
+```rust
+# use ponko::d2::TileMap;
+# let mut map = TileMap::new(SpriteSheet::new(ctx.load_texture("levels/meadow.png"), 16, 16), 40, 15);
+map.parallax = vec2(0.3, 0.3);                      // far away: scrolls slowly
+map.animate(4, &[(4, 0.4), (5, 0.4)]);             // tile 4 shows 4, 5, 4, 5, ...
+map.set_flipped(3, 2, Some(7), TileMap::FLIP_X);   // a mirrored tile
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:tile_extras}}
+```
+
+</div>
+</div>
+
+- `parallax` is how much of the camera's movement the map follows: `(1, 1)`
+  moves with the world (the default), `(0, 0)` stays on the screen.
+  `parallax_origin` is the camera center at which the map sits at its own
+  position.
+- Flips are `FLIP_X`, `FLIP_Y` and `FLIP_DIAGONAL` (swap the axes first, as
+  Tiled does); combined, they give every rotation by 90°.
+- Maps without animations or flips draw exactly as before; the others cost a
+  little more per visible tile.
+
+## Levels from Tiled and LDtk
+
+Levels made in [Tiled](https://www.mapeditor.org/) (`.tmx`, `.tmj`, with
+embedded or external `.tsx` / `.tsj` tilesets and `.tx` templates) and
+[LDtk](https://ldtk.io/) (`.ldtk`, with separate level files too) spawn with
+one call:
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/level.rs:spawn}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:level_spawn}}
+```
+
+</div>
+</div>
+
+`spawn_level` returns a root entity (with a `LevelRoot`) and spawns:
+
+- every tile layer as `TileMap`s, one per tileset, with the tileset's
+  texture, animated and flipped tiles, the layer's offset, parallax,
+  opacity and tint, and a `LevelLayer` with its name and properties. Layers
+  are stacked by `z`, bottom to top; LDtk's auto-layers and IntGrid tiles
+  too. Image layers become one-tile maps.
+- every object (Tiled) or entity (LDtk) as an entity with a `Transform2D` at
+  its center and a `LevelObject`: its name, class, layer, size, rotation,
+  shape (rectangle, ellipse, point, polygon, polyline), tile and custom
+  properties. Objects that show a tile get a `Sprite`.
+- with the `physics` feature, fixed colliders for the solid tiles, merged
+  into few rectangles, and for the collision shapes drawn on tiles.
+
+Objects are plain data until you give them meaning, by their class:
+
+<div class="lang-pair">
+<div>
+
+```rust
+# use ponko::d2::LevelObject;
+let mut coins = 0;
+for (t, o) in ctx.world.query::<(&ponko::d2::Transform, &LevelObject)>().iter() {
+    if o.class == "Coin" {
+        coins += o.properties.i64("value").unwrap_or(1);
+        let _at = t.position;
+    }
+}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:level_objects}}
+```
+
+</div>
+</div>
+
+`LevelOptions` changes what is spawned (`spawn_level_with`):
+
+```rust
+# use ponko::d2::LevelOptions;
+let options = LevelOptions::default()
+    .prefab("Chest", "prefabs/chest.json") // objects of class Chest are this prefab
+    .solid("Walls")                         // a layer, IntGrid value, tile class or tag that collides
+    .level("Level_1")                       // LDtk: which level of the project
+    .at_z(2.0);                             // the objects' layer is at z 2
+# let _ = options;
+```
+
+- Prefab objects are spawned with `spawn_prefab` at the object's place, with
+  their `LevelObject` added; an object's `prefab` property names one too.
+- Solid by default: layers named `collision` or `collisions`, layers and
+  tiles with a boolean `solid` or `collides` property, and tiles with
+  collision shapes. `without_colliders()` spawns none.
+- `ctx.despawn_level(root)` removes everything a level spawned.
+- `ctx.assets.load_level(path, &options)` reads a level without spawning it,
+  for tools or your own spawning: its tilesets, layers, objects and
+  properties as plain data (`Level`).
+
+With [hot reload](drawing.md#hot-reload) on, saving the level in the editor (or a
+tileset or template it uses) spawns it again in place; a file that doesn't
+load keeps the old level and prints why. Things your game spawned on top
+(the player) stay.
+
+Not supported yet: isometric, staggered and hexagonal maps, and Tiled's
+zstd compression. The editors' own painting rules (Tiled's Wang sets,
+LDtk's auto-layer rules) don't run in the engine: the tiles they painted,
+which the editors save, are spawned.
+
+## Autotiling and colliders for maps built in code
+
+An `AutoTile` rule picks each tile's frame from its filled neighbours, so a
+wall drawn cell by cell joins up by itself. `AutoTile::four` takes 16 frames,
+one per mask of the four sides (N = 1, E = 2, S = 4, W = 8);
+`AutoTile::blob` takes the 47 frames of an 8-neighbour "blob" set, and
+`AutoTile::eight` a function from the 8-neighbour mask.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/level.rs:walls}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:autotile}}
+```
+
+</div>
+</div>
+
+- `map.autotile(&rule, |x, y| filled)` sets the whole map at once;
+  `map.paint_autotile(&rule, x, y, on)` fills or clears one cell and fixes
+  its neighbours.
+- `map.solid_rects(|tile| solid)` merges the solid cells into few
+  rectangles (map pixels, from its top-left); with `physics`,
+  `map.colliders(position, |tile| solid)` gives a fixed body per rectangle,
+  ready for `spawn_batch`. Spawn them again after changing the map.
+
+`cargo run --release --example level --features physics` shows all of it.

@@ -44,6 +44,7 @@ mod grid;
 mod handles;
 mod headless_ui;
 mod keys;
+mod levels;
 mod loaders;
 mod media;
 mod messages;
@@ -51,6 +52,7 @@ mod morph;
 mod nav3d;
 mod net;
 mod particles;
+mod particles2d;
 mod perf;
 mod physics;
 mod physics3d;
@@ -68,6 +70,7 @@ mod scenario;
 mod scene;
 mod shader_status;
 mod skin;
+mod sprite_material;
 mod steam;
 mod steam_lobby;
 mod storage;
@@ -107,6 +110,7 @@ pub use grid::*;
 pub use handles::*;
 pub use headless_ui::*;
 pub use keys::*;
+pub use levels::*;
 pub use loaders::*;
 pub use media::*;
 pub use messages::*;
@@ -114,6 +118,7 @@ pub use morph::*;
 pub use nav3d::*;
 pub use net::*;
 pub use particles::*;
+pub use particles2d::*;
 pub use perf::*;
 pub use physics::*;
 pub use physics3d::*;
@@ -130,6 +135,7 @@ pub use scenario::*;
 pub use scene::*;
 pub use shader_status::*;
 pub use skin::*;
+pub use sprite_material::*;
 pub use steam::*;
 pub use steam_lobby::*;
 pub use storage::*;
@@ -591,6 +597,7 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
             .or_else(|| crate::physics3d::kind3d(t))
             .or_else(|| crate::physics3d_stream::stream_kind(t))
             .or_else(|| crate::contacts3d::contact_kind(t))
+            .or_else(|| crate::sprite_material::sprite_kind(t))
         {
             Some(kind) => kind,
             None => {
