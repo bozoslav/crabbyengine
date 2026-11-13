@@ -184,6 +184,77 @@ sprites with one material cost one draw call, and sprites without a blend
 mode or material draw as before. Each different material or blend mode in a
 row is its own draw call.
 
+## Particles
+
+Dust, sparks, smoke and pickup flashes come from one component: a
+`d2::ParticleEmitter` next to a `d2::Transform`. It spawns small sprites at a
+`rate` per second or in bursts, moves them with `gravity` and `drag`, and
+draws them with the sprites. Its settings use the same words as the 3D
+emitter's ([Particles](3d.md#particles)), in pixels: a lifetime, speed, size
+and rotation range each, a spawn shape, a size curve (`ParticleCurve`) and a
+color gradient (`ParticleGradient`) over each particle's life, an optional
+image or sprite sheet, and world or local space. This campfire is three
+emitters: smoke under a sprite, fire and sparks over it.
+
+<div class="lang-pair">
+<div>
+
+```rust
+{{#include ../../examples/particles2d.rs:particles2d}}
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:particles2d}}
+```
+
+</div>
+</div>
+
+The `particles2d` example (`cargo run --example particles2d`) adds a trail that
+follows the mouse and confetti on click.
+
+- **Where they start**: `ParticleShape::Point`, `Circle { radius }` (moving
+  outward), `Cone { angle }` (up to `angle` radians from up) or
+  `Rect { half_extents }`. "Up" is toward the top of the screen (`-Y`), turned
+  by the transform's rotation.
+- **Drawing order**: every particle of an emitter is a sprite at the
+  emitter's `z`, so emitters sort with sprites and tilemaps by `z`
+  (higher on top), and within an emitter the newest particles draw on top.
+  The emitter's `blend` takes the sprite [blend modes](#blend-modes-and-sprite-shaders)
+  (`Additive` for fire and sparks), and `material` a `SpriteMaterial`; each
+  emitter is one batch.
+- **Images**: without `texture`, particles are white squares tinted by the
+  gradient. `with_sheet(columns, rows)` plays a sprite sheet's frames over
+  each particle's life. `size` is the width; the height follows the image's
+  (or frame's) shape.
+- **World or local**: in `ParticleSpace::World` (the default), a particle
+  stays where it was born when the emitter moves; in `Local` it moves,
+  turns and scales with the emitter.
+- **When it runs**: the engine advances emitters at the end of the
+  `Animate` phase (`Systems::UPDATE_PARTICLES`) and draws them after the
+  sprites (`Systems::DRAW_PARTICLES`). `burst(n)` queues more at any time
+  (C++: `ctx.particle_burst2d(e, n)`); `looping: false` with a `duration`
+  stops the rate after that many seconds. Headless runs skip it unless
+  `Game::headless_frames` is on; `emitter.update(dt, &transform)` steps one
+  by hand. Equal seeds and frame steps give equal particles.
+- **Cost**: each emitter's pool is allocated when it is made
+  (`max_particles`, default 1,024), and expired particles free their slots
+  without allocating. Emitters advance on all cores. On an Apple M4 Max, one
+  frame of about 100,000 living particles (spawning, moving, expiring,
+  drawn as sprites, ordered and batched; `cargo run --release -p ponko_bench
+  -- particles2d`) took 0.84 ms of CPU from ten emitters and 0.83 ms from one;
+  with the emitters at two different `z`, sorting the frame's sprites made it
+  2.0 ms.
+
+Emitters are reflected as `"ParticleEmitter2D"`, so the inspector, the MCP
+tools and scenes see and edit their settings; the image is saved by its file
+name like a sprite's. Living particles aren't saved (a loaded emitter starts
+empty), and emitters with a `SpriteMaterial` or an image made in code aren't
+saved, as for sprites.
+
 ## Hot reload
 
 Save an image in your editor and the running game shows the new version

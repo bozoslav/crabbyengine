@@ -73,9 +73,9 @@ order it), add it with `Game::add_system` instead, which returns the id
 | `AfterPhysics` | each fixed tick | `sim_system` | |
 | `SimLast` | each fixed tick, last | bookkeeping that must see the whole tick | |
 | `Frame` | each rendered frame | `system`, the closure returned from `run`'s setup | interpolated physics transforms |
-| `Animate` | each rendered frame | pose work, before the engine's | animators, then particles (`3d`) |
+| `Animate` | each rendered frame | pose work, before the engine's | animators (`3d`), then particles |
 | `Late` | each rendered frame | cameras and anything that follows a final pose (C++: `late_system`) | |
-| `Draw` | each rendered frame | your own drawing | sprite animation, tilemaps, sprites; positional audio last (`3d`) |
+| `Draw` | each rendered frame | your own drawing | sprite animation, tilemaps, sprites, 2D particles; positional audio last (`3d`) |
 
 Headless runs (`run_headless`) run the fixed-tick phases only.
 
@@ -250,11 +250,12 @@ The functions are in `ponko::systems`; the ids in `Systems` name them for
 | `step_physics3d` | `Systems::PHYSICS3D` | `Game::physics3d` | `Physics` |
 | `interpolate_physics3d` | `Systems::INTERPOLATE_PHYSICS3D` | `Game::physics3d` | `Frame` |
 | `update_animators` | `Systems::UPDATE_ANIMATORS` | always, with `3d` | end of `Animate` |
-| `update_particles` | `Systems::UPDATE_PARTICLES` | always, with `3d` | end of `Animate` |
+| `update_particles` | `Systems::UPDATE_PARTICLES` | always | end of `Animate` |
 | `update_audio3d` | `Systems::UPDATE_AUDIO3D` | always, with `3d` | end of `Draw` |
 | `animate_sprites` | `Systems::ANIMATE_SPRITES` | always | `Draw` |
 | `draw_tilemaps` | `Systems::DRAW_TILEMAPS` | always | `Draw` |
 | `draw_sprites` | `Systems::DRAW_SPRITES` | always | `Draw` |
+| `draw_particles` | `Systems::DRAW_PARTICLES` | always | `Draw` |
 | `follow_attachments` | `Systems::FOLLOW_ATTACHMENTS` | you | where you add it |
 | `step_navmesh3d` | `Systems::STEP_NAVMESH3D` | you | where you add it |
 | `apply_net_poses` | | you | where you add it |

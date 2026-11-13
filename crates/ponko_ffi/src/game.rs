@@ -471,6 +471,8 @@ pub const PONKO_SYSTEM_UPDATE_ANIMATORS: u32 = 10;
 pub const PONKO_SYSTEM_UPDATE_PARTICLES: u32 = 11;
 /// Positional audio, at the end of `PONKO_PHASE_DRAW` (after the drawing systems).
 pub const PONKO_SYSTEM_UPDATE_AUDIO3D: u32 = 12;
+/// 2D particle drawing, after the sprites.
+pub const PONKO_SYSTEM_DRAW_PARTICLES: u32 = 13;
 
 /// Removes systems by id (Rust's `Game::remove`): an id from
 /// `ponko_game_add_system_id`, or a `PONKO_SYSTEM_*` constant for a
