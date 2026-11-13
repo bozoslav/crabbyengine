@@ -31,6 +31,7 @@ What the versions cover:
 |---|---|
 | `ponko` | Every public item that is not `#[doc(hidden)]`, and the cargo features, except the [unstable surfaces](#unstable) |
 | `ponko_ecs` | Every public item that is not `#[doc(hidden)]` |
+| `ponko_macros` | The derives (`#[derive(Component)]`) and the attributes they accept, used through `ponko` or `ponko_ecs`. The code they generate is not covered. |
 | `ponko_ffi` | The C ABI in `include/ponko.h` and the C++ wrapper `include/ponko.hpp` (see [C ABI](#c-abi)) |
 | `ponko_mcp` | The MCP tool names and their parameters |
 | `ponko_unity` | Its Rust API. The files it writes (the imported scenes, meshes and materials) are not a stable format: re-import after upgrading. |

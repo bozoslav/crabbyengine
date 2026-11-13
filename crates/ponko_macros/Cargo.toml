@@ -1,6 +1,6 @@
 [package]
 name = "ponko_macros"
-version = "0.0.1"
+version = "0.1.0"
 keywords = ["ecs", "gamedev", "derive", "component"]
 categories = ["game-development", "development-tools::procedural-macro-helpers"]
 readme = "README.md"
