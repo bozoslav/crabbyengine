@@ -33,7 +33,12 @@ include = [
 ]
 
 [package.metadata.docs.rs]
-features = ["physics", "physics3d", "steam", "3d", "navmesh", "accessibility"]
+# Everything public. Left out: `hotpatch` (a dev tool, no API) and
+# `bench-internals` (unstable, not part of the API).
+features = ["physics", "physics3d", "physics-determinism", "steam", "3d", "navmesh", "accessibility", "control-env", "profiling"]
+targets = ["x86_64-unknown-linux-gnu"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 
 [dependencies]
 taffy = { version = "0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "content_size"] }

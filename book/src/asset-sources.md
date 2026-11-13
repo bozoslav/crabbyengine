@@ -84,11 +84,11 @@ never freed.
 
 Every load by name on `Ctx`: `load_texture`, `load_font`, `load_resource`,
 `load_scene`, `spawn_prefab` (and the assets scenes and prefabs name),
-`load_sound`, `load_stream`, `load_asset_with`, and with the `3d` feature
+`load_sound`, `ctx.audio.load_stream`, `ctx.assets.load_with`, and with the `3d` feature
 meshes, skeletons and animation clips (and the buffers and images a glTF file
 refers to), texture arrays, reflection probe images, shaders, screen effects
-and compute passes. The `try_` forms (`try_load_texture`, `try_load_sound`,
-`try_load_stream`, ...) return an error instead of panicking.
+and compute passes. The `try_` forms (`ctx.gfx.try_load_texture`, `ctx.audio.try_load`,
+`ctx.audio.try_load_stream`, ...) return an error instead of panicking.
 
 A few details:
 

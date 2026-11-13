@@ -10,6 +10,12 @@
 //! C++ exceptions nor Rust panics may cross the C ABI. Chunk memory is
 //! borrowed only until its callback returns.
 //!
+//! The guide's [C and C++ chapter](https://ponko.dev/guide/c-cpp.html) shows
+//! how to build and link the library and how to use the C++ wrapper; this
+//! reference documents each C function, its ownership rules and its errors.
+//! Functions return a [`PonkoStatus`]; after a failure,
+//! [`ponko_last_error`] gives the message.
+//!
 //! ```
 //! use ponko_ffi::{ponko_world_new, ponko_world_free, PonkoStatus};
 //! let world = ponko_world_new();
@@ -18,6 +24,8 @@
 //! ```
 
 #![warn(missing_docs)]
+// docs.rs: "Available on crate feature X only" on feature-gated items.
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod access;
 mod actions;

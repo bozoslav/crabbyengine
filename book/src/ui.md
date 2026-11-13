@@ -433,7 +433,7 @@ reader's requests back as the requests above. Nothing is called from game
 code:
 
 ```toml
-ponko = { version = "...", features = ["accessibility"] }
+ponko = { version = "0.1", features = ["accessibility"] }
 ```
 
 Until assistive technology asks for the window's content the adapter does

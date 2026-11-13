@@ -402,6 +402,11 @@ old → new pair.
 - `ponko_bench` is no longer published; it is a workspace tool.
 - The guide lives at https://ponko.dev/guide/ and links the API reference on
   docs.rs.
+- Every published crate documents every public item, with a crate overview,
+  a quickstart and links to the guide. On docs.rs, items behind a cargo
+  feature say which one ("Available on crate feature `3d` only"), and the
+  `ponko` docs include every optional feature except `hotpatch` and
+  `bench-internals`.
 
 ### Fixed
 - A stale mesh, GPU buffer or collision mesh handle could reach the

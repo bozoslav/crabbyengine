@@ -61,7 +61,7 @@ fills a vector instead, which is simpler but slower in hot loops.
 
 Each visit gives a `GridEntry` with `entity` and `position`.
 
-Every 32 ticks (`SPATIAL_SORT_EVERY`) the built-in system also reorders
+Every 32 ticks (`SpatialGrid::SORT_EVERY`) the built-in system also reorders
 entities by grid cell (`World::sort_by` with `spatial_key`), so neighbors in
 space are neighbors in memory. With a million boids this cut a tick from
 62 ms to 41 ms.

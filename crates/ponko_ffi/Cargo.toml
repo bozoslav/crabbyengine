@@ -15,6 +15,12 @@ homepage.workspace = true
 [lib]
 crate-type = ["rlib", "staticlib", "cdylib"]
 
+[package.metadata.docs.rs]
+# The C ABI with every feature, so every function shows.
+all-features = true
+targets = ["x86_64-unknown-linux-gnu"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [features]
 default = ["audio", "window", "inspector", "gamepad", "physics", "physics3d"]
 # A window and GPU rendering. Off: ponko_game_run fails with an error and

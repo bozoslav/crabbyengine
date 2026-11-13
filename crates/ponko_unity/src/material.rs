@@ -55,9 +55,11 @@ pub struct UnityMaterial {
     pub base_map: Option<ObjRef>,
     /// The base map's tiling and offset, which the other maps share in URP.
     pub tiling: [f32; 2],
+    /// The base map's texture offset, in UV units, applied after `tiling`.
     pub offset: [f32; 2],
     /// Tangent-space normal map (`_BumpMap`) and its strength.
     pub normal_map: Option<ObjRef>,
+    /// The normal map's strength (`_BumpScale`); 1 leaves it as drawn.
     pub normal_scale: f32,
     /// `_Metallic`, 0 to 1 (ignored by Unity when there's a metallic map).
     pub metallic: f32,
@@ -71,6 +73,7 @@ pub struct UnityMaterial {
     pub smoothness_in_base_alpha: bool,
     /// `_OcclusionMap` (green is used) and `_OcclusionStrength`.
     pub occlusion_map: Option<ObjRef>,
+    /// How much the occlusion map darkens (`_OcclusionStrength`), 0 to 1.
     pub occlusion_strength: f32,
     /// Emitted light (`_EmissionColor`), when emission is on; HDR, sRGB.
     pub emission: [f32; 3],

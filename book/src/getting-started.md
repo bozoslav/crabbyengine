@@ -31,21 +31,26 @@ Always use `--release` for anything with many entities; debug builds are
 
 ## Your first game
 
-Add the engine to a new project. This guide follows the `main` branch, so
-depend on `main` to compile every example in it:
+Add the engine to a new project from crates.io:
 
 ```sh
 cargo new my_game && cd my_game
-cargo add ponko --git https://github.com/ponkoengine/ponko
+cargo add ponko
 ```
 
-In `Cargo.toml` that is a git dependency, which you can also write by hand:
-`ponko = { git = "https://github.com/ponkoengine/ponko" }`. `cargo add ponko` alone takes the latest release from crates.io
-instead. A release holds what had been merged when it was tagged; anything
-merged since is only on `main`, so a page of this guide can describe an API
-the released crate lacks (the note under each page's title says which version
-the page documents). To follow a release exactly, use `ponko = "X.Y.Z"` with
-that release's [API reference](https://docs.rs/ponko/) on docs.rs; the
+In `Cargo.toml` that is:
+
+```toml
+[dependencies]
+ponko = "0.1"
+```
+
+Its API reference is [on docs.rs](https://docs.rs/ponko/0.1/ponko/). This
+guide follows the `main` branch, so after a release a page can describe an
+API that is only on `main` so far (the note under each page's title says
+so). To use those, depend on `main` instead:
+`ponko = { git = "https://github.com/ponkoengine/ponko" }` (or
+`cargo add ponko --git https://github.com/ponkoengine/ponko`). The
 [changelog](https://github.com/ponkoengine/ponko/blob/main/CHANGELOG.md) lists
 what each release added.
 
@@ -177,7 +182,7 @@ Calls that can fail in normal play return `Result<_, ponko::error::Error>` under
 their plain name and have no panicking twin: loading a scene and spawning a
 prefab (`ctx.load_scene`, `ctx.spawn_prefab`), saving them
 (`ctx.assets.save_scene`, `save_prefab`), loading JSON into a component or
-resource (`load_component_json`, `load_resource_json`), starting a ragdoll,
+resource (`ctx.assets.load_component_json`, `load_resource_json`), starting a ragdoll,
 baking a reflection probe, and your own decoders (`ctx.assets.load_with`).
 In C and C++, `ponko_last_error_kind()` and `ponko::error::kind()` give the
 same kinds ([C and C++](c-cpp.md)).

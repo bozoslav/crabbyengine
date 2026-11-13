@@ -112,7 +112,7 @@ starts. `load_sound` decodes clips into memory; `load_stream` keeps long files s
 ### Buses, low-pass and reverb
 
 Ordinary playback uses the `sfx` bus. Create other named buses once with
-`audio_bus`, save their handles, and pass one to `play_sound_on` or to
+`ctx.audio.bus`, save their handles, and pass one to `ctx.audio.play_on` or to
 `d3::AudioSettings::bus`. Handles belong to the context that created them.
 Volume is a linear gain; muting preserves the configured gain. Bus changes
 apply to active voices as well as future playback.
@@ -135,7 +135,7 @@ apply to active voices as well as future playback.
 </div>
 
 Each voice uses a Kira low-pass filter on its own child track. The cutoff
-is clamped to 20–20,000 Hz. `set_sound_effects` changes cutoff and reverb
+is clamped to 20–20,000 Hz. `ctx.audio.set_effects` changes cutoff and reverb
 send while a voice is playing, including positional voices. Reverb is a
 single shared, fully wet Kira send track; the send amount is linear 0–1.
 The send follows voice attenuation, filtering and bus gain. Muting a bus

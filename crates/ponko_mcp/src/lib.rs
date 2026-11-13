@@ -9,6 +9,37 @@
 //!
 //! The protocol logic is in [`Server::handle`], which maps one JSON-RPC
 //! message to its reply, so it can be tested without stdio.
+//!
+//! ## Quickstart
+//!
+//! Install the binary and register it with an agent:
+//!
+//! ```sh
+//! cargo install ponko_mcp
+//! claude mcp add ponko -- ponko-mcp            # Claude Code
+//! claude mcp add ponko-view -- ponko-mcp --read-only
+//! ```
+//!
+//! The endpoint is off by default: a game turns it on with
+//! `Game::control_endpoint(true)`, or a debug build with `PONKO_CONTROL=1`
+//! (see the guide's
+//! [control endpoint](https://ponko.dev/guide/control.html) chapter). The same
+//! server as a library, answering a JSON-RPC message without stdio:
+//!
+//! ```
+//! use ponko_mcp::{Config, Server};
+//! use serde_json::json;
+//!
+//! let mut server = Server::new(Config::from_env());
+//! let init = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
+//!                    "params": { "protocolVersion": "2025-06-18" } });
+//! let reply = server.handle(&init).unwrap();
+//! assert_eq!(reply["result"]["serverInfo"]["name"], "ponko-mcp");
+//! ```
+//!
+//! [`serve_stdio`] runs that loop over stdin and stdout, as the binary does.
+//! The guide's [AI agents chapter](https://ponko.dev/guide/agents.html) lists
+//! every tool and how agents use them.
 
 #![warn(missing_docs)]
 
