@@ -404,9 +404,9 @@ numbers made up for the example (shapes as the engine's tests build them).
    `false`, `gpu_ms` is `null` on both sides: compare the `cpu_ms` and the
    `counts` instead, or benchmark with `PONKO_BENCH`.
 
-The control method and the MCP tool are Rust-engine features; C and C++
-games get them through the same endpoint, but the native headers have no
-call of their own to change the quality level yet.
+C and C++ games get the control method and the MCP tool through the same
+endpoint, and can read and change the quality level themselves with
+`ponko_ctx_graphics_quality` and `ponko_ctx_set_graphics_quality`.
 
 ### What usually helps in 3D
 
