@@ -181,6 +181,7 @@ mod logs;
 #[cfg(feature = "navmesh")]
 mod nav3d;
 pub mod net;
+pub mod particles;
 
 pub mod perf;
 mod perf_report;
