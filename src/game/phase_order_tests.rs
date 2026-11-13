@@ -37,6 +37,7 @@ fn bare(game: Game) -> Game {
     game.remove(Systems::ANIMATE_SPRITES)
         .remove(Systems::DRAW_TILEMAPS)
         .remove(Systems::DRAW_SPRITES)
+        .remove(Systems::DRAW_PARTICLES)
 }
 
 /// One windowed frame running `ticks` simulation ticks, then the end-of-frame
