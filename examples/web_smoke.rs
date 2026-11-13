@@ -3,12 +3,13 @@
 //!
 //! It loads one asset file (`crab.png`, fetched over HTTP on the web) and
 //! two assets from an in-memory [asset source](Assets::add_source) (an
-//! image and streamed music, never fetched), runs
-//! a fixed-step simulation, counts left clicks and draws something on every
-//! frame. Each frame it publishes its state for the runner (see
-//! `common/web_smoke.rs`):
+//! image and streamed music, never fetched), starts the music (a quiet
+//! looping hum) during setup, runs a fixed-step simulation, counts left
+//! clicks and draws something on every frame. In a browser the music waits
+//! for the first click, as browsers allow sound only after one. Each frame
+//! it publishes its state for the runner (see `common/web_smoke.rs`):
 //!
-//! `{"fixture":"web_smoke","ticks":120,"frames":118,"clicks":1,"size":[800,600],"asset":[32,32],"source":[4,2],"stream":true}`
+//! `{"fixture":"web_smoke","ticks":120,"frames":118,"clicks":1,"size":[800,600],"asset":[32,32],"source":[4,2],"stream":true,"audio_unlocked":true}`
 //!
 //! Failure cases for the runner's self-tests, chosen with the page's query
 //! string: `?smoke_case=panic` panics during setup, `?smoke_case=stall`
@@ -42,10 +43,21 @@ fn main() {
             ctx.assets.add_source(
                 MemorySource::new("embedded")
                     .with("embedded/dot.png", png(4, 2))
-                    .with("embedded/beep.wav", silent_wav(800)),
+                    .with("embedded/hum.wav", hum_wav(8000)),
             );
             let dot = ctx.load_texture("embedded/dot.png");
-            let stream = ctx.audio.try_load_stream("embedded/beep.wav").is_ok();
+            let music = ctx.audio.try_load_stream("embedded/hum.wav");
+            let stream = music.is_ok();
+            // Music asked for before any click: in a browser it starts at
+            // the first one (`ctx.audio.unlocked()` turns true then).
+            if let Ok(music) = music {
+                let quiet_loop = SoundParams {
+                    volume: 0.05,
+                    looping: true,
+                    ..Default::default()
+                };
+                ctx.audio.play_ex(music, quiet_loop);
+            }
             ctx.world.insert_resource(Fixture {
                 smoke,
                 crab,
@@ -77,6 +89,7 @@ fn frame(ticks: Rc<Cell<u64>>) -> impl FnMut(&mut Ctx) {
                 "asset": [crab.width(), crab.height()],
                 "source": [dot.width(), dot.height()],
                 "stream": fixture.stream,
+                "audio_unlocked": ctx.audio.unlocked(),
             }),
         );
         // The background changes with each click, so a click shows.
@@ -108,8 +121,9 @@ fn png(width: u32, height: u32) -> Vec<u8> {
     bytes
 }
 
-/// A mono 16-bit WAV file of `samples` samples of silence at 8 kHz.
-fn silent_wav(samples: u32) -> Vec<u8> {
+/// A mono 16-bit WAV file of `samples` samples of a 200 Hz hum at 8 kHz
+/// (whole periods, so it loops without a click).
+fn hum_wav(samples: u32) -> Vec<u8> {
     let data = samples * 2;
     let mut out = Vec::new();
     out.extend_from_slice(b"RIFF");
@@ -126,6 +140,9 @@ fn silent_wav(samples: u32) -> Vec<u8> {
     }
     out.extend_from_slice(b"data");
     out.extend_from_slice(&data.to_le_bytes());
-    out.resize(out.len() + data as usize, 0);
+    for i in 0..samples {
+        let phase = i as f32 * 200.0 / 8000.0 * std::f32::consts::TAU;
+        out.extend_from_slice(&((phase.sin() * 8000.0) as i16).to_le_bytes());
+    }
     out
 }

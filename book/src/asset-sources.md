@@ -94,7 +94,8 @@ A few details:
 
 - **Streamed music** (`load_stream`) from a source is kept in memory still
   encoded, and decoded as it plays; from `assets/` it is read from the file
-  as it plays. In a browser it is decoded whole when loaded.
+  as it plays. In a browser it is kept encoded too, and decoded a packet at
+  a time as it plays.
 - **glTF images** that are files of their own are shared between models
   loaded from the same source: two models naming `"tex.png"` show one
   texture, read once. The same name found in two sources is two textures.

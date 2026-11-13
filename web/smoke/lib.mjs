@@ -30,7 +30,8 @@ export const USAGE =
   "                 [--asset <file under assets/>] [--asset-size <W>x<H>|none]\n" +
   "                 [--press <Key>=<field>:<value>]... [--min <field>=<number>]...\n" +
   "                 [--after-reload <field>:<value>]...\n" +
-  "                 [--engine-gpu required|optional] [--no-trace] [--chrome-trace]\n" +
+  "                 [--engine-gpu required|optional] [--music required|none]\n" +
+  "                 [--no-trace] [--chrome-trace]\n" +
   "                 [--chromium-mode shell|new] [--browser-arg <flag>]...";
 
 /** `Enter=screen:Playing`: press the key, then the state's `screen` must become "Playing". */
@@ -54,7 +55,7 @@ export function parseMin(spec) {
   return { field: match[1], min: Number(match[2]) };
 }
 
-const FIXTURE_KEYS = ["example", "features", "asset", "assetSize", "assetSource", "presses", "min", "afterReload", "engineGpu"];
+const FIXTURE_KEYS = ["example", "features", "asset", "assetSize", "assetSource", "presses", "min", "afterReload", "engineGpu", "music"];
 
 /** Parses fixtures.json: what each example needs from the runner. */
 export function parseFixtures(text) {
@@ -108,6 +109,7 @@ export function parseArgs(argv, fixtures = {}) {
       case "--asset-size": given.assetSize = value(); break;
       case "--asset-source": given.assetSource = value(); break;
       case "--engine-gpu": given.engineGpu = value(); break;
+      case "--music": given.music = value(); break;
       case "--press": (given.presses ??= []).push(parsePress(value())); break;
       case "--min": (given.mins ??= []).push(parseMin(value())); break;
       case "--after-reload": (given.afterReload ??= []).push(parseExpect(value())); break;
@@ -128,6 +130,7 @@ export function parseArgs(argv, fixtures = {}) {
   args.afterReload = given.afterReload ?? (fixture?.afterReload ?? []).map(parseExpect);
   args.mins = given.mins ?? Object.entries(fixture?.min ?? {}).map(([field, min]) => ({ field, min }));
   args.engineGpu = given.engineGpu ?? (fixture?.engineGpu ? "required" : "optional");
+  args.music = given.music ?? (fixture?.music ? "required" : "none");
   args.dir ??= args.example ? join("target", "web", args.example) : undefined;
 
   if (!args.dir) fail("--dir or --fixture is required");
@@ -141,6 +144,7 @@ export function parseArgs(argv, fixtures = {}) {
   if (args.assetSource !== "none" && !/^\d+x\d+$/.test(args.assetSource)) fail("--asset-source must look like 4x2, or none");
   if (!/^[\w./-]+$/.test(args.asset)) fail("--asset must be a plain file name under assets/");
   if (!["required", "optional"].includes(args.engineGpu)) fail("--engine-gpu must be required or optional");
+  if (!["required", "none"].includes(args.music)) fail("--music must be required or none");
   const browserLabel = args.browser === "chromium" && args.chromiumMode === "new" ? "chromium-new" : args.browser;
   args.out ??= join("target", "web-smoke", [args.fixture ?? "site", browserLabel, args.backend, args.case].join("-"));
   return args;
@@ -205,6 +209,35 @@ export function checkEngineGpu(gpu, canvasBackend, required) {
   if (canvasBackend !== "unknown" && engine !== canvasBackend) {
     return `the engine says ${adapter.backend} (${engine}) but the canvas has a ${canvasBackend} context`;
   }
+  return null;
+}
+
+/**
+ * Music started at setup, before the first click (`--music required`):
+ * browsers allow sound only after a gesture, so the engine must not have
+ * opened its audio yet, and must say so. `audio` is what the page's
+ * instrumentation saw (`{ contexts: [states], audible: <buffers> }`).
+ * An error message, else null.
+ */
+export function checkMusicBeforeClick(state, audio) {
+  if (state.audio_unlocked !== false) {
+    return `before any click the game reports audio_unlocked ${JSON.stringify(state.audio_unlocked)}, not false`;
+  }
+  if (audio.contexts.length) {
+    return `the engine opened ${audio.contexts.length} AudioContext(s) before the first click; browsers keep those suspended`;
+  }
+  return null;
+}
+
+/**
+ * After the click the music must be heard: the game reports sound unlocked,
+ * an AudioContext runs, and it has played buffers with samples in them.
+ * A reason it isn't yet, else null.
+ */
+export function musicAfterClick(state, audio) {
+  if (state.audio_unlocked !== true) return `the game reports audio_unlocked ${JSON.stringify(state.audio_unlocked)}`;
+  if (!audio.contexts.includes("running")) return `no running AudioContext (states: ${JSON.stringify(audio.contexts)})`;
+  if (!(audio.audible > 0)) return "no buffer with sound in it was played";
   return null;
 }
 
