@@ -20,6 +20,9 @@ homepage.workspace = true
 [[bin]]
 name = "ponko"
 path = "src/main.rs"
+# Its docs would overwrite the engine library's (both are `ponko`) in a
+# workspace `cargo doc`; the command has no API, its guide is the book.
+doc = false
 
 # No dependencies: `cargo install ponko_cli` stays a few seconds, and the
 # command never pulls in the engine.
