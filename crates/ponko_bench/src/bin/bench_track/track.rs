@@ -481,10 +481,17 @@ pub fn sort_history(docs: &mut [Doc]) {
     docs.sort_by(|a, b| a.time.cmp(&b.time).then_with(|| a.git_rev.cmp(&b.git_rev)));
 }
 
-/// A machine's history as Markdown, newest first, at most `limit` commits:
+/// A machine's history as Markdown, newest first, at most `limit` rows:
 /// every benchmark's median, with ▲ (slower) or ▼ (faster) where it moved
-/// beyond noise against the commit before.
-pub fn render_history(machine: &str, docs: &[Doc], rule_for: impl Fn(Method) -> Rule, limit: usize) -> String {
+/// beyond noise against the row before. `row` names what a row is
+/// (`"commit"`, `"release"`); its `git_rev` labels it.
+pub fn render_history(
+    machine: &str,
+    docs: &[Doc],
+    rule_for: impl Fn(Method) -> Rule,
+    limit: usize,
+    row: &str,
+) -> String {
     let mut s = String::new();
     let _ = writeln!(s, "## {machine}\n");
     let Some(last) = docs.last() else {
@@ -503,13 +510,13 @@ pub fn render_history(machine: &str, docs: &[Doc], rule_for: impl Fn(Method) -> 
     }
     let _ = writeln!(
         s,
-        "Median {} per operation. ▲ slower, ▼ faster than the commit below it, beyond the \
+        "Median {} per operation. ▲ slower, ▼ faster than the {row} below it, beyond the \
          larger of {} and {} times the spread.\n",
         method.unit(),
         pct(rule.floor),
         rule.noise_factor
     );
-    s.push_str("| commit | date |");
+    let _ = write!(s, "| {row} | date |");
     for n in &names {
         let _ = write!(s, " `{n}` |");
     }
@@ -768,13 +775,13 @@ mod tests {
             docs.iter().map(|d| d.git_rev.as_str()).collect::<Vec<_>>(),
             ["c1", "c2", "c3"]
         );
-        let md = render_history("ci", docs, Rule::for_method, 10);
+        let md = render_history("ci", docs, Rule::for_method, 10, "commit");
         let lines: Vec<&str> = md.lines().filter(|l| l.starts_with("| `c")).collect();
         assert_eq!(lines.len(), 3, "{md}");
         assert!(lines[0].starts_with("| `c3` | 1970-01-01 | 130 ▲+29.4% |"), "{md}");
         assert_eq!(lines[1], "| `c2` | 1970-01-01 | 101 |");
         assert_eq!(lines[2], "| `c1` | 1970-01-01 | 100 |");
-        let short = render_history("ci", docs, Rule::for_method, 1);
+        let short = render_history("ci", docs, Rule::for_method, 1, "commit");
         assert_eq!(short.lines().filter(|l| l.starts_with("| `c")).count(), 1);
     }
 

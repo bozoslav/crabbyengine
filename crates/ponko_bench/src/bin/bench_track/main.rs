@@ -250,7 +250,13 @@ fn history(args: &[String]) -> Result<ExitCode, String> {
          in `releases/<tag>/`.\n\n",
     );
     for (machine, docs) in track::by_machine(commits) {
-        md.push_str(&track::render_history(&machine, &docs, Rule::for_method, limit));
+        md.push_str(&track::render_history(
+            &machine,
+            &docs,
+            Rule::for_method,
+            limit,
+            "commit",
+        ));
         md.push('\n');
     }
     if !releases.is_empty() {
@@ -263,7 +269,13 @@ fn history(args: &[String]) -> Result<ExitCode, String> {
         }
         for (machine, mut docs) in by_machine {
             track::sort_history(&mut docs);
-            md.push_str(&track::render_history(&machine, &docs, Rule::for_method, usize::MAX));
+            md.push_str(&track::render_history(
+                &machine,
+                &docs,
+                Rule::for_method,
+                usize::MAX,
+                "release",
+            ));
             md.push('\n');
         }
     }
@@ -326,6 +338,7 @@ mod tests {
         assert!(md.contains("## ci"), "{md}");
         assert!(md.contains("| `bbb` | 1970-01-01 | 150 ▲+50.0% |"), "{md}");
         assert!(md.contains("# Releases"), "{md}");
+        assert!(md.contains("| release | date | `ecs/iter/10k` |"), "{md}");
         assert!(md.contains("| `v0.1.0` | 1970-01-01 | 100 |"), "{md}");
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -124,6 +124,10 @@ pub struct Env {
     /// The 1, 5 and 15 minute load averages when the run started (how busy
     /// the machine was), or `"unknown"`.
     pub load_average: String,
+    /// The machine's name from `PONKO_BENCH_MACHINE`, so runs on one named
+    /// machine group together (`bench_track compare` and `history`). `None`:
+    /// `bench_track` makes one from the OS, architecture and CPU.
+    pub machine: Option<String>,
 }
 
 impl Env {
@@ -149,6 +153,7 @@ impl Env {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs()),
             load_average: load_average(),
+            machine: std::env::var("PONKO_BENCH_MACHINE").ok().filter(|m| !m.is_empty()),
         }
     }
 }
@@ -224,6 +229,8 @@ pub fn to_json(env: &Env, records: &[Record], render: Option<&str>) -> String {
     let filter = env.filter.as_deref().map_or_else(|| "null".to_owned(), json_str);
     let _ = writeln!(s, "    \"filter\": {filter},");
     let _ = writeln!(s, "    \"load_average\": {},", json_str(&env.load_average));
+    let machine = env.machine.as_deref().map_or_else(|| "null".to_owned(), json_str);
+    let _ = writeln!(s, "    \"machine\": {machine},");
     let _ = writeln!(s, "    \"unix_time\": {}", env.unix_time);
     s.push_str("  },\n  \"results\": [");
     for (i, r) in records.iter().enumerate() {
@@ -345,6 +352,7 @@ mod tests {
     fn json_document_lists_every_record() {
         let env = Env {
             filter: Some("iter".into()),
+            machine: Some("lab-m4".into()),
             ..Env::default()
         };
         let mut a = Record::new("iter/a", Kind::Steady, 5, &mut [d(2), d(1)]);
@@ -355,6 +363,7 @@ mod tests {
         let json = to_json(&env, &[a, b], None);
         assert!(json.contains("\"schema_version\": 1,"));
         assert!(json.contains("\"filter\": \"iter\","));
+        assert!(json.contains("\"machine\": \"lab-m4\","));
         assert!(json.contains(
             "{\"name\": \"iter/a\", \"kind\": \"steady\", \"warmup\": 5, \"runs\": 2, \"min_ms\": 1.000000, \
              \"p50_ms\": 1.000000, \"p95_ms\": 2.000000, \"p99_ms\": 2.000000, \"max_ms\": 2.000000, \
@@ -371,6 +380,7 @@ mod tests {
         let empty = to_json(&Env::default(), &[], None);
         assert!(empty.ends_with("\"results\": []\n}\n"));
         assert!(empty.contains("\"filter\": null,"));
+        assert!(empty.contains("\"machine\": null,"));
     }
 
     #[test]
