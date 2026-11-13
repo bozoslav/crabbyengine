@@ -12,6 +12,9 @@
 #   a patch release is tagged on a commit that ran the same matrix as one on
 #   main. There is no merge queue (no `merge_group` trigger): pull requests
 #   into a release-* branch run the quick tier like any other.
+# The API snapshots job is a quick check as well: it fails when api/ (the
+# committed listing of the public API) differs from the code
+# (scripts/api-snapshots.py, CONTRIBUTING.md "API snapshots").
 # The Semver job is one of the quick checks: it runs in every tier, compares
 # the published crates' API with the last crates.io release, and reads the
 # `breaking` label when it runs (scripts/semver-checks.py, CONTRIBUTING.md
@@ -695,6 +698,60 @@ jobs:
       - name: Check the API of every published crate
         run: python3 scripts/semver-checks.py run
 
+  # The public API of every published crate, listed in api/ (scripts/api-snapshots.py,
+  # CONTRIBUTING.md "API snapshots"). The job regenerates the listing and fails
+  # with a diff when it differs from the committed files, so every added,
+  # renamed or removed public item shows up in review, not only the breaking
+  # ones (the Semver job above). The listing comes from `cargo public-api`,
+  # which reads rustdoc's JSON; that format changes with every nightly, so the
+  # tool and the nightly are pinned together in the script (the pins step
+  # hands them to the steps below). Nothing here runs tests.
+  api-snapshots:
+    name: API snapshots
+    runs-on: ubuntu-latest
+    env:
+      # The script sets its own flags: the nightly's new lints must not fail it.
+      RUSTFLAGS: ""
+      RUSTDOCFLAGS: ""
+      API_SNAPSHOTS_REGENERATED: ${{ github.workspace }}/api-regenerated
+    steps:
+      - uses: actions/checkout@v7
+      - name: The script's own checks, and its pinned versions
+        run: |
+          python3 scripts/api-snapshots.py selftest
+          python3 scripts/api-snapshots.py pins >> "$GITHUB_ENV"
+      - name: Install ALSA and udev headers (audio, gamepads)
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.API_NIGHTLY }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: api-snapshots
+      - name: Cache cargo-public-api binary
+        id: api-tool-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-public-api
+          key: cargo-public-api-${{ runner.os }}-${{ runner.arch }}-${{ env.API_TOOL_VERSION }}
+      - uses: taiki-e/install-action@v2
+        if: steps.api-tool-cache.outputs.cache-hit != 'true'
+        with:
+          tool: cargo-public-api@${{ env.API_TOOL_VERSION }}
+      - run: cargo public-api --version
+      - name: Regenerate the listing and compare it with api/
+        run: python3 scripts/api-snapshots.py check
+      # Only when the check failed: the regenerated files, for anyone who
+      # cannot run the tool themselves.
+      - name: Upload the regenerated listing
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: api-regenerated
+          path: api-regenerated
+          if-no-files-found: ignore
+
   book:
     name: Book
     runs-on: ubuntu-latest
@@ -1094,7 +1151,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, reference-images, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, semver, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles]
+    needs: [leaks, fmt, reference-images, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, semver, api-snapshots, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job
