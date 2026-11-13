@@ -3322,6 +3322,8 @@ public:
     std::optional<id> pop_screen() { id n = none; detail::check(ponko_ctx_ui_pop_screen(raw_, target_, &n)); return maybe(n); }
     /// The top screen's root, if a screen is open.
     std::optional<id> top_screen() const { id n = none; detail::check(ponko_ctx_ui_top_screen(raw_, target_, &n)); return maybe(n); }
+    /// Whether `node` is shown: on a screen of the stack, neither it nor a node above it hidden.
+    bool is_shown(id node) const { bool s = false; detail::check(ponko_ctx_ui_is_shown(raw_, target_, node, &s)); return s; }
     /// The focused node, if any.
     std::optional<id> focus() const { id n = none; detail::check(ponko_ctx_ui_focus(raw_, target_, &n)); return maybe(n); }
     /// The topmost node under `point` (window points), as of the last layout.
@@ -3981,10 +3983,12 @@ struct action_id {
 /// What an input scenario checks at a tick (Rust's `ScenarioCheck`).
 class scenario_check {
     friend class input_scenario;
-    enum class kind { action, resource, count } kind_;
+    enum class kind { action, resource, count, ui } kind_;
     std::string name_, pointer_, equals_;
     int pressed_ = -1, down_ = -1, released_ = -1;
     std::uint64_t count_ = 0;
+    int exists_ = -1, shown_ = -1, focused_ = -1;
+    std::optional<std::string> text_;
     explicit scenario_check(kind k, std::string name) : kind_(k), name_(std::move(name)) {}
 public:
     /// An action's edges and held state; chain `.pressed(true)`, `.down(true)`, `.released(false)`.
@@ -4007,6 +4011,17 @@ public:
     scenario_check& down(bool expected) { down_ = expected ? 1 : 0; return *this; }
     /// Expects the action was (or wasn't) released on this tick.
     scenario_check& released(bool expected) { released_ = expected ? 1 : 0; return *this; }
+    /// A node of the retained UI by name; chain `.exists(true)`,
+    /// `.shown(true)`, `.focused(true)`, `.text("Back")`.
+    static scenario_check ui(std::string node) { return scenario_check(kind::ui, std::move(node)); }
+    /// Expects the UI node to exist (or not).
+    scenario_check& exists(bool expected) { exists_ = expected ? 1 : 0; return *this; }
+    /// Expects the UI node to be shown (or not): on a screen of the stack, not hidden.
+    scenario_check& shown(bool expected) { shown_ = expected ? 1 : 0; return *this; }
+    /// Expects the UI node to have the focus (or not).
+    scenario_check& focused(bool expected) { focused_ = expected ? 1 : 0; return *this; }
+    /// Expects the UI node's text.
+    scenario_check& text(std::string expected) { text_ = std::move(expected); return *this; }
 };
 
 /// Raw input and checks scheduled by simulation tick, for reproducible
@@ -4056,8 +4071,19 @@ public:
             return step(ponko_input_scenario_expect_resource(raw_, tick, c.name_.c_str(), c.pointer_.c_str(), c.equals_.c_str()));
         case scenario_check::kind::count:
             return step(ponko_input_scenario_expect_count(raw_, tick, c.name_.c_str(), c.count_));
+        case scenario_check::kind::ui:
+            return step(ponko_input_scenario_expect_ui(raw_, tick, c.name_.c_str(), c.exists_, c.shown_, c.focused_,
+                                                       c.text_ ? c.text_->c_str() : nullptr));
         }
         throw std::logic_error("unknown scenario check");
+    }
+    /// Clicks the retained UI's node named `node` in the frame of tick
+    /// `tick` (needs `game::headless_frames` or a window); the run fails
+    /// there if it can't be clicked.
+    input_scenario& click(std::uint64_t tick, const char* node) { return step(ponko_input_scenario_click(raw_, tick, node)); }
+    /// Clicks the text input named `node` and types `typed` at its end, in the frame of tick `tick`.
+    input_scenario& type_text(std::uint64_t tick, const char* node, const char* typed) {
+        return step(ponko_input_scenario_type_text(raw_, tick, node, typed));
     }
     /// Names the scenario in its report.
     input_scenario& named(const char* id) { return step(ponko_input_scenario_named(raw_, id)); }
@@ -6004,6 +6030,9 @@ public:
     /// Runs a copy of `s` with the game from its first tick (Rust's
     /// `Game::input_scenario`); the report ends up in the world.
     game& input_scenario(const ponko::input_scenario& s) { return check(ponko_game_input_scenario(raw_, s.raw())); }
+    /// Headless runs run whole frames (the UI, frame, late and draw systems)
+    /// in a virtual window of the game's size (Rust's `Game::headless_frames`).
+    game& headless_frames(bool on) { return check(ponko_game_headless_frames(raw_, on)); }
     /// What run_headless_scenario returns: `auto [world, report] = ...`.
     struct scenario_run {
         ponko::world world;
