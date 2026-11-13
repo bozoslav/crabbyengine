@@ -71,6 +71,12 @@ web-time = "1.1.0"
 gilrs = { version = "0.11.2", optional = true }
 steamworks = { version = "0.13.1", optional = true }
 gltf = { version = "1.4.1", default-features = false, features = ["utils", "names", "extras"], optional = true }
+# Level files from level editors (`ponko::tilemap`): `quick-xml` reads
+# Tiled's XML maps (`.tmx`) and tilesets; `flate2` unpacks their zlib and
+# gzip tile data. Both are small, and `flate2` is already in every build
+# (PNG decoding uses it).
+quick-xml = { version = "0.41.0", default-features = false }
+flate2 = "1.1.10"
 # Accessibility tree data types (feature `accessibility`); the same crate
 # and version the inspector's egui already brings in.
 accesskit = { version = "0.25.2", optional = true }

@@ -27,4 +27,7 @@ pub use crate::sheet::{Animation, SpriteSheet};
 #[doc(no_inline)]
 pub use crate::spatial::SpatialGrid;
 #[doc(no_inline)]
-pub use crate::tilemap::TileMap;
+pub use crate::tilemap::{
+    AutoTile, Layer, LayerKind, Level, LevelLayer, LevelObject, LevelOptions, LevelRoot, Neighbours, ObjectShape,
+    PlacedTile, Properties, TileAnimation, TileInfo, TileLayer, TileMap, Tileset,
+};
