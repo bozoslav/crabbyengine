@@ -1,0 +1,19 @@
+[package]
+name = "{{project-name}}"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# The engine without a window, GPU, sound or gamepads: simulations, servers
+# and batch runs. https://ponko.dev/guide/headless.html
+ponko = { version = "0.1", default-features = false }
+serde = { version = "1", features = ["derive"] }
+
+# Fast debug builds: your code with light optimization, the engine and the
+# other dependencies fully optimized. Simulations and tests run many times
+# faster than a plain debug build; edit -> build stays quick, debug info stays.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

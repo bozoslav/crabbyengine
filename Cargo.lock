@@ -3118,6 +3118,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ponko_cli"
+version = "0.1.0"
+
+[[package]]
 name = "ponko_ecs"
 version = "0.1.0"
 dependencies = [
