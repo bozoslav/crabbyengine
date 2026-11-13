@@ -139,7 +139,7 @@ impl Editor {
         e
     }
 
-    /// Spawns prefab `path` at `at`, with undo.
+    /// Spawns prefab `path` at `at`, with undo (which despawns its parts too).
     pub fn spawn_prefab(&mut self, ctx: &mut Ctx, path: &str, at: Vec2) -> Result<Entity, crate::error::Error> {
         let e = ctx.spawn_prefab(path, at)?;
         self.record(Undo::Spawned(e));
@@ -184,7 +184,8 @@ impl Editor {
                 }?;
             }
             Undo::Spawned(e) => {
-                ctx.world.despawn(e);
+                // A placed prefab goes with its parts.
+                ctx.despawn_prefab(e);
             }
             Undo::Despawned { e, components } => {
                 let back = ctx.world.spawn_json(components)?;
@@ -255,6 +256,27 @@ mod tests {
         assert!(ed.undo(&mut ctx).unwrap()); // spawn
         assert_eq!(ctx.world.len(), 0);
         assert!(!ed.undo(&mut ctx).unwrap());
+    }
+
+    #[test]
+    fn undoing_a_placed_prefab_removes_its_parts() {
+        let path = format!("ponko-test-editor-tree-{}.json", std::process::id());
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join(&path);
+        let mut ctx = ctx();
+        let mut ed = Editor::default();
+        let root = ctx.world.spawn((Transform2D::default(), Hp(1.0)));
+        let part = ctx.world.spawn((Transform2D::default(), crate::d2::Attached::to(root)));
+        let saved = ctx.assets.save_prefab(&ctx.world, root, &path);
+        ctx.world.despawn(root);
+        ctx.world.despawn(part);
+        let placed = saved.and_then(|()| ed.spawn_prefab(&mut ctx, &path, vec2(5.0, 5.0)));
+        let _ = std::fs::remove_file(&file);
+        placed.unwrap();
+        assert_eq!(ctx.world.len(), 2);
+        assert!(ed.undo(&mut ctx).unwrap());
+        assert_eq!(ctx.world.len(), 0, "the part went with the root");
     }
 
     #[test]

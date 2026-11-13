@@ -107,6 +107,9 @@ impl Default for UiStyle {
 pub(crate) struct UiState {
     pub(crate) retained_spare: Option<Ui>,
     pub(crate) retained_input_text: String,
+    /// A click (and typed text) an input scenario asked for, applied by the
+    /// retained UI's next frame.
+    pub(crate) scripted: Option<retained_draw::ScriptedClick>,
     /// World-space panels' input and drawing.
     #[cfg(feature = "3d")]
     pub panels: panel3d::Panels,

@@ -834,6 +834,38 @@ impl Ui {
     pub fn is_screen(&self, id: UiId) -> bool {
         self.screens.iter().any(|s| s.root == id)
     }
+    /// Whether the node is shown: it belongs to a screen on the stack (a
+    /// modal above may cover it), and neither it nor a node above it is
+    /// [hidden](super::UiLayout::hidden). A tree built but not pushed, or a
+    /// popped screen, is not shown. Stale ids are not shown.
+    /// ```
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let root = ui.root().id();
+    /// let ok = ui.button(root, "OK").id();
+    /// assert!(!ui.is_shown(ok), "built, not pushed");
+    /// ui.push_screen(root, false);
+    /// assert!(ui.is_shown(ok));
+    /// ui.set_layout(ok, ponko::ui::UiLayout::auto().hidden());
+    /// assert!(!ui.is_shown(ok));
+    /// ```
+    pub fn is_shown(&self, id: UiId) -> bool {
+        let mut at = id;
+        loop {
+            let Some(n) = self.node(at) else { return false };
+            if self
+                .tree
+                .style(n.layout)
+                .is_ok_and(|s| s.display == taffy::Display::None)
+            {
+                return false;
+            }
+            match n.parent {
+                Some(parent) => at = parent,
+                None => return self.is_screen(at),
+            }
+        }
+    }
     /// Top screen root.
     /// ```
     /// use ponko::prelude::*;

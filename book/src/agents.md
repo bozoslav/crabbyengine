@@ -81,7 +81,8 @@ ctx.world.reflect::<Health>();
 | `save_world` | | checkpoint the world to a new file in the game's folder (`overwrite: true` replaces one, not on a read-only server) |
 | `load_world` | ✓ | roll back to a checkpoint (same entity ids) |
 | `save_scene` / `load_scene` | ✓ | write or read a [scene](scenes.md) in the game's `assets/` |
-| `spawn_prefab` / `save_prefab` | ✓ | place a [prefab](scenes.md) at a point, or save an entity as one |
+| `spawn_prefab` / `save_prefab` | ✓ | place a [prefab](scenes.md) at a point (with its children), or save an entity as one |
+| `despawn_prefab` | ✓ | remove a placed prefab with its children |
 | `quit_instance` | ✓ | |
 
 `--read-only` hides every tool marked ✓, for agents that should only watch.
