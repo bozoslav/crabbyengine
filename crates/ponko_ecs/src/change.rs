@@ -922,9 +922,9 @@ impl World {
         let stamp = self.changes.stamp();
         let mut cols = [0; MAX];
         let mut ptrs = [std::ptr::null_mut(); MAX];
-        let archetypes =
-            self.query_matches
-                .chunk_archetypes(&self.archetypes, &self.slots.occupied, ids, filter, cache);
+        let archetypes = self
+            .query_matches
+            .chunk_archetypes(&self.archetypes, ids, filter, cache, self.slots.scan());
         'arch: for arch in archetypes {
             if arch.is_empty() || filter.is_some_and(|filter| !filter.matches(arch)) {
                 continue;

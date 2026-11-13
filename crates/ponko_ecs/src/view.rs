@@ -408,6 +408,8 @@ impl ViewState {
         // The world is held exclusively here: let its archetype index
         // take in what the last views' queries asked for.
         world.query_matches.settle_for_views(&world.archetypes);
+        // And list the archetypes with entities, if scans use the list.
+        world.slots.scan();
         self.ids.clear();
         for c in &self.access.components {
             self.ids.push(((c.register)(world), c.write));
@@ -946,7 +948,6 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         if self.empty {
             return Archetypes {
                 all: &[],
-                occupied: &[],
                 indices: None,
                 next: 0,
             };
@@ -958,9 +959,10 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
             let key = signature::<Q>(&self.ids, &self.filters);
             index.shared_candidates(&world.archetypes, &key, self.cache)
         };
+        // Or the archetypes with entities, if the world lists them.
+        let indices = indices.or(world.slots.shared_scan());
         Archetypes {
             all: &world.archetypes,
-            occupied: &world.slots.occupied,
             indices: indices.map(<[u32]>::iter),
             next: 0,
         }
@@ -1085,7 +1087,11 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         // a second match; then the item from the one archetype that has it.
         let index = single_archetype::<Q>(self.archetypes(), &self.ids, &self.filters, tracking, clock)?;
         let mut matches = QueryIter::<'v, Q> {
-            archetypes: Archetypes::scan(self.world, index),
+            archetypes: Archetypes {
+                all: &self.world.archetypes,
+                indices: None,
+                next: index,
+            },
             ids: self.ids,
             filters: self.filters,
             state: None,

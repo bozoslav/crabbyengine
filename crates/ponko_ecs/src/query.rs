@@ -518,47 +518,21 @@ impl Filters {
     }
 }
 
-/// The archetypes a query visits, in ascending order: those that hold
-/// entities, among the candidates of the world's index or among all of them.
-///
-/// Empty archetypes are skipped by their bit in the world's occupancy bits
-/// (`World::slots`), without reading their structs: a world whose components
-/// come and go keeps many empty archetypes (issue #348).
 pub(crate) struct Archetypes<'a> {
     pub(crate) all: &'a [Archetype],
-    /// The world's occupancy bits: bit `a` is set when `all[a]` holds entities.
-    pub(crate) occupied: &'a [u64],
     pub(crate) indices: Option<std::slice::Iter<'a, u32>>,
-    /// Without `indices`: the first archetype index not looked at yet.
     pub(crate) next: usize,
 }
 
 impl<'a> Archetypes<'a> {
-    /// Every archetype of `world` that holds entities, from index `next` on.
-    #[inline]
-    pub(crate) fn scan(world: &'a World, next: usize) -> Self {
-        Archetypes {
-            all: &world.archetypes,
-            occupied: &world.slots.occupied,
-            indices: None,
-            next,
-        }
-    }
-
-    /// The next archetype that holds entities, and its index in the world's
-    /// archetype list.
+    /// The next archetype and its index in the world's archetype list.
     #[inline]
     pub(crate) fn next_indexed(&mut self) -> Option<(usize, &'a Archetype)> {
         let index = if let Some(indices) = &mut self.indices {
-            loop {
-                let index = *indices.next()? as usize;
-                if crate::slots::is_occupied(self.occupied, index) {
-                    break index;
-                }
-            }
+            *indices.next()? as usize
         } else {
-            let index = crate::slots::next_occupied(self.occupied, self.next)?;
-            self.next = index + 1;
+            let index = self.next;
+            self.next += 1;
             index
         };
         Some((index, self.all.get(index)?))
@@ -999,18 +973,20 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         // entity table and the archetypes through raw pointers while this
         // query loops, and a `&mut World` made here would end them.
         // The whole cost of the index for a world it doesn't apply to.
+        // In a world with many empty archetypes, a scan visits the list of
+        // those with entities (`World::slots`).
+        let scan = self.world.slots.scan();
         if self.cache == QueryCache::Never || self.world.archetypes.len() < self.world.query_matches.min_archetypes() {
             return Archetypes {
                 all: &self.world.archetypes,
-                occupied: &self.world.slots.occupied,
-                indices: None,
+                indices: scan.map(<[u32]>::iter),
                 next: 0,
             };
         }
         let key = cache::signature::<Q>(&self.ids, &self.filters);
         self.world
             .query_matches
-            .archetypes(&self.world.archetypes, &self.world.slots.occupied, &key, self.cache)
+            .archetypes(&self.world.archetypes, &key, self.cache, scan)
     }
 
     /// Index this query's signature in the world now, instead of leaving it
@@ -1634,7 +1610,11 @@ impl<'w, Q: QueryData> Query<'w, Q> {
         // item, read from the one archetype that holds it.
         let world: &'w World = self.world;
         let mut matches = QueryIter::<'w, Q> {
-            archetypes: Archetypes::scan(world, index),
+            archetypes: Archetypes {
+                all: &world.archetypes,
+                indices: None,
+                next: index,
+            },
             ids,
             filters,
             state: None,

@@ -569,19 +569,19 @@ impl MatchCache {
     }
 
     /// The archetypes to visit for a query with signature `key`: the indexed
-    /// candidates, or all of them.
+    /// candidates, or `scan` (the world's archetypes with entities, if it
+    /// lists them), or all of them.
     #[inline]
     pub(crate) fn archetypes<'a>(
         &'a mut self,
         all: &'a [Archetype],
-        occupied: &'a [u64],
         key: &MatchKey,
         hint: QueryCache,
+        scan: Option<&'a [u32]>,
     ) -> Archetypes<'a> {
         Archetypes {
             all,
-            occupied,
-            indices: self.candidates(all, key, hint).map(<[u32]>::iter),
+            indices: self.candidates(all, key, hint).or(scan).map(<[u32]>::iter),
             next: 0,
         }
     }
@@ -592,21 +592,20 @@ impl MatchCache {
     pub(crate) fn chunk_archetypes<'a>(
         &'a mut self,
         all: &'a [Archetype],
-        occupied: &'a [u64],
         ids: &[ComponentId],
         filter: Option<&Filters>,
         hint: QueryCache,
+        scan: Option<&'a [u32]>,
     ) -> Archetypes<'a> {
         if hint == QueryCache::Never || all.len() < self.min_archetypes() {
             return Archetypes {
                 all,
-                occupied,
-                indices: None,
+                indices: scan.map(<[u32]>::iter),
                 next: 0,
             };
         }
         let key = MatchKey::new(|require| ids.iter().for_each(|&id| require(id)), filter);
-        self.archetypes(all, occupied, &key, hint)
+        self.archetypes(all, &key, hint, scan)
     }
 
     /// The indices of the archetypes `key` matches, if the policy indexes
