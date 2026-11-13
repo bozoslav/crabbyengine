@@ -23,3 +23,8 @@ syn = { version = "2.0.119", default-features = false, features = ["derive", "pa
 # Finds what the user's crate calls `ponko` or `ponko_ecs` (renamed
 # dependencies included), so the generated impl names the right trait.
 proc-macro-crate = "3.5.0"
+
+[dev-dependencies]
+# Under another name, to test that the derive follows a renamed dependency.
+# Path only, so publishing drops it.
+ecs = { package = "ponko_ecs", path = "../ponko_ecs" }

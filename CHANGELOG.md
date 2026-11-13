@@ -24,7 +24,8 @@ replacement is in the guide's
 [migration table](https://ponko.dev/guide/migrating-to-0.1.html); the C ABI is
 unchanged (version 2).
 
-### Highlights
+Highlights:
+
 - **Services on `Ctx`**: `ctx.time`, `ctx.input`, `ctx.gfx`, `ctx.audio`,
   `ctx.ui`, `ctx.assets`, `ctx.perf`, `ctx.net` and `ctx.scene3d` are separate
   fields, so they borrow apart (draw with `ctx.gfx` inside a `ctx.world`
@@ -738,9 +739,8 @@ crates.io and the tag removed; 0.0.1 restarted the line as Ponko. Kept as the
 record of what the first version contained.
 
 The first release: a 2D engine for simulations with up to millions of
-entities, in Rust, C and C++. Install with `cargo add ponko`; the C
-library and headers for Linux, macOS and Windows are attached to the
-GitHub release. Everything below is new.
+entities, in Rust, C and C++, with the C library and headers for Linux,
+macOS and Windows attached to the GitHub release. Everything below is new.
 
 ### Simulation
 - Own archetype ECS (`ponko_ecs`): entities with generational ids, queries,

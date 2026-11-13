@@ -3142,6 +3142,7 @@ dependencies = [
 name = "ponko_macros"
 version = "0.1.0"
 dependencies = [
+ "ponko_ecs",
  "proc-macro-crate",
  "proc-macro2",
  "quote",
