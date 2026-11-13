@@ -750,7 +750,7 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "spawn_prefab",
-            description: "Spawn a prefab (one entity's components, from a file in assets/) with its position at a world point. Returns the new entity.",
+            description: "Spawn a prefab (an entity, or a tree of entities with its children, from a file in assets/) with its root's position at a world point. Returns the root entity and its parts.",
             writes: true,
             params: || {
                 json!({
@@ -762,7 +762,7 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "save_prefab",
-            description: "Save an entity's reflected components as a prefab file in assets/ (its position isn't kept: each spawn says where), for spawn_prefab, ctx.spawn_prefab and the editor's palette (assets/prefabs/).",
+            description: "Save an entity's reflected components as a prefab file in assets/ (its position isn't kept: each spawn says where), with its prefab parts and what is attached to them, for spawn_prefab, ctx.spawn_prefab and the editor's palette (assets/prefabs/).",
             writes: true,
             params: || {
                 json!({
@@ -771,6 +771,13 @@ fn tools() -> Vec<Tool> {
                 })
             },
             required: &["entity", "path"],
+        },
+        Tool {
+            name: "despawn_prefab",
+            description: "Despawn a prefab's root entity and the parts spawn_prefab made with it. Returns how many entities went.",
+            writes: true,
+            params: || json!({ "entity": { "type": "integer", "description": "The root entity spawn_prefab returned" } }),
+            required: &["entity"],
         },
         Tool {
             name: "quit_instance",
@@ -831,6 +838,7 @@ fn tool_methods(name: &str) -> Option<&'static [&'static str]> {
         "load_scene" => &["scene.load"],
         "spawn_prefab" => &["prefab.spawn"],
         "save_prefab" => &["prefab.save"],
+        "despawn_prefab" => &["prefab.despawn"],
         "quit_instance" => &["game.quit"],
         _ => return None,
     })
@@ -1110,6 +1118,7 @@ impl Server {
             "load_scene" => self.instance(args)?.call("scene.load", pass(&["path"])),
             "spawn_prefab" => self.instance(args)?.call("prefab.spawn", pass(&["path", "at"])),
             "save_prefab" => self.instance(args)?.call("prefab.save", pass(&["entity", "path"])),
+            "despawn_prefab" => self.instance(args)?.call("prefab.despawn", pass(&["entity"])),
             "quit_instance" => self.instance(args)?.call("game.quit", json!({})),
             _ => Err(format!("unknown tool `{name}`")),
         }

@@ -1142,6 +1142,21 @@ static void storage_keeps_files_between_runs() {
     if (!refused) std::abort();
 }
 
+// ANCHOR: prefab_tree
+static void carts(ponko::ctx& ctx) {
+    // A cart: its body (the root), two wheels, a driver and the driver's hat.
+    auto cart = ctx.spawn_prefab("prefabs/cart.json", {200, 300});
+    auto parts = ctx.prefab_parts(cart);   // the four parts spawned with it
+    ctx.despawn_prefab(cart);              // the body and its four parts
+    if (parts.size() != 4 || ctx.world().size() != 0) std::abort();
+}
+// ANCHOR_END: prefab_tree
+
+static void a_cart_comes_and_goes_whole() {
+    auto world = ponko::game("guide", 1, 1).run_headless(0, carts);
+    if (world.size() != 0) { std::fprintf(stderr, "%zu left\n", world.size()); std::abort(); }
+}
+
 // ---- 3D -------------------------------------------------------------------------------
 // ANCHOR: three_d
 /// Turns around its own Y axis, this many radians a second.
@@ -3050,6 +3065,7 @@ int main() {
     the_dive_adds_one_effect();
     the_beach_has_five_palms();
     storage_keeps_files_between_runs();
+    a_cart_comes_and_goes_whole();
     the_village_has_five_spinning_houses();
     things_fall_ten_units_per_second();
     turrets_ride_on_tanks();

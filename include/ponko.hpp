@@ -4552,6 +4552,18 @@ public:
     entity spawn_prefab_transform2d(const char* path, transform2d at) { entity e = 0; detail::check(ponko_ctx_spawn_prefab_transform2d(raw_, path, at, &e)); return e; }
     /// Saves `e` as a prefab in assets/`path` (without its position).
     void save_prefab(entity e, const char* path) { detail::check(ponko_ctx_save_prefab(raw_, e, path)); }
+    // Prefabs with children: the parts spawned with a prefab's root.
+    /// The parts spawn_prefab made with prefab root `root` (empty for one entity).
+    std::vector<entity> prefab_parts(entity root) {
+        std::size_t n = 0;
+        detail::check(ponko_ctx_prefab_parts(raw_, root, nullptr, 0, &n));
+        std::vector<entity> parts(n);
+        if (n != 0) detail::check(ponko_ctx_prefab_parts(raw_, root, parts.data(), parts.size(), &n));
+        parts.resize(n < parts.size() ? n : parts.size());
+        return parts;
+    }
+    /// Despawns prefab root `root` with its parts; returns how many entities went.
+    std::size_t despawn_prefab(entity root) { std::size_t n = 0; detail::check(ponko_ctx_despawn_prefab(raw_, root, &n)); return n; }
     /// Loads a texture; throws ponko::error (kind, path) if it can't.
     texture load_texture(const char* path) { return try_load_texture(path).value(); }
     /// Loads a texture, or says why not, without throwing (Rust's `try_load_texture`).

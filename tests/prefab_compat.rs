@@ -151,7 +151,8 @@ fn a_v1_prefab_spawns_where_asked_with_its_saved_components() {
 #[test]
 fn unsupported_prefab_files_fail_usefully_and_spawn_nothing() {
     let mut cases: Vec<(Value, &str)> = Vec::new();
-    for version in [json!(0), json!(2), json!("1"), Value::Null] {
+    // Version 2 (trees) is read too; 3 isn't.
+    for version in [json!(0), json!(3), json!("1"), Value::Null] {
         let mut p = fixture("prefab_v1.json");
         p["version"] = version;
         cases.push((p, "unsupported prefab version"));
@@ -166,6 +167,10 @@ fn unsupported_prefab_files_fail_usefully_and_spawn_nothing() {
     let mut empty = fixture("prefab_v1.json");
     empty["components"] = json!({});
     cases.push((empty, "non-empty"));
+    // A version-2 file lists entities instead of one entity's components.
+    let mut tree_without_entities = fixture("prefab_v1.json");
+    tree_without_entities["version"] = json!(2);
+    cases.push((tree_without_entities, "non-empty \"entities\" list"));
 
     for (i, (prefab, expected)) in cases.into_iter().enumerate() {
         let file = TempAsset::with_contents(&format!("prefab-bad-{i}.json"), &prefab.to_string());
@@ -174,7 +179,7 @@ fn unsupported_prefab_files_fail_usefully_and_spawn_nothing() {
             let err = ctx.spawn_prefab(file.name(), vec2(0.0, 0.0)).unwrap_err();
             assert!(err.message().contains(expected), "case {i}: {err}");
             if expected == "unsupported prefab version" {
-                assert!(err.message().contains("reads 1"), "case {i}: {err}");
+                assert!(err.message().contains("reads 1 and 2"), "case {i}: {err}");
             }
         });
         assert_eq!(world.len(), 0, "case {i} spawned something");

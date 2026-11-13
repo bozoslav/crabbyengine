@@ -198,6 +198,16 @@ static void scenes_and_prefabs() {
         ctx.load_scene("test-cpp-scene.json");
     });
     CHECK(loaded.size() == 2 && loaded.get<game::Health>(first).value == 9);
+    // A prefab with children: the root comes back, its parts are listed,
+    // and despawning the root takes them too.
+    ponko::game("scenes", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto cart = ctx.spawn_prefab("prefabs/cart.json", {50, 60});
+        auto parts = ctx.prefab_parts(cart);
+        CHECK(parts.size() == 4 && ctx.world().size() == 5);
+        CHECK(ctx.world().get<ponko::transform2d>(cart).position.x == 50);
+        for (auto part : parts) CHECK(ctx.prefab_parts(part).empty());   // parts aren't roots
+        CHECK(ctx.despawn_prefab(cart) == 5 && ctx.world().size() == 0);
+    });
     // Offline, a lockstep load is a plain load; a failed one changes nothing.
     auto offline = ponko::game("scenes", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
         ctx.world().reflect<game::Health>({ponko::field("value", &game::Health::value)});
