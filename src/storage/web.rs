@@ -8,6 +8,7 @@
 
 use std::cell::RefCell;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
@@ -20,6 +21,8 @@ const STORE: &str = "files";
 /// The files, as last read or written. A game runs on the page's one thread;
 /// the lock only makes the static shareable.
 static FILES: Mutex<Option<MemoryFiles>> = Mutex::new(None);
+/// Transactions the browser hasn't finished yet.
+static PENDING: AtomicUsize = AtomicUsize::new(0);
 /// The database name of the game's app id, set when the game is built.
 static NAME: Mutex<Option<String>> = Mutex::new(None);
 
@@ -40,6 +43,10 @@ pub(crate) fn open(app_id: &str) {
 
 pub(crate) fn is_persistent() -> bool {
     DB.with(|db| db.borrow().is_some())
+}
+
+pub(crate) fn is_saving() -> bool {
+    PENDING.load(Ordering::Relaxed) > 0
 }
 
 pub(crate) fn read(name: &str) -> Option<Vec<u8>> {
@@ -86,11 +93,17 @@ fn store(name: &str, changes: Vec<Change>) -> Result<(), Error> {
         }
         // A transaction that fails later (the quota) is aborted whole: the
         // stored file stays the old one. Say so in the console.
+        PENDING.fetch_add(1, Ordering::Relaxed);
         let name = name.to_string();
-        let report = wasm_bindgen::closure::Closure::once_into_js(move |_: web_sys::Event| {
+        let aborted = wasm_bindgen::closure::Closure::once_into_js(move |_: web_sys::Event| {
+            PENDING.fetch_sub(1, Ordering::Relaxed);
             log_error(&format!("ponko: browser storage could not keep {name:?}"));
         });
-        tx.set_onabort(Some(report.unchecked_ref()));
+        let complete = wasm_bindgen::closure::Closure::once_into_js(move |_: web_sys::Event| {
+            PENDING.fetch_sub(1, Ordering::Relaxed);
+        });
+        tx.set_onabort(Some(aborted.unchecked_ref()));
+        tx.set_oncomplete(Some(complete.unchecked_ref()));
         Ok(())
     })
 }

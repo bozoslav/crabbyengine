@@ -238,7 +238,7 @@ pub fn publish_web_state(ctx: &mut Ctx) {
     let coin = ctx.world.resource::<Art>().coin;
     let size = ctx.window_size();
     let state = format!(
-        r#"{{"ticks":{},"frames":{},"asset":[{},{}],"clicks":{},"size":[{},{}],"screen":"{}"}}"#,
+        r#"{{"ticks":{},"frames":{},"asset":[{},{}],"clicks":{},"size":[{},{}],"screen":"{}","settings_at_start":"{:?}","storage":"{}","saving":{}}}"#,
         ctx.time.sim_tick(),
         counts.frames,
         coin.width(),
@@ -247,6 +247,9 @@ pub fn publish_web_state(ctx: &mut Ctx) {
         size.x,
         size.y,
         screen_name(*ctx.world.resource::<Screen>()),
+        ctx.world.resource::<settings::SettingsFile>().load,
+        if ctx.storage.is_persistent() { "persistent" } else { "memory" },
+        ctx.storage.is_saving(),
     );
     ctx.world.insert_resource(counts);
     if let Some(root) = web_sys::window()

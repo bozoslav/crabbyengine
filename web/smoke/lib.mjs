@@ -29,6 +29,7 @@ export const USAGE =
   "                 [--out <artifacts dir>] [--timeout <startup seconds>] [--allow-unsupported]\n" +
   "                 [--asset <file under assets/>] [--asset-size <W>x<H>|none]\n" +
   "                 [--press <Key>=<field>:<value>]... [--min <field>=<number>]...\n" +
+  "                 [--after-reload <field>:<value>]...\n" +
   "                 [--engine-gpu required|optional] [--no-trace] [--chrome-trace]\n" +
   "                 [--chromium-mode shell|new] [--browser-arg <flag>]...";
 
@@ -39,6 +40,13 @@ export function parsePress(spec) {
   return { key: match[1], field: match[2], value: match[3] };
 }
 
+/** `settings_at_start:Loaded`: after the page is reloaded, the state's `settings_at_start` must be "Loaded". */
+export function parseExpect(spec) {
+  const match = /^([A-Za-z_]+):(.+)$/.exec(spec);
+  if (!match) throw new UsageError(`--after-reload wants <field>:<value>, not "${spec}"`);
+  return { field: match[1], value: match[2] };
+}
+
 /** `triangles=100`: the state's numeric `triangles` must be at least 100. */
 export function parseMin(spec) {
   const match = /^([A-Za-z_]+)=(\d+(?:\.\d+)?)$/.exec(spec);
@@ -46,7 +54,7 @@ export function parseMin(spec) {
   return { field: match[1], min: Number(match[2]) };
 }
 
-const FIXTURE_KEYS = ["example", "features", "asset", "assetSize", "assetSource", "presses", "min", "engineGpu"];
+const FIXTURE_KEYS = ["example", "features", "asset", "assetSize", "assetSource", "presses", "min", "afterReload", "engineGpu"];
 
 /** Parses fixtures.json: what each example needs from the runner. */
 export function parseFixtures(text) {
@@ -57,6 +65,7 @@ export function parseFixtures(text) {
     }
     if (typeof fixture.example !== "string") throw new UsageError(`fixtures.json: ${name} needs an "example"`);
     if (fixture.presses) fixture.presses.forEach(parsePress);
+    if (fixture.afterReload) fixture.afterReload.forEach(parseExpect);
   }
   return fixtures;
 }
@@ -75,6 +84,7 @@ export function parseArgs(argv, fixtures = {}) {
     build: false,
     presses: [],
     mins: [],
+    afterReload: [],
   };
   const given = {};
   for (let i = 0; i < argv.length; i++) {
@@ -100,6 +110,7 @@ export function parseArgs(argv, fixtures = {}) {
       case "--engine-gpu": given.engineGpu = value(); break;
       case "--press": (given.presses ??= []).push(parsePress(value())); break;
       case "--min": (given.mins ??= []).push(parseMin(value())); break;
+      case "--after-reload": (given.afterReload ??= []).push(parseExpect(value())); break;
       default: fail(`unknown argument ${flag}`);
     }
   }
@@ -114,6 +125,7 @@ export function parseArgs(argv, fixtures = {}) {
   args.assetSize = given.assetSize ?? (fixture ? fixture.assetSize ?? "none" : "32x32");
   args.assetSource = given.assetSource ?? (fixture ? fixture.assetSource ?? "none" : "4x2");
   args.presses = given.presses ?? (fixture?.presses ?? []).map(parsePress);
+  args.afterReload = given.afterReload ?? (fixture?.afterReload ?? []).map(parseExpect);
   args.mins = given.mins ?? Object.entries(fixture?.min ?? {}).map(([field, min]) => ({ field, min }));
   args.engineGpu = given.engineGpu ?? (fixture?.engineGpu ? "required" : "optional");
   args.dir ??= args.example ? join("target", "web", args.example) : undefined;

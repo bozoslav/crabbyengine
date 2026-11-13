@@ -184,6 +184,20 @@ impl Storage {
         }
     }
 
+    /// Whether writes are still on their way to the disk: on the web, while
+    /// the browser hasn't confirmed every stored change (a tab closed then
+    /// may lose the last one, never half of it). Always `false` on the
+    /// desktop, where [`write`](Self::write) returns once the file is there.
+    /// A game can show "saving..." while it is `true`.
+    #[must_use]
+    pub fn is_saving(&self) -> bool {
+        match self.backend {
+            #[cfg(target_arch = "wasm32")]
+            Backend::Browser => web::is_saving(),
+            _ => false,
+        }
+    }
+
     /// Writes `bytes` as the file `name`, creating its folders. Safe against
     /// crashes: the old file stays whole until the new one is complete, and
     /// is then kept as the backup ([`read_backup`](Self::read_backup)).

@@ -19,6 +19,11 @@ order:
 4. **Input**: a click on the canvas reaches the game, then each `--press` key.
 5. **State minimums** (`--min`): fields the fixture must report at least
    (the 3D fixture's models and triangles drawn).
+   **Storage** (`--after-reload`): once the game's writes are stored (its
+   `saving` field is no longer `true`), the page is reloaded, and the new page
+   must report the given fields (`coin_dash`: the settings it saved when the
+   settings screen was left are `Loaded` from the browser's storage, which is
+   `persistent`).
 6. **Rendering**: the canvas is not blank (screenshot, or a copy of the
    canvas for WebGPU).
 
@@ -34,11 +39,11 @@ runner needs to know about each one, so `--fixture <name>` is all a run takes:
 |---|---|---|---|
 | `web_smoke` | `examples/web_smoke.rs` | none | `crab.png` fetched and decoded 32x32; an image and streamed music loaded from an in-memory asset source; sprites drawn |
 | `web_smoke_3d` | `examples/web_smoke_3d.rs` | `3d` | `models/house.glb` fetched and parsed; a sun with shadows; at least 1 model and 100 triangles drawn |
-| `coin_dash` | `examples/coin_dash` | none | the complete game: its picture, keys and the screens they reach (see [A complete game, packaged](../../book/src/packaging.md#the-web-build)) |
+| `coin_dash` | `examples/coin_dash` | none | the complete game: its picture, keys and the screens they reach (see [A complete game, packaged](../../book/src/packaging.md#the-web-build)); after a reload, the settings it saved come back from the browser's storage |
 
 To add one: publish the state with the helper (or the same attributes by hand),
 add an entry to `fixtures.json` (`example`, `features`, `asset`, `assetSize`
-or none, `assetSource` or none, `presses`, `min`, `engineGpu`), and name it in the CI job. Every
+or none, `assetSource` or none, `presses`, `min`, `afterReload`, `engineGpu`), and name it in the CI job. Every
 fixture needs `?smoke_case=panic` and `?smoke_case=stall` handled if it is to
 run the self-tests; the helper does that.
 
@@ -85,6 +90,7 @@ Options:
 | `--asset-source <W>x<H>` / `none` | The size the image from the game's in-memory asset source must decode to (the state's `source`); its streamed music must load too, and nothing under `assets/embedded/` may be fetched. Default `4x2` without a fixture. |
 | `--press <Key>=<field>:<value>` | After the click, press the key (Playwright key name: `Enter`, `Escape`, `Q`) and wait up to 10 s for the reported state's `<field>` to become `<value>`. Repeatable, in order. |
 | `--min <field>=<n>` | The reported state's numeric `<field>` must be at least `n`. Repeatable. |
+| `--after-reload <field>:<value>` | After the presses, reload the page (once the state's `saving` is not `true`); the new page's `<field>` must then be `<value>`. Repeatable. |
 | `--engine-gpu required` | Fail when the fixture publishes no engine GPU report (fixtures set this). |
 | `--no-trace` / `--chrome-trace` | Skip the Playwright trace, or also write Chromium's GPU trace (it slows a heavy page a lot, enough to trip the stall check on a 3D scene: use it on the 2D fixture, or to look at one run). |
 | `--out <dir>` | Where artifacts go (default `target/web-smoke/<fixture>-<browser>-<backend>-<case>`). |
