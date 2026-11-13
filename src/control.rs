@@ -447,15 +447,39 @@ struct DeadlineReader {
 
 impl Read for DeadlineReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if let Some(deadline) = self.deadline {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
-            if left.is_zero() {
-                return Err(std::io::ErrorKind::TimedOut.into());
-            }
-            self.stream.set_read_timeout(Some(left))?;
+        match self.deadline {
+            Some(deadline) => read_before(&self.stream, buf, deadline),
+            None => self.stream.read(buf),
         }
-        self.stream.read(buf)
     }
+}
+
+/// How often a read with a deadline looks for input.
+const DEADLINE_POLL: Duration = Duration::from_millis(2);
+
+/// Reads what has arrived, waiting for input until `deadline` (then
+/// `TimedOut`). It never lets a blocking read time out (`SO_RCVTIMEO`): on
+/// Windows that leaves the connection in an undefined state, and the reply
+/// written after it is lost (the client sees the connection aborted). So the
+/// socket is nonblocking while it waits, and blocking again afterwards.
+fn read_before(stream: &TcpStream, buf: &mut [u8], deadline: std::time::Instant) -> std::io::Result<usize> {
+    stream.set_nonblocking(true)?;
+    let mut reading = stream;
+    let read = loop {
+        match reading.read(buf) {
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    break Err(std::io::ErrorKind::TimedOut.into());
+                }
+                thread::sleep(left.min(DEADLINE_POLL));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            read => break read,
+        }
+    };
+    stream.set_nonblocking(false)?;
+    read
 }
 
 impl DeadlineReader {
@@ -463,7 +487,6 @@ impl DeadlineReader {
     /// write timeout is the socket's, shared with the writing handle).
     fn trust(&mut self) {
         if self.deadline.take().is_some() {
-            let _ = self.stream.set_read_timeout(None);
             let _ = self.stream.set_write_timeout(None);
         }
     }
@@ -485,13 +508,8 @@ fn hang_up(stream: &TcpStream) {
     }
     let until = std::time::Instant::now() + DRAIN_FOR;
     let (mut drained, mut buf) = (0, [0u8; 8192]);
-    let mut stream = stream;
     while drained < DRAIN_AT_MOST {
-        let left = until.saturating_duration_since(std::time::Instant::now());
-        if left.is_zero() || stream.set_read_timeout(Some(left)).is_err() {
-            return;
-        }
-        match stream.read(&mut buf) {
+        match read_before(stream, &mut buf, until) {
             Ok(0) | Err(_) => return,
             Ok(n) => drained += n,
         }
@@ -2946,23 +2964,37 @@ mod tests {
         // Every slot taken by a client that never says anything, and one
         // that trickles bytes without a newline.
         let idle: Vec<TcpStream> = (0..MAX_CONNECTIONS - 1).map(|_| connect()).collect();
-        let mut trickle = connect();
+        let trickle = connect();
+        trickle.set_nonblocking(true).unwrap();
+        // The trickler stops writing once the reply is there, like a real
+        // client: writing to a connection the server has closed resets it,
+        // and on Windows the reset throws away the reply not read yet.
         let trickler = thread::spawn(move || {
-            for _ in 0..20 {
-                if trickle.write_all(b"{").is_err() {
-                    break;
+            let (mut reply, mut buf) = (Vec::new(), [0u8; 256]);
+            let mut stream = &trickle;
+            let give_up = std::time::Instant::now() + Duration::from_secs(10);
+            while !reply.contains(&b'\n') && std::time::Instant::now() < give_up {
+                if reply.is_empty() {
+                    match stream.write(b"{") {
+                        Err(e) if e.kind() != std::io::ErrorKind::WouldBlock => panic!("the trickle was cut off: {e}"),
+                        _ => {}
+                    }
                 }
                 thread::sleep(Duration::from_millis(50));
+                match stream.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => reply.extend_from_slice(&buf[..n]),
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) => panic!("the trickling client lost its reply: {e}"),
+                }
             }
-            trickle
+            (trickle, String::from_utf8(reply).unwrap())
         });
         // They are told why and closed, so a real client gets in.
         let mut reply = String::new();
         BufReader::new(&idle[0]).read_line(&mut reply).unwrap();
         assert!(reply.contains("no request with the right token"), "{reply}");
-        let trickle = trickler.join().unwrap();
-        let mut reply = String::new();
-        BufReader::new(&trickle).read_line(&mut reply).unwrap();
+        let (_trickle, reply) = trickler.join().unwrap();
         assert!(
             reply.contains("no request with the right token"),
             "a trickle doesn't keep it open: {reply}"

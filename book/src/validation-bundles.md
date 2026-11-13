@@ -181,11 +181,16 @@ the assertions: the bundle passes when every check holds, and otherwise
 names the failed step, its tick, and the expected and actual values. The
 game gets only the arguments and environment you give it.
 
-The game needs nothing special: it must be startable headless and should
+The game must be startable headless, must open its
+[control endpoint](control.md#turning-it-on) when `launch` sets
+`PONKO_CONTROL=1`, and should
 [reflect](agents.md#making-your-game-agent-friendly) the state the checks
-read. For a C++ game, start the built executable:
+read. A release build honors `PONKO_CONTROL` only with the engine's
+`control-env` feature, so for a C++ game build the C library with it, then
+start the built executable:
 
 ```sh
+cargo build -p ponko_ffi --release --features control-env
 cargo run --example validation_bundle -- --out target/bundles/battle \
   --launch-program target/native/ponko_cpp_battle \
   --scenario examples/cpp/battle-validation.json \
@@ -222,5 +227,5 @@ macOS.
 - The native script is not run on Windows in CI.
 - A launched run needs the game to open the control endpoint
   (`PONKO_CONTROL=1`, which `launch` sets and which a release build honors
-  only with the `control-env` feature); a game built without it is
-  reported as a `launch_timeout`.
+  only with the `control-env` feature); a release game built without it
+  fails with `launch_failed`, which says so.
