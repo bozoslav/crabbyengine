@@ -259,6 +259,54 @@ frame-time percentiles, memory and allocations where relevant, and identify metr
 that could not be collected. Verify correctness independently; never generalize
 one benchmark into an overall engine ranking.
 
+## Dependency audit
+
+[`deny.toml`](deny.toml) holds the policy that [cargo-deny](https://github.com/EmbarkStudios/cargo-deny)
+checks: allowed licenses, security advisories (the RustSec database), banned
+and duplicate crates, and allowed sources (crates.io only). The workflow
+`.github/workflows/deny.yml` runs it on pull requests that change `Cargo.toml`,
+`Cargo.lock` or `deny.toml`, and every Monday on `main`, where a new advisory
+opens (or updates) one issue, "Dependency audit: security advisories found by
+the weekly run", and the issue closes when the audit is clean again. The
+workflow is not part of the **CI passed** check (a path-filtered check can't be
+required), so read its result on the pull request.
+
+Run it yourself before you touch dependencies:
+
+```sh
+cargo install --locked cargo-deny --version 0.20.2   # once; CI pins the same version
+cargo deny --locked check -D warnings
+```
+
+When it fails, the output names the crate and the dependency chain that
+brought it in:
+
+- **A license is not allowed** (`licenses`). Prefer a dependency with an
+  allowed license. The list in `deny.toml` is what the C library's
+  third-party notices can carry; adding a license is a maintainer decision:
+  say in the pull request why it is acceptable for the release archives.
+  A crate that declares no license is refused by the notices too.
+- **An advisory** (`advisories`: vulnerability, unmaintained, unsound or
+  yanked). Update the dependency, with the smallest bump that fixes it
+  (`cargo update -p <crate>`; `cargo tree -i <crate>` shows who needs it), and
+  run the full checks. If nothing fixed exists, add an `ignore` entry to
+  `deny.toml` with the advisory id and a `reason`: how we reach the crate and
+  why that is acceptable, and what ends the exception. Never ignore without a
+  reason.
+- **A duplicate version** (`bans`). Align versions when you can (a newer
+  release of the parent, or `cargo update`). A duplicate a dependency we don't
+  control forces gets a `skip` entry with a `reason` naming the dependency
+  that needs the old version. Don't skip a duplicate caused by our own
+  requirements: update those.
+- **A banned crate or a source that is not crates.io.** Both are deliberate:
+  the release archives must not need a system TLS stack, and releases build
+  from crates.io alone. Change the policy only with a maintainer's agreement.
+- **A stale exception** (a warning, an error with `-D warnings`): the
+  `skip` or `ignore` entry matches nothing any more. Delete it.
+
+A weekly advisory issue is handled the same way: fix, or ignore with a reason,
+in a pull request that links the issue.
+
 ## Using coding agents
 
 Coding agents are welcome under the same contribution rules. You remain responsible

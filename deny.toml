@@ -1,0 +1,138 @@
+# cargo-deny policy: licenses, security advisories, banned and duplicate
+# crates, allowed sources. Run by .github/workflows/deny.yml on pull requests
+# that change Cargo.toml, Cargo.lock or this file, and weekly on `main`.
+# Run it yourself with `cargo install --locked cargo-deny` and
+# `cargo deny --locked check` (CONTRIBUTING.md, "Dependency audit").
+#
+# Every exception below carries a `reason`. An exception that no longer
+# matches anything is reported as a warning: delete it.
+
+[graph]
+# Every platform, every feature (steam, physics, 3d, web, ...): a dependency
+# that only a release archive, the web build or one feature set links must not
+# slip past the audit.
+all-features = true
+
+[advisories]
+# The RustSec advisory database (fetched on each run).
+# Yanked releases are an error: a yanked version is gone from the registry's
+# resolver and often means "do not use".
+yanked = "deny"
+# Unmaintained crates count too, for every crate in the graph (the default
+# looks only at direct dependencies).
+unmaintained = "all"
+# Each entry is a known advisory this repo has looked at and accepts for now.
+# Remove it when the dependency is updated or dropped.
+ignore = [
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3 is complete and its authors stopped development; no fix exists. Reached only through puffin (the optional `profiling` feature), which uses it for its own frame format; nothing the engine reads from outside. Drop when puffin moves to another format." },
+    { id = "RUSTSEC-2024-0436", reason = "paste 1.0.15 is archived but finished (a proc macro, no runtime code). Reached through pulp (the EXR decoder of `image`) and steamworks. Drop when those switch to pastey or stop using it." },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser 0.25.1 is unmaintained, with no known vulnerability. Reached through fontdue (the engine's text rasterizer) and winit's Wayland title bar (ab_glyph). Replace when fontdue and ab_glyph move to skrifa." },
+]
+
+[licenses]
+# What the C library's THIRD-PARTY-NOTICES (`scripts/package-coin-dash.py
+# notices`) can carry: it prints each library's declared license expression and
+# its license texts, and refuses a crate that declares none. This list is the
+# set of licenses the dependency graph needs today, all permissive except the
+# MPL-2.0 (file-level copyleft: its files stay MPL-2.0, which static linking
+# into a game does not change). An `OR` expression passes if one side is
+# allowed, so self_cell (`Apache-2.0 OR GPL-2.0-only`) and r-efi
+# (`MIT OR Apache-2.0 OR LGPL-2.1-or-later`) need no GPL entry. Adding a
+# license here is a decision for a maintainer: say why in the pull request.
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    # symphonia (kira's audio decoders) and triple_buffer.
+    "MPL-2.0",
+    # The bundled fonts of epaint_default_fonts (egui's inspector).
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+# More than one version of a crate is an error unless listed under `skip`.
+multiple-versions = "deny"
+highlight = "all"
+# `*` requirements are an error, except path-only dependencies, which the
+# workspace uses to break publish cycles (the ponko_mcp dev-dependency of
+# `ponko`, the renamed ponko_ecs of ponko_macros' tests; both are dropped
+# when publishing).
+wildcards = "deny"
+allow-wildcard-paths = true
+
+# Crates the engine must not link. The release archives are static and
+# dynamic C libraries for several operating systems: a TLS stack from the
+# system would add a runtime dependency to them. Add one here with a reason
+# when a pull request would pull it in.
+deny = [
+    { crate = "openssl", reason = "the C library's release archives must not need the system's OpenSSL" },
+    { crate = "openssl-sys", reason = "the C library's release archives must not need the system's OpenSSL" },
+    { crate = "native-tls", reason = "pulls the system TLS stack (OpenSSL, SChannel, Security.framework) into the release archives" },
+]
+
+# Duplicate versions we accept. Each one is the older (or, for `syn`, the less
+# shared) version, kept by a dependency we do not control; the reason names
+# who needs it and what removes it. Do not add one for a crate the engine
+# depends on itself: update our requirement instead.
+skip = [
+    # -- The windowing stack: winit 0.30 and what it pulls in (older objc2
+    #    0.5 family, rustix 0.38, calloop 0.13, Wayland client libraries),
+    #    next to egui-winit, cpal and wgpu-hal on the newer ones. Resolved
+    #    when winit and egui-winit agree on one objc2 release.
+    { crate = "objc2@0.5.3", reason = "winit 0.30, accesskit_macos and block2 0.5; the rest of the graph (egui-winit, cpal, wgpu-hal) is on objc2 0.6" },
+    { crate = "objc2-app-kit@0.2.2", reason = "winit 0.30 and accesskit_macos; egui-winit uses 0.3" },
+    { crate = "objc2-foundation@0.2.2", reason = "winit 0.30 and accesskit_macos; egui-winit, cpal and wgpu-hal use 0.3 (the macOS accessibility test deliberately uses the same 0.2 release as the adapter)" },
+    { crate = "objc2-ui-kit@0.2.2", reason = "winit 0.30; egui-winit uses 0.3" },
+    { crate = "block2@0.5.1", reason = "winit 0.30's objc2 0.2 family; cpal, egui-winit and wgpu-hal use 0.6" },
+    { crate = "rustix@0.38.44", reason = "winit 0.30, calloop 0.13 and smithay-client-toolkit 0.19 (Wayland); tempfile, polling and x11rb use 1.x" },
+    { crate = "linux-raw-sys@0.4.15", reason = "follows rustix 0.38" },
+    { crate = "windows-sys@0.52.0", reason = "winit 0.30; most of the graph is on 0.61" },
+    { crate = "windows-sys@0.59.0", reason = "rustix 0.38 (a Windows target of winit's Wayland-free path); resolved with rustix 0.38" },
+    { crate = "bitflags@1.3.2", reason = "core-graphics 0.23 and redox_syscall 0.4 (both winit 0.30); everything else is on 2.x" },
+    { crate = "redox_syscall@0.4.1", reason = "winit 0.30 (Redox only)" },
+    { crate = "redox_syscall@0.5.18", reason = "parking_lot_core (Redox only); libredox uses 0.9" },
+    { crate = "thiserror@1.0.69", reason = "calloop 0.13, ndk 0.9 and smithay-client-toolkit 0.19 (winit's backends); the rest is on 2.x" },
+    { crate = "thiserror-impl@1.0.69", reason = "follows thiserror 1" },
+    { crate = "downcast-rs@1.2.1", reason = "wayland-backend (winit's Wayland path); parry and bevy_reflect use 2.x" },
+    { crate = "jni-sys@0.3.1", reason = "ndk and ndk-sys 0.6 (winit's Android path); jni 0.22 uses 0.4" },
+
+    # -- The physics libraries (rapier, parry) bring glamx on glam 0.33; the
+    #    engine's own API is on glam 0.34.
+    { crate = "glam@0.33.12", reason = "glamx (rapier, parry) and bevy_reflect (the ECS comparison benchmark); the engine and kira are on 0.34" },
+    { crate = "num-derive@0.5.1", reason = "parry; cpal uses 0.4" },
+
+    # -- Hashing and collections.
+    { crate = "hashbrown@0.15.5", reason = "fontdue and hashlink (kira's dependency); wgpu, naga, indexmap and rapier are on 0.17" },
+    { crate = "hashbrown@0.16.1", reason = "gpu-allocator, spade and bevy_platform; wgpu, naga and indexmap are on 0.17" },
+    { crate = "foldhash@0.1.5", reason = "follows hashbrown 0.15" },
+    { crate = "rustc-hash@1.1.0", reason = "naga and wgpu-core; dioxus (hot patching) and type-map use 2.x" },
+    { crate = "itertools@0.14.0", reason = "puffin (the optional `profiling` feature); egui uses 0.15" },
+
+    # -- Image, build tools and the std-adjacent crates.
+    { crate = "miniz_oxide@0.8.9", reason = "png and exr (through `image`); flate2 uses 0.9" },
+    { crate = "getrandom@0.3.4", reason = "ahash and rand_core 0.9; the engine's control token, uuid and tempfile use 0.4" },
+    { crate = "r-efi@5.3.0", reason = "follows getrandom 0.3" },
+    # syn 2 is the version most of the ecosystem is still on; the few derive
+    # crates already on syn 3 (serde_derive, thiserror 2, bytemuck_derive) are
+    # newer. The version that disappears first is the old one.
+    { crate = "syn@2.0.119", reason = "most proc-macro crates (the ECS macros, bevy, nalgebra, zerocopy, tracing, windows); serde_derive, thiserror-impl 2 and bytemuck_derive are on syn 3" },
+]
+
+[sources]
+# Only crates.io. A git dependency or another registry is an error: the
+# workspace publishes to crates.io and releases must build from it alone.
+# If a fix is only available as a git revision, record that here with a reason
+# (`allow-git`) and link the upstream issue.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
