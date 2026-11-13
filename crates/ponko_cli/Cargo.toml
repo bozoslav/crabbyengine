@@ -1,8 +1,8 @@
 [package]
 name = "ponko_cli"
 version = "0.1.0"
-description = "The `ponko` command: new Ponko game projects from templates (2D, 3D, headless)"
-keywords = ["gamedev", "cli", "template", "scaffolding"]
+description = "The `ponko` command: new Ponko game projects from templates (2D, 3D, headless), and distributable packages of a game"
+keywords = ["gamedev", "cli", "template", "packaging"]
 categories = ["game-development", "command-line-utilities", "development-tools"]
 documentation = "https://ponko.dev/guide/getting-started.html"
 edition.workspace = true
@@ -21,6 +21,12 @@ homepage.workspace = true
 name = "ponko"
 path = "src/main.rs"
 
-# No dependencies: `cargo install ponko_cli` stays a few seconds, and the
-# command never pulls in the engine.
+# A few small dependencies, never the engine, so `cargo install ponko_cli`
+# stays quick. `ponko package` reads `cargo metadata` (JSON: serde_json,
+# without serde's derive macros) and writes zip and tar.gz archives itself
+# (deflate and gzip: flate2 on its pure-Rust backend; zip checksums:
+# crc32fast), so packaging needs no `zip` or `tar` program on any OS.
 [dependencies]
+serde_json = "1.0.154"
+flate2 = "1.1.10"
+crc32fast = "1.5.0"

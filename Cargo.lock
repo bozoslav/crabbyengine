@@ -3152,6 +3152,11 @@ dependencies = [
 [[package]]
 name = "ponko_cli"
 version = "0.1.0"
+dependencies = [
+ "crc32fast",
+ "flate2",
+ "serde_json",
+]
 
 [[package]]
 name = "ponko_ecs"
