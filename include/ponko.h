@@ -3995,6 +3995,45 @@ enum PonkoStatus ponko_net_messages_steam_lobby_members(struct PonkoNetMessages 
                                                         size_t capacity,
                                                         size_t *needed);
 
+enum PonkoStatus ponko_game_app_id(struct PonkoGame *game, const char *app_id);
+
+enum PonkoStatus ponko_game_data_dir(struct PonkoGame *game, const char *dir);
+
+enum PonkoStatus ponko_ctx_storage_write(struct PonkoCtx *ctx,
+                                         const char *name,
+                                         const uint8_t *bytes,
+                                         size_t len);
+
+enum PonkoStatus ponko_ctx_storage_read(struct PonkoCtx *ctx,
+                                        const char *name,
+                                        uint8_t *buffer,
+                                        size_t capacity,
+                                        size_t *out_len);
+
+enum PonkoStatus ponko_ctx_storage_read_backup(struct PonkoCtx *ctx,
+                                               const char *name,
+                                               uint8_t *buffer,
+                                               size_t capacity,
+                                               size_t *out_len);
+
+enum PonkoStatus ponko_ctx_storage_exists(struct PonkoCtx *ctx, const char *name, bool *out_exists);
+
+enum PonkoStatus ponko_ctx_storage_list(struct PonkoCtx *ctx,
+                                        char *buffer,
+                                        size_t capacity,
+                                        size_t *out_len);
+
+enum PonkoStatus ponko_ctx_storage_delete(struct PonkoCtx *ctx, const char *name);
+
+enum PonkoStatus ponko_ctx_storage_dir(struct PonkoCtx *ctx,
+                                       char *buffer,
+                                       size_t capacity,
+                                       size_t *out_len);
+
+enum PonkoStatus ponko_ctx_save_world(struct PonkoCtx *ctx, const char *slot);
+
+enum PonkoStatus ponko_ctx_load_world(struct PonkoCtx *ctx, const char *slot);
+
 struct PonkoCellStreamer *ponko_cells_new(float cell_size, float load_radius, float keep_radius);
 
 void ponko_cells_free(struct PonkoCellStreamer *cells);

@@ -4412,6 +4412,69 @@ public:
     void save_scene(const char* path) { detail::check(ponko_ctx_save_scene(raw_, path)); }
     /// Spawns the prefab in assets/`path` with its position at `at`.
     entity spawn_prefab(const char* path, vec2 at) { entity e = 0; detail::check(ponko_ctx_spawn_prefab(raw_, path, at, &e)); return e; }
+    // The player's files (Rust's ctx.storage): saves and settings in the
+    // per-user data folder (browser storage on the web), written safely.
+    // Needs game::app_id; every call throws ponko::error without one.
+    /// Writes `size` bytes as the stored file `name`: the old file stays
+    /// whole until the new one is complete, then becomes its backup.
+    void storage_write(const char* name, const void* bytes, std::size_t size) {
+        detail::check(ponko_ctx_storage_write(raw_, name, static_cast<const std::uint8_t*>(bytes), size));
+    }
+    /// storage_write for text.
+    void storage_write(const char* name, const std::string& text) { storage_write(name, text.data(), text.size()); }
+    /// The stored file `name`, or nothing if there is no such file.
+    std::optional<std::vector<std::uint8_t>> storage_read(const char* name) {
+        return read_stored([&](std::uint8_t* b, std::size_t c, std::size_t* n) { return ponko_ctx_storage_read(raw_, name, b, c, n); });
+    }
+    /// The stored file `name` as it was before its last write, or nothing.
+    std::optional<std::vector<std::uint8_t>> storage_read_backup(const char* name) {
+        return read_stored([&](std::uint8_t* b, std::size_t c, std::size_t* n) { return ponko_ctx_storage_read_backup(raw_, name, b, c, n); });
+    }
+    /// The stored file `name` as text, or nothing if there is no such file.
+    std::optional<std::string> storage_read_text(const char* name) {
+        auto bytes = storage_read(name);
+        if (!bytes) return std::nullopt;
+        return std::string(bytes->begin(), bytes->end());
+    }
+    /// Whether the stored file `name` exists.
+    bool storage_exists(const char* name) { bool e = false; detail::check(ponko_ctx_storage_exists(raw_, name, &e)); return e; }
+    /// Every stored file's name, sorted (backups aren't listed).
+    std::vector<std::string> storage_list() {
+        const std::string text = detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return ponko_ctx_storage_list(raw_, b, c, n); });
+        std::vector<std::string> names;
+        std::size_t start = 0;
+        while (start < text.size()) {
+            const std::size_t end = std::min(text.find('\n', start), text.size());
+            names.emplace_back(text, start, end - start);
+            start = end + 1;
+        }
+        return names;
+    }
+    /// Deletes the stored file `name` and its backup (a missing file is fine).
+    void storage_delete(const char* name) { detail::check(ponko_ctx_storage_delete(raw_, name)); }
+    /// The folder the files are in; empty on the web and without an app id.
+    std::string storage_dir() {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return ponko_ctx_storage_dir(raw_, b, c, n); });
+    }
+    /// Saves the world's reflected components and resources in save slot `slot`.
+    void save_world(const char* slot) { detail::check(ponko_ctx_save_world(raw_, slot)); }
+    /// Replaces the world with save slot `slot` (as load_scene does).
+    void load_world(const char* slot) { detail::check(ponko_ctx_load_world(raw_, slot)); }
+private:
+    /// Reads bytes a C function writes into a buffer (asks for the size, then
+    /// fills it; asks again if it grew); nothing for PONKO_NOT_FOUND.
+    template<class F> static std::optional<std::vector<std::uint8_t>> read_stored(F&& fill) {
+        std::vector<std::uint8_t> bytes;
+        for (;;) {
+            std::size_t len = 0;
+            const auto status = fill(bytes.empty() ? nullptr : bytes.data(), bytes.size(), &len);
+            if (status == PONKO_NOT_FOUND) return std::nullopt;
+            detail::check(status);
+            if (len <= bytes.size()) { bytes.resize(len); return bytes; }
+            bytes.resize(len);
+        }
+    }
+public:
     /// Repositions a 3D prefab while preserving saved rotation and scale.
     entity spawn_prefab3d(const char* path, vec3 at) { entity e = 0; detail::check(ponko_ctx_spawn_prefab3d(raw_, path, at, &e)); return e; }
     /// Places a prefab with a complete transform. Separate names preserve old brace-init calls.
@@ -5845,6 +5908,11 @@ public:
     game& fixed_hz(std::uint32_t hz) { return check(ponko_game_fixed_hz(raw_, hz)); }
     /// Seed of ctx::random (runs with the same seed and input repeat exactly).
     game& seed(std::uint64_t seed) { return check(ponko_game_seed(raw_, seed)); }
+    /// Names the game for ctx::storage_*: its files go in the folder `app_id`
+    /// in the player's data folder. Throws ponko::error for a bad id.
+    game& app_id(const char* app_id) { return check(ponko_game_app_id(raw_, app_id)); }
+    /// Keeps ctx::storage_* files in `dir` itself (tests, portable installs).
+    game& data_dir(const char* dir) { return check(ponko_game_data_dir(raw_, dir)); }
     /// Wait for the display between frames (default on).
     game& vsync(bool on) { return check(ponko_game_vsync(raw_, on)); }
     /// Samples per pixel of the 3D frame: 4 (default) or 2.

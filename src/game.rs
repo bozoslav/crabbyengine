@@ -1658,10 +1658,7 @@ impl Game {
     pub fn app_id(mut self, app_id: impl Into<String>) -> Self {
         let app_id = app_id.into();
         assert!(
-            !app_id.is_empty()
-                && !app_id.starts_with('.')
-                && app_id.len() <= 128
-                && app_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')),
+            crate::storage::is_app_id(&app_id),
             "ponko: app id {app_id:?} must be 1 to 128 letters, digits, '-', '_' or '.', not starting with '.'"
         );
         self.app_id = Some(app_id);

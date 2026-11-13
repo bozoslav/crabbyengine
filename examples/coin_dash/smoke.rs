@@ -13,6 +13,7 @@
 //! asset loading, drawing and the retained UI screen are used for real.
 
 use super::*;
+use std::path::PathBuf;
 
 /// What happened, written as JSON when the walk-through ends.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -26,7 +27,8 @@ pub struct Report {
     pub best_time: Option<f32>,
     /// How the progress file was found at startup: `Fresh`, `Loaded` or `Recovered`.
     pub progress_at_start: String,
-    pub progress_path: Option<String>,
+    /// The folder `ctx.storage` kept the files in (`None`: none kept, or the web).
+    pub storage_dir: Option<String>,
     pub settings_at_start: String,
     /// The coin picture's file, and its size once loaded (the packaged game found it).
     pub asset: String,
@@ -87,12 +89,7 @@ pub fn setup_smoke(ctx: &mut Ctx, report_path: Option<PathBuf>, mode: &str) {
     let report = Report {
         mode: mode.to_string(),
         progress_at_start: format!("{:?}", ctx.world.resource::<SaveFile>().load),
-        progress_path: ctx
-            .world
-            .resource::<SaveFile>()
-            .path
-            .as_ref()
-            .map(|p| p.display().to_string()),
+        storage_dir: ctx.storage.dir().map(|d| d.display().to_string()),
         settings_at_start: format!("{:?}", ctx.world.resource::<settings::SettingsFile>().load),
         asset: COIN_ASSET.to_string(),
         asset_size: size,
@@ -208,14 +205,19 @@ fn finish(ctx: &mut Ctx, tick: u64, completed: bool) {
 }
 
 /// The game with the walk-through installed: [`autoplay`] (before the
-/// rules), the [`CoinDash`] plugin keeping its files at `save`, and
-/// [`count_frames`]. Start it with [`setup_smoke`].
-pub fn build_smoke(save: Option<PathBuf>) -> Game {
-    Game::new("Coin Dash", ARENA.x as u32, ARENA.y as u32)
-        .seed(SEED)
+/// rules), the [`CoinDash`] plugin keeping its files in `ctx.storage`, and
+/// [`count_frames`]. `game` names where the files go: [`build_smoke`] for the
+/// player's data folder. Start it with [`setup_smoke`].
+pub fn smoke_game(game: Game) -> Game {
+    game.seed(SEED)
         .sim_system(autoplay)
-        .plugin(CoinDash { save })
+        .plugin(CoinDash)
         .system(count_frames)
+}
+
+/// [`smoke_game`] with the files in the player's data folder, like the real game.
+pub fn build_smoke() -> Game {
+    smoke_game(Game::new("Coin Dash", ARENA.x as u32, ARENA.y as u32).app_id(APP_ID))
 }
 
 /// Frame system for the web build: publishes the state on `<html data-smoke>`

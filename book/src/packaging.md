@@ -81,7 +81,7 @@ checks:
 3. a second run starts from them (`Loaded`) and adds a round;
 4. a damaged `progress.json` is recovered from (`Recovered`, kept as
    `progress.json.bad`) and written again;
-5. with no `COIN_DASH_SAVE`, files go to the operating system's data folder
+5. with no `PONKO_DATA_DIR`, files go to the operating system's data folder
    (a home folder of the test's own: `%APPDATA%`, `~/Library/Application
    Support`, `$XDG_DATA_HOME`);
 6. a copy of the package *without* `assets/` fails, and says which file it
@@ -110,11 +110,15 @@ a window also needs the system's X11 libraries at run time, among them
 
 Progress (best time, high score, rounds) and settings live in the player's data
 folder: `%APPDATA%\coin-dash\`, `~/Library/Application Support/coin-dash/`, or
-`$XDG_DATA_HOME/coin-dash/` (`~/.local/share/coin-dash/`).
-`COIN_DASH_SAVE=<file>` moves the progress file, and the settings go beside it.
-Files are written through a temporary file and renamed, so a crash leaves the
-old one. A missing file is a first run. An unreadable one, one that doesn't
-parse, one with impossible numbers or another version is moved to `<name>.bad`,
+`$XDG_DATA_HOME/coin-dash/` (`~/.local/share/coin-dash/`), and the browser's
+storage in the web build. The game has no path code of its own: it gives the
+engine its app id (`Game::app_id("coin-dash")`) and reads and writes through
+`ctx.storage` ([Saves and settings](storage.md)). `PONKO_DATA_DIR=<folder>`
+moves the data folder (the files go in `<folder>/coin-dash/`).
+Files are written through a temporary file and renamed, and the previous one is
+kept as `<name>.bak`, so a crash leaves the old one. A missing file is a first
+run. An unreadable one, one that doesn't parse, one with impossible numbers or
+another version is copied to `<name>.bad`,
 the game starts from the defaults and says so on the title screen. A write that
 fails (a read-only disk) is shown and doesn't stop the game. The tests cover
 every one of these cases for both files.

@@ -85,6 +85,21 @@ enum Backend {
     Browser,
 }
 
+/// Whether `app_id` can name a game's folder ([`Game::app_id`](crate::game::Game::app_id)):
+/// 1 to 128 letters, digits, `-`, `_` and `.`, not starting with `.`.
+///
+/// ```
+/// assert!(ponko::storage::is_app_id("com.example.crabs"));
+/// assert!(!ponko::storage::is_app_id("../crabs"));
+/// ```
+#[must_use]
+pub fn is_app_id(app_id: &str) -> bool {
+    !app_id.is_empty()
+        && !app_id.starts_with('.')
+        && app_id.len() <= 128
+        && app_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
 /// Where a write stops in tests that simulate a crash.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Crash {

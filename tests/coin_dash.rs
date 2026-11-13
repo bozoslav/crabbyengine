@@ -33,13 +33,26 @@ fn script(f: impl FnMut(&mut Ctx) + 'static) -> Game {
     script_saving(None, f)
 }
 
-/// [`script`] with progress and settings kept at `save`. The game's plugin
-/// is added unchanged, after the scripted player.
+/// [`script`] with progress kept at `save` (the game's storage is that
+/// file's folder, and the settings go beside it). The game's plugin is added
+/// unchanged, after the scripted player.
 fn script_saving(save: Option<PathBuf>, f: impl FnMut(&mut Ctx) + 'static) -> Game {
-    Game::new("coin dash test", 800, 600)
-        .seed(SEED)
-        .sim_system(f)
-        .plugin(CoinDash { save })
+    let game = Game::new("coin dash test", 800, 600);
+    let game = match save.as_deref() {
+        Some(path) => game.data_dir(folder_of(path)),
+        None => game,
+    };
+    game.seed(SEED).sim_system(f).plugin(CoinDash)
+}
+
+/// The storage folder of a progress file at `path`.
+fn folder_of(path: &std::path::Path) -> PathBuf {
+    path.parent().expect("a progress file in a folder").to_path_buf()
+}
+
+/// Storage holding the progress file at `path`, as the game sees it.
+fn storage_of(path: &std::path::Path) -> ponko::storage::Storage {
+    ponko::storage::Storage::in_folder(folder_of(path))
 }
 // ANCHOR_END: script
 
@@ -55,9 +68,12 @@ fn first_round(ctx: &mut Ctx) {
 /// The game's startup alone, for tests that call its systems by hand in a
 /// game without them: every layer's `setup`, in the plugin's order.
 fn setup_with(ctx: &mut Ctx, save: Option<PathBuf>) {
+    if let Some(path) = save {
+        ctx.storage = storage_of(&path);
+    }
     PlayerInput.setup(ctx);
-    SettingsScreen { save: save.clone() }.setup(ctx);
-    Rules { save }.setup(ctx);
+    SettingsScreen.setup(ctx);
+    Rules.setup(ctx);
     Drawing.setup(ctx);
 }
 
@@ -603,10 +619,10 @@ fn a_second_round_adds_to_the_saved_progress_without_losing_a_better_best() {
         rounds_played: 4,
         rounds_won: 3,
     };
-    earlier.save(&path).unwrap();
+    earlier.save(&mut storage_of(&path)).unwrap();
     let won = win_a_round(&path);
     assert!(!won.resource::<Round>().new_best, "slower than 0.5 s");
-    let (saved, status) = Progress::load(&path);
+    let (saved, status) = Progress::load(&mut storage_of(&path));
     assert_eq!(status, LoadStatus::Loaded);
     assert_eq!(
         saved,
@@ -695,7 +711,7 @@ fn a_damaged_save_file_is_replaced_by_fresh_progress_and_kept_as_a_backup() {
 
         // And the game is playable and saves again: the next win replaces the file.
         win_a_round(&path);
-        let (progress, status) = Progress::load(&path);
+        let (progress, status) = Progress::load(&mut storage_of(&path));
         assert_eq!(status, LoadStatus::Loaded, "{label:?}");
         assert_eq!((progress.rounds_played, progress.rounds_won), (1, 1), "{label:?}");
         let _ = std::fs::remove_dir_all(dir);
@@ -706,12 +722,14 @@ fn a_damaged_save_file_is_replaced_by_fresh_progress_and_kept_as_a_backup() {
 fn an_unreadable_save_location_does_not_stop_the_game() {
     // The "file" is a folder: it can't be read as a save, and can't be written.
     let dir = temp_dir("folder-as-file");
-    let world = open_game(Some(dir.clone()), 0);
+    let path = dir.join("progress.json");
+    std::fs::create_dir(&path).unwrap();
+    let world = open_game(Some(path.clone()), 0);
     assert_eq!(world.resource::<SaveFile>().load, LoadStatus::Recovered);
     assert_eq!(*world.resource::<Progress>(), Progress::default());
 
     // Losing a round tries to save, fails, says so, and the game carries on.
-    let lost = script_saving(Some(dir.clone()), |_| {}).run_headless(ROUND_SECONDS as u64 * HZ + 10, first_round);
+    let lost = script_saving(Some(path), |_| {}).run_headless(ROUND_SECONDS as u64 * HZ + 10, first_round);
     assert_eq!(screen(&lost), Screen::Result(Outcome::Lost));
     assert!(lost.resource::<SaveFile>().save_failed);
     let lines: Vec<String> = screen_lines(&lost).into_iter().map(|l| l.text).collect();
@@ -807,7 +825,7 @@ fn a_whole_session_can_be_played_from_key_presses() {
     assert_eq!(world.resource::<Round>().number, 3);
 
     // The win was saved; the abandoned rounds were not counted.
-    let (saved, status) = Progress::load(&path);
+    let (saved, status) = Progress::load(&mut storage_of(&path));
     assert_eq!(status, LoadStatus::Loaded);
     assert_eq!((saved.rounds_played, saved.rounds_won, saved.best_coins), (1, 1, COINS));
     assert_eq!(*world.resource::<Progress>(), saved);
@@ -1732,11 +1750,11 @@ fn every_screen_fits_the_window_at_every_ui_scale() {
 
 // ---- The packaged smoke walk-through ----------------------------------------
 
-use game::smoke::{MAX_TICKS, Smoke, build_smoke, setup_smoke};
+use game::smoke::{MAX_TICKS, Smoke, setup_smoke, smoke_game};
 
 fn walk_through(save: &std::path::Path) -> game::smoke::Report {
-    let save = save.to_path_buf();
-    let mut world = build_smoke(Some(save)).run_headless(MAX_TICKS + 1, |ctx| {
+    let game = Game::new("Coin Dash", ARENA.x as u32, ARENA.y as u32).data_dir(folder_of(save));
+    let mut world = smoke_game(game).run_headless(MAX_TICKS + 1, |ctx| {
         setup_smoke(ctx, None, "headless");
     });
     let smoke = world.remove_resource::<Smoke>().unwrap();

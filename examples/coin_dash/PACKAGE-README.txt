@@ -28,8 +28,8 @@ The best time and the settings are saved in your data folder:
   Linux     $XDG_DATA_HOME/coin-dash/ (or ~/.local/share/coin-dash/)
 
 Delete that folder to start over. A damaged file is set aside as `<name>.bad`
-and the game starts from scratch. `COIN_DASH_SAVE=/some/file.json` keeps the
-progress there instead (the settings go next to it).
+and the game starts from scratch. `PONKO_DATA_DIR=/some/folder` keeps the
+files in `/some/folder/coin-dash/` instead.
 
 Check the package
 -----------------

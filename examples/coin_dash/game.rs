@@ -34,7 +34,7 @@ use ponko::d2::{Sprite, Transform as Transform2D};
 use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 use settings::Settings;
-use std::path::{Path, PathBuf};
+use ponko::storage::Storage;
 
 /// Size of the playfield, in world units (the window starts the same size).
 pub const ARENA: Vec2 = vec2(800.0, 600.0);
@@ -150,30 +150,32 @@ actions! {
 /// the same game.
 pub const SEED: u64 = 2024;
 
+/// The name of the game's folder in the player's data folder, where
+/// `ctx.storage` keeps [`PROGRESS_FILE`] and the settings.
+pub const APP_ID: &str = "coin-dash";
+
 /// The game without a window, ready for `run` or `run_headless`: the
-/// [`CoinDash`] plugin with progress and settings in the default place (see
-/// [`save_path`]).
+/// [`CoinDash`] plugin with progress and settings in the player's data
+/// folder (`PONKO_DATA_DIR` moves it, handy for tests and smoke runs).
 pub fn build() -> Game {
     Game::new("Coin Dash", ARENA.x as u32, ARENA.y as u32)
         .seed(SEED)
-        .plugin(CoinDash { save: save_path() })
+        .app_id(APP_ID)
+        .plugin(CoinDash)
 }
 
 // ANCHOR: plugins
 /// The whole game: its layers, each a plugin of its own. Startup is the
-/// plugins' `setup`, in this order.
-pub struct CoinDash {
-    /// Where progress is kept (`None`: don't keep progress or settings). The
-    /// settings file lives next to it, see [`settings::settings_path`].
-    pub save: Option<PathBuf>,
-}
+/// plugins' `setup`, in this order. Progress and settings are kept in
+/// `ctx.storage`; a game without an app id (or a data folder) just doesn't
+/// keep them.
+pub struct CoinDash;
 
 impl Plugin for CoinDash {
     fn build(&self, game: Game) -> Game {
-        let save = self.save.clone();
         game.plugin(PlayerInput)
-            .plugin(SettingsScreen { save: save.clone() })
-            .plugin(Rules { save })
+            .plugin(SettingsScreen)
+            .plugin(Rules)
             .plugin(Drawing)
     }
 }
@@ -196,25 +198,18 @@ impl Plugin for PlayerInput {
 
 /// The player's choices (UI scale, volume, controls): loaded at startup,
 /// changed on the settings screen.
-pub struct SettingsScreen {
-    pub save: Option<PathBuf>,
-}
+pub struct SettingsScreen;
 
 impl Plugin for SettingsScreen {
     fn build(&self, game: Game) -> Game {
         game.add(Phase::Frame, settings::settings_ui)
     }
     fn setup(&self, ctx: &mut Ctx) {
-        let path = self.save.as_deref().and_then(settings::settings_path);
-        let (loaded, load) = match &path {
-            Some(path) => Settings::load(path),
-            None => (Settings::default(), LoadStatus::Fresh),
-        };
+        let (loaded, load) = Settings::load(&mut ctx.storage);
         ctx.input.set_actions(settings::bindings_for(&loaded.controls));
         ctx.ui.set_scale(loaded.ui_scale);
         ctx.world.insert_resource(loaded);
         ctx.world.insert_resource(settings::SettingsFile {
-            path,
             load,
             save_failed: false,
         });
@@ -222,10 +217,8 @@ impl Plugin for SettingsScreen {
 }
 
 /// Layer 2: the rules, on the fixed tick, and the resources they own. The
-/// game starts on the title screen with the progress loaded from `save`.
-pub struct Rules {
-    pub save: Option<PathBuf>,
-}
+/// game starts on the title screen with the progress loaded from `ctx.storage`.
+pub struct Rules;
 
 impl Plugin for Rules {
     fn build(&self, game: Game) -> Game {
@@ -238,13 +231,9 @@ impl Plugin for Rules {
             number: 0,
             new_best: false,
         });
-        let (progress, load) = match &self.save {
-            Some(path) => Progress::load(path),
-            None => (Progress::default(), LoadStatus::Fresh),
-        };
+        let (progress, load) = Progress::load(&mut ctx.storage);
         ctx.world.insert_resource(progress);
         ctx.world.insert_resource(SaveFile {
-            path: self.save.clone(),
             load,
             save_failed: false,
         });
@@ -505,11 +494,8 @@ fn finish_round(ctx: &mut Ctx, outcome: Outcome) {
     };
     let new_best = ctx.world.resource_mut::<Progress>().record(outcome, collected, elapsed);
     let progress = ctx.world.resource::<Progress>().clone();
-    let save = ctx.world.resource_mut::<SaveFile>();
-    save.save_failed = match &save.path {
-        Some(path) => progress.save(path).is_err(),
-        None => false,
-    };
+    let failed = ctx.storage.is_available() && progress.save(&mut ctx.storage).is_err();
+    ctx.world.resource_mut::<SaveFile>().save_failed = failed;
     ctx.world.resource_mut::<Round>().new_best = new_best;
     match outcome {
         Outcome::Won => sfx(ctx, |s| s.win),
@@ -523,6 +509,9 @@ fn finish_round(ctx: &mut Ctx, outcome: Outcome) {
 /// Layout version of the save file. A file with another version is treated as
 /// unreadable (and kept as a `.bad` copy), never half-understood.
 pub const SAVE_VERSION: u32 = 1;
+
+/// The progress file's name in `ctx.storage`.
+pub const PROGRESS_FILE: &str = "progress.json";
 
 /// What survives between runs: the best results over all rounds.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -540,7 +529,7 @@ pub struct Progress {
 /// How the saved progress was found at startup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadStatus {
-    /// There was no file (first run), or saving is off.
+    /// There was no file (first run), or saving is off (no app id).
     Fresh,
     /// The file was read.
     Loaded,
@@ -549,63 +538,55 @@ pub enum LoadStatus {
     Recovered,
 }
 
-/// Where progress is kept and what happened to it. A resource.
+/// What happened to the progress file. A resource.
 #[derive(Debug, Clone)]
 pub struct SaveFile {
-    /// `None`: progress is not saved.
-    pub path: Option<PathBuf>,
     pub load: LoadStatus,
     /// The last attempt to write failed (a read-only disk, say). The game goes on.
     pub save_failed: bool,
 }
 
-/// Reads the JSON file `path` into a `T`. A missing file is a first run
-/// (`Fresh`, the default value); a file that can't be read, doesn't parse or
-/// fails `valid` is recovered from (`Recovered`, the default value), and its
-/// bytes are moved to `<name>.bad` for inspection. Shared by the progress and
-/// the settings files.
-fn load_json<T: Default + serde::de::DeserializeOwned>(path: &Path, valid: fn(&T) -> bool) -> (T, LoadStatus) {
-    let bytes = match std::fs::read(path) {
+/// Reads the JSON file `name` from `storage` into a `T`. A missing file (or no
+/// storage) is a first run (`Fresh`, the default value); a file that can't be
+/// read, doesn't parse or fails `valid` is recovered from (`Recovered`, the
+/// default value), and its bytes are copied to `<name>.bad` for inspection.
+/// Shared by the progress and the settings files.
+fn load_json<T: Default + serde::de::DeserializeOwned>(
+    storage: &mut Storage,
+    name: &str,
+    valid: fn(&T) -> bool,
+) -> (T, LoadStatus) {
+    if !storage.is_available() {
+        return (T::default(), LoadStatus::Fresh);
+    }
+    let bytes = match storage.read(name) {
         Ok(bytes) => bytes,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (T::default(), LoadStatus::Fresh),
+        Err(e) if e.kind() == ErrorKind::NotFound => return (T::default(), LoadStatus::Fresh),
         Err(_) => return (T::default(), LoadStatus::Recovered),
     };
     match serde_json::from_slice::<T>(&bytes) {
         Ok(value) if valid(&value) => (value, LoadStatus::Loaded),
         _ => {
-            let mut backup = path.as_os_str().to_owned();
-            backup.push(".bad");
-            let _ = std::fs::rename(path, backup); // best effort
+            let _ = storage.write(&format!("{name}.bad"), &bytes); // best effort
             (T::default(), LoadStatus::Recovered)
         }
     }
 }
 
-/// Writes `value` to `path` (creating its folder) through a temporary file, so
-/// a crash in the middle leaves the old file, not half a new one.
-fn save_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let mut temp = path.as_os_str().to_owned();
-    temp.push(".tmp");
-    std::fs::write(&temp, serde_json::to_vec_pretty(value).map_err(std::io::Error::other)?)?;
-    std::fs::rename(&temp, path)
-}
-
 impl Progress {
-    /// Reads `path`. A missing file is a first run; a file that can't be read,
-    /// doesn't parse or holds impossible numbers is recovered from: zeroed
-    /// progress, and the old bytes moved to `<name>.bad` for inspection.
-    pub fn load(path: &Path) -> (Progress, LoadStatus) {
-        load_json(path, Progress::is_valid)
+    /// Reads [`PROGRESS_FILE`]. A missing file is a first run; a file that
+    /// can't be read, doesn't parse or holds impossible numbers is recovered
+    /// from: zeroed progress, and the old bytes copied to `progress.json.bad`
+    /// for inspection.
+    pub fn load(storage: &mut Storage) -> (Progress, LoadStatus) {
+        load_json(storage, PROGRESS_FILE, Progress::is_valid)
     }
 
-    /// Writes `path` (creating its folder) through a temporary file, so a
-    /// crash in the middle leaves the old file, not half a new one.
-    pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        save_json(
-            path,
+    /// Writes [`PROGRESS_FILE`]. `ctx.storage` writes safely: a crash in the
+    /// middle leaves the old file, not half a new one.
+    pub fn save(&self, storage: &mut Storage) -> Result<(), Error> {
+        storage.write_json(
+            PROGRESS_FILE,
             &Progress {
                 version: SAVE_VERSION,
                 ..self.clone()
@@ -640,25 +621,6 @@ impl Progress {
         }
         new_best
     }
-}
-
-/// Where progress lives by default: the player's data folder, or the file named
-/// by the `COIN_DASH_SAVE` environment variable (handy for tests and smoke
-/// runs). `None` when there is no such place (the web build), so the game
-/// just doesn't keep progress.
-pub fn save_path() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("COIN_DASH_SAVE") {
-        return Some(PathBuf::from(path));
-    }
-    let var = |name| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
-    let base = if cfg!(windows) {
-        var("APPDATA")?
-    } else if cfg!(target_os = "macos") {
-        var("HOME")?.join("Library/Application Support")
-    } else {
-        var("XDG_DATA_HOME").or_else(|| var("HOME").map(|h| h.join(".local/share")))?
-    };
-    Some(base.join("coin-dash").join("progress.json"))
 }
 
 // ---- Drawing ----------------------------------------------------------------
