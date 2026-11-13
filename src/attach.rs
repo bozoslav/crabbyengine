@@ -5,7 +5,7 @@ use glam::Vec2;
 use rayon::prelude::*;
 
 use crate::d2::Transform as Transform2D;
-use crate::{Ctx, Entity, World};
+use crate::{Ctx, Entity, With, World};
 
 /// Keeps this entity's [`Transform2D`] position and rotation at an offset
 /// from another entity's, updated by [`follow_attachments`]. Its own scale
@@ -85,7 +85,7 @@ pub fn follow_attachments(ctx: &mut Ctx) {
     // Same entities, in the same order, as the writing query below.
     ctx.world
         .query::<(Entity, &Attached)>()
-        .with::<Transform2D>()
+        .filter::<With<Transform2D>>()
         .par_collect_into(&mut s.attached, |(e, a)| (e, *a));
     if !s.attached.is_empty() {
         let world = &ctx.world;

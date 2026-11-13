@@ -26,7 +26,7 @@ fn par_for_each_visits_every_entity_once() {
     let matching = big + mid + small;
     let visits = AtomicUsize::new(0);
     w.query::<(&mut Pos, &Vel)>()
-        .without::<Frozen>()
+        .filter::<Without<Frozen>>()
         .par_for_each(|(p, v)| {
             p.1 += v.0;
             visits.fetch_add(1, Ordering::Relaxed);
@@ -49,13 +49,13 @@ fn par_for_each_indexed_matches_the_sequential_order() {
     w.spawn_batch((0..2 * chunk + 1).map(|i| (Pos(i as f32 + 2e5, 0.0), Vel(1.0, 0.0), Vel2)));
     let expected: Vec<u32> = w
         .query::<(&Pos, &Vel)>()
-        .without::<Frozen>()
+        .filter::<Without<Frozen>>()
         .iter()
         .map(|(p, _)| p.0 as u32)
         .collect();
     let out: Vec<AtomicU32> = (0..expected.len()).map(|_| AtomicU32::new(u32::MAX)).collect();
     w.query::<(&Pos, &Vel)>()
-        .without::<Frozen>()
+        .filter::<Without<Frozen>>()
         .par_for_each_indexed(|i, (p, _)| {
             let previous = out[i].swap(p.0 as u32, Ordering::Relaxed);
             assert_eq!(previous, u32::MAX, "index {i} visited twice");
@@ -79,7 +79,7 @@ fn par_collect_into_matches_the_sequential_order_across_archetypes() {
     // Reused: replaced, not appended to; filters apply.
     world
         .query::<&Pos>()
-        .with::<Tag>()
+        .filter::<With<Tag>>()
         .par_collect_into(&mut out, |p| p.0.to_string());
     assert_eq!(out.len(), 2000);
     assert_eq!(out[0], "3000");
@@ -231,19 +231,19 @@ fn cached_parallel_chunks_follow_growth_and_preserve_order() {
         m!(5);
         m!(6);
     }
-    assert_eq!(w.query::<&u64>().cached().with::<Marker<0>>().count(), 64);
+    assert_eq!(w.query::<&u64>().cached().filter::<With<Marker<0>>>().count(), 64);
     let rows = if cfg!(miri) { 129 } else { 1025 };
     // A new layout after warming, with enough rows to require multiple tasks.
     w.spawn_batch((0..rows).map(|i| (i as u64, Marker::<0>, Marker::<9>)));
     w.query::<&mut u64>()
         .cached()
-        .with::<Marker<0>>()
+        .filter::<With<Marker<0>>>()
         .par_for_each(|v| *v += 1);
-    let expected: Vec<_> = w.query::<&u64>().with::<Marker<0>>().iter().copied().collect();
+    let expected: Vec<_> = w.query::<&u64>().filter::<With<Marker<0>>>().iter().copied().collect();
     let mut actual = Vec::new();
     w.query::<&u64>()
         .cached()
-        .with::<Marker<0>>()
+        .filter::<With<Marker<0>>>()
         .par_collect_into(&mut actual, |v| *v);
     assert_eq!(actual, expected);
     assert_eq!(actual.len(), 64 + rows);
@@ -447,23 +447,34 @@ fn empty_archetypes_take_no_positions() {
     let layouts = if cfg!(miri) { 64 } else { 512 };
     spawn_layouts(&mut w, layouts, |bits| if bits % 2 == 1 { 0 } else { 10 + bits % 4 });
     // Empty some filled archetypes too, by despawning their rows.
-    let gone: Vec<Entity> = w.query::<Entity>().with::<M<2>>().without::<M<1>>().iter().collect();
+    let gone: Vec<Entity> = w
+        .query::<Entity>()
+        .filter::<With<M<2>>>()
+        .filter::<Without<M<1>>>()
+        .iter()
+        .collect();
     for e in gone {
         w.despawn(e);
     }
-    assert!(w.query::<&Id>().with::<M<2>>().without::<M<1>>().count() == 0);
+    assert!(
+        w.query::<&Id>()
+            .filter::<With<M<2>>>()
+            .filter::<Without<M<1>>>()
+            .count()
+            == 0
+    );
     let n = assert_parallel_order(&mut w, all_ids);
     assert_reaches_workers(n);
     // A query that matches only empty archetypes runs nothing.
     on_four_threads(|| {
         w.query::<&Id>()
-            .with::<M<2>>()
-            .without::<M<1>>()
+            .filter::<With<M<2>>>()
+            .filter::<Without<M<1>>>()
             .par_for_each(|_| panic!("no rows"));
         let mut out = vec![1];
         w.query::<&Id>()
-            .with::<M<2>>()
-            .without::<M<1>>()
+            .filter::<With<M<2>>>()
+            .filter::<Without<M<1>>>()
             .par_collect_into(&mut out, |id| id.0);
         assert!(out.is_empty());
     });
@@ -475,7 +486,7 @@ fn filters_apply_to_the_plan_across_many_tiny_archetypes() {
     let mut w = World::new();
     spawn_layouts(&mut w, layouts, |bits| 17 + bits % 4);
     fn with_without(w: &mut World) -> Query<'_, &Id> {
-        w.query::<&Id>().with::<M<0>>().without::<M<3>>()
+        w.query::<&Id>().filter::<With<M<0>>>().filter::<Without<M<3>>>()
     }
     fn either(w: &mut World) -> Query<'_, &Id> {
         w.query::<&Id>()
@@ -527,10 +538,10 @@ fn cached_queries_plan_many_tiny_archetypes_in_order() {
     let mut w = World::new();
     spawn_layouts(&mut w, layouts, |bits| if cfg!(miri) { 3 } else { 12 + bits % 16 });
     fn cached(w: &mut World) -> Query<'_, &Id> {
-        w.query::<&Id>().cached().without::<M<6>>()
+        w.query::<&Id>().cached().filter::<Without<M<6>>>()
     }
     fn scanned(w: &mut World) -> Query<'_, &Id> {
-        w.query::<&Id>().without::<M<6>>()
+        w.query::<&Id>().filter::<Without<M<6>>>()
     }
     let n = assert_parallel_order(&mut w, cached);
     assert_reaches_workers(n);

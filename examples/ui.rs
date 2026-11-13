@@ -36,14 +36,7 @@ fn scene(ctx: &mut Ctx) {
     let orbit = center + Vec2::from_angle(t * 0.6) * 180.0;
     ctx.gfx.draw_line(center, orbit, 3.0, Color::hex(0xffbe0b));
     let crab = ctx.world.resource::<Scene>().crab;
-    ctx.gfx.draw_ex(
-        &crab,
-        orbit,
-        DrawParams {
-            rotation: t,
-            ..Default::default()
-        },
-    );
+    ctx.gfx.draw_ex(crab, orbit, DrawParams::default().with_rotation(t));
 
     // A label that sticks to the crab: world position -> window pixels.
     let above = ctx.camera.world_to_screen(orbit) + vec2(-28.0, -40.0);
@@ -58,7 +51,7 @@ fn scene(ctx: &mut Ctx) {
         let plop = ctx.world.resource::<Scene>().plop;
         let speed = 0.8 + ctx.random().stream(0).f32() * 0.4;
         ctx.audio.play_ex(
-            &plop,
+            plop,
             SoundParams {
                 speed,
                 ..Default::default()

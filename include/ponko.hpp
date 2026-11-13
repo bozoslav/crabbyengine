@@ -143,7 +143,7 @@ struct lod_level {
     bool custom_shadow = false;
     std::vector<lod_renderer> shadow_casters;
 };
-/// Global LOD settings (Rust `ctx.lod`): `bias` scales every group's screen height.
+/// Global LOD settings (Rust `ctx.scene3d.lod`): `bias` scales every group's screen height.
 using lod_settings = PonkoLodSettings;
 /// Which level a group shows: kind 0 culled, 1 `level`, 2 fading from `level` to `to` (-1: nothing).
 using lod_pick = PonkoLodPick;
@@ -245,8 +245,8 @@ enum class anti_aliasing : uint32_t { none = 0, fxaa = 1, smaa = 2, taa = 3 };
 /// Get a preset with graphics_quality_preset(); apply it with
 /// ctx::set_graphics_quality(); read the current one with ctx::graphics_quality().
 using graphics_quality = PonkoGraphicsQuality;
-/// The presets (Rust `QualityLevel`); `custom` is what graphics_quality_level()
-/// says of settings that are none of them.
+/// The presets (Rust `GraphicsQuality`); `custom` is what graphics_quality_level()
+/// says of settings that are none of them (Rust `SceneSettings::quality` is `None`).
 enum class quality_level : uint32_t { low = 0, medium = 1, high = 2, ultra = 3, custom = 4 };
 /// A class of GPU (Rust `GpuTier`), from the weakest the engine runs on:
 /// WebGL2 (no compute), baseline (compute: every screen-space effect and GPU
@@ -720,6 +720,23 @@ inline ponko::error last_error() { return ponko::error(ponko_last_error(), ponko
 inline void check(PonkoStatus status) {
     if (status != PONKO_OK) throw last_error();
 }
+/// Throws if the loaded library's ABI version differs from the one this header
+/// was compiled against (`PONKO_ABI_VERSION`), e.g. a stale ponko_ffi next to
+/// a newer ponko.hpp. Takes both numbers so tests can try a mismatch.
+inline void check_abi_version(std::uint32_t header, std::uint32_t loaded) {
+    if (header != loaded) {
+        throw ponko::error(("ponko_ffi reports C ABI version " + std::to_string(loaded) + " but ponko.h expects version " +
+                            std::to_string(header) + ": the library and the headers come from different Ponko releases")
+                               .c_str(),
+                           PONKO_ERROR_UNSUPPORTED);
+    }
+}
+/// The startup check: asks the library once, then compares on every call (a
+/// mismatch keeps failing instead of only the first caller seeing it).
+inline void check_abi_version() {
+    static const std::uint32_t loaded = ponko_abi_version();
+    check_abi_version(PONKO_ABI_VERSION, loaded);
+}
 }  // namespace detail
 
 /// What the `try_` loaders return, Rust's `Result<T, ponko::Error>`: the
@@ -894,7 +911,7 @@ inline graphics_quality graphics_quality_preset(quality_level level) {
 inline quality_level graphics_quality_level(const graphics_quality& q) {
     uint32_t level = 0; detail::check(ponko_graphics_quality_level(&q, &level)); return quality_level(level);
 }
-/// The quality preset meant for tier `t` (Rust `GraphicsQuality::for_tier`):
+/// The quality meant for tier `t` (Rust `SceneSettings::set_recommended_quality`):
 /// low with FXAA, medium or high, asking for nothing the tier lacks.
 inline graphics_quality graphics_quality_for_tier(gpu_tier t) {
     graphics_quality q{}; detail::check(ponko_graphics_quality_for_tier(uint32_t(t), &q)); return q;
@@ -1725,6 +1742,7 @@ class world final : public world_view {
     world(PonkoWorld* raw, std::shared_ptr<detail::identity> owner) : world_view(raw, std::move(owner)) {}
 public:
     world() : world_view(nullptr, std::make_shared<detail::identity>()) {
+        detail::check_abi_version();
         raw_ = ponko_world_new();
         if (!raw_) throw std::runtime_error(ponko_last_error());
     }
@@ -4522,7 +4540,7 @@ public:
         detail::check(status); return on;
     }
     /// The preset for the open GPU, fitted to what it has (Rust
-    /// `GraphicsQuality::recommended`); empty before a GPU opens.
+    /// `SceneSettings::set_recommended_quality`); empty before a GPU opens.
     std::optional<ponko::graphics_quality> recommended_graphics_quality() const {
         ponko::graphics_quality q{};
         PonkoStatus status = ponko_ctx_recommended_graphics_quality(raw_, &q);
@@ -5052,7 +5070,9 @@ class game {
     }
     game& check(PonkoStatus s) { if (!raw_) throw std::logic_error("game was already run"); detail::check(s); return *this; }
 public:
-    game(const char* title, std::uint32_t width, std::uint32_t height) : raw_(ponko_game_new(title, width, height)) {
+    game(const char* title, std::uint32_t width, std::uint32_t height) : raw_(nullptr) {
+        detail::check_abi_version();
+        raw_ = ponko_game_new(title, width, height);
         if (!raw_) throw std::runtime_error(ponko_last_error());
     }
     ~game() { ponko_game_free(raw_); }

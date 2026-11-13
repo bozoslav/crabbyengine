@@ -144,7 +144,7 @@ fn spawn_batch_and_many_archetypes() {
         }
     }
     assert_eq!(w.query::<&Pos>().count(), 1000 - 143);
-    assert_eq!(w.query::<&Pos>().with::<Tag>().count(), 500 - 72);
+    assert_eq!(w.query::<&Pos>().filter::<With<Tag>>().count(), 500 - 72);
 }
 
 #[test]

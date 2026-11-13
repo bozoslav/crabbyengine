@@ -43,7 +43,7 @@
 mod proto;
 
 use crate::{Bench, DT, Pos, Vel};
-use ponko_ecs::{Component, Entity, QueryCachePolicy, World};
+use ponko_ecs::{Component, Entity, QueryCachePolicy, With, Without, World};
 use proto::Hybrid;
 
 pub const ENTITIES: usize = 100_000;
@@ -298,15 +298,18 @@ impl Store for World {
             let (a, b) = pair(k);
             with_tag!(a, |A| with_tag!(b, |B| self
                 .query::<&Pos>()
-                .with::<A>()
-                .with::<B>()
+                .filter::<With<A>>()
+                .filter::<With<B>>()
                 .for_each(|p| sum = sum.wrapping_add(sum_bits(p)))));
         }
         sum
     }
     fn without(&mut self) {
         for k in 0..4 {
-            with_tag!(k, |T| self.query::<&mut Pos>().without::<T>().for_each(|p| p.y += 0.25));
+            with_tag!(k, |T| self
+                .query::<&mut Pos>()
+                .filter::<Without<T>>()
+                .for_each(|p| p.y += 0.25));
         }
     }
     fn archetypes(&self) -> (usize, usize) {

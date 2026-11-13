@@ -28,7 +28,7 @@ ctx.world.spawn((ponko::d2::Transform::at(pos), sheet.sprite(5))); // frame 5
 
 Under the hood a sprite has a `region`, the part of its texture to show in
 texture pixels. `sheet.sprite(i)` is `Sprite::new(tex).with_region(sheet.frame(i))`,
-and `ctx.draw_ex` takes the same `region` in `DrawParams`.
+and `ctx.gfx.draw_ex` takes the same `region` in `DrawParams`.
 
 For pixel art, turn smoothing off so pixels stay square:
 
@@ -37,7 +37,7 @@ For pixel art, turn smoothing off so pixels stay square:
 
 ```rust
 # let tex = ctx.load_texture("units.png");
-ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
+ctx.gfx.set_texture_filter(tex, TextureFilter::Nearest);
 ```
 
 </div>

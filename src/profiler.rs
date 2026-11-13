@@ -125,10 +125,6 @@ impl Default for Profiler {
     }
 }
 
-fn env_num(name: &str) -> Option<u64> {
-    crate::environment::var(name).ok()?.trim().parse().ok()
-}
-
 impl Profiler {
     pub fn new() -> Self {
         Self {
@@ -147,22 +143,27 @@ impl Profiler {
         }
     }
 
-    /// Reads the `PONKO_*` settings described above, with legacy fallbacks.
+    /// Reads the `PONKO_*` settings described above.
     pub fn from_env() -> Self {
+        Self::from_settings(|name| std::env::var_os(name))
+    }
+
+    fn from_settings(get: impl Fn(&str) -> Option<std::ffi::OsString>) -> Self {
+        let num = |name: &str| get(name)?.to_str()?.trim().parse::<u64>().ok();
         let mut p = Self::new();
-        p.hud = crate::environment::var("PONKO_HUD").is_ok_and(|v| v != "0");
-        if let Some(frames) = env_num("PONKO_BENCH").filter(|&n| n > 0) {
+        p.hud = get("PONKO_HUD").is_some_and(|v| v != "0");
+        if let Some(frames) = num("PONKO_BENCH").filter(|&n| n > 0) {
             p.bench = Some(Bench::new(
-                env_num("PONKO_BENCH_WARMUP").unwrap_or(240),
+                num("PONKO_BENCH_WARMUP").unwrap_or(240),
                 frames as usize,
-                crate::environment::var_os("PONKO_BENCH_OUT").map(PathBuf::from),
+                get("PONKO_BENCH_OUT").map(PathBuf::from),
             ));
         }
-        if let Some(path) = crate::environment::var_os("PONKO_TRACE") {
+        if let Some(path) = get("PONKO_TRACE") {
             p.trace = Some(Trace::new(
                 PathBuf::from(path),
-                env_num("PONKO_TRACE_SKIP").unwrap_or(240),
-                env_num("PONKO_TRACE_FRAMES").unwrap_or(120) as usize,
+                num("PONKO_TRACE_SKIP").unwrap_or(240),
+                num("PONKO_TRACE_FRAMES").unwrap_or(120) as usize,
             ));
         }
         p
@@ -192,7 +193,25 @@ impl Profiler {
 
     /// Starts recording `frames` frames into a trace at `path`.
     pub fn start_trace(&mut self, path: PathBuf, frames: usize) {
-        self.trace = Some(Trace::new(path, 0, frames));
+        self.replace_trace(Trace::new(path, 0, frames));
+    }
+
+    /// [`start_trace`](Self::start_trace) into a file a tool claimed: it is
+    /// written through that handle, and removed if the trace is replaced
+    /// or can't be written.
+    pub(crate) fn start_claimed_trace(&mut self, claimed: crate::control::ClaimedFile, frames: usize) {
+        let mut trace = Trace::new(claimed.path.clone(), 0, frames);
+        trace.claimed = Some(claimed);
+        self.replace_trace(trace);
+    }
+
+    fn replace_trace(&mut self, trace: Trace) {
+        if let Some(old) = self.trace.replace(trace)
+            && let Some(claimed) = old.claimed
+        {
+            // Nobody will write it now.
+            claimed.abandon();
+        }
     }
 
     /// Records one frame. `gpu_frame` is the latest GPU timeline and how many
@@ -369,6 +388,8 @@ struct Trace {
     events: Vec<serde_json::Value>,
     /// Microseconds from the trace's start to the current frame's start.
     clock_us: f64,
+    /// The file a tool claimed for it, written through this handle.
+    claimed: Option<crate::control::ClaimedFile>,
 }
 
 impl Trace {
@@ -384,6 +405,7 @@ impl Trace {
             taken: 0,
             events: Vec::new(),
             clock_us: 0.0,
+            claimed: None,
         }
     }
 
@@ -436,7 +458,19 @@ impl Trace {
             }));
         }
         let doc = serde_json::json!({ "traceEvents": std::mem::take(&mut self.events), "displayTimeUnit": "ms" });
-        match std::fs::write(&self.path, doc.to_string()) {
+        let written = match self.claimed.take() {
+            Some(mut claimed) => {
+                use std::io::Write;
+                let result = claimed.file().write_all(doc.to_string().as_bytes());
+                if result.is_ok() {
+                    claimed.keep();
+                }
+                // Otherwise the drop removes it.
+                result
+            }
+            None => std::fs::write(&self.path, doc.to_string()),
+        };
+        match written {
             Ok(()) => eprintln!(
                 "ponko: trace written to {} (open it in https://ui.perfetto.dev)",
                 self.path.display()
@@ -599,6 +633,26 @@ fn add(totals: &mut Vec<(&'static str, f64)>, name: &'static str, v: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn settings(pairs: &'static [(&'static str, &'static str)]) -> Profiler {
+        Profiler::from_settings(|name| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).into()))
+    }
+
+    #[test]
+    fn ponko_bench_sets_up_a_benchmark_run_only_for_a_positive_frame_count() {
+        assert!(settings(&[("PONKO_BENCH", "3")]).benchmarking());
+        assert!(!settings(&[("PONKO_BENCH", "0")]).benchmarking());
+        assert!(!settings(&[("PONKO_BENCH", "")]).benchmarking());
+        assert!(!settings(&[]).benchmarking());
+    }
+
+    #[test]
+    fn ponko_hud_and_ponko_trace_are_read() {
+        assert!(settings(&[("PONKO_HUD", "1")]).hud);
+        assert!(!settings(&[("PONKO_HUD", "0")]).hud);
+        assert!(settings(&[("PONKO_TRACE", "t.json")]).trace.is_some());
+        assert!(settings(&[]).trace.is_none());
+    }
 
     fn sample(ms: f32) -> FrameSample {
         FrameSample {

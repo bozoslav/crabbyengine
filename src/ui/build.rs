@@ -10,9 +10,14 @@ use crate::ui::UiStyle;
 use crate::{Color, Font, Texture};
 use taffy::prelude::*;
 
-/// Layout presets for the common shapes of game UI, so a screen needs no
-/// hand-written `ui_layout::Style` helpers. Each preset converts into a
-/// `ui_layout::Style`; [`UiLayout::custom`] keeps Taffy's full power.
+/// A node's layout: the one layout type of the retained [`Ui`], with presets
+/// for the common shapes of game UI and chained refinements.
+///
+/// It is backed by Taffy. For a flex or grid setting the presets don't
+/// cover, [`UiLayout::custom`], [`UiLayout::style`] and
+/// [`UiLayout::style_mut`] reach the Taffy style through
+/// [`ui::unstable_taffy`](crate::ui::unstable_taffy), which is outside
+/// ponko's stability promise: its types change with Taffy upgrades.
 ///
 /// Lengths are logical window units. Fractions are of the parent's size (of
 /// the window for a screen root). Children stack top to bottom, except
@@ -38,12 +43,6 @@ impl Default for UiLayout {
     }
 }
 
-impl From<UiLayout> for Style {
-    fn from(layout: UiLayout) -> Self {
-        layout.0
-    }
-}
-
 fn column_style() -> Style {
     Style {
         flex_direction: FlexDirection::Column,
@@ -55,16 +54,17 @@ impl UiLayout {
     /// Sized by its content (text, children); Taffy's default style.
     /// ```
     /// use ponko::prelude::*;
-    /// let style: ponko::ui::layout::Style = ponko::ui::UiLayout::auto().into();
-    /// assert_eq!(style, ponko::ui::layout::Style::default());
+    /// let style = ponko::ui::UiLayout::auto().into_style();
+    /// assert_eq!(style, ponko::ui::unstable_taffy::Style::default());
     /// ```
     pub fn auto() -> Self {
         Self(Style::default())
     }
     /// Any Taffy style, for flex and grid settings the presets don't cover.
+    /// Unstable: see [`crate::ui::unstable_taffy`].
     /// ```
     /// use ponko::prelude::*;
-    /// let layout = ponko::ui::UiLayout::custom(ponko::ui::layout::Style { flex_grow: 2.0, ..Default::default() });
+    /// let layout = ponko::ui::UiLayout::custom(ponko::ui::unstable_taffy::Style { flex_grow: 2.0, ..Default::default() });
     /// assert_eq!(layout.style().flex_grow, 2.0);
     /// ```
     pub fn custom(style: Style) -> Self {
@@ -75,7 +75,7 @@ impl UiLayout {
     /// ```
     /// use ponko::prelude::*;
     /// let style = ponko::ui::UiLayout::row(30.0).into_style();
-    /// assert_eq!(style.flex_direction, ponko::ui::layout::FlexDirection::Row);
+    /// assert_eq!(style.flex_direction, ponko::ui::unstable_taffy::FlexDirection::Row);
     /// ```
     pub fn row(height: f32) -> Self {
         Self(Style {
@@ -240,7 +240,7 @@ impl UiLayout {
     /// ```
     /// use ponko::prelude::*;
     /// let style = ponko::ui::UiLayout::fill().gap(8.0).into_style();
-    /// assert_eq!(style.gap, ponko::ui::layout::Size::length(8.0));
+    /// assert_eq!(style.gap, ponko::ui::unstable_taffy::Size::length(8.0));
     /// ```
     pub fn gap(mut self, gap: f32) -> Self {
         self.0.gap = Size::length(gap);
@@ -250,7 +250,7 @@ impl UiLayout {
     /// ```
     /// use ponko::prelude::*;
     /// let style = ponko::ui::UiLayout::fill().padding(12.0).into_style();
-    /// assert_eq!(style.padding, ponko::ui::layout::Rect::length(12.0));
+    /// assert_eq!(style.padding, ponko::ui::unstable_taffy::Rect::length(12.0));
     /// ```
     pub fn padding(mut self, padding: f32) -> Self {
         self.0.padding = taffy::Rect::length(padding);
@@ -276,7 +276,7 @@ impl UiLayout {
     /// ```
     /// use ponko::prelude::*;
     /// let style = ponko::ui::UiLayout::fill().horizontal().into_style();
-    /// assert_eq!(style.flex_direction, ponko::ui::layout::FlexDirection::Row);
+    /// assert_eq!(style.flex_direction, ponko::ui::unstable_taffy::FlexDirection::Row);
     /// ```
     pub fn horizontal(mut self) -> Self {
         self.0.flex_direction = FlexDirection::Row;
@@ -286,7 +286,7 @@ impl UiLayout {
     /// ```
     /// use ponko::prelude::*;
     /// let style = ponko::ui::UiLayout::row(30.0).vertical().into_style();
-    /// assert_eq!(style.flex_direction, ponko::ui::layout::FlexDirection::Column);
+    /// assert_eq!(style.flex_direction, ponko::ui::unstable_taffy::FlexDirection::Column);
     /// ```
     pub fn vertical(mut self) -> Self {
         self.0.flex_direction = FlexDirection::Column;
@@ -296,7 +296,7 @@ impl UiLayout {
     /// ```
     /// use ponko::prelude::*;
     /// let style = ponko::ui::UiLayout::row(30.0).width(200.0).into_style();
-    /// assert_eq!(style.size.width, ponko::ui::layout::Dimension::length(200.0));
+    /// assert_eq!(style.size.width, ponko::ui::unstable_taffy::Dimension::length(200.0));
     /// ```
     pub fn width(mut self, width: f32) -> Self {
         self.0.size.width = length(width);
@@ -306,7 +306,7 @@ impl UiLayout {
     /// ```
     /// use ponko::prelude::*;
     /// let style = ponko::ui::UiLayout::column(30.0).height(200.0).into_style();
-    /// assert_eq!(style.size.height, ponko::ui::layout::Dimension::length(200.0));
+    /// assert_eq!(style.size.height, ponko::ui::unstable_taffy::Dimension::length(200.0));
     /// ```
     pub fn height(mut self, height: f32) -> Self {
         self.0.size.height = length(height);
@@ -316,7 +316,7 @@ impl UiLayout {
     /// ```
     /// use ponko::prelude::*;
     /// let style = ponko::ui::UiLayout::grid(3, 50.0).width_fraction(0.95).into_style();
-    /// assert_eq!(style.size.width, ponko::ui::layout::Dimension::percent(0.95));
+    /// assert_eq!(style.size.width, ponko::ui::unstable_taffy::Dimension::percent(0.95));
     /// ```
     pub fn width_fraction(mut self, fraction: f32) -> Self {
         self.0.size.width = percent(fraction);
@@ -326,7 +326,7 @@ impl UiLayout {
     /// ```
     /// use ponko::prelude::*;
     /// let style = ponko::ui::UiLayout::row(30.0).height_fraction(0.5).into_style();
-    /// assert_eq!(style.size.height, ponko::ui::layout::Dimension::percent(0.5));
+    /// assert_eq!(style.size.height, ponko::ui::unstable_taffy::Dimension::percent(0.5));
     /// ```
     pub fn height_fraction(mut self, fraction: f32) -> Self {
         self.0.size.height = percent(fraction);
@@ -378,8 +378,8 @@ impl UiLayout {
     /// ```
     /// use ponko::prelude::*;
     /// let mut layout = ponko::ui::UiLayout::fill();
-    /// layout.style_mut().flex_wrap = ponko::ui::layout::FlexWrap::Wrap;
-    /// assert_eq!(layout.style().flex_wrap, ponko::ui::layout::FlexWrap::Wrap);
+    /// layout.style_mut().flex_wrap = ponko::ui::unstable_taffy::FlexWrap::Wrap;
+    /// assert_eq!(layout.style().flex_wrap, ponko::ui::unstable_taffy::FlexWrap::Wrap);
     /// ```
     pub fn style(&self) -> &Style {
         &self.0
@@ -393,11 +393,11 @@ impl UiLayout {
     pub fn style_mut(&mut self) -> &mut Style {
         &mut self.0
     }
-    /// The finished Taffy style, for [`Ui::add`] and [`Ui::set_layout`].
+    /// The finished Taffy style. Unstable: see [`crate::ui::unstable_taffy`].
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default();
-    /// let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::fill().into_style());
+    /// let style = ponko::ui::UiLayout::fill().into_style();
+    /// assert_eq!(style.flex_shrink, 1.0);
     /// ```
     pub fn into_style(self) -> Style {
         self.0
@@ -623,15 +623,15 @@ impl UiBuilder<'_> {
     pub fn id(self) -> UiId {
         self.id
     }
-    /// Layout: a [`UiLayout`] preset or any `ui_layout::Style`.
+    /// Layout; see [`Ui::set_layout`].
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
     /// let root = ui.root().layout(ponko::ui::UiLayout::fixed(100.0, 50.0)).id();
-    /// assert_eq!(ui.layout_style(root), Some(&ponko::ui::UiLayout::fixed(100.0, 50.0).into_style()));
+    /// assert_eq!(ui.node_layout(root), Some(ponko::ui::UiLayout::fixed(100.0, 50.0)));
     /// ```
-    pub fn layout(self, layout: impl Into<Style>) -> Self {
-        self.ui.set_layout(self.id, layout.into());
+    pub fn layout(self, layout: UiLayout) -> Self {
+        self.ui.set_layout(self.id, layout);
         self
     }
     /// Label, button or input text; see [`Ui::set_text`].
@@ -839,7 +839,7 @@ impl UiBuilder<'_> {
 
 impl Ui {
     fn build(&mut self, parent: UiId, widget: UiWidget) -> UiBuilder<'_> {
-        let id = self.add_child(parent, widget, Style::default());
+        let id = self.add_child(parent, widget, UiLayout::auto());
         UiBuilder { ui: self, id }
     }
     /// A detached panel, to fill with children and push as a screen.
@@ -850,7 +850,7 @@ impl Ui {
     /// ui.push_screen(root, false);
     /// ```
     pub fn root(&mut self) -> UiBuilder<'_> {
-        let id = self.add(UiWidget::Panel, Style::default());
+        let id = self.add(UiWidget::Panel, UiLayout::auto());
         UiBuilder { ui: self, id }
     }
     /// A child container. Panics, like [`Ui::add_child`], if `parent` was removed.

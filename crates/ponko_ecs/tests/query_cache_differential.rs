@@ -314,10 +314,13 @@ impl Tree {
 fn chunks(w: &mut World, also: &[ComponentId], filter: Option<&CompiledFilter>, hint: Option<QueryCache>) -> Rows {
     let mut ids = vec![w.register::<Value>()];
     ids.extend_from_slice(also);
-    let query = ChunkQuery {
-        writes: 0,
-        ..ChunkQuery::new(&ids)
-    };
+    let mut query = ChunkQuery::new(&ids).writes(0);
+    if let Some(filter) = filter {
+        query = query.filter(filter);
+    }
+    if let Some(hint) = hint {
+        query = query.cache(hint);
+    }
     let mut rows = Rows::new();
     let collect = |chunk: Chunk<'_>| {
         let values = chunk.columns[0].cast::<Value>();
@@ -326,11 +329,7 @@ fn chunks(w: &mut World, also: &[ComponentId], filter: Option<&CompiledFilter>, 
             rows.push((e, unsafe { (*values.add(i)).0 }));
         }
     };
-    match (hint, filter) {
-        (Some(hint), _) => w.query_chunks_cached(query, filter, hint, collect),
-        (None, Some(filter)) => w.query_chunks_filtered(query, filter, collect),
-        (None, None) => w.query_chunks(query, collect),
-    }
+    w.raw().query_chunks(query, collect);
     rows
 }
 
@@ -518,7 +517,7 @@ impl Case {
                     let name = format!("late-{}", self.late);
                     for w in self.worlds() {
                         // SAFETY: a plain 4-byte component without a destructor.
-                        unsafe { w.register_component(&name, 4, 4, None) };
+                        unsafe { w.raw().register_component(&name, 4, 4, None) };
                     }
                     self.late += 1;
                 }

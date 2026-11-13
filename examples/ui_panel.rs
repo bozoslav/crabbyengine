@@ -1,8 +1,8 @@
 //! Retained UI on a screen in the 3D world: `cargo run --features 3d --example ui_panel`.
 use ponko::{d3::*, prelude::*, ui::UiLayout};
 pub fn setup(ctx: &mut Ctx) {
-    ctx.camera3d.position = vec3(0.0, 1.6, 1.0);
-    ctx.camera3d.look_at(vec3(0.0, 1.5, -2.0));
+    ctx.scene3d.camera.position = vec3(0.0, 1.6, 1.0);
+    ctx.scene3d.camera.look_at(vec3(0.0, 1.5, -2.0));
     let floor_material = ctx.gfx.create_material(MaterialDesc::color(Color::hex(0x6B7B58)));
     let floor = ctx.gfx.create_mesh(&MeshData::plane(12.0), floor_material);
     ctx.world.spawn((Transform::default(), Model::new(floor)));
@@ -20,10 +20,11 @@ pub fn setup(ctx: &mut Ctx) {
 // ANCHOR: panel_events
 pub fn terminal(ctx: &mut Ctx) {
     // Aim with the middle of the screen, not the mouse (a locked cursor, a controller in VR).
-    let (eye, forward) = (ctx.camera3d.position, ctx.camera3d.forward());
+    let (eye, forward) = (ctx.scene3d.camera.position, ctx.scene3d.camera.forward());
     ctx.ui.set_pointer_ray(Some((eye, forward)));
     ctx.world.query::<&mut crate::d3::UiPanel>().for_each(|panel| {
-        if let Some(buy) = panel.ui.take_click().filter(|&id| panel.ui.name(id) == Some("buy")) {
+        let clicked = panel.ui.events().filter_map(ponko::ui::UiEvent::clicked);
+        if let Some(buy) = clicked.last().filter(|&id| panel.ui.name(id) == Some("buy")) {
             panel.ui.set_text(buy, "Bought!");
         }
     });

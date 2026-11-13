@@ -11,7 +11,7 @@
 //! checks follow from that:
 //!
 //! 1. the Rust types still have the layout the C compiler measured;
-//! 2. `include/crabby.h` still declares everything the baseline header did,
+//! 2. `include/ponko.h` still declares everything the baseline header did,
 //!    the same way (new functions, types and enum constants are fine);
 //! 3. the library still reports ABI version 2, the number a program checks at
 //!    startup.
@@ -21,9 +21,6 @@
 //! (run by the native CI job).
 //!
 //! Never regenerate the baseline to make a test pass.
-
-#![cfg(feature = "legacy-names")]
-#![allow(deprecated)]
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -98,8 +95,8 @@ fn baseline_pins_abi_version_2_on_a_64_bit_target() {
     );
     assert!(b["enums"].as_object().unwrap().len() >= 20);
     assert_eq!(
-        b["structs"]["CrabbyChunk"]["offsets"]["columns"], 16,
-        "CrabbyChunk.columns sits after two size_t fields"
+        b["structs"]["PonkoChunk"]["offsets"]["columns"], 16,
+        "PonkoChunk.columns sits after two size_t fields"
     );
 }
 
@@ -210,7 +207,27 @@ fn enum_constants_and_defines_keep_their_baseline_values() {
 fn startup_version_check_sees_the_baseline_abi_version() {
     // What STABILITY.md tells programs to do at startup.
     assert_eq!(
-        u64::from(crabby_abi_version()),
+        u64::from(ponko_abi_version()),
+        layout_fixture()["abi_version"].as_u64().unwrap()
+    );
+}
+
+#[test]
+fn header_macro_matches_the_library_and_the_baseline() {
+    // `PONKO_ABI_VERSION` is what a C or C++ program compiled against the header
+    // compares with `ponko_abi_version()` at startup (ponko.hpp does it).
+    let header = current_header();
+    let macro_value: u32 = header
+        .lines()
+        .find_map(|l| l.strip_prefix("#define PONKO_ABI_VERSION "))
+        .expect("ponko.h defines PONKO_ABI_VERSION")
+        .trim()
+        .parse()
+        .expect("PONKO_ABI_VERSION is a number");
+    assert_eq!(macro_value, ponko_abi_version());
+    assert_eq!(macro_value, PONKO_ABI_VERSION);
+    assert_eq!(
+        u64::from(macro_value),
         layout_fixture()["abi_version"].as_u64().unwrap()
     );
 }
@@ -293,7 +310,7 @@ fn parse_header(text: &str) -> BTreeMap<String, Item> {
         if let Some(def) = t.strip_prefix("#define ") {
             let mut parts = def.splitn(2, ' ');
             let name = parts.next().unwrap();
-            if name != "CRABBY_H" {
+            if name != "PONKO_H" {
                 items.insert(format!("define {name}"), Item::Define(norm(parts.next().unwrap_or(""))));
             }
         } else if !t.starts_with('#') && t != "}" {
@@ -406,16 +423,13 @@ fn header_incompatibilities(old: &str, new: &str) -> Vec<String> {
 }
 
 fn baseline_header() -> String {
-    read(fixture_dir().join("crabby_abi2.h"))
+    read(fixture_dir().join("ponko_abi2.h"))
 }
 
 fn current_header() -> String {
-    // Compare the primary declaration with the unchanged historical names.
-    // Actual old exports are checked through dynamic lookup and the baseline C client.
+    // The exported symbols themselves are checked through dynamic lookup
+    // (scripts/test-native-symbols.py) and the baseline C client.
     read(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../include/ponko.h"))
-        .replace("Ponko", "Crabby")
-        .replace("PONKO", "CRABBY")
-        .replace("ponko", "crabby")
 }
 
 #[test]
@@ -423,7 +437,7 @@ fn current_header_keeps_every_baseline_declaration() {
     let found = header_incompatibilities(&baseline_header(), &current_header());
     assert!(
         found.is_empty(),
-        "include/crabby.h differs incompatibly from the retained ABI-2 header (STABILITY.md: existing \
+        "include/ponko.h differs incompatibly from the retained ABI-2 header (STABILITY.md: existing \
          functions and structs never change within an ABI version):\n  {}",
         found.join("\n  ")
     );
@@ -436,36 +450,35 @@ fn baseline_header_parses_into_a_substantial_abi() {
     assert!(count("fn ") > 500, "only {} functions parsed", count("fn "));
     assert!(count("struct ") > 100 && count("enum ") > 20 && count("define ") >= 10);
     assert_eq!(
-        items["fn crabby_abi_version"],
-        Item::Function("uint32_t crabby_abi_version(void)".into())
+        items["fn ponko_abi_version"],
+        Item::Function("uint32_t ponko_abi_version(void)".into())
     );
     assert_eq!(
-        items["fn crabby_spawn"],
+        items["fn ponko_spawn"],
         Item::Function(
-            "enum CrabbyStatus crabby_spawn(struct CrabbyWorld *, const struct CrabbyValue *, size_t, uint64_t *)"
-                .into()
+            "enum PonkoStatus ponko_spawn(struct PonkoWorld *, const struct PonkoValue *, size_t, uint64_t *)".into()
         )
     );
 }
 
 const MINI: &str = r#"
-#define CRABBY_NONE 0
-typedef struct CrabbyPoint {
+#define PONKO_NONE 0
+typedef struct PonkoPoint {
   float x;
   float y;
-} CrabbyPoint;
-typedef enum CrabbyMode {
-  CRABBY_A = 0,
-  CRABBY_B,
-} CrabbyMode;
-typedef struct CrabbyThing CrabbyThing;
-typedef void (*CrabbyCallback)(struct CrabbyThing *thing, void *user);
+} PonkoPoint;
+typedef enum PonkoMode {
+  PONKO_A = 0,
+  PONKO_B,
+} PonkoMode;
+typedef struct PonkoThing PonkoThing;
+typedef void (*PonkoCallback)(struct PonkoThing *thing, void *user);
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
-struct CrabbyThing *crabby_thing_new(const char *name, size_t len);
-enum CrabbyStatus crabby_thing_move(struct CrabbyThing *thing,
-                                    struct CrabbyPoint by);
+struct PonkoThing *ponko_thing_new(const char *name, size_t len);
+enum PonkoStatus ponko_thing_move(struct PonkoThing *thing,
+                                    struct PonkoPoint by);
 #ifdef __cplusplus
 } // extern "C"
 #endif // __cplusplus
@@ -486,9 +499,9 @@ fn expect_one(found: Vec<String>, fragment: &str) {
 #[test]
 fn items_after_the_extern_c_block_are_still_parsed() {
     let items = parse_header(&format!(
-        "{MINI}\ntypedef struct CrabbyAfter {{ int a; }} CrabbyAfter;\nint crabby_after(void);\n"
+        "{MINI}\ntypedef struct PonkoAfter {{ int a; }} PonkoAfter;\nint ponko_after(void);\n"
     ));
-    assert!(items.contains_key("struct CrabbyAfter") && items.contains_key("fn crabby_after"));
+    assert!(items.contains_key("struct PonkoAfter") && items.contains_key("fn ponko_after"));
     // The closing brace of `extern "C"` is not mistaken for an item.
     assert_eq!(items.len(), 9, "{:?}", items.keys().collect::<Vec<_>>());
 }
@@ -501,61 +514,58 @@ fn identical_headers_are_compatible() {
 
 #[test]
 fn removing_or_changing_a_function_is_incompatible() {
-    let without = MINI.replace(
-        "struct CrabbyThing *crabby_thing_new(const char *name, size_t len);",
-        "",
-    );
-    expect_one(header_incompatibilities(MINI, &without), "fn crabby_thing_new: removed");
+    let without = MINI.replace("struct PonkoThing *ponko_thing_new(const char *name, size_t len);", "");
+    expect_one(header_incompatibilities(MINI, &without), "fn ponko_thing_new: removed");
     let ret = changed(
-        "struct CrabbyThing *crabby_thing_new",
-        "const struct CrabbyThing *crabby_thing_new",
+        "struct PonkoThing *ponko_thing_new",
+        "const struct PonkoThing *ponko_thing_new",
     );
-    expect_one(header_incompatibilities(MINI, &ret), "fn crabby_thing_new: changed");
+    expect_one(header_incompatibilities(MINI, &ret), "fn ponko_thing_new: changed");
     let extra = changed(
         "const char *name, size_t len)",
         "const char *name, size_t len, int flags)",
     );
-    expect_one(header_incompatibilities(MINI, &extra), "fn crabby_thing_new: changed");
+    expect_one(header_incompatibilities(MINI, &extra), "fn ponko_thing_new: changed");
     let wider = changed("size_t len)", "uint64_t len)");
-    expect_one(header_incompatibilities(MINI, &wider), "fn crabby_thing_new: changed");
+    expect_one(header_incompatibilities(MINI, &wider), "fn ponko_thing_new: changed");
 }
 
 #[test]
 fn changing_a_struct_is_incompatible() {
     let added = changed("  float y;\n", "  float y;\n  float z;\n");
-    expect_one(header_incompatibilities(MINI, &added), "struct CrabbyPoint: changed");
+    expect_one(header_incompatibilities(MINI, &added), "struct PonkoPoint: changed");
     let swapped = changed("  float x;\n  float y;\n", "  float y;\n  float x;\n");
-    expect_one(header_incompatibilities(MINI, &swapped), "struct CrabbyPoint: changed");
+    expect_one(header_incompatibilities(MINI, &swapped), "struct PonkoPoint: changed");
     let retyped = changed("float y;", "double y;");
-    expect_one(header_incompatibilities(MINI, &retyped), "struct CrabbyPoint: changed");
+    expect_one(header_incompatibilities(MINI, &retyped), "struct PonkoPoint: changed");
 }
 
 #[test]
 fn changing_an_enum_constant_or_a_define_is_incompatible() {
-    let removed = changed("  CRABBY_B,\n", "");
-    expect_one(header_incompatibilities(MINI, &removed), "constant CRABBY_B removed");
-    let shifted = changed("  CRABBY_A = 0,\n", "  CRABBY_NEW,\n  CRABBY_A,\n");
+    let removed = changed("  PONKO_B,\n", "");
+    expect_one(header_incompatibilities(MINI, &removed), "constant PONKO_B removed");
+    let shifted = changed("  PONKO_A = 0,\n", "  PONKO_NEW,\n  PONKO_A,\n");
     expect_one(
         header_incompatibilities(MINI, &shifted),
-        "constant CRABBY_A changed value",
+        "constant PONKO_A changed value",
     );
-    let define = changed("#define CRABBY_NONE 0", "#define CRABBY_NONE 1");
-    expect_one(header_incompatibilities(MINI, &define), "define CRABBY_NONE: changed");
+    let define = changed("#define PONKO_NONE 0", "#define PONKO_NONE 1");
+    expect_one(header_incompatibilities(MINI, &define), "define PONKO_NONE: changed");
     let callback = changed("void *user);", "int *user);");
     expect_one(
         header_incompatibilities(MINI, &callback),
-        "typedef CrabbyCallback: changed",
+        "typedef PonkoCallback: changed",
     );
 }
 
 #[test]
 fn additions_are_compatible() {
     let more = format!(
-        "{MINI}\ntypedef struct CrabbyBox {{ float w; }} CrabbyBox;\n\
-         enum CrabbyStatus crabby_thing_resize(struct CrabbyThing *thing, struct CrabbyBox to);\n"
+        "{MINI}\ntypedef struct PonkoBox {{ float w; }} PonkoBox;\n\
+         enum PonkoStatus ponko_thing_resize(struct PonkoThing *thing, struct PonkoBox to);\n"
     )
-    .replace("  CRABBY_B,\n", "  CRABBY_B,\n  CRABBY_C,\n")
-    .replace("#define CRABBY_NONE 0", "#define CRABBY_NONE 0\n#define CRABBY_MORE 7");
+    .replace("  PONKO_B,\n", "  PONKO_B,\n  PONKO_C,\n")
+    .replace("#define PONKO_NONE 0", "#define PONKO_NONE 0\n#define PONKO_MORE 7");
     assert_eq!(header_incompatibilities(MINI, &more), Vec::<String>::new());
 }
 

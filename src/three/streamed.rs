@@ -1,4 +1,4 @@
-//! Meshes streamed in without waiting ([`Ctx::stream_mesh`]), and LOD
+//! Meshes streamed in without waiting ([`Graphics::stream_mesh`](crate::gfx::Graphics::stream_mesh)), and LOD
 //! groups whose levels stream in as the camera needs them ([`StreamedLod`]).
 
 use std::sync::Arc;
@@ -7,9 +7,10 @@ use ponko_ecs::Entity;
 
 use super::{LodGroup, LodPick, Mesh, Transform3D, gltf};
 use crate::assets::{self, Origin};
-use crate::residency::ResidencyKind;
+use crate::streaming::ResidencyKind;
 use crate::streaming::{AssetState, StreamedAsset, StreamedMesh};
 use crate::{Ctx, stream::Job};
+use ponko_ecs::World;
 
 /// A decoded glTF file waiting for the game thread.
 pub(crate) enum LoadedFile {
@@ -23,11 +24,11 @@ pub(crate) enum LoadedFile {
 /// Streams the levels of an entity's [`LodGroup`] in from files as the
 /// camera needs them: file `i` gives the mesh of level `i`'s first
 /// renderer. Each frame the engine asks for the level the camera shows
-/// (with [`Ctx::stream_mesh`]) and for the coarsest level; until a level
+/// (with [`Graphics::stream_mesh`](crate::gfx::Graphics::stream_mesh)) and for the coarsest level; until a level
 /// is in, the group shows the closest coarser level that is (or finer, if
 /// none), so a model never pops out while it loads. Levels the camera
 /// moved away from stop showing their meshes, so the
-/// [mesh budget](Ctx::set_residency_budget) can evict them.
+/// [mesh budget](crate::gfx::Graphics::set_residency_budget) can evict them.
 ///
 /// Spawn the group with any meshes (such as [`Mesh::NONE`]) in the
 /// levels the files fill in.
@@ -69,7 +70,7 @@ impl StreamedLod {
     }
 }
 
-impl Ctx {
+impl crate::gfx::Graphics {
     /// Mesh file `path`, streamed in without waiting: `None` the first time
     /// (it starts reading and decoding on a worker thread) and until it is
     /// uploaded, within the [upload budget](crate::gfx::Graphics::set_upload_budget), at
@@ -77,7 +78,9 @@ impl Ctx {
     /// [`resident_mesh`](Self::resident_mesh) gives, under the same
     /// [mesh budget](Self::set_residency_budget). Ask for it each tick or
     /// frame you need it. An evicted mesh streams back in under the same
-    /// handle.
+    /// handle. Like every residency call it never evicts by itself: the
+    /// frame's streaming step does, when what is resident goes over the
+    /// budget.
     ///
     /// Files that refer to other files (a `.gltf` with its `.bin` and
     /// images) from added [asset sources](crate::Assets::add_source) are
@@ -88,25 +91,24 @@ impl Ctx {
     /// ```
     /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     assert_eq!(ctx.stream_mesh("models/missing.glb"), None);
+    ///     assert_eq!(ctx.gfx.stream_mesh("models/missing.glb"), None);
     ///     ctx.finish_uploads();
-    ///     assert_eq!(ctx.gfx.asset_state(ponko::residency::ResidencyKind::Mesh, "models/missing.glb"), ponko::streaming::AssetState::Failed);
+    ///     assert_eq!(ctx.gfx.asset_state(ponko::streaming::ResidencyKind::Mesh, "models/missing.glb"), ponko::streaming::AssetState::Failed);
     /// });
     /// ```
     pub fn stream_mesh(&mut self, path: &str) -> Option<Mesh> {
-        if let Some(mesh) = self.gfx.live_resident_mesh(path) {
+        if let Some(mesh) = self.live_resident_mesh(path) {
             let now = self.residency_now();
-            self.gfx.residency.set_mut(ResidencyKind::Mesh).touch(path, now);
+            self.residency.set_mut(ResidencyKind::Mesh).touch(path, now);
             return Some(mesh);
         }
-        if self.gfx.streaming.meshes.contains_key(path) {
+        if self.streaming.meshes.contains_key(path) {
             return None;
         }
-        self.gfx.residency.set_mut(ResidencyKind::Mesh).forget(path);
+        self.residency.set_mut(ResidencyKind::Mesh).forget(path);
         let lookup = self
-            .gfx
             .asset_sources
-            .lookup(path, |origin| self.gfx.assets3d.loaded.get(origin).copied());
+            .lookup(path, |origin| self.assets3d.loaded.get(origin).copied());
         let job = match lookup {
             // The game loaded it already: it holds the handle.
             Ok(assets::Lookup::Cached(origin, mesh)) => {
@@ -117,7 +119,7 @@ impl Ctx {
                 let origin = found.origin.clone();
                 let name = path.to_string();
                 match origin {
-                    Origin::File(_) if self.gfx.asset_sources.is_empty() => Job::spawn(move || {
+                    Origin::File(_) if self.asset_sources.is_empty() => Job::spawn(move || {
                         let bytes = found.into_bytes().map_err(|e| e.with_path(&name))?;
                         let mut read = |file: &str| assets::Sources::default().read(file);
                         let loaded = gltf::load(&name, &bytes, &mut read, &|_| false)
@@ -132,7 +134,7 @@ impl Ctx {
             }
             Err(e) => Job::spawn(move || Err(e)),
         };
-        self.gfx.streaming.meshes.insert(
+        self.streaming.meshes.insert(
             path.to_string(),
             StreamedMesh {
                 job: Some(job),
@@ -140,26 +142,32 @@ impl Ctx {
                 state: AssetState::Loading,
             },
         );
-        self.gfx.streaming.queue_mesh(path);
+        self.streaming.queue_mesh(path);
         None
     }
 
     /// One upload of streamed mesh `name`: making it on the GPU.
-    pub(crate) fn mesh_step(&mut self, name: &str, room: u64, first: bool) -> crate::streaming::Step {
+    pub(crate) fn mesh_step(
+        &mut self,
+        world: &mut World,
+        name: &str,
+        room: u64,
+        first: bool,
+    ) -> crate::streaming::Step {
         use crate::streaming::Step;
-        let Some(m) = self.gfx.streaming.meshes.get_mut(name) else {
+        let Some(m) = self.streaming.meshes.get_mut(name) else {
             return Step::Dropped;
         };
         if m.ready.is_none() {
             let mut job = m.job.take();
             let decoded = self.take_decoded(&mut job);
-            let m = self.gfx.streaming.meshes.get_mut(name).expect("still there");
+            let m = self.streaming.meshes.get_mut(name).expect("still there");
             m.job = job;
             match decoded {
                 None => return Step::NotReady,
                 Some(Err(e)) => {
                     m.state = AssetState::Failed;
-                    self.gfx.streaming.fail(ResidencyKind::Mesh, name, e);
+                    self.streaming.fail(ResidencyKind::Mesh, name, e);
                     return Step::Dropped;
                 }
                 Some(Ok(ready)) => {
@@ -168,7 +176,7 @@ impl Ctx {
                 }
             }
         }
-        let m = self.gfx.streaming.meshes.get(name).expect("still there");
+        let m = self.streaming.meshes.get(name).expect("still there");
         let bytes = match &m.ready {
             Some((_, LoadedFile::Parsed(loaded))) => {
                 super::mesh_gpu_bytes(&loaded.data)
@@ -185,34 +193,35 @@ impl Ctx {
             return Step::NotReady;
         }
         let (origin, file) = self
-            .gfx
             .streaming
             .meshes
             .remove(name)
             .and_then(|m| m.ready)
             .expect("decoded");
         // Loaded by the game meanwhile: it holds that one.
-        if let Some(&mesh) = self.gfx.assets3d.loaded.get(&origin) {
+        if let Some(&mesh) = self.assets3d.loaded.get(&origin) {
             self.add_resident_mesh(name, mesh, origin, true);
+            self.enforce_residency(world, ResidencyKind::Mesh);
             return Step::Uploaded { bytes: 0, again: false };
         }
-        let made = self.load_reserved(name, |ctx| {
+        let made = self.load_reserved(name, |gfx| {
             let (loaded, image_keys) = match file {
                 LoadedFile::Parsed(loaded) => {
-                    let keys = ctx.gfx.image_keys(&loaded);
+                    let keys = gfx.image_keys(&loaded);
                     (*loaded, keys)
                 }
-                LoadedFile::Bytes(bytes) => ctx.gfx.decode_gltf(name, &bytes)?,
+                LoadedFile::Bytes(bytes) => gfx.decode_gltf(name, &bytes)?,
             };
-            Ok(ctx.gfx.mesh_from_loaded(name, origin.clone(), loaded, image_keys))
+            Ok(gfx.mesh_from_loaded(name, origin.clone(), loaded, image_keys))
         });
         match made {
             Ok(mesh) => {
                 self.add_resident_mesh(name, mesh, origin, false);
+                self.enforce_residency(world, ResidencyKind::Mesh);
                 Step::Uploaded { bytes, again: false }
             }
             Err(e) => {
-                self.gfx.streaming.meshes.insert(
+                self.streaming.meshes.insert(
                     name.to_string(),
                     StreamedMesh {
                         job: None,
@@ -220,19 +229,21 @@ impl Ctx {
                         state: AssetState::Failed,
                     },
                 );
-                self.gfx.streaming.fail(ResidencyKind::Mesh, name, e);
+                self.streaming.fail(ResidencyKind::Mesh, name, e);
                 Step::Dropped
             }
         }
     }
+}
 
+impl Ctx {
     /// Asks for the levels each [`StreamedLod`] group needs and shows what
     /// is in (`pump_streaming`).
     pub(crate) fn stream_lod_levels(&mut self) {
         let mut groups = std::mem::take(&mut self.gfx.streaming.lod_scratch);
         groups.clear();
         {
-            let (camera, settings) = (&self.camera3d, &self.lod);
+            let (camera, settings) = (&self.scene3d.camera, &self.scene3d.lod);
             self.world
                 .query::<(Entity, &Transform3D, &LodGroup, &StreamedLod)>()
                 .for_each(|(e, t, g, s)| {
@@ -260,7 +271,7 @@ impl Ctx {
             let mut meshes = [None; 64];
             for (i, mesh) in meshes.iter_mut().enumerate().take(n) {
                 if wanted & (1 << i) != 0 {
-                    *mesh = self.stream_mesh(&files[i]);
+                    *mesh = self.gfx.stream_mesh(&files[i]);
                 }
             }
             // Each level shows its mesh if in, else the closest coarser
@@ -279,8 +290,8 @@ impl Ctx {
                 continue;
             }
             let group = self.world.get_mut::<LodGroup>(entity).expect("just read");
-            for i in 0..n {
-                if let Some(r) = group.levels[i].renderers.first_mut() {
+            for (i, level) in group.levels.iter_mut().enumerate().take(n) {
+                if let Some(r) = level.renderers.first_mut() {
                     r.mesh = shown(i);
                 }
             }

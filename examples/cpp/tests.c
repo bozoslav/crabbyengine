@@ -1875,6 +1875,8 @@ int main(void) {
     morph_clip_api();
     replication();
     CHECK(ponko_abi_version() == 2);
+    /* The macro in the header and the loaded library agree. */
+    CHECK(ponko_abi_version() == PONKO_ABI_VERSION);
     PonkoWorld* w = ponko_world_new(); CHECK(w);
     uint32_t p; CHECK(ponko_component_register(w, "Pos", sizeof(Position), _Alignof(Position), &p) == PONKO_OK);
     Position initial = {7}; PonkoValue value = {p, &initial, sizeof(initial)};

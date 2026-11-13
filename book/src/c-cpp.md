@@ -39,8 +39,27 @@ in `target/native/Release/`.
 For your own game, copy the recipe in `examples/cpp/CMakeLists.txt`: include
 the two headers, link `ponko_ffi`, ship its shared library next to your
 executable, and put your textures in an `assets/` folder next to it (the
-example copies the repository's `assets/`). `ponko_abi_version()` returns `2`;
-rebuild against the matching header when you update the engine.
+example copies the repository's `assets/`). Rebuild against the matching
+header when you update the engine.
+
+### The ABI version
+
+`ponko_abi_version()` returns `2`, and `ponko.h` defines `PONKO_ABI_VERSION` as
+`2`: the first is the loaded library, the second the header your program was
+compiled against. They differ when a program is built against one release's
+headers and runs with another's `ponko_ffi`. `ponko.hpp` compares them the first
+time a `ponko::game` or `ponko::world` is made and throws a `ponko::error`
+(kind `PONKO_ERROR_UNSUPPORTED`) that names both numbers. In C, or when you load
+the library yourself, make the same check at startup:
+
+```c
+if (ponko_abi_version() != PONKO_ABI_VERSION) { /* wrong library: stop */ }
+```
+
+Within a version, existing functions and struct layouts never change and new
+releases only add functions and enum values. The version stays 2 for 0.1.0: the
+old C spellings were removed before any native artifact was released,
+and every `ponko_*` function, layout and numeric value is unchanged.
 
 ## A C++ game
 
@@ -192,6 +211,38 @@ sizes, unknown ids, duplicate query columns and busy worlds are rejected.
 Pointers you pass must still be valid: the library can't recognize a
 dangling pointer or a buffer smaller than you say. Callbacks must return
 normally; never let a C++ exception or `longjmp` cross them.
+
+## Constructors and destructors
+
+Two shapes exist, and one rule says which a new function uses.
+
+- **New functions: a status and an out-pointer.** `enum PonkoStatus
+  ponko_thing_new(args, struct PonkoThing **out)`. The status carries
+  `ponko_last_error_kind()` for the failure, a null pointer can't be mistaken
+  for success, and the call looks like every other. Follow this for anything
+  added from now on. Today: `ponko_clip_new`, `ponko_snapshot_stream_new`,
+  `ponko_interest_new`, `ponko_steam_lobby_create`, and the functions that make
+  something inside a game or context and write back an id
+  (`ponko_ctx_create_*`, `ponko_ctx_load_*` and `ponko_ctx_try_load_*`).
+- **Older standalone objects: the pointer, null on failure.** `struct PonkoThing
+  *ponko_thing_new(args)` returns null and sets `ponko_last_error()`.
+  `ponko_world_new`, `ponko_game_new`, `ponko_access_new`, `ponko_action_map_new`,
+  `ponko_nav_new`, `ponko_flow_new`, `ponko_grid_new`, `ponko_nav_sources_new`,
+  `ponko_latest_wins_new`, `ponko_input_scenario_new`, `ponko_cells_new`,
+  `ponko_memory_source_new`, `ponko_ui_access_new`, `ponko_heightfield_new`,
+  `ponko_far_terrain_new`, `ponko_terrain_tile_data_new`,
+  `ponko_animation_graph_builder_new` and the mesh-data and filter builders
+  work this way. They keep their shape: changing
+  it would break the ABI.
+
+Destructors of owned objects are `void ponko_thing_free(struct PonkoThing *)`.
+(`ponko_ctx_handle_free` is not one: it frees an engine handle by id inside a
+context and returns a status like the other `ponko_ctx_*` calls.) The exception
+is `ponko_world_free`, which returns a status: a world can be busy (a query is
+running) or borrowed (it belongs to a game or a context), and then it is *not*
+freed. `PONKO_BUSY` tells you the handle is still live and still yours, so you
+don't treat it as freed. The C++ `ponko::world` destructor ignores the status
+(it can't throw); its move assignment throws it.
 
 ## Errors and the `try_` loaders
 

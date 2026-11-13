@@ -147,13 +147,13 @@ fn engine_anchor(scene: &Scene) -> Option<Anchor> {
         ..Default::default()
     };
     rig.batch_levels(&levels, &transforms, &[], options);
-    rig.ctx.camera3d.fov_y = 1.05;
-    rig.ctx.camera3d.near = 0.3;
-    rig.ctx.camera3d.far = scene.far;
+    rig.ctx.scene3d.camera.fov_y = 1.05;
+    rig.ctx.scene3d.camera.near = 0.3;
+    rig.ctx.scene3d.camera.far = scene.far;
     let step = |rig: &mut BatchRig, frame: u32| {
         let (eye, forward) = scene.eye_and_forward(frame);
-        rig.ctx.camera3d.position = eye;
-        rig.ctx.camera3d.look_at(eye + forward);
+        rig.ctx.scene3d.camera.position = eye;
+        rig.ctx.scene3d.camera.look_at(eye + forward);
         rig.frame()
     };
     for frame in 0..20 {

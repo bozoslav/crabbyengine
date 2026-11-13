@@ -61,9 +61,9 @@ fn main() {
             if ctx.key_pressed(Key::F) {
                 fog = !fog;
             }
-            ctx.lighting.sun_direction = Sky::sun_direction_at(hour);
-            ctx.sky.fog_density = if fog { 0.02 } else { 0.0 };
-            ctx.sky.fog_falloff = 8.0;
+            ctx.scene3d.lighting.sun_direction = Sky::sun_direction_at(hour);
+            ctx.scene3d.sky.fog_density = if fog { 0.02 } else { 0.0 };
+            ctx.scene3d.sky.fog_falloff = 8.0;
             if ctx.time.frame() == 2
                 && let Ok(path) = std::env::var("SHOT")
             {
@@ -74,26 +74,22 @@ fn main() {
             }
         })
         .setup(|ctx| {
-            ctx.gfx.clear(Color::hex(0x9CC4E4));
-            ctx.camera3d.position = vec3(0.0, 4.0, 11.0);
-            ctx.camera3d.look_at(vec3(0.0, 0.5, 0.0));
-            ctx.post.bloom = 0.1;
+            ctx.scene3d.camera.position = vec3(0.0, 4.0, 11.0);
+            ctx.scene3d.camera.look_at(vec3(0.0, 0.5, 0.0));
+            ctx.scene3d.post.bloom = 0.1;
 
-            let ground_look = MaterialDesc {
-                roughness: 0.95,
-                ..MaterialDesc::color(Color::hex(0x5E7A3A))
-            };
+            let ground_look = MaterialDesc::color(Color::hex(0x5E7A3A)).with_roughness(0.95);
             let ground = ctx.gfx.create_material(ground_look);
             let ground = ctx.gfx.create_mesh(&MeshData::plane(600.0), ground);
             ctx.world.spawn((Transform::default(), Model::new(ground)));
 
             let water = ctx.gfx.load_shader("shaders/water.wgsl");
-            let lake = ctx.gfx.create_material(MaterialDesc {
-                shader: Some(water),
-                blend: Blend::Transparent,
-                custom: [vec4(0.06, 1.5, 1.2, 1.2), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
-                ..MaterialDesc::color(Color::hex(0x1E4D6B))
-            });
+            let lake = ctx.gfx.create_material(
+                MaterialDesc::color(Color::hex(0x1E4D6B))
+                    .with_shader(water)
+                    .with_blend(Blend::Transparent)
+                    .with_custom([vec4(0.06, 1.5, 1.2, 1.2), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO]),
+            );
             let mut surface = MeshData::plane(12.0);
             // More vertices, so the waves have something to move.
             surface = subdivide(surface, 5);
@@ -102,10 +98,9 @@ fn main() {
                 .spawn((Transform::at(vec3(-3.0, 0.15, -4.0)), Model::new(lake)));
 
             // The lake bed, under the water: sand sloping down, and stones.
-            let sand = ctx.gfx.create_material(MaterialDesc {
-                roughness: 0.9,
-                ..MaterialDesc::color(Color::hex(0xC2A878))
-            });
+            let sand = ctx
+                .gfx
+                .create_material(MaterialDesc::color(Color::hex(0xC2A878)).with_roughness(0.9));
             let bed = ctx.gfx.create_mesh(&MeshData::plane(12.0), sand);
             let tilt = Quat::from_rotation_x(0.12);
             ctx.world.spawn((
@@ -115,10 +110,9 @@ fn main() {
                 },
                 Model::new(bed),
             ));
-            let stone = ctx.gfx.create_material(MaterialDesc {
-                roughness: 0.7,
-                ..MaterialDesc::color(Color::hex(0x8A8A80))
-            });
+            let stone = ctx
+                .gfx
+                .create_material(MaterialDesc::color(Color::hex(0x8A8A80)).with_roughness(0.7));
             let pebble = ctx.gfx.create_mesh(&MeshData::sphere(0.35, 16), stone);
             for i in 0..12 {
                 let at = vec3(
@@ -130,13 +124,13 @@ fn main() {
             }
 
             let wind = ctx.gfx.load_shader("shaders/wind.wgsl");
-            let grass = ctx.gfx.create_material(MaterialDesc {
-                shader: Some(wind),
-                double_sided: true,
-                roughness: 0.8,
-                custom: [vec4(0.25, 2.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
-                ..MaterialDesc::color(Color::hex(0x7FA83C))
-            });
+            let grass = ctx.gfx.create_material(
+                MaterialDesc::color(Color::hex(0x7FA83C))
+                    .with_shader(wind)
+                    .with_double_sided(true)
+                    .with_roughness(0.8)
+                    .with_custom([vec4(0.25, 2.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO]),
+            );
             let blade = ctx.gfx.create_mesh(&blade(), grass);
             let mut seed = 7u32;
             let mut random = move || {
@@ -157,10 +151,7 @@ fn main() {
             }
 
             let tiles = ctx.gfx.create_shader("tiles", TILES);
-            let ball = ctx.gfx.create_material(MaterialDesc {
-                shader: Some(tiles),
-                ..Default::default()
-            });
+            let ball = ctx.gfx.create_material(MaterialDesc::default().with_shader(tiles));
             let ball = ctx.gfx.create_mesh(&MeshData::sphere(1.0, 48), ball);
             ctx.world.spawn((Transform::at(vec3(3.5, 1.0, 1.0)), Model::new(ball)));
         })

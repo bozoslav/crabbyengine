@@ -130,7 +130,7 @@ fn editing_a_tile_swaps_its_collider_and_despawning_removes_it() {
                     let lower = ctx.physics3d.heightfield(&[1.0; 4 * 4], 6.0);
                     let terrain = ctx.world.get_mut::<TerrainCollider>(e).unwrap();
                     let old = std::mem::replace(&mut terrain.mesh, lower);
-                    ctx.physics3d.free_mesh(old);
+                    ctx.free(old);
                 }
                 1 => {
                     ctx.world.despawn(e);
@@ -169,7 +169,7 @@ fn boxes_in_as_the_focus_moves(path: &'static [f32], max_new: usize) -> Vec<Vec<
             if let Some(&x) = path.get(tick + 1) {
                 ctx.world
                     .query::<&mut Transform>()
-                    .with::<ColliderFocus>()
+                    .filter::<With<ColliderFocus>>()
                     .for_each(|t| t.position.x = x);
             }
         })
@@ -306,7 +306,7 @@ fn build_tile(heights: Vec<f32>) -> ponko::stream::Job<(TerrainTileData, Collisi
 }
 
 /// Once built, on the game's thread: drawn and solid. Free both when the
-/// tile goes (`ctx.free_terrain_tile`, `ctx.physics3d.free_mesh`).
+/// tile goes (`ctx.free(tile)` and `ctx.free(mesh)`).
 fn place_tile(ctx: &mut Ctx, corner: Vec3, built: (TerrainTileData, CollisionMeshData), ground: Material) -> Entity {
     let (drawn, solid) = built;
     let tile = ctx.gfx.upload_terrain_tile(&drawn, ground);

@@ -36,7 +36,7 @@ ctx.world.reflect::<Health>();
 | Tool | Changes the game | What it's for |
 |---|---|---|
 | `list_instances` | | find running games |
-| `launch` | ✓ | build and start a game or example, or start an already built executable (`program`, e.g. a C or C++ game); headless and paused by default |
+| `launch` | ✓ | build and start a game or example, or start an already built executable (`program`, e.g. a C or C++ game); headless and paused by default. Release builds it makes get the engine's `control-env` feature; a release `program` built without it can't be driven (see [Turning it on](control.md#turning-it-on)) |
 | `instance_info` | | tick, sim time, paused, speed, fps, entity count, render CPU/GPU ms |
 | `instance_capabilities` | | what this game can do before you try: headless or windowed, compiled features, subsystems and why one is off, which tools work on it (and why not), reflected types with their field schema ([details](control.md#capabilities)) |
 | `world_summary` | | archetypes, entity counts, reflected components |
@@ -64,7 +64,7 @@ ctx.world.reflect::<Health>();
 | `spawn_entity` / `despawn_entity` | ✓ | |
 | `set_component` / `remove_component` | ✓ | change values; object fields merge |
 | `set_resource` | ✓ | change game-wide state; object fields merge |
-| `save_world` | | checkpoint the world to a file |
+| `save_world` | | checkpoint the world to a new file in the game's folder (`overwrite: true` replaces one, not on a read-only server) |
 | `load_world` | ✓ | roll back to a checkpoint (same entity ids) |
 | `save_scene` / `load_scene` | ✓ | write or read a [scene](scenes.md) in the game's `assets/` |
 | `spawn_prefab` / `save_prefab` | ✓ | place a [prefab](scenes.md) at a point, or save an entity as one |
@@ -159,7 +159,7 @@ Troubleshooting systems that don't run together: a game turned
 
    `score` takes `&mut Ctx` and has no declaration, so it is a stage of its
    own and ends the batch before it. Rewriting it as a view system with a
-   declaration (`Game::add_view`) lets it join one.
+   declaration (a function of `&mut SystemView`) lets it join one.
 3. For a view system with `"alone": null` that still has no company, read
    its stage:
 

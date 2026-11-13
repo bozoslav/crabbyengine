@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Retain a native ABI baseline from a C header, measured by a C compiler.
 
-Reads a generated header (include/crabby.h at the revision being recorded),
+Reads a generated header (include/ponko.h at the revision being recorded),
 compiles a small C program against it with the system C compiler, and writes
 what the compiler says: the size, alignment and field offsets of every struct
 the header defines, the value of every enum constant and numeric #define, and
@@ -42,8 +42,8 @@ def main():
     for name, body in re.findall(r"typedef enum (\w+) \{\n(.*?)\n\} \1;", text, re.S):
         consts = [m.group(1) for m in re.finditer(r"^\s*(\w+)(?: = [^,]+)?,$", body, re.M)]
         enums.append((name, consts))
-    defines = re.findall(r"^#define (CRABBY_[A-Z0-9_]+) \S+$", text, re.M)
-    defines = [d for d in defines if d != "CRABBY_H"]
+    defines = re.findall(r"^#define (PONKO_[A-Z0-9_]+) \S+$", text, re.M)
+    defines = [d for d in defines if d != "PONKO_H"]
 
     c = [f'#include "{header.name}"', "#include <stdio.h>", "#include <stddef.h>", "int main(void) {"]
     c.append('printf("{\\n");')

@@ -234,10 +234,7 @@ mod three {
     #[test]
     fn out_of_range_materials_are_invalid() {
         in_tick(|ctx| {
-            let desc = MaterialDesc {
-                metallic: -1.0,
-                ..Default::default()
-            };
+            let desc = MaterialDesc::default().with_metallic(-1.0);
             assert_eq!(
                 ctx.gfx.try_create_material(desc).unwrap_err().kind(),
                 ErrorKind::Invalid

@@ -146,10 +146,15 @@ gives bodies a push:
 </div>
 </div>
 
-- `cast_ray(origin, direction, max_distance)`: the first collider hit, with
-  the point, the surface normal and the distance.
-- `entities_at(point, &mut out)` and `entities_in_circle(center, r, &mut out)`:
-  everything there. `out` is reused, so no allocation per call.
+- `cast_ray(origin, direction, max_distance, filter)`: the first collider hit,
+  with the point, the surface normal and the distance.
+- `overlap_point(point, filter, &mut out)` and
+  `overlap_circle(center, r, filter, &mut out)`: everything there. `out` is
+  reused, so no allocation per call.
+
+A `d2::QueryFilter` sees solid colliders by default; `.with_sensors()` adds
+sensors and `.exclude(entity)` skips one body. The C and C++ `cast_ray`,
+`entities_at` and `entities_in_circle` take no filter and see sensors too.
 - `apply_impulse(e, impulse)`: a one-off push in mass × pixels/s (multiply by
   `mass(e)` to get a speed change).
 - `set_gravity(g)`: change the pull for everyone.

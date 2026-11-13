@@ -43,7 +43,7 @@ fn tileset(ctx: &mut Ctx) -> SpriteSheet {
         }
     }
     let tex = ctx.gfx.create_texture(w, h, &rgba);
-    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
+    ctx.gfx.set_texture_filter(tex, TextureFilter::Nearest);
     SpriteSheet::new(tex, TILE, TILE)
 }
 
@@ -65,7 +65,7 @@ fn creature(ctx: &mut Ctx) -> SpriteSheet {
         }
     }
     let tex = ctx.gfx.create_texture(frames * size, size, &rgba);
-    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
+    ctx.gfx.set_texture_filter(tex, TextureFilter::Nearest);
     SpriteSheet::new(tex, size, size)
 }
 

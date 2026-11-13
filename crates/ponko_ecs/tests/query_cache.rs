@@ -30,8 +30,8 @@ fn cached_queries_follow_registration_growth_moves_and_empty_layouts() {
     assert_eq!(
         w.query::<&Value>()
             .cached()
-            .with::<Marker<0>>()
-            .without::<Marker<1>>()
+            .filter::<With<Marker<0>>>()
+            .filter::<Without<Marker<1>>>()
             .count(),
         32
     );
@@ -44,8 +44,8 @@ fn cached_queries_follow_registration_growth_moves_and_empty_layouts() {
     assert_eq!(
         w.query::<&Value>()
             .cached()
-            .with::<Marker<0>>()
-            .without::<Marker<1>>()
+            .filter::<With<Marker<0>>>()
+            .filter::<Without<Marker<1>>>()
             .count(),
         545
     );
@@ -53,22 +53,22 @@ fn cached_queries_follow_registration_growth_moves_and_empty_layouts() {
     w.remove::<Marker<1>>(e);
     w.query::<&mut Value>()
         .cached()
-        .with::<Marker<9>>()
+        .filter::<With<Marker<9>>>()
         .for_each(|v| v.0 += 1);
     assert_eq!(w.get::<Value>(e).unwrap().0, 501);
     let ids: Vec<_> = w
         .query::<(Entity, &Value)>()
         .cached()
-        .with::<Marker<9>>()
+        .filter::<With<Marker<9>>>()
         .iter()
         .map(|(e, _)| e)
         .collect();
     for e in ids {
         w.despawn(e);
     }
-    assert_eq!(w.query::<&Value>().cached().with::<Marker<9>>().count(), 0);
+    assert_eq!(w.query::<&Value>().cached().filter::<With<Marker<9>>>().count(), 0);
     w.spawn((Value(1), Marker::<0>, Marker::<9>));
-    assert_eq!(w.query::<&Value>().cached().with::<Marker<9>>().count(), 1);
+    assert_eq!(w.query::<&Value>().cached().filter::<With<Marker<9>>>().count(), 1);
 }
 
 #[test]
@@ -76,13 +76,13 @@ fn cached_queries_follow_registration_growth_moves_and_empty_layouts() {
 fn signatures_optional_filters_and_worlds_remain_independent() {
     let mut w = World::new();
     fragmented(&mut w);
-    assert_eq!(w.query::<&Value>().cached().with::<Marker<0>>().count(), 64);
-    assert_eq!(w.query::<&Value>().cached().without::<Marker<0>>().count(), 64);
+    assert_eq!(w.query::<&Value>().cached().filter::<With<Marker<0>>>().count(), 64);
+    assert_eq!(w.query::<&Value>().cached().filter::<Without<Marker<0>>>().count(), 64);
     assert_eq!(
         w.query::<&Value>()
             .cached()
-            .with::<Marker<0>>()
-            .without::<Marker<0>>()
+            .filter::<With<Marker<0>>>()
+            .filter::<Without<Marker<0>>>()
             .count(),
         0
     );
@@ -100,7 +100,7 @@ fn signatures_optional_filters_and_worlds_remain_independent() {
     let mut other = World::new();
     other.register::<Marker<0>>();
     fragmented(&mut other);
-    assert_eq!(other.query::<&Value>().cached().with::<Marker<0>>().count(), 64);
+    assert_eq!(other.query::<&Value>().cached().filter::<With<Marker<0>>>().count(), 64);
 }
 
 #[cfg(feature = "parallel")]
@@ -112,14 +112,14 @@ fn cached_parallel_order_matches_sequential() {
     let expected: Vec<_> = w
         .query::<&Value>()
         .cached()
-        .with::<Marker<0>>()
+        .filter::<With<Marker<0>>>()
         .iter()
         .map(|v| v.0)
         .collect();
     let mut actual = Vec::new();
     w.query::<&Value>()
         .cached()
-        .with::<Marker<0>>()
+        .filter::<With<Marker<0>>>()
         .par_collect_into(&mut actual, |v| v.0);
     assert_eq!(actual, expected);
 }
@@ -153,7 +153,10 @@ fn cached_typed_filters_keep_distinct_signatures() {
 // ---- the automatic policy -------------------------------------------------------
 
 fn sparse(w: &mut World) -> usize {
-    w.query::<&Value>().with::<Marker<0>>().without::<Marker<1>>().count()
+    w.query::<&Value>()
+        .filter::<With<Marker<0>>>()
+        .filter::<Without<Marker<1>>>()
+        .count()
 }
 
 #[test]
@@ -187,8 +190,8 @@ fn a_query_that_matches_most_archetypes_is_scanned_unless_hinted() {
         assert_eq!(w.query::<&Value>().count(), 128);
         assert_eq!(
             w.query::<&Value>()
-                .without::<Marker<0>>()
-                .without::<Marker<1>>()
+                .filter::<Without<Marker<0>>>()
+                .filter::<Without<Marker<1>>>()
                 .count(),
             32
         );
@@ -236,7 +239,7 @@ fn small_worlds_scan_whatever_the_hint() {
     assert!(w.raw_ref().archetypes().len() < w.query_cache_policy().min_archetypes);
     for _ in 0..4 {
         assert_eq!(sparse(&mut w), 8);
-        assert_eq!(w.query::<&Value>().with::<Marker<0>>().cached().count(), 16);
+        assert_eq!(w.query::<&Value>().filter::<With<Marker<0>>>().cached().count(), 16);
     }
     assert_eq!(
         w.query_cache_stats(),
@@ -261,8 +264,8 @@ fn a_query_and_a_world_can_opt_out() {
     for _ in 0..4 {
         assert_eq!(
             w.query::<&Value>()
-                .with::<Marker<0>>()
-                .without::<Marker<1>>()
+                .filter::<With<Marker<0>>>()
+                .filter::<Without<Marker<1>>>()
                 .uncached()
                 .count(),
             32
@@ -284,7 +287,7 @@ fn a_query_and_a_world_can_opt_out() {
     assert_eq!((off.signatures, off.indexed, off.indices, off.bytes), (0, 0, 0, 0));
     for _ in 0..4 {
         assert_eq!(sparse(&mut w), 32);
-        assert_eq!(w.query::<&Value>().with::<Marker<0>>().cached().count(), 64);
+        assert_eq!(w.query::<&Value>().filter::<With<Marker<0>>>().cached().count(), 64);
     }
     assert_eq!(w.query_cache_stats(), off);
     // And back on.
@@ -308,16 +311,16 @@ fn equivalent_queries_share_one_index_entry() {
     // data, mutability, and an `Added`/`Changed`-free tuple nesting.
     let values = w
         .query::<&Value>()
-        .with::<Marker<0>>()
-        .with::<Marker<1>>()
+        .filter::<With<Marker<0>>>()
+        .filter::<With<Marker<1>>>()
         .iter()
         .map(|v| v.0)
         .collect();
     ask(&mut w, values);
     let values = w
         .query::<&Value>()
-        .with::<Marker<1>>()
-        .with::<Marker<0>>()
+        .filter::<With<Marker<1>>>()
+        .filter::<With<Marker<0>>>()
         .iter()
         .map(|v| v.0)
         .collect();
@@ -326,7 +329,7 @@ fn equivalent_queries_share_one_index_entry() {
     ask(&mut w, values);
     let values = w
         .query::<(&Value, &Marker<0>)>()
-        .with::<Marker<1>>()
+        .filter::<With<Marker<1>>>()
         .iter()
         .map(|(v, _)| v.0)
         .collect();
@@ -365,14 +368,19 @@ fn equivalent_queries_share_one_index_entry() {
         .compile()
         .unwrap();
     let mut rows = 0;
-    w.query_chunks_filtered(ChunkQuery::new(&[value]), &filter, |chunk| rows += chunk.len());
-    w.query_chunks(ChunkQuery::new(&[value, m0, m1]), |chunk| rows += chunk.len());
+    w.raw()
+        .query_chunks(ChunkQuery::new(&[value]).filter(&filter), |chunk| rows += chunk.len());
+    w.raw()
+        .query_chunks(ChunkQuery::new(&[value, m0, m1]), |chunk| rows += chunk.len());
     w.raw().for_each_chunk(&[m1, value, m0], |chunk| rows += chunk.len());
     assert_eq!(rows, 3 * 32);
     assert_eq!(w.query_cache_stats().signatures, 1);
     // A different condition is a different entry.
     assert_eq!(
-        w.query::<&Value>().with::<Marker<0>>().without::<Marker<1>>().count(),
+        w.query::<&Value>()
+            .filter::<With<Marker<0>>>()
+            .filter::<Without<Marker<1>>>()
+            .count(),
         32
     );
     assert_eq!(w.query_cache_stats().signatures, 2);
@@ -387,15 +395,15 @@ fn an_automatic_index_follows_registration_new_archetypes_moves_and_empty_archet
     let all = |w: &mut World| {
         let auto: Vec<usize> = w
             .query::<&Value>()
-            .with::<Marker<0>>()
-            .with::<Marker<1>>()
+            .filter::<With<Marker<0>>>()
+            .filter::<With<Marker<1>>>()
             .iter()
             .map(|v| v.0)
             .collect();
         let scanned: Vec<usize> = w
             .query::<&Value>()
-            .with::<Marker<0>>()
-            .with::<Marker<1>>()
+            .filter::<With<Marker<0>>>()
+            .filter::<With<Marker<1>>>()
             .uncached()
             .iter()
             .map(|v| v.0)
@@ -447,9 +455,24 @@ fn unused_signatures_are_dropped_when_the_table_is_full() {
     let mut policy = QueryCachePolicy::new();
     policy.max_signatures = 2;
     w.set_query_cache_policy(policy);
-    let a = |w: &mut World| w.query::<&Value>().with::<Marker<0>>().with::<Marker<1>>().count();
-    let b = |w: &mut World| w.query::<&Value>().with::<Marker<2>>().with::<Marker<3>>().count();
-    let c = |w: &mut World| w.query::<&Value>().with::<Marker<4>>().with::<Marker<5>>().count();
+    let a = |w: &mut World| {
+        w.query::<&Value>()
+            .filter::<With<Marker<0>>>()
+            .filter::<With<Marker<1>>>()
+            .count()
+    };
+    let b = |w: &mut World| {
+        w.query::<&Value>()
+            .filter::<With<Marker<2>>>()
+            .filter::<With<Marker<3>>>()
+            .count()
+    };
+    let c = |w: &mut World| {
+        w.query::<&Value>()
+            .filter::<With<Marker<4>>>()
+            .filter::<With<Marker<5>>>()
+            .count()
+    };
     for _ in 0..3 {
         assert_eq!((a(&mut w), b(&mut w)), (32, 32));
     }
@@ -480,9 +503,21 @@ fn the_memory_bound_keeps_the_index_small() {
     policy.max_index_bytes = 40 * 4;
     w.set_query_cache_policy(policy);
     for _ in 0..3 {
-        assert_eq!(w.query::<&Value>().with::<Marker<0>>().with::<Marker<1>>().count(), 32);
-        assert_eq!(w.query::<&Value>().with::<Marker<2>>().with::<Marker<3>>().count(), 32);
-        assert_eq!(w.query::<&Value>().cached().with::<Marker<4>>().count(), 64);
+        assert_eq!(
+            w.query::<&Value>()
+                .filter::<With<Marker<0>>>()
+                .filter::<With<Marker<1>>>()
+                .count(),
+            32
+        );
+        assert_eq!(
+            w.query::<&Value>()
+                .filter::<With<Marker<2>>>()
+                .filter::<With<Marker<3>>>()
+                .count(),
+            32
+        );
+        assert_eq!(w.query::<&Value>().cached().filter::<With<Marker<4>>>().count(), 64);
     }
     let stats = w.query_cache_stats();
     assert_eq!((stats.signatures, stats.indexed, stats.indices), (3, 1, 32));
@@ -502,14 +537,11 @@ fn chunk_queries_use_the_index_and_take_the_same_hints() {
     let ids = [value, m0];
     let rows = |w: &mut World, cache: Option<QueryCache>| {
         let mut rows = Vec::new();
-        let query = ChunkQuery {
-            writes: 0,
-            ..ChunkQuery::new(&ids)
-        };
+        let query = ChunkQuery::new(&ids).writes(0).filter(&filter);
         let collect = |chunk: Chunk<'_>| rows.extend_from_slice(chunk.entities);
         match cache {
-            None => w.query_chunks_filtered(query, &filter, collect),
-            Some(cache) => w.query_chunks_cached(query, Some(&filter), cache, collect),
+            None => w.raw().query_chunks(query, collect),
+            Some(cache) => w.raw().query_chunks(query.cache(cache), collect),
         }
         rows
     };
@@ -524,7 +556,7 @@ fn chunk_queries_use_the_index_and_take_the_same_hints() {
     // The typed query with the same meaning uses the same entry.
     let typed: Vec<Entity> = w
         .query::<(Entity, &Value, &Marker<0>)>()
-        .without::<Marker<1>>()
+        .filter::<Without<Marker<1>>>()
         .iter()
         .map(|r| r.0)
         .collect();
@@ -541,16 +573,16 @@ fn automatic_parallel_queries_keep_their_order() {
     let expected: Vec<_> = w
         .query::<&Value>()
         .uncached()
-        .with::<Marker<0>>()
-        .with::<Marker<3>>()
+        .filter::<With<Marker<0>>>()
+        .filter::<With<Marker<3>>>()
         .iter()
         .map(|v| v.0)
         .collect();
     for _ in 0..3 {
         let mut actual = Vec::new();
         w.query::<&Value>()
-            .with::<Marker<0>>()
-            .with::<Marker<3>>()
+            .filter::<With<Marker<0>>>()
+            .filter::<With<Marker<3>>>()
             .par_collect_into(&mut actual, |v| v.0);
         assert_eq!(actual, expected);
     }
@@ -566,7 +598,10 @@ fn change_detection_is_the_same_with_and_without_the_index() {
         w.track_changes::<Value>();
         let seen = w.advance_change_tick();
         for _ in 0..3 {
-            let q = w.query::<&mut Value>().with::<Marker<0>>().with::<Marker<1>>();
+            let q = w
+                .query::<&mut Value>()
+                .filter::<With<Marker<0>>>()
+                .filter::<With<Marker<1>>>();
             let mut q = match hint {
                 QueryCache::Always => q.cached(),
                 QueryCache::Never => q.uncached(),
@@ -616,11 +651,11 @@ fn a_lookup_works_while_its_query_uses_the_index() {
         // First use, promotion, then hits; hinted and not.
         for _ in 0..3 {
             w.query::<&Partner>()
-                .with::<Marker<0>>()
+                .filter::<With<Marker<0>>>()
                 .with_lookup::<&mut Score>()
                 .for_each(|partner, others| others.get_mut(partner.0).unwrap().0 += 1);
             w.query::<&Partner>()
-                .with::<Marker<2>>()
+                .filter::<With<Marker<2>>>()
                 .cached()
                 .with_lookup::<&mut Score>()
                 .for_each(|partner, others| others.get_mut(partner.0).unwrap().0 += 1);
@@ -678,7 +713,7 @@ fn every_path(w: &mut World, hint: QueryCache) -> Vec<Vec<usize>> {
     fn q<'w>(w: &'w mut World, hint: QueryCache) -> Query<'w, (Entity, &'w mut Value)> {
         let q = w
             .query::<(Entity, &mut Value)>()
-            .with::<Marker<0>>()
+            .filter::<With<Marker<0>>>()
             .filter::<Or<(With<Marker<1>>, Without<Marker<2>>)>>();
         match hint {
             QueryCache::Always => q.cached(),
@@ -718,9 +753,10 @@ fn every_path(w: &mut World, hint: QueryCache) -> Vec<Vec<usize>> {
     .compile()
     .unwrap();
     let mut rows = Vec::new();
-    w.query_chunks_cached(ChunkQuery::new(&ids), Some(&filter), hint, |chunk| {
-        rows.push(chunk.len());
-    });
+    w.raw()
+        .query_chunks(ChunkQuery::new(&ids).filter(&filter).cache(hint), |chunk| {
+            rows.push(chunk.len());
+        });
     seen.push(vec![rows.iter().sum()]);
     let mut rows = 0;
     w.raw().for_each_chunk(&ids, |chunk| rows += chunk.len());
@@ -780,9 +816,21 @@ fn a_small_full_index_sweeps_and_a_small_budget_scans() {
     policy.max_signatures = 2;
     w.set_query_cache_policy(policy);
     let frame = |w: &mut World| {
-        let a = w.query::<&Value>().with::<Marker<0>>().with::<Marker<1>>().count();
-        let b = w.query::<&Value>().with::<Marker<2>>().with::<Marker<3>>().count();
-        let c = w.query::<&Value>().with::<Marker<0>>().with::<Marker<3>>().count();
+        let a = w
+            .query::<&Value>()
+            .filter::<With<Marker<0>>>()
+            .filter::<With<Marker<1>>>()
+            .count();
+        let b = w
+            .query::<&Value>()
+            .filter::<With<Marker<2>>>()
+            .filter::<With<Marker<3>>>()
+            .count();
+        let c = w
+            .query::<&Value>()
+            .filter::<With<Marker<0>>>()
+            .filter::<With<Marker<3>>>()
+            .count();
         assert_eq!((a, b, c), (4, 4, 4));
     };
     // Enough refusals for a sweep.
@@ -796,7 +844,7 @@ fn a_small_full_index_sweeps_and_a_small_budget_scans() {
     w.set_query_cache_policy(policy);
     for _ in 0..3 {
         frame(&mut w);
-        assert_eq!(w.query::<&Value>().with::<Marker<0>>().cached().count(), 8);
+        assert_eq!(w.query::<&Value>().filter::<With<Marker<0>>>().cached().count(), 8);
     }
     let stats = w.query_cache_stats();
     assert_eq!((stats.indexed, stats.indices), (0, 0));

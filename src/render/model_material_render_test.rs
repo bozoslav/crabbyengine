@@ -116,7 +116,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, solid_prepass);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -175,21 +175,27 @@ impl Rig {
         let mut skins = SkinFrame::default();
         skins.collect(&mut ctx.world, &ctx.gfx.assets3d);
         let mut frame = Frame3D::default();
-        frame.lod = ctx.lod;
-        frame.collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        frame.lod = ctx.scene3d.lod;
+        frame.collect(
+            &mut ctx.world,
+            &ctx.gfx.assets3d,
+            &skins,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
+        );
         frame.skins = skins;
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // No light: the cubes glow on black.
             light: SkyLight {
                 sun: Vec3::ZERO,
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -281,9 +287,9 @@ fn one_mesh_draws_with_each_models_material() {
         let red = rig.material(glowing(Color::rgb(1.0, 0.0, 0.0)));
         let blue = rig.material(glowing(Color::rgb(0.0, 0.0, 1.0)));
         // Shadow maps on: the overrides go through the shadow passes too.
-        rig.ctx.lighting.shadows = true;
-        rig.ctx.camera3d.position = vec3(0.0, 0.0, 8.0);
-        rig.ctx.camera3d.look_at(Vec3::ZERO);
+        rig.ctx.scene3d.lighting.shadows = true;
+        rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, 8.0);
+        rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
         let world = &mut rig.ctx.world;
         world.spawn((
             Transform3D::at(vec3(-2.4, 0.0, 0.0)),
@@ -302,7 +308,7 @@ fn one_mesh_draws_with_each_models_material() {
             ModelMaterial(blue),
         ));
         let (pixels, runs) = rig.draw();
-        let view_proj = rig.ctx.camera3d.view_proj();
+        let view_proj = rig.ctx.scene3d.camera.view_proj();
         let at = |p: &[u8], x: f32| around(p, view_proj, vec3(x, 0.0, 0.0));
         let [left, middle, right] = [-2.4, 0.0, 2.4].map(|x| at(&pixels, x));
         eprintln!("prepass {solid_prepass}: {left:?} {middle:?} {right:?}, {runs} runs");
@@ -384,9 +390,9 @@ fn listed_parts_draw_with_their_materials_and_the_rest_keep_theirs() {
         let pair = rig.mesh_parts(&data, &[(left, glowing(GREEN)), (right, glowing(GREEN))], None);
         let red = rig.material(glowing(RED));
         let blue = rig.material(glowing(BLUE));
-        rig.ctx.lighting.shadows = true;
-        rig.ctx.camera3d.position = vec3(0.0, 0.0, 12.0);
-        rig.ctx.camera3d.look_at(Vec3::ZERO);
+        rig.ctx.scene3d.lighting.shadows = true;
+        rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, 12.0);
+        rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
         let world = &mut rig.ctx.world;
         let at = |y: f32| Transform3D::at(vec3(0.0, y, 0.0));
         // Top: part 1 red. Middle: as made. Bottom: all blue, part 1 red.
@@ -403,7 +409,7 @@ fn listed_parts_draw_with_their_materials_and_the_rest_keep_theirs() {
             crate::render::ModelMaterials::new(&[(1, red)]),
         ));
         let (pixels, runs) = rig.draw();
-        let view_proj = rig.ctx.camera3d.view_proj();
+        let view_proj = rig.ctx.scene3d.camera.view_proj();
         let row = |p: &[u8], y: f32| [-1.2, 1.2].map(|x| shows(p, view_proj, vec3(x, y, 0.0)));
         assert_eq!(row(&pixels, 2.6), [1, 0], "top: green, red");
         assert_eq!(row(&pixels, 0.0), [1, 1], "middle: green, green");
@@ -459,9 +465,9 @@ fn skinned_and_morphing_models_draw_with_the_override() {
     let morphing = rig.mesh_parts(&shaped, &[(left, glowing(GREEN)), (right, glowing(GREEN))], None);
     let red = rig.material(glowing(RED));
     let blue = rig.material(glowing(BLUE));
-    rig.ctx.lighting.shadows = true;
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, 14.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.lighting.shadows = true;
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, 14.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let world = &mut rig.ctx.world;
     let at = |y: f32| Transform3D::at(vec3(0.0, y, 0.0));
     // Skinned: as made; all red; all red with part 1 blue.
@@ -482,7 +488,7 @@ fn skinned_and_morphing_models_draw_with_the_override() {
         crate::render::ModelMaterials::new(&[(0, blue)]),
     ));
     let (pixels, _) = rig.draw();
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let row = |p: &[u8], y: f32| [-1.2, 1.2].map(|x| shows(p, view_proj, vec3(x, y, 0.0)));
     assert_eq!(row(&pixels, 3.9), [1, 1], "skinned, as made: green");
     assert_eq!(row(&pixels, 1.3), [0, 0], "skinned with a material: red");
@@ -515,9 +521,9 @@ fn lod_groups_and_terrain_tiles_draw_with_the_override() {
     let pair = rig.mesh_parts(&data, &[(left, glowing(GREEN)), (right, glowing(GREEN))], None);
     let red = rig.material(glowing(RED));
     let blue = rig.material(glowing(BLUE));
-    rig.ctx.lighting.shadows = true;
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, 14.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.lighting.shadows = true;
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, 14.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let world = &mut rig.ctx.world;
     let at = |y: f32| Transform3D::at(vec3(0.0, y, 0.0));
     let group = || LodGroup::new(4.0, vec![LodLevel::new(0.0, vec![LodRenderer::new(pair)])]);
@@ -535,7 +541,7 @@ fn lod_groups_and_terrain_tiles_draw_with_the_override() {
         crate::render::ModelMaterials::new(&[(0, red)]),
     ));
     let (pixels, runs) = rig.draw();
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let row = |p: &[u8], y: f32| [-1.2, 1.2].map(|x| shows(p, view_proj, vec3(x, y, 0.0)));
     assert_eq!(row(&pixels, 3.9), [1, 1], "group, as made: green");
     assert_eq!(row(&pixels, 1.3), [0, 0], "group with a material: red");

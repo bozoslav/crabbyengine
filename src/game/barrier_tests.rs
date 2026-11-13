@@ -163,7 +163,7 @@ fn commands_from_frame_systems_apply_before_late_and_draw_phases() {
 
 // ---- change detection -------------------------------------------------------------
 
-use crate::{Changed, Entity, Tick};
+use crate::{Changed, Entity, Tick, With};
 
 struct Hp;
 
@@ -184,9 +184,9 @@ fn frame_systems_see_the_changes_of_every_tick_since_their_last_frame() {
             let n = changed_hp(ctx);
             log(ctx, format!("frame {n}"));
         })
-        .late_system(|ctx: &mut Ctx| {
+        .add(Phase::Late, |ctx: &mut Ctx| {
             let removed = ctx.world.removed::<Hp>().len();
-            let first = ctx.world.query::<Entity>().with::<Hp>().iter().next();
+            let first = ctx.world.query::<Entity>().filter::<With<Hp>>().iter().next();
             if let Some(e) = first {
                 ctx.commands.despawn(e);
             }

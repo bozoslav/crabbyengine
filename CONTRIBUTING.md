@@ -74,8 +74,7 @@ cargo run --release --example battle
 
 ## Repository layout
 
-Cargo packages use `ponko` / `ponko_*`; legacy native ABI names,
-C/C++ headers and runtime environment variable names remain supported. New code
+Cargo packages use `ponko` / `ponko_*`; the old native names are gone, and legacy runtime environment variable names remain supported. Code
 uses `include/ponko.h`, `include/ponko.hpp`, and `PONKO_*` settings. See
 [the naming migration](book/src/naming.md) for precedence and compatibility.
 

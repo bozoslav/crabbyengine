@@ -12,6 +12,7 @@ use glam::{Quat, Vec4};
 /// assert_ne!(interpolation, ponko::anim::Interpolation::Step);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Interpolation {
     /// Hold the earlier value until the next key.
     Step,

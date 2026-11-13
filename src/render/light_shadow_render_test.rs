@@ -185,11 +185,11 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
     if point {
         ctx.world.get_mut::<SpotLight3D>(light).unwrap().intensity = 0.0;
     }
-    ctx.camera3d.position = vec3(0.0, 6.0, 6.0);
-    ctx.camera3d.look_at(Vec3::ZERO);
-    ctx.lighting.shadows = true;
-    ctx.lighting.light_shadow_atlas = 2048;
-    ctx.sky.atmosphere = false;
+    ctx.scene3d.camera.position = vec3(0.0, 6.0, 6.0);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
+    ctx.scene3d.lighting.shadows = true;
+    ctx.scene3d.lighting.light_shadow_atlas = 2048;
+    ctx.scene3d.sky.atmosphere = false;
 
     let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
     // The GPU-driven path wherever the device has it, whatever the batch's size.
@@ -226,8 +226,8 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
         renderer.set_instance_batch(
             &device,
             &queue,
-            handle.id(),
-            ctx.gfx.assets3d.instance_batches[handle.id() as usize].as_ref(),
+            handle.id,
+            ctx.gfx.assets3d.instance_batches[handle.id as usize].as_ref(),
         );
     }
     let mut draw = |ctx: &mut Ctx| -> Vec<u8> {
@@ -236,20 +236,20 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
                 sun: Vec3::ZERO,
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -289,7 +289,7 @@ fn local_shadow_levels(batch: bool, point: bool, compute: bool, casts: bool, cam
         readback.get_mapped_range(..).unwrap().to_vec()
     };
     // Where a ground point lands on screen, and how bright it is there.
-    let view_proj = ctx.camera3d.view_proj();
+    let view_proj = ctx.scene3d.camera.view_proj();
     let brightness = |pixels: &[u8], p: Vec3| -> u32 {
         let ndc = view_proj.project_point3(p);
         let x = ((ndc.x * 0.5 + 0.5) * SIZE as f32) as u32;

@@ -59,7 +59,7 @@ pub unsafe extern "C" fn ponko_ctx_cast_ray_filtered(
             let hit = unsafe {
                 ctx_access(ctx, |c| {
                     Ok(c.physics
-                        .cast_ray_filtered(to_c(origin), to_c(direction), max_distance, filter.into_engine()))
+                        .cast_ray(to_c(origin), to_c(direction), max_distance, filter.into_engine()))
                 })?
             };
             // SAFETY: outputs were checked non-null and the caller supplies writable storage.
@@ -114,7 +114,7 @@ pub unsafe extern "C" fn ponko_ctx_overlap_ball(
                 unsafe {
                     ctx_access(ctx, |c| {
                         c.physics
-                            .overlap_ball(to_c(center), radius, filter.into_engine(), found);
+                            .overlap_circle(to_c(center), radius, filter.into_engine(), found);
                         Ok(())
                     })?;
                     let mut n = 0;

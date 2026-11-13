@@ -97,6 +97,9 @@ pub(crate) struct Renderer {
     /// Samples per pixel of the 3D frame.
     #[cfg(feature = "3d")]
     msaa: u32,
+    /// The count the game asked for last (`Post::msaa`), taken or not.
+    #[cfg(feature = "3d")]
+    msaa_requested: u32,
     #[cfg(feature = "3d")]
     supports_msaa2: bool,
     /// The GPU draws in tiles (see `Renderer3D::solid_prepass`).
@@ -635,6 +638,8 @@ impl Renderer {
             #[cfg(feature = "3d")]
             msaa,
             #[cfg(feature = "3d")]
+            msaa_requested: requested_msaa,
+            #[cfg(feature = "3d")]
             supports_msaa2: msaa != 1
                 && required_features.contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
                 && super::gpu3d::multisamples(&adapter, 2),
@@ -668,28 +673,31 @@ impl Renderer {
         })
     }
 
+    /// Follows `Post::msaa`: switches the 3D frame and target cameras to
+    /// `requested` samples when it is a new count this GPU can take, keeping
+    /// meshes, materials and shaders (temporal history restarts). Before the
+    /// 3D pass is made this only records the count. A count it can't take
+    /// (other than 2 or 4, 2 where it has only 4, any on WebGL2) keeps the
+    /// current one, says so once on stderr, and shows as the Multisampling
+    /// fallback in the capabilities. While an asynchronous shader check is
+    /// pending it waits, and the next call tries again.
     #[cfg(feature = "3d")]
-    pub fn set_msaa(&mut self, samples: u32) -> bool {
-        if self.msaa == 1 || (samples == 2 && !self.supports_msaa2) || !matches!(samples, 2 | 4) {
-            return false;
+    pub(crate) fn follow_msaa(&mut self, requested: u32) {
+        if requested == self.msaa_requested {
+            return;
         }
-        if let Some(three) = &mut self.three
-            && !three.set_samples(&self.device, samples)
-        {
-            return false;
+        if msaa_switch(self.msaa, requested, self.supports_msaa2) {
+            if let Some(three) = &mut self.three
+                && !three.set_samples(&self.device, requested)
+            {
+                return;
+            }
+            self.msaa = requested;
+        } else if let Some(why) = msaa_refusal(self.msaa, requested, self.supports_msaa2) {
+            eprintln!("ponko: {why}");
         }
-        self.msaa = samples;
-        if let Some(status) = self
-            .capabilities
-            .features
-            .iter_mut()
-            .find(|s| s.feature == super::GpuFeature::Multisampling)
-        {
-            status.available = true;
-            status.fallback = None;
-            status.reason = None;
-        }
-        true
+        self.msaa_requested = requested;
+        super::capabilities::set_multisampling(&mut self.capabilities, requested, self.msaa);
     }
 
     /// The 3D pass, made on first use (with its white texture).
@@ -1950,5 +1958,65 @@ mod shadow_alpha_tests {
         assert!(!alpha.update([1, 0], [1, 2], &[0; 8]));
         assert_eq!(alpha.pixels, [255, 0, 255, 0]);
         assert_ne!(alpha, TextureAlpha::new(1, 4, &[255; 16]));
+    }
+}
+
+/// Whether the 3D frame switches from `current` MSAA samples to `wanted`:
+/// only to a different count of 2 or 4 the GPU takes, and never on a GPU
+/// without multisampling (`current` 1, WebGL2).
+#[cfg(feature = "3d")]
+fn msaa_switch(current: u32, wanted: u32, supports_msaa2: bool) -> bool {
+    wanted != current && current != 1 && (wanted == 4 || (wanted == 2 && supports_msaa2))
+}
+
+/// Why a requested sample count is not used, worth a line on stderr: a
+/// count no GPU takes, or 2 on a GPU with only 4. `None` when it is used,
+/// and on a GPU without multisampling (its capabilities say so).
+#[cfg(feature = "3d")]
+fn msaa_refusal(current: u32, wanted: u32, supports_msaa2: bool) -> Option<String> {
+    if !matches!(wanted, 2 | 4) {
+        Some(format!(
+            "post.msaa takes 2 or 4 samples, not {wanted}; keeping {current}x"
+        ))
+    } else if wanted == 2 && current != 1 && !supports_msaa2 {
+        Some(format!("this GPU can't do 2x multisampling here; using {current}x"))
+    } else {
+        None
+    }
+}
+
+#[cfg(all(test, feature = "3d"))]
+mod msaa_tests {
+    use super::msaa_switch;
+
+    #[test]
+    fn msaa_switches_only_to_another_count_the_gpu_takes() {
+        assert!(msaa_switch(4, 2, true));
+        assert!(msaa_switch(2, 4, false));
+        assert!(!msaa_switch(4, 4, true), "the same count");
+        assert!(!msaa_switch(4, 2, false), "2 where the GPU has only 4");
+        for wanted in [0, 1, 3, 8, 16] {
+            assert!(!msaa_switch(4, wanted, true), "{wanted} samples");
+        }
+        for wanted in [2, 4] {
+            assert!(!msaa_switch(1, wanted, true), "no multisampling");
+        }
+    }
+
+    #[test]
+    fn refused_counts_say_why_once_they_are_asked_for() {
+        use super::msaa_refusal;
+        assert_eq!(msaa_refusal(4, 4, true), None);
+        assert_eq!(msaa_refusal(4, 2, true), None);
+        assert_eq!(
+            msaa_refusal(4, 8, true).as_deref(),
+            Some("post.msaa takes 2 or 4 samples, not 8; keeping 4x")
+        );
+        assert_eq!(
+            msaa_refusal(4, 2, false).as_deref(),
+            Some("this GPU can't do 2x multisampling here; using 4x")
+        );
+        assert_eq!(msaa_refusal(1, 2, false), None, "WebGL2: the capabilities say so");
+        assert!(msaa_refusal(1, 0, false).is_some());
     }
 }

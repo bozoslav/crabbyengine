@@ -1,8 +1,8 @@
-//! Public material pipeline-set selection.
+//! Material pipeline-set selection (renderer-internal).
 
 /// Which faces of a material's triangles are drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MaterialSides {
+pub(crate) enum MaterialSides {
     /// Back faces culled: the default.
     One,
     /// Both faces drawn (`MaterialDesc::double_sided`); `surface` sees the
@@ -12,10 +12,10 @@ pub enum MaterialSides {
 
 impl MaterialSides {
     /// Every supported value, in renderer build order.
-    pub const ALL: [MaterialSides; 2] = [MaterialSides::One, MaterialSides::Both];
+    pub(crate) const ALL: [MaterialSides; 2] = [MaterialSides::One, MaterialSides::Both];
 
     /// Resolve the draw flags using the renderer's precedence.
-    pub fn of(double_sided: bool) -> Self {
+    pub(crate) fn of(double_sided: bool) -> Self {
         if double_sided {
             MaterialSides::Both
         } else {
@@ -31,7 +31,7 @@ impl MaterialSides {
 
 /// How a draw's instances reach the vertex shader.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MaterialInstancing {
+pub(crate) enum MaterialInstancing {
     /// One instance record per model (transform, tint, decal layers).
     Plain,
     /// Like `Plain`, for models crossfading between two levels of detail:
@@ -45,7 +45,8 @@ pub enum MaterialInstancing {
 
 impl MaterialInstancing {
     /// Every supported value, in renderer build order.
-    pub const ALL: [MaterialInstancing; 3] = [
+    #[cfg(test)]
+    pub(crate) const ALL: [MaterialInstancing; 3] = [
         MaterialInstancing::Plain,
         MaterialInstancing::Crossfade,
         MaterialInstancing::Shared,
@@ -53,7 +54,7 @@ impl MaterialInstancing {
 
     /// The instancing of a draw: buffer-driven wins over crossfading.
     /// Resolve the draw flags using the renderer's precedence.
-    pub fn of(fading: bool, shared: bool) -> Self {
+    pub(crate) fn of(fading: bool, shared: bool) -> Self {
         if shared {
             MaterialInstancing::Shared
         } else if fading {
@@ -81,17 +82,17 @@ impl MaterialInstancing {
 /// identity, target formats, samples and device features also enter the
 /// renderer's private pipeline cache key. This is not a serialized cache ID.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MaterialVariantKey {
+pub(crate) struct MaterialVariantKey {
     /// Which triangle faces are drawn.
-    pub sides: MaterialSides,
+    pub(crate) sides: MaterialSides,
     /// How vertex instances are supplied.
-    pub instancing: MaterialInstancing,
+    pub(crate) instancing: MaterialInstancing,
 }
 
 impl MaterialVariantKey {
     /// Every variant, plain ones first (those are built with the shader).
     /// Every supported value, in renderer build order.
-    pub const ALL: [MaterialVariantKey; 6] = [
+    pub(crate) const ALL: [MaterialVariantKey; 6] = [
         MaterialVariantKey::new(MaterialSides::One, MaterialInstancing::Plain),
         MaterialVariantKey::new(MaterialSides::Both, MaterialInstancing::Plain),
         MaterialVariantKey::new(MaterialSides::One, MaterialInstancing::Crossfade),
@@ -101,7 +102,24 @@ impl MaterialVariantKey {
     ];
 
     /// A key from its two independent features.
-    pub const fn new(sides: MaterialSides, instancing: MaterialInstancing) -> Self {
+    pub(crate) const fn new(sides: MaterialSides, instancing: MaterialInstancing) -> Self {
         Self { sides, instancing }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn variant_keys_cover_the_renderer_sets_without_device_handles() {
+        let keys: std::collections::HashSet<_> = MaterialVariantKey::ALL.into_iter().collect();
+        assert_eq!(keys.len(), 6);
+        for sides in MaterialSides::ALL {
+            for instancing in MaterialInstancing::ALL {
+                assert!(keys.contains(&MaterialVariantKey::new(sides, instancing)));
+            }
+        }
+        assert_eq!(MaterialInstancing::of(true, true), MaterialInstancing::Shared);
     }
 }

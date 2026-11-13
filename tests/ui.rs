@@ -37,14 +37,8 @@ fn shapes_and_screen_sprites_are_queued_like_sprites() {
         ctx.gfx.draw_rect(Rect::new(0.0, 0.0, 10.0, 10.0), Color::RED);
         ctx.gfx.draw_line(Vec2::ZERO, vec2(5.0, 5.0), 1.0, Color::RED);
         ctx.gfx.draw_circle(Vec2::ZERO, 3.0, Color::RED);
-        ctx.gfx.draw_ex(
-            &tex,
-            Vec2::ZERO,
-            DrawParams {
-                screen: true,
-                ..Default::default()
-            },
-        );
+        ctx.gfx
+            .draw_ex(tex, Vec2::ZERO, DrawParams::default().with_screen(true));
         assert_eq!(ctx.gfx.sprite_count(), 4);
     });
 }

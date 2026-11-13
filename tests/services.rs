@@ -17,7 +17,7 @@ use ponko::d3::{AudioListener, ReflectionProbe, Transform};
 use ponko::prelude::*;
 #[allow(unused_imports)]
 #[cfg(feature = "3d")]
-use ponko::render::{ComputePass, GraphicsQuality, MaterialDesc, Mesh, MeshData, QualityLevel};
+use ponko::render::{ComputePass, GraphicsQuality, MaterialDesc, Mesh, MeshData};
 #[allow(unused_imports)]
 use ponko::ui::{UiEvent, UiId, UiInput, UiWidget};
 
@@ -88,7 +88,7 @@ fn sim_dt_covers_every_step_of_a_slower_system() {
     }
     struct Runs(u32);
     let world = Game::new("t", 1, 1)
-        .sim_system_every(4, slow)
+        .add(Phase::AfterPhysics, slow.every(4))
         .run_headless(8, |ctx| ctx.world.insert_resource(Runs(0)));
     assert_eq!(world.resource::<Runs>().0, 2);
 }
@@ -206,7 +206,7 @@ fn sounds_play_while_a_world_query_is_alive() {
         let beep = ctx.world.resource::<Beep>().0;
         for p in ctx.world.query::<&mut Pos>().iter() {
             // `ctx.audio` is its own field: no need to collect first.
-            let playing = ctx.audio.play(&beep);
+            let playing = ctx.audio.play(beep);
             ctx.audio.stop(playing);
             p.0 += 1.0;
         }
@@ -226,7 +226,7 @@ fn the_audio_service_owns_sounds_buses_and_the_shortcuts_reach_it() {
         assert_eq!(beep.seconds(), 1.0);
         assert!(ctx.is_live(beep));
         // The shortcut plays through the same service.
-        let playing = ctx.play_sound(&beep);
+        let playing = ctx.play_sound(beep);
         ctx.audio.stop(playing);
         let music = ctx.audio.bus("music");
         assert_eq!(ctx.audio.bus("music"), music, "a name gives the same bus");
@@ -234,7 +234,7 @@ fn the_audio_service_owns_sounds_buses_and_the_shortcuts_reach_it() {
         ctx.audio.mute_bus(music, true);
         let on_bus = ctx
             .audio
-            .play_on(&beep, SoundParams::default(), music, AudioEffects::default());
+            .play_on(beep, SoundParams::default(), music, AudioEffects::default());
         ctx.audio.set_effects(on_bus, AudioEffects::default());
         ctx.audio.stop(on_bus);
         assert!(ctx.audio.try_load("missing.ogg").is_err());
@@ -248,7 +248,7 @@ fn the_audio_service_owns_sounds_buses_and_the_shortcuts_reach_it() {
 fn the_default_listener_is_the_camera_as_the_running_system_found_it() {
     fn listen(ctx: &mut Ctx) {
         // The camera the system started with is where the ears are...
-        assert_eq!(ctx.audio.listener().position, ctx.camera3d.position);
+        assert_eq!(ctx.audio.listener().position, ctx.scene3d.camera.position);
         // ...and a listener of the game's own replaces it at once.
         let ears = AudioListener {
             position: vec3(1.0, 2.0, 3.0),
@@ -257,10 +257,10 @@ fn the_default_listener_is_the_camera_as_the_running_system_found_it() {
         ctx.audio.set_listener(Some(ears));
         assert_eq!(ctx.audio.listener().position, ears.position);
         ctx.audio.set_listener(None);
-        ctx.camera3d.position.x += 1.0;
+        ctx.scene3d.camera.position.x += 1.0;
     }
     Game::new("t", 1, 1).sim_system(listen).run_headless(3, |ctx| {
-        ctx.camera3d.position = vec3(5.0, 0.0, 0.0);
+        ctx.scene3d.camera.position = vec3(5.0, 0.0, 0.0);
     });
 }
 
@@ -272,7 +272,7 @@ fn drawing_queues_while_a_world_query_is_alive() {
     fn draw_each(ctx: &mut Ctx) {
         // `ctx.gfx` is its own field: draw from inside the query.
         for (dot, at) in ctx.world.query::<(&Dot, &Transform2D)>().iter() {
-            ctx.gfx.draw(&dot.0, at.position);
+            ctx.gfx.draw(dot.0, at.position);
             ctx.gfx
                 .draw_rect(Rect::new(at.position.x, at.position.y, 1.0, 1.0), Color::WHITE);
         }
@@ -296,11 +296,11 @@ fn the_graphics_service_owns_textures_and_the_shortcuts_reach_it() {
         assert_eq!((pixel.width(), pixel.height()), (2, 2));
         assert!(ctx.is_live(pixel));
         assert_eq!(ctx.live_counts().textures, before + 1);
-        ctx.gfx.update_texture(&pixel, &[0; 16]);
-        ctx.gfx.set_texture_filter(&pixel, TextureFilter::Nearest);
+        ctx.gfx.update_texture(pixel, &[0; 16]);
+        ctx.gfx.set_texture_filter(pixel, TextureFilter::Nearest);
         // The shortcuts queue through the same service.
-        ctx.draw(&pixel, Vec2::ZERO);
-        ctx.gfx.draw_ex(&pixel, Vec2::ZERO, DrawParams::default());
+        ctx.draw(pixel, Vec2::ZERO);
+        ctx.gfx.draw_ex(pixel, Vec2::ZERO, DrawParams::default());
         assert_eq!(ctx.gfx.sprite_count(), 2);
         ctx.draw_text("headless text is measured, not drawn", Vec2::ZERO, 16.0, Color::WHITE);
         assert!(ctx.gfx.measure_text("wide", 16.0).x > 0.0);
@@ -342,11 +342,11 @@ fn a_texture_loaded_by_the_service_is_saved_by_file_name() {
     assert_eq!(save.matches("\"texture\":\"dot.png\"").count(), 1, "{save}");
 }
 
-fn sized(w: f32, h: f32) -> ponko::ui::layout::Style {
-    ponko::ui::layout::Style {
-        size: ponko::ui::layout::Size {
-            width: ponko::ui::layout::Dimension::length(w),
-            height: ponko::ui::layout::Dimension::length(h),
+fn sized(w: f32, h: f32) -> ponko::ui::unstable_taffy::Style {
+    ponko::ui::unstable_taffy::Style {
+        size: ponko::ui::unstable_taffy::Size {
+            width: ponko::ui::unstable_taffy::Dimension::length(w),
+            height: ponko::ui::unstable_taffy::Dimension::length(h),
         },
         flex_shrink: 0.0,
         ..Default::default()
@@ -362,7 +362,7 @@ fn ui_events_are_read_while_sounds_play() {
         // `ctx.ui.events()` borrows the UI; `ctx.audio` and `ctx.world` are other fields.
         for event in ctx.ui.events() {
             if let UiEvent::Clicked(id) = event {
-                let playing = ctx.audio.play(&click);
+                let playing = ctx.audio.play(click);
                 ctx.audio.stop(playing);
                 ctx.world.resource_mut::<Clicks>().0.push(id);
             }
@@ -374,8 +374,13 @@ fn ui_events_are_read_while_sounds_play() {
         let beep = ctx.audio.create(8000, &[0.0; 80]);
         ctx.world.insert_resource(Beep(beep));
         ctx.world.insert_resource(Clicks(Vec::new()));
-        let root = ctx.ui.add(UiWidget::Panel, sized(300.0, 200.0));
-        button = Some(ctx.ui.add_child(root, UiWidget::Button, sized(70.0, 30.0)));
+        let root = ctx
+            .ui
+            .add(UiWidget::Panel, ponko::ui::UiLayout::custom(sized(300.0, 200.0)));
+        button = Some(
+            ctx.ui
+                .add_child(root, UiWidget::Button, ponko::ui::UiLayout::custom(sized(70.0, 30.0))),
+        );
         ctx.ui.push_screen(root, false);
         assert!(ctx.ui.wants_keyboard(), "a screen is open");
         // A headless run has no window to feed the tree, so give it a frame
@@ -569,9 +574,6 @@ mod three {
     #[cfg(feature = "3d")]
     use ponko::render::MeshData;
     #[allow(unused_imports)]
-    #[cfg(feature = "3d")]
-    use ponko::render::QualityLevel;
-    #[allow(unused_imports)]
     use ponko::ui::UiEvent;
     #[allow(unused_imports)]
     use ponko::ui::UiId;
@@ -618,29 +620,29 @@ mod three {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             let buffer = ctx.gfx.create_gpu_buffer(4, &[]);
             let update = ctx.gfx.create_compute("up", "fn update(i: u32) { items[i].x += 1.0; }");
-            ctx.compute_passes.push(ComputePass::for_buffer(update, buffer));
+            ctx.scene3d.passes.compute.push(ComputePass::for_buffer(update, buffer));
             assert!(ctx.is_live(buffer));
             ctx.free(buffer);
-            assert!(ctx.compute_passes.is_empty());
+            assert!(ctx.scene3d.passes.compute.is_empty());
             assert_eq!(ctx.gfx.gpu_buffer_len(buffer), None);
             // The slot is reused under a new id, and starts clean.
             let again = ctx.gfx.create_gpu_buffer(2, &[]);
-            assert_eq!(again.id() & 0x00FF_FFFF, buffer.id() & 0x00FF_FFFF);
+            use ponko::__ffi::{self, SLOT_MASK}; // raw ids, to see the slot
+            assert_eq!(__ffi::id(again) & SLOT_MASK, __ffi::id(buffer) & SLOT_MASK);
             assert_ne!(again, buffer);
             assert_eq!(ctx.gfx.gpu_buffer_len(again), Some(2));
         });
     }
 
     #[test]
-    fn quality_presets_write_the_post_and_lighting_settings_they_are_given() {
+    fn quality_presets_write_the_post_and_lighting_settings() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
-            ctx.gfx
-                .set_quality(&mut ctx.post, &mut ctx.lighting, GraphicsQuality::low());
-            assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::Low);
-            assert_eq!(ctx.post.render_scale, GraphicsQuality::low().render_scale);
-            // A tweak on top stays, and the level says so.
-            ctx.lighting.shadow_distance += 1.0;
-            assert_eq!(ctx.gfx.quality(&ctx.post, &ctx.lighting).level(), QualityLevel::Custom);
+            ctx.scene3d.set_quality(GraphicsQuality::Low);
+            assert_eq!(ctx.scene3d.quality(), Some(GraphicsQuality::Low));
+            assert_eq!(ctx.scene3d.post.render_scale, 0.67);
+            // A tweak on top stays, and the preset is gone.
+            ctx.scene3d.lighting.shadow_distance += 1.0;
+            assert_eq!(ctx.scene3d.quality(), None);
         });
     }
 

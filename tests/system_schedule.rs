@@ -78,8 +78,8 @@ fn systems_that_declare_nothing_stay_alone_and_sequential() {
         .parallel_systems(true)
         .sim_system(|_| {})
         .sim_system(|_| {})
-        .add_with_access(Phase::AfterPhysics, writes::<Pos>(), |_| {})
-        .add_with_access(Phase::AfterPhysics, writes::<Vel>(), |_| {});
+        .add(Phase::AfterPhysics, (|_: &mut Ctx| {}).access(writes::<Pos>()))
+        .add(Phase::AfterPhysics, (|_: &mut Ctx| {}).access(writes::<Vel>()));
     let plan = game.schedule_plan();
     assert_eq!(stage_sizes(&game), [1, 1, 1, 1]);
     assert_eq!(plan.batches().count(), 0);
@@ -109,20 +109,20 @@ fn the_built_in_systems_run_alone() {
 #[test]
 fn a_chain_of_view_systems_runs_one_stage_each() {
     let game = Game::new("plan", 1, 1)
-        .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-        .add_view(Phase::AfterPhysics, reads::<Pos>().write::<Vel>(), nothing)
-        .add_view(Phase::AfterPhysics, reads::<Vel>().write::<Health>(), nothing);
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+        .add(Phase::AfterPhysics, nothing.access(reads::<Pos>().write::<Vel>()))
+        .add(Phase::AfterPhysics, nothing.access(reads::<Vel>().write::<Health>()));
     assert_eq!(stage_sizes(&game), [1, 1, 1]);
 }
 
 #[test]
 fn readers_fan_out_behind_their_writer() {
     let game = Game::new("plan", 1, 1)
-        .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-        .add_view(Phase::AfterPhysics, reads::<Pos>().write::<Vel>(), nothing)
-        .add_view(Phase::AfterPhysics, reads::<Pos>().write::<Health>(), nothing)
-        .add_view(Phase::AfterPhysics, reads::<Pos>(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Pos>().read::<Vel>(), nothing);
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+        .add(Phase::AfterPhysics, nothing.access(reads::<Pos>().write::<Vel>()))
+        .add(Phase::AfterPhysics, nothing.access(reads::<Pos>().write::<Health>()))
+        .add(Phase::AfterPhysics, nothing.access(reads::<Pos>()))
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>().read::<Vel>()));
     assert_eq!(stage_sizes(&game), [1, 3, 1]);
     let plan = game.schedule_plan();
     let fan = plan.stages_in(Phase::AfterPhysics)[1];
@@ -133,11 +133,11 @@ fn readers_fan_out_behind_their_writer() {
 #[test]
 fn a_ctx_system_between_view_systems_is_a_barrier() {
     let game = Game::new("plan", 1, 1)
-        .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Vel>(), nothing)
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+        .add(Phase::AfterPhysics, nothing.access(writes::<Vel>()))
         .sim_system(|_| {})
-        .add_view(Phase::AfterPhysics, writes::<Health>(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing);
+        .add(Phase::AfterPhysics, nothing.access(writes::<Health>()))
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()));
     assert_eq!(stage_sizes(&game), [2, 1, 2]);
     let plan = game.schedule_plan();
     let stages = plan.stages_in(Phase::AfterPhysics);
@@ -148,13 +148,13 @@ fn a_ctx_system_between_view_systems_is_a_barrier() {
 #[test]
 fn an_explicit_barrier_splits_a_batch_where_it_was_placed() {
     let game = Game::new("plan", 1, 1)
-        .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Vel>(), nothing)
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+        .add(Phase::AfterPhysics, nothing.access(writes::<Vel>()))
         .barrier(Phase::AfterPhysics)
-        .add_view(Phase::AfterPhysics, writes::<Health>(), nothing)
+        .add(Phase::AfterPhysics, nothing.access(writes::<Health>()))
         // A barrier in another phase doesn't touch this one.
         .barrier(Phase::SimLast)
-        .add_view(Phase::AfterPhysics, writes::<Score>(), nothing);
+        .add(Phase::AfterPhysics, nothing.access(writes::<Score>()));
     assert_eq!(stage_sizes(&game), [2, 2]);
     let plan = game.schedule_plan();
     assert_eq!(plan.stages_in(Phase::AfterPhysics)[1].boundary, Boundary::Barrier);
@@ -163,8 +163,8 @@ fn an_explicit_barrier_splits_a_batch_where_it_was_placed() {
 #[test]
 fn a_barrier_with_no_system_after_it_does_nothing() {
     let game = Game::new("plan", 1, 1)
-        .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Vel>(), nothing)
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+        .add(Phase::AfterPhysics, nothing.access(writes::<Vel>()))
         .barrier(Phase::AfterPhysics)
         .barrier(Phase::AfterPhysics);
     assert_eq!(stage_sizes(&game), [2]);
@@ -173,9 +173,9 @@ fn a_barrier_with_no_system_after_it_does_nothing() {
 #[test]
 fn explicit_order_keeps_two_systems_in_different_stages() {
     let mut game = Game::new("plan", 1, 1);
-    let first = game.add_view_system(Phase::AfterPhysics, writes::<Pos>(), nothing);
-    game.add_view_system(Phase::AfterPhysics, writes::<Vel>(), nothing);
-    let third = game.add_view_system(Phase::AfterPhysics, writes::<Health>(), nothing);
+    let first = game.add_system(Phase::AfterPhysics, nothing.access(writes::<Pos>()));
+    game.add_system(Phase::AfterPhysics, nothing.access(writes::<Vel>()));
+    let third = game.add_system(Phase::AfterPhysics, nothing.access(writes::<Health>()));
     assert_eq!(stage_sizes(&game), [3]);
     let game = game.order(first, third);
     assert_eq!(stage_sizes(&game), [2, 1]);
@@ -193,8 +193,8 @@ fn explicit_order_keeps_two_systems_in_different_stages() {
 #[should_panic(expected = "order can keep two systems apart, not swap them")]
 fn explicit_order_against_the_registration_order_panics() {
     let mut game = Game::new("plan", 1, 1);
-    let first = game.add_view_system(Phase::AfterPhysics, writes::<Pos>(), nothing);
-    let second = game.add_view_system(Phase::AfterPhysics, writes::<Vel>(), nothing);
+    let first = game.add_system(Phase::AfterPhysics, nothing.access(writes::<Pos>()));
+    let second = game.add_system(Phase::AfterPhysics, nothing.access(writes::<Vel>()));
     let _ = game.order(second, first).schedule_plan();
 }
 
@@ -203,8 +203,8 @@ fn explicit_order_against_the_registration_order_panics() {
 fn an_order_against_the_run_order_panics_at_the_start_with_the_scheduler_off() {
     // Not only once someone turns the scheduler on.
     let mut game = game(Mode::Off);
-    let first = game.add_view_system(Phase::AfterPhysics, writes::<Pos>(), nothing);
-    let second = game.add_view_system(Phase::AfterPhysics, writes::<Vel>(), nothing);
+    let first = game.add_system(Phase::AfterPhysics, nothing.access(writes::<Pos>()));
+    let second = game.add_system(Phase::AfterPhysics, nothing.access(writes::<Vel>()));
     game.order(second, first).run_headless(1, |_| {});
 }
 
@@ -212,8 +212,8 @@ fn an_order_against_the_run_order_panics_at_the_start_with_the_scheduler_off() {
 fn an_order_that_agrees_with_the_run_order_runs_in_every_mode() {
     for mode in MODES {
         let mut game = game(mode);
-        let first = game.add_view_system(Phase::BeforePhysics, writes::<Pos>(), nothing);
-        let second = game.add_view_system(Phase::AfterPhysics, writes::<Vel>(), nothing);
+        let first = game.add_system(Phase::BeforePhysics, nothing.access(writes::<Pos>()));
+        let second = game.add_system(Phase::AfterPhysics, nothing.access(writes::<Vel>()));
         game.order(first, second).run_headless(2, |_| {});
     }
 }
@@ -221,9 +221,9 @@ fn an_order_that_agrees_with_the_run_order_runs_in_every_mode() {
 #[test]
 fn phases_never_share_a_batch() {
     let game = Game::new("plan", 1, 1)
-        .add_view(Phase::BeforePhysics, writes::<Pos>(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Vel>(), nothing)
-        .add_view(Phase::SimLast, writes::<Health>(), nothing);
+        .add(Phase::BeforePhysics, nothing.access(writes::<Pos>()))
+        .add(Phase::AfterPhysics, nothing.access(writes::<Vel>()))
+        .add(Phase::SimLast, nothing.access(writes::<Health>()));
     let plan = game.schedule_plan();
     assert_eq!(plan.batches().count(), 0);
     for phase in [Phase::BeforePhysics, Phase::AfterPhysics, Phase::SimLast] {
@@ -234,20 +234,17 @@ fn phases_never_share_a_batch() {
 #[test]
 fn view_systems_that_hold_a_service_run_alone() {
     let game = Game::new("plan", 1, 1)
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            writes::<Pos>().write_service(Service::Camera),
-            nothing,
+            nothing.access(writes::<Pos>().write_service(Service::Camera)),
         )
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            writes::<Vel>().read_service(Service::Time),
-            nothing,
+            nothing.access(writes::<Vel>().read_service(Service::Time)),
         )
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            writes::<Health>().read_service(Service::Random),
-            nothing,
+            nothing.access(writes::<Health>().read_service(Service::Random)),
         );
     assert_eq!(stage_sizes(&game), [1, 2]);
     let plan = game.schedule_plan();
@@ -260,8 +257,8 @@ fn the_plan_is_the_same_with_the_scheduler_on_or_off() {
     let build = |on: bool| {
         Game::new("plan", 1, 1)
             .parallel_systems(on)
-            .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-            .add_view(Phase::AfterPhysics, writes::<Vel>(), nothing)
+            .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+            .add(Phase::AfterPhysics, nothing.access(writes::<Vel>()))
             .sim_system(|_| {})
             .schedule_plan()
             .to_string()
@@ -307,8 +304,8 @@ fn systems_of_a_batch_run_at_the_same_time() {
         }
     };
     let _ = game(Mode::Threads)
-        .add_view(Phase::AfterPhysics, writes::<Pos>(), system(0))
-        .add_view(Phase::AfterPhysics, writes::<Vel>(), system(1))
+        .add(Phase::AfterPhysics, system(0).access(writes::<Pos>()))
+        .add(Phase::AfterPhysics, system(1).access(writes::<Vel>()))
         .run_headless(1, |_| {});
     // The flags are never cleared, so the second to arrive always sees the
     // first; only systems that overlap both see each other.
@@ -330,9 +327,9 @@ fn conflicting_systems_never_overlap_and_keep_their_order() {
     };
     for mode in MODES {
         let mut world = game(mode)
-            .add_view(Phase::AfterPhysics, writes::<Score>(), step(|s| s + 1))
-            .add_view(Phase::AfterPhysics, writes::<Score>(), step(|s| s * 3))
-            .add_view(Phase::AfterPhysics, writes::<Score>(), step(|s| s - 5))
+            .add(Phase::AfterPhysics, step(|s| s + 1).access(writes::<Score>()))
+            .add(Phase::AfterPhysics, step(|s| s * 3).access(writes::<Score>()))
+            .add(Phase::AfterPhysics, step(|s| s - 5).access(writes::<Score>()))
             .run_headless(4, |ctx| {
                 ctx.world.spawn((Score(0),));
             });
@@ -352,16 +349,24 @@ fn a_reader_never_runs_while_its_writer_does() {
     for mode in MODES {
         let (w, r) = (w.clone(), r.clone());
         let _ = game(mode)
-            .add_view(Phase::AfterPhysics, reads::<Pos>(), move |sys: &mut SystemView| {
-                assert!(!r.load(Ordering::SeqCst), "read during a write");
-                let _ = sys.world.query::<&Pos>().count();
-            })
-            .add_view(Phase::AfterPhysics, writes::<Pos>(), move |sys: &mut SystemView| {
-                w.store(true, Ordering::SeqCst);
-                sys.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
-                std::thread::sleep(Duration::from_micros(300));
-                w.store(false, Ordering::SeqCst);
-            })
+            .add(
+                Phase::AfterPhysics,
+                (move |sys: &mut SystemView| {
+                    assert!(!r.load(Ordering::SeqCst), "read during a write");
+                    let _ = sys.world.query::<&Pos>().count();
+                })
+                .access(reads::<Pos>()),
+            )
+            .add(
+                Phase::AfterPhysics,
+                (move |sys: &mut SystemView| {
+                    w.store(true, Ordering::SeqCst);
+                    sys.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
+                    std::thread::sleep(Duration::from_micros(300));
+                    w.store(false, Ordering::SeqCst);
+                })
+                .access(writes::<Pos>()),
+            )
             .run_headless(6, |ctx| {
                 ctx.world.spawn((Pos(0.0),));
             });
@@ -373,32 +378,32 @@ fn commands_of_a_batch_apply_when_it_ends() {
     for mode in MODES {
         let world = game(mode)
             // A batch: the counter, then the spawner (a recorder is last).
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().write_resource::<Log>(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     let n = sys.world.len();
                     sys.world.resource_mut::<Log>().0.push(format!("batch sees {n}"));
-                },
+                })
+                .access(SystemAccess::new().write_resource::<Log>()),
             )
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                writes::<Health>().commands(),
-                |sys: &mut SystemView| {
-                    sys.commands().spawn((Health(1),));
+                (|sys: &mut SystemView| {
+                    sys.commands.spawn((Health(1),));
                     // Not applied inside the recorder.
                     assert_eq!(sys.world.query::<&Health>().count() % 2, 0);
-                    sys.commands().spawn((Health(2),));
-                },
+                    sys.commands.spawn((Health(2),));
+                })
+                .access(writes::<Health>().commands()),
             )
             // The next stage sees both.
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                reads::<Health>().write_resource::<Log>(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     let n = sys.world.query::<&Health>().count();
                     sys.world.resource_mut::<Log>().0.push(format!("next sees {n}"));
-                },
+                })
+                .access(reads::<Health>().write_resource::<Log>()),
             )
             .run_headless(2, |ctx| ctx.world.insert_resource(Log::default()));
         assert_eq!(
@@ -412,11 +417,11 @@ fn commands_of_a_batch_apply_when_it_ends() {
 #[test]
 fn a_command_recorder_is_always_the_last_of_its_batch() {
     let game = Game::new("plan", 1, 1)
-        .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Vel>().commands(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Health>(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Score>().commands(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Pos>().commands(), nothing);
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+        .add(Phase::AfterPhysics, nothing.access(writes::<Vel>().commands()))
+        .add(Phase::AfterPhysics, nothing.access(writes::<Health>()))
+        .add(Phase::AfterPhysics, nothing.access(writes::<Score>().commands()))
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>().commands()));
     assert_eq!(stage_sizes(&game), [2, 2, 1]);
 }
 
@@ -426,30 +431,30 @@ fn events_sent_in_a_batch_arrive_in_registration_order() {
         let world = game(mode)
             // Two senders of one type share a batch. The first is slow, so
             // on threads the second finishes sending first.
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                writes::<Pos>().send_events::<Hit>(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     std::thread::sleep(Duration::from_millis(2));
-                    sys.events().send(Hit(1));
-                    sys.events().send(Hit(2));
-                },
+                    sys.events.send(Hit(1));
+                    sys.events.send(Hit(2));
+                })
+                .access(writes::<Pos>().send_events::<Hit>()),
             )
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                writes::<Vel>().send_events::<Hit>(),
-                |sys: &mut SystemView| {
-                    sys.events().send(Hit(3));
-                },
+                (|sys: &mut SystemView| {
+                    sys.events.send(Hit(3));
+                })
+                .access(writes::<Vel>().send_events::<Hit>()),
             )
             // A reader after them is in the next stage: it sees all three.
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().read_events::<Hit>().write_resource::<Log>(),
-                |sys: &mut SystemView| {
-                    let hits: Vec<u32> = sys.events().read::<Hit>().iter().map(|h| h.0).collect();
+                (|sys: &mut SystemView| {
+                    let hits: Vec<u32> = sys.events.read::<Hit>().iter().map(|h| h.0).collect();
                     sys.world.resource_mut::<Log>().0.push(format!("{hits:?}"));
-                },
+                })
+                .access(SystemAccess::new().read_events::<Hit>().write_resource::<Log>()),
             )
             .run_headless(2, |ctx| ctx.world.insert_resource(Log::default()));
         assert_eq!(lines(&world), ["[1, 2, 3]", "[1, 2, 3]"], "{mode:?}");
@@ -460,27 +465,27 @@ fn events_sent_in_a_batch_arrive_in_registration_order() {
 fn a_reader_before_its_sender_shares_the_batch_and_reads_next_tick() {
     let build = |mode| {
         game(mode)
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().read_events::<Hit>().write_resource::<Log>(),
-                |sys: &mut SystemView| {
-                    let kept = sys.events().peek::<Hit>().len();
-                    let hits: Vec<u32> = sys.events().read::<Hit>().iter().map(|h| h.0).collect();
+                (|sys: &mut SystemView| {
+                    let kept = sys.events.peek::<Hit>().len();
+                    let hits: Vec<u32> = sys.events.read::<Hit>().iter().map(|h| h.0).collect();
                     // A second read in the same run finds nothing new.
-                    assert!(sys.events().read::<Hit>().is_empty());
+                    assert!(sys.events.read::<Hit>().is_empty());
                     sys.world
                         .resource_mut::<Log>()
                         .0
                         .push(format!("read {hits:?} kept {kept}"));
-                },
+                })
+                .access(SystemAccess::new().read_events::<Hit>().write_resource::<Log>()),
             )
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().send_events::<Hit>().read_service(Service::Time),
-                |sys: &mut SystemView| {
-                    let tick = sys.sim_tick() as u32;
-                    sys.events().send(Hit(tick));
-                },
+                (|sys: &mut SystemView| {
+                    let tick = sys.time.sim_tick() as u32;
+                    sys.events.send(Hit(tick));
+                })
+                .access(SystemAccess::new().send_events::<Hit>().read_service(Service::Time)),
             )
     };
     assert_eq!(stage_sizes(&build(Mode::Off)), [2]);
@@ -498,18 +503,20 @@ fn a_reader_before_its_sender_shares_the_batch_and_reads_next_tick() {
 fn a_system_that_sends_and_reads_one_type_still_sees_its_own_events() {
     for mode in MODES {
         let world = game(mode)
-            .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-            .add_view(
+            .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new()
-                    .send_events::<Hit>()
-                    .read_events::<Hit>()
-                    .write_resource::<Log>(),
-                |sys: &mut SystemView| {
-                    sys.events().send(Hit(7));
-                    let n = sys.events().read::<Hit>().len();
+                (|sys: &mut SystemView| {
+                    sys.events.send(Hit(7));
+                    let n = sys.events.read::<Hit>().len();
                     sys.world.resource_mut::<Log>().0.push(format!("own {n}"));
-                },
+                })
+                .access(
+                    SystemAccess::new()
+                        .send_events::<Hit>()
+                        .read_events::<Hit>()
+                        .write_resource::<Log>(),
+                ),
             )
             .run_headless(2, |ctx| ctx.world.insert_resource(Log::default()));
         assert_eq!(lines(&world), ["own 1", "own 1"], "{mode:?}");
@@ -525,18 +532,22 @@ fn an_explicit_barrier_makes_earlier_work_visible() {
         let (a, b) = (seen.clone(), seen.clone());
         seen.store(0, Ordering::SeqCst);
         let world = game(mode)
-            .add_view(Phase::AfterPhysics, writes::<Pos>(), move |_: &mut SystemView| {
-                std::thread::sleep(Duration::from_millis(1));
-                a.store(5, Ordering::SeqCst);
-            })
-            .barrier(Phase::AfterPhysics)
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().write_resource::<Log>(),
-                move |sys: &mut SystemView| {
+                (move |_: &mut SystemView| {
+                    std::thread::sleep(Duration::from_millis(1));
+                    a.store(5, Ordering::SeqCst);
+                })
+                .access(writes::<Pos>()),
+            )
+            .barrier(Phase::AfterPhysics)
+            .add(
+                Phase::AfterPhysics,
+                (move |sys: &mut SystemView| {
                     let n = b.load(Ordering::SeqCst);
                     sys.world.resource_mut::<Log>().0.push(n.to_string());
-                },
+                })
+                .access(SystemAccess::new().write_resource::<Log>()),
             )
             .run_headless(1, |ctx| ctx.world.insert_resource(Log::default()));
         assert_eq!(lines(&world), ["5"], "{mode:?}");
@@ -548,7 +559,12 @@ fn each_system_keeps_its_own_random_stream_and_clock() {
     let run = |mode| {
         let draw = |sys: &mut SystemView| {
             let n = sys.random().stream(1).u64();
-            let line = format!("{} tick {} dt {:.4} {n}", sys.name().len(), sys.sim_tick(), sys.dt());
+            let line = format!(
+                "{} tick {} dt {:.4} {n}",
+                sys.name().len(),
+                sys.time.sim_tick(),
+                sys.dt()
+            );
             sys.world.query::<&mut Vec<String>>().for_each(|v| v.push(line.clone()));
         };
         let other = |sys: &mut SystemView| {
@@ -562,8 +578,8 @@ fn each_system_keeps_its_own_random_stream_and_clock() {
         };
         let mut world = game(mode)
             .seed(99)
-            .add_view(Phase::AfterPhysics, random().write::<Vec<String>>(), draw)
-            .add_view(Phase::AfterPhysics, random().write_resource::<Log>(), other)
+            .add(Phase::AfterPhysics, draw.access(random().write::<Vec<String>>()))
+            .add(Phase::AfterPhysics, other.access(random().write_resource::<Log>()))
             .run_headless(3, |ctx| {
                 ctx.world.insert_resource(Log::default());
                 ctx.world.spawn((Vec::<String>::new(),));
@@ -598,25 +614,29 @@ fn raw_change_ticks_are_the_same_in_every_mode() {
                 ctx.world.resource_mut::<Log>().0.push(format!("before {tick}"));
             })
             // A batch of three. The first keeps its tick in a resource.
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                writes::<Pos>().write_resource::<Kept>(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     sys.world.resource_mut::<Kept>().0 = sys.world.change_tick().to_bits();
                     sys.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
-                },
+                })
+                .access(writes::<Pos>().write_resource::<Kept>()),
             )
-            .add_view(Phase::AfterPhysics, writes::<Vel>(), |sys: &mut SystemView| {
-                sys.world.query::<&mut Vel>().for_each(|v| v.0 += 1.0);
-            })
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                writes::<Health>().write_resource::<Log>().commands(),
-                move |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
+                    sys.world.query::<&mut Vel>().for_each(|v| v.0 += 1.0);
+                })
+                .access(writes::<Vel>()),
+            )
+            .add(
+                Phase::AfterPhysics,
+                (move |sys: &mut SystemView| {
                     note(sys, "third");
                     sys.world.query::<&mut Health>().for_each(|h| h.0 += 1);
-                    sys.commands().spawn((Score(0),));
-                },
+                    sys.commands.spawn((Score(0),));
+                })
+                .access(writes::<Health>().write_resource::<Log>().commands()),
             )
             // Afterwards: what changed after the tick the first one kept?
             // Its own writes didn't; those of the systems after it did.
@@ -662,10 +682,9 @@ fn change_filters_see_the_same_changes_in_every_mode() {
     let run = |mode| {
         let world = game(mode)
             // Writes Health of the entities whose Pos changed since it last ran.
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                reads::<Pos>().write_resource::<Log>(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     let n = sys.world.query::<Entity>().filter::<Changed<Pos>>().count();
                     let added = sys.world.query::<Entity>().filter::<Added<Pos>>().count();
                     let gone = sys.world.removed::<Pos>().len();
@@ -673,33 +692,34 @@ fn change_filters_see_the_same_changes_in_every_mode() {
                         .resource_mut::<Log>()
                         .0
                         .push(format!("changed {n} added {added} gone {gone}"));
-                },
+                })
+                .access(reads::<Pos>().write_resource::<Log>()),
             )
             // Same batch: spawns and despawns through commands.
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                writes::<Health>().read_service(Service::Time).commands(),
-                |sys: &mut SystemView| {
-                    let tick = sys.sim_tick();
+                (|sys: &mut SystemView| {
+                    let tick = sys.time.sim_tick();
                     if tick.is_multiple_of(2) {
-                        sys.commands().spawn((Pos(tick as f32), Health(1)));
+                        sys.commands.spawn((Pos(tick as f32), Health(1)));
                     } else {
                         let first = sys.world.query::<(Entity, &Health)>().iter().next().map(|(e, _)| e);
                         if let Some(e) = first {
-                            sys.commands().despawn(e);
+                            sys.commands.despawn(e);
                         }
                     }
-                },
+                })
+                .access(writes::<Health>().read_service(Service::Time).commands()),
             )
             // Next stage: moves every third tick.
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                writes::<Pos>().read_service(Service::Time),
-                |sys: &mut SystemView| {
-                    if sys.sim_tick().is_multiple_of(3) {
+                (|sys: &mut SystemView| {
+                    if sys.time.sim_tick().is_multiple_of(3) {
                         sys.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
                     }
-                },
+                })
+                .access(writes::<Pos>().read_service(Service::Time)),
             )
             .run_headless(9, |ctx| {
                 ctx.world.track_changes::<Pos>();
@@ -723,23 +743,27 @@ fn change_filters_see_the_same_changes_in_every_mode() {
 fn interval_systems_between_batches_still_skip_their_ticks() {
     for mode in MODES {
         let world = game(mode)
-            .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-            .add_view(Phase::AfterPhysics, writes::<Vel>(), nothing)
-            .sim_system_every(3, |ctx: &mut Ctx| {
-                let line = format!("slow at {} dt {:.3}", ctx.time.sim_tick(), ctx.dt());
-                ctx.world.resource_mut::<Log>().0.push(line);
-            })
-            .add_view(
+            .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+            .add(Phase::AfterPhysics, nothing.access(writes::<Vel>()))
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().write_resource::<Log>().read_service(Service::Time),
-                |sys: &mut SystemView| {
+                (|ctx: &mut Ctx| {
+                    let line = format!("slow at {} dt {:.3}", ctx.time.sim_tick(), ctx.dt());
+                    ctx.world.resource_mut::<Log>().0.push(line);
+                })
+                .every(3),
+            )
+            .add(
+                Phase::AfterPhysics,
+                (|sys: &mut SystemView| {
                     let line = format!("view dt {:.3}", sys.dt());
-                    if sys.sim_tick() == 0 {
+                    if sys.time.sim_tick() == 0 {
                         sys.world.resource_mut::<Log>().0.push(line);
                     }
-                },
+                })
+                .access(SystemAccess::new().write_resource::<Log>().read_service(Service::Time)),
             )
-            .add_view(Phase::AfterPhysics, writes::<Health>(), nothing)
+            .add(Phase::AfterPhysics, nothing.access(writes::<Health>()))
             .run_headless(6, |ctx| ctx.world.insert_resource(Log::default()));
         assert_eq!(
             lines(&world),
@@ -753,10 +777,14 @@ fn interval_systems_between_batches_still_skip_their_ticks() {
 #[should_panic(expected = "doesn't declare that it may write component")]
 fn an_undeclared_write_in_a_batch_panics_with_the_usual_message() {
     let _ = game(Mode::Threads)
-        .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-        .add_view(Phase::AfterPhysics, reads::<Vel>(), |sys: &mut SystemView| {
-            sys.world.query::<&mut Vel>().for_each(|v| v.0 += 1.0);
-        })
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+        .add(
+            Phase::AfterPhysics,
+            (|sys: &mut SystemView| {
+                sys.world.query::<&mut Vel>().for_each(|v| v.0 += 1.0);
+            })
+            .access(reads::<Vel>()),
+        )
         .run_headless(1, |ctx| {
             ctx.world.spawn((Pos(0.0), Vel(0.0)));
         });
@@ -766,10 +794,14 @@ fn an_undeclared_write_in_a_batch_panics_with_the_usual_message() {
 #[should_panic(expected = "doesn't declare that it may send events")]
 fn an_undeclared_event_in_a_batch_panics_with_the_usual_message() {
     let _ = game(Mode::InOrder)
-        .add_view(Phase::AfterPhysics, writes::<Pos>(), nothing)
-        .add_view(Phase::AfterPhysics, writes::<Vel>(), |sys: &mut SystemView| {
-            sys.events().send(Hit(1));
-        })
+        .add(Phase::AfterPhysics, nothing.access(writes::<Pos>()))
+        .add(
+            Phase::AfterPhysics,
+            (|sys: &mut SystemView| {
+                sys.events.send(Hit(1));
+            })
+            .access(writes::<Vel>()),
+        )
         .run_headless(1, |_| {});
 }
 
@@ -777,20 +809,20 @@ fn an_undeclared_event_in_a_batch_panics_with_the_usual_message() {
 fn resources_written_in_a_batch_are_back_in_the_world_afterwards() {
     for mode in MODES {
         let world = game(mode)
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().write_resource::<Score>(),
-                |sys: &mut SystemView| sys.world.resource_mut::<Score>().0 += 1,
+                (|sys: &mut SystemView| sys.world.resource_mut::<Score>().0 += 1)
+                    .access(SystemAccess::new().write_resource::<Score>()),
             )
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().write_resource::<Log>(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     // Created by the system: it wasn't there before.
                     if sys.world.get_resource::<Log>().is_none() {
                         sys.world.insert_resource(Log(vec!["made".into()]));
                     }
-                },
+                })
+                .access(SystemAccess::new().write_resource::<Log>()),
             )
             .run_headless(5, |ctx| ctx.world.insert_resource(Score(0)));
         assert_eq!(world.resource::<Score>().0, 5, "{mode:?}");
@@ -804,13 +836,21 @@ fn resources_written_in_a_batch_are_back_in_the_world_afterwards() {
 fn a_profile_lists_the_same_systems_in_every_mode() {
     let run = |mode| {
         let (mut world, report) = game(mode)
-            .add_view(Phase::AfterPhysics, writes::<Pos>(), |sys: &mut SystemView| {
-                profile_scope!("schedule/pos");
-                sys.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
-            })
-            .add_view(Phase::AfterPhysics, writes::<Vel>(), |sys: &mut SystemView| {
-                sys.world.query::<&mut Vel>().for_each(|v| v.0 += 2.0);
-            })
+            .add(
+                Phase::AfterPhysics,
+                (|sys: &mut SystemView| {
+                    profile_scope!("schedule/pos");
+                    sys.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
+                })
+                .access(writes::<Pos>()),
+            )
+            .add(
+                Phase::AfterPhysics,
+                (|sys: &mut SystemView| {
+                    sys.world.query::<&mut Vel>().for_each(|v| v.0 += 2.0);
+                })
+                .access(writes::<Vel>()),
+            )
             .sim_system(|ctx: &mut Ctx| {
                 ctx.world.query::<&mut Health>().for_each(|h| h.0 += 1);
             })
@@ -914,13 +954,13 @@ mod lockstep {
             }
         });
         for e in out {
-            sys.events().send(Burned(e.index()));
-            sys.commands().despawn(e);
+            sys.events.send(Burned(e.index()));
+            sys.commands.despawn(e);
         }
     }
 
     fn count_burned(sys: &mut SystemView) {
-        let n = sys.events().read::<Burned>().len() as i64;
+        let n = sys.events.read::<Burned>().len() as i64;
         sys.world.resource_mut::<Score>().0 += n;
     }
 
@@ -933,30 +973,28 @@ mod lockstep {
         let world = game(mode)
             .lockstep(net)
             .add(Phase::BeforePhysics, play_along)
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                time_and_random().write::<Unit>().read_resource::<Steering>(),
-                accelerate,
+                accelerate.access(time_and_random().write::<Unit>().read_resource::<Steering>()),
             )
-            .add_view(Phase::AfterPhysics, time_and_random().write::<Heat>(), cool)
-            .add_view(
+            .add(Phase::AfterPhysics, cool.access(time_and_random().write::<Heat>()))
+            .add(
                 Phase::AfterPhysics,
-                time_and_random().write::<Transform2D>().read::<Unit>(),
-                movement,
+                movement.access(time_and_random().write::<Transform2D>().read::<Unit>()),
             )
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new()
-                    .read::<Unit>()
-                    .read::<Heat>()
-                    .send_events::<Burned>()
-                    .commands(),
-                burn_out,
+                burn_out.access(
+                    SystemAccess::new()
+                        .read::<Unit>()
+                        .read::<Heat>()
+                        .send_events::<Burned>()
+                        .commands(),
+                ),
             )
-            .add_view(
+            .add(
                 Phase::SimLast,
-                SystemAccess::new().read_events::<Burned>().write_resource::<Score>(),
-                count_burned,
+                count_burned.access(SystemAccess::new().read_events::<Burned>().write_resource::<Score>()),
             )
             .sim_system(move |ctx: &mut Ctx| {
                 if ctx.time.sim_tick() + 1 == ticks {
@@ -1141,21 +1179,21 @@ mod differential {
                     acc = r.0;
                 }),
                 Op::Send(i) => with_type!(E, i, T => {
-                    sys.events().send(T::of(acc));
-                    sys.events().send(T::of(acc ^ 1));
+                    sys.events.send(T::of(acc));
+                    sys.events.send(T::of(acc ^ 1));
                 }),
                 Op::ReadEvents(i) => with_type!(E, i, T => {
-                    for e in sys.events().read::<T>() {
+                    for e in sys.events.read::<T>() {
                         acc = mix(acc, e.0);
                     }
                 }),
                 Op::Spawn => {
                     if sys.world.len() < MAX_ENTITIES {
-                        sys.commands().spawn((C::<0>(acc), C::<2>(acc ^ 5)));
+                        sys.commands.spawn((C::<0>(acc), C::<2>(acc ^ 5)));
                     }
                 }
                 Op::Random => acc = mix(acc, sys.random().stream(3).u64() as i64),
-                Op::Tick => acc = mix(acc, sys.sim_tick() as i64),
+                Op::Tick => acc = mix(acc, sys.time.sim_tick() as i64),
             }
         }
     }
@@ -1263,11 +1301,19 @@ mod differential {
             }
             let ops = spec.ops;
             game = if spec.view {
-                game.add_view(spec.phase, declare(&ops), move |sys: &mut SystemView| {
-                    run_view(&ops, salt, sys);
-                })
+                let access = declare(&ops);
+                game.add(
+                    spec.phase,
+                    (move |sys: &mut SystemView| {
+                        run_view(&ops, salt, sys);
+                    })
+                    .access(access),
+                )
             } else if spec.every > 1 {
-                game.sim_system_every(spec.every, move |ctx: &mut Ctx| run_ctx(&ops, salt, ctx))
+                game.add(
+                    Phase::AfterPhysics,
+                    (move |ctx: &mut Ctx| run_ctx(&ops, salt, ctx)).every(spec.every),
+                )
             } else {
                 game.add(spec.phase, move |ctx: &mut Ctx| run_ctx(&ops, salt, ctx))
             };
@@ -1400,14 +1446,16 @@ mod guide {
         Game::new("falling", 320, 240)
             // Off by default. On, view systems that don't conflict share a batch.
             .parallel_systems(true)
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                time().write::<Vel>().read_resource::<Gravity>(),
-                fall,
+                fall.access(time().write::<Vel>().read_resource::<Gravity>()),
             )
-            .add_view(Phase::AfterPhysics, time().write::<Health>(), regenerate)
+            .add(Phase::AfterPhysics, regenerate.access(time().write::<Health>()))
             // Reads what `fall` writes: it waits for `fall`'s batch to end.
-            .add_view(Phase::AfterPhysics, time().write::<Pos>().read::<Vel>(), movement)
+            .add(
+                Phase::AfterPhysics,
+                movement.access(time().write::<Pos>().read::<Vel>()),
+            )
     }
     // ANCHOR_END: parallel_systems
 

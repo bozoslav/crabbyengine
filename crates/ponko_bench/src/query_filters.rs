@@ -56,13 +56,8 @@ pub fn run(b: &mut Bench) {
     b.steady("query-filter/c-plain", 200, world, |w| {
         let ids = [w.register::<Pos>(), w.register::<Vel>()];
         let dt = black_box(DT);
-        w.query_chunks(
-            ChunkQuery {
-                writes: 1,
-                ..ChunkQuery::new(&ids)
-            },
-            |chunk| step(&chunk, dt),
-        );
+        w.raw()
+            .query_chunks(ChunkQuery::new(&ids).writes(1), |chunk| step(&chunk, dt));
     });
     // The filtered C path compiles its filter on every call: the tree of
     // component numbers is walked into inline storage and each number is
@@ -88,14 +83,10 @@ pub fn run(b: &mut Bench) {
             let ids = [w.register::<Pos>(), w.register::<Vel>()];
             let dt = black_box(DT);
             let filter = compile_tree(&tree, |raw| w.component_at(raw as usize)).unwrap();
-            w.query_chunks_filtered(
-                ChunkQuery {
-                    writes: 1,
-                    ..ChunkQuery::new(&ids)
-                },
-                &filter,
-                |chunk| step(&chunk, dt),
-            );
+            w.raw()
+                .query_chunks(ChunkQuery::new(&ids).writes(1).filter(&filter), |chunk| {
+                    step(&chunk, dt)
+                });
         });
     }
 }

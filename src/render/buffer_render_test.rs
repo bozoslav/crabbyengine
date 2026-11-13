@@ -2,10 +2,10 @@
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
 #[allow(unused_imports)]
-use crate::anim::Blend;
-#[allow(unused_imports)]
 use crate::d3::Transform as Transform3D;
 use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::Blend;
 #[allow(unused_imports)]
 use crate::render::{
     AntiAliasing, ComputePass, GpuBuffer, GpuFeature, InstanceBatchOptions, InstanceLevel, MaterialDesc, Mesh,
@@ -148,7 +148,7 @@ impl Rig {
         // whatever the batch's size.
         renderer.batching.path = BatchPath::Gpu;
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -194,17 +194,17 @@ impl Rig {
     fn draw_with_grid(&mut self, grid: Option<crate::three::occlusion::OcclusionGrid>) -> Vec<u8> {
         let ctx = &mut self.ctx;
         let mut frame = std::mem::take(&mut self.frame);
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.occlusion = grid;
         // Motion vectors, as a game's frame lists them.
-        frame.motion.enabled =
-            ctx.post.anti_aliasing == AntiAliasing::Taa || (ctx.post.ao_temporal && ctx.post.ambient_occlusion.enabled);
+        frame.motion.enabled = ctx.scene3d.post.anti_aliasing == AntiAliasing::Taa
+            || (ctx.scene3d.post.ao_temporal && ctx.scene3d.post.ambient_occlusion.enabled);
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         ctx.gfx.frame3d.views = std::mem::take(&mut frame.views);
         ctx.collect_views(&SkinFrame::default());
@@ -213,25 +213,27 @@ impl Rig {
         // Like the frame does: a freed buffer's passes are left out.
         frame.computes.clear();
         frame.computes.extend(
-            ctx.compute_passes
+            ctx.scene3d
+                .passes
+                .compute
                 .iter()
                 .filter(|c| ctx.gfx.gpu_buffer_len(c.buffer.unwrap()).is_some())
                 .map(|c| (c.compute.id, c.buffer.unwrap().slot() | (1 << 31), 0)),
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // Sunlight only: the fog glows with nothing else.
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: self.time,
-            occlusion: ctx.camera3d.occlusion_culling,
+            occlusion: ctx.scene3d.camera.occlusion_culling,
         };
         let start = std::time::Instant::now();
         self.renderer.prepare(
@@ -317,13 +319,13 @@ fn buffer_draw() {
     for source in [first, second] {
         let c = rig.ctx.gfx.create_compute("positions", source);
         rig.renderer.create_compute(&rig.device, "positions", source).unwrap();
-        rig.ctx.compute_passes.push(ComputePass::for_buffer(c, b));
+        rig.ctx.scene3d.passes.compute.push(ComputePass::for_buffer(c, b));
     }
     rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
-    rig.ctx.lighting.shadows = false;
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
-    let view_proj = rig.ctx.camera3d.view_proj();
+    rig.ctx.scene3d.lighting.shadows = false;
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, 5.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let pixels = rig.draw();
     let red = |p| {
         let (x, y) = pixel(view_proj, p);
@@ -357,9 +359,9 @@ fn persistent_batch_draw(compute: bool) {
             ..Default::default()
         },
     );
-    rig.ctx.camera3d.position = Vec3::ZERO;
-    rig.ctx.camera3d.look_at(-Vec3::Z);
-    rig.ctx.lighting.shadows = false;
+    rig.ctx.scene3d.camera.position = Vec3::ZERO;
+    rig.ctx.scene3d.camera.look_at(-Vec3::Z);
+    rig.ctx.scene3d.lighting.shadows = false;
     let options = InstanceBatchOptions {
         cell_size: if compute { 32.0 } else { 1.0 },
         max_distance: 10.0,
@@ -371,14 +373,14 @@ fn persistent_batch_draw(compute: bool) {
     rig.renderer.set_instance_batch(
         &rig.device,
         &rig.queue,
-        b.id(),
-        rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
+        b.id,
+        rig.ctx.gfx.assets3d.instance_batches[b.id as usize].as_ref(),
     );
     let image = rig.draw();
     if let Ok(path) = std::env::var("PONKO_TEST_IMAGE") {
         image::save_buffer(path, &image, SIZE, SIZE, image::ColorType::Rgba8).unwrap();
     }
-    let vp = rig.ctx.camera3d.view_proj();
+    let vp = rig.ctx.scene3d.camera.view_proj();
     let (x, y) = pixel(vp, at[0]);
     assert!(
         image[((y * SIZE + x) * 4) as usize] > 100,
@@ -391,7 +393,7 @@ fn persistent_batch_draw(compute: bool) {
         "distant instance drawn ({compute})"
     );
     if compute {
-        let (args, at) = rig.renderer.batch_view_args(b.id(), 0).unwrap();
+        let (args, at) = rig.renderer.batch_view_args(b.id, 0).unwrap();
         let read = rig.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: 20,
@@ -410,7 +412,7 @@ fn persistent_batch_draw(compute: bool) {
             "behind/distant instances survived GPU culling"
         );
     }
-    rig.ctx.camera3d.occlusion_culling = true;
+    rig.ctx.scene3d.camera.occlusion_culling = true;
     let wall = vp * vec3(0.0, 0.0, -2.0).extend(1.0);
     let grid = crate::three::occlusion::OcclusionGrid::new(vp, Vec3::ZERO, 16, 16, vec![wall.z / wall.w; 256]);
     let hidden = rig.draw_with_grid(Some(grid));
@@ -422,7 +424,7 @@ fn persistent_batch_draw(compute: bool) {
     // The batch's view settings and its culling header and grid were
     // written only where they changed.
     rig.check_mirrors();
-    rig.renderer.set_instance_batch(&rig.device, &rig.queue, b.id(), None);
+    rig.renderer.set_instance_batch(&rig.device, &rig.queue, b.id, None);
     // Cutout-only batches must trigger the coverage prepass even without model entities.
     let cutout = rig.mesh(
         &MeshData::cube(0.5),
@@ -439,18 +441,18 @@ fn persistent_batch_draw(compute: bool) {
     rig.renderer.set_instance_batch(
         &rig.device,
         &rig.queue,
-        cb.id(),
-        rig.ctx.gfx.assets3d.instance_batches[cb.id() as usize].as_ref(),
+        cb.id,
+        rig.ctx.gfx.assets3d.instance_batches[cb.id as usize].as_ref(),
     );
-    rig.ctx.lighting.shadows = true;
-    rig.ctx.camera3d.occlusion_culling = false;
+    rig.ctx.scene3d.lighting.shadows = true;
+    rig.ctx.scene3d.camera.occlusion_culling = false;
     let image = rig.draw();
     assert!(
         image[((y * SIZE + x) * 4) as usize] > 100,
         "cutout batch absent ({compute})"
     );
-    rig.renderer.set_instance_batch(&rig.device, &rig.queue, cb.id(), None);
-    rig.renderer.set_instance_batch(&rig.device, &rig.queue, b.id(), None);
+    rig.renderer.set_instance_batch(&rig.device, &rig.queue, cb.id, None);
+    rig.renderer.set_instance_batch(&rig.device, &rig.queue, b.id, None);
     let image = rig.draw();
     let (x, y) = pixel(vp, at[0]);
     assert!(image[((y * SIZE + x) * 4) as usize] < 50, "freed batch still drawn");
@@ -481,10 +483,10 @@ impl Rig {
         b
     }
     fn look_at_origin(&mut self) -> Mat4 {
-        self.ctx.lighting.shadows = false;
-        self.ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
-        self.ctx.camera3d.look_at(Vec3::ZERO);
-        self.ctx.camera3d.view_proj()
+        self.ctx.scene3d.lighting.shadows = false;
+        self.ctx.scene3d.camera.position = vec3(0.0, 0.0, 5.0);
+        self.ctx.scene3d.camera.look_at(Vec3::ZERO);
+        self.ctx.scene3d.camera.view_proj()
     }
 }
 
@@ -583,7 +585,7 @@ fn freed_buffers_are_skipped_and_their_slots_reused() {
     let source = "fn update(i: u32) { items[i].y += 1.0; }";
     let c = rig.ctx.gfx.create_compute("up", source);
     rig.renderer.create_compute(&rig.device, "up", source).unwrap();
-    rig.ctx.compute_passes.push(ComputePass::for_buffer(c, b));
+    rig.ctx.scene3d.passes.compute.push(ComputePass::for_buffer(c, b));
     rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
     let view_proj = rig.look_at_origin();
     let drawn = |rig: &mut Rig, p| channel(&rig.draw(), view_proj, p, 0) > 150;
@@ -593,13 +595,13 @@ fn freed_buffers_are_skipped_and_their_slots_reused() {
     rig.ctx.free(b);
     rig.renderer.free_gpu_buffer(b.slot());
     assert_eq!(rig.ctx.gfx.gpu_buffer_len(b), None);
-    assert!(rig.ctx.compute_passes.is_empty(), "its passes went with it");
+    assert!(rig.ctx.scene3d.passes.compute.is_empty(), "its passes went with it");
     assert!(!drawn(&mut rig, vec3(-1.0, 1.0, 0.0)) && !drawn(&mut rig, vec3(-1.0, 0.0, 0.0)));
 
     // A stale pass is skipped, not a panic.
-    rig.ctx.compute_passes.push(ComputePass::for_buffer(c, b));
+    rig.ctx.scene3d.passes.compute.push(ComputePass::for_buffer(c, b));
     assert!(!drawn(&mut rig, vec3(-1.0, 0.0, 0.0)));
-    rig.ctx.compute_passes.clear();
+    rig.ctx.scene3d.passes.compute.clear();
     // Freeing it again does nothing.
     rig.ctx.free(b);
 
@@ -686,8 +688,8 @@ fn batch_target_levels(compute: bool, reflection: bool, levels: bool) {
     rig.renderer.set_instance_batch(
         &rig.device,
         &rig.queue,
-        b.id(),
-        rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
+        b.id,
+        rig.ctx.gfx.assets3d.instance_batches[b.id as usize].as_ref(),
     );
     let texture = rig.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("batch target test"),
@@ -705,7 +707,7 @@ fn batch_target_levels(compute: bool, reflection: bool, levels: bool) {
     rig.ctx.set_headless(true);
     let handle = rig.ctx.gfx.create_render_target(SIZE, SIZE);
     rig.renderer.add_render_target(handle.id, &texture);
-    let mut camera = rig.ctx.camera3d;
+    let mut camera = rig.ctx.scene3d.camera;
     camera.position = vec3(0.0, 1.0, 4.0);
     camera.look_at(vec3(0.0, 1.0, 0.0));
     let target = if reflection {
@@ -717,9 +719,9 @@ fn batch_target_levels(compute: bool, reflection: bool, levels: bool) {
     } else {
         TargetCamera::new(camera, handle)
     };
-    rig.ctx.target_cameras.push(target);
+    rig.ctx.scene3d.passes.target_cameras.push(target);
     // Main camera is beyond max_distance; only the target view can see this batch.
-    rig.ctx.camera3d.position = vec3(100.0, 100.0, 100.0);
+    rig.ctx.scene3d.camera.position = vec3(100.0, 100.0, 100.0);
     rig.draw();
     let read = rig.device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
@@ -775,9 +777,9 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
         };
         let near = mesh(&mut rig, Color::RED);
         let far = mesh(&mut rig, Color::BLUE);
-        rig.ctx.camera3d.position = Vec3::ZERO;
-        rig.ctx.camera3d.look_at(-Vec3::Z);
-        rig.ctx.lighting.shadows = false;
+        rig.ctx.scene3d.camera.position = Vec3::ZERO;
+        rig.ctx.scene3d.camera.look_at(-Vec3::Z);
+        rig.ctx.scene3d.lighting.shadows = false;
         let levels = [
             InstanceLevel {
                 mesh: near,
@@ -803,11 +805,11 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
         rig.renderer.set_instance_batch(
             &rig.device,
             &rig.queue,
-            batch.id(),
-            rig.ctx.gfx.assets3d.instance_batches[batch.id() as usize].as_ref(),
+            batch.id,
+            rig.ctx.gfx.assets3d.instance_batches[batch.id as usize].as_ref(),
         );
         for (z, channel) in [(-0.125, 0), (0.0, 2), (0.125, 2)] {
-            rig.ctx.camera3d.position.z = z;
+            rig.ctx.scene3d.camera.position.z = z;
             let pixels = rig.draw();
             let p = ((SIZE / 2 * SIZE + SIZE / 2) * 4) as usize;
             assert!(
@@ -816,17 +818,16 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
                 &pixels[p..p + 4]
             );
         }
-        let b = rig.renderer.static_batches[batch.id() as usize].as_ref().unwrap();
+        let b = rig.renderer.static_batches[batch.id as usize].as_ref().unwrap();
         assert!(b.views.len() <= 2, "camera-only levels allocated shadow slots");
-        rig.ctx.camera3d.position.z = 15.0;
+        rig.ctx.scene3d.camera.position.z = 15.0;
         assert!(
             rig.draw().as_chunks::<4>().0.iter().all(|p| p[0] < 50 && p[2] < 50),
             "no band must draw nothing"
         );
-        rig.renderer
-            .set_instance_batch(&rig.device, &rig.queue, batch.id(), None);
+        rig.renderer.set_instance_batch(&rig.device, &rig.queue, batch.id, None);
         let white = mesh(&mut rig, Color::WHITE);
-        rig.ctx.camera3d.position = Vec3::ZERO;
+        rig.ctx.scene3d.camera.position = Vec3::ZERO;
         let at = [vec3(-1.0, 0.0, -5.0), vec3(1.0, 0.0, -5.0)];
         let b = rig.ctx.gfx.create_instance_batch_levels(
             &[InstanceLevel {
@@ -843,11 +844,11 @@ fn instance_levels_select_boundary_meshes_and_colors_on_gpu_and_fallback() {
         rig.renderer.set_instance_batch(
             &rig.device,
             &rig.queue,
-            b.id(),
-            rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
+            b.id,
+            rig.ctx.gfx.assets3d.instance_batches[b.id as usize].as_ref(),
         );
         let pixels = rig.draw();
-        let vp = rig.ctx.camera3d.view_proj();
+        let vp = rig.ctx.scene3d.camera.view_proj();
         for (position, c) in at.into_iter().zip([0, 1]) {
             let (x, y) = pixel(vp, position);
             let i = ((y * SIZE + x) * 4) as usize;
@@ -886,9 +887,9 @@ fn instance_levels_overlap_exactly_without_copying_source_records() {
             ..Default::default()
         },
     );
-    rig.ctx.camera3d.position = Vec3::ZERO;
-    rig.ctx.camera3d.look_at(-Vec3::Z);
-    rig.ctx.lighting.shadows = false;
+    rig.ctx.scene3d.camera.position = Vec3::ZERO;
+    rig.ctx.scene3d.camera.look_at(-Vec3::Z);
+    rig.ctx.scene3d.lighting.shadows = false;
     let levels =
         [(0.0, 10.0), (10.0, 20.0), (9.0, 11.0), (30.0, 40.0)].map(|(min_distance, max_distance)| InstanceLevel {
             mesh,
@@ -906,13 +907,13 @@ fn instance_levels_overlap_exactly_without_copying_source_records() {
     rig.renderer.set_instance_batch(
         &rig.device,
         &rig.queue,
-        b.id(),
-        rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
+        b.id,
+        rig.ctx.gfx.assets3d.instance_batches[b.id as usize].as_ref(),
     );
     rig.draw();
-    let batch = rig.renderer.static_batches[b.id() as usize].as_ref().unwrap();
+    let batch = rig.renderer.static_batches[b.id as usize].as_ref().unwrap();
     assert_eq!(
-        rig.renderer.batch_record_bytes(b.id()),
+        rig.renderer.batch_record_bytes(b.id),
         Some(96 + 16 + 32),
         "one shared source record, including bounds"
     );
@@ -925,7 +926,7 @@ fn instance_levels_overlap_exactly_without_copying_source_records() {
     });
     let mut encoder = rig.device.create_command_encoder(&Default::default());
     for i in 0..batch.views.len() {
-        let (args, at) = rig.renderer.batch_view_args(b.id(), i).unwrap();
+        let (args, at) = rig.renderer.batch_view_args(b.id, i).unwrap();
         encoder.copy_buffer_to_buffer(args, at, &read, (i * 20) as u64, 20);
     }
     rig.queue.submit([encoder.finish()]);
@@ -962,9 +963,9 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
             ..Default::default()
         },
     );
-    rig.ctx.camera3d.position = Vec3::ZERO;
-    rig.ctx.camera3d.look_at(-Vec3::Z);
-    rig.ctx.lighting.shadows = false;
+    rig.ctx.scene3d.camera.position = Vec3::ZERO;
+    rig.ctx.scene3d.camera.look_at(-Vec3::Z);
+    rig.ctx.scene3d.lighting.shadows = false;
     for camera in [true, false] {
         let b = rig.ctx.gfx.create_instance_batch_levels(
             &[InstanceLevel {
@@ -981,8 +982,8 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
         rig.renderer.set_instance_batch(
             &rig.device,
             &rig.queue,
-            b.id(),
-            rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
+            b.id,
+            rig.ctx.gfx.assets3d.instance_batches[b.id as usize].as_ref(),
         );
         let pixels = rig.draw();
         let i = ((SIZE / 2 * SIZE + SIZE / 2) * 4) as usize;
@@ -991,7 +992,7 @@ fn instance_levels_keep_off_center_meshes_and_hide_shadow_only_geometry() {
             camera,
             "origin bands must ignore an off-centre mesh's sphere distance, and honour camera flags"
         );
-        rig.renderer.set_instance_batch(&rig.device, &rig.queue, b.id(), None);
+        rig.renderer.set_instance_batch(&rig.device, &rig.queue, b.id, None);
     }
 }
 

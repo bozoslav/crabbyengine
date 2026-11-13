@@ -95,10 +95,8 @@ fn ground(ctx: &mut Ctx) -> Material {
     let weights = ctx
         .gfx
         .create_texture_array(cells as u32, cells as u32, &[&weights], TextureKind::Data);
-    let desc = TerrainMaterialDesc {
-        layer_size: [5.0, 4.0, 7.0, 3.0, 4.0, 4.0, 4.0, 4.0],
-        ..TerrainMaterialDesc::new(layers, weights, vec2(origin, origin), vec2(area, area))
-    };
+    let desc = TerrainMaterialDesc::new(layers, weights, vec2(origin, origin), vec2(area, area))
+        .with_layer_size([5.0, 4.0, 7.0, 3.0, 4.0, 4.0, 4.0, 4.0]);
     ctx.gfx.create_terrain_material(&desc)
 }
 
@@ -231,14 +229,14 @@ fn main() {
                     go += dir;
                 }
             }
-            ctx.camera3d.position += go * speed;
-            ctx.camera3d.rotation = rotation;
+            ctx.scene3d.camera.position += go * speed;
+            ctx.scene3d.camera.rotation = rotation;
             // The lake's mirror follows the camera.
-            if let Some(mirror) = ctx.target_cameras.first().map(|c| c.target) {
-                ctx.target_cameras[0] = TargetCamera::reflection(ctx.camera3d, mirror, WATER);
+            if let Some(mirror) = ctx.scene3d.passes.target_cameras.first().map(|c| c.target) {
+                ctx.scene3d.passes.target_cameras[0] = TargetCamera::reflection(ctx.scene3d.camera, mirror, WATER);
             }
             if ctx.key_pressed(Key::U) {
-                std::mem::swap(&mut ctx.effects, &mut parked);
+                std::mem::swap(&mut ctx.scene3d.passes.effects, &mut parked);
             }
             if ctx.time.frame() == 3
                 && let Ok(path) = std::env::var("SHOT")
@@ -257,13 +255,13 @@ fn main() {
             }
         })
         .setup(move |ctx| {
-            ctx.post.bloom = 0.1;
-            ctx.lighting.sun_direction = Sky::sun_direction_at(hour);
-            ctx.lighting.shadow_distance = 400.0;
-            ctx.camera3d.far = 3000.0;
-            ctx.sky.fog_density = 0.0015;
-            ctx.sky.fog_height = 0.0;
-            ctx.sky.fog_falloff = 60.0;
+            ctx.scene3d.post.bloom = 0.1;
+            ctx.scene3d.lighting.sun_direction = Sky::sun_direction_at(hour);
+            ctx.scene3d.lighting.shadow_distance = 400.0;
+            ctx.scene3d.camera.far = 3000.0;
+            ctx.scene3d.sky.fog_density = 0.0015;
+            ctx.scene3d.sky.fog_height = 0.0;
+            ctx.scene3d.sky.fog_falloff = 60.0;
 
             let ground = ground(ctx);
             let half = TILES / 2;
@@ -283,28 +281,35 @@ fn main() {
             let mirror = ctx
                 .gfx
                 .create_render_target((size.x as u32 / 2).max(1), (size.y as u32 / 2).max(1));
-            ctx.target_cameras
-                .push(TargetCamera::reflection(ctx.camera3d, mirror, WATER));
+            ctx.scene3d
+                .passes
+                .target_cameras
+                .push(TargetCamera::reflection(ctx.scene3d.camera, mirror, WATER));
             let water = ctx.gfx.create_shader("lake", LAKE);
-            let lake = ctx.gfx.create_material(MaterialDesc {
-                shader: Some(water),
-                blend: Blend::Transparent,
-                custom_textures: [Some(mirror), None],
-                custom: [vec4(0.06, 1.5, 1.2, 1.2), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
-                ..MaterialDesc::color(Color::hex(0x1E4D6B))
-            });
+            let lake = ctx.gfx.create_material(
+                MaterialDesc::color(Color::hex(0x1E4D6B))
+                    .with_shader(water)
+                    .with_blend(Blend::Transparent)
+                    .with_custom_textures([Some(mirror), None])
+                    .with_custom([vec4(0.06, 1.5, 1.2, 1.2), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO]),
+            );
             let surface = ctx.gfx.create_mesh(&MeshData::plane(TILES as f32 * TILE), lake);
             ctx.world
                 .spawn((Transform::at(vec3(0.0, WATER, 0.0)), Model::new(surface)));
 
             let underwater = ctx.gfx.create_effect("underwater", UNDERWATER);
-            let level = ctx.gfx.create_material(MaterialDesc {
-                custom: [vec4(WATER, 0.0, 0.0, 0.0), Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
-                ..Default::default()
-            });
-            ctx.effects.push(ScreenEffect::new(underwater).with_material(level));
+            let level = ctx.gfx.create_material(MaterialDesc::default().with_custom([
+                vec4(WATER, 0.0, 0.0, 0.0),
+                Vec4::ZERO,
+                Vec4::ZERO,
+                Vec4::ZERO,
+            ]));
+            ctx.scene3d
+                .passes
+                .effects
+                .push(ScreenEffect::new(underwater).with_material(level));
 
-            ctx.camera3d.position = start;
+            ctx.scene3d.camera.position = start;
         })
         .run();
 }

@@ -17,7 +17,7 @@
 
 use std::time::Duration;
 
-use ponko::render::{QualityLevel, SceneBench, SceneFrame, SceneKind, SceneSetup};
+use ponko::render::{GraphicsQuality, SceneBench, SceneFrame, SceneKind, SceneSetup};
 
 use crate::render_report::{Dist, FrameRow, GpuTimes, RenderReport, SceneReport};
 use crate::{Bench, alloc, report};
@@ -64,10 +64,10 @@ fn settings() -> Result<Settings, String> {
             .ok_or_else(|| format!("PONKO_RENDER_SCALE={scale} is not a positive number"))?;
     }
     let quality = match env("PONKO_RENDER_QUALITY").as_deref().map(str::trim) {
-        None | Some("high") => (QualityLevel::High, "high"),
-        Some("low") => (QualityLevel::Low, "low"),
-        Some("medium") => (QualityLevel::Medium, "medium"),
-        Some("ultra") => (QualityLevel::Ultra, "ultra"),
+        None | Some("high") => (GraphicsQuality::High, "high"),
+        Some("low") => (GraphicsQuality::Low, "low"),
+        Some("medium") => (GraphicsQuality::Medium, "medium"),
+        Some("ultra") => (GraphicsQuality::Ultra, "ultra"),
         Some(other) => {
             return Err(format!(
                 "PONKO_RENDER_QUALITY={other} is not low, medium, high or ultra"

@@ -24,16 +24,6 @@ use crate::{Color, Mat4, Vec3};
 pub struct InstanceBatch {
     pub(crate) id: u32,
 }
-impl InstanceBatch {
-    /// Raw handle for language bindings.
-    pub fn id(self) -> u32 {
-        self.id
-    }
-    /// Raw handle conversion; operations validate liveness.
-    pub fn from_id(id: u32) -> Self {
-        Self { id }
-    }
-}
 /// Settings for a batch; materials come from the mesh's parts.
 /// ```
 /// use ponko::prelude::*;
@@ -366,12 +356,6 @@ impl Graphics {
         self.assets3d.instance_batch_revision = self.assets3d.instance_batch_revision.wrapping_add(1);
         true
     }
-    /// Releases a region's CPU and GPU resources: [`Graphics::free`](crate::gfx::Graphics::free)
-    /// with a batch. See [`InstanceBatch`].
-    #[deprecated(note = "use `ctx.gfx.free(batch)`")]
-    pub fn free_instance_batch(&mut self, batch: InstanceBatch) {
-        self.free(batch);
-    }
     /// Frees instance batch `id`: the engine side of [`Graphics::free`](crate::gfx::Graphics::free).
     pub(crate) fn free_instance_batch_id(&mut self, id: u32) {
         let batch = InstanceBatch { id };
@@ -492,7 +476,7 @@ mod lifetime_tests {
             ctx.free(old);
             let new = ctx.gfx.create_mesh(&MeshData::sphere(1.0, 8), material);
             assert_eq!(new.slot(), old.slot(), "the freed slot holds the new mesh");
-            assert_eq!(validate(ctx), [(batch.id(), false)], "withdrawn, the other batch kept");
+            assert_eq!(validate(ctx), [(batch.id, false)], "withdrawn, the other batch kept");
             assert_ne!(ctx.gfx.assets3d.instance_batch_revision, revision, "frames rebuild");
             assert!(validate(ctx).is_empty(), "withdrawn once");
             assert!(ctx.is_live(batch) && ctx.is_live(other), "the handles stay live");
@@ -526,14 +510,12 @@ mod lifetime_tests {
             );
             // An evicted resident mesh: freed, its id kept for its reload.
             ctx.gfx.free(far);
-            assert_eq!(validate(ctx), [(batch.id(), false)], "one dead level withdraws it");
-            if let Some(i) = ctx.gfx.assets3d.free_meshes.iter().position(|&id| id == far.id) {
-                ctx.gfx.assets3d.free_meshes.swap_remove(i);
-            }
+            assert_eq!(validate(ctx), [(batch.id, false)], "one dead level withdraws it");
+            ctx.gfx.assets3d.mesh_ids.keep(far.id);
             ctx.gfx.assets3d.reuse_mesh_id = Some(far.id);
             let back = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
             assert_eq!(back, far);
-            assert_eq!(validate(ctx), [(batch.id(), true)], "handed back");
+            assert_eq!(validate(ctx), [(batch.id, true)], "handed back");
             assert!(validate(ctx).is_empty());
         });
     }

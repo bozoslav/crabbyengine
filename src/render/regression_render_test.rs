@@ -47,14 +47,14 @@ fn opaque_boxes_are_lit_by_the_sun_and_hide_what_is_behind_them() {
         p[..3] == [0; 3]
     });
     // Negative control: without the sun the same floor is dim.
-    stage.ctx.lighting.sun_intensity = 0.0;
+    stage.ctx.scene3d.lighting.sun_intensity = 0.0;
     let dark = stage.image();
     let unlit = stage.color_at(&dark, vec3(-2.5, 0.0, 2.0));
     assert!(
         luma(unlit) < luma(floor) * 0.6,
         "the sun lights it: {unlit:?} vs {floor:?}"
     );
-    stage.ctx.lighting.sun_intensity = 1.0;
+    stage.ctx.scene3d.lighting.sun_intensity = 1.0;
     check_reference(
         "regression_opaque",
         &stage.image(),
@@ -190,8 +190,8 @@ fn see_through_panes_stay_sorted_when_the_camera_goes_round_to_the_other_side() 
     panes(&mut stage, [0, 1, 2]);
     stage.image();
     // From behind, the blue pane is the nearest and the picture mirrors.
-    stage.ctx.camera3d.position = vec3(0.0, -0.2, -5.5);
-    stage.ctx.camera3d.look_at(vec3(0.0, -0.2, 0.0));
+    stage.ctx.scene3d.camera.position = vec3(0.0, -0.2, -5.5);
+    stage.ctx.scene3d.camera.look_at(vec3(0.0, -0.2, 0.0));
     let image = stage.image();
     assert_blended_far_to_near(&stage, &image, [0, 1, 2], "from behind");
     stage.finish();
@@ -225,14 +225,14 @@ fn a_cutout_shows_what_is_behind_its_holes_and_its_shadow_has_them_too() {
         "the hole lets the sun through: {spot:?} vs {shade:?}"
     );
     // Negative control: with shadows off both floor points are lit alike.
-    stage.ctx.lighting.shadows = false;
+    stage.ctx.scene3d.lighting.shadows = false;
     let plain = stage.settled(2);
     let (a, b) = (stage.color_at(&plain, lit_spot), stage.color_at(&plain, shadow));
     assert!(
         (luma(a) - luma(b)).abs() < 8.0,
         "without shadows the floor is even: {a:?} vs {b:?}"
     );
-    stage.ctx.lighting.shadows = true;
+    stage.ctx.scene3d.lighting.shadows = true;
     check_reference(
         "regression_cutout",
         &stage.settled(3),
@@ -304,7 +304,7 @@ fn a_box_shadows_the_floor_on_the_far_side_from_the_sun() {
     reference_rejects("regression_shadows", &moved, REFERENCE, "the box moved 2 along z");
     let aside = stage.shifted(vec3(0.15, 0.0, 0.0), 3);
     reference_rejects("regression_shadows", &aside, REFERENCE, "the camera 0.15 to the side");
-    stage.ctx.lighting.shadows = false;
+    stage.ctx.scene3d.lighting.shadows = false;
     let unshadowed = stage.settled(2);
     reference_rejects("regression_shadows", &unshadowed, REFERENCE, "shadows off");
     stage.finish();
@@ -388,8 +388,8 @@ fn a_moved_skinned_model_writes_its_motion_and_a_still_one_none() {
     }
     let bar = skinned(&mut stage);
     bend(&mut stage, bar, 0.4);
-    stage.ctx.lighting.shadows = false;
-    stage.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    stage.ctx.scene3d.lighting.shadows = false;
+    stage.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     stage.settled(3);
     let foot = vec3(-0.5, 0.5, 0.2);
     assert_eq!(
@@ -403,7 +403,7 @@ fn a_moved_skinned_model_writes_its_motion_and_a_still_one_none() {
     let step = vec3(0.3, 0.0, 0.0);
     stage.ctx.world.get_mut::<crate::d3::Transform>(bar).unwrap().position += step;
     stage.render();
-    let view_proj = stage.ctx.camera3d.view_proj();
+    let view_proj = stage.ctx.scene3d.camera.view_proj();
     let (before, now) = (view_proj.project_point3(foot), view_proj.project_point3(foot + step));
     let expected = ((before.x - now.x) * 0.5, (now.y - before.y) * 0.5);
     let (vx, vy) = motion_at(&stage, stage.pixel(foot + step)).expect("the moved bar covers its lower half");
@@ -426,7 +426,7 @@ fn a_mirror_floor_reflects_the_glowing_box() {
     let off = stage.settled(2);
     let before = stage.color_at(&off, reflection);
     assert!(before[0] < 40.0, "without reflections the floor is dark: {before:?}");
-    stage.ctx.post.ssr = 1.0;
+    stage.ctx.scene3d.post.ssr = 1.0;
     // The first frame has no image of the last one to reflect.
     let image = stage.settled(4);
     let (mirrored, beside) = (stage.color_at(&image, reflection), stage.color_at(&image, aside));
@@ -462,8 +462,8 @@ fn ambient_occlusion_darkens_the_crease_and_leaves_open_ground_alone() {
         (luma(flat_corner) - luma(flat_open)).abs() < 6.0,
         "without it the floor is one shade: {flat_corner:?} vs {flat_open:?}"
     );
-    stage.ctx.post.ambient_occlusion.enabled = true;
-    stage.ctx.post.ao_temporal = false;
+    stage.ctx.scene3d.post.ambient_occlusion.enabled = true;
+    stage.ctx.scene3d.post.ao_temporal = false;
     let image = stage.settled(2);
     let (dark, same) = (stage.color_at(&image, corner), stage.color_at(&image, open));
     eprintln!("crease {dark:?} (was {flat_corner:?}), open floor {same:?} (was {flat_open:?})");
@@ -546,7 +546,7 @@ fn every_tonemap_keeps_the_order_of_brightness_and_only_none_clips() {
     let (at, _) = bars(&mut stage);
     let mut images = Vec::new();
     for tonemap in [Tonemap::None, Tonemap::Aces, Tonemap::AgX, Tonemap::Neutral] {
-        stage.ctx.post.tonemap = tonemap;
+        stage.ctx.scene3d.post.tonemap = tonemap;
         let image = stage.image();
         let [dim, white, bright] = at.map(|p| stage.color_at(&image, p));
         eprintln!("{tonemap:?}: dim {dim:?}, white {white:?}, six times white {bright:?}");
@@ -589,22 +589,22 @@ fn exposure_saturation_and_contrast_change_the_picture_the_way_they_say() {
     let (at, _) = bars(&mut stage);
     let plain = stage.image();
     let [dim, _, orange] = at.map(|p| stage.color_at(&plain, p));
-    let neutral = stage.ctx.post;
+    let neutral = stage.ctx.scene3d.post;
 
     // One stop up doubles the light: the dim bar gets brighter, one stop
     // down darker.
-    stage.ctx.post.exposure = neutral.exposure + 1.0;
+    stage.ctx.scene3d.post.exposure = neutral.exposure + 1.0;
     let up = stage.image();
-    stage.ctx.post.exposure = neutral.exposure - 1.0;
+    stage.ctx.scene3d.post.exposure = neutral.exposure - 1.0;
     let down = stage.image();
     let (brighter, darker) = (stage.color_at(&up, at[0]), stage.color_at(&down, at[0]));
     eprintln!("the dim bar: {darker:?} one stop down, {dim:?}, {brighter:?} one stop up");
     assert!(luma(brighter) > luma(dim) + 12.0 && luma(darker) < luma(dim) - 12.0);
-    stage.ctx.post = neutral;
+    stage.ctx.scene3d.post = neutral;
 
     // Without saturation the orange bar is grey.
     assert!(orange[0] > orange[2] + 40.0, "the bright bar is orange: {orange:?}");
-    stage.ctx.post.saturation = 0.0;
+    stage.ctx.scene3d.post.saturation = 0.0;
     let grey = stage.image();
     let g = stage.color_at(&grey, at[2]);
     eprintln!("the orange bar without saturation: {g:?} (was {orange:?})");
@@ -612,10 +612,10 @@ fn exposure_saturation_and_contrast_change_the_picture_the_way_they_say() {
         (g[0] - g[1]).abs() < 4.0 && (g[1] - g[2]).abs() < 4.0,
         "no saturation, no hue: {g:?}"
     );
-    stage.ctx.post = neutral;
+    stage.ctx.scene3d.post = neutral;
 
     // More contrast pushes the dim bar further from the white one.
-    stage.ctx.post.contrast = neutral.contrast * 1.5;
+    stage.ctx.scene3d.post.contrast = neutral.contrast * 1.5;
     let steep = stage.image();
     let d = stage.color_at(&steep, at[0]);
     eprintln!("the dim bar with 1.5 times the contrast: {d:?} (was {dim:?})");
@@ -623,7 +623,7 @@ fn exposure_saturation_and_contrast_change_the_picture_the_way_they_say() {
         luma(d) < luma(dim) - 4.0,
         "more contrast darkens the dim bar: {d:?} vs {dim:?}"
     );
-    stage.ctx.post = neutral;
+    stage.ctx.scene3d.post = neutral;
     assert_similar(&stage.image(), &plain, SAME_PICTURE, "the settings put back");
     stage.finish();
 }
@@ -635,7 +635,7 @@ fn bloom_spreads_the_brightest_bars_glow_and_antialiasing_softens_edges() {
     let plain = stage.image();
     let gap = stage.color_at(&plain, between);
     assert!(luma(gap) < 2.0, "between the bars it is black: {gap:?}");
-    stage.ctx.post.bloom = 0.3;
+    stage.ctx.scene3d.post.bloom = 0.3;
     let glowing = stage.image();
     let (halo, far_side) = (
         stage.color_at(&glowing, between),
@@ -653,7 +653,7 @@ fn bloom_spreads_the_brightest_bars_glow_and_antialiasing_softens_edges() {
         (luma(dim.0) - luma(dim.1)).abs() < 25.0,
         "the bars themselves stay: {dim:?}"
     );
-    stage.ctx.post.tonemap = Tonemap::Aces;
+    stage.ctx.scene3d.post.tonemap = Tonemap::Aces;
     check_reference(
         "regression_post",
         &stage.image(),
@@ -663,18 +663,18 @@ fn bloom_spreads_the_brightest_bars_glow_and_antialiasing_softens_edges() {
          (0, 0, 8) looking at the origin; 128x128.",
         &stage.info,
     );
-    stage.ctx.post.bloom = 0.0;
+    stage.ctx.scene3d.post.bloom = 0.0;
     reference_rejects("regression_post", &stage.image(), EFFECT_REFERENCE, "bloom off");
-    stage.ctx.post.bloom = 0.3;
-    stage.ctx.post.tonemap = Tonemap::AgX;
+    stage.ctx.scene3d.post.bloom = 0.3;
+    stage.ctx.scene3d.post.tonemap = Tonemap::AgX;
     reference_rejects(
         "regression_post",
         &stage.image(),
         EFFECT_REFERENCE,
         "AgX instead of ACES",
     );
-    stage.ctx.post.tonemap = Tonemap::None;
-    stage.ctx.post.bloom = 0.0;
+    stage.ctx.scene3d.post.tonemap = Tonemap::None;
+    stage.ctx.scene3d.post.bloom = 0.0;
 
     // Post antialiasing on a single-sample frame: tilted edges get
     // in-between shades they do not have without it.
@@ -692,7 +692,7 @@ fn bloom_spreads_the_brightest_bars_glow_and_antialiasing_softens_edges() {
         .for_each(|t| t.rotation = Quat::from_rotation_z(0.3));
     let hard = single.image();
     for mode in [AntiAliasing::Fxaa, AntiAliasing::Smaa] {
-        single.ctx.post.anti_aliasing = mode;
+        single.ctx.scene3d.post.anti_aliasing = mode;
         let soft = single.settled(2);
         let d = diff(&soft, &hard, 8);
         eprintln!("{mode:?} against no antialiasing: {d}");

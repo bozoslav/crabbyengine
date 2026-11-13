@@ -121,7 +121,7 @@ pub(crate) fn enabled(on: bool) -> bool {
     if cfg!(target_arch = "wasm32") {
         return false;
     }
-    match crate::environment::var(ENV_HOT_RELOAD).as_deref() {
+    match std::env::var(ENV_HOT_RELOAD).as_deref() {
         Ok("1") => true,
         Ok("0") => false,
         _ => on,

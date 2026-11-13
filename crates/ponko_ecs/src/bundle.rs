@@ -2,6 +2,7 @@
 
 use std::mem::ManuallyDrop;
 
+use crate::seal::Seal;
 use crate::storage::ComponentId;
 use crate::world::World;
 
@@ -11,12 +12,15 @@ impl<T: Send + Sync + 'static> Component for T {}
 
 /// A tuple of components that are spawned together: `(Pos, Vel)`, `(Pos,)`.
 ///
-/// Implemented for tuples of up to 12 components.
+/// Implemented for tuples of up to 12 components, by this crate only: the
+/// trait is sealed.
 ///
 /// # Safety
 /// `write` must call `f` exactly once per element, in the order of
 /// `component_ids`, with a pointer to a value whose ownership the callee takes.
 pub unsafe trait Bundle: Send + Sync + 'static {
+    #[doc(hidden)]
+    const SEAL: Seal;
     #[doc(hidden)]
     fn component_ids(world: &mut World, out: &mut Vec<ComponentId>);
     #[doc(hidden)]
@@ -26,6 +30,7 @@ pub unsafe trait Bundle: Send + Sync + 'static {
 macro_rules! bundle_tuple {
     ($($t:ident $i:tt),*) => {
         unsafe impl<$($t: Component),*> Bundle for ($($t,)*) {
+            const SEAL: Seal = Seal;
             fn component_ids(world: &mut World, out: &mut Vec<ComponentId>) {
                 $(out.push(world.register::<$t>());)*
             }

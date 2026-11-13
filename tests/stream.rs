@@ -112,6 +112,9 @@ fn waiting_after_taking_panics() {
 
 #[cfg(feature = "3d")]
 mod cells {
+    // Raw ids, only to check that freed mesh slots are reused.
+    use ponko::__ffi::{self, SLOT_MASK};
+
     use super::*;
 
     fn sorted(cells: impl Iterator<Item = (i32, i32)>) -> Vec<(i32, i32)> {
@@ -207,8 +210,8 @@ mod cells {
             let material = ctx.gfx.default_material();
             let kept = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
             let freed = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
-            ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
-            ctx.camera3d.look_at(Vec3::ZERO);
+            ctx.scene3d.camera.position = vec3(0.0, 0.0, 5.0);
+            ctx.scene3d.camera.look_at(Vec3::ZERO);
             ctx.world.spawn((Transform3D::default(), Model::new(kept)));
             ctx.world.spawn((Transform3D::default(), Model::new(freed)));
             ctx.gfx.free(freed);
@@ -227,13 +230,14 @@ mod cells {
             ctx.gfx.free(freed);
             ctx.gfx.free(Mesh::NONE); // does nothing
             ctx.gfx.set_mesh_shadows(Mesh::NONE, false); // does nothing
-            ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
-            ctx.camera3d.look_at(Vec3::ZERO);
+            ctx.scene3d.camera.position = vec3(0.0, 0.0, 5.0);
+            ctx.scene3d.camera.look_at(Vec3::ZERO);
             ctx.world.spawn((Transform3D::default(), Model::new(Mesh::NONE)));
             // A freed slot is taken by the next mesh made (under a new
             // id); NONE never is.
             let made: Vec<Mesh> = (0..4).map(|_| ctx.gfx.create_mesh(&cube, material)).collect();
-            assert!(made.iter().any(|m| m.id() & 0x00FF_FFFF == freed.id() & 0x00FF_FFFF));
+            let slot = |m: Mesh| __ffi::id(m) & SLOT_MASK;
+            assert!(made.iter().any(|&m| slot(m) == slot(freed)));
             assert!(!made.contains(&freed));
             assert!(!made.contains(&Mesh::NONE));
             assert!(!ctx.gfx.is_live(Mesh::NONE));
@@ -250,10 +254,11 @@ mod cells {
             let moved = heights.clone();
             let job = ponko::stream::Job::spawn(move || TerrainTileData::new(&moved, 32.0));
             let there = ctx.gfx.upload_terrain_tile(&job.wait(), material);
-            assert_eq!(here.lod_distance, there.lod_distance);
-            ctx.gfx.free_terrain_tile(there);
-            assert!(there.lods.iter().all(|&m| !ctx.gfx.is_live(m)));
-            assert!(here.lods.iter().all(|&m| ctx.gfx.is_live(m)));
+            assert_eq!(here.lod_distance(), there.lod_distance());
+            ctx.free(there);
+            assert!(!ctx.is_live(there) && ctx.is_live(here));
+            assert!(there.lods().iter().all(|&m| !ctx.gfx.is_live(m)));
+            assert!(here.lods().iter().all(|&m| ctx.gfx.is_live(m)));
         });
     }
 
@@ -281,7 +286,7 @@ mod cells {
                 ctx.gfx.create_mesh(&cube, material),
                 ctx.gfx.create_mesh(&cube, material),
             ];
-            let slot = |m: Mesh| m.id() & 0x00FF_FFFF;
+            let slot = |m: Mesh| __ffi::id(m) & SLOT_MASK;
             let slots = again.map(slot);
             assert!(
                 slots == [slot(first[3]), slot(first[1])] || slots == [slot(first[1]), slot(first[3])],

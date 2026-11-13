@@ -1,5 +1,9 @@
 //! One handle lifecycle: `Handle`, `Ctx::is_live`, `Ctx::free` and
 //! `Ctx::live_counts` for every resource kind, in headless runs.
+//!
+//! Handles can't be made from numbers (the compile-fail examples on
+//! `Handle` show it); a few tests read raw ids through the engine's hidden
+//! binding hook (`ponko::__ffi`) only to check how slots are reused.
 
 #[allow(unused_imports)]
 #[cfg(feature = "3d")]
@@ -25,18 +29,40 @@ fn font_file(name: &str) -> String {
 }
 
 /// Frees `handle`, then checks it is dead, stays dead when freed again,
-/// and that `make` gives a live handle with another id.
+/// and that `make` gives a live handle that isn't the freed one.
 fn frees<H: Handle>(ctx: &mut Ctx, handle: H, make: impl Fn(&mut Ctx) -> H) {
     assert!(ctx.is_live(handle), "{handle:?} is live before free");
-    assert!(ctx.is_live(H::from_id(handle.id())), "from_id keeps the id");
     ctx.free(handle);
     assert!(!ctx.is_live(handle), "{handle:?} is dead after free");
     ctx.free(handle); // again: nothing
     let next = make(ctx);
     assert!(ctx.is_live(next));
-    assert_ne!(next.id(), handle.id(), "{handle:?}: ids are never reused");
+    assert_ne!(next, handle, "{handle:?}: handles are never given out twice");
     assert!(!ctx.is_live(handle), "{handle:?} stays dead");
     ctx.free(next);
+}
+
+/// Makes and frees a handle `cycles` times, as streaming does with one
+/// cell, and checks that every handle freed stays dead while its slot is
+/// reused: no handle is ever given out twice, well past any wraparound.
+/// Only slot-reusing kinds need it: meshes, GPU buffers, collision meshes.
+#[cfg(any(feature = "3d", feature = "physics3d"))]
+fn stale_handles_stay_dead<H: Handle>(ctx: &mut Ctx, cycles: usize, make: impl Fn(&mut Ctx) -> H) {
+    let first = make(ctx);
+    ctx.free(first);
+    let mut seen = std::collections::HashSet::from([first]);
+    let mut last = first;
+    for _ in 0..cycles {
+        let next = make(ctx);
+        assert!(seen.insert(next), "{next:?} was given out before");
+        assert!(ctx.is_live(next) && !ctx.is_live(last) && !ctx.is_live(first));
+        ctx.free(last); // a stale free leaves the new one alone
+        assert!(ctx.is_live(next));
+        ctx.free(next);
+        last = next;
+    }
+    assert!(seen.iter().all(|&h| !ctx.is_live(h)));
+    assert!(!seen.contains(&H::NONE));
 }
 
 #[test]
@@ -51,15 +77,9 @@ fn none_is_never_live_and_freeing_it_does_nothing() {
         ctx.free(Font::NONE);
         assert_eq!(ctx.live_counts(), before);
         // Playing nothing is silent, not a panic.
-        ctx.play_sound(&Sound::NONE);
-        ctx.gfx.draw_text_ex(
-            "hi",
-            vec2(0.0, 0.0),
-            TextParams {
-                font: Font::NONE,
-                ..Default::default()
-            },
-        );
+        ctx.play_sound(Sound::NONE);
+        ctx.gfx
+            .draw_text_ex("hi", vec2(0.0, 0.0), TextParams::default().with_font(Font::NONE));
     });
 }
 
@@ -149,7 +169,18 @@ fn live_counts_follow_creates_and_frees() {
 
 #[cfg(feature = "3d")]
 mod three {
+    // Raw ids, only to see which slot a handle took.
+    use ponko::__ffi::{self, SLOT_MASK};
+    use ponko::terrain::TerrainTile;
+
     use super::*;
+
+    // The slot a handle took: its raw id's low bits.
+    macro_rules! slot {
+        ($handle:expr) => {
+            __ffi::id($handle) & SLOT_MASK
+        };
+    }
 
     const EFFECT: &str = "fn effect(p: Pixel) -> vec3<f32> { return p.color; }";
     const COMPUTE: &str = "fn compute(c: Cell) -> vec4<f32> { return c.value; }";
@@ -199,7 +230,12 @@ mod three {
             assert!(!ctx.gfx.is_render_target(t));
             assert_eq!(ctx.live_counts(), before, "everything made was freed");
             assert!(ctx.is_live(white));
-            for none in [Mesh::NONE.id(), Material::NONE.id(), GpuBuffer::NONE.id()] {
+            // C's PONKO_HANDLE_NONE.
+            for none in [
+                __ffi::id(Mesh::NONE),
+                __ffi::id(Material::NONE),
+                __ffi::id(GpuBuffer::NONE),
+            ] {
                 assert_eq!(none, u32::MAX);
             }
             assert!(!ctx.is_live(Mesh::NONE) && !ctx.is_live(Material::NONE) && !ctx.is_live(Shader::NONE));
@@ -217,10 +253,9 @@ mod three {
             let old = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
             ctx.free(old);
             let new = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
-            assert_eq!(new.id() & 0x00FF_FFFF, old.id() & 0x00FF_FFFF, "the same slot");
+            assert_eq!(slot!(new), slot!(old), "the same slot");
             assert_ne!(new, old);
             assert!(!ctx.is_live(old) && ctx.is_live(new));
-            assert!(!ctx.is_live(Mesh::from_id(old.id())));
             // Calls with the stale handle leave the new mesh alone.
             ctx.gfx.set_mesh_shadows(old, false);
             assert!(ctx.gfx.mesh_shadows(new));
@@ -233,57 +268,75 @@ mod three {
             let old = ctx.gfx.create_gpu_buffer(4, &[]);
             ctx.free(old);
             let new = ctx.gfx.create_gpu_buffer(2, &[]);
-            assert_eq!(new.id() & 0x00FF_FFFF, old.id() & 0x00FF_FFFF, "the same slot");
+            assert_eq!(slot!(new), slot!(old), "the same slot");
             assert_eq!(ctx.gfx.gpu_buffer_len(old), None);
             ctx.free(old);
             assert_eq!(ctx.gfx.gpu_buffer_len(new), Some(2));
         });
     }
 
-    /// Streaming one mesh in and out keeps its slot: the tables stay the
-    /// same size, and the ids cycle through 256 generations, none `NONE`.
+    /// Streaming one mesh in and out keeps reusing its slot, so the tables
+    /// stay small, under a new id each time: 4095 times, then the slot is
+    /// retired and the next one takes over. No id comes back.
     #[test]
-    fn a_reused_slot_counts_its_generations() {
+    fn a_reused_slot_counts_its_generations_then_retires() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
             let material = ctx.gfx.default_material();
             let mut ids = std::collections::HashSet::new();
-            for _ in 0..300 {
+            for i in 0..5000 {
                 let m = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
-                assert_eq!(m.id() & 0x00FF_FFFF, 0);
+                assert_eq!(slot!(m), u32::from(i >= 4095), "made {i}");
                 assert_ne!(m, Mesh::NONE);
-                ids.insert(m.id());
+                assert!(ids.insert(m));
                 ctx.free(m);
             }
-            assert_eq!(ids.len(), 256);
         });
     }
 
+    /// Meshes and GPU buffers that a streamed cell makes and frees over and
+    /// over: a handle kept past `free` never names a later resource.
     #[test]
-    #[allow(deprecated)]
-    fn the_old_names_agree_with_is_live() {
+    fn stale_mesh_and_buffer_handles_stay_dead_across_many_slot_reuses() {
         Game::new("t", 1, 1).run_headless(0, |ctx| {
-            let material = ctx.gfx.create_material(MaterialDesc::default());
-            let shader = ctx.gfx.create_shader("s", SHADER);
-            let compute = ctx.gfx.create_compute("c", COMPUTE);
-            let effect = ctx.gfx.create_effect("e", EFFECT);
-            let array = ctx.gfx.create_texture_array(1, 1, &[&[255; 4]], TextureKind::Color);
-            let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
-            let batch = ctx
-                .gfx
-                .create_instance_batch(mesh, &[], InstanceBatchOptions::default());
-            assert!(ctx.gfx.has_material(material) && ctx.gfx.has_shader(shader) && ctx.gfx.has_compute(compute));
-            assert!(ctx.gfx.has_effect(effect) && ctx.gfx.has_texture_array(array) && ctx.gfx.is_mesh_live(mesh));
-            assert!(ctx.has_material(material) && ctx.is_mesh_live(mesh) && ctx.gfx.has_font(Font::DEFAULT));
-            ctx.free(material);
-            ctx.free(shader);
-            ctx.free(compute);
-            ctx.free(effect);
-            ctx.free(array);
-            ctx.gfx.free_mesh(mesh);
-            ctx.gfx.free_instance_batch(batch);
-            assert!(!ctx.gfx.has_material(material) && !ctx.gfx.has_shader(shader) && !ctx.gfx.has_compute(compute));
-            assert!(!ctx.gfx.has_effect(effect) && !ctx.gfx.has_texture_array(array) && !ctx.gfx.is_mesh_live(mesh));
-            assert!(!ctx.is_live(mesh) && !ctx.is_live(batch));
+            let material = ctx.gfx.default_material();
+            stale_handles_stay_dead(ctx, 10_000, |ctx| ctx.gfx.create_mesh(&MeshData::cube(1.0), material));
+            stale_handles_stay_dead(ctx, 10_000, |ctx| ctx.gfx.create_gpu_buffer(4, &[]));
+        });
+    }
+
+    /// A terrain tile is one handle for its meshes: live while they all
+    /// are, and freed with them.
+    #[test]
+    fn terrain_tiles_free_all_their_meshes() {
+        Game::new("t", 1, 1).run_headless(0, |ctx| {
+            let ground = ctx.gfx.default_material();
+            let before = ctx.live_counts();
+            let tile = |ctx: &mut Ctx| ctx.gfx.create_terrain_tile(&[0.0; 9 * 9], 16.0, ground);
+            let t = tile(ctx);
+            assert_eq!(ctx.live_counts().meshes, before.meshes + TerrainTile::LODS);
+            assert!(t.lods().iter().all(|&m| ctx.gfx.is_live(m)));
+            frees(ctx, t, tile);
+            assert!(t.lods().iter().all(|&m| !ctx.is_live(m)));
+            assert!(!ctx.is_live(TerrainTile::NONE));
+            ctx.free(TerrainTile::NONE);
+            assert_eq!(ctx.live_counts(), before);
+            // A tile is the meshes it frees: another distance is the same tile.
+            let t = tile(ctx);
+            let far = t.with_lod_distance(t.lod_distance() * 4.0);
+            assert_eq!(far, t);
+            assert!(std::collections::HashSet::from([t]).contains(&far));
+            let other = tile(ctx);
+            assert_ne!(other, t);
+            ctx.free(far);
+            assert!(!ctx.is_live(t));
+            ctx.free(other);
+            assert_eq!(ctx.live_counts(), before);
+            // One of its meshes freed on its own: the tile is no longer whole.
+            let t = tile(ctx);
+            ctx.free(t.lods()[3]);
+            assert!(!ctx.gfx.is_live(t));
+            ctx.gfx.free(t);
+            assert_eq!(ctx.live_counts(), before);
         });
     }
 
@@ -333,22 +386,33 @@ mod three {
         Game::new("t", 1, 1)
             .sim_system(move |ctx: &mut Ctx| {
                 if !seen.get() {
-                    assert!(ctx.compute_passes.is_empty(), "the next frame removed the stale pass");
+                    assert!(
+                        ctx.scene3d.passes.compute.is_empty(),
+                        "the next frame removed the stale pass"
+                    );
                     let made = ctx.gfx.create_gpu_buffer(4, &[]);
-                    assert_eq!(made.id() & 0x00FF_FFFF, 0, "and the slot is back in the pool");
-                    assert_ne!(made.id(), 0, "under a new id");
+                    assert_eq!(slot!(made), 0, "and the slot is back in the pool");
+                    assert_ne!(__ffi::id(made), 0, "under a new id");
                     seen.set(true);
                 }
             })
             .run_headless(3, |ctx| {
                 let compute = ctx.gfx.create_compute("c", COMPUTE);
                 let old = ctx.gfx.create_gpu_buffer(4, &[]);
-                assert_eq!(old.id(), 0);
-                ctx.compute_passes.push(ComputePass::for_buffer(compute, old));
+                assert_eq!(__ffi::id(old), 0);
+                ctx.scene3d.passes.compute.push(ComputePass::for_buffer(compute, old));
                 ctx.gfx.free(old);
                 let next = ctx.gfx.create_gpu_buffer(4, &[]);
-                assert_ne!(next.id(), old.id(), "the id waits until its passes are removed");
-                assert_eq!(ctx.compute_passes.len(), 1, "the service can't reach Ctx's passes");
+                assert_ne!(
+                    __ffi::id(next),
+                    __ffi::id(old),
+                    "the id waits until its passes are removed"
+                );
+                assert_eq!(
+                    ctx.scene3d.passes.compute.len(),
+                    1,
+                    "the service can't reach Ctx's passes"
+                );
             });
         assert!(checked.get());
     }
@@ -369,21 +433,27 @@ mod three {
                 let normal = ctx.gfx.create_texture(2, 2, &[128; 16]);
                 let shader = ctx.gfx.create_shader("s", SHADER);
                 let array = ctx.gfx.create_texture_array(1, 1, &[&[255; 4]], TextureKind::Color);
-                let material = ctx.gfx.create_material(MaterialDesc {
-                    texture: Some(image),
-                    normal_map: Some(normal),
-                    shader: Some(shader),
-                    custom_arrays: [Some(array), None, None],
-                    ..Default::default()
-                });
+                let material = ctx.gfx.create_material(
+                    MaterialDesc::default()
+                        .with_texture(image)
+                        .with_normal_map(normal)
+                        .with_shader(shader)
+                        .with_custom_arrays([Some(array), None, None]),
+                );
                 let mesh = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
                 let other = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
                 let target = ctx.gfx.create_render_target(16, 16);
                 let effect = ctx.gfx.create_effect("e", EFFECT);
                 let compute = ctx.gfx.create_compute("c", COMPUTE);
-                ctx.effects.push(ScreenEffect::new(effect).with_material(material));
-                ctx.compute_passes.push(ComputePass::new(compute, target));
-                ctx.target_cameras.push(TargetCamera::new(ctx.camera3d, target));
+                ctx.scene3d
+                    .passes
+                    .effects
+                    .push(ScreenEffect::new(effect).with_material(material));
+                ctx.scene3d.passes.compute.push(ComputePass::new(compute, target));
+                ctx.scene3d
+                    .passes
+                    .target_cameras
+                    .push(TargetCamera::new(ctx.scene3d.camera, target));
                 ctx.world.spawn((Transform::default(), Model::new(mesh)));
                 // Drawn with the material as an override too (ModelMaterial).
                 ctx.world.spawn((
@@ -404,13 +474,11 @@ mod three {
                 ctx.gfx.update_material(material, MaterialDesc::default());
                 assert!(!ctx.is_live(material));
                 // A freed texture takes no pixels.
-                ctx.gfx.update_texture(&image, &[0; 16]);
+                ctx.gfx.update_texture(image, &[0; 16]);
                 // New materials may still name freed handles: they draw as defaults.
-                let late = ctx.gfx.create_material(MaterialDesc {
-                    texture: Some(image),
-                    shader: Some(shader),
-                    ..Default::default()
-                });
+                let late = ctx
+                    .gfx
+                    .create_material(MaterialDesc::default().with_texture(image).with_shader(shader));
                 assert!(ctx.is_live(late));
                 assert!(ctx.is_live(other));
             });
@@ -458,10 +526,7 @@ mod three {
             // ANCHOR: handles
             let before = ctx.live_counts();
             let bricks = ctx.gfx.create_texture(1, 1, &[200, 80, 60, 255]);
-            let wall = ctx.gfx.create_material(MaterialDesc {
-                texture: Some(bricks),
-                ..Default::default()
-            });
+            let wall = ctx.gfx.create_material(MaterialDesc::default().with_texture(bricks));
             let block = ctx.gfx.create_mesh(&MeshData::cube(1.0), wall);
             ctx.world.spawn((Transform::default(), Model::new(block)));
             // Going out of range: free what the cell made. The model still
@@ -474,5 +539,81 @@ mod three {
             assert_eq!(ctx.live_counts(), before);
             // ANCHOR_END: handles
         });
+    }
+}
+
+#[cfg(feature = "physics3d")]
+mod collision {
+    use ponko::physics3d::CollisionMesh;
+
+    use super::*;
+
+    fn ground(ctx: &mut Ctx) -> CollisionMesh {
+        ctx.physics3d.heightfield(&[0.0; 4], 2.0)
+    }
+
+    #[test]
+    fn collision_meshes_free_and_stay_dead() {
+        Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(0, |ctx| {
+            let before = ctx.live_counts();
+            let m = ground(ctx);
+            assert_eq!(ctx.live_counts().collision_meshes, before.collision_meshes + 1);
+            assert!(ctx.physics3d.is_live(m));
+            frees(ctx, m, ground);
+            assert!(!ctx.physics3d.is_live(m));
+            assert_eq!(ctx.live_counts(), before, "everything made was freed");
+            // The service frees them as Ctx does.
+            let m = ground(ctx);
+            ctx.physics3d.free(m);
+            ctx.physics3d.free(m); // again: nothing
+            assert!(!ctx.is_live(m));
+            assert!(!ctx.is_live(CollisionMesh::NONE));
+            ctx.free(CollisionMesh::NONE);
+            assert_eq!(ctx.live_counts(), before);
+        });
+    }
+
+    #[test]
+    fn saved_json_never_makes_or_shows_a_live_collision_mesh() {
+        use ponko::d3::{Collider, Shape, TerrainCollider};
+        use serde_json::json;
+        Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(0, |ctx| {
+            let m = ground(ctx); // the first mesh: the lowest id there is
+            assert!(ctx.is_live(m));
+            // Serde writes a mesh as null, so no number leaves the game...
+            let collider = serde_json::to_value(Collider::mesh(m)).unwrap();
+            assert_eq!(collider["shape"], json!({ "Mesh": null }));
+            let terrain = serde_json::to_value(TerrainCollider::new(m)).unwrap();
+            assert_eq!(terrain["mesh"], json!(null));
+            // ...reads null back as NONE...
+            let back: Collider = serde_json::from_value(collider.clone()).unwrap();
+            assert_eq!(back.shape, Shape::Mesh(CollisionMesh::NONE));
+            let back: TerrainCollider = serde_json::from_value(terrain.clone()).unwrap();
+            assert!(!ctx.is_live(back.mesh));
+            // ...and turns down numbers, whatever their form.
+            for id in [json!({ "id": 0 }), json!(0), json!({ "index": 0, "generation": 0 })] {
+                let mut c = collider.clone();
+                c["shape"]["Mesh"] = id.clone();
+                assert!(serde_json::from_value::<Collider>(c).is_err(), "{id}");
+                let mut t = terrain.clone();
+                t["mesh"] = id.clone();
+                assert!(serde_json::from_value::<TerrainCollider>(t).is_err(), "{id}");
+            }
+            // Reflection (saves, the editor, agents) leaves out a collider of a
+            // mesh made in code, and only takes a mesh by its file.
+            let e = ctx.world.spawn((Collider::mesh(m),));
+            assert!(ctx.world.entity_json(e).unwrap().get("Collider3D").is_none());
+            for mesh in [json!({ "id": 0 }), json!(null)] {
+                let saved = json!({ "Collider3D": { "shape": { "Mesh": mesh } } });
+                assert!(ctx.world.spawn_json(saved).is_err(), "{mesh}");
+            }
+        });
+    }
+
+    #[test]
+    fn stale_collision_meshes_stay_dead_across_many_slot_reuses() {
+        Game::new("t", 1, 1)
+            .physics3d(Vec3::ZERO)
+            .run_headless(0, |ctx| stale_handles_stay_dead(ctx, 10_000, ground));
     }
 }

@@ -3,7 +3,12 @@
 use crate::baked::{self, SKey};
 use crate::{Error, MeshSkin, SkinAnimation, UnityFile, Value};
 use glam::{EulerRot, Mat4, Quat};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+/// The most samples [`AnimationClip::append_to_skin`] may make: sample
+/// times (frames and keys) times curves. About ten minutes at 60 frames a
+/// second of 400 curves.
+const MAX_SAMPLES: usize = 1 << 24;
 
 /// A Unity `.anim` clip (text or binary serialized) with transform and
 /// blend-shape curves. Editor curves are used when present; a clip with only
@@ -105,6 +110,8 @@ impl AnimationClip {
             .body;
         let mut curves = Vec::new();
         let mut morphs: Vec<Morph> = Vec::new();
+        // The blend shape curves already in `morphs`: (name, path).
+        let mut morph_names: HashSet<(String, String)> = HashSet::new();
         let mut skipped = Vec::new();
         if has_data(&m["m_PPtrCurves"]) {
             skipped.push("skipped m_PPtrCurves".into());
@@ -148,15 +155,16 @@ impl AnimationClip {
             }
         }
         for entry in m["m_FloatCurves"].as_seq().unwrap_or_default() {
-            if !blend_shape_curve(entry, &mut morphs, &mut skipped)? {
+            if !blend_shape_curve(entry, &mut morphs, &mut morph_names, &mut skipped)? {
                 skipped.push("skipped m_FloatCurves property".into());
             }
         }
         // The editor's own per-property curves: `m_LocalPosition.x`, ...
         let mut groups: Vec<Group> = Vec::new();
+        let mut group_of: HashMap<(String, usize), usize> = HashMap::new();
         for field in ["m_EditorCurves", "m_EulerEditorCurves"] {
             for entry in m[field].as_seq().unwrap_or_default() {
-                if blend_shape_curve(entry, &mut morphs, &mut skipped)? {
+                if blend_shape_curve(entry, &mut morphs, &mut morph_names, &mut skipped)? {
                     continue;
                 }
                 let attribute = entry["attribute"].as_str().unwrap_or("");
@@ -166,27 +174,30 @@ impl AnimationClip {
                 };
                 let keys = scalar_keys(&entry["curve"], &mut skipped)?;
                 let path = entry["path"].as_str().unwrap_or("");
-                let at = groups.iter().position(|g| g.path == path && g.kind == kind);
-                let group = match at {
-                    Some(i) => &mut groups[i],
-                    None => {
-                        groups.push(Group {
-                            path: path.into(),
-                            kind,
-                            parts: Default::default(),
-                        });
-                        groups.last_mut().expect("just pushed")
-                    }
-                };
-                group.parts[part] = keys;
+                let at = *group_of.entry((path.to_owned(), kind)).or_insert_with(|| {
+                    groups.push(Group {
+                        path: path.into(),
+                        kind,
+                        parts: Default::default(),
+                    });
+                    groups.len() - 1
+                });
+                groups[at].parts[part] = keys;
             }
         }
+        let plain: HashSet<(String, usize)> = curves
+            .iter()
+            .filter_map(|c| match &c.path {
+                PathRef::Name(n) => Some((n.clone(), c.kind)),
+                PathRef::Hash(_) => None,
+            })
+            .collect();
         for g in groups {
             // The plain transform curves win over the editor's for the same target.
-            let named = PathRef::Name(g.path);
-            if curves.iter().any(|c| c.path == named && c.kind == g.kind) {
+            if plain.contains(&(g.path.clone(), g.kind)) {
                 continue;
             }
+            let named = PathRef::Name(g.path);
             if let Some((mask, keys)) = combine(&g.parts) {
                 curves.push(Curve {
                     path: named,
@@ -222,6 +233,35 @@ impl AnimationClip {
             || (stop - start) * rate > 1_000_000.0
         {
             return Err(Error::new("invalid animation clip timing/sample rate"));
+        }
+        // Sampling makes a value per sample time (each frame and each key)
+        // for every curve: bounded, so a short file can't ask for gigabytes.
+        let frames = ((stop - start) * rate).ceil() as usize + 1;
+        // Key times between the frames, as `append_to_skin` adds them: a
+        // key on a frame's time is that frame's sample.
+        let on_frame = |t: f32| {
+            let i = (t * rate).round();
+            i >= 0.0 && (i / rate).min(stop - start) == t
+        };
+        let mut key_times: Vec<u32> = curves
+            .iter()
+            .chain(morphs.iter().map(|m| &m.curve))
+            .flat_map(|c| c.keys.iter())
+            .filter(|k| k.time >= start && k.time <= stop)
+            // `+ 0.0` makes -0 the same time as 0.
+            .map(|k| k.time - start + 0.0)
+            .filter(|&t| !on_frame(t))
+            .map(f32::to_bits)
+            .collect();
+        key_times.sort_unstable();
+        key_times.dedup();
+        let samples = (frames + key_times.len()).saturating_mul(curves.len() + morphs.len());
+        if samples > MAX_SAMPLES {
+            return Err(Error::new(format!(
+                "animation clip too long to sample: {} curves over {frames} frames and {} key times (at most {MAX_SAMPLES} samples)",
+                curves.len() + morphs.len(),
+                key_times.len()
+            )));
         }
         Ok(Self {
             name: m["m_Name"].as_str().unwrap_or("Clip").into(),
@@ -309,6 +349,7 @@ impl AnimationClip {
         times.sort_by(f32::total_cmp);
         times.dedup();
         let by_hash = self.path_hashes(skin, root);
+        let children = child_index(skin);
         let mut morphs = Vec::new();
         for m in &self.morphs {
             let c = &m.curve;
@@ -318,7 +359,7 @@ impl AnimationClip {
                     self.name,
                     m.hash.unwrap_or(0)
                 ));
-            } else if resolve(skin, root, &c.path, &by_hash).is_some() {
+            } else if resolve(skin, root, &c.path, &by_hash, &children).is_some() {
                 morphs.push((
                     m.name.clone(),
                     times.iter().map(|t| c.sample(*t + self.start)[0]).collect(),
@@ -340,7 +381,7 @@ impl AnimationClip {
         };
         let mut resolved = Vec::new();
         for curve in &self.curves {
-            if let Some(node) = resolve(skin, root, &curve.path, &by_hash) {
+            if let Some(node) = resolve(skin, root, &curve.path, &by_hash, &children) {
                 resolved.push((node, curve));
             } else {
                 diagnostics.push(format!(
@@ -350,12 +391,15 @@ impl AnimationClip {
                 ));
             }
         }
+        let mut tracks_of: HashMap<usize, Vec<&Curve>> = HashMap::new();
+        for (node, curve) in &resolved {
+            tracks_of.entry(*node).or_default().push(curve);
+        }
         for (node, rest) in skin.nodes.iter().enumerate() {
-            let tracks: Vec<_> = resolved.iter().filter(|(n, _)| *n == node).map(|(_, c)| *c).collect();
-            if tracks.is_empty() {
+            let Some(tracks) = tracks_of.get(&node) else {
                 continue;
-            }
-            for c in &tracks {
+            };
+            for c in tracks {
                 animation.step[node][if c.kind == 3 { 1 } else { c.kind }] = c.keys.windows(2).all(|w| {
                     (0..if c.kind == 1 { 4 } else { 3 })
                         .filter(|i| c.mask[*i])
@@ -368,7 +412,7 @@ impl AnimationClip {
             let rest_euler = [ex.to_degrees(), ey.to_degrees(), ez.to_degrees()];
             for &time in &animation.times {
                 let (mut s, mut r, mut t) = (rest_scale, rest_rotation, rest_position);
-                for c in &tracks {
+                for c in tracks {
                     let v = c.sample(time + self.start);
                     match c.kind {
                         0 => {
@@ -424,23 +468,42 @@ impl AnimationClip {
         {
             return map;
         }
+        // Each node's path hash from its parent's, once: a CRC-32 extends
+        // over the text after it. `None`: not under `root`.
+        let mut state: Vec<Option<Option<u32>>> = vec![None; skin.nodes.len()];
+        state[root] = Some(Some(!0));
         for node in 0..skin.nodes.len() {
-            let mut names = Vec::new();
+            // Up to the first node already known (or out of the tree).
+            let mut chain = Vec::new();
             let mut at = node;
-            let mut under_root = true;
-            while at != root {
-                names.push(skin.nodes[at].name.as_str());
-                match skin.nodes[at].parent {
-                    Some(p) if names.len() <= skin.nodes.len() => at = p,
-                    _ => {
-                        under_root = false;
-                        break;
-                    }
+            let mut base = loop {
+                if let Some(known) = state[at] {
+                    break known;
                 }
+                chain.push(at);
+                match skin.nodes[at].parent {
+                    Some(p) if p < skin.nodes.len() && chain.len() <= skin.nodes.len() => at = p,
+                    _ => break None,
+                }
+            };
+            for &n in chain.iter().rev() {
+                // A loop of parents comes back to a node on this chain:
+                // none of it is under the root.
+                let parent = skin.nodes[n].parent;
+                base = base.filter(|_| state[n].is_none()).map(|crc| {
+                    let crc = if parent == Some(root) {
+                        crc
+                    } else {
+                        baked::crc32_extend(crc, b"/")
+                    };
+                    baked::crc32_extend(crc, skin.nodes[n].name.as_bytes())
+                });
+                state[n] = Some(base);
             }
-            if under_root {
-                names.reverse();
-                map.entry(baked::crc32(&names.join("/"))).or_default().push(node);
+        }
+        for (node, crc) in state.iter().enumerate() {
+            if let Some(Some(crc)) = crc {
+                map.entry(!crc).or_default().push(node);
             }
         }
         map
@@ -454,8 +517,28 @@ impl PathRef {
         }
     }
 }
+/// Each node's children by name: `None` where two share a name.
+fn child_index(skin: &MeshSkin) -> HashMap<(usize, &str), Option<usize>> {
+    let mut children: HashMap<(usize, &str), Option<usize>> = HashMap::new();
+    for (i, n) in skin.nodes.iter().enumerate() {
+        if let Some(parent) = n.parent {
+            children
+                .entry((parent, n.name.as_str()))
+                .and_modify(|c| *c = None)
+                .or_insert(Some(i));
+        }
+    }
+    children
+}
+
 /// The one node a path leads to from `root`, if it's unambiguous.
-fn resolve(skin: &MeshSkin, root: usize, path: &PathRef, by_hash: &HashMap<u32, Vec<usize>>) -> Option<usize> {
+fn resolve(
+    skin: &MeshSkin,
+    root: usize,
+    path: &PathRef,
+    by_hash: &HashMap<u32, Vec<usize>>,
+    children: &HashMap<(usize, &str), Option<usize>>,
+) -> Option<usize> {
     match path {
         PathRef::Hash(h) => match by_hash.get(h).map(Vec::as_slice) {
             Some([only]) => Some(*only),
@@ -464,15 +547,7 @@ fn resolve(skin: &MeshSkin, root: usize, path: &PathRef, by_hash: &HashMap<u32, 
         PathRef::Name(path) => {
             let mut node = (root < skin.nodes.len()).then_some(root);
             for part in path.split('/').filter(|s| !s.is_empty()) {
-                node = node.and_then(|parent| {
-                    let mut found = skin
-                        .nodes
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, n)| n.parent == Some(parent) && n.name == part);
-                    let first = found.next().map(|(i, _)| i);
-                    if found.next().is_some() { None } else { first }
-                });
+                node = node.and_then(|parent| children.get(&(parent, part)).copied().flatten());
             }
             node
         }
@@ -529,7 +604,12 @@ fn scalar_keys(curve: &Value, skipped: &mut Vec<String>) -> Result<Vec<SKey>, Er
 }
 /// Takes a `blendShape.<name>` float curve into `morphs` (weights are
 /// percentages in Unity). Returns whether the entry was one.
-fn blend_shape_curve(entry: &Value, morphs: &mut Vec<Morph>, skipped: &mut Vec<String>) -> Result<bool, Error> {
+fn blend_shape_curve(
+    entry: &Value,
+    morphs: &mut Vec<Morph>,
+    names: &mut HashSet<(String, String)>,
+    skipped: &mut Vec<String>,
+) -> Result<bool, Error> {
     let Some(name) = entry["attribute"]
         .as_str()
         .and_then(|a| a.strip_prefix("blendShape."))
@@ -540,11 +620,7 @@ fn blend_shape_curve(entry: &Value, morphs: &mut Vec<Morph>, skipped: &mut Vec<S
     let path = entry["path"].as_str().unwrap_or("");
     let keys = scalar_keys(&entry["curve"], skipped)?;
     // The same curve can be listed as an editor curve and a float curve.
-    if !keys.is_empty()
-        && !morphs
-            .iter()
-            .any(|m| m.name == name && m.curve.path == PathRef::Name(path.into()))
-    {
+    if !keys.is_empty() && names.insert((name.to_owned(), path.to_owned())) {
         morphs.push(Morph {
             name: name.into(),
             hash: None,

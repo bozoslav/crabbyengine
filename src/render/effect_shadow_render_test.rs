@@ -112,7 +112,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -140,32 +140,32 @@ impl Rig {
     fn draw(&mut self) -> Vec<u8> {
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.effects.clone_from(&self.effects);
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // Sunlight only in the shadow scene: elsewhere the cubes glow
             // on black.
             light: SkyLight {
-                sun: if ctx.lighting.shadows {
-                    Vec3::splat(ctx.lighting.sun_intensity)
+                sun: if ctx.scene3d.lighting.shadows {
+                    Vec3::splat(ctx.scene3d.lighting.sun_intensity)
                 } else {
                     Vec3::ZERO
                 },
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -236,9 +236,9 @@ fn screen_effects_can_read_the_suns_shadow() {
         .world
         .spawn((Transform3D::at(vec3(0.0, 2.0, 0.0)), Model::new(block)));
     // The sun from the upper left: the block's shadow falls two to the right.
-    rig.ctx.lighting.sun_direction = vec3(1.0, -1.0, 0.0);
-    rig.ctx.camera3d.position = vec3(0.0, 12.0, 0.01);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.lighting.sun_direction = vec3(1.0, -1.0, 0.0);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 12.0, 0.01);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let effect = rig
         .renderer
         .create_effect(
@@ -249,7 +249,7 @@ fn screen_effects_can_read_the_suns_shadow() {
         .unwrap();
     rig.effects.push((effect, 0));
     let pixels = rig.draw();
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let at = |p: Vec3| {
         let (x, y) = pixel(view_proj, p);
         pixels[((y * SIZE + x) * 4) as usize]

@@ -1,6 +1,10 @@
 //! Streaming big worlds: [`Job`] runs work on another thread (loading and
-//! building a tile, decoding a file), and [`CellStreamer`] says which cells
+//! building a tile, decoding a file), and `CellStreamer` (with the `3d` feature) says which cells
 //! of a grid to load or drop as the camera moves, nearest first.
+//!
+//! These are building blocks for a game's own content and hold no assets.
+//! Loading textures and meshes by name under memory and upload budgets is
+//! [`crate::streaming`], on [`Graphics`](crate::gfx::Graphics).
 
 #[cfg(feature = "3d")]
 use std::collections::HashSet;

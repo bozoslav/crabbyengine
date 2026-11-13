@@ -1,4 +1,4 @@
-use ponko::{Game, Phase};
+use ponko::{Ctx, Game, Phase};
 use std::{cell::RefCell, rc::Rc};
 
 #[test]
@@ -17,7 +17,7 @@ fn fixed_phases_run_in_order_and_frame_phases_stay_out_of_headless() {
         Phase::Input,
     ] {
         let log = log.clone();
-        game = game.add(phase, move |_| log.borrow_mut().push(phase));
+        game = game.add(phase, move |_: &mut Ctx| log.borrow_mut().push(phase));
     }
     let log2 = log.clone();
     game = game.sim_system(move |_| log2.borrow_mut().push(Phase::AfterPhysics));

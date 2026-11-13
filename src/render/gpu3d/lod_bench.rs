@@ -191,9 +191,9 @@ impl LodBench {
             solid_prepass,
         );
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(scene.size.0 as f32, scene.size.1 as f32));
-        ctx.sky.atmosphere = false;
-        ctx.lighting.shadows = scene.shadows;
-        ctx.camera3d.far = 400.0;
+        ctx.scene3d.sky.atmosphere = false;
+        ctx.scene3d.lighting.shadows = scene.shadows;
+        ctx.scene3d.camera.far = 400.0;
         let timer = GpuTimer::new(&device, &queue);
         let side = (scene.groups as f32).sqrt().ceil().max(1.0) as usize;
         let extent = side as f32 * 4.0;
@@ -290,7 +290,7 @@ impl LodBench {
             }
             LodPath::GpuBatch | LodPath::CpuBatch => {
                 let levels = group
-                    .instance_levels(1.0, self.ctx.camera3d.fov_y, &self.ctx.lod)
+                    .instance_levels(1.0, self.ctx.scene3d.camera.fov_y, &self.ctx.scene3d.lod)
                     .expect("a group a batch can draw");
                 let matrices: Vec<Mat4> = transforms.iter().map(Transform3D::matrix).collect();
                 let culling = if self.scene.path == LodPath::GpuBatch {
@@ -307,7 +307,7 @@ impl LodBench {
                         ..Default::default()
                     },
                 );
-                let data = self.ctx.gfx.assets3d.instance_batches[batch.id() as usize].as_ref();
+                let data = self.ctx.gfx.assets3d.instance_batches[batch.id as usize].as_ref();
                 if let Some(b) = data {
                     self.cpu_bytes = (b.instances.capacity() * size_of::<crate::three::Instance3D>()
                         + b.spheres.capacity() * size_of::<[f32; 4]>()
@@ -316,8 +316,8 @@ impl LodBench {
                         as u64;
                 }
                 self.renderer
-                    .set_instance_batch(&self.device, &self.queue, batch.id(), data);
-                self.batch = Some(batch.id());
+                    .set_instance_batch(&self.device, &self.queue, batch.id, data);
+                self.batch = Some(batch.id);
             }
         }
     }
@@ -369,32 +369,33 @@ impl LodBench {
         let along = if along > travel { 2.0 * travel - along } else { along };
         let ctx = &mut self.ctx;
         let position = self.start - Vec3::Z * along;
-        ctx.camera3d.position = position;
+        ctx.scene3d.camera.position = position;
         let sway = (self.frames as f32 * 0.02).sin() * 0.3;
-        ctx.camera3d
+        ctx.scene3d
+            .camera
             .look_at(position + Vec3::new(sway.sin(), -0.25, -sway.cos()) * 10.0);
         let started = Instant::now();
         let frame = &mut self.frame;
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &self.skins,
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let collected = Instant::now();
         let scene = Scene3D {
             frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::splat(0.3),
                 ground: Vec3::splat(0.1),
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (self.frames as f32 / 60.0, 1.0 / 60.0),
             occlusion: false,
         };

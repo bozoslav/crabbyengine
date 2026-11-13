@@ -14,8 +14,6 @@ use super::{NetMessages, PeerId};
 const CHANNEL: u32 = 12701; // independent of lockstep's channel zero
 const PACKET_LIMIT: usize = 1500; // renet's MTU plus our session envelope
 const PROTOCOL: &str = "ponko-messages-1";
-// Deprecated version-1 metadata for interoperability with existing peers.
-const LEGACY_PROTOCOL: &str = "crabby-messages-1";
 #[derive(Default)]
 struct LobbyResult {
     result: Option<Result<LobbyId, String>>,
@@ -323,18 +321,11 @@ impl Relay {
         if let Some(id) = self.lobby.id() {
             if self.hosting && !self.published {
                 self.lobby.set_metadata("ponko_protocol", PROTOCOL)?;
-                // Same packet encoding: advertise to pre-migration peers too.
-                self.lobby.set_metadata("crabby_protocol", LEGACY_PROTOCOL)?;
                 self.published = true;
             }
             if !self.hosting {
-                match self
-                    .lobby
-                    .metadata("ponko_protocol")
-                    .or_else(|| self.lobby.metadata("crabby_protocol"))
-                    .as_deref()
-                {
-                    Some(PROTOCOL | LEGACY_PROTOCOL) => self.owner = Some(self.lobby.api.owner(id)),
+                match self.lobby.metadata("ponko_protocol").as_deref() {
+                    Some(PROTOCOL) => self.owner = Some(self.lobby.api.owner(id)),
                     Some(_) => return Err(io::Error::other("incompatible message protocol")),
                     None => return Ok(()), // owner may still be publishing
                 }
@@ -730,17 +721,13 @@ mod tests {
         assert!(nets[1].poll_elapsed(Duration::ZERO).is_err());
     }
     #[test]
-    fn renamed_protocol_metadata_keeps_old_peers_and_primary_precedence() {
+    fn protocol_metadata_is_published_and_unknown_versions_are_rejected() {
         let (mut nets, state) = endpoints(2);
         poll(&mut nets, 30);
         let metadata = state.lock().unwrap().rooms[&1].metadata.clone();
         assert_eq!(
             metadata.get("ponko_protocol").map(String::as_str),
             Some("ponko-messages-1")
-        );
-        assert_eq!(
-            metadata.get("crabby_protocol").map(String::as_str),
-            Some("crabby-messages-1")
         );
         state
             .lock()
@@ -752,7 +739,7 @@ mod tests {
             .remove("ponko_protocol");
         assert!(
             nets[1].poll_elapsed(Duration::ZERO).is_ok(),
-            "old hosts stay compatible"
+            "a joiner waits while the host has not published yet"
         );
         {
             let mut state = state.lock().unwrap();
@@ -761,7 +748,7 @@ mod tests {
         }
         assert!(
             nets[1].poll_elapsed(Duration::ZERO).is_err(),
-            "unknown primary versions cannot fall back"
+            "unknown protocol versions are rejected"
         );
     }
 }

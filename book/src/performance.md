@@ -417,7 +417,7 @@ call of their own to change the quality level yet.
   [`ShadowMesh`](3d.md), especially far away.
 - **Distant detail**: swap far models for simpler meshes or billboards.
   `mesh_costs` shows which meshes cost the most.
-- **Pixels**: on a large Retina screen, `Game::msaa(2)` costs about a
+- **Pixels**: on a large Retina screen, `ctx.scene3d.post.msaa = 2` costs about a
   third less GPU time for the 3D passes than the default 4x.
 
 ### Models between frames
@@ -682,7 +682,7 @@ component set costs. Agents get both from the control endpoint's
 - Use `--release`. Always.
 - Prefer `for_each`/`par_for_each` over `iter()` for big queries.
 - Spawn with `spawn_batch`.
-- Run expensive logic at a reduced rate with `sim_system_every(n, system)`,
+- Run expensive logic at a reduced rate with `.add(phase, system.every(n))`,
   or spread per-entity work over ticks with `ctx.time.turns(n)` (see
   [The simulation clock](sim-clock.md)).
 

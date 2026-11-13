@@ -79,7 +79,8 @@ fn blast(ctx: &mut Ctx) {
     }
     let center = ctx.mouse_world();
     let mut near = Vec::new();
-    ctx.physics.entities_in_circle(center, 200.0, &mut near);
+    let with_sensors = ponko::d2::QueryFilter::default().with_sensors();
+    ctx.physics.overlap_circle(center, 200.0, with_sensors, &mut near);
     for e in near {
         let Some(t) = ctx.world.get::<Transform2D>(e) else {
             continue;
@@ -93,7 +94,12 @@ fn blast(ctx: &mut Ctx) {
 
 /// What's under the mouse, straight down: a laser from the cursor.
 fn laser(ctx: &mut Ctx) -> Option<Hit> {
-    ctx.physics.cast_ray(ctx.mouse_world(), vec2(0.0, 1.0), H)
+    ctx.physics.cast_ray(
+        ctx.mouse_world(),
+        vec2(0.0, 1.0),
+        H,
+        ponko::d2::QueryFilter::default().with_sensors(),
+    )
 }
 // ANCHOR_END: queries
 
@@ -124,7 +130,7 @@ fn drop_things(ctx: &mut Ctx) {
         ));
     }
     if ctx.key_pressed(Key::R) {
-        let all: Vec<Entity> = ctx.world.query::<Entity>().with::<RigidBody>().iter().collect();
+        let all: Vec<Entity> = ctx.world.query::<Entity>().filter::<With<RigidBody>>().iter().collect();
         for e in all {
             ctx.world.despawn(e);
         }

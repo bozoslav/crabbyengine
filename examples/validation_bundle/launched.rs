@@ -80,9 +80,20 @@ impl Launch {
         })
     }
 
+    /// The feature the MCP `launch` adds to a release build (`None` for
+    /// debug builds and programs), so the build here is the one it runs
+    /// and the recorded command lines match. Asks `cargo metadata`: worked
+    /// out once per run.
+    fn control_env_feature(&self) -> Option<String> {
+        if !self.release || self.program.is_some() {
+            return None;
+        }
+        ponko_mcp::control_env_feature(Path::new(self.cwd.as_deref().unwrap_or(".")), None)
+    }
+
     /// The command line that repeats the launch, for the manifest.
-    pub fn describe(&self, variant: Variant, seed: u64) -> Vec<String> {
-        let mut argv = self.cargo_argv("run");
+    fn describe(&self, variant: Variant, seed: u64, control_env: Option<&str>) -> Vec<String> {
+        let mut argv = self.cargo_argv("run", control_env);
         if self.program.is_none() {
             argv.push("--".into());
         }
@@ -90,7 +101,7 @@ impl Launch {
         argv
     }
 
-    fn cargo_argv(&self, verb: &str) -> Vec<String> {
+    fn cargo_argv(&self, verb: &str, control_env: Option<&str>) -> Vec<String> {
         if let Some(program) = &self.program {
             return vec![program.clone()];
         }
@@ -102,6 +113,9 @@ impl Launch {
             if let Some(v) = value {
                 argv.extend([flag.to_string(), v.clone()]);
             }
+        }
+        if let Some(feature) = control_env {
+            argv.extend(["--features".to_string(), feature.to_string()]);
         }
         argv
     }
@@ -201,8 +215,8 @@ impl Mcp {
     }
 }
 
-/// A directory of this run's own (the instance registry, the game's output,
-/// the screenshot before it is copied), removed when the run ends.
+/// A directory of this run's own (the instance registry and the game's
+/// output), removed when the run ends.
 struct Scratch(PathBuf);
 
 impl Scratch {
@@ -224,6 +238,14 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+/// Where the MCP `screenshot` tool says the game saved the image: its
+/// text part ends in "saved at <path>".
+fn screenshot_file(said: &Value) -> Option<PathBuf> {
+    let text = said.as_str()?;
+    let (_, path) = text.rsplit_once("saved at ")?;
+    Some(PathBuf::from(path.trim()))
 }
 
 /// The first line of a tool's error, bounded: the rest is in the log.
@@ -263,15 +285,19 @@ pub fn observe(
         features: None,
     };
 
+    let control_env = launch.control_env_feature();
+    let described = launch.describe(variant, seed, control_env.as_deref());
+
     // 1. The build, apart from the launch: its failure is its own kind.
     if launch.build && launch.program.is_none() {
-        let mut spec = CommandSpec::from_argv(launch.cargo_argv("build"));
+        let build_argv = launch.cargo_argv("build", control_env.as_deref());
+        let mut spec = CommandSpec::from_argv(build_argv.clone());
         if let Some(cargo) = std::env::var_os("CARGO") {
             spec.argv[0] = cargo.to_string_lossy().into_owned();
         }
         spec.cwd = launch.cwd.clone();
         let out = run_command(&spec, launch.build_timeout, launch.output_limit);
-        let mut log = format!("$ {}\n", launch.cargo_argv("build").join(" "));
+        let mut log = format!("$ {}\n", build_argv.join(" "));
         log.push_str(&format!(
             "--- stdout ---\n{}\n--- stderr ---\n{}\n",
             out.stdout, out.stderr
@@ -282,7 +308,7 @@ pub fn observe(
         bundle.text("logs/build.log", "step-log", &log);
         commands.push(json!({
             "role": "build",
-            "argv": launch.cargo_argv("build"),
+            "argv": build_argv,
             "cwd": launch.cwd,
             "status": out.status.name(),
             "exit_code": match &out.status { CommandStatus::Failed(c) => json!(c), _ => Value::Null },
@@ -357,11 +383,11 @@ pub fn observe(
     bundle.text(
         "logs/process-output.log",
         "process-output",
-        &format!("$ {}\n{text}\n", launch.describe(variant, seed).join(" ")),
+        &format!("$ {}\n{text}\n", described.join(" ")),
     );
     commands.push(json!({
         "role": "launch",
-        "argv": launch.describe(variant, seed),
+        "argv": described,
         "cwd": launch.cwd,
         "env_names": launch.env.iter().map(|(k, _)| k).collect::<Vec<_>>(),
         "headless": !launch.windowed,
@@ -393,7 +419,7 @@ fn drive(
     seen: &mut Observed,
 ) -> Result<(), String> {
     let id = instance["id"].as_str().unwrap_or("").to_string();
-    let result = interact(mcp, &id, instance, launch, interaction, scratch, bundle, seen);
+    let result = interact(mcp, &id, instance, launch, interaction, bundle, seen);
     let _ = mcp.tool("quit_instance", json!({ "instance": id }));
     // Its output file is complete once it is gone.
     let registry = scratch.join("instances");
@@ -404,14 +430,12 @@ fn drive(
     result
 }
 
-#[allow(clippy::too_many_arguments)]
 fn interact(
     mcp: &mut Mcp,
     id: &str,
     instance: &Value,
     launch: &Launch,
     interaction: &Interaction,
-    scratch: &Path,
     bundle: &mut Bundle,
     seen: &mut Observed,
 ) -> Result<(), String> {
@@ -516,10 +540,17 @@ fn interact(
     seen.performance = Value::Object(performance);
 
     // A frame, when there is a window to draw one.
+    // The game saves it where it likes (tools may only name files in the
+    // game's own folder) and says where; the copy kept is the bundle's.
     seen.screenshots = if launch.windowed {
-        let file = scratch.join("final.png");
-        match mcp.tool("screenshot", at(json!({ "path": file }))) {
-            Ok(_) => match std::fs::read(&file) {
+        match mcp.tool("screenshot", at(json!({}))) {
+            Ok(said) => match screenshot_file(&said)
+                .ok_or("no path in the reply".to_string())
+                .and_then(|file| {
+                    let png = std::fs::read(&file).map_err(|e| e.to_string());
+                    let _ = std::fs::remove_file(&file);
+                    png
+                }) {
                 Ok(png) => {
                     bundle.bytes("screenshots/final.png", "screenshot", png);
                     json!({
@@ -534,7 +565,7 @@ fn interact(
         }
     } else {
         // Asked anyway, so the bundle holds the game's own answer.
-        match mcp.tool("screenshot", at(json!({ "path": scratch.join("final.png") }))) {
+        match mcp.tool("screenshot", at(json!({}))) {
             Ok(_) => unavailable("a headless game reported a frame; not kept, because headless runs draw nothing"),
             Err(e) => unavailable(&format!("headless run: {}", headline(&e))),
         }

@@ -868,7 +868,7 @@ pub unsafe extern "C" fn ponko_ctx_update_texture(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let pixels = pixels(texture.width, texture.height, rgba, len)?;
-            c.gfx.update_texture(&texture_from_c(texture), pixels);
+            c.gfx.update_texture(texture_from_c(texture), pixels);
             Ok(())
         })
     })
@@ -916,7 +916,7 @@ pub unsafe extern "C" fn ponko_ctx_draw(ctx: *mut PonkoCtx, texture: PonkoTextur
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.draw(&texture_from_c(texture), to_c(pos));
+            c.draw(texture_from_c(texture), to_c(pos));
             Ok(())
         })
     })
@@ -943,7 +943,7 @@ pub unsafe extern "C" fn ponko_ctx_draw_ex(
                 return Err(invalid("params is null"));
             }
             c.gfx
-                .draw_ex(&texture_from_c(texture), to_c(pos), draw_params_from_c(&*params));
+                .draw_ex(texture_from_c(texture), to_c(pos), draw_params_from_c(&*params));
             Ok(())
         })
     })

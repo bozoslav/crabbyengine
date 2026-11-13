@@ -168,7 +168,7 @@ struct MapView {
 fn make_map_view(ctx: &mut Ctx) {
     let (w, h) = (MAP.x as usize, MAP.y as usize);
     let tex = ctx.gfx.create_texture(MAP.x, MAP.y, &vec![0; w * h * 4]);
-    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
+    ctx.gfx.set_texture_filter(tex, TextureFilter::Nearest);
     ctx.world.insert_resource(MapView {
         tex,
         pixels: vec![0u8; w * h * 4],
@@ -212,19 +212,15 @@ fn draw_map(ctx: &mut Ctx) {
         }
         // The upload needs all of `ctx`, so the pixels leave the resource for it.
         let pixels = std::mem::take(&mut view.pixels);
-        ctx.gfx.update_texture(&tex, &pixels);
+        ctx.gfx.update_texture(tex, &pixels);
         ctx.world.resource_mut::<MapView>().pixels = pixels;
     }
     ctx.gfx.clear(Color::BLACK);
     let size = MAP.as_vec2() * CELL;
     ctx.gfx.draw_ex(
-        &tex,
+        tex,
         size / 2.0,
-        DrawParams {
-            scale: Vec2::splat(CELL),
-            z: -10.0,
-            ..Default::default()
-        },
+        DrawParams::default().with_scale(Vec2::splat(CELL)).with_z(-10.0),
     );
     ctx.gfx.draw_circle(goal, 8.0, Color::rgba(1.0, 0.3, 0.3, 0.8));
 }

@@ -65,14 +65,14 @@ impl Rig {
             &[(0..cube_data.indices.len() as u32, material)],
             true,
         );
-        ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
-        ctx.camera3d.look_at(Vec3::ZERO);
-        ctx.lighting.shadows = false;
-        ctx.lighting.sun_intensity = 0.0;
-        ctx.lighting.ambient_intensity = 0.0;
-        ctx.sky.atmosphere = false;
-        ctx.post.bloom = 0.0;
-        ctx.post.tonemap = Tonemap::None;
+        ctx.scene3d.camera.position = vec3(0.0, 0.0, 5.0);
+        ctx.scene3d.camera.look_at(Vec3::ZERO);
+        ctx.scene3d.lighting.shadows = false;
+        ctx.scene3d.lighting.sun_intensity = 0.0;
+        ctx.scene3d.lighting.ambient_intensity = 0.0;
+        ctx.scene3d.sky.atmosphere = false;
+        ctx.scene3d.post.bloom = 0.0;
+        ctx.scene3d.post.tonemap = Tonemap::None;
         Some(Self {
             device,
             queue,
@@ -94,7 +94,7 @@ impl Rig {
     fn resize(&mut self, size: u32) {
         self.output = target(&self.device, (size, size), self.output.format());
         self.size = size;
-        self.ctx.camera3d.set_viewport(Vec2::splat(size as f32));
+        self.ctx.scene3d.camera.set_viewport(Vec2::splat(size as f32));
     }
 
     /// A slab turned `angle` about the view axis: a long diagonal edge.
@@ -114,14 +114,14 @@ impl Rig {
     fn render(&mut self) {
         let size = self.size;
         let ctx = &mut self.ctx;
-        self.frame.motion.enabled =
-            ctx.post.anti_aliasing == AntiAliasing::Taa || (ctx.post.ao_temporal && ctx.post.ambient_occlusion.enabled);
+        self.frame.motion.enabled = ctx.scene3d.post.anti_aliasing == AntiAliasing::Taa
+            || (ctx.scene3d.post.ao_temporal && ctx.scene3d.post.ambient_occlusion.enabled);
         self.frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         ctx.gfx.frame3d.views = std::mem::take(&mut self.frame.views);
         ctx.collect_views(&SkinFrame::default());
@@ -131,15 +131,15 @@ impl Rig {
         }
         let scene = Scene3D {
             frame: &self.frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
                 sun: Vec3::ZERO,
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -255,7 +255,7 @@ fn a_still_diagonal_edge_converges_smoother_than_without_it() {
     let truth = downsample(&big.draw(), (SIZE * 8) as usize, 8);
     drop(big);
 
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     let mut frames = Vec::new();
     for _ in 0..40 {
         frames.push(rig.draw());
@@ -300,7 +300,7 @@ fn a_moved_model_writes_its_motion_and_a_still_one_does_not() {
     if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return;
     }
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     // The world holds one entity; moving it keeps it the same entity.
     rig.ctx.world.spawn((Transform3D::at(Vec3::ZERO), Model::new(rig.cube)));
     rig.draw();
@@ -316,7 +316,7 @@ fn a_moved_model_writes_its_motion_and_a_still_one_does_not() {
         .query::<&mut Transform3D>()
         .for_each(|t| t.position += step);
     rig.draw();
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     // The pixel at the middle of the box's front face (half a unit nearer).
     let face = vec3(0.0, 0.0, 0.5);
     let (before, now) = (view_proj.project_point3(face), view_proj.project_point3(face + step));
@@ -377,7 +377,7 @@ fn trail(disabled: bool, buffered: bool) -> Option<f32> {
         return None;
     }
     rig.disable_motion = disabled;
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     // Two cubes a unit apart when buffered, else one: both rows are checked.
     let mut ys = vec![0.0];
     let mesh = if buffered {
@@ -403,7 +403,7 @@ fn trail(disabled: bool, buffered: bool) -> Option<f32> {
     }
     let n = SIZE as usize;
     // Where the box is now, in pixels; its trail is to the left of it.
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let x_of = |x: f32| (view_proj.project_point3(vec3(x, 0.0, 0.0)).x * 0.5 + 0.5) * SIZE as f32;
     let y_of = |y: f32| ((0.5 - view_proj.project_point3(vec3(0.0, y, 0.0)).y * 0.5) * SIZE as f32) as usize;
     let box_now = -2.0 + 12.0 * 0.3;
@@ -460,7 +460,7 @@ fn resetting_the_history_starts_over_from_the_current_frame() {
     big.slab(0.37);
     let truth = downsample(&big.draw(), (SIZE * 8) as usize, 8);
     drop(big);
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     for _ in 0..40 {
         rig.draw();
     }
@@ -485,9 +485,9 @@ fn downlevel_devices_fall_back_to_fxaa() {
         return;
     };
     rig.slab(0.37);
-    rig.ctx.post.anti_aliasing = AntiAliasing::Fxaa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Fxaa;
     let fxaa = rig.draw();
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     let taa = rig.draw();
     assert!(!rig.renderer.taa_active(), "no TAA without compute");
     assert_eq!(fxaa, taa, "TAA draws as FXAA there");
@@ -501,8 +501,8 @@ fn temporal_ao_tracks_objects_without_taa_and_reset_discards_history() {
     if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::AmbientOcclusion) {
         return;
     }
-    rig.ctx.post.ambient_occlusion.enabled = true;
-    rig.ctx.post.ao_temporal = true;
+    rig.ctx.scene3d.post.ambient_occlusion.enabled = true;
+    rig.ctx.scene3d.post.ao_temporal = true;
     rig.ctx.world.spawn((Transform3D::default(), Model::new(rig.cube)));
     rig.draw();
     rig.ctx
@@ -522,7 +522,7 @@ fn temporal_ao_tracks_objects_without_taa_and_reset_discards_history() {
     assert!(motion_at(&rig, rig.size / 2, rig.size / 2).is_none());
     rig.frame.motion.reset = true;
     let reset = rig.draw();
-    rig.ctx.post.ao_temporal = false;
+    rig.ctx.scene3d.post.ao_temporal = false;
     assert_eq!(reset, rig.draw());
 }
 
@@ -551,9 +551,9 @@ fn motion_vectors_gpu_cost() {
         ("TAA moving", true, false, true),
         ("AO moving", false, true, true),
     ] {
-        rig.ctx.post.anti_aliasing = if taa { AntiAliasing::Taa } else { AntiAliasing::None };
-        rig.ctx.post.ambient_occlusion.enabled = ao;
-        rig.ctx.post.ao_temporal = ao;
+        rig.ctx.scene3d.post.anti_aliasing = if taa { AntiAliasing::Taa } else { AntiAliasing::None };
+        rig.ctx.scene3d.post.ambient_occlusion.enabled = ao;
+        rig.ctx.scene3d.post.ao_temporal = ao;
         let mut sums = [0.0f32; 3];
         for frame in 0..48 {
             if moving {
@@ -594,7 +594,7 @@ fn rotation_animation_writes_motion_away_from_the_pivot() {
     if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return;
     }
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     rig.ctx.world.spawn((Transform3D::default(), Model::new(rig.cube)));
     rig.draw();
     let rotation = Quat::from_rotation_z(0.5);
@@ -604,7 +604,7 @@ fn rotation_animation_writes_motion_away_from_the_pivot() {
         .for_each(|t| t.rotation = rotation);
     rig.draw();
     let local = vec3(0.3, 0.0, 0.5);
-    let vp = rig.ctx.camera3d.view_proj();
+    let vp = rig.ctx.scene3d.camera.view_proj();
     let a = vp.project_point3(local);
     let b = vp.project_point3(rotation * local);
     let x = ((b.x * 0.5 + 0.5) * rig.size as f32) as u32;
@@ -629,10 +629,10 @@ fn each_history_trigger_resets_once_and_steady_frames_keep_the_history() {
         return;
     }
     rig.slab(0.37);
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
-    rig.ctx.post.ssr = 1.0;
-    rig.ctx.post.ambient_occlusion.enabled = true;
-    rig.ctx.post.ao_temporal = true;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.ssr = 1.0;
+    rig.ctx.scene3d.post.ambient_occlusion.enabled = true;
+    rig.ctx.scene3d.post.ao_temporal = true;
     let none = HistoryReset::default();
     let targets = HistoryReset { targets: true, ..none };
     let cut = HistoryReset {
@@ -647,15 +647,31 @@ fn each_history_trigger_resets_once_and_steady_frames_keep_the_history() {
         ("the first frame", |_| {}, targets),
         ("a resize", |r| r.resize(SIZE * 2), targets),
         ("a resize back", |r| r.resize(SIZE), targets),
-        ("a lower render scale", |r| r.ctx.post.render_scale = 0.5, targets),
-        ("the full render scale", |r| r.ctx.post.render_scale = 1.0, targets),
-        ("FXAA", |r| r.ctx.post.anti_aliasing = AntiAliasing::Fxaa, targets),
-        ("TAA again", |r| r.ctx.post.anti_aliasing = AntiAliasing::Taa, targets),
-        ("reflections off", |r| r.ctx.post.ssr = 0.0, targets),
-        ("reflections on", |r| r.ctx.post.ssr = 1.0, targets),
-        ("temporal AO off", |r| r.ctx.post.ao_temporal = false, targets),
-        ("a small camera step", |r| r.ctx.camera3d.position.x += 0.05, none),
-        ("a camera teleport", |r| r.ctx.camera3d.position.z += 100.0, cut),
+        (
+            "a lower render scale",
+            |r| r.ctx.scene3d.post.render_scale = 0.5,
+            targets,
+        ),
+        (
+            "the full render scale",
+            |r| r.ctx.scene3d.post.render_scale = 1.0,
+            targets,
+        ),
+        (
+            "FXAA",
+            |r| r.ctx.scene3d.post.anti_aliasing = AntiAliasing::Fxaa,
+            targets,
+        ),
+        (
+            "TAA again",
+            |r| r.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa,
+            targets,
+        ),
+        ("reflections off", |r| r.ctx.scene3d.post.ssr = 0.0, targets),
+        ("reflections on", |r| r.ctx.scene3d.post.ssr = 1.0, targets),
+        ("temporal AO off", |r| r.ctx.scene3d.post.ao_temporal = false, targets),
+        ("a small camera step", |r| r.ctx.scene3d.camera.position.x += 0.05, none),
+        ("a camera teleport", |r| r.ctx.scene3d.camera.position.z += 100.0, cut),
         ("a requested reset", |r| r.frame.motion.reset = true, requested),
         (
             "a requested reset with a resize",
@@ -689,7 +705,7 @@ fn a_reset_frame_reports_no_motion_for_a_teleported_model() {
     if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::TemporalAntialiasing) {
         return;
     }
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     rig.ctx
         .world
         .spawn((Transform3D::at(vec3(-1.5, 0.0, 0.0)), Model::new(rig.cube)));
@@ -727,7 +743,7 @@ fn a_reset_requested_on_a_frame_that_draws_nothing_still_applies() {
     big.slab(0.37);
     let truth = downsample(&big.draw(), (SIZE * 8) as usize, 8);
     drop(big);
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     for _ in 0..40 {
         rig.draw();
     }
@@ -763,10 +779,10 @@ fn resizes_and_render_scale_changes_leave_no_ghost_of_the_old_frame() {
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
-    rig.ctx.post.ssr = 1.0;
-    rig.ctx.post.ambient_occlusion.enabled = true;
-    rig.ctx.post.ao_temporal = true;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.ssr = 1.0;
+    rig.ctx.scene3d.post.ambient_occlusion.enabled = true;
+    rig.ctx.scene3d.post.ao_temporal = true;
     rig.ctx
         .world
         .spawn((Transform3D::at(vec3(-1.2, 0.0, 0.0)), Model::new(rig.cube)));
@@ -782,7 +798,7 @@ fn resizes_and_render_scale_changes_leave_no_ghost_of_the_old_frame() {
     {
         x = -x;
         rig.resize(size);
-        rig.ctx.post.render_scale = scale;
+        rig.ctx.scene3d.post.render_scale = scale;
         rig.ctx.world.query::<&mut Transform3D>().for_each(|t| t.position.x = x);
         for frame in 0..3 {
             let image = rig.draw();
@@ -811,7 +827,7 @@ fn frame_after(step: impl FnOnce(&mut Rig)) -> Option<Vec<f32>> {
         return None;
     }
     rig.slab(0.37);
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     for _ in 0..40 {
         rig.draw();
     }
@@ -826,7 +842,7 @@ fn a_camera_teleport_drops_the_history_like_an_explicit_reset() {
     // cut and draw what an explicit reset draws (the same jitter phase).
     let teleport = |rig: &mut Rig| {
         let jump = vec3(100.0, 0.0, 0.0);
-        rig.ctx.camera3d.position += jump;
+        rig.ctx.scene3d.camera.position += jump;
         rig.ctx
             .world
             .query::<&mut Transform3D>()
@@ -874,7 +890,7 @@ fn a_resize_drops_the_history_and_converges_at_the_new_size() {
     // And it converges at the new size.
     let mut rig = Rig::new(SIZE, false).unwrap();
     rig.slab(0.37);
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     for _ in 0..40 {
         rig.draw();
     }
@@ -885,7 +901,7 @@ fn a_resize_drops_the_history_and_converges_at_the_new_size() {
     for _ in 0..40 {
         again = edge_error(&rig.draw(), &truth);
     }
-    rig.ctx.post.anti_aliasing = AntiAliasing::None;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::None;
     let none = edge_error(&rig.draw(), &truth);
     eprintln!("after resizing to {big}: edge error first {after:.4}, 40 frames later {again:.4}, no AA {none:.4}");
     assert!(
@@ -901,7 +917,7 @@ fn a_still_slab_matches_its_reference_image() {
         return;
     };
     rig.slab(0.37);
-    rig.ctx.post.anti_aliasing = AntiAliasing::None;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::None;
     let image = rig.image();
     // What must hold anywhere: the middle is lit, the corners are black.
     let half = SIZE / 2;
@@ -997,15 +1013,15 @@ fn repeated_toggles_and_shader_hot_reload_leave_no_stale_history_or_invalid_bind
         for cycle in 0..12 {
             let x = if cycle % 2 == 0 { -1.2 } else { 1.2 };
             rig.resize(if cycle % 2 == 0 { SIZE } else { SIZE * 2 });
-            rig.ctx.post.render_scale = if cycle % 3 == 0 { 0.5 } else { 1.0 };
-            rig.ctx.post.anti_aliasing = if cycle % 2 == 0 {
+            rig.ctx.scene3d.post.render_scale = if cycle % 3 == 0 { 0.5 } else { 1.0 };
+            rig.ctx.scene3d.post.anti_aliasing = if cycle % 2 == 0 {
                 AntiAliasing::Taa
             } else {
                 AntiAliasing::Fxaa
             };
-            rig.ctx.post.ssr = (cycle % 2) as f32;
-            rig.ctx.post.ambient_occlusion.enabled = cycle % 2 == 0;
-            rig.ctx.post.ao_temporal = cycle % 3 == 0;
+            rig.ctx.scene3d.post.ssr = (cycle % 2) as f32;
+            rig.ctx.scene3d.post.ambient_occlusion.enabled = cycle % 2 == 0;
+            rig.ctx.scene3d.post.ao_temporal = cycle % 3 == 0;
             rig.ctx.world.query::<&mut Transform3D>().for_each(|t| t.position.x = x);
             rig.renderer
                 .replace_shader(&rig.device, shader, "history.wgsl", DIM)
@@ -1027,7 +1043,7 @@ fn repeated_toggles_and_shader_hot_reload_leave_no_stale_history_or_invalid_bind
                 rig.renderer.history_reset().content,
                 "the reload resets shading history"
             );
-            let expected = (rig.size as f32 * rig.ctx.post.render_scale) as u32;
+            let expected = (rig.size as f32 * rig.ctx.scene3d.post.render_scale) as u32;
             rig.renderer.assert_target_configuration((expected, expected), 4);
             rig.draw();
             assert!(!rig.renderer.history_reset().any(), "steady frame keeps history");
@@ -1041,10 +1057,10 @@ fn surface_interruptions_reset_once_and_hidden_captures_draw_at_the_last_size() 
     let Some(mut rig) = Rig::new(SIZE, false) else {
         return;
     };
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
-    rig.ctx.post.ssr = 1.0;
-    rig.ctx.post.ambient_occlusion.enabled = true;
-    rig.ctx.post.ao_temporal = true;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.ssr = 1.0;
+    rig.ctx.scene3d.post.ambient_occlusion.enabled = true;
+    rig.ctx.scene3d.post.ao_temporal = true;
     rig.ctx
         .world
         .spawn((Transform3D::at(vec3(-1.2, 0.0, 0.0)), Model::new(rig.cube)));
@@ -1115,9 +1131,11 @@ fn runtime_sample_changes_rebuild_main_and_target_camera_attachments_without_his
     let handle = rig.ctx.gfx.create_render_target(SIZE, SIZE);
     rig.renderer.add_render_target(handle.id, &texture);
     rig.ctx
+        .scene3d
+        .passes
         .target_cameras
-        .push(crate::render::TargetCamera::new(rig.ctx.camera3d, handle));
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+        .push(crate::render::TargetCamera::new(rig.ctx.scene3d.camera, handle));
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     rig.ctx
         .world
         .spawn((Transform3D::at(vec3(-1.2, 0.0, 0.0)), Model::new(rig.cube)));

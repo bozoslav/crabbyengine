@@ -148,7 +148,10 @@ fn commands_apply_in_recorded_order() {
 #[test]
 fn systems_skipped_by_every_neither_run_nor_flush_anything() {
     let world = Game::new("barriers", 1, 1)
-        .sim_system_every(3, |ctx: &mut Ctx| ctx.commands.spawn((Marker(0),)))
+        .add(
+            Phase::AfterPhysics,
+            (|ctx: &mut Ctx| ctx.commands.spawn((Marker(0),))).every(3),
+        )
         .sim_system(|ctx: &mut Ctx| {
             let n = markers(ctx);
             log(ctx, format!("{}:{n}", ctx.time.sim_tick()));
@@ -243,10 +246,14 @@ fn events_stay_readable_for_the_slowest_every_interval() {
             let kept = ctx.events.peek::<Marker>().len();
             log(ctx, format!("kept {kept}"));
         })
-        .sim_system_every(4, |ctx: &mut Ctx| {
-            let got: Vec<u32> = ctx.events.read::<Marker>().iter().map(|m| m.0).collect();
-            log(ctx, format!("slow {got:?}"));
-        })
+        .add(
+            Phase::AfterPhysics,
+            (|ctx: &mut Ctx| {
+                let got: Vec<u32> = ctx.events.read::<Marker>().iter().map(|m| m.0).collect();
+                log(ctx, format!("slow {got:?}"));
+            })
+            .every(4),
+        )
         .run_headless(12, setup);
     let slow: Vec<u32> = lines(&world)
         .iter()
@@ -341,30 +348,32 @@ fn a_batch_is_one_barrier_between_the_ctx_systems_around_it() {
             // A batch of two view systems. Neither sees the other's work:
             // the sender's event and the recorder's command arrive together
             // when the batch ends.
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new()
-                    .read::<Marker>()
-                    .send_events::<Ping>()
-                    .write_resource::<Log>(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     let n = sys.world.query::<&Marker>().count();
-                    sys.events().send(Ping(n as u32));
+                    sys.events.send(Ping(n as u32));
                     sys.world.resource_mut::<Log>().0.push(format!("sender sees {n}"));
-                },
+                })
+                .access(
+                    SystemAccess::new()
+                        .read::<Marker>()
+                        .send_events::<Ping>()
+                        .write_resource::<Log>(),
+                ),
             )
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().read::<Marker>().commands(),
-                |sys: &mut SystemView| {
+                (|sys: &mut SystemView| {
                     let before = sys.world.query::<&Marker>().count();
-                    sys.commands().spawn((Marker(1),));
+                    sys.commands.spawn((Marker(1),));
                     assert_eq!(
                         sys.world.query::<&Marker>().count(),
                         before,
                         "not applied inside the batch"
                     );
-                },
+                })
+                .access(SystemAccess::new().read::<Marker>().commands()),
             )
             // The next `Ctx` system sees the batch's command and event.
             .sim_system(|ctx: &mut Ctx| {
@@ -390,18 +399,18 @@ fn a_batch_is_one_barrier_between_the_ctx_systems_around_it() {
 fn the_two_view_systems_above_really_share_a_batch() {
     // Otherwise the test above would only show two systems that run alone.
     let game = Game::new("barriers", 1, 1)
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new()
-                .read::<Marker>()
-                .send_events::<Ping>()
-                .write_resource::<Log>(),
-            |_: &mut SystemView| {},
+            (|_: &mut SystemView| {}).access(
+                SystemAccess::new()
+                    .read::<Marker>()
+                    .send_events::<Ping>()
+                    .write_resource::<Log>(),
+            ),
         )
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().read::<Marker>().commands(),
-            |_: &mut SystemView| {},
+            (|_: &mut SystemView| {}).access(SystemAccess::new().read::<Marker>().commands()),
         );
     let plan = game.schedule_plan();
     let sizes: Vec<usize> = plan.stages_in(Phase::AfterPhysics).iter().map(|s| s.len).collect();

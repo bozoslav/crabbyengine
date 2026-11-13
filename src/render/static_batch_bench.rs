@@ -155,16 +155,16 @@ fn run(scenario: &Scenario, path: BatchPath, compute: bool) -> Option<Row> {
     // visible sets change, and cached shadow maps go stale.
     let start = vec3(-extent / 2.0 - 2.0, 6.0, 2.0);
     let ahead = (vec3(0.0, 0.0, -extent / 2.0) - start).normalize();
-    rig.ctx.camera3d.far = extent * 2.0;
-    rig.ctx.lighting.shadows = scenario.shadows;
-    rig.ctx.lighting.shadow_distance = extent * 0.5;
-    rig.ctx.camera3d.occlusion_culling = scenario.occluded > 0.0;
+    rig.ctx.scene3d.camera.far = extent * 2.0;
+    rig.ctx.scene3d.lighting.shadows = scenario.shadows;
+    rig.ctx.scene3d.lighting.shadow_distance = extent * 0.5;
+    rig.ctx.scene3d.camera.occlusion_culling = scenario.occluded > 0.0;
     let step = |rig: &mut BatchRig, frame: usize| {
         // The depth grid is the frame before's, as a readback delivers it:
         // a wall two metres ahead over the left part of the screen.
         if scenario.occluded > 0.0 {
-            let view_proj = rig.ctx.camera3d.view_proj();
-            let wall = view_proj * (rig.ctx.camera3d.position + ahead * 2.0).extend(1.0);
+            let view_proj = rig.ctx.scene3d.camera.view_proj();
+            let wall = view_proj * (rig.ctx.scene3d.camera.position + ahead * 2.0).extend(1.0);
             let (w, h) = (64u32, 36u32);
             let depth = (0..w * h)
                 .map(|i| {
@@ -175,11 +175,17 @@ fn run(scenario: &Scenario, path: BatchPath, compute: bool) -> Option<Row> {
                     }
                 })
                 .collect();
-            rig.grid = Some(OcclusionGrid::new(view_proj, rig.ctx.camera3d.position, w, h, depth));
+            rig.grid = Some(OcclusionGrid::new(
+                view_proj,
+                rig.ctx.scene3d.camera.position,
+                w,
+                h,
+                depth,
+            ));
         }
         let frame = if scenario.still { 0 } else { frame };
-        rig.ctx.camera3d.position = start + ahead * (frame as f32 * 0.02);
-        rig.ctx.camera3d.look_at(rig.ctx.camera3d.position + ahead);
+        rig.ctx.scene3d.camera.position = start + ahead * (frame as f32 * 0.02);
+        rig.ctx.scene3d.camera.look_at(rig.ctx.scene3d.camera.position + ahead);
         rig.frame()
     };
     step(&mut rig, 0);

@@ -316,13 +316,13 @@ mod tests {
     use super::super::gpu::GpuTexture;
     use super::super::gpu3d::*;
     #[allow(unused_imports)]
-    use crate::anim::Blend;
-    #[allow(unused_imports)]
     use crate::d3::{
         Line as Line3D, ParticleBlend as ParticleBlend3D, ParticleEmitter as ParticleEmitter3D,
         ParticleSettings as ParticleSettings3D, Transform as Transform3D,
     };
     use crate::prelude::*;
+    #[allow(unused_imports)]
+    use crate::render::Blend;
     #[allow(unused_imports)]
     use crate::render::{MaterialDesc, MeshData, Model};
     use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
@@ -425,29 +425,35 @@ mod tests {
         let target = output.create_view(&Default::default());
 
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.camera3d.position = vec3(0.0, 0.0, 4.0);
-        ctx.camera3d.look_at(Vec3::ZERO);
-        ctx.lighting.shadows = false;
-        ctx.sky.atmosphere = false;
-        ctx.post.bloom = 0.0;
+        ctx.scene3d.camera.position = vec3(0.0, 0.0, 4.0);
+        ctx.scene3d.camera.look_at(Vec3::ZERO);
+        ctx.scene3d.lighting.shadows = false;
+        ctx.scene3d.sky.atmosphere = false;
+        ctx.scene3d.post.bloom = 0.0;
         let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let draw = |ctx: &mut Ctx, renderer: &mut Renderer3D| -> Vec<u8> {
             let mut skins = SkinFrame::default();
             skins.collect(&mut ctx.world, &ctx.gfx.assets3d);
             let mut frame = Frame3D::default();
-            frame.collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+            frame.collect(
+                &mut ctx.world,
+                &ctx.gfx.assets3d,
+                &skins,
+                &ctx.scene3d.camera,
+                &ctx.scene3d.lighting,
+            );
             frame.skins = skins;
             let scene = Scene3D {
                 frame: &frame,
-                lighting: &ctx.lighting,
-                sky: &ctx.sky,
+                lighting: &ctx.scene3d.lighting,
+                sky: &ctx.scene3d.sky,
                 light: SkyLight {
                     sun: Vec3::ZERO,
                     sky: Vec3::ZERO,
                     ground: Vec3::ZERO,
                 },
-                camera: ctx.camera3d.position,
-                post: &ctx.post,
+                camera: ctx.scene3d.camera.position,
+                post: &ctx.scene3d.post,
                 time: (0.0, 1.0 / 60.0),
                 occlusion: false,
             };
@@ -512,7 +518,7 @@ mod tests {
                 gravity: Vec3::ZERO,
                 size: (1.0, 1.0),
                 blend: ParticleBlend3D::Additive,
-                color_over_life: crate::render::ParticleGradient::new(vec![(0.0, Color::rgba(1.0, 0.2, 0.0, 0.5))]),
+                color_over_life: crate::d3::ParticleGradient::new(vec![(0.0, Color::rgba(1.0, 0.2, 0.0, 0.5))]),
                 ..Default::default()
             }),
         ));

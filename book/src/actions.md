@@ -231,7 +231,7 @@ message lists the known names). C: `ponko_ctx_action_id` and
 `_axis_id` and `_axis2_id` query by id.
 
 To rebind, copy `ctx.input.actions()`, call `set` or `remove`, then install it with
-`ctx.set_actions`. Rust uses `.clone()` to copy the map; C++ returns an owned
+`ctx.input.set_actions`. Rust uses `.clone()` to copy the map; C++ returns an owned
 map. Installation resets action edges and uses currently held inputs as the
 baseline. Rebinding a held key therefore does not generate a new press.
 

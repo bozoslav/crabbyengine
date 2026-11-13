@@ -152,9 +152,9 @@ fn chase(ctx: &mut Ctx) {
     let back = -t.forward().with_y(0.0).normalize_or(Vec3::Z);
     let eye = t.position + back * 9.0 + Vec3::Y * 3.5;
     let k = (ctx.dt() * 4.0).min(1.0);
-    ctx.camera3d.position = ctx.camera3d.position.lerp(eye, k);
-    let look = Transform::at(ctx.camera3d.position).looking_at(t.position + Vec3::Y);
-    ctx.camera3d.rotation = look.rotation;
+    ctx.scene3d.camera.position = ctx.scene3d.camera.position.lerp(eye, k);
+    let look = Transform::at(ctx.scene3d.camera.position).looking_at(t.position + Vec3::Y);
+    ctx.scene3d.camera.rotation = look.rotation;
 }
 
 fn build_world(ctx: &mut Ctx, draw: bool) {
@@ -293,7 +293,6 @@ fn main() {
         .system(chase)
         // ANCHOR_END: setup
         .setup(|ctx| {
-            ctx.gfx.clear(Color::hex(0x9CC4E4));
             build_world(ctx, true);
         })
         .run();

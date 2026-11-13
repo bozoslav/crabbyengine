@@ -3,13 +3,13 @@
 use super::buffer_render_test::Rig;
 use super::traffic;
 #[allow(unused_imports)]
-use crate::anim::Blend;
-#[allow(unused_imports)]
 use crate::d3::{
     Line as Line3D, ParticleEmitter as ParticleEmitter3D, ParticleSettings as ParticleSettings3D,
     ParticleShape as ParticleShape3D, PointLight as PointLight3D, Transform as Transform3D,
 };
 use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::Blend;
 #[allow(unused_imports)]
 use crate::render::{
     AntiAliasing, GpuUploads, Material, MaterialDesc, Mesh, MeshData, Model, ModelMaterial, RenderStats,
@@ -33,8 +33,8 @@ fn scene(n: i32) -> Option<(Rig, Vec<Entity>)> {
             cubes.push(rig.ctx.world.spawn((Transform3D::at(at), Model::new(mesh))));
         }
     }
-    rig.ctx.camera3d.position = vec3(0.0, n as f32, n as f32);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, n as f32, n as f32);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     Some((rig, cubes))
 }
 
@@ -160,7 +160,7 @@ fn moved_and_removed_lights_draw_the_same_as_ones_uploaded_whole() {
         ..Default::default()
     };
     let lit = |rig: &mut Rig| {
-        rig.ctx.lighting.sun_intensity = 0.0;
+        rig.ctx.scene3d.lighting.sun_intensity = 0.0;
         let red = rig
             .ctx
             .world
@@ -205,16 +205,16 @@ fn moved_and_removed_lights_draw_the_same_as_ones_uploaded_whole() {
 /// others enter.
 fn pan(rig: &mut Rig, step: usize) {
     let x = step as f32 * 0.15 - 4.0;
-    rig.ctx.camera3d.position = vec3(x, 6.0, 9.0);
-    rig.ctx.camera3d.look_at(vec3(x, 0.0, 0.0));
+    rig.ctx.scene3d.camera.position = vec3(x, 6.0, 9.0);
+    rig.ctx.scene3d.camera.look_at(vec3(x, 0.0, 0.0));
 }
 
 #[test]
 fn a_moving_camera_uploads_the_models_that_entered_or_left_not_the_scene() {
     let Some((mut rig, _)) = scene(40) else { return };
     // Every cascade is drawn every frame, so its models are uploaded too.
-    rig.ctx.lighting.shadow_refresh = 1;
-    rig.ctx.camera3d.far = 30.0;
+    rig.ctx.scene3d.lighting.shadow_refresh = 1;
+    rig.ctx.scene3d.camera.far = 30.0;
     let mut whole = usize::MAX;
     let c = steady(&mut rig, 12, 24, |rig, i| {
         pan(rig, i);
@@ -254,8 +254,8 @@ fn flight(ball: bool) -> Option<(Rig, Vec<Entity>, Mesh, Material)> {
         ..Default::default()
     });
     // Every cascade is drawn every frame, as in a renderer's first frame.
-    rig.ctx.lighting.shadow_refresh = 1;
-    rig.ctx.camera3d.far = 40.0;
+    rig.ctx.scene3d.lighting.shadow_refresh = 1;
+    rig.ctx.scene3d.camera.far = 40.0;
     Some((rig, cubes, other, red))
 }
 
@@ -413,8 +413,8 @@ fn panes(reversed: bool) -> Option<Rig> {
 /// leaves its view pane by pane, the stack stays in it.
 fn pass_panes(rig: &mut Rig, step: usize) {
     let x = step as f32 * 0.7;
-    rig.ctx.camera3d.position = vec3(x, 1.5, 7.0);
-    rig.ctx.camera3d.look_at(vec3(x, 0.5, 0.0));
+    rig.ctx.scene3d.camera.position = vec3(x, 1.5, 7.0);
+    rig.ctx.scene3d.camera.look_at(vec3(x, 0.5, 0.0));
 }
 
 #[test]
@@ -521,7 +521,7 @@ fn moving_models_upload_only_the_changed_parts_of_their_motion() {
             {
                 return None;
             }
-            rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+            rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
         }
         let c = steady(&mut rig, 4, 6, |rig, i| slide(rig, &cubes, 8, i));
         if taa {
@@ -541,7 +541,7 @@ fn moving_models_upload_only_the_changed_parts_of_their_motion() {
 #[test]
 fn growing_scenes_reallocate_a_logarithmic_number_of_times() {
     let Some((mut rig, _)) = scene(4) else { return };
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     let mesh = rig.ctx.world.query::<&Model>().iter().next().unwrap().mesh;
     rig.draw();
     traffic::take();
@@ -585,7 +585,7 @@ fn churning_scenes_stop_allocating() {
     // A world as big from frame to frame, whose models come and go: once
     // its buffers fit, it neither makes buffers nor grows them.
     let Some((mut rig, mut cubes)) = scene(20) else { return };
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     let mesh = rig.ctx.world.get::<Model>(cubes[0]).unwrap().mesh;
     let mut churn = |rig: &mut Rig, step: usize| {
         for e in cubes.drain(..80) {
@@ -667,8 +667,8 @@ fn a_streamed_world_under_load_draws_what_a_fresh_renderer_draws() {
         // order differ at a few edge samples (see
         // `models_drawn_in_another_order_differ_by_no_more_than_edge_samples`).
         let big = rig.mesh(&MeshData::cube(0.45), white);
-        rig.ctx.lighting.shadow_refresh = 1;
-        rig.ctx.camera3d.far = 12.0;
+        rig.ctx.scene3d.lighting.shadow_refresh = 1;
+        rig.ctx.scene3d.camera.far = 12.0;
         let mut w = World {
             rig,
             rows: Default::default(),
@@ -696,8 +696,8 @@ fn a_streamed_world_under_load_draws_what_a_fresh_renderer_draws() {
             }
         }
         let z = -(step as f32 + 1.0) * 0.8;
-        w.rig.ctx.camera3d.position = vec3(0.0, 2.5, z + 3.0);
-        w.rig.ctx.camera3d.look_at(vec3(0.0, 0.0, z - 3.0));
+        w.rig.ctx.scene3d.camera.position = vec3(0.0, 2.5, z + 3.0);
+        w.rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.0, z - 3.0));
         w.rig.time = (step as f32 / 60.0, 1.0 / 60.0);
     }
     let Some(mut w) = world() else { return };
@@ -825,8 +825,8 @@ fn buffers_stop_at_the_device_limit_and_report_what_does_not_fit() {
             .world
             .spawn((Transform3D::at(vec3(x as f32 - 2.0, 0.0, 0.0)), Model::new(mesh)));
     }
-    rig.ctx.camera3d.position = vec3(0.0, 4.0, 6.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 4.0, 6.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let few = rig.draw();
     traffic::take_too_big();
     // Far more models than fit, behind the camera's near ones: reported

@@ -73,6 +73,22 @@ fn spawning_and_despawning_are_structural() {
 }
 
 #[test]
+fn a_raw_pointer_records_the_access_its_method_gives() {
+    let mut w = world();
+    let pos = w.component_id::<Pos>().unwrap();
+    let e = w.query::<Entity>().iter().next().unwrap();
+    w.record_access();
+    // `*const`, from a shared world or an exclusive one: a read.
+    assert!(w.raw_ref().get_dynamic(e, pos).is_some());
+    assert!(w.raw().get_dynamic(e, pos).is_some());
+    assert_eq!(w.take_access_log().unwrap().components, [(pos, false)]);
+    w.record_access();
+    // `*mut`: a write.
+    assert!(w.raw().get_dynamic_mut(e, pos).is_some());
+    assert_eq!(w.take_access_log().unwrap().components, [(pos, true)]);
+}
+
+#[test]
 fn raw_access_counts_as_writing() {
     let mut w = world();
     let pos = w.component_id::<Pos>().unwrap();

@@ -11,30 +11,60 @@ use crate::render::Lighting;
 
 use super::linear;
 
-/// The sky behind the 3D world, and the fog in front of it: `ctx.sky`.
+/// The sky behind the 3D world, the light it gives the scene, and the fog
+/// in front of it: [`SceneSettings::sky`](crate::render::SceneSettings::sky)
+/// (`ctx.scene3d.sky`).
 ///
-/// With `atmosphere` on (the default), the sky is worked out from the sun
-/// in [`Lighting`]: blue by day, orange and red when the sun is low, dark
-/// with stars at night. The sun itself turns orange near the horizon and
-/// sets, and the sky's light replaces `Lighting::sky_color` and
-/// `ground_color`. One world unit is taken to be a meter.
+/// The sky is one of two kinds, chosen by [`atmosphere`](Self::atmosphere):
+///
+/// - **Atmosphere** (the default): the sky is worked out from the sun in
+///   [`Lighting`]: blue by day, orange and red when the sun is low, dark with
+///   stars at night. The sun itself turns orange near the horizon and sets,
+///   and the sky's own light lights the scene. One world unit is taken to be
+///   a meter.
+/// - **Flat** (`atmosphere` off): the background is the clear color
+///   ([`Graphics::clear`](crate::gfx::Graphics::clear)), the ambient light
+///   comes from [`sky_color`](Self::sky_color),
+///   [`ground_color`](Self::ground_color) and
+///   [`equator_color`](Self::equator_color), and the fog is
+///   [`fog_color`](Self::fog_color).
+///
+/// Those four colors are only for the flat sky; the atmosphere makes its own.
 ///
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// // Late evening, a little hazy, with fog lying in the valleys.
-/// ctx.lighting.sun_direction = ponko::render::Sky::sun_direction_at(18.5);
-/// ctx.sky.haze = 3.0;
-/// ctx.sky.fog_density = 0.01;
-/// ctx.sky.fog_height = 5.0;
+/// ctx.scene3d.lighting.sun_direction = ponko::render::Sky::sun_direction_at(18.5);
+/// ctx.scene3d.sky.haze = 3.0;
+/// ctx.scene3d.sky.fog_density = 0.01;
+/// ctx.scene3d.sky.fog_height = 5.0;
+/// // Or a flat, stylized sky: a background color and ambient colors.
+/// ctx.gfx.clear(Color::hex(0x9CC4E4));
+/// ctx.scene3d.sky.atmosphere = false;
+/// ctx.scene3d.sky.sky_color = Color::hex(0x9CC4E4);
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Sky {
-    /// Draw a physical sky lit by the sun, and light the scene from it.
-    /// Off: the background is the clear color and the light comes from
-    /// `Lighting`'s colors. Default on.
+    /// Which kind of sky: on, a physical sky lit by the sun that lights the
+    /// scene too; off, a flat sky (the clear color behind the world, the
+    /// ambient light from [`sky_color`](Self::sky_color),
+    /// [`ground_color`](Self::ground_color) and
+    /// [`equator_color`](Self::equator_color)). Default on.
     pub atmosphere: bool,
+    /// Flat sky only: light from the sky, on surfaces facing up. With an
+    /// atmosphere, the sky's own light is used instead. Default a grey blue.
+    pub sky_color: Color,
+    /// Flat sky only: light bounced off the ground, on surfaces facing down.
+    /// Default a dark brown.
+    pub ground_color: Color,
+    /// Flat sky only: light from the horizon, on surfaces facing sideways:
+    /// with it, the ambient light goes from `ground_color` below through this
+    /// to `sky_color` above (a three-color gradient); without it (`None`, the
+    /// default), straight from ground to sky.
+    pub equator_color: Option<Color>,
     /// Dust and water in the air, from 0 (none) up: more makes the sky
     /// paler, the glow around the sun bigger and sunsets redder. Default 1.
     pub haze: f32,
@@ -55,7 +85,7 @@ pub struct Sky {
     /// How quickly the fog thins out above `fog_height`, in world units:
     /// it halves about every 0.7 times this. Default 50.
     pub fog_falloff: f32,
-    /// The fog's color without an atmosphere; with one, the fog takes the
+    /// Flat sky only: the fog's color. With an atmosphere, the fog takes the
     /// sky's color behind it. Default a pale grey-blue.
     pub fog_color: Color,
     /// Distance fog: none closer than `fog_start` world units, all fog
@@ -77,7 +107,7 @@ pub struct Sky {
     /// It needs fog, a `fog_sun_glow` and the sun's shadows, and reaches
     /// as far as they do. It costs 16 shadow map taps per pixel, and it is
     /// grainy without [`AntiAliasing::Taa`](crate::render::AntiAliasing::Taa) in
-    /// `ctx.post`, which smooths it out.
+    /// `ctx.scene3d.post`, which smooths it out.
     pub light_shafts: f32,
 }
 
@@ -85,6 +115,9 @@ impl Default for Sky {
     fn default() -> Self {
         Self {
             atmosphere: true,
+            sky_color: Color::hex(0x869BB0),
+            ground_color: Color::hex(0x4D4135),
+            equator_color: None,
             haze: 1.0,
             sun_size: 1.5,
             stars: 1.0,

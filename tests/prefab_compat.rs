@@ -4,7 +4,7 @@
 //!
 //! A scene is the saved-world format, so the retained world fixture is loaded
 //! here the way a game loads a level. A prefab has its own format
-//! (`crabby-prefab`, version 1); `tests/fixtures/saves/prefab_v1.json` is one
+//! (`ponko-prefab`, version 1); `tests/fixtures/saves/prefab_v1.json` is one
 //! written by `Assets::save_prefab` at a recorded revision (see
 //! `prefab_v1.provenance.json` and the README next to it).
 //!
@@ -94,7 +94,7 @@ fn the_prefab_fixture_records_its_provenance() {
     assert_eq!(p["fixture"], "prefab_v1.json");
     assert_eq!(p["format"], prefab["format"]);
     assert_eq!(p["version"], prefab["version"]);
-    assert_eq!(prefab["format"], "crabby-prefab");
+    assert_eq!(prefab["format"], "ponko-prefab");
     assert_eq!(prefab["version"], 1);
     let revision = p["engine_revision"].as_str().unwrap_or_default();
     assert!(
@@ -159,6 +159,10 @@ fn unsupported_prefab_files_fail_usefully_and_spawn_nothing() {
     let mut other = fixture("prefab_v1.json");
     other["format"] = json!("some-other-format");
     cases.push((other, "not a prefab"));
+    // The pre-release identifier is no longer read.
+    let mut removed = fixture("prefab_v1.json");
+    removed["format"] = json!("crabby-prefab");
+    cases.push((removed, "not a prefab"));
     let mut empty = fixture("prefab_v1.json");
     empty["components"] = json!({});
     cases.push((empty, "non-empty"));

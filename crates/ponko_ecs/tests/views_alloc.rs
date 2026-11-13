@@ -54,7 +54,7 @@ fn reused_view_state_runs_without_allocating() {
     let mut world = World::new();
     world.insert_resource(Score(0));
     world.spawn_batch((0..256).map(|i| (Pos(i as f32), Vel(1.0))));
-    let mut state = ViewState::new(ViewAccess::new().write::<Pos>().read::<Vel>().write_resource::<Score>());
+    let mut state = ViewState::new().write::<Pos>().read::<Vel>().write_resource::<Score>();
     let mut run = |world: &mut World| {
         state.run(world, |mut view| {
             view.query::<(&mut Pos, &Vel)>().for_each(|(p, v)| p.0 += v.0);
@@ -78,7 +78,7 @@ fn change_filters_and_removals_allocate_nothing() {
     world.spawn_batch((0..256).map(|i| (Pos(i as f32), Vel(1.0))));
     let gone = world.spawn((Pos(0.0), Vel(0.0)));
     world.despawn(gone);
-    let mut state = ViewState::new(ViewAccess::new().write::<Pos>().read::<Vel>());
+    let mut state = ViewState::new().write::<Pos>().read::<Vel>();
     let mut seen = 0;
     let mut run = |world: &mut World| {
         state.run(world, |mut view| {

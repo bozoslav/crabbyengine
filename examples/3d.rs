@@ -53,8 +53,8 @@ fn orbit(ctx: &mut Ctx) {
     o.distance = (o.distance * 0.9f32.powf(wheel)).clamp(3.0, 400.0);
     let (yaw, pitch, distance) = (o.yaw, o.pitch, o.distance);
     let offset = vec3(yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()) * distance;
-    ctx.camera3d.position = offset;
-    ctx.camera3d.look_at(Vec3::ZERO);
+    ctx.scene3d.camera.position = offset;
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
 }
 
 /// Frame times summed after the warmup.
@@ -121,9 +121,8 @@ fn main() {
         game.sim_system(spin)
     };
     game.setup(move |ctx| {
-        ctx.gfx.clear(Color::hex(0x9CC4E4)); // sky
-        ctx.camera3d.far = 2000.0;
-        ctx.lighting.sun_direction = vec3(-0.8, -0.6, -0.4); // late afternoon: long shadows
+        ctx.scene3d.camera.far = 2000.0;
+        ctx.scene3d.lighting.sun_direction = vec3(-0.8, -0.6, -0.4); // late afternoon: long shadows
         if let Some(seconds) = bench_seconds {
             ctx.world.insert_resource(Bench {
                 seconds,
@@ -142,10 +141,9 @@ fn main() {
             distance: 18.0,
         });
 
-        let grass = ctx.gfx.create_material(MaterialDesc {
-            roughness: 0.95,
-            ..MaterialDesc::color(Color::hex(0x5E8C4A))
-        });
+        let grass = ctx
+            .gfx
+            .create_material(MaterialDesc::color(Color::hex(0x5E8C4A)).with_roughness(0.95));
         let ground = ctx.gfx.create_mesh(&MeshData::plane(400.0), grass);
         ctx.world.spawn((Transform::default(), Model::new(ground)));
 
@@ -154,15 +152,15 @@ fn main() {
         let ball = ctx.gfx.create_plain_mesh(&MeshData::sphere(0.45, 32));
         for row in 0..2 {
             for col in 0..6 {
-                let material = ctx.gfx.create_material(MaterialDesc {
-                    roughness: 0.05 + col as f32 * 0.19,
-                    metallic: row as f32,
-                    ..MaterialDesc::color(if row == 0 {
+                let material = ctx.gfx.create_material(
+                    MaterialDesc::color(if row == 0 {
                         Color::hex(0xD8453B)
                     } else {
                         Color::hex(0xE8C070)
                     })
-                });
+                    .with_roughness(0.05 + col as f32 * 0.19)
+                    .with_metallic(row as f32),
+                );
                 let at = vec3(col as f32 * 1.1 - 2.75, 0.45, row as f32 * -1.2);
                 ctx.world
                     .spawn((Transform::at(at), Model::new(ball), ModelMaterial(material)));

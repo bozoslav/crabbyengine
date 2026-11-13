@@ -502,11 +502,11 @@ fn start_round(ctx: &mut Ctx) {
 
 /// The systems both the window and headless runs use.
 fn battle_systems(game: Game) -> Game {
-    game.named_sim_system("fight", 1, fight())
-        .named_sim_system("resolve", 1, resolve())
+    game.add(Phase::AfterPhysics, fight().named("fight"))
+        .add(Phase::AfterPhysics, resolve().named("resolve"))
         .sim_system(reinforce)
-        .sim_system_every(30, blue_ai)
-        .sim_system_every(60, keep_neighbors_close)
+        .add(Phase::AfterPhysics, blue_ai.every(30))
+        .add(Phase::AfterPhysics, keep_neighbors_close.every(60))
 }
 
 /// Once a second, units are reordered in memory by where they stand, so
@@ -583,7 +583,7 @@ fn paint_map(ctx: &mut Ctx) {
         }
     }
     let tex = ctx.gfx.create_texture(size.x, size.y, &pixels);
-    ctx.gfx.set_texture_filter(&tex, TextureFilter::Nearest);
+    ctx.gfx.set_texture_filter(tex, TextureFilter::Nearest);
     ctx.world.insert_resource(MapArt { tex, size });
 }
 
@@ -594,13 +594,9 @@ fn draw_map(ctx: &mut Ctx) {
     ctx.gfx.clear(Color::BLACK);
     let world = size.as_vec2() * CELL;
     ctx.gfx.draw_ex(
-        &tex,
+        tex,
         world / 2.0,
-        DrawParams {
-            scale: Vec2::splat(CELL),
-            z: -10.0,
-            ..Default::default()
-        },
+        DrawParams::default().with_scale(Vec2::splat(CELL)).with_z(-10.0),
     );
     let rally = ctx.world.resource::<Battle>().rally[0];
     let mut bases = [(Vec2::ZERO, 0.0, Team::Red); 2];

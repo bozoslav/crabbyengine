@@ -81,7 +81,7 @@ fn the_schedule_lists_systems_in_run_order_with_phases() {
     let game = Game::new("t", 1, 1)
         .sim_system(moving)
         .add(Phase::Input, early)
-        .sim_system_every(4, rare)
+        .add(Phase::AfterPhysics, rare.every(4))
         .system(|_| {});
     let d = diagnose(game, 3, |_| {});
     let sim: Vec<_> = d.systems.iter().filter(|s| s.sim).collect();
@@ -221,26 +221,31 @@ fn game() -> Game {
 #[test]
 fn systems_list_their_declared_access_by_name() {
     let game = game()
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new()
-                .write::<Pos>()
-                .read::<Vel>()
-                .read_resource::<Gravity>()
-                .read_events::<Hit>()
-                .read_service(Service::Time),
-            movement,
+            movement.access(
+                SystemAccess::new()
+                    .write::<Pos>()
+                    .read::<Vel>()
+                    .read_resource::<Gravity>()
+                    .read_events::<Hit>()
+                    .read_service(Service::Time),
+            ),
         )
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new()
-                .send_events::<Hit>()
-                .commands()
-                .write_service(Service::Audio),
-            sounds,
+            sounds.access(
+                SystemAccess::new()
+                    .send_events::<Hit>()
+                    .commands()
+                    .write_service(Service::Audio),
+            ),
         )
-        .add_with_access(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), checked)
-        .add_with_access(Phase::AfterPhysics, SystemAccess::exclusive(), moving)
+        .add(
+            Phase::AfterPhysics,
+            checked.access(SystemAccess::new().write::<Health>()),
+        )
+        .add(Phase::AfterPhysics, moving.access(SystemAccess::exclusive()))
         .sim_system(early);
     let d = diagnose(game, 1, |_| {});
 
@@ -283,15 +288,20 @@ fn systems_list_their_declared_access_by_name() {
 fn stages_say_which_systems_share_a_batch_and_why_each_stage_starts() {
     let build = || {
         game()
-            .add_view(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().write::<Pos>().read::<Vel>(),
-                movement,
+                movement.access(SystemAccess::new().write::<Pos>().read::<Vel>()),
             )
-            .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), regenerate)
-            .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Vel>(), stop)
+            .add(
+                Phase::AfterPhysics,
+                regenerate.access(SystemAccess::new().write::<Health>()),
+            )
+            .add(Phase::AfterPhysics, stop.access(SystemAccess::new().write::<Vel>()))
             .barrier(Phase::AfterPhysics)
-            .add_view(Phase::AfterPhysics, SystemAccess::new().read::<Health>(), spawner)
+            .add(
+                Phase::AfterPhysics,
+                spawner.access(SystemAccess::new().read::<Health>()),
+            )
             .sim_system(early)
     };
     let d = diagnose(build(), 1, |_| {});
@@ -308,9 +318,9 @@ fn stages_say_which_systems_share_a_batch_and_why_each_stage_starts() {
         assert_eq!(stage.index, i);
         assert_eq!(stage.first, covered, "stages cover the systems in order");
         assert_eq!(stage.batch, stage.len > 1);
-        for order in stage.first..stage.first + stage.len {
-            assert_eq!(d.systems[order].stage, Some(i));
-            assert_eq!(d.systems[order].phase, stage.phase);
+        for system in &d.systems[stage.first..stage.first + stage.len] {
+            assert_eq!(system.stage, Some(i));
+            assert_eq!(system.phase, stage.phase);
         }
         covered += stage.len;
     }
@@ -348,8 +358,11 @@ fn stages_say_which_systems_share_a_batch_and_why_each_stage_starts() {
 #[test]
 fn ordered_systems_start_a_stage_after_the_one_they_follow() {
     let mut game = game();
-    let first = game.add_view_system(Phase::AfterPhysics, SystemAccess::new().write::<Pos>(), movement);
-    let second = game.add_view_system(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), regenerate);
+    let first = game.add_system(Phase::AfterPhysics, movement.access(SystemAccess::new().write::<Pos>()));
+    let second = game.add_system(
+        Phase::AfterPhysics,
+        regenerate.access(SystemAccess::new().write::<Health>()),
+    );
     let game = game.order(first, second);
     let d = diagnose(game, 1, |_| {});
     let stage = &d.schedule.stages[d.system("regenerate").unwrap().stage.unwrap()];
@@ -360,15 +373,13 @@ fn ordered_systems_start_a_stage_after_the_one_they_follow() {
 #[test]
 fn view_systems_that_must_run_alone_say_why() {
     let game = game()
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().write_service(Service::Audio),
-            sounds,
+            sounds.access(SystemAccess::new().write_service(Service::Audio)),
         )
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().send_events::<Hit>().read_events::<Hit>(),
-            echo,
+            echo.access(SystemAccess::new().send_events::<Hit>().read_events::<Hit>()),
         );
     let d = diagnose(game, 1, |_| {});
     let why = |name: &str| d.system(name).unwrap().alone.clone().unwrap();
@@ -386,15 +397,17 @@ fn view_systems_that_must_run_alone_say_why() {
 #[test]
 fn dependencies_list_the_declared_pairs_that_must_stay_in_order() {
     let game = game()
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().write::<Pos>().read::<Vel>(),
-            movement,
+            movement.access(SystemAccess::new().write::<Pos>().read::<Vel>()),
         )
-        .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), regenerate)
-        .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Vel>(), stop)
+        .add(
+            Phase::AfterPhysics,
+            regenerate.access(SystemAccess::new().write::<Health>()),
+        )
+        .add(Phase::AfterPhysics, stop.access(SystemAccess::new().write::<Vel>()))
         // Another phase: never a pair with the systems above.
-        .add_view(Phase::BeforePhysics, SystemAccess::new().write::<Vel>(), spawner);
+        .add(Phase::BeforePhysics, spawner.access(SystemAccess::new().write::<Vel>()));
     let d = diagnose(game, 1, |_| {});
     let order = |name: &str| d.system(name).unwrap().order;
     let pairs: Vec<(usize, usize)> = d.schedule.dependencies.iter().map(|p| (p.first, p.second)).collect();
@@ -412,8 +425,11 @@ fn dependencies_list_the_declared_pairs_that_must_stay_in_order() {
 #[test]
 fn the_schedule_reports_whether_batches_run_and_how_they_were_dispatched() {
     let systems = |game: Game| {
-        game.add_view(Phase::AfterPhysics, SystemAccess::new().write::<Pos>(), movement)
-            .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), regenerate)
+        game.add(Phase::AfterPhysics, movement.access(SystemAccess::new().write::<Pos>()))
+            .add(
+                Phase::AfterPhysics,
+                regenerate.access(SystemAccess::new().write::<Health>()),
+            )
     };
     // Off: the stages are listed, but nothing is dispatched as a batch.
     let off = diagnose(systems(game().parallel_systems(false)), 5, |_| {});

@@ -3066,6 +3066,7 @@ dependencies = [
  "egui-winit",
  "epaint_default_fonts",
  "fontdue",
+ "getrandom 0.4.3",
  "gilrs",
  "glam 0.34.2",
  "gltf",

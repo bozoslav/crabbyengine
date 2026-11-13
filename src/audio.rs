@@ -75,7 +75,7 @@ pub struct Playing(pub(crate) u64);
 /// ```
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx, music: Sound) {
-/// ctx.audio.play_ex(&music, SoundParams { volume: 0.5, looping: true, ..Default::default() });
+/// ctx.audio.play_ex(music, SoundParams { volume: 0.5, looping: true, ..Default::default() });
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -492,7 +492,7 @@ mod backend {
                 let sound = ctx.audio.create(100, &[0.0; 100]);
                 let voice = ctx
                     .audio
-                    .play_on(&sound, SoundParams::default(), bus, AudioEffects::default());
+                    .play_on(sound, SoundParams::default(), bus, AudioEffects::default());
                 ctx.audio.set_effects(voice, AudioEffects::default());
                 ctx.audio.set_bus_volume(bus, 0.5);
                 ctx.audio.mute_bus(bus, true);
@@ -590,7 +590,7 @@ pub(crate) use backend::Audio as Backend;
 ///     let beep = ctx.audio.create(8000, &[0.0; 800]);
 ///     let music = ctx.audio.bus("music");
 ///     ctx.audio.set_bus_volume(music, 0.5);
-///     let playing = ctx.audio.play_on(&beep, SoundParams::default(), music, ponko::audio::AudioEffects::default());
+///     let playing = ctx.audio.play_on(beep, SoundParams::default(), music, ponko::audio::AudioEffects::default());
 ///     ctx.audio.stop(playing);
 /// });
 /// ```
@@ -629,7 +629,7 @@ impl Audio {
     /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let hit = ctx.load_sound("hit.ogg");
-    /// ctx.play_sound(&hit);
+    /// ctx.play_sound(hit);
     /// # }
     /// ```
     pub fn load(&mut self, path: &str) -> Sound {
@@ -645,7 +645,7 @@ impl Audio {
     /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     if let Ok(music) = ctx.audio.try_load("music/bonus.ogg") {
-    ///         ctx.play_sound(&music);
+    ///         ctx.play_sound(music);
     ///     }
     /// });
     /// ```
@@ -713,11 +713,11 @@ impl Audio {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, click: Sound) {
     /// if ctx.input.mouse_pressed(MouseButton::Left) {
-    ///     ctx.play_sound(&click);
+    ///     ctx.play_sound(click);
     /// }
     /// # }
     /// ```
-    pub fn play(&mut self, sound: &Sound) -> Playing {
+    pub fn play(&mut self, sound: Sound) -> Playing {
         self.play_ex(sound, SoundParams::default())
     }
 
@@ -727,10 +727,10 @@ impl Audio {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, step: Sound) {
     /// let speed = 0.9 + ctx.random().stream(0).f32() * 0.2; // vary the pitch a little
-    /// ctx.audio.play_ex(&step, SoundParams { volume: 0.4, speed, ..Default::default() });
+    /// ctx.audio.play_ex(step, SoundParams { volume: 0.4, speed, ..Default::default() });
     /// # }
     /// ```
-    pub fn play_ex(&mut self, sound: &Sound, params: SoundParams) -> Playing {
+    pub fn play_ex(&mut self, sound: Sound, params: SoundParams) -> Playing {
         if self.headless {
             return Playing(0);
         }
@@ -758,7 +758,7 @@ impl Audio {
     /// ```
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, music: Sound) {
-    /// let song = ctx.audio.play_ex(&music, SoundParams { looping: true, ..Default::default() });
+    /// let song = ctx.audio.play_ex(music, SoundParams { looping: true, ..Default::default() });
     /// // ... later
     /// ctx.audio.stop(song);
     /// # }

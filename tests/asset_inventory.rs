@@ -3,6 +3,8 @@
 //! inventory back at its baseline.
 
 #[allow(unused_imports)]
+// The inventory reports raw ids: these tests compare them with the handles'.
+use ponko::__ffi;
 use ponko::inventory::AssetClass;
 use ponko::prelude::*;
 #[allow(unused_imports)]
@@ -263,7 +265,7 @@ fn sprites_showing_a_freed_texture_are_listed_as_dangling() {
             (dangling[0].component, dangling[0].class),
             ("Sprite", AssetClass::Texture)
         );
-        assert_eq!(dangling[0].id, freed.id());
+        assert_eq!(dangling[0].id, __ffi::id(freed));
         ctx.world.despawn(holder);
         assert!(ctx.asset_inventory().dangling.is_empty());
     });
@@ -307,10 +309,11 @@ fn a_model_keeping_a_freed_mesh_never_shows_the_next_one() {
         let holder = ctx.world.spawn((Transform3D::default(), Model::new(old)));
         ctx.free(old);
         let new = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
-        assert_eq!(new.id() & 0x00FF_FFFF, old.id() & 0x00FF_FFFF, "the same slot");
+        let slot = ponko::__ffi::SLOT_MASK;
+        assert_eq!(__ffi::id(new) & slot, __ffi::id(old) & slot, "the same slot");
         let dangling = ctx.asset_inventory().dangling;
         assert_eq!(dangling.len(), 1, "{dangling:?}");
-        assert_eq!((dangling[0].entity, dangling[0].id), (holder.to_bits(), old.id()));
+        assert_eq!((dangling[0].entity, dangling[0].id), (holder.to_bits(), __ffi::id(old)));
         ctx.world.get_mut::<Model>(holder).unwrap().mesh = new;
         assert!(ctx.asset_inventory().dangling.is_empty());
     });
@@ -338,20 +341,20 @@ fn records_say_when_and_by_whom_each_handle_was_made() {
                 .find(|r| r.owner == AssetOwner::File("crab.png".into()))
                 .expect("the loaded texture");
             assert!(loaded.made_frame < frame && loaded.age_frames == frame - loaded.made_frame);
-            let new = records.iter().find(|r| r.id == made.id()).unwrap();
+            let new = records.iter().find(|r| r.id == __ffi::id(made)).unwrap();
             assert_eq!((new.made_frame, new.age_frames, new.bytes), (frame, 0, 8));
             assert_eq!(new.owner, AssetOwner::Code);
-            assert_eq!(records.last().unwrap().id, made.id(), "oldest first");
+            assert_eq!(records.last().unwrap().id, __ffi::id(made), "oldest first");
             let sound = ctx.audio.asset_handles();
             assert_eq!(sound.len(), 1);
-            assert_eq!((sound[0].id, sound[0].made_frame), (beep.id(), frame));
+            assert_eq!((sound[0].id, sound[0].made_frame), (__ffi::id(beep), frame));
             ctx.free(made);
             ctx.free(beep);
             assert!(
                 ctx.gfx
                     .asset_handles(AssetClass::Texture)
                     .iter()
-                    .all(|r| r.id != made.id())
+                    .all(|r| r.id != __ffi::id(made))
             );
             assert!(ctx.audio.asset_handles().is_empty());
             done.set(true);
@@ -428,7 +431,7 @@ mod files {
             let house = ctx.gfx.load_mesh("models/house.glb");
             let owner = AssetOwner::File("models/house.glb".into());
             let meshes = ctx.gfx.asset_handles(AssetClass::Mesh);
-            assert!(meshes.iter().any(|r| r.id == house.id() && r.owner == owner));
+            assert!(meshes.iter().any(|r| r.id == __ffi::id(house) && r.owner == owner));
             let materials = ctx.gfx.asset_handles(AssetClass::Material);
             assert!(!materials.is_empty() && materials.iter().all(|r| r.owner == owner));
         });
@@ -444,7 +447,7 @@ mod files {
             for round in 0..20 {
                 ctx.free(house);
                 let material = ctx.gfx.asset_handles(AssetClass::Material)[0].id;
-                ctx.free(Material::from_id(material));
+                ctx.free(__ffi::from_id::<Material>(material));
                 house = ctx.gfx.load_mesh("models/house.glb");
                 assert!(ctx.gfx.is_live(house));
                 let growth = ctx.asset_inventory().growth_since(&base);

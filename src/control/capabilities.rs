@@ -19,6 +19,7 @@ pub(super) const FEATURES: &[(&str, bool)] = &[
     ("window", cfg!(feature = "window")),
     ("audio", cfg!(feature = "audio")),
     ("inspector", cfg!(feature = "inspector")),
+    ("control-env", cfg!(feature = "control-env")),
     ("gamepad", cfg!(feature = "gamepad")),
     ("profiling", cfg!(feature = "profiling")),
     ("hotpatch", cfg!(feature = "hotpatch")),
@@ -29,6 +30,7 @@ pub(super) const FEATURES: &[(&str, bool)] = &[
     ("3d", cfg!(feature = "3d")),
     ("navmesh", cfg!(feature = "navmesh")),
     ("accessibility", cfg!(feature = "accessibility")),
+    ("bench-internals", cfg!(feature = "bench-internals")),
 ];
 
 /// Why `method` would be refused by this instance right now, if it would.
@@ -451,7 +453,7 @@ mod tests {
             )
             .unwrap();
         // SAFETY: plain bytes; any f32 is a valid value.
-        let id = unsafe { ctx.world.register_component("CHealth", 4, 4, None) };
+        let id = unsafe { ctx.world.raw().register_component("CHealth", 4, 4, None) };
         // SAFETY: as above.
         unsafe {
             ctx.world.reflect_fields(

@@ -7,15 +7,15 @@ off by default, it never changes what the simulation computes, and it only
 helps when the systems are big enough: [measurements](#when-it-doesnt-pay-off)
 below.
 
-What it does not do: `&mut Ctx` systems (`sim_system`, `system`, `add`,
-`add_with_access`, everything from C and C++) always run alone, in
-registration order. They may touch anything, so nothing can run next to
+What it does not do: `&mut Ctx` systems (`sim_system`, `system`, `add`
+with a function of `&mut Ctx`, declared or not, and everything from C and
+C++) always run alone, in registration order. They may touch anything, so nothing can run next to
 them.
 
 ## Turning it on
 
-Declare what each system uses, register it with `add_view`, and turn the
-scheduler on:
+Write each system as a function of `&mut SystemView`, declare what it uses
+where you add it (`system.access(...)`), and turn the scheduler on:
 
 <div class="lang-pair">
 <div>
@@ -117,11 +117,14 @@ systems that talk through a file, a channel or a global), say it:
 ```rust
 # use ponko::access::SystemAccess;
 # use ponko::prelude::*;
+# use ponko::system_view::SystemView;
 # struct A;
 # struct B;
+# fn export(_: &mut SystemView) {} fn upload(_: &mut SystemView) {}
+# fn write_a(_: &mut SystemView) {} fn write_b(_: &mut SystemView) {}
 let mut game = Game::new("ordered", 1, 1).parallel_systems(true);
-let export = game.add_view_system(Phase::AfterPhysics, SystemAccess::new().read::<A>(), |_| {});
-let upload = game.add_view_system(Phase::AfterPhysics, SystemAccess::new().read::<B>(), |_| {});
+let export = game.add_system(Phase::AfterPhysics, export.access(SystemAccess::new().read::<A>()));
+let upload = game.add_system(Phase::AfterPhysics, upload.access(SystemAccess::new().read::<B>()));
 // `upload` must run after `export` has finished.
 let game = game.order(export, upload);
 assert_eq!(game.schedule_plan().stages_in(Phase::AfterPhysics).len(), 2);
@@ -129,9 +132,9 @@ assert_eq!(game.schedule_plan().stages_in(Phase::AfterPhysics).len(), 2);
 // Or cut a phase in two: systems added after the barrier never share a
 // batch with the ones before it.
 let game = Game::new("cut", 1, 1)
-    .add_view(Phase::AfterPhysics, SystemAccess::new().write::<A>(), |_| {})
+    .add(Phase::AfterPhysics, write_a.access(SystemAccess::new().write::<A>()))
     .barrier(Phase::AfterPhysics)
-    .add_view(Phase::AfterPhysics, SystemAccess::new().write::<B>(), |_| {});
+    .add(Phase::AfterPhysics, write_b.access(SystemAccess::new().write::<B>()));
 assert_eq!(game.schedule_plan().stages_in(Phase::AfterPhysics).len(), 2);
 ```
 

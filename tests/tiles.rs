@@ -74,14 +74,8 @@ fn tile_lookup_by_world_position() {
 fn sprite_regions_and_sheets_draw_like_sprites() {
     in_tick(|ctx| {
         let s = sheet(ctx);
-        ctx.gfx.draw_ex(
-            &s.texture,
-            Vec2::ZERO,
-            DrawParams {
-                region: Some(s.frame(1)),
-                ..Default::default()
-            },
-        );
+        ctx.gfx
+            .draw_ex(s.texture, Vec2::ZERO, DrawParams::default().with_region(s.frame(1)));
         assert_eq!(ctx.gfx.sprite_count(), 1);
         assert_eq!(s.sprite(2).region, Some(Rect::new(32.0, 0.0, 16.0, 16.0)));
     });

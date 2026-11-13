@@ -139,8 +139,14 @@ fn play_with(
                 if views {
                     let random = || SystemAccess::new().read_service(Service::Random);
                     game = game
-                        .add_view(Phase::BeforePhysics, SystemAccess::new().write::<Age>(), grow_older)
-                        .add_view(Phase::BeforePhysics, random().write::<Stamina>().read::<Unit>(), tire);
+                        .add(
+                            Phase::BeforePhysics,
+                            grow_older.access(SystemAccess::new().write::<Age>()),
+                        )
+                        .add(
+                            Phase::BeforePhysics,
+                            tire.access(random().write::<Stamina>().read::<Unit>()),
+                        );
                     // The two view systems share a stage, so a peer with the
                     // scheduler on really runs them as a batch.
                     let plan = game.schedule_plan();
@@ -169,7 +175,7 @@ fn play_with(
                         if views {
                             ctx.world.reflect::<Age>();
                             ctx.world.reflect::<Stamina>();
-                            let all: Vec<Entity> = ctx.world.query::<Entity>().with::<Unit>().iter().collect();
+                            let all: Vec<Entity> = ctx.world.query::<Entity>().filter::<With<Unit>>().iter().collect();
                             for e in all {
                                 ctx.world.insert(e, Age(0));
                                 ctx.world.insert(e, Stamina(1.0));
@@ -243,7 +249,13 @@ fn peers_over_udp_stay_in_sync() {
 /// Player 1 alone nudges one unit: a bug that only shows on one machine.
 fn diverge(ctx: &mut Ctx) {
     if ctx.net.player() == 1 && ctx.time.sim_tick() == 100 {
-        let e = ctx.world.query::<Entity>().with::<Unit>().iter().next().unwrap();
+        let e = ctx
+            .world
+            .query::<Entity>()
+            .filter::<With<Unit>>()
+            .iter()
+            .next()
+            .unwrap();
         ctx.world.get_mut::<Unit>(e).unwrap().vel.x += 0.001;
     }
 }

@@ -39,6 +39,11 @@ pub struct TileMap {
     /// Tint for every tile. Default white.
     pub color: Color,
     /// Frame index per tile, row by row; [`TileMap::EMPTY`] draws nothing.
+    ///
+    /// `u16` where [`SpriteSheet::frame`] takes a `u32`: on purpose. A map
+    /// stores one index per tile, so `u16` halves its memory (a 4096 × 4096
+    /// map is 32 MiB instead of 64 MiB), and a tile sheet never needs more
+    /// than 65 535 frames. Pass a tile to the sheet with `u32::from(tile)`.
     pub tiles: Vec<u16>,
 }
 

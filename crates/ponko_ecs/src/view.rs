@@ -2,8 +2,9 @@
 //! resources a piece of code may touch, and a view that hands out only
 //! those.
 //!
-//! A [`ViewAccess`] lists what may be read and written. A [`ViewState`]
-//! owns one and prepares a world for it; a [`WorldView`] is the only way in.
+//! A [`ViewState`] lists what may be read and written, and runs code with a
+//! [`WorldView`] of a world ([`ViewState::run`], or [`ViewGroup::run`] for
+//! several at once); the view is the only way in.
 //! It has no path to structural changes (spawn, despawn, insert, remove)
 //! and checks every query, `get` and resource fetch against the
 //! declaration, in every build, once per call (never per entity). Anything
@@ -22,10 +23,10 @@
 //! world query ([`ViewQuery::filter`]): [`Added<T>`](crate::Added) and
 //! [`Changed<T>`](crate::Changed) need declared access to `T` (they read the
 //! stamps its writers leave), and [`WorldView::removed`] lists removals.
-//! A view can't start tracking a component (that reallocates its columns),
-//! so track it beforehand with [`World::track_changes`] (in a game: in
-//! setup, or from a `&mut Ctx` system); a change filter on an untracked
-//! component panics.
+//! Tracking is explicit, as everywhere: a change filter on an untracked
+//! component panics, in a view as in a world query, so track it beforehand
+//! with [`World::track_changes`] (in a game: in setup, or from a
+//! `&mut Ctx` system).
 //!
 //! ```
 //! use ponko_ecs::*;
@@ -37,7 +38,7 @@
 //! world.insert_resource(Gravity(-1.0));
 //! world.spawn((Pos(0.0), Vel(0.0)));
 //!
-//! let mut fall = ViewState::new(ViewAccess::new().write::<Vel>().read_resource::<Gravity>());
+//! let mut fall = ViewState::new().write::<Vel>().read_resource::<Gravity>();
 //! fall.run(&mut world, |mut view| {
 //!     let g = view.resource::<Gravity>().0;
 //!     view.query::<&mut Vel>().for_each(|v| v.0 += g);
@@ -54,7 +55,9 @@ use std::sync::{Mutex, PoisonError};
 use crate::bundle::Component;
 use crate::change::{self, Clock, Tick};
 use crate::entity::Entity;
-use crate::query::{Archetypes, Filters, QueryCache, QueryData, QueryFilter, QueryIter, check_aliasing, signature};
+use crate::query::{
+    Archetypes, Filters, QueryCache, QueryData, QueryFilter, QueryIter, SingleError, check_aliasing, signature,
+};
 use crate::storage::ComponentId;
 use crate::world::World;
 
@@ -80,63 +83,20 @@ struct ResourceDecl {
     write: bool,
 }
 
-/// The components and resources a [`WorldView`] may read and write.
-///
-/// [`ViewAccess::new`] allows nothing; chain the builder methods. Declaring
-/// a write also allows reading.
+/// What a [`ViewState`] declares: the components and resources its views
+/// may read and write.
 #[derive(Clone, Default)]
-pub struct ViewAccess {
+struct Declared {
     components: Vec<ComponentDecl>,
     resources: Vec<ResourceDecl>,
-}
-
-impl PartialEq for ViewAccess {
-    fn eq(&self, other: &Self) -> bool {
-        let key = |c: &ComponentDecl| (c.id, c.write);
-        self.components.len() == other.components.len()
-            && self.components.iter().map(key).eq(other.components.iter().map(key))
-            && self.resources == other.resources
-    }
-}
-
-impl Eq for ViewAccess {}
-
-impl std::fmt::Debug for ViewAccess {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let list = |w: bool| if w { "write" } else { "read" };
-        f.debug_struct("ViewAccess")
-            .field(
-                "components",
-                &self
-                    .components
-                    .iter()
-                    .map(|c| (c.name, list(c.write)))
-                    .collect::<Vec<_>>(),
-            )
-            .field(
-                "resources",
-                &self
-                    .resources
-                    .iter()
-                    .map(|r| (r.name, list(r.write)))
-                    .collect::<Vec<_>>(),
-            )
-            .finish()
-    }
 }
 
 fn register<T: Component>(world: &mut World) -> ComponentId {
     world.register::<T>()
 }
 
-impl ViewAccess {
-    /// Allows nothing.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn component<T: Component>(mut self, write: bool) -> Self {
+impl Declared {
+    fn component<T: Component>(&mut self, write: bool) {
         let id = TypeId::of::<T>();
         match self.components.iter_mut().find(|c| c.id == id) {
             Some(c) => c.write |= write,
@@ -147,10 +107,9 @@ impl ViewAccess {
                 register: register::<T>,
             }),
         }
-        self
     }
 
-    fn resource<R: 'static>(mut self, write: bool) -> Self {
+    fn resource<R: 'static>(&mut self, write: bool) {
         let id = TypeId::of::<R>();
         match self.resources.iter_mut().find(|r| r.id == id) {
             Some(r) => r.write |= write,
@@ -160,47 +119,9 @@ impl ViewAccess {
                 write,
             }),
         }
-        self
     }
 
-    /// Allows reading component `T`.
-    #[must_use]
-    pub fn read<T: Component>(self) -> Self {
-        self.component::<T>(false)
-    }
-
-    /// Allows reading and writing component `T`.
-    #[must_use]
-    pub fn write<T: Component>(self) -> Self {
-        self.component::<T>(true)
-    }
-
-    /// Allows reading resource `R`.
-    #[must_use]
-    pub fn read_resource<R: Send + Sync + 'static>(self) -> Self {
-        self.resource::<R>(false)
-    }
-
-    /// Allows reading, writing, inserting and removing resource `R`.
-    #[must_use]
-    pub fn write_resource<R: Send + Sync + 'static>(self) -> Self {
-        self.resource::<R>(true)
-    }
-
-    /// The declared components: type, name, written.
-    pub fn components(&self) -> impl Iterator<Item = (TypeId, &'static str, bool)> + '_ {
-        self.components.iter().map(|c| (c.id, c.name, c.write))
-    }
-
-    /// The declared resources: type, name, written.
-    pub fn resources(&self) -> impl Iterator<Item = (TypeId, &'static str, bool)> + '_ {
-        self.resources.iter().map(|r| (r.id, r.name, r.write))
-    }
-
-    /// `true` if views of the two declarations must not exist at the same
-    /// time: one writes a component or resource the other reads or writes.
-    #[must_use]
-    pub fn overlaps(&self, other: &ViewAccess) -> bool {
+    fn overlaps(&self, other: &Declared) -> bool {
         let c = self
             .components
             .iter()
@@ -224,7 +145,7 @@ impl Drop for ViewState {
         if !std::thread::panicking() {
             debug_assert!(
                 !self.is_prepared(),
-                "ViewState dropped while prepared: {}'s lent resources are lost; call finish first",
+                "ViewState dropped while prepared: {}'s lent resources are lost",
                 self.label
             );
         }
@@ -237,13 +158,20 @@ struct Lent {
     value: Option<Box<dyn Any + Send + Sync>>,
 }
 
-/// A [`ViewAccess`] and what viewing a world with it needs: the world's ids
-/// for its components and the written resources while they are lent out.
+/// A declaration of the components and resources a view may read and
+/// write, and what viewing a world with it needs: the world's ids for its
+/// components and the written resources while they are lent out.
 ///
-/// Keep one per system and reuse it: after the first run, preparing and
-/// finishing allocate nothing.
+/// [`ViewState::new`] declares nothing; chain [`read`](Self::read),
+/// [`write`](Self::write), [`read_resource`](Self::read_resource) and
+/// [`write_resource`](Self::write_resource). Declaring a write also allows
+/// reading.
+///
+/// Keep one per system and reuse it: after the first run, running it
+/// allocates nothing. [`run`](Self::run) is how one state views a world;
+/// [`ViewGroup::run`] is how several share it.
 pub struct ViewState {
-    access: ViewAccess,
+    access: Declared,
     /// Shown in panics: usually the system's name.
     label: &'static str,
     /// The prepared world's ids for each declared component (with `write`).
@@ -267,12 +195,40 @@ fn next_state_id() -> u64 {
     NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
+impl Default for ViewState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for ViewState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let list = |w: bool| if w { "write" } else { "read" };
+        f.debug_struct("ViewState")
+            .field("label", &self.label)
+            .field(
+                "components",
+                &self
+                    .components()
+                    .map(|(_, name, w)| (name, list(w)))
+                    .collect::<Vec<_>>(),
+            )
+            .field(
+                "resources",
+                &self.resources().map(|(_, name, w)| (name, list(w))).collect::<Vec<_>>(),
+            )
+            .field("prepared", &self.is_prepared())
+            .finish()
+    }
+}
+
 impl ViewState {
-    /// State for views with `access`.
+    /// State for views that may read and write nothing yet: chain the
+    /// declaring methods.
     #[must_use]
-    pub fn new(access: ViewAccess) -> Self {
+    pub fn new() -> Self {
         ViewState {
-            access,
+            access: Declared::default(),
             label: "this view",
             ids: Vec::new(),
             lent: Vec::new(),
@@ -283,13 +239,101 @@ impl ViewState {
         }
     }
 
+    /// Declares after `prepare` would leave the prepared ids out of step.
+    ///
+    /// A changed declaration is a new state: it gets a fresh id, so a
+    /// [`ViewGroup`] that checked the old declaration refuses it.
+    #[track_caller]
+    fn declaring(&mut self) {
+        assert!(
+            !self.is_prepared(),
+            "ViewState: {} is prepared; declare what it uses before prepare, or after finish",
+            self.label
+        );
+        self.id = next_state_id();
+    }
+
+    /// Allows reading component `T`.
+    ///
+    /// # Panics
+    /// If the state is prepared, like the other declaring methods.
+    #[must_use]
+    #[track_caller]
+    pub fn read<T: Component>(mut self) -> Self {
+        self.declaring();
+        self.access.component::<T>(false);
+        self
+    }
+
+    /// Allows reading and writing component `T`.
+    #[must_use]
+    #[track_caller]
+    pub fn write<T: Component>(mut self) -> Self {
+        self.declaring();
+        self.access.component::<T>(true);
+        self
+    }
+
+    /// Allows reading resource `R`.
+    #[must_use]
+    #[track_caller]
+    pub fn read_resource<R: Send + Sync + 'static>(mut self) -> Self {
+        self.declaring();
+        self.access.resource::<R>(false);
+        self
+    }
+
+    /// Allows reading, writing, inserting and removing resource `R`.
+    #[must_use]
+    #[track_caller]
+    pub fn write_resource<R: Send + Sync + 'static>(mut self) -> Self {
+        self.declaring();
+        self.access.resource::<R>(true);
+        self
+    }
+
+    /// The declared components: type, name, written.
+    pub fn components(&self) -> impl Iterator<Item = (TypeId, &'static str, bool)> + '_ {
+        self.access.components.iter().map(|c| (c.id, c.name, c.write))
+    }
+
+    /// The declared resources: type, name, written.
+    pub fn resources(&self) -> impl Iterator<Item = (TypeId, &'static str, bool)> + '_ {
+        self.access.resources.iter().map(|r| (r.id, r.name, r.write))
+    }
+
+    /// `true` if views of the two states must not exist at the same time:
+    /// one declares writing a component or resource the other reads or
+    /// writes.
+    #[must_use]
+    pub fn overlaps(&self, other: &ViewState) -> bool {
+        self.access.overlaps(&other.access)
+    }
+
     /// Makes [`Added`](crate::Added) and [`Changed`](crate::Changed) filters
     /// and [`WorldView::removed`] in this state's views report what happened
     /// after `since`, instead of after the world's
     /// [`changes_since`](World::changes_since); `None` goes back to the
     /// world's. Views that share a world each need their own: the world has
     /// only one `changes_since`.
-    pub fn set_changes_since(&mut self, since: Option<Tick>) {
+    ///
+    /// ```
+    /// # use ponko_ecs::*;
+    /// struct Pos(f32);
+    /// let mut world = World::new();
+    /// world.track_changes::<Pos>();
+    /// world.spawn((Pos(0.0),));
+    /// let seen = world.advance_change_tick();
+    /// let mut state = ViewState::new().read::<Pos>();
+    /// let mut changed = |state: &mut ViewState, world: &mut World| {
+    ///     state.run(world, |mut view| view.query::<&Pos>().filter::<Changed<Pos>>().count())
+    /// };
+    /// // The world's own window is "everything" until it is set.
+    /// assert_eq!(changed(&mut state, &mut world), 1);
+    /// state.override_changes_since(Some(seen));
+    /// assert_eq!(changed(&mut state, &mut world), 0);
+    /// ```
+    pub fn override_changes_since(&mut self, since: Option<Tick>) {
         self.since = since;
     }
 
@@ -309,9 +353,9 @@ impl ViewState {
     /// world.spawn((Pos(0.0),));
     /// let first = world.advance_change_tick();
     /// let second = world.advance_change_tick();
-    /// let mut state = ViewState::new(ViewAccess::new().write::<Pos>());
+    /// let mut state = ViewState::new().write::<Pos>();
     /// // Write as if in the tick `second`, although the world is past it.
-    /// state.set_change_tick(Some(second));
+    /// state.override_change_tick(Some(second));
     /// state.run(&mut world, |mut view| {
     ///     assert_eq!(view.change_tick(), second);
     ///     view.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
@@ -320,7 +364,7 @@ impl ViewState {
     /// assert_eq!(changed(&mut world, first), 1);
     /// assert_eq!(changed(&mut world, second), 0);
     /// ```
-    pub fn set_change_tick(&mut self, tick: Option<Tick>) {
+    pub fn override_change_tick(&mut self, tick: Option<Tick>) {
         self.now = tick;
     }
 
@@ -331,15 +375,9 @@ impl ViewState {
         self
     }
 
-    /// The declaration.
-    #[must_use]
-    pub fn access(&self) -> &ViewAccess {
-        &self.access
-    }
-
     /// `true` between [`prepare`](Self::prepare) and [`finish`](Self::finish).
     #[must_use]
-    pub fn is_prepared(&self) -> bool {
+    pub(crate) fn is_prepared(&self) -> bool {
         self.world != 0
     }
 
@@ -348,14 +386,18 @@ impl ViewState {
     /// stays missing). Until [`finish`](Self::finish), those resources are
     /// absent from the world itself: dropping a prepared state loses them
     /// (builds with debug assertions panic when that happens).
-    /// [`run`](Self::run) always finishes.
+    /// [`run`](Self::run) and [`ViewGroup::run`] always finish.
+    ///
+    /// Crate-private with [`finish`](Self::finish) and [`view`](Self::view):
+    /// the two `run`s are the whole public way to view a world, so a caller
+    /// can neither lose lent resources nor be asked for `view`'s promises.
     ///
     /// # Panics
     /// If the state is already prepared.
-    pub fn prepare(&mut self, world: &mut World) {
+    pub(crate) fn prepare(&mut self, world: &mut World) {
         assert!(
             !self.is_prepared(),
-            "ViewState::prepare: {} is already prepared; call finish first",
+            "ViewState: {} is already viewing a world",
             self.label
         );
         // The world is held exclusively here: let its archetype index
@@ -381,7 +423,7 @@ impl ViewState {
     /// # Panics
     /// If the state was prepared for another world. Does nothing if it
     /// isn't prepared.
-    pub fn finish(&mut self, world: &mut World) {
+    pub(crate) fn finish(&mut self, world: &mut World) {
         if !self.is_prepared() {
             return;
         }
@@ -415,7 +457,7 @@ impl ViewState {
         let world: &World = guard.world;
         // SAFETY: the guard holds the only (mutable) borrow of the world;
         // this shared reborrow and the view are the only access until it drops.
-        let view = unsafe { guard.state.view_unchecked_inner(world) };
+        let view = unsafe { guard.state.view(world) };
         f(view)
     }
 
@@ -425,7 +467,7 @@ impl ViewState {
     /// While the view lives:
     /// - no other code may write a component this declaration reads or
     ///   writes, or read one it writes (other views of non-overlapping
-    ///   declarations, see [`ViewAccess::overlaps`], are fine);
+    ///   declarations, see [`ViewState::overlaps`], are fine);
     /// - nothing may change the world through `&mut World`.
     ///
     /// Resources need no promise: written ones are moved out by
@@ -434,14 +476,7 @@ impl ViewState {
     ///
     /// # Panics
     /// If the state isn't prepared, or was prepared for another world.
-    pub unsafe fn view<'w>(&'w mut self, world: &'w World) -> WorldView<'w> {
-        // SAFETY: forwarded caller contract.
-        unsafe { self.view_unchecked_inner(world) }
-    }
-
-    /// # Safety
-    /// As [`view`](Self::view).
-    unsafe fn view_unchecked_inner<'w>(&'w mut self, world: &'w World) -> WorldView<'w> {
+    pub(crate) unsafe fn view<'w>(&'w mut self, world: &'w World) -> WorldView<'w> {
         assert!(
             self.is_prepared(),
             "ViewState::view: {} isn't prepared; call prepare first",
@@ -464,14 +499,14 @@ impl ViewState {
     }
 }
 
-/// A restricted view of a [`World`]: only what its [`ViewAccess`] declared,
-/// and no structural changes. From [`ViewState::run`] or [`ViewState::view`].
+/// A restricted view of a [`World`]: only what its [`ViewState`] declared,
+/// and no structural changes. From [`ViewState::run`] or [`ViewGroup::run`].
 ///
 /// Every fetch checks the declaration once per call; anything undeclared
 /// panics with the label and what was missing.
 pub struct WorldView<'w> {
     world: &'w World,
-    access: &'w ViewAccess,
+    access: &'w Declared,
     label: &'static str,
     ids: &'w [(ComponentId, bool)],
     lent: &'w mut [Lent],
@@ -504,8 +539,8 @@ fn undeclared<T>(label: &str, what: &str, write: bool) -> ! {
 }
 
 /// Builds a [`ViewQuery`]'s filters from a shared world: nothing is
-/// registered or starts being tracked, and change filters are checked
-/// against the view's declaration.
+/// registered, and change filters are checked against the view's
+/// declaration.
 ///
 /// Public but not exported, like [`Filters`]: it seals the filter traits.
 #[doc(hidden)]
@@ -541,12 +576,7 @@ impl SharedFilters<'_> {
         };
         check_declared(self.world, self.label, self.decl, id, false);
         if !self.world.component_info(id).tracks_changes() {
-            let name = std::any::type_name::<T>();
-            panic!(
-                "{}: `{filter}<{name}>` needs `{name}`'s changes tracked, and a view can't start tracking; \
-                 call `world.track_changes::<{name}>()` before (in a game: in setup or a `&mut Ctx` system)",
-                self.label
-            );
+            change::untracked_filter(Some(self.label), filter, std::any::type_name::<T>());
         }
         id
     }
@@ -635,8 +665,9 @@ impl<'w> WorldView<'w> {
 
     /// The entities that lost component `T` (declared read or write)
     /// since the world's [`changes_since`](World::changes_since) (or the
-    /// state's own, see [`ViewState::set_changes_since`]), oldest first: [`World::removed`] through the view. In a game, that is since
-    /// this system last ran.
+    /// state's own, see [`ViewState::override_changes_since`]), oldest first:
+    /// [`World::removed`] through the view. In a game, that is since this
+    /// system last ran.
     ///
     /// # Panics
     /// If `T` is undeclared or isn't tracked.
@@ -660,7 +691,7 @@ impl<'w> WorldView<'w> {
 
     /// The change tick this view writes in: the world's current one (see
     /// [`World::change_tick`]) unless the state has its own
-    /// ([`ViewState::set_change_tick`]). Keep it to pass to
+    /// ([`ViewState::override_change_tick`]). Keep it to pass to
     /// [`ViewQuery::since`] or [`removed_since`](Self::removed_since) next
     /// time.
     #[must_use]
@@ -676,7 +707,7 @@ impl<'w> WorldView<'w> {
         let id = self.id_of::<T>(false);
         let ptr = self.world.locate(e, id)?;
         // SAFETY: `T` is declared, so no concurrent view writes it (the
-        // `view` contract); the pointer is to a live `T` in its column.
+        // `ViewState::view` contract); the pointer is to a live `T` in its column.
         Some(unsafe { &*ptr.cast::<T>() })
     }
 
@@ -796,10 +827,10 @@ impl<'w> WorldView<'w> {
 }
 
 /// A query from a [`WorldView`]: [`for_each`](Self::for_each),
-/// [`iter`](Self::iter), [`count`](Self::count) and [`get`](Self::get), with
-/// [`with`](Self::with), [`without`](Self::without) and typed
-/// [`filter`](Self::filter)s, [`Added`](crate::Added) and
-/// [`Changed`](crate::Changed) included.
+/// [`iter`](Self::iter), [`count`](Self::count), [`get`](Self::get) and
+/// [`single`](Self::single), with the typed [`filter`](Self::filter)s of a
+/// world query, [`Added`](crate::Added) and [`Changed`](crate::Changed)
+/// included.
 #[must_use = "a query does nothing until iterated"]
 pub struct ViewQuery<'v, Q: QueryData> {
     world: &'v World,
@@ -824,33 +855,17 @@ pub struct ViewQuery<'v, Q: QueryData> {
 }
 
 impl<'v, Q: QueryData> ViewQuery<'v, Q> {
-    /// Only entities that also have `T`. Needs no declaration.
-    pub fn with<T: Component>(mut self) -> Self {
-        match self.world.component_id::<T>() {
-            Some(id) => self.filters.add_with(id),
-            None => self.empty = true,
-        }
-        self
-    }
-
-    /// Skips entities that have `T`. Needs no declaration.
-    pub fn without<T: Component>(mut self) -> Self {
-        if let Some(id) = self.world.component_id::<T>() {
-            self.filters.add_without(id);
-        }
-        self
-    }
-
     /// Only entities that pass the typed filter `F`, as
     /// [`Query::filter`](crate::Query::filter): [`With`](crate::With),
     /// [`Without`](crate::Without), [`Or`](crate::Or),
     /// [`Added`](crate::Added), [`Changed`](crate::Changed), or a tuple of
     /// them that must all hold.
     ///
-    /// `With`, `Without` and `Or` need no declaration. `Added<T>` and
+    /// `With`, `Without` and `Or` need no declaration: they read which
+    /// components an entity has, not their values. `Added<T>` and
     /// `Changed<T>` read the stamps that writers of `T` leave, so they need
-    /// `T` declared (read is enough), and `T` must already be tracked: a
-    /// view can't start tracking it. They report what changed since the
+    /// `T` declared (read is enough), and `T` must already be tracked, as
+    /// in a world query. They report what changed since the
     /// world's [`changes_since`](World::changes_since) (in a game: since
     /// this system last ran) unless [`since`](Self::since) says otherwise.
     ///
@@ -866,7 +881,7 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
     /// world.get_mut::<Health>(hurt).unwrap().0 = 5;
     /// world.set_changes_since(seen);
     ///
-    /// let mut state = ViewState::new(ViewAccess::new().read::<Health>());
+    /// let mut state = ViewState::new().read::<Health>();
     /// let changed = state.run(&mut world, |mut view| {
     ///     view.query::<Entity>().filter::<Changed<Health>>().iter().collect::<Vec<_>>()
     /// });
@@ -1045,10 +1060,40 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
         // SAFETY: the row is the live entity's; access was checked.
         Some(unsafe { Q::fetch(state, loc.row as usize) })
     }
+
+    /// The item of the only matching entity, as
+    /// [`Query::single`](crate::Query::single): it ends the query, so the
+    /// item can be kept for as long as the view stays borrowed.
+    ///
+    /// # Errors
+    /// If no entity matches, or more than one does.
+    pub fn single(mut self) -> Result<Q::Item<'v>, SingleError>
+    where
+        Q: 'v,
+    {
+        match self.count() {
+            0 => return Err(SingleError::NoEntities),
+            1 => {}
+            n => return Err(SingleError::MultipleEntities(n)),
+        }
+        let mut matches = QueryIter::<'v, Q> {
+            archetypes: self.archetypes(),
+            ids: self.ids,
+            filters: self.filters,
+            state: None,
+            row: 0,
+            len: 0,
+            clock: self.clock(),
+            tracking: self.world.tracks_changes(),
+            filtered: None,
+            _q: PhantomData,
+        };
+        matches.next().ok_or(SingleError::NoEntities)
+    }
 }
 
 /// Proof that a list of [`ViewState`]s may view one world at the same time:
-/// their declarations don't overlap pairwise ([`ViewAccess::overlaps`]).
+/// their declarations don't overlap pairwise ([`ViewState::overlaps`]).
 ///
 /// Check once with [`new`](Self::new), then [`run`](Self::run) the same
 /// states as often as needed, on several threads or one after another. This
@@ -1065,8 +1110,8 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
 ///
 /// // Each task: its view state, and whatever else it needs.
 /// let mut tasks = vec![
-///     (ViewState::new(ViewAccess::new().write::<Pos>()), 1.0f32),
-///     (ViewState::new(ViewAccess::new().write::<Health>()), 2.0f32),
+///     (ViewState::new().write::<Pos>(), 1.0f32),
+///     (ViewState::new().write::<Health>(), 2.0f32),
 /// ];
 /// let group = ViewGroup::new(tasks.iter().map(|t| &t.0)).unwrap();
 /// group.run(
@@ -1098,7 +1143,7 @@ impl ViewGroup {
         let states: Vec<&ViewState> = states.into_iter().collect();
         for (j, b) in states.iter().enumerate() {
             for (i, a) in states[..j].iter().enumerate() {
-                if a.id == b.id || a.access.overlaps(&b.access) {
+                if a.id == b.id || a.overlaps(b) {
                     return Err((i, j));
                 }
             }
@@ -1207,7 +1252,8 @@ impl ViewGroup {
             // views read or write it. Each view comes from a different
             // state (ids are unique and each item must have its own), and
             // the states' declarations don't overlap pairwise (checked in
-            // `new`; a state's declaration never changes), so no view
+            // `new`; declaring again gives a state a new id, so these ids
+            // name exactly the declarations `new` checked), so no view
             // writes a component another reads or writes. `f` gets nothing
             // of the world but its view.
             let view = unsafe { state.view(world) };
@@ -1242,5 +1288,152 @@ impl ViewGroup {
         if let Some((_, panic)) = first {
             resume_unwind(panic);
         }
+    }
+}
+
+/// The steps behind [`ViewState::run`] and [`ViewGroup::run`], which code
+/// outside the crate can't call: preparing, viewing and finishing by hand.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, PartialEq)]
+    struct Pos(f32);
+    #[derive(Debug, PartialEq)]
+    struct Vel(f32);
+    struct Health(i32);
+    struct Gravity(f32);
+    #[derive(Debug, PartialEq)]
+    struct Score(u32);
+
+    fn world() -> World {
+        let mut w = World::new();
+        w.insert_resource(Gravity(-1.0));
+        w.insert_resource(Score(0));
+        w.spawn((Pos(0.0), Vel(1.0), Health(3)));
+        w
+    }
+
+    #[test]
+    fn written_resources_are_lent_out_and_returned() {
+        let mut w = world();
+        let mut state = ViewState::new().write_resource::<Score>().read_resource::<Gravity>();
+        state.prepare(&mut w);
+        assert!(state.is_prepared());
+        assert!(w.get_resource::<Score>().is_none(), "lent out while viewed");
+        assert!(w.get_resource::<Gravity>().is_some(), "read resources stay");
+        // SAFETY: nothing else uses the world while the view lives.
+        let mut view = unsafe { state.view(&w) };
+        assert_eq!(view.resource::<Gravity>().0, -1.0);
+        view.resource_mut::<Score>().0 += 5;
+        assert_eq!(view.resource::<Score>(), &Score(5));
+        state.finish(&mut w);
+        assert!(!state.is_prepared());
+        assert_eq!(w.resource::<Score>(), &Score(5));
+        state.finish(&mut w); // finishing twice does nothing
+    }
+
+    #[test]
+    fn a_run_that_panics_leaves_the_state_finished() {
+        let mut w = world();
+        let mut state = ViewState::new().write_resource::<Score>();
+        let r = catch_unwind(AssertUnwindSafe(|| state.run(&mut w, |_| panic!("system failed"))));
+        assert!(r.is_err());
+        assert!(!state.is_prepared());
+    }
+
+    #[test]
+    #[should_panic(expected = "is already viewing a world")]
+    fn preparing_twice_panics() {
+        let mut w = world();
+        let mut state = ViewState::new();
+        state.prepare(&mut w);
+        state.prepare(&mut w);
+    }
+
+    #[test]
+    #[should_panic(expected = "was prepared for another world")]
+    fn a_state_prepared_for_one_world_cannot_view_another() {
+        let mut a = world();
+        let b = world();
+        let mut state = ViewState::new().read::<Pos>();
+        state.prepare(&mut a);
+        // SAFETY: panics before creating the view.
+        let _ = unsafe { state.view(&b) };
+    }
+
+    #[test]
+    #[should_panic(expected = "isn't prepared")]
+    fn viewing_without_preparing_panics() {
+        let w = world();
+        let mut state = ViewState::new();
+        // SAFETY: panics before creating the view.
+        let _ = unsafe { state.view(&w) };
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "ViewState dropped while prepared")]
+    fn dropping_a_prepared_state_panics_in_debug_builds() {
+        let mut w = world();
+        let mut state = ViewState::new().write_resource::<Score>().labeled("scorer");
+        state.prepare(&mut w);
+        drop(state);
+    }
+
+    #[test]
+    #[should_panic(expected = "mover is prepared; declare what it uses before prepare")]
+    fn declaring_on_a_prepared_state_panics() {
+        let mut w = World::new();
+        let mut state = ViewState::new().read::<Pos>().labeled("mover");
+        state.prepare(&mut w);
+        let _ = state.write::<Vel>();
+    }
+
+    /// Two views on two plain threads, without rayon: what `ViewGroup::run`
+    /// does, in a form the strict Miri run (no `parallel` feature) covers.
+    #[test]
+    fn non_overlapping_views_share_one_world_across_threads() {
+        let mut w = World::new();
+        w.insert_resource(Score(0));
+        w.insert_resource(Gravity(-2.0));
+        for i in 0..16 {
+            w.spawn((Pos(i as f32), Vel(0.0), Health(10)));
+        }
+        let e = w.query::<Entity>().iter().next().unwrap();
+        let mut fall = ViewState::new().write::<Vel>().read_resource::<Gravity>();
+        let mut hurt = ViewState::new()
+            .write::<Health>()
+            .read::<Pos>()
+            .write_resource::<Score>();
+        assert!(!fall.overlaps(&hurt));
+        fall.prepare(&mut w);
+        hurt.prepare(&mut w);
+        {
+            let shared = &w;
+            // SAFETY: the declarations don't overlap and nothing changes the
+            // world while the views live.
+            let (mut a, mut b) = unsafe { (fall.view(shared), hurt.view(shared)) };
+            std::thread::scope(|s| {
+                s.spawn(move || {
+                    let g = a.resource::<Gravity>().0;
+                    a.query::<&mut Vel>().for_each(|v| v.0 += g);
+                    a.get_mut::<Vel>(e).unwrap().0 += 100.0;
+                });
+                s.spawn(move || {
+                    let mut n = 0;
+                    b.query::<(&mut Health, &Pos)>().for_each(|(h, p)| {
+                        h.0 -= 1;
+                        n += u32::from(p.0 >= 0.0);
+                    });
+                    b.resource_mut::<Score>().0 += n;
+                });
+            });
+        }
+        fall.finish(&mut w);
+        hurt.finish(&mut w);
+        assert_eq!(w.resource::<Score>(), &Score(16));
+        assert!(w.query::<&Health>().iter().all(|h| h.0 == 9));
+        assert_eq!(w.get::<Vel>(e), Some(&Vel(98.0)));
     }
 }

@@ -91,12 +91,9 @@ fn frame(ticks: Rc<Cell<u64>>) -> impl FnMut(&mut Ctx) {
         for i in 0..8 {
             let angle = t + i as f32 * std::f32::consts::TAU / 8.0;
             ctx.gfx.draw_ex(
-                &crab,
+                crab,
                 size / 2.0 + Vec2::from_angle(angle) * size.min_element() * 0.3,
-                DrawParams {
-                    scale: Vec2::splat(3.0),
-                    ..Default::default()
-                },
+                DrawParams::default().with_scale(Vec2::splat(3.0)),
             );
         }
     }

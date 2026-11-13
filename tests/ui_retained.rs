@@ -1,6 +1,6 @@
 use ponko::prelude::*;
-use ponko::ui::layout::prelude::length;
-use ponko::ui::layout::{Dimension, Display, FlexDirection, LengthPercentage, Rect as Edges, Size, Style};
+use ponko::ui::unstable_taffy::prelude::length;
+use ponko::ui::unstable_taffy::{Dimension, Display, FlexDirection, LengthPercentage, Rect as Edges, Size, Style};
 #[allow(unused_imports)]
 use ponko::ui::{Ui, UiEvent, UiId, UiInput, UiLayout, UiPaint, UiStyle, UiTheme, UiWidget};
 
@@ -16,7 +16,7 @@ fn sized(w: f32, h: f32) -> Style {
 }
 fn scene() -> (Ui, UiId) {
     let mut ui = Ui::default();
-    let root = ui.add(UiWidget::Panel, sized(300.0, 200.0));
+    let root = ui.add(UiWidget::Panel, ponko::ui::UiLayout::custom(sized(300.0, 200.0)));
     ui.push_screen(root, false);
     (ui, root)
 }
@@ -27,22 +27,22 @@ fn row_column_padding_and_gap_have_exact_positions() {
     style.flex_direction = FlexDirection::Row;
     style.padding = Edges::length(10.0);
     style.gap = Size::length(8.0);
-    ui.set_layout(root, style);
-    let a = ui.add_child(root, UiWidget::Button, sized(40.0, 30.0));
-    let b = ui.add_child(root, UiWidget::Button, sized(50.0, 30.0));
+    ui.set_layout(root, ponko::ui::UiLayout::custom(style));
+    let a = ui.add_child(root, UiWidget::Button, ponko::ui::UiLayout::custom(sized(40.0, 30.0)));
+    let b = ui.add_child(root, UiWidget::Button, ponko::ui::UiLayout::custom(sized(50.0, 30.0)));
     ui.layout(vec2(800.0, 600.0));
     assert_eq!(ui.rect(a).unwrap().min, vec2(10.0, 10.0));
     assert_eq!(ui.rect(b).unwrap().min, vec2(58.0, 10.0));
     let mut style = sized(300.0, 200.0);
     style.flex_direction = FlexDirection::Column;
-    ui.set_layout(root, style);
+    ui.set_layout(root, ponko::ui::UiLayout::custom(style));
     ui.layout(vec2(800.0, 600.0));
     assert_eq!(ui.rect(b).unwrap().min.y, 30.0);
 }
 #[test]
 fn grid_places_inventory_cells_and_scroll_clamps() {
     let (mut ui, root) = scene();
-    let scroll = ui.add_child(root, UiWidget::Scroll, sized(150.0, 80.0));
+    let scroll = ui.add_child(root, UiWidget::Scroll, ponko::ui::UiLayout::custom(sized(150.0, 80.0)));
     let mut grid = sized(140.0, 200.0);
     grid.display = Display::Grid;
     grid.grid_template_columns = vec![length(60.0), length(60.0)];
@@ -50,9 +50,9 @@ fn grid_places_inventory_cells_and_scroll_clamps() {
         width: LengthPercentage::length(4.0),
         height: LengthPercentage::length(4.0),
     };
-    let grid = ui.add_child(scroll, UiWidget::Panel, grid);
-    let a = ui.add_child(grid, UiWidget::Button, sized(60.0, 40.0));
-    let b = ui.add_child(grid, UiWidget::Button, sized(60.0, 40.0));
+    let grid = ui.add_child(scroll, UiWidget::Panel, ponko::ui::UiLayout::custom(grid));
+    let a = ui.add_child(grid, UiWidget::Button, ponko::ui::UiLayout::custom(sized(60.0, 40.0)));
+    let b = ui.add_child(grid, UiWidget::Button, ponko::ui::UiLayout::custom(sized(60.0, 40.0)));
     ui.layout(vec2(800.0, 600.0));
     assert_eq!(ui.rect(b).unwrap().min.x - ui.rect(a).unwrap().min.x, 64.0);
     ui.set_scroll(scroll, vec2(0.0, 999.0));
@@ -63,8 +63,8 @@ fn grid_places_inventory_cells_and_scroll_clamps() {
 #[test]
 fn press_release_events_and_disabled_focus() {
     let (mut ui, root) = scene();
-    let a = ui.add_child(root, UiWidget::Button, sized(70.0, 30.0));
-    let b = ui.add_child(root, UiWidget::Button, sized(70.0, 30.0));
+    let a = ui.add_child(root, UiWidget::Button, ponko::ui::UiLayout::custom(sized(70.0, 30.0)));
+    let b = ui.add_child(root, UiWidget::Button, ponko::ui::UiLayout::custom(sized(70.0, 30.0)));
     ui.set_enabled(a, false);
     ui.frame(
         vec2(800.0, 600.0),
@@ -106,7 +106,7 @@ fn press_release_events_and_disabled_focus() {
 #[test]
 fn only_top_screen_receives_input_and_cancel_restores_focus() {
     let (mut ui, root) = scene();
-    let buy = ui.add_child(root, UiWidget::Button, sized(70.0, 30.0));
+    let buy = ui.add_child(root, UiWidget::Button, ponko::ui::UiLayout::custom(sized(70.0, 30.0)));
     ui.frame(
         vec2(800.0, 600.0),
         &UiInput {
@@ -114,8 +114,8 @@ fn only_top_screen_receives_input_and_cancel_restores_focus() {
             ..Default::default()
         },
     );
-    let dialog = ui.add(UiWidget::Panel, sized(300.0, 200.0));
-    let yes = ui.add_child(dialog, UiWidget::Button, sized(70.0, 30.0));
+    let dialog = ui.add(UiWidget::Panel, ponko::ui::UiLayout::custom(sized(300.0, 200.0)));
+    let yes = ui.add_child(dialog, UiWidget::Button, ponko::ui::UiLayout::custom(sized(70.0, 30.0)));
     ui.push_screen(dialog, true);
     ui.frame(
         vec2(800.0, 600.0),
@@ -141,7 +141,11 @@ fn only_top_screen_receives_input_and_cancel_restores_focus() {
 #[test]
 fn unicode_text_selection_editing_and_submission() {
     let (mut ui, root) = scene();
-    let field = ui.add_child(root, UiWidget::TextInput, sized(160.0, 30.0));
+    let field = ui.add_child(
+        root,
+        UiWidget::TextInput,
+        ponko::ui::UiLayout::custom(sized(160.0, 30.0)),
+    );
     ui.frame(
         vec2(800.0, 600.0),
         &UiInput {
@@ -169,15 +173,63 @@ fn unicode_text_selection_editing_and_submission() {
         },
     );
     assert_eq!(ui.text(field), Some("ok"));
-    assert!(ui.events().any(|e| e == UiEvent::Submitted(field)));
+    // Taking one event leaves the rest queued, in order.
+    let first = ui.next_event();
+    let rest: Vec<_> = ui.events().collect();
+    assert_eq!(first, Some(UiEvent::Changed(field)));
+    assert_eq!(rest, [UiEvent::Submitted(field)]);
     assert!(ui.wants_keyboard());
+}
+
+/// A focused text field that typed and confirmed in one frame: `Changed`
+/// then `Submitted` are queued.
+fn two_queued_events() -> (Ui, UiId) {
+    let (mut ui, root) = scene();
+    let field = ui.add_child(
+        root,
+        UiWidget::TextInput,
+        ponko::ui::UiLayout::custom(sized(160.0, 30.0)),
+    );
+    ui.frame(
+        vec2(800.0, 600.0),
+        &UiInput {
+            next: true,
+            text: "ok\n".into(),
+            confirm: true,
+            ..Default::default()
+        },
+    );
+    (ui, field)
+}
+
+#[test]
+fn dropping_a_half_read_events_iterator_keeps_the_rest_queued() {
+    let (mut ui, field) = two_queued_events();
+    let mut events = ui.events();
+    assert_eq!(events.next(), Some(UiEvent::Changed(field)));
+    drop(events);
+    assert_eq!(ui.events().collect::<Vec<_>>(), [UiEvent::Submitted(field)]);
+    assert_eq!(ui.events().next(), None);
+}
+
+#[test]
+fn untaken_events_are_gone_after_the_next_frame() {
+    let (mut ui, field) = two_queued_events();
+    assert_eq!(ui.events().next(), Some(UiEvent::Changed(field)));
+    ui.frame(vec2(800.0, 600.0), &UiInput::default());
+    assert_eq!(ui.events().count(), 0, "Submitted was never taken");
+    assert_eq!(ui.next_event(), None);
 }
 
 #[test]
 fn pointer_capture_survives_drag_and_scrollbar_matches_scroll_range() {
     let (mut ui, root) = scene();
-    let scroll = ui.add_child(root, UiWidget::Scroll, sized(150.0, 80.0));
-    ui.add_child(scroll, UiWidget::Panel, sized(140.0, 300.0));
+    let scroll = ui.add_child(root, UiWidget::Scroll, ponko::ui::UiLayout::custom(sized(150.0, 80.0)));
+    ui.add_child(
+        scroll,
+        UiWidget::Panel,
+        ponko::ui::UiLayout::custom(sized(140.0, 300.0)),
+    );
     ui.frame(
         vec2(800.0, 600.0),
         &UiInput {
@@ -210,13 +262,25 @@ fn pointer_capture_survives_drag_and_scrollbar_matches_scroll_range() {
 #[test]
 fn navigation_reveals_clipped_buttons_and_skips_disabled_subtrees() {
     let (mut ui, root) = scene();
-    let scroll = ui.add_child(root, UiWidget::Scroll, sized(100.0, 50.0));
+    let scroll = ui.add_child(root, UiWidget::Scroll, ponko::ui::UiLayout::custom(sized(100.0, 50.0)));
     let mut column = sized(100.0, 150.0);
     column.flex_direction = FlexDirection::Column;
-    let column = ui.add_child(scroll, UiWidget::Panel, column);
-    let a = ui.add_child(column, UiWidget::Button, sized(100.0, 50.0));
-    let b = ui.add_child(column, UiWidget::Button, sized(100.0, 50.0));
-    let c = ui.add_child(column, UiWidget::Button, sized(100.0, 50.0));
+    let column = ui.add_child(scroll, UiWidget::Panel, ponko::ui::UiLayout::custom(column));
+    let a = ui.add_child(
+        column,
+        UiWidget::Button,
+        ponko::ui::UiLayout::custom(sized(100.0, 50.0)),
+    );
+    let b = ui.add_child(
+        column,
+        UiWidget::Button,
+        ponko::ui::UiLayout::custom(sized(100.0, 50.0)),
+    );
+    let c = ui.add_child(
+        column,
+        UiWidget::Button,
+        ponko::ui::UiLayout::custom(sized(100.0, 50.0)),
+    );
     ui.frame(
         vec2(800.0, 600.0),
         &UiInput {
@@ -241,25 +305,25 @@ fn navigation_reveals_clipped_buttons_and_skips_disabled_subtrees() {
 fn stale_ids_scaling_and_absolute_constraints() {
     let (mut ui, root) = scene();
     let mut style = sized(20.0, 30.0);
-    style.position = ponko::ui::layout::Position::Absolute;
-    style.inset.left = ponko::ui::layout::LengthPercentageAuto::length(12.0);
-    style.inset.top = ponko::ui::layout::LengthPercentageAuto::length(7.0);
-    style.min_size.width = ponko::ui::layout::LengthPercentageAuto::length(40.0);
-    let id = ui.add_child(root, UiWidget::Button, style);
+    style.position = ponko::ui::unstable_taffy::Position::Absolute;
+    style.inset.left = ponko::ui::unstable_taffy::LengthPercentageAuto::length(12.0);
+    style.inset.top = ponko::ui::unstable_taffy::LengthPercentageAuto::length(7.0);
+    style.min_size.width = ponko::ui::unstable_taffy::LengthPercentageAuto::length(40.0);
+    let id = ui.add_child(root, UiWidget::Button, ponko::ui::UiLayout::custom(style));
     ui.set_scale(2.0);
     ui.layout(vec2(800.0, 600.0));
     assert_eq!(ui.rect(id).unwrap().min, vec2(24.0, 14.0));
     assert_eq!(ui.rect(id).unwrap().size(), vec2(80.0, 60.0));
     ui.remove(id);
-    let new = ui.add_child(root, UiWidget::Button, sized(20.0, 20.0));
+    let new = ui.add_child(root, UiWidget::Button, ponko::ui::UiLayout::custom(sized(20.0, 20.0)));
     assert_ne!(id, new);
     assert!(ui.rect(id).is_none());
 }
 #[test]
 fn toggle_slider_wheel_and_no_release_without_press() {
     let (mut ui, root) = scene();
-    let toggle = ui.add_child(root, UiWidget::Toggle, sized(70.0, 30.0));
-    let slider = ui.add_child(root, UiWidget::Slider, sized(100.0, 30.0));
+    let toggle = ui.add_child(root, UiWidget::Toggle, ponko::ui::UiLayout::custom(sized(70.0, 30.0)));
+    let slider = ui.add_child(root, UiWidget::Slider, ponko::ui::UiLayout::custom(sized(100.0, 30.0)));
     ui.frame(
         vec2(800.0, 600.0),
         &UiInput {
@@ -313,14 +377,18 @@ fn native_text_storage_is_shared_and_cleared_with_frame_input() {
 #[test]
 fn focusing_text_by_pointer_does_not_submit_and_hidden_nodes_do_not_hit() {
     let (mut ui, root) = scene();
-    let field = ui.add_child(root, UiWidget::TextInput, sized(120.0, 30.0));
+    let field = ui.add_child(
+        root,
+        UiWidget::TextInput,
+        ponko::ui::UiLayout::custom(sized(120.0, 30.0)),
+    );
     let hidden = ui.add_child(
         root,
         UiWidget::Button,
-        Style {
+        ponko::ui::UiLayout::custom(Style {
             display: Display::None,
             ..sized(120.0, 30.0)
-        },
+        }),
     );
     ui.frame(
         vec2(800.0, 600.0),
@@ -346,12 +414,12 @@ fn focusing_text_by_pointer_does_not_submit_and_hidden_nodes_do_not_hit() {
 #[test]
 fn nested_clips_and_wheel_offsets_do_not_leak_hits() {
     let (mut ui, root) = scene();
-    let outer = ui.add_child(root, UiWidget::Scroll, sized(100.0, 60.0));
+    let outer = ui.add_child(root, UiWidget::Scroll, ponko::ui::UiLayout::custom(sized(100.0, 60.0)));
     let mut column = sized(100.0, 200.0);
     column.flex_direction = FlexDirection::Column;
-    let column = ui.add_child(outer, UiWidget::Panel, column);
-    let first = ui.add_child(column, UiWidget::Button, sized(80.0, 40.0));
-    let second = ui.add_child(column, UiWidget::Button, sized(80.0, 40.0));
+    let column = ui.add_child(outer, UiWidget::Panel, ponko::ui::UiLayout::custom(column));
+    let first = ui.add_child(column, UiWidget::Button, ponko::ui::UiLayout::custom(sized(80.0, 40.0)));
+    let second = ui.add_child(column, UiWidget::Button, ponko::ui::UiLayout::custom(sized(80.0, 40.0)));
     ui.frame(
         vec2(800.0, 600.0),
         &UiInput {
@@ -370,9 +438,13 @@ fn last_screen_cancel_owns_input_until_next_frame_and_text_allows_vertical_navig
     let (mut ui, root) = scene();
     let mut style = sized(300.0, 200.0);
     style.flex_direction = FlexDirection::Column;
-    ui.set_layout(root, style);
-    let field = ui.add_child(root, UiWidget::TextInput, sized(100.0, 30.0));
-    let button = ui.add_child(root, UiWidget::Button, sized(100.0, 30.0));
+    ui.set_layout(root, ponko::ui::UiLayout::custom(style));
+    let field = ui.add_child(
+        root,
+        UiWidget::TextInput,
+        ponko::ui::UiLayout::custom(sized(100.0, 30.0)),
+    );
+    let button = ui.add_child(root, UiWidget::Button, ponko::ui::UiLayout::custom(sized(100.0, 30.0)));
     ui.frame(
         vec2(800.0, 600.0),
         &UiInput {
@@ -415,7 +487,7 @@ fn builders_match_add_child_and_setters() {
         .size(13.0)
         .color(Color::YELLOW)
         .id();
-    let manual = ui.add_child(root, UiWidget::Label, UiLayout::row(20.0).into_style());
+    let manual = ui.add_child(root, UiWidget::Label, UiLayout::row(20.0));
     ui.set_text(manual, "LOBBY");
     let mut paint = ui.paint(manual).unwrap();
     paint.font_size = 13.0;
@@ -423,7 +495,7 @@ fn builders_match_add_child_and_setters() {
     ui.set_paint(manual, paint);
     assert_eq!(ui.parent(built), Some(root));
     assert_eq!(ui.text(built), ui.text(manual));
-    assert_eq!(ui.layout_style(built), ui.layout_style(manual));
+    assert_eq!(ui.node_layout(built), ui.node_layout(manual));
     let (a, b) = (ui.paint(built).unwrap(), ui.paint(manual).unwrap());
     assert_eq!(
         (a.font_size, a.color, a.background),
@@ -505,9 +577,9 @@ fn grid_preset_wraps_cells_into_equal_columns() {
 #[test]
 fn default_theme_keeps_the_old_paint_defaults() {
     let mut ui = Ui::default();
-    let root = ui.add(UiWidget::Panel, Style::default());
-    let button = ui.add_child(root, UiWidget::Button, Style::default());
-    let label = ui.add_child(root, UiWidget::Label, Style::default());
+    let root = ui.add(UiWidget::Panel, ponko::ui::UiLayout::auto());
+    let button = ui.add_child(root, UiWidget::Button, ponko::ui::UiLayout::auto());
+    let label = ui.add_child(root, UiWidget::Label, ponko::ui::UiLayout::auto());
     let old = UiPaint::default();
     for id in [root, button] {
         let p = ui.paint(id).unwrap();
@@ -669,7 +741,7 @@ fn a_name_finds_its_node_moves_to_the_last_one_named_and_dies_with_it() {
 }
 
 #[test]
-fn take_click_gives_the_clicked_node_once_and_drops_other_events() {
+fn events_are_taken_once_and_untaken_ones_stay_queued() {
     let mut ui = Ui::default();
     let root = ui.root().layout(UiLayout::fill()).id();
     let ok = ui
@@ -694,17 +766,18 @@ fn take_click_gives_the_clicked_node_once_and_drops_other_events() {
             );
         }
     };
+    let last_click = |ui: &mut Ui| ui.events().filter_map(UiEvent::clicked).last();
     ui.frame(viewport, &UiInput::default());
-    assert_eq!(ui.take_click(), None);
+    assert_eq!(last_click(&mut ui), None);
     click(&mut ui, vec2(50.0, 20.0));
-    let clicked = ui.take_click();
+    let clicked = last_click(&mut ui);
     assert_eq!(clicked, Some(ok));
     assert_eq!(clicked.and_then(|id| ui.name(id)), Some("ok"));
-    assert_eq!(ui.take_click(), None, "taken once");
-    // A toggle changes, it isn't clicked; its event is taken and dropped.
+    assert_eq!(last_click(&mut ui), None, "taken once");
+    // A toggle changes, it isn't clicked.
     click(&mut ui, vec2(50.0, 60.0));
     assert_eq!(ui.value(music), Some(1.0));
-    assert_eq!(ui.take_click(), None);
+    assert_eq!(ui.next_event(), Some(UiEvent::Changed(music)));
     assert_eq!(ui.next_event(), None);
 }
 
@@ -729,7 +802,7 @@ fn top_and_left_place_a_preset_in_pixels() {
 
 #[test]
 fn auto_margins_share_the_windows_free_space_around_a_screen_root() {
-    use ponko::ui::layout::prelude::{auto, length};
+    use ponko::ui::unstable_taffy::prelude::{auto, length};
     let margins = |left, right, top, bottom| Style {
         margin: Edges {
             left,
@@ -740,14 +813,23 @@ fn auto_margins_share_the_windows_free_space_around_a_screen_root() {
         ..sized(200.0, 100.0)
     };
     let mut ui = Ui::default();
-    let centered = ui.add(UiWidget::Panel, margins(auto(), auto(), auto(), auto()));
-    let across = ui.add(UiWidget::Panel, margins(auto(), auto(), length(40.0), auto()));
-    let right = ui.add(UiWidget::Panel, margins(auto(), length(10.0), length(0.0), length(0.0)));
+    let centered = ui.add(
+        UiWidget::Panel,
+        ponko::ui::UiLayout::custom(margins(auto(), auto(), auto(), auto())),
+    );
+    let across = ui.add(
+        UiWidget::Panel,
+        ponko::ui::UiLayout::custom(margins(auto(), auto(), length(40.0), auto())),
+    );
+    let right = ui.add(
+        UiWidget::Panel,
+        ponko::ui::UiLayout::custom(margins(auto(), length(10.0), length(0.0), length(0.0))),
+    );
     let plain = ui.add(
         UiWidget::Panel,
-        margins(length(5.0), length(0.0), length(7.0), length(0.0)),
+        ponko::ui::UiLayout::custom(margins(length(5.0), length(0.0), length(7.0), length(0.0))),
     );
-    let child = ui.add_child(plain, UiWidget::Button, sized(20.0, 20.0));
+    let child = ui.add_child(plain, UiWidget::Button, ponko::ui::UiLayout::custom(sized(20.0, 20.0)));
     for root in [centered, across, right, plain] {
         ui.push_screen(root, false);
     }

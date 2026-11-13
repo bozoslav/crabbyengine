@@ -56,7 +56,7 @@ fn main() {
             if ctx.key_pressed(Key::Escape) {
                 ctx.quit();
             }
-            let Some(pass) = ctx.compute_passes.first().copied() else {
+            let Some(pass) = ctx.scene3d.passes.compute.first().copied() else {
                 return;
             };
             let Some(drops) = pass.material else { return };
@@ -68,7 +68,7 @@ fn main() {
                 drop = vec4(random(), random(), 0.3 + random() * 0.4, 0.0);
             }
             if ctx.input.mouse_pressed(MouseButton::Left) {
-                let (from, dir) = ctx.camera3d.screen_ray(ctx.mouse_pos());
+                let (from, dir) = ctx.scene3d.camera.screen_ray(ctx.mouse_pos());
                 if dir.y < 0.0 {
                     let at = from + dir * (-from.y / dir.y);
                     drop = vec4(at.x / SIZE + 0.5, at.z / SIZE + 0.5, 3.0, 0.0);
@@ -76,10 +76,7 @@ fn main() {
             }
             ctx.gfx.update_material(
                 drops,
-                MaterialDesc {
-                    custom: [drop, Vec4::ZERO, Vec4::ZERO, Vec4::ZERO],
-                    ..Default::default()
-                },
+                MaterialDesc::default().with_custom([drop, Vec4::ZERO, Vec4::ZERO, Vec4::ZERO]),
             );
             if ctx.time.frame() == 120
                 && let Ok(path) = std::env::var("SHOT")
@@ -91,30 +88,31 @@ fn main() {
             }
         })
         .setup(|ctx| {
-            ctx.camera3d.position = vec3(0.0, 7.0, 10.0);
-            ctx.camera3d.look_at(vec3(0.0, 0.0, -1.0));
-            ctx.lighting.sun_direction = Sky::sun_direction_at(15.0);
-            ctx.post.bloom = 0.15;
+            ctx.scene3d.camera.position = vec3(0.0, 7.0, 10.0);
+            ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -1.0));
+            ctx.scene3d.lighting.sun_direction = Sky::sun_direction_at(15.0);
+            ctx.scene3d.post.bloom = 0.15;
 
             let heights = ctx.gfx.create_render_target(512, 512);
             let ripples = ctx.gfx.create_compute("ripples", RIPPLES);
             let drops = ctx.gfx.create_material(MaterialDesc::default());
-            ctx.compute_passes
+            ctx.scene3d
+                .passes
+                .compute
                 .push(ComputePass::new(ripples, heights).with_material(drops));
 
             let shader = ctx.gfx.create_shader("water", WATER);
-            let water = ctx.gfx.create_material(MaterialDesc {
-                shader: Some(shader),
-                custom_textures: [Some(heights), None],
-                ..MaterialDesc::color(Color::hex(0x2A5A75))
-            });
+            let water = ctx.gfx.create_material(
+                MaterialDesc::color(Color::hex(0x2A5A75))
+                    .with_shader(shader)
+                    .with_custom_textures([Some(heights), None]),
+            );
             let surface = ctx.gfx.create_mesh(&MeshData::plane(SIZE), water);
             ctx.world.spawn((Transform::default(), Model::new(surface)));
 
-            let stone = ctx.gfx.create_material(MaterialDesc {
-                roughness: 0.8,
-                ..MaterialDesc::color(Color::hex(0x8A8578))
-            });
+            let stone = ctx
+                .gfx
+                .create_material(MaterialDesc::color(Color::hex(0x8A8578)).with_roughness(0.8));
             let rock = ctx.gfx.create_mesh(&MeshData::sphere(0.6, 16), stone);
             for i in 0..40 {
                 let a = i as f32 / 40.0 * std::f32::consts::TAU;
@@ -125,10 +123,9 @@ fn main() {
                 };
                 ctx.world.spawn((t, Model::new(rock)));
             }
-            let grass = ctx.gfx.create_material(MaterialDesc {
-                roughness: 0.95,
-                ..MaterialDesc::color(Color::hex(0x4E6B33))
-            });
+            let grass = ctx
+                .gfx
+                .create_material(MaterialDesc::color(Color::hex(0x4E6B33)).with_roughness(0.95));
             let ground = ctx.gfx.create_mesh(&MeshData::plane(200.0), grass);
             ctx.world
                 .spawn((Transform::at(vec3(0.0, -0.3, 0.0)), Model::new(ground)));

@@ -86,15 +86,19 @@ pub enum TextureFilter {
 /// ```
 /// # use ponko::prelude::*;
 /// # fn update(ctx: &mut Ctx, tex: Texture) {
-/// ctx.gfx.draw_ex(&tex, vec2(100.0, 100.0), DrawParams {
-///     rotation: 0.5,
-///     scale: vec2(2.0, 2.0),
-///     color: Color::RED,
-///     ..Default::default()
-/// });
+/// ctx.gfx.draw_ex(
+///     tex,
+///     vec2(100.0, 100.0),
+///     DrawParams::default().with_rotation(0.5).with_scale(vec2(2.0, 2.0)).with_color(Color::RED),
+/// );
 /// # }
 /// ```
+///
+/// It is `#[non_exhaustive]`, so later versions can add settings: start
+/// from `DrawParams::default()` and chain the `with_*` methods (or set the
+/// public fields on a mutable value).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct DrawParams {
     /// Size multiplier. Negative values flip the sprite. Default `(1, 1)`.
     pub scale: Vec2,
@@ -126,6 +130,55 @@ impl Default for DrawParams {
             pivot: Vec2::splat(0.5),
             screen: false,
             region: None,
+        }
+    }
+}
+
+impl DrawParams {
+    /// Same settings with size multiplier `scale` (negative flips).
+    #[must_use]
+    pub fn with_scale(self, scale: Vec2) -> Self {
+        Self { scale, ..self }
+    }
+    /// Same settings rotated `rotation` radians, clockwise on screen.
+    #[must_use]
+    pub fn with_rotation(self, rotation: f32) -> Self {
+        Self { rotation, ..self }
+    }
+    /// Same settings with tint `color`.
+    #[must_use]
+    pub fn with_color(self, color: Color) -> Self {
+        Self { color, ..self }
+    }
+    /// Same settings with draw order `z` (higher is on top).
+    #[must_use]
+    pub fn with_z(self, z: f32) -> Self {
+        Self { z, ..self }
+    }
+    /// Same settings with a different pivot (`(0, 0)` = top-left corner).
+    #[must_use]
+    pub fn with_pivot(self, pivot: Vec2) -> Self {
+        Self { pivot, ..self }
+    }
+    /// Same settings drawn in window pixels (`true`, for UI and HUDs) or in
+    /// world units through the camera (`false`).
+    #[must_use]
+    pub fn with_screen(self, screen: bool) -> Self {
+        Self { screen, ..self }
+    }
+    /// Same settings drawing only `region` of the texture (texture pixels).
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// let p = DrawParams::default().with_region(Rect::new(16.0, 0.0, 16.0, 16.0)).with_z(2.0);
+    /// assert_eq!(p.region, Some(Rect::new(16.0, 0.0, 16.0, 16.0)));
+    /// assert_eq!((p.z, p.scale), (2.0, Vec2::ONE));
+    /// ```
+    #[must_use]
+    pub fn with_region(self, region: crate::Rect) -> Self {
+        Self {
+            region: Some(region),
+            ..self
         }
     }
 }

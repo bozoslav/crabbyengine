@@ -721,10 +721,9 @@ pub fn step_navmesh3d(ctx: &mut Ctx) {
 /// use ponko::prelude::*;
 /// use ponko::systems;
 ///
-/// let game = Game::new("server", 1, 1).add_with_access(
+/// let game = Game::new("server", 1, 1).add(
 ///     Phase::AfterPhysics,
-///     systems::step_navmesh3d_access(),
-///     systems::step_navmesh3d,
+///     systems::step_navmesh3d.access(systems::step_navmesh3d_access()),
 /// );
 /// # let _ = game;
 /// ```

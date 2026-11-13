@@ -9,14 +9,41 @@
 //! Coordinates are right-handed with Y up (as in glTF): a camera with no
 //! rotation looks down -Z.
 
+/// `with_*` builder methods for `#[non_exhaustive]` descriptions, one per
+/// field: `with_field(value)` returns the description with that field set.
+/// An `Option<T>` field's method takes `impl Into<Option<T>>`, so both
+/// `with_texture(image)` and `with_texture(None)` work.
+macro_rules! with_fields {
+    () => {};
+    ($(#[$doc:meta])* $field:ident: Option<$ty:ty> => $name:ident; $($rest:tt)*) => {
+        $(#[$doc])*
+        #[must_use]
+        pub fn $name(mut self, $field: impl Into<Option<$ty>>) -> Self {
+            self.$field = $field.into();
+            self
+        }
+        with_fields! { $($rest)* }
+    };
+    ($(#[$doc:meta])* $field:ident: $ty:ty => $name:ident; $($rest:tt)*) => {
+        $(#[$doc])*
+        #[must_use]
+        pub fn $name(mut self, $field: $ty) -> Self {
+            self.$field = $field;
+            self
+        }
+        with_fields! { $($rest)* }
+    };
+}
+
 mod animator;
 mod api;
 mod clip;
 mod collect;
 mod compute;
 mod effect;
+#[cfg(any(test, feature = "bench-internals"))]
 mod extraction_bench;
-#[doc(hidden)]
+#[cfg(any(test, feature = "bench-internals"))]
 pub use extraction_bench::{ExtractionBench, ExtractionSample};
 pub(crate) mod gi;
 mod gltf;
@@ -26,6 +53,7 @@ pub use instances::{BatchCulling, InstanceBatch, InstanceBatchOptions, InstanceL
 mod lod;
 pub(crate) mod occlusion;
 pub use gi::GlobalIllumination;
+#[cfg(feature = "window")]
 pub(crate) use gi::MAX_GI_PROBES_PER_FRAME;
 pub use ik::{look_at_joint, two_bone_ik};
 pub use lod::{LodGroup, LodHysteresis, LodLevel, LodPick, LodRenderer, LodSettings, LodShadow};
@@ -34,7 +62,8 @@ mod material_variant;
 mod mesh;
 pub use lights::{LIGHT_SHADOW_ATLAS_SIZE, LIGHT_SHADOW_SIZE, MAX_LIGHT_SHADOW_VIEWS, PointLight3D, SpotLight3D};
 pub(crate) use lights::{MAX_LIGHT_SHADOW_RESOLUTION, MIN_LIGHT_SHADOW_RESOLUTION};
-pub use material_variant::{MaterialInstancing, MaterialSides, MaterialVariantKey};
+#[cfg(feature = "window")]
+pub(crate) use material_variant::{MaterialInstancing, MaterialSides, MaterialVariantKey};
 pub(crate) mod shadow_atlas;
 pub(crate) use shadow_atlas::{MAX_LIGHT_SHADOW_ATLAS, MIN_LIGHT_SHADOW_ATLAS};
 pub(crate) mod particles;
@@ -66,6 +95,7 @@ mod far_terrain;
 mod shader_status;
 pub(crate) use shader_status::{COMPUTE_STAND_IN, EFFECT_STAND_IN};
 pub use shader_status::{ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus};
+mod settings;
 mod sky;
 mod target;
 mod terrain;
@@ -73,8 +103,9 @@ pub use far_terrain::FarTerrain;
 mod texture_array;
 
 pub use animator::{
-    AnimationCondition, AnimationEvent, AnimationGraph, AnimationLayer, AnimationParameter, AnimationState,
-    AnimationTransition, Animator, JointMask, LayerBlend, Motion, MotionChild, RootMotion,
+    AnimationCondition, AnimationEvent, AnimationGraph, AnimationGraphError, AnimationLayer, AnimationParameter,
+    AnimationState, AnimationTransition, Animator, JointMask, LayerBlend, LayerId, Motion, MotionChild, ParamId,
+    RootMotion, StateId,
 };
 pub(crate) use api::GpuMaterialDesc;
 #[cfg(feature = "window")]
@@ -90,10 +121,12 @@ pub(crate) use collect::{Frame3D, MAX_SHADOW_RESOLUTION, MIN_SHADOW_RESOLUTION, 
 pub use compute::{Compute, ComputePass, GpuBuffer};
 pub use effect::{Effect, ScreenEffect, TargetEffect};
 pub use mesh::{MeshData, MorphFrame, MorphTarget};
-pub use post::{AmbientOcclusion, AntiAliasing, MAX_RENDER_SCALE, MIN_RENDER_SCALE, Post, Tonemap};
+pub use post::{AmbientOcclusion, AntiAliasing, Post, Tonemap};
+pub(crate) use post::{MAX_RENDER_SCALE, MIN_RENDER_SCALE};
 #[cfg(feature = "window")]
 pub(crate) use post::{PostUniform, scaled_size};
-pub use quality::{GraphicsQuality, QualityLevel};
+pub use quality::GraphicsQuality;
+pub use settings::{RenderPasses, SceneSettings};
 #[cfg(feature = "window")]
 pub(crate) use skin::blend as blend_skin;
 pub use skin::{AttachToJoint, Joint, MorphWeights, Skeleton, SkinOf};
@@ -266,56 +299,16 @@ impl Mesh {
     pub const NONE: Mesh = Mesh { id: u32::MAX };
 
     /// Its slot in the engine's mesh tables and the renderer: the id
-    /// without its generation (see [`SLOT_BITS`]).
+    /// without its generation (see [`SlotIds`](crate::handle::SlotIds)).
     #[inline]
     pub(crate) fn slot(self) -> u32 {
         self.id & SLOT_MASK
     }
 }
 
-/// Bits of a [`Mesh`] or [`GpuBuffer`] id that name its slot in the
-/// engine's tables; the bits above count how often the slot was given out
-/// again. Streamed worlds make and free these handles all the time, so a
-/// freed slot is reused, but under a new id: a handle kept past `free`
-/// stays dead instead of reaching the next resource in its slot. The count
-/// wraps after 256 reuses of one slot.
-pub(crate) const SLOT_BITS: u32 = 24;
-/// The slot bits of a [`Mesh`] or [`GpuBuffer`] id (see [`SLOT_BITS`]).
-pub(crate) const SLOT_MASK: u32 = (1 << SLOT_BITS) - 1;
-
-/// The id the slot of freed handle `id` is given out under next: its
-/// generation counted up. Never `u32::MAX` (`NONE`), whose slot is never
-/// given out.
-pub(crate) fn next_generation(id: u32) -> u32 {
-    let generation = ((id >> SLOT_BITS) + 1) & (u32::MAX >> SLOT_BITS);
-    (generation << SLOT_BITS) | (id & SLOT_MASK)
-}
-
-/// A new slot after `len` used ones, for a mesh or GPU buffer. Panics when
-/// every slot is taken (the last one is `NONE`'s).
-pub(crate) fn new_slot(len: usize, what: &str) -> u32 {
-    assert!(len < SLOT_MASK as usize, "too many live {what}s");
-    len as u32
-}
-
-/// Records that slot `id & SLOT_MASK` is given out as `id`, in a table of
-/// ids by slot that may be shorter (a missing entry means the slot's own
-/// number, generation 0).
-pub(crate) fn set_slot_id(ids: &mut Vec<u32>, id: u32) {
-    let slot = (id & SLOT_MASK) as usize;
-    while ids.len() <= slot {
-        ids.push(ids.len() as u32);
-    }
-    ids[slot] = id;
-}
-
-/// The slot of `id` if `id` is the id its slot was last given out as
-/// (see [`set_slot_id`]); `None` for a stale or foreign id.
-#[inline]
-pub(crate) fn slot_of(ids: &[u32], id: u32) -> Option<usize> {
-    let slot = id & SLOT_MASK;
-    (ids.get(slot as usize).copied().unwrap_or(slot) == id).then_some(slot as usize)
-}
+/// The slot bits of a [`Mesh`] or [`GpuBuffer`] id (see
+/// [`SlotIds`](crate::handle::SlotIds)).
+pub(crate) const SLOT_MASK: u32 = crate::handle::INDEX_MASK;
 
 /// What one mesh cost to draw in the last frame, from
 /// [`Graphics::mesh_costs`](crate::gfx::Graphics::mesh_costs).
@@ -343,7 +336,7 @@ pub struct MeshCost {
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let gold = ctx.gfx.create_material(ponko::render::MaterialDesc { metallic: 1.0, roughness: 0.3, ..ponko::render::MaterialDesc::color(Color::hex(0xFFC83D)) });
+/// let gold = ctx.gfx.create_material(ponko::render::MaterialDesc::color(Color::hex(0xFFC83D)).with_metallic(1.0).with_roughness(0.3));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -382,7 +375,7 @@ pub struct Material {
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let water = ctx.gfx.load_shader("shaders/water.wgsl");
-/// let lake = ctx.gfx.create_material(ponko::render::MaterialDesc { shader: Some(water), ..Default::default() });
+/// let lake = ctx.gfx.create_material(ponko::render::MaterialDesc::default().with_shader(water));
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -391,25 +384,10 @@ pub struct Shader {
     pub(crate) id: u32,
 }
 
-impl Shader {
-    /// The engine's id of this shader (for the C API).
-    #[doc(hidden)]
-    #[must_use]
-    pub fn id(self) -> u32 {
-        self.id
-    }
-
-    /// A shader handle from an id (for the C API; check it with `Graphics::has_shader`).
-    #[doc(hidden)]
-    #[must_use]
-    pub fn from_id(id: u32) -> Self {
-        Self { id }
-    }
-}
-
 /// How a material covers what's behind it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u32)]
+#[non_exhaustive]
 pub enum Blend {
     /// Solid, whatever its alpha. The fastest: hidden pixels and shadows
     /// skip the material's shader.
@@ -430,10 +408,15 @@ pub enum Blend {
 ///
 /// ```
 /// # use ponko::prelude::*;
-/// let grass = ponko::render::MaterialDesc { roughness: 0.9, ..ponko::render::MaterialDesc::color(Color::hex(0x4C8A3A)) };
+/// let grass = ponko::render::MaterialDesc::color(Color::hex(0x4C8A3A)).with_roughness(0.9);
 /// assert_eq!(grass.metallic, 0.0);
 /// ```
+///
+/// New fields may be added in any release: build one with
+/// [`MaterialDesc::color`] or [`Default`] and the `with_*` methods, or set
+/// the public fields of a `mut` value.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct MaterialDesc {
     /// Base color, multiplied with the texture. Default white.
     pub color: Color,
@@ -496,13 +479,6 @@ impl Default for MaterialDesc {
 }
 
 impl MaterialDesc {
-    /// The pipeline set selected for this material and draw. Blend chooses
-    /// a role within the set; lighting and skinning do not change the key.
-    #[must_use]
-    pub fn variant_key(&self, instancing: MaterialInstancing) -> MaterialVariantKey {
-        MaterialVariantKey::new(MaterialSides::of(self.double_sided), instancing)
-    }
-
     /// A plain material of one color.
     ///
     /// ```
@@ -516,6 +492,39 @@ impl MaterialDesc {
             color,
             ..Self::default()
         }
+    }
+
+    with_fields! {
+        /// Sets [`color`](Self::color), the base color.
+        color: Color => with_color;
+        /// Sets [`texture`](Self::texture), the surface image.
+        texture: Option<Texture> => with_texture;
+        /// Sets [`roughness`](Self::roughness): 0 mirror-smooth, 1 matte.
+        roughness: f32 => with_roughness;
+        /// Sets [`metallic`](Self::metallic): 0 for most things, 1 for bare metal.
+        metallic: f32 => with_metallic;
+        /// Sets [`emissive`](Self::emissive), the light it gives off.
+        emissive: Color => with_emissive;
+        /// Sets [`normal_map`](Self::normal_map).
+        normal_map: Option<Texture> => with_normal_map;
+        /// Sets [`normal_strength`](Self::normal_strength).
+        normal_strength: f32 => with_normal_strength;
+        /// Sets [`orm_map`](Self::orm_map), the occlusion-roughness-metallic map.
+        orm_map: Option<Texture> => with_orm_map;
+        /// Sets [`emissive_map`](Self::emissive_map).
+        emissive_map: Option<Texture> => with_emissive_map;
+        /// Sets [`blend`](Self::blend), how it covers what's behind it.
+        blend: Blend => with_blend;
+        /// Sets [`double_sided`](Self::double_sided).
+        double_sided: bool => with_double_sided;
+        /// Sets [`shader`](Self::shader), a custom shader (`None` is the built-in one).
+        shader: Option<Shader> => with_shader;
+        /// Sets [`custom`](Self::custom), the values for a custom shader.
+        custom: [Vec4; 4] => with_custom;
+        /// Sets [`custom_textures`](Self::custom_textures), the textures for a custom shader.
+        custom_textures: [Option<Texture>; 2] => with_custom_textures;
+        /// Sets [`custom_arrays`](Self::custom_arrays), the texture arrays for a custom shader.
+        custom_arrays: [Option<TextureArray>; 3] => with_custom_arrays;
     }
 }
 
@@ -596,7 +605,7 @@ pub struct ShadowMesh(pub Option<Mesh>);
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// let rock = ctx.gfx.load_mesh("rock.glb");
-/// let wet = ctx.gfx.create_material(ponko::render::MaterialDesc { roughness: 0.1, ..ponko::render::MaterialDesc::color(Color::hex(0x404850)) });
+/// let wet = ctx.gfx.create_material(ponko::render::MaterialDesc::color(Color::hex(0x404850)).with_roughness(0.1));
 /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(rock)));                    // as the file has it
 /// ctx.world.spawn((ponko::d3::Transform::at(vec3(3.0, 0.0, 0.0)), ponko::render::Model::new(rock), ponko::render::ModelMaterial(wet))); // wet
 /// # }
@@ -625,8 +634,8 @@ pub struct ModelMaterial(pub Material);
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// let door = ctx.load_mesh("door.glb"); // part 0: wood, part 1: window
-/// let frosted = ctx.create_material(ponko::render::MaterialDesc { roughness: 0.6, ..Default::default() });
+/// let door = ctx.gfx.load_mesh("door.glb"); // part 0: wood, part 1: window
+/// let frosted = ctx.gfx.create_material(ponko::render::MaterialDesc::default().with_roughness(0.6));
 /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(door), ponko::render::ModelMaterials::new(&[(1, frosted)])));
 /// # }
 /// ```
@@ -702,13 +711,13 @@ impl Model {
 }
 
 /// The 3D camera: where it is, which way it looks, and how wide it sees.
-/// One per game, at [`Ctx::camera3d`](crate::Ctx::camera3d).
+/// One per game, at [`SceneSettings::camera`] (`ctx.scene3d.camera`).
 ///
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// ctx.camera3d.position = vec3(0.0, 4.0, 10.0);
-/// ctx.camera3d.look_at(Vec3::ZERO);
+/// ctx.scene3d.camera.position = vec3(0.0, 4.0, 10.0);
+/// ctx.scene3d.camera.look_at(Vec3::ZERO);
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -759,8 +768,8 @@ impl Camera3D {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, player: Vec3) {
-    /// ctx.camera3d.position = player + vec3(0.0, 6.0, 8.0);
-    /// ctx.camera3d.look_at(player);
+    /// ctx.scene3d.camera.position = player + vec3(0.0, 6.0, 8.0);
+    /// ctx.scene3d.camera.look_at(player);
     /// # }
     /// ```
     pub fn look_at(&mut self, target: Vec3) {
@@ -772,7 +781,7 @@ impl Camera3D {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let ahead = ctx.camera3d.position + ctx.camera3d.forward() * 5.0;
+    /// let ahead = ctx.scene3d.camera.position + ctx.scene3d.camera.forward() * 5.0;
     /// # }
     /// ```
     #[must_use]
@@ -800,7 +809,7 @@ impl Camera3D {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
-    /// let (from, dir) = ctx.camera3d.screen_ray(ctx.mouse_pos());
+    /// let (from, dir) = ctx.scene3d.camera.screen_ray(ctx.mouse_pos());
     /// // Where the mouse points on the ground (y = 0):
     /// if dir.y < 0.0 {
     ///     let ground = from + dir * (-from.y / dir.y);
@@ -820,18 +829,21 @@ impl Camera3D {
     }
 }
 
-/// The light in the 3D world: a sun far away (one direction everywhere)
-/// and ambient light from all around. At [`Ctx::lighting`](crate::Ctx::lighting).
+/// The light in the 3D world: a sun far away (one direction everywhere),
+/// how bright the ambient light from all around is, shadows and bounced
+/// light. At [`SceneSettings::lighting`] (`ctx.scene3d.lighting`). The
+/// ambient light's colors come from the sky: see [`Sky::atmosphere`].
 ///
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
 /// // Evening: low, orange sun.
-/// ctx.lighting.sun_direction = vec3(-1.0, -0.3, -0.2);
-/// ctx.lighting.sun_color = Color::hex(0xFFB066);
+/// ctx.scene3d.lighting.sun_direction = vec3(-1.0, -0.3, -0.2);
+/// ctx.scene3d.lighting.sun_color = Color::hex(0xFFB066);
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Lighting {
     /// The way the sunlight travels (from the sun towards the ground).
     pub sun_direction: Vec3,
@@ -839,19 +851,9 @@ pub struct Lighting {
     pub sun_color: Color,
     /// How bright the sun is. Default 3.
     pub sun_intensity: f32,
-    /// Light from the sky, on surfaces facing up. Used when
-    /// [`Sky::atmosphere`] is off; with it, the sky's own light is used.
-    pub sky_color: Color,
-    /// Light bounced off the ground, on surfaces facing down. Like
-    /// `sky_color`, only without an atmosphere.
-    pub ground_color: Color,
-    /// Light from the horizon, on surfaces facing sideways: with it, the
-    /// ambient light goes from `ground_color` below through this to
-    /// `sky_color` above (a three-color gradient); without it (`None`, the
-    /// default), straight from ground to sky. Only without an atmosphere.
-    pub equator_color: Option<Color>,
-    /// How bright the sky and ground light is: 1 is as bright as the sky
-    /// makes it. Default 1.
+    /// How bright the ambient light from the sky and the ground is: 1 is as
+    /// bright as the sky makes it (or the [`Sky`]'s flat colors, without
+    /// an atmosphere). Default 1.
     pub ambient_intensity: f32,
     /// Whether the sun casts shadows, and point and spot lights with
     /// `shadows` set too (off turns every shadow off). Default on.
@@ -876,12 +878,9 @@ pub struct Lighting {
     /// then lag by up to that many frames. Default 2: half the far
     /// cascades' drawing.
     pub shadow_refresh: u32,
-    /// How soft the sun's shadow edges are, 1 to 3: how many lookups each
-    /// lit pixel takes in the shadow map. 1 is one smooth lookup (2x2
-    /// texels), the cheapest; 2 is four (3x3 texels); 3 is nine (4x4
-    /// texels), the softest. Default 3. Each step costs about as much as the
-    /// lookups it adds, on every lit pixel.
-    pub shadow_filter: u32,
+    /// How soft the sun's shadow edges are: how many lookups each lit pixel
+    /// takes in the shadow map. Default [`ShadowFilter::Softest`].
+    pub shadow_filter: ShadowFilter,
     /// How many shadow views point and spot lights may share, 0 to
     /// [`PointLight::MAX_SHADOW_VIEWS`](crate::d3::PointLight::MAX_SHADOW_VIEWS): a shadowed spot light takes one, a
     /// shadowed point light six. 0 turns point and spot light shadows off.
@@ -911,16 +910,13 @@ impl Default for Lighting {
             sun_direction: Vec3::new(-0.4, -1.0, -0.3),
             sun_color: Color::hex(0xFFF4E0),
             sun_intensity: 3.0,
-            sky_color: Color::hex(0x869BB0),
-            ground_color: Color::hex(0x4D4135),
-            equator_color: None,
             ambient_intensity: 1.0,
             shadows: true,
             shadow_distance: 60.0,
             shadow_cascades: 4,
             shadow_resolution: SHADOW_MAP_SIZE,
             shadow_refresh: 2,
-            shadow_filter: 3,
+            shadow_filter: ShadowFilter::Softest,
             light_shadow_views: 12,
             light_shadow_resolution: LIGHT_SHADOW_SIZE,
             light_shadow_atlas: LIGHT_SHADOW_ATLAS_SIZE,
@@ -960,6 +956,26 @@ impl Lighting {
     }
 }
 
+/// How soft the sun's shadow edges are ([`Lighting::shadow_filter`]): how
+/// many lookups each lit pixel takes in the shadow map. Each step costs about
+/// as much as the lookups it adds, on every lit pixel.
+/// ```
+/// use ponko::render::{Lighting, ShadowFilter};
+/// assert_eq!(Lighting::default().shadow_filter, ShadowFilter::Softest);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+#[repr(u32)]
+pub enum ShadowFilter {
+    /// One smooth lookup (2x2 texels): the cheapest, firmest edges.
+    Sharp = 1,
+    /// Four lookups (3x3 texels).
+    Soft = 2,
+    /// Nine lookups (4x4 texels): the softest edges.
+    #[default]
+    Softest = 3,
+}
+
 /// This frame's 3D scene, as the renderer gets it.
 pub(crate) struct Scene3D<'a> {
     pub frame: &'a Frame3D,
@@ -995,11 +1011,9 @@ pub(crate) struct Assets3D {
     pub morph_bases: std::collections::HashMap<crate::Entity, (u32, MorphWeights, MorphWeights)>,
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
-    /// The id each mesh slot was last given out as (see [`SLOT_BITS`]);
-    /// shorter than `bounds` while the last slots are on their first id.
-    pub mesh_ids: Vec<u32>,
-    /// Freed meshes' ids, for the next meshes made (under a new generation).
-    pub free_meshes: Vec<u32>,
+    /// The id each mesh slot was last given out as, and the freed ones
+    /// the next meshes take (under a new generation).
+    pub mesh_ids: crate::handle::SlotIds,
     /// The id the next mesh made takes instead (a resident mesh reloaded
     /// after eviction; see `three::resident`).
     pub reuse_mesh_id: Option<u32>,
@@ -1047,14 +1061,13 @@ pub(crate) struct Assets3D {
     pub computes: u32,
     /// GPU buffers' lengths, by slot; 0 for a freed one.
     pub gpu_buffers: Vec<u32>,
-    /// The id each GPU buffer slot was last given out as (see [`SLOT_BITS`]).
-    pub gpu_buffer_ids: Vec<u32>,
+    /// The id each GPU buffer slot was last given out as, and the freed
+    /// ones the next buffers take.
+    pub gpu_buffer_ids: crate::handle::SlotIds,
     pub instance_batches: Vec<Option<instances::Batch>>,
     pub instance_batch_revision: u64,
-    /// Freed GPU buffers' ids, for the next buffers made.
-    pub free_gpu_buffers: Vec<u32>,
     /// Freed GPU buffers' ids whose compute passes haven't been removed yet;
-    /// they join `free_gpu_buffers` then.
+    /// they are released to `gpu_buffer_ids` then.
     pub unlinking_gpu_buffers: Vec<u32>,
     /// Buffer-driven meshes' own bounds (before `set_mesh_gpu_bounds`
     /// grew them), by mesh id.
@@ -1111,13 +1124,13 @@ impl Assets3D {
             }
             AssetClass::Mesh => {
                 for (slot, _) in self.bounds.iter().enumerate().filter(|(_, b)| b.1 >= 0.0) {
-                    let id = self.mesh_ids.get(slot).copied().unwrap_or(slot as u32);
+                    let id = self.mesh_ids.id_in(slot);
                     f(id, self.mesh_bytes.get(slot).copied().unwrap_or(0));
                 }
             }
             AssetClass::GpuBuffer => {
                 for (slot, &len) in self.gpu_buffers.iter().enumerate().filter(|(_, l)| **l > 0) {
-                    let id = self.gpu_buffer_ids.get(slot).copied().unwrap_or(slot as u32);
+                    let id = self.gpu_buffer_ids.id_in(slot);
                     f(id, u64::from(len) * 16);
                 }
             }
@@ -1172,19 +1185,21 @@ impl Assets3D {
     /// to a newer mesh) or was never made. Freed meshes keep their slot
     /// until it is reused; [`live_bounds`](Self::live_bounds) tells those apart.
     pub(crate) fn mesh_slot(&self, id: u32) -> Option<usize> {
-        slot_of(&self.mesh_ids, id).filter(|&slot| slot < self.bounds.len())
+        self.mesh_ids.slot(id).filter(|&slot| slot < self.bounds.len())
     }
 
     /// The live mesh handle in `slot`, for what the renderer reports by slot.
     pub(crate) fn mesh_in_slot(&self, slot: u32) -> Mesh {
         Mesh {
-            id: self.mesh_ids.get(slot as usize).copied().unwrap_or(slot),
+            id: self.mesh_ids.id_in(slot as usize),
         }
     }
 
     /// The slot of GPU buffer `id`, unless the id is stale or was never made.
     pub(crate) fn gpu_buffer_slot(&self, id: u32) -> Option<usize> {
-        slot_of(&self.gpu_buffer_ids, id).filter(|&slot| slot < self.gpu_buffers.len())
+        self.gpu_buffer_ids
+            .slot(id)
+            .filter(|&slot| slot < self.gpu_buffers.len())
     }
 
     /// How the mesh in `id`'s slot binds to joints, if it's skinned. Takes
@@ -1294,5 +1309,85 @@ impl SharedImage {
             }
             None => locate(image_source).map(Self::Image),
         }
+    }
+}
+
+/// The C API (`crates/ponko_ffi`) copies these types field by field and
+/// variant by variant, but outside this crate `#[non_exhaustive]` stops it
+/// from matching or destructuring them exhaustively. These patterns stop the
+/// build of this crate's tests instead when one grows: update the C struct
+/// and its conversions (and `include/ponko.h`), then the pattern here.
+#[cfg(test)]
+mod c_api_mirror {
+    use super::*;
+
+    /// The C value of each blend mode (`PonkoMaterialDesc::blend`).
+    fn c_blend(blend: Blend) -> u32 {
+        match blend {
+            Blend::Opaque => 0,
+            Blend::Transparent => 1,
+            Blend::Cutout => 2,
+        }
+    }
+
+    #[test]
+    fn the_c_api_mirrors_every_field_and_blend_mode() {
+        for blend in [Blend::Opaque, Blend::Transparent, Blend::Cutout] {
+            assert_eq!(c_blend(blend), blend as u32);
+        }
+        let MaterialDesc {
+            color: _,
+            texture: _,
+            roughness: _,
+            metallic: _,
+            emissive: _,
+            normal_map: _,
+            normal_strength: _,
+            orm_map: _,
+            emissive_map: _,
+            blend: _,
+            double_sided: _,
+            shader: _,
+            custom: _,
+            custom_textures: _,
+            custom_arrays: _,
+        } = MaterialDesc::default();
+        let ParticleSettings3D {
+            rate: _,
+            burst: _,
+            duration: _,
+            looping: _,
+            lifetime: _,
+            speed: _,
+            shape: _,
+            gravity: _,
+            drag: _,
+            size: _,
+            rotation: _,
+            size_over_life: _,
+            color_over_life: _,
+            texture: _,
+            sheet: _,
+            blend: _,
+            max_particles: _,
+            space: _,
+            seed: _,
+        } = ParticleSettings3D::default();
+        let texture = TextureArray {
+            id: 0,
+            width: 1,
+            height: 1,
+            layers: 1,
+        };
+        let TerrainMaterialDesc {
+            layers: _,
+            normals: _,
+            normal_strength: _,
+            weights: _,
+            weights_corner: _,
+            weights_size: _,
+            layer_size: _,
+            roughness: _,
+        } = TerrainMaterialDesc::new(texture, texture, crate::Vec2::ZERO, crate::Vec2::ONE);
     }
 }

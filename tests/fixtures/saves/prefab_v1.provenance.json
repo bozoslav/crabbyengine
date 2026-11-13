@@ -1,6 +1,6 @@
 {
   "fixture": "prefab_v1.json",
-  "format": "crabby-prefab",
+  "format": "ponko-prefab",
   "version": 1,
   "engine_version": "ponko 0.0.1",
   "engine_revision": "b3799f698ed5eb85267f7e34cccdb2f27126910b",

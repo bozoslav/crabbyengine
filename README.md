@@ -13,7 +13,8 @@ No large visual editor is required.
 [**Guide source**](book/src/introduction.md) · [**API**](https://docs.rs/ponko/)
 
 Formerly Crabby Engine. The package is `ponko`; source folders still use
-`crabby_*`, and the C/C++ headers and ABI retain their existing names.
+`crabby_*`; the C/C++ headers are `include/ponko.h` and `include/ponko.hpp`
+(the old `crabby` C names were removed in 0.1.0).
 The current package version is **0.0.1**. Read [STABILITY.md](STABILITY.md)
 for the published compatibility contracts; the rename does not authorize
 weakening those contracts.
@@ -80,7 +81,7 @@ fn main() {
             if ctx.key_down(Key::Right) { position.x += 200.0 * ctx.dt(); }
             if ctx.key_down(Key::Left) { position.x -= 200.0 * ctx.dt(); }
             if ctx.key_pressed(Key::Escape) { ctx.quit(); }
-            ctx.draw(&sprite, position);
+            ctx.draw(sprite, position);
         }
     });
 }
@@ -89,8 +90,8 @@ fn main() {
 Setup runs once and returns the per-frame closure. Grow into entities and
 fixed-step systems when the game needs them. See the paired Rust/C++ examples
 in [Getting started](book/src/getting-started.md) and the
-[C/C++ guide](book/src/c-cpp.md). The native headers remain `crabby.h` and
-`crabby.hpp`, with the `crabby` C++ namespace.
+[C/C++ guide](book/src/c-cpp.md). The native headers are `ponko.h` and
+`ponko.hpp`, with the `ponko` C++ namespace.
 
 ## Scale simulation separately
 

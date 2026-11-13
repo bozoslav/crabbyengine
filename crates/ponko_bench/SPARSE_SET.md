@@ -76,8 +76,8 @@ numbers say" section checks that the decision holds at half its join cost.
 | `churn` | One tick of adds and removes |
 | `dense` | `pos += vel * dt` over all 100,000 entities |
 | `data` | For each of the 8 effects, `pos.x += effect` over its holders |
-| `and` | For 8 pairs of tags, read `Pos` of the entities that have both (`with::<A>().with::<B>()`) |
-| `without` | For 4 tags, write `Pos` of every entity without it (`without::<T>()`) |
+| `and` | For 8 pairs of tags, read `Pos` of the entities that have both (`.filter::<(With<A>, With<B>)>()`) |
+| `without` | For 4 tags, write `Pos` of every entity without it (`filter::<Without<T>>()`) |
 | `frame` | All of the above once, as a game tick would |
 
 `sparse-set/dense-data/*` is the opposite case: every entity has `Pos` and
@@ -345,11 +345,11 @@ What would change for users if sparse storage were opt-in per component:
   between two storages whose costs are opposite (above), which works
   against "one obvious way to do each thing".
 - **Same query syntax, different costs.** `query::<(&mut Pos, &Burning)>()`
-  would look the same, but `with::<Stunned>()` on a sparse tag would become
+  would look the same, but `With<Stunned>` on a sparse tag would become
   a per-row test: no longer free for non-matching archetypes, and `count()`
   would walk rows.
 - **Chunk-level APIs can't include sparse components**: `Chunk`,
-  `World::query_chunks*`, `raw().for_each_chunk`, `Archetype::column_ptr`
+  `raw().query_chunks`, `raw().for_each_chunk`, `Archetype::column_ptr`
   and the C `PonkoChunk` queries expose contiguous columns per archetype.
   They would reject sparse ids with an error.
 - **Archetype-level introspection becomes partial**: `components_of(e)`

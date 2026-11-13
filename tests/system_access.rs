@@ -116,19 +116,20 @@ fn undeclared(_: &mut Ctx) {}
 
 fn game() -> Game {
     Game::new("access", 320, 240)
-        .add_with_access(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().write::<Vel>().read_resource::<Gravity>(),
-            fall,
+            fall.access(SystemAccess::new().write::<Vel>().read_resource::<Gravity>()),
         )
-        .add_with_access(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().write::<Pos>().read::<Vel>(),
-            movement,
+            movement.access(SystemAccess::new().write::<Pos>().read::<Vel>()),
         )
-        .add_with_access(Phase::AfterPhysics, SystemAccess::new().write::<Health>(), decay)
+        .add(Phase::AfterPhysics, decay.access(SystemAccess::new().write::<Health>()))
         .sim_system(undeclared)
-        .add_with_access(Phase::Frame, SystemAccess::new().read::<Pos>(), |_: &mut Ctx| {})
+        .add(
+            Phase::Frame,
+            (|_: &mut Ctx| {}).access(SystemAccess::new().read::<Pos>()),
+        )
 }
 
 #[test]
@@ -186,7 +187,7 @@ impl QueryOne for World {
 
 fn run_one(access: SystemAccess, system: impl FnMut(&mut Ctx) + 'static) -> World {
     Game::new("access", 320, 240)
-        .add_with_access(Phase::AfterPhysics, access, system)
+        .add(Phase::AfterPhysics, system.access(access))
         .run_headless(1, |ctx| {
             ctx.world.insert_resource(Score(0));
             ctx.world.spawn((Pos(0.0), Vel(1.0)));
@@ -307,14 +308,9 @@ mod named {
     #[test]
     fn named_components_resources_and_raw_events_cover_their_use() {
         let world = Game::new("access", 320, 240)
-            .add_with_access(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new()
-                    .write_named(std::any::type_name::<Pos>())
-                    .read_resource_named("lives")
-                    .send_events_named(std::any::type_name::<Hit>())
-                    .read_events_named(std::any::type_name::<Hit>()),
-                |ctx| {
+                (|ctx: &mut Ctx| {
                     ctx.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0);
                     let lives = ctx.world.raw_ref().get_resource_dynamic("lives").unwrap();
                     // SAFETY: stored as a u32 in setup.
@@ -323,7 +319,14 @@ mod named {
                     ctx.events.send_raw(hit, &n.to_ne_bytes()).unwrap();
                     let (_, count) = ctx.events.read_raw(hit, 4).unwrap();
                     assert_eq!(count, 1);
-                },
+                })
+                .access(
+                    SystemAccess::new()
+                        .write_named(std::any::type_name::<Pos>())
+                        .read_resource_named("lives")
+                        .send_events_named(std::any::type_name::<Hit>())
+                        .read_events_named(std::any::type_name::<Hit>()),
+                ),
             )
             .run_headless(1, |ctx| {
                 store(ctx);
@@ -359,9 +362,13 @@ mod named {
     #[should_panic(expected = "uses resource `lives`, which has no Rust type")]
     fn an_undeclared_dynamic_resource_panics() {
         Game::new("access", 320, 240)
-            .add_with_access(Phase::AfterPhysics, SystemAccess::new(), |ctx| {
-                let _ = ctx.world.raw_ref().get_resource_dynamic("lives");
-            })
+            .add(
+                Phase::AfterPhysics,
+                (|ctx: &mut Ctx| {
+                    let _ = ctx.world.raw_ref().get_resource_dynamic("lives");
+                })
+                .access(SystemAccess::new()),
+            )
             .run_headless(1, store);
     }
 
@@ -370,13 +377,13 @@ mod named {
     #[should_panic(expected = "sends events `system_access::Hit`")]
     fn undeclared_raw_events_panic() {
         Game::new("access", 320, 240)
-            .add_with_access(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().read_events_named(std::any::type_name::<Hit>()),
-                |ctx| {
+                (|ctx: &mut Ctx| {
                     let hit = ctx.world.register::<Hit>().index() as u32;
                     ctx.events.send_raw(hit, &[1, 2, 3, 4]).unwrap();
-                },
+                })
+                .access(SystemAccess::new().read_events_named(std::any::type_name::<Hit>())),
             )
             .run_headless(1, |_| {});
     }
@@ -384,13 +391,13 @@ mod named {
     #[test]
     fn a_named_declaration_covers_any_use_because_raw_access_cannot_tell() {
         let mut world = Game::new("access", 320, 240)
-            .add_with_access(
+            .add(
                 Phase::AfterPhysics,
-                SystemAccess::new().read_named(std::any::type_name::<Pos>()),
-                |ctx| {
+                (|ctx: &mut Ctx| {
                     let id = ctx.world.component_id::<Pos>().unwrap();
                     ctx.world.raw().for_each_chunk(&[id], |_| {});
-                },
+                })
+                .access(SystemAccess::new().read_named(std::any::type_name::<Pos>())),
             )
             .run_headless(1, |ctx| {
                 ctx.world.spawn((Pos(0.0),));

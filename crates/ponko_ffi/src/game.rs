@@ -2,7 +2,7 @@
 //! pointers plus a `user` pointer; they get a `PonkoCtx`.
 use std::ffi::{CStr, c_char, c_void};
 
-use ponko::{Ctx, Game, Phase, SystemId};
+use ponko::{Ctx, Game, IntoSystem, Phase, Plugin, SystemId};
 
 use crate::ctx::{PonkoCtx, with_ctx};
 use crate::{Failure, PonkoStatus, PonkoWorld, boundary, error, invalid, owned_world};
@@ -130,6 +130,7 @@ pub unsafe extern "C" fn ponko_game_vsync(game: *mut PonkoGame, on: bool) -> Pon
 }
 /// Samples per pixel of the 3D frame: 4 (default) or 2, which costs about a
 /// third less GPU time on a large screen. GPUs that can't take 2 keep 4.
+/// Sets Rust `ctx.scene3d.post.msaa` at startup, before the C setup.
 /// ```
 /// assert_eq!(unsafe { ponko_ffi::ponko_game_msaa(std::ptr::null_mut(), 2) } as u32, 1);
 /// ```
@@ -140,11 +141,24 @@ pub unsafe extern "C" fn ponko_game_msaa(game: *mut PonkoGame, samples: u32) -> 
     // SAFETY: forwarded caller contract.
     unsafe {
         build(game, |g| match samples {
-            2 | 4 => ok(g.msaa(samples)),
+            2 | 4 => ok(g.plugin(Msaa(samples))),
             _ => reject(g, "msaa takes 2 or 4 samples"),
         })
     }
 }
+/// The startup MSAA sample count, set on the scene's post settings.
+struct Msaa(u32);
+
+impl ponko::Plugin for Msaa {
+    fn build(&self, game: Game) -> Game {
+        game
+    }
+
+    fn setup(&self, ctx: &mut Ctx) {
+        ctx.scene3d.post.msaa = self.0;
+    }
+}
+
 /// Fill the screen instead of opening a window (default off). On macOS,
 /// windowed games are shown at most once per display refresh even with vsync
 /// off; fullscreen ones aren't.
@@ -191,7 +205,8 @@ pub unsafe extern "C" fn ponko_game_camera_controls(game: *mut PonkoGame) -> Pon
     unsafe { build(game, |g| ok(g.system(ponko::camera::camera_controls))) }
 }
 /// Opens the control endpoint for tools and agents (ponko-mcp); also on
-/// with `PONKO_CONTROL=1`.
+/// with `PONKO_CONTROL=1` in a debug build of this library, or a release
+/// build with its `control-env` feature.
 /// ```
 /// assert_eq!(unsafe { ponko_ffi::ponko_game_control_endpoint(std::ptr::null_mut(), true) } as u32, 1);
 /// ```
@@ -263,7 +278,7 @@ pub(crate) fn system(
 }
 
 /// Adds a simulation system: runs on the fixed tick, every `every` ticks
-/// (1 = every tick; larger = simulation LOD, like Rust's `sim_system_every`).
+/// (1 = every tick; larger = simulation LOD, like Rust's `IntoSystem::every`).
 /// `name` (may be null) shows up in timings and tools.
 /// # Safety
 /// Live game; `system` and `user` must stay valid while the game runs.
@@ -288,7 +303,7 @@ pub unsafe extern "C" fn ponko_game_sim_system(
             Ok((f, system_name(name, "C sim system")?))
         })();
         build(game, |g| match checked {
-            Ok((f, name)) => ok(g.named_sim_system(name, every, system(f, user))),
+            Ok((f, name)) => ok(g.add(Phase::AfterPhysics, system(f, user).named(name).every(every))),
             Err(e) => (g, Err(e)),
         })
     }
@@ -377,7 +392,7 @@ pub unsafe extern "C" fn ponko_game_add_system(
             Ok((f, phase, system_name(name, "C system")?))
         })();
         build(game, |g| match checked {
-            Ok((f, phase, name)) => ok(g.named_add(phase, name, every, system(f, user))),
+            Ok((f, phase, name)) => ok(g.add(phase, system(f, user).named(name).every(every))),
             Err(e) => (g, Err(e)),
         })
     }
@@ -423,7 +438,7 @@ pub unsafe extern "C" fn ponko_game_add_system_id(
         })();
         build(game, |mut g| match checked {
             Ok((f, phase, name)) => {
-                let id = g.named_add_system(phase, name, every, system(f, user));
+                let id = g.add_system(phase, system(f, user).named(name).every(every));
                 out_id.write(id.to_bits());
                 ok(g)
             }
@@ -497,7 +512,7 @@ pub unsafe extern "C" fn ponko_game_setup(
     // SAFETY: forwarded caller contract.
     unsafe {
         build(game, |g| match setup {
-            Some(_) => ok(g.add_setup(setup_fn(setup, user))),
+            Some(_) => ok(g.plugin(Startup { setup, user })),
             None => reject(g, "setup is null"),
         })
     }
@@ -552,7 +567,7 @@ pub unsafe extern "C" fn ponko_game_plugin(
             }
         }
         match setup {
-            Some(_) => build(game, |g| ok(g.add_setup(setup_fn(setup, user)))),
+            Some(_) => build(game, |g| ok(g.plugin(Startup { setup, user }))),
             None => PonkoStatus::PONKO_OK,
         }
     }
@@ -582,7 +597,7 @@ pub unsafe extern "C" fn ponko_game_late_system(
             ))
         })();
         build(game, |g| match checked {
-            Ok((f, name)) => ok(g.named_late_system(name, system(f, user))),
+            Ok((f, name)) => ok(g.add(Phase::Late, system(f, user).named(name))),
             Err(e) => (g, Err(e)),
         })
     }
@@ -611,7 +626,7 @@ pub unsafe extern "C" fn ponko_game_system(
             ))
         })();
         build(game, |g| match checked {
-            Ok((f, name)) => ok(g.named_system(name, system(f, user))),
+            Ok((f, name)) => ok(g.add(Phase::Frame, system(f, user).named(name))),
             Err(e) => (g, Err(e)),
         })
     }
@@ -636,11 +651,20 @@ pub unsafe extern "C" fn ponko_game_remove_system(game: *mut PonkoGame, name_ptr
     // SAFETY: forwarded caller contract.
     unsafe {
         let checked = name(name_ptr);
-        // Name removal stays in ABI version 2; Rust deprecated its spelling.
-        #[allow(deprecated)]
-        build(game, |mut g| match checked {
-            Ok(name) if g.remove_named_system(name) > 0 => ok(g),
-            Ok(_) => (g, Err(error(PonkoStatus::PONKO_NOT_FOUND, "no system with that name"))),
+        // Name removal stays in ABI version 2; Rust removes by id only, so
+        // the names are looked up here.
+        build(game, |g| match checked {
+            Ok(name) => {
+                let report = g.access_report();
+                let named: Vec<SystemId> = (report.systems.iter())
+                    .filter(|s| s.name == name)
+                    .map(|s| s.id)
+                    .collect();
+                if named.is_empty() {
+                    return (g, Err(error(PonkoStatus::PONKO_NOT_FOUND, "no system with that name")));
+                }
+                ok(named.into_iter().fold(g, Game::remove))
+            }
             Err(e) => (g, Err(e)),
         })
     }
@@ -653,6 +677,24 @@ unsafe fn take(game: *mut PonkoGame) -> Result<Game, Failure> {
     // SAFETY: caller passes a game from ponko_game_new; running consumes it.
     let game = unsafe { Box::from_raw(game) };
     game.game.ok_or_else(|| invalid("game was already run"))
+}
+
+/// A startup callback on a game that still takes systems: a plugin with no
+/// build step. `Game::plugin` puts its setup in the same ordered queue as
+/// `Game::setup` and the Rust plugins.
+struct Startup {
+    setup: crate::PonkoSystemFn,
+    user: *mut c_void,
+}
+
+impl Plugin for Startup {
+    fn build(&self, game: Game) -> Game {
+        game
+    }
+
+    fn setup(&self, ctx: &mut Ctx) {
+        setup_fn(self.setup, self.user)(ctx);
+    }
 }
 
 fn setup_fn(setup: crate::PonkoSystemFn, user: *mut c_void) -> impl FnOnce(&mut Ctx) {

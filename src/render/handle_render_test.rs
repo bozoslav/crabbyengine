@@ -72,7 +72,7 @@ impl Rig {
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
         // No renderer of its own: this test hands the GPU work to `renderer`.
         ctx.set_headless(true);
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         let mut rig = Self {
             device,
             queue,
@@ -116,7 +116,7 @@ impl Rig {
     /// `Ctx` numbers textures from 1, as `textures` does past the white one).
     fn texture(&mut self, rgba: [u8; 4]) -> Texture {
         let texture = self.ctx.gfx.create_texture(1, 1, &rgba);
-        assert_eq!(texture.id() as usize, self.textures.len());
+        assert_eq!(texture.id as usize, self.textures.len());
         let gpu = image(&self.device, &self.queue, rgba);
         self.push_texture(gpu);
         texture
@@ -128,15 +128,15 @@ impl Rig {
         self.ctx.free(texture);
         let white = self.textures[0].texture.clone();
         let bind_group = self.textures[0].bind_group.clone();
-        self.textures[texture.id() as usize] = GpuTexture {
+        self.textures[texture.id as usize] = GpuTexture {
             bind_group,
             texture: white,
             nearest: false,
             mips: Some(false),
         };
-        self.renderer.free_render_target(texture.id());
+        self.renderer.free_render_target(texture.id);
         self.renderer
-            .rebind_materials(&self.device, &self.queue, &self.textures, Some(texture.id()), None);
+            .rebind_materials(&self.device, &self.queue, &self.textures, Some(texture.id), None);
     }
 
     fn material(&mut self, desc: MaterialDesc) -> Material {
@@ -144,7 +144,7 @@ impl Rig {
         let id = self
             .renderer
             .create_material(&self.device, &GpuMaterialDesc::new(&desc), &self.textures);
-        assert_eq!(id, material.id());
+        assert_eq!(id, material.id);
         material
     }
 
@@ -160,25 +160,25 @@ impl Rig {
     fn draw(&mut self) -> Vec<u8> {
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
                 sun: Vec3::ZERO,
                 sky: Vec3::ONE,
                 ground: Vec3::ONE,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -288,14 +288,14 @@ fn models_whose_texture_material_or_mesh_was_freed_draw_the_default() {
     let left = rig.mesh(mapped);
     let middle = rig.mesh(green);
     let right = rig.mesh(blue);
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, 8.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, 8.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     for (x, mesh) in [(-2.4, left), (0.0, middle), (2.4, right)] {
         rig.ctx
             .world
             .spawn((Transform3D::at(vec3(x, 0.0, 0.0)), Model::new(mesh)));
     }
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let at = |pixels: &[u8], x: f32| around(pixels, view_proj, vec3(x, 0.0, 0.0));
 
     let pixels = rig.draw();
@@ -308,9 +308,9 @@ fn models_whose_texture_material_or_mesh_was_freed_draw_the_default() {
     rig.free_texture(red);
     rig.ctx.free(green);
     rig.renderer
-        .free_material(&rig.device, &rig.queue, green.id(), &rig.textures);
+        .free_material(&rig.device, &rig.queue, green.id, &rig.textures);
     rig.ctx.free(right);
-    rig.renderer.free_mesh(right.id());
+    rig.renderer.free_mesh(right.id);
     assert!(!rig.ctx.is_live(red) && !rig.ctx.is_live(green) && !rig.ctx.is_live(right));
 
     let pixels = rig.draw();
@@ -339,8 +339,8 @@ fn freed_effects_compute_passes_and_targets_are_left_out_of_the_frame() {
         .gfx
         .create_compute("c", "fn compute(c: Cell) -> vec4<f32> { return c.value; }");
     let target = ctx.gfx.create_render_target(8, 8);
-    ctx.effects.push(ScreenEffect::new(effect));
-    ctx.compute_passes.push(ComputePass::new(compute, target));
+    ctx.scene3d.passes.effects.push(ScreenEffect::new(effect));
+    ctx.scene3d.passes.compute.push(ComputePass::new(compute, target));
     let material = ctx.gfx.default_material();
     ctx.collect_passes(Some(material));
     assert_eq!(ctx.gfx.frame3d.effects.len(), 1);
@@ -353,7 +353,7 @@ fn freed_effects_compute_passes_and_targets_are_left_out_of_the_frame() {
     let other = ctx
         .gfx
         .create_compute("d", "fn compute(c: Cell) -> vec4<f32> { return c.value; }");
-    ctx.compute_passes.push(ComputePass::new(other, target));
+    ctx.scene3d.passes.compute.push(ComputePass::new(other, target));
     ctx.collect_passes(Some(material));
     assert_eq!(ctx.gfx.frame3d.computes.len(), 1);
     ctx.free(target);
@@ -378,10 +378,10 @@ fn a_texture_replaced_at_another_resolution_shows_in_the_materials_that_use_it()
         ..Default::default()
     });
     let mesh = rig.mesh(material);
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, 6.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, 6.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let before = around(&rig.draw(), view_proj, Vec3::ZERO);
     assert!(before[0] > 150 && before[2] < 60, "red first: {before:?}");
 
@@ -410,11 +410,11 @@ fn a_texture_replaced_at_another_resolution_shows_in_the_materials_that_use_it()
         },
         blue.size(),
     );
-    let id = streamed.id() as usize;
+    let id = streamed.id as usize;
     rig.push_texture(blue);
     let replaced = rig.textures.pop().expect("just pushed");
     rig.textures[id] = replaced;
-    rig.renderer.texture_replaced(&rig.device, &rig.textures, streamed.id());
+    rig.renderer.texture_replaced(&rig.device, &rig.textures, streamed.id);
     let after = around(&rig.draw(), view_proj, Vec3::ZERO);
     assert!(after[2] > 150 && after[0] < 60, "blue after: {after:?}");
 }

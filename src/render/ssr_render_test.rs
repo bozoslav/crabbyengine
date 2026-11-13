@@ -121,7 +121,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(width as f32, height as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -159,27 +159,27 @@ impl Rig {
         }
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         frame.motion.reset = std::mem::take(&mut self.reset_history);
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // Sunlight only: the fog glows with nothing else.
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -290,11 +290,11 @@ fn floor_rig(roughness: f32) -> Option<(Rig, Vec3, Vec3)> {
         },
         Model::new(block),
     ));
-    rig.ctx.lighting.shadows = false;
-    rig.ctx.lighting.sun_intensity = 0.0;
-    rig.ctx.post.bloom = 0.0;
-    rig.ctx.camera3d.position = vec3(0.0, 2.0, 6.0);
-    rig.ctx.camera3d.look_at(vec3(0.0, 0.5, 0.0));
+    rig.ctx.scene3d.lighting.shadows = false;
+    rig.ctx.scene3d.lighting.sun_intensity = 0.0;
+    rig.ctx.scene3d.post.bloom = 0.0;
+    rig.ctx.scene3d.camera.position = vec3(0.0, 2.0, 6.0);
+    rig.ctx.scene3d.camera.look_at(vec3(0.0, 0.5, 0.0));
     // The box's center mirrored is (0, -1, 0): seen from the camera through
     // the floor at (0, 0, 2). To the side, the floor reflects only the dark.
     Some((rig, vec3(0.0, 0.0, 2.0), vec3(2.5, 0.0, 2.0)))
@@ -308,7 +308,7 @@ fn a_mirror_floor_reflects_the_box_above_it() {
     if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ScreenSpaceReflections) {
         return;
     }
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let at = |pixels: &[u8], p: Vec3| {
         let (x, y) = pixel(view_proj, p);
         let i = ((y * SIZE + x) * 4) as usize;
@@ -317,7 +317,7 @@ fn a_mirror_floor_reflects_the_box_above_it() {
     let (red, _) = at(&rig.draw(), reflection);
     assert!(red < 40, "without SSR the floor reflects only the dark sky: {red}");
 
-    rig.ctx.post.ssr = 1.0;
+    rig.ctx.scene3d.post.ssr = 1.0;
     // The first frame has no image of the last one to reflect.
     rig.draw();
     let pixels = rig.draw();
@@ -326,7 +326,7 @@ fn a_mirror_floor_reflects_the_box_above_it() {
     let (side, _) = at(&pixels, aside);
     assert!(side < 40, "nothing to reflect beside it: {side}");
 
-    rig.ctx.post.ssr = 0.0;
+    rig.ctx.scene3d.post.ssr = 0.0;
     let (red, _) = at(&rig.draw(), reflection);
     assert!(red < 40, "off again: {red}");
 }
@@ -339,13 +339,13 @@ fn reflections_work_with_taa_and_fade_with_distance() {
     if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ScreenSpaceReflections) {
         return;
     }
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let red = |pixels: &[u8]| {
         let (x, y) = pixel(view_proj, reflection);
         i32::from(pixels[((y * SIZE + x) * 4) as usize])
     };
-    rig.ctx.post.ssr = 1.0;
-    rig.ctx.post.anti_aliasing = AntiAliasing::Taa;
+    rig.ctx.scene3d.post.ssr = 1.0;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::Taa;
     let mut pixels = Vec::new();
     for _ in 0..8 {
         pixels = rig.draw();
@@ -353,8 +353,8 @@ fn reflections_work_with_taa_and_fade_with_distance() {
     assert!(red(&pixels) > 120, "TAA keeps the reflection: {}", red(&pixels));
 
     // The box is about 1.7 units along the reflected ray: out of reach.
-    rig.ctx.post.ssr_max_distance = 1.0;
-    rig.ctx.post.anti_aliasing = AntiAliasing::None;
+    rig.ctx.scene3d.post.ssr_max_distance = 1.0;
+    rig.ctx.scene3d.post.anti_aliasing = AntiAliasing::None;
     rig.draw();
     let pixels = rig.draw();
     assert!(red(&pixels) < 40, "too far to reflect: {}", red(&pixels));
@@ -368,21 +368,21 @@ fn reflections_and_ambient_occlusion_share_the_opaque_pass_image() {
     if !crate::render::render_test_support::needs(&rig.device, crate::render::GpuFeature::ScreenSpaceReflections) {
         return;
     }
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let red = |pixels: &[u8]| {
         let (x, y) = pixel(view_proj, reflection);
         i32::from(pixels[((y * SIZE + x) * 4) as usize])
     };
-    rig.ctx.post.ambient_occlusion.enabled = true;
-    rig.ctx.post.ao_half_resolution = true;
-    rig.ctx.post.ao_temporal = true;
+    rig.ctx.scene3d.post.ambient_occlusion.enabled = true;
+    rig.ctx.scene3d.post.ao_half_resolution = true;
+    rig.ctx.scene3d.post.ao_temporal = true;
     let pixels = rig.draw();
     assert!(red(&pixels) < 40, "GTAO alone reflects nothing: {}", red(&pixels));
-    rig.ctx.post.ssr = 1.0;
+    rig.ctx.scene3d.post.ssr = 1.0;
     rig.draw();
     let pixels = rig.draw();
     assert!(red(&pixels) > 120, "GTAO marks the reflections: {}", red(&pixels));
-    rig.ctx.post.ambient_occlusion.enabled = false;
+    rig.ctx.scene3d.post.ambient_occlusion.enabled = false;
     rig.draw();
     let pixels = rig.draw();
     assert!(red(&pixels) > 120, "and so does a clear without it: {}", red(&pixels));
@@ -394,10 +394,10 @@ fn a_glossy_floor_has_a_wider_lower_peak_reflection() {
         let (mut rig, reflection, _) = floor_rig(roughness)?;
         // Keep the bright source below display clipping so peak comparison
         // measures filtering rather than the tone mapper's saturation.
-        rig.ctx.post.exposure = -4.0;
-        let (cx, cy) = pixel(rig.ctx.camera3d.view_proj(), reflection);
+        rig.ctx.scene3d.post.exposure = -4.0;
+        let (cx, cy) = pixel(rig.ctx.scene3d.camera.view_proj(), reflection);
         let off = rig.draw();
-        rig.ctx.post.ssr = 1.0;
+        rig.ctx.scene3d.post.ssr = 1.0;
         rig.draw();
         let on = rig.draw();
         let mut energy = 0.0f32;
@@ -412,7 +412,7 @@ fn a_glossy_floor_has_a_wider_lower_peak_reflection() {
             peak = peak.max(value);
         }
         assert!(energy > 100.0, "the floor still reflects the box");
-        rig.ctx.post.ssr = 0.0;
+        rig.ctx.scene3d.post.ssr = 0.0;
         let disabled = rig.draw();
         assert!(disabled[((cy * SIZE + cx) * 4) as usize] < 40);
         Some((peak, (moment / energy).sqrt()))
@@ -452,9 +452,9 @@ fn small_and_odd_sizes_filter_reflections() {
             },
             Model::new(floor),
         ));
-        rig.ctx.camera3d.position = vec3(0.0, 2.0, 6.0);
-        rig.ctx.camera3d.look_at(Vec3::ZERO);
-        rig.ctx.post.ssr = 1.0;
+        rig.ctx.scene3d.camera.position = vec3(0.0, 2.0, 6.0);
+        rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+        rig.ctx.scene3d.post.ssr = 1.0;
         for _ in 0..3 {
             assert_eq!(rig.draw().len(), (width * height * 4) as usize);
         }
@@ -507,11 +507,11 @@ fn reflection_filter_gpu_cost() {
         },
         Model::new(block),
     ));
-    rig.ctx.camera3d.position = vec3(0.0, 2.0, 6.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
-    rig.ctx.post.ssr = 1.0;
-    rig.ctx.post.bloom = 0.0;
-    rig.ctx.lighting.shadows = false;
+    rig.ctx.scene3d.camera.position = vec3(0.0, 2.0, 6.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.post.ssr = 1.0;
+    rig.ctx.scene3d.post.bloom = 0.0;
+    rig.ctx.scene3d.lighting.shadows = false;
     // [with the filter, without]
     let mut frames = [Vec::new(), Vec::new()];
     let mut trace = Vec::new();
@@ -564,7 +564,7 @@ fn a_history_reset_drops_the_last_frames_image_from_the_reflections() {
     rig.ctx
         .world
         .spawn((Transform3D::at(vec3(30.0, 1.0, 0.0)), Model::new(shade)));
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let red = |pixels: &[u8]| {
         let (x, y) = pixel(view_proj, reflection);
         i32::from(pixels[((y * SIZE + x) * 4) as usize])
@@ -576,7 +576,7 @@ fn a_history_reset_drops_the_last_frames_image_from_the_reflections() {
             }
         });
     };
-    rig.ctx.post.ssr = 1.0;
+    rig.ctx.scene3d.post.ssr = 1.0;
     rig.draw();
     let settled = red(&rig.draw());
     assert!(settled > 120, "the glowing box is reflected: {settled}");
@@ -611,8 +611,8 @@ fn a_history_reset_drops_the_last_frames_image_from_the_reflections() {
 /// The red at `reflection` once reflections have settled (a few frames, so
 /// the history holds this camera's image).
 fn settled_red(rig: &mut Rig, reflection: Vec3) -> i32 {
-    rig.ctx.post.ssr = 1.0;
-    let view_proj = rig.ctx.camera3d.view_proj();
+    rig.ctx.scene3d.post.ssr = 1.0;
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     let (x, y) = pixel(view_proj, reflection);
     assert!(x < SIZE && y < SIZE, "the floor point is on screen");
     let mut pixels = Vec::new();
@@ -627,9 +627,12 @@ fn settled_red(rig: &mut Rig, reflection: Vec3) -> i32 {
 /// the screen, the floor point that mirrors it, (0, 0, 2), on it.
 fn look_below_the_box(rig: &mut Rig) {
     let pitch = 48f32.to_radians();
-    let eye = rig.ctx.camera3d.position;
-    rig.ctx.camera3d.look_at(eye + vec3(0.0, -pitch.sin(), -pitch.cos()));
-    let view_proj = rig.ctx.camera3d.view_proj();
+    let eye = rig.ctx.scene3d.camera.position;
+    rig.ctx
+        .scene3d
+        .camera
+        .look_at(eye + vec3(0.0, -pitch.sin(), -pitch.cos()));
+    let view_proj = rig.ctx.scene3d.camera.view_proj();
     for corner in 0..8 {
         let p = vec3(
             if corner & 1 == 0 { -0.5 } else { 0.5 },

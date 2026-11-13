@@ -205,7 +205,7 @@ impl std::fmt::Display for UnknownAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "unknown action {:?}", self.name)?;
         if self.known.is_empty() {
-            write!(f, " (no actions are installed; see Ctx::set_actions)")
+            write!(f, " (no actions are installed; see Input::set_actions)")
         } else {
             write!(f, " (known: {})", self.known.join(", "))
         }

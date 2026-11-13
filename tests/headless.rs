@@ -135,7 +135,7 @@ fn logger(name: &'static str) -> impl FnMut(&mut Ctx) {
 fn every_n_systems_run_every_nth_tick_with_n_steps_of_dt() {
     let world = Game::new("t", 1, 1)
         .fixed_hz(60)
-        .sim_system_every(4, logger("slow"))
+        .add(Phase::AfterPhysics, logger("slow").every(4))
         .sim_system(logger("fast"))
         .run_headless(12, |ctx| ctx.world.insert_resource(Log::default()));
     let log = &world.resource::<Log>().0;
@@ -151,9 +151,9 @@ fn every_n_systems_run_every_nth_tick_with_n_steps_of_dt() {
 #[test]
 fn systems_with_the_same_interval_run_on_different_ticks() {
     let world = Game::new("t", 1, 1)
-        .sim_system_every(3, logger("a"))
-        .sim_system_every(3, logger("b"))
-        .sim_system_every(3, logger("c"))
+        .add(Phase::AfterPhysics, logger("a").every(3))
+        .add(Phase::AfterPhysics, logger("b").every(3))
+        .add(Phase::AfterPhysics, logger("c").every(3))
         .run_headless(6, |ctx| ctx.world.insert_resource(Log::default()));
     let ticks = |n| -> Vec<u64> {
         world
@@ -173,7 +173,7 @@ fn systems_with_the_same_interval_run_on_different_ticks() {
 #[test]
 #[should_panic(expected = "interval must be at least 1 tick")]
 fn every_zero_ticks_panics() {
-    let _ = Game::new("t", 1, 1).sim_system_every(0, |_: &mut Ctx| {});
+    let _ = Game::new("t", 1, 1).add(Phase::AfterPhysics, (|_: &mut Ctx| {}).every(0));
 }
 
 struct Turned(u32);
@@ -209,7 +209,7 @@ fn turns_of_zero_panics() {
 fn update_texture_works_headless() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let tex = ctx.gfx.create_texture(2, 2, &[0; 16]);
-        ctx.gfx.update_texture(&tex, &[255; 16]);
+        ctx.gfx.update_texture(tex, &[255; 16]);
     });
 }
 
@@ -218,7 +218,7 @@ fn update_texture_works_headless() {
 fn update_texture_checks_the_size() {
     Game::new("t", 1, 1).run_headless(0, |ctx| {
         let tex = ctx.gfx.create_texture(2, 2, &[0; 16]);
-        ctx.gfx.update_texture(&tex, &[0; 4]);
+        ctx.gfx.update_texture(tex, &[0; 4]);
     });
 }
 

@@ -44,8 +44,8 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
-        ctx.lighting.shadows = false;
+        ctx.scene3d.sky.atmosphere = false;
+        ctx.scene3d.lighting.shadows = false;
         Some(Self {
             device,
             queue,
@@ -104,27 +104,33 @@ impl Rig {
         let mut skins = std::mem::take(&mut self.frame.skins);
         skins.collect(&mut ctx.world, &ctx.gfx.assets3d);
         let frame = &mut self.frame;
-        frame.lod = ctx.lod;
-        if !ctx.camera3d.occlusion_culling {
+        frame.lod = ctx.scene3d.lod;
+        if !ctx.scene3d.camera.occlusion_culling {
             frame.occlusion = None;
         } else if let Some(grid) = self.renderer.take_occlusion() {
             frame.occlusion = Some(grid);
         }
-        frame.collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        frame.collect(
+            &mut ctx.world,
+            &ctx.gfx.assets3d,
+            &skins,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
+        );
         frame.skins = skins;
         let scene = Scene3D {
             frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
                 sun: Vec3::ZERO,
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
-            occlusion: ctx.camera3d.occlusion_culling,
+            occlusion: ctx.scene3d.camera.occlusion_culling,
         };
         self.renderer.prepare(
             &self.device,
@@ -147,7 +153,7 @@ impl Rig {
     /// where it lands, so one pixel of rasterisation difference between
     /// devices (a software one's edges) doesn't decide it.
     fn lit(&self, pixels: &[u8], at: Vec3) -> bool {
-        let clip = self.ctx.camera3d.view_proj() * at.extend(1.0);
+        let clip = self.ctx.scene3d.camera.view_proj() * at.extend(1.0);
         let ndc = clip.truncate() / clip.w;
         let last = SIZE as i32 - 1;
         let x = ((ndc.x * 0.5 + 0.5) * SIZE as f32) as i32;
@@ -246,8 +252,8 @@ const ABOVE: Vec3 = vec3(0.0, 1.75, 0.0);
 
 /// Looks at the bar from `distance` in front.
 fn look(ctx: &mut Ctx, distance: f32) {
-    ctx.camera3d.position = vec3(0.0, 1.0, distance);
-    ctx.camera3d.look_at(vec3(0.0, 1.0, 0.0));
+    ctx.scene3d.camera.position = vec3(0.0, 1.0, distance);
+    ctx.scene3d.camera.look_at(vec3(0.0, 1.0, 0.0));
 }
 
 #[test]
@@ -264,7 +270,7 @@ fn a_skinned_lod_group_is_drawn_posed_at_every_level() {
         look(&mut rig.ctx, distance);
         let g = rig.ctx.world.get::<LodGroup>(group).unwrap();
         assert_eq!(
-            g.pick_for(&Transform3D::default(), &rig.ctx.camera3d, &rig.ctx.lod),
+            g.pick_for(&Transform3D::default(), &rig.ctx.scene3d.camera, &rig.ctx.scene3d.lod),
             LodPick::Level(level),
             "the scene asks for level {level} at {distance} m"
         );
@@ -300,11 +306,11 @@ fn a_skinned_lod_crossfade_draws_both_levels_posed() {
         .world
         .spawn((Transform3D::default(), red_green(red, green, 1.0), bent()));
     // Half way through the fade band, between 40% and a full screen.
-    let fov = rig.ctx.camera3d.fov_y;
+    let fov = rig.ctx.scene3d.camera.fov_y;
     look(&mut rig.ctx, LodGroup::distance_at(2.0, 0.7, fov));
     let g = rig.ctx.world.query::<&LodGroup>().iter().next().unwrap().clone();
     assert!(matches!(
-        g.pick_for(&Transform3D::default(), &rig.ctx.camera3d, &rig.ctx.lod),
+        g.pick_for(&Transform3D::default(), &rig.ctx.scene3d.camera, &rig.ctx.scene3d.lod),
         LodPick::Fade { .. }
     ));
     let pixels = rig.draw();
@@ -331,9 +337,9 @@ fn a_skinned_lod_group_keeps_its_pose_and_level_under_fast_camera_motion() {
     let mut seen = [false; 3];
     for (k, &distance) in distances.iter().enumerate() {
         let side = if k % 2 == 0 { 1.0 } else { -1.0 } * distance * 0.3;
-        rig.ctx.camera3d.position = vec3(side, 1.0, distance);
-        rig.ctx.camera3d.look_at(vec3(0.0, 1.0, 0.0));
-        let pick = group.pick_for(&Transform3D::default(), &rig.ctx.camera3d, &rig.ctx.lod);
+        rig.ctx.scene3d.camera.position = vec3(side, 1.0, distance);
+        rig.ctx.scene3d.camera.look_at(vec3(0.0, 1.0, 0.0));
+        let pick = group.pick_for(&Transform3D::default(), &rig.ctx.scene3d.camera, &rig.ctx.scene3d.lod);
         let pixels = rig.draw();
         let c = count(&pixels);
         assert!(!rig.lit(&pixels, ABOVE), "frame {k}: drawn unposed");
@@ -406,8 +412,8 @@ fn strafe(ctx: &mut Ctx, k: usize) {
         6..22 => (-12.0 + (k - 6) as f32 * 1.6, 13.0),
         _ => (12.0 - (k - 22) as f32 * 1.6, 8.0),
     };
-    ctx.camera3d.position = vec3(x, 1.0, z);
-    ctx.camera3d.look_at(vec3(x * 0.5, 1.0, 0.0));
+    ctx.scene3d.camera.position = vec3(x, 1.0, z);
+    ctx.scene3d.camera.look_at(vec3(x * 0.5, 1.0, 0.0));
 }
 
 #[test]
@@ -420,8 +426,8 @@ fn a_fast_camera_past_a_wall_draws_every_group_occlusion_culling_keeps() {
     }
     wall_scene(&mut culled);
     wall_scene(&mut all);
-    culled.ctx.camera3d.occlusion_culling = true;
-    all.ctx.camera3d.occlusion_culling = false;
+    culled.ctx.scene3d.camera.occlusion_culling = true;
+    all.ctx.scene3d.camera.occlusion_culling = false;
     let (mut hidden, mut visible) = (0, 0);
     for k in 0..38 {
         strafe(&mut culled.ctx, k);
@@ -472,9 +478,9 @@ fn a_hidden_lod_renderer_whose_shadow_is_drawn_counts_as_occluded_once() {
         Transform3D::at(vec3(0.5, 1.0, -1.0)),
         crate::render::ShadowMesh(Some(caster)),
     ));
-    rig.ctx.lighting.shadows = true;
-    rig.ctx.lighting.sun_direction = vec3(0.3, -1.0, -0.2);
-    rig.ctx.camera3d.occlusion_culling = true;
+    rig.ctx.scene3d.lighting.shadows = true;
+    rig.ctx.scene3d.lighting.sun_direction = vec3(0.3, -1.0, -0.2);
+    rig.ctx.scene3d.camera.occlusion_culling = true;
     look(&mut rig.ctx, 12.0);
     // The depth comes back a frame or two later; then the group is hidden.
     let mut culled = false;
@@ -513,9 +519,9 @@ fn behind_a_wall(rig: &mut Rig) {
         },
         Model::new(wall),
     ));
-    rig.ctx.lighting.shadows = true;
-    rig.ctx.lighting.sun_direction = vec3(0.3, -1.0, -0.2);
-    rig.ctx.camera3d.occlusion_culling = true;
+    rig.ctx.scene3d.lighting.shadows = true;
+    rig.ctx.scene3d.lighting.sun_direction = vec3(0.3, -1.0, -0.2);
+    rig.ctx.scene3d.camera.occlusion_culling = true;
     look(&mut rig.ctx, 12.0);
 }
 
@@ -559,7 +565,7 @@ fn a_hidden_lod_crossfade_counts_each_of_its_two_renderers_once() {
     let green = rig.mesh(&MeshData::cube(1.0), Color::rgb(0.0, 1.0, 0.0));
     // Level 0 down to half of what the group covers from the camera,
     // fading over all above that: the camera is inside the fade.
-    let h = LodGroup::screen_height_at(1.0, 12.0, rig.ctx.camera3d.fov_y);
+    let h = LodGroup::screen_height_at(1.0, 12.0, rig.ctx.scene3d.camera.fov_y);
     let group = LodGroup::new(
         1.0,
         vec![
@@ -569,7 +575,7 @@ fn a_hidden_lod_crossfade_counts_each_of_its_two_renderers_once() {
     );
     let at = Transform3D::at(vec3(0.0, 1.0, 0.0));
     assert!(matches!(
-        group.pick_for(&at, &rig.ctx.camera3d, &rig.ctx.lod),
+        group.pick_for(&at, &rig.ctx.scene3d.camera, &rig.ctx.scene3d.lod),
         LodPick::Fade { .. }
     ));
     rig.ctx.world.spawn((at, group));
@@ -590,11 +596,11 @@ fn a_hidden_lod_group_held_by_hysteresis_counts_once() {
         return;
     }
     behind_a_wall(&mut rig);
-    rig.ctx.lod.crossfade = false;
+    rig.ctx.scene3d.lod.crossfade = false;
     let red = rig.mesh(&MeshData::cube(1.0), Color::rgb(1.0, 0.0, 0.0));
     let green = rig.mesh(&MeshData::cube(1.0), Color::rgb(0.0, 1.0, 0.0));
     // Level 0 while the group covers what it does from 11.8 m or more.
-    let fov = rig.ctx.camera3d.fov_y;
+    let fov = rig.ctx.scene3d.camera.fov_y;
     let group = LodGroup::new(
         1.0,
         vec![
@@ -609,7 +615,10 @@ fn a_hidden_lod_group_held_by_hysteresis_counts_once() {
     look(&mut rig.ctx, 11.5);
     rig.draw();
     look(&mut rig.ctx, 12.0);
-    assert_eq!(group.pick_for(&at, &rig.ctx.camera3d, &rig.ctx.lod), LodPick::Level(1));
+    assert_eq!(
+        group.pick_for(&at, &rig.ctx.scene3d.camera, &rig.ctx.scene3d.lod),
+        LodPick::Level(1)
+    );
     let counts = occluded_counts(&mut rig, "hysteresis");
     assert!(
         casts(&rig, red) && !casts(&rig, green),
@@ -682,7 +691,7 @@ fn field(rig: &mut BatchRig, how: Field) -> LodGroup {
     let transforms: Vec<Mat4> = (0..64)
         .map(|i| Mat4::from_translation(vec3((i % 8) as f32 * 3.0 - 10.5, 0.0, -((i / 8) as f32) * 3.0)))
         .collect();
-    rig.ctx.lod.crossfade = false;
+    rig.ctx.scene3d.lod.crossfade = false;
     match how {
         Field::Entities => {
             for m in &transforms {
@@ -692,9 +701,12 @@ fn field(rig: &mut BatchRig, how: Field) -> LodGroup {
             }
         }
         Field::Batch { culling, bias } => {
-            let settings = LodSettings { bias, ..rig.ctx.lod };
+            let settings = LodSettings {
+                bias,
+                ..rig.ctx.scene3d.lod
+            };
             let levels = group
-                .instance_levels(1.0, rig.ctx.camera3d.fov_y, &settings)
+                .instance_levels(1.0, rig.ctx.scene3d.camera.fov_y, &settings)
                 .expect("a plain group");
             rig.batch_levels(
                 &levels,
@@ -715,22 +727,22 @@ fn field(rig: &mut BatchRig, how: Field) -> LodGroup {
 fn fly(ctx: &mut Ctx, k: usize) {
     let z = 1.5 + k as f32 * 1.2;
     let x = (k as f32 * 0.9).sin() * 3.7;
-    ctx.camera3d.position = vec3(x, 1.5 + k as f32 * 0.2, z);
-    ctx.camera3d.look_at(vec3(0.0, 0.0, -10.0));
+    ctx.scene3d.camera.position = vec3(x, 1.5 + k as f32 * 0.2, z);
+    ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -10.0));
 }
 
 /// Draws `entities` and `batch` (made by [`field`]) along the flight and
 /// compares the pixels of each level: the first frame whose levels differ,
 /// or `None` when every frame shows the same.
 fn level_mismatch(entities: &mut BatchRig, batch: &mut BatchRig, group: &LodGroup, what: &str) -> Option<String> {
-    let fov = entities.ctx.camera3d.fov_y;
-    let levels = group.instance_levels(1.0, fov, &entities.ctx.lod).unwrap();
+    let fov = entities.ctx.scene3d.camera.fov_y;
+    let levels = group.instance_levels(1.0, fov, &entities.ctx.scene3d.lod).unwrap();
     let mut shown = Count::default();
     for k in 0..20 {
         fly(&mut entities.ctx, k);
         fly(&mut batch.ctx, k);
         // No copy sits on a switch distance, where rounding picks either.
-        let eye = entities.ctx.camera3d.position;
+        let eye = entities.ctx.scene3d.camera.position;
         for i in 0..64 {
             let at = vec3((i % 8) as f32 * 3.0 - 10.5, 0.0, -((i / 8) as f32) * 3.0);
             let d = at.distance(eye);
@@ -819,7 +831,7 @@ fn auto_keeps_a_batch_of_lod_levels_on_the_cpu_at_any_size() {
     }
     let group = three_levels(&mut rig);
     let levels = group
-        .instance_levels(1.0, rig.ctx.camera3d.fov_y, &rig.ctx.lod)
+        .instance_levels(1.0, rig.ctx.scene3d.camera.fov_y, &rig.ctx.scene3d.lod)
         .unwrap();
     assert_eq!(levels.len(), 3);
     // Past the crossover that sends a one-level batch to the GPU.
@@ -833,7 +845,7 @@ fn auto_keeps_a_batch_of_lod_levels_on_the_cpu_at_any_size() {
             ..Default::default()
         };
         let batch = rig.batch_levels(levels, &transforms, &[], options);
-        let route = rig.renderer.batch_route(batch.id()).unwrap();
+        let route = rig.renderer.batch_route(batch.id).unwrap();
         rig.free(batch);
         route
     };

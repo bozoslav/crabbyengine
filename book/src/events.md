@@ -33,7 +33,7 @@ seen yet, oldest first, and the next `read` returns only newer ones. So:
 - A system after the sender, in the same tick, sees the events right away.
 - A system before the sender sees them on its next run, the next tick.
 - A system that runs every tick (or every frame) sees every event **exactly
-  once**. With `sim_system_every(n, ..)`, it sees everything sent since its
+  once**. With an interval (`system.every(n)`), it sees everything sent since its
   last run.
 - Events from `setup` reach the first tick.
 
@@ -41,7 +41,7 @@ Within simulation systems this is deterministic: the same sends in the same
 order give the same reads, whatever the frame rate.
 
 Events are dropped once every system has had its chance: when they're at
-least one frame old and older than the slowest `sim_system_every`. You
+least one frame old and older than the slowest system interval. You
 never clear them yourself. `peek` shows everything still kept without
 moving the read position.
 

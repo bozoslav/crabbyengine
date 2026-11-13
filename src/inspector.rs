@@ -42,7 +42,7 @@ pub(crate) fn enabled(game_default: bool) -> (bool, bool) {
     #[cfg(target_arch = "wasm32")]
     let setting = crate::web::query_param("inspector").map(|v| if v.is_empty() { "1".into() } else { v });
     #[cfg(not(target_arch = "wasm32"))]
-    let setting = crate::environment::var(ENV_INSPECTOR).ok();
+    let setting = std::env::var(ENV_INSPECTOR).ok();
     match setting.as_deref() {
         Some("1") => (true, false),
         Some("open") => (true, true),

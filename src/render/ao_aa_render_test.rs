@@ -139,12 +139,12 @@ fn render(downlevel: bool, benchmark: bool) {
     ctx.world.spawn((Transform3D::default(), Model::new(ground_mesh)));
     ctx.world
         .spawn((Transform3D::at(vec3(0.0, 0.5, 0.0)), Model::new(cube_mesh)));
-    ctx.camera3d.position = vec3(0.0, 6.0, 6.0);
-    ctx.camera3d.look_at(Vec3::ZERO);
-    ctx.lighting.shadows = false;
-    ctx.lighting.sun_intensity = 0.0;
-    ctx.sky.atmosphere = false;
-    ctx.post.bloom = 0.0;
+    ctx.scene3d.camera.position = vec3(0.0, 6.0, 6.0);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
+    ctx.scene3d.lighting.shadows = false;
+    ctx.scene3d.lighting.sun_intensity = 0.0;
+    ctx.scene3d.sky.atmosphere = false;
+    ctx.scene3d.post.bloom = 0.0;
 
     let mut renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
     renderer.create_material(&device, &GpuMaterialDesc::new(&matte), &textures);
@@ -172,20 +172,20 @@ fn render(downlevel: bool, benchmark: bool) {
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
-                sun: Vec3::splat(ctx.lighting.sun_intensity),
+                sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
                 sky: Vec3::ONE,
                 ground: Vec3::ONE,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -216,10 +216,10 @@ fn render(downlevel: bool, benchmark: bool) {
             if let Some(timer) = &timer {
                 eprintln!(
                     "AO half={} temporal={} slices={} steps={} {:.4} ms",
-                    ctx.post.ao_half_resolution,
-                    ctx.post.ao_temporal,
-                    ctx.post.ambient_occlusion.slices,
-                    ctx.post.ambient_occlusion.steps,
+                    ctx.scene3d.post.ao_half_resolution,
+                    ctx.scene3d.post.ao_temporal,
+                    ctx.scene3d.post.ambient_occlusion.slices,
+                    ctx.scene3d.post.ambient_occlusion.steps,
                     timer
                         .last_frame
                         .iter()
@@ -260,11 +260,11 @@ fn render(downlevel: bool, benchmark: bool) {
             ("half 4x8", true, false, 4, 8),
             ("half temporal 2x4", true, true, 2, 4),
         ] {
-            ctx.post.ambient_occlusion.enabled = true;
-            ctx.post.ambient_occlusion.slices = slices;
-            ctx.post.ambient_occlusion.steps = steps;
-            ctx.post.ao_half_resolution = half;
-            ctx.post.ao_temporal = temporal;
+            ctx.scene3d.post.ambient_occlusion.enabled = true;
+            ctx.scene3d.post.ambient_occlusion.slices = slices;
+            ctx.scene3d.post.ambient_occlusion.steps = steps;
+            ctx.scene3d.post.ao_half_resolution = half;
+            ctx.scene3d.post.ao_temporal = temporal;
             for _ in 0..80 {
                 draw(&mut ctx, wgpu::Color::BLACK);
             }
@@ -273,7 +273,7 @@ fn render(downlevel: bool, benchmark: bool) {
         return;
     }
     // Where a ground point lands on screen, and how bright it is there.
-    let view_proj = ctx.camera3d.view_proj();
+    let view_proj = ctx.scene3d.camera.view_proj();
     let brightness = |pixels: &[u8], p: Vec3| -> u32 {
         let ndc = view_proj.project_point3(p);
         let x = ((ndc.x * 0.5 + 0.5) * SIZE as f32) as u32;
@@ -284,7 +284,7 @@ fn render(downlevel: bool, benchmark: bool) {
 
     let (under, open) = (vec3(0.0, 0.0, 0.7), vec3(0.0, 0.0, 2.5));
     let baseline = draw(&mut ctx, wgpu::Color::BLACK);
-    ctx.post.ambient_occlusion = AmbientOcclusion {
+    ctx.scene3d.post.ambient_occlusion = AmbientOcclusion {
         enabled: true,
         radius: 2.0,
         intensity: 2.0,
@@ -305,37 +305,37 @@ fn render(downlevel: bool, benchmark: bool) {
         );
     }
     if !downlevel {
-        ctx.post.ao_half_resolution = true;
+        ctx.scene3d.post.ao_half_resolution = true;
         let half = draw(&mut ctx, wgpu::Color::BLACK);
         let half_loss = brightness(&baseline, under) as i32 - brightness(&half, under) as i32;
         eprintln!("half loss {half_loss}, full loss {contact_loss}");
         assert!(half_loss > 15 && (half_loss - contact_loss).abs() < 30);
-        ctx.post.ao_temporal = true;
+        ctx.scene3d.post.ao_temporal = true;
         for _ in 0..8 {
             let _ = draw(&mut ctx, wgpu::Color::BLACK);
         }
         let temporal = draw(&mut ctx, wgpu::Color::BLACK);
         assert!((brightness(&temporal, under) as i32 - brightness(&half, under) as i32).abs() < 40);
         // A camera cut exposes the sky: history cannot darken sky pixels.
-        ctx.camera3d.look_at(vec3(0.0, 30.0, 0.0));
+        ctx.scene3d.camera.look_at(vec3(0.0, 30.0, 0.0));
         let sky_ao = draw(&mut ctx, wgpu::Color::BLACK);
-        ctx.post.ambient_occlusion.enabled = false;
+        ctx.scene3d.post.ambient_occlusion.enabled = false;
         let sky_clear = draw(&mut ctx, wgpu::Color::BLACK);
         assert_eq!(sky_ao, sky_clear, "sky has no AO halo after a camera cut");
-        ctx.camera3d.look_at(Vec3::ZERO);
-        ctx.post.ao_half_resolution = false;
-        ctx.post.ao_temporal = false;
+        ctx.scene3d.camera.look_at(Vec3::ZERO);
+        ctx.scene3d.post.ao_half_resolution = false;
+        ctx.scene3d.post.ao_temporal = false;
     }
-    ctx.post.ambient_occlusion.enabled = false;
-    ctx.lighting.ambient_intensity = 0.0;
-    ctx.lighting.sun_intensity = 3.0;
+    ctx.scene3d.post.ambient_occlusion.enabled = false;
+    ctx.scene3d.lighting.ambient_intensity = 0.0;
+    ctx.scene3d.lighting.sun_intensity = 3.0;
     let direct = draw(&mut ctx, wgpu::Color::BLACK);
-    ctx.post.ambient_occlusion.enabled = true;
+    ctx.scene3d.post.ambient_occlusion.enabled = true;
     let direct_ao = draw(&mut ctx, wgpu::Color::BLACK);
     assert_eq!(direct, direct_ao, "AO leaves direct sunlight unchanged");
-    ctx.post.ambient_occlusion.enabled = false;
-    ctx.lighting.ambient_intensity = 1.0;
-    ctx.lighting.sun_intensity = 0.0;
+    ctx.scene3d.post.ambient_occlusion.enabled = false;
+    ctx.scene3d.lighting.ambient_intensity = 1.0;
+    ctx.scene3d.lighting.sun_intensity = 0.0;
     // A white emissive, rotated thin box against black supplies a diagonal edge.
     ctx.world.clear();
     ctx.world.spawn((
@@ -346,14 +346,14 @@ fn render(downlevel: bool, benchmark: bool) {
         },
         Model::new(cube_mesh),
     ));
-    ctx.camera3d.position = vec3(0.0, 0.0, 5.0);
-    ctx.camera3d.look_at(Vec3::ZERO);
+    ctx.scene3d.camera.position = vec3(0.0, 0.0, 5.0);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
     let count = |px: &[u8]| px.as_chunks::<4>().0.iter().filter(|p| p[0] > 10 && p[0] < 200).count();
     if !downlevel {
         let silhouette = draw(&mut ctx, wgpu::Color::WHITE);
-        ctx.post.ambient_occlusion.enabled = true;
-        ctx.post.ao_half_resolution = true;
-        ctx.post.ao_temporal = true;
+        ctx.scene3d.post.ambient_occlusion.enabled = true;
+        ctx.scene3d.post.ao_half_resolution = true;
+        ctx.scene3d.post.ao_temporal = true;
         let silhouette_ao = draw(&mut ctx, wgpu::Color::WHITE);
         for (clear, ao) in silhouette
             .as_chunks::<4>()
@@ -365,11 +365,11 @@ fn render(downlevel: bool, benchmark: bool) {
                 assert_eq!(&ao[..3], &[255; 3], "sky silhouette halo");
             }
         }
-        ctx.post.ambient_occlusion.enabled = false;
+        ctx.scene3d.post.ambient_occlusion.enabled = false;
     }
     let no_aa = draw(&mut ctx, wgpu::Color::BLACK);
     for mode in [AntiAliasing::Fxaa, AntiAliasing::Smaa] {
-        ctx.post.anti_aliasing = mode;
+        ctx.scene3d.post.anti_aliasing = mode;
         let aa = draw(&mut ctx, wgpu::Color::BLACK);
         eprintln!("{mode:?}: {} intermediate pixels vs {}", count(&aa), count(&no_aa));
         assert!(

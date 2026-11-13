@@ -356,7 +356,7 @@ pub(crate) fn load(
             .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok());
         if let Some(frames) = extras
             .as_ref()
-            .and_then(|v| v.get("ponkoMorphFrames").or_else(|| v.get("crabbyMorphFrames")))
+            .and_then(|v| v.get("ponkoMorphFrames"))
             .and_then(|v| v.as_array())
         {
             for f in frames {
@@ -478,7 +478,7 @@ fn read_clips(
                 .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok());
             let animated = extras
                 .as_ref()
-                .and_then(|e| e.get("ponkoAnimatedTargets").or_else(|| e.get("crabbyAnimatedTargets")))
+                .and_then(|e| e.get("ponkoAnimatedTargets"))
                 .and_then(|v| v.as_array());
             for channel in animation.channels() {
                 let joint = rig.of_node[channel.target().node().index()];
@@ -1140,10 +1140,7 @@ mod tests {
     #[test]
     fn morph_only_gltf_channels_sample_all_interpolations_and_frame_metadata() {
         use crate::anim::{MorphWeights, Skeleton};
-        for (frames_key, targets_key) in [
-            ("crabbyMorphFrames", "crabbyAnimatedTargets"),
-            ("ponkoMorphFrames", "ponkoAnimatedTargets"),
-        ] {
+        for (frames_key, targets_key) in [("ponkoMorphFrames", "ponkoAnimatedTargets")] {
             for (mode, values, expected) in [
                 ("LINEAR", vec![0., 0.2, 1., 0.6], [0.5, 0.4]),
                 ("STEP", vec![0., 0.2, 1., 0.6], [0., 0.2]),
@@ -1171,10 +1168,6 @@ mod tests {
                 doc["meshes"][0]["extras"][frames_key] = serde_json::json!([
                 {"channel":0,"target":1,"weight":0.5},{"channel":0,"target":0,"weight":1.}]);
                 doc["animations"][0]["extras"][targets_key] = serde_json::json!(["smile"]);
-                if frames_key == "ponkoMorphFrames" {
-                    doc["meshes"][0]["extras"]["crabbyMorphFrames"] = serde_json::json!([]);
-                    doc["animations"][0]["extras"]["crabbyAnimatedTargets"] = serde_json::json!(["blink"]);
-                }
                 let loaded = load("face.gltf", doc.to_string().as_bytes(), &mut |f| Err(f.into()), &|_| {
                     false
                 })

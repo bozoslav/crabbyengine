@@ -95,6 +95,9 @@ pub struct Perf {
 /// How many drawn frames the render inspector's history keeps.
 pub(crate) const RENDER_HISTORY: usize = 120;
 
+/// Why a headless game refuses to record a trace.
+pub(crate) const HEADLESS_TRACE: &str = "headless games have no frames to trace";
+
 /// One drawn frame's rendering cost, as the render inspector's history
 /// keeps it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -291,6 +294,22 @@ impl Perf {
         }
     }
 
+    /// [`record_trace`](Self::record_trace) into a file the control
+    /// endpoint claimed. Refused (and the file removed) where nothing would
+    /// write it: headless.
+    pub(crate) fn record_claimed_trace(
+        &mut self,
+        claimed: crate::control::ClaimedFile,
+        frames: usize,
+    ) -> Result<(), String> {
+        if self.headless {
+            claimed.abandon();
+            return Err(HEADLESS_TRACE.into());
+        }
+        self.profiler.start_claimed_trace(claimed, frames.max(1));
+        Ok(())
+    }
+
     /// Turns on the deeper profiling: your [`profile_scope!`](crate::profile_scope)
     /// scopes and [`Perf::scope`] calls are timed, allocations are counted
     /// (if [`CountingAllocator`] is installed), and
@@ -452,7 +471,7 @@ impl Perf {
         if quit {
             let report = self.report();
             eprint!("{report}");
-            if let Some(path) = crate::environment::var_os("PONKO_BENCH_REPORT")
+            if let Some(path) = std::env::var_os("PONKO_BENCH_REPORT")
                 && let Err(e) = report.save(&path)
             {
                 eprintln!("ponko: could not write {}: {e}", std::path::Path::new(&path).display());

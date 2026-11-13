@@ -15,7 +15,7 @@ methods, so you find a call by asking "which area is this?" and typing
 | `ctx.ui` | `Ui` | The retained widget tree and its events, who has the pointer and the keyboard, and the immediate debug widgets (`ctx.ui.immediate`). |
 | `ctx.assets` | `Assets` | Asset sources, data files, saving scenes and prefabs, what hot reload changed. |
 | `ctx.perf` | `Perf` | System timings, frame and render statistics, the HUD, traces, profiling reports. |
-| `ctx.camera`, `ctx.camera3d`, `ctx.lighting`, `ctx.sky`, `ctx.post`, `ctx.lod` | plain settings | What the renderer reads when it draws the frame. |
+| `ctx.camera`, `ctx.scene3d.camera`, `ctx.scene3d.lighting`, `ctx.scene3d.sky`, `ctx.scene3d.post`, `ctx.scene3d.lod` | plain settings | What the renderer reads when it draws the frame. |
 | `ctx.spatial`, `ctx.physics`, `ctx.physics3d`, `ctx.net` | | Neighbor queries, the physics worlds, the lockstep session. |
 
 The API reference of each service type starts with what lives there, when to
@@ -32,20 +32,20 @@ forward to their service:
 | `ctx.dt()` | `ctx.time.dt()` |
 | `ctx.key_down(k)`, `ctx.key_pressed(k)`, `ctx.key_released(k)` | `ctx.input.key_down(k)`, ... |
 | `ctx.mouse_pos()` | `ctx.input.mouse_pos()` |
-| `ctx.draw(&texture, pos)`, `ctx.draw_text(text, pos, size, color)` | `ctx.gfx.draw(...)`, `ctx.gfx.draw_text(...)` |
+| `ctx.draw(texture, pos)`, `ctx.draw_text(text, pos, size, color)` | `ctx.gfx.draw(...)`, `ctx.gfx.draw_text(...)` |
 | `ctx.load_texture(name)` | `ctx.gfx.load_texture(name)` |
-| `ctx.load_sound(name)`, `ctx.play_sound(&sound)` | `ctx.audio.load(name)`, `ctx.audio.play(&sound)` |
+| `ctx.load_sound(name)`, `ctx.play_sound(sound)` | `ctx.audio.load(name)`, `ctx.audio.play(sound)` |
 | `ctx.quit()` | |
 
 A few more methods stay on `Ctx` because they use several areas at once:
 `ctx.free(handle)`, `ctx.is_live(handle)` and `ctx.live_counts()` (see
 [Handles](handles.md)), `ctx.load_scene(name)` and `ctx.spawn_prefab(name, at)`
 (the world, textures and sounds together, see [Scenes and prefabs](scenes.md)),
-`ctx.random()`, `ctx.mouse_world()`, `ctx.window_size()`, the ragdoll calls,
-and the residency and streaming calls that load or evict (`ctx.resident_mesh`,
-`ctx.stream_texture`, `ctx.set_residency_budget`, `ctx.finish_uploads`, ...:
-they look at what the world shows). What only reads their state is on
-`ctx.gfx` (`ctx.gfx.asset_state`, `ctx.gfx.residency`, `ctx.gfx.upload_stats`).
+`ctx.random()`, `ctx.mouse_world()`, `ctx.window_size()` and the ragdoll calls.
+Asset loading, streaming and residency are all on `ctx.gfx` (see
+[Streaming and residency](streaming.md)). Only `ctx.finish_uploads()`, for
+loading screens, stays on `Ctx`: it may evict, and eviction looks at what the
+world's entities show.
 
 ## Two areas at once
 
@@ -73,7 +73,7 @@ frame anywhere else. When the code should say which one it means:
 
 | Call | What it is |
 |---|---|
-| `ctx.time.sim_dt()` | The simulation step, in every kind of system (times `every` inside a system added with `sim_system_every`). |
+| `ctx.time.sim_dt()` | The simulation step, in every kind of system (times the interval inside a system added with one, `system.every(n)`). |
 | `ctx.time.frame_dt()` | Real time since the last frame, in every kind of system. |
 
 ## Calls that need another area
@@ -97,15 +97,14 @@ if ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, rect, "Pause") {
 ```
 
 With the `3d` feature the same holds for
-`ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, quality)`,
+`ctx.scene3d.set_quality(quality)`,
 `ctx.gfx.write_animated_morphs(&mut ctx.world)` and the reflection probe
 calls.
 
 ## Coming from the flat spelling
 
-Before the services, every call was a method of `Ctx`. Those methods still
-compile and forward to the service; each one is deprecated, and the compiler
-warning names the new spelling. Most keep their name and only gain the
+Before the services, every call was a method of `Ctx`. Those flat methods
+were removed in 0.1.0; call the service. Most keep their name and only gain the
 field: `ctx.set_cursor_locked(true)` is `ctx.input.set_cursor_locked(true)`,
 `ctx.create_mesh(...)` is `ctx.gfx.create_mesh(...)`. The ones whose name
 changed, because the field now says the area:
@@ -121,7 +120,7 @@ changed, because the field now says the area:
 | `ctx.stop_sound`, `ctx.set_sound_effects` | `ctx.audio.stop`, `ctx.audio.set_effects` |
 | `ctx.audio_bus`, `ctx.set_audio_bus_volume`, `ctx.mute_audio_bus` | `ctx.audio.bus`, `ctx.audio.set_bus_volume`, `ctx.audio.mute_bus` |
 | `ctx.set_audio_listener`, `ctx.audio_listener` | `ctx.audio.set_listener`, `ctx.audio.listener` |
-| `ctx.graphics_quality()`, `ctx.set_graphics_quality(q)` | `ctx.gfx.quality(&ctx.post, &ctx.lighting)`, `ctx.gfx.set_quality(&mut ctx.post, &mut ctx.lighting, q)` |
+| `ctx.graphics_quality()`, `ctx.set_graphics_quality(q)` | `ctx.scene3d.quality()`, `ctx.scene3d.set_quality(q)` |
 | `ctx.free_gpu_buffer(buffer)` | `ctx.free(buffer)` |
 | `ctx.ui_retained` (field) | `ctx.ui` |
 | `ctx.ui_style` (field) | `ctx.ui.immediate.style` |
@@ -134,12 +133,11 @@ changed, because the field now says the area:
 | `ctx.set_perf_hud`, `ctx.perf_hud`, `ctx.perf_report` | `ctx.perf.set_hud`, `ctx.perf.hud`, `ctx.perf.report` |
 | `ctx.profile(name, \|ctx\| ...)` | `let _timing = ctx.perf.scope(name);` |
 
-The two fields in the table (`ui_retained`, `ui_style`) are the only
-spellings that no longer compile.
-
-## C and C++
-
-The C API and the C++ wrapper keep their flat names (`ponko_ctx_*`,
-`ctx.key_down(...)`, `ctx.play_sound(...)`): they don't have Rust's borrow
-rules to work around, and the ABI does not change with this grouping. The
-C++ examples in this guide therefore look the same as before.
+`Ctx` keeps a short list of shortcuts on purpose: `dt`, `key_down`,
+`key_pressed`, `key_released`, `mouse_pos`, `mouse_world`, `window_size`,
+`quit`, `draw`, `draw_text`, `load_texture`, `load_sound`, `play_sound` and
+`random`. A method that needs several services at once stays on `Ctx` as well:
+`free` and `is_live`, loading a scene or spawning a prefab, streaming and
+residency (`stream_mesh`, `resident_texture`, ...), ragdolls and the reports
+across services (`live_counts`, `asset_inventory`). Every other call is on its
+service.

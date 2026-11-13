@@ -53,7 +53,7 @@ pub enum QueryCache {
 ///
 /// A query's *signature* is the set of archetypes it can match: its required
 /// components and its `With` / `Without` / `Or` filters, in a normal form
-/// (so `query::<&A>().with::<B>()` and `query::<(&A, &B)>()` share one).
+/// (so `query::<&A>().filter::<With<B>>()` and `query::<(&A, &B)>()` share one).
 /// The default policy indexes a signature when all of these hold:
 ///
 /// - the world has at least [`min_archetypes`](Self::min_archetypes)

@@ -5,10 +5,10 @@
 //!
 //! | Stage | From | Writes its target by |
 //! |---|---|---|
-//! | compute | `Ctx::compute_passes` | reading what is there (read-modify-write) |
-//! | target cameras | `Ctx::target_cameras` | replacing all of it |
-//! | scene compute | `Ctx::scene_compute_passes` | reading what is there |
-//! | target effects | `Ctx::target_effects` | replacing all of it |
+//! | compute | `RenderPasses::compute` | reading what is there (read-modify-write) |
+//! | target cameras | `RenderPasses::target_cameras` | replacing all of it |
+//! | scene compute | `RenderPasses::scene_compute` | reading what is there |
+//! | target effects | `RenderPasses::target_effects` | replacing all of it |
 //!
 //! (screen effects come last and write only the frame). Each entry declares
 //! what it writes (its render target or GPU buffer) and what it reads (the
@@ -45,13 +45,13 @@ use std::fmt;
 /// A stage of the frame that runs the game's passes, in frame order.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) enum Stage {
-    /// `Ctx::compute_passes`, before anything is drawn.
+    /// `RenderPasses::compute`, before anything is drawn.
     Compute,
-    /// `Ctx::target_cameras`, before the main view.
+    /// `RenderPasses::target_cameras`, before the main view.
     TargetCamera,
-    /// `Ctx::scene_compute_passes`, once the lit frame is settled.
+    /// `RenderPasses::scene_compute`, once the lit frame is settled.
     SceneCompute,
-    /// `Ctx::target_effects`, after the scene compute passes.
+    /// `RenderPasses::target_effects`, after the scene compute passes.
     TargetEffect,
 }
 
@@ -68,10 +68,10 @@ impl Stage {
     /// The `Ctx` list its entries come from.
     const fn list(self) -> &'static str {
         match self {
-            Stage::Compute => "ctx.compute_passes",
-            Stage::TargetCamera => "ctx.target_cameras",
-            Stage::SceneCompute => "ctx.scene_compute_passes",
-            Stage::TargetEffect => "ctx.target_effects",
+            Stage::Compute => "ctx.scene3d.passes.compute",
+            Stage::TargetCamera => "ctx.scene3d.passes.target_cameras",
+            Stage::SceneCompute => "ctx.scene3d.passes.scene_compute",
+            Stage::TargetEffect => "ctx.scene3d.passes.target_effects",
         }
     }
 
@@ -310,12 +310,12 @@ mod tests {
         assert_eq!(found[0].skipped(), effect);
         let text = found[0].to_string();
         assert!(
-            text.contains("target effect 1 (ctx.target_effects, effect 9) skipped"),
+            text.contains("target effect 1 (ctx.scene3d.passes.target_effects, effect 9) skipped"),
             "{text}"
         );
         assert!(text.contains("render target 7"), "{text}");
         assert!(
-            text.contains("scene compute pass 0 (ctx.scene_compute_passes"),
+            text.contains("scene compute pass 0 (ctx.scene3d.passes.scene_compute"),
             "{text}"
         );
     }
@@ -327,7 +327,11 @@ mod tests {
         let found = hazards(&[compute, camera], &[]);
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].skipped(), compute, "cameras are not custom passes");
-        assert!(found[0].to_string().contains("target camera 0 (ctx.target_cameras)"));
+        assert!(
+            found[0]
+                .to_string()
+                .contains("target camera 0 (ctx.scene3d.passes.target_cameras)")
+        );
     }
 
     #[test]

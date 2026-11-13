@@ -44,12 +44,13 @@ fn rotate_toward(s: &mut Skeleton, j: usize, from: Vec3, to: Vec3, w: f32, max: 
 ///
 /// Entity non-uniform scale is removed before solving. Exact reach requires
 /// uniform positive joint scales; joint non-uniform scale/shear is approximate.
-/// No allocations are made. Apply after animation with [`crate::Game::late_system`].
+/// No allocations are made. Apply after animation, in a system of
+/// [`Phase::Late`](crate::Phase::Late).
 ///
 /// ```
 /// use ponko::prelude::*;
 /// let mut s = ponko::anim::Skeleton::new(vec![]);
-/// ponko::render::two_bone_ik(&mut s, &ponko::d3::Transform::default(), [0, 1, 2], Vec3::Y, Vec3::Z, 1.0);
+/// ponko::anim::two_bone_ik(&mut s, &ponko::d3::Transform::default(), [0, 1, 2], Vec3::Y, Vec3::Z, 1.0);
 /// ```
 pub fn two_bone_ik(s: &mut Skeleton, model: &Transform3D, chain: [usize; 3], target: Vec3, pole: Vec3, w: f32) {
     let [upper, middle, end] = chain;
@@ -114,7 +115,7 @@ pub fn two_bone_ik(s: &mut Skeleton, model: &Transform3D, chain: [usize; 3], tar
 /// ```
 /// use ponko::prelude::*;
 /// let mut s = ponko::anim::Skeleton::new(vec![ponko::anim::Joint { name: "head".into(), parent: None, rest: ponko::d3::Transform::default() }]);
-/// ponko::render::look_at_joint(&mut s, &ponko::d3::Transform::default(), 0, Vec3::Z, Vec3::X, 1.0, 0.5);
+/// ponko::anim::look_at_joint(&mut s, &ponko::d3::Transform::default(), 0, Vec3::Z, Vec3::X, 1.0, 0.5);
 /// ```
 #[allow(clippy::too_many_arguments)]
 pub fn look_at_joint(
@@ -173,7 +174,7 @@ impl crate::Ctx {
             let Some(p) = s.joints()[j].parent else {
                 continue;
             };
-            let m = self.camera3d.view_proj() * model;
+            let m = self.scene3d.camera.view_proj() * model;
             let mut a = m * position(s, p).extend(1.0);
             let mut b = m * position(s, j).extend(1.0);
             let mut visible = true;
@@ -195,7 +196,7 @@ impl crate::Ctx {
                 continue;
             }
             let screen = |v: glam::Vec4| {
-                (glam::Vec2::new(v.x / v.w, -v.y / v.w) + glam::Vec2::ONE) * 0.5 * self.camera3d.viewport
+                (glam::Vec2::new(v.x / v.w, -v.y / v.w) + glam::Vec2::ONE) * 0.5 * self.scene3d.camera.viewport
             };
             let a = self.camera.screen_to_world(screen(a));
             let b = self.camera.screen_to_world(screen(b));

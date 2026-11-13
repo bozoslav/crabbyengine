@@ -37,10 +37,9 @@ fn allocations(declared: bool) -> u64 {
         .physics(vec2(0.0, 980.0))
         .physics3d(vec3(0.0, -9.81, 0.0));
     let game = if declared {
-        game.add_with_access(
+        game.add(
             Phase::BeforePhysics,
-            systems::step_navmesh3d_access(),
-            systems::step_navmesh3d,
+            systems::step_navmesh3d.access(systems::step_navmesh3d_access()),
         )
     } else {
         game.remove(Systems::PHYSICS)

@@ -124,10 +124,7 @@ fn a_failed_reload_keeps_the_old_shader_and_a_fix_reloads() {
         })
         .run_headless(6, move |ctx| {
             let shader = ctx.gfx.load_shader(&name);
-            ctx.gfx.create_material(MaterialDesc {
-                shader: Some(shader),
-                ..Default::default()
-            });
+            ctx.gfx.create_material(MaterialDesc::default().with_shader(shader));
         });
     let seen = seen.lock().unwrap();
     let outcomes: Vec<ShaderOutcome> = seen.iter().map(|s| s.outcome).collect();
@@ -192,15 +189,12 @@ fn shader_files_that_fail_at_first_load_are_watched_and_a_fix_loads_them() {
         .run_headless(6, move |ctx| {
             let shader = ctx.gfx.load_shader(&names[0]);
             assert_eq!(ctx.gfx.load_shader(&names[0]), shader, "loading again: the same handle");
-            ctx.gfx.create_material(MaterialDesc {
-                shader: Some(shader),
-                ..Default::default()
-            });
+            ctx.gfx.create_material(MaterialDesc::default().with_shader(shader));
             let effect = ctx.gfx.load_effect(&names[1]);
-            ctx.effects.push(ScreenEffect::new(effect));
+            ctx.scene3d.passes.effects.push(ScreenEffect::new(effect));
             let compute = ctx.gfx.load_compute(&names[2]);
             let target = ctx.gfx.create_render_target(8, 8);
-            ctx.compute_passes.push(ComputePass::new(compute, target));
+            ctx.scene3d.passes.compute.push(ComputePass::new(compute, target));
         });
     let seen = seen.lock().unwrap();
     use ShaderOutcome::*;

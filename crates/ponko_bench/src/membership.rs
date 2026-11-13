@@ -44,7 +44,7 @@
 //! Lookups are independent of each other, so they measure throughput, not
 //! latency.
 
-use ponko_ecs::{Archetype, ComponentId, Entity, World};
+use ponko_ecs::{Archetype, ComponentId, Entity, Without, World};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::hint::black_box;
@@ -120,7 +120,7 @@ fn registered_world() -> (World, Vec<ComponentId>) {
     let mut ids = vec![w.register::<Seed>()];
     for i in 1..REGISTERED {
         // SAFETY: plain 4-byte values, no destructor.
-        ids.push(unsafe { w.register_component(&format!("c{i}"), 4, 4, None) });
+        ids.push(unsafe { w.raw().register_component(&format!("c{i}"), 4, 4, None) });
     }
     assert!(ids.iter().enumerate().all(|(i, id)| id.index() == i));
     (w, ids)
@@ -522,7 +522,7 @@ fn transitions(filter: Option<&str>) {
         let (mut w, ids, e) = world_with(&set);
         let extra0 = ids[SPREAD];
         // SAFETY: an 8-byte value whose drop function does nothing.
-        let with_drop = unsafe { w.register_component("with-drop", 8, 8, Some(noop_drop)) };
+        let with_drop = unsafe { w.raw().register_component("with-drop", 8, 8, Some(noop_drop)) };
         let drop_value = [0u8; 8];
         // SAFETY: an 8-byte value of the 8-byte component.
         assert!(unsafe { w.raw().insert_dynamic(e, with_drop, drop_value.as_ptr()) });
@@ -756,7 +756,7 @@ fn query_world(width: usize, place: Place) -> (World, ComponentId, ComponentId) 
     }
     let pool: Vec<ComponentId> = (0..SPREAD)
         // SAFETY: plain 4-byte values, no destructor.
-        .map(|i| unsafe { w.register_component(&format!("q{i}"), 4, 4, None) })
+        .map(|i| unsafe { w.raw().register_component(&format!("q{i}"), 4, 4, None) })
         .collect();
     w.register::<Tag>();
     if place == Place::Last {
@@ -848,7 +848,7 @@ fn query_level(filter: Option<&str>) {
                     Box::new(|| {
                         let mut w = w.borrow_mut();
                         let mut n = 0;
-                        w.query::<(&mut P, &V)>().without::<Tag>().for_each(|(a, b)| {
+                        w.query::<(&mut P, &V)>().filter::<Without<Tag>>().for_each(|(a, b)| {
                             a.0 += b.0;
                             n += 1;
                         });

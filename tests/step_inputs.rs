@@ -9,16 +9,25 @@
 //! declarations: a step that used anything it didn't declare would panic.
 #![cfg(any(feature = "physics", feature = "physics3d", feature = "navmesh"))]
 
+#[cfg(any(feature = "physics", feature = "physics3d"))]
 use std::cell::RefCell;
+#[cfg(any(feature = "physics", feature = "physics3d"))]
 use std::rc::Rc;
 
-use ponko::access::{AccessConflict, Service};
+#[cfg(feature = "physics3d")]
+use ponko::access::AccessConflict;
+#[cfg(any(feature = "physics", feature = "physics3d"))]
+use ponko::access::Service;
+#[cfg(any(feature = "physics", feature = "physics3d"))]
+use ponko::collision::CollisionStarted;
 use ponko::prelude::*;
-use ponko::{CollisionStarted, Systems, systems};
+use ponko::{Systems, systems};
 
+#[cfg(any(feature = "physics", feature = "physics3d"))]
 type Log<T> = Rc<RefCell<Vec<T>>>;
 
 /// The tick each run of this system read a `CollisionStarted` in, once per event.
+#[cfg(any(feature = "physics", feature = "physics3d"))]
 fn starts(log: &Log<u64>) -> impl FnMut(&mut Ctx) + 'static {
     let log = Rc::clone(log);
     move |ctx: &mut Ctx| {
@@ -57,10 +66,9 @@ mod physics2d {
     #[test]
     fn the_step_declares_its_inputs_and_keeps_its_id_and_phase() {
         struct Score;
-        let game = Game::new("t", 1, 1).physics(Vec2::ZERO).add_with_access(
+        let game = Game::new("t", 1, 1).physics(Vec2::ZERO).add(
             Phase::Physics,
-            ponko::access::SystemAccess::new().write::<Score>(),
-            |_| {},
+            (|_: &mut Ctx| {}).access(ponko::access::SystemAccess::new().write::<Score>()),
         );
         assert_eq!(game.system_count(Systems::PHYSICS), 1);
         let report = game.access_report();
@@ -94,7 +102,7 @@ mod physics2d {
             .add(Phase::BeforePhysics, starts(&early))
             .physics(Vec2::ZERO)
             .sim_system(starts(&late))
-            .sim_system_every(4, starts(&slow))
+            .add(Phase::AfterPhysics, starts(&slow).every(4))
             .run_headless(40, |ctx| {
                 ctx.world.spawn(sensor());
                 ctx.world.spawn(flying_ball());
@@ -119,7 +127,7 @@ mod physics2d {
             // The same step, run every few ticks with the time they cover.
             game = game
                 .remove(Systems::PHYSICS)
-                .sim_system_every(every, systems::step_physics);
+                .add(Phase::AfterPhysics, systems::step_physics.every(every));
         }
         let mut ball = None;
         let world = game.sim_system(starts(&seen)).run_headless(ticks, |ctx| {
@@ -161,7 +169,7 @@ mod physics2d {
         let mut ball = None;
         let world = Game::new("t", 1, 1)
             .add(Phase::BeforePhysics, |ctx: &mut Ctx| {
-                let ball = ctx.world.query::<Entity>().with::<Velocity>().iter().next();
+                let ball = ctx.world.query::<Entity>().filter::<With<Velocity>>().iter().next();
                 match (ctx.time.sim_tick(), ball) {
                     // Into the sensor: a teleport, by writing the transform.
                     (3, Some(ball)) => ctx.world.get_mut::<Transform2D>(ball).unwrap().position = vec2(2.0, 0.0),
@@ -205,7 +213,13 @@ mod physics2d {
                     .borrow_mut()
                     .push((ctx.time.sim_tick(), ctx.physics.body_count()));
                 if ctx.time.sim_tick() == 4 {
-                    let ball = ctx.world.query::<Entity>().with::<Velocity>().iter().next().unwrap();
+                    let ball = ctx
+                        .world
+                        .query::<Entity>()
+                        .filter::<With<Velocity>>()
+                        .iter()
+                        .next()
+                        .unwrap();
                     ctx.commands.despawn(ball);
                 }
             })
@@ -224,8 +238,8 @@ mod physics2d {
 mod physics3d {
     use super::*;
     use ponko::d3::{
-        Character as Character3D, Collider as Collider3D, QueryFilter as QueryFilter3D, RigidBody as RigidBody3D,
-        Transform as Transform3D, Velocity as Velocity3D,
+        Character as Character3D, Collider as Collider3D, RigidBody as RigidBody3D, Transform as Transform3D,
+        Velocity as Velocity3D,
     };
 
     fn sensor() -> (Transform3D, RigidBody3D, Collider3D) {
@@ -284,7 +298,7 @@ mod physics3d {
         let world = Game::new("t", 1, 1)
             .add(Phase::BeforePhysics, starts(&early))
             .add(Phase::BeforePhysics, |ctx: &mut Ctx| {
-                let ball = ctx.world.query::<Entity>().with::<Velocity3D>().iter().next();
+                let ball = ctx.world.query::<Entity>().filter::<With<Velocity3D>>().iter().next();
                 match (ctx.time.sim_tick(), ball) {
                     (3, Some(ball)) => ctx.world.get_mut::<Transform3D>(ball).unwrap().position = vec3(0.2, 0.0, 0.0),
                     (6, Some(ball)) => ctx.commands.despawn(ball),
@@ -293,7 +307,7 @@ mod physics3d {
             })
             .physics3d(Vec3::ZERO)
             .sim_system(starts(&late))
-            .sim_system_every(4, starts(&slow))
+            .add(Phase::AfterPhysics, starts(&slow).every(4))
             .sim_system(move |ctx: &mut Ctx| {
                 counts
                     .borrow_mut()
@@ -340,7 +354,7 @@ mod physics3d {
                     let x = ctx
                         .world
                         .query::<&Transform3D>()
-                        .with::<Character3D>()
+                        .filter::<With<Character3D>>()
                         .iter()
                         .next()
                         .unwrap()
@@ -373,7 +387,7 @@ mod physics3d {
     #[cfg(feature = "navmesh")]
     mod navigation {
         use super::*;
-        use ponko::d3::{NavAgent as NavAgent3D, NavMesh as NavMesh3D};
+        use ponko::d3::{NavAgent as NavAgent3D, NavMesh as NavMesh3D, QueryFilter as QueryFilter3D};
         use ponko::nav::{NavBakeSettings, NavSource};
         use ponko::render::MeshData;
 
@@ -386,7 +400,10 @@ mod physics3d {
             let seen = Rc::clone(&found);
             Game::new("t", 1, 1)
                 .fixed_hz(60)
-                .add_with_access(navigation, systems::step_navmesh3d_access(), systems::step_navmesh3d)
+                .add(
+                    navigation,
+                    systems::step_navmesh3d.access(systems::step_navmesh3d_access()),
+                )
                 .physics3d(Vec3::ZERO)
                 .add(Phase::SimLast, move |ctx: &mut Ctx| {
                     if ctx.time.sim_tick() < 40 {
@@ -395,7 +412,7 @@ mod physics3d {
                     let (walker, at) = ctx
                         .world
                         .query::<(Entity, &Transform3D)>()
-                        .with::<NavAgent3D>()
+                        .filter::<With<NavAgent3D>>()
                         .iter()
                         .map(|(e, t)| (e, t.position))
                         .next()
@@ -473,10 +490,9 @@ mod navmesh {
         let run = |declared: bool| {
             let game = Game::new("t", 1, 1).fixed_hz(60);
             let game = if declared {
-                game.add_with_access(
+                game.add(
                     Phase::AfterPhysics,
-                    systems::step_navmesh3d_access(),
-                    systems::step_navmesh3d,
+                    systems::step_navmesh3d.access(systems::step_navmesh3d_access()),
                 )
             } else {
                 game.sim_system(systems::step_navmesh3d)
@@ -512,16 +528,20 @@ mod navmesh {
                 if ctx.time.sim_tick() != 30 {
                     return;
                 }
-                let mut agents: Vec<Entity> = ctx.world.query::<Entity>().with::<NavAgent3D>().iter().collect();
+                let mut agents: Vec<Entity> = ctx
+                    .world
+                    .query::<Entity>()
+                    .filter::<With<NavAgent3D>>()
+                    .iter()
+                    .collect();
                 agents.sort_unstable();
                 // The first one jumps past its goal; the second is removed.
                 ctx.world.get_mut::<Transform3D>(agents[0]).unwrap().position = vec3(8.0, 0.0, 0.0);
                 ctx.commands.despawn(agents[1]);
             })
-            .add_with_access(
+            .add(
                 Phase::AfterPhysics,
-                systems::step_navmesh3d_access(),
-                systems::step_navmesh3d,
+                systems::step_navmesh3d.access(systems::step_navmesh3d_access()),
             )
             .run_headless(240, |ctx| {
                 ctx.world.insert_resource(baked());

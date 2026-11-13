@@ -140,7 +140,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(size.0 as f32, size.1 as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         ctx.gfx.assets3d.decals_supported = supports_decals(&device);
         ctx.gfx.assets3d.gi_supported = true;
         Some(Self {
@@ -184,13 +184,13 @@ impl Rig {
         }
         {
             let ctx = &mut self.ctx;
-            ctx.gfx.frame3d.lod = ctx.lod;
+            ctx.gfx.frame3d.lod = ctx.scene3d.lod;
             ctx.gfx.frame3d.collect(
                 &mut ctx.world,
                 &ctx.gfx.assets3d,
                 &SkinFrame::default(),
-                &ctx.camera3d,
-                &ctx.lighting,
+                &ctx.scene3d.camera,
+                &ctx.scene3d.lighting,
             );
             let rgb = |c| {
                 let [r, g, b, _] = crate::three::linear(c);
@@ -198,15 +198,15 @@ impl Rig {
             };
             let scene = Scene3D {
                 frame: &ctx.gfx.frame3d,
-                lighting: &ctx.lighting,
-                sky: &ctx.sky,
+                lighting: &ctx.scene3d.lighting,
+                sky: &ctx.scene3d.sky,
                 light: SkyLight {
-                    sun: Vec3::splat(ctx.lighting.sun_intensity),
-                    sky: rgb(ctx.lighting.sky_color),
-                    ground: rgb(ctx.lighting.ground_color),
+                    sun: Vec3::splat(ctx.scene3d.lighting.sun_intensity),
+                    sky: rgb(ctx.scene3d.sky.sky_color),
+                    ground: rgb(ctx.scene3d.sky.ground_color),
                 },
-                camera: ctx.camera3d.position,
-                post: &ctx.post,
+                camera: ctx.scene3d.camera.position,
+                post: &ctx.scene3d.post,
                 time: (0.0, 1.0 / 60.0),
                 occlusion: false,
             };
@@ -299,14 +299,14 @@ impl Rig {
         rig.block(white, vec3(0.0, 3.5, -outer), vec3(outer, 3.9, outer));
         rig.block(white, vec3(-2.0, 3.5, -outer), vec3(0.0, 3.9, -1.5));
         rig.block(white, vec3(-2.0, 3.5, 1.5), vec3(0.0, 3.9, outer));
-        let lighting = &mut rig.ctx.lighting;
+        let lighting = &mut rig.ctx.scene3d.lighting;
         // From the upper east: through the opening onto the west wall,
         // between 0 and 2 high.
         lighting.sun_direction = vec3(-1.0, -1.0, 0.0);
         lighting.sun_color = Color::WHITE;
         lighting.sun_intensity = 4.0;
-        lighting.sky_color = Color::rgb(0.5, 0.5, 0.5);
-        lighting.ground_color = Color::rgb(0.5, 0.5, 0.5);
+        rig.ctx.scene3d.sky.sky_color = Color::rgb(0.5, 0.5, 0.5);
+        rig.ctx.scene3d.sky.ground_color = Color::rgb(0.5, 0.5, 0.5);
         lighting.ambient_intensity = 0.3;
         lighting.shadow_distance = 30.0;
         lighting.gi = GlobalIllumination {
@@ -316,14 +316,14 @@ impl Rig {
             probes_per_frame: crate::render::GlobalIllumination::MAX_PROBES_PER_FRAME,
             intensity: 1.0,
         };
-        rig.ctx.camera3d.position = vec3(2.0, 1.3, 0.3);
-        rig.ctx.camera3d.look_at(vec3(-3.5, -0.2, 0.0));
+        rig.ctx.scene3d.camera.position = vec3(2.0, 1.3, 0.3);
+        rig.ctx.scene3d.camera.look_at(vec3(-3.5, -0.2, 0.0));
         Some(rig)
     }
 
     /// The color of the world point `p` in `pixels`.
     fn at(&self, pixels: &[u8], p: Vec3) -> [i32; 3] {
-        let c = self.ctx.camera3d.view_proj() * p.extend(1.0);
+        let c = self.ctx.scene3d.camera.view_proj() * p.extend(1.0);
         let ndc = c.truncate() / c.w;
         let x = ((ndc.x * 0.5 + 0.5) * SIZE as f32) as u32;
         let y = ((0.5 - ndc.y * 0.5) * SIZE as f32) as u32;
@@ -409,10 +409,10 @@ fn gi_cost() {
             rig.block(mesh, at, at + vec3(2.5, height, 2.5));
         }
     }
-    rig.ctx.lighting.sun_direction = vec3(-0.4, -1.0, -0.3);
-    rig.ctx.camera3d.position = vec3(1.0, 1.7, 1.0);
-    rig.ctx.camera3d.look_at(vec3(20.0, 3.0, 12.0));
-    rig.ctx.camera3d.far = 200.0;
+    rig.ctx.scene3d.lighting.sun_direction = vec3(-0.4, -1.0, -0.3);
+    rig.ctx.scene3d.camera.position = vec3(1.0, 1.7, 1.0);
+    rig.ctx.scene3d.camera.look_at(vec3(20.0, 3.0, 12.0));
+    rig.ctx.scene3d.camera.far = 200.0;
     // Rounds of every setting, each setting's best round kept: this runs
     // on machines doing other things too.
     let settings = [
@@ -429,7 +429,7 @@ fn gi_cost() {
     let mut best = vec![(f32::MAX, f64::MAX, f64::MAX, String::new()); settings.len()];
     for _ in 0..5 {
         for (k, &(_, gi)) in settings.iter().enumerate() {
-            rig.ctx.lighting.gi = GlobalIllumination {
+            rig.ctx.scene3d.lighting.gi = GlobalIllumination {
                 enabled: gi.is_some(),
                 probes_per_frame: gi.unwrap_or(1),
                 ..Default::default()
@@ -461,8 +461,8 @@ fn gi_cost() {
                     &mut rig.ctx.world,
                     &rig.ctx.gfx.assets3d,
                     &SkinFrame::default(),
-                    &rig.ctx.camera3d,
-                    &rig.ctx.lighting,
+                    &rig.ctx.scene3d.camera,
+                    &rig.ctx.scene3d.lighting,
                 );
             }
             let cpu = cpu_start.elapsed().as_secs_f64() * 1000.0 / 30.0;

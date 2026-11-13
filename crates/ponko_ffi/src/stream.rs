@@ -3,6 +3,7 @@
 //! game's (C++ has `std::async` and threads); Rust's `Job` has no C API.
 
 use ponko::terrain::FarTerrain;
+use ponko::terrain::TerrainTile;
 use ponko::terrain::TerrainTileData;
 use ponko::{stream::CellStreamer, vec3};
 
@@ -366,8 +367,8 @@ pub unsafe extern "C" fn ponko_ctx_is_mesh_live(
     boundary(|| unsafe { ctx_access(ctx, |c| out(out_live, c.gfx.is_live(to_c(mesh)))) })
 }
 
-/// Frees every detail level of `tile` (Rust `Graphics::free_terrain_tile`);
-/// despawn its entity too.
+/// Frees every detail level of `tile` (Rust `Graphics::free` with the
+/// tile); despawn its entity too.
 /// # Safety
 /// `ctx` null or live.
 /// ```
@@ -379,7 +380,7 @@ pub unsafe extern "C" fn ponko_ctx_free_terrain_tile(ctx: *mut PonkoCtx, tile: P
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            c.gfx.free_terrain_tile(to_c(tile));
+            c.gfx.free::<TerrainTile>(to_c(tile));
             Ok(())
         })
     })

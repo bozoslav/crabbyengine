@@ -14,9 +14,11 @@ everything), so existing games behave exactly as before.
 
 ## View systems
 
-A view system declares its access with a `SystemAccess` and gets a
-`SystemView` instead of `&mut Ctx`: exactly what it declared, and nothing
-else.
+A view system is a function of `&mut SystemView` instead of `&mut Ctx`. It
+declares its access with a `SystemAccess`, attached where it is added
+(`system.access(...)`), and its `SystemView` offers exactly what it
+declared, and nothing else. It goes through the same `Game::add` as any
+other system.
 
 <div class="lang-pair">
 <div>
@@ -45,7 +47,7 @@ What a declaration can name:
 | `read::<T>()` / `write::<T>()` | component `T` (`&T` / `&mut T` in queries, `get` / `get_mut`) |
 | `read_resource::<R>()` / `write_resource::<R>()` | resource `R` (writing includes inserting and removing it) |
 | `read_events::<E>()` / `send_events::<E>()` | reading / sending `E` events (separate rights) |
-| `commands()` | `sys.commands()`: spawning, despawning, inserting and removing components |
+| `commands()` | `sys.commands`: spawning, despawning, inserting and removing components |
 | `read_service(s)` / `write_service(s)` | an engine service (below) |
 
 `sys.world` is a `WorldView`: queries, `get`, `get_mut`, resources, and
@@ -53,14 +55,14 @@ entity checks (`is_alive`, `has`, `len`), all limited to the declaration. It
 has no `spawn`, `despawn`, `insert` or `remove`: structural changes go
 through commands, which apply after the system as usual. Its writes count
 for [change detection](ecs.md#change-detection) like any others, and its
-queries take the same filters as world queries: `with`, `without` and
-`filter::<F>()` with `With`, `Without`, `Or`, `Added<T>` and `Changed<T>`.
+queries take the same filters as world queries: `filter::<F>()` with
+`With`, `Without`, `Or`, `Added<T>` and `Changed<T>`.
 A change filter on `T` reads the stamps `T`'s writers leave, so it needs `T`
 declared (`read::<T>()` is enough); `sys.world.removed::<T>()` needs the
 same. Like a `&mut Ctx` system, a view system is shown what changed since it
-last ran. A view can't start tracking a component (that reallocates its
-storage), so call `ctx.world.track_changes::<T>()` in setup; a change
-filter on an untracked component panics and says so.
+last ran. Tracking is explicit, as in a world query: call
+`ctx.world.track_changes::<T>()` in setup; a change filter on an untracked
+component panics and says so.
 
 ```rust
 # use ponko::prelude::*;
@@ -76,15 +78,14 @@ fn report_hurt(sys: &mut SystemView) {
         .filter::<Changed<Health>>()
         .for_each(|e| hurt.push(e));
     for e in hurt {
-        sys.events().send(Hurt(e));
+        sys.events.send(Hurt(e));
     }
 }
 
 # fn main() {
-let _game = Game::new("t", 1, 1).add_view(
+let _game = Game::new("t", 1, 1).add(
     Phase::AfterPhysics,
-    SystemAccess::new().read::<Health>().send_events::<Hurt>(),
-    report_hurt,
+    report_hurt.access(SystemAccess::new().read::<Health>().send_events::<Hurt>()),
 );
 # }
 ```
@@ -103,33 +104,44 @@ entity: a view system's loops cost the same as a `Ctx` system's.
 
 ### Services
 
-Services follow the service fields of `Ctx`. A view offers the ones whose
-state can be handed out on its own:
+Services follow the service fields of `Ctx`, and a view has them under the
+same names: what is `ctx.input.action_down("jump")` in a `Ctx` system is
+`sys.input.action_down("jump")` in a view system. A view offers the ones
+whose state can be handed out on its own:
 
-| `Service` | In a `SystemView` |
-|---|---|
-| `Input` | read: `key_down`, `mouse_pos`, `action_down`, ... |
-| `Time` | read: `dt`, `fixed_dt`, `sim_tick`, `time`, `frame` |
-| `Random` | read: `random()`, the system's stream for this tick (the same one `ctx.random()` gives) |
-| `Audio` | write: `play_sound`, `play_sound_ex` |
-| `Camera` | read `camera()` / `camera3d()`, write `camera_mut()` / `camera3d_mut()` |
-| `Spatial` | read: `spatial()` |
-| `d2::Physics`, `d3::Physics` | read `physics()` (ray casts, overlaps), write `physics_mut()` |
-| `Net` | read `net()`, write `net_mut()` |
-| `Gfx`, `Ui`, `Assets`, `Perf` | not offered |
+| `Service` | In a `SystemView` | Shortcuts, as on `Ctx` |
+|---|---|---|
+| `Input` | `sys.input`, read only: `action_down`, `mouse_down`, `gamepad_axis`, ... | `key_down`, `key_pressed`, `key_released`, `mouse_pos` |
+| `Time` | `sys.time`, read only: `sim_tick`, `fixed_dt`, `elapsed`, `frame`, `turns`, ... | `dt` |
+| `Random` | | `random()`, the system's stream for this tick (the same one `ctx.random()` gives) |
+| `Audio` | `sys.audio`: `play_ex`, buses, the listener | `play_sound` |
+| `Camera` | `sys.camera`, `sys.camera3d` | |
+| `Spatial` | `sys.spatial`, read only | |
+| `Physics`, `Physics3D` | `sys.physics`, `sys.physics3d`: ray casts and overlaps read, impulses and gravity write | |
+| `Net` | `sys.net`, lockstep networking (`ctx.net.lockstep`) | |
+| `Gfx`, `Ui`, `Assets`, `Perf` | not offered | |
+
+Each of those fields checks the declaration when it is used: reading
+needs `read_service` (or `write_service`), changing it (`sys.camera.zoom =
+2.0`, anything that takes the service mutably) needs `write_service`.
+`sys.commands` and `sys.events` work the same way, behind `commands()` and
+`read_events` / `send_events`.
 
 Drawing, UI, assets and profiling hold window, renderer and asset-table
-state; systems that need them keep `&mut Ctx`. `Game::add_view` panics at
-registration if a declaration names a service the view can't offer, or
-writing `Input`, `Time` or `Spatial`.
+state; systems that need them keep `&mut Ctx`. `Game::add` panics at
+registration if a view system's declaration names a service the view can't
+offer, or writing `Input`, `Time` or `Spatial`. A view system added without
+a declaration can reach nothing.
 
 ## Declaring `Ctx` systems
 
-`Game::add_with_access` attaches a declaration to an ordinary `&mut Ctx`
-system. It runs with the whole `Ctx`; in builds with debug assertions the
+The same `access(...)` attaches a declaration to an ordinary `&mut Ctx`
+system: `game.add(phase, system.access(SystemAccess::new()...))`. There is
+one declaration type for both kinds of system. A declared `Ctx` system
+runs with the whole `Ctx`; in builds with debug assertions the
 engine records what it touched (components, resources, events, commands
 and structural changes) and panics after the run if it went beyond the
-declaration. Services are not recorded for `Ctx` systems. Use it to
+declaration. Services are not recorded for `Ctx` systems. Use this to
 document and check existing systems; only view systems can ever run in
 parallel, because only they can't reach anything undeclared.
 
@@ -149,10 +161,13 @@ a parallel batch:
 
 ```rust
 # use ponko::prelude::*;
+# use ponko::access::SystemAccess;
+# use ponko::system_view::SystemView;
 # struct Vel(f32);
+# fn brake(_: &mut SystemView) {} fn steer(_: &mut SystemView) {}
 let report = Game::new("report", 1, 1)
-    .add_view(Phase::AfterPhysics, ponko::access::SystemAccess::new().write::<Vel>(), |_| {})
-    .add_view(Phase::AfterPhysics, ponko::access::SystemAccess::new().read::<Vel>(), |_| {})
+    .add(Phase::AfterPhysics, brake.access(SystemAccess::new().write::<Vel>()))
+    .add(Phase::AfterPhysics, steer.access(SystemAccess::new().read::<Vel>()))
     .access_report();
 // "... + ...: conflict on component `...Vel`"
 print!("{report}");
@@ -161,7 +176,8 @@ assert_eq!(report.parallel_pairs().count(), 0);
 
 `compatible_pairs()` lists pairs whose declarations don't conflict;
 `parallel_pairs()` only those where both are view systems. Each
-`ReportedSystem` says whether it is `enforced` (a view system).
+`ReportedSystem` has the registration's `id` (for `Game::remove` and
+`Game::order`) and says whether it is `enforced` (a view system).
 
 ## When two systems conflict
 
@@ -251,13 +267,14 @@ and event names; C++ uses the type's name, as the world does):
 # struct Died(Entity);
 # fn hurt(_: &mut Ctx) {}
 // The same declaration, by name, as C and C++ build it.
-let game = Game::new("named", 1, 1).add_with_access(
+let game = Game::new("named", 1, 1).add(
     Phase::AfterPhysics,
-    ponko::access::SystemAccess::new()
-        .write_named(std::any::type_name::<Health>())
-        .send_events_named(std::any::type_name::<Died>())
-        .commands(),
-    hurt,
+    hurt.access(
+        ponko::access::SystemAccess::new()
+            .write_named(std::any::type_name::<Health>())
+            .send_events_named(std::any::type_name::<Died>())
+            .commands(),
+    ),
 );
 # let _ = game;
 ```
@@ -278,7 +295,7 @@ game.add(ponko::phase::after_physics,
 </div>
 
 They run with their `ctx` and are checked in debug builds of the library
-like `add_with_access` systems; a violation stops the run with an error
+like declared Rust `Ctx` systems; a violation stops the run with an error
 naming the system. Raw C access can't tell reads from writes, so a
 component or resource declared by name covers any use of it: declare a
 write when the system changes it, so the report shows the conflict.
@@ -307,36 +324,35 @@ own it proves nothing; a `&mut Ctx` system can use anything. So:
    the declaration. There is no path from the view to anything else, and
    each accessor checks the declaration in every build. A wrong
    declaration is a panic naming the system, never a data race.
-2. *Declared `Ctx` systems* (Rust `add_with_access`, C and C++) are checked
+2. *Declared `Ctx` systems* (Rust `system.access(..)`, C and C++) are checked
    after each run in debug builds by the world's access recorder. They are
    never candidates for parallel execution.
 3. *Undeclared systems* are exclusive, as before.
 
-**How two views share one world.** `ViewState::prepare` takes `&mut World`
-before the views exist: it registers the declared components and moves the
-declared *written* resources out of the world into the state. The views
-then share `&World`:
+**How two views share one world.** Before the views exist, with
+`&mut World`, each `ViewState` is prepared: the declared components are
+registered and the declared *written* resources move out of the world into
+the state. The views then share `&World`:
 
 - Components are written through the archetype columns' own raw pointers,
   which carry write permission from their allocation. Two views whose
-  declarations don't overlap (`ViewAccess::overlaps`: no component one
+  declarations don't overlap (`ViewState::overlaps`: no component one
   writes and the other reads or writes) touch disjoint columns.
 - A written resource lives in its view's state, so no other view can reach
   it; an overlapping declaration finds it missing (a panic, not a race).
 - No view can change the world's structure, so archetypes and columns
   don't move while views exist; structural changes are commands, applied
   with `&mut World` at the barrier.
-- `ViewState::finish` puts the resources back; `ViewState::run` does it
-  even when the system panics.
+- Afterwards the resources go back, also when the system panics.
 
-The unsafe entry point is `ViewState::view(&World)`; its contract is
-exactly "no overlapping view or `&mut World` use while it lives". The
-scheduler never calls it: it goes through `ViewGroup`, which checks once
-that a set of states is pairwise non-overlapping (and refuses the same
-state twice), and whose `run` hands each state's view to its own task,
-only for the states it checked. A state prepared for one world refuses to
-view another. `crates/ponko_ecs/tests/views.rs` and `view_groups.rs` run
-under Miri.
+Preparing, viewing and finishing are private to the ECS crate; the step in
+between is the unsafe one, and its contract is exactly "no overlapping view
+or `&mut World` use while it lives". The two public ways in keep it:
+`ViewState::run` for one view, and `ViewGroup`, which checks once that a set
+of states is pairwise non-overlapping (and refuses the same state twice),
+and whose `run` hands each state's view to its own task, only for the
+states it checked. The scheduler goes through `ViewGroup`.
+`crates/ponko_ecs/tests/views.rs` and `view_groups.rs` run under Miri.
 
 **The executor (#138).** Each view system of a batch has its own command
 buffer and event outbox, merged at the batch barrier in registration order
@@ -357,8 +373,8 @@ declaration lookup per accessor call, no per-entity cost, and no heap
 allocation per run once its buffers have grown
 (`crates/ponko_ecs/tests/views_alloc.rs`).
 
-**Limits.** Custom `QueryData` types must implement the shared lookup to
-be queried through a view. A view's filters never register a component or
-start tracking one: `With<T>` of a component no entity ever had matches
-nothing, `Without<T>` of one matches everything, and `Added<T>` /
-`Changed<T>` of an untracked `T` panic.
+**Limits.** `QueryData` is sealed: what a query can fetch is `&T`,
+`&mut T`, `Option` of those, `Entity` and tuples of them. A view's filters
+never register a component: `With<T>` of a component no entity ever had
+matches nothing, `Without<T>` of one matches everything. `Added<T>` /
+`Changed<T>` of an untracked `T` panic, as in a world query.

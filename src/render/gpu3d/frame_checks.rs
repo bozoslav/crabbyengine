@@ -426,8 +426,8 @@ mod render_tests {
             },
         );
         rig.ctx.world.spawn((Transform3D::default(), Model::new(mesh)));
-        rig.ctx.camera3d.position = vec3(0.0, 1.0, 4.0);
-        rig.ctx.camera3d.look_at(Vec3::ZERO);
+        rig.ctx.scene3d.camera.position = vec3(0.0, 1.0, 4.0);
+        rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
         Some(rig)
     }
 
@@ -442,8 +442,8 @@ mod render_tests {
             return;
         }
         rig.renderer.solid_prepass = false;
-        rig.ctx.post.ambient_occlusion.enabled = true;
-        rig.ctx.camera3d.occlusion_culling = true;
+        rig.ctx.scene3d.post.ambient_occlusion.enabled = true;
+        rig.ctx.scene3d.camera.occlusion_culling = true;
         for _ in 0..3 {
             rig.draw();
         }
@@ -463,8 +463,8 @@ mod render_tests {
             return;
         }
         rig.renderer.solid_prepass = false;
-        rig.ctx.post.ambient_occlusion.enabled = true;
-        rig.ctx.camera3d.occlusion_culling = false;
+        rig.ctx.scene3d.post.ambient_occlusion.enabled = true;
+        rig.ctx.scene3d.camera.occlusion_culling = false;
         for _ in 0..3 {
             rig.draw();
         }
@@ -477,7 +477,7 @@ mod render_tests {
         assert_eq!(depth_after_opaque(&rig.renderer), Some(wgpu::StoreOp::Discard));
         // With a solid prepass too, with or without the readback.
         let Some(mut rig) = cube() else { return };
-        rig.ctx.camera3d.occlusion_culling = true;
+        rig.ctx.scene3d.camera.occlusion_culling = true;
         for _ in 0..3 {
             rig.draw();
         }
@@ -565,8 +565,12 @@ mod render_tests {
         rig.ctx.set_headless(true);
         let handle = rig.ctx.gfx.create_render_target(64, 64);
         rig.renderer.add_render_target(handle.id, &texture);
-        let camera = rig.ctx.camera3d;
-        rig.ctx.target_cameras.push(TargetCamera::new(camera, handle));
+        let camera = rig.ctx.scene3d.camera;
+        rig.ctx
+            .scene3d
+            .passes
+            .target_cameras
+            .push(TargetCamera::new(camera, handle));
         rig.draw();
         let both = last_features().unwrap();
         let expected = Features::CUTOUTS

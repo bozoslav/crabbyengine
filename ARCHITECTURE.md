@@ -2,9 +2,9 @@
 
 Ponko integrates an archetype ECS, fixed-step simulation, a wgpu renderer and game services behind a code-first Rust API. C and C++ enter through a separate FFI crate; inspection tools use a local control protocol. This describes the source in this checkout, not the target architecture in [ROADMAP.md](ROADMAP.md). Source inspection confirms that mechanisms exist; it does not establish production readiness, performance on your hardware or feature parity across targets.
 
-Package names and source directories use `ponko_*`. New native code uses
-`include/ponko.h` and `include/ponko.hpp`; legacy headers remain available as
-part of the [compatibility migration](book/src/naming.md).
+Package names and source directories use `ponko_*`. Native code uses
+`include/ponko.h` and `include/ponko.hpp`; the old native names were removed in
+0.1.0 ([naming](book/src/naming.md)).
 
 ```mermaid
 flowchart TD
@@ -47,17 +47,18 @@ The engine is integrated rather than a collection of independent service crates.
 
 Step 1, and the asset reload and streaming step before it (`Ctx::frame_prepare_services`, called by both loops), are the engine's own service steps: named methods of `Ctx` in [src/ctx.rs](src/ctx.rs), called only from the loops, so each one's place in the frame is one line. Built-in animation, particles and positional audio are ordinary systems ([src/systems.rs](src/systems.rs), ids in `Systems`): listed in timings, removable with `Game::remove` and re-addable elsewhere, and pinned at the end of their phase (`System::last`) so a game's own systems in that phase run before them whenever they were added. [Service ownership and lifecycle](#service-ownership-and-lifecycle) lists every service.
 
-`Game::add(Phase, system)` selects an explicit sequential bucket. Each fixed tick
-runs `Input`, `BeforePhysics`, `Physics`, `AfterPhysics`, then `SimLast`. Legacy
-`sim_system` registrations use `AfterPhysics`; installing physics always places
-the step in `Physics`, independent of builder order. Legacy `system` and
-`late_system` map to `Frame` and `Late`; built-in drawing uses `Draw`. Within a
+`Game::add(Phase, system)` is the one registration entry point; it selects an
+explicit sequential bucket. Each fixed tick runs `Input`, `BeforePhysics`,
+`Physics`, `AfterPhysics`, then `SimLast`. The `sim_system` shortcut uses
+`AfterPhysics`; installing physics always places the step in `Physics`,
+independent of builder order. The `system` shortcut uses `Frame`; pose fixes go
+in `Late`; built-in drawing uses `Draw`. Within a
 phase registration order is preserved, except that the pinned built-ins above
 stay at the end of `Animate` and `Draw`.
 
-`run_one` applies deferred commands after each system. `sim_system_every` schedules a system at a tick interval and phase; it is simulation frequency control, not parallel scheduling. Events have reader/lifetime machinery in [src/events.rs](src/events.rs). Changes to barriers must preserve the currently observable command and event behavior.
+`run_one` applies deferred commands after each system. An interval (`system.every(n)`, `IntoSystem`) schedules a system at a tick interval and phase; it is simulation frequency control, not parallel scheduling. Events have reader/lifetime machinery in [src/events.rs](src/events.rs). Changes to barriers must preserve the currently observable command and event behavior.
 
-**Systems execute sequentially by default.** Parallel ECS iteration and native parallel GPU command recording are separate mechanisms. Systems can declare their access (`SystemAccess`, [#137](https://github.com/ponkoengine/ponko/issues/137)); view systems (`Game::add_view`) get a restricted `SystemView` that enforces the declaration. The optional scheduler ([#138](https://github.com/ponkoengine/ponko/issues/138), `Game::parallel_systems`) cuts each phase's registration order into stages ([src/schedule.rs](src/schedule.rs), a pure plan tested apart from execution): a system alone, or a batch of neighbouring view systems with no conflict. [src/game/batch.rs](src/game/batch.rs) runs a batch through `ponko_ecs::ViewGroup`, the only place where views share a world; each system gets its own command buffer and event outbox, delivered at the batch's end in registration order, and a batch runs through the same code on several threads or on one, so results don't depend on threads. The barrier contract is in the guide's "Parallel systems" chapter. Arbitrary `&mut Ctx` callbacks remain exclusive; annotations alone cannot make concurrent mutable access sound, so only view systems are ever batched.
+**Systems execute sequentially by default.** Parallel ECS iteration and native parallel GPU command recording are separate mechanisms. Systems can declare their access (`SystemAccess`, [#137](https://github.com/ponkoengine/ponko/issues/137)); view systems (functions of `&mut SystemView`, registered through the same `Game::add`) get a restricted `SystemView` that enforces the declaration. The optional scheduler ([#138](https://github.com/ponkoengine/ponko/issues/138), `Game::parallel_systems`) cuts each phase's registration order into stages ([src/schedule.rs](src/schedule.rs), a pure plan tested apart from execution): a system alone, or a batch of neighbouring view systems with no conflict. [src/game/batch.rs](src/game/batch.rs) runs a batch through `ponko_ecs::ViewGroup`, the only place where views share a world; each system gets its own command buffer and event outbox, delivered at the batch's end in registration order, and a batch runs through the same code on several threads or on one, so results don't depend on threads. The barrier contract is in the guide's "Parallel systems" chapter. Arbitrary `&mut Ctx` callbacks remain exclusive; annotations alone cannot make concurrent mutable access sound, so only view systems are ever batched.
 
 Fixed steps and seeded random streams support repeatability, but deterministic gameplay also depends on user code, math and physics configuration. Follow [STABILITY.md](STABILITY.md), including its same-build lockstep and physics restrictions. A future scheduler must define ordering and reductions before claiming equivalent determinism.
 
@@ -95,7 +96,7 @@ Every service is constructed by `Ctx::new` unless the row says otherwise. "Scope
 | `spatial` | game | `rebuild_spatial_grid`, an `Input`-phase system added by `Game::spatial_grid`; cell size set in `build_ctx` | None | Dropped with `Ctx` |
 | `physics`, `physics3d` | game; body mapping is world | The step system in `Phase::Physics`; `physics::start` / `physics3d::start` in `build_ctx` | None | Dropped with `Ctx` |
 | `net` (lockstep session, message endpoint, snapshot streams, interest) | game | `Net::ready` gates each tick, `Net::end_tick` after it; `Net::begin` in `build_ctx` | `Networking::begin_frame` polls the message endpoint before any system, in both loops (headless: every pass, also while paused or while a tick waits). The frame runs on while a tick waits | `Drop for Net` (keeps resending the last inputs for a short time); a dropped message endpoint is noticed by its peers' timeout |
-| Render state: `camera`, `camera3d`, `lighting`, `sky`, `post`, `lod`, `effects`, `target_effects`, `target_cameras`, `compute_passes` | game | None | Read by `Ctx::render_frame` and `prepare_3d` | Dropped with `Ctx` |
+| Render state: `camera`; `scene3d` (`SceneSettings`: 3D camera, lighting, sky, post, LOD, extra passes, automatic quality) | game | None | Read by `Ctx::render_frame` and `prepare_3d` | Dropped with `Ctx` |
 | `ui` (retained tree, immediate widgets) | game | None | `frame_begin_services` (`update_retained_ui`) before any system; the immediate widgets reset in `begin_frame`; drawn in `render_frame` (`draw_retained_ui`) | Dropped with `Ctx` |
 | `gfx` | device (renderer); game (caches, draw lists) | None; headless discards draws | `begin_frame` (text and frame number); `render_frame` submits and clears the lists | Dropped with `Ctx`; the renderer drops with it. `Ctx::free` releases one texture or font |
 | `audio` | device (backend); game (loaded sounds) | None | Positional update by the `update_audio3d` system at the end of `Draw` (3D only); the backend opens its device on first load or play | Dropped with `Ctx`; headless and the no-`audio` build never open a device |

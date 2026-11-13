@@ -8,18 +8,17 @@ pub fn geometry() -> [ponko::render::MeshData; 2] {
 }
 
 pub fn setup(ctx: &mut Ctx, count: usize) {
-    ctx.camera3d.position = vec3(0.0, 34.0, 62.0);
-    ctx.camera3d.look_at(vec3(0.0, 0.0, -25.0));
-    ctx.camera3d.far = 250.0;
-    ctx.lighting.shadows = false;
-    ctx.lighting.sun_intensity = 0.0;
-    ctx.lighting.ambient_intensity = 0.015;
-    ctx.sky.atmosphere = false;
-    ctx.post.bloom = 0.0;
-    let stone = ctx.gfx.create_material(ponko::render::MaterialDesc {
-        roughness: 0.5,
-        ..Default::default()
-    });
+    ctx.scene3d.camera.position = vec3(0.0, 34.0, 62.0);
+    ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -25.0));
+    ctx.scene3d.camera.far = 250.0;
+    ctx.scene3d.lighting.shadows = false;
+    ctx.scene3d.lighting.sun_intensity = 0.0;
+    ctx.scene3d.lighting.ambient_intensity = 0.015;
+    ctx.scene3d.sky.atmosphere = false;
+    ctx.scene3d.post.bloom = 0.0;
+    let stone = ctx
+        .gfx
+        .create_material(ponko::render::MaterialDesc::default().with_roughness(0.5));
     let [floor, cube] = geometry().map(|data| ctx.gfx.create_mesh(&data, stone));
     ctx.world
         .spawn((Transform3D::at(vec3(0.0, -1.0, -25.0)), Model::new(floor)));

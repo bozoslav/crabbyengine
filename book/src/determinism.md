@@ -65,7 +65,7 @@ The engine guarantees, for a fixed seed:
 - `par_for_each` gives the same results as a plain loop, as long as each
   entity only writes its own components (the borrow rules make you do that);
 - the spatial grid, spatial sorting and commands are deterministic;
-- `sim_system_every` and `ctx.turns` depend only on the tick.
+- system intervals (`system.every(n)`) and `ctx.time.turns` depend only on the tick.
 
 The engine's own tests run a simulation with all of these at once
 (threads, grid queries, sorting, reduced rates, spawning, despawning)

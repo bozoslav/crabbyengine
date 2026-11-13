@@ -1,4 +1,4 @@
-// Screen effects (Ctx::create_effect): a game's `fn effect(p: Pixel) ->
+// Screen effects (Graphics::create_effect): a game's `fn effect(p: Pixel) ->
 // vec3<f32>` run over the lit 3D frame, before bloom and tone mapping.
 // The engine builds each effect from the mesh prelude (frame, material and
 // scene bindings and helpers), this file's first part, the game's

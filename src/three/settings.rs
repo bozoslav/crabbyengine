@@ -1,0 +1,235 @@
+//! [`SceneSettings`]: everything the renderer reads when it draws the 3D
+//! frame, in one place (`ctx.scene3d`).
+
+use glam::Vec2;
+
+use super::autotune::AutotuneSettings;
+use super::{Camera3D, ComputePass, Lighting, LodSettings, Post, ScreenEffect, Sky, TargetCamera, TargetEffect};
+
+/// How the 3D world is drawn (feature `3d`): the camera, the light, the sky
+/// and fog, what happens to the frame on its way to the screen, levels of
+/// detail and the game's own GPU passes. It is [`Ctx::scene3d`](crate::Ctx::scene3d); the
+/// renderer reads it when the frame is drawn.
+///
+/// Each 3D setting has one home here, and the fields are public, so a system
+/// can change several at once (`let s = &mut ctx.scene3d;`). The one setting
+/// shared with 2D stays outside: the background color,
+/// [`Graphics::clear`](crate::gfx::Graphics::clear), which shows behind the
+/// 3D world only with a flat sky ([`Sky::atmosphere`] off). The graphics
+/// quality presets ([`set_quality`](Self::set_quality)) and automatic quality
+/// ([`set_quality_autotune`](Self::set_quality_autotune)) write into
+/// [`lighting`](Self::lighting) and [`post`](Self::post).
+///
+/// It holds plain values, so it can be copied and replaced: `ctx.scene3d =
+/// SceneSettings::default()` starts over with the engine's defaults (and
+/// automatic quality off), and restoring a clone restores those settings. The
+/// engine keeps the camera's view at the window's size either way, from the
+/// next frame on.
+///
+/// ```no_run
+/// # use ponko::prelude::*;
+/// # fn f(ctx: &mut Ctx) {
+/// let s = &mut ctx.scene3d;
+/// s.camera.position = vec3(0.0, 4.0, 10.0);
+/// s.camera.look_at(Vec3::ZERO);
+/// s.lighting.sun_direction = ponko::render::Sky::sun_direction_at(17.0);
+/// s.sky.fog_density = 0.01;
+/// s.post.bloom = 0.2;
+/// s.set_quality(ponko::render::GraphicsQuality::High);
+/// # }
+/// ```
+#[derive(Debug, Clone)]
+pub struct SceneSettings {
+    /// The 3D camera: position, rotation, field of view.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.scene3d.camera.position = vec3(0.0, 5.0, 10.0);
+    /// ctx.scene3d.camera.look_at(Vec3::ZERO);
+    /// # }
+    /// ```
+    pub camera: Camera3D,
+    /// The sun, the ambient light's strength, shadows and bounced light.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.scene3d.lighting.sun_intensity = 1.0; // overcast
+    /// # }
+    /// ```
+    pub lighting: Lighting,
+    /// The sky behind the world and the fog in front of it: a physical sky
+    /// lit by the sun by default, which also lights the scene. Without it,
+    /// the ambient light comes from the sky's flat colors.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.scene3d.lighting.sun_direction = ponko::render::Sky::sun_direction_at(7.0); // morning
+    /// ctx.scene3d.sky.fog_density = 0.01;
+    /// # }
+    /// ```
+    pub sky: Sky,
+    /// What happens to the lit frame on its way to the screen: resolution,
+    /// antialiasing, ambient occlusion, reflections, exposure, bloom, color
+    /// grading, tone mapping.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.scene3d.post.bloom = 0.2;
+    /// ctx.scene3d.post.vignette = 0.3;
+    /// # }
+    /// ```
+    pub post: Post,
+    /// Global settings for [`LodGroup`](crate::render::LodGroup)s: the
+    /// distance bias and crossfades.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.scene3d.lod.bias = 1.5; // keep detail up to 50% farther
+    /// # }
+    /// ```
+    pub lod: LodSettings,
+    /// The game's own GPU passes, run each frame: see [`RenderPasses`].
+    pub passes: RenderPasses,
+    /// Automatic quality's policy, freeze and pins (the running controller
+    /// lives on the context).
+    pub(crate) autotune: AutotuneSettings,
+}
+
+impl Default for SceneSettings {
+    /// The engine's defaults. The camera's view is 1×1 until the engine
+    /// gives it the window's size at the start of the next frame.
+    fn default() -> Self {
+        Self::new(Vec2::ONE)
+    }
+}
+
+impl SceneSettings {
+    pub(crate) fn new(viewport: Vec2) -> Self {
+        Self {
+            camera: Camera3D::new(viewport),
+            lighting: Lighting::default(),
+            sky: Sky::default(),
+            post: Post::default(),
+            lod: LodSettings::default(),
+            passes: RenderPasses::default(),
+            autotune: AutotuneSettings::default(),
+        }
+    }
+}
+
+/// The game's own GPU passes, run every frame in this order:
+/// [`compute`](Self::compute) before anything is drawn, then
+/// [`target_cameras`](Self::target_cameras), the main view,
+/// [`scene_compute`](Self::scene_compute),
+/// [`target_effects`](Self::target_effects) and last
+/// [`effects`](Self::effects), before bloom and tone mapping. Each list runs
+/// in its own order; add, remove or reorder entries freely. At
+/// `ctx.scene3d.passes`.
+///
+/// ```no_run
+/// # use ponko::prelude::*;
+/// # fn f(ctx: &mut Ctx) {
+/// let haze = ctx.gfx.load_effect("effects/haze.wgsl");
+/// ctx.scene3d.passes.effects.push(ponko::render::ScreenEffect::new(haze));
+/// ctx.scene3d.passes.effects.clear(); // and gone again
+/// # }
+/// ```
+#[derive(Debug, Clone, Default, PartialEq)]
+#[non_exhaustive]
+pub struct RenderPasses {
+    /// Compute passes run before anything is drawn: each updates a render
+    /// target texel by texel, or a [`GpuBuffer`](crate::render::GpuBuffer).
+    /// See [`ComputePass`] for the ordering and resource rules.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let ripples = ctx.gfx.load_compute("compute/ripples.wgsl");
+    /// let water = ctx.gfx.create_render_target(256, 256);
+    /// ctx.scene3d.passes.compute.push(ponko::render::ComputePass::new(ripples, water));
+    /// # }
+    /// ```
+    pub compute: Vec<ComputePass>,
+    /// Cameras drawing the 3D world into render targets, before the main
+    /// view: mirrors, reflections, security cameras. See [`TargetCamera`].
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let lake = ctx.gfx.create_render_target(960, 540);
+    /// let camera = ctx.scene3d.camera;
+    /// ctx.scene3d.passes.target_cameras.push(ponko::render::TargetCamera::reflection(camera, lake, 0.0));
+    /// # }
+    /// ```
+    pub target_cameras: Vec<TargetCamera>,
+    /// Compute passes run at the scene stage: after the opaque and
+    /// transparent surfaces and temporal antialiasing, before
+    /// [`target_effects`](Self::target_effects), [`effects`](Self::effects),
+    /// bloom and tone mapping. Their shaders read this frame's lit image and
+    /// depth (`scene_color`, `scene_position`, `scene_distance`). Same
+    /// entries as [`compute`](Self::compute).
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// // Each texel keeps a running average of how bright the frame is there.
+    /// let meter = ctx.gfx.create_compute("meter", "
+    ///     fn compute(c: Cell) -> vec4<f32> {
+    ///         let seen = scene_color(c.uv * frame.screen.xy);
+    ///         return mix(c.value, vec4<f32>(seen, 1.0), 0.05);
+    ///     }");
+    /// let light = ctx.gfx.create_render_target(16, 9);
+    /// ctx.scene3d.passes.scene_compute.push(ponko::render::ComputePass::new(meter, light));
+    /// # }
+    /// ```
+    pub scene_compute: Vec<ComputePass>,
+    /// Effects over the lit frame that write into render targets instead of
+    /// the frame: after the transparent surfaces, before
+    /// [`effects`](Self::effects). See [`TargetEffect`] for the ordering
+    /// and resource rules.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx, glow: ponko::render::Effect) {
+    /// let mask = ctx.gfx.create_render_target(256, 256);
+    /// ctx.scene3d.passes.target_effects.push(ponko::render::TargetEffect::new(glow, mask));
+    /// # }
+    /// ```
+    pub target_effects: Vec<TargetEffect>,
+    /// Screen effects over the lit frame, before bloom and tone mapping.
+    /// Each reads what the one before it left.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// let haze = ctx.gfx.load_effect("effects/haze.wgsl");
+    /// ctx.scene3d.passes.effects.push(ponko::render::ScreenEffect::new(haze));
+    /// # }
+    /// ```
+    pub effects: Vec<ScreenEffect>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replaced_settings_get_the_windows_view_at_the_next_frame() {
+        let mut ctx = crate::Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
+        ctx.scene3d = SceneSettings::default();
+        let center = Vec2::new(400.0, 300.0);
+        let off = ctx.scene3d.camera.screen_ray(center).1;
+        assert!(
+            off.dot(ctx.scene3d.camera.forward()) < 0.99,
+            "a 1x1 view: the center is far off"
+        );
+        ctx.frame_prepare_services();
+        let (_, ray) = ctx.scene3d.camera.screen_ray(center);
+        assert!(ray.dot(ctx.scene3d.camera.forward()) > 0.9999, "{ray}");
+    }
+}

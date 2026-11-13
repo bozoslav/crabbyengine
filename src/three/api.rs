@@ -86,7 +86,7 @@ impl Graphics {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let bricks = ctx.load_texture("bricks.png");
-    /// let wall = ctx.gfx.create_material(ponko::render::MaterialDesc { texture: Some(bricks), roughness: 0.9, ..Default::default() });
+    /// let wall = ctx.gfx.create_material(ponko::render::MaterialDesc::default().with_texture(bricks).with_roughness(0.9));
     /// # }
     /// ```
     ///
@@ -105,7 +105,7 @@ impl Graphics {
     /// ```
     /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let err = ctx.gfx.try_create_material(ponko::render::MaterialDesc { roughness: 2.0, ..Default::default() }).unwrap_err();
+    ///     let err = ctx.gfx.try_create_material(ponko::render::MaterialDesc::default().with_roughness(2.0)).unwrap_err();
     ///     assert_eq!(err.kind(), ErrorKind::Invalid);
     /// });
     /// ```
@@ -131,7 +131,7 @@ impl Graphics {
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, lamp: ponko::render::Material) {
-    /// let on = ponko::render::MaterialDesc { emissive: Color::hex(0xFFD080), ..Default::default() };
+    /// let on = ponko::render::MaterialDesc::default().with_emissive(Color::hex(0xFFD080));
     /// ctx.gfx.update_material(lamp, on);
     /// # }
     /// ```
@@ -316,7 +316,7 @@ impl Graphics {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let wind = ctx.gfx.load_shader("shaders/wind.wgsl");
-    /// let leaves = ctx.gfx.create_material(ponko::render::MaterialDesc { shader: Some(wind), double_sided: true, ..Default::default() });
+    /// let leaves = ctx.gfx.create_material(ponko::render::MaterialDesc::default().with_shader(wind).with_double_sided(true));
     /// # }
     /// ```
     ///
@@ -464,24 +464,6 @@ impl Graphics {
         Ok(())
     }
 
-    /// Whether this game made `material` and hasn't freed it (for the C
-    /// API, which takes ids): [`Ctx::is_live`].
-    #[doc(hidden)]
-    #[must_use]
-    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
-    pub fn has_material(&self, material: Material) -> bool {
-        self.is_live(material)
-    }
-
-    /// Whether this game made `shader` and hasn't freed it (for the C API,
-    /// which takes ids): [`Ctx::is_live`].
-    #[doc(hidden)]
-    #[must_use]
-    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
-    pub fn has_shader(&self, shader: Shader) -> bool {
-        self.is_live(shader)
-    }
-
     /// A plain white material, made once and shared.
     ///
     /// ```no_run
@@ -556,7 +538,7 @@ impl Graphics {
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx) {
     /// let ball = ctx.gfx.create_plain_mesh(&ponko::render::MeshData::sphere(0.5, 32));
-    /// let gold = ctx.gfx.create_material(ponko::render::MaterialDesc { metallic: 1.0, ..ponko::render::MaterialDesc::color(Color::hex(0xFFC83D)) });
+    /// let gold = ctx.gfx.create_material(ponko::render::MaterialDesc::color(Color::hex(0xFFC83D)).with_metallic(1.0));
     /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(ball)));                        // plain white
     /// ctx.world.spawn((ponko::d3::Transform::at(Vec3::X), ponko::render::Model::new(ball), ponko::render::ModelMaterial(gold))); // gold
     /// # }
@@ -577,7 +559,7 @@ impl Graphics {
     /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let cube = ctx.gfx.try_create_plain_mesh(&ponko::render::MeshData::cube(1.0)).unwrap();
-    ///     assert!(ctx.gfx.is_mesh_live(cube));
+    ///     assert!(ctx.gfx.is_live(cube));
     ///     let mut broken = ponko::render::MeshData::cube(1.0);
     ///     broken.indices.pop();
     ///     assert_eq!(ctx.gfx.try_create_plain_mesh(&broken).unwrap_err().kind(), ErrorKind::Invalid);
@@ -1108,24 +1090,20 @@ impl Graphics {
         // handles the game kept stay good.
         // A freed slot comes back under a new id (its generation counted
         // up), so handles to the freed mesh stay dead.
-        let reused = match self.assets3d.reuse_mesh_id.take() {
-            Some(id) => Some(id),
-            None => self.assets3d.free_meshes.pop().map(super::next_generation),
-        };
-        let id = match reused {
+        let id = match self.assets3d.reuse_mesh_id.take() {
             Some(id) => {
-                let slot = id & super::SLOT_MASK;
-                self.assets3d.gpu_mesh_bounds.remove(&slot);
-                self.assets3d.bounds[slot as usize] = data.bounds();
+                self.assets3d.mesh_ids.remake(id);
                 id
             }
-            None => {
-                let slot = super::new_slot(self.assets3d.bounds.len(), "mesh");
-                self.assets3d.bounds.push(data.bounds());
-                slot
-            }
+            None => self.assets3d.mesh_ids.make(self.assets3d.bounds.len(), "mesh"),
         };
-        super::set_slot_id(&mut self.assets3d.mesh_ids, id);
+        let slot = id & super::SLOT_MASK;
+        if slot as usize == self.assets3d.bounds.len() {
+            self.assets3d.bounds.push(data.bounds());
+        } else {
+            self.assets3d.gpu_mesh_bounds.remove(&slot);
+            self.assets3d.bounds[slot as usize] = data.bounds();
+        }
         self.asset_ledger.made(crate::inventory::AssetClass::Mesh, id);
         let mesh = Mesh { id };
         let slot = mesh.slot() as usize;
@@ -1187,7 +1165,7 @@ impl Graphics {
     /// ctx.load_scene("town/Town.json").unwrap();
     /// let brick = ctx.gfx.load_shader("shaders/brick.wgsl");
     /// for (material, desc) in ctx.gfx.loaded_materials("Brick") {
-    ///     ctx.gfx.update_material(material, ponko::render::MaterialDesc { shader: Some(brick), ..desc });
+    ///     ctx.gfx.update_material(material, desc.with_shader(brick));
     /// }
     /// # }
     /// ```
@@ -1217,7 +1195,7 @@ impl Graphics {
             *bytes = 0;
         }
         self.assets3d.gpu_mesh_bounds.remove(&mesh.slot());
-        self.assets3d.free_meshes.push(mesh.id);
+        self.assets3d.mesh_ids.release(mesh.id);
         if let Some(shadowless) = self.assets3d.shadowless.get_mut(slot) {
             *shadowless = false;
         }
@@ -1293,29 +1271,6 @@ impl Graphics {
         self.assets3d.mesh_slot(mesh.id).is_none() || self.assets3d.casts_shadows(mesh.id)
     }
 
-    /// Whether `mesh` was made by this game and not freed: [`Ctx::is_live`]
-    /// with a mesh.
-    ///
-    /// ```
-    /// # use ponko::prelude::*;
-    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     let material = ctx.gfx.default_material();
-    ///     let cube = ctx.gfx.create_mesh(&ponko::render::MeshData::cube(1.0), material);
-    ///     assert!(ctx.gfx.is_live(cube));
-    /// });
-    /// ```
-    #[must_use]
-    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
-    pub fn is_mesh_live(&self, mesh: Mesh) -> bool {
-        self.is_live(mesh)
-    }
-
-    /// Frees `mesh`: [`Graphics::free`] with a mesh.
-    #[deprecated(note = "use `ctx.gfx.free(mesh)`")]
-    pub fn free_mesh(&mut self, mesh: Mesh) {
-        self.free(mesh);
-    }
-
     /// How many 3D models were drawn last frame: those the camera could
     /// see, and those out of its view whose shadow can fall into it. Each
     /// model counts once. A model in a shadow cascade whose map is kept
@@ -1348,8 +1303,8 @@ impl Graphics {
     /// ```
     /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(1, |ctx| {
-    ///     ctx.post.anti_aliasing = ponko::render::AntiAliasing::Taa;
-    ///     ctx.camera3d.position = vec3(500.0, 2.0, 0.0);
+    ///     ctx.scene3d.post.anti_aliasing = ponko::render::AntiAliasing::Taa;
+    ///     ctx.scene3d.camera.position = vec3(500.0, 2.0, 0.0);
     ///     ctx.gfx.reset_temporal_history();
     /// });
     /// ```
@@ -1495,7 +1450,7 @@ impl Ctx {
                     4 => (Vec3::Z, Vec3::Y),
                     _ => (-Vec3::Z, Vec3::Y),
                 };
-                let mut camera = self.camera3d;
+                let mut camera = self.scene3d.camera;
                 camera.position = center;
                 camera.rotation = glam::Quat::from_mat3(&glam::Mat3::from_cols(direction.cross(up), up, -direction));
                 camera.fov_y = std::f32::consts::FRAC_PI_2;
@@ -1518,6 +1473,8 @@ impl Ctx {
             }
         }
         let cameras = self
+            .scene3d
+            .passes
             .target_cameras
             .iter()
             .chain(capture_cameras.iter())
@@ -1529,15 +1486,15 @@ impl Ctx {
             shadows: false,
             gi: super::GlobalIllumination {
                 enabled: false,
-                ..self.lighting.gi
+                ..self.scene3d.lighting.gi
             },
-            ..self.lighting
+            ..self.scene3d.lighting
         };
         for (view, camera) in views.iter_mut().zip(cameras) {
             let size = (camera.target.width(), camera.target.height());
             let mut eye = camera.camera;
             eye.set_viewport(glam::Vec2::new(size.0 as f32, size.1 as f32));
-            view.frame.lod = self.lod;
+            view.frame.lod = self.scene3d.lod;
             view.frame
                 .collect(&mut self.world, &self.gfx.assets3d, skins, &eye, &lighting);
             view.target = camera.target.id;
@@ -1598,7 +1555,7 @@ impl Ctx {
                 });
             self.world
                 .query::<(crate::Entity, &mut Skeleton, &mut crate::d3::Ragdoll)>()
-                .without::<super::Animator>()
+                .filter::<crate::Without<super::Animator>>()
                 .for_each(|(e, skeleton, ragdoll)| {
                     if ragdoll.is_blending() && crate::physics3d::blend_back(ragdoll, skeleton, dt) {
                         finished.push(e);
@@ -1613,7 +1570,7 @@ impl Ctx {
             .world
             .query::<(&mut super::Animator, &mut Skeleton, Option<&mut super::Transform3D>)>();
         #[cfg(feature = "physics3d")]
-        let mut animated = animated.without::<crate::d3::Ragdoll>();
+        let mut animated = animated.filter::<crate::Without<crate::d3::Ragdoll>>();
         animated.for_each(|(animator, skeleton, transform)| {
             if animator.manual {
                 return;
@@ -1636,20 +1593,23 @@ impl Ctx {
         self.unlink_freed_gpu_buffers();
         self.gfx.frame3d.effects.clear();
         let effects_live = &self.gfx.assets3d.effects_live;
-        self.gfx.frame3d.effects.extend(self.effects.iter().filter_map(|e| {
-            // A freed effect is skipped.
-            if !effects_live.contains(e.effect.id) {
-                return None;
-            }
-            let material = e.material.or(fallback)?;
-            Some((e.effect.id, material.id))
-        }));
+        self.gfx
+            .frame3d
+            .effects
+            .extend(self.scene3d.passes.effects.iter().filter_map(|e| {
+                // A freed effect is skipped.
+                if !effects_live.contains(e.effect.id) {
+                    return None;
+                }
+                let material = e.material.or(fallback)?;
+                Some((e.effect.id, material.id))
+            }));
         let targets = &self.gfx.assets3d.render_targets;
         self.gfx.frame3d.target_effects.clear();
         self.gfx
             .frame3d
             .target_effects
-            .extend(self.target_effects.iter().filter_map(|e| {
+            .extend(self.scene3d.passes.target_effects.iter().filter_map(|e| {
                 // A freed effect, or one into a freed target, is skipped.
                 if !effects_live.contains(e.effect.id) {
                     return None;
@@ -1668,16 +1628,16 @@ impl Ctx {
         self.gfx.frame3d.scene_computes = scene_computes;
     }
 
-    /// This frame's entries of [`Ctx::compute_passes`] (or, with `scene`,
-    /// [`Ctx::scene_compute_passes`]) into `list`: (compute, target texture
+    /// This frame's entries of [`RenderPasses::compute`] (or, with `scene`,
+    /// [`RenderPasses::scene_compute`]) into `list`: (compute, target texture
     /// or GPU buffer slot with the top bit set, material). Freed passes, and
     /// passes into a freed target or buffer, are left out.
     fn list_computes(&self, list: &mut Vec<(u32, u32, u32)>, scene: bool, fallback: Option<Material>) {
         list.clear();
         let passes = if scene {
-            &self.scene_compute_passes
+            &self.scene3d.passes.scene_compute
         } else {
-            &self.compute_passes
+            &self.scene3d.passes.compute
         };
         let assets = &self.gfx.assets3d;
         list.extend(passes.iter().filter_map(|c| {
@@ -1705,8 +1665,8 @@ impl Ctx {
     pub(crate) fn prepare_3d(&mut self) {
         if self.gfx.renderer.is_none()
             || (self.gfx.assets3d.bounds.is_empty()
-                && self.compute_passes.is_empty()
-                && self.scene_compute_passes.is_empty()
+                && self.scene3d.passes.compute.is_empty()
+                && self.scene3d.passes.scene_compute.is_empty()
                 && self.gfx.frame3d.particles.runs.is_empty()
                 && self.gfx.frame3d.particles.strips.runs.is_empty()
                 && self.world.query::<&super::ParticleEmitter3D>().count() == 0
@@ -1720,10 +1680,10 @@ impl Ctx {
         let time = (self.time.elapsed() as f32, self.dt());
         self.gfx.assets3d.decals_supported = self.gfx.supports_decals();
         self.gfx.assets3d.gi_supported = self.gfx.renderer.as_ref().is_some_and(|r| r.supports_gi());
-        let fallback = if self.effects.iter().any(|e| e.material.is_none())
-            || self.target_effects.iter().any(|e| e.material.is_none())
-            || self.compute_passes.iter().any(|c| c.material.is_none())
-            || self.scene_compute_passes.iter().any(|c| c.material.is_none())
+        let fallback = if self.scene3d.passes.effects.iter().any(|e| e.material.is_none())
+            || self.scene3d.passes.target_effects.iter().any(|e| e.material.is_none())
+            || self.scene3d.passes.compute.iter().any(|c| c.material.is_none())
+            || self.scene3d.passes.scene_compute.iter().any(|c| c.material.is_none())
         {
             Some(self.gfx.default_material())
         } else {
@@ -1740,10 +1700,10 @@ impl Ctx {
             return;
         };
         self.gfx.frame3d.size_limit = renderer.max_texture_size();
-        self.gfx.frame3d.lod = self.lod;
-        self.gfx.frame3d.motion.enabled = self.post.anti_aliasing == super::AntiAliasing::Taa
-            || (self.post.ao_temporal && self.post.ambient_occlusion.enabled);
-        if !self.camera3d.occlusion_culling {
+        self.gfx.frame3d.lod = self.scene3d.lod;
+        self.gfx.frame3d.motion.enabled = self.scene3d.post.anti_aliasing == super::AntiAliasing::Taa
+            || (self.scene3d.post.ao_temporal && self.scene3d.post.ambient_occlusion.enabled);
+        if !self.scene3d.camera.occlusion_culling {
             self.gfx.frame3d.occlusion = None;
         } else if let Some(grid) = renderer.take_occlusion() {
             self.gfx.frame3d.occlusion = Some(grid);
@@ -1752,16 +1712,16 @@ impl Ctx {
             &mut self.world,
             &self.gfx.assets3d,
             &skins,
-            &self.camera3d,
-            &self.lighting,
+            &self.scene3d.camera,
+            &self.scene3d.lighting,
         );
         self.gfx.frame3d.skins = skins;
-        let light = if self.sky.atmosphere {
+        let light = if self.scene3d.sky.atmosphere {
             match self.gfx.frame3d.sky_light {
-                Some((lighting, sky, light)) if lighting == self.lighting && sky == self.sky => light,
+                Some((lighting, sky, light)) if lighting == self.scene3d.lighting && sky == self.scene3d.sky => light,
                 _ => {
-                    let light = super::SkyLight::new(&self.lighting, &self.sky);
-                    self.gfx.frame3d.sky_light = Some((self.lighting, self.sky, light));
+                    let light = super::SkyLight::new(&self.scene3d.lighting, &self.scene3d.sky);
+                    self.gfx.frame3d.sky_light = Some((self.scene3d.lighting, self.scene3d.sky, light));
                     light
                 }
             }
@@ -1771,21 +1731,21 @@ impl Ctx {
                 Vec3::new(r, g, b)
             };
             super::SkyLight {
-                sun: rgb(self.lighting.sun_color) * self.lighting.sun_intensity,
-                sky: rgb(self.lighting.sky_color),
-                ground: rgb(self.lighting.ground_color),
+                sun: rgb(self.scene3d.lighting.sun_color) * self.scene3d.lighting.sun_intensity,
+                sky: rgb(self.scene3d.sky.sky_color),
+                ground: rgb(self.scene3d.sky.ground_color),
             }
         };
         let collect_ms = start.elapsed().as_secs_f32() * 1000.0;
         let scene = super::Scene3D {
             frame: &self.gfx.frame3d,
-            lighting: &self.lighting,
-            sky: &self.sky,
+            lighting: &self.scene3d.lighting,
+            sky: &self.scene3d.sky,
             light,
-            camera: self.camera3d.position,
-            post: &self.post,
+            camera: self.scene3d.camera.position,
+            post: &self.scene3d.post,
             time,
-            occlusion: self.camera3d.occlusion_culling,
+            occlusion: self.scene3d.camera.occlusion_culling,
         };
         renderer.prepare_3d(&scene, collect_ms);
         self.gfx.frame3d.motion.reset = false;
@@ -1857,35 +1817,5 @@ mod clip_tests {
     fn missing_named_clip_panics_with_available_names() {
         let (mut ctx, path) = cached_clips();
         ctx.gfx.load_clip(&path, "run");
-    }
-}
-
-impl Graphics {
-    /// Changes the 3D frame and target cameras to 2 or 4 MSAA samples at a
-    /// frame boundary, resetting temporal history on the next drawn frame.
-    /// Returns false without changing anything for unsupported counts, a
-    /// headless renderer, or while an asynchronous shader check is pending
-    /// (retry on a later frame). Existing meshes, materials and shaders stay.
-    /// Native bindings retain the startup `Game::msaa` option; this runtime
-    /// switch is currently Rust-only.
-    pub fn set_msaa(&mut self, samples: u32) -> bool {
-        #[cfg(feature = "window")]
-        if let Some(renderer) = &mut self.renderer {
-            return renderer.set_msaa(samples);
-        }
-        let _ = samples;
-        false
-    }
-}
-
-#[cfg(test)]
-mod msaa_tests {
-    #[test]
-    fn runtime_msaa_is_unavailable_without_a_gpu_and_rejects_invalid_counts() {
-        crate::Game::new("samples", 32, 32).run_headless(0, |ctx| {
-            for samples in [0, 1, 2, 4, 8] {
-                assert!(!ctx.gfx.set_msaa(samples));
-            }
-        });
     }
 }

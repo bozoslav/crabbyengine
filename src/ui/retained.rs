@@ -7,6 +7,7 @@
 //! Layout uses logical window units; the window handles DPI and `Ui::set_scale`
 //! adds an accessibility/user scale. Nodes persist until explicitly removed.
 
+use super::build::UiLayout;
 use crate::{Color, Font, Rect, Texture, Vec2, vec2};
 use taffy::prelude::*;
 
@@ -14,7 +15,7 @@ use taffy::prelude::*;
 /// ```
 /// use ponko::prelude::*;
 /// let mut ui = ponko::ui::Ui::default();
-/// let id: ponko::ui::UiId = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+/// let id: ponko::ui::UiId = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
 /// assert!(ui.rect(id).is_some());
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -26,7 +27,7 @@ impl UiId {
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
     /// assert_eq!(ponko::ui::UiId::from_bits(id.bits()), id);
     /// ```
     pub const fn bits(self) -> u64 {
@@ -52,10 +53,11 @@ impl UiId {
 /// ```
 /// use ponko::prelude::*;
 /// let mut ui = ponko::ui::Ui::default();
-/// let button = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+/// let button = ui.add(ponko::ui::UiWidget::Button, ponko::ui::UiLayout::auto());
 /// ui.set_text(button, "Buy");
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum UiWidget {
     /// Non-focusable container.
     /// ```
@@ -251,12 +253,13 @@ impl Default for UiPaint {
 /// assert_eq!(ui.events().count(), 0);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum UiEvent {
     /// A button was activated.
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::UiLayout::auto());
     /// let _ = ponko::ui::UiEvent::Clicked(id);
     /// ```
     Clicked(UiId),
@@ -264,7 +267,7 @@ pub enum UiEvent {
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::UiLayout::auto());
     /// let _ = ponko::ui::UiEvent::Changed(id);
     /// ```
     Changed(UiId),
@@ -272,7 +275,7 @@ pub enum UiEvent {
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::UiLayout::auto());
     /// let _ = ponko::ui::UiEvent::Submitted(id);
     /// ```
     Submitted(UiId),
@@ -280,10 +283,30 @@ pub enum UiEvent {
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::UiLayout::auto());
     /// let _ = ponko::ui::UiEvent::ScreenPopped(id);
     /// ```
     ScreenPopped(UiId),
+}
+
+impl UiEvent {
+    /// The node of a [`Clicked`](Self::Clicked) event, else `None`. For a
+    /// screen that reacts only to clicks:
+    /// `ui.events().filter_map(UiEvent::clicked).last()`.
+    /// ```
+    /// use ponko::prelude::*;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::UiLayout::auto());
+    /// assert_eq!(ponko::ui::UiEvent::Clicked(id).clicked(), Some(id));
+    /// assert_eq!(ponko::ui::UiEvent::Changed(id).clicked(), None);
+    /// ```
+    #[must_use]
+    pub fn clicked(self) -> Option<UiId> {
+        match self {
+            Self::Clicked(id) => Some(id),
+            _ => None,
+        }
+    }
 }
 
 /// Input snapshot in logical window coordinates. `Ctx` supplies this each
@@ -459,7 +482,7 @@ enum Drag {
 /// ```
 /// use ponko::prelude::*;
 /// let mut ui = ponko::ui::Ui::default();
-/// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+/// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
 /// ui.push_screen(root, false);
 /// ui.frame(vec2(800.0,600.0), &ponko::ui::UiInput::default());
 /// ```
@@ -468,7 +491,7 @@ pub struct Ui {
     pub(super) nodes: Vec<Option<Node>>,
     pub(super) screens: Vec<Screen>,
     pub(super) visible: Vec<UiId>,
-    events: Vec<UiEvent>,
+    events: std::collections::VecDeque<UiEvent>,
     pub(super) focus: Option<UiId>,
     pub(super) hovered: Option<UiId>,
     pub(super) pressed: Option<UiId>,
@@ -508,7 +531,7 @@ impl Default for Ui {
             nodes: Vec::new(),
             screens: Vec::new(),
             visible: Vec::new(),
-            events: Vec::new(),
+            events: std::collections::VecDeque::new(),
             focus: None,
             hovered: None,
             pressed: None,
@@ -546,11 +569,14 @@ impl Ui {
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
     /// ```
-    pub fn add(&mut self, widget: UiWidget, style: Style) -> UiId {
+    pub fn add(&mut self, widget: UiWidget, layout: UiLayout) -> UiId {
         let id = UiId(self.nodes.len());
-        let layout = self.tree.new_leaf_with_context(style, id.0).expect("valid UI layout");
+        let layout = self
+            .tree
+            .new_leaf_with_context(layout.into_style(), id.0)
+            .expect("valid UI layout");
         let paint = self.theme.paint(widget);
         self.nodes.push(Some(Node {
             widget,
@@ -579,12 +605,12 @@ impl Ui {
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
-    /// let child = ui.add_child(root, ponko::ui::UiWidget::Label, ponko::ui::layout::Style::default());
+    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
+    /// let child = ui.add_child(root, ponko::ui::UiWidget::Label, ponko::ui::UiLayout::auto());
     /// ```
-    pub fn add_child(&mut self, parent: UiId, widget: UiWidget, style: Style) -> UiId {
+    pub fn add_child(&mut self, parent: UiId, widget: UiWidget, layout: UiLayout) -> UiId {
         let p = self.node(parent).expect("UI parent must exist").layout;
-        let id = self.add(widget, style);
+        let id = self.add(widget, layout);
         let node = self.node_mut(id).unwrap();
         node.parent = Some(parent);
         let layout = node.layout;
@@ -596,7 +622,7 @@ impl Ui {
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
     /// ui.remove(id);
     /// assert!(ui.rect(id).is_none());
     /// ```
@@ -631,31 +657,33 @@ impl Ui {
             UiEvent::Clicked(n) | UiEvent::Changed(n) | UiEvent::Submitted(n) | UiEvent::ScreenPopped(n) => *n != id,
         });
     }
-    /// Replace layout style (flex, grid, absolute positioning and constraints).
+    /// Replace the node's layout (flex, grid, absolute positioning and
+    /// constraints). [`Ui::node_layout`] reads it back.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
-    /// ui.set_layout(id, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
+    /// ui.set_layout(id, ponko::ui::UiLayout::fixed(100.0, 40.0));
     /// ```
-    pub fn set_layout(&mut self, id: UiId, style: Style) {
+    pub fn set_layout(&mut self, id: UiId, layout: UiLayout) {
         if let Some(n) = self.node(id) {
-            let _ = self.tree.set_style(n.layout, style);
+            let _ = self.tree.set_style(n.layout, layout.into_style());
         }
     }
-    /// Returns the current layout style, or `None` for a removed node.
+    /// The node's current layout, or `None` for a removed node.
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
-    /// assert!(ui.layout_style(id).is_some());
+    /// let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::fill());
+    /// assert_eq!(ui.node_layout(id), Some(ponko::ui::UiLayout::fill()));
     /// ```
-    pub fn layout_style(&self, id: UiId) -> Option<&Style> {
-        self.tree.style(self.node(id)?.layout).ok()
+    pub fn node_layout(&self, id: UiId) -> Option<UiLayout> {
+        let style = self.tree.style(self.node(id)?.layout).ok()?;
+        Some(UiLayout::custom(style.clone()))
     }
     /// Replace visual style.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
     /// ui.set_paint(id, ponko::ui::UiPaint::default());
     /// ```
     pub fn set_paint(&mut self, id: UiId, paint: UiPaint) {
@@ -666,7 +694,7 @@ impl Ui {
     /// Set label or input text. Input control characters are discarded.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Label, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Label, ponko::ui::UiLayout::auto());
     /// ui.set_text(id, "Shop"); assert_eq!(ui.text(id), Some("Shop"));
     /// ```
     pub fn set_text(&mut self, id: UiId, text: impl AsRef<str>) {
@@ -684,7 +712,7 @@ impl Ui {
     /// Read text, or `None` for a stale ID.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Label, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Label, ponko::ui::UiLayout::auto());
     /// assert_eq!(ui.text(id), Some(""));
     /// ```
     pub fn text(&self, id: UiId) -> Option<&str> {
@@ -693,7 +721,7 @@ impl Ui {
     /// Enable/disable a node and all descendant interaction.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Button, ponko::ui::UiLayout::auto());
     /// ui.set_enabled(id, false);
     /// ```
     pub fn set_enabled(&mut self, id: UiId, enabled: bool) {
@@ -704,7 +732,7 @@ impl Ui {
     /// Slider value (0..1), or toggle value (zero/off, one/on).
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Slider, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Slider, ponko::ui::UiLayout::auto());
     /// ui.set_value(id, 0.5); assert_eq!(ui.value(id), Some(0.5));
     /// ```
     pub fn set_value(&mut self, id: UiId, value: f32) {
@@ -715,7 +743,7 @@ impl Ui {
     /// Read the current slider/toggle value.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Toggle, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Toggle, ponko::ui::UiLayout::auto());
     /// assert_eq!(ui.value(id), Some(0.0));
     /// ```
     pub fn value(&self, id: UiId) -> Option<f32> {
@@ -724,7 +752,7 @@ impl Ui {
     /// Set scroll offset in unscaled layout units; clamped during layout.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Scroll, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Scroll, ponko::ui::UiLayout::auto());
     /// ui.set_scroll(id, vec2(0.0,40.0));
     /// ```
     pub fn set_scroll(&mut self, id: UiId, offset: Vec2) {
@@ -735,7 +763,7 @@ impl Ui {
     /// Current clamped offset, after layout.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Scroll, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Scroll, ponko::ui::UiLayout::auto());
     /// assert_eq!(ui.scroll(id), Some(Vec2::ZERO));
     /// ```
     pub fn scroll(&self, id: UiId) -> Option<Vec2> {
@@ -745,7 +773,7 @@ impl Ui {
     /// draws a dim overlay below this screen. Duplicate/parented roots panic.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
     /// ui.push_screen(root, true);
     /// ```
     pub fn push_screen(&mut self, root: UiId, modal: bool) {
@@ -769,7 +797,7 @@ impl Ui {
     /// Pop a screen, restoring the previous focus. Nodes remain reusable.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
     /// ui.push_screen(root, true); assert_eq!(ui.pop_screen(), Some(root));
     /// ```
     pub fn pop_screen(&mut self) -> Option<UiId> {
@@ -785,8 +813,8 @@ impl Ui {
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
-    /// let child = ui.add_child(root, ponko::ui::UiWidget::Label, ponko::ui::layout::Style::default());
+    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
+    /// let child = ui.add_child(root, ponko::ui::UiWidget::Label, ponko::ui::UiLayout::auto());
     /// assert_eq!(ui.parent(child), Some(root));
     /// assert_eq!(ui.parent(root), None);
     /// ```
@@ -797,7 +825,7 @@ impl Ui {
     /// ```
     /// use ponko::prelude::*;
     /// let mut ui = ponko::ui::Ui::default();
-    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let root = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
     /// assert!(!ui.is_screen(root));
     /// ui.push_screen(root, false);
     /// assert!(ui.is_screen(root));
@@ -828,7 +856,7 @@ impl Ui {
     /// one. `None` for an id not in the tree.
     /// ```
     /// use ponko::prelude::*;
-    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::layout::Style::default());
+    /// let mut ui = ponko::ui::Ui::default(); let id = ui.add(ponko::ui::UiWidget::Panel, ponko::ui::UiLayout::auto());
     /// assert_eq!(ui.rect(id), Some(Rect::default()), "no layout yet");
     /// ```
     pub fn rect(&self, id: UiId) -> Option<Rect> {
@@ -842,30 +870,14 @@ impl Ui {
     pub fn focus(&self) -> Option<UiId> {
         self.focus
     }
-    /// Drain semantic events once. Unread events are cleared next frame.
+    /// Takes the queued semantic events, oldest first. Events left untaken
+    /// (stopping the loop early) stay queued until the next frame clears
+    /// them. To change the tree while reading, take them one at a time with
+    /// [`next_event`](Self::next_event). For a screen that reacts only to
+    /// clicks:
     /// ```
     /// use ponko::prelude::*;
-    /// assert_eq!(ponko::ui::Ui::default().events().count(), 0);
-    /// ```
-    pub fn events(&mut self) -> impl Iterator<Item = UiEvent> + '_ {
-        self.events.drain(..)
-    }
-    /// Take the oldest queued event, or `None` when none are left. Unlike
-    /// [`Ui::events`], dropping the result keeps the other events queued, so
-    /// calls that read one event at a time (the C API does) lose none.
-    /// ```
-    /// use ponko::prelude::*;
-    /// assert_eq!(ponko::ui::Ui::default().next_event(), None);
-    /// ```
-    pub fn next_event(&mut self) -> Option<UiEvent> {
-        (!self.events.is_empty()).then(|| self.events.remove(0))
-    }
-    /// The node clicked since the last call, if any: takes the queued events
-    /// and returns the last click's node. For screens that react only to
-    /// clicks; the other events it takes are dropped, so read
-    /// [`events`](Self::events) instead on a screen whose inputs matter.
-    /// ```
-    /// use ponko::prelude::*;
+    /// use ponko::ui::UiEvent;
     /// let mut ui = ponko::ui::Ui::default();
     /// let root = ui.root().layout(ponko::ui::UiLayout::fill()).id();
     /// let ok = ui.button(root, "OK").layout(ponko::ui::UiLayout::fixed(100.0, 40.0)).id();
@@ -877,22 +889,24 @@ impl Ui {
     ///     released,
     ///     ..Default::default()
     /// };
-    /// ui.frame(vec2(800.0, 600.0), &at(false, false, false));
-    /// assert_eq!(ui.take_click(), None);
     /// ui.frame(vec2(800.0, 600.0), &at(true, true, false));
     /// ui.frame(vec2(800.0, 600.0), &at(false, false, true));
-    /// assert_eq!(ui.take_click(), Some(ok));
-    /// assert_eq!(ui.take_click(), None);
+    /// let clicked = ui.events().filter_map(UiEvent::clicked).last();
+    /// assert_eq!(clicked, Some(ok));
+    /// assert_eq!(ui.events().count(), 0);
     /// ```
-    pub fn take_click(&mut self) -> Option<UiId> {
-        self.events
-            .drain(..)
-            .filter_map(|e| match e {
-                UiEvent::Clicked(id) => Some(id),
-                _ => None,
-            })
-            // Dropping the drain removes the events before the last click too.
-            .next_back()
+    pub fn events(&mut self) -> impl Iterator<Item = UiEvent> + '_ {
+        std::iter::from_fn(move || self.events.pop_front())
+    }
+    /// Takes the oldest queued event, or `None` when none are left: what
+    /// [`events`](Self::events) gives one at a time, for a loop whose body
+    /// changes the tree (`while let Some(e) = ui.next_event() { ... }`).
+    /// ```
+    /// use ponko::prelude::*;
+    /// assert_eq!(ponko::ui::Ui::default().next_event(), None);
+    /// ```
+    pub fn next_event(&mut self) -> Option<UiEvent> {
+        self.events.pop_front()
     }
     /// The pointer belongs to UI: it is over a widget of the tree or an
     /// [immediate](Self::immediate) one drawn this frame or the previous
@@ -933,7 +947,7 @@ impl Ui {
     /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx) {
     /// // Aim with the screen's center while the cursor is locked.
-    /// let (origin, forward) = (ctx.camera3d.position, ctx.camera3d.forward());
+    /// let (origin, forward) = (ctx.scene3d.camera.position, ctx.scene3d.camera.forward());
     /// ctx.ui.set_pointer_ray(Some((origin, forward)));
     /// # }
     /// ```
@@ -1164,7 +1178,7 @@ impl Ui {
         let access_moved_focus = self.apply_access_actions();
         if input.cancel {
             if let Some(root) = self.pop_screen() {
-                self.events.push(UiEvent::ScreenPopped(root));
+                self.events.push_back(UiEvent::ScreenPopped(root));
             }
             self.layout(viewport);
             return;
@@ -1359,22 +1373,22 @@ impl Ui {
             return;
         }
         match self.node(id).unwrap().widget {
-            UiWidget::Button => self.events.push(UiEvent::Clicked(id)),
+            UiWidget::Button => self.events.push_back(UiEvent::Clicked(id)),
             UiWidget::Toggle => {
                 let v = 1.0 - self.value(id).unwrap();
                 self.change_value(id, v);
             }
-            UiWidget::TextInput => self.events.push(UiEvent::Submitted(id)),
+            UiWidget::TextInput => self.events.push_back(UiEvent::Submitted(id)),
             _ => {}
         }
     }
     pub(super) fn push_changed(&mut self, id: UiId) {
-        self.events.push(UiEvent::Changed(id));
+        self.events.push_back(UiEvent::Changed(id));
     }
     pub(super) fn change_value(&mut self, id: UiId, value: f32) {
         if self.value(id) != Some(value) {
             self.set_value(id, value);
-            self.events.push(UiEvent::Changed(id));
+            self.events.push_back(UiEvent::Changed(id));
         }
     }
     fn caret_at(&mut self, id: UiId, p: Vec2) -> usize {
@@ -1461,7 +1475,7 @@ impl Ui {
             n.anchor = n.caret;
         }
         if changed {
-            self.events.push(UiEvent::Changed(id));
+            self.events.push_back(UiEvent::Changed(id));
         }
     }
     pub(super) fn layout_with_text(&mut self, viewport: Vec2, text: &mut crate::text::Text) {

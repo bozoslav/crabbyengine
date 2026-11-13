@@ -1,44 +1,26 @@
 {
   "description": "Reviewed legacy references; see book/src/naming.md. Decreases are allowed; increases require review.",
   "files": {
-    ".github/workflows/release.yml": {
-      "occurrences": 2,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
-    },
-    "AGENTS.md": {
-      "occurrences": 7,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Preserved project instructions, README text, release history or legal attribution."
-    },
     "CHANGELOG.md": {
       "occurrences": 92,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
-    "LICENSE-MIT": {
+    "NOTICE": {
       "occurrences": 1,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
-    "NOTICE": {
-      "occurrences": 2,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Preserved project instructions, README text, release history or legal attribution."
-    },
     "README.md": {
-      "occurrences": 8,
+      "occurrences": 6,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "STABILITY.md": {
-      "occurrences": 3,
+      "occurrences": 6,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Migration instructions and deprecation schedule for legacy names."
@@ -50,151 +32,55 @@
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "book/src/naming.md": {
-      "occurrences": 15,
+      "occurrences": 18,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Migration instructions and deprecation schedule for legacy names."
     },
-    "crates/ponko_bench/README.md": {
-      "occurrences": 2,
+    "changelog.d/api-ffi-legacy.md": {
+      "occurrences": 14,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
-    "crates/ponko_ffi/src/legacy.rs": {
-      "occurrences": 6255,
+    "changelog.d/api-security.md": {
+      "occurrences": 6,
       "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Optional legacy native exports and source shims; removal requires a major release no earlier than 2027-11-10."
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
-    "crates/ponko_ffi/tests/abi_compat.rs": {
-      "occurrences": 74,
+    "changelog.d/api-shims.md": {
+      "occurrences": 13,
       "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "crates/ponko_ffi/tests/fixtures/abi/README.md": {
-      "occurrences": 10,
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "crates/ponko_ffi/tests/fixtures/abi/abi_v2.provenance.json": {
-      "occurrences": 3,
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
-    },
-    "crates/ponko_ffi/tests/fixtures/abi/abi_v2_layout.json": {
-      "occurrences": 428,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
-    },
-    "crates/ponko_ffi/tests/fixtures/abi/crabby_abi2.h": {
-      "occurrences": 3028,
-      "path_occurrences": 1,
-      "category": "intentional history",
-      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
-    },
-    "crates/ponko_ffi/tests/fixtures/abi/generate_baseline.py": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
-    },
-    "crates/ponko_ffi/tests/fixtures/abi/layout_table.rs": {
-      "occurrences": 428,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
-    },
-    "crates/ponko_ffi/tests/naming.rs": {
-      "occurrences": 27,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
-    },
-    "crates/ponko_ffi/tests/three.rs": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "crates/ponko_mcp/src/lib.rs": {
-      "occurrences": 18,
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
     },
     "crates/ponko_mcp/tests/naming.rs": {
-      "occurrences": 6,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
-    },
-    "crates/ponko_mcp/tests/server.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
-    },
-    "examples/coin_dash/CONTENT-NOTICES.txt": {
-      "occurrences": 2,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Preserved project instructions, README text, release history or legal attribution."
-    },
-    "examples/cpp/CMakeLists.txt": {
-      "occurrences": 4,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
-    },
-    "examples/cpp/abi_baseline.c": {
-      "occurrences": 62,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
-    },
-    "examples/cpp/compatibility.c": {
-      "occurrences": 6,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
-    },
-    "examples/cpp/compatibility.cpp": {
-      "occurrences": 5,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
-    },
-    "include/crabby.h": {
-      "occurrences": 1433,
-      "path_occurrences": 1,
-      "category": "deprecated compatibility",
-      "reason": "Optional legacy native exports and source shims; removal requires a major release no earlier than 2027-11-10."
-    },
-    "include/crabby.hpp": {
-      "occurrences": 6,
-      "path_occurrences": 1,
-      "category": "deprecated compatibility",
-      "reason": "Optional legacy native exports and source shims; removal requires a major release no earlier than 2027-11-10."
-    },
-    "scripts/check-ffi-coverage.py": {
       "occurrences": 3,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
-      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
+      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "scripts/check-naming.py": {
-      "occurrences": 2,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
-    },
-    "scripts/generate-ponko-header.py": {
-      "occurrences": 7,
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
@@ -211,110 +97,20 @@
       "category": "deprecated compatibility",
       "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
     },
-    "scripts/test-native-symbols.py": {
-      "occurrences": 4,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Compatibility-layer generation/checks, legacy build fallbacks or preserved leak-check configuration."
-    },
-    "src/color.rs": {
-      "occurrences": 2,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
-    },
-    "src/control.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
-    },
-    "src/environment.rs": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
-    },
-    "src/net/steam_messages.rs": {
-      "occurrences": 5,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
-    },
-    "src/reflect.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
-    },
-    "src/scene.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
-    },
-    "src/three/gltf.rs": {
-      "occurrences": 6,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
-    },
-    "src/web.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Legacy input fallback, protocol interoperability alias or deprecated Rust alias and its regression coverage."
-    },
-    "tests/control.rs": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
-    },
     "tests/fixtures/saves/README.md": {
       "occurrences": 2,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
-    "tests/fixtures/saves/prefab_v1.json": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
-    },
-    "tests/fixtures/saves/prefab_v1.provenance.json": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
-    },
-    "tests/fixtures/saves/world_v1.json": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
-    },
-    "tests/fixtures/saves/world_v1.provenance.json": {
-      "occurrences": 1,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
-    },
-    "tests/naming.rs": {
-      "occurrences": 3,
-      "path_occurrences": 0,
-      "category": "deprecated compatibility",
-      "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
-    },
     "tests/prefab_compat.rs": {
-      "occurrences": 2,
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
     },
     "tests/save_compat.rs": {
-      "occurrences": 2,
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."

@@ -1,7 +1,7 @@
 //! Isolated matching-cost matrix: one entity per layout, sparse (1/16)
 //! matches, query reconstruction included. Setup and five warmups are untimed.
 use crate::Bench;
-use ponko_ecs::World;
+use ponko_ecs::{With, Without, World};
 use std::hint::black_box;
 
 struct Value(u64);
@@ -52,10 +52,10 @@ pub fn run(b: &mut Bench) {
                 |w| {
                     let q = w
                         .query::<&Value>()
-                        .with::<Marker<0>>()
-                        .with::<Marker<1>>()
-                        .without::<Marker<2>>()
-                        .without::<Marker<3>>();
+                        .filter::<With<Marker<0>>>()
+                        .filter::<With<Marker<1>>>()
+                        .filter::<Without<Marker<2>>>()
+                        .filter::<Without<Marker<3>>>();
                     let mut q = hint(q, strategy);
                     black_box(q.count());
                 },
@@ -72,10 +72,10 @@ pub fn run(b: &mut Bench) {
                                 let q = if mode == "dense" {
                                     q
                                 } else {
-                                    q.with::<Marker<0>>()
-                                        .with::<Marker<1>>()
-                                        .without::<Marker<2>>()
-                                        .without::<Marker<3>>()
+                                    q.filter::<With<Marker<0>>>()
+                                        .filter::<With<Marker<1>>>()
+                                        .filter::<Without<Marker<2>>>()
+                                        .filter::<Without<Marker<3>>>()
                                 };
                                 let mut q = hint(q, strategy);
                                 match mode {

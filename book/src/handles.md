@@ -1,8 +1,10 @@
 # Handles: freeing what you made
 
 Textures, meshes, materials, sounds and the other things the engine keeps
-for your game come back as small handles: plain `Copy` values holding an id.
-Every kind works the same way:
+for your game come back as small handles: plain `Copy` values, passed by
+value (`ctx.draw(crab, pos)`, `ctx.play_sound(hit)`). Only the engine makes
+them: a number can't be turned into a handle, so a handle always names
+something your game made. Every kind works the same way:
 
 | Question | Rust | C++ |
 |---|---|---|
@@ -13,14 +15,16 @@ Every kind works the same way:
 
 The kinds are `Texture` (render targets included), `Sound`, `Font`, and with
 the `3d` feature `Mesh`, `Material`, `Shader`, `Compute`, `Effect`,
-`GpuBuffer`, `InstanceBatch` and `TextureArray`. They implement the `Handle`
-trait, so a helper can take any of them.
+`GpuBuffer`, `InstanceBatch`, `TextureArray` and `TerrainTile` (with
+`physics3d`, `CollisionMesh` too). They implement the `Handle` trait, so a
+helper can take any of them.
 
 The service that holds a handle answers the same questions:
 `ctx.gfx.is_live(h)`, `ctx.gfx.free(h)` and `ctx.gfx.live_counts()` for
-everything drawn (every kind except `Sound`, the `GfxHandle` trait), and
-`ctx.audio.is_live(s)` and `ctx.audio.free(s)` for sounds. `ctx.is_live`
-and `ctx.free` take any kind and forward to them.
+everything drawn (the `GfxHandle` trait), `ctx.audio.is_live(s)` and
+`ctx.audio.free(s)` for sounds, and `ctx.physics3d.is_live(m)` and
+`ctx.physics3d.free(m)` for collision meshes. `ctx.is_live` and `ctx.free`
+take any kind and forward to them.
 
 A game that streams its world frees what each cell made when the cell goes
 out of range:
@@ -44,15 +48,15 @@ out of range:
 
 ## The rules
 
-- **Ids are never reused within a run**, so a freed handle stays dead: it
-  never starts naming something made later, and a stale copy kept somewhere
-  can't quietly point at the wrong thing. Meshes and GPU buffers are made
-  and freed all the time in streamed worlds, so the next one made takes a
-  freed one's slot in the engine's tables (which, with the per-frame work
-  over every mesh, then don't keep growing), but under a new id: the id's
-  top 8 bits count how often its slot was reused. A stale mesh or buffer
-  handle stays dead too, until its slot has been reused 256 times; drop it
-  once you free it.
+- **No handle is ever given out twice in a run**, so a freed handle stays
+  dead: it never starts naming something made later, and a stale copy kept
+  somewhere can't quietly point at the wrong thing. Meshes, GPU buffers and
+  collision meshes are made and freed all the time in streamed worlds, so
+  the next one made takes a freed one's slot in the engine's tables (which,
+  with the per-frame work over every mesh, then don't keep growing), but
+  under a new handle that counts how often its slot was given out. After
+  4095 times the slot is retired instead of counting from zero again, so a
+  stale handle stays dead for good.
 - **Freeing twice, or freeing `NONE`, does nothing.** `NONE` is never live.
 - **Only what the game made can be freed.** The built-in font, the default
   material's internals and the engine's own textures (shadow maps, the font
@@ -159,17 +163,16 @@ and hot-reload assets in loops and expect `growth_since` to stay empty.
 ## The older names
 
 The per-kind calls (`free_mesh`, `free_instance_batch`, `has_material`,
-`has_shader`, `has_font`, `is_mesh_live`, ...) still work and do the same as
-`free` and `is_live`, but are deprecated: use `ctx.gfx.free(h)` and
-`ctx.gfx.is_live(h)`. `gpu_buffer_len`, `instance_batch_len`,
+`has_shader`, `has_compute`, `has_effect`, `has_font`, `is_mesh_live`) were
+removed in 0.1.0: use `ctx.gfx.free(h)` and `ctx.gfx.is_live(h)`. `gpu_buffer_len`, `instance_batch_len`,
 `has_texture_array` (which also checks the size) and `is_render_target` stay: they answer more than whether a handle is live.
 
-## Not handles
+## Handles of several meshes
 
-- A `TerrainTile` holds one mesh per detail level, not an id; free it with
-  `free_terrain_tile` (or `ctx.free` each of its meshes).
-- 3D physics collision meshes have their own generation-checked handles; see
-  [3D physics](physics3d.md).
+A `TerrainTile` holds one mesh per detail level. It is a handle too:
+`ctx.is_live(tile)` while all its meshes are, and `ctx.free(tile)` frees
+them all. `tile.lods()` gives the meshes, to set their shadows or look up
+their cost.
 
 ## In C
 

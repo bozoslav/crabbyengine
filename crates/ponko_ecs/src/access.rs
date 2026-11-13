@@ -16,6 +16,7 @@ use crate::world::World;
 ///
 /// Each entry appears once; `true` means it was written (a write also covers reads).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct AccessLog {
     /// Components fetched by queries, `get`, `get_mut` or the raw C/C++ path.
     pub components: Vec<(ComponentId, bool)>,

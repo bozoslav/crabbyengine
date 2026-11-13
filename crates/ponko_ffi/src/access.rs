@@ -3,9 +3,9 @@
 use crate::game::{PonkoGame, PonkoSystemFn, build, ok, phase, system, system_name};
 use crate::perf::write_text;
 use crate::{Failure, PonkoStatus, boundary, invalid, invalid_owned};
-use ponko::Phase;
 use ponko::access::Service;
 use ponko::access::SystemAccess;
+use ponko::{IntoSystem, Phase};
 use std::ffi::{CStr, c_char, c_void};
 
 /// An owned access declaration: what a system reads and writes. Build it
@@ -294,7 +294,7 @@ pub unsafe extern "C" fn ponko_game_add_system_with_access(
             Ok((f, p, system_name(name, "C system")?, a.0.clone()))
         })();
         build(game, |g| match checked {
-            Ok((f, p, name, a)) => ok(g.named_add_with_access(p, name, every, a, system(f, user))),
+            Ok((f, p, name, a)) => ok(g.add(p, system(f, user).named(name).every(every).access(a))),
             Err(e) => (g, Err(e)),
         })
     }
@@ -376,8 +376,8 @@ pub unsafe extern "C" fn ponko_game_schedule_plan(
             // `schedule_plan` panics on a wrong `Game::order` pair (which
             // Rust code sharing this game can set). Refuse first: a panic
             // in here would lose the game the handle owns.
-            if let Some(problem) = g.order_problem() {
-                return (g, Err(invalid_owned(problem)));
+            if let Err(problem) = g.check_order() {
+                return (g, Err(invalid_owned(problem.to_string())));
             }
             plan = g.schedule_plan().to_string();
             ok(g)

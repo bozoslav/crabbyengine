@@ -114,7 +114,7 @@ fn the_v1_fixture_records_its_provenance() {
 #[test]
 fn the_v1_fixture_has_the_v1_header() {
     let save = v1();
-    assert_eq!(save["format"], "crabby-world");
+    assert_eq!(save["format"], "ponko-world");
     assert_eq!(save["version"], 1);
     assert_eq!(save["not_saved"], json!({ "Secret": 1 }));
 }
@@ -283,20 +283,22 @@ fn write_v1_fixture() {
 }
 
 #[test]
-fn both_world_spellings_load_and_resave_with_primary_identifier() {
-    for format in ["crabby-world", "ponko-world"] {
-        let mut input = v1();
-        input["format"] = json!(format);
-        let mut world = reflected_world();
-        world.load(&input).unwrap();
-        let output = world.save();
-        assert_eq!(output["format"], "ponko-world");
-        assert_eq!(output["version"], 1);
-        let mut expected = input;
-        expected["format"] = json!("ponko-world");
-        assert_eq!(output["entities"], expected["entities"]);
-        let mut again = reflected_world();
-        again.load(&output).unwrap();
-        assert_eq!(again.save(), output);
-    }
+fn a_v1_save_resaves_with_the_same_identifier_and_entities() {
+    let input = v1();
+    let mut world = reflected_world();
+    world.load(&input).unwrap();
+    let output = world.save();
+    assert_eq!(output["format"], "ponko-world");
+    assert_eq!(output["version"], 1);
+    assert_eq!(output["entities"], input["entities"]);
+    let mut again = reflected_world();
+    again.load(&output).unwrap();
+    assert_eq!(again.save(), output);
+}
+
+#[test]
+fn the_removed_pre_release_identifier_is_not_a_world_save() {
+    let mut input = v1();
+    input["format"] = json!("crabby-world");
+    assert!(reflected_world().load(&input).is_err());
 }

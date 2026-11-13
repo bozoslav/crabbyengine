@@ -362,18 +362,14 @@ fn shape3d() -> ValueSchema {
         ValueSchema::strict_object([("Sphere", ValueSchema::object([("radius", Number)]))]),
         ValueSchema::strict_object([("Cuboid", ValueSchema::object([("size", Vec3)]))]),
         ValueSchema::strict_object([("Capsule", ValueSchema::object([("height", Number), ("radius", Number)]))]),
+        // A mesh file, as a scene names it (see `physics3d::files`): scale
+        // and convex may be left out. Meshes made in code aren't saved.
         ValueSchema::strict_object([(
             "Mesh",
-            ValueSchema::any_of([
-                // A handle made in code.
-                ValueSchema::object([("index", Unsigned), ("generation", Unsigned)]),
-                // A mesh file, as a scene names it (see `physics3d::files`):
-                // scale and convex may be left out.
-                ValueSchema::object([
-                    ("file", String),
-                    ("scale", ValueSchema::optional(Vec3)),
-                    ("convex", ValueSchema::optional(Bool)),
-                ]),
+            ValueSchema::object([
+                ("file", String),
+                ("scale", ValueSchema::optional(Vec3)),
+                ("convex", ValueSchema::optional(Bool)),
             ]),
         )]),
     ])
@@ -623,31 +619,34 @@ mod tests {
             };
             assert!(fills_an_optional(&rigidbody3d(), &json_of(body)));
             check!(crate::d3::RigidBody, body);
+            use crate::Handle;
             use crate::d3::Collider as Collider3D;
             use crate::physics3d::CollisionMesh;
             for collider in [
                 Collider3D::sphere(1.0),
                 Collider3D::cuboid(glam::Vec3::ONE),
                 Collider3D::capsule(2.0, 0.5),
-                Collider3D::mesh(CollisionMesh::default()),
             ] {
                 check!(Collider3D, collider);
             }
-            // A mesh made from a file is saved as that file's description.
+            // A mesh made from a file is saved as that file's description;
+            // one made in code has no file to name, so it isn't saved.
             let mut world = crate::World::new();
+            let made = Collider3D::mesh(CollisionMesh { id: 0 });
+            assert!(super::super::collider_json(&world, &made).is_none());
             let mut files = super::super::ColliderFiles::default();
             let file = json!({ "file": "rock.glb", "scale": [1.0, 2.0, 1.0], "convex": true });
-            files.by_mesh.insert(CollisionMesh::default(), file.clone());
+            files.by_mesh.insert(CollisionMesh::NONE, file.clone());
             world.insert_resource(files);
-            let saved = super::super::collider_json(&world, &Collider3D::mesh(CollisionMesh::default()))
+            assert!(super::super::collider_json(&world, &made).is_none());
+            let saved = super::super::collider_json(&world, &Collider3D::mesh(CollisionMesh::NONE))
                 .unwrap()
                 .unwrap();
             assert_eq!(saved["shape"]["Mesh"], file);
             validate(&collider3d(), &saved);
             // A scene may leave scale and convex out: only the file is required.
             let mesh = &collider3d().to_json_schema()["properties"]["shape"]["anyOf"][3];
-            let forms = &mesh["properties"]["Mesh"]["anyOf"];
-            assert_eq!(forms[1]["required"], json!(["file"]), "{forms}");
+            assert_eq!(mesh["properties"]["Mesh"]["required"], json!(["file"]), "{mesh}");
             check!(crate::d3::Velocity, crate::d3::Velocity::default());
             check!(crate::d3::Character, crate::d3::Character::default());
             let vehicle = json_of(crate::d3::Vehicle::default());

@@ -92,7 +92,7 @@ fn resolving_with_no_actions_installed_says_so() {
     let error = ActionMap::default().resolve("jump").unwrap_err();
     assert_eq!(
         error.to_string(),
-        "unknown action \"jump\" (no actions are installed; see Ctx::set_actions)"
+        "unknown action \"jump\" (no actions are installed; see Input::set_actions)"
     );
 }
 

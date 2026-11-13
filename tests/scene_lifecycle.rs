@@ -210,7 +210,7 @@ mod physics {
     fn ball_at(world: &mut World) -> Vec2 {
         world
             .query::<&Transform2D>()
-            .with::<RigidBody>()
+            .filter::<With<RigidBody>>()
             .iter()
             .next()
             .unwrap()
@@ -291,7 +291,14 @@ mod physics {
         Game::new("t", 1, 1)
             .physics(Vec2::ZERO)
             .sim_system(move |ctx: &mut Ctx| {
-                let hit = |ctx: &Ctx| ctx.physics.cast_ray(vec2(-100.0, 0.0), Vec2::X, 1000.0);
+                let hit = |ctx: &Ctx| {
+                    ctx.physics.cast_ray(
+                        vec2(-100.0, 0.0),
+                        Vec2::X,
+                        1000.0,
+                        ponko::d2::QueryFilter::default().with_sensors(),
+                    )
+                };
                 match ctx.time.sim_tick() {
                     5 => {
                         let before = hit(ctx).expect("scene A's ball");
@@ -393,7 +400,7 @@ mod physics3d {
             });
         let p = world
             .query::<&Transform3D>()
-            .with::<RigidBody3D>()
+            .filter::<With<RigidBody3D>>()
             .iter()
             .next()
             .unwrap()

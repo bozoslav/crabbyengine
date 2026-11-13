@@ -5,7 +5,7 @@
 //! materials, shaders, effects, compute shaders, GPU buffers, instance
 //! batches, terrain, render targets, texture arrays and reflection probes.
 //! The cameras, lights, sky and post-processing settings are plain fields of
-//! [`Ctx`](crate::Ctx) (`ctx.camera3d`, `ctx.lighting`, `ctx.post`): the
+//! [`Ctx`](crate::Ctx) (`ctx.scene3d.camera`, `ctx.scene3d.lighting`, `ctx.scene3d.post`): the
 //! renderer reads them when the frame is drawn.
 //!
 //! **When to call it.** Load and create in setup (or any system: a file is
@@ -31,7 +31,7 @@
 //! fn draw(ctx: &mut Ctx) {
 //!     // `ctx.gfx` is its own field: draw while a query borrows the world.
 //!     for (crab, at) in ctx.world.query::<(&Crab, &ponko::d2::Transform)>().iter() {
-//!         ctx.gfx.draw(&crab.0, at.position);
+//!         ctx.gfx.draw(crab.0, at.position);
 //!     }
 //! }
 //!
@@ -63,6 +63,9 @@ pub(crate) struct ScreenshotRequest {
     /// Scale down so neither side exceeds this (0: full size).
     pub(crate) max_size: u32,
     pub(crate) reply: Option<Sender<Result<Value, String>>>,
+    /// The file the control endpoint claimed for it, written through this
+    /// handle (and removed if the screenshot fails).
+    pub(crate) claimed: Option<crate::control::ClaimedFile>,
 }
 
 /// Side of the circle texture behind [`Graphics::draw_circle`], in pixels.
@@ -105,7 +108,7 @@ enum Layer {
 /// fn draw(ctx: &mut Ctx) {
 ///     // `ctx.gfx` is its own field: draw while a query borrows the world.
 ///     for (crab, at) in ctx.world.query::<(&Crab, &ponko::d2::Transform)>().iter() {
-///         ctx.gfx.draw(&crab.0, at.position);
+///         ctx.gfx.draw(crab.0, at.position);
 ///     }
 /// }
 ///
@@ -115,18 +118,9 @@ enum Layer {
 /// });
 /// ```
 pub struct Graphics {
-    #[cfg(feature = "3d")]
-    pub(crate) autotune: Option<crate::three::autotune::Controller>,
-    #[cfg(feature = "3d")]
-    pub(crate) quality_pinned: bool,
-    #[cfg(feature = "3d")]
-    pub(crate) scale_pinned: bool,
-    #[cfg(feature = "3d")]
-    pub(crate) shadow_pinned: bool,
     /// Assets loaded under residency budgets (`resident_mesh`,
-    /// `resident_texture`), by kind. The calls are on `Ctx` (eviction looks
-    /// at the world); the bookkeeping is here because `update_texture`
-    /// changes it.
+    /// `resident_texture`), by kind. Calls that can evict take the world,
+    /// since eviction never takes what an entity shows.
     pub(crate) residency: crate::residency::Residency,
     /// The upload queue and streamed assets (`stream_texture`, `stream_mesh`).
     pub(crate) streaming: crate::streaming::Streaming,
@@ -175,6 +169,10 @@ pub struct Graphics {
     pub(crate) assets3d: crate::three::Assets3D,
     #[cfg(feature = "3d")]
     pub(crate) frame3d: crate::three::Frame3D,
+    /// Automatic quality's running controller, following the policy in
+    /// `Ctx::scene3d` (`Ctx::update_quality_autotune`).
+    #[cfg(feature = "3d")]
+    pub(crate) autotune: Option<crate::three::autotune::Controller>,
 }
 
 impl Graphics {
@@ -186,14 +184,6 @@ impl Graphics {
         #[cfg(feature = "3d")] material_names: crate::reflect::MaterialNames,
     ) -> Self {
         Self {
-            #[cfg(feature = "3d")]
-            autotune: None,
-            #[cfg(feature = "3d")]
-            quality_pinned: false,
-            #[cfg(feature = "3d")]
-            scale_pinned: false,
-            #[cfg(feature = "3d")]
-            shadow_pinned: false,
             residency: Default::default(),
             streaming: Default::default(),
             sim_tick: 0,
@@ -225,10 +215,14 @@ impl Graphics {
             assets3d: Default::default(),
             #[cfg(feature = "3d")]
             frame3d: Default::default(),
+            #[cfg(feature = "3d")]
+            autotune: None,
         }
     }
 
-    /// Sets the background color. It stays until you change it.
+    /// Sets the background color. It stays until you change it. In 3D it
+    /// shows only behind a flat sky (`ctx.scene3d.sky.atmosphere` off): the
+    /// default atmosphere draws the whole sky itself.
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -250,10 +244,10 @@ impl Graphics {
     /// ```
     /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, crab: Texture) {
-    /// ctx.gfx.draw(&crab, vec2(400.0, 300.0));
+    /// ctx.gfx.draw(crab, vec2(400.0, 300.0));
     /// # }
     /// ```
-    pub fn draw(&mut self, texture: &Texture, pos: Vec2) {
+    pub fn draw(&mut self, texture: Texture, pos: Vec2) {
         push_sprite(
             &mut self.draw_list,
             texture,
@@ -272,15 +266,14 @@ impl Graphics {
     /// ```
     /// # use ponko::prelude::*;
     /// # fn update(ctx: &mut Ctx, crab: Texture) {
-    /// ctx.gfx.draw_ex(&crab, vec2(400.0, 300.0), DrawParams {
-    ///     rotation: ctx.time.elapsed() as f32,
-    ///     color: Color::RED.with_alpha(0.5),
-    ///     z: 1.0, // on top of everything at z = 0
-    ///     ..Default::default()
-    /// });
+    /// let params = DrawParams::default()
+    ///     .with_rotation(ctx.time.elapsed() as f32)
+    ///     .with_color(Color::RED.with_alpha(0.5))
+    ///     .with_z(1.0); // on top of everything at z = 0
+    /// ctx.gfx.draw_ex(crab, vec2(400.0, 300.0), params);
     /// # }
     /// ```
-    pub fn draw_ex(&mut self, texture: &Texture, pos: Vec2, params: DrawParams) {
+    pub fn draw_ex(&mut self, texture: Texture, pos: Vec2, params: DrawParams) {
         push_sprite(
             if params.screen {
                 &mut self.ui_list
@@ -326,12 +319,8 @@ impl Graphics {
     /// ```
     /// # use ponko::prelude::*;
     /// # fn hud(ctx: &mut Ctx, title: Font) {
-    /// ctx.gfx.draw_text_ex("Colony", vec2(20.0, 20.0), TextParams {
-    ///     font: title,
-    ///     size: 40.0,
-    ///     z: 1.0,
-    ///     ..Default::default()
-    /// });
+    /// let params = TextParams::default().with_font(title).with_size(40.0).with_z(1.0);
+    /// ctx.gfx.draw_text_ex("Colony", vec2(20.0, 20.0), params);
     /// # }
     /// ```
     pub fn draw_text_ex(&mut self, text: &str, pos: Vec2, params: TextParams) {
@@ -413,10 +402,10 @@ impl Graphics {
     /// # use ponko::prelude::*;
     /// # fn setup(ctx: &mut Ctx) {
     /// let tiles = ctx.gfx.load_texture("crab.png");
-    /// ctx.gfx.set_texture_filter(&tiles, TextureFilter::Nearest);
+    /// ctx.gfx.set_texture_filter(tiles, TextureFilter::Nearest);
     /// # }
     /// ```
-    pub fn set_texture_filter(&mut self, texture: &Texture, filter: TextureFilter) {
+    pub fn set_texture_filter(&mut self, texture: Texture, filter: TextureFilter) {
         if !self.textures_live.contains(texture.id) {
             return;
         }
@@ -475,22 +464,6 @@ impl Graphics {
         Ok(font)
     }
 
-    /// Whether `font` is the built-in font or one this context loaded and
-    /// hasn't freed: the same as [`is_live`](crate::Ctx::is_live). Text in a font
-    /// that isn't uses the built-in one.
-    ///
-    /// ```
-    /// # use ponko::prelude::*;
-    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
-    ///     assert!(ctx.gfx.is_live(Font::DEFAULT));
-    /// });
-    /// ```
-    #[must_use]
-    #[deprecated(note = "use `ctx.gfx.is_live(..)`")]
-    pub fn has_font(&self, font: Font) -> bool {
-        self.is_live(font)
-    }
-
     /// Loads an image from the `assets/` folder (PNG for now).
     ///
     /// Do this once in setup and keep the [`Texture`]; it's a cheap handle.
@@ -504,7 +477,7 @@ impl Graphics {
     /// # use ponko::prelude::*;
     /// Game::new("Crabs", 800, 600).run(|ctx| {
     ///     let crab = ctx.gfx.load_texture("crab.png");
-    ///     move |ctx: &mut Ctx| ctx.gfx.draw(&crab, vec2(400.0, 300.0))
+    ///     move |ctx: &mut Ctx| ctx.gfx.draw(crab, vec2(400.0, 300.0))
     /// });
     /// ```
     pub fn load_texture(&mut self, path: &str) -> Texture {
@@ -658,14 +631,14 @@ impl Graphics {
     /// let mut pixels = vec![0u8; 64 * 64 * 4];
     /// let heat = ctx.gfx.create_texture(64, 64, &pixels);
     /// pixels[0..4].copy_from_slice(&[255, 0, 0, 255]); // top-left pixel red
-    /// ctx.gfx.update_texture(&heat, &pixels);
+    /// ctx.gfx.update_texture(heat, &pixels);
     /// # }
     /// ```
     ///
     /// # Panics
     /// If `rgba` isn't `width * height * 4` bytes.
     #[track_caller]
-    pub fn update_texture(&mut self, texture: &Texture, rgba: &[u8]) {
+    pub fn update_texture(&mut self, texture: Texture, rgba: &[u8]) {
         let (w, h) = (texture.width(), texture.height());
         let expected = w as usize * h as usize * 4;
         assert_eq!(
@@ -676,7 +649,7 @@ impl Graphics {
         );
         #[cfg(feature = "3d")]
         assert!(
-            !self.is_render_target(*texture),
+            !self.is_render_target(texture),
             "ponko: a render target is drawn by its target camera, not updated with pixels"
         );
         // A freed texture (or `Texture::NONE`) has no pixels of its own.
@@ -736,7 +709,28 @@ impl Graphics {
         max_size: u32,
         reply: Option<Sender<Result<Value, String>>>,
     ) {
-        self.screenshots.push(ScreenshotRequest { path, max_size, reply });
+        self.screenshots.push(ScreenshotRequest {
+            path,
+            max_size,
+            reply,
+            claimed: None,
+        });
+    }
+
+    /// [`queue_screenshot`](Self::queue_screenshot) into a file the control
+    /// endpoint claimed.
+    pub(crate) fn queue_claimed_screenshot(
+        &mut self,
+        claimed: crate::control::ClaimedFile,
+        max_size: u32,
+        reply: Sender<Result<Value, String>>,
+    ) {
+        self.screenshots.push(ScreenshotRequest {
+            path: claimed.path.clone(),
+            max_size,
+            reply: Some(reply),
+            claimed: Some(claimed),
+        });
     }
 
     pub(crate) fn renderer(&mut self) -> &mut Renderer {
@@ -887,7 +881,7 @@ impl Graphics {
 #[inline]
 fn push_sprite(
     draw_list: &mut DrawList,
-    texture: &Texture,
+    texture: Texture,
     pos: Vec2,
     scale: Vec2,
     rotation: f32,

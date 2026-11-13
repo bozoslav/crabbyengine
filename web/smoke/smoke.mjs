@@ -415,7 +415,7 @@ async function main() {
       throw new Failure("backend", `asked for ${args.backend} but the canvas uses ${report.backend}`);
     }
 
-    // 1b. The engine's own account of the GPU it opened (Ctx::gpu_capabilities,
+    // 1b. The engine's own account of the GPU it opened (Graphics::gpu_capabilities,
     //     published by the fixture): the adapter, the backend, the limits and
     //     what the renderer falls back on. It must agree with the canvas.
     report.engine = { gpu: snapshot.gpu };

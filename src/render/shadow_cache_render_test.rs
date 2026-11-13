@@ -7,10 +7,10 @@
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
 #[allow(unused_imports)]
-use crate::anim::Blend;
-#[allow(unused_imports)]
 use crate::d3::{PointLight as PointLight3D, SpotLight as SpotLight3D, Transform as Transform3D};
 use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::Blend;
 #[allow(unused_imports)]
 use crate::render::{InstanceLevel, MaterialDesc, MeshData, Model, ModelMaterial};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
@@ -150,20 +150,20 @@ impl Rig {
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             light: SkyLight {
                 sun: Vec3::splat(2.0),
                 sky: Vec3::splat(0.1),
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -253,16 +253,16 @@ fn kept_shadow_views_draw_the_same_image_as_redrawing_them() {
             ..Default::default()
         },
     ));
-    ctx.camera3d.position = vec3(0.0, 9.0, 9.0);
-    ctx.camera3d.look_at(Vec3::ZERO);
-    ctx.lighting.shadows = true;
-    ctx.lighting.shadow_cascades = CASCADES;
-    ctx.lighting.shadow_resolution = 512;
-    ctx.lighting.shadow_distance = 30.0;
+    ctx.scene3d.camera.position = vec3(0.0, 9.0, 9.0);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
+    ctx.scene3d.lighting.shadows = true;
+    ctx.scene3d.lighting.shadow_cascades = CASCADES;
+    ctx.scene3d.lighting.shadow_resolution = 512;
+    ctx.scene3d.lighting.shadow_distance = 30.0;
     // Every cascade is drawn each frame unless the renderer keeps it.
-    ctx.lighting.shadow_refresh = 1;
-    ctx.lighting.light_shadow_atlas = 1024;
-    ctx.sky.atmosphere = false;
+    ctx.scene3d.lighting.shadow_refresh = 1;
+    ctx.scene3d.lighting.light_shadow_atlas = 1024;
+    ctx.scene3d.sky.atmosphere = false;
 
     // `cached` keeps unchanged views; `reference` draws them all.
     let mut cached = rig.renderer();
@@ -312,7 +312,7 @@ fn kept_shadow_views_draw_the_same_image_as_redrawing_them() {
     // one exact projection; compare every resulting image to a full redraw.
     let mut reused = 0;
     for i in 0..24 {
-        ctx.camera3d.position.x += 0.0001;
+        ctx.scene3d.camera.position.x += 0.0001;
         let kept = step(&mut renderers, &mut ctx, "sub-texel camera translation", false);
         reused += (kept & 0b11).count_ones();
         if i % 5 == 0 {
@@ -367,13 +367,13 @@ fn kept_shadow_views_draw_the_same_image_as_redrawing_them() {
     assert_eq!(step(&mut renderers, &mut ctx, "material changed", true), 0);
 
     // New shadow quality: new sun shadow maps, every cascade drawn.
-    ctx.lighting.shadow_resolution = 1024;
+    ctx.scene3d.lighting.shadow_resolution = 1024;
     let kept = step(&mut renderers, &mut ctx, "shadow resolution changed", false);
     assert_eq!(kept & 0b11, 0, "new maps are drawn: {kept:b}");
 
     // The camera moves: the cascades follow it; the lights' views stay.
-    ctx.camera3d.position = vec3(1.0, 8.0, 10.0);
-    ctx.camera3d.look_at(Vec3::ZERO);
+    ctx.scene3d.camera.position = vec3(1.0, 8.0, 10.0);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
     let kept = step(&mut renderers, &mut ctx, "camera moved", true);
     assert_eq!(kept & 0b11, 0, "cascades follow the camera: {kept:b}");
     assert_eq!(kept & LIGHTS, LIGHTS, "light views are kept: {kept:b}");
@@ -421,14 +421,14 @@ fn views_with_shader_moved_vertices_are_always_drawn() {
             ..Default::default()
         },
     ));
-    ctx.camera3d.position = vec3(0.0, 9.0, 9.0);
-    ctx.camera3d.look_at(Vec3::ZERO);
-    ctx.lighting.shadows = true;
-    ctx.lighting.shadow_cascades = 1;
-    ctx.lighting.shadow_resolution = 512;
-    ctx.lighting.shadow_refresh = 1;
-    ctx.lighting.light_shadow_atlas = 1024;
-    ctx.sky.atmosphere = false;
+    ctx.scene3d.camera.position = vec3(0.0, 9.0, 9.0);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
+    ctx.scene3d.lighting.shadows = true;
+    ctx.scene3d.lighting.shadow_cascades = 1;
+    ctx.scene3d.lighting.shadow_resolution = 512;
+    ctx.scene3d.lighting.shadow_refresh = 1;
+    ctx.scene3d.lighting.light_shadow_atlas = 1024;
+    ctx.scene3d.sky.atmosphere = false;
     let mut renderer = rig.renderer();
     renderer.create_shader(&rig.device, "wave", WAVE).unwrap();
     renderer.create_material(&rig.device, &GpuMaterialDesc::new(&matte), &rig.textures);
@@ -486,13 +486,13 @@ fn a_changed_material_override_redraws_its_shadows() {
         Model::new(cube_mesh),
         ModelMaterial(solid),
     ));
-    ctx.camera3d.position = vec3(0.0, 9.0, 9.0);
-    ctx.camera3d.look_at(Vec3::ZERO);
-    ctx.lighting.shadows = true;
-    ctx.lighting.shadow_cascades = 1;
-    ctx.lighting.shadow_resolution = 512;
-    ctx.lighting.shadow_refresh = 1;
-    ctx.sky.atmosphere = false;
+    ctx.scene3d.camera.position = vec3(0.0, 9.0, 9.0);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
+    ctx.scene3d.lighting.shadows = true;
+    ctx.scene3d.lighting.shadow_cascades = 1;
+    ctx.scene3d.lighting.shadow_resolution = 512;
+    ctx.scene3d.lighting.shadow_refresh = 1;
+    ctx.scene3d.sky.atmosphere = false;
     let mut renderers = [rig.renderer(), rig.renderer()];
     for r in &mut renderers {
         for desc in [&matte, &matte, &glass] {
@@ -533,14 +533,14 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
         return;
     };
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::splat(SIZE as f32));
-    ctx.camera3d.position = vec3(0.0, 6.0, 6.0);
-    ctx.camera3d.fov_y = 90.0_f32.to_radians();
-    ctx.camera3d.look_at(Vec3::ZERO);
-    ctx.sky.atmosphere = false;
-    ctx.lighting.shadow_cascades = 4;
-    ctx.lighting.shadow_resolution = 512;
-    ctx.lighting.shadow_refresh = 32;
-    ctx.lighting.sun_direction = -Vec3::Y;
+    ctx.scene3d.camera.position = vec3(0.0, 6.0, 6.0);
+    ctx.scene3d.camera.fov_y = 90.0_f32.to_radians();
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
+    ctx.scene3d.sky.atmosphere = false;
+    ctx.scene3d.lighting.shadow_cascades = 4;
+    ctx.scene3d.lighting.shadow_resolution = 512;
+    ctx.scene3d.lighting.shadow_refresh = 32;
+    ctx.scene3d.lighting.sun_direction = -Vec3::Y;
     let desc = MaterialDesc {
         color: Color::WHITE,
         ..Default::default()
@@ -604,8 +604,8 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
             r.set_instance_batch(
                 &rig.device,
                 &rig.queue,
-                batch.id(),
-                ctx.gfx.assets3d.instance_batches[batch.id() as usize].as_ref(),
+                batch.id,
+                ctx.gfx.assets3d.instance_batches[batch.id as usize].as_ref(),
             );
         }
     }
@@ -645,11 +645,11 @@ fn instance_levels_refresh_cached_sun_cascades_across_shadow_bands() {
     );
     ctx.gfx.set_mesh_shadows(proxy, true);
     compare(&mut ctx, true);
-    ctx.camera3d.position.z = 6.5;
-    ctx.camera3d.look_at(Vec3::ZERO);
+    ctx.scene3d.camera.position.z = 6.5;
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
     let mut refreshed = 0;
     let mut stale_seen = false;
-    let refresh = ctx.lighting.shadow_refresh;
+    let refresh = ctx.scene3d.lighting.shadow_refresh;
     for turn in 0..refresh {
         let (_, collected, _, matches) = compare(&mut ctx, turn + 1 == refresh);
         assert!(
@@ -672,13 +672,13 @@ fn pure_custom_functions_and_texture_channels_only_refresh_affected_shadows() {
     const PURE: &str = "fn vertex(v: Vertex) -> Vertex { return v; } fn surface(s: Surface) -> Surface { return s; }";
     const MOVE: &str = "fn vertex(v: Vertex) -> Vertex { var out = v; out.position.x += 0.8; return out; } fn surface(s: Surface) -> Surface { return s; }";
     let mut ctx = Ctx::new(1.0 / 60.0, Vec2::splat(SIZE as f32));
-    ctx.camera3d.position = vec3(0.0, 9.0, 9.0);
-    ctx.camera3d.look_at(Vec3::ZERO);
-    ctx.lighting.shadow_cascades = 1;
-    ctx.lighting.shadow_resolution = 512;
-    ctx.lighting.shadow_distance = 30.0;
-    ctx.lighting.shadow_refresh = 1;
-    ctx.sky.atmosphere = false;
+    ctx.scene3d.camera.position = vec3(0.0, 9.0, 9.0);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
+    ctx.scene3d.lighting.shadow_cascades = 1;
+    ctx.scene3d.lighting.shadow_resolution = 512;
+    ctx.scene3d.lighting.shadow_distance = 30.0;
+    ctx.scene3d.lighting.shadow_refresh = 1;
+    ctx.scene3d.sky.atmosphere = false;
     let shader = ctx.gfx.create_shader("pure", PURE);
     let texture = crate::Texture::new(0, 1, 1);
     let floor_desc = MaterialDesc {

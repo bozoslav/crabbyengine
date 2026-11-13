@@ -19,7 +19,7 @@ use crate::{Entity, Vec2, Vec3, World};
 /// Game::new("t", 1, 1).physics3d(Vec3::ZERO).run_headless(0, |ctx| {
 ///     let job = ponko::stream::Job::spawn(|| ponko::physics3d::CollisionMeshData::heightfield(&[0.0; 33 * 33], 64.0));
 ///     let ground = ctx.physics3d.add_mesh(&job.wait());
-///     assert!(ctx.physics3d.is_mesh_live(ground));
+///     assert!(ctx.physics3d.is_live(ground));
 /// });
 /// ```
 #[derive(Clone)]
@@ -177,7 +177,9 @@ impl CollisionMeshData {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TerrainCollider {
     /// The heightfield, from [`Physics3D::heightfield`] or
-    /// [`Physics3D::add_mesh`] (any collision mesh works).
+    /// [`Physics3D::add_mesh`] (any collision mesh works). Serde writes it
+    /// as `null` and reads it back as [`CollisionMesh::NONE`](crate::Handle::NONE).
+    #[serde(with = "super::unsaved_mesh")]
     pub mesh: CollisionMesh,
     /// 0 ice, 1 rubber. Default 0.5.
     pub friction: f32,
@@ -351,7 +353,7 @@ impl Physics3D {
     /// let mut physics = ponko::d3::Physics::default();
     /// let rock = ponko::physics3d::CollisionMeshData::convex_hull(&[Vec3::ZERO, Vec3::X, Vec3::Y, Vec3::Z]).unwrap();
     /// let mesh = physics.add_mesh(&rock);
-    /// assert!(physics.is_mesh_live(mesh));
+    /// assert!(physics.is_live(mesh));
     /// ```
     pub fn add_mesh(&mut self, data: &CollisionMeshData) -> CollisionMesh {
         self.add_shape(data.shape.clone(), data.offset)

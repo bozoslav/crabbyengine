@@ -81,11 +81,11 @@ fn movement(sys: &mut SystemView) {
         p.0 += v.0;
         n += 1;
     });
-    sys.events().send(Moved(n));
+    sys.events.send(Moved(n));
 }
 
 fn total(sys: &mut SystemView) {
-    let moved: u32 = sys.events().read::<Moved>().iter().map(|m| m.0).sum();
+    let moved: u32 = sys.events.read::<Moved>().iter().map(|m| m.0).sum();
     sys.world.resource_mut::<Total>().0 += f64::from(moved);
 }
 
@@ -99,28 +99,27 @@ fn run(threshold: Duration, allocate: bool) -> (u32, f64) {
             ctx.world.resource_mut::<Before>().0 = now;
         })
         // One batch: a reader before the sender, and a writer of its own.
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().read_events::<Moved>().write_resource::<Total>(),
-            total,
+            total.access(SystemAccess::new().read_events::<Moved>().write_resource::<Total>()),
         )
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().write::<Pos>().read::<Vel>().send_events::<Moved>(),
-            move |sys: &mut SystemView| {
+            (move |sys: &mut SystemView| {
                 // Positive control inside the same measured batch.
                 if allocate {
                     std::hint::black_box(Box::new([0u8; 64]));
                 }
                 movement(sys);
-            },
+            })
+            .access(SystemAccess::new().write::<Pos>().read::<Vel>().send_events::<Moved>()),
         )
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().write::<u64>(),
-            |sys: &mut SystemView| {
+            (|sys: &mut SystemView| {
                 sys.world.query::<&mut u64>().for_each(|n| *n += 1);
-            },
+            })
+            .access(SystemAccess::new().write::<u64>()),
         )
         // Runs right after the batch's barrier.
         .sim_system(|ctx: &mut Ctx| {

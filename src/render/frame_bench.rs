@@ -89,11 +89,11 @@ fn run(effects: bool) -> Option<Row> {
             .world
             .spawn((Transform3D::at(at), Model::new(meshes[i % MESHES])));
     }
-    rig.ctx.camera3d.far = extent * 2.0;
-    rig.ctx.lighting.shadows = true;
-    rig.ctx.lighting.shadow_distance = extent * 0.5;
+    rig.ctx.scene3d.camera.far = extent * 2.0;
+    rig.ctx.scene3d.lighting.shadows = true;
+    rig.ctx.scene3d.lighting.shadow_distance = extent * 0.5;
     if effects {
-        let post = &mut rig.ctx.post;
+        let post = &mut rig.ctx.scene3d.post;
         post.anti_aliasing = AntiAliasing::Taa;
         post.bloom = 0.3;
         post.ambient_occlusion.enabled = true;
@@ -104,8 +104,8 @@ fn run(effects: bool) -> Option<Row> {
     let start = vec3(-extent / 2.0 - 2.0, 6.0, 2.0);
     let ahead = (vec3(0.0, 0.0, -extent / 2.0) - start).normalize();
     let step = |rig: &mut BatchRig, frame: usize| {
-        rig.ctx.camera3d.position = start + ahead * (frame as f32 * 0.02);
-        rig.ctx.camera3d.look_at(rig.ctx.camera3d.position + ahead);
+        rig.ctx.scene3d.camera.position = start + ahead * (frame as f32 * 0.02);
+        rig.ctx.scene3d.camera.look_at(rig.ctx.scene3d.camera.position + ahead);
         rig.frame()
     };
     for frame in 0..WARM_UP {

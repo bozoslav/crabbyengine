@@ -8,10 +8,10 @@
 use super::gpu::GpuTexture;
 use super::gpu3d::*;
 #[allow(unused_imports)]
-use crate::anim::Blend;
-#[allow(unused_imports)]
 use crate::d3::Transform as Transform3D;
 use crate::prelude::*;
+#[allow(unused_imports)]
+use crate::render::Blend;
 #[allow(unused_imports)]
 use crate::render::{MaterialDesc, Mesh, MeshData, Model, PipelineStats, Shader};
 use crate::three::{Frame3D, GpuMaterialDesc, Scene3D, SkinFrame, SkyLight};
@@ -136,7 +136,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, samples, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -172,26 +172,32 @@ impl Rig {
         let mut skins = SkinFrame::default();
         skins.collect(&mut ctx.world, &ctx.gfx.assets3d);
         let mut frame = Frame3D::default();
-        frame.lod = ctx.lod;
-        frame.collect(&mut ctx.world, &ctx.gfx.assets3d, &skins, &ctx.camera3d, &ctx.lighting);
+        frame.lod = ctx.scene3d.lod;
+        frame.collect(
+            &mut ctx.world,
+            &ctx.gfx.assets3d,
+            &skins,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
+        );
         frame.skins = skins;
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // Sunlight only in the shadow scene: elsewhere the cubes glow
             // on black.
             light: SkyLight {
-                sun: if ctx.lighting.shadows {
-                    Vec3::splat(ctx.lighting.sun_intensity)
+                sun: if ctx.scene3d.lighting.shadows {
+                    Vec3::splat(ctx.scene3d.lighting.sun_intensity)
                 } else {
                     Vec3::ZERO
                 },
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -329,7 +335,7 @@ fn every_documented_variant_builds_every_role_on_the_adapter() {
 /// passes run too. Returns the pixels.
 fn draw_plane(samples: u32, blend: Blend, double_sided: bool, from_below: bool) -> Option<Vec<u8>> {
     let mut rig = Rig::new(samples)?;
-    rig.ctx.lighting.shadows = true;
+    rig.ctx.scene3d.lighting.shadows = true;
     let shader = rig.shader(BOTH_HOOKS);
     let desc = material(shader, blend, double_sided);
     let plane = rig.mesh(&MeshData::plane(1.0), desc);
@@ -341,8 +347,8 @@ fn draw_plane(samples: u32, blend: Blend, double_sided: bool, from_below: bool) 
         Model::new(plane),
     ));
     let y = if from_below { -6.0 } else { 6.0 };
-    rig.ctx.camera3d.position = vec3(0.0, y, 0.001);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, y, 0.001);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let device = rig.device.clone();
     Some(no_validation_errors(
         &device,
@@ -415,8 +421,8 @@ fn displaced_cube(x: f32, shift: f32, grow: bool) -> Option<usize> {
         },
         Model::new(cube),
     ));
-    rig.ctx.camera3d.position = vec3(0.0, 0.0, 10.0);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 0.0, 10.0);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     Some(lit(&rig.draw()))
 }
 
@@ -444,7 +450,7 @@ fn culling_uses_the_mesh_bounds_before_vertex_displacement() {
 /// which may make other shaders first), cut out, at 4x multisampling.
 fn plane_with(make: impl FnOnce(&mut Rig) -> Shader) -> Option<(Vec<u8>, crate::render::PipelineStats)> {
     let mut rig = Rig::new(4)?;
-    rig.ctx.lighting.shadows = true;
+    rig.ctx.scene3d.lighting.shadows = true;
     let shader = make(&mut rig);
     let plane = rig.mesh(&MeshData::plane(1.0), material(shader, Blend::Cutout, false));
     rig.ctx.world.spawn((
@@ -454,8 +460,8 @@ fn plane_with(make: impl FnOnce(&mut Rig) -> Shader) -> Option<(Vec<u8>, crate::
         },
         Model::new(plane),
     ));
-    rig.ctx.camera3d.position = vec3(0.0, 6.0, 0.001);
-    rig.ctx.camera3d.look_at(Vec3::ZERO);
+    rig.ctx.scene3d.camera.position = vec3(0.0, 6.0, 0.001);
+    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
     let pixels = rig.draw();
     Some((pixels, rig.renderer.pipeline_stats()))
 }
@@ -537,18 +543,18 @@ fn lit_and_unlit_features_render_on_skinned_and_instanced_geometry() {
                         rig.renderer.set_instance_batch(
                             &rig.device,
                             &rig.queue,
-                            b.id(),
-                            rig.ctx.gfx.assets3d.instance_batches[b.id() as usize].as_ref(),
+                            b.id,
+                            rig.ctx.gfx.assets3d.instance_batches[b.id as usize].as_ref(),
                         );
                     } else if path == "skinned" {
                         rig.ctx.world.spawn((transform, Model::new(mesh), skeleton));
                     } else {
                         rig.ctx.world.spawn((transform, Model::new(mesh)));
                     }
-                    rig.ctx.camera3d.position = vec3(0.0, 6.0, 0.001);
-                    rig.ctx.camera3d.look_at(Vec3::ZERO);
+                    rig.ctx.scene3d.camera.position = vec3(0.0, 6.0, 0.001);
+                    rig.ctx.scene3d.camera.look_at(Vec3::ZERO);
                     // No lights: lit is black, unlit retains its albedo.
-                    rig.ctx.lighting.shadows = false;
+                    rig.ctx.scene3d.lighting.shadows = false;
                     let device = rig.device.clone();
                     let dark = no_validation_errors(&device, &source, || rig.draw());
                     let count = lit(&dark);
@@ -564,7 +570,7 @@ fn lit_and_unlit_features_render_on_skinned_and_instanced_geometry() {
                     } else {
                         assert_eq!(count, 0, "unlit negative control {path} {blend:?}");
                     }
-                    rig.ctx.lighting.shadows = true;
+                    rig.ctx.scene3d.lighting.shadows = true;
                     let bright = no_validation_errors(&device, &source, || rig.draw());
                     if std::env::var_os("PONKO_MATERIAL_IMAGES").is_some() && path == "plain" && !double_sided {
                         let dir = std::path::Path::new("target/material-contract-images");

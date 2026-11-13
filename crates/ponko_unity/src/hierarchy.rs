@@ -100,6 +100,30 @@ impl GameObject {
 struct Flat {
     objects: Vec<Obj>,
     by_id: HashMap<i64, usize>,
+    /// About how many bytes its objects take (see [`weight`]).
+    weight: usize,
+}
+
+/// The most a flattened scene's objects may take, in [`weight`] bytes
+/// (less in this crate's tests, to reach it quickly).
+const MAX_WEIGHT: usize = if cfg!(test) { 1 << 22 } else { 1 << 30 };
+/// The deepest prefabs may nest in each other.
+const MAX_NESTING: usize = 64;
+
+/// About how many bytes a value takes.
+fn weight(v: &Value) -> usize {
+    std::mem::size_of::<Value>()
+        + match v {
+            Value::Null => 0,
+            Value::Scalar(s) => s.len(),
+            Value::Map(entries) => entries
+                .iter()
+                .map(|(k, v)| std::mem::size_of::<String>() + k.len() + weight(v))
+                .sum(),
+            Value::Seq(items) => items.iter().map(weight).sum(),
+            Value::Bytes(b) => b.len(),
+            Value::Numbers(n) => n.len() * std::mem::size_of::<f64>(),
+        }
 }
 
 #[derive(Clone)]
@@ -113,6 +137,7 @@ struct Obj {
 
 impl Flat {
     fn insert(&mut self, obj: Obj) {
+        self.weight = self.weight.saturating_add(weight(&obj.object.body));
         let id = obj.object.file_id;
         if let Some(&i) = self.by_id.get(&id) {
             self.objects[i] = obj;
@@ -356,6 +381,8 @@ fn expand(
             Some((target, path, value))
         })
         .collect();
+    // What the modifications may do: a bounded amount per modification.
+    let mut steps = 4096 + 256 * modifications.len();
     let is_prefab = project
         .path_of(&source)
         .and_then(|p| p.extension())
@@ -382,11 +409,15 @@ fn expand(
             .find(|(_, p, _)| p == "m_LocalPosition.x")
             .map(|(t, ..)| t.file_id);
         let mut inside = Vec::new();
+        // Unity writes `m_Name` for the root only, so the one `m_Name`
+        // target is the root's GameObject.
+        let mut names = modifications.iter().filter(|(_, p, _)| p == "m_Name");
+        let name_target = names.next().filter(|_| names.next().is_none()).map(|(t, ..)| t);
         for (target, path, value) in &modifications {
             if Some(target.file_id) == root && path.starts_with("m_Local") {
-                set_path(&mut transform, path, value.clone());
-            } else if path == "m_Name" && root.is_some() && name_target(&modifications, target) {
-                set_path(&mut go, path, value.clone());
+                set_path(&mut transform, path, value.clone(), &mut steps)?;
+            } else if path == "m_Name" && root.is_some() && name_target == Some(target) {
+                set_path(&mut go, path, value.clone(), &mut steps)?;
             } else {
                 inside.push((target.clone(), path.clone(), value.clone()));
             }
@@ -397,7 +428,7 @@ fn expand(
                 .and_then(|p| p.file_stem())
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default();
-            set_path(&mut go, "m_Name", Value::Scalar(name));
+            set_path(&mut go, "m_Name", Value::Scalar(name), &mut steps)?;
         }
         flat.insert(Obj {
             object: UnityObject {
@@ -429,28 +460,41 @@ fn expand(
     if loading.contains(&source) {
         return Err(Error::new(format!("prefabs nest in a loop through {source}")));
     }
-    let mut inner = match cache.get(&source) {
-        Some(f) => f.clone(),
-        None => {
-            loading.push(source.clone());
-            let file = project.load(&source)?;
-            let f = flatten(&file, project, cache, loading)?;
-            loading.pop();
-            cache.insert(source.clone(), f.clone());
-            f
-        }
-    };
+    if loading.len() >= MAX_NESTING {
+        return Err(Error::new(format!(
+            "prefabs nest more than {MAX_NESTING} deep (at {source})"
+        )));
+    }
+    if !cache.contains_key(&source) {
+        loading.push(source.clone());
+        let file = project.load(&source)?;
+        let f = flatten(&file, project, cache, loading)?;
+        loading.pop();
+        cache.insert(source.clone(), f);
+    }
+    // Each instance copies its prefab's objects: prefabs placing many
+    // instances of prefabs placing many instances... grow exponentially.
+    // Checked before the copy.
+    let inner_weight = cache[&source].weight;
+    if flat.weight.saturating_add(inner_weight) > MAX_WEIGHT {
+        return Err(Error::new(format!(
+            "prefab instance {}: the objects placed come to more than {} MiB (prefabs placed too many times?)",
+            instance.file_id,
+            MAX_WEIGHT >> 20
+        )));
+    }
+    let mut inner = cache[&source].clone();
     for (target, path, value) in &modifications {
         if let Some(o) = inner.get_mut(target.file_id) {
-            set_path(&mut o.object.body, path, value.clone());
+            set_path(&mut o.object.body, path, value.clone(), &mut steps)?;
         }
     }
-    let removed: Vec<i64> = ["m_RemovedComponents", "m_RemovedGameObjects"]
+    let removed: std::collections::HashSet<i64> = ["m_RemovedComponents", "m_RemovedGameObjects"]
         .iter()
         .flat_map(|k| modification[*k].as_seq().unwrap_or_default())
         .filter_map(|r| r.obj_ref().map(|r| r.file_id))
         .collect();
-    let roots: Vec<i64> = inner
+    let roots: std::collections::HashSet<i64> = inner
         .objects
         .iter()
         .filter(|o| {
@@ -460,6 +504,8 @@ fn expand(
         .map(|o| o.object.file_id)
         .collect();
     let ids: std::collections::HashSet<i64> = inner.by_id.keys().copied().collect();
+    // One step per object here; linear in what was placed.
+    let mut unbounded = usize::MAX;
     for mut o in inner.objects {
         if removed.contains(&o.object.file_id) {
             continue;
@@ -467,20 +513,13 @@ fn expand(
         let was_root = roots.contains(&o.object.file_id);
         remap(&mut o.object.body, &ids, instance.file_id);
         if was_root {
-            set_path(&mut o.object.body, "m_Father", id_ref(parent.file_id));
+            set_path(&mut o.object.body, "m_Father", id_ref(parent.file_id), &mut unbounded)?;
         }
         o.object.file_id = nested_id(instance.file_id, o.object.file_id);
         o.object.stripped = false;
         flat.insert(o);
     }
     Ok(false)
-}
-
-/// Whether the `m_Name` override `target` is the model root's GameObject:
-/// Unity writes it for the root only, so the one `m_Name` target is it.
-fn name_target(mods: &[(ObjRef, String, Value)], target: &ObjRef) -> bool {
-    mods.iter().filter(|(_, p, _)| p == "m_Name").count() == 1
-        && mods.iter().any(|(t, p, _)| t == target && p == "m_Name")
 }
 
 fn id_ref(id: i64) -> Value {
@@ -523,38 +562,59 @@ fn remap(v: &mut Value, ids: &std::collections::HashSet<i64>, instance: i64) {
     }
 }
 
+/// The most parts a property path may have: Unity's have a handful, and
+/// each makes a level of nesting.
+const MAX_PATH_PARTS: usize = 64;
+
 /// Sets a field by Unity's property path: `m_LocalPosition.x`,
-/// `m_Materials.Array.data[1]`, `m_Materials.Array.size`.
-pub(crate) fn set_path(v: &mut Value, path: &str, value: Value) {
+/// `m_Materials.Array.data[1]`, `m_Materials.Array.size`. Each path part,
+/// each map entry looked through and each array slot added takes a step
+/// from `steps`; out of steps, it's an error (so a modification's work is
+/// bounded by `steps`, not by the sizes it names or the maps it searches).
+pub(crate) fn set_path(v: &mut Value, path: &str, value: Value, steps: &mut usize) -> Result<(), Error> {
+    let too_much = || Error::new(format!("property path {path:?}: more work than the file's size allows"));
+    let mut take = |n: usize| -> Result<(), Error> {
+        *steps = steps.checked_sub(n).ok_or_else(too_much)?;
+        Ok(())
+    };
+    if path.split('.').count() > MAX_PATH_PARTS {
+        return Err(Error::new(format!(
+            "property path {path:?}: more than {MAX_PATH_PARTS} parts"
+        )));
+    }
     let mut parts = path.split('.').peekable();
     let mut at = v;
     while let Some(part) = parts.next() {
+        take(1)?;
         if part == "Array" {
-            let Some(next) = parts.next() else { return };
+            let Some(next) = parts.next() else { return Ok(()) };
             if !matches!(at, Value::Seq(_)) {
                 *at = Value::Seq(Vec::new());
             }
             let Value::Seq(items) = at else { unreachable!() };
             if next == "size" {
                 if let Some(n) = value.as_i64() {
-                    items.resize(n.max(0) as usize, Value::Null);
+                    let n = usize::try_from(n).unwrap_or(0);
+                    take(n.saturating_sub(items.len()))?;
+                    items.resize(n, Value::Null);
                 }
-                return;
+                return Ok(());
             }
             let Some(i) = next
                 .strip_prefix("data[")
                 .and_then(|s| s.strip_suffix(']'))
                 .and_then(|s| s.parse::<usize>().ok())
             else {
-                return;
+                return Ok(());
             };
             if items.len() <= i {
+                take(i + 1 - items.len())?;
                 items.resize(i + 1, Value::Null);
             }
             at = &mut items[i];
             if parts.peek().is_none() {
                 *at = value;
-                return;
+                return Ok(());
             }
             continue;
         }
@@ -562,7 +622,9 @@ pub(crate) fn set_path(v: &mut Value, path: &str, value: Value) {
             *at = Value::Map(Vec::new());
         }
         let Value::Map(entries) = at else { unreachable!() };
-        let i = match entries.iter().position(|(k, _)| k == part) {
+        let found = entries.iter().position(|(k, _)| k == part);
+        take(found.map_or(entries.len(), |i| i + 1))?;
+        let i = match found {
             Some(i) => i,
             None => {
                 entries.push((part.to_owned(), Value::Null));
@@ -571,10 +633,11 @@ pub(crate) fn set_path(v: &mut Value, path: &str, value: Value) {
         };
         if parts.peek().is_none() {
             entries[i].1 = value;
-            return;
+            return Ok(());
         }
         at = &mut entries[i].1;
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -588,15 +651,70 @@ mod tests {
     #[test]
     fn property_paths_set_fields_and_arrays() {
         let mut v = Value::Map(vec![("m_LocalPosition".into(), xyzw(1.0, 2.0, 3.0, f32::NAN))]);
-        set_path(&mut v, "m_LocalPosition.y", s("9"));
+        let steps = &mut 1000;
+        set_path(&mut v, "m_LocalPosition.y", s("9"), steps).unwrap();
         assert_eq!(v["m_LocalPosition"].vec3(), Some([1.0, 9.0, 3.0]));
-        set_path(&mut v, "m_Materials.Array.data[1]", s("b"));
+        set_path(&mut v, "m_Materials.Array.data[1]", s("b"), steps).unwrap();
         assert_eq!(v["m_Materials"].as_seq().unwrap().len(), 2);
         assert_eq!(v["m_Materials"][1].as_str(), Some("b"));
-        set_path(&mut v, "m_Materials.Array.size", s("1"));
+        set_path(&mut v, "m_Materials.Array.size", s("1"), steps).unwrap();
         assert_eq!(v["m_Materials"].as_seq().unwrap().len(), 1);
-        set_path(&mut v, "m_New.inner", s("x"));
+        set_path(&mut v, "m_New.inner", s("x"), steps).unwrap();
         assert_eq!(v["m_New"]["inner"].as_str(), Some("x"));
+    }
+
+    /// Prefabs placing 16 instances of prefabs placing 16 instances ...
+    /// of one object would expand to billions of objects from a few small
+    /// files: it stops at a bound.
+    #[test]
+    fn prefabs_placed_exponentially_often_stop_at_a_bound() {
+        let dir = std::env::temp_dir().join(format!("ponko_unity_fanout_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("Assets")).unwrap();
+        let name = "n".repeat(1000);
+        let leaf = format!("%YAML 1.1\n--- !u!1 &1\nGameObject:\n  m_Name: {name}\n");
+        std::fs::write(dir.join("Assets/P0.prefab"), leaf).unwrap();
+        std::fs::write(dir.join("Assets/P0.prefab.meta"), "guid: p0\n").unwrap();
+        for level in 1..8 {
+            let mut text = String::from("%YAML 1.1\n");
+            for k in 0..16 {
+                text.push_str(&format!(
+                    "--- !u!1001 &{}\nPrefabInstance:\n  m_Modification:\n    m_TransformParent: {{fileID: 0}}\n    m_Modifications: []\n  m_SourcePrefab: {{fileID: 1, guid: p{}, type: 3}}\n",
+                    // Ids in their own bits per level, so none collide.
+                    (k + 1_i64) << (5 * level + 4),
+                    level - 1
+                ));
+            }
+            std::fs::write(dir.join(format!("Assets/P{level}.prefab")), text).unwrap();
+            std::fs::write(
+                dir.join(format!("Assets/P{level}.prefab.meta")),
+                format!("guid: p{level}\n"),
+            )
+            .unwrap();
+        }
+        let project = crate::Project::open(&dir).unwrap();
+        let small = Hierarchy::load(&project, "p2").map(|h| h.objects.len());
+        let started = std::time::Instant::now();
+        let err = Hierarchy::load(&project, "p7").err();
+        let took = started.elapsed();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(small, Ok(256));
+        assert!(took < std::time::Duration::from_secs(10), "took {took:?}");
+        assert!(err.unwrap().message.contains("placed too many times"));
+    }
+
+    /// A size or index from a modification can't make a huge array, and a
+    /// path can't nest without end.
+    #[test]
+    fn property_paths_are_bounded_by_their_steps() {
+        let mut v = Value::Map(Vec::new());
+        let steps = &mut 1000;
+        assert!(set_path(&mut v, "m_List.Array.size", s("1000000000000"), steps).is_err());
+        assert!(set_path(&mut v, "m_List.Array.data[999999999999]", s("x"), &mut 1000).is_err());
+        assert!(set_path(&mut v, &"a.".repeat(100_000), s("x"), &mut (usize::MAX - 1)).is_err());
+        let mut fine = 1000;
+        set_path(&mut v, "m_List.Array.size", s("100"), &mut fine).unwrap();
+        assert_eq!(v["m_List"].as_seq().unwrap().len(), 100);
     }
 
     #[test]

@@ -176,8 +176,8 @@ impl Load {
                 ctx.gfx.load_mesh(path);
                 true
             }
-            Load::StreamTexture => ctx.stream_texture(path).is_some(),
-            Load::StreamMesh => ctx.stream_mesh(path).is_some(),
+            Load::StreamTexture => ctx.gfx.stream_texture(path).is_some(),
+            Load::StreamMesh => ctx.gfx.stream_mesh(path).is_some(),
         }
     }
 }

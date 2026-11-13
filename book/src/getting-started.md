@@ -67,7 +67,7 @@ fn main() {
             if ctx.key_down(Key::Right) { pos.x += 200.0 * ctx.dt(); }
             if ctx.key_down(Key::Left)  { pos.x -= 200.0 * ctx.dt(); }
             if ctx.key_pressed(Key::Escape) { ctx.quit(); }
-            ctx.draw(&crab, pos);
+            ctx.draw(crab, pos);
         }
     });
 }

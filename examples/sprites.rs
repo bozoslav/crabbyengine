@@ -50,88 +50,66 @@ fn main() {
                 let angle = t + i as f32 * std::f32::consts::TAU / 12.0;
                 let hue = i as f32 / 12.0;
                 ctx.gfx.draw_ex(
-                    &dot,
+                    dot,
                     player + Vec2::from_angle(angle) * 120.0,
-                    DrawParams {
-                        color: Color::rgb(
+                    DrawParams::default()
+                        .with_color(Color::rgb(
                             0.5 + 0.5 * (hue * std::f32::consts::TAU).cos(),
                             0.6,
                             0.5 + 0.5 * (hue * std::f32::consts::TAU).sin(),
-                        ),
-                        z: -1.0,
-                        ..Default::default()
-                    },
+                        ))
+                        .with_z(-1.0),
                 );
             }
 
             // The player: big and wobbling. Drawn first in code but z = 1 puts it on top.
             ctx.gfx.draw_ex(
-                &crab,
+                crab,
                 player,
-                DrawParams {
-                    scale: Vec2::splat(4.0),
-                    rotation: (t * 3.0).sin() * 0.2,
-                    z: 1.0,
-                    ..Default::default()
-                },
+                DrawParams::default()
+                    .with_scale(Vec2::splat(4.0))
+                    .with_rotation((t * 3.0).sin() * 0.2)
+                    .with_z(1.0),
             );
 
             // A row of crabs: plain, flipped, tinted, half transparent, pivot at top-left.
             let row_y = 80.0;
             ctx.gfx.draw_ex(
-                &crab,
+                crab,
                 vec2(100.0, row_y),
-                DrawParams {
-                    scale: Vec2::splat(2.0),
-                    ..Default::default()
-                },
+                DrawParams::default().with_scale(Vec2::splat(2.0)),
             );
             ctx.gfx.draw_ex(
-                &crab,
+                crab,
                 vec2(200.0, row_y),
-                DrawParams {
-                    scale: vec2(-2.0, 2.0),
-                    ..Default::default()
-                },
+                DrawParams::default().with_scale(vec2(-2.0, 2.0)),
             );
             ctx.gfx.draw_ex(
-                &crab,
+                crab,
                 vec2(300.0, row_y),
-                DrawParams {
-                    scale: Vec2::splat(2.0),
-                    color: Color::hex(0x66CCFF),
-                    ..Default::default()
-                },
+                DrawParams::default()
+                    .with_scale(Vec2::splat(2.0))
+                    .with_color(Color::hex(0x66CCFF)),
             );
             ctx.gfx.draw_ex(
-                &crab,
+                crab,
                 vec2(400.0, row_y),
-                DrawParams {
-                    scale: Vec2::splat(2.0),
-                    color: Color::WHITE.with_alpha(0.4),
-                    ..Default::default()
-                },
+                DrawParams::default()
+                    .with_scale(Vec2::splat(2.0))
+                    .with_color(Color::WHITE.with_alpha(0.4)),
             );
             ctx.gfx.draw_ex(
-                &crab,
+                crab,
                 vec2(500.0, row_y),
-                DrawParams {
-                    scale: Vec2::splat(2.0),
-                    pivot: Vec2::ZERO,
-                    rotation: t,
-                    ..Default::default()
-                },
+                DrawParams::default()
+                    .with_scale(Vec2::splat(2.0))
+                    .with_pivot(Vec2::ZERO)
+                    .with_rotation(t),
             );
 
             // A small crab following the mouse, on top of everything.
-            ctx.gfx.draw_ex(
-                &crab,
-                ctx.mouse_pos(),
-                DrawParams {
-                    z: 2.0,
-                    ..Default::default()
-                },
-            );
+            ctx.gfx
+                .draw_ex(crab, ctx.mouse_pos(), DrawParams::default().with_z(2.0));
 
             if ctx.key_pressed(Key::Escape) {
                 ctx.quit();

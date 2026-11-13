@@ -36,7 +36,7 @@ mod panel;
 /// The trees and event code the examples had before the builders, kept as
 /// they were (only `ctx.ui_retained` is `ui` here).
 mod before {
-    use crate::ui::layout::prelude::*;
+    use crate::ui::unstable_taffy::prelude::*;
     #[allow(unused_imports)]
     use ponko::prelude::*;
     #[allow(unused_imports)]
@@ -71,25 +71,29 @@ mod before {
     pub fn shop(ui: &mut Ui) -> Shop {
         let root = ui.add(
             UiWidget::Panel,
-            Style {
+            crate::ui::UiLayout::custom(Style {
                 size: Size {
                     width: percent(1.0),
                     height: percent(1.0),
                 },
                 flex_direction: FlexDirection::Column,
-                padding: crate::ui::layout::Rect::length(24.0),
+                padding: crate::ui::unstable_taffy::Rect::length(24.0),
                 gap: Size::length(12.0),
                 ..Default::default()
-            },
+            }),
         );
-        let title = ui.add_child(root, UiWidget::Label, fixed(400.0, 32.0));
+        let title = ui.add_child(root, UiWidget::Label, crate::ui::UiLayout::custom(fixed(400.0, 32.0)));
         ui.set_text(title, "General store — choose an item");
-        let note = ui.add_child(root, UiWidget::TextInput, fixed(360.0, 36.0));
+        let note = ui.add_child(
+            root,
+            UiWidget::TextInput,
+            crate::ui::UiLayout::custom(fixed(360.0, 36.0)),
+        );
         ui.set_text(note, "Your order note");
         let scroll = ui.add_child(
             root,
             UiWidget::Scroll,
-            Style {
+            crate::ui::UiLayout::custom(Style {
                 size: Size {
                     width: percent(1.0),
                     height: length(360.0),
@@ -97,12 +101,12 @@ mod before {
                 min_size: Size::length(0.0),
                 flex_shrink: 1.0,
                 ..Default::default()
-            },
+            }),
         );
         let grid = ui.add_child(
             scroll,
             UiWidget::Panel,
-            Style {
+            crate::ui::UiLayout::custom(Style {
                 display: Display::Grid,
                 size: Size {
                     width: percent(0.95),
@@ -113,18 +117,18 @@ mod before {
                 gap: Size::length(8.0),
                 flex_shrink: 0.0,
                 ..Default::default()
-            },
+            }),
         );
         let mut items = Vec::new();
         for i in 0..36 {
             let item = ui.add_child(
                 grid,
                 UiWidget::Button,
-                Style {
+                crate::ui::UiLayout::custom(Style {
                     min_size: Size::length(0.0),
-                    padding: crate::ui::layout::Rect::length(8.0),
+                    padding: crate::ui::unstable_taffy::Rect::length(8.0),
                     ..Default::default()
-                },
+                }),
             );
             ui.set_text(item, format!("Item {}\n{} coins", i + 1, (i + 1) * 3));
             ui.set_paint(
@@ -137,36 +141,44 @@ mod before {
             );
             items.push(item);
         }
-        let gift = ui.add_child(root, UiWidget::Toggle, fixed(220.0, 28.0));
+        let gift = ui.add_child(root, UiWidget::Toggle, crate::ui::UiLayout::custom(fixed(220.0, 28.0)));
         ui.set_text(gift, "Gift wrap");
-        let buy = ui.add_child(root, UiWidget::Button, fixed(220.0, 40.0));
+        let buy = ui.add_child(root, UiWidget::Button, crate::ui::UiLayout::custom(fixed(220.0, 40.0)));
         ui.set_text(buy, "Buy selected item");
         ui.set_enabled(buy, false);
         ui.push_screen(root, false);
 
         let dialog = ui.add(
             UiWidget::Panel,
-            Style {
+            crate::ui::UiLayout::custom(Style {
                 size: Size {
                     width: length(360.0),
                     height: length(180.0),
                 },
-                margin: crate::ui::layout::Rect {
+                margin: crate::ui::unstable_taffy::Rect {
                     left: auto(),
                     right: auto(),
                     top: length(180.0),
                     bottom: auto(),
                 },
-                padding: crate::ui::layout::Rect::length(20.0),
+                padding: crate::ui::unstable_taffy::Rect::length(20.0),
                 flex_direction: FlexDirection::Column,
                 gap: Size::length(12.0),
                 ..Default::default()
-            },
+            }),
         );
-        let message = ui.add_child(dialog, UiWidget::Label, fixed(320.0, 40.0));
-        let confirm = ui.add_child(dialog, UiWidget::Button, fixed(240.0, 36.0));
+        let message = ui.add_child(dialog, UiWidget::Label, crate::ui::UiLayout::custom(fixed(320.0, 40.0)));
+        let confirm = ui.add_child(
+            dialog,
+            UiWidget::Button,
+            crate::ui::UiLayout::custom(fixed(240.0, 36.0)),
+        );
         ui.set_text(confirm, "Confirm purchase");
-        let cancel = ui.add_child(dialog, UiWidget::Button, fixed(240.0, 30.0));
+        let cancel = ui.add_child(
+            dialog,
+            UiWidget::Button,
+            crate::ui::UiLayout::custom(fixed(240.0, 30.0)),
+        );
         ui.set_text(cancel, "Back");
         Shop {
             title,
@@ -210,28 +222,28 @@ mod before {
     pub fn panel(ui: &mut Ui) -> UiId {
         let root = ui.add(
             UiWidget::Panel,
-            Style {
+            crate::ui::UiLayout::custom(Style {
                 size: Size {
                     width: percent(1.0),
                     height: percent(1.0),
                 },
                 flex_direction: FlexDirection::Column,
-                padding: crate::ui::layout::Rect::length(20.0),
+                padding: crate::ui::unstable_taffy::Rect::length(20.0),
                 gap: Size::length(12.0),
                 ..Default::default()
-            },
+            }),
         );
         let buy = ui.add_child(
             root,
             UiWidget::Button,
-            Style {
+            crate::ui::UiLayout::custom(Style {
                 size: Size {
                     width: length(200.0),
                     height: length(60.0),
                 },
                 flex_shrink: 0.0,
                 ..Default::default()
-            },
+            }),
         );
         ui.set_text(buy, "Buy");
         ui.push_screen(root, false);

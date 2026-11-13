@@ -29,12 +29,11 @@ pub(crate) fn show_panics_in_console() {
     }));
 }
 
-/// Draw into `<canvas id="ponko">`, falling back to the deprecated legacy id, else a new
-/// canvas added to the page.
+/// Draw into `<canvas id="ponko">`, else a new canvas added to the page.
 pub(crate) fn canvas_attributes(attributes: WindowAttributes) -> WindowAttributes {
     let canvas = web_sys::window()
         .and_then(|w| w.document())
-        .and_then(|d| d.get_element_by_id(CANVAS_ID).or_else(|| d.get_element_by_id("crabby")))
+        .and_then(|d| d.get_element_by_id(CANVAS_ID))
         .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok());
     match canvas {
         Some(canvas) => attributes.with_canvas(Some(canvas)),

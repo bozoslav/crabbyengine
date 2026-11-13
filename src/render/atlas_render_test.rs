@@ -111,7 +111,7 @@ impl Rig {
         let target = output.create_view(&Default::default());
         let renderer = Renderer3D::new(&device, &layout, output.format(), 0, &white, 4, true);
         let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(SIZE as f32, SIZE as f32));
-        ctx.sky.atmosphere = false;
+        ctx.scene3d.sky.atmosphere = false;
         Some(Self {
             device,
             queue,
@@ -139,28 +139,28 @@ impl Rig {
     fn draw(&mut self) -> (Vec<u8>, Vec<[u32; 3]>) {
         let ctx = &mut self.ctx;
         let mut frame = Frame3D::default();
-        frame.lod = ctx.lod;
+        frame.lod = ctx.scene3d.lod;
         // As the engine does: shadow maps no larger than the device allows.
         frame.size_limit = self.device.limits().max_texture_dimension_2d;
         frame.collect(
             &mut ctx.world,
             &ctx.gfx.assets3d,
             &SkinFrame::default(),
-            &ctx.camera3d,
-            &ctx.lighting,
+            &ctx.scene3d.camera,
+            &ctx.scene3d.lighting,
         );
         let scene = Scene3D {
             frame: &frame,
-            lighting: &ctx.lighting,
-            sky: &ctx.sky,
+            lighting: &ctx.scene3d.lighting,
+            sky: &ctx.scene3d.sky,
             // No sun or sky: only the point and spot lights.
             light: SkyLight {
                 sun: Vec3::ZERO,
                 sky: Vec3::ZERO,
                 ground: Vec3::ZERO,
             },
-            camera: ctx.camera3d.position,
-            post: &ctx.post,
+            camera: ctx.scene3d.camera.position,
+            post: &ctx.scene3d.post,
             time: (0.0, 1.0 / 60.0),
             occlusion: false,
         };
@@ -252,12 +252,12 @@ fn lights_with_small_and_large_atlas_tiles_both_cast_their_shadows() {
             ..Default::default()
         },
     ));
-    ctx.camera3d.position = vec3(0.0, 9.0, 9.0);
-    ctx.camera3d.look_at(Vec3::ZERO);
-    ctx.lighting.shadows = true;
-    ctx.lighting.sun_intensity = 0.0;
-    ctx.lighting.ambient_intensity = 0.0;
-    let view_proj = ctx.camera3d.view_proj();
+    ctx.scene3d.camera.position = vec3(0.0, 9.0, 9.0);
+    ctx.scene3d.camera.look_at(Vec3::ZERO);
+    ctx.scene3d.lighting.shadows = true;
+    ctx.scene3d.lighting.sun_intensity = 0.0;
+    ctx.scene3d.lighting.ambient_intensity = 0.0;
+    let view_proj = ctx.scene3d.camera.view_proj();
     let brightness = |pixels: &[u8], p: Vec3| -> u32 {
         let (x, y) = pixel(view_proj, p);
         let i = ((y * SIZE + x) * 4) as usize;

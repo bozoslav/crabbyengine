@@ -48,26 +48,30 @@ Game::new("Sim", 1280, 720)
 | In headless runs | runs | doesn't run |
 
 Change the rate with `.fixed_hz(120)`. In C++, `sim_system(f, name, every)`
-also takes the interval of `sim_system_every`.
+also takes a name and an [interval](#a-name-an-interval-a-declaration).
+
+These two are short for the general form, `Game::add`, which the rest of
+this chapter uses: `sim_system(f)` is `add(Phase::AfterPhysics, f)` and
+`system(f)` is `add(Phase::Frame, f)`.
 
 ## Phases
 
 Every system belongs to a `Phase`. Phases always run in this order, whatever
 order the builder calls come in; within a phase, systems run in the order
 you added them. `Game::add(phase, f)` (C++: `game::add(ponko::phase::..., f)`,
-C: `ponko_game_add_system`) puts a system in any phase; `sim_system`,
-`system` and `late_system` are short for the three most common ones.
+C: `ponko_game_add_system`) puts a system in any phase; `sim_system` and
+`system` are short for the two most common ones.
 
 | Phase | Runs | Your systems | The engine's systems |
 |---|---|---|---|
 | `Input` | each fixed tick, first | | the spatial grid's rebuild |
 | `BeforePhysics` | each fixed tick | what feeds the physics step: forces, velocities, wheel inputs | |
 | `Physics` | each fixed tick | | the `physics` / `physics3d` step |
-| `AfterPhysics` | each fixed tick | `sim_system`, `sim_system_every` | |
+| `AfterPhysics` | each fixed tick | `sim_system` | |
 | `SimLast` | each fixed tick, last | bookkeeping that must see the whole tick | |
 | `Frame` | each rendered frame | `system`, the closure returned from `run`'s setup | interpolated physics transforms |
 | `Animate` | each rendered frame | pose work, before the engine's | animators, then particles (`3d`) |
-| `Late` | each rendered frame | `late_system`: cameras and anything that follows a final pose | |
+| `Late` | each rendered frame | cameras and anything that follows a final pose (C++: `late_system`) | |
 | `Draw` | each rendered frame | your own drawing | sprite animation, tilemaps, sprites; positional audio last (`3d`) |
 
 Headless runs (`run_headless`) run the fixed-tick phases only.
@@ -95,6 +99,40 @@ their phase: a system you add to `Animate` runs before the engine poses
 the skeletons, and one you add to `Late` or `Draw` runs before sounds are
 placed, no matter when you add it. To run *after* the engine's pose, use the next
 phase (`Late` for a camera that follows a bone).
+
+### A name, an interval, a declaration
+
+`Game::add` takes a system function as it is, or with options set on it.
+The option methods come from the `IntoSystem` trait, which the prelude
+imports:
+
+```rust
+# use ponko::access::SystemAccess;
+# struct Hunger(f32);
+# fn think(_: &mut Ctx) {} fn get_hungry(_: &mut Ctx) {} fn follow(_: &mut Ctx) {}
+let game = Game::new("Options", 1280, 720)
+    // Listed as "ai" in timings and tools, instead of by the function's path.
+    .add(Phase::AfterPhysics, think.named("ai"))
+    // Every 10th tick; inside it `ctx.dt()` is 10 fixed steps.
+    .add(Phase::AfterPhysics, get_hungry.every(10))
+    // What it reads and writes: see "Declared system access".
+    .add(Phase::AfterPhysics, get_hungry.named("hunger").access(SystemAccess::new().write::<Hunger>()))
+    // A closure names its parameter type.
+    .add(Phase::Late, |ctx: &mut Ctx| follow(ctx));
+# let _ = game;
+```
+
+- `named(name)` names the system in timings, plans, reports and tools.
+- `every(ticks)` runs it only every `ticks`-th tick, in the fixed-tick
+  phases; [The simulation clock](sim-clock.md) has the details.
+- `access(declaration)` says what it reads and writes
+  ([Declared system access](system-access.md)).
+
+A closure passed to `add` writes out its parameter type
+(`|ctx: &mut Ctx| ...`), because `add` also takes
+[view systems](system-access.md), whose parameter is a `SystemView`.
+`sim_system` and `system` only take `Ctx` systems, so their closures need
+no type. In C++ the same options are arguments of `game::add`.
 
 ## One frame, in order
 
@@ -137,13 +175,15 @@ What follows from that:
 - **Collision events follow the [event rules](events.md).** The step sends
   them while it runs: a reader in `AfterPhysics` or `SimLast` sees a contact
   in the tick it began, a reader before the step sees it one tick later,
-  and a `sim_system_every(n, ..)` reader sees each one once, on its first
+  and a reader with an interval (`.every(n)`) sees each one once, on its first
   run after the step. Events are kept at least as long as the slowest
   interval.
 - **A step that runs every `n` ticks covers `n` ticks.** Take the step out
-  (`Game::remove(Systems::PHYSICS)`) and add `systems::step_physics` with
-  `sim_system_every(n, ..)`: its `ctx.dt()` is `n` fixed steps, and its
-  events are still read once.
+  (`Game::remove(Systems::PHYSICS)`) and add
+  `systems::step_physics.every(n).access(systems::step_physics_access())`
+  to `Phase::Physics`: its `ctx.dt()` is `n` fixed steps, and its events are
+  still read once. Without the declaration it runs alone, like any
+  undeclared system.
 - **Navigation moves transforms; it doesn't push.** An agent has no
   collision response, so don't give it a dynamic body or a character
   controller: both would write the same transform, and an agent that finds
@@ -184,7 +224,7 @@ in order. When you place a step yourself, pass the declaration along:
 ```rust
 # use ponko::systems;
 let game = Game::new("Agents", 1280, 720)
-    .add_with_access(Phase::BeforePhysics, systems::step_navmesh3d_access(), systems::step_navmesh3d)
+    .add(Phase::BeforePhysics, systems::step_navmesh3d.access(systems::step_navmesh3d_access()))
     .physics3d(vec3(0.0, -9.81, 0.0));
 # let _ = game;
 ```
@@ -268,9 +308,10 @@ let game = game.remove(overlay);
 # let _ = game;
 ```
 
-`remove_system(function)` and `remove_named_system(name)` are the older
-forms; they still work and are deprecated, because a function or a name
-can't tell two registrations apart.
+`add_system` is `add` that returns the id. It is the one builder call that
+borrows the game instead of taking and returning it, so it doesn't chain.
+Removal is by id only: a function or a name can't tell two registrations
+apart.
 
 ## Plugins
 
@@ -288,7 +329,7 @@ struct Player { speed: f32 }
 impl Plugin for Player {
     fn build(&self, game: Game) -> Game {
         let speed = self.speed;
-        game.add(Phase::BeforePhysics, move |ctx| {
+        game.add(Phase::BeforePhysics, move |ctx: &mut Ctx| {
             let dt = ctx.dt();
             ctx.world.query::<&mut ponko::d2::Transform>().for_each(|t| t.position.x += speed * dt);
         })
@@ -302,7 +343,7 @@ struct Hud;
 
 impl Plugin for Hud {
     fn build(&self, game: Game) -> Game {
-        game.add(Phase::Draw, |ctx| {
+        game.add(Phase::Draw, |ctx: &mut Ctx| {
             let score = ctx.world.resource::<Score>().0;
             ctx.draw_text(&format!("{score}"), vec2(16.0, 16.0), 24.0, Color::WHITE);
         })
@@ -382,7 +423,7 @@ Commands apply in the order they were recorded: a closure from
 `commands.add` sees the ones before it, and an `insert` after a `despawn` of
 the same entity does nothing. Engine steps such as the physics step are
 ordinary systems, so commands recorded in `Phase::BeforePhysics` are in the
-world when physics runs. A system skipped by `sim_system_every` doesn't run
+world when physics runs. A system skipped by its interval (`.every(n)`) doesn't run
 and records nothing.
 
 C and C++ systems follow the same rules, with the scheduler off or on (they
@@ -429,7 +470,7 @@ already gone.
 
 Events are dropped at the start of a frame (each tick in headless runs) once
 they are at least one whole frame old *and* older than the slowest
-`sim_system_every` interval. Headless, with every system running every
+system interval (`.every(n)`). Headless, with every system running every
 tick, an event from tick `t` is kept through tick `t + 1`. While the
 simulation is paused no ticks pass, so events sent by frame systems (a pause
 menu's "restart") wait for the simulation readers.
@@ -442,8 +483,8 @@ off and on; `tests/scene_lifecycle.rs` pins the scene rows, and
 
 The flush after every system is the contract for `&mut Ctx` systems, and it
 stays that way: turning [parallel systems](parallel-systems.md) on changes
-nothing for them. Only a system you rewrite as a *view system*
-(`Game::add_view`) gets the coarser barrier at the end of its batch.
+nothing for them. Only a system you rewrite as a *view system* (one that
+takes `&mut SystemView`) gets the coarser barrier at the end of its batch.
 Systems written like this work under both:
 
 - Depend on another system's commands or events through explicit order: put
@@ -463,7 +504,7 @@ so. When you turn it into a view system, check these, in this order:
 | Seeing the commands of the system registered just before it | Still true, and nothing to do, if that system *declares* `commands()`: a recorder is always the last of its batch, so the next system starts a new stage. An undeclared command is a panic naming the system, not a silent change. |
 | Seeing the events of the system registered just before it | Still true if both declare the event type (`send_events` and `read_events`): a sender never shares a batch with a later reader. |
 | Seeing another system's *direct* world changes | Still true if both declare the component or resource: a reader and a writer never share a batch. |
-| Changing the world at once through `ctx.world` (spawn, despawn, insert, remove) | Not possible in a view: structural changes go through `sys.commands()` and apply when the batch ends. Read the result on the next run, or keep the system a `&mut Ctx` system. |
+| Changing the world at once through `ctx.world` (spawn, despawn, insert, remove) | Not possible in a view: structural changes go through `sys.commands` and apply when the batch ends. Read the result on the next run, or keep the system a `&mut Ctx` system. |
 | Sending an event and reading it back in the same call | Works: a view system that sends and reads one type runs alone and sees its own events at once. |
 | Order that comes from nothing the declarations show (a file both write, a global, a callback) | Not kept. Say it: `Game::order(first, second)` or `Game::barrier(phase)`. |
 
@@ -484,7 +525,7 @@ is a barrier of its own, exactly as before.
 Systems execute sequentially by default. A system can use the ECS's parallel
 query methods to divide its entity work across threads; this is not
 parallel execution of different systems. Systems may declare what
-they read and write, and view systems (`Game::add_view`) get only what they
+they read and write, and view systems (which take `&mut SystemView`) get only what they
 declared; see [Declared system access](system-access.md). With
 `Game::parallel_systems(true)`, view systems that don't conflict run at the
 same time; see [Parallel systems](parallel-systems.md) for the rules and

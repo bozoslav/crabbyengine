@@ -24,58 +24,158 @@ use serde_json::{Map, Value, json};
 /// MCP protocol versions this server speaks, newest first.
 const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
+/// The engine feature that lets a release build honor `PONKO_CONTROL`;
+/// `launch` turns it on for the release builds it makes, through the game's
+/// own name for the engine dependency (see [`control_env_feature`]).
+const CONTROL_ENV: &str = "control-env";
+/// The start of what a release build without that feature prints when
+/// `PONKO_CONTROL` is set (the engine's `ENV_CONTROL_IGNORED`).
+const CONTROL_ENV_IGNORED: &str = "ponko: PONKO_CONTROL is ignored";
+
 /// How long to wait for a TCP connection to an instance.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// How long a single endpoint call may take.
 const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Where games register: `$PONKO_INSTANCES_DIR`, else `~/.ponko/instances`
-/// (`%LOCALAPPDATA%\crabby\instances` on Windows). Matches the engine.
+/// (`%LOCALAPPDATA%\ponko\instances` on Windows). Matches the engine.
 ///
 /// ```
 /// let dir = ponko_mcp::default_instances_dir();
-/// assert!(dir.is_none_or(|d| d.ends_with("instances") || std::env::var_os("PONKO_INSTANCES_DIR").or_else(|| std::env::var_os("CRABBY_INSTANCES_DIR")).is_some()));
+/// assert!(dir.is_none_or(|d| d.ends_with("instances") || std::env::var_os("PONKO_INSTANCES_DIR").is_some()));
 /// ```
 pub fn default_instances_dir() -> Option<PathBuf> {
-    if let Some(dir) = instances_override() {
+    if let Some(dir) = std::env::var_os("PONKO_INSTANCES_DIR") {
         return Some(PathBuf::from(dir));
     }
-    registry_home(false).map(|h| h.join("instances"))
+    ponko_home().map(|h| h.join("instances"))
 }
 
-fn instances_override() -> Option<std::ffi::OsString> {
-    std::env::var_os("PONKO_INSTANCES_DIR").or_else(|| {
-        let value = std::env::var_os("CRABBY_INSTANCES_DIR")?;
-        static WARNING: std::sync::Once = std::sync::Once::new();
-        WARNING.call_once(|| eprintln!("ponko-mcp: deprecated environment CRABBY_INSTANCES_DIR; use PONKO_INSTANCES_DIR. Removal requires a major release, no earlier than 2027-11-10."));
-        Some(value)
-    })
-}
-
-fn registry_home(legacy: bool) -> Option<PathBuf> {
+/// `~/.ponko` (`%LOCALAPPDATA%\ponko` on Windows).
+fn ponko_home() -> Option<PathBuf> {
     if cfg!(windows) {
-        std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join(if legacy { "crabby" } else { "ponko" }))
+        std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("ponko"))
     } else {
-        std::env::var_os("HOME").map(|d| PathBuf::from(d).join(if legacy { ".crabby" } else { ".ponko" }))
+        std::env::var_os("HOME").map(|d| PathBuf::from(d).join(".ponko"))
     }
 }
 
-// Normalize explicit overrides for both current and legacy executables.
+/// The feature to add to a release `cargo build` or `cargo run` in `cwd`
+/// (of `package`, else the package `cwd` is in) so the game honors
+/// `PONKO_CONTROL`: `<dependency>/control-env`, where `<dependency>` is the
+/// package's name for its `ponko` dependency (`engine` for
+/// `engine = { package = "ponko", ... }`). `None` when the package has no
+/// direct, normal (not dev- or build-) `ponko` dependency, or `cargo
+/// metadata` fails or takes longer than 30 seconds: the build then
+/// gets no extra feature, and a release game started from it ignores
+/// `PONKO_CONTROL` unless it turns the endpoint on itself.
+///
+/// ```no_run
+/// let feature = ponko_mcp::control_env_feature(std::path::Path::new("."), None);
+/// assert_eq!(feature.as_deref(), Some("ponko/control-env")); // in the engine's own folder
+/// ```
+pub fn control_env_feature(cwd: &Path, package: Option<&str>) -> Option<String> {
+    let mut child = Command::new(std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into()))
+        .args(["metadata", "--format-version", "1", "--no-deps"])
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    // Read on a thread, so a large reply can't fill the pipe while we wait.
+    // Its result comes over a channel, never by joining it: a process cargo
+    // started could keep the pipe open, and the read with it.
+    let mut stdout = child.stdout.take()?;
+    let (sent, output) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut out = Vec::new();
+        let _ = sent.send(std::io::Read::read_to_end(&mut stdout, &mut out).map(|_| out));
+    });
+    // cargo gets all but the last second; its output, the rest.
+    let started = Instant::now();
+    let deadline = started + METADATA_TIMEOUT - Duration::from_secs(1);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+            Ok(Some(_)) => return None,
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    }
+    // cargo is done; what it wrote is in the pipe already.
+    let left = (started + METADATA_TIMEOUT).saturating_duration_since(Instant::now());
+    let out = output.recv_timeout(left).ok()?.ok()?;
+    let metadata: Value = serde_json::from_slice(&out).ok()?;
+    let cwd = cwd.canonicalize().ok()?;
+    control_env_feature_in(&metadata, &cwd, package)
+}
+
+/// How long [`control_env_feature`] waits for `cargo metadata` and its
+/// output, at most.
+const METADATA_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// [`control_env_feature`] from `cargo metadata` output.
+fn control_env_feature_in(metadata: &Value, cwd: &Path, package: Option<&str>) -> Option<String> {
+    let packages = metadata["packages"].as_array()?;
+    let dir = |p: &Value| {
+        p["manifest_path"]
+            .as_str()
+            .and_then(|m| Path::new(m).parent())
+            .map(Path::to_path_buf)
+    };
+    let chosen = match package {
+        Some(name) => packages.iter().find(|p| p["name"] == name),
+        // The package whose folder `cwd` is in, the innermost one: what
+        // `cargo run` without `-p` builds.
+        None => packages
+            .iter()
+            .filter_map(|p| Some((p, dir(p)?)))
+            .filter(|(_, d)| cwd.starts_with(d.canonicalize().as_deref().unwrap_or(d)))
+            .max_by_key(|(_, d)| d.components().count())
+            .map(|(p, _)| p)
+            .or_else(|| (packages.len() == 1).then(|| &packages[0])),
+    }?;
+    if chosen["name"] == "ponko" {
+        return Some(format!("ponko/{CONTROL_ENV}"));
+    }
+    let dep = chosen["dependencies"]
+        .as_array()?
+        .iter()
+        .find(|d| d["name"] == "ponko" && d["kind"].is_null())?;
+    let name = dep["rename"].as_str().or_else(|| dep["name"].as_str())?;
+    Some(format!("{name}/{CONTROL_ENV}"))
+}
+
+/// The `--features` of a `cargo run` that `launch` makes: the caller's, plus
+/// `control_env` (from [`control_env_feature`]) for a release build unless
+/// the caller already turns on some `control-env`.
+fn launch_features<'a>(args: &'a Value, control_env: Option<&'a str>) -> Vec<&'a str> {
+    let mut list: Vec<&str> = args["features"]
+        .as_array()
+        .map(|f| f.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let has_it = list
+        .iter()
+        .any(|f| *f == CONTROL_ENV || f.ends_with(&format!("/{CONTROL_ENV}")));
+    if let Some(feature) = control_env
+        && !has_it
+    {
+        list.push(feature);
+    }
+    list
+}
+
+/// Sets the caller's extra environment for a launched game, over the
+/// variables `launch` sets itself.
 fn apply_launch_env(cmd: &mut Command, env: &Map<String, Value>) {
     for (key, value) in env {
         let value = value.as_str().map_or_else(|| value.to_string(), str::to_string);
         cmd.env(key, value);
-    }
-    for (key, value) in env {
-        let value = value.as_str().map_or_else(|| value.to_string(), str::to_string);
-        if let Some(suffix) = key.strip_prefix("PONKO_") {
-            cmd.env(format!("CRABBY_{suffix}"), value);
-        } else if let Some(suffix) = key.strip_prefix("CRABBY_") {
-            let primary = format!("PONKO_{suffix}");
-            if !env.contains_key(&primary) {
-                cmd.env(primary, value);
-            }
-        }
     }
 }
 
@@ -98,7 +198,7 @@ pub struct Config {
 impl Config {
     /// The default directories, writable tools on.
     pub fn from_env() -> Self {
-        let home = registry_home(false).unwrap_or_else(|| std::env::temp_dir().join("ponko"));
+        let home = ponko_home().unwrap_or_else(|| std::env::temp_dir().join("ponko"));
         Self {
             instances_dir: default_instances_dir().unwrap_or_else(|| home.join("instances")),
             logs_dir: home.join("logs"),
@@ -198,32 +298,6 @@ fn discover(dir: &Path) -> Vec<Instance> {
             continue;
         }
         out.push(inst);
-    }
-    out.sort_by_key(|i| i.info["started"].as_u64().unwrap_or(0));
-    out
-}
-
-// The default Config path opts into legacy discovery. Explicit environment
-// overrides (including empty ones) and non-default Config paths stay isolated.
-fn discover_compatible(dir: &Path) -> Vec<Instance> {
-    let mut directories = vec![dir.to_path_buf()];
-    if instances_override().is_none()
-        && registry_home(false).is_some_and(|home| home.join("instances") == dir)
-        && let Some(home) = registry_home(true)
-    {
-        directories.push(home.join("instances"));
-    }
-    discover_directories(&directories)
-}
-
-fn discover_directories(directories: &[PathBuf]) -> Vec<Instance> {
-    let mut out: Vec<Instance> = Vec::new();
-    for dir in directories {
-        for instance in discover(dir) {
-            if !out.iter().any(|existing| existing.id() == instance.id()) {
-                out.push(instance);
-            }
-        }
     }
     out.sort_by_key(|i| i.info["started"].as_u64().unwrap_or(0));
     out
@@ -384,7 +458,7 @@ fn tools() -> Vec<Tool> {
             params: || {
                 json!({
                     "frames": { "type": "integer", "minimum": 1, "description": "How many frames (default 120, max 10000)" },
-                    "path": { "type": "string", "description": "Where to write it (default: a temp file)" }
+                    "path": { "type": "string", "description": "A new .json file relative to the game's folder, without `..` (default: a temp file)" }
                 })
             },
             required: &[],
@@ -474,7 +548,7 @@ fn tools() -> Vec<Tool> {
             params: || {
                 json!({
                     "max_size": { "type": "integer", "minimum": 16, "description": "Scale down so neither side is bigger than this many pixels (default 1024; 0 keeps full size)" },
-                    "path": { "type": "string", "description": "Also keep the PNG here (default: a temp file)" }
+                    "path": { "type": "string", "description": "Also keep the PNG here: a new .png file relative to the game's folder, without `..` (default: a temp file)" }
                 })
             },
             required: &[],
@@ -612,16 +686,21 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "save_world",
-            description: "Save every entity that has reflected components (with its id), and every reflected resource, to a JSON file. Use it as a checkpoint before experiments; restore with load_world.",
+            description: "Save every entity that has reflected components (with its id), and every reflected resource, to a JSON file. Use it as a checkpoint before experiments; restore with load_world. An existing file is refused unless overwrite is true.",
             writes: false,
-            params: || json!({ "path": { "type": "string", "description": "File to write, e.g. /tmp/before.json" } }),
+            params: || {
+                json!({
+                    "path": { "type": "string", "description": "A .json file relative to the game's folder, without `..`, e.g. saves/before.json" },
+                    "overwrite": { "type": "boolean", "description": "Replace the file if it exists (default false: refused). Not on a read-only server." }
+                })
+            },
             required: &["path"],
         },
         Tool {
             name: "load_world",
             description: "Replace every entity with those in a save file from save_world, with the same ids. The file is checked first: on error nothing changes. Reflected resources in the file are restored too; the tick, seed and other resources don't change.",
             writes: true,
-            params: || json!({ "path": { "type": "string", "description": "File from save_world" } }),
+            params: || json!({ "path": { "type": "string", "description": "A file from save_world, relative to the game's folder" } }),
             required: &["path"],
         },
         Tool {
@@ -765,8 +844,25 @@ fn tool_schema(t: &Tool) -> Value {
         "name": t.name,
         "description": t.description,
         "inputSchema": { "type": "object", "properties": props, "required": t.required },
-        "annotations": { "readOnlyHint": !t.writes, "destructiveHint": matches!(t.name, "despawn_entity" | "remove_component" | "quit_instance") },
+        "annotations": { "readOnlyHint": !t.writes, "destructiveHint": destructive(t.name) },
     })
+}
+
+/// Tools whose change can't simply be undone: they delete, replace the
+/// whole world, write or overwrite files, or start or stop a process. MCP
+/// clients use the hint to ask the user before calling them.
+fn destructive(tool: &str) -> bool {
+    matches!(
+        tool,
+        "despawn_entity"
+            | "remove_component"
+            | "quit_instance"
+            | "launch"
+            | "load_world"
+            | "load_scene"
+            | "save_scene"
+            | "save_prefab"
+    )
 }
 
 // -------------------------------------------------------------------- server
@@ -868,7 +964,7 @@ impl Server {
 
     /// Finds the instance an agent means.
     fn instance(&self, args: &Value) -> Result<Instance, String> {
-        let all = discover_compatible(&self.config.instances_dir);
+        let all = discover(&self.config.instances_dir);
         let wanted = match args.get("instance") {
             None | Some(Value::Null) => None,
             Some(Value::String(s)) => Some(s.clone()),
@@ -913,7 +1009,7 @@ impl Server {
         };
         match name {
             "list_instances" => Ok(Value::Array(
-                discover_compatible(&self.config.instances_dir)
+                discover(&self.config.instances_dir)
                     .iter()
                     .map(Instance::public)
                     .collect(),
@@ -970,7 +1066,14 @@ impl Server {
             "remove_component" => self
                 .instance(args)?
                 .call("component.remove", pass(&["entity", "component"])),
-            "save_world" => self.instance(args)?.call("world.save", pass(&["path"])),
+            "save_world" => {
+                // Replacing a file changes more than the game; a read-only
+                // server may only make new ones.
+                if self.config.read_only && args["overwrite"] == true {
+                    return Err("this server is read-only: save_world may only write a new file (no overwrite)".into());
+                }
+                self.instance(args)?.call("world.save", pass(&["path", "overwrite"]))
+            }
             "load_world" => self.instance(args)?.call("world.load", pass(&["path"])),
             "save_scene" => self.instance(args)?.call("scene.save", pass(&["path"])),
             "load_scene" => self.instance(args)?.call("scene.load", pass(&["path"])),
@@ -1210,11 +1313,16 @@ impl Server {
                     cmd.args([opt, v]);
                 }
             }
-            if let Some(features) = args["features"].as_array() {
-                let list: Vec<&str> = features.iter().filter_map(Value::as_str).collect();
-                if !list.is_empty() {
-                    cmd.args(["--features", &list.join(",")]);
-                }
+            // Release builds honor PONKO_CONTROL only with the engine's
+            // `control-env` feature, so a shipped game never opens a port.
+            let control_env = if flag("release") {
+                control_env_feature(&cwd, args["package"].as_str())
+            } else {
+                None
+            };
+            let list = launch_features(args, control_env.as_deref());
+            if !list.is_empty() {
+                cmd.args(["--features", &list.join(",")]);
             }
         }
         if let Some(extra) = args["args"].as_array() {
@@ -1228,14 +1336,7 @@ impl Server {
             .env("PONKO_LAUNCH_ID", &launch_id)
             .env("PONKO_INSTANCES_DIR", &self.config.instances_dir)
             .env("PONKO_START_PAUSED", if flag("paused") { "1" } else { "0" })
-            .env("CRABBY_START_PAUSED", if flag("paused") { "1" } else { "0" })
-            .env("PONKO_INPUT_INJECTION", "1")
-            .env("CRABBY_CONTROL", "1")
-            .env("CRABBY_LAUNCH_ID", &launch_id)
-            .env("CRABBY_INSTANCES_DIR", &self.config.instances_dir);
-        if flag("paused") {
-            cmd.env("CRABBY_START_PAUSED", "1");
-        }
+            .env("PONKO_INPUT_INJECTION", "1");
         if flag("headless") {
             cmd.env("HEADLESS", "1");
         }
@@ -1256,7 +1357,7 @@ impl Server {
 
         let deadline = deadline_after(args["timeout_secs"].as_u64().unwrap_or(600));
         loop {
-            if let Some(i) = discover_compatible(&self.config.instances_dir)
+            if let Some(i) = discover(&self.config.instances_dir)
                 .into_iter()
                 .find(|i| i.info["launch_id"] == json!(launch_id))
             {
@@ -1269,6 +1370,17 @@ impl Server {
             if let Ok(Some(status)) = child.try_wait() {
                 return Err(format!(
                     "the game exited ({status}) before its control endpoint opened. Last log lines:\n{}",
+                    tail(&log_path, 40)
+                ));
+            }
+            if std::fs::read_to_string(&log_path).is_ok_and(|log| log.contains(CONTROL_ENV_IGNORED)) {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "the game is a release build that ignores PONKO_CONTROL, so its control endpoint never opens. \
+                     Build it with the engine's `control-env` feature (`launch` adds it to its own release builds \
+                     when the package depends on `ponko` directly; else pass `features: [\"<dependency>/control-env\"]`), \
+                     as a debug build, or have it call `control_endpoint(true)`. Last log lines:\n{}",
                     tail(&log_path, 40)
                 ));
             }
@@ -1465,20 +1577,138 @@ mod tests {
     }
 
     #[test]
-    fn launch_overrides_reach_both_engine_generations_with_primary_precedence() {
-        for settings in [
-            json!({"PONKO_START_PAUSED": "0"}),
-            json!({"CRABBY_START_PAUSED": "0"}),
-            json!({"PONKO_START_PAUSED": "0", "CRABBY_START_PAUSED": "1"}),
+    fn tools_that_replace_state_or_write_files_are_destructive() {
+        let tools = tools();
+        for name in [
+            "launch",
+            "load_world",
+            "load_scene",
+            "save_scene",
+            "save_prefab",
+            "despawn_entity",
+            "remove_component",
+            "quit_instance",
         ] {
-            let mut cmd = Command::new("game");
-            cmd.env("PONKO_START_PAUSED", "1").env("CRABBY_START_PAUSED", "1");
-            apply_launch_env(&mut cmd, settings.as_object().unwrap());
-            for key in ["PONKO_START_PAUSED", "CRABBY_START_PAUSED"] {
-                let value = cmd.get_envs().find(|(name, _)| *name == key).unwrap().1;
-                assert_eq!(value, Some(std::ffi::OsStr::new("0")));
+            let t = tools
+                .iter()
+                .find(|t| t.name == name)
+                .unwrap_or_else(|| panic!("no tool {name}"));
+            let schema = tool_schema(t);
+            assert_eq!(schema["annotations"]["destructiveHint"], true, "{name}");
+            assert_eq!(schema["annotations"]["readOnlyHint"], false, "{name}");
+        }
+        // Read-only tools leave the game as it was (save_world and
+        // screenshot only add files), and MCP ignores the hint on them.
+        for t in &tools {
+            if !t.writes {
+                assert!(!destructive(t.name), "{} is read-only but marked destructive", t.name);
             }
         }
+        assert_eq!(
+            tool_schema(tools.iter().find(|t| t.name == "spawn_entity").unwrap())["annotations"]["destructiveHint"],
+            false
+        );
+    }
+
+    #[test]
+    fn release_launches_add_control_env_once() {
+        let args = json!({ "features": ["physics"] });
+        assert_eq!(
+            launch_features(&args, Some("engine/control-env")),
+            ["physics", "engine/control-env"]
+        );
+        assert_eq!(launch_features(&args, None), ["physics"]);
+        assert_eq!(
+            launch_features(&json!({}), Some("ponko/control-env")),
+            ["ponko/control-env"]
+        );
+        // Any spelling the caller already chose is kept, not doubled.
+        for own in ["engine/control-env", "ponko/control-env", "control-env"] {
+            let args = json!({ "features": [own] });
+            assert_eq!(launch_features(&args, Some("ponko/control-env")), [own]);
+        }
+        assert!(crate::CONTROL_ENV_IGNORED.starts_with("ponko: PONKO_CONTROL"));
+    }
+
+    #[test]
+    fn the_control_env_feature_uses_the_games_name_for_the_engine() {
+        let metadata = json!({ "packages": [
+            { "name": "ponko", "manifest_path": "/w/Cargo.toml", "dependencies": [] },
+            { "name": "renamed", "manifest_path": "/w/games/renamed/Cargo.toml", "dependencies": [
+                { "name": "serde", "rename": null, "kind": null },
+                { "name": "ponko", "rename": "engine", "kind": null },
+            ] },
+            { "name": "plain", "manifest_path": "/w/games/plain/Cargo.toml", "dependencies": [
+                { "name": "ponko", "rename": null, "kind": "dev" },
+            ] },
+            { "name": "both", "manifest_path": "/w/games/both/Cargo.toml", "dependencies": [
+                { "name": "ponko", "rename": "dev-engine", "kind": "dev" },
+                { "name": "ponko", "rename": "engine", "kind": null },
+            ] },
+            { "name": "indirect", "manifest_path": "/w/games/indirect/Cargo.toml", "dependencies": [
+                { "name": "my-framework", "rename": null, "kind": null },
+                { "name": "ponko", "rename": null, "kind": "build" },
+            ] },
+        ] });
+        let feature = |cwd: &str, package: Option<&str>| control_env_feature_in(&metadata, Path::new(cwd), package);
+        assert_eq!(feature("/w", None).as_deref(), Some("ponko/control-env"));
+        assert_eq!(
+            feature("/w/games/renamed/src", None).as_deref(),
+            Some("engine/control-env")
+        );
+        assert_eq!(feature("/w", Some("renamed")).as_deref(), Some("engine/control-env"));
+        // A dev-dependency alone doesn't count; a normal one wins over it.
+        assert_eq!(feature("/w/games/plain", None), None);
+        assert_eq!(feature("/w/games/both", None).as_deref(), Some("engine/control-env"));
+        // No direct dependency (only through another crate, or a build
+        // script's): no feature.
+        assert_eq!(feature("/w/games/indirect", None), None);
+        assert_eq!(feature("/w", Some("missing")), None);
+        assert_eq!(feature("/elsewhere", None), None);
+    }
+
+    #[test]
+    fn a_renamed_engine_dependency_is_found_with_cargo_metadata() {
+        let engine = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .unwrap();
+        let game = std::env::temp_dir().join(format!("ponko-mcp-renamed-{}", random_id()));
+        std::fs::create_dir_all(game.join("src")).unwrap();
+        std::fs::write(
+            game.join("Cargo.toml"),
+            format!(
+                "[package]\nname = \"my-game\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n\
+                 [dependencies]\nengine = {{ package = \"ponko\", path = {:?} }}\n\n[workspace]\n",
+                // Cargo doesn't take Windows' verbatim `\\?\` prefix,
+                // which canonicalize adds.
+                engine.to_str().unwrap().trim_start_matches(r"\\?\")
+            ),
+        )
+        .unwrap();
+        std::fs::write(game.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let feature = control_env_feature(&game, None);
+        let by_name = control_env_feature(&game, Some("my-game"));
+        std::fs::remove_dir_all(&game).unwrap();
+        assert_eq!(feature.as_deref(), Some("engine/control-env"));
+        assert_eq!(by_name.as_deref(), Some("engine/control-env"));
+        // The engine's own folder.
+        assert_eq!(control_env_feature(&engine, None).as_deref(), Some("ponko/control-env"));
+    }
+
+    #[test]
+    fn launch_overrides_replace_the_launch_defaults_and_nothing_else() {
+        let mut cmd = Command::new("game");
+        cmd.env("PONKO_START_PAUSED", "1");
+        apply_launch_env(
+            &mut cmd,
+            json!({"PONKO_START_PAUSED": "0", "UNITS": 400}).as_object().unwrap(),
+        );
+        let env: Vec<_> = cmd.get_envs().collect();
+        let get = |key: &str| env.iter().find(|(name, _)| *name == key).and_then(|(_, v)| *v);
+        assert_eq!(get("PONKO_START_PAUSED"), Some(std::ffi::OsStr::new("0")));
+        assert_eq!(get("UNITS"), Some(std::ffi::OsStr::new("400")));
+        assert_eq!(env.len(), 2, "no other spellings are added: {env:?}");
     }
 
     #[test]
@@ -1594,37 +1824,5 @@ mod tests {
         assert_eq!(registry_name(Path::new("/x/checkpoint.json")), None);
         assert_eq!(registry_name(Path::new("/x/1-99999.json")), None); // not a port
         assert_eq!(registry_name(Path::new("/x/1-2.txt")), None);
-    }
-    #[test]
-    fn discovery_reads_both_registries_and_prefers_primary_duplicates() {
-        let root = std::env::temp_dir().join(format!("ponko-registry-migration-{}", random_id()));
-        let primary = root.join("primary");
-        let legacy = root.join("legacy");
-        std::fs::create_dir_all(&primary).unwrap();
-        std::fs::create_dir_all(&legacy).unwrap();
-        let first = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let second = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let write = |dir: &Path, listener: &std::net::TcpListener, name: &str| {
-            let port = listener.local_addr().unwrap().port();
-            std::fs::write(
-                dir.join(format!("1-{port}.json")),
-                json!({
-                    "pid": 1, "port": port, "name": name, "token": "t", "started": port
-                })
-                .to_string(),
-            )
-            .unwrap();
-        };
-        write(&primary, &first, "primary");
-        write(&legacy, &first, "duplicate");
-        write(&legacy, &second, "legacy");
-        let both = discover_directories(&[primary.clone(), legacy.clone()]);
-        assert_eq!(both.len(), 2);
-        assert!(both.iter().any(|i| i.name() == "primary"));
-        assert!(both.iter().any(|i| i.name() == "legacy"));
-        assert_eq!(discover_directories(std::slice::from_ref(&primary)).len(), 1);
-        std::fs::remove_dir_all(&primary).unwrap();
-        assert_eq!(discover_directories(&[primary, legacy]).len(), 2);
-        std::fs::remove_dir_all(root).unwrap();
     }
 }

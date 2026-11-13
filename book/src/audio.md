@@ -5,10 +5,10 @@
 
 ```rust
 let hit = ctx.load_sound("hit.ogg");   // OGG Vorbis, WAV, MP3 or FLAC from assets/
-ctx.play_sound(&hit);
+ctx.play_sound(hit);
 
 let music = ctx.load_sound("theme.ogg");
-let song = ctx.audio.play_ex(&music, SoundParams { volume: 0.5, looping: true, ..Default::default() });
+let song = ctx.audio.play_ex(music, SoundParams { volume: 0.5, looping: true, ..Default::default() });
 ctx.audio.stop(song);
 ```
 
@@ -65,10 +65,10 @@ the ALSA headers (`libasound2-dev` on Debian and Ubuntu).
 ## Sound in 3D
 
 With the `3d` feature, pair `d3::AudioSource` with `d3::Transform`, or play a
-one-off sound at a point with `ctx.play_sound_at`. Every frame, after your
+one-off sound at a point with `ctx.audio.play_at`. Every frame, after your
 systems, the engine moves each sound to its entity and sets its volume,
 panning and doppler from where the listener is. The listener follows
-`ctx.camera3d`; to hear from somewhere else, such as the player in a
+`ctx.scene3d.camera`; to hear from somewhere else, such as the player in a
 third-person game, call `ctx.audio.set_listener(Some(..))`.
 Positions use world units; doppler assumes metres and takes velocities
 from frame to frame. Set `doppler: 0.0` to turn it off, for example for
@@ -103,7 +103,7 @@ Stereo panning follows the listener's right axis. Kira applies gain, panning
 and playback-rate changes with smoothing; this is stereo positional audio,
 not an HRTF simulation. Prefer mono source clips for localized effects.
 
-`ctx.play_sound_at` starts a voice at a fixed world position. Save its handle
+`ctx.audio.play_at` starts a voice at a fixed world position. Save its handle
 to stop it; removing an entity source stops its voice on the next audio update.
 Headless execution never opens an audio device, and disabling `audio` keeps
 the same APIs silent. No allocation occurs during updates unless a new voice

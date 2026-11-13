@@ -60,9 +60,9 @@ combine.
 ```rust
 # fn movement(_: &mut Ctx) {} fn plan_routes(_: &mut Ctx) {} fn grow_food(_: &mut Ctx) {}
 Game::new("Colony", 1280, 720)
-    .sim_system(movement)               // every tick
-    .sim_system_every(10, plan_routes)  // 6 times a second
-    .sim_system_every(10, grow_food)    // also 6/s, but on other ticks
+    .sim_system(movement)                             // every tick
+    .add(Phase::AfterPhysics, plan_routes.every(10))  // 6 times a second
+    .add(Phase::AfterPhysics, grow_food.every(10))    // also 6/s, but on other ticks
 ```
 
 </div>

@@ -146,10 +146,9 @@ fn a_view_system_writes_are_changes_for_the_other_systems() {
             .for_each(|(h, s)| h.0 += s.0);
     }
     let world = Game::new("changes", 1, 1)
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().write::<Health>().read::<Shield>(),
-            shield_up,
+            shield_up.access(SystemAccess::new().write::<Health>().read::<Shield>()),
         )
         .sim_system(|ctx: &mut Ctx| {
             let seen = changed(ctx);
@@ -173,7 +172,7 @@ fn view_logs_changes(sys: &mut SystemView, label: &str) {
         .map(|h| h.0)
         .collect();
     seen.sort();
-    let tick = sys.sim_tick();
+    let tick = sys.time.sim_tick();
     sys.world
         .resource_mut::<Log>()
         .0
@@ -189,13 +188,21 @@ fn every_view_system_sees_each_change_once_before_or_after_the_writer() {
             .read_service(Service::Time)
     };
     let world = Game::new("changes", 1, 1)
-        .add_view(Phase::AfterPhysics, access(), |sys: &mut SystemView| {
-            view_logs_changes(sys, "before");
-        })
+        .add(
+            Phase::AfterPhysics,
+            (|sys: &mut SystemView| {
+                view_logs_changes(sys, "before");
+            })
+            .access(access()),
+        )
         .sim_system(hurt_one)
-        .add_view(Phase::AfterPhysics, access(), |sys: &mut SystemView| {
-            view_logs_changes(sys, "after");
-        })
+        .add(
+            Phase::AfterPhysics,
+            (|sys: &mut SystemView| {
+                view_logs_changes(sys, "after");
+            })
+            .access(access()),
+        )
         .run_headless(5, setup);
     // The same as `Ctx` systems see (every_system_sees_each_change_once_...).
     assert_eq!(
@@ -225,21 +232,29 @@ fn every_view_system_is_shown_each_removal_once() {
     };
     fn log_removed(sys: &mut SystemView, label: &str) {
         let n = sys.world.removed::<Health>().len();
-        let tick = sys.sim_tick();
+        let tick = sys.time.sim_tick();
         sys.world.resource_mut::<Log>().0.push(format!("{label} {tick} {n}"));
     }
     let world = Game::new("changes", 1, 1)
-        .add_view(Phase::AfterPhysics, access(), |sys: &mut SystemView| {
-            log_removed(sys, "before");
-        })
+        .add(
+            Phase::AfterPhysics,
+            (|sys: &mut SystemView| {
+                log_removed(sys, "before");
+            })
+            .access(access()),
+        )
         .sim_system(|ctx: &mut Ctx| {
-            if let Some(e) = ctx.world.query::<Entity>().with::<Health>().iter().next() {
+            if let Some(e) = ctx.world.query::<Entity>().filter::<With<Health>>().iter().next() {
                 ctx.world.despawn(e);
             }
         })
-        .add_view(Phase::AfterPhysics, access(), |sys: &mut SystemView| {
-            log_removed(sys, "after");
-        })
+        .add(
+            Phase::AfterPhysics,
+            (|sys: &mut SystemView| {
+                log_removed(sys, "after");
+            })
+            .access(access()),
+        )
         .run_headless(4, setup);
     assert_eq!(
         lines(&world),
@@ -282,10 +297,14 @@ fn a_mutable_query_in_one_system_is_a_change_for_the_others() {
 fn a_slow_system_sees_everything_since_its_last_run() {
     let world = Game::new("changes", 1, 1)
         .sim_system(hurt_one)
-        .sim_system_every(2, |ctx: &mut Ctx| {
-            let seen = changed(ctx);
-            log(ctx, format!("slow {} {seen:?}", ctx.time.sim_tick()));
-        })
+        .add(
+            Phase::AfterPhysics,
+            (|ctx: &mut Ctx| {
+                let seen = changed(ctx);
+                log(ctx, format!("slow {} {seen:?}", ctx.time.sim_tick()));
+            })
+            .every(2),
+        )
         .run_headless(6, setup);
     assert_eq!(lines(&world), ["slow 0 [11, 20, 30]", "slow 2 [21, 31]", "slow 4 []"]);
 }
@@ -332,7 +351,7 @@ fn every_system_is_shown_each_removal_once() {
         })
         .sim_system(|ctx: &mut Ctx| {
             // Despawns one entity per tick: one directly, the rest deferred.
-            let victim = ctx.world.query::<Entity>().with::<Health>().iter().next();
+            let victim = ctx.world.query::<Entity>().filter::<With<Health>>().iter().next();
             match (victim, ctx.time.sim_tick()) {
                 (Some(e), 0) => {
                     ctx.world.despawn(e);
@@ -372,7 +391,7 @@ fn removal_logs_stay_small_over_a_long_run() {
     let world = Game::new("changes", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
             // 50 short-lived entities per tick.
-            let old: Vec<Entity> = ctx.world.query::<Entity>().with::<Health>().iter().collect();
+            let old: Vec<Entity> = ctx.world.query::<Entity>().filter::<With<Health>>().iter().collect();
             for e in old {
                 ctx.commands.despawn(e);
             }
@@ -380,9 +399,13 @@ fn removal_logs_stay_small_over_a_long_run() {
                 ctx.commands.spawn((Health(hp),));
             }
         })
-        .sim_system_every(4, |ctx: &mut Ctx| {
-            let _ = ctx.world.removed::<Health>();
-        })
+        .add(
+            Phase::AfterPhysics,
+            (|ctx: &mut Ctx| {
+                let _ = ctx.world.removed::<Health>();
+            })
+            .every(4),
+        )
         .sim_system(|ctx: &mut Ctx| {
             let kept = ctx.world.removed_since::<Health>(Tick::default()).len();
             let longest = ctx.world.resource_mut::<Longest>();
@@ -398,11 +421,12 @@ fn removal_logs_stay_small_over_a_long_run() {
 }
 
 #[test]
-fn a_system_that_starts_using_a_filter_late_sees_every_value() {
+fn a_system_that_starts_tracking_late_sees_every_value() {
     let world = Game::new("changes", 1, 1)
         .sim_system(|ctx: &mut Ctx| {
             // Nothing asked about `Shield` before tick 2.
             if ctx.time.sim_tick() >= 2 {
+                ctx.world.track_changes::<Shield>();
                 let n = ctx.world.query::<&Shield>().filter::<Changed<Shield>>().count();
                 let added = ctx.world.query::<&Shield>().filter::<Added<Shield>>().count();
                 log(ctx, format!("{} changed={n} added={added}", ctx.time.sim_tick()));
@@ -414,6 +438,19 @@ fn a_system_that_starts_using_a_filter_late_sees_every_value() {
             ctx.world.spawn((Shield(2),));
         });
     assert_eq!(lines(&world), ["2 changed=2 added=2", "3 changed=0 added=0"]);
+}
+
+#[test]
+#[should_panic(expected = "`Changed<change_detection::Shield>` needs `change_detection::Shield`'s changes tracked")]
+fn a_change_filter_in_a_system_needs_the_component_tracked() {
+    Game::new("changes", 1, 1)
+        .sim_system(|ctx: &mut Ctx| {
+            // Tracking is explicit: the filter doesn't start it.
+            let _ = ctx.world.query::<&Shield>().filter::<Changed<Shield>>().count();
+        })
+        .run_headless(1, |ctx| {
+            ctx.world.spawn((Shield(1),));
+        });
 }
 
 #[test]
@@ -494,11 +531,15 @@ fn a_rare_system_sees_everything_in_a_world_that_replaced_another() {
     // have passed the tick it remembers from the old world. That tick means
     // nothing in the new world, so the reader starts from the beginning.
     let world = Game::new("changes", 1, 1)
-        .sim_system_every(20, |ctx: &mut Ctx| {
-            let seen = changed(ctx);
-            let removed = ctx.world.removed::<Health>().len();
-            log(ctx, format!("{seen:?}, {removed} removed"));
-        })
+        .add(
+            Phase::AfterPhysics,
+            (|ctx: &mut Ctx| {
+                let seen = changed(ctx);
+                let removed = ctx.world.removed::<Health>().len();
+                log(ctx, format!("{seen:?}, {removed} removed"));
+            })
+            .every(20),
+        )
         .sim_system(|ctx: &mut Ctx| {
             if ctx.time.sim_tick() == 5 {
                 let mut fresh = World::new();
@@ -526,14 +567,22 @@ fn removals_in_a_new_world_wait_for_systems_that_last_ran_in_the_old_one() {
     // reader has run in the new world, its removal log must keep everything,
     // whatever ticks the readers remember from the old world.
     let world = Game::new("changes", 1, 1)
-        .sim_system_every(20, |ctx: &mut Ctx| {
-            let n = ctx.world.removed::<Health>().len();
-            log(ctx, format!("first {n}"));
-        })
-        .sim_system_every(30, |ctx: &mut Ctx| {
-            let n = ctx.world.removed::<Health>().len();
-            log(ctx, format!("second {n}"));
-        })
+        .add(
+            Phase::AfterPhysics,
+            (|ctx: &mut Ctx| {
+                let n = ctx.world.removed::<Health>().len();
+                log(ctx, format!("first {n}"));
+            })
+            .every(20),
+        )
+        .add(
+            Phase::AfterPhysics,
+            (|ctx: &mut Ctx| {
+                let n = ctx.world.removed::<Health>().len();
+                log(ctx, format!("second {n}"));
+            })
+            .every(30),
+        )
         .sim_system(|ctx: &mut Ctx| match ctx.time.sim_tick() {
             // Many ticks in the old world, so the readers' old ticks are
             // far past the new world's first ones.
@@ -547,7 +596,7 @@ fn removals_in_a_new_world_wait_for_systems_that_last_ran_in_the_old_one() {
                 ctx.world = fresh;
             }
             36..=38 => {
-                let victim = ctx.world.query::<Entity>().with::<Health>().iter().next();
+                let victim = ctx.world.query::<Entity>().filter::<With<Health>>().iter().next();
                 ctx.world.despawn(victim.unwrap());
             }
             _ => {}

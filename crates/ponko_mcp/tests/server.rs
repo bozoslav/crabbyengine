@@ -121,7 +121,11 @@ fn agents_drive_several_games_through_mcp() {
     let dir = std::env::temp_dir().join(format!("ponko-mcp-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     // SAFETY: set before any other thread of this test binary starts.
-    unsafe { std::env::set_var("CRABBY_INSTANCES_DIR", &dir) };
+    unsafe { std::env::set_var("PONKO_INSTANCES_DIR", &dir) };
+    // The games run in this process, and save files relative to its working
+    // folder: make that the test's own directory.
+    std::fs::create_dir_all(&dir).unwrap();
+    std::env::set_current_dir(&dir).unwrap();
 
     let mut agent = Agent::new(&dir, false);
 
@@ -452,10 +456,21 @@ fn agents_drive_several_games_through_mcp() {
     // Checkpoint, experiment, roll back.
     let checkpoint = dir.join("checkpoint.json");
     let saved = agent
-        .tool("save_world", json!({ "instance": "alpha", "path": checkpoint }))
+        .tool("save_world", json!({ "instance": "alpha", "path": "checkpoint.json" }))
         .unwrap();
     assert_eq!(saved["entities"], 1);
     assert_eq!(saved["resources"], 1);
+    // A second save to the same file is refused unless it may overwrite.
+    let err = agent
+        .tool("save_world", json!({ "instance": "alpha", "path": "checkpoint.json" }))
+        .unwrap_err();
+    assert!(err.contains("already exists"), "{err}");
+    agent
+        .tool(
+            "save_world",
+            json!({ "instance": "alpha", "path": "checkpoint.json", "overwrite": true }),
+        )
+        .unwrap();
     agent
         .tool("despawn_entity", json!({ "instance": "alpha", "entity": e }))
         .unwrap();
@@ -467,8 +482,13 @@ fn agents_drive_several_games_through_mcp() {
     // must never delete files that aren't registry entries.
     agent.tool("list_instances", json!({})).unwrap();
     assert!(checkpoint.exists(), "discovery deleted a file it doesn't own");
-    agent
+    // Only paths below the game's folder are accepted.
+    let err = agent
         .tool("load_world", json!({ "instance": "alpha", "path": checkpoint }))
+        .unwrap_err();
+    assert!(err.contains("relative"), "{err}");
+    agent
+        .tool("load_world", json!({ "instance": "alpha", "path": "checkpoint.json" }))
         .unwrap();
     assert_eq!(
         agent
@@ -477,18 +497,25 @@ fn agents_drive_several_games_through_mcp() {
         6.0,
         "the same entity id is back with its saved values"
     );
-    // The read-only agent may save (it changes nothing) but not load.
+    // The read-only agent may save a new file (it changes nothing), not
+    // replace one, and not load.
     assert!(
         viewer
             .tool(
                 "save_world",
-                json!({ "instance": "alpha", "path": dir.join("viewer.json") })
+                json!({ "instance": "alpha", "path": "checkpoint.json", "overwrite": true })
             )
+            .unwrap_err()
+            .contains("read-only")
+    );
+    assert!(
+        viewer
+            .tool("save_world", json!({ "instance": "alpha", "path": "viewer.json" }))
             .is_ok()
     );
     assert!(
         viewer
-            .tool("load_world", json!({ "instance": "alpha", "path": checkpoint }))
+            .tool("load_world", json!({ "instance": "alpha", "path": "checkpoint.json" }))
             .unwrap_err()
             .contains("read-only")
     );

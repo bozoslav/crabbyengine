@@ -763,7 +763,7 @@ impl Renderer3D {
                 frame.light_views as f32,
                 1.0 / atlas,
                 1.5,
-                lighting.shadow_filter.clamp(1, 3) as f32,
+                lighting.shadow_filter as u32 as f32,
             ],
             cluster_depth: cluster_depth(frame),
             cluster_view_proj: frame.view_proj.to_cols_array_2d(),
@@ -834,7 +834,7 @@ impl Renderer3D {
             ];
         }
         // A three-color ambient, without an atmosphere.
-        let equator = match lighting.equator_color {
+        let equator = match sky.equator_color {
             Some(c) if !sky.atmosphere => {
                 let [r, g, b, _] = linear(c);
                 [

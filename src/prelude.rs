@@ -11,8 +11,12 @@
 //! Add `use ponko::d2::*;` or `use ponko::d3::*;` for one dimension's names
 //! (`Transform`, `RigidBody`, `Physics`, `Hit`, ...), and import service
 //! modules (`ponko::net`, `ponko::perf`, `ponko::render`, `ponko::anim`, ...)
-//! where a file needs them. Short generic names a game is likely to define
-//! itself (`Pose`, `Material`, `Job`, `Motion`, `Shader`, `Joint`, ...) stay
+//! where a file needs them. Every type is documented at one path, its home:
+//! its topic module (`ponko::render::Material`, `ponko::anim::Animator`), or
+//! `d2`/`d3` for the types that have none (`d3::Camera`, `d3::PointLight`).
+//! `d2`/`d3` re-export the topic modules' types, so the glob and the topic
+//! path name the same type; the prelude re-exports a few of each. Short
+//! generic names a game is likely to define itself (`Pose`, `Material`, `Job`, `Motion`, `Shader`, `Joint`, ...) stay
 //! out of the prelude.
 //!
 //! ```
@@ -30,6 +34,7 @@ pub use crate::assets::{AssetSource, Assets, MemorySource};
 pub use crate::audio::{AudioBus, Playing, Sound, SoundParams};
 pub use crate::camera::Rect;
 #[cfg(any(feature = "physics", feature = "physics3d"))]
+#[doc(no_inline)]
 pub use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 pub use crate::color::Color;
 pub use crate::ctx::Ctx;
@@ -37,7 +42,7 @@ pub use crate::ctx::Ctx;
 pub use crate::d3;
 pub use crate::error::{Error, ErrorKind};
 pub use crate::events::Events;
-pub use crate::game::{ConfiguredGame, Game, Phase, Plugin, SetupResult, SystemId, Systems};
+pub use crate::game::{ConfiguredGame, Game, IntoSystem, Phase, Plugin, SetupResult, SystemId, Systems};
 pub use crate::handle::Handle;
 pub use crate::input::{Key, MouseButton};
 pub use crate::random::{Random, Rng};

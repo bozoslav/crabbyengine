@@ -148,6 +148,7 @@ fn declared_c_systems_run_within_their_declarations() {
 }
 
 /// The game's access report as text.
+#[cfg(all(feature = "physics", feature = "physics3d"))]
 unsafe fn report(g: *mut PonkoGame) -> String {
     // SAFETY: the caller's live game; the buffer is sized by the first call.
     unsafe {

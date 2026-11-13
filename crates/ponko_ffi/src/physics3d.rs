@@ -1003,6 +1003,7 @@ pub unsafe extern "C" fn ponko_ctx_body_center_of_mass3d(
 mod imp {
     use std::cell::RefCell;
 
+    use ponko::__ffi;
     use ponko::d3::Character as Character3D;
     use ponko::d3::Collider as Collider3D;
     use ponko::d3::Hit as Hit3D;
@@ -1015,7 +1016,7 @@ mod imp {
     use ponko::d3::Velocity as Velocity3D;
     use ponko::physics3d::CollisionGroups;
     use ponko::physics3d::CollisionMesh;
-    use ponko::{BodyKind, Quat, Vec3};
+    use ponko::{BodyKind, Handle, Quat, Vec3};
     use ponko_ecs::Entity;
 
     use super::*;
@@ -1123,7 +1124,7 @@ mod imp {
                     Collider3D::cuboid(size)
                 }
                 2 => Collider3D::capsule(non_negative(c.height, SIZE)?, positive(c.radius, SIZE)?),
-                3 => Collider3D::mesh(CollisionMesh::from_bits(c.mesh.id)),
+                3 => Collider3D::mesh(mesh_from_c(c.mesh)),
                 _ => return Err(invalid("unknown collider shape")),
             };
             const AMOUNT: &str = "density, friction and restitution must not be negative";
@@ -1140,7 +1141,7 @@ mod imp {
                 Shape3D::Sphere { radius } => ponko_collider3d_sphere(radius),
                 Shape3D::Cuboid { size } => ponko_collider3d_box(to_c(size)),
                 Shape3D::Capsule { height, radius } => ponko_collider3d_capsule(height, radius),
-                Shape3D::Mesh(m) => ponko_collider3d_mesh(PonkoCollisionMesh { id: m.to_bits() }),
+                Shape3D::Mesh(m) => ponko_collider3d_mesh(mesh_to_c(m)),
                 _ => unreachable!("a new Shape3D needs a PonkoShape3DKind"),
             };
             PonkoCollider3D {
@@ -1349,8 +1350,16 @@ mod imp {
         Ok(unsafe { std::slice::from_raw_parts(ptr, count) })
     }
 
-    fn mesh_to_c(m: CollisionMesh) -> PonkoCollisionMesh {
-        PonkoCollisionMesh { id: m.to_bits() }
+    pub(crate) fn mesh_to_c(m: CollisionMesh) -> PonkoCollisionMesh {
+        PonkoCollisionMesh {
+            id: u64::from(__ffi::id(m)),
+        }
+    }
+
+    /// The handle a C collision mesh names. C keeps 64 bits for it; the
+    /// engine's ids are 32, so a wider value names no mesh.
+    pub(crate) fn mesh_from_c(m: PonkoCollisionMesh) -> CollisionMesh {
+        u32::try_from(m.id).map_or(CollisionMesh::NONE, __ffi::from_id::<CollisionMesh>)
     }
 
     pub(super) unsafe fn heightfield(
@@ -1429,7 +1438,7 @@ mod imp {
         // SAFETY: forwarded caller contract.
         boundary(|| unsafe {
             ctx_access(ctx, |c| {
-                c.physics3d.free_mesh(CollisionMesh::from_bits(mesh.id));
+                c.physics3d.free(mesh_from_c(mesh));
                 Ok(())
             })
         })
@@ -1733,3 +1742,5 @@ mod imp {
 }
 
 pub(crate) use imp::kind as kind3d;
+#[cfg(feature = "physics3d")]
+pub(crate) use imp::{mesh_from_c, mesh_to_c};

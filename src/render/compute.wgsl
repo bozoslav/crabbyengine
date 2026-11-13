@@ -1,4 +1,4 @@
-// Compute passes (Ctx::create_compute): a game's `fn compute(c: Cell) ->
+// Compute passes (Graphics::create_compute): a game's `fn compute(c: Cell) ->
 // vec4<f32>` run once per texel of a render target, each frame, reading
 // the target as it was. The engine builds each one from the mesh prelude
 // (frame and material bindings and helpers), this file's first part, the

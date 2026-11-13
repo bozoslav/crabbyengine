@@ -8,7 +8,7 @@ game from before its first system to after its last, so it includes the
 scheduler's own work (clocks, event slots, the barrier after each batch).
 60 warm-up ticks, then 400 timed ticks (100 or 200 for the biggest worlds).
 
-The systems are view systems (`Game::add_view`) over `Val<N>` components,
+The systems are view systems (functions of `&mut SystemView`) over `Val<N>` components,
 two floats each. *Light* is `v += w * dt` (well under a nanosecond per
 entity); *heavy* is a few transcendental calls (40 to 60 ns per entity).
 `SxE` means `S` systems, each over its own component of `E` entities.

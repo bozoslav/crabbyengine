@@ -65,23 +65,6 @@ impl QueryFilter3D {
 }
 
 impl Physics3D {
-    /// Explicit filtered ray query, matching the 2D argument convention.
-    /// The existing `cast_ray` spelling remains available.
-    pub fn cast_ray_filtered(
-        &self,
-        origin: Vec3,
-        direction: Vec3,
-        max_distance: f32,
-        filter: QueryFilter3D,
-    ) -> Option<Hit3D> {
-        self.cast_ray(origin, direction, max_distance, filter)
-    }
-
-    /// Dimension-neutral ball overlap (a sphere in 3D).
-    pub fn overlap_ball(&self, center: Vec3, radius: f32, filter: QueryFilter3D, out: &mut Vec<Entity>) {
-        self.overlap_sphere(center, radius, filter, out);
-    }
-
     fn rp_filter(&self, f: QueryFilter3D) -> rp::QueryFilter<'static> {
         let mut filter = rp::QueryFilter::default().groups(f.groups.to_rp());
         if !f.sensors {

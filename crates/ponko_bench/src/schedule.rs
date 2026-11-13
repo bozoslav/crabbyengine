@@ -134,9 +134,9 @@ fn independent(b: &mut Bench, group: &str, systems: usize, entities: usize, work
         for_each_val!(systems, N => {
             let access = SystemAccess::new().write::<Val<N>>();
             game = if work == "light" {
-                game.add_view(Phase::AfterPhysics, access, light::<N>)
+                game.add(Phase::AfterPhysics, light::<N>.access(access))
             } else {
-                game.add_view(Phase::AfterPhysics, access, heavy::<N>)
+                game.add(Phase::AfterPhysics, heavy::<N>.access(access))
             };
         });
         measure(b, &name, game, 60, ticks, |ctx| spawn(ctx, entities, systems));
@@ -159,7 +159,7 @@ fn scheduler_off(b: &mut Bench) {
                 game = if kind == "ctx" {
                     game.add(Phase::AfterPhysics, light_ctx::<N>)
                 } else {
-                    game.add_view(Phase::AfterPhysics, SystemAccess::new().write::<Val<N>>(), light::<N>)
+                    game.add(Phase::AfterPhysics, light::<N>.access(SystemAccess::new().write::<Val<N>>()))
                 };
             });
             let ticks = if systems * entities >= 1_000_000 { 100 } else { 400 };
@@ -195,10 +195,9 @@ pub fn run(b: &mut Bench) {
         let mut game = game(mode);
         macro_rules! links {
             ($($from:literal $to:literal)*) => {$(
-                game = game.add_view(
+                game = game.add(
                     Phase::AfterPhysics,
-                    SystemAccess::new().read::<Val<$from>>().write::<Val<$to>>(),
-                    link::<$from, $to>,
+                    link::<$from, $to>.access(SystemAccess::new().read::<Val<$from>>().write::<Val<$to>>()),
                 );
             )*};
         }
@@ -215,17 +214,32 @@ pub fn run(b: &mut Bench) {
         }
         let read0 = || SystemAccess::new().read::<Val<0>>();
         let game = game(mode)
-            .add_view(Phase::BeforePhysics, SystemAccess::new().write::<Val<0>>(), heavy::<0>)
-            .add_view(Phase::AfterPhysics, read0().write::<Val<1>>(), link::<0, 1>)
-            .add_view(Phase::AfterPhysics, read0().write::<Val<2>>(), link::<0, 2>)
-            .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Val<3>>(), heavy::<3>)
-            .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Val<4>>(), heavy::<4>)
+            .add(
+                Phase::BeforePhysics,
+                heavy::<0>.access(SystemAccess::new().write::<Val<0>>()),
+            )
+            .add(Phase::AfterPhysics, link::<0, 1>.access(read0().write::<Val<1>>()))
+            .add(Phase::AfterPhysics, link::<0, 2>.access(read0().write::<Val<2>>()))
+            .add(
+                Phase::AfterPhysics,
+                heavy::<3>.access(SystemAccess::new().write::<Val<3>>()),
+            )
+            .add(
+                Phase::AfterPhysics,
+                heavy::<4>.access(SystemAccess::new().write::<Val<4>>()),
+            )
             .add(Phase::AfterPhysics, |ctx: &mut Ctx| {
                 let n = ctx.world.query::<&Val<1>>().count();
                 black_box(n);
             })
-            .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Val<5>>(), light::<5>)
-            .add_view(Phase::AfterPhysics, SystemAccess::new().write::<Val<6>>(), light::<6>);
+            .add(
+                Phase::AfterPhysics,
+                light::<5>.access(SystemAccess::new().write::<Val<5>>()),
+            )
+            .add(
+                Phase::AfterPhysics,
+                light::<6>.access(SystemAccess::new().write::<Val<6>>()),
+            );
         measure(b, &name, game, 60, 200, |ctx| spawn(ctx, 50_000, 7));
     }
 
@@ -236,10 +250,13 @@ pub fn run(b: &mut Bench) {
         if b.skips(&name) {
             continue;
         }
-        let mut game = game(mode).add_view(Phase::AfterPhysics, SystemAccess::new().write::<Val<0>>(), heavy::<0>);
+        let mut game = game(mode).add(
+            Phase::AfterPhysics,
+            heavy::<0>.access(SystemAccess::new().write::<Val<0>>()),
+        );
         macro_rules! small {
             ($($n:literal)*) => {$(
-                game = game.add_view(Phase::AfterPhysics, SystemAccess::new().write::<Val<$n>>(), light::<$n>);
+                game = game.add(Phase::AfterPhysics, light::<$n>.access(SystemAccess::new().write::<Val<$n>>()));
             )*};
         }
         small!(1 2 3 4 5 6 7);

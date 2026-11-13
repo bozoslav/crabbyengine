@@ -63,7 +63,7 @@ fn a_small_value_aligned_past_the_stack_slot_is_dropped_intact_once() {
     struct Aligned([u8; 32]);
     let mut w = World::new();
     // SAFETY: a 32-byte value at 32-byte alignment; the drop function only reads it.
-    let id = unsafe { w.register_component("aligned-32", 32, 32, Some(drop_aligned_32)) };
+    let id = unsafe { w.raw().register_component("aligned-32", 32, 32, Some(drop_aligned_32)) };
     let value = Aligned(pattern::<32>());
     let e = entity_with(&mut w, id, (&raw const value).cast());
     remove_and_check(&mut w, e, id);
@@ -84,7 +84,7 @@ fn a_value_that_exactly_fills_the_stack_slot_is_dropped_intact_once() {
     struct Exact([u8; 64]);
     let mut w = World::new();
     // SAFETY: a 64-byte value at 16-byte alignment; the drop function only reads it.
-    let id = unsafe { w.register_component("exact-64", 64, 16, Some(drop_exact_64)) };
+    let id = unsafe { w.raw().register_component("exact-64", 64, 16, Some(drop_exact_64)) };
     let value = Exact(pattern::<64>());
     let e = entity_with(&mut w, id, (&raw const value).cast());
     remove_and_check(&mut w, e, id);
@@ -105,7 +105,10 @@ unsafe extern "C-unwind" fn drop_zero_sized(p: *mut u8) {
 fn a_zero_sized_value_with_a_drop_function_is_dropped_once() {
     let mut w = World::new();
     // SAFETY: a zero-sized value; the drop function reads nothing.
-    let id = unsafe { w.register_component("zero-sized-drop", 0, 8, Some(drop_zero_sized)) };
+    let id = unsafe {
+        w.raw()
+            .register_component("zero-sized-drop", 0, 8, Some(drop_zero_sized))
+    };
     let value = std::ptr::without_provenance::<u8>(8);
     let e = entity_with(&mut w, id, value);
     remove_and_check(&mut w, e, id);
@@ -125,7 +128,10 @@ unsafe extern "C-unwind" fn drop_panicking(p: *mut u8) {
 fn a_panicking_drop_in_remove_dynamic_runs_once_and_leaves_the_world_consistent() {
     let mut w = World::new();
     // SAFETY: a 16-byte value; the drop function only reads it, then panics.
-    let id = unsafe { w.register_component("panicking-drop", 16, 8, Some(drop_panicking)) };
+    let id = unsafe {
+        w.raw()
+            .register_component("panicking-drop", 16, 8, Some(drop_panicking))
+    };
     let value = pattern::<16>();
     let e = entity_with(&mut w, id, value.as_ptr());
     let other = w.spawn((Pos(3.0, 4.0),));

@@ -109,7 +109,7 @@ pub unsafe extern "C" fn ponko_component_track_changes(world: *mut PonkoWorld, i
     boundary(|| unsafe {
         access(world, |w, _| {
             let id = component_id(w, id)?;
-            w.track_changes_dynamic(id);
+            w.raw().track_changes_dynamic(id);
             Ok(())
         })
     })
@@ -248,7 +248,7 @@ pub unsafe extern "C" fn ponko_mark_changed(world: *mut PonkoWorld, entity: u64,
     boundary(|| unsafe {
         access(world, |w, _| {
             let id = component_id(w, id)?;
-            if w.mark_changed_dynamic(Entity::from_bits(entity), id) {
+            if w.raw().mark_changed_dynamic(Entity::from_bits(entity), id) {
                 Ok(())
             } else {
                 Err(error(PonkoStatus::PONKO_NOT_FOUND, "entity or component not found"))
@@ -311,7 +311,7 @@ pub unsafe extern "C" fn ponko_removed(
                     ));
                 }
                 let since = since_or_world(w, since);
-                let removed = w.removed_dynamic(id, since);
+                let removed = w.raw_ref().removed_dynamic(id, since);
                 for (i, e) in removed.iter().take(capacity).enumerate() {
                     out_entities.add(i).write(e.to_bits());
                 }
@@ -322,16 +322,30 @@ pub unsafe extern "C" fn ponko_removed(
     })
 }
 
-/// `World::query_chunks`, over the archetypes that pass `filter` if any,
+/// `RawWorld::query_chunks`, over the archetypes that pass `filter` if any,
 /// with the archetype index used as `cache` says.
+///
+/// A `changed` or `added` filter starts tracking its component here: that
+/// is what the C API promises, while the Rust API asks for tracking first.
 fn visit(
     w: &mut ponko_ecs::World,
     query: ChunkQuery<'_>,
+    filtered: u32,
     filter: Option<&ponko_ecs::CompiledFilter>,
     cache: ponko_ecs::QueryCache,
     f: impl FnMut(ponko_ecs::Chunk<'_>),
 ) {
-    w.query_chunks_cached(query, filter, cache, f);
+    for (i, &id) in query.ids().iter().enumerate() {
+        if filtered >> i & 1 != 0 {
+            w.raw().track_changes_dynamic(id);
+        }
+    }
+    let query = query.cache(cache);
+    let query = match filter {
+        Some(filter) => query.filter(filter),
+        None => query,
+    };
+    w.raw().query_chunks(query, f);
 }
 
 fn since_or_world(w: &ponko_ecs::World, raw: u64) -> Tick {
@@ -436,24 +450,26 @@ pub(crate) unsafe fn query_with_filter(
             access(world, |w, handle| {
                 let (resolved, sizes) = resolve(w, input)?;
                 let compiled = filter.map(|filter| compile(w, filter)).transpose()?;
-                let query = ChunkQuery {
-                    ids: &resolved[..count],
-                    writes: options.writes,
-                    changed: options.changed,
-                    added: options.added,
-                    any: options.any,
-                    since: since(options.since),
+                let query = ChunkQuery::new(&resolved[..count])
+                    .writes(options.writes)
+                    .changed(options.changed)
+                    .added(options.added)
+                    .match_any(options.any);
+                let query = match since(options.since) {
+                    Some(tick) => query.since(tick),
+                    None => query,
                 };
+                let filtered = options.changed | options.added;
                 let mut first = 0;
                 if options.parallel {
                     let _commands_off = ParallelQuery::begin(handle);
                     let threads = rayon::current_num_threads().max(1);
-                    visit(w, query, compiled.as_ref(), cache, |chunk| {
+                    visit(w, query, filtered, compiled.as_ref(), cache, |chunk| {
                         chunk_in_parallel(&chunk, &sizes, first, threads, callback, user);
                         first += chunk.entities.len();
                     });
                 } else {
-                    visit(w, query, compiled.as_ref(), cache, |chunk| {
+                    visit(w, query, filtered, compiled.as_ref(), cache, |chunk| {
                         let view = PonkoChunk {
                             count: chunk.entities.len(),
                             column_count: count,

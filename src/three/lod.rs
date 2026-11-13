@@ -185,16 +185,18 @@ impl LodLevel {
     }
 }
 
-/// Global settings for [`LodGroup`]s, at [`Ctx::lod`](crate::Ctx::lod): what
-/// a graphics quality setting changes.
+/// Global settings for [`LodGroup`]s, at
+/// [`SceneSettings::lod`](crate::render::SceneSettings::lod)
+/// (`ctx.scene3d.lod`): what a game's detail setting changes.
 ///
 /// ```no_run
 /// # use ponko::prelude::*;
 /// # fn f(ctx: &mut Ctx) {
-/// ctx.lod.bias = 0.5; // low quality: switch to cheaper levels twice as soon
+/// ctx.scene3d.lod.bias = 0.5; // low detail: switch to cheaper levels twice as soon
 /// # }
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct LodSettings {
     /// Multiplies every group's screen height before it is compared with
     /// the levels' thresholds, so 2 keeps detailed levels up to twice as
@@ -269,7 +271,7 @@ pub struct LodHysteresis(pub f32);
 /// the camera's field of view, and is the same at any window size (as in
 /// Unity). The first level whose
 /// [`screen_height`](LodLevel::screen_height) it reaches is drawn, after
-/// [`Ctx::lod`](crate::Ctx::lod)'s bias.
+/// [`SceneSettings::lod`](crate::render::SceneSettings::lod)'s bias.
 ///
 /// Levels can crossfade: both are drawn for a short stretch, each through
 /// a dither pattern that fills in what the other leaves out, so the swap
@@ -378,9 +380,9 @@ impl LodGroup {
     /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let group = ponko::render::LodGroup::new(2.0, vec![]);
-    ///     ctx.camera3d.position = vec3(0.0, 0.0, 10.0);
-    ///     ctx.camera3d.look_at(Vec3::ZERO);
-    ///     let h = group.screen_height(&ponko::d3::Transform::default(), &ctx.camera3d);
+    ///     ctx.scene3d.camera.position = vec3(0.0, 0.0, 10.0);
+    ///     ctx.scene3d.camera.look_at(Vec3::ZERO);
+    ///     let h = group.screen_height(&ponko::d3::Transform::default(), &ctx.scene3d.camera);
     ///     assert!((h - 0.1732).abs() < 1e-3);
     /// });
     /// ```
@@ -439,7 +441,7 @@ impl LodGroup {
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let group = ponko::render::LodGroup::new(2.0, vec![ponko::render::LodLevel::new(0.1, vec![])]);
     ///     // The camera starts 8 m from the origin, looking at it.
-    ///     let pick = group.pick_for(&ponko::d3::Transform::default(), &ctx.camera3d, &ctx.lod);
+    ///     let pick = group.pick_for(&ponko::d3::Transform::default(), &ctx.scene3d.camera, &ctx.scene3d.lod);
     ///     assert_eq!(pick, ponko::render::LodPick::Level(0));
     /// });
     /// ```

@@ -33,6 +33,25 @@ template<class F> void throws_invalid(F f, const char* what) {
 template<class F> void throws(F f) { bool caught = false; try { f(); } catch (const std::exception&) { caught = true; } CHECK(caught); }
 template<class F> void throws_kind(F f, PonkoErrorKind kind) { bool caught = false; try { f(); } catch (const ponko::error& e) { caught = e.kind() == kind; } CHECK(caught); }
 
+// ponko.hpp checks the library's ABI version against the header's macro when the
+// first game or world is made, and says so clearly when they differ.
+static void abi_version_is_checked() {
+    CHECK(ponko_abi_version() == PONKO_ABI_VERSION);
+    ponko::detail::check_abi_version(PONKO_ABI_VERSION, ponko_abi_version());
+    ponko::detail::check_abi_version();
+    bool caught = false;
+    try { ponko::detail::check_abi_version(PONKO_ABI_VERSION, PONKO_ABI_VERSION + 1); }
+    catch (const ponko::error& e) {
+        const std::string message = e.what();
+        caught = e.kind() == PONKO_ERROR_UNSUPPORTED && message.find("ABI version " + std::to_string(PONKO_ABI_VERSION + 1)) != std::string::npos &&
+                 message.find("expects version " + std::to_string(PONKO_ABI_VERSION)) != std::string::npos;
+    }
+    CHECK(caught);
+    // The real constructors pass the same check.
+    ponko::world w;
+    ponko::game g("abi", 64, 64);
+}
+
 static void worlds() {
     static_assert(!std::is_copy_constructible<ponko::world>::value, "world owns its handle");
     ponko::world a;
@@ -302,7 +321,7 @@ static void three_d() {
         throws([&] { ctx.free_gpu_buffer(spare); });
         throws([&] { ctx.write_gpu_buffer(spare, 0, {{1, 2, 3, 4}}); });
         auto reused = ctx.create_gpu_buffer(3);  // the freed slot comes back under a new id
-        CHECK((reused.id & 0x00FFFFFFu) == (spare.id & 0x00FFFFFFu) && reused.id != spare.id);
+        CHECK((reused.id & 0x000FFFFFu) == (spare.id & 0x000FFFFFu) && reused.id != spare.id);  // same 20-bit slot
         throws([&] { ctx.write_gpu_buffer(spare, 0, {{1, 2, 3, 4}}); });
         auto update = ctx.create_compute("update", "fn update(i: u32) { items[i].x += frame.time.y; }");
         ctx.set_compute_passes({ponko::buffer_compute_pass(update, buffer)});
@@ -2954,6 +2973,7 @@ static void native_coverage() {
 }
 
 int main() {
+    abi_version_is_checked();
     declared_access();
     command_barriers();
     worlds();

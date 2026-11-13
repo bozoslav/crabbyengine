@@ -121,18 +121,16 @@ fn run_with(seed: u64, ticks: u64, scheduler: Scheduler) -> ponko::reflect::json
         .spatial_grid(8.0)
         .sim_system(wander)
         .sim_system(eat)
-        .sim_system_every(5, breed_and_starve);
+        .add(Phase::AfterPhysics, breed_and_starve.every(5));
     if !matches!(scheduler, Scheduler::NoViews) {
         let clock = || {
             SystemAccess::new()
                 .read_service(Service::Time)
                 .read_service(Service::Random)
         };
-        game = game.add_view(Phase::SimLast, clock().write::<Walker>(), tire).add_view(
-            Phase::SimLast,
-            clock().write::<Food>(),
-            ripen,
-        );
+        game = game
+            .add(Phase::SimLast, tire.access(clock().write::<Walker>()))
+            .add(Phase::SimLast, ripen.access(clock().write::<Food>()));
     }
     if let Scheduler::ViewsExactly { on } = scheduler {
         game = game

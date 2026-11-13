@@ -8,10 +8,10 @@ use ponko::render::{InstanceBatchOptions, InstanceLevel, MaterialDesc, MeshData,
 fn main() {
     Game::new("Instance streaming benchmark", 1280, 720)
         .setup(|ctx| {
-            ctx.camera3d.position = vec3(0.0, 20.0, 30.0);
-            ctx.camera3d.look_at(vec3(0.0, 0.0, -150.0));
-            ctx.camera3d.far = 1000.0;
-            ctx.lighting.shadow_distance = 300.0;
+            ctx.scene3d.camera.position = vec3(0.0, 20.0, 30.0);
+            ctx.scene3d.camera.look_at(vec3(0.0, 0.0, -150.0));
+            ctx.scene3d.camera.far = 1000.0;
+            ctx.scene3d.lighting.shadow_distance = 300.0;
             let material = ctx.gfx.create_material(MaterialDesc::default());
             let mesh = ctx.gfx.create_mesh(&MeshData::cube(0.3), material);
             for region in 0..300 {

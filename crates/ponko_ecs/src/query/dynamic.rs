@@ -50,10 +50,11 @@ pub const MAX_FILTER_DEPTH: usize = 16;
 /// .compile()
 /// .unwrap();
 /// let mut seen = 0;
-/// world.query_chunks_filtered(ChunkQuery::new(&[]), &filter, |chunk| seen += chunk.entities.len());
+/// world.raw().query_chunks(ChunkQuery::new(&[]).filter(&filter), |chunk| seen += chunk.entities.len());
 /// assert_eq!(seen, 1);
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DynFilter {
     /// The entity has the component.
     With(ComponentId),
@@ -67,6 +68,7 @@ pub enum DynFilter {
 
 /// Why a [`DynFilter`] didn't compile: the limits of the typed filters.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FilterError {
     /// More than 8 different `With` components.
     TooManyWith,
@@ -102,7 +104,7 @@ impl std::error::Error for FilterError {}
 
 /// A [`DynFilter`] in the form queries match with: inline, so using it
 /// allocates nothing. Make one with [`DynFilter::compile`], run it with
-/// [`World::query_chunks_filtered`](crate::World::query_chunks_filtered).
+/// [`ChunkQuery::filter`](crate::ChunkQuery::filter).
 #[derive(Clone, Copy)]
 pub struct CompiledFilter(Filters);
 
@@ -122,6 +124,7 @@ impl CompiledFilter {
 /// nodes (see [`FilterTree`]). Components are numbers, as
 /// [`ComponentId::index`] gives them.
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub enum FilterShape<'a, T> {
     /// The entity has the component.
     With(u32),

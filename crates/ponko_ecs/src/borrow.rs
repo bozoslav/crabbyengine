@@ -10,14 +10,18 @@ use std::marker::PhantomData;
 
 use crate::entity::{Entities, Entity};
 use crate::query::{Query, QueryData, check_aliasing};
+use crate::seal::Seal;
 use crate::storage::{Archetype, ComponentId};
 use crate::world::World;
 
 // ---- several resources at once ------------------------------------------------
 
 /// The resource types [`World::resources_mut`] borrows together: a tuple of
-/// 1 to 8 different resource types.
+/// 1 to 8 different resource types. Implemented by this crate only: the
+/// trait is sealed.
 pub trait ResourceTuple {
+    #[doc(hidden)]
+    const SEAL: Seal;
     /// One `&mut` per resource, in the tuple's order.
     type Refs<'w>;
     #[doc(hidden)]
@@ -27,6 +31,7 @@ pub trait ResourceTuple {
 macro_rules! resource_tuple {
     ($($t:ident $v:ident),*) => {
         impl<$($t: Send + Sync + 'static),*> ResourceTuple for ($($t,)*) {
+            const SEAL: Seal = Seal;
             type Refs<'w> = ($(&'w mut $t,)*);
             #[track_caller]
             fn fetch(world: &mut World) -> Self::Refs<'_> {
@@ -53,8 +58,10 @@ resource_tuple!(A a, B b, C c, D d, E e, F f, G g, H h);
 
 /// The resources a query carries with [`Query::with_resources`]: `&R` to
 /// read one, `&mut R` to change it, or a tuple of those (up to 8), each a
-/// different resource.
+/// different resource. Implemented by this crate only: the trait is sealed.
 pub trait ResourceSet {
+    #[doc(hidden)]
+    const SEAL: Seal;
     /// What the loop body receives next to the query's item.
     type Item<'a>;
     #[doc(hidden)]
@@ -72,6 +79,7 @@ pub trait ResourceSet {
 }
 
 impl<R: Send + Sync + 'static> ResourceSet for &R {
+    const SEAL: Seal = Seal;
     type Item<'a> = &'a R;
     type Taken = Box<R>;
     fn declare(f: &mut impl FnMut(TypeId, &'static str, bool)) {
@@ -90,6 +98,7 @@ impl<R: Send + Sync + 'static> ResourceSet for &R {
 }
 
 impl<R: Send + Sync + 'static> ResourceSet for &mut R {
+    const SEAL: Seal = Seal;
     type Item<'a> = &'a mut R;
     type Taken = Box<R>;
     fn declare(f: &mut impl FnMut(TypeId, &'static str, bool)) {
@@ -110,6 +119,7 @@ impl<R: Send + Sync + 'static> ResourceSet for &mut R {
 macro_rules! resource_set {
     ($($t:ident $i:tt),*) => {
         impl<$($t: ResourceSet),*> ResourceSet for ($($t,)*) {
+            const SEAL: Seal = Seal;
             type Item<'a> = ($($t::Item<'a>,)*);
             type Taken = ($($t::Taken,)*);
             fn declare(f: &mut impl FnMut(TypeId, &'static str, bool)) {
@@ -178,20 +188,32 @@ impl<Q: QueryData, R: ResourceSet> Drop for QueryResources<'_, Q, R> {
 
 /// Query data that only reads: `&T`, `Option<&T>`, [`Entity`], or a tuple of
 /// those. [`Lookup::get`] needs it to hand out several items at once.
+/// Implemented by this crate only: the trait is sealed.
 ///
 /// # Safety
 /// `fetch` must create no mutable reference.
-pub unsafe trait ReadOnlyQueryData: QueryData {}
+pub unsafe trait ReadOnlyQueryData: QueryData {
+    #[doc(hidden)]
+    const READ_ONLY_SEAL: Seal;
+}
 
 // SAFETY: these fetch `&T`, `Option<&T>` and a copy of the entity id.
-unsafe impl<T: crate::Component> ReadOnlyQueryData for &T {}
-unsafe impl<T: crate::Component> ReadOnlyQueryData for Option<&T> {}
-unsafe impl ReadOnlyQueryData for Entity {}
+unsafe impl<T: crate::Component> ReadOnlyQueryData for &T {
+    const READ_ONLY_SEAL: Seal = Seal;
+}
+unsafe impl<T: crate::Component> ReadOnlyQueryData for Option<&T> {
+    const READ_ONLY_SEAL: Seal = Seal;
+}
+unsafe impl ReadOnlyQueryData for Entity {
+    const READ_ONLY_SEAL: Seal = Seal;
+}
 
 macro_rules! read_only_tuple {
     ($($t:ident),*) => {
         // SAFETY: a tuple fetches what its elements fetch.
-        unsafe impl<$($t: ReadOnlyQueryData),*> ReadOnlyQueryData for ($($t,)*) {}
+        unsafe impl<$($t: ReadOnlyQueryData),*> ReadOnlyQueryData for ($($t,)*) {
+            const READ_ONLY_SEAL: Seal = Seal;
+        }
     };
 }
 read_only_tuple!(A);

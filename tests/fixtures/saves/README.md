@@ -10,8 +10,12 @@ game-facing loaders, `Ctx::load_scene` and `Ctx::spawn_prefab`.
 
 | Fixture | Format | Save version | Engine revision | Provenance |
 |---|---|---|---|---|
-| `world_v1.json` | `crabby-world` | 1 | `51323ef` (ponko 0.0.1) | `world_v1.provenance.json` |
-| `prefab_v1.json` | `crabby-prefab` | 1 | `b3799f6` (ponko 0.0.1) | `prefab_v1.provenance.json` |
+| `world_v1.json` | `ponko-world` | 1 | `51323ef` (ponko 0.0.1) | `world_v1.provenance.json` |
+| `prefab_v1.json` | `ponko-prefab` | 1 | `b3799f6` (ponko 0.0.1) | `prefab_v1.provenance.json` |
+
+The `format` identifiers in these files were renamed from the pre-0.1.0
+`crabby-world` / `crabby-prefab` spellings (which no release ever wrote) to the
+current ones; nothing else in them changed.
 
 `world_v1.json` is a baseline taken from the engine's `main` branch, not from
 a published release: it shows that the current loader reads what that revision

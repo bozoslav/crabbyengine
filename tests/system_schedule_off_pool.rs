@@ -25,15 +25,15 @@ fn a_game_with_the_scheduler_off_leaves_the_global_thread_pool_unbuilt() {
             }
         })
         // View systems that would share a batch if the scheduler were on.
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().write::<Pos>(),
-            |sys: &mut SystemView| sys.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0),
+            (|sys: &mut SystemView| sys.world.query::<&mut Pos>().for_each(|p| p.0 += 1.0))
+                .access(SystemAccess::new().write::<Pos>()),
         )
-        .add_view(
+        .add(
             Phase::AfterPhysics,
-            SystemAccess::new().write::<Vel>(),
-            |sys: &mut SystemView| sys.world.query::<&mut Vel>().for_each(|v| v.0 += 1.0),
+            (|sys: &mut SystemView| sys.world.query::<&mut Vel>().for_each(|v| v.0 += 1.0))
+                .access(SystemAccess::new().write::<Vel>()),
         )
         .run_headless(5, |ctx| {
             ctx.world.spawn((Pos(0.0), Vel(0.0)));
