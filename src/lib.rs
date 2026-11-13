@@ -202,6 +202,7 @@ mod schema;
 pub mod scope;
 pub mod sheet;
 pub mod spatial;
+mod sprite_material;
 pub mod storage;
 pub mod stream;
 pub mod streaming;

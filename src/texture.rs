@@ -118,6 +118,11 @@ pub struct DrawParams {
     /// The part of the texture to draw, in texture pixels (a frame of a
     /// [`SpriteSheet`](crate::sheet::SpriteSheet)). Default `None`: all of it.
     pub region: Option<crate::camera::Rect>,
+    /// How it combines with what's behind it. Default [`BlendMode::Alpha`](crate::render::BlendMode::Alpha).
+    pub blend: crate::render::BlendMode,
+    /// A custom look ([`SpriteMaterial`](crate::render::SpriteMaterial)).
+    /// Default `None`: the built-in look, texture × tint.
+    pub material: Option<crate::render::SpriteMaterial>,
 }
 
 impl Default for DrawParams {
@@ -130,6 +135,8 @@ impl Default for DrawParams {
             pivot: Vec2::splat(0.5),
             screen: false,
             region: None,
+            blend: crate::render::BlendMode::Alpha,
+            material: None,
         }
     }
 }
@@ -178,6 +185,27 @@ impl DrawParams {
     pub fn with_region(self, region: crate::camera::Rect) -> Self {
         Self {
             region: Some(region),
+            ..self
+        }
+    }
+    /// Same settings with blend mode `blend`.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// # use ponko::d2::BlendMode;
+    /// # fn update(ctx: &mut Ctx, spark: Texture) {
+    /// ctx.gfx.draw_ex(spark, vec2(50.0, 50.0), DrawParams::default().with_blend(BlendMode::Additive));
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_blend(self, blend: crate::render::BlendMode) -> Self {
+        Self { blend, ..self }
+    }
+    /// Same settings drawn with sprite material `material`.
+    #[must_use]
+    pub fn with_material(self, material: crate::render::SpriteMaterial) -> Self {
+        Self {
+            material: Some(material),
             ..self
         }
     }

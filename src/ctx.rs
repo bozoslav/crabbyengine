@@ -704,33 +704,77 @@ impl Ctx {
 
     /// Queues every `(Transform2D, Sprite)` entity for drawing.
     pub(crate) fn draw_world_sprites(&mut self) {
-        /// Below this many sprites, one thread is faster than many.
-        const PARALLEL_MIN: usize = 20_000;
-        fn instance(t: &Transform2D, s: &Sprite) -> SpriteInstance {
-            let (size, uv) = region(s.texture, s.region);
-            SpriteInstance::new(
-                t.position.into(),
-                (size * t.scale).into(),
-                s.pivot.into(),
-                t.rotation,
-                s.color.to_rgba8(),
-            )
-            .with_uv(uv)
-        }
+        use crate::sprite_material::{BlendMode, SpriteMaterial};
+        use ponko_ecs::Without;
         let draw_list = &mut self.gfx.draw_list;
-        let mut query = self.world.query::<(&Transform2D, &Sprite)>();
+        // Plain sprites first, on the same path as before blend modes and
+        // materials existed; then the (usually few) sprites with either.
+        let mut query = self
+            .world
+            .query::<(&Transform2D, &Sprite)>()
+            .filter::<(Without<BlendMode>, Without<SpriteMaterial>)>();
         let n = query.count();
-        if n < PARALLEL_MIN {
-            query.for_each(|(t, s)| draw_list.push(s.texture.id, s.z, instance(t, s)));
+        if n < SPRITES_PARALLEL_MIN {
+            query.for_each(|(t, s)| draw_list.push(s.texture.id, s.z, sprite_instance(t, s)));
+        } else {
+            // SAFETY: `par_for_each_indexed` visits each of the query's `n`
+            // entities exactly once, with indices `0..n`.
+            unsafe {
+                draw_list.extend(n, |slots| {
+                    query.par_for_each_indexed(|i, (t, s)| slots.write(i, s.texture.id, s.z, sprite_instance(t, s)));
+                });
+            }
+        }
+        self.draw_styled_sprites();
+    }
+
+    /// The sprites with a [`BlendMode`](crate::d2::BlendMode) or a
+    /// [`SpriteMaterial`](crate::d2::SpriteMaterial); most frames have
+    /// none, so it stays out of line.
+    #[inline(never)]
+    fn draw_styled_sprites(&mut self) {
+        use crate::sprite_material::{BlendMode, SpriteMaterial, style_key};
+        use ponko_ecs::{Or, With};
+        let draw_list = &mut self.gfx.draw_list;
+        let mut styled = self
+            .world
+            .query::<(&Transform2D, &Sprite, Option<&BlendMode>, Option<&SpriteMaterial>)>()
+            .filter::<Or<(With<BlendMode>, With<SpriteMaterial>)>>();
+        let n = styled.count();
+        if n == 0 {
+            // Visiting an `Or` query checks every sprite even when none
+            // match; counting checks whole archetypes.
             return;
         }
-        // SAFETY: `par_for_each_indexed` visits each of the query's `n`
-        // entities exactly once, with indices `0..n`.
-        unsafe {
-            draw_list.extend(n, |slots| {
-                query.par_for_each_indexed(|i, (t, s)| slots.write(i, s.texture.id, s.z, instance(t, s)));
-            });
+        let style =
+            |b: Option<&BlendMode>, m: Option<&SpriteMaterial>| style_key(b.copied().unwrap_or_default(), m.copied());
+        if n < SPRITES_PARALLEL_MIN {
+            styled
+                .for_each(|(t, s, b, m)| draw_list.push_styled(s.texture.id, style(b, m), s.z, sprite_instance(t, s)));
+        } else {
+            // SAFETY: as in `draw_world_sprites`.
+            unsafe {
+                draw_list.extend(n, |slots| {
+                    styled.par_for_each_indexed(|i, (t, s, b, m)| {
+                        slots.write_styled(i, s.texture.id, style(b, m), s.z, sprite_instance(t, s));
+                    });
+                });
+            }
         }
+    }
+
+    /// One frame of the built-in sprite drawing without a GPU, for
+    /// `ponko_bench`: collects every `Sprite` entity as `draw_sprites` does,
+    /// orders and batches them as the renderer does, and forgets them.
+    /// Returns the sprites and batches. Unstable (`bench-internals`).
+    #[doc(hidden)]
+    #[cfg(feature = "bench-internals")]
+    pub fn bench_sprite_frame(&mut self) -> (usize, usize) {
+        self.draw_world_sprites();
+        let (sprites, batches) = self.gfx.draw_list.finish();
+        let counts = (sprites.len(), batches.len());
+        self.gfx.draw_list.clear();
+        counts
     }
 
     // ---------------------------------------------------------------- drawing
@@ -788,6 +832,12 @@ impl Ctx {
                 Asset::Data(i) => {
                     let applied = assets::read_to_string(&file)
                         .and_then(|text| (self.assets.data_loaders[i])(&mut self.world, &text).map_err(String::from));
+                    self.assets.report_reload(name, applied);
+                    continue;
+                }
+                Asset::SpriteShader(id) => {
+                    let applied =
+                        assets::read_to_string(&file).and_then(|text| self.gfx.reload_sprite_shader(id, &name, &text));
                     self.assets.report_reload(name, applied);
                     continue;
                 }
@@ -1184,6 +1234,23 @@ fn fitted(shot: &Screenshot, max_size: u32) -> Result<image::RgbaImage, String> 
         image
     };
     Ok(image)
+}
+
+/// Below this many sprites, one thread is faster than many.
+const SPRITES_PARALLEL_MIN: usize = 20_000;
+
+/// What the renderer draws for a sprite entity.
+#[inline]
+fn sprite_instance(t: &Transform2D, s: &Sprite) -> SpriteInstance {
+    let (size, uv) = region(s.texture, s.region);
+    SpriteInstance::new(
+        t.position.into(),
+        (size * t.scale).into(),
+        s.pivot.into(),
+        t.rotation,
+        s.color.to_rgba8(),
+    )
+    .with_uv(uv)
 }
 
 /// The drawn size (texture pixels) and UV of `region` of `texture`.

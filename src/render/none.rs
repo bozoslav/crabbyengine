@@ -69,6 +69,29 @@ impl Renderer {
     pub fn free_texture(&mut self, _id: u32) {
         match *self {}
     }
+    pub fn set_sprite_shader(
+        &mut self,
+        _id: u32,
+        _name: &str,
+        _composed: &str,
+    ) -> Result<(), Box<crate::render::ShaderDiagnostic>> {
+        match *self {}
+    }
+    pub fn free_sprite_shader(&mut self, _id: u32) {
+        match *self {}
+    }
+    pub fn set_sprite_material(
+        &mut self,
+        _id: u32,
+        _shader: Option<u32>,
+        _params: &[glam::Vec4; 4],
+        _textures: [Option<u32>; 2],
+    ) {
+        match *self {}
+    }
+    pub fn free_sprite_material(&mut self, _id: u32) {
+        match *self {}
+    }
     #[cfg(feature = "3d")]
     pub fn free_material(&mut self, _id: u32) {
         match *self {}

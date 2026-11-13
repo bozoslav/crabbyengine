@@ -156,6 +156,10 @@ pub struct Graphics {
     #[cfg(feature = "3d")]
     pub(crate) material_names: crate::reflect::MaterialNames,
     pub(crate) renderer: Option<Renderer>,
+    /// Sprite shaders and materials.
+    pub(crate) sprites: crate::sprite_material::SpriteAssets,
+    /// The latest compile of each of the game's shaders (`Graphics::shader_status`).
+    pub(crate) shader_statuses: Vec<crate::render::ShaderStatus>,
     pub(crate) screenshots: Vec<ScreenshotRequest>,
     pub(crate) draw_list: DrawList,
     pub(crate) ui_list: DrawList,
@@ -204,6 +208,8 @@ impl Graphics {
             #[cfg(feature = "3d")]
             material_names,
             renderer: None,
+            sprites: Default::default(),
+            shader_statuses: Vec::new(),
             screenshots: Vec::new(),
             draw_list: DrawList::default(),
             ui_list: DrawList::default(),
@@ -260,6 +266,7 @@ impl Graphics {
             Vec2::splat(0.5),
             [255; 4],
             None,
+            0,
         );
     }
 
@@ -290,6 +297,7 @@ impl Graphics {
             params.pivot,
             params.color.to_rgba8(),
             params.region,
+            crate::sprite_material::style_key(params.blend, params.material),
         );
     }
 
@@ -897,10 +905,12 @@ fn push_sprite(
     pivot: Vec2,
     color: [u8; 4],
     region_px: Option<Rect>,
+    style: u32,
 ) {
     let (size, uv) = region(texture, region_px);
-    draw_list.push(
+    draw_list.push_styled(
         texture.id,
+        style,
         z,
         SpriteInstance::new(pos.into(), (size * scale).into(), pivot.into(), rotation, color).with_uv(uv),
     );

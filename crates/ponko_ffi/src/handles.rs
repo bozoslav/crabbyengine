@@ -5,6 +5,7 @@
 use std::ffi::c_char;
 
 use ponko::__ffi;
+use ponko::d2::{SpriteMaterial, SpriteShader};
 use ponko::handle::LiveCounts;
 use ponko::inventory::{AssetClass, AssetOwner};
 use ponko::prelude::{Font, Sound, Texture};
@@ -59,6 +60,10 @@ pub enum PonkoHandleKind {
     PONKO_HANDLE_INSTANCE_BATCH = 9,
     /// `PonkoTextureArray`.
     PONKO_HANDLE_TEXTURE_ARRAY = 10,
+    /// `PonkoSpriteShader`.
+    PONKO_HANDLE_SPRITE_SHADER = 11,
+    /// `PonkoSpriteMaterial`.
+    PONKO_HANDLE_SPRITE_MATERIAL = 12,
 }
 
 /// How many handles of each kind are live (Rust `LiveCounts`), from
@@ -162,6 +167,14 @@ macro_rules! with_handle {
                 let $h = __ffi::from_id::<TextureArray>($id);
                 Ok($body)
             }
+            11 => {
+                let $h = __ffi::from_id::<SpriteShader>($id);
+                Ok($body)
+            }
+            12 => {
+                let $h = __ffi::from_id::<SpriteMaterial>($id);
+                Ok($body)
+            }
             _ => Err(invalid("unknown handle kind")),
         }
     };
@@ -195,8 +208,8 @@ pub unsafe extern "C" fn ponko_ctx_handle_is_live(
 /// Frees the handle of `kind` (a `PonkoHandleKind`) with `id` (Rust
 /// `Ctx::free`): its memory goes, and its id is never reused (except for
 /// meshes and GPU buffers, whose next one made takes it). Whatever still uses it draws the default: nothing for a
-/// mesh, white for a texture, the default material, the built-in shader or
-/// font; effects and compute passes are skipped and sounds stop. Freeing it
+/// mesh, white for a texture, the default material, the built-in shader,
+/// sprite look or font; effects and compute passes are skipped and sounds stop. Freeing it
 /// again, or `PONKO_HANDLE_NONE`, does nothing.
 /// # Safety
 /// `ctx` null or live.

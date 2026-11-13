@@ -122,6 +122,8 @@
 
 #define PONKO_SHADER_COMPUTE 2
 
+#define PONKO_SHADER_SPRITE 3
+
 #define PONKO_SHADER_COMPILED 0
 
 #define PONKO_SHADER_RELOADED 1
@@ -129,6 +131,14 @@
 #define PONKO_SHADER_FAILED 2
 
 #define PONKO_SHADER_RELOAD_FAILED 3
+
+#define PONKO_BLEND_ALPHA 0
+
+#define PONKO_BLEND_ADDITIVE 1
+
+#define PONKO_BLEND_MULTIPLY 2
+
+#define PONKO_BLEND_PREMULTIPLIED 3
 
 #define PONKO_MESH_NONE UINT32_MAX
 
@@ -299,6 +309,8 @@ typedef enum PonkoHandleKind {
   PONKO_HANDLE_GPU_BUFFER = 8,
   PONKO_HANDLE_INSTANCE_BATCH = 9,
   PONKO_HANDLE_TEXTURE_ARRAY = 10,
+  PONKO_HANDLE_SPRITE_SHADER = 11,
+  PONKO_HANDLE_SPRITE_MATERIAL = 12,
 } PonkoHandleKind;
 
 typedef enum PonkoAssetClass {
@@ -1429,6 +1441,22 @@ typedef struct PonkoJoint {
 typedef struct PonkoMaterial {
   uint32_t id;
 } PonkoMaterial;
+
+typedef struct PonkoSpriteShader {
+  uint32_t id;
+} PonkoSpriteShader;
+
+typedef struct PonkoSpriteMaterialDesc {
+  bool has_shader;
+  struct PonkoSpriteShader shader;
+  float params[16];
+  bool has_textures[2];
+  struct PonkoTexture textures[2];
+} PonkoSpriteMaterialDesc;
+
+typedef struct PonkoSpriteMaterial {
+  uint32_t id;
+} PonkoSpriteMaterial;
 
 typedef struct PonkoCell {
   int32_t x;
@@ -3960,6 +3988,41 @@ enum PonkoStatus ponko_ctx_look_at_joint(struct PonkoCtx *ctx,
 enum PonkoStatus ponko_ctx_draw_skeleton(struct PonkoCtx *ctx,
                                          uint64_t entity_bits,
                                          struct PonkoColor color);
+
+struct PonkoSpriteMaterialDesc ponko_sprite_material_desc_default(void);
+
+enum PonkoStatus ponko_ctx_load_sprite_shader(struct PonkoCtx *ctx,
+                                              const char *path,
+                                              struct PonkoSpriteShader *out_shader);
+
+enum PonkoStatus ponko_ctx_create_sprite_shader(struct PonkoCtx *ctx,
+                                                const char *name,
+                                                const char *source,
+                                                struct PonkoSpriteShader *out_shader);
+
+enum PonkoStatus ponko_ctx_create_sprite_material(struct PonkoCtx *ctx,
+                                                  const struct PonkoSpriteMaterialDesc *desc,
+                                                  struct PonkoSpriteMaterial *out_material);
+
+enum PonkoStatus ponko_ctx_update_sprite_material(struct PonkoCtx *ctx,
+                                                  struct PonkoSpriteMaterial material,
+                                                  const struct PonkoSpriteMaterialDesc *desc);
+
+enum PonkoStatus ponko_ctx_sprite_material_desc(struct PonkoCtx *ctx,
+                                                struct PonkoSpriteMaterial material,
+                                                struct PonkoSpriteMaterialDesc *out_desc,
+                                                bool *out_found);
+
+enum PonkoStatus ponko_ctx_draw_styled(struct PonkoCtx *ctx,
+                                       struct PonkoTexture texture,
+                                       struct PonkoVec2 pos,
+                                       const struct PonkoDrawParams *params,
+                                       uint32_t blend,
+                                       struct PonkoSpriteMaterial material);
+
+enum PonkoStatus ponko_blend_mode_component(struct PonkoWorld *world, uint32_t *out_id);
+
+enum PonkoStatus ponko_sprite_material_component(struct PonkoWorld *world, uint32_t *out_id);
 
 enum PonkoStatus ponko_game_lockstep_steam_host(struct PonkoGame *game,
                                                 uint32_t app_id,

@@ -422,6 +422,75 @@ static void count_neighbors(ponko::ctx& ctx) {
     // ANCHOR_END: pixels
 }
 
+// ANCHOR: sprite_materials
+/// Burns a sprite away where its noise texture is below `material.params[0].x`.
+static const char* dissolve_shader = R"(
+fn fragment(p: SpritePixel) -> vec4<f32> {
+    if material_sample0(p.local).r < material.params[0].x {
+        discard;
+    }
+    return p.color;
+})";
+
+static ponko::sprite_material sprite_looks(ponko::ctx& ctx, ponko::texture crab, ponko::texture noise) {
+    auto world = ctx.world();
+    // A glow that brightens what's behind it:
+    world.spawn(ponko::transform_at({400, 300}), ponko::sprite_of(crab), ponko::sprite_blend::additive);
+    // A sprite with a shader of its own:
+    auto desc = ponko::sprite_material_of(ctx.create_sprite_shader("dissolve.wgsl", dissolve_shader));
+    ponko::set_texture(desc, 0, noise);
+    auto dissolve = ctx.create_sprite_material(desc);
+    world.spawn(ponko::transform_at({200, 300}), ponko::sprite_of(crab), dissolve);
+    // Immediate draws take both too:
+    ctx.draw(crab, {100, 100}, ponko::draw_defaults(), ponko::sprite_blend::additive, dissolve);
+    return dissolve;
+}
+
+/// Burns it a little further (call it every frame).
+static void burn(ponko::ctx& ctx, ponko::sprite_material dissolve, float progress) {
+    if (auto desc = ctx.sprite_material_desc_of(dissolve)) {
+        ponko::set_param(*desc, 0, progress, 0, 0, 0);
+        ctx.update_sprite_material(dissolve, *desc);
+    }
+}
+// ANCHOR_END: sprite_materials
+
+/// Runs the sprite material snippet headless and checks what it made.
+static void sprite_looks_run() {
+    ponko::game("sprite material guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        std::uint8_t white[4] = {255, 255, 255, 255};
+        const auto pixel = ctx.create_texture(1, 1, white, sizeof white);
+        const auto dissolve = sprite_looks(ctx, pixel, pixel);
+        burn(ctx, dissolve, 0.5f);
+        const auto desc = ctx.sprite_material_desc_of(dissolve);
+        if (!desc || desc->params[0] != 0.5f || !desc->has_textures[0] || desc->has_textures[1]) {
+            std::fprintf(stderr, "sprite material guide: params\n");
+            std::abort();
+        }
+        std::size_t glows = 0, burning = 0;
+        // A blend mode is checked as it's stored, so it isn't a query column: get it by entity.
+        std::vector<ponko::entity> placed;
+        ctx.world().each([&](ponko::entity e, const ponko::transform2d&) { placed.push_back(e); });
+        for (auto e : placed)
+            glows += ctx.world().has<ponko::sprite_blend>(e) &&
+                     ctx.world().get<ponko::sprite_blend>(e) == ponko::sprite_blend::additive;
+        ctx.world().each([&](const ponko::sprite_material& m) { burning += m.id == dissolve.id; });
+        const auto status = ctx.shader_status();
+        if (glows != 1 || burning != 1 || status.size() != 1 || status[0].info.kind != PONKO_SHADER_SPRITE) {
+            std::fprintf(stderr, "sprite material guide: components or status\n");
+            std::abort();
+        }
+        ctx.free(dissolve);
+        if (ctx.is_live(dissolve) || ctx.sprite_material_desc_of(dissolve)) std::abort();
+        // A broken shader is an error that says where, in its own lines.
+        const auto broken = ctx.try_create_sprite_shader("flash.wgsl", "// white\nfn fragment(p: SpritePixel) -> vec4<f32> {\n    return 1.0;\n}");
+        if (broken || ctx.shader_status()[1].info.line != 3) {
+            std::fprintf(stderr, "sprite material guide: errors\n");
+            std::abort();
+        }
+    });
+}
+
 // ---- Sprite sheets, animation and tilemaps ------------------------------------------
 [[maybe_unused]] static void sheets(ponko::ctx& ctx, ponko::vec2 pos) {
     auto world = ctx.world();
@@ -3012,6 +3081,7 @@ static void run_all() {
 
 int main() {
     builder_setup_runs_headless();
+    sprite_looks_run();
     action_ids_run();
     jump_once();
     menu_opens_settings();

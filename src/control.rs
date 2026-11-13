@@ -1249,7 +1249,7 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "shaders.status",
-        "the game's custom shaders (material shaders, screen effects, compute passes): each one's last compile or hot reload result (compiled, reloaded, failed, reload_failed: the last good version stays), reload count, frame, and its errors with line and column in the game's own WGSL, cause and GPU variant",
+        "the game's custom shaders (sprite shaders, material shaders, screen effects, compute passes): each one's last compile or hot reload result (compiled, reloaded, failed, reload_failed: the last good version stays), reload count, frame, and its errors with line and column in the game's own WGSL, cause and GPU variant",
     ),
     (
         "perf.get",
@@ -1443,7 +1443,6 @@ fn perf_json(ctx: &Ctx, meshes: usize, history: usize) -> Value {
 }
 
 /// `Graphics::shader_status` as JSON.
-#[cfg(feature = "3d")]
 pub(crate) fn shader_status_json(gfx: &crate::gfx::Graphics) -> Value {
     use crate::render::ShaderKind;
     use crate::render::ShaderOutcome;
@@ -1454,6 +1453,7 @@ pub(crate) fn shader_status_json(gfx: &crate::gfx::Graphics) -> Value {
             let kind = match s.kind {
                 ShaderKind::Material => "material",
                 ShaderKind::Effect => "effect",
+                ShaderKind::Sprite => "sprite",
                 _ => "compute",
             };
             let outcome = match s.outcome {
@@ -1491,12 +1491,6 @@ pub(crate) fn shader_status_json(gfx: &crate::gfx::Graphics) -> Value {
         })
         .collect();
     json!({ "shaders": shaders })
-}
-
-/// Without the `3d` feature a game has no custom shaders.
-#[cfg(not(feature = "3d"))]
-fn shader_status_json(_gfx: &crate::gfx::Graphics) -> Value {
-    json!({ "shaders": [], "note": "built without the `3d` feature: no custom shaders" })
 }
 
 /// Most pairs `ecs.diagnostics` lists in `schedule.dependencies`: the
