@@ -961,9 +961,8 @@ impl Session {
         }
         self.peers[i].running = true;
         let Some(n) = r.u8() else { return };
-        for s in 0..(n as usize).min(MAX_PLAYERS) {
+        for acked in self.peers[i].acked.iter_mut().take(n as usize) {
             let Some(have) = r.u64() else { return };
-            let acked = &mut self.peers[i].acked[s];
             *acked = (*acked).max(have);
         }
         let Some(count) = r.u8() else { return };

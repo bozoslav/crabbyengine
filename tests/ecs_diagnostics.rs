@@ -318,9 +318,9 @@ fn stages_say_which_systems_share_a_batch_and_why_each_stage_starts() {
         assert_eq!(stage.index, i);
         assert_eq!(stage.first, covered, "stages cover the systems in order");
         assert_eq!(stage.batch, stage.len > 1);
-        for order in stage.first..stage.first + stage.len {
-            assert_eq!(d.systems[order].stage, Some(i));
-            assert_eq!(d.systems[order].phase, stage.phase);
+        for system in &d.systems[stage.first..stage.first + stage.len] {
+            assert_eq!(system.stage, Some(i));
+            assert_eq!(system.phase, stage.phase);
         }
         covered += stage.len;
     }

@@ -290,8 +290,8 @@ impl Ctx {
                 continue;
             }
             let group = self.world.get_mut::<LodGroup>(entity).expect("just read");
-            for i in 0..n {
-                if let Some(r) = group.levels[i].renderers.first_mut() {
+            for (i, level) in group.levels.iter_mut().enumerate().take(n) {
+                if let Some(r) = level.renderers.first_mut() {
                     r.mesh = shown(i);
                 }
             }

@@ -23,11 +23,10 @@ taffy = { version = "0.15.1", default-features = false, features = ["std", "taff
 navmesh-rs = { version = "0.2.1", optional = true, default-features = false, features = ["std", "libm", "recast", "detour", "crowd", "tilecache", "polyref64"] }
 renet = "2.0.0"
 ponko_ecs = { path = "crates/ponko_ecs", version = "0.0.1", features = ["serde"] }
-half = "2.7.1"
+half = { version = "2.7.1", optional = true }
 bytemuck = { version = "1.25.2", features = ["derive"] }
 glam = { version = "0.34.2", features = ["serde"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
-pollster = { version = "1.0.1", optional = true }
 wgpu = { version = "30.0.1", optional = true, features = ["glsl"] }
 winit = { version = "0.30.13", optional = true }
 puffin = { version = "0.20.0", optional = true }
@@ -53,6 +52,10 @@ gltf = { version = "1.4.1", default-features = false, features = ["utils", "name
 # Accessibility tree data types (feature `accessibility`); the same crate
 # and version the inspector's egui already brings in.
 accesskit = { version = "0.25.2", optional = true }
+
+# Waits for the GPU on desktop (feature `window`); the web build awaits it.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = { version = "1.0.1", optional = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"
@@ -151,7 +154,7 @@ physics-determinism = ["physics", "rapier2d/enhanced-determinism", "rapier3d?/en
 # 3D: meshes, materials, glTF models, a perspective camera and sun light,
 # drawn under the 2D layer (`Transform3D`, `Model`, `ctx.scene3d`).
 # Off: no 3D pass, no glTF loader in the build.
-3d = ["dep:gltf", "image/jpeg", "image/hdr", "image/exr"]
+3d = ["dep:gltf", "dep:half", "image/jpeg", "image/hdr", "image/exr"]
 
 # Runs on the main thread (AppKit requires it), so it is its own program
 # without the test harness. Does nothing off macOS.
