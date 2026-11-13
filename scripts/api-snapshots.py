@@ -248,8 +248,9 @@ def generate(package, set_name, flags):
            '--color', 'never', *host_flags, *flags]
     group(f'{package["name"]}: {set_name} ({" ".join(flags) or "default features"})')
     # No `-D warnings` from the environment: the nightly has lints the stable
-    # toolchain does not, and the listing does not depend on warnings.
-    env = {**os.environ, 'RUSTFLAGS': '', 'RUSTDOCFLAGS': ''}
+    # toolchain does not, and the listing does not depend on warnings. Their
+    # output would also bury the diff in the log (other jobs lint this code).
+    env = {**os.environ, 'RUSTFLAGS': '--cap-lints allow', 'RUSTDOCFLAGS': '-A warnings'}
     done = run(cmd, stdout=subprocess.PIPE, env=env)
     endgroup()
     if done.returncode != 0:
