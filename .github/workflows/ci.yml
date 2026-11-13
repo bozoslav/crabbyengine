@@ -715,7 +715,9 @@ jobs:
           sys.stdout.writelines(difflib.unified_diff(expected, actual, fromfile="checked in", tofile="generated"))
           sys.exit(expected != actual)
           PYTHON
-      - run: cargo build -p ponko_ffi --release
+      # control-env: the validation bundle step below drives the release C++
+      # battle through PONKO_CONTROL, which a release build honors only with it.
+      - run: cargo build -p ponko_ffi --release --features control-env
       - name: Verify dynamic exports
         shell: bash
         run: |

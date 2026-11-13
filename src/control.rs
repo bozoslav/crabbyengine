@@ -447,15 +447,39 @@ struct DeadlineReader {
 
 impl Read for DeadlineReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if let Some(deadline) = self.deadline {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
-            if left.is_zero() {
-                return Err(std::io::ErrorKind::TimedOut.into());
-            }
-            self.stream.set_read_timeout(Some(left))?;
+        match self.deadline {
+            Some(deadline) => read_before(&self.stream, buf, deadline),
+            None => self.stream.read(buf),
         }
-        self.stream.read(buf)
     }
+}
+
+/// How often a read with a deadline looks for input.
+const DEADLINE_POLL: Duration = Duration::from_millis(2);
+
+/// Reads what has arrived, waiting for input until `deadline` (then
+/// `TimedOut`). It never lets a blocking read time out (`SO_RCVTIMEO`): on
+/// Windows that leaves the connection in an undefined state, and the reply
+/// written after it is lost (the client sees the connection aborted). So the
+/// socket is nonblocking while it waits, and blocking again afterwards.
+fn read_before(stream: &TcpStream, buf: &mut [u8], deadline: std::time::Instant) -> std::io::Result<usize> {
+    stream.set_nonblocking(true)?;
+    let mut reading = stream;
+    let read = loop {
+        match reading.read(buf) {
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                let left = deadline.saturating_duration_since(std::time::Instant::now());
+                if left.is_zero() {
+                    break Err(std::io::ErrorKind::TimedOut.into());
+                }
+                thread::sleep(left.min(DEADLINE_POLL));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            read => break read,
+        }
+    };
+    stream.set_nonblocking(false)?;
+    read
 }
 
 impl DeadlineReader {
@@ -463,7 +487,6 @@ impl DeadlineReader {
     /// write timeout is the socket's, shared with the writing handle).
     fn trust(&mut self) {
         if self.deadline.take().is_some() {
-            let _ = self.stream.set_read_timeout(None);
             let _ = self.stream.set_write_timeout(None);
         }
     }
@@ -485,13 +508,8 @@ fn hang_up(stream: &TcpStream) {
     }
     let until = std::time::Instant::now() + DRAIN_FOR;
     let (mut drained, mut buf) = (0, [0u8; 8192]);
-    let mut stream = stream;
     while drained < DRAIN_AT_MOST {
-        let left = until.saturating_duration_since(std::time::Instant::now());
-        if left.is_zero() || stream.set_read_timeout(Some(left)).is_err() {
-            return;
-        }
-        match stream.read(&mut buf) {
+        match read_before(stream, &mut buf, until) {
             Ok(0) | Err(_) => return,
             Ok(n) => drained += n,
         }
