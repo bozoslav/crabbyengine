@@ -370,7 +370,7 @@ def add_pointer(body, pointer):
     end = next((i for i in heads if i > start), len(body))
     if any('/migrating-to-' in l for l in body[start:end]):
         return
-    body[start + 1:start + 1] = ['', pointer]
+    body[start + 1:start + 1] = ['', pointer, '']
 
 
 def release(root, version, dry_run):
