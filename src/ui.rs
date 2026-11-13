@@ -58,7 +58,9 @@
 use crate::color::Color;
 
 /// Colors and sizes of the immediate widgets:
-/// [`ctx.ui.immediate.style`](UiImmediate::style).
+/// [`ctx.ui.immediate.style`](UiImmediate::style). The screen's [`UiTheme`]
+/// sets them together with the retained tree ([`Ui::set_theme`]), and its
+/// [`Ui::set_scale`] scales them.
 ///
 /// ```
 /// # use ponko::prelude::*;
@@ -81,9 +83,11 @@ pub struct UiStyle {
     pub accent: Color,
     /// Text color.
     pub text: Color,
-    /// Text size in pixels.
+    /// Text size in UI units: pixels at the default [`Ui::set_scale`], and
+    /// scaled with it.
     pub text_size: f32,
-    /// Space between a panel's edge and its contents, in pixels.
+    /// Space between a panel's edge and its contents, in UI units (scaled
+    /// like the text size).
     pub padding: f32,
 }
 
