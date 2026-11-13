@@ -15,6 +15,7 @@ methods, so you find a call by asking "which area is this?" and typing
 | `ctx.ui` | `Ui` | The retained widget tree and its events, who has the pointer and the keyboard, and the immediate debug widgets (`ctx.ui.immediate`). |
 | `ctx.assets` | `Assets` | Asset sources, data files, saving scenes and prefabs, what hot reload changed. |
 | `ctx.perf` | `Perf` | System timings, frame and render statistics, the HUD, traces, profiling reports. |
+| `ctx.storage` | `Storage` | The player's saves and settings in the per-user data folder (browser storage on the web), crash-safe writes, save slots. See [Saves and settings](storage.md). |
 | `ctx.camera`, `ctx.scene3d.camera`, `ctx.scene3d.lighting`, `ctx.scene3d.sky`, `ctx.scene3d.post`, `ctx.scene3d.lod` | plain settings | What the renderer reads when it draws the frame. |
 | `ctx.spatial`, `ctx.physics`, `ctx.physics3d`, `ctx.net` | | Neighbor queries, the physics worlds, the lockstep session. |
 

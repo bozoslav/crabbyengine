@@ -3322,6 +3322,8 @@ public:
     std::optional<id> pop_screen() { id n = none; detail::check(ponko_ctx_ui_pop_screen(raw_, target_, &n)); return maybe(n); }
     /// The top screen's root, if a screen is open.
     std::optional<id> top_screen() const { id n = none; detail::check(ponko_ctx_ui_top_screen(raw_, target_, &n)); return maybe(n); }
+    /// Whether `node` is shown: on a screen of the stack, neither it nor a node above it hidden.
+    bool is_shown(id node) const { bool s = false; detail::check(ponko_ctx_ui_is_shown(raw_, target_, node, &s)); return s; }
     /// The focused node, if any.
     std::optional<id> focus() const { id n = none; detail::check(ponko_ctx_ui_focus(raw_, target_, &n)); return maybe(n); }
     /// The topmost node under `point` (window points), as of the last layout.
@@ -4009,10 +4011,12 @@ struct action_id {
 /// What an input scenario checks at a tick (Rust's `ScenarioCheck`).
 class scenario_check {
     friend class input_scenario;
-    enum class kind { action, resource, count } kind_;
+    enum class kind { action, resource, count, ui } kind_;
     std::string name_, pointer_, equals_;
     int pressed_ = -1, down_ = -1, released_ = -1;
     std::uint64_t count_ = 0;
+    int exists_ = -1, shown_ = -1, focused_ = -1;
+    std::optional<std::string> text_;
     explicit scenario_check(kind k, std::string name) : kind_(k), name_(std::move(name)) {}
 public:
     /// An action's edges and held state; chain `.pressed(true)`, `.down(true)`, `.released(false)`.
@@ -4035,6 +4039,17 @@ public:
     scenario_check& down(bool expected) { down_ = expected ? 1 : 0; return *this; }
     /// Expects the action was (or wasn't) released on this tick.
     scenario_check& released(bool expected) { released_ = expected ? 1 : 0; return *this; }
+    /// A node of the retained UI by name; chain `.exists(true)`,
+    /// `.shown(true)`, `.focused(true)`, `.text("Back")`.
+    static scenario_check ui(std::string node) { return scenario_check(kind::ui, std::move(node)); }
+    /// Expects the UI node to exist (or not).
+    scenario_check& exists(bool expected) { exists_ = expected ? 1 : 0; return *this; }
+    /// Expects the UI node to be shown (or not): on a screen of the stack, not hidden.
+    scenario_check& shown(bool expected) { shown_ = expected ? 1 : 0; return *this; }
+    /// Expects the UI node to have the focus (or not).
+    scenario_check& focused(bool expected) { focused_ = expected ? 1 : 0; return *this; }
+    /// Expects the UI node's text.
+    scenario_check& text(std::string expected) { text_ = std::move(expected); return *this; }
 };
 
 /// Raw input and checks scheduled by simulation tick, for reproducible
@@ -4084,8 +4099,19 @@ public:
             return step(ponko_input_scenario_expect_resource(raw_, tick, c.name_.c_str(), c.pointer_.c_str(), c.equals_.c_str()));
         case scenario_check::kind::count:
             return step(ponko_input_scenario_expect_count(raw_, tick, c.name_.c_str(), c.count_));
+        case scenario_check::kind::ui:
+            return step(ponko_input_scenario_expect_ui(raw_, tick, c.name_.c_str(), c.exists_, c.shown_, c.focused_,
+                                                       c.text_ ? c.text_->c_str() : nullptr));
         }
         throw std::logic_error("unknown scenario check");
+    }
+    /// Clicks the retained UI's node named `node` in the frame of tick
+    /// `tick` (needs `game::headless_frames` or a window); the run fails
+    /// there if it can't be clicked.
+    input_scenario& click(std::uint64_t tick, const char* node) { return step(ponko_input_scenario_click(raw_, tick, node)); }
+    /// Clicks the text input named `node` and types `typed` at its end, in the frame of tick `tick`.
+    input_scenario& type_text(std::uint64_t tick, const char* node, const char* typed) {
+        return step(ponko_input_scenario_type_text(raw_, tick, node, typed));
     }
     /// Names the scenario in its report.
     input_scenario& named(const char* id) { return step(ponko_input_scenario_named(raw_, id)); }
@@ -4455,6 +4481,69 @@ public:
     void save_scene(const char* path) { detail::check(ponko_ctx_save_scene(raw_, path)); }
     /// Spawns the prefab in assets/`path` with its position at `at`.
     entity spawn_prefab(const char* path, vec2 at) { entity e = 0; detail::check(ponko_ctx_spawn_prefab(raw_, path, at, &e)); return e; }
+    // The player's files (Rust's ctx.storage): saves and settings in the
+    // per-user data folder (browser storage on the web), written safely.
+    // Needs game::app_id; every call throws ponko::error without one.
+    /// Writes `size` bytes as the stored file `name`: the old file stays
+    /// whole until the new one is complete, then becomes its backup.
+    void storage_write(const char* name, const void* bytes, std::size_t size) {
+        detail::check(ponko_ctx_storage_write(raw_, name, static_cast<const std::uint8_t*>(bytes), size));
+    }
+    /// storage_write for text.
+    void storage_write(const char* name, const std::string& text) { storage_write(name, text.data(), text.size()); }
+    /// The stored file `name`, or nothing if there is no such file.
+    std::optional<std::vector<std::uint8_t>> storage_read(const char* name) {
+        return read_stored([&](std::uint8_t* b, std::size_t c, std::size_t* n) { return ponko_ctx_storage_read(raw_, name, b, c, n); });
+    }
+    /// The stored file `name` as it was before its last write, or nothing.
+    std::optional<std::vector<std::uint8_t>> storage_read_backup(const char* name) {
+        return read_stored([&](std::uint8_t* b, std::size_t c, std::size_t* n) { return ponko_ctx_storage_read_backup(raw_, name, b, c, n); });
+    }
+    /// The stored file `name` as text, or nothing if there is no such file.
+    std::optional<std::string> storage_read_text(const char* name) {
+        auto bytes = storage_read(name);
+        if (!bytes) return std::nullopt;
+        return std::string(bytes->begin(), bytes->end());
+    }
+    /// Whether the stored file `name` exists.
+    bool storage_exists(const char* name) { bool e = false; detail::check(ponko_ctx_storage_exists(raw_, name, &e)); return e; }
+    /// Every stored file's name, sorted (backups aren't listed).
+    std::vector<std::string> storage_list() {
+        const std::string text = detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return ponko_ctx_storage_list(raw_, b, c, n); });
+        std::vector<std::string> names;
+        std::size_t start = 0;
+        while (start < text.size()) {
+            const std::size_t end = std::min(text.find('\n', start), text.size());
+            names.emplace_back(text, start, end - start);
+            start = end + 1;
+        }
+        return names;
+    }
+    /// Deletes the stored file `name` and its backup (a missing file is fine).
+    void storage_delete(const char* name) { detail::check(ponko_ctx_storage_delete(raw_, name)); }
+    /// The folder the files are in; empty on the web and without an app id.
+    std::string storage_dir() {
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return ponko_ctx_storage_dir(raw_, b, c, n); });
+    }
+    /// Saves the world's reflected components and resources in save slot `slot`.
+    void save_world(const char* slot) { detail::check(ponko_ctx_save_world(raw_, slot)); }
+    /// Replaces the world with save slot `slot` (as load_scene does).
+    void load_world(const char* slot) { detail::check(ponko_ctx_load_world(raw_, slot)); }
+private:
+    /// Reads bytes a C function writes into a buffer (asks for the size, then
+    /// fills it; asks again if it grew); nothing for PONKO_NOT_FOUND.
+    template<class F> static std::optional<std::vector<std::uint8_t>> read_stored(F&& fill) {
+        std::vector<std::uint8_t> bytes;
+        for (;;) {
+            std::size_t len = 0;
+            const auto status = fill(bytes.empty() ? nullptr : bytes.data(), bytes.size(), &len);
+            if (status == PONKO_NOT_FOUND) return std::nullopt;
+            detail::check(status);
+            if (len <= bytes.size()) { bytes.resize(len); return bytes; }
+            bytes.resize(len);
+        }
+    }
+public:
     /// Repositions a 3D prefab while preserving saved rotation and scale.
     entity spawn_prefab3d(const char* path, vec3 at) { entity e = 0; detail::check(ponko_ctx_spawn_prefab3d(raw_, path, at, &e)); return e; }
     /// Places a prefab with a complete transform. Separate names preserve old brace-init calls.
@@ -4463,6 +4552,18 @@ public:
     entity spawn_prefab_transform2d(const char* path, transform2d at) { entity e = 0; detail::check(ponko_ctx_spawn_prefab_transform2d(raw_, path, at, &e)); return e; }
     /// Saves `e` as a prefab in assets/`path` (without its position).
     void save_prefab(entity e, const char* path) { detail::check(ponko_ctx_save_prefab(raw_, e, path)); }
+    // Prefabs with children: the parts spawned with a prefab's root.
+    /// The parts spawn_prefab made with prefab root `root` (empty for one entity).
+    std::vector<entity> prefab_parts(entity root) {
+        std::size_t n = 0;
+        detail::check(ponko_ctx_prefab_parts(raw_, root, nullptr, 0, &n));
+        std::vector<entity> parts(n);
+        if (n != 0) detail::check(ponko_ctx_prefab_parts(raw_, root, parts.data(), parts.size(), &n));
+        parts.resize(n < parts.size() ? n : parts.size());
+        return parts;
+    }
+    /// Despawns prefab root `root` with its parts; returns how many entities went.
+    std::size_t despawn_prefab(entity root) { std::size_t n = 0; detail::check(ponko_ctx_despawn_prefab(raw_, root, &n)); return n; }
     /// Loads a texture; throws ponko::error (kind, path) if it can't.
     texture load_texture(const char* path) { return try_load_texture(path).value(); }
     /// Loads a texture, or says why not, without throwing (Rust's `try_load_texture`).
@@ -5888,6 +5989,11 @@ public:
     game& fixed_hz(std::uint32_t hz) { return check(ponko_game_fixed_hz(raw_, hz)); }
     /// Seed of ctx::random (runs with the same seed and input repeat exactly).
     game& seed(std::uint64_t seed) { return check(ponko_game_seed(raw_, seed)); }
+    /// Names the game for ctx::storage_*: its files go in the folder `app_id`
+    /// in the player's data folder. Throws ponko::error for a bad id.
+    game& app_id(const char* app_id) { return check(ponko_game_app_id(raw_, app_id)); }
+    /// Keeps ctx::storage_* files in `dir` itself (tests, portable installs).
+    game& data_dir(const char* dir) { return check(ponko_game_data_dir(raw_, dir)); }
     /// Wait for the display between frames (default on).
     game& vsync(bool on) { return check(ponko_game_vsync(raw_, on)); }
     /// Samples per pixel of the 3D frame: 4 (default) or 2.
@@ -6047,6 +6153,9 @@ public:
     /// Runs a copy of `s` with the game from its first tick (Rust's
     /// `Game::input_scenario`); the report ends up in the world.
     game& input_scenario(const ponko::input_scenario& s) { return check(ponko_game_input_scenario(raw_, s.raw())); }
+    /// Headless runs run whole frames (the UI, frame, late and draw systems)
+    /// in a virtual window of the game's size (Rust's `Game::headless_frames`).
+    game& headless_frames(bool on) { return check(ponko_game_headless_frames(raw_, on)); }
     /// What run_headless_scenario returns: `auto [world, report] = ...`.
     struct scenario_run {
         ponko::world world;

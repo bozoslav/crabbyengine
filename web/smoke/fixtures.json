@@ -24,6 +24,7 @@
       "O=screen:Settings",
       "Escape=screen:Title"
     ],
+    "afterReload": ["settings_at_start:Loaded", "storage:persistent"],
     "engineGpu": true
   }
 }

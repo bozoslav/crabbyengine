@@ -46,7 +46,8 @@ middle of the screen), and two rows for files in `assets/`:
 
 - **Scene**: save the world to a [scene](scenes.md) file, or load one
   (loading clears undo).
-- **Prefab**: type a name and **Save** the selected entity as a prefab.
+- **Prefab**: type a name and **Save** the selected entity as a prefab
+  (with its [children](scenes.md#prefabs-with-children), if it has any).
   Prefabs in `assets/prefabs/` are listed below: click one, then click in
   the world to place it (hold Shift to place several).
 

@@ -1099,6 +1099,64 @@ static void the_beach_has_five_palms() {
     if (palms != 5) { std::fprintf(stderr, "%zu palms\n", palms); std::abort(); }
 }
 
+// ---- Saves and settings --------------------------------------------------------------
+// ANCHOR: storage
+static void keep_volume(ponko::ctx& ctx, float volume) {
+    // The old file stays whole until the new one is, then becomes the backup.
+    ctx.storage_write("volume.txt", std::to_string(volume));
+}
+
+static float saved_volume(ponko::ctx& ctx) {
+    auto text = ctx.storage_read_text("volume.txt");   // nothing on a first run
+    return text ? std::stof(*text) : 1.0f;
+}
+
+static void quick_save(ponko::ctx& ctx) { ctx.save_world("quick"); }   // saves/quick.json
+static void quick_load(ponko::ctx& ctx) { ctx.load_world("quick"); }
+// ANCHOR_END: storage
+
+static void storage_keeps_files_between_runs() {
+    // A folder of the test's own (beside the test binary), not the player's data folder.
+    ponko::game("guide", 1, 1).data_dir("guide-storage").run_headless(0, [](ponko::ctx& ctx) {
+        ctx.storage_delete("volume.txt");
+        if (saved_volume(ctx) != 1.0f) std::abort();
+        keep_volume(ctx, 0.25f);
+        ctx.world().reflect<Palm>({ponko::field("height", &Palm::height)});
+        ctx.world().spawn(Palm{3});
+        quick_save(ctx);
+    });
+    auto world = ponko::game("guide", 1, 1).data_dir("guide-storage").run_headless(0, [](ponko::ctx& ctx) {
+        if (saved_volume(ctx) != 0.25f) { std::fprintf(stderr, "volume %f\n", double(saved_volume(ctx))); std::abort(); }
+        if (ctx.storage_list() != std::vector<std::string>{"saves/quick.json", "volume.txt"}) std::abort();
+        if (ctx.storage_read("missing.txt").has_value()) std::abort();
+        ctx.world().reflect<Palm>({ponko::field("height", &Palm::height)});
+        quick_load(ctx);
+    });
+    std::size_t palms = 0;
+    world.each([&](const Palm& p) { palms += p.height == 3 ? 1 : 0; });
+    if (palms != 1) { std::fprintf(stderr, "%zu saved palms\n", palms); std::abort(); }
+    bool refused = false;
+    ponko::game("guide", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {   // no app id: no files
+        try { keep_volume(ctx, 0.5f); } catch (const ponko::error&) { refused = true; }
+    });
+    if (!refused) std::abort();
+}
+
+// ANCHOR: prefab_tree
+static void carts(ponko::ctx& ctx) {
+    // A cart: its body (the root), two wheels, a driver and the driver's hat.
+    auto cart = ctx.spawn_prefab("prefabs/cart.json", {200, 300});
+    auto parts = ctx.prefab_parts(cart);   // the four parts spawned with it
+    ctx.despawn_prefab(cart);              // the body and its four parts
+    if (parts.size() != 4 || ctx.world().size() != 0) std::abort();
+}
+// ANCHOR_END: prefab_tree
+
+static void a_cart_comes_and_goes_whole() {
+    auto world = ponko::game("guide", 1, 1).run_headless(0, carts);
+    if (world.size() != 0) { std::fprintf(stderr, "%zu left\n", world.size()); std::abort(); }
+}
+
 // ---- 3D -------------------------------------------------------------------------------
 // ANCHOR: three_d
 /// Turns around its own Y axis, this many radians a second.
@@ -2765,6 +2823,35 @@ static void jump_once() {
 }
 // ANCHOR_END: input_scenario
 
+// ANCHOR: headless_frames
+static void menu_opens_settings() {
+    using ponko::scenario_check;
+    ponko::input_scenario scenario;
+    scenario.expect(0, scenario_check::ui("menu.settings").shown(true).text("Settings"))
+        .click(2, "menu.settings")
+        .expect(2, scenario_check::ui("settings").shown(true))
+        .expect(2, scenario_check::ui("menu.settings").shown(false));
+    auto run = ponko::game("menu test", 800, 600)
+        .headless_frames(true) // frames too: the UI and frame systems run
+        .system([](ponko::ctx& ctx) {
+            auto ui = ctx.ui_retained();
+            if (auto clicked = ui.take_click(); clicked && clicked == ui.find("menu.settings")) {
+                ui.pop_screen();
+                ui.push_screen(*ui.find("settings"));
+            }
+        })
+        .run_headless_scenario(scenario, [](ponko::ctx& ctx) {
+            namespace u = ponko::ui;
+            auto ui = ctx.ui_retained();
+            auto menu = ui.add_panel(u::none, u::fill());
+            ui.set_name(ui.add_button(menu, "Settings", u::fixed(200, 40)), "menu.settings");
+            ui.set_name(ui.add_panel(u::none, u::fill()), "settings");
+            ui.push_screen(menu);
+        });
+    if (!run.report.passed()) throw std::runtime_error(run.world.scenario_report_json());
+}
+// ANCHOR_END: headless_frames
+
 // ANCHOR: asset_sources
 static void embedded_assets(ponko::ctx& ctx) {
     // Compiled into the executable: nothing to ship next to it.
@@ -2927,6 +3014,7 @@ int main() {
     builder_setup_runs_headless();
     action_ids_run();
     jump_once();
+    menu_opens_settings();
     resource_scope_run();
     ponko::game("asset source guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
         embedded_assets(ctx);
@@ -2976,6 +3064,8 @@ int main() {
     the_trees_stand_on_the_ground();
     the_dive_adds_one_effect();
     the_beach_has_five_palms();
+    storage_keeps_files_between_runs();
+    a_cart_comes_and_goes_whole();
     the_village_has_five_spinning_houses();
     things_fall_ten_units_per_second();
     turrets_ride_on_tanks();

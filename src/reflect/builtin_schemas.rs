@@ -9,6 +9,41 @@ fn transform2d() -> ValueSchema {
 fn attached() -> ValueSchema {
     ValueSchema::object([("to", Entity), ("offset", Vec2), ("rotation", Number)])
 }
+fn prefab_parts() -> ValueSchema {
+    ValueSchema::array(Entity)
+}
+#[cfg(feature = "3d")]
+fn skin_of() -> ValueSchema {
+    Entity
+}
+#[cfg(feature = "3d")]
+fn attach_to_joint() -> ValueSchema {
+    ValueSchema::object([("skeleton", Entity), ("joint", Unsigned), ("offset", transform3d())])
+}
+#[cfg(feature = "physics3d")]
+fn joint3d() -> ValueSchema {
+    let motion = ValueSchema::any_of([
+        ValueSchema::enum_of(["Free", "Locked"]),
+        ValueSchema::object([("Limited", Tuple(vec![Number; 2]))]),
+    ]);
+    let drive = ValueSchema::object([
+        ("target_position", Number),
+        ("target_velocity", Number),
+        ("stiffness", Number),
+        ("damping", Number),
+        ("max_force", ValueSchema::optional(Number)),
+    ]);
+    ValueSchema::object([
+        ("body_a", Entity),
+        ("body_b", Entity),
+        ("frame_a", transform3d()),
+        ("frame_b", transform3d()),
+        ("axes", Tuple(vec![motion; 6])),
+        ("drives", Tuple(vec![ValueSchema::optional(drive); 6])),
+        ("contacts_enabled", Bool),
+        ("swing_cone", ValueSchema::optional(Number)),
+    ])
+}
 #[cfg(feature = "3d")]
 fn transform3d() -> ValueSchema {
     ValueSchema::object([
@@ -210,6 +245,21 @@ pub(super) fn builtin<T: 'static>() -> Option<ValueSchema> {
     }
     if id == std::any::TypeId::of::<crate::d2::Attached>() {
         return Some(attached());
+    }
+    if id == std::any::TypeId::of::<crate::scene::PrefabParts>() {
+        return Some(prefab_parts());
+    }
+    #[cfg(feature = "3d")]
+    if id == std::any::TypeId::of::<crate::anim::SkinOf>() {
+        return Some(skin_of());
+    }
+    #[cfg(feature = "3d")]
+    if id == std::any::TypeId::of::<crate::anim::AttachToJoint>() {
+        return Some(attach_to_joint());
+    }
+    #[cfg(feature = "physics3d")]
+    if id == std::any::TypeId::of::<crate::d3::Joint>() {
+        return Some(joint3d());
     }
     #[cfg(feature = "3d")]
     if id == std::any::TypeId::of::<crate::d3::Transform>() {
@@ -553,6 +603,35 @@ mod tests {
             crate::d2::Attached,
             crate::d2::Attached::to(ponko_ecs::Entity::from_bits(0))
         );
+        let e = ponko_ecs::Entity::from_bits;
+        check!(
+            crate::scene::PrefabParts,
+            crate::scene::PrefabParts(vec![e(1), e(2 | 3 << 32)])
+        );
+        #[cfg(feature = "3d")]
+        {
+            check!(crate::anim::SkinOf, crate::anim::SkinOf(e(4)));
+            check!(
+                crate::anim::AttachToJoint,
+                crate::anim::AttachToJoint {
+                    skeleton: e(4),
+                    joint: 2,
+                    offset: crate::d3::Transform::default(),
+                }
+            );
+        }
+        #[cfg(feature = "physics3d")]
+        {
+            use crate::d3::{Joint, JointAxis, JointDrive, JointMotion};
+            check!(Joint, Joint::spherical(e(1), e(2)));
+            check!(
+                Joint,
+                Joint::spherical(e(1), e(2))
+                    .motion(JointAxis::AngularX, JointMotion::Limited(-0.5, 0.5))
+                    .drive(JointAxis::AngularX, JointDrive::velocity(2.0, 10.0))
+                    .swing_cone(0.5)
+            );
+        }
         #[cfg(feature = "3d")]
         {
             check!(crate::d3::Transform, crate::d3::Transform::default());

@@ -58,7 +58,58 @@ impl serde::Serialize for Entity {
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for Entity {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        u64::deserialize(d).map(Entity::from_bits)
+        u64::deserialize(d).map(|bits| Entity::from_bits(bits).remapped())
+    }
+}
+
+thread_local! {
+    /// The maps of the [`Entity::with_remap`] calls running on this thread,
+    /// innermost last.
+    static REMAPS: std::cell::RefCell<Vec<std::collections::HashMap<Entity, Entity>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Pops the innermost remap, also when `f` panics.
+struct PopRemap;
+impl Drop for PopRemap {
+    fn drop(&mut self) {
+        REMAPS.with(|r| r.borrow_mut().pop());
+    }
+}
+
+impl Entity {
+    /// Runs `f` with the saved ids in `map` replaced by their values as
+    /// entities are read: every `Entity` deserialized on this thread while
+    /// `f` runs (with the `serde` feature), and every [`remapped`](Self::remapped)
+    /// call, reads a key of `map` as its value. Others read as written.
+    ///
+    /// This is how copies of saved entities keep pointing at each other: a
+    /// prefab's parts get new ids when spawned, and a component of one that
+    /// names another (an attachment, a joint) must name the new one. Only
+    /// values typed `Entity` change, so a number that happens to equal a saved
+    /// id is left alone. Calls nest: inside, only the innermost map applies.
+    ///
+    /// ```
+    /// use ponko_ecs::Entity;
+    /// use std::collections::HashMap;
+    ///
+    /// let (saved, spawned) = (Entity::from_bits(3), Entity::from_bits(17));
+    /// let map = HashMap::from([(saved, spawned)]);
+    /// let read = Entity::with_remap(&map, || saved.remapped());
+    /// assert_eq!(read, spawned);
+    /// assert_eq!(saved.remapped(), saved, "outside, ids read as written");
+    /// ```
+    pub fn with_remap<R>(map: &std::collections::HashMap<Entity, Entity>, f: impl FnOnce() -> R) -> R {
+        REMAPS.with(|r| r.borrow_mut().push(map.clone()));
+        let _pop = PopRemap;
+        f()
+    }
+
+    /// This id as the innermost running [`with_remap`](Self::with_remap)
+    /// maps it; itself when none runs or its map doesn't name it.
+    #[must_use]
+    pub fn remapped(self) -> Entity {
+        REMAPS.with(|r| r.borrow().last().and_then(|m| m.get(&self).copied()).unwrap_or(self))
     }
 }
 

@@ -1057,6 +1057,7 @@ pub(crate) fn start(ctx: &mut Ctx, gravity: Vec3) {
     ctx.world.reflect::<Character3D>();
     ctx.world.reflect::<Vehicle3D>();
     ctx.world.reflect::<ColliderFocus>();
+    ctx.world.reflect::<Joint3D>();
 }
 
 /// Steps the 3D physics world one simulation tick: picks up new, changed

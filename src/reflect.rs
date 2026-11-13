@@ -440,7 +440,12 @@ fn write_field(f: &Field, v: &Value, at: &mut [u8]) -> Result<(), String> {
         FieldType::U8 => at.copy_from_slice(&int::<u8>(v)?.to_ne_bytes()),
         FieldType::U16 => at.copy_from_slice(&int::<u16>(v)?.to_ne_bytes()),
         FieldType::U32 => at.copy_from_slice(&int::<u32>(v)?.to_ne_bytes()),
-        FieldType::U64 | FieldType::Entity => at.copy_from_slice(&int::<u64>(v)?.to_ne_bytes()),
+        FieldType::U64 => at.copy_from_slice(&int::<u64>(v)?.to_ne_bytes()),
+        // Remapped like a Rust `Entity`, so a C prefab part's references follow.
+        FieldType::Entity => {
+            let e = Entity::from_bits(int::<u64>(v)?).remapped();
+            at.copy_from_slice(&e.to_bits().to_ne_bytes());
+        }
         FieldType::Bool => at[0] = v.as_bool().ok_or_else(|| format!("expected true or false, got {v}"))? as u8,
         FieldType::Vec2 => {
             let xy = v
