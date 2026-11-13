@@ -172,7 +172,10 @@ settings screen shows the keys it reads back from `ctx.input.actions()` with
 `Controls::from_bindings`, so a binding installed some other way (a
 user-edited actions file, say) shows up as it is. Pressing a control's button
 opens a small modal prompt (a screen with nothing to focus, so no key can press
-a button behind it), and the next key or button pressed is the answer. The
+a button behind it), and the next key or button pressed is the answer: the
+prompt reads it from `ctx.input.pressed_this_frame()` (see [Named input
+actions](actions.md#rebinding-screens-what-was-just-pressed)), so it lists no
+keys and polls nothing. The
 check runs against what the map binds now, `ctx.input.set_action` replaces
 only the action that control feeds (its `ActionId` stays valid), and the copy
 saved with the other settings is read back from the map. The hints on the
@@ -246,7 +249,6 @@ index, or a new one):
 
 | Gap | Where it is tracked |
 |---|---|
-| No query for "which key or button was pressed this frame": the rebinding prompt lists the keys it offers itself, because the engine can only answer "is this one pressed". | Input service of [#195](https://github.com/ponkoengine/ponko/issues/195) |
 | `run_headless` runs no frame systems and no UI frame, so screens built on the retained UI are tested by hand-feeding `Ui::frame`. | Phases: [#198](https://github.com/ponkoengine/ponko/issues/198); scripted input: [#179](https://github.com/ponkoengine/ponko/issues/179) |
 | No native screen-reader adapter for the retained UI. | [#183](https://github.com/ponkoengine/ponko/issues/183) |
 | Immediate-mode text and UI don't follow the retained UI's scale; the theme and builders are the retained UI's only. | [#203](https://github.com/ponkoengine/ponko/issues/203) |

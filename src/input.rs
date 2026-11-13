@@ -39,6 +39,8 @@ macro_rules! define_keys {
 
         impl Key {
             pub(crate) const COUNT: usize = [$(Key::$name),*].len();
+            /// Every key, in discriminant order (the index of `key as usize`).
+            pub(crate) const ALL: [Key; Key::COUNT] = [$(Key::$name),*];
 
             #[cfg(feature = "window")]
             pub(crate) fn from_winit(code: KeyCode) -> Option<Key> {
@@ -110,6 +112,14 @@ pub enum MouseButton {
 
 impl MouseButton {
     pub(crate) const COUNT: usize = 5;
+    /// Every button, in discriminant order.
+    pub(crate) const ALL: [MouseButton; Self::COUNT] = [
+        MouseButton::Left,
+        MouseButton::Right,
+        MouseButton::Middle,
+        MouseButton::Back,
+        MouseButton::Forward,
+    ];
 
     #[cfg(feature = "window")]
     pub(crate) fn from_winit(button: winit::event::MouseButton) -> Option<MouseButton> {
@@ -168,6 +178,25 @@ pub enum GamepadButton {
 
 impl GamepadButton {
     pub(crate) const COUNT: usize = 16;
+    /// Every button, in discriminant order.
+    pub(crate) const ALL: [GamepadButton; Self::COUNT] = [
+        GamepadButton::South,
+        GamepadButton::East,
+        GamepadButton::North,
+        GamepadButton::West,
+        GamepadButton::LeftBumper,
+        GamepadButton::RightBumper,
+        GamepadButton::LeftTrigger,
+        GamepadButton::RightTrigger,
+        GamepadButton::Select,
+        GamepadButton::Start,
+        GamepadButton::LeftStick,
+        GamepadButton::RightStick,
+        GamepadButton::DPadUp,
+        GamepadButton::DPadDown,
+        GamepadButton::DPadLeft,
+        GamepadButton::DPadRight,
+    ];
 }
 
 /// One axis of a gamepad: a stick's x or y (`-1.0..=1.0`, y down is
@@ -191,6 +220,15 @@ pub enum GamepadAxis {
 
 impl GamepadAxis {
     pub(crate) const COUNT: usize = 6;
+    /// Every axis, in discriminant order.
+    pub(crate) const ALL: [GamepadAxis; Self::COUNT] = [
+        GamepadAxis::LeftStickX,
+        GamepadAxis::LeftStickY,
+        GamepadAxis::RightStickX,
+        GamepadAxis::RightStickY,
+        GamepadAxis::LeftTrigger,
+        GamepadAxis::RightTrigger,
+    ];
 }
 
 /// Which stick, for [`Input::gamepad_stick`](crate::input::Input::gamepad_stick).
@@ -260,6 +298,12 @@ pub const MAX_GAMEPADS: usize = 8;
 pub(super) struct PadState {
     pub(super) buttons: ButtonStates<{ GamepadButton::COUNT }>,
     pub(super) axes: [f32; GamepadAxis::COUNT],
+    /// The axes when the frame started: what "went past a threshold this
+    /// frame" is measured against.
+    axes_before: [f32; GamepadAxis::COUNT],
+    /// The value of greatest magnitude each axis had this frame, so a stick
+    /// flicked out and back within one frame still counts.
+    axes_peak: [f32; GamepadAxis::COUNT],
 }
 
 impl PadState {
@@ -267,7 +311,15 @@ impl PadState {
         Self {
             buttons: ButtonStates::new(),
             axes: [0.0; GamepadAxis::COUNT],
+            axes_before: [0.0; GamepadAxis::COUNT],
+            axes_peak: [0.0; GamepadAxis::COUNT],
         }
+    }
+
+    fn end_frame(&mut self) {
+        self.buttons.end_frame();
+        self.axes_before = self.axes;
+        self.axes_peak = self.axes;
     }
 }
 
@@ -439,6 +491,7 @@ impl Input {
         let state = &mut self.pads[pad.slot()];
         state.buttons.release_all();
         state.axes = [0.0; GamepadAxis::COUNT];
+        state.axes_peak = [0.0; GamepadAxis::COUNT];
         self.refresh_actions();
     }
 
@@ -448,7 +501,11 @@ impl Input {
     }
 
     pub(crate) fn set_gamepad_axis(&mut self, pad: Gamepad, axis: GamepadAxis, value: f32) {
-        self.pads[pad.slot()].axes[axis as usize] = value;
+        let state = &mut self.pads[pad.slot()];
+        state.axes[axis as usize] = value;
+        if value.abs() > state.axes_peak[axis as usize].abs() {
+            state.axes_peak[axis as usize] = value;
+        }
         self.refresh_actions();
     }
 
@@ -466,7 +523,7 @@ impl Input {
         self.keys.end_frame();
         self.mouse.end_frame();
         for pad in &mut self.pads {
-            pad.buttons.end_frame();
+            pad.end_frame();
         }
         self.typed_text.clear();
         self.mouse_wheel = Vec2::ZERO;
@@ -686,6 +743,109 @@ impl Input {
     #[must_use]
     pub fn gamepad_axis(&self, pad: Gamepad, axis: GamepadAxis) -> f32 {
         self.pads[pad.slot()].axes[axis as usize]
+    }
+}
+
+impl Input {
+    /// Everything that went down this frame, as the bindings an
+    /// [`ActionMap`](crate::actions::ActionMap) takes: keys, mouse buttons,
+    /// gamepad buttons, and gamepad axes that moved past
+    /// [`PRESS_THRESHOLD`](crate::actions::PRESS_THRESHOLD) this frame. A
+    /// rebinding screen asks "what did the player just press?" with this
+    /// instead of polling every key it is willing to offer.
+    ///
+    /// - **Edges only.** A held key does not appear again next frame. A tap
+    ///   that goes down and up within one frame still appears, as with
+    ///   [`key_pressed`](Self::key_pressed). A stick or trigger counts when it
+    ///   was below the threshold when the frame started and reached it during
+    ///   the frame.
+    /// - **Order.** Keys, then mouse buttons, then each gamepad slot's
+    ///   buttons, then axes: the same order every run, so the first item is
+    ///   a stable answer. Within a kind it is the order of the enum.
+    /// - **Bindable as is.** Items are [`PressedInput::Button`](crate::actions::PressedInput::Button) (put it in an
+    ///   `Action::Button`) or [`PressedInput::Axis`](crate::actions::PressedInput::Axis) (an `Action::Axis`, with
+    ///   the deadzone [`DEFAULT_DEADZONE`](crate::actions::DEFAULT_DEADZONE)).
+    /// - **No allocation.** It is a scan of fixed arrays.
+    ///
+    /// Like every edge it lasts one frame, and a simulation system that runs
+    /// several ticks in a frame sees the same answer in each.
+    ///
+    /// ```
+    /// use ponko::prelude::*;
+    /// use ponko::actions::InputEvent;
+    ///
+    /// Game::new("rebind", 1, 1).run_headless(1, |ctx| {
+    ///     ctx.input.feed(InputEvent::Key(Key::J, true));
+    ///     let pressed: Vec<PressedInput> = ctx.input.pressed_this_frame().collect();
+    ///     assert_eq!(pressed, [PressedInput::Button(ButtonBinding::Key(Key::J))]);
+    ///
+    ///     // Bind it directly.
+    ///     if let Some(PressedInput::Button(binding)) = pressed.into_iter().next() {
+    ///         ctx.input.set_action("jump", Action::Button(vec![binding]));
+    ///     }
+    ///     assert!(ctx.input.action_down("jump"));
+    /// });
+    /// ```
+    pub fn pressed_this_frame(&self) -> impl Iterator<Item = crate::actions::PressedInput> + '_ {
+        self.pressed_this_frame_with_threshold(crate::actions::PRESS_THRESHOLD)
+    }
+
+    /// [`pressed_this_frame`](Self::pressed_this_frame) with your own axis
+    /// threshold, in `0.0..=1.0` (a value at or below zero reports any axis
+    /// that left zero). Buttons and keys do not depend on it.
+    ///
+    /// ```
+    /// use ponko::prelude::*;
+    /// use ponko::actions::InputEvent;
+    /// use ponko::input::{Gamepad, GamepadAxis};
+    ///
+    /// Game::new("trigger", 1, 1).run_headless(1, |ctx| {
+    ///     let pad = Gamepad::from_slot(0).unwrap();
+    ///     ctx.input.feed(InputEvent::GamepadAxis(pad, GamepadAxis::RightTrigger, 0.3));
+    ///     assert_eq!(ctx.input.pressed_this_frame().count(), 0, "under the default 0.5");
+    ///     assert_eq!(ctx.input.pressed_this_frame_with_threshold(0.25).count(), 1);
+    /// });
+    /// ```
+    pub fn pressed_this_frame_with_threshold(
+        &self,
+        axis_threshold: f32,
+    ) -> impl Iterator<Item = crate::actions::PressedInput> + '_ {
+        use crate::actions::{AxisBinding, ButtonBinding, DEFAULT_DEADZONE, PressedInput};
+        let keys = Key::ALL
+            .into_iter()
+            .filter(|&k| self.keys.pressed[k as usize])
+            .map(|k| PressedInput::Button(ButtonBinding::Key(k)));
+        let mouse = MouseButton::ALL
+            .into_iter()
+            .filter(|&b| self.mouse.pressed[b as usize])
+            .map(|b| PressedInput::Button(ButtonBinding::Mouse(b)));
+        let pad_buttons = self.pads.iter().enumerate().flat_map(|(slot, state)| {
+            GamepadButton::ALL
+                .into_iter()
+                .filter(|&b| state.buttons.pressed[b as usize])
+                .map(move |button| {
+                    PressedInput::Button(ButtonBinding::Gamepad {
+                        pad: Gamepad(slot as u8),
+                        button,
+                    })
+                })
+        });
+        let pad_axes = self.pads.iter().enumerate().flat_map(move |(slot, state)| {
+            GamepadAxis::ALL
+                .into_iter()
+                .filter(move |&a| {
+                    state.axes_peak[a as usize].abs() >= axis_threshold
+                        && state.axes_before[a as usize].abs() < axis_threshold
+                })
+                .map(move |axis| {
+                    PressedInput::Axis(AxisBinding::Gamepad {
+                        pad: Gamepad(slot as u8),
+                        axis,
+                        deadzone: DEFAULT_DEADZONE,
+                    })
+                })
+        });
+        keys.chain(mouse).chain(pad_buttons).chain(pad_axes)
     }
 }
 
@@ -1057,6 +1217,131 @@ mod tests {
         assert!(!input.gamepad_down(pad, GamepadButton::Start));
         assert_eq!(input.gamepad_axis(pad, GamepadAxis::RightTrigger), 0.0);
         assert!(input.gamepads().is_empty());
+    }
+
+    use crate::actions::{AxisBinding, ButtonBinding, DEFAULT_DEADZONE, PressedInput};
+
+    fn pressed(input: &Input) -> Vec<PressedInput> {
+        input.pressed_this_frame().collect()
+    }
+
+    #[test]
+    fn every_list_of_inputs_is_in_discriminant_order() {
+        for (i, k) in Key::ALL.into_iter().enumerate() {
+            assert_eq!(k as usize, i);
+        }
+        for (i, b) in MouseButton::ALL.into_iter().enumerate() {
+            assert_eq!(b as usize, i);
+        }
+        for (i, b) in GamepadButton::ALL.into_iter().enumerate() {
+            assert_eq!(b as usize, i);
+        }
+        for (i, a) in GamepadAxis::ALL.into_iter().enumerate() {
+            assert_eq!(a as usize, i);
+        }
+    }
+
+    #[test]
+    fn pressed_this_frame_lists_new_presses_in_a_stable_order_and_clears() {
+        let mut input = Input::new();
+        let pad = input.connect_gamepad().unwrap();
+        // Fed in the opposite order of the report.
+        input.set_gamepad_button(pad, GamepadButton::South, true);
+        input.set_mouse_button(MouseButton::Right, true);
+        input.set_key(Key::Z, true);
+        input.set_key(Key::A, true);
+        assert_eq!(
+            pressed(&input),
+            [
+                PressedInput::Button(ButtonBinding::Key(Key::A)),
+                PressedInput::Button(ButtonBinding::Key(Key::Z)),
+                PressedInput::Button(ButtonBinding::Mouse(MouseButton::Right)),
+                PressedInput::Button(ButtonBinding::Gamepad {
+                    pad,
+                    button: GamepadButton::South
+                }),
+            ]
+        );
+        input.end_frame();
+        assert!(pressed(&input).is_empty(), "held inputs are not new");
+    }
+
+    #[test]
+    fn a_tap_inside_one_frame_is_still_reported() {
+        let mut input = Input::new();
+        input.set_key(Key::Q, true);
+        input.set_key(Key::Q, false);
+        assert_eq!(pressed(&input), [PressedInput::Button(ButtonBinding::Key(Key::Q))]);
+    }
+
+    #[test]
+    fn a_release_is_not_a_press() {
+        let mut input = Input::new();
+        input.set_key(Key::Q, true);
+        input.end_frame();
+        input.set_key(Key::Q, false);
+        assert!(pressed(&input).is_empty());
+    }
+
+    #[test]
+    fn axes_report_when_they_cross_the_threshold_not_while_held() {
+        let mut input = Input::new();
+        let pad = input.connect_gamepad().unwrap();
+        input.set_gamepad_axis(pad, GamepadAxis::LeftStickX, 0.4);
+        assert!(pressed(&input).is_empty(), "under the threshold");
+        input.end_frame();
+        input.set_gamepad_axis(pad, GamepadAxis::LeftStickX, -0.9);
+        assert_eq!(
+            pressed(&input),
+            [PressedInput::Axis(AxisBinding::Gamepad {
+                pad,
+                axis: GamepadAxis::LeftStickX,
+                deadzone: DEFAULT_DEADZONE
+            })]
+        );
+        input.end_frame();
+        input.set_gamepad_axis(pad, GamepadAxis::LeftStickX, -1.0);
+        assert!(pressed(&input).is_empty(), "still held past the threshold");
+        input.end_frame();
+        // Back to center, then out again: a new press.
+        input.set_gamepad_axis(pad, GamepadAxis::LeftStickX, 0.0);
+        input.end_frame();
+        input.set_gamepad_axis(pad, GamepadAxis::LeftStickX, 0.6);
+        assert_eq!(pressed(&input).len(), 1);
+    }
+
+    #[test]
+    fn a_flick_out_and_back_in_one_frame_is_reported() {
+        let mut input = Input::new();
+        let pad = input.connect_gamepad().unwrap();
+        input.set_gamepad_axis(pad, GamepadAxis::RightTrigger, 1.0);
+        input.set_gamepad_axis(pad, GamepadAxis::RightTrigger, 0.0);
+        assert_eq!(pressed(&input).len(), 1);
+    }
+
+    #[test]
+    fn the_axis_threshold_can_be_chosen_and_unplugging_reports_nothing() {
+        let mut input = Input::new();
+        let pad = input.connect_gamepad().unwrap();
+        input.set_gamepad_axis(pad, GamepadAxis::RightTrigger, 0.3);
+        assert_eq!(input.pressed_this_frame().count(), 0);
+        assert_eq!(input.pressed_this_frame_with_threshold(0.25).count(), 1);
+        assert_eq!(input.pressed_this_frame_with_threshold(0.5).count(), 0);
+        input.set_gamepad_axis(pad, GamepadAxis::RightTrigger, 1.0);
+        input.disconnect_gamepad(pad);
+        assert_eq!(
+            input.pressed_this_frame().count(),
+            0,
+            "an unplugged stick is not a press"
+        );
+    }
+
+    #[test]
+    fn nan_axis_values_are_never_reported() {
+        let mut input = Input::new();
+        let pad = input.connect_gamepad().unwrap();
+        input.set_gamepad_axis(pad, GamepadAxis::LeftStickY, f32::NAN);
+        assert_eq!(input.pressed_this_frame().count(), 0);
     }
 
     #[test]

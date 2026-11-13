@@ -3944,6 +3944,34 @@ private:
     }
 };
 
+/// One input that went down this frame (ctx::pressed_this_frame): a key, mouse button, gamepad
+/// button or gamepad axis, described the way `action_binding` is, so a rebinding screen can bind it
+/// with `action::button({p.binding()})` (or `action::axis` for an axis).
+struct pressed_input {
+    /// The C description (a PonkoActionBinding of kind key, mouse, gamepad button or gamepad axis).
+    PonkoActionBinding raw{};
+    /// Whether it is a keyboard key.
+    bool is_key() const noexcept { return raw.kind == PONKO_ACTION_KEY; }
+    /// Whether it is a mouse button.
+    bool is_mouse() const noexcept { return raw.kind == PONKO_ACTION_MOUSE; }
+    /// Whether it is a gamepad button.
+    bool is_gamepad_button() const noexcept { return raw.kind == PONKO_ACTION_GAMEPAD_BUTTON; }
+    /// Whether it is a stick or trigger (bind it with `action::axis`).
+    bool is_gamepad_axis() const noexcept { return raw.kind == PONKO_ACTION_GAMEPAD_AXIS; }
+    /// The key; meaningful when is_key().
+    ponko::key key() const noexcept { return static_cast<ponko::key>(raw.first); }
+    /// The mouse button; meaningful when is_mouse().
+    ponko::mouse mouse() const noexcept { return static_cast<ponko::mouse>(raw.first); }
+    /// The gamepad (slot) of a gamepad button or axis.
+    gamepad pad() const noexcept { return gamepad{raw.pad}; }
+    /// The gamepad button; meaningful when is_gamepad_button().
+    gamepad_button button() const noexcept { return static_cast<gamepad_button>(raw.first); }
+    /// The gamepad axis; meaningful when is_gamepad_axis().
+    gamepad_axis axis() const noexcept { return static_cast<gamepad_axis>(raw.first); }
+    /// The binding to put in an action: `action::button({p.binding()})`, or `action::axis` for an axis.
+    action_binding binding() const noexcept { return action_binding{raw}; }
+};
+
 /// Manual input for tests and replay (same state as live input).
 struct input_event {
     std::uint32_t kind, slot, input;
@@ -4300,6 +4328,21 @@ public:
     void set_actions(const action_map& map) { detail::check(ponko_ctx_set_actions(raw_, map.raw())); }
     /// A copy of the installed bindings.
     action_map actions() const { action_map map; detail::check(ponko_ctx_actions(raw_, map.raw())); return map; }
+    /// Everything that went down this frame (keys, mouse buttons, gamepad buttons, and gamepad axes
+    /// past `axis_threshold`, 0 for the default of PONKO_PRESS_THRESHOLD), in a fixed order: keys,
+    /// mouse, gamepad buttons, axes. What a rebinding screen binds, instead of polling every key.
+    /// Throws ponko::error for a negative threshold.
+    std::vector<pressed_input> pressed_this_frame(float axis_threshold = 0.0f) const {
+        std::size_t count = 0;
+        detail::check(ponko_ctx_pressed_this_frame(raw_, axis_threshold, nullptr, 0, &count));
+        std::vector<pressed_input> list(count);
+        if (count == 0) return list;
+        static_assert(sizeof(pressed_input) == sizeof(PonkoActionBinding), "pressed_input is its C description");
+        std::size_t filled = 0;
+        detail::check(ponko_ctx_pressed_this_frame(raw_, axis_threshold, &list.data()->raw, count, &filled));
+        list.resize(filled < count ? filled : count);
+        return list;
+    }
     /// Feeds manual input as if a device sent it (tests and replays): the same state as live input.
     void feed_input(input_event e) { detail::check(ponko_ctx_feed_input(raw_, e.kind, e.slot, e.input, e.value)); }
     /// Whether named action `name` is held. Unknown actions and actions of another kind read false.

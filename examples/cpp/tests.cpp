@@ -2889,6 +2889,17 @@ static void native_coverage() {
         CHECK(ctx.action_down(jump) && ctx.action_pressed(jump) && !ctx.action_released(jump));
         CHECK(ctx.action_axis(jump) == 0 && !ctx.action_down(ponko::action_id::none()));
 
+        // Pressed this frame: a rebinding screen binds the answer directly (Space went down above).
+        ctx.feed_input(ponko::input_event::button(ponko::gamepad{1}, PONKO_GAMEPAD_WEST, true));
+        const auto fresh = ctx.pressed_this_frame();
+        CHECK(fresh.size() == 2 && fresh[0].is_key() && fresh[0].key() == PONKO_KEY_SPACE);
+        CHECK(fresh[1].is_gamepad_button() && fresh[1].pad().slot == 1 && fresh[1].button() == PONKO_GAMEPAD_WEST);
+        auto rebound = ctx.actions();
+        rebound.set("jump", ponko::action::button({fresh[1].binding()}));
+        ctx.set_actions(rebound);
+        CHECK(ctx.action_down("jump"));
+        throws_kind([&] { ctx.pressed_this_frame(-1.0f); }, PONKO_ERROR_INVALID);
+
         // try_ loaders: the error says what and where.
         auto missing = ctx.try_load_texture("no/such.png");
         CHECK(!missing && missing.kind() == PONKO_ERROR_NOT_FOUND);

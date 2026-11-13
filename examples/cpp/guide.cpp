@@ -62,6 +62,32 @@ static void action_map_snippet() {
 }
 // ANCHOR_END: action_map
 
+// ANCHOR: pressed_this_frame
+// A rebinding prompt: bind whatever button-like input the player presses next.
+static bool rebind_jump(ponko::ctx& ctx) {
+    for (const ponko::pressed_input& pressed : ctx.pressed_this_frame()) {
+        if (pressed.is_gamepad_axis()) continue;  // axes bind with action::axis
+        auto bindings = ctx.actions();
+        bindings.set("jump", ponko::action::button({pressed.binding()}));
+        ctx.set_actions(bindings);
+        return true;
+    }
+    return false;
+}
+// ANCHOR_END: pressed_this_frame
+
+static void pressed_this_frame_snippet() {
+    ponko::game("rebind", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        ponko::action_map bindings;
+        bindings.set("jump", ponko::action::button({ponko::action_binding::key(PONKO_KEY_SPACE)}));
+        ctx.set_actions(bindings);
+        if (rebind_jump(ctx)) throw std::runtime_error("nothing was pressed yet");
+        ctx.feed_input(ponko::input_event::key(PONKO_KEY_K, true));
+        if (!rebind_jump(ctx)) throw std::runtime_error("the press was not reported");
+        if (!ctx.action_down("jump")) throw std::runtime_error("jump was not rebound");
+    });
+}
+
 // ---- Entities, components, queries -----------------------------------------
 // ANCHOR: ecs_components
 struct Health { float value; };
@@ -3072,6 +3098,7 @@ int main() {
     });
     world_text_snippet();
     action_map_snippet();
+    pressed_this_frame_snippet();
     ponko::game("static instances",1,1).run_headless(0,[](ponko::ctx& ctx) {
         auto material=ctx.create_material(ponko::material_of(ponko::colors::white));
         persistent_instances(ctx,ctx.create_mesh(ponko::mesh_data::cube(1.0f),material));
