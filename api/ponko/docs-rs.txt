@@ -456,9 +456,9 @@ pub fn ponko::anim::AnimationState::fmt(&self, &mut core::fmt::Formatter<'_>) ->
 pub struct ponko::anim::AnimationTrack
 impl ponko::anim::AnimationTrack
 pub fn ponko::anim::AnimationTrack::interpolation(&self) -> ponko::anim::Interpolation
-pub fn ponko::anim::AnimationTrack::new(alloc::vec::Vec<f32>, alloc::vec::Vec<glam::f32::neon::vec4::Vec4>, ponko::anim::Interpolation) -> Self
+pub fn ponko::anim::AnimationTrack::new(alloc::vec::Vec<f32>, alloc::vec::Vec<glam::f32::sse2::vec4::Vec4>, ponko::anim::Interpolation) -> Self
 pub fn ponko::anim::AnimationTrack::times(&self) -> &[f32]
-pub fn ponko::anim::AnimationTrack::values(&self) -> &[glam::f32::neon::vec4::Vec4]
+pub fn ponko::anim::AnimationTrack::values(&self) -> &[glam::f32::sse2::vec4::Vec4]
 impl core::clone::Clone for ponko::anim::AnimationTrack
 pub fn ponko::anim::AnimationTrack::clone(&self) -> Self
 impl core::fmt::Debug for ponko::anim::AnimationTrack
@@ -644,7 +644,7 @@ impl core::marker::Copy for ponko::anim::ParamId
 impl core::marker::StructuralPartialEq for ponko::anim::ParamId
 pub struct ponko::anim::RootMotion
 pub ponko::anim::RootMotion::position: glam::f32::vec3::Vec3
-pub ponko::anim::RootMotion::rotation: glam::f32::neon::quat::Quat
+pub ponko::anim::RootMotion::rotation: glam::f32::sse2::quat::Quat
 impl core::clone::Clone for ponko::anim::RootMotion
 pub fn ponko::anim::RootMotion::clone(&self) -> Self
 impl core::default::Default for ponko::anim::RootMotion
@@ -656,7 +656,7 @@ pub struct ponko::anim::Skeleton
 pub ponko::anim::Skeleton::pose: alloc::vec::Vec<ponko::d3::Transform>
 impl ponko::anim::Skeleton
 pub fn ponko::anim::Skeleton::find(&self, &str) -> core::option::Option<usize>
-pub fn ponko::anim::Skeleton::joint_matrix(&self, usize) -> glam::f32::neon::mat4::Mat4
+pub fn ponko::anim::Skeleton::joint_matrix(&self, usize) -> glam::f32::sse2::mat4::Mat4
 pub fn ponko::anim::Skeleton::joints(&self) -> &[ponko::anim::Joint]
 pub fn ponko::anim::Skeleton::new(alloc::vec::Vec<ponko::anim::Joint>) -> Self
 pub fn ponko::anim::Skeleton::reset_pose(&mut self)
@@ -846,7 +846,7 @@ impl core::marker::Copy for ponko::audio::AudioEffects
 impl core::marker::StructuralPartialEq for ponko::audio::AudioEffects
 pub struct ponko::audio::AudioListener3D
 pub ponko::audio::AudioListener3D::position: glam::f32::vec3::Vec3
-pub ponko::audio::AudioListener3D::rotation: glam::f32::neon::quat::Quat
+pub ponko::audio::AudioListener3D::rotation: glam::f32::sse2::quat::Quat
 impl core::clone::Clone for ponko::audio::AudioListener3D
 pub fn ponko::audio::AudioListener3D::clone(&self) -> Self
 impl core::default::Default for ponko::audio::AudioListener3D
@@ -1891,9 +1891,9 @@ pub fn ponko::anim::AnimationState::fmt(&self, &mut core::fmt::Formatter<'_>) ->
 pub struct ponko::d3::AnimationTrack
 impl ponko::anim::AnimationTrack
 pub fn ponko::anim::AnimationTrack::interpolation(&self) -> ponko::anim::Interpolation
-pub fn ponko::anim::AnimationTrack::new(alloc::vec::Vec<f32>, alloc::vec::Vec<glam::f32::neon::vec4::Vec4>, ponko::anim::Interpolation) -> Self
+pub fn ponko::anim::AnimationTrack::new(alloc::vec::Vec<f32>, alloc::vec::Vec<glam::f32::sse2::vec4::Vec4>, ponko::anim::Interpolation) -> Self
 pub fn ponko::anim::AnimationTrack::times(&self) -> &[f32]
-pub fn ponko::anim::AnimationTrack::values(&self) -> &[glam::f32::neon::vec4::Vec4]
+pub fn ponko::anim::AnimationTrack::values(&self) -> &[glam::f32::sse2::vec4::Vec4]
 impl core::clone::Clone for ponko::anim::AnimationTrack
 pub fn ponko::anim::AnimationTrack::clone(&self) -> Self
 impl core::fmt::Debug for ponko::anim::AnimationTrack
@@ -1964,7 +1964,7 @@ impl<'de> serde_core::de::Deserialize<'de> for ponko::anim::AttachToJoint
 pub fn ponko::anim::AttachToJoint::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct ponko::d3::AudioListener
 pub ponko::d3::AudioListener::position: glam::f32::vec3::Vec3
-pub ponko::d3::AudioListener::rotation: glam::f32::neon::quat::Quat
+pub ponko::d3::AudioListener::rotation: glam::f32::sse2::quat::Quat
 impl core::clone::Clone for ponko::audio::AudioListener3D
 pub fn ponko::audio::AudioListener3D::clone(&self) -> Self
 impl core::default::Default for ponko::audio::AudioListener3D
@@ -2001,7 +2001,7 @@ pub ponko::d3::Camera::fov_y: f32
 pub ponko::d3::Camera::near: f32
 pub ponko::d3::Camera::occlusion_culling: bool
 pub ponko::d3::Camera::position: glam::f32::vec3::Vec3
-pub ponko::d3::Camera::rotation: glam::f32::neon::quat::Quat
+pub ponko::d3::Camera::rotation: glam::f32::sse2::quat::Quat
 impl ponko::d3::Camera
 pub fn ponko::d3::Camera::forward(&self) -> glam::f32::vec3::Vec3
 pub fn ponko::d3::Camera::look_at(&mut self, glam::f32::vec3::Vec3)
@@ -2655,7 +2655,7 @@ pub const ponko::d3::Material::NONE: Self
 #[non_exhaustive] pub struct ponko::d3::MaterialDesc
 pub ponko::d3::MaterialDesc::blend: ponko::d3::Blend
 pub ponko::d3::MaterialDesc::color: ponko::color::Color
-pub ponko::d3::MaterialDesc::custom: [glam::f32::neon::vec4::Vec4; 4]
+pub ponko::d3::MaterialDesc::custom: [glam::f32::sse2::vec4::Vec4; 4]
 pub ponko::d3::MaterialDesc::custom_arrays: [core::option::Option<ponko::d3::TextureArray>; 3]
 pub ponko::d3::MaterialDesc::custom_textures: [core::option::Option<ponko::texture::Texture>; 2]
 pub ponko::d3::MaterialDesc::double_sided: bool
@@ -2672,7 +2672,7 @@ impl ponko::d3::MaterialDesc
 pub fn ponko::d3::MaterialDesc::color(ponko::color::Color) -> Self
 pub fn ponko::d3::MaterialDesc::with_blend(self, ponko::d3::Blend) -> Self
 pub fn ponko::d3::MaterialDesc::with_color(self, ponko::color::Color) -> Self
-pub fn ponko::d3::MaterialDesc::with_custom(self, [glam::f32::neon::vec4::Vec4; 4]) -> Self
+pub fn ponko::d3::MaterialDesc::with_custom(self, [glam::f32::sse2::vec4::Vec4; 4]) -> Self
 pub fn ponko::d3::MaterialDesc::with_custom_arrays(self, [core::option::Option<ponko::d3::TextureArray>; 3]) -> Self
 pub fn ponko::d3::MaterialDesc::with_custom_textures(self, [core::option::Option<ponko::texture::Texture>; 2]) -> Self
 pub fn ponko::d3::MaterialDesc::with_double_sided(self, bool) -> Self
@@ -2744,7 +2744,7 @@ pub fn ponko::d3::MeshData::heightfield(&[f32], f32, usize) -> Self
 pub fn ponko::d3::MeshData::plane(f32) -> Self
 pub fn ponko::d3::MeshData::sphere(f32, u32) -> Self
 impl ponko::d3::MeshData
-pub fn ponko::d3::MeshData::decal(&self, glam::f32::neon::mat4::Mat4, f32) -> ponko::d3::MeshData
+pub fn ponko::d3::MeshData::decal(&self, glam::f32::sse2::mat4::Mat4, f32) -> ponko::d3::MeshData
 impl core::clone::Clone for ponko::d3::MeshData
 pub fn ponko::d3::MeshData::clone(&self) -> Self
 impl core::cmp::PartialEq for ponko::d3::MeshData
@@ -3011,7 +3011,7 @@ pub fn ponko::physics3d::Physics3D::cast_capsule(&self, glam::f32::vec3::Vec3, f
 pub fn ponko::physics3d::Physics3D::cast_ray(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter) -> core::option::Option<ponko::d3::Hit>
 pub fn ponko::physics3d::Physics3D::cast_ray_all(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko::d3::Hit>)
 pub fn ponko::physics3d::Physics3D::cast_sphere(&self, glam::f32::vec3::Vec3, f32, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter) -> core::option::Option<ponko::d3::Hit>
-pub fn ponko::physics3d::Physics3D::overlap_box(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, glam::f32::neon::quat::Quat, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
+pub fn ponko::physics3d::Physics3D::overlap_box(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, glam::f32::sse2::quat::Quat, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics3d::Physics3D::overlap_capsule(&self, glam::f32::vec3::Vec3, f32, f32, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics3d::Physics3D::overlap_sphere(&self, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 impl ponko::physics3d::Physics3D
@@ -3222,7 +3222,7 @@ impl<'de> serde_core::de::Deserialize<'de> for ponko::physics3d::RigidBody3D whe
 pub fn ponko::physics3d::RigidBody3D::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct ponko::d3::RootMotion
 pub ponko::d3::RootMotion::position: glam::f32::vec3::Vec3
-pub ponko::d3::RootMotion::rotation: glam::f32::neon::quat::Quat
+pub ponko::d3::RootMotion::rotation: glam::f32::sse2::quat::Quat
 impl core::clone::Clone for ponko::anim::RootMotion
 pub fn ponko::anim::RootMotion::clone(&self) -> Self
 impl core::default::Default for ponko::anim::RootMotion
@@ -3339,7 +3339,7 @@ pub struct ponko::d3::Skeleton
 pub ponko::d3::Skeleton::pose: alloc::vec::Vec<ponko::d3::Transform>
 impl ponko::anim::Skeleton
 pub fn ponko::anim::Skeleton::find(&self, &str) -> core::option::Option<usize>
-pub fn ponko::anim::Skeleton::joint_matrix(&self, usize) -> glam::f32::neon::mat4::Mat4
+pub fn ponko::anim::Skeleton::joint_matrix(&self, usize) -> glam::f32::sse2::mat4::Mat4
 pub fn ponko::anim::Skeleton::joints(&self) -> &[ponko::anim::Joint]
 pub fn ponko::anim::Skeleton::new(alloc::vec::Vec<ponko::anim::Joint>) -> Self
 pub fn ponko::anim::Skeleton::reset_pose(&mut self)
@@ -3448,7 +3448,7 @@ impl core::marker::StructuralPartialEq for ponko::d3::StreamedLod
 impl ponko_ecs::bundle::Component for ponko::d3::StreamedLod
 pub struct ponko::d3::TargetCamera
 pub ponko::d3::TargetCamera::camera: ponko::d3::Camera
-pub ponko::d3::TargetCamera::clip_plane: core::option::Option<glam::f32::neon::vec4::Vec4>
+pub ponko::d3::TargetCamera::clip_plane: core::option::Option<glam::f32::sse2::vec4::Vec4>
 pub ponko::d3::TargetCamera::target: ponko::texture::Texture
 impl ponko::d3::TargetCamera
 pub fn ponko::d3::TargetCamera::new(ponko::d3::Camera, ponko::texture::Texture) -> Self
@@ -3614,14 +3614,14 @@ pub fn ponko::d3::Trail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt:
 impl ponko_ecs::bundle::Component for ponko::d3::Trail
 #[repr(C, align(16))] pub struct ponko::d3::Transform
 pub ponko::d3::Transform::position: glam::f32::vec3::Vec3
-pub ponko::d3::Transform::rotation: glam::f32::neon::quat::Quat
+pub ponko::d3::Transform::rotation: glam::f32::sse2::quat::Quat
 pub ponko::d3::Transform::scale: glam::f32::vec3::Vec3
 impl ponko::d3::Transform
 pub fn ponko::d3::Transform::at(glam::f32::vec3::Vec3) -> Self
 pub fn ponko::d3::Transform::forward(&self) -> glam::f32::vec3::Vec3
 pub fn ponko::d3::Transform::looking_at(self, glam::f32::vec3::Vec3) -> Self
-pub fn ponko::d3::Transform::matrix(&self) -> glam::f32::neon::mat4::Mat4
-pub fn ponko::d3::Transform::rotated(self, glam::f32::neon::quat::Quat) -> Self
+pub fn ponko::d3::Transform::matrix(&self) -> glam::f32::sse2::mat4::Mat4
+pub fn ponko::d3::Transform::rotated(self, glam::f32::sse2::quat::Quat) -> Self
 pub fn ponko::d3::Transform::scaled(self, f32) -> Self
 impl core::clone::Clone for ponko::d3::Transform
 pub fn ponko::d3::Transform::clone(&self) -> Self
@@ -3710,7 +3710,7 @@ pub ponko::d3::Wheel::forward_friction: ponko::d3::FrictionCurve
 pub ponko::d3::Wheel::forward_slip: f32
 pub ponko::d3::Wheel::grounded: bool
 pub ponko::d3::Wheel::local_position: glam::f32::vec3::Vec3
-pub ponko::d3::Wheel::local_rotation: glam::f32::neon::quat::Quat
+pub ponko::d3::Wheel::local_rotation: glam::f32::sse2::quat::Quat
 pub ponko::d3::Wheel::mass: f32
 pub ponko::d3::Wheel::motor_torque: f32
 pub ponko::d3::Wheel::position: glam::f32::vec3::Vec3
@@ -4263,18 +4263,18 @@ pub fn ponko::gfx::Graphics::load_effect(&mut self, &str) -> ponko::d3::Effect
 pub fn ponko::gfx::Graphics::try_create_effect(&mut self, &str, &str) -> core::result::Result<ponko::d3::Effect, ponko::error::Error>
 pub fn ponko::gfx::Graphics::try_load_effect(&mut self, &str) -> core::result::Result<ponko::d3::Effect, ponko::error::Error>
 impl ponko::gfx::Graphics
-pub fn ponko::gfx::Graphics::create_gpu_buffer(&mut self, u32, &[glam::f32::neon::vec4::Vec4]) -> ponko::d3::GpuBuffer
+pub fn ponko::gfx::Graphics::create_gpu_buffer(&mut self, u32, &[glam::f32::sse2::vec4::Vec4]) -> ponko::d3::GpuBuffer
 pub fn ponko::gfx::Graphics::gpu_buffer_len(&self, ponko::d3::GpuBuffer) -> core::option::Option<u32>
 pub fn ponko::gfx::Graphics::set_mesh_gpu_bounds(&mut self, ponko::d3::Mesh, glam::f32::vec3::Vec3, f32)
 pub fn ponko::gfx::Graphics::set_mesh_gpu_buffer(&mut self, ponko::d3::Mesh, ponko::d3::GpuBuffer, u32)
-pub fn ponko::gfx::Graphics::write_gpu_buffer(&mut self, ponko::d3::GpuBuffer, u32, &[glam::f32::neon::vec4::Vec4])
+pub fn ponko::gfx::Graphics::write_gpu_buffer(&mut self, ponko::d3::GpuBuffer, u32, &[glam::f32::sse2::vec4::Vec4])
 impl ponko::gfx::Graphics
-pub fn ponko::gfx::Graphics::create_instance_batch(&mut self, ponko::d3::Mesh, &[glam::f32::neon::mat4::Mat4], ponko::d3::InstanceBatchOptions) -> ponko::d3::InstanceBatch
-pub fn ponko::gfx::Graphics::create_instance_batch_levels(&mut self, &[ponko::d3::InstanceLevel], &[glam::f32::neon::mat4::Mat4], &[ponko::color::Color], ponko::d3::InstanceBatchOptions) -> ponko::d3::InstanceBatch
+pub fn ponko::gfx::Graphics::create_instance_batch(&mut self, ponko::d3::Mesh, &[glam::f32::sse2::mat4::Mat4], ponko::d3::InstanceBatchOptions) -> ponko::d3::InstanceBatch
+pub fn ponko::gfx::Graphics::create_instance_batch_levels(&mut self, &[ponko::d3::InstanceLevel], &[glam::f32::sse2::mat4::Mat4], &[ponko::color::Color], ponko::d3::InstanceBatchOptions) -> ponko::d3::InstanceBatch
 pub fn ponko::gfx::Graphics::instance_batch_len(&self, ponko::d3::InstanceBatch) -> core::option::Option<usize>
 pub fn ponko::gfx::Graphics::set_instance_batch_culling(&mut self, ponko::d3::InstanceBatch, ponko::d3::BatchCulling) -> bool
-pub fn ponko::gfx::Graphics::update_instance_batch(&mut self, ponko::d3::InstanceBatch, &[glam::f32::neon::mat4::Mat4]) -> bool
-pub fn ponko::gfx::Graphics::update_instance_batch_colors(&mut self, ponko::d3::InstanceBatch, &[glam::f32::neon::mat4::Mat4], &[ponko::color::Color]) -> bool
+pub fn ponko::gfx::Graphics::update_instance_batch(&mut self, ponko::d3::InstanceBatch, &[glam::f32::sse2::mat4::Mat4]) -> bool
+pub fn ponko::gfx::Graphics::update_instance_batch_colors(&mut self, ponko::d3::InstanceBatch, &[glam::f32::sse2::mat4::Mat4], &[ponko::color::Color]) -> bool
 impl ponko::gfx::Graphics
 pub fn ponko::gfx::Graphics::create_material(&mut self, ponko::d3::MaterialDesc) -> ponko::d3::Material
 pub fn ponko::gfx::Graphics::create_mesh(&mut self, &ponko::d3::MeshData, ponko::d3::Material) -> ponko::d3::Mesh
@@ -5375,11 +5375,11 @@ impl core::marker::Copy for ponko::net::PeerId
 impl core::marker::StructuralPartialEq for ponko::net::PeerId
 pub struct ponko::net::Pose
 pub ponko::net::Pose::position: glam::f32::vec3::Vec3
-pub ponko::net::Pose::rotation: glam::f32::neon::quat::Quat
+pub ponko::net::Pose::rotation: glam::f32::sse2::quat::Quat
 pub ponko::net::Pose::velocity: core::option::Option<glam::f32::vec3::Vec3>
 impl ponko::net::Pose
 pub const fn ponko::net::Pose::at(glam::f32::vec3::Vec3) -> Self
-pub const fn ponko::net::Pose::facing(self, glam::f32::neon::quat::Quat) -> Self
+pub const fn ponko::net::Pose::facing(self, glam::f32::sse2::quat::Quat) -> Self
 pub const fn ponko::net::Pose::moving(self, glam::f32::vec3::Vec3) -> Self
 impl core::clone::Clone for ponko::net::Pose
 pub fn ponko::net::Pose::clone(&self) -> Self
@@ -5500,9 +5500,9 @@ pub fn ponko::net::Interpolate::interpolate(&Self, &Self, f32, f32) -> Self
 impl ponko::net::Interpolate for f32
 pub fn f32::extrapolate(&Self, &Self, f32, f32) -> Self
 pub fn f32::interpolate(&Self, &Self, f32, f32) -> Self
-impl ponko::net::Interpolate for glam::f32::neon::quat::Quat
-pub fn glam::f32::neon::quat::Quat::extrapolate(&Self, &Self, f32, f32) -> Self
-pub fn glam::f32::neon::quat::Quat::interpolate(&Self, &Self, f32, f32) -> Self
+impl ponko::net::Interpolate for glam::f32::sse2::quat::Quat
+pub fn glam::f32::sse2::quat::Quat::extrapolate(&Self, &Self, f32, f32) -> Self
+pub fn glam::f32::sse2::quat::Quat::interpolate(&Self, &Self, f32, f32) -> Self
 impl ponko::net::Interpolate for glam::f32::vec2::Vec2
 pub fn glam::f32::vec2::Vec2::extrapolate(&Self, &Self, f32, f32) -> Self
 pub fn glam::f32::vec2::Vec2::interpolate(&Self, &Self, f32, f32) -> Self
@@ -6388,7 +6388,7 @@ pub fn ponko::physics3d::Physics3D::cast_capsule(&self, glam::f32::vec3::Vec3, f
 pub fn ponko::physics3d::Physics3D::cast_ray(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter) -> core::option::Option<ponko::d3::Hit>
 pub fn ponko::physics3d::Physics3D::cast_ray_all(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko::d3::Hit>)
 pub fn ponko::physics3d::Physics3D::cast_sphere(&self, glam::f32::vec3::Vec3, f32, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter) -> core::option::Option<ponko::d3::Hit>
-pub fn ponko::physics3d::Physics3D::overlap_box(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, glam::f32::neon::quat::Quat, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
+pub fn ponko::physics3d::Physics3D::overlap_box(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, glam::f32::sse2::quat::Quat, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics3d::Physics3D::overlap_capsule(&self, glam::f32::vec3::Vec3, f32, f32, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics3d::Physics3D::overlap_sphere(&self, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 impl ponko::physics3d::Physics3D
@@ -6554,7 +6554,7 @@ pub ponko::physics3d::Wheel3D::forward_friction: ponko::d3::FrictionCurve
 pub ponko::physics3d::Wheel3D::forward_slip: f32
 pub ponko::physics3d::Wheel3D::grounded: bool
 pub ponko::physics3d::Wheel3D::local_position: glam::f32::vec3::Vec3
-pub ponko::physics3d::Wheel3D::local_rotation: glam::f32::neon::quat::Quat
+pub ponko::physics3d::Wheel3D::local_rotation: glam::f32::sse2::quat::Quat
 pub ponko::physics3d::Wheel3D::mass: f32
 pub ponko::physics3d::Wheel3D::motor_torque: f32
 pub ponko::physics3d::Wheel3D::position: glam::f32::vec3::Vec3
@@ -7623,9 +7623,9 @@ pub fn ponko::anim::AnimationState::fmt(&self, &mut core::fmt::Formatter<'_>) ->
 pub struct ponko::prelude::d3::AnimationTrack
 impl ponko::anim::AnimationTrack
 pub fn ponko::anim::AnimationTrack::interpolation(&self) -> ponko::anim::Interpolation
-pub fn ponko::anim::AnimationTrack::new(alloc::vec::Vec<f32>, alloc::vec::Vec<glam::f32::neon::vec4::Vec4>, ponko::anim::Interpolation) -> Self
+pub fn ponko::anim::AnimationTrack::new(alloc::vec::Vec<f32>, alloc::vec::Vec<glam::f32::sse2::vec4::Vec4>, ponko::anim::Interpolation) -> Self
 pub fn ponko::anim::AnimationTrack::times(&self) -> &[f32]
-pub fn ponko::anim::AnimationTrack::values(&self) -> &[glam::f32::neon::vec4::Vec4]
+pub fn ponko::anim::AnimationTrack::values(&self) -> &[glam::f32::sse2::vec4::Vec4]
 impl core::clone::Clone for ponko::anim::AnimationTrack
 pub fn ponko::anim::AnimationTrack::clone(&self) -> Self
 impl core::fmt::Debug for ponko::anim::AnimationTrack
@@ -7696,7 +7696,7 @@ impl<'de> serde_core::de::Deserialize<'de> for ponko::anim::AttachToJoint
 pub fn ponko::anim::AttachToJoint::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct ponko::prelude::d3::AudioListener
 pub ponko::prelude::d3::AudioListener::position: glam::f32::vec3::Vec3
-pub ponko::prelude::d3::AudioListener::rotation: glam::f32::neon::quat::Quat
+pub ponko::prelude::d3::AudioListener::rotation: glam::f32::sse2::quat::Quat
 impl core::clone::Clone for ponko::audio::AudioListener3D
 pub fn ponko::audio::AudioListener3D::clone(&self) -> Self
 impl core::default::Default for ponko::audio::AudioListener3D
@@ -7733,7 +7733,7 @@ pub ponko::prelude::d3::Camera::fov_y: f32
 pub ponko::prelude::d3::Camera::near: f32
 pub ponko::prelude::d3::Camera::occlusion_culling: bool
 pub ponko::prelude::d3::Camera::position: glam::f32::vec3::Vec3
-pub ponko::prelude::d3::Camera::rotation: glam::f32::neon::quat::Quat
+pub ponko::prelude::d3::Camera::rotation: glam::f32::sse2::quat::Quat
 impl ponko::d3::Camera
 pub fn ponko::d3::Camera::forward(&self) -> glam::f32::vec3::Vec3
 pub fn ponko::d3::Camera::look_at(&mut self, glam::f32::vec3::Vec3)
@@ -8387,7 +8387,7 @@ pub const ponko::d3::Material::NONE: Self
 #[non_exhaustive] pub struct ponko::prelude::d3::MaterialDesc
 pub ponko::prelude::d3::MaterialDesc::blend: ponko::d3::Blend
 pub ponko::prelude::d3::MaterialDesc::color: ponko::color::Color
-pub ponko::prelude::d3::MaterialDesc::custom: [glam::f32::neon::vec4::Vec4; 4]
+pub ponko::prelude::d3::MaterialDesc::custom: [glam::f32::sse2::vec4::Vec4; 4]
 pub ponko::prelude::d3::MaterialDesc::custom_arrays: [core::option::Option<ponko::d3::TextureArray>; 3]
 pub ponko::prelude::d3::MaterialDesc::custom_textures: [core::option::Option<ponko::texture::Texture>; 2]
 pub ponko::prelude::d3::MaterialDesc::double_sided: bool
@@ -8404,7 +8404,7 @@ impl ponko::d3::MaterialDesc
 pub fn ponko::d3::MaterialDesc::color(ponko::color::Color) -> Self
 pub fn ponko::d3::MaterialDesc::with_blend(self, ponko::d3::Blend) -> Self
 pub fn ponko::d3::MaterialDesc::with_color(self, ponko::color::Color) -> Self
-pub fn ponko::d3::MaterialDesc::with_custom(self, [glam::f32::neon::vec4::Vec4; 4]) -> Self
+pub fn ponko::d3::MaterialDesc::with_custom(self, [glam::f32::sse2::vec4::Vec4; 4]) -> Self
 pub fn ponko::d3::MaterialDesc::with_custom_arrays(self, [core::option::Option<ponko::d3::TextureArray>; 3]) -> Self
 pub fn ponko::d3::MaterialDesc::with_custom_textures(self, [core::option::Option<ponko::texture::Texture>; 2]) -> Self
 pub fn ponko::d3::MaterialDesc::with_double_sided(self, bool) -> Self
@@ -8476,7 +8476,7 @@ pub fn ponko::d3::MeshData::heightfield(&[f32], f32, usize) -> Self
 pub fn ponko::d3::MeshData::plane(f32) -> Self
 pub fn ponko::d3::MeshData::sphere(f32, u32) -> Self
 impl ponko::d3::MeshData
-pub fn ponko::d3::MeshData::decal(&self, glam::f32::neon::mat4::Mat4, f32) -> ponko::d3::MeshData
+pub fn ponko::d3::MeshData::decal(&self, glam::f32::sse2::mat4::Mat4, f32) -> ponko::d3::MeshData
 impl core::clone::Clone for ponko::d3::MeshData
 pub fn ponko::d3::MeshData::clone(&self) -> Self
 impl core::cmp::PartialEq for ponko::d3::MeshData
@@ -8743,7 +8743,7 @@ pub fn ponko::physics3d::Physics3D::cast_capsule(&self, glam::f32::vec3::Vec3, f
 pub fn ponko::physics3d::Physics3D::cast_ray(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter) -> core::option::Option<ponko::d3::Hit>
 pub fn ponko::physics3d::Physics3D::cast_ray_all(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko::d3::Hit>)
 pub fn ponko::physics3d::Physics3D::cast_sphere(&self, glam::f32::vec3::Vec3, f32, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter) -> core::option::Option<ponko::d3::Hit>
-pub fn ponko::physics3d::Physics3D::overlap_box(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, glam::f32::neon::quat::Quat, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
+pub fn ponko::physics3d::Physics3D::overlap_box(&self, glam::f32::vec3::Vec3, glam::f32::vec3::Vec3, glam::f32::sse2::quat::Quat, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics3d::Physics3D::overlap_capsule(&self, glam::f32::vec3::Vec3, f32, f32, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 pub fn ponko::physics3d::Physics3D::overlap_sphere(&self, glam::f32::vec3::Vec3, f32, ponko::d3::QueryFilter, &mut alloc::vec::Vec<ponko_ecs::entity::Entity>)
 impl ponko::physics3d::Physics3D
@@ -8954,7 +8954,7 @@ impl<'de> serde_core::de::Deserialize<'de> for ponko::physics3d::RigidBody3D whe
 pub fn ponko::physics3d::RigidBody3D::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct ponko::prelude::d3::RootMotion
 pub ponko::prelude::d3::RootMotion::position: glam::f32::vec3::Vec3
-pub ponko::prelude::d3::RootMotion::rotation: glam::f32::neon::quat::Quat
+pub ponko::prelude::d3::RootMotion::rotation: glam::f32::sse2::quat::Quat
 impl core::clone::Clone for ponko::anim::RootMotion
 pub fn ponko::anim::RootMotion::clone(&self) -> Self
 impl core::default::Default for ponko::anim::RootMotion
@@ -9071,7 +9071,7 @@ pub struct ponko::prelude::d3::Skeleton
 pub ponko::prelude::d3::Skeleton::pose: alloc::vec::Vec<ponko::d3::Transform>
 impl ponko::anim::Skeleton
 pub fn ponko::anim::Skeleton::find(&self, &str) -> core::option::Option<usize>
-pub fn ponko::anim::Skeleton::joint_matrix(&self, usize) -> glam::f32::neon::mat4::Mat4
+pub fn ponko::anim::Skeleton::joint_matrix(&self, usize) -> glam::f32::sse2::mat4::Mat4
 pub fn ponko::anim::Skeleton::joints(&self) -> &[ponko::anim::Joint]
 pub fn ponko::anim::Skeleton::new(alloc::vec::Vec<ponko::anim::Joint>) -> Self
 pub fn ponko::anim::Skeleton::reset_pose(&mut self)
@@ -9180,7 +9180,7 @@ impl core::marker::StructuralPartialEq for ponko::d3::StreamedLod
 impl ponko_ecs::bundle::Component for ponko::d3::StreamedLod
 pub struct ponko::prelude::d3::TargetCamera
 pub ponko::prelude::d3::TargetCamera::camera: ponko::d3::Camera
-pub ponko::prelude::d3::TargetCamera::clip_plane: core::option::Option<glam::f32::neon::vec4::Vec4>
+pub ponko::prelude::d3::TargetCamera::clip_plane: core::option::Option<glam::f32::sse2::vec4::Vec4>
 pub ponko::prelude::d3::TargetCamera::target: ponko::texture::Texture
 impl ponko::d3::TargetCamera
 pub fn ponko::d3::TargetCamera::new(ponko::d3::Camera, ponko::texture::Texture) -> Self
@@ -9346,14 +9346,14 @@ pub fn ponko::d3::Trail::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt:
 impl ponko_ecs::bundle::Component for ponko::d3::Trail
 #[repr(C, align(16))] pub struct ponko::prelude::d3::Transform
 pub ponko::prelude::d3::Transform::position: glam::f32::vec3::Vec3
-pub ponko::prelude::d3::Transform::rotation: glam::f32::neon::quat::Quat
+pub ponko::prelude::d3::Transform::rotation: glam::f32::sse2::quat::Quat
 pub ponko::prelude::d3::Transform::scale: glam::f32::vec3::Vec3
 impl ponko::d3::Transform
 pub fn ponko::d3::Transform::at(glam::f32::vec3::Vec3) -> Self
 pub fn ponko::d3::Transform::forward(&self) -> glam::f32::vec3::Vec3
 pub fn ponko::d3::Transform::looking_at(self, glam::f32::vec3::Vec3) -> Self
-pub fn ponko::d3::Transform::matrix(&self) -> glam::f32::neon::mat4::Mat4
-pub fn ponko::d3::Transform::rotated(self, glam::f32::neon::quat::Quat) -> Self
+pub fn ponko::d3::Transform::matrix(&self) -> glam::f32::sse2::mat4::Mat4
+pub fn ponko::d3::Transform::rotated(self, glam::f32::sse2::quat::Quat) -> Self
 pub fn ponko::d3::Transform::scaled(self, f32) -> Self
 impl core::clone::Clone for ponko::d3::Transform
 pub fn ponko::d3::Transform::clone(&self) -> Self
@@ -9442,7 +9442,7 @@ pub ponko::prelude::d3::Wheel::forward_friction: ponko::d3::FrictionCurve
 pub ponko::prelude::d3::Wheel::forward_slip: f32
 pub ponko::prelude::d3::Wheel::grounded: bool
 pub ponko::prelude::d3::Wheel::local_position: glam::f32::vec3::Vec3
-pub ponko::prelude::d3::Wheel::local_rotation: glam::f32::neon::quat::Quat
+pub ponko::prelude::d3::Wheel::local_rotation: glam::f32::sse2::quat::Quat
 pub ponko::prelude::d3::Wheel::mass: f32
 pub ponko::prelude::d3::Wheel::motor_torque: f32
 pub ponko::prelude::d3::Wheel::position: glam::f32::vec3::Vec3
@@ -9906,7 +9906,7 @@ pub ponko::prelude::Camera3D::fov_y: f32
 pub ponko::prelude::Camera3D::near: f32
 pub ponko::prelude::Camera3D::occlusion_culling: bool
 pub ponko::prelude::Camera3D::position: glam::f32::vec3::Vec3
-pub ponko::prelude::Camera3D::rotation: glam::f32::neon::quat::Quat
+pub ponko::prelude::Camera3D::rotation: glam::f32::sse2::quat::Quat
 impl ponko::d3::Camera
 pub fn ponko::d3::Camera::forward(&self) -> glam::f32::vec3::Vec3
 pub fn ponko::d3::Camera::look_at(&mut self, glam::f32::vec3::Vec3)
@@ -10463,14 +10463,14 @@ impl<'de> serde_core::de::Deserialize<'de> for ponko::d2::Transform where ponko:
 pub fn ponko::d2::Transform::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 #[repr(C, align(16))] pub struct ponko::prelude::Transform3D
 pub ponko::prelude::Transform3D::position: glam::f32::vec3::Vec3
-pub ponko::prelude::Transform3D::rotation: glam::f32::neon::quat::Quat
+pub ponko::prelude::Transform3D::rotation: glam::f32::sse2::quat::Quat
 pub ponko::prelude::Transform3D::scale: glam::f32::vec3::Vec3
 impl ponko::d3::Transform
 pub fn ponko::d3::Transform::at(glam::f32::vec3::Vec3) -> Self
 pub fn ponko::d3::Transform::forward(&self) -> glam::f32::vec3::Vec3
 pub fn ponko::d3::Transform::looking_at(self, glam::f32::vec3::Vec3) -> Self
-pub fn ponko::d3::Transform::matrix(&self) -> glam::f32::neon::mat4::Mat4
-pub fn ponko::d3::Transform::rotated(self, glam::f32::neon::quat::Quat) -> Self
+pub fn ponko::d3::Transform::matrix(&self) -> glam::f32::sse2::mat4::Mat4
+pub fn ponko::d3::Transform::rotated(self, glam::f32::sse2::quat::Quat) -> Self
 pub fn ponko::d3::Transform::scaled(self, f32) -> Self
 impl core::clone::Clone for ponko::d3::Transform
 pub fn ponko::d3::Transform::clone(&self) -> Self
@@ -11523,7 +11523,7 @@ pub const ponko::d3::Material::NONE: Self
 #[non_exhaustive] pub struct ponko::render::MaterialDesc
 pub ponko::render::MaterialDesc::blend: ponko::d3::Blend
 pub ponko::render::MaterialDesc::color: ponko::color::Color
-pub ponko::render::MaterialDesc::custom: [glam::f32::neon::vec4::Vec4; 4]
+pub ponko::render::MaterialDesc::custom: [glam::f32::sse2::vec4::Vec4; 4]
 pub ponko::render::MaterialDesc::custom_arrays: [core::option::Option<ponko::d3::TextureArray>; 3]
 pub ponko::render::MaterialDesc::custom_textures: [core::option::Option<ponko::texture::Texture>; 2]
 pub ponko::render::MaterialDesc::double_sided: bool
@@ -11540,7 +11540,7 @@ impl ponko::d3::MaterialDesc
 pub fn ponko::d3::MaterialDesc::color(ponko::color::Color) -> Self
 pub fn ponko::d3::MaterialDesc::with_blend(self, ponko::d3::Blend) -> Self
 pub fn ponko::d3::MaterialDesc::with_color(self, ponko::color::Color) -> Self
-pub fn ponko::d3::MaterialDesc::with_custom(self, [glam::f32::neon::vec4::Vec4; 4]) -> Self
+pub fn ponko::d3::MaterialDesc::with_custom(self, [glam::f32::sse2::vec4::Vec4; 4]) -> Self
 pub fn ponko::d3::MaterialDesc::with_custom_arrays(self, [core::option::Option<ponko::d3::TextureArray>; 3]) -> Self
 pub fn ponko::d3::MaterialDesc::with_custom_textures(self, [core::option::Option<ponko::texture::Texture>; 2]) -> Self
 pub fn ponko::d3::MaterialDesc::with_double_sided(self, bool) -> Self
@@ -11612,7 +11612,7 @@ pub fn ponko::d3::MeshData::heightfield(&[f32], f32, usize) -> Self
 pub fn ponko::d3::MeshData::plane(f32) -> Self
 pub fn ponko::d3::MeshData::sphere(f32, u32) -> Self
 impl ponko::d3::MeshData
-pub fn ponko::d3::MeshData::decal(&self, glam::f32::neon::mat4::Mat4, f32) -> ponko::d3::MeshData
+pub fn ponko::d3::MeshData::decal(&self, glam::f32::sse2::mat4::Mat4, f32) -> ponko::d3::MeshData
 impl core::clone::Clone for ponko::d3::MeshData
 pub fn ponko::d3::MeshData::clone(&self) -> Self
 impl core::cmp::PartialEq for ponko::d3::MeshData
@@ -11991,7 +11991,7 @@ impl core::marker::StructuralPartialEq for ponko::d3::StreamedLod
 impl ponko_ecs::bundle::Component for ponko::d3::StreamedLod
 pub struct ponko::render::TargetCamera
 pub ponko::render::TargetCamera::camera: ponko::d3::Camera
-pub ponko::render::TargetCamera::clip_plane: core::option::Option<glam::f32::neon::vec4::Vec4>
+pub ponko::render::TargetCamera::clip_plane: core::option::Option<glam::f32::sse2::vec4::Vec4>
 pub ponko::render::TargetCamera::target: ponko::texture::Texture
 impl ponko::d3::TargetCamera
 pub fn ponko::d3::TargetCamera::new(ponko::d3::Camera, ponko::texture::Texture) -> Self
@@ -13012,7 +13012,6 @@ impl core::marker::Sync for ponko::prelude::Ui
 pub struct ponko::ui::UiAccessAdapter
 impl ponko::ui::UiAccessAdapter
 pub const ponko::ui::UiAccessAdapter::SUPPORTED: bool
-pub unsafe fn ponko::ui::UiAccessAdapter::for_ns_view(*mut core::ffi::c_void, &str) -> Self
 pub fn ponko::ui::UiAccessAdapter::inert() -> Self
 pub fn ponko::ui::UiAccessAdapter::is_active(&self) -> bool
 pub fn ponko::ui::UiAccessAdapter::set_title(&mut self, &str)

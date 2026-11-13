@@ -198,9 +198,11 @@ published crate, one item per line, made with
 committed files, so a pull request that adds, renames, widens or removes a
 public item shows it as a diff, and the reviewer decides whether the surface
 is meant. 1.0 needs a deliberate surface; this is how it stays one. It is a
-quick check (no tests): measured on a busy laptop, a cold build of all
-feature sets took 3.6 minutes and a rerun 20 seconds; CI restores the
-dependency cache of `main`, so it lands in between.
+quick check (no tests): on a GitHub runner without a cache the whole job took
+3.6 minutes (about 2.2 of them the listing itself); the dependency cache of
+`main` is restored on top, so expect less. Locally, `update` took 1.9 minutes
+on a busy laptop with a warm dependency build, and a rerun is under half a
+minute.
 
 **After changing public API, run one command and commit the result:**
 
@@ -231,7 +233,12 @@ git add api
   install commands if something is missing: `cargo install --locked
   cargo-public-api --version <pin>` and `rustup toolchain install <nightly>
   --profile minimal` (the nightly does not become your default). It also
-  needs the audio and udev headers on Linux, like every build here. To move to
+  needs the audio and udev headers on Linux, like every build here. The
+  listing is the one for x86_64 Linux, the CI runner: on macOS the script builds
+  for `x86_64-apple-darwin` (same CPU types, no Linux libraries needed; it
+  tells you the one `rustup target add` command) and drops the few items that
+  exist only on macOS, so `update` gives the same text as CI. Another host
+  (Windows) takes the files from the `api-regenerated` artifact. To move to
   a newer nightly, pick a tool release whose README supports it, change both
   pins, run `update`, and review the diff: it should only change where the
   tool's changelog says it does.

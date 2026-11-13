@@ -2174,11 +2174,11 @@ impl core::marker::Copy for ponko::net::PeerId
 impl core::marker::StructuralPartialEq for ponko::net::PeerId
 pub struct ponko::net::Pose
 pub ponko::net::Pose::position: glam::f32::vec3::Vec3
-pub ponko::net::Pose::rotation: glam::f32::neon::quat::Quat
+pub ponko::net::Pose::rotation: glam::f32::sse2::quat::Quat
 pub ponko::net::Pose::velocity: core::option::Option<glam::f32::vec3::Vec3>
 impl ponko::net::Pose
 pub const fn ponko::net::Pose::at(glam::f32::vec3::Vec3) -> Self
-pub const fn ponko::net::Pose::facing(self, glam::f32::neon::quat::Quat) -> Self
+pub const fn ponko::net::Pose::facing(self, glam::f32::sse2::quat::Quat) -> Self
 pub const fn ponko::net::Pose::moving(self, glam::f32::vec3::Vec3) -> Self
 impl core::clone::Clone for ponko::net::Pose
 pub fn ponko::net::Pose::clone(&self) -> Self
@@ -2286,9 +2286,9 @@ pub fn ponko::net::Interpolate::interpolate(&Self, &Self, f32, f32) -> Self
 impl ponko::net::Interpolate for f32
 pub fn f32::extrapolate(&Self, &Self, f32, f32) -> Self
 pub fn f32::interpolate(&Self, &Self, f32, f32) -> Self
-impl ponko::net::Interpolate for glam::f32::neon::quat::Quat
-pub fn glam::f32::neon::quat::Quat::extrapolate(&Self, &Self, f32, f32) -> Self
-pub fn glam::f32::neon::quat::Quat::interpolate(&Self, &Self, f32, f32) -> Self
+impl ponko::net::Interpolate for glam::f32::sse2::quat::Quat
+pub fn glam::f32::sse2::quat::Quat::extrapolate(&Self, &Self, f32, f32) -> Self
+pub fn glam::f32::sse2::quat::Quat::interpolate(&Self, &Self, f32, f32) -> Self
 impl ponko::net::Interpolate for glam::f32::vec2::Vec2
 pub fn glam::f32::vec2::Vec2::extrapolate(&Self, &Self, f32, f32) -> Self
 pub fn glam::f32::vec2::Vec2::interpolate(&Self, &Self, f32, f32) -> Self

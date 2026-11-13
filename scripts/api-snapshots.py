@@ -33,9 +33,15 @@ the tool reads rustdoc's JSON, whose format changes with every nightly. To
 move to a newer nightly, move TOOL_VERSION to a release that supports it (its
 README has the table), run `update`, and check that the listing changes only
 where the tool's changelog says it should. The listing is made for the Linux
-docs.rs target but does not depend on the machine it is made on, as long as
-the host is macOS or Linux (the public API has no items behind
-`cfg(target_os)`); CI has the last word.
+docs.rs target: x86_64 Linux. The listing differs by platform in two ways
+(types such as `glam::Quat` live in `glam::f32::sse2` on x86_64 and in
+`glam::f32::neon` on Apple silicon; a few items exist only on one OS), so on
+macOS the script builds for `x86_64-apple-darwin` (same CPU, no Linux system
+libraries needed) and removes the macOS-only items, MACOS_ONLY_ITEMS. On any
+other host it stops and says to use the files CI uploads. The result is the
+same text as on the Linux runner; CI has the last word. A new public item
+behind `cfg(target_os = ...)` shows up as a diff in CI: add it to
+MACOS_ONLY_ITEMS (or take the regenerated files from the CI run).
 
 Relation to scripts/semver-checks.py: the snapshot shows *every* change to the
 public API, growth included, so a reviewer decides whether the surface is meant.
@@ -46,6 +52,7 @@ import difflib
 import json
 import os
 from pathlib import Path
+import platform
 import subprocess
 import sys
 
@@ -63,8 +70,15 @@ OMIT_FLAGS = ['-ss']
 # Feature sets of a crate beyond the three that come from Cargo:
 # {crate: {set name: extra `cargo public-api` flags}}.
 EXTRA_SETS = {'ponko': {'3d': ['--features', '3d']}}
+# Public items that exist only on macOS: they are not in the Linux listing, so
+# the macOS run drops their lines (a line starts with the item, so a prefix of
+# its path is enough).
+MACOS_ONLY_ITEMS = ['pub unsafe fn ponko::ui::UiAccessAdapter::for_ns_view(']
 # How many lines of one file's diff the job summary shows.
 SUMMARY_DIFF_LINES = 300
+
+# The macOS host builds for the same CPU as the Linux runner.
+MACOS_TARGET = 'x86_64-apple-darwin'
 
 UPDATE_COMMAND = 'python3 scripts/api-snapshots.py update'
 
@@ -97,6 +111,25 @@ def skip_reason(package):
     if not kinds & LIB_KINDS:
         return 'no library target (binary only, no API)'
     return None
+
+
+def host_plan(system, machine):
+    """(extra cargo flags, line prefixes to drop, tool problem or None) for the host."""
+    if system == 'Linux' and machine in ('x86_64', 'AMD64'):
+        return [], [], None
+    if system == 'Darwin':
+        return ['--target', MACOS_TARGET], MACOS_ONLY_ITEMS, None
+    return [], [], (f'The listing is made on x86_64 Linux or macOS, not on {system} {machine}. '
+                    'Take the regenerated files from the "api-regenerated" artifact of the '
+                    'failed CI run (API snapshots job) and copy them into api/.')
+
+
+def drop_lines(text, prefixes):
+    """`text` without the lines that start with one of the prefixes."""
+    if not prefixes:
+        return text
+    keep = [l for l in text.splitlines(keepends=True) if not l.startswith(tuple(prefixes))]
+    return ''.join(keep)
 
 
 def drop_same_as_default(listings):
@@ -186,6 +219,9 @@ def endgroup():
 def require_tools():
     """Stop with the exact install commands if the pinned tools are missing."""
     problems = []
+    _, _, host_problem = host_plan(platform.system(), platform.machine())
+    if host_problem:
+        sys.exit(host_problem)
     done = run(['cargo', 'public-api', '--version'], capture_output=True)
     version = done.stdout.split()[-1] if done.returncode == 0 and done.stdout.split() else None
     if version != TOOL_VERSION:
@@ -195,13 +231,21 @@ def require_tools():
         problems.append(f'The {NIGHTLY} toolchain is needed (the tool builds rustdoc JSON with it; '
                         f'it does not become your default):\n'
                         f'    rustup toolchain install {NIGHTLY} --profile minimal')
+    elif platform.system() == 'Darwin':
+        installed = run(['rustup', 'target', 'list', '--installed', '--toolchain', NIGHTLY],
+                        capture_output=True).stdout.split()
+        if MACOS_TARGET not in installed:
+            problems.append(f'The {MACOS_TARGET} standard library is needed on macOS (the listing '
+                            f'is made for x86_64, like CI):\n'
+                            f'    rustup target add {MACOS_TARGET} --toolchain {NIGHTLY}')
     if problems:
         sys.exit('\n\n'.join(problems))
 
 
 def generate(package, set_name, flags):
+    host_flags, drop, _ = host_plan(platform.system(), platform.machine())
     cmd = ['cargo', f'+{NIGHTLY}', 'public-api', '-p', package['name'], *OMIT_FLAGS,
-           '--color', 'never', *flags]
+           '--color', 'never', *host_flags, *flags]
     group(f'{package["name"]}: {set_name} ({" ".join(flags) or "default features"})')
     # No `-D warnings` from the environment: the nightly has lints the stable
     # toolchain does not, and the listing does not depend on warnings.
@@ -212,7 +256,8 @@ def generate(package, set_name, flags):
         sys.exit(f'`{" ".join(cmd)}` failed ({done.returncode}); see the output above.')
     if not done.stdout.strip():
         sys.exit(f'`{" ".join(cmd)}` listed nothing: a crate with a library has some public API.')
-    return done.stdout if done.stdout.endswith('\n') else done.stdout + '\n'
+    text = drop_lines(done.stdout, drop)
+    return text if text.endswith('\n') else text + '\n'
 
 
 def generate_all():
@@ -317,6 +362,13 @@ def selftest():
     message = '\n'.join(failure_message(changes))
     assert UPDATE_COMMAND in message and 'api/a/new.txt' in message
     assert '```diff' in summary_text(changes)
+    assert host_plan('Linux', 'x86_64') == ([], [], None)
+    flags, drop, problem = host_plan('Darwin', 'arm64')
+    assert flags == ['--target', MACOS_TARGET] and drop == MACOS_ONLY_ITEMS and problem is None
+    assert host_plan('Windows', 'AMD64')[2] and host_plan('Linux', 'aarch64')[2]
+    text = 'pub fn a\n' + MACOS_ONLY_ITEMS[0] + '*mut u8) -> Self\npub fn b\n'
+    assert drop_lines(text, MACOS_ONLY_ITEMS) == 'pub fn a\npub fn b\n'
+    assert drop_lines(text, []) == text
     print('selftest ok')
 
 
