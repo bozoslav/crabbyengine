@@ -11,6 +11,7 @@ import {
   launchFailureKind,
   parseArgs,
   parseFixtures,
+  parseExpect,
   parseMin,
   parsePress,
   unsupportedReason,
@@ -104,6 +105,9 @@ test("fixtures.json rejects unknown fields and bad presses", () => {
 test("presses and minimums parse", () => {
   assert.deepEqual(parsePress("Enter=screen:Playing"), { key: "Enter", field: "screen", value: "Playing" });
   assert.deepEqual(parseMin("triangles=100"), { field: "triangles", min: 100 });
+  assert.deepEqual(parseExpect("settings_at_start:Loaded"), { field: "settings_at_start", value: "Loaded" });
+  assert.throws(() => parseExpect("Loaded"), /--after-reload wants/);
+  assert.throws(() => parseFixtures('{"a":{"example":"a","afterReload":["x"]}}'), /--after-reload wants/);
 });
 
 test("the engine's backend names map to the canvas's context", () => {

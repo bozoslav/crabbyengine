@@ -52,6 +52,7 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
 /// | [`ui`](Self::ui) | [`Ui`](crate::ui::Ui): the retained widget tree and the immediate debug widgets. |
 /// | [`assets`](Self::assets) | [`Assets`](crate::assets::Assets): asset sources, data files, saving scenes and prefabs, hot reload. |
 /// | [`perf`](Self::perf) | [`Perf`](crate::perf::Perf): timings, the HUD, traces, profiling reports. |
+/// | [`storage`](Self::storage) | [`Storage`](crate::storage::Storage): the player's saves and settings, crash-safe, on the desktop and the web. |
 /// | [`camera`](Self::camera), `scene3d` | What the renderer reads when the frame is drawn: the 2D camera, and with `3d` the [`SceneSettings`](crate::render::SceneSettings) (camera, lighting, sky, post-processing, levels of detail, GPU passes, quality). |
 /// | [`spatial`](Self::spatial), `physics`, `physics3d`, [`net`](Self::net) | Neighbor queries, the physics worlds, [`Networking`](crate::net::Networking): lockstep, messages, snapshots. |
 ///
@@ -86,7 +87,9 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
 ///   drawing): `start_ragdoll`, `stop_ragdoll`, `draw_skeleton`;
 /// - reports that look across services: [`live_counts`](Self::live_counts),
 ///   `asset_inventory`, `ecs_diagnostics`, `capabilities_json` and
-///   [`control_addr`](Self::control_addr).
+///   [`control_addr`](Self::control_addr);
+/// - save slots (the world, the player's storage and the assets):
+///   [`load_world`](Self::load_world).
 ///
 /// Every other call is on its service: `ctx.input.mouse_down(..)`,
 /// `ctx.gfx.create_mesh(..)`, `ctx.audio.play_at(..)`.
@@ -314,6 +317,19 @@ pub struct Ctx {
     /// # }
     /// ```
     pub perf: crate::perf::Perf,
+    /// The player's own files (saves, settings) in the per-user data folder,
+    /// or the browser's storage on the web, with crash-safe writes. Needs an
+    /// app id ([`Game::app_id`](crate::game::Game::app_id)). See
+    /// [`Storage`](crate::storage::Storage).
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn f(ctx: &mut Ctx) {
+    /// ctx.storage.write("settings.json", br#"{"volume":0.5}"#).expect("saved");
+    /// ctx.storage.save_world(&ctx.world, "slot1").expect("saved");
+    /// # }
+    /// ```
+    pub storage: crate::storage::Storage,
 }
 
 impl Ctx {
@@ -388,6 +404,7 @@ impl Ctx {
             ui_state: UiState::default(),
             ui: crate::ui::Ui::default(),
             perf: crate::perf::Perf::new(),
+            storage: crate::storage::Storage::default(),
         };
         #[cfg(feature = "3d")]
         ctx.sync_audio_camera();

@@ -369,12 +369,12 @@ impl Default for Settings {
 impl Settings {
     /// Reads `path`: like the progress file, a missing file is a first run and
     /// a damaged or impossible one is replaced by the defaults (and kept as `.bad`).
-    pub fn load(path: &Path) -> (Settings, LoadStatus) {
-        load_json(path, Settings::is_valid)
+    pub fn load(storage: &mut Storage) -> (Settings, LoadStatus) {
+        load_json(storage, SETTINGS_FILE, Settings::is_valid)
     }
 
-    pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        save_json(path, self)
+    pub fn save(&self, storage: &mut Storage) -> Result<(), Error> {
+        storage.write_json(SETTINGS_FILE, self)
     }
 
     fn is_valid(&self) -> bool {
@@ -386,15 +386,12 @@ impl Settings {
     }
 }
 
-/// The settings file lives beside the progress file: `None` when progress isn't kept.
-pub fn settings_path(save: &Path) -> Option<PathBuf> {
-    Some(save.parent()?.join("settings.json"))
-}
+/// The settings file's name in `ctx.storage`, beside the progress file.
+pub const SETTINGS_FILE: &str = "settings.json";
 
-/// Where the settings are kept and what happened to them. A resource.
+/// What happened to the settings file. A resource.
 #[derive(Debug, Clone)]
 pub struct SettingsFile {
-    pub path: Option<PathBuf>,
     pub load: LoadStatus,
     pub save_failed: bool,
 }
@@ -402,11 +399,8 @@ pub struct SettingsFile {
 /// Writes the settings and returns to the title screen. Called by `rules`.
 pub fn leave_settings(ctx: &mut Ctx) {
     let settings = ctx.world.resource::<Settings>().clone();
-    let file = ctx.world.resource_mut::<SettingsFile>();
-    file.save_failed = match &file.path {
-        Some(path) => settings.save(path).is_err(),
-        None => false,
-    };
+    let failed = ctx.storage.is_available() && settings.save(&mut ctx.storage).is_err();
+    ctx.world.resource_mut::<SettingsFile>().save_failed = failed;
     ctx.world.insert_resource(Screen::Title);
 }
 
