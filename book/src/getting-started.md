@@ -40,6 +40,7 @@ ponko new my_game        # a 2D game; --3d for a 3D game, --headless for a simul
 cd my_game
 cargo test               # headless tests: no window, no GPU
 cargo run                # the game, in a window
+ponko package            # the download for players: release build, assets, licenses, archive
 ```
 
 `ponko_cli` is new in 0.2; until that release, install it from the
@@ -53,7 +54,9 @@ repository: `cargo install ponko_cli --git https://github.com/ponkoengine/ponko`
 
 Each project has:
 
-- `Cargo.toml` with the engine and a fast debug profile (below);
+- `Cargo.toml` with the engine, a fast debug profile (below) and the
+  `[package.metadata.ponko]` table that tells `ponko package` what goes in the
+  game's download ([Packaging any game](packaging.md#packaging-any-game-ponko-package));
 - `src/lib.rs` with the rules as sim systems, `src/main.rs` that starts the
   game (`HEADLESS=1 cargo run` runs it without a window), and headless tests
   in `tests/` ([Headless runs and testing](headless.md));

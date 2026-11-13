@@ -8,7 +8,179 @@ only the public `Game`/`Ctx` API and content made for it: one 32 x 32 picture
 (`assets/coin_dash/coin.png`), a disc and the sound effects generated in code,
 and the engine's built-in fonts. Rules and tests are described in
 [Headless runs and testing](headless.md#a-complete-game-tested-headlessly);
-this chapter is about getting it to players and what it shows.
+this chapter is about getting it to players and what it shows, starting with
+the command that packages any game.
+
+## Packaging any game: `ponko package`
+
+`ponko package` turns a game into what players download, with one command in
+the game's folder (`cargo install ponko_cli` gives the `ponko` command; in the
+engine's repository, `cargo run -p ponko_cli -- package` runs it):
+
+```sh
+cd my_game
+ponko package                 # for this computer: zip, app in a dmg, or tar.gz
+ponko package --web           # a folder to put on any static web host
+```
+
+It builds the game in release, collects its assets and license files, writes
+`THIRD-PARTY-NOTICES.txt` for every library linked into it, lays the package
+out for the platform, archives it, and starts the packaged copy once to check
+it runs (the [smoke run](#the-smoke-run-of-any-package)). Everything goes to
+`target/package/` (`--out` elsewhere), named
+`<name>-<version>-<os>-<arch>`, for example `coin-dash-0.1.0-macos-aarch64`:
+
+| Platform | Layout | Archive (default) |
+|---|---|---|
+| Windows | a folder: `my_game.exe`, `assets/`, the licenses and notices | `.zip` |
+| macOS | `My Game.app` (the program in `Contents/MacOS`, assets, licenses and notices in `Contents/Resources`, the icon as `icon.icns`, an `Info.plist`), with the licenses and notices also beside the app | `.dmg` with a link to Applications (made with `hdiutil`, so on a Mac; elsewhere a `.zip`) |
+| Linux | a folder, like Windows' | `.tar.gz` |
+| Web (`--web`) | a folder: `index.html`, `game.js`, `game_bg.wasm`, `assets/` with its `index.json`, the licenses and notices | none: upload the folder |
+
+`--format` picks others (comma-separated `zip`, `tar.gz`, `dmg`, or `folder`:
+the plain folder without archive, and on macOS without app bundle). The zip and
+tar.gz files are written by the command itself, so no `zip` or `tar` program is
+needed on any OS, and they are reproducible: entries sorted, owned by root,
+with fixed dates, so packing the same files twice gives the same bytes. The
+engine finds the assets next to the program, and inside an app bundle in
+`Contents/Resources` ([assets](assets.md)), so an unpacked game works from any
+folder.
+
+### What goes in: `[package.metadata.ponko]`
+
+The game's `Cargo.toml` says what to ship. Projects from `ponko new` have the
+table already; every key is optional:
+
+```toml
+[package.metadata.ponko]
+name = "My Game"              # the name players see: the app, the web page's title, the file names (my-game-...)
+id = "com.example.my-game"    # a reverse-DNS id you own: the macOS bundle identifier
+icon = "assets/icon.png"      # a square PNG of 16 to 1024 pixels (a power of two; 512 or 1024 looks best)
+assets = ["assets"]           # folders or files, shipped at the same path next to the program
+files = [                     # put at the package's top: licenses, a readme for players, notices
+    "LICENSE-MIT",
+    { from = "docs/PLAYER-README.txt", to = "README.txt" },
+]
+```
+
+| Key | Default |
+|---|---|
+| `name` | the package's name (an example's name for `--example`) |
+| `id` | `local.<name>`, with a note to set one |
+| `icon` | none: macOS shows the generic app icon |
+| `assets` | `["assets"]` if that folder exists, else nothing; hidden files (`.DS_Store`) are left out |
+| `files` | the `LICENSE*`, `LICENCE*`, `COPYING*`, `NOTICE*` files beside `Cargo.toml` |
+
+Paths are relative to `Cargo.toml`. An unknown key, an id that isn't reverse
+DNS, a missing file and two files at one place in the package are errors that
+name the key. For an example of a package (`--example <name>`),
+`[package.metadata.ponko.examples.<name>]` takes the same keys and overrides
+the table above it; this repository's root `Cargo.toml` describes Coin Dash
+that way.
+
+The other options follow Cargo: `--bin <name>` or `--example <name>` (by
+default the package's only binary, or its `default-run`), `-p <package>` in a
+workspace, `--manifest-path`, `--features`, `--no-default-features`,
+`--profile <name>` (default `release`), `--locked`, and `--no-build` to
+package what is already built (honouring `CARGO_BUILD_TARGET`). `ponko help
+package` lists them all.
+
+### The notices
+
+`THIRD-PARTY-NOTICES.txt` lists every library the program links on the
+platform it is built for, from `cargo tree` with the same features (so not
+every optional dependency), each with the license it declares and its
+authors, then the license texts each library's source ships (two folders deep,
+code folders left out, so font licenses such as `OFL.txt` are found), each text
+once with the libraries it belongs to. A library that declares no license fails
+the packaging by name instead of being listed as "unknown". The game's own
+package is not a third party and is left out; so are crates of the game's own
+workspace that declare no license. An example can link its package's
+dev-dependencies, so for `--example` they are listed too. `ponko notices -p
+<crate> --out <file>` writes the same file for a library alone; the release
+workflow ships the C library's with it.
+
+### The smoke run of any package
+
+After packaging for the computer it runs on, the command copies the package to
+a new folder whose path has a space and a non-ASCII letter, and starts it from
+another, empty folder, without the `CARGO_*`, `PONKO_*` and `RUST_*` variables,
+with `PONKO_SMOKE=<ticks>` and `PONKO_DATA_DIR` pointing at a scratch folder.
+With `PONKO_SMOKE` set, `Game::run` opens no window: it runs the setup and that
+many ticks headless, frame systems included, prints `ponko: smoke run passed`
+and returns. The package passes if the program exits normally within the time
+limit, so it started, found the assets it loads next to itself (wherever it
+was unpacked) and ran its systems, also on a machine without a display or GPU.
+`--smoke-ticks` (default 120) and `--smoke-timeout` (seconds, default 120)
+change the run, `--no-smoke` skips it. On macOS the program inside the app
+bundle is run, so the `Contents/Resources` lookup is what is tested. A program
+that doesn't start through `Game::run` (a simulation calling `run_headless`
+itself) just has to exit normally; the report says the smoke setting did not
+apply. Coin Dash adds its own, deeper walk-through on top ([below](#the-smoke-test)).
+
+### Signing and notarizing: the hook
+
+Signing needs the publisher's certificates and accounts, so the command leaves
+it to a program of your own, `--sign <program>`, called twice:
+
+- `<program> sign <path>` after the package is laid out and before it is
+  smoke-run and archived: `<path>` is the `.app` on macOS and the program
+  elsewhere (sign it with `codesign --options runtime`, or `signtool`);
+- `<program> archive <path>` for each archive made (notarize and staple a
+  dmg, sign a zip's checksum, upload).
+
+Both get `PONKO_PACKAGE_STAGE`, `PONKO_PACKAGE_PATH`, `PONKO_PACKAGE_DIR` (the
+package folder), `PONKO_PACKAGE_PLATFORM` (`macos-aarch64`, ...),
+`PONKO_PACKAGE_TARGET`, `PONKO_PACKAGE_NAME`, `PONKO_PACKAGE_ID` and
+`PONKO_PACKAGE_VERSION`; a non-zero exit stops the packaging. Without `--sign`,
+a macOS app made on a Mac is sealed ad hoc (`codesign --sign -`), so the bundle
+is consistent and not reported as damaged, but it carries no developer
+identity: Gatekeeper asks the player to allow it. Windows and Linux packages
+are left unsigned. Release signing with the project's certificates is
+[#282](https://github.com/ponkoengine/ponko/issues/282).
+
+### The web folder
+
+`ponko package --web` builds for `wasm32-unknown-unknown` and runs
+`wasm-bindgen` the way `web/build.sh` does (`rustup target add
+wasm32-unknown-unknown` and `cargo install wasm-bindgen-cli --version <the
+version in the game's Cargo.lock>` first; a different version is refused with
+the command to install the right one). The page is the engine's
+`web/index.html`, titled with the game's name and with the icon as favicon;
+`assets/index.json` lists the files under `assets/` the engine fetches before
+setup. Serve the folder from any static host (`python3 -m http.server -d
+<folder> 8000` locally). There is no smoke run for it: the browser runner in
+`web/smoke` is the engine's own test, not part of the command.
+
+### Other platforms and limits
+
+`--target <triple>` packages for another platform, if the toolchain can build
+for it (`rustup target add <triple>` and a linker for it, such as MinGW for
+`x86_64-pc-windows-gnu`): the layout and archive are the target's, the smoke
+run is skipped, a macOS app made elsewhere is not sealed, and a dmg needs a
+Mac. What the command doesn't do yet:
+
+- **Verified on macOS (Apple silicon) only.** There `ponko package` was run on
+  a fresh `ponko new` project and on Coin Dash for every format, the archives
+  unpacked with the system's tools, the extracted app's seal verified and the
+  program started. The Windows and Linux layouts and archives are checked by
+  unit tests on every OS (`cargo test -p ponko_cli`) and CI packages Coin Dash
+  with the command on Linux, macOS and Windows, but no Windows or Linux
+  package made by it has been opened by a person yet.
+- **No installers**: no `.msi`, `.pkg`, Flatpak or AppImage (an AppImage
+  needs `appimagetool`; the Linux package is a portable tar.gz), and no
+  `.desktop` file for Linux menus.
+- **Icons**: the icon goes into the macOS bundle and the web page, and beside
+  the program as `icon.png` on Windows and Linux; it is not embedded in the
+  Windows `.exe` (that takes a resource compiled into the build).
+- **One architecture per package**: no universal macOS binary.
+- **The smoke run** proves the program starts, finds its assets and runs its
+  systems headless; it draws nothing. Coin Dash's window walk-through
+  ([below](#the-smoke-test)) is what opens a window.
+- **Signing and notarization** are the hook above; the project's own release
+  signing is [#282](https://github.com/ponkoengine/ponko/issues/282).
+- A C or C++ game is not packaged by it (its program is not a Cargo target);
+  see [C and C++](#c-and-c).
 
 ## One way to build and run it
 
@@ -45,7 +217,8 @@ files on every desktop:
 | `README.txt` | How to run it, the controls, where it saves |
 
 The asset lookup is the engine's own (`asset_roots`: next to `Cargo.toml` under
-`cargo run`, next to the executable, then the current folder), so an unpacked
+`cargo run`, next to the executable, in an app bundle's `Contents/Resources`,
+then the current folder), so an unpacked
 game finds its files wherever it is started from. The third-party notice is made
 from `cargo tree -p ponko` for the platform it is built on (so it lists what
 that binary links, not every optional feature) and the license files in each
@@ -54,10 +227,13 @@ crate's source, including the fonts' (`OFL.txt`, `UFL.txt`) in
 that use them. `tests/coin_dash.rs` fails if a file under `assets/coin_dash/` is
 not named in `CONTENT-NOTICES.txt`, and the smoke test fails if it is not in the
 package's copy either. A library that declares no `license` (or `license_file`)
-fails the packaging by name instead of being listed as "unknown", and so does a
-dev-dependency of `ponko` that this platform would link without the notice
-listing it; `python3 scripts/package-coin-dash.py selftest` checks both with
-made-up crates, plus the exit-code decisions below.
+fails the packaging by name instead of being listed as "unknown"; an example
+can link its package's dev-dependencies, so they are listed too. The script's
+`package` is [`ponko package --example coin_dash --format folder
+--no-smoke`](#packaging-any-game-ponko-package), whose unit tests check these
+decisions with made-up crates (`cargo test -p ponko_cli`);
+`python3 scripts/package-coin-dash.py selftest` checks the exit-code decisions
+below.
 
 ## The smoke test
 

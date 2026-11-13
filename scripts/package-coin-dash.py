@@ -1,37 +1,39 @@
 #!/usr/bin/env python3
-"""Packages the `coin_dash` example for the desktop and smoke-tests the package.
+"""Packages the `coin_dash` example with `ponko package` and plays the package.
 
-    python3 scripts/package-coin-dash.py package [--out DIR] [--profile release|dev]
+    python3 scripts/package-coin-dash.py package [--out DIR] [--profile release|dev] [--no-build]
     python3 scripts/package-coin-dash.py smoke --package DIR [--mode headless|window]
     python3 scripts/package-coin-dash.py selftest
     python3 scripts/package-coin-dash.py notices --crate ponko_ffi --title T --out FILE
 
-`package` builds the example and lays out a folder you can zip: the program,
-its assets, the licenses, a notice for what the game ships and a notice for
-every library linked into it (THIRD-PARTY-NOTICES.txt, made from `cargo tree`
-and the license files in each crate's source).
+Packaging is the generic `ponko package` command (crates/ponko_cli), which any
+game uses; this script is the reference game's own entry point to it, kept for
+CI and the release workflow. `package` runs
+`ponko package --example coin_dash --format folder --no-smoke`, which lays out
+the plain folder (the program, its assets, the licenses, CONTENT-NOTICES.txt,
+README.txt and THIRD-PARTY-NOTICES.txt) as `<out>/coin-dash-<version>-<os>-<arch>/`.
+Coin Dash's `[package.metadata.ponko.examples.coin_dash]` table in the root
+Cargo.toml says what goes in.
 
-`smoke` unpacks the folder somewhere else (a path with a space and a non-ASCII
-letter), starts the game from an unrelated working directory, and checks what
-it reports and leaves behind. With `--mode headless` the game runs without a
-window or a GPU (every platform); with `--mode window` it opens a real window
-and draws (needs a display and a GPU; software rendering is enough).
+`smoke` is the reference game's walk-through, more than the generic smoke run
+of `ponko package`: it unpacks the folder somewhere else (a path with a space
+and a non-ASCII letter), starts the game from an unrelated working directory,
+and checks what it reports and leaves behind. With `--mode headless` the game
+runs without a window or a GPU (every platform); with `--mode window` it opens
+a real window and draws (needs a display and a GPU; software rendering is enough).
 
 Exit codes: 0 passed, 1 the package failed a check, 2 unsupported (the window
 mode found no display or no GPU, and --allow-unsupported was not given),
 3 bad arguments or no build. See book/src/packaging.md.
 
-`notices` writes only THIRD-PARTY-NOTICES.txt for another workspace crate's
-library (with its default features, for this platform). The release workflow
-ships it in the C library archives (`--crate ponko_ffi`).
+`notices` runs `ponko notices`: only THIRD-PARTY-NOTICES.txt, for another
+workspace crate's library (with its default features, for this platform). The
+release workflow ships it in the C library archives (`--crate ponko_ffi`).
 """
 
 import argparse
-import hashlib
 import json
 import os
-import platform
-import re
 import shutil
 import subprocess
 import sys
@@ -44,10 +46,6 @@ EXE = EXAMPLE + (".exe" if os.name == "nt" else "")
 ASSET_DIR = Path("assets") / EXAMPLE
 COIN = ASSET_DIR / "coin.png"
 LICENSE_FILES = ("LICENSE-MIT", "LICENSE-APACHE", "NOTICE")
-LICENSE_NAME = re.compile(r"^(LICENSE|LICENCE|COPYING|UNLICENSE|NOTICE|OFL|UFL)|licen[sc]e", re.I)
-# Folders of a crate that hold code, not license files (fonts and the like are searched).
-NOT_TEXT = {".rs", ".toml", ".json", ".ttf", ".otf", ".png", ".c", ".h", ".py", ".js", ".yml", ".yaml", ".lock"}
-CODE_DIRS = {"src", "tests", "examples", "benches", "target", ".git", ".github"}
 
 
 class Failure(Exception):
@@ -58,210 +56,26 @@ class Unsupported(Exception):
     """The window mode can't run here (exit code 2)."""
 
 
-def run(cmd, **kwargs):
-    # UTF-8, not the platform's code page: cargo prints paths and metadata as UTF-8.
-    return subprocess.run(cmd, cwd=kwargs.pop("cwd", ROOT), check=True, text=True, encoding="utf-8", **kwargs)
-
-
-def cargo_json(*args):
-    out = run(["cargo", "metadata", "--format-version", "1", *args], stdout=subprocess.PIPE).stdout
-    return json.loads(out)
-
-
-def host_triple():
-    out = run(["rustc", "-vV"], stdout=subprocess.PIPE).stdout
-    return re.search(r"^host: (\S+)", out, re.M).group(1)
-
-
-# ---- Third-party notices ----------------------------------------------------
-
-
-def tree_crates(triple, edges, crate="ponko"):
-    out = run(
-        ["cargo", "tree", "-p", crate, "-e", edges, "--target", triple, "--prefix", "none", "-f", "{p}"],
-        stdout=subprocess.PIPE,
-    ).stdout
-    crates = set()
-    for line in out.splitlines():
-        m = re.match(r"^(\S+) v(\S+)", line)
-        if m:
-            crates.add((m.group(1), m.group(2)))
-    return crates
-
-
-def linked_crates(triple, crate="ponko", examples=True):
-    """The (name, version) of every crate linked into the example on this
-    platform: ponko's normal dependencies with its default features, which is
-    what `cargo build -p ponko --example coin_dash` compiles. For another
-    `crate` with `examples=False` (a library, such as the C library): that
-    crate's normal dependencies with its default features.
-
-    An example is also built with ponko's dev-dependencies. This list leaves
-    them out, so it fails if a dev-dependency is linked on this platform that
-    is not also a normal one (then the notices would miss a library). A crate
-    of this workspace doesn't count: it is the engine's own code, under the
-    license files the package already carries, and its own dependencies are
-    still checked."""
-    crates = tree_crates(triple, "normal", crate)
-    if not examples:
-        return sorted(crates)
-    own = {(p["name"], p["version"]) for p in cargo_json("--no-deps")["packages"]}
-    dev_only = tree_crates(triple, "normal,dev", crate) - crates - own
-    if dev_only:
-        names = ", ".join(f"{n} {v}" for n, v in sorted(dev_only))
-        raise Failure(
-            f"ponko has dev-dependencies the example is built with on {triple} that THIRD-PARTY-NOTICES.txt "
-            f"would not list: {names}. Make the notice list cover them (`cargo tree -e normal,dev`)."
-        )
-    return sorted(crates)
-
-
-# Crates that really declare no license. Empty on purpose: an entry here needs a
-# comment saying where its terms come from, and the notice then names it.
-LICENSE_ALLOWLIST = {}
-
-
-def declared_license(package):
-    """The license expression (or license file) a crate declares. A crate that
-    declares neither fails the packaging: shipping it as "unknown" would hide
-    a missing license."""
-    key = (package["name"], package["version"])
-    if package.get("license"):
-        return package["license"]
-    if package.get("license_file"):
-        return f"see {package['license_file']}"
-    if key in LICENSE_ALLOWLIST:
-        return LICENSE_ALLOWLIST[key]
-    raise Failure(
-        f"{key[0]} {key[1]} declares no license (no `license` and no `license_file` in its manifest): "
-        "check its terms and add it to LICENSE_ALLOWLIST with the source of the terms, or drop the dependency"
-    )
-
-
-def license_texts(package, root_dir):
-    """The license files a crate ships (top level of its source), as (name, text)."""
-    source = Path(package["manifest_path"]).parent
-    found = set()
-    if package.get("license_file") and (source / package["license_file"]).is_file():
-        found.add(source / package["license_file"])
-    for dirpath, dirnames, filenames in os.walk(source):
-        depth = len(Path(dirpath).relative_to(source).parts)
-        dirnames[:] = [] if depth >= 2 else [d for d in dirnames if d not in CODE_DIRS]
-        for name in filenames:
-            if LICENSE_NAME.search(name) and Path(name).suffix.lower() not in NOT_TEXT:
-                found.add(Path(dirpath) / name)
-    texts = []
-    for path in sorted(found):
-        texts.append((path.relative_to(source).as_posix(), path.read_text(encoding="utf-8", errors="replace").strip()))
-    if not texts and source.resolve().is_relative_to(root_dir):
-        # A crate of this workspace: it is under the workspace's own license files.
-        texts = [(n, (root_dir / n).read_text(encoding="utf-8").strip()) for n in LICENSE_FILES[:2]]
-    return texts
-
-
-def third_party_notices(crate="ponko", title="Coin Dash", examples=True):
-    triple = host_triple()
-    meta = cargo_json("--filter-platform", triple)
-    by_key = {(p["name"], p["version"]): p for p in meta["packages"]}
-    crates = linked_crates(triple, crate, examples)
-    missing_meta = [c for c in crates if c not in by_key]
-    if missing_meta:
-        raise Failure(f"cargo metadata does not know {missing_meta}")
-
-    groups = {}  # sha256 of the text -> (text, [crate labels])
-    lines = []
-    without_text = []
-    for key in crates:
-        package = by_key[key]
-        label = f"{key[0]} {key[1]}"
-        texts = license_texts(package, ROOT)
-        expression = declared_license(package)
-        authors = ", ".join(package.get("authors") or []) or "no authors listed"
-        lines.append(f"  {label}: {expression} ({authors})")
-        if not texts:
-            without_text.append(f"{label} ({expression})")
-        for _, text in texts:
-            digest = hashlib.sha256(text.encode()).hexdigest()
-            groups.setdefault(digest, (text, []))[1].append(label)
-
-    heading = f"Third-party notices for {title}"
-    out = [
-        heading,
-        "=" * len(heading),
-        "",
-        f"{title[:1].upper()}{title[1:]} is linked with the libraries below, built for {triple}.",
-        "The first part lists each library with the license it declares; the",
-        "second part gives the license texts those libraries ship, each text once",
-        "with the libraries it belongs to.",
-        "",
-        f"Libraries ({len(crates)})",
-        "------------------",
-        *lines,
-        "",
-    ]
-    if without_text:
-        out += [
-            "These libraries ship no license file in their published source. Their",
-            "declared license and authors are listed above; the standard texts of",
-            "MIT, Apache-2.0 and the other SPDX licenses are at https://spdx.org/licenses/.",
-            *[f"  {w}" for w in without_text],
-            "",
-        ]
-    out += ["License texts", "-------------", ""]
-    for text, labels in sorted(groups.values(), key=lambda g: g[1][0]):
-        out += ["=" * 72, "Used by: " + ", ".join(labels), "=" * 72, text, ""]
-    return "\n".join(out), len(crates), without_text
+def ponko(*args):
+    """Runs the `ponko` command of this checkout (crates/ponko_cli)."""
+    return subprocess.run(["cargo", "run", "--quiet", "-p", "ponko_cli", "--", *args], cwd=ROOT).returncode
 
 
 # ---- package ----------------------------------------------------------------
 
 
-def target_dir():
-    return Path(cargo_json("--no-deps")["target_directory"])
-
-
-def package_name():
-    meta = cargo_json("--no-deps")
-    version = next(p["version"] for p in meta["packages"] if p["name"] == "ponko")
-    system = {"darwin": "macos"}.get(platform.system().lower(), platform.system().lower())
-    machine = platform.machine().lower().replace("amd64", "x86_64").replace("arm64", "aarch64")
-    return f"coin-dash-{version}-{system}-{machine}"
-
-
 def cmd_package(args):
-    profile_flag = ["--release"] if args.profile == "release" else []
-    if not args.no_build:
-        run(["cargo", "build", *profile_flag, "--example", EXAMPLE])
-    built = target_dir() / ("release" if args.profile == "release" else "debug") / "examples" / EXE
-    if not built.is_file():
-        print(f"package: {built} does not exist; build the example first", file=sys.stderr)
-        return 3
-    out = Path(args.out) / package_name()
-    if out.exists():
-        shutil.rmtree(out)
-    (out / "assets").mkdir(parents=True)
-    shutil.copy2(built, out / EXE)
-    shutil.copytree(ROOT / ASSET_DIR, out / ASSET_DIR)
-    for name in LICENSE_FILES:
-        shutil.copy2(ROOT / name, out / name)
-    shutil.copy2(ROOT / "examples" / EXAMPLE / "CONTENT-NOTICES.txt", out / "CONTENT-NOTICES.txt")
-    shutil.copy2(ROOT / "examples" / EXAMPLE / "PACKAGE-README.txt", out / "README.txt")
-    notices, count, without_text = third_party_notices()
-    (out / "THIRD-PARTY-NOTICES.txt").write_text(notices, encoding="utf-8")
-    size = sum(p.stat().st_size for p in out.rglob("*") if p.is_file())
-    print(f"packaged {out} ({size / 1e6:.1f} MB, {count} libraries in the notices)")
-    if without_text:
-        print(f"note: {len(without_text)} libraries ship no license file; their declared license is listed")
-    return 0
+    out = Path(args.out).resolve()
+    command = ["package", "--example", EXAMPLE, "--profile", args.profile, "--out", str(out)]
+    command += ["--format", "folder", "--no-smoke"]
+    if args.no_build:
+        command.append("--no-build")
+    code = ponko(*command)
+    return 3 if code else 0
 
 
 def cmd_notices(args):
-    notices, count, without_text = third_party_notices(args.crate, args.title, examples=False)
-    Path(args.out).write_text(notices, encoding="utf-8")
-    print(f"wrote {args.out} ({count} libraries)")
-    if without_text:
-        print(f"note: {len(without_text)} libraries ship no license file; their declared license is listed")
-    return 0
+    return ponko("notices", "-p", args.crate, "--title", args.title, "--out", str(Path(args.out).resolve()))
 
 
 # ---- smoke ------------------------------------------------------------------
@@ -483,20 +297,8 @@ def selftest(args):
     """Checks the script's own decisions with made-up inputs (no build, no window)."""
     global play
 
-    # A crate with no license is refused, by name; a declared one passes.
-    for package, ok in (
-        ({"name": "a", "version": "1.0.0", "license": "MIT"}, "MIT"),
-        ({"name": "b", "version": "1.0.0", "license_file": "COPYING"}, "see COPYING"),
-    ):
-        check(declared_license(package) == ok, f"declared_license({package}) is not {ok}")
-    try:
-        declared_license({"name": "nolicense", "version": "0.3.1", "license": None})
-    except Failure as e:
-        check("nolicense 0.3.1" in str(e), f"the failure does not name the crate: {e}")
-    else:
-        raise Failure("a crate without a license was accepted")
-    check(not LICENSE_ALLOWLIST, "LICENSE_ALLOWLIST should be empty unless a crate needs it (with a comment)")
-    print("  ok: a crate that declares no license fails the packaging, by name")
+    # The packaging's own decisions (licenses, layouts, archives) are tests of
+    # `ponko package`: `cargo test -p ponko_cli`.
 
     # Which window-run errors are "unsupported here" and which are failures.
     for text in NO_WINDOW:
@@ -540,7 +342,7 @@ def main():
     sys.stderr.reconfigure(errors="replace")
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    p = sub.add_parser("package", help="build the example and lay out the package folder")
+    p = sub.add_parser("package", help="build the example and lay out the package folder (ponko package)")
     p.add_argument("--out", default=str(ROOT / "target" / "package"), help="folder to create the package in")
     p.add_argument("--profile", choices=["release", "dev"], default="release")
     p.add_argument("--no-build", action="store_true", help="use the example as already built")
@@ -550,7 +352,7 @@ def main():
     s.add_argument("--allow-unsupported", action="store_true", help="the window mode passes where no display or GPU exists")
     s.add_argument("--timeout", type=int, default=240, help="seconds each run may take")
     sub.add_parser("selftest", help="check the script's own decisions with made-up inputs")
-    n = sub.add_parser("notices", help="write THIRD-PARTY-NOTICES.txt for a workspace crate's library")
+    n = sub.add_parser("notices", help="write THIRD-PARTY-NOTICES.txt for a workspace crate's library (ponko notices)")
     n.add_argument("--crate", required=True, help="the workspace crate, such as ponko_ffi")
     n.add_argument("--title", required=True, help="what the notices are for, such as 'the Ponko C library'")
     n.add_argument("--out", required=True, help="the file to write")

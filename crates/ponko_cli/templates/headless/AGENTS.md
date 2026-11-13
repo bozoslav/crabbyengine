@@ -7,6 +7,7 @@
 
 - `cargo test`: the headless tests in `tests/sim.rs`. Run them after every change.
 - `cargo run` runs 600 ticks and prints a summary (`TICKS` sets how many).
+- `ponko package` builds the download players get (release build, assets, licenses, the host OS's archive) and starts it once headless; `[package.metadata.ponko]` in Cargo.toml says what goes in.
 - Never open a window in tests: use `run_headless(ticks)`, which needs no
   window or GPU.
 

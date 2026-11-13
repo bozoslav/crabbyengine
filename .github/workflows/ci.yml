@@ -1007,7 +1007,8 @@ jobs:
           retention-days: 7
 
   # The complete-game reference, packaged the way a player gets it and played
-  # from an unrelated folder (scripts/package-coin-dash.py, book/src/packaging.md):
+  # from an unrelated folder (`ponko package`, through
+  # scripts/package-coin-dash.py for the walk-through; book/src/packaging.md):
   # the program, its assets, the licenses and the content and third-party
   # notices; then, on every OS, a headless walk-through (assets found outside
   # the checkout, saves, damaged-save recovery, the OS's default save folder,
@@ -1051,6 +1052,11 @@ jobs:
       - name: Smoke test, headless (an unpacked copy, started from an unrelated folder)
         if: ${{ !cancelled() }}
         run: python scripts/package-coin-dash.py smoke --package target/package --mode headless
+      # What players download from this OS (zip, an app in a dmg, tar.gz), made
+      # and smoke-run by the generic command any game uses.
+      - name: The host's download, with ponko package's own smoke run
+        if: ${{ !cancelled() }}
+        run: cargo run -p ponko_cli -- package --example coin_dash --profile dev --out target/package-host
       # The engine reads WGPU_BACKEND (not WGPU_ADAPTER_NAME). With only DirectX 12
       # enabled, the one adapter left on a runner without a GPU is WARP, the
       # software renderer, which the engine accepts.
@@ -1142,11 +1148,12 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           key: templates
-      - name: The CLI's unit tests, and each template generated and checked
+      - name: The CLI's unit tests, each template generated and checked, and a new project packaged
         if: steps.changed.outputs.run == 'true'
         run: |
           cargo test -p ponko_cli
           cargo test -p ponko_cli --test new -- --ignored
+          cargo test -p ponko_cli --test package -- --ignored
       - name: Each template's own tests
         if: steps.changed.outputs.run == 'true'
         run: |
