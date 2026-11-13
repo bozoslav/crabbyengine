@@ -2739,6 +2739,35 @@ static void jump_once() {
 }
 // ANCHOR_END: input_scenario
 
+// ANCHOR: headless_frames
+static void menu_opens_settings() {
+    using ponko::scenario_check;
+    ponko::input_scenario scenario;
+    scenario.expect(0, scenario_check::ui("menu.settings").shown(true).text("Settings"))
+        .click(2, "menu.settings")
+        .expect(2, scenario_check::ui("settings").shown(true))
+        .expect(2, scenario_check::ui("menu.settings").shown(false));
+    auto run = ponko::game("menu test", 800, 600)
+        .headless_frames(true) // frames too: the UI and frame systems run
+        .system([](ponko::ctx& ctx) {
+            auto ui = ctx.ui_retained();
+            if (auto clicked = ui.take_click(); clicked && clicked == ui.find("menu.settings")) {
+                ui.pop_screen();
+                ui.push_screen(*ui.find("settings"));
+            }
+        })
+        .run_headless_scenario(scenario, [](ponko::ctx& ctx) {
+            namespace u = ponko::ui;
+            auto ui = ctx.ui_retained();
+            auto menu = ui.add_panel(u::none, u::fill());
+            ui.set_name(ui.add_button(menu, "Settings", u::fixed(200, 40)), "menu.settings");
+            ui.set_name(ui.add_panel(u::none, u::fill()), "settings");
+            ui.push_screen(menu);
+        });
+    if (!run.report.passed()) throw std::runtime_error(run.world.scenario_report_json());
+}
+// ANCHOR_END: headless_frames
+
 // ANCHOR: asset_sources
 static void embedded_assets(ponko::ctx& ctx) {
     // Compiled into the executable: nothing to ship next to it.
@@ -2901,6 +2930,7 @@ int main() {
     builder_setup_runs_headless();
     action_ids_run();
     jump_once();
+    menu_opens_settings();
     resource_scope_run();
     ponko::game("asset source guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
         embedded_assets(ctx);

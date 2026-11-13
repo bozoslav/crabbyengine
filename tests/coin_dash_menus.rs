@@ -33,6 +33,7 @@ struct Shown {
 
 #[test]
 fn coin_dash_menus_lead_into_play_and_back_with_the_ui_checked_at_each_step() {
+    // ANCHOR: menus
     let settings = || ScenarioCheck::ui("settings");
     let mut scenario = InputScenario::new()
         // Title: the settings screen is not built yet.
@@ -74,6 +75,7 @@ fn coin_dash_menus_lead_into_play_and_back_with_the_ui_checked_at_each_step() {
         .expect(56, settings().shown(false))
         .duration(60)
         .named("coin dash menus");
+    // ANCHOR_END: menus
 
     // Every frame, what was shown, for the screens the scenario can't name.
     let seen = Rc::new(RefCell::new(Vec::<(u64, Shown)>::new()));
