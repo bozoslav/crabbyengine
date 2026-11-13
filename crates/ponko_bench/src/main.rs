@@ -33,6 +33,7 @@ mod report;
 mod schedule;
 mod sparse_set;
 mod streaming;
+mod tilemap;
 
 use bevy_ecs::component::Component;
 use std::hint::black_box;
@@ -230,6 +231,7 @@ fn main() {
     let render: Option<String> = None;
     schedule::run(&mut b);
     streaming::run(&mut b);
+    tilemap::run(&mut b);
     sparse_set::run(&mut b);
 
     // Resource scoping versus the previous public take/put workaround.
