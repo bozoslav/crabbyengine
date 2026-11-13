@@ -2066,6 +2066,35 @@ static void particles3d() {
     });
 }
 
+static void particles2d() {
+    ponko::game("particles 2d", 1, 1).run_headless(0, [&](ponko::ctx& ctx) {
+        auto e = ctx.world().spawn(ponko::transform_at({100, 100}));
+        auto sparks = ponko::particle_settings2d()
+                          .rate(0)
+                          .burst(12)
+                          .circle(4)
+                          .lifetime(1, 2)
+                          .size_over_life({{0, 1}, {1, 0}})
+                          .color_over_life({{0, {1, 0.6f, 0.1f, 1}}, {1, {1, 0, 0, 0}}})
+                          .blend(ponko::sprite_blend::additive)
+                          .z(3)
+                          .max_particles(64);
+        ctx.set_particle_emitter2d(e, sparks);
+        // Headless runs skip the frame phase; step the emitter by hand.
+        CHECK(ctx.particle_live_count2d(e) == 0);
+        ctx.particle_update2d(e, 0);
+        CHECK(ctx.particle_live_count2d(e) == 12);
+        ctx.particle_burst2d(e, 100);
+        ctx.particle_update2d(e, 0.1f);
+        CHECK(ctx.particle_live_count2d(e) == 64);
+        throws([&] { ctx.set_particle_emitter2d(e, ponko::particle_settings2d().lifetime(0, 1)); });
+        throws([&] { ctx.set_particle_emitter2d(e, ponko::particle_settings2d().size(2, 1)); });
+        throws([&] { ctx.set_particle_emitter2d(e, ponko::particle_settings2d().max_particles(0)); });
+        ctx.remove_particle_emitter2d(e);
+        throws([&] { ctx.particle_burst2d(e, 1); });
+    });
+}
+
 // A 4 x 4 m floor facing up, as a glTF file.
 static void ribbons_and_decals() {
     const auto file = std::filesystem::temp_directory_path() / "ponko-cpp-floor.gltf";
@@ -3132,6 +3161,7 @@ int main() {
     navigation();
     navigation_carving();
     particles3d();
+    particles2d();
     ragdolls();
     contacts3d();
     ribbons_and_decals();

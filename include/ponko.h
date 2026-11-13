@@ -104,6 +104,8 @@
 
 #define PONKO_SYSTEM_UPDATE_AUDIO3D 12
 
+#define PONKO_SYSTEM_DRAW_PARTICLES 13
+
 #define PONKO_HANDLE_NONE UINT32_MAX
 
 #define PONKO_MAX_GAMEPADS 8
@@ -587,6 +589,13 @@ typedef enum PonkoParticleSpace3D {
   PONKO_PARTICLES_WORLD,
   PONKO_PARTICLES_LOCAL,
 } PonkoParticleSpace3D;
+
+typedef enum PonkoParticleShape2D {
+  PONKO_PARTICLES2D_POINT,
+  PONKO_PARTICLES2D_CIRCLE,
+  PONKO_PARTICLES2D_CONE,
+  PONKO_PARTICLES2D_RECT,
+} PonkoParticleShape2D;
 
 typedef enum PonkoLayerBlend {
   PONKO_LAYER_OVERRIDE,
@@ -1123,6 +1132,43 @@ typedef struct PonkoParticleSettings3D {
   uint64_t seed;
 } PonkoParticleSettings3D;
 
+typedef struct PonkoSpriteMaterial {
+  uint32_t id;
+} PonkoSpriteMaterial;
+
+typedef struct PonkoParticleSettings2D {
+  float rate;
+  uint32_t burst;
+  float duration;
+  bool looping;
+  float lifetime_min;
+  float lifetime_max;
+  float speed_min;
+  float speed_max;
+  uint32_t shape;
+  struct PonkoVec2 shape_size;
+  struct PonkoVec2 gravity;
+  float drag;
+  float size_min;
+  float size_max;
+  float rotation_min;
+  float rotation_max;
+  const struct PonkoParticleKey *size_keys;
+  size_t size_key_count;
+  const struct PonkoParticleColorKey *color_keys;
+  size_t color_key_count;
+  bool has_texture;
+  struct PonkoTexture texture;
+  uint32_t sheet_columns;
+  uint32_t sheet_rows;
+  uint32_t blend;
+  struct PonkoSpriteMaterial material;
+  float z;
+  uint32_t max_particles;
+  uint32_t space;
+  uint64_t seed;
+} PonkoParticleSettings2D;
+
 typedef struct PonkoFrameStats {
   uint64_t frames;
   float fps;
@@ -1453,10 +1499,6 @@ typedef struct PonkoSpriteMaterialDesc {
   bool has_textures[2];
   struct PonkoTexture textures[2];
 } PonkoSpriteMaterialDesc;
-
-typedef struct PonkoSpriteMaterial {
-  uint32_t id;
-} PonkoSpriteMaterial;
 
 typedef struct PonkoCell {
   int32_t x;
@@ -3261,11 +3303,23 @@ enum PonkoStatus ponko_ctx_particle_live_count(struct PonkoCtx *ctx,
 
 enum PonkoStatus ponko_ctx_remove_particle_emitter3d(struct PonkoCtx *ctx, uint64_t entity_bits);
 
-enum PonkoStatus ponko_ctx_pressed_this_frame(struct PonkoCtx *ctx,
-                                              float axis_threshold,
-                                              struct PonkoActionBinding *out,
-                                              size_t capacity,
-                                              size_t *out_count);
+struct PonkoParticleSettings2D ponko_particle_settings2d_default(void);
+
+enum PonkoStatus ponko_ctx_set_particle_emitter2d(struct PonkoCtx *ctx,
+                                                  uint64_t entity_bits,
+                                                  const struct PonkoParticleSettings2D *settings);
+
+enum PonkoStatus ponko_ctx_particle_burst2d(struct PonkoCtx *ctx,
+                                            uint64_t entity_bits,
+                                            uint32_t count);
+
+enum PonkoStatus ponko_ctx_particle_live_count2d(struct PonkoCtx *ctx,
+                                                 uint64_t entity_bits,
+                                                 uint32_t *out_count);
+
+enum PonkoStatus ponko_ctx_particle_update2d(struct PonkoCtx *ctx, uint64_t entity_bits, float dt);
+
+enum PonkoStatus ponko_ctx_remove_particle_emitter2d(struct PonkoCtx *ctx, uint64_t entity_bits);
 
 enum PonkoStatus ponko_ctx_frame_stats(const struct PonkoCtx *ctx,
                                        struct PonkoFrameStats *out_stats);
@@ -3548,6 +3602,12 @@ enum PonkoStatus ponko_ctx_prefab_parts(struct PonkoCtx *ctx,
                                         size_t *out_count);
 
 enum PonkoStatus ponko_ctx_despawn_prefab(struct PonkoCtx *ctx, uint64_t root, size_t *out_count);
+
+enum PonkoStatus ponko_ctx_pressed_this_frame(struct PonkoCtx *ctx,
+                                              float axis_threshold,
+                                              struct PonkoActionBinding *out,
+                                              size_t capacity,
+                                              size_t *out_count);
 
 struct PonkoQueryCachePolicy ponko_query_cache_policy_default(void);
 

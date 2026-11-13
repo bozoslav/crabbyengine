@@ -448,6 +448,8 @@ inline constexpr system_id update_animators{PONKO_SYSTEM_UPDATE_ANIMATORS};
 inline constexpr system_id update_particles{PONKO_SYSTEM_UPDATE_PARTICLES};
 /// Positional audio; stays at the end of phase::draw, after the drawing systems.
 inline constexpr system_id update_audio3d{PONKO_SYSTEM_UPDATE_AUDIO3D};
+/// 2D particle drawing, after the sprites.
+inline constexpr system_id draw_particles{PONKO_SYSTEM_DRAW_PARTICLES};
 } // namespace systems
 /// Engine services an access declaration can name (see ponko::access).
 enum class service : uint32_t {
@@ -2825,6 +2827,88 @@ public:
     }
 };
 
+/// A 2D particle emitter's settings (Rust `d2::ParticleSettings`), in pixels, built by chaining:
+/// `particle_settings2d().rate(40).cone(0.3f).blend(sprite_blend::additive).z(2)`. Particles draw with the
+/// sprites at `z`. Give it to an entity with a 2D transform with ctx::set_particle_emitter2d.
+class particle_settings2d {
+    PonkoParticleSettings2D c_ = ponko_particle_settings2d_default();
+    std::vector<PonkoParticleKey> size_keys_;
+    std::vector<PonkoParticleColorKey> color_keys_;
+    particle_settings2d& shape(PonkoParticleShape2D kind, vec2 size) {
+        c_.shape = static_cast<std::uint32_t>(kind);
+        c_.shape_size = size;
+        return *this;
+    }
+public:
+    /// Particles per second; 0 emits only bursts.
+    particle_settings2d& rate(float per_second) { c_.rate = per_second; return *this; }
+    /// Particles emitted at once on the first frame.
+    particle_settings2d& burst(std::uint32_t count) { c_.burst = count; return *this; }
+    /// Seconds of emission, and whether it starts again after.
+    particle_settings2d& duration(float seconds, bool looping = true) { c_.duration = seconds; c_.looping = looping; return *this; }
+    /// Each particle lives a random time between `min` and `max` seconds.
+    particle_settings2d& lifetime(float min, float max) { c_.lifetime_min = min; c_.lifetime_max = max; return *this; }
+    /// Start speed in pixels per second, random between `min` and `max`.
+    particle_settings2d& speed(float min, float max) { c_.speed_min = min; c_.speed_max = max; return *this; }
+    /// Start width in pixels, random between `min` and `max` (scaled by size_over_life).
+    particle_settings2d& size(float min, float max) { c_.size_min = min; c_.size_max = max; return *this; }
+    /// Start rotation in radians, random between `min` and `max`.
+    particle_settings2d& rotation(float min, float max) { c_.rotation_min = min; c_.rotation_max = max; return *this; }
+    /// From the origin, moving up (the default).
+    particle_settings2d& point() { return shape(PONKO_PARTICLES2D_POINT, {0, 0}); }
+    /// Inside a disc, moving outward.
+    particle_settings2d& circle(float radius) { return shape(PONKO_PARTICLES2D_CIRCLE, {radius, 0}); }
+    /// From the origin, up to this many radians away from up.
+    particle_settings2d& cone(float angle) { return shape(PONKO_PARTICLES2D_CONE, {angle, 0}); }
+    /// Inside a rectangle, moving up.
+    particle_settings2d& rect(vec2 half_extents) { return shape(PONKO_PARTICLES2D_RECT, half_extents); }
+    /// Acceleration in pixels/s² (y down); {0, 200} by default.
+    particle_settings2d& gravity(vec2 acceleration) { c_.gravity = acceleration; return *this; }
+    /// Velocity damping per second.
+    particle_settings2d& drag(float per_second) { c_.drag = per_second; return *this; }
+    /// Size multiplier over normalized lifetime (0 birth, 1 death).
+    particle_settings2d& size_over_life(std::initializer_list<particle_key> keys) {
+        size_keys_.clear();
+        for (auto k : keys) size_keys_.push_back({k.t, k.value});
+        return *this;
+    }
+    /// Tint over normalized lifetime (0 birth, 1 death).
+    particle_settings2d& color_over_life(std::initializer_list<particle_color_key> keys) {
+        color_keys_.clear();
+        for (auto k : keys) color_keys_.push_back({k.t, k.value});
+        return *this;
+    }
+    /// The particle image; with `columns` x `rows` sprite sheet frames played over lifetime.
+    particle_settings2d& image(texture t, std::uint32_t columns = 1, std::uint32_t rows = 1) {
+        c_.has_texture = true;
+        c_.texture = t;
+        c_.sheet_columns = columns;
+        c_.sheet_rows = rows;
+        return *this;
+    }
+    /// How particles cover what's behind them, as for sprites (default alpha).
+    particle_settings2d& blend(sprite_blend b) { c_.blend = static_cast<std::uint32_t>(b); return *this; }
+    /// A sprite material (custom shader) for the particles.
+    particle_settings2d& material(sprite_material m) { c_.material = m; return *this; }
+    /// Draw order among sprites: higher is on top.
+    particle_settings2d& z(float order) { c_.z = order; return *this; }
+    /// Most living particles; storage is made up front.
+    particle_settings2d& max_particles(std::uint32_t n) { c_.max_particles = n; return *this; }
+    /// Whether particles stay in the world or move with the emitter (default world).
+    particle_settings2d& space(particle_space s) { c_.space = static_cast<std::uint32_t>(s); return *this; }
+    /// Equal seeds give equal particles.
+    particle_settings2d& seed(std::uint64_t s) { c_.seed = s; return *this; }
+    /// The C settings; its key pointers live as long as this object.
+    PonkoParticleSettings2D raw() const {
+        PonkoParticleSettings2D c = c_;
+        c.size_keys = size_keys_.data();
+        c.size_key_count = size_keys_.size();
+        c.color_keys = color_keys_.data();
+        c.color_key_count = color_keys_.size();
+        return c;
+    }
+};
+
 /// A ribbon left behind its entity as it moves (Rust `Trail3D`), built by
 /// chaining: `trail3d(0.25f, 0.05f).blend(particle_blend::additive)`. Give it
 /// to an entity with ctx::set_trail3d.
@@ -5173,6 +5257,23 @@ public:
     }
     /// Removes `e`'s emitter and its particles.
     void remove_particle_emitter3d(entity e) { detail::check(ponko_ctx_remove_particle_emitter3d(raw_, e)); }
+    /// Gives `e` (which needs a 2D transform) a new 2D particle emitter, replacing any old one.
+    void set_particle_emitter2d(entity e, const particle_settings2d& settings) {
+        PonkoParticleSettings2D c = settings.raw();
+        detail::check(ponko_ctx_set_particle_emitter2d(raw_, e, &c));
+    }
+    /// Emits `count` particles from `e`'s 2D emitter on the next frame.
+    void particle_burst2d(entity e, std::uint32_t count) { detail::check(ponko_ctx_particle_burst2d(raw_, e, count)); }
+    /// How many of `e`'s 2D particles are alive.
+    std::uint32_t particle_live_count2d(entity e) {
+        std::uint32_t n = 0;
+        detail::check(ponko_ctx_particle_live_count2d(raw_, e, &n));
+        return n;
+    }
+    /// Advances `e`'s 2D emitter by `dt` seconds by hand (headless runs skip the frame phase that does it).
+    void particle_update2d(entity e, float dt) { detail::check(ponko_ctx_particle_update2d(raw_, e, dt)); }
+    /// Removes `e`'s 2D emitter and its particles.
+    void remove_particle_emitter2d(entity e) { detail::check(ponko_ctx_remove_particle_emitter2d(raw_, e)); }
     /// Gives `e` (which needs a 3D transform) a new ribbon trail, replacing any old one.
     void set_trail3d(entity e, const trail3d& trail) {
         PonkoTrail3D c = trail.raw();

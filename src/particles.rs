@@ -1113,6 +1113,36 @@ mod tests {
         assert_eq!(live, 0);
     }
 
+    /// Adding a settings field breaks this on purpose: give it to
+    /// `PonkoParticleSettings2D` (crates/ponko_ffi/src/particles2d.rs), the
+    /// C++ `particle_settings2d` and the reflected JSON too.
+    #[test]
+    fn the_c_api_and_json_mirror_every_settings_field() {
+        let ParticleSettings2D {
+            rate: _,
+            burst: _,
+            duration: _,
+            looping: _,
+            lifetime: _,
+            speed: _,
+            shape: _,
+            gravity: _,
+            drag: _,
+            size: _,
+            rotation: _,
+            size_over_life: _,
+            color_over_life: _,
+            texture: _,
+            sheet: _,
+            blend: _,
+            material: _,
+            z: _,
+            max_particles: _,
+            space: _,
+            seed: _,
+        } = ParticleSettings2D::default();
+    }
+
     #[test]
     #[should_panic(expected = "particle ranges must be finite and ordered")]
     fn unordered_ranges_are_rejected() {
