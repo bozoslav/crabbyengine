@@ -291,6 +291,10 @@ let game = Game::new("named", 1, 1).add(
 </div>
 </div>
 
+`SystemView` itself is Rust-only for now (see
+[Still Rust-only](c-cpp.md#still-rust-only)): a C or C++ system always takes
+the whole `ctx`.
+
 They run with their `ctx` and are checked in debug builds of the library
 like declared Rust `Ctx` systems; a violation stops the run with an error
 naming the system. Raw C access can't tell reads from writes, so a

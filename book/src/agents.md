@@ -321,13 +321,10 @@ through the tools above, put a game of your own (Rust, C or C++) through a
 scenario file, and compare two bundles. See
 [Validation bundles](validation-bundles.md).
 
-These tools exist today. A general gameplay-input recording/replay service,
-structured scheduler inspection, richer shader diagnostics and broader
-GPU/asset memory reports are not implied by their presence. Follow
-[#145](https://github.com/ponkoengine/ponko/issues/145),
-[#153](https://github.com/ponkoengine/ponko/issues/153) and
-[#157](https://github.com/ponkoengine/ponko/issues/157) for the relevant
-planned extensions. Reliable autonomous creation of complete games remains
+These tools exist today, including scheduler inspection (`ecs_diagnostics`),
+shader diagnostics (`shader_status`) and GPU reports by pass (`perf_report`).
+Their presence does not imply a general gameplay-input recording/replay
+service. Reliable autonomous creation of complete games remains
 a long-term objective, with human review and reproducible evidence still
 required. See [the project vision](https://github.com/ponkoengine/ponko/blob/main/PROJECT_VISION.md).
 
