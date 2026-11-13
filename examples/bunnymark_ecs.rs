@@ -16,6 +16,7 @@
 use ponko::d2::*;
 use ponko::prelude::*;
 
+#[derive(Component)]
 struct Vel(Vec2);
 
 struct Rng(u64);

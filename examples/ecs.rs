@@ -14,8 +14,10 @@ use ponko::d2::*;
 use ponko::prelude::*;
 
 /// Velocity in pixels per second.
+#[derive(Component)]
 struct Vel(Vec2);
 /// Seconds left to live.
+#[derive(Component)]
 struct Life(f32);
 
 /// Resource: shared settings and a tiny random generator.

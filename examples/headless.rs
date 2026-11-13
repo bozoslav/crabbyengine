@@ -8,6 +8,7 @@
 use ponko::d2::*;
 use ponko::prelude::*;
 
+#[derive(Component)]
 struct Agent {
     heading: f32,
     speed: f32,

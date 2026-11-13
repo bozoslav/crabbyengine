@@ -1,7 +1,7 @@
 //! Local, axis-aligned reflection volumes. Captures are explicit, never per-frame.
 use crate::d3::Transform as Transform3D;
 use crate::gfx::Graphics;
-use crate::{Entity, Texture, Vec3, World};
+use crate::{Component, Entity, Texture, Vec3, World};
 
 /// A local environment at an entity's [`Transform3D::position`]. Rotation and
 /// scale are ignored. Four baked environments can be resident; zero content
@@ -12,7 +12,7 @@ use crate::{Entity, Texture, Vec3, World};
 /// assert_eq!(probe.intensity, 1.0);
 /// ```
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 pub struct ReflectionProbe3D {
     /// Full axis-aligned box size in world units. Default 10 on each axis.

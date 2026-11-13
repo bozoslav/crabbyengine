@@ -224,6 +224,7 @@ fn builtin_id(name: &str) -> Option<(SystemId, &'static str)> {
 /// ```no_run
 /// use ponko::prelude::*;
 ///
+/// #[derive(Component)]
 /// struct Vel(Vec2);
 ///
 /// fn movement(ctx: &mut Ctx) {
@@ -742,7 +743,9 @@ impl Game {
     /// use ponko::prelude::*;
     /// use ponko::system_view::SystemView;
     ///
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Vel(f32);
     ///
     /// fn steer(ctx: &mut Ctx) {
@@ -856,7 +859,9 @@ impl Game {
     /// use ponko::prelude::*;
     /// use ponko::system_view::SystemView;
     ///
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Health(i32);
     ///
     /// fn drift(sys: &mut SystemView) {
@@ -930,7 +935,9 @@ impl Game {
     /// use ponko::access::SystemAccess;
     /// use ponko::prelude::*;
     /// use ponko::system_view::SystemView;
+    /// #[derive(Component)]
     /// struct A;
+    /// #[derive(Component)]
     /// struct B;
     /// let plan = Game::new("barrier", 1, 1)
     ///     .add(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(SystemAccess::new().write::<A>()))
@@ -963,7 +970,9 @@ impl Game {
     /// use ponko::access::SystemAccess;
     /// use ponko::prelude::*;
     /// use ponko::system_view::SystemView;
+    /// #[derive(Component)]
     /// struct A;
+    /// #[derive(Component)]
     /// struct B;
     /// let mut game = Game::new("order", 1, 1);
     /// let first = game.add_system(Phase::AfterPhysics, (|_: &mut SystemView| {}).access(SystemAccess::new().write::<A>()));
@@ -1400,6 +1409,7 @@ impl Game {
     /// ```
     /// use ponko::prelude::*;
     ///
+    /// #[derive(Component)]
     /// struct Jumps(u32);
     ///
     /// fn jump(ctx: &mut Ctx) {
@@ -1860,6 +1870,7 @@ impl Game {
     /// ```
     /// use ponko::prelude::*;
     ///
+    /// #[derive(Component)]
     /// struct Pos(f32);
     ///
     /// fn fall(ctx: &mut Ctx) {
@@ -2063,8 +2074,10 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Component;
 
     struct Log(Vec<String>);
+    #[derive(Component)]
     struct Marker;
 
     fn ctx() -> Ctx {

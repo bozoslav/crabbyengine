@@ -119,6 +119,7 @@ struct SimClock {
 /// ```
 /// use ponko::prelude::*;
 ///
+/// #[derive(Component)]
 /// struct Pos(f32);
 ///
 /// fn fall(ctx: &mut Ctx) {
@@ -474,6 +475,7 @@ impl Time {
     /// ```
     /// use ponko::prelude::*;
     ///
+    /// #[derive(Component)]
     /// struct Brain { plans: u32 }
     ///
     /// fn plan(ctx: &mut Ctx) {

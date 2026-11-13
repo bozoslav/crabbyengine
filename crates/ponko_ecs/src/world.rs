@@ -48,7 +48,9 @@ impl Chunk<'_> {
 /// ```
 /// use ponko_ecs::*;
 ///
+/// #[derive(Component)]
 /// struct Pos(f32, f32);
+/// #[derive(Component)]
 /// struct Vel(f32, f32);
 ///
 /// let mut world = World::new();
@@ -228,14 +230,17 @@ impl World {
     /// world already (old handles stay dead).
     ///
     /// ```
-    /// use ponko_ecs::{Entity, World};
+    /// use ponko_ecs::{Component, Entity, World};
+    ///
+    /// #[derive(Component, Debug, PartialEq)]
+    /// struct Name(&'static str);
     ///
     /// let mut world = World::new();
     /// let saved = Entity::from_bits(7 | 3 << 32); // slot 7, generation 3
-    /// assert!(world.spawn_at(saved, ("hello",)));
-    /// assert_eq!(world.get::<&str>(saved), Some(&"hello"));
-    /// assert!(!world.spawn_at(saved, ("again",))); // taken
-    /// let fresh = world.spawn(("new",)); // fresh handles never collide
+    /// assert!(world.spawn_at(saved, (Name("hello"),)));
+    /// assert_eq!(world.get::<Name>(saved), Some(&Name("hello")));
+    /// assert!(!world.spawn_at(saved, (Name("again"),))); // taken
+    /// let fresh = world.spawn((Name("new"),)); // fresh handles never collide
     /// assert_ne!(fresh, saved);
     /// ```
     pub fn spawn_at<B: Bundle>(&mut self, e: Entity, bundle: B) -> bool {
@@ -253,8 +258,9 @@ impl World {
     /// world's bookkeeping (per-slot generation, archetype index).
     ///
     /// ```
-    /// use ponko_ecs::World;
+    /// use ponko_ecs::{Component, World};
     ///
+    /// #[derive(Component)]
     /// struct Pos(f32, f32);
     /// let mut world = World::new();
     /// world.spawn_batch((0..1000).map(|i| (Pos(i as f32, 0.0),)));
@@ -268,10 +274,13 @@ impl World {
     /// Despawns every entity. Resources stay.
     ///
     /// ```
-    /// use ponko_ecs::World;
+    /// use ponko_ecs::{Component, World};
+    ///
+    /// #[derive(Component)]
+    /// struct Level(u8);
     ///
     /// let mut world = World::new();
-    /// let e = world.spawn((1u8,));
+    /// let e = world.spawn((Level(1),));
     /// world.clear();
     /// assert!(world.is_empty() && !world.is_alive(e));
     /// ```
@@ -302,21 +311,24 @@ impl World {
     /// loaded must be dropped before, or looked up again after.
     ///
     /// ```
-    /// use ponko_ecs::World;
+    /// use ponko_ecs::{Component, World};
+    ///
+    /// #[derive(Component, Debug, PartialEq)]
+    /// struct Level(u8);
     ///
     /// let mut world = World::new();
-    /// let old = world.spawn((1u8,));
+    /// let old = world.spawn((Level(1),));
     /// world.reset();
     /// assert!(!world.is_alive(old));
     /// // The first handle after a reset is the first handle of a new world:
     /// // the one `old` holds.
-    /// let new = world.spawn((2u8,));
+    /// let new = world.spawn((Level(2),));
     /// assert_eq!(new, old);
-    /// assert_eq!(world.get::<u8>(old), Some(&2));
+    /// assert_eq!(world.get::<Level>(old), Some(&Level(2)));
     ///
     /// // What it is for: the saved handle is free again.
     /// world.reset();
-    /// assert!(world.spawn_at(old, (3u8,)));
+    /// assert!(world.spawn_at(old, (Level(3),)));
     /// ```
     pub fn reset(&mut self) {
         self.recorder.note(|l| l.structural = true);
@@ -389,14 +401,17 @@ impl World {
     /// this never shrinks except on `reset`.
     ///
     /// ```
-    /// use ponko_ecs::{Entity, World};
+    /// use ponko_ecs::{Component, Entity, World};
+    ///
+    /// #[derive(Component)]
+    /// struct Level(u8);
     ///
     /// let mut world = World::new();
-    /// let a = world.spawn((1u8,));
-    /// world.spawn((2u8,));
+    /// let a = world.spawn((Level(1),));
+    /// world.spawn((Level(2),));
     /// world.despawn(a);
     /// assert_eq!((world.len(), world.entity_slots()), (1, 2));
-    /// assert!(world.spawn_at(Entity::from_bits(9), (3u8,)));
+    /// assert!(world.spawn_at(Entity::from_bits(9), (Level(3),)));
     /// assert_eq!(world.entity_slots(), 10);
     /// ```
     #[must_use]
@@ -444,8 +459,9 @@ impl World {
     /// named twice (two `&mut` to one value can't exist).
     ///
     /// ```
-    /// use ponko_ecs::World;
+    /// use ponko_ecs::{Component, World};
     ///
+    /// #[derive(Component)]
     /// struct Health(i32);
     /// let mut world = World::new();
     /// let a = world.spawn((Health(10),));
@@ -523,6 +539,7 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// for x in [3.0, 1.0, 2.0] {
@@ -595,15 +612,17 @@ impl World {
     /// state. Changes made by the callback may still allocate.
     ///
     /// ```
-    /// use ponko_ecs::World;
+    /// use ponko_ecs::{Component, World};
     /// struct Total(u32);
+    /// #[derive(Component)]
+    /// struct Count(u32);
     /// let mut world = World::new();
     /// world.insert_resource(Total(0));
-    /// world.spawn((3u32,));
+    /// world.spawn((Count(3),));
     /// world.resource_scope::<Total, _>(|world, total| {
-    ///     world.query::<&mut u32>().for_each(|n| {
-    ///         *n += 1;
-    ///         total.0 += *n;
+    ///     world.query::<&mut Count>().for_each(|n| {
+    ///         n.0 += 1;
+    ///         total.0 += n.0;
     ///     });
     /// });
     /// assert_eq!(world.resource::<Total>().0, 4);
@@ -808,6 +827,7 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// struct Score(u32);
     /// let mut world = World::new();
@@ -834,7 +854,8 @@ impl World {
     /// big enough.
     ///
     /// ```
-    /// use ponko_ecs::{AccessLog, World};
+    /// use ponko_ecs::{AccessLog, Component, World};
+    /// #[derive(Component)]
     /// struct Pos(f32);
     ///
     /// let mut world = World::new();
@@ -937,9 +958,12 @@ impl World {
     /// The component with number `index` ([`ComponentId::index`]), if registered.
     ///
     /// ```
+    /// #[derive(ponko_ecs::Component)]
+    /// struct Speed(f32);
+    ///
     /// let mut world = ponko_ecs::World::new();
-    /// world.spawn((1.5f32,));
-    /// let id = world.component_id::<f32>().unwrap();
+    /// world.spawn((Speed(1.5),));
+    /// let id = world.component_id::<Speed>().unwrap();
     /// assert_eq!(world.component_at(id.index()), Some(id));
     /// assert_eq!(world.component_at(99), None);
     /// ```
@@ -973,7 +997,9 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Vel(f32);
     /// let mut world = World::new();
     /// let e = world.spawn((Pos(0.0), Vel(1.0)));

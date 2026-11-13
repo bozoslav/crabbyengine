@@ -294,8 +294,9 @@ impl Hybrid {
 mod tests {
     use super::*;
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, ponko_ecs::Component)]
     struct Hp(u32);
+    #[derive(ponko_ecs::Component)]
     struct Pos(f32);
 
     #[test]

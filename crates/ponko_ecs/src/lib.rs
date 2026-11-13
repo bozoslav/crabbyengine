@@ -4,8 +4,8 @@
 //! with millions of entities.
 //!
 //! - **Entities** are cheap handles ([`Entity`]).
-//! - **Components** are plain Rust types, with no derive needed. Anything
-//!   `Send + Sync + 'static` works.
+//! - **Components** are plain Rust types that opt in with
+//!   `#[derive(Component)]` (or `impl Component for Type {}`).
 //! - **Queries** loop over every entity that has a set of components, as fast
 //!   as a hand-written loop over arrays.
 //! - **Resources** are global values stored in the world.
@@ -14,9 +14,11 @@
 //! ```
 //! use ponko_ecs::*;
 //!
+//! #[derive(Component)]
 //! struct Pos(f32, f32);
+//! #[derive(Component)]
 //! struct Vel(f32, f32);
-//! struct Gravity(f32);
+//! struct Gravity(f32); // a resource: no derive
 //!
 //! let mut world = World::new();
 //! world.insert_resource(Gravity(-9.8));
@@ -40,6 +42,10 @@
 //! (see [`World::raw`]).
 
 #![warn(missing_docs)]
+
+// `#[derive(Component)]` names the trait `::ponko_ecs::Component`, in this
+// crate too (and in its doctests, where `crate` would be the doctest).
+extern crate self as ponko_ecs;
 
 mod raw;
 pub use raw::{RawWorld, RawWorldRef};
@@ -93,6 +99,9 @@ pub use bundle::{Bundle, Component};
 pub use change::{Added, Changed, ChunkQuery, Tick};
 pub use commands::Commands;
 pub use entity::Entity;
+/// `#[derive(Component)]`: `impl Component for Type {}`. See [`Component`](trait@Component).
+#[cfg(feature = "derive")]
+pub use ponko_macros::Component;
 pub use query::{
     CompiledFilter, DynFilter, FilterError, FilterShape, FilterTree, MAX_FILTER_DEPTH, Or, OrTerm, OrTerms, Query,
     QueryCache, QueryCachePolicy, QueryCacheStats, QueryData, QueryFilter, QueryIter, SingleError, With, Without,

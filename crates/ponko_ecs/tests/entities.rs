@@ -7,6 +7,10 @@ use std::sync::Arc;
 use common::*;
 use ponko_ecs::*;
 
+/// A component that counts its live copies through the `Arc`.
+#[derive(Component, Clone)]
+struct Shared(#[allow(dead_code)] Arc<()>);
+
 #[test]
 fn spawn_get_despawn() {
     let mut w = World::new();
@@ -97,24 +101,24 @@ fn drops_run_exactly_once() {
     let rc = Arc::new(());
     {
         let mut w = World::new();
-        let a = w.spawn((rc.clone(), Pos(0.0, 0.0)));
-        let b = w.spawn((rc.clone(), Pos(0.0, 0.0)));
-        let c = w.spawn((rc.clone(),));
+        let a = w.spawn((Shared(rc.clone()), Pos(0.0, 0.0)));
+        let b = w.spawn((Shared(rc.clone()), Pos(0.0, 0.0)));
+        let c = w.spawn((Shared(rc.clone()),));
         assert_eq!(Arc::strong_count(&rc), 4);
         w.despawn(a);
         assert_eq!(Arc::strong_count(&rc), 3);
         w.insert(b, Vel(0.0, 0.0)); // moves the Arc to another archetype
         assert_eq!(Arc::strong_count(&rc), 3);
-        let taken = w.remove::<Arc<()>>(b).unwrap();
+        let taken = w.remove::<Shared>(b).unwrap();
         assert_eq!(Arc::strong_count(&rc), 3);
         drop(taken);
         assert_eq!(Arc::strong_count(&rc), 2);
-        w.insert(c, rc.clone()); // replace drops the old one
+        w.insert(c, Shared(rc.clone())); // replace drops the old one
         assert_eq!(Arc::strong_count(&rc), 2);
-        let id = w.component_id::<Arc<()>>().unwrap();
+        let id = w.component_id::<Shared>().unwrap();
         assert!(w.raw().remove_dynamic(c, id));
         assert_eq!(Arc::strong_count(&rc), 1);
-        w.spawn((rc.clone(),));
+        w.spawn((Shared(rc.clone()),));
     }
     assert_eq!(Arc::strong_count(&rc), 1, "dropping the world drops its components");
 }
@@ -165,7 +169,7 @@ fn sort_by_reorders_rows_and_keeps_handles_valid() {
         // Scrambled keys, two archetypes, a non-Copy component and a ZST.
         let x = ((i * 7919) % n) as f32;
         let e = if i % 3 == 0 {
-            w.spawn((Pos(x, i as f32), rc.clone(), Tag))
+            w.spawn((Pos(x, i as f32), Shared(rc.clone()), Tag))
         } else {
             w.spawn((Pos(x, i as f32), Vel(x, 0.0)))
         };

@@ -42,13 +42,13 @@ pub const SIZES: [usize; 3] = [1_000, 100_000, 1_000_000];
 /// Entity counts of the game-like workload.
 pub const GAME_SIZES: [usize; 2] = [10_000, 100_000];
 
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, ponko_ecs::Component)]
 pub struct Boost(pub f32);
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, ponko_ecs::Component)]
 pub struct Hp(pub i32);
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, ponko_ecs::Component)]
 pub struct Life(pub u32);
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, ponko_ecs::Component)]
 pub struct Ai {
     pub phase: f32,
 }

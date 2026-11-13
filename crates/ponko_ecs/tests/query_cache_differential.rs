@@ -25,9 +25,10 @@ use ponko_ecs::*;
 
 // ---- components ---------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 struct Value(u64);
 /// Eight zero-sized markers: bit `N` of an entity's mask.
+#[derive(Component)]
 struct M<const N: usize>;
 /// Components registered by name while a case runs: bits 8 and up.
 const LATE: usize = 4;

@@ -131,7 +131,7 @@ fn custom_decoders_keep_their_kind_and_get_the_path() {
     });
 }
 
-#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize, Component)]
 struct Tuning {
     speed: f32,
 }

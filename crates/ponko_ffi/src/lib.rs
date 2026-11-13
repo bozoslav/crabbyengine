@@ -1355,11 +1355,16 @@ mod tests {
 
     #[test]
     fn rust_components_without_a_c_layout_are_rejected() {
+        // A Rust type with a destructor, and a plain one: neither has a C layout.
+        #[derive(ponko::Component)]
+        struct Name(String);
+        #[derive(ponko::Component)]
+        struct Count(#[allow(dead_code)] u64);
         let mut world = World::new();
-        let e = world.spawn((String::from("rust owned"), 5u64));
+        let e = world.spawn((Name(String::from("rust owned")), Count(5)));
         for id in [
-            world.component_id::<String>().unwrap(),
-            world.component_id::<u64>().unwrap(),
+            world.component_id::<Name>().unwrap(),
+            world.component_id::<Count>().unwrap(),
         ] {
             let size = world.component_info(id).layout().size();
             let id = id.index() as u32;
@@ -1384,6 +1389,6 @@ mod tests {
                 assert_eq!(query, PONKO_INVALID_ARGUMENT);
             });
         }
-        assert_eq!(world.get::<String>(e).unwrap(), "rust owned");
+        assert_eq!(world.get::<Name>(e).unwrap().0, "rust owned");
     }
 }

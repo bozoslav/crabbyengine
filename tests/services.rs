@@ -21,6 +21,7 @@ use ponko::render::{ComputePass, GraphicsQuality, MaterialDesc, Mesh, MeshData};
 #[allow(unused_imports)]
 use ponko::ui::{UiEvent, UiId, UiInput, UiWidget};
 
+#[derive(Component)]
 struct Pos(f32);
 
 #[test]
@@ -264,6 +265,7 @@ fn the_default_listener_is_the_camera_as_the_running_system_found_it() {
     });
 }
 
+#[derive(Component)]
 struct Dot(Texture);
 
 #[test]
@@ -441,7 +443,7 @@ struct Rules {
     speed: f32,
 }
 
-#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize, Component)]
 struct Stats {
     hp: f32,
 }
@@ -582,6 +584,7 @@ mod three {
     #[allow(unused_imports)]
     use ponko::ui::UiWidget;
 
+    #[derive(Component)]
     struct Box3(Mesh);
 
     #[test]

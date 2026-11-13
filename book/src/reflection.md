@@ -9,6 +9,7 @@ use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
+#[derive(Component)]
 struct Health { current: f32, max: f32 }
 
 Game::new("Arena", 1280, 720)

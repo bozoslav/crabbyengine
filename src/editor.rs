@@ -206,10 +206,10 @@ impl Editor {
 mod tests {
     use super::*;
     use crate::d2::Transform as Transform2D;
-    use crate::vec2;
+    use crate::{Component, vec2};
     use serde::{Deserialize, Serialize};
 
-    #[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Debug)]
+    #[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Debug, Component)]
     #[serde(default)]
     struct Hp(f32);
 

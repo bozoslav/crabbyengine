@@ -108,6 +108,7 @@ imports:
 
 ```rust
 # use ponko::access::SystemAccess;
+# #[derive(Component)]
 # struct Hunger(f32);
 # fn think(_: &mut Ctx) {} fn get_hungry(_: &mut Ctx) {} fn follow(_: &mut Ctx) {}
 let game = Game::new("Options", 1280, 720)
@@ -437,6 +438,7 @@ half-applied change. Parallel queries refuse commands.
 
 ```rust
 # use ponko::prelude::*;
+#[derive(Component)]
 struct Shot(i32);
 
 // Records a spawn. The world doesn't change until this system returns.

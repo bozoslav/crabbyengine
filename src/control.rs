@@ -2003,6 +2003,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Component;
     use crate::d2::Transform as Transform2D;
     use glam::vec2;
 
@@ -2169,6 +2170,7 @@ mod tests {
     #[test]
     fn list_pages_and_filters() {
         let mut ctx = ctx();
+        #[derive(Component)]
         struct Hidden;
         for i in 0..10 {
             ctx.world.spawn((Transform2D::at(vec2(i as f32, 0.0)),));
@@ -2508,7 +2510,9 @@ mod tests {
     fn ecs_diagnostics_list_archetypes_and_count_matches() {
         let mut ctx = ctx();
         ctx.world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
-        ctx.world.spawn((Transform2D::default(), 5u32));
+        #[derive(crate::Component)]
+        struct Tag;
+        ctx.world.spawn((Transform2D::default(), Tag));
         let d = handle(&mut ctx, "ecs.diagnostics", &json!({ "with": ["Transform2D"] })).unwrap();
         assert_eq!(d["version"], crate::diagnostics::ECS_DIAGNOSTICS_VERSION);
         assert_eq!(d["entities"], 2);

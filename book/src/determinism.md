@@ -13,6 +13,7 @@ Get random numbers in systems from `ctx.random()`:
 <div>
 
 ```rust
+# #[derive(Component)]
 # struct Heading(f32);
 fn wander(ctx: &mut Ctx) {
     let random = ctx.random();

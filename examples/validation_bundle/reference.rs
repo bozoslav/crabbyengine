@@ -37,7 +37,7 @@ impl Variant {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Component)]
 struct Body {
     y: f32,
     vy: f32,

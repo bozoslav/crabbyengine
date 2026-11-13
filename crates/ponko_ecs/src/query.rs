@@ -732,9 +732,13 @@ impl<Q: QueryData> ParWork<'_, Q> {
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Health(i32);
+/// #[derive(Component)]
 /// struct Player;
+/// #[derive(Component)]
 /// struct Enemy;
+/// #[derive(Component)]
 /// struct Dead;
 ///
 /// /// Living characters: players or enemies, not dead.
@@ -797,8 +801,11 @@ pub struct Without<T>(PhantomData<fn() -> T>);
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct A;
+/// #[derive(Component)]
 /// struct B;
+/// #[derive(Component)]
 /// struct C;
 /// let mut world = World::new();
 /// world.spawn((A, B, C));
@@ -894,8 +901,11 @@ filter_tuple!(A, B, C, D, E, F, G, H);
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Pos(f32);
+/// #[derive(Component)]
 /// struct Vel(f32);
+/// #[derive(Component)]
 /// struct Frozen;
 ///
 /// let mut world = World::new();
@@ -1000,7 +1010,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Health(i32);
+    /// #[derive(Component)]
     /// struct Boss;
     /// let mut world = World::new();
     /// world.spawn((Health(100), Boss));
@@ -1019,6 +1031,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Health(i32);
     /// let mut world = World::new();
     /// world.spawn((Health(100),));
@@ -1038,8 +1051,11 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Player;
+    /// #[derive(Component)]
     /// struct Frozen;
     /// let mut world = World::new();
     /// world.spawn((Pos(0.0), Player));
@@ -1052,8 +1068,11 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Player;
+    /// #[derive(Component)]
     /// struct Enemy;
     /// let mut world = World::new();
     /// world.spawn((Pos(0.0), Player));
@@ -1084,6 +1103,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.track_changes::<Pos>();
@@ -1194,7 +1214,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Vel(f32);
     /// let mut world = World::new();
     /// world.spawn_batch((0..100_000).map(|i| (Pos(i as f32), Vel(1.0))));
@@ -1218,6 +1240,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// # use ponko_ecs::*;
     /// use std::sync::atomic::{AtomicU32, Ordering};
     ///
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.spawn_batch((0..10_000).map(|i| (Pos(i as f32),)));
@@ -1341,6 +1364,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.spawn_batch((0..10_000).map(|i| (Pos(i as f32),)));
@@ -1549,7 +1573,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Player;
     /// let mut world = World::new();
     /// assert_eq!(world.query::<&Pos>().single().err(), Some(SingleError::NoEntities));
@@ -1688,8 +1714,9 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
 #[cfg(all(test, feature = "parallel"))]
 mod par_plan_tests {
     use super::*;
-    use crate::Changed;
+    use crate::{Changed, Component};
 
+    #[derive(Component)]
     struct Value(u32);
 
     /// A tracked world where every other row changed since the returned

@@ -1,5 +1,6 @@
 //! Shared animation graphs and per-entity playback.
 use super::{AnimationClip, Skeleton, Transform3D};
+use crate::Component;
 use glam::{Quat, Vec2, Vec3};
 use std::fmt;
 use std::sync::Arc;
@@ -887,7 +888,7 @@ fn angle_delta(a: f32, b: f32) -> f32 {
 /// a.manual = true;
 /// a.update(0.016, &mut s);
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct Animator {
     graph: Arc<AnimationGraph>,
     parameters: Vec<AnimationParameter>,

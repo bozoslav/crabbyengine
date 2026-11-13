@@ -20,6 +20,7 @@ use crate::reflect::{raw_json, short_name};
 /// use ponko::prelude::*;
 ///
 /// struct Died(Entity);
+/// #[derive(Component)]
 /// struct Health(i32);
 ///
 /// fn damage(ctx: &mut Ctx) {

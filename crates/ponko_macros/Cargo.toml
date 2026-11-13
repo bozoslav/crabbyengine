@@ -1,0 +1,25 @@
+[package]
+name = "ponko_macros"
+version = "0.0.1"
+keywords = ["ecs", "gamedev", "derive", "component"]
+categories = ["game-development", "development-tools::procedural-macro-helpers"]
+readme = "README.md"
+documentation = "https://docs.rs/ponko_macros/"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Derive macros for Ponko (`#[derive(Component)]`). Use them through `ponko` or `ponko_ecs`."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.107"
+quote = "1.0.47"
+syn = { version = "2.0.119", default-features = false, features = ["derive", "parsing", "printing", "proc-macro"] }
+# Finds what the user's crate calls `ponko` or `ponko_ecs` (renamed
+# dependencies included), so the generated impl names the right trait.
+proc-macro-crate = "3.5.0"

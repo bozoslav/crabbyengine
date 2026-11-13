@@ -1,7 +1,7 @@
 //! Positional playback without custom DSP: Kira applies the gain, pan and rate.
 use super::{Audio, AudioBus, AudioEffects, Playing, Sound, SoundParams};
-use crate::Ctx;
 use crate::d3::Transform as Transform3D;
+use crate::{Component, Ctx};
 use crate::{Entity, Quat, Vec3};
 
 /// Distance gain curve. Keyed curves use normalized distance and linear gain;
@@ -91,7 +91,7 @@ pub struct AudioListener3D {
 /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::d3::AudioSource::new(sound, ponko::d3::AudioSettings::default())));
 /// # }
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Component)]
 pub struct AudioSource3D {
     /// Clip to play. Changes apply when the component is replaced.
     pub sound: Sound,

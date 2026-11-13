@@ -102,7 +102,7 @@ fn steps_wait_for_their_tick_and_steps_past_the_run_never_apply() {
 
 /// A gameplay interaction: a body that jumps when the action is pressed and
 /// falls under gravity.
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 struct Body {
     y: f32,
     vy: f32,

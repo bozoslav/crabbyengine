@@ -1,12 +1,15 @@
 //! Components shared by the integration tests.
 #![allow(dead_code)]
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+use ponko_ecs::Component;
+
+#[derive(Debug, PartialEq, Clone, Copy, Component)]
 pub struct Pos(pub f32, pub f32);
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Component)]
 pub struct Vel(pub f32, pub f32);
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 pub struct Tag;
+#[derive(Component)]
 pub struct Frozen;
 
 /// A tiny seeded PRNG (SplitMix64) for generated test cases: deterministic on

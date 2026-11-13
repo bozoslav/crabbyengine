@@ -85,8 +85,11 @@
 //! use ponko::prelude::*;
 //! use ponko::system_view::SystemView;
 //!
+//! #[derive(Component)]
 //! struct Pos(f32);
+//! #[derive(Component)]
 //! struct Vel(f32);
+//! #[derive(Component)]
 //! struct Health(i32);
 //!
 //! fn movement(sys: &mut SystemView) {
@@ -435,9 +438,13 @@ pub(crate) fn plan(systems: &[PlanInput<'_>], order: &[(SystemId, SystemId)]) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Component;
 
+    #[derive(Component)]
     struct A;
+    #[derive(Component)]
     struct B;
+    #[derive(Component)]
     struct C;
     struct Hit;
 

@@ -16,7 +16,7 @@
 
 use crate::d3::Transform as Transform3D;
 use crate::render::MeshData;
-use crate::{Ctx, Entity, Vec3, World};
+use crate::{Component, Ctx, Entity, Vec3, World};
 use navmesh_rs::{Limits, Workspace, bake, crowd, detour, recast, tilecache};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -563,7 +563,7 @@ impl NavState {
 /// let obstacle = ponko::d3::NavObstacle::new(Vec3::ZERO, Vec3::ONE);
 /// assert_eq!(obstacle.center, Vec3::ZERO);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Component)]
 pub struct NavObstacle3D {
     /// Center in world space.
     /// ```
@@ -612,7 +612,7 @@ impl NavObstacle3D {
 /// let mut agent = ponko::d3::NavAgent::default();
 /// agent.destination = Some(Vec3::X * 4.0);
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Component)]
 pub struct NavAgent3D {
     /// Maximum speed in world units per second. Nonpositive/nonfinite stops.
     /// ```

@@ -82,6 +82,7 @@ uses `include/ponko.h`, `include/ponko.hpp`, and `PONKO_*` settings. See
 |---|---|
 | `src/` | The engine (`ponko` crate) |
 | `crates/ponko_ecs` | The `ponko_ecs` ECS, usable on its own |
+| `crates/ponko_macros` | Derive macros (`#[derive(Component)]`), re-exported by `ponko_ecs` and `ponko` |
 | `crates/ponko_ffi` | The C API; `include/ponko.h` is generated from it |
 | `include/ponko.hpp` | The header-only C++ wrapper |
 | `crates/ponko_mcp` | The MCP server for AI agents |

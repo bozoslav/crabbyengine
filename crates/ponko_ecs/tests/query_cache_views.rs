@@ -4,9 +4,10 @@
 
 use ponko_ecs::*;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Component)]
 struct Value(usize);
 struct Total(usize);
+#[derive(Component)]
 struct Marker<const N: usize>;
 
 /// Miri interprets every instruction: fewer rounds and a smaller world

@@ -68,7 +68,7 @@ If you touched unsafe code in `crates/ponko_ecs`, also run the ECS tests under M
 ```sh
 cd crates/ponko_ecs
 # Our unsafe code, strict model, without rayon:
-cargo +nightly miri test --tests --no-default-features
+cargo +nightly miri test --tests --no-default-features --features derive
 # The parallel path. rayon's dependency crossbeam-epoch trips Stacked Borrows
 # (not our code), and its global thread pool outlives main:
 MIRIFLAGS="-Zmiri-tree-borrows -Zmiri-ignore-leaks" cargo +nightly miri test --test parallel --test changes --test view_groups --test query_cache --test query_cache_views

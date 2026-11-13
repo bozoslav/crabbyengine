@@ -1,13 +1,16 @@
 //! Rust reference for examples/cpp/benchmark.cpp; release builds only.
 //! One million positions, 10 warmups, 200 measured full-column updates.
+use ponko::Component;
 use ponko_ecs::World;
 use std::hint::black_box;
 use std::time::Instant;
 
+#[derive(Component)]
 struct Pos {
     x: f32,
     y: f32,
 }
+#[derive(Component)]
 struct Vel {
     x: f32,
     y: f32,

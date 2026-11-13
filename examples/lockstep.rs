@@ -46,7 +46,7 @@ fn read_keys(ctx: &mut Ctx) {
 // ANCHOR_END: input
 
 /// A crab, and whose it is.
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Component)]
 struct Crab {
     player: u32,
     push: Vec2,

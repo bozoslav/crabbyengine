@@ -31,7 +31,9 @@ pub struct GridEntry<T = ()> {
 /// ```
 /// use ponko::prelude::*;
 ///
+/// #[derive(Component)]
 /// struct Unit;
+/// #[derive(Component)]
 /// struct Crowded(bool);
 ///
 /// fn crowding(ctx: &mut Ctx) {
@@ -74,6 +76,7 @@ pub struct GridEntry<T = ()> {
 /// ```
 /// use ponko::prelude::*;
 ///
+/// #[derive(Component)]
 /// struct Vel(Vec2);
 ///
 /// let align = {

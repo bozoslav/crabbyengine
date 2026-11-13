@@ -9,7 +9,7 @@ use super::retained::Ui;
 use crate::d3::Transform as Transform3D;
 use crate::gfx::Graphics;
 use crate::render::batch::PanelDraw;
-use crate::{Ctx, Entity, MouseButton, Texture};
+use crate::{Component, Ctx, Entity, MouseButton, Texture};
 
 /// Retained UI shown on a quad in the world (Rust's [`Ui`] on a surface):
 /// a computer screen, a shop terminal, a sign with buttons. Build `ui` like
@@ -31,6 +31,7 @@ use crate::{Ctx, Entity, MouseButton, Texture};
 ///     ctx.world.spawn((ponko::d3::Transform::at(vec3(0.0, 1.5, -2.0)), model, panel));
 /// });
 /// ```
+#[derive(Component)]
 pub struct UiPanel3D {
     /// Its widgets, events, focus and screens.
     pub ui: Ui,

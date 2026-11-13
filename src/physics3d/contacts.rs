@@ -4,7 +4,7 @@
 use rapier3d::prelude as rp;
 
 use super::{Physics3D, from_rp, rot_from_rp, to_rp};
-use crate::{Entity, Vec3, World};
+use crate::{Component, Entity, Vec3, World};
 
 /// Changes how a body's contacts behave. Put it on an entity with a
 /// [`Collider3D`](crate::d3::Collider) (the one-way side and the conveyor
@@ -36,7 +36,7 @@ use crate::{Entity, Vec3, World};
 ///     ponko::d3::ContactModifier::conveyor(vec3(2.0, 0.0, 0.0)),
 /// ));
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Component)]
 pub struct ContactModifier3D {
     /// When set, contacts count only where the other body touches the side
     /// this (local) direction points to: from anywhere else it passes

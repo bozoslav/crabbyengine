@@ -87,6 +87,7 @@ impl Tick {
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Health(i32);
 /// let mut world = World::new();
 /// world.track_changes::<Health>();
@@ -116,7 +117,9 @@ pub struct Added<T>(PhantomData<fn() -> T>);
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Pos(f32);
+/// #[derive(Component)]
 /// struct Vel(f32);
 /// let mut world = World::new();
 /// world.track_changes::<Pos>();
@@ -506,11 +509,14 @@ pub(crate) fn mark_columns(arch: &Archetype, ids: &[ComponentId], stamp: u32) {
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
+/// struct Health(i32);
+///
 /// let mut world = World::new();
-/// let health = world.track_changes::<i32>();
-/// world.spawn((10i32,));
+/// let health = world.track_changes::<Health>();
+/// world.spawn((Health(10),));
 /// let seen = world.advance_change_tick();
-/// let hurt = world.spawn((3i32,));
+/// let hurt = world.spawn((Health(3),));
 ///
 /// // Read-only, and only the rows whose value was added after `seen`.
 /// let ids = [health];
@@ -665,6 +671,7 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Health(i32);
     /// let mut world = World::new();
     /// world.track_changes::<Health>();
@@ -731,6 +738,7 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.track_changes::<Pos>();
@@ -814,6 +822,7 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Sprite(u32);
     /// let mut world = World::new();
     /// world.track_changes::<Sprite>();
@@ -965,6 +974,7 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Sprite(u32);
     /// let mut world = World::new();
     /// world.track_changes::<Sprite>();
@@ -994,7 +1004,9 @@ fn untracked(name: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Component;
 
+    #[derive(Component)]
     struct Pos(u32);
 
     impl World {

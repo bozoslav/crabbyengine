@@ -44,6 +44,7 @@ fn report(ctx: &mut Ctx) {
 }
 
 /// A phase, so crabs don't all move together.
+#[derive(Component)]
 struct Crab(f32);
 
 fn main() {

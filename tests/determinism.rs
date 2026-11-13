@@ -8,14 +8,14 @@ use ponko::prelude::*;
 use ponko::system_view::SystemView;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Component)]
 struct Walker {
     heading: f32,
     energy: f32,
     crowded: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Component)]
 struct Food(f32);
 
 fn wander(ctx: &mut Ctx) {

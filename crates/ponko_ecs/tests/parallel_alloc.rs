@@ -45,7 +45,9 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static GLOBAL: Counting = Counting;
 
+#[derive(Component)]
 struct Value(u64);
+#[derive(Component)]
 struct Marker<const N: usize>;
 
 /// 512 small archetypes (a plan of 512 entries) plus a big one, so the plan

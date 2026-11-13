@@ -101,6 +101,7 @@ million entities for 600 fixed ticks without opening a window:
 ```rust
 use ponko::prelude::*;
 
+#[derive(Component)]
 struct Velocity(Vec2);
 
 fn movement(ctx: &mut Ctx) {

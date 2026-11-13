@@ -4,7 +4,9 @@
 
 use ponko_ecs::*;
 
+#[derive(Component)]
 struct Pos(f32);
+#[derive(Component)]
 struct Vel(f32);
 struct Score(u32);
 
@@ -112,7 +114,9 @@ fn replacing_a_component_in_place_is_a_write_and_adding_one_is_structural() {
     let mut w = world();
     let e = w.query::<Entity>().iter().next().unwrap();
     let pos = w.component_id::<Pos>().unwrap();
-    let fresh = w.register::<u64>();
+    #[derive(Component)]
+    struct Fresh(#[allow(dead_code)] u64);
+    let fresh = w.register::<Fresh>();
     w.record_access();
     let value = Pos(5.0);
     // SAFETY: a valid `Pos`, moved into the world (no destructor to skip).
@@ -121,8 +125,8 @@ fn replacing_a_component_in_place_is_a_write_and_adding_one_is_structural() {
     assert_eq!(log.components, [(pos, true)]);
     assert!(!log.structural);
     w.record_access();
-    let n = 1u64;
-    // SAFETY: a valid u64.
+    let n = Fresh(1);
+    // SAFETY: a valid `Fresh`.
     assert!(unsafe { w.raw().insert_dynamic(e, fresh, (&raw const n).cast()) });
     assert!(w.take_access_log().unwrap().structural);
     w.record_access();

@@ -7,6 +7,7 @@ use common::*;
 use ponko_ecs::*;
 
 /// Extra marker for a third matching archetype.
+#[derive(Component)]
 struct Vel2;
 
 #[test]
@@ -99,6 +100,7 @@ fn assert_panicking_collect_drops_each_written_value(rows: usize, panic_at: usiz
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+    #[derive(Component)]
     struct Id(usize);
     // Send but not Sync: cleanup must require only the API's R: Send bound.
     struct Counted {
@@ -212,10 +214,13 @@ fn par_collect_into_drops_each_written_zero_sized_value_on_mapper_panic() {
 
 #[test]
 fn cached_parallel_chunks_follow_growth_and_preserve_order() {
+    #[derive(Component)]
     struct Marker<const N: usize>;
+    #[derive(Component, Clone, Copy, Debug, PartialEq)]
+    struct Num(u64);
     let mut w = World::new();
     for bits in 0..128 {
-        let e = w.spawn((bits as u64,));
+        let e = w.spawn((Num(bits as u64),));
         macro_rules! m {
             ($n:literal) => {
                 if bits & (1 << $n) != 0 {
@@ -231,17 +236,17 @@ fn cached_parallel_chunks_follow_growth_and_preserve_order() {
         m!(5);
         m!(6);
     }
-    assert_eq!(w.query::<&u64>().cached().filter::<With<Marker<0>>>().count(), 64);
+    assert_eq!(w.query::<&Num>().cached().filter::<With<Marker<0>>>().count(), 64);
     let rows = if cfg!(miri) { 129 } else { 1025 };
     // A new layout after warming, with enough rows to require multiple tasks.
-    w.spawn_batch((0..rows).map(|i| (i as u64, Marker::<0>, Marker::<9>)));
-    w.query::<&mut u64>()
+    w.spawn_batch((0..rows).map(|i| (Num(i as u64), Marker::<0>, Marker::<9>)));
+    w.query::<&mut Num>()
         .cached()
         .filter::<With<Marker<0>>>()
-        .par_for_each(|v| *v += 1);
-    let expected: Vec<_> = w.query::<&u64>().filter::<With<Marker<0>>>().iter().copied().collect();
+        .par_for_each(|v| v.0 += 1);
+    let expected: Vec<_> = w.query::<&Num>().filter::<With<Marker<0>>>().iter().copied().collect();
     let mut actual = Vec::new();
-    w.query::<&u64>()
+    w.query::<&Num>()
         .cached()
         .filter::<With<Marker<0>>>()
         .par_collect_into(&mut actual, |v| *v);
@@ -278,8 +283,9 @@ fn slow(slow: bool) {
 }
 
 /// A unique value per entity, in spawn order.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 struct Id(u64);
+#[derive(Component)]
 struct M<const N: usize>;
 
 /// Adds `rows(layout)` entities to each of `layouts` archetypes (one per set

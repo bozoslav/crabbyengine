@@ -65,6 +65,7 @@ mod physics2d {
 
     #[test]
     fn the_step_declares_its_inputs_and_keeps_its_id_and_phase() {
+        #[derive(Component)]
         struct Score;
         let game = Game::new("t", 1, 1).physics(Vec2::ZERO).add(
             Phase::Physics,

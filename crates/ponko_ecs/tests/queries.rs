@@ -106,7 +106,9 @@ fn same_component_twice_read_only_is_fine() {
 }
 
 // Every combination gives the boolean expressions a complete truth table.
+#[derive(Component)]
 struct Bit<const N: usize>;
+#[derive(Component)]
 struct Bits(usize);
 fn filter_world(rows: usize) -> World {
     let mut w = World::new();
@@ -243,6 +245,7 @@ fn parallel_tuple_or_filters_match_sequential_order_and_mutation() {
 
 #[test]
 fn view_tuple_or_filters_handle_unregistered_components_per_arm() {
+    #[derive(Component)]
     struct Never;
     let mut w = filter_world(1);
     let mut state = ViewState::new().write::<Bits>().read::<Bit<0>>();

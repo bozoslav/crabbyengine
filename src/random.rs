@@ -174,6 +174,7 @@ impl Random {
     /// ```
     /// use ponko::prelude::*;
     ///
+    /// #[derive(Component)]
     /// struct Wander(f32);
     ///
     /// fn wander(ctx: &mut Ctx) {

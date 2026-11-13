@@ -84,6 +84,7 @@ fn terrain(x: f32, y: f32) -> u16 {
     }
 }
 
+#[derive(Component)]
 struct Wander(Vec2);
 
 // ANCHOR: setup

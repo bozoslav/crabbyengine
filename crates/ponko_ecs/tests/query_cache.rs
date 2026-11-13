@@ -1,5 +1,7 @@
 use ponko_ecs::*;
+#[derive(Component)]
 struct Value(usize);
+#[derive(Component)]
 struct Marker<const N: usize>;
 
 fn fragmented(w: &mut World) {
@@ -389,6 +391,7 @@ fn equivalent_queries_share_one_index_entry() {
 #[test]
 #[cfg_attr(miri, ignore = "a big world; Miri runs the same paths in the small worlds below")]
 fn an_automatic_index_follows_registration_new_archetypes_moves_and_empty_archetypes() {
+    #[derive(Component)]
     struct Late;
     let mut w = World::new();
     fragmented(&mut w);
@@ -624,7 +627,9 @@ fn change_detection_is_the_same_with_and_without_the_index() {
     assert_eq!(stamps(QueryCache::Always), scanned);
 }
 
+#[derive(Component)]
 struct Partner(Entity);
+#[derive(Component)]
 struct Score(u32);
 
 /// A lookup reads the entity table and the archetypes while the query

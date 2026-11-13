@@ -3,6 +3,7 @@
 
 use glam::{UVec2, Vec2};
 
+use crate::Component;
 use crate::color::Color;
 use crate::ctx::Ctx;
 use crate::ecs::Transform2D;
@@ -24,7 +25,7 @@ use crate::sheet::SpriteSheet;
 /// ctx.world.spawn((ponko::d2::Transform::at(vec2(0.0, 0.0)), map));
 /// # }
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Component)]
 pub struct TileMap {
     /// The tiles' images: tile `n` is frame `n` of this sheet.
     pub sheet: SpriteSheet,

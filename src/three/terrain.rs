@@ -4,6 +4,7 @@
 use glam::{Vec2, Vec3, Vec4};
 
 use super::{Material, MaterialDesc, Mesh, MeshData, TextureArray};
+use crate::Component;
 use crate::gfx::Graphics;
 
 /// The most ground layers a terrain material blends.
@@ -163,7 +164,7 @@ pub const TERRAIN_LODS: usize = 4;
 /// ctx.world.spawn((ponko::d3::Transform::at(vec3(-64.0, 0.0, -64.0)), tile));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Component)]
 #[repr(C)] // shared with C/C++ (`PonkoTerrainTile`): the meshes, then the distance
 pub struct TerrainTile {
     /// The meshes, finest first.

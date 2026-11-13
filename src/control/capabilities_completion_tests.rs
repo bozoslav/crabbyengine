@@ -1,5 +1,5 @@
 use super::*;
-use crate::WorldReflect;
+use crate::{Component, WorldReflect};
 
 #[test]
 fn protocol_describes_every_registered_builtin_without_sampling_instances() {
@@ -33,7 +33,7 @@ fn protocol_describes_every_registered_builtin_without_sampling_instances() {
 
 #[test]
 fn custom_type_named_like_builtin_remains_opaque() {
-    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(serde::Serialize, serde::Deserialize, Component)]
     struct Velocity(u32);
     let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ZERO);
     ctx.world.reflect::<Velocity>();

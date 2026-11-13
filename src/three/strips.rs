@@ -11,7 +11,7 @@ use glam::Vec3;
 
 use super::particles::{ParticleBlend3D, ParticleCurve, ParticleGradient};
 use super::{Camera3D, Transform3D};
-use crate::{Color, Texture};
+use crate::{Color, Component, Texture};
 
 /// A ribbon left behind its entity as it moves: tracers, sword swings,
 /// streaks behind cars or projectiles. It faces the camera, is widest where
@@ -30,7 +30,7 @@ use crate::{Color, Texture};
 ///     ctx.world.spawn((ponko::d3::Transform::default(), tracer));
 /// });
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct Trail3D {
     /// Seconds a point lasts before the ribbon lets go of it.
     pub lifetime: f32,
@@ -136,7 +136,7 @@ impl Trail3D {
 ///     ctx.world.spawn((ponko::d3::Transform::default(), ponko::d3::Line { blend: ponko::d3::ParticleBlend::Additive, ..beam }));
 /// });
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Component)]
 pub struct Line3D {
     /// At least two to draw anything.
     pub points: Vec<Vec3>,

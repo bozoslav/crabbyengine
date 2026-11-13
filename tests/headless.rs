@@ -8,6 +8,7 @@ use ponko::prelude::*;
 #[allow(unused_imports)]
 use ponko::render::RenderStats;
 
+#[derive(Component)]
 struct Pos(f32);
 struct Ticks(Vec<u64>);
 
@@ -88,6 +89,7 @@ fn frame_systems_and_setup_closure_do_not_run() {
 
 #[test]
 fn commands_from_setup_and_systems_apply() {
+    #[derive(Component)]
     struct Spawner;
     fn spawn_one(ctx: &mut Ctx) {
         ctx.commands.spawn((Pos(0.0),));
@@ -176,6 +178,7 @@ fn every_zero_ticks_panics() {
     let _ = Game::new("t", 1, 1).add(Phase::AfterPhysics, (|_: &mut Ctx| {}).every(0));
 }
 
+#[derive(Component)]
 struct Turned(u32);
 
 fn take_turns(ctx: &mut Ctx) {

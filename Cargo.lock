@@ -3121,6 +3121,7 @@ dependencies = [
 name = "ponko_ecs"
 version = "0.0.1"
 dependencies = [
+ "ponko_macros",
  "rayon",
  "serde",
  "serde_json",
@@ -3135,6 +3136,16 @@ dependencies = [
  "ponko_ecs",
  "rayon",
  "serde_json",
+]
+
+[[package]]
+name = "ponko_macros"
+version = "0.0.1"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

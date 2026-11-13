@@ -107,16 +107,19 @@ impl<'a> RawWorld<'a> {
     /// afterwards if the component is tracked.
     ///
     /// ```
-    /// use ponko_ecs::World;
+    /// use ponko_ecs::{Component, World};
+    ///
+    /// #[derive(Component)]
+    /// struct Speed(f32);
     ///
     /// let mut world = World::new();
-    /// let e = world.spawn((1.5f32,));
-    /// let id = world.component_id::<f32>().unwrap();
-    /// let p = world.raw().get_dynamic_mut(e, id).unwrap().cast::<f32>();
-    /// // SAFETY: the pointer is to this entity's live f32, and the world
+    /// let e = world.spawn((Speed(1.5),));
+    /// let id = world.component_id::<Speed>().unwrap();
+    /// let p = world.raw().get_dynamic_mut(e, id).unwrap().cast::<Speed>();
+    /// // SAFETY: the pointer is to this entity's live `Speed`, and the world
     /// // isn't used between getting it and writing through it.
-    /// unsafe { *p = 3.0 };
-    /// assert_eq!(world.get::<f32>(e), Some(&3.0));
+    /// unsafe { (*p).0 = 3.0 };
+    /// assert_eq!(world.get::<Speed>(e).unwrap().0, 3.0);
     /// ```
     #[must_use]
     #[inline]
@@ -424,9 +427,11 @@ impl<'a> RawWorldRef<'a> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// # #[derive(Component)]
+    /// # struct Level(u8);
     /// let mut world = World::new();
-    /// let id = world.track_changes::<u8>();
-    /// let e = world.spawn((1u8,));
+    /// let id = world.track_changes::<Level>();
+    /// let e = world.spawn((Level(1),));
     /// world.despawn(e);
     /// assert_eq!(world.raw_ref().removed_dynamic(id, Tick::default()), [e]);
     /// ```

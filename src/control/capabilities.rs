@@ -212,7 +212,7 @@ fn report_with_gpu(ctx: &Ctx, gpu: Option<&crate::render::GpuCapabilities>) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::WorldReflect;
+    use crate::{Component, WorldReflect};
 
     fn ctx(headless: bool) -> Ctx {
         let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ZERO);
@@ -414,13 +414,14 @@ mod tests {
         assert_eq!(report(&ctx)["subsystems"]["physics"]["active"], true);
     }
 
-    #[derive(serde::Serialize, serde::Deserialize)]
+    #[derive(serde::Serialize, serde::Deserialize, Component)]
     struct Health {
         current: f32,
         max: f32,
     }
 
     /// Serialized as a plain string, whatever its fields are.
+    #[derive(Component)]
     struct Tag {
         id: u32,
     }

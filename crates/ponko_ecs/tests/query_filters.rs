@@ -5,11 +5,15 @@ mod common;
 use common::*;
 use ponko_ecs::*;
 
+#[derive(Component)]
 struct Player;
+#[derive(Component)]
 struct Enemy;
+#[derive(Component)]
 struct Dead;
+#[derive(Component)]
 struct Ghost;
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Component)]
 struct Health(i32);
 
 /// One entity per combination of the four markers, with `Health(bits)`:
@@ -156,11 +160,17 @@ fn filter_on_a_fetched_mutable_component_is_allowed() {
 
 #[test]
 fn more_than_four_with_and_without_filters_fit() {
+    #[derive(Component)]
     struct C0;
+    #[derive(Component)]
     struct C1;
+    #[derive(Component)]
     struct C2;
+    #[derive(Component)]
     struct C3;
+    #[derive(Component)]
     struct C4;
+    #[derive(Component)]
     struct C5;
     let mut w = World::new();
     w.spawn((Pos(0.0, 0.0), C0, C1, C2, C3, C4, C5));
@@ -201,14 +211,23 @@ fn repeated_with_filters_use_one_slot() {
 #[test]
 #[should_panic(expected = "at most 8 `with` filters per query")]
 fn too_many_with_filters_panic() {
+    #[derive(Component)]
     struct C0;
+    #[derive(Component)]
     struct C1;
+    #[derive(Component)]
     struct C2;
+    #[derive(Component)]
     struct C3;
+    #[derive(Component)]
     struct C4;
+    #[derive(Component)]
     struct C5;
+    #[derive(Component)]
     struct C6;
+    #[derive(Component)]
     struct C7;
+    #[derive(Component)]
     struct C8;
     let mut w = World::new();
     let _ = w
@@ -250,14 +269,23 @@ fn too_many_or_terms_panic() {
 
 #[test]
 fn twelve_element_tuples_work() {
+    #[derive(Component)]
     struct C(u8);
+    #[derive(Component)]
     struct D(u8);
+    #[derive(Component)]
     struct E(u8);
+    #[derive(Component)]
     struct F(u8);
+    #[derive(Component)]
     struct G(u8);
+    #[derive(Component)]
     struct H(u8);
+    #[derive(Component)]
     struct I(u8);
+    #[derive(Component)]
     struct J(u8);
+    #[derive(Component)]
     struct K(u8);
     let mut w = World::new();
     let e = w.spawn((

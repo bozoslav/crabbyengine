@@ -5,10 +5,13 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use super::*;
+use crate::Component;
 use crate::access::SystemAccess;
 use crate::system_view::SystemView;
 
+#[derive(Component)]
 struct A(u32);
+#[derive(Component)]
 struct B(u32);
 struct Total(u32);
 #[derive(Clone, Copy)]
@@ -202,6 +205,7 @@ fn a_batch_keeps_its_usual_run_time_for_the_thread_decision() {
     assert!(t[0].last_ms >= slow_ms && t[1].last_ms < slow_ms / 2.0, "{t:?}");
 }
 
+#[derive(Component)]
 struct Marker;
 struct Runs(u32);
 struct OwnChanges(u32);

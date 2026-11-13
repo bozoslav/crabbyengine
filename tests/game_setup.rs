@@ -1,5 +1,6 @@
-use ponko::Game;
+use ponko::{Component, Game};
 
+#[derive(Component)]
 struct Marker;
 
 #[test]

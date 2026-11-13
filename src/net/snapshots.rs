@@ -837,7 +837,7 @@ impl<T: Interpolate> SnapshotStream<T> {
 /// # let _ = world;
 /// ```
 #[cfg(feature = "3d")]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, crate::Component)]
 pub struct NetPose {
     /// The buffered snapshots and clock estimate.
     pub stream: SnapshotStream<Pose>,

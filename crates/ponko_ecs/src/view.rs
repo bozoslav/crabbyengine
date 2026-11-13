@@ -30,7 +30,9 @@
 //!
 //! ```
 //! use ponko_ecs::*;
+//! #[derive(Component)]
 //! struct Pos(f32);
+//! #[derive(Component)]
 //! struct Vel(f32);
 //! struct Gravity(f32);
 //!
@@ -319,6 +321,7 @@ impl ViewState {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.track_changes::<Pos>();
@@ -347,6 +350,7 @@ impl ViewState {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.track_changes::<Pos>();
@@ -871,6 +875,7 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
     ///
     /// ```
     /// use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Health(i32);
     ///
     /// let mut world = World::new();
@@ -1102,7 +1107,9 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
 ///
 /// ```
 /// use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Pos(f32);
+/// #[derive(Component)]
 /// struct Health(i32);
 ///
 /// let mut world = World::new();
@@ -1296,11 +1303,13 @@ impl ViewGroup {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Component;
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Component)]
     struct Pos(f32);
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Component)]
     struct Vel(f32);
+    #[derive(Component)]
     struct Health(i32);
     struct Gravity(f32);
     #[derive(Debug, PartialEq)]

@@ -6,11 +6,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use ponko_ecs::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 struct Pos(f32);
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 struct Vel(f32);
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 struct Health(i32);
 struct Gravity(f32);
 #[derive(Debug, PartialEq)]

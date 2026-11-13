@@ -7,7 +7,7 @@ use glam::{Vec2, Vec3};
 
 use super::{Camera3D, Transform3D, linear};
 use crate::text::{SDF_PX, SDF_SPREAD, Text};
-use crate::{Color, Ctx, Font, Texture};
+use crate::{Color, Component, Ctx, Font, Texture};
 
 /// How the lines of a [`Text3D`] line up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -47,7 +47,7 @@ pub enum TextAlign3D {
 ///     ctx.world.spawn((ponko::d3::Transform::at(vec3(0.0, 2.5, 0.0)), label));
 /// });
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Component)]
 pub struct Text3D {
     /// What it says; `\n` starts a new line.
     pub text: String,

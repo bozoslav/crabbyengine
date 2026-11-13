@@ -73,17 +73,19 @@ fn dynamic_resources_keep_their_layout() {
 #[test]
 fn resource_scope_queries_and_restores_non_copy_resource_on_early_return() {
     struct Score(String);
+    #[derive(Component, Debug, PartialEq)]
+    struct Count(u32);
     let mut w = World::new();
-    let e = w.spawn((2u32,));
+    let e = w.spawn((Count(2),));
     w.insert_resource(Score("score:".into()));
     w.insert_resource(3u64);
     let address = w.resource::<Score>() as *const Score;
     let result = w.resource_scope::<Score, _>(|world, score| {
         assert!(world.get_resource::<Score>().is_none());
         let multiplier = *world.resource::<u64>() as u32;
-        world.query::<&mut u32>().for_each(|n| *n *= multiplier);
+        world.query::<&mut Count>().for_each(|n| n.0 *= multiplier);
         score.0.push('6');
-        if world.get::<u32>(e) == Some(&6) {
+        if world.get::<Count>(e) == Some(&Count(6)) {
             return 42;
         }
         0

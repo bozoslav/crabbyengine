@@ -55,7 +55,9 @@ pub struct SystemConfig {
 /// use ponko::prelude::*;
 /// use ponko::system_view::SystemView;
 ///
+/// #[derive(Component)]
 /// struct Pos(f32);
+/// #[derive(Component)]
 /// struct Vel(f32);
 ///
 /// fn think(_: &mut Ctx) {}
@@ -109,6 +111,7 @@ pub trait IntoSystem<Takes>: Sized {
     /// ```
     /// use ponko::prelude::*;
     ///
+    /// #[derive(Component)]
     /// struct Hunger(f32);
     ///
     /// fn get_hungry(ctx: &mut Ctx) {

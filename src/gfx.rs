@@ -26,6 +26,7 @@
 //! ```
 //! use ponko::prelude::*;
 //!
+//! #[derive(Component)]
 //! struct Crab(Texture);
 //!
 //! fn draw(ctx: &mut Ctx) {
@@ -103,6 +104,7 @@ enum Layer {
 /// ```
 /// use ponko::prelude::*;
 ///
+/// #[derive(Component)]
 /// struct Crab(Texture);
 ///
 /// fn draw(ctx: &mut Ctx) {

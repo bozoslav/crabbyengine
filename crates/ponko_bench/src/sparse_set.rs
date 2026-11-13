@@ -58,7 +58,7 @@ const RUNS: usize = 30;
 const TIMED_TICKS: usize = RUNS + 5;
 
 /// Zero-sized marker `K`.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, ponko_ecs::Component)]
 struct Tag<const K: usize>;
 
 /// What an effect carries: an amount per tick and the ticks left.
@@ -69,7 +69,7 @@ struct Effect {
 }
 
 /// Effect `K`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, ponko_ecs::Component)]
 struct Data<const K: usize>(Effect);
 
 /// An optional component of the workload.
@@ -393,7 +393,7 @@ impl Store for Sset {
 /// The workaround a game can use today without engine changes: the optional
 /// components as bits and slots of one dense component, so nothing ever
 /// changes archetype and every query tests bits row by row.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, ponko_ecs::Component)]
 struct Status {
     /// Bit `c`: has optional component `c`.
     bits: u16,

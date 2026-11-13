@@ -34,8 +34,11 @@ pub const MAX_FILTER_DEPTH: usize = 16;
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Player;
+/// #[derive(Component)]
 /// struct Enemy;
+/// #[derive(Component)]
 /// struct Dead;
 /// let mut world = World::new();
 /// world.spawn((Player,));

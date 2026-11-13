@@ -5,11 +5,17 @@
 use ponko_ecs::*;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+#[derive(Component)]
 struct Player;
+#[derive(Component)]
 struct Enemy;
+#[derive(Component)]
 struct Dead;
+#[derive(Component)]
 struct Ghost;
+#[derive(Component)]
 struct Tag;
+#[derive(Component)]
 struct Health(#[allow(dead_code)] i32);
 
 /// One entity per combination of the four markers (bit 0 `Player`, 1 `Enemy`,
@@ -199,14 +205,23 @@ fn filters_reach_the_same_entities_with_columns_and_empty_archetypes() {
 
 #[test]
 fn compile_fails_where_the_typed_filters_panic() {
+    #[derive(Component)]
     struct C0;
+    #[derive(Component)]
     struct C1;
+    #[derive(Component)]
     struct C2;
+    #[derive(Component)]
     struct C3;
+    #[derive(Component)]
     struct C4;
+    #[derive(Component)]
     struct C5;
+    #[derive(Component)]
     struct C6;
+    #[derive(Component)]
     struct C7;
+    #[derive(Component)]
     struct C8;
     let mut w = World::new();
     let i = ids(&mut w);

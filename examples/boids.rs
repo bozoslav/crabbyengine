@@ -12,7 +12,7 @@ use ponko::d2::*;
 use ponko::prelude::*;
 
 /// Reflected, so tools and agents (ponko-mcp) can read and change velocities.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Component)]
 struct Vel(Vec2);
 
 const RADIUS: f32 = 24.0;

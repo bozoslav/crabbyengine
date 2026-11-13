@@ -18,7 +18,7 @@ struct Steer {
 }
 
 /// A crowd member; `owner` steers it.
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Component)]
 struct Unit {
     owner: u32,
     vel: Vec2,
@@ -77,9 +77,9 @@ fn crowd(ctx: &mut Ctx) {
 struct Steered(bool);
 
 /// For the view systems: how long a unit has lived, and how tired it is.
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Component)]
 struct Age(u32);
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Component)]
 struct Stamina(f32);
 
 /// View systems over different components: with the parallel scheduler on

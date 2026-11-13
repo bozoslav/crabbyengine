@@ -987,14 +987,16 @@ impl Inspector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Component;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Component)]
     struct Health {
         current: f32,
         max: u32,
     }
+    #[derive(Component)]
     struct Secret;
 
     fn run(panels: &mut Panels, ctx: &mut Ctx) -> egui::FullOutput {

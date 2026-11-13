@@ -195,6 +195,7 @@ pub struct NetStats {
 /// #[derive(Serialize, Deserialize)]
 /// struct Move(f32);
 ///
+/// #[derive(Component)]
 /// struct Pos(f32);
 ///
 /// let world = Game::new("t", 1, 1)

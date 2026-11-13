@@ -29,7 +29,7 @@ use crate::render::{
 };
 use crate::texture::Texture;
 use crate::three::{Blend, GpuMaterialDesc, Joint, Scene3D, Skeleton, SkyLight};
-use crate::{Color, Ctx};
+use crate::{Color, Component, Ctx};
 
 /// A scene of the rendering baseline.
 #[doc(hidden)]
@@ -220,7 +220,7 @@ enum Motion {
 }
 
 /// A model the scene moves every frame.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Component)]
 struct Mover {
     origin: Vec3,
     phase: f32,
@@ -230,7 +230,7 @@ struct Mover {
 }
 
 /// A skeleton the scene poses every frame.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Component)]
 struct Sway {
     phase: f32,
 }

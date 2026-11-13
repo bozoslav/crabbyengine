@@ -14,6 +14,7 @@ use ponko::d3::*;
 use ponko::prelude::*;
 
 /// Turns around its own Y axis.
+#[derive(Component)]
 struct Spin(f32);
 
 /// The orbiting camera: angles around the target and distance.

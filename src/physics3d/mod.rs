@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 use crate::d3::Transform as Transform3D;
-use crate::{Ctx, Entity, Events, Quat, Vec3, Without, World};
+use crate::{Component, Ctx, Entity, Events, Quat, Vec3, Without, World};
 
 mod character;
 mod contacts;
@@ -51,7 +51,7 @@ pub const PHYSICS3D_HZ: u32 = 50;
 /// assert_eq!(crate_body.gravity_scale, 1.0);
 /// assert_eq!(ground.kind, ponko::d2::BodyKind::Fixed);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 #[serde(default)]
 pub struct RigidBody3D {
     /// Dynamic, fixed or kinematic.
@@ -286,7 +286,7 @@ impl CollisionGroups {
 /// assert!(trigger.sensor);
 /// assert_eq!(ball.friction, 0.5);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 pub struct Collider3D {
     /// Sphere, box, capsule or a mesh.
     pub shape: Shape3D,
@@ -399,7 +399,7 @@ impl Collider3D {
 /// let thrown = ponko::d3::Velocity::linear(vec3(0.0, 4.0, -10.0));
 /// assert_eq!(thrown.angular, Vec3::ZERO);
 /// ```
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, Component)]
 #[serde(default)]
 #[repr(C)] // C sees it as PonkoVelocity3D.
 pub struct Velocity3D {

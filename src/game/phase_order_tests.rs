@@ -10,6 +10,7 @@
 //! (`tests/service_phases.rs`).
 
 use super::*;
+use crate::Component;
 
 #[derive(Default)]
 struct Log(Vec<String>);
@@ -235,6 +236,7 @@ mod positional_audio {
 
 #[test]
 fn a_frame_runs_ticks_then_frame_then_late_then_draw_and_applies_commands_between() {
+    #[derive(Component)]
     struct Spawned;
     let mut ctx = ctx();
     let mut game = bare(Game::new("t", 1, 1))

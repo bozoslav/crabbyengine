@@ -141,7 +141,7 @@ pub use texture_array::{TextureArray, TextureKind};
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 
-use crate::{Color, Texture};
+use crate::{Color, Component, Texture};
 
 /// Position, rotation and scale of a 3D entity.
 ///
@@ -150,7 +150,7 @@ use crate::{Color, Texture};
 /// let crate_box = ponko::d3::Transform::at(vec3(0.0, 0.5, -3.0)).rotated(Quat::from_rotation_y(0.3));
 /// # let _ = crate_box;
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 #[repr(C, align(16))] // shared with C/C++ (`PonkoTransform3D`): 48 bytes everywhere
 pub struct Transform3D {
@@ -541,7 +541,7 @@ impl MaterialDesc {
 /// }
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 #[repr(C)] // shared with C/C++ (`PonkoModel`)
 pub struct Model {
     /// What to draw.
@@ -577,7 +577,7 @@ pub struct Model {
 /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(tree), ponko::render::ShadowMesh(Some(blob))));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct ShadowMesh(pub Option<Mesh>);
 
 /// Draws the entity's [`Model`] with this material instead of the ones its
@@ -610,7 +610,7 @@ pub struct ShadowMesh(pub Option<Mesh>);
 /// ctx.world.spawn((ponko::d3::Transform::at(vec3(3.0, 0.0, 0.0)), ponko::render::Model::new(rock), ponko::render::ModelMaterial(wet))); // wet
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Component)]
 #[repr(C)]
 pub struct ModelMaterial(pub Material);
 
@@ -639,7 +639,7 @@ pub struct ModelMaterial(pub Material);
 /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(door), ponko::render::ModelMaterials::new(&[(1, frosted)])));
 /// # }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Component)]
 pub struct ModelMaterials(Box<[(u32, Material)]>);
 
 impl ModelMaterials {

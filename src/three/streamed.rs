@@ -9,7 +9,7 @@ use super::{LodGroup, LodPick, Mesh, Transform3D, gltf};
 use crate::assets::{self, Origin};
 use crate::streaming::ResidencyKind;
 use crate::streaming::{AssetState, StreamedAsset, StreamedMesh};
-use crate::{Ctx, stream::Job};
+use crate::{Component, Ctx, stream::Job};
 use ponko_ecs::World;
 
 /// A decoded glTF file waiting for the game thread.
@@ -47,7 +47,7 @@ pub(crate) enum LoadedFile {
 /// ));
 /// # }
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Component)]
 pub struct StreamedLod {
     files: Arc<[String]>,
 }

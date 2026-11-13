@@ -1,6 +1,6 @@
 //! CPU particle pools and lifetime curves. Pools retain their storage between frames.
 use super::{Camera3D, Transform3D, linear};
-use crate::{Color, Rng, Texture, Vec3, World};
+use crate::{Color, Component, Rng, Texture, Vec3, World};
 
 /// A piecewise linear size multiplier over normalized lifetime. Keys must be finite,
 /// strictly increasing, and in 0..=1; sampling clamps to the endpoints.
@@ -330,7 +330,7 @@ struct Particle {
 /// let mut world = World::new();
 /// world.spawn((ponko::d3::Transform::default(), ponko::d3::ParticleEmitter::default()));
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Component)]
 pub struct ParticleEmitter3D {
     settings: ParticleSettings3D,
     particles: Vec<Particle>,

@@ -12,6 +12,7 @@ use ponko::input::{GamepadAxis, GamepadButton, GamepadStick};
 use ponko::prelude::*;
 
 /// The crab of the pad in `slot`, or of the keyboard (`slot: None`).
+#[derive(Component)]
 struct Player {
     slot: Option<usize>,
     spin: f32,

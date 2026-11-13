@@ -107,6 +107,7 @@ pub struct Ctx {
     ///
     /// ```
     /// # use ponko::prelude::*;
+    /// #[derive(Component)]
     /// struct Vel(Vec2);
     ///
     /// fn movement(ctx: &mut Ctx) {
@@ -143,6 +144,7 @@ pub struct Ctx {
     ///
     /// ```
     /// # use ponko::prelude::*;
+    /// #[derive(Component)]
     /// struct Health(i32);
     ///
     /// fn deaths(ctx: &mut Ctx) {
@@ -553,6 +555,7 @@ impl Ctx {
     ///
     /// ```
     /// use ponko::prelude::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// fn report(ctx: &mut Ctx) {
     ///     let d = ctx.ecs_diagnostics();
@@ -637,6 +640,7 @@ impl Ctx {
     /// ```
     /// use ponko::prelude::*;
     ///
+    /// #[derive(Component)]
     /// struct Pos(f32);
     ///
     /// fn jitter(ctx: &mut Ctx) {

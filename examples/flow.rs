@@ -30,7 +30,7 @@ fn env_number(name: &str, default: f64) -> f64 {
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Component)]
 struct Agent {
     vel: Vec2,
 }

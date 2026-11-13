@@ -68,6 +68,7 @@ component panics and says so.
 # use ponko::prelude::*;
 # use ponko::access::SystemAccess;
 # use ponko::system_view::SystemView;
+#[derive(Component)]
 struct Health(i32);
 struct Hurt(Entity);
 
@@ -163,6 +164,7 @@ a parallel batch:
 # use ponko::prelude::*;
 # use ponko::access::SystemAccess;
 # use ponko::system_view::SystemView;
+# #[derive(Component)]
 # struct Vel(f32);
 # fn brake(_: &mut SystemView) {} fn steer(_: &mut SystemView) {}
 let report = Game::new("report", 1, 1)

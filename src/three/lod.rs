@@ -5,7 +5,7 @@
 use glam::Vec3;
 
 use super::{Camera3D, InstanceLevel, Mesh, Transform3D};
-use crate::Color;
+use crate::{Color, Component};
 
 /// One mesh of a [`LodLevel`], placed relative to the [`LodGroup`]'s
 /// transform.
@@ -259,7 +259,7 @@ pub enum LodPick {
 /// // Hold each level until the group is 10% past its threshold.
 /// world.spawn((ponko::d3::Transform::default(), group, ponko::render::LodHysteresis(0.1)));
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize, Component)]
 pub struct LodHysteresis(pub f32);
 
 /// Levels of detail: the meshes this entity draws depend on how much of the
@@ -301,7 +301,7 @@ pub struct LodHysteresis(pub f32);
 /// ctx.world.spawn((ponko::d3::Transform::at(vec3(10.0, 0.0, -20.0)), group));
 /// # }
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Component)]
 pub struct LodGroup {
     /// The levels, most detailed first, their thresholds going down.
     pub levels: Vec<LodLevel>,

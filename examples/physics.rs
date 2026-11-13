@@ -17,6 +17,7 @@ const W: f32 = 1000.0;
 const H: f32 = 700.0;
 
 /// Marks the sensor in the bucket.
+#[derive(Component)]
 struct Bell {
     rang: f32,
 }

@@ -10,7 +10,9 @@ use ponko::access::SystemAccess;
 use ponko::prelude::*;
 use ponko::system_view::SystemView;
 
+#[derive(Component)]
 struct Pos(f32);
+#[derive(Component)]
 struct Vel(f32);
 
 #[test]

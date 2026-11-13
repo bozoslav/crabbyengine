@@ -3,10 +3,10 @@
 //! joint; every physics step (and every drawn frame) the skeleton's pose
 //! follows the bodies. Stopping blends back to the animated pose.
 use super::*;
-use crate::Mat4;
 use crate::anim::Skeleton;
 use crate::d3::JointAxis as JointAxis3D;
 use crate::d3::JointMotion as JointMotion3D;
+use crate::{Component, Mat4};
 
 /// One bone of a ragdoll: the skeleton joint it starts at, how thick it
 /// is, and how far its joint to the parent bone bends.
@@ -100,7 +100,7 @@ struct Bone {
 ///     assert_eq!(ragdoll.bodies().count(), 2);
 /// });
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Component)]
 pub struct Ragdoll3D {
     bones: Vec<Bone>,
     joints: Vec<Entity>,

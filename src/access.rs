@@ -80,8 +80,11 @@
 //! ```
 //! use ponko::prelude::*;
 //!
+//! #[derive(Component)]
 //! struct Pos(f32);
+//! #[derive(Component)]
 //! struct Vel(f32);
+//! #[derive(Component)]
 //! struct Health(i32);
 //!
 //! use ponko::access::SystemAccess;
@@ -289,7 +292,9 @@ fn add_event(items: &mut Vec<Item>, it: Item) {
 ///
 /// ```
 /// use ponko::prelude::*;
+/// #[derive(Component)]
 /// struct Pos(f32);
+/// #[derive(Component)]
 /// struct Vel(f32);
 /// struct Gravity(f32);
 ///
@@ -1022,6 +1027,7 @@ impl fmt::Display for AccessReport {
 mod tests {
     use super::*;
 
+    #[derive(Component)]
     struct Pos;
     struct Hit;
 

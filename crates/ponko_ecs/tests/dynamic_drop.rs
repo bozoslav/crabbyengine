@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use ponko_ecs::*;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Component)]
 struct Pos(f32, f32);
 
 /// Fills a value of `n` bytes with a pattern the drop functions check.

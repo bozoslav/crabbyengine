@@ -53,6 +53,7 @@ use crate::{Ctx, Key, Playing, Random, Sound};
 ///
 /// ```
 /// use ponko::prelude::*;
+/// #[derive(Component)]
 /// struct Health(i32);
 /// struct Died(Entity);
 ///

@@ -573,7 +573,7 @@ fn stream_errors_are_values_naming_the_asset_and_its_source() {
 }
 
 /// A reflected component of a game that names a texture by its asset name.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Component)]
 struct ShopItem {
     icon: String,
     #[serde(default)]
@@ -661,7 +661,7 @@ fn a_custom_asset_field_that_fails_to_load_fails_the_scene_with_its_name() {
 #[derive(Default)]
 struct Levels(std::collections::HashMap<String, Tiles>);
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, Component)]
 struct Portal {
     level: String,
 }

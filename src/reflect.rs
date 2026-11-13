@@ -485,7 +485,7 @@ pub trait WorldReflect {
     /// use ponko::prelude::*;
     /// use serde::{Deserialize, Serialize};
     ///
-    /// #[derive(Serialize, Deserialize)]
+    /// #[derive(Serialize, Deserialize, Component)]
     /// struct Health { current: f32, max: f32 }
     ///
     /// let mut world = World::new();
@@ -809,7 +809,7 @@ pub trait WorldReflect {
     ///
     /// ```
     /// use ponko::prelude::*;
-    /// # #[derive(serde::Serialize, serde::Deserialize)] struct Health { current: f32, max: f32 }
+    /// # #[derive(Component, serde::Serialize, serde::Deserialize)] struct Health { current: f32, max: f32 }
     /// let mut world = World::new();
     /// world.reflect::<Health>();
     /// world

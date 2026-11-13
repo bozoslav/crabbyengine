@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::{CollisionGroups, LinkKind, Physics3D, from_rp, rot_from_rp, to_rp};
 use crate::collision::BodyKind;
 use crate::d3::Transform as Transform3D;
-use crate::{Entity, Quat, Vec3, World};
+use crate::{Component, Entity, Quat, Vec3, World};
 
 /// How much grip a tyre has for how much it slips: a curve rising from 0
 /// to its peak `(extremum_slip, extremum_value)`, falling to
@@ -309,7 +309,7 @@ impl Wheel3D {
 ///     }
 /// }
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 #[serde(default)]
 #[repr(C, align(16))] // C sees it as PonkoVehicle3D.
 pub struct Vehicle3D {

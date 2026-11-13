@@ -18,6 +18,7 @@ Use it for:
 ```rust
 use ponko::prelude::*;
 
+#[derive(Component)]
 struct Pos(f32);
 
 fn fall(ctx: &mut Ctx) {

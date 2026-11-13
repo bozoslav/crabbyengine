@@ -51,12 +51,14 @@ fn allocations_in(f: impl FnOnce()) -> usize {
     ALLOCATIONS.with(|n| n.take()).unwrap()
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Component)]
 struct P(f32);
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Component)]
 struct V(f32);
+#[derive(Component)]
 struct Tag;
 /// A Rust component with a destructor.
+#[derive(Component)]
 struct Name(#[allow(dead_code)] String);
 
 const WIDTH: usize = 40;

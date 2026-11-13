@@ -51,6 +51,7 @@ use std::hint::black_box;
 use std::time::Instant;
 
 /// Rust component that every benchmark entity starts with (id 0).
+#[derive(ponko_ecs::Component)]
 struct Seed(#[allow(dead_code)] u32);
 
 /// Components registered in the world: ids `0..REGISTERED`.
@@ -718,12 +719,13 @@ const QUERY_WIDTHS: [usize; 5] = [4, 8, 16, 32, 64];
 /// cache, so archetype structs, id lists and columns come from memory.
 const FLUSH_BYTES: usize = 128 << 20;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, ponko_ecs::Component)]
 struct P(f32);
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, ponko_ecs::Component)]
 struct V(f32);
 /// In no archetype: `without::<Tag>()` matches everything and makes `has`
 /// scan the whole id list (a miss).
+#[derive(ponko_ecs::Component)]
 struct Tag;
 
 /// Where the two queried components sit in every archetype's sorted id list.

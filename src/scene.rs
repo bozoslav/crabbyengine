@@ -248,7 +248,7 @@ impl crate::Assets {
     /// ```
     /// # use ponko::prelude::*;
     /// /// A shop item: its icon is an image, saved by name.
-    /// #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    /// #[derive(Clone, serde::Serialize, serde::Deserialize, Component)]
     /// struct ShopItem {
     ///     icon: String,
     /// }
@@ -431,9 +431,9 @@ mod lockstep_tests {
     use crate::net::Desync;
     use crate::net::Net;
     use crate::net::NetState;
-    use crate::{Ctx, Game, World, WorldReflect};
+    use crate::{Component, Ctx, Game, World, WorldReflect};
 
-    #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+    #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Component)]
     struct Tag(u32);
 
     /// A scene in `assets/` (for `load_scene`) and the same world in a plain

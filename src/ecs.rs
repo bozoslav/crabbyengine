@@ -3,6 +3,7 @@
 
 use glam::Vec2;
 
+use crate::Component;
 use crate::camera::Rect;
 use crate::color::Color;
 use crate::ctx::Ctx;
@@ -18,7 +19,7 @@ use crate::texture::Texture;
 /// let t = ponko::d2::Transform::at(vec2(100.0, 50.0)).rotated(0.5);
 /// assert_eq!(t.position, vec2(100.0, 50.0));
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 #[repr(C)] // shared with C/C++ (`PonkoTransform2D`)
 pub struct Transform2D {
@@ -76,7 +77,7 @@ impl Transform2D {
 /// ));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 pub struct Sprite {
     /// The image to draw.
     pub texture: Texture,

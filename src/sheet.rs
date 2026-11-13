@@ -2,6 +2,7 @@
 
 use glam::Vec2;
 
+use crate::Component;
 use crate::camera::Rect;
 use crate::ctx::Ctx;
 use crate::ecs::Sprite;
@@ -110,7 +111,7 @@ impl SpriteSheet {
 /// ));
 /// # }
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Component)]
 #[repr(C)]
 pub struct Animation {
     /// The frames come from this sheet.

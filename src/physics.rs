@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 use crate::d2::Transform as Transform2D;
-use crate::{Ctx, Entity, Events, Vec2, With, World};
+use crate::{Component, Ctx, Entity, Events, Vec2, With, World};
 
 /// Makes an entity a physics body. It also needs a [`Collider`] and a
 /// [`Transform2D`].
@@ -25,7 +25,7 @@ use crate::{Ctx, Entity, Events, Vec2, With, World};
 /// assert_eq!(crate_body.gravity_scale, 1.0);
 /// assert_eq!(wall.kind, ponko::d2::BodyKind::Fixed);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 #[serde(default)]
 pub struct RigidBody {
     /// Dynamic, fixed or kinematic.
@@ -143,7 +143,7 @@ impl Shape {
 /// assert!(trigger.sensor);
 /// assert_eq!(ball.restitution, 0.9);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 pub struct Collider {
     /// Circle, rectangle, capsule or convex polygon.
     pub shape: Shape,
@@ -266,7 +266,7 @@ impl Collider {
 /// let v = ponko::d2::Velocity::linear(vec2(0.0, -300.0)); // a jump, y is down
 /// assert_eq!(v.angular, 0.0);
 /// ```
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, Component)]
 #[serde(default)]
 #[repr(C)] // C sees it as PonkoVelocity.
 pub struct Velocity {

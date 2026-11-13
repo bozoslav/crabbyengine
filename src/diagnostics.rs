@@ -20,7 +20,9 @@
 //! use ponko::access::SystemAccess;
 //! use ponko::prelude::*;
 //! use ponko::system_view::SystemView;
+//! #[derive(Component)]
 //! struct Pos(f32);
+//! #[derive(Component)]
 //! struct Vel(f32);
 //! fn movement(_: &mut SystemView) {}
 //! fn friction(_: &mut SystemView) {}
@@ -359,6 +361,7 @@ impl EcsDiagnostics {
     ///
     /// ```
     /// use ponko::prelude::*;
+    /// #[derive(Component)]
     /// struct Hp(u32);
     /// fn check(ctx: &mut Ctx) {
     ///     let m = ctx.ecs_diagnostics().matching(&["Hp"]).unwrap();

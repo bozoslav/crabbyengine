@@ -4,6 +4,7 @@
 use ponko::d2::Transform as Transform2D;
 use ponko::prelude::*;
 
+#[derive(Component)]
 struct Mover;
 
 fn move_right(ctx: &mut Ctx) {
@@ -113,9 +114,11 @@ fn many_attachments_are_placed_in_parallel() {
     assert_eq!(checked, 50_000);
 }
 
+#[derive(Component)]
 struct Child(u32);
 
 // ANCHOR: attach
+#[derive(Component)]
 struct Tank {
     speed: f32,
 }

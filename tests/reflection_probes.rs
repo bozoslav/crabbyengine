@@ -29,7 +29,9 @@ fn bake_requires_a_live_probe_and_allocates_content_once() {
         assert_ne!(content, 0);
         ctx.gfx.bake_reflection_probe(&mut ctx.world, entity).unwrap();
         assert_eq!(ctx.world.get::<ReflectionProbe3D>(entity).unwrap().content, content);
-        let empty = ctx.world.spawn((0u32,));
+        #[derive(Component)]
+        struct Empty;
+        let empty = ctx.world.spawn((Empty,));
         assert!(ctx.gfx.bake_reflection_probe(&mut ctx.world, empty).is_err());
     });
 }

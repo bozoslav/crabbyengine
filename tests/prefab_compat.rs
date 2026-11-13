@@ -23,25 +23,25 @@ use serde_json::{Value, json};
 // The game-side types of the fixtures. Their names and fields are part of the
 // fixtures: don't change them.
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Component)]
 struct Health {
     current: f32,
     max: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Component)]
 struct Team(u8);
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Component)]
 struct Follows(Entity);
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Component)]
 struct Label {
     name: String,
     note: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Component)]
 enum Mood {
     Calm,
     Alert { since: u32 },

@@ -46,7 +46,7 @@ fn write_asset(name: &str, json: &serde_json::Value) {
     std::fs::write(path, serde_json::to_string_pretty(json).unwrap()).unwrap();
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Component)]
 struct Tag(u32);
 
 /// Reflected, so scenes save it.
@@ -56,6 +56,7 @@ struct Level(u32);
 /// Not reflected: game state that scenes don't touch.
 struct Coins(u32);
 
+#[derive(Component)]
 struct Marker;
 
 #[test]

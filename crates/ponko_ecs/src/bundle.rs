@@ -6,9 +6,86 @@ use crate::seal::Seal;
 use crate::storage::ComponentId;
 use crate::world::World;
 
-/// Any `Send + Sync + 'static` type can be a component. No derive needed.
+/// A type that entities can have: a column of the world's archetypes.
+///
+/// A type opts in, with the derive (feature `derive`, on by default):
+///
+/// ```
+/// use ponko_ecs::{Component, World};
+///
+/// #[derive(Component)]
+/// struct Health(f32);
+///
+/// let mut world = World::new();
+/// let e = world.spawn((Health(10.0),));
+/// assert_eq!(world.get::<Health>(e).unwrap().0, 10.0);
+/// ```
+///
+/// or by hand, which is the same thing:
+///
+/// ```
+/// use ponko_ecs::Component;
+///
+/// struct Health(f32);
+/// impl Component for Health {}
+/// ```
+///
+/// A component is `Send + Sync + 'static`: systems read it from several
+/// threads. A generic type derives it for the arguments that make it one
+/// (`#[derive(Component)] struct Tagged<T>(T);` is a component for every
+/// `T: Send + Sync + 'static`).
+///
+/// Types don't qualify by accident. A tuple is a bundle of several
+/// components, not one; a bare number, a `String`, a `Vec` or an [`Entity`]
+/// says nothing about what it means to the entity: wrap it in a type that
+/// does (`struct Target(Entity);`). Code that uses a type that isn't a
+/// component doesn't compile:
+///
+/// ```compile_fail,E0277
+/// use ponko_ecs::World;
+///
+/// let mut world = World::new();
+/// world.spawn((5i32,)); // `i32` is not a component
+/// ```
+///
+/// ```compile_fail,E0277
+/// use ponko_ecs::{Component, World};
+///
+/// #[derive(Component)]
+/// struct Pos(f32, f32);
+///
+/// let mut world = World::new();
+/// let e = world.spawn((Pos(0.0, 0.0),));
+/// world.insert(e, String::from("player")); // `String` is not a component
+/// ```
+///
+/// ```compile_fail,E0277
+/// use ponko_ecs::World;
+///
+/// struct Pos(f32, f32); // no derive
+///
+/// let mut world = World::new();
+/// world.query::<&Pos>().for_each(|_| {}); // `Pos` is not a component
+/// ```
+///
+/// The derive takes no options yet; `#[component(..)]` is reserved for them
+/// and rejected:
+///
+/// ```compile_fail
+/// #[derive(ponko_ecs::Component)]
+/// #[component(storage = "sparse")] // unknown component option `storage`
+/// struct Pos(f32, f32);
+/// ```
+///
+/// Resources ([`World::insert_resource`]) and events don't need this trait.
+///
+/// [`Entity`]: crate::Entity
+/// [`World::insert_resource`]: crate::World::insert_resource
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a component",
+    note = "add `#[derive(Component)]` to the type, or `impl Component for {Self} {{}}`"
+)]
 pub trait Component: Send + Sync + 'static {}
-impl<T: Send + Sync + 'static> Component for T {}
 
 /// A tuple of components that are spawned together: `(Pos, Vel)`, `(Pos,)`.
 ///

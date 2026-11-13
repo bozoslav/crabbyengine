@@ -20,9 +20,11 @@ use ponko::prelude::*;
 #[allow(unused_imports)]
 use ponko::system_view::SystemView;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 struct Pos(f32);
+#[derive(Component)]
 struct Vel(f32);
+#[derive(Component)]
 struct Health(i32);
 struct Gravity(f32);
 #[derive(Debug, PartialEq)]
@@ -764,7 +766,9 @@ mod guide {
     use ponko::system_view::SystemView;
 
     // ANCHOR: view_system
+    #[derive(Component)]
     struct Pos(f32);
+    #[derive(Component)]
     struct Vel(f32);
     struct Gravity(f32);
 
