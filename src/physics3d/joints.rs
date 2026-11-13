@@ -56,9 +56,22 @@ pub struct JointDrive3D {
     pub stiffness: f32,
     /// Damping coefficient.
     pub damping: f32,
-    /// Maximum force or torque; infinity means unlimited.
+    /// Maximum force or torque; infinity means unlimited (`null` in JSON).
+    #[serde(with = "unlimited")]
     pub max_force: f32,
 }
+
+/// Infinity as JSON `null`, which is what JSON writes for it anyway, so
+/// that it reads back.
+mod unlimited {
+    pub fn serialize<S: serde::Serializer>(v: &f32, s: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&v.is_finite().then_some(*v), s)
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+        Ok(<Option<f32> as serde::Deserialize>::deserialize(d)?.unwrap_or(f32::INFINITY))
+    }
+}
+
 impl JointDrive3D {
     /// A velocity motor with damping controlling convergence.
     /// ```

@@ -692,3 +692,15 @@ fn the_prefab_example_rolls_carts_and_scraps_one_whole() {
     });
     assert_eq!(world.len(), 10, "one cart and its four parts went");
 }
+
+#[cfg(feature = "physics3d")]
+#[test]
+fn a_joint_drive_without_a_force_limit_reads_back_unlimited() {
+    use ponko::d3::{Joint, JointAxis, JointDrive};
+    let joint = Joint::spherical(Entity::from_bits(1), Entity::from_bits(2))
+        .drive(JointAxis::AngularX, JointDrive::velocity(2.0, 10.0));
+    let json = serde_json::to_value(joint).unwrap();
+    assert_eq!(json["drives"][3]["max_force"], serde_json::Value::Null);
+    let back: Joint = serde_json::from_value(json).unwrap();
+    assert_eq!(back, joint);
+}
