@@ -83,7 +83,7 @@ fn coin_dash_menus_lead_into_play_and_back_with_the_ui_checked_at_each_step() {
     let game = Game::new("coin dash menus", ARENA.x as u32, ARENA.y as u32)
         .seed(SEED)
         .headless_frames(true)
-        .plugin(CoinDash { save: None })
+        .plugin(CoinDash)
         .system(move |ctx: &mut Ctx| {
             let shown = Shown {
                 screen: *ctx.world.resource::<Screen>(),

@@ -315,3 +315,23 @@ fn components_follow_archetype_moves_and_reject_stale_handles() {
     assert!(w.components_of(e).is_none());
     assert_eq!(w.components_of(replacement).unwrap().len(), 1);
 }
+
+/// Copies of saved entities: only values typed `Entity` read through the
+/// remap, and nested remaps restore the outer one.
+#[cfg(feature = "serde")]
+#[test]
+fn deserialized_entities_follow_the_innermost_remap() {
+    use std::collections::HashMap;
+    let (saved, outer, inner) = (Entity::from_bits(2), Entity::from_bits(40), Entity::from_bits(50));
+    // An entity and a plain number, both saved as 2.
+    let read = || serde_json::from_str::<(Entity, u64)>("[2, 2]").unwrap();
+    let (a, b, c) = Entity::with_remap(&HashMap::from([(saved, outer)]), || {
+        let a = read();
+        let b = Entity::with_remap(&HashMap::from([(saved, inner)]), read);
+        (a, b, read())
+    });
+    assert_eq!(a, (outer, 2), "the plain number stays");
+    assert_eq!(b.0, inner);
+    assert_eq!(c.0, outer, "the outer map is back");
+    assert_eq!(read().0, saved, "and none outside");
+}

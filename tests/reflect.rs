@@ -187,10 +187,12 @@ fn games_reflect_the_builtin_components_by_default() {
     });
     let mut names = world.reflected_components();
     names.sort();
-    let mut expected = vec!["Attached", "Sprite", "Transform2D"];
+    let mut expected = vec!["Attached", "PrefabParts", "Sprite", "Transform2D"];
     if cfg!(feature = "3d") {
         expected.push("Transform3D");
         expected.extend([
+            "AttachToJoint",
+            "SkinOf",
             "Decal3D",
             "LodGroup",
             "LodHysteresis",

@@ -3373,12 +3373,6 @@ enum PonkoStatus ponko_ctx_particle_live_count(struct PonkoCtx *ctx,
 
 enum PonkoStatus ponko_ctx_remove_particle_emitter3d(struct PonkoCtx *ctx, uint64_t entity_bits);
 
-enum PonkoStatus ponko_ctx_pressed_this_frame(struct PonkoCtx *ctx,
-                                              float axis_threshold,
-                                              struct PonkoActionBinding *out,
-                                              size_t capacity,
-                                              size_t *out_count);
-
 enum PonkoStatus ponko_ctx_frame_stats(const struct PonkoCtx *ctx,
                                        struct PonkoFrameStats *out_stats);
 
@@ -3652,6 +3646,20 @@ enum PonkoStatus ponko_ctx_physics3d_stream_colliders(struct PonkoCtx *ctx,
 enum PonkoStatus ponko_ctx_physics3d_is_collider_active(struct PonkoCtx *ctx,
                                                         uint64_t entity,
                                                         bool *out_active);
+
+enum PonkoStatus ponko_ctx_prefab_parts(struct PonkoCtx *ctx,
+                                        uint64_t root,
+                                        uint64_t *out_entities,
+                                        size_t capacity,
+                                        size_t *out_count);
+
+enum PonkoStatus ponko_ctx_despawn_prefab(struct PonkoCtx *ctx, uint64_t root, size_t *out_count);
+
+enum PonkoStatus ponko_ctx_pressed_this_frame(struct PonkoCtx *ctx,
+                                              float axis_threshold,
+                                              struct PonkoActionBinding *out,
+                                              size_t capacity,
+                                              size_t *out_count);
 
 struct PonkoQueryCachePolicy ponko_query_cache_policy_default(void);
 
