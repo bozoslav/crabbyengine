@@ -30,7 +30,11 @@ fn map(ctx: &mut Ctx, animated: bool) -> TileMap {
     map
 }
 
-fn animate(_map: &mut TileMap) {}
+fn animate(map: &mut TileMap) {
+    for tile in (0..40).step_by(10) {
+        map.animate(tile, &[(tile, 0.1), (tile + 1, 0.1), (tile + 2, 0.1), (tile + 3, 0.1)]);
+    }
+}
 
 pub fn run(b: &mut Bench) {
     for animated in [false, true] {

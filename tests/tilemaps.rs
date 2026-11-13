@@ -609,3 +609,22 @@ fn a_broken_edit_keeps_the_old_level() {
     assert!(seen.is_empty());
     assert_eq!(objects, 5);
 }
+
+#[test]
+fn the_example_level_loads_with_its_coins_and_animated_water() {
+    let mut world = Game::new("meadow", 1, 1).run_headless(0, |ctx| {
+        ctx.spawn_level("levels/meadow.tmx", Vec2::ZERO).unwrap();
+    });
+    let coins = world
+        .query::<&LevelObject>()
+        .iter()
+        .filter(|o| o.class == "Coin")
+        .count();
+    assert_eq!(coins, 6);
+    let water = world
+        .query::<(&TileMap, &LevelLayer)>()
+        .iter()
+        .find(|(_, l)| l.name == "Water")
+        .map(|(m, _)| m.animations.len());
+    assert_eq!(water, Some(1));
+}

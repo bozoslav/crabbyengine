@@ -81,3 +81,20 @@ fn tile_map_colliders_cover_the_solid_tiles() {
         assert_eq!(collider.shape, ponko::d2::Shape::Rect { size: vec2(96.0, 16.0) });
     });
 }
+
+#[test]
+fn the_example_level_holds_its_player_up() {
+    let mut player = None;
+    let world = Game::new("meadow", 1, 1)
+        .physics(vec2(0.0, 700.0))
+        .run_headless(120, |ctx| {
+            ctx.spawn_level("levels/meadow.tmx", Vec2::ZERO).unwrap();
+            player = Some(ctx.world.spawn((
+                Transform2D::at(vec2(48.0, 120.0)),
+                RigidBody::dynamic(),
+                Collider::circle(4.0),
+            )));
+        });
+    let y = world.get::<Transform2D>(player.unwrap()).unwrap().position.y;
+    assert!((y - 172.0).abs() < 1.5, "on the grass (its top at 176): {y}");
+}

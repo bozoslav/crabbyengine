@@ -195,6 +195,10 @@ name = "physics"
 required-features = ["physics"]
 
 [[example]]
+name = "level"
+required-features = ["physics"]
+
+[[example]]
 name = "physics3d"
 required-features = ["physics3d"]
 
