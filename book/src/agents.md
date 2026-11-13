@@ -24,12 +24,26 @@ claude mcp add ponko-view -- ponko-mcp --read-only
 Other clients take the same command (`ponko-mcp`, stdio transport) in their
 MCP config.
 
-Then make the components you want agents to see reflected:
+Then make the components you want agents to see reflected (C++ lists the
+fields, so tools also get their schema; C: `ponko_component_reflect`):
+
+<div class="lang-pair">
+<div>
 
 ```rust
 # #[derive(Component, serde::Serialize, serde::Deserialize)] struct Health(f32);
 ctx.world.reflect::<Health>();
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:reflect}}
+```
+
+</div>
+</div>
 
 ## What an agent can do
 

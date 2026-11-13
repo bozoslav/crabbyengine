@@ -11,6 +11,9 @@ The suites are the `src/render/*_render_test.rs` files. Their shared helpers
 are in `src/render/render_test_support.rs`; the scenes of the regression
 suites are in `src/render/regression_stage.rs`.
 
+These tests are in Rust only; C and C++ games draw with the same renderer, so
+they are covered by the same tests.
+
 ## Running them
 
 ```sh

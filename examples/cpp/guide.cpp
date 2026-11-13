@@ -1243,8 +1243,10 @@ static void upload_watch(ponko::ctx& ctx) {
 // ANCHOR_END: uploads
 
 // ANCHOR: profile_scopes
+// ANCHOR: count_allocations
 // In one .cpp file, at global scope: count C++ `new` calls in the reports.
 PONKO_COUNT_CPP_ALLOCATIONS
+// ANCHOR_END: count_allocations
 
 /// Time the parts of your own code you suspect.
 static void steering(ponko::ctx& ctx) {
@@ -2794,6 +2796,107 @@ static ponko::texture skin_or_default(ponko::ctx& ctx) {
 }
 // ANCHOR_END: try_load
 
+// Snippets of chapters that are mostly about Rust or tools: compiled here so
+// their C++ side can't fall behind the header.
+namespace book {
+struct Health { int value; };
+struct Died { ponko::entity who; };
+static void hurt(ponko::ctx& ctx) {
+    ctx.world().each([&](ponko::entity e, Health& h) { if (--h.value == 0) { ctx.send(Died{e}); ctx.despawn_later(e); } });
+}
+
+static void camera_controls_builder() {
+    // ANCHOR: camera_controls
+    ponko::game("Colony", 1280, 720)
+        .camera_controls()       // right/middle drag pans, wheel zooms
+    // ANCHOR_END: camera_controls
+        .run_headless(1);
+}
+
+static void budget_check(const ponko::perf_report& report) {
+    // ANCHOR: budget_check
+    std::string broken = report.check(R"({
+        "frame_p99_ms": 4, "allocs_per_frame": 0,
+        "systems": {"steering": 0.5},
+        "scopes": {"steering/neighbors": 0.3}
+    })");
+    if (!broken.empty()) throw std::runtime_error(broken);
+    // ANCHOR_END: budget_check
+}
+
+static void named_access() {
+    auto game = ponko::game("named", 1, 1);
+    // ANCHOR: named_access
+    // ponko_access_new / ponko_access_write_component("Health") /
+    // ponko_access_send_events("Died") / ponko_access_commands, then
+    // ponko_game_add_system_with_access. In C++:
+    game.add(ponko::phase::after_physics,
+             ponko::access().write<Health>().send_events<Died>().commands(),
+             hurt, "hurt");
+    // ANCHOR_END: named_access
+    auto world = game.run_headless(2, [](ponko::ctx& ctx) { ctx.world().spawn(Health{1}); });
+    if (world.count<Health>() != 0) { std::fprintf(stderr, "named access guide failed\n"); std::abort(); }
+}
+
+// ANCHOR: batch_limits
+static void check_batches(ponko::ctx& ctx) {
+    // The device's limits are in the capability report's JSON
+    // (`instance_batches`); nothing before a GPU opens.
+    if (auto caps = ctx.gpu_capabilities()) std::printf("GPU report: %zu bytes\n", caps->size());
+    // The per-frame counts (`cpu_over_limit`, `dropped`, `views_skipped`)
+    // aren't in the C API yet: read the render inspector's
+    // `counts.instance_batches` (`perf.get` on the control endpoint).
+}
+// ANCHOR_END: batch_limits
+
+// Compiled only: running it would open a local port.
+[[maybe_unused]] static void control_endpoint_on() {
+    // ANCHOR: control_on
+    ponko::game("Colony", 1280, 720).control_endpoint(true)
+    // ANCHOR_END: control_on
+        .run_headless(0);
+}
+
+struct Vitals { float current, max; };
+static void described_schema(ponko::ctx& ctx) {
+    // ANCHOR: describe_component
+    ctx.world().reflect<Vitals>("Vitals", {ponko::field("current", &Vitals::current), ponko::field("max", &Vitals::max)});
+    // Fields from reflect() already give a schema; describe_component gives
+    // any other shape, encoded as Rust's ValueSchema:
+    ctx.world().describe_component("Vitals", R"({"Object":[["current","Number"],["max","Number"]]})");
+    std::string answer = ctx.capabilities_json(); // the same `capabilities` answer tools get
+    // ANCHOR_END: describe_component
+    if (answer.find("\"Vitals\"") == std::string::npos) { std::fprintf(stderr, "capabilities lack Vitals\n"); std::abort(); }
+}
+
+// ANCHOR: services_flat
+// C++ keeps one flat ctx: the call names Rust spells with a service.
+static void flat_calls(ponko::ctx& ctx) {
+    const float dt = ctx.dt();                       // ctx.time.dt()
+    const double t = ctx.sim_time();                 // ctx.time.sim_time()
+    if (ctx.key_pressed(PONKO_KEY_P)) ctx.pause();   // ctx.input..., ctx.time.pause()
+    const ponko::vec2 mouse = ctx.mouse_pos();       // ctx.input.mouse_pos()
+    auto ui = ctx.ui_retained();                     // ctx.ui
+    const bool menu_open = ui.wants_keyboard();      // ctx.ui.wants_keyboard()
+    ctx.set_perf_hud(false);                         // ctx.perf.set_hud(false)
+    (void)dt; (void)t; (void)mouse; (void)menu_open;
+}
+// ANCHOR_END: services_flat
+
+static void run_all() {
+    camera_controls_builder();
+    named_access();
+    ponko::game("book snippets", 1, 1).run_headless(1, [](ponko::ctx& ctx) {
+        check_batches(ctx);
+        described_schema(ctx);
+        flat_calls(ctx);
+        bool over = false; // nothing was profiled, so every limit reports "nothing measured"
+        try { budget_check(ctx.perf_report()); } catch (const std::runtime_error&) { over = true; }
+        if (!over) { std::fprintf(stderr, "budget check passed without data\n"); std::abort(); }
+    });
+}
+}  // namespace book
+
 int main() {
     builder_setup_runs_headless();
     action_ids_run();
@@ -2973,6 +3076,7 @@ int main() {
         auto material=ctx.create_material(ponko::material_of(ponko::colors::white));
         persistent_instances(ctx,ctx.create_mesh(ponko::mesh_data::cube(1.0f),material));
     });
+    book::run_all();
     std::puts("guide snippets ok");
 }
 

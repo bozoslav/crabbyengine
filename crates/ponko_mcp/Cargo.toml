@@ -12,6 +12,10 @@ repository.workspace = true
 homepage.workspace = true
 description = "MCP server that lets AI agents inspect and drive running Ponko games"
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [[bin]]
 name = "ponko-mcp"
 path = "src/main.rs"

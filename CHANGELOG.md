@@ -350,6 +350,17 @@ old → new pair.
 - `PONKO_ABI_VERSION` in `ponko.h`, checked by `ponko.hpp` at startup.
 - Every C export is called by a test, except an allow-listed few (drawing,
   opening a window, a live Steam lobby), checked by CI.
+- Every C function has a C++ wrapper, except a short documented list where C++
+  has its own way (`scripts/cpp-c-only.txt`), checked by CI
+  (`scripts/check-cpp-api.py`). New: `query_cache_policy_default()` and
+  `_off()`, `quat_identity()`, `friction_curve_forward()` and `_sideways()`,
+  `collision_groups_all()`, `mesh_data::morph_target_count()` and
+  `clear_morph_targets()`.
+- Doc comments on every public declaration of `ponko.hpp`: what it does, units,
+  ownership and what it throws.
+- The guide's C and C++ snippets are all included from `examples/cpp`, which
+  CI compiles and runs; the C and C++ chapter says how to get the library from
+  a release.
 
 **Web, packaging and the importer**
 - 3D games run in browsers with only WebGL2; browser smoke tests in Chromium,
@@ -402,6 +413,11 @@ old → new pair.
 - `ponko_bench` is no longer published; it is a workspace tool.
 - The guide lives at https://ponko.dev/guide/ and links the API reference on
   docs.rs.
+- Every published crate documents every public item, with a crate overview,
+  a quickstart and links to the guide. On docs.rs, items behind a cargo
+  feature say which one ("Available on crate feature `3d` only"), and the
+  `ponko` docs include every optional feature except `hotpatch` and
+  `bench-internals`.
 
 ### Fixed
 - A stale mesh, GPU buffer or collision mesh handle could reach the

@@ -64,3 +64,6 @@ ponko_native(ponko_c_dimensions dimensions.c)
 ponko_native(ponko_cpp_dimensions dimensions.cpp)
 add_test(NAME c_dimensions COMMAND ponko_c_dimensions)
 add_test(NAME cpp_dimensions COMMAND ponko_cpp_dimensions)
+# The guide's C snippets (book/src includes them by anchor).
+ponko_native(ponko_c_guide guide.c)
+add_test(NAME c_guide COMMAND ponko_c_guide)

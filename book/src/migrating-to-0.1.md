@@ -17,6 +17,15 @@ Most code needs three changes: `use ponko::prelude::*;`,
 calls (`ctx.input.mouse_down(..)`). The compiler names the rest; look them up
 below.
 
+## C and C++
+
+Nothing to change for C++ code written against 0.0.1 beyond the rename: include
+`ponko.hpp` and use the `ponko::` namespace, as
+[Naming and compatibility](naming.md) describes. No C++ call was removed, and
+`ponko::error` is still a `std::runtime_error`. 0.1.0 adds C++ wrappers for the
+C functions that had none; [C and C++](c-cpp.md#c-functions-without-a-c-wrapper)
+lists the few that stay C only.
+
 ## Imports
 
 | 0.0.1 | 0.1.0 |

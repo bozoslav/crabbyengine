@@ -23,6 +23,34 @@
 //!
 //! Start with `use ponko::prelude::*;`, then add dimension and service modules as needed.
 //!
+//! The [guide](https://ponko.dev/guide/) explains the engine chapter by
+//! chapter, starting with [Getting started](https://ponko.dev/guide/getting-started.html);
+//! this reference documents every item.
+//!
+//! ## Where things are
+//!
+//! - [`prelude`]: what a typical game needs, in one import.
+//! - [`game`]: [`Game`](game::Game), the builder that sets up and runs a
+//!   game, its systems and phases; `Ctx`, the per-frame context, is in the prelude.
+//! - [`d2`] and `d3` (feature `3d`): 2D and 3D drawing, cameras, scenes and
+//!   models; `terrain` (feature `3d`) and [`tilemap`] for worlds.
+//! - The ECS: entities, components, queries and resources live on the
+//!   game's world (`ctx.world`), with systems added on [`Game`](game::Game);
+//!   [`events`] carries messages between systems, [`systems`] holds the
+//!   engine's built-in systems and [`schedule`] explains which run together.
+//! - [`input`] and [`actions`]: keys, mouse, gamepads and rebindable actions.
+//! - [`ui`] and [`text`]: the retained UI, fonts and text layout.
+//! - [`audio`]: sound effects and music.
+//! - `physics` and `physics3d` (features of the same names): rigid bodies,
+//!   colliders and queries; [`nav`] for pathfinding and navigation meshes.
+//! - [`assets`], [`stream`] and [`streaming`]: asset files, background jobs
+//!   and streaming big worlds, and GPU asset loading with budgets.
+//! - [`net`]: networking: lockstep, messages and snapshot replication.
+//! - [`perf`], [`diagnostics`] and [`render`]: frame profiling, ECS
+//!   diagnostics and renderer statistics.
+//! - [`reflect`] and [`scenario`]: components by name as JSON, and scripted
+//!   input for gameplay tests, for tools and AI agents.
+//!
 //! ## Features
 //!
 //! - `window` (default): a window and GPU rendering (winit + wgpu). Without
@@ -64,6 +92,8 @@
 //! [STABILITY.md](https://github.com/ponkoengine/ponko/blob/main/STABILITY.md).
 
 #![warn(missing_docs)]
+// docs.rs: "Available on crate feature X only" on feature-gated items.
+#![cfg_attr(docsrs, feature(doc_cfg))]
 // Without a window, the code that only the window loop calls is unused.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 

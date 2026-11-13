@@ -3,12 +3,18 @@
 //! assets as [`UnityFile`]s of [`UnityObject`]s, the GUIDs in `.meta`
 //! files as a [`Project`], and mesh vertex data as [`UnityMesh`].
 //!
+//! The guide's [Unity chapter](https://ponko.dev/guide/unity.html) shows the
+//! whole import, from a project folder to files the engine loads, through
+//! [`Importer`].
+//!
 //! ```
 //! let text = "%YAML 1.1\n%TAG !u! tag:unity3d.com,2011:\n--- !u!1 &100\nGameObject:\n  m_Name: Lamp\n";
 //! let file = ponko_unity::UnityFile::parse(text).unwrap();
 //! assert_eq!(file.objects[0].type_name, "GameObject");
 //! assert_eq!(file.objects[0].body["m_Name"].as_str(), Some("Lamp"));
 //! ```
+
+#![warn(missing_docs)]
 
 mod animation;
 mod baked;

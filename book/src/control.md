@@ -10,9 +10,22 @@ at once; each gets its own endpoint.
 It's off by default, so shipped games never open a port. The game can turn
 it on in code (C and C++ games too: `game.control_endpoint(true)`):
 
+<div class="lang-pair">
+<div>
+
 ```rust
 Game::new("Colony", 1280, 720).control_endpoint(true)
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:control_on}}
+```
+
+</div>
+</div>
 
 Or, without code changes, the `PONKO_CONTROL=1` environment variable turns
 it on in a debug build, or in a release build made with the engine's
@@ -181,6 +194,9 @@ supports, so a tool can check before sending a request that would fail:
   `reflect::<T>()` is `"status": "opaque"` until the game describes it;
   types described with `reflect_fields` get theirs from the fields:
 
+<div class="lang-pair">
+<div>
+
 ```rust
 # #[derive(Component, serde::Serialize, serde::Deserialize)] struct Health(f32);
 ctx.world.reflect::<Health>();
@@ -192,6 +208,16 @@ ctx.world.describe_component("Health", ponko::reflect::ValueSchema::object([
 //   "json_schema": { "type": "object", "properties": { "current": { "type": "number" }, ... },
 //                    "required": ["current", "max"] } } }
 ```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:describe_component}}
+```
+
+</div>
+</div>
 
 `ValueSchema` has a constructor for each kind of shape: `object` (fields
 not marked `optional` are `required`), `strict_object` (an object that

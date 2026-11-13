@@ -13,9 +13,9 @@ ponko = { version = "0.1", features = ["physics3d"] }
 
 With `use ponko::d3::*;` the bodies, colliders and queries are `RigidBody`,
 `Collider`, `Velocity`, `Physics` and `Hit`, the same names as in
-`ponko::d2`; this chapter qualifies them as `d3::RigidBody` and so on. The
-`RigidBody3D`-style names still compile
-([Naming and compatibility](naming.md)).
+`ponko::d2`; this chapter qualifies them as `d3::RigidBody` and so on.
+Saved scenes and reflection name them by their full type names
+(`"RigidBody3D"`, `"Collider3D"`, ...) ([Naming and compatibility](naming.md)).
 
 (The C library, `ponko_ffi`, has it on by default.)
 

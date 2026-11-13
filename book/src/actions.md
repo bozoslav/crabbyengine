@@ -188,7 +188,7 @@ that source. Non-finite analog input reads zero. Disconnection releases the
 pad's buttons and centers its axes. An unconnected slot starts at zero.
 
 Use `action_down`, `action_pressed`, `action_released`, `action_axis` and
-`action_axis2` on `Ctx` / `ctx`. Missing names and queries of the wrong kind
+`action_axis2` on `ctx.input`. Missing names and queries of the wrong kind
 return false or zero. Names are case-sensitive. Queries borrow their names
 and allocate nothing.
 

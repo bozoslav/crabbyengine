@@ -101,6 +101,18 @@ With the `3d` feature the same holds for
 `ctx.gfx.write_animated_morphs(&mut ctx.world)` and the reflection probe
 calls.
 
+## In C++
+
+The C++ `ponko::ctx` has no service fields: every call is a method of `ctx`,
+named as it was before the services (`ctx.dt()`, `ctx.pause()`,
+`ctx.set_perf_hud(...)`), and C's are `ponko_ctx_*` functions. The borrowing
+rules above are Rust's; C++ instead refuses a world or context call while a
+query runs, except the ones listed in [Queries and threads](c-cpp.md#queries-and-threads).
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:services_flat}}
+```
+
 ## Coming from the flat spelling
 
 Before the services, every call was a method of `Ctx`. Those flat methods

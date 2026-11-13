@@ -18,7 +18,9 @@ use crate::{Error, UnityObject, Value};
 pub struct UnityTexture {
     /// `m_Name`.
     pub name: String,
+    /// Width in texels (`m_Width`).
     pub width: u32,
+    /// Height in texels (`m_Height`), per layer.
     pub height: u32,
     /// Layers of an array texture, one after the other; 1 for a texture.
     pub layers: u32,

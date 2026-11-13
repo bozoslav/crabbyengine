@@ -2,8 +2,9 @@
 
 Games can be written in C++ (or plain C) as well as Rust. They use the same
 engine: the same ECS, game loop, renderer, spatial grid and control endpoint
-for agents. Every chapter of this guide shows the C++ version of its examples
-next to the Rust one.
+for agents. Wherever a feature exists in the C API, the chapters of this guide
+show the C++ version of its examples next to the Rust one; where it doesn't,
+the chapter says so.
 
 - `include/ponko.hpp`: the C++17 wrapper, header-only. `ponko::game`,
   `ponko::ctx` and `ponko::world_view` mirror Rust's `Game`, `Ctx` and
@@ -16,6 +17,30 @@ next to the Rust one.
 Loops over entities run in your C++ code, over **whole component arrays**,
 so a million entities never mean a million calls across the language
 boundary, and `each_par` runs them on all cores.
+
+## Get the library
+
+**From a release.** Each GitHub release, starting with 0.1.0, has an archive
+per platform: `ponko-v0.1.0-linux-x86_64.tar.gz`,
+`ponko-v0.1.0-macos-arm64.tar.gz` and `ponko-v0.1.0-windows-x86_64.zip`.
+Each holds
+
+- `include/`: `ponko.h` and `ponko.hpp`, matching the library next to them;
+- `lib/`: `ponko_ffi` as a shared library (`libponko_ffi.so`,
+  `libponko_ffi.dylib`, or `ponko_ffi.dll` with its import library
+  `ponko_ffi.dll.lib`) and a static library;
+- the licenses, `NOTICE`, and `THIRD-PARTY-NOTICES.txt` with the license of
+  every library linked into `ponko_ffi`. Ship that file with your game.
+
+Point CMake at it with `-DPONKO_INCLUDE_DIR=<archive>/include
+-DPONKO_LIBRARY_DIR=<archive>/lib`, or use any build system: add the include
+directory and link the library.
+
+**From source.** `cargo build -p ponko_ffi --release` builds the same library
+into `target/release/`; the headers are in `include/`. Build both from the same
+commit. The release libraries have `ponko_ffi`'s default features; turn other
+optional parts on with `ponko_ffi`'s features (for example
+`--features accessibility`).
 
 ## Build and run the examples
 
@@ -53,7 +78,7 @@ time a `ponko::game` or `ponko::world` is made and throws a `ponko::error`
 the library yourself, make the same check at startup:
 
 ```c
-if (ponko_abi_version() != PONKO_ABI_VERSION) { /* wrong library: stop */ }
+{{#include ../../examples/cpp/guide.c:abi_check}}
 ```
 
 Within a version, existing functions and struct layouts never change and new
@@ -291,6 +316,29 @@ any other error, with the kind and path set, and leave the output untouched.
 The older `ponko_ctx_load_texture` and friends keep their status codes; the
 C++ `load_*` calls now use the `try_` functions, so the `ponko::error` they
 throw has the real kind and path.
+
+## C functions without a C++ wrapper
+
+Every C function in `ponko.h` has a C++ wrapper in `ponko.hpp`, except these,
+where C++ does the same thing another way:
+
+| C function | In C++ |
+|---|---|
+| `ponko_ctx_load_texture`, `ponko_ctx_load_mesh`, `ponko_ctx_load_sound`, `ponko_ctx_load_stream`, `ponko_ctx_load_font` | `ctx::load_*` call the `ponko_ctx_try_load_*` functions, so the `ponko::error` they throw has the kind and path |
+| `ponko_query`, `ponko_query_par` | `world_view::each` and `query` (and the `_par` versions) call `ponko_query_with`, `ponko_query_filtered` or `ponko_query_cached`, which also take change filters |
+| `ponko_filter_check` | `with`, `without`, `or_` and `all_of` are C++ types; the query checks them when it runs |
+| `ponko_quat_mul`, `ponko_quat_rotate` | `quat * quat` and `quat * vec3`, inline, with the same results |
+| `ponko_entity_bits` | `ponko::bits(entity)`, inline |
+| `ponko_text3d_default` | `ponko::text3d{}`: its member initializers are the same defaults |
+| `ponko_game_plugin` | `game::plugin(object)`, for any object with `build(ponko::game&)` and an optional `setup(ponko::ctx&)` |
+
+`scripts/check-cpp-api.py` keeps this true: CI fails when a C function has no
+C++ wrapper and isn't on this list (`scripts/cpp-c-only.txt`, with the reasons).
+The same check requires a `///` doc comment on every public declaration in
+`ponko.hpp`, which is the C++ API reference: what each call does, its units,
+who owns what, and what it throws. The C and C++ snippets in this guide come
+from `examples/cpp` (`guide.cpp`, `guide.c` and the examples), which CI builds
+and runs.
 
 ## Still Rust-only
 

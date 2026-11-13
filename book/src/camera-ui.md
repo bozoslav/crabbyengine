@@ -45,8 +45,7 @@ Game::new("Colony", 1280, 720)
 <div>
 
 ```cpp
-ponko::game("Colony", 1280, 720)
-    .camera_controls()       // right/middle drag pans, wheel zooms
+{{#include ../../examples/cpp/guide.cpp:camera_controls}}
 ```
 
 </div>

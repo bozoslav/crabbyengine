@@ -228,6 +228,15 @@ title, pause and result screens show the current keys.
 - **The window walk-through** can't be pixel-checked: it proves the program
   opens a window, loads its asset and draws frames.
 
+## C and C++
+
+This game is Rust only. A C or C++ game is packaged the same way: its
+executable, the `ponko_ffi` shared library next to it, its `assets/` folder,
+and the license files with `THIRD-PARTY-NOTICES.txt` from the release archive
+(see [C and C++](c-cpp.md#get-the-library)). The settings screen's calls exist
+in C++ too: `ctx.ui_retained().set_scale(scale)` and
+`ctx.set_actions(map)` / `ctx.actions()` with a `ponko::action_map`.
+
 ## Gap list
 
 What this exercise found that the engine or the project doesn't do yet, with

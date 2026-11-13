@@ -33,6 +33,19 @@ in `scripts/ffi-coverage-allowlist.txt`. Test the function instead of adding to
 that list; the check also fails when a listed function gets a test, so the
 list only shrinks.
 
+## The C++ wrapper
+
+`include/ponko.hpp` wraps every C function, or the function is on the short
+C-only list, `scripts/cpp-c-only.txt`, with the reason. When you add a C
+function, add its C++ wrapper with a `///` comment (what it does, units,
+ownership, what it throws) and a test in `examples/cpp/tests.cpp`. CI runs
+`python3 scripts/check-cpp-api.py`, which fails for a C function without a
+wrapper, a public C++ declaration without a doc comment, and a C or C++ block
+in this book that isn't an `\{{#include}}` of a compiled file. Put a guide's
+C++ example in `examples/cpp/guide.cpp` (C in `guide.c`) between
+`// ANCHOR: name` and `// ANCHOR_END: name` lines and include it by its anchor;
+the native CI build compiles and runs both.
+
 ## Editing this book
 
 The book is plain Markdown in `book/src/`, built with

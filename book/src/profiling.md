@@ -69,8 +69,7 @@ To count them, install the counting allocator once, in your `main.rs`:
 <div>
 
 ```cpp
-// Put this once at global scope in one .cpp file (see the scopes example above):
-PONKO_COUNT_CPP_ALLOCATIONS
+{{#include ../../examples/cpp/guide.cpp:count_allocations}}
 ```
 
 </div>
@@ -193,12 +192,7 @@ report.assert_within(&budget); // panics, listing what broke
 <div>
 
 ```cpp
-std::string broken = report.check(R"({
-    "frame_p99_ms": 4, "allocs_per_frame": 0,
-    "systems": {"steering": 0.5},
-    "scopes": {"steering/neighbors": 0.3}
-})");
-if (!broken.empty()) throw std::runtime_error(broken);
+{{#include ../../examples/cpp/guide.cpp:budget_check}}
 ```
 
 </div>

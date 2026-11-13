@@ -179,11 +179,7 @@ their cost.
 C passes the kind and the id:
 
 ```c
-bool live = false;
-ponko_ctx_handle_is_live(ctx, PONKO_HANDLE_MESH, mesh.id, &live);
-ponko_ctx_handle_free(ctx, PONKO_HANDLE_MESH, mesh.id);
-PonkoLiveCounts counts;
-ponko_ctx_live_counts(ctx, &counts);
+{{#include ../../examples/cpp/guide.c:handles}}
 ```
 
 An unknown kind is an invalid argument. `PONKO_HANDLE_NONE` is the empty id
@@ -194,14 +190,5 @@ The inventory takes a class (`PonkoAssetClass`, which counts the engine's
 textures and lists render targets on their own) instead of a kind:
 
 ```c
-PonkoAssetCount textures;
-ponko_ctx_asset_count(ctx, PONKO_ASSET_CLASS_TEXTURE, &textures);
-size_t n = 0;
-ponko_ctx_asset_handles(ctx, PONKO_ASSET_CLASS_TEXTURE, NULL, 0, &n); /* how many */
-/* ...then again with an array of n PonkoAssetRecord: id, owner, bytes, made_frame, age_frames */
-char name[256];
-size_t len = 0;
-ponko_ctx_asset_owner(ctx, PONKO_ASSET_CLASS_TEXTURE, id, name, sizeof name, &len);
-bool unloaded = false;
-ponko_ctx_unload_mesh(ctx, "models/house.glb", &unloaded);
+{{#include ../../examples/cpp/guide.c:asset_inventory}}
 ```

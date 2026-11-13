@@ -40,8 +40,17 @@
 //! (name, size, alignment, drop). Rust types are registered on first use;
 //! C/C++ code uses [`RawWorld::register_component`] and [`RawWorld::for_each_chunk`]
 //! (see [`World::raw`]).
+//!
+//! Most games use this crate through [`ponko`](https://docs.rs/ponko/), whose
+//! systems get the world as `ctx.world`; the guide's
+//! [ECS chapter](https://ponko.dev/guide/ecs.html) explains it with examples.
+//! The main types: [`World`] (entities, components, resources), the query
+//! builder from [`World::query`], [`Commands`] for deferred changes, and
+//! [`Component`] with its derive.
 
 #![warn(missing_docs)]
+// docs.rs: "Available on crate feature X only" on feature-gated items.
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 // `#[derive(Component)]` names the trait `::ponko_ecs::Component`, in this
 // crate too (and in its doctests, where `crate` would be the doctest).

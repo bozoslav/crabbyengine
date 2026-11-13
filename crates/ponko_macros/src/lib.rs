@@ -1,12 +1,23 @@
 //! Derive macros for Ponko. Use them through `ponko` or `ponko_ecs`, which
 //! re-export them next to the traits they implement:
 //!
-//! ```ignore
-//! use ponko::prelude::*;
+//! ```
+//! # use ecs as ponko_ecs; // the dev-dependency's name here
+//! use ponko_ecs::{Component, World};
 //!
 //! #[derive(Component)]
 //! struct Health(f32);
+//!
+//! let mut world = World::new();
+//! let e = world.spawn((Health(10.0),));
+//! assert_eq!(world.get::<Health>(e).map(|h| h.0), Some(10.0));
 //! ```
+//!
+//! With `ponko`, the derive comes in through `use ponko::prelude::*;`. The
+//! guide's [ECS chapter](https://ponko.dev/guide/ecs.html) explains
+//! components.
+
+#![warn(missing_docs)]
 
 use proc_macro::TokenStream;
 use proc_macro_crate::{FoundCrate, crate_name};

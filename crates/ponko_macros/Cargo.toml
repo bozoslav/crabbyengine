@@ -13,6 +13,10 @@ repository.workspace = true
 homepage.workspace = true
 description = "Derive macros for Ponko (`#[derive(Component)]`). Use them through `ponko` or `ponko_ecs`."
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [lib]
 proc-macro = true
 
