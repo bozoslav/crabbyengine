@@ -653,7 +653,7 @@ pub struct ScenarioReport {
     pub start_tick: u64,
     /// Steps in the scenario.
     pub steps: usize,
-    /// ponko::input::Input steps fed so far.
+    /// Input steps fed so far, UI steps (clicks, typing) included.
     pub inputs_applied: usize,
     /// Checks that held so far.
     pub checks_passed: usize,
