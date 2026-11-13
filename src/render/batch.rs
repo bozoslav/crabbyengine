@@ -212,7 +212,9 @@ impl DrawList {
 
     /// [`push`](Self::push) with blend mode and material `style`
     /// (`sprite_material::style_key`, 0 for plain sprites).
-    #[inline]
+    // Always: with two callers the compiler stopped inlining it into
+    // `push`, and a call per sprite made plain sprites ~20% slower.
+    #[inline(always)]
     pub fn push_styled(&mut self, texture: u32, style: u32, z: f32, instance: SpriteInstance) {
         if let Some(&first_z) = self.zs.first()
             && first_z != z
@@ -230,7 +232,10 @@ impl DrawList {
     }
 
     /// The state of a clipped sprite: the same index for the same clip and
-    /// style all frame, so equal ones still batch together.
+    /// style all frame, so equal ones still batch together. Kept out of
+    /// line: most sprites aren't clipped, and the push loop stays small.
+    #[cold]
+    #[inline(never)]
     fn clipped_state(&mut self, clip: crate::camera::Rect, style: u32) -> u32 {
         let wanted = (clip, style);
         let at = match self.clipped.last() {
