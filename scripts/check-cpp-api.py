@@ -162,6 +162,8 @@ def book_problems():
     block = re.compile(r'^```(c|cpp)\b[^\n]*\n(.*?)^```', re.MULTILINE | re.DOTALL)
     include = re.compile(r'\{\{#include ([^}:]+)(?::([\w-]+))?\}\}')
     for chapter in sorted(BOOK.glob('*.md')):
+        if chapter.name.startswith('migrating-to-'):
+            continue  # shows code from before a change, which is not compiled
         text = chapter.read_text()
         for match in block.finditer(text):
             line = text.count('\n', 0, match.start()) + 1

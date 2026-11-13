@@ -20,6 +20,11 @@
 - that section fits in a GitHub release body (at most 125,000 characters),
   since it becomes the release's notes;
 - no changelog.d/ fragment is left (the release folds them in first);
+- a release that lists `### Breaking changes` is one that may break (0.y.0,
+  x.0.0: never a patch release) and has its migration chapter,
+  book/src/migrating-to-X.Y.md (`scripts/changelog.py --version X.Y.Z`
+  generates it with the fold), listed in book/src/SUMMARY.md and holding every
+  breaking entry of the section;
 - every publishable crate under crates/ carries copies of the root
   LICENSE-MIT, LICENSE-APACHE and NOTICE (crates.io gets each crate's own
   folder), identical to the root ones; `selftest` checks this too, in CI;
@@ -43,6 +48,9 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import changelog  # noqa: E402  (the version rules and the migration chapter's name)
+
 TAG = re.compile(r"^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$")
 # GitHub refuses a release whose body is longer than this many characters.
 MAX_NOTES = 125_000
@@ -104,8 +112,52 @@ def release_notes(section):
     return "\n".join(section).strip() + "\n"
 
 
-def problems(tag, crate_list, changelog, fragments):
-    """What is wrong with releasing `tag`, as a list of messages (empty: fine)."""
+def breaking_headlines(section):
+    """The bullets of the `### Breaking changes` subsection of a changelog section."""
+    found, inside = [], False
+    for line in section:
+        if line.startswith("### "):
+            inside = line[4:].strip() == changelog.BREAKING
+        elif inside and line.startswith("- "):
+            found.append(line[2:].strip())
+    return found
+
+
+def migration_problems(version, section, chapter, summary):
+    """What is wrong with the migration chapter of `version`, as messages.
+
+    section: the lines of its changelog section; chapter: the text of
+    book/src/migrating-to-X.Y.md or None if there is none; summary: the text
+    of book/src/SUMMARY.md.
+    """
+    headlines = breaking_headlines(section)
+    if not headlines:
+        return []
+    if not changelog.may_break(version):
+        return [f"CHANGELOG.md's `## [{version}]` section lists breaking changes, but {version} "
+                "is a patch release and must not break the API (STABILITY.md): release it as the "
+                "next minor"]
+    name = changelog.chapter_name(version)
+    if chapter is None:
+        return [f"{version} has breaking changes but book/src/{name} does not exist: run "
+                f"`python3 scripts/changelog.py --version {version}` with the fragments in place, "
+                "which writes it from the same entries"]
+    out = []
+    if f"({name})" not in summary:
+        out.append(f"book/src/SUMMARY.md has no line for {name}")
+    missing = [h for h in headlines if h.rstrip(".") not in chapter]
+    if missing:
+        shown = "; ".join(f"`{h[:50]}`" for h in missing[:3]) + (" ..." if len(missing) > 3 else "")
+        out.append(f"book/src/{name} lacks {len(missing)} breaking change(s) of the CHANGELOG: {shown}")
+    return out
+
+
+def problems(tag, crate_list, changelog_text, fragments, book=None):
+    """What is wrong with releasing `tag`, as a list of messages (empty: fine).
+
+    book: (the migration chapter's text or None, SUMMARY.md's text), or None
+    to skip the migration check.
+    """
     found = TAG.match(tag)
     if not found:
         return [f"`{tag}` is not a release tag like v1.2.3"]
@@ -118,7 +170,7 @@ def problems(tag, crate_list, changelog, fragments):
         for dep, req in sibling_requirements(data, names):
             if req.lstrip("=^~ ") != version:
                 out.append(f"{name} requires {dep} {req}, not {version}")
-    section = changelog_section(changelog, version)
+    section = changelog_section(changelog_text, version)
     if section is None:
         out.append(f"CHANGELOG.md has no `## [{version}]` section")
     elif not any(l.strip() for l in section):
@@ -129,7 +181,9 @@ def problems(tag, crate_list, changelog, fragments):
             f"a GitHub release body holds at most {MAX_NOTES:,}. Shorten it (summarize, and link the "
             "full lists in the guide)"
         )
-    if not any(l.startswith("## [Unreleased]") for l in changelog.splitlines()):
+    if section and book is not None:
+        out += migration_problems(version, section, *book)
+    if not any(l.startswith("## [Unreleased]") for l in changelog_text.splitlines()):
         out.append("CHANGELOG.md lost its `## [Unreleased]` heading")
     if fragments:
         shown = ", ".join(sorted(fragments)[:3]) + (" ..." if len(fragments) > 3 else "")
@@ -162,7 +216,13 @@ def main_problems(tag, repo=ROOT):
 
 def check(tag, on_main):
     fragments = [p.name for p in (ROOT / "changelog.d").glob("*.md") if p.name != "README.md"]
-    found = problems(tag, crates(), (ROOT / "CHANGELOG.md").read_text(), fragments) + license_problems()
+    found = TAG.match(tag)
+    book = None
+    if found:
+        chapter = ROOT / "book" / "src" / changelog.chapter_name(found.group(1))
+        book = (chapter.read_text() if chapter.is_file() else None,
+                (ROOT / "book" / "src" / "SUMMARY.md").read_text())
+    found = problems(tag, crates(), (ROOT / "CHANGELOG.md").read_text(), fragments, book) + license_problems()
     if on_main:
         found += main_problems(tag)
     if found:
@@ -288,6 +348,36 @@ def selftest():
     )
     assert release_notes(changelog_section(log, "0.0.2")) == "### Added\n- thing\n"
 
+    # A release with breaking changes needs its migration chapter.
+    breaking_log = log.replace(
+        "### Added\n- thing\n",
+        "### Breaking changes\n\nSee the guide.\n\n- `A` is `B` now.\n  Instead: use `B`.\n- `C` is gone.\n\n### Added\n- thing\n",
+    )
+    section = changelog_section(breaking_log, "0.0.2")
+    assert breaking_headlines(section) == ["`A` is `B` now.", "`C` is gone."]
+    assert breaking_headlines(changelog_section(log, "0.0.2")) == []
+    chapter = "# Migrating\n## `A` is `B` now\n## `C` is gone\n"
+    summary = "- [Migrating](migrating-to-0.0.md)\n"
+    assert migration_problems("0.0.2", section, chapter, summary) != [], "0.0.2 is a patch release"
+    assert "patch release" in migration_problems("0.0.2", section, chapter, summary)[0]
+    minor = section
+    assert migration_problems("0.3.0", minor, None, "")[0].endswith("which writes it from the same entries"), (
+        "a minor release with breaks and no chapter is refused"
+    )
+    assert "migrating-to-0.3.md does not exist" in migration_problems("0.3.0", minor, None, "")[0]
+    good_summary = "- [Migrating from 0.2 to 0.3](migrating-to-0.3.md)\n"
+    assert migration_problems("0.3.0", minor, chapter, good_summary) == []
+    assert migration_problems("0.3.0-rc.1", minor, chapter, good_summary) == [], "a candidate needs it too, same chapter"
+    assert any("no line for migrating-to-0.3.md" in p for p in migration_problems("0.3.0", minor, chapter, ""))
+    assert any("lacks 1 breaking change" in p and "`C` is gone" in p
+               for p in migration_problems("0.3.0", minor, chapter.replace("## `C` is gone\n", ""), good_summary))
+    assert migration_problems("0.3.0", changelog_section(log, "0.0.2"), None, "") == [], "no breaks, no chapter needed"
+    # Through problems(): the chapter is looked at only when a book is given.
+    three = [("ponko", "0.3.0", toml("ponko", "0.3.0"))]
+    log3 = breaking_log.replace("[0.0.2]", "[0.3.0]")
+    assert problems("v0.3.0", three, log3, []) == [], "skipped without a book"
+    assert any("does not exist" in p for p in problems("v0.3.0", three, log3, [], (None, "")))
+    assert problems("v0.3.0", three, log3, [], (chapter, good_summary)) == []
     assert untagged({"ponko": ["0.0.1", "0.0.2"], "ponko_ecs": ["0.0.1"]}, {"v0.0.1"}) == [
         ("ponko", "0.0.2")
     ], "a published version needs its tag"
