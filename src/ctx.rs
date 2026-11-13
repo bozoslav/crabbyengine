@@ -713,6 +713,20 @@ impl Ctx {
         }
     }
 
+    /// One frame of the built-in sprite drawing without a GPU, for
+    /// `ponko_bench`: collects every `Sprite` entity as `draw_sprites` does,
+    /// orders and batches them as the renderer does, and forgets them.
+    /// Returns the sprites and batches. Unstable (`bench-internals`).
+    #[doc(hidden)]
+    #[cfg(feature = "bench-internals")]
+    pub fn bench_sprite_frame(&mut self) -> (usize, usize) {
+        self.draw_world_sprites();
+        let (sprites, batches) = self.gfx.draw_list.finish();
+        let counts = (sprites.len(), batches.len());
+        self.gfx.draw_list.clear();
+        counts
+    }
+
     // ---------------------------------------------------------------- drawing
 
     /// Loads the textures of sprites and meshes of models that `json` (a

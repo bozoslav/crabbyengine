@@ -32,6 +32,7 @@ mod render_scenes;
 mod report;
 mod schedule;
 mod sparse_set;
+mod sprites;
 mod streaming;
 
 use bevy_ecs::component::Component;
@@ -231,6 +232,7 @@ fn main() {
     schedule::run(&mut b);
     streaming::run(&mut b);
     sparse_set::run(&mut b);
+    sprites::run(&mut b);
 
     // Resource scoping versus the previous public take/put workaround.
     for scoped in [false, true] {
