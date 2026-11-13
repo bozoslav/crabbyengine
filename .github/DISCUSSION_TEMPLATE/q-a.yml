@@ -2,7 +2,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for asking! Check [the guide](https://ponkoengine.github.io/ponko/) and the [API docs](https://docs.rs/ponko/) first; your answer may already be there.
+        Thanks for asking! Check [the guide](https://ponko.dev/guide/) and the [API docs](https://docs.rs/ponko/) first; your answer may already be there.
         If something crashes or doesn't work as documented, please [open a bug report](https://github.com/ponkoengine/ponko/issues/new?template=bug_report.yml) instead.
   - type: textarea
     id: question

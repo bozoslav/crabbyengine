@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{CollisionGroups, CollisionMesh, Physics3D, pose_to_rp, to_rp};
 use crate::d3::Transform as Transform3D;
-use crate::{Entity, Vec2, Vec3, World};
+use glam::{Vec2, Vec3};
+use ponko_ecs::{Component, Entity, World};
 
 /// A convex hull, triangle mesh or heightfield built on the CPU, on any
 /// thread: the slow half of [`Physics3D::heightfield`] and friends. Build
@@ -174,11 +175,11 @@ impl CollisionMeshData {
 ///     ctx.world.spawn((ponko::d3::Transform::at(vec3(-32.0, 0.0, -32.0)), tile, solid));
 /// });
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 pub struct TerrainCollider {
     /// The heightfield, from [`Physics3D::heightfield`] or
     /// [`Physics3D::add_mesh`] (any collision mesh works). Serde writes it
-    /// as `null` and reads it back as [`CollisionMesh::NONE`](crate::Handle::NONE).
+    /// as `null` and reads it back as [`CollisionMesh::NONE`](crate::handle::Handle::NONE).
     #[serde(with = "super::unsaved_mesh")]
     pub mesh: CollisionMesh,
     /// 0 ice, 1 rubber. Default 0.5.
@@ -236,7 +237,7 @@ impl TerrainCollider {
 /// let player = ponko::physics3d::ColliderFocus::new(150.0, 200.0);
 /// assert_eq!(player.keep_radius, 200.0);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 #[repr(C)] // shared with C/C++ (`PonkoColliderFocus`)
 pub struct ColliderFocus {
     /// Colliders nearer than this come in.

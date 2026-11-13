@@ -5,9 +5,9 @@ use ponko::d3::NavMesh as NavMesh3D;
 use ponko::d3::Transform as Transform3D;
 use ponko::nav::NavBakeSettings;
 use ponko::nav::NavSource;
+use ponko::prelude::{Game, vec3};
 use ponko::render::MeshData;
 use ponko::systems::step_navmesh3d;
-use ponko::{Game, vec3};
 
 use crate::Bench;
 

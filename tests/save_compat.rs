@@ -21,26 +21,26 @@ use serde_json::{Value, json};
 // The game-side types of the fixture. Their names and fields are part of the
 // fixture: don't change them.
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Component)]
 struct Health {
     current: f32,
     max: f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Component)]
 struct Team(u8);
 
 /// Refers to another entity: the reason saves keep entity ids.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Component)]
 struct Follows(Entity);
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Component)]
 struct Label {
     name: String,
     note: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Component)]
 enum Mood {
     Calm,
     Alert { since: u32 },
@@ -56,6 +56,7 @@ struct Score {
 struct Round(u32);
 
 /// Not reflected: counted under `"not_saved"`, never saved.
+#[derive(Component)]
 struct Secret;
 
 /// A world that reflects everything the fixtures use.

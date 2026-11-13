@@ -6,7 +6,7 @@
 
 use glam::Vec3;
 
-use crate::Color;
+use crate::color::Color;
 use crate::render::Lighting;
 
 use super::linear;

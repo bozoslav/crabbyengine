@@ -382,7 +382,7 @@ impl Perf {
     }
 
     /// Where time and allocations went over the last frames (about half a
-    /// minute in a window; every tick of a [`Game::profile_headless`](crate::Game::profile_headless) run):
+    /// minute in a window; every tick of a [`Game::profile_headless`](crate::game::Game::profile_headless) run):
     /// frame-time percentiles, systems, scopes, allocations, the slowest
     /// frames and what was in them, drawing stats, and warnings with advice.
     /// `println!("{report}")` prints it. Empty until profiling is on (see

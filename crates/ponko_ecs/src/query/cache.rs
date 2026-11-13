@@ -895,7 +895,9 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Component;
 
+    #[derive(Component)]
     struct Marker<const N: usize>;
 
     /// Archetypes for every subset of component ids `0..bits`, as `World`

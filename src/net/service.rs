@@ -18,8 +18,8 @@ use super::{
 ///
 /// | Field | What | Driven by the engine |
 /// |---|---|---|
-/// | [`lockstep`](Self::lockstep) | The deterministic lockstep session ([`Net`]); offline unless [`Game::lockstep`](crate::Game::lockstep) gave one | Every simulation tick waits for all inputs, then checks the worlds |
-/// | [`messages`](Self::messages) | The byte-message endpoint ([`NetMessages`]) from [`Game::messages`](crate::Game::messages) | Polled once per frame before any system (once per tick headless), also while paused |
+/// | [`lockstep`](Self::lockstep) | The deterministic lockstep session ([`Net`]); offline unless [`Game::lockstep`](crate::game::Game::lockstep) gave one | Every simulation tick waits for all inputs, then checks the worlds |
+/// | [`messages`](Self::messages) | The byte-message endpoint ([`NetMessages`]) from [`Game::messages`](crate::game::Game::messages) | Polled once per frame before any system (once per tick headless), also while paused |
 /// | [`snapshots`](Self::snapshots) | Incoming [`Pose`] snapshots per remote entity ([`NetSnapshots`]) | Nothing to drive: push when a packet arrives, sample when drawing |
 /// | [`interest`](Self::interest) | Who receives which entity ([`Interest`]), if the game set one | Nothing: only the game knows its viewers, so it calls [`Interest::update`] on its send tick |
 ///
@@ -88,10 +88,10 @@ use super::{
 pub struct Networking {
     /// The deterministic lockstep session: this player's input out,
     /// everyone's in. Offline (one player) unless the game was given a
-    /// session with [`Game::lockstep`](crate::Game::lockstep).
+    /// session with [`Game::lockstep`](crate::game::Game::lockstep).
     pub lockstep: Net,
     /// The byte-message endpoint, if the game has one
-    /// ([`Game::messages`](crate::Game::messages), or set it here at any
+    /// ([`Game::messages`](crate::game::Game::messages), or set it here at any
     /// time, for example from a menu). The engine polls it; systems send and
     /// read [`events`](NetMessages::events). Set it to `None` to leave.
     pub messages: Option<NetMessages>,
@@ -230,7 +230,7 @@ impl DerefMut for Networking {
     }
 }
 impl From<Net> for Networking {
-    /// A lockstep session and nothing else, as [`Game::lockstep`](crate::Game::lockstep) makes.
+    /// A lockstep session and nothing else, as [`Game::lockstep`](crate::game::Game::lockstep) makes.
     fn from(lockstep: Net) -> Self {
         Self {
             lockstep,

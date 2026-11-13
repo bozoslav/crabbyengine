@@ -6,10 +6,11 @@ mod common;
 use common::*;
 use ponko_ecs::*;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Component)]
 struct Health(i32);
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Component)]
 struct Armor(i32);
+#[derive(Component)]
 struct Player;
 
 /// Entities whose `T` changed after `since`, in handle order.
@@ -437,9 +438,10 @@ fn sorting_moves_stamps_with_their_rows() {
 }
 
 /// One byte, alignment 1: its stamps need a stricter alignment than it does.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Component)]
 struct Small(u8);
 /// No bytes at all: a tracked column of it holds only stamps.
+#[derive(Component)]
 struct Marker;
 
 #[test]
@@ -853,8 +855,11 @@ fn repeating_a_change_filter_is_harmless() {
 #[test]
 #[should_panic(expected = "at most 4 `Added`/`Changed` filters per query outside `Or`")]
 fn too_many_change_filters_panic() {
+    #[derive(Component)]
     struct A;
+    #[derive(Component)]
     struct B;
+    #[derive(Component)]
     struct C;
     let mut w = World::new();
     w.track_changes::<Health>();
@@ -870,6 +875,7 @@ fn too_many_change_filters_panic() {
 #[test]
 fn cached_queries_filter_rows_too() {
     // Enough archetypes for `cached()` to use its match list.
+    #[derive(Component)]
     struct Marker<const N: usize>;
     fn layout<const N: usize>(w: &mut World, hp: i32) -> Entity {
         let e = w.spawn((Health(hp),));
@@ -1030,7 +1036,7 @@ fn single_marks_a_mutable_fetch_and_a_failed_one_marks_nothing() {
     // Three matches: an error, and nothing counts as changed.
     assert_eq!(
         w.query::<&mut Health>().single().err(),
-        Some(SingleError::MultipleEntities(3))
+        Some(SingleError::MultipleEntities)
     );
     assert_eq!(changed::<Health>(&mut w, seen), []);
     // A change filter picks the row: the only one that changed.
@@ -1061,7 +1067,7 @@ mod dynamic {
 
     /// A Rust type written through the raw-pointer calls, so typed filters
     /// can observe what those calls stamped.
-    #[derive(Debug, PartialEq, Clone, Copy)]
+    #[derive(Debug, PartialEq, Clone, Copy, Component)]
     struct Speed(f32);
 
     fn ptr(value: &f32) -> *const u8 {
@@ -1252,6 +1258,11 @@ mod dynamic {
         // `since` defaults to the world's tick.
         w.set_changes_since(w.change_tick());
         assert_eq!(chunks(&mut w, world_window).0, []);
+        // `None` keeps the world's tick, so an optional tick chains as it is.
+        let no_tick: Option<Tick> = None;
+        assert_eq!(chunks(&mut w, world_window.since(no_tick)).0, []);
+        assert_eq!(chunks(&mut w, world_window.since(Some(seen))).0.len(), 5);
+        assert_eq!(chunks(&mut w, query.since(no_tick)).0, []);
     }
 
     #[test]

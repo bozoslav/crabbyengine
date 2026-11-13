@@ -8,7 +8,8 @@
 //! adds an accessibility/user scale. Nodes persist until explicitly removed.
 
 use super::build::UiLayout;
-use crate::{Color, Font, Rect, Texture, Vec2, vec2};
+use crate::{camera::Rect, color::Color, text::Font, texture::Texture};
+use glam::{Vec2, vec2};
 use taffy::prelude::*;
 
 /// Stable node identity, never reused within a UI.
@@ -515,7 +516,7 @@ pub struct Ui {
     pub(crate) overlay_has_pointer: bool,
     /// The ray the mouse uses on world panels instead of the camera's through it.
     #[cfg(feature = "3d")]
-    pub(crate) pointer_ray: Option<(crate::Vec3, crate::Vec3)>,
+    pub(crate) pointer_ray: Option<(glam::Vec3, glam::Vec3)>,
 }
 // SAFETY: the only part that isn't `Send`/`Sync` is taffy's `CompactLength`,
 // which may hold an opaque `calc()` handle as a raw pointer. The engine
@@ -952,7 +953,7 @@ impl Ui {
     /// # }
     /// ```
     #[cfg(feature = "3d")]
-    pub fn set_pointer_ray(&mut self, ray: Option<(crate::Vec3, crate::Vec3)>) {
+    pub fn set_pointer_ray(&mut self, ray: Option<(glam::Vec3, glam::Vec3)>) {
         self.pointer_ray = ray;
     }
     /// Keyboard/gamepad belongs to UI while a screen is open (including text

@@ -1,14 +1,17 @@
 # Web builds: games in the browser
 
-The same game code runs in a browser tab. Try the demos, built from the
-examples on every change to `main`:
+The same game code runs in a browser tab. Hosted playable demos aren't online
+yet; build these examples for the browser with the steps below and serve them
+locally:
 
-- [The battle](play/battle/): two armies of 10,000 units on flow fields.
-  Click to rally, `A` to attack, `D` to defend. Add
-  [`?inspector=open`](play/battle/?inspector=open) to the address to open
-  the [inspector](inspector.md).
-- [Flow fields](play/flow/): 20,000 agents find their way to where you click.
-- [Ant colonies](play/ants/): ants forage and lay pheromone trails.
+- [The battle](https://github.com/ponkoengine/ponko/blob/main/examples/battle.rs):
+  two armies of 10,000 units on flow fields. Click to rally, `A` to attack,
+  `D` to defend. Add `?inspector=open` to the address to open the
+  [inspector](inspector.md).
+- [Flow fields](https://github.com/ponkoengine/ponko/blob/main/examples/flow.rs):
+  20,000 agents find their way to where you click.
+- [Ant colonies](https://github.com/ponkoengine/ponko/blob/main/examples/ants.rs):
+  ants forage and lay pheromone trails.
 
 Games draw with WebGPU where the browser has it, and WebGL2 where it
 doesn't, so they run in every current desktop browser.

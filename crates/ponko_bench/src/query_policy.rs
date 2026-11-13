@@ -13,7 +13,9 @@ use ponko_ecs::{
 };
 use std::hint::black_box;
 
+#[derive(ponko_ecs::Component)]
 struct Value(u64);
+#[derive(ponko_ecs::Component)]
 struct Marker<const N: usize>;
 
 /// Calls `$f::<Marker<N>>(args)` for every marker whose bit is set in `$bits`.
@@ -28,11 +30,11 @@ macro_rules! for_markers {
     };
 }
 
-fn add<M: Send + Sync + 'static + MarkerValue>(w: &mut World, e: Entity) {
+fn add<M: ponko_ecs::Component + MarkerValue>(w: &mut World, e: Entity) {
     w.insert(e, M::VALUE);
 }
 
-fn toggle<M: Send + Sync + 'static + MarkerValue>(w: &mut World, e: Entity) {
+fn toggle<M: ponko_ecs::Component + MarkerValue>(w: &mut World, e: Entity) {
     if w.remove::<M>(e).is_none() {
         w.insert(e, M::VALUE);
     }

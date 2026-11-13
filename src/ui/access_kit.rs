@@ -173,8 +173,8 @@ pub(super) fn action(request: &ActionRequest) -> Option<UiAccessAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Vec2;
     use crate::ui::{Ui, UiAccessTracker, UiInput, UiLayout};
+    use glam::Vec2;
 
     const VIEW: Vec2 = Vec2::new(800.0, 600.0);
 

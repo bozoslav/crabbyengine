@@ -1,7 +1,9 @@
 //! Local, axis-aligned reflection volumes. Captures are explicit, never per-frame.
 use crate::d3::Transform as Transform3D;
 use crate::gfx::Graphics;
-use crate::{Entity, Texture, Vec3, World};
+use crate::texture::Texture;
+use glam::Vec3;
+use ponko_ecs::{Component, Entity, World};
 
 /// A local environment at an entity's [`Transform3D::position`]. Rotation and
 /// scale are ignored. Four baked environments can be resident; zero content
@@ -12,7 +14,7 @@ use crate::{Entity, Texture, Vec3, World};
 /// assert_eq!(probe.intensity, 1.0);
 /// ```
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 pub struct ReflectionProbe3D {
     /// Full axis-aligned box size in world units. Default 10 on each axis.
@@ -147,13 +149,13 @@ impl Graphics {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if `entity` has no
-    /// probe or no transform, [`Invalid`](crate::ErrorKind::Invalid) if the
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if `entity` has no
+    /// probe or no transform, [`Invalid`](crate::error::ErrorKind::Invalid) if the
     /// probe's volume or intensity is zero or its content is unknown,
-    /// [`Limit`](crate::ErrorKind::Limit) if four captures are already
+    /// [`Limit`](crate::error::ErrorKind::Limit) if four captures are already
     /// allocated.
-    pub fn bake_reflection_probe(&mut self, world: &mut World, entity: Entity) -> Result<(), crate::Error> {
-        use crate::{Error, ErrorKind};
+    pub fn bake_reflection_probe(&mut self, world: &mut World, entity: Entity) -> Result<(), crate::error::Error> {
+        use crate::error::{Error, ErrorKind};
         let probe = *world
             .get::<ReflectionProbe3D>(entity)
             .ok_or_else(|| Error::new(ErrorKind::NotFound, "entity has no reflection probe"))?;
@@ -199,7 +201,7 @@ pub(crate) struct ProbeUniform {
 
 impl Graphics {
     /// Load an HDR/EXR latitude-longitude image, from the [added asset
-    /// sources](crate::Assets::add_source) or `assets/`, as the baked content
+    /// sources](crate::assets::Assets::add_source) or `assets/`, as the baked content
     /// of the probe on `entity` of `world` (the game's is `ctx.world`).
     /// Pixels are linear radiance, with +Y at the top and +X at the center.
     /// The file must have a 2:1 aspect ratio. Filtering runs next rendered frame.
@@ -221,10 +223,10 @@ impl Graphics {
     }
 
     /// [`load_reflection_probe`](Self::load_reflection_probe) with errors as
-    /// values: [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file
-    /// is missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
-    /// [`Decode`](crate::ErrorKind::Decode) if it isn't an image or holds
-    /// non-finite radiance, [`Invalid`](crate::ErrorKind::Invalid) if it isn't
+    /// values: [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file
+    /// is missing, [`Io`](crate::error::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::error::ErrorKind::Decode) if it isn't an image or holds
+    /// non-finite radiance, [`Invalid`](crate::error::ErrorKind::Invalid) if it isn't
     /// 2:1, and the errors of
     /// [`bake_reflection_probe`](Self::bake_reflection_probe).
     ///
@@ -241,19 +243,22 @@ impl Graphics {
         world: &mut World,
         entity: Entity,
         name: &str,
-    ) -> Result<(), crate::Error> {
+    ) -> Result<(), crate::error::Error> {
         let found = self.asset_sources.find(name)?;
         let origin = found.origin.clone();
         let bytes = found.into_bytes().map_err(|e| e.with_path(name))?;
         let image = image::load_from_memory(&bytes)
-            .map_err(|e| crate::Error::decode(name, format!("{} is not a valid image: {e}", origin.describe(name))))?
+            .map_err(|e| {
+                crate::error::Error::decode(name, format!("{} is not a valid image: {e}", origin.describe(name)))
+            })?
             .into_rgb32f();
         let (width, height) = image.dimensions();
         if width != height.saturating_mul(2) || height == 0 {
-            return Err(
-                crate::Error::new(crate::ErrorKind::Invalid, "reflection image must have 2:1 aspect ratio")
-                    .with_path(name),
-            );
+            return Err(crate::error::Error::new(
+                crate::error::ErrorKind::Invalid,
+                "reflection image must have 2:1 aspect ratio",
+            )
+            .with_path(name));
         }
         let mut pixels = Vec::with_capacity(768 * 128 * 4);
         for y in 0..128 {
@@ -279,7 +284,7 @@ impl Graphics {
                     v.fract().rem_euclid(1.0),
                 );
                 if !c.is_finite() {
-                    return Err(crate::Error::decode(
+                    return Err(crate::error::Error::decode(
                         name,
                         "reflection image contains non-finite radiance",
                     ));

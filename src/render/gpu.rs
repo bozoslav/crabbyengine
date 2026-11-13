@@ -852,7 +852,7 @@ impl Renderer {
     }
 
     #[cfg(feature = "3d")]
-    pub fn create_gpu_buffer(&mut self, id: u32, len: u32, data: &[crate::Vec4]) {
+    pub fn create_gpu_buffer(&mut self, id: u32, len: u32, data: &[glam::Vec4]) {
         let device = self.device.clone();
         self.three().create_gpu_buffer(&device, id, len, data);
     }
@@ -861,7 +861,7 @@ impl Renderer {
         self.three().free_gpu_buffer(id);
     }
     #[cfg(feature = "3d")]
-    pub fn write_gpu_buffer(&mut self, id: u32, offset: u32, data: &[crate::Vec4]) {
+    pub fn write_gpu_buffer(&mut self, id: u32, offset: u32, data: &[glam::Vec4]) {
         let queue = self.queue.clone();
         self.three().write_gpu_buffer(&queue, id, offset, data);
     }

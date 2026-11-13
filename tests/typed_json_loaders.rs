@@ -6,7 +6,7 @@ use ponko::prelude::*;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize, Component)]
 struct Stats {
     hp: f32,
     armor: f32,

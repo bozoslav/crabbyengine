@@ -8,9 +8,9 @@ use ponko::ecs_core::QueryCache;
 use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Component)]
 struct Height(u32);
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Component)]
 struct Tag<const N: usize>;
 
 fn reflect(world: &mut World) {

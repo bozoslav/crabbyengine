@@ -7,6 +7,7 @@ use ponko::d3::*;
 use ponko::prelude::*;
 
 /// Flies in a circle.
+#[derive(Component)]
 struct Orbiting;
 
 fn fly(ctx: &mut Ctx) {

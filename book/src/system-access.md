@@ -68,6 +68,7 @@ component panics and says so.
 # use ponko::prelude::*;
 # use ponko::access::SystemAccess;
 # use ponko::system_view::SystemView;
+#[derive(Component)]
 struct Health(i32);
 struct Hurt(Entity);
 
@@ -118,7 +119,7 @@ whose state can be handed out on its own:
 | `Camera` | `sys.camera`, `sys.camera3d` | |
 | `Spatial` | `sys.spatial`, read only | |
 | `Physics`, `Physics3D` | `sys.physics`, `sys.physics3d`: ray casts and overlaps read, impulses and gravity write | |
-| `Net` | `sys.net`, lockstep networking (`ctx.net.lockstep`) | |
+| `Net` | `sys.net.lockstep`, lockstep networking (as `ctx.net.lockstep`) | |
 | `Gfx`, `Ui`, `Assets`, `Perf` | not offered | |
 
 Each of those fields checks the declaration when it is used: reading
@@ -163,6 +164,7 @@ a parallel batch:
 # use ponko::prelude::*;
 # use ponko::access::SystemAccess;
 # use ponko::system_view::SystemView;
+# #[derive(Component)]
 # struct Vel(f32);
 # fn brake(_: &mut SystemView) {} fn steer(_: &mut SystemView) {}
 let report = Game::new("report", 1, 1)

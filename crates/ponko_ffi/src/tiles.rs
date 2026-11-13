@@ -1,7 +1,11 @@
 //! Sprite sheets, the `Animation` component and tilemaps.
 use std::mem::offset_of;
 
-use ponko::{Color, SpriteSheet, TextureFilter, Vec2, d2::Animation, d2::TileMap};
+use ponko::{
+    d2::Animation,
+    d2::TileMap,
+    prelude::{Color, SpriteSheet, TextureFilter, Vec2},
+};
 
 use crate::ctx::{ctx_access, out};
 use crate::types::*;

@@ -149,6 +149,7 @@ fn zero_cell_size_panics() {
     let _ = SpatialGrid::new(0.0);
 }
 
+#[derive(Component)]
 struct Neighbors(usize);
 
 fn count_neighbors(ctx: &mut Ctx) {

@@ -28,11 +28,12 @@ use ponko_ecs::*;
 // ---- components ---------------------------------------------------------------
 
 /// Plain `Copy` data.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 struct Num(u32);
 
 /// Not `Copy`, owns heap memory, and records its serial number when dropped,
 /// so the test knows exactly which values were dropped and how often.
+#[derive(Component)]
 struct Tracked {
     serial: u64,
     name: String,
@@ -62,12 +63,12 @@ impl Drop for Tracked {
 }
 
 /// Zero-sized.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 struct Marker;
 
 /// Over-aligned: storage must keep every row on a 32-byte boundary.
 #[repr(align(32))]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 struct Aligned(u64);
 
 fn lock(log: &DropLog) -> std::sync::MutexGuard<'_, Vec<u64>> {

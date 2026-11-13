@@ -35,6 +35,7 @@ unsafe fn call<F: FnOnce(&mut World)>(p: *mut MaybeUninit<u8>, world: Option<&mu
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Health(i32);
 ///
 /// let mut world = World::new();
@@ -141,9 +142,11 @@ impl Commands {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// # #[derive(Component)]
+    /// # struct Level(u32);
     /// let mut world = World::new();
     /// let mut commands = Commands::new();
-    /// commands.spawn((1u32,));
+    /// commands.spawn((Level(1),));
     /// commands.clear();
     /// assert!(commands.is_empty());
     /// world.apply(&mut commands);

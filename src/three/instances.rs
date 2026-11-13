@@ -1,7 +1,8 @@
 //! Persistent static geometry, partitioned into bounded spatial cells.
 use super::{Mesh, collect::Instance3D};
+use crate::color::Color;
 use crate::gfx::Graphics;
-use crate::{Color, Mat4, Vec3};
+use glam::{Mat4, Vec3};
 
 /// A persistent batch. Handles are never recycled; freeing twice is harmless.
 /// Create one batch per streamed region and free it when that region unloads.
@@ -174,7 +175,7 @@ impl Batch {
             .enumerate()
             .map(|(index, &m)| {
                 assert!(
-                    m.is_finite() && m.row(3) == crate::Vec4::W,
+                    m.is_finite() && m.row(3) == glam::Vec4::W,
                     "instances require finite affine transforms"
                 );
                 let center = m.transform_point3(bounds.0);
@@ -451,7 +452,7 @@ mod lifetime_tests {
     use crate::render::MeshData;
 
     /// What `validate_instance_batches` sent: (batch id, handed back).
-    fn validate(ctx: &mut crate::Ctx) -> Vec<(u32, bool)> {
+    fn validate(ctx: &mut crate::ctx::Ctx) -> Vec<(u32, bool)> {
         let mut sent = Vec::new();
         ctx.gfx
             .assets3d
@@ -461,7 +462,7 @@ mod lifetime_tests {
 
     #[test]
     fn a_batch_whose_mesh_was_freed_is_withdrawn_and_never_shows_the_next_mesh() {
-        crate::Game::new("t", 1, 1).run_headless(0, |ctx| {
+        crate::game::Game::new("t", 1, 1).run_headless(0, |ctx| {
             let material = ctx.gfx.default_material();
             let kept = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
             let old = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
@@ -491,7 +492,7 @@ mod lifetime_tests {
 
     #[test]
     fn a_withdrawn_batch_comes_back_with_its_mesh_id() {
-        crate::Game::new("t", 1, 1).run_headless(0, |ctx| {
+        crate::game::Game::new("t", 1, 1).run_headless(0, |ctx| {
             let material = ctx.gfx.default_material();
             let near = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
             let far = ctx.gfx.create_mesh(&MeshData::cube(1.0), material);
@@ -563,7 +564,7 @@ mod level_tests {
         }];
         let transform = Mat4::from_scale_rotation_translation(
             Vec3::new(2.0, 3.0, 1.0),
-            crate::Quat::IDENTITY,
+            glam::Quat::IDENTITY,
             Vec3::new(-20.0, 3.0, 8.0),
         );
         let b = Batch::levels(

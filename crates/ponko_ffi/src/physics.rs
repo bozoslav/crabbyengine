@@ -466,7 +466,7 @@ mod imp {
     use ponko::d2::RigidBody;
     use ponko::d2::Shape;
     use ponko::d2::Velocity;
-    use ponko::{BodyKind, CollisionStarted, CollisionStopped, Vec2};
+    use ponko::prelude::{BodyKind, CollisionStarted, CollisionStopped, Vec2};
     use ponko_ecs::Entity;
 
     use super::*;

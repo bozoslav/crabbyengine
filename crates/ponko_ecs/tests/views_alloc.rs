@@ -45,7 +45,9 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static GLOBAL: Counting = Counting;
 
+#[derive(Component)]
 struct Pos(f32);
+#[derive(Component)]
 struct Vel(f32);
 struct Score(u32);
 

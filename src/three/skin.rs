@@ -7,7 +7,7 @@ use glam::{Mat4, Vec3};
 
 use super::collect::Instance3D;
 use super::{Assets3D, LodGroup, LodShadow, MeshData, Model, ModelMaterial, ModelMaterials, Transform3D, linear};
-use crate::{Entity, Without, World};
+use ponko_ecs::{Component, Entity, Without, World};
 
 /// One joint of a [`Skeleton`]: its name, the joint it hangs from, and
 /// where it sits relative to that joint when nothing moves it (its rest
@@ -53,7 +53,7 @@ pub struct Joint {
 /// s.pose[head].rotation = Quat::from_rotation_y(0.5);
 /// # }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Component)]
 pub struct Skeleton {
     joints: Arc<[Joint]>,
     pub(crate) morphs: MorphPose,
@@ -235,7 +235,7 @@ impl Skeleton {
 /// ctx.world.spawn((ponko::render::Model::new(hat), ponko::anim::SkinOf(person)));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct SkinOf(pub Entity);
 
 /// Keeps this entity's [`Transform3D`] on a joint of another entity's
@@ -254,7 +254,7 @@ pub struct SkinOf(pub Entity);
 /// ));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 pub struct AttachToJoint {
     /// The entity with the [`Skeleton`].
     pub skeleton: Entity,
@@ -333,7 +333,7 @@ impl MeshSkin {
 ///     ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(mesh), weights));
 /// });
 /// ```
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Component)]
 pub struct MorphWeights(pub Vec<f32>);
 
 impl MorphWeights {
@@ -885,7 +885,7 @@ mod tests {
 
     #[test]
     fn skinning_scratch_follows_a_same_id_world_load() {
-        use crate::WorldReflect;
+        use crate::reflect::WorldReflect;
         let mut world = World::new();
         world.reflect::<Transform3D>();
         let mut bent = arm();

@@ -44,7 +44,7 @@ pub(super) struct Resources {
 
 impl Resources {
     /// Makes GPU buffer `id`: a freed one's slot, or the next new one.
-    pub(super) fn create_gpu_buffer(&mut self, device: &wgpu::Device, id: u32, len: u32, data: &[crate::Vec4]) {
+    pub(super) fn create_gpu_buffer(&mut self, device: &wgpu::Device, id: u32, len: u32, data: &[glam::Vec4]) {
         let mut slot = None;
         if let Some(read_layout) = &self.storage_read {
             assert!(
@@ -57,7 +57,7 @@ impl Resources {
             );
             let zeros;
             let data = if data.is_empty() {
-                zeros = vec![crate::Vec4::ZERO; len as usize];
+                zeros = vec![glam::Vec4::ZERO; len as usize];
                 &zeros
             } else {
                 data
@@ -125,7 +125,7 @@ impl Resources {
         }
     }
 
-    pub(super) fn write_gpu_buffer(&self, queue: &wgpu::Queue, id: u32, offset: u32, data: &[crate::Vec4]) {
+    pub(super) fn write_gpu_buffer(&self, queue: &wgpu::Queue, id: u32, offset: u32, data: &[glam::Vec4]) {
         if let Some(Some(b)) = self.storage_buffers.get(id as usize) {
             queue.uploading(Upload::Meshes).write_buffer(
                 &b.buffer,

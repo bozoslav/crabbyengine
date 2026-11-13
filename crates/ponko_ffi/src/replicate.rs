@@ -22,7 +22,7 @@ use ponko::net::SnapshotStream;
 use ponko::net::UpdateStamp;
 use ponko::net::seq_diff;
 use ponko::net::seq_newer;
-use ponko::{Vec3, net::MAX_INTEREST_TIERS};
+use ponko::{net::MAX_INTEREST_TIERS, prelude::Vec3};
 
 use crate::ctx::{collect, out};
 use crate::three::{PonkoQuat, PonkoVec3, quat_from_c, quat_to_c};
@@ -379,7 +379,7 @@ impl Default for PonkoPose {
     fn default() -> Self {
         Self {
             position: PonkoVec3::default(),
-            rotation: quat_to_c(ponko::Quat::IDENTITY),
+            rotation: quat_to_c(ponko::prelude::Quat::IDENTITY),
             velocity: PonkoVec3::default(),
             has_velocity: false,
         }

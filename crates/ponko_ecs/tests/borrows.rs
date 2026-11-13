@@ -9,8 +9,11 @@ struct Speed(f32);
 struct Score(u32);
 struct Log(Vec<String>);
 
+#[derive(Component)]
 struct Health(i32);
+#[derive(Component)]
 struct Target(Entity);
+#[derive(Component)]
 struct Damage(i32);
 
 // ---- several resources at once ------------------------------------------------
@@ -342,6 +345,7 @@ fn a_lookup_is_recorded_like_a_query() {
 fn a_lookup_works_across_many_archetypes_with_a_cached_query() {
     // More than 128 archetypes, so the cached query takes the cache path
     // while the lookup reads the same archetype list.
+    #[derive(Component)]
     struct Marker<const N: usize>;
     let mut w = World::new();
     let hub = w.spawn((Health(0),));
@@ -374,6 +378,7 @@ fn a_lookup_works_across_many_archetypes_with_a_cached_query() {
 /// of those writes ends the others' pointers.
 #[test]
 fn a_lookup_reads_and_writes_while_a_cached_query_builds_its_index_and_stamps() {
+    #[derive(Component)]
     struct Marker<const N: usize>;
     let mut w = World::new();
     // Index from the first archetype on, so this small world takes the

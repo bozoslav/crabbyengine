@@ -118,7 +118,7 @@ pub struct ShaderStatus {
     pub outcome: ShaderOutcome,
     /// How many times an edit of its file was reloaded successfully.
     pub reloads: u32,
-    /// The frame ([`Time::frame`](crate::Time::frame)) this happened in.
+    /// The frame ([`Time::frame`](crate::time::Time::frame)) this happened in.
     pub frame: u64,
     /// The errors of the last compile; empty when it worked.
     pub diagnostics: Vec<ShaderDiagnostic>,
@@ -169,7 +169,7 @@ impl Graphics {
         kind: ShaderKind,
         reload: bool,
         result: Result<(), Box<ShaderDiagnostic>>,
-    ) -> Result<(), crate::Error> {
+    ) -> Result<(), crate::error::Error> {
         let frame = self.frame;
         let list = &mut self.assets3d.shader_status;
         let at = match list.iter().position(|s| s.shader == name && s.kind == kind) {
@@ -208,7 +208,7 @@ impl Graphics {
                     ShaderOutcome::Failed
                 };
                 status.diagnostics = vec![*diagnostic];
-                Err(crate::Error::new(crate::ErrorKind::Shader, message))
+                Err(crate::error::Error::new(crate::error::ErrorKind::Shader, message))
             }
         }
     }
@@ -222,7 +222,7 @@ impl Graphics {
     }
 
     /// Says that `path` failed to compile and uses a stand-in until fixed.
-    pub(crate) fn report_stand_in(path: &str, error: &crate::Error) {
+    pub(crate) fn report_stand_in(path: &str, error: &crate::error::Error) {
         eprintln!("{error}");
         eprintln!("ponko: {path} uses a stand-in until it compiles; hot reload is watching it");
     }
@@ -288,7 +288,7 @@ impl Graphics {
 #[cfg(all(test, feature = "window"))]
 mod tests {
     use super::*;
-    use crate::Game;
+    use crate::game::Game;
 
     fn rejected(name: &str) -> ShaderDiagnostic {
         *crate::render::without_location(name, ShaderKind::Material, "v", "the GPU rejected its pipelines".into())

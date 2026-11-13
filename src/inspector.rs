@@ -9,7 +9,7 @@
 //! prefabs, save and load scenes, and Play / Stop.
 //!
 //! Built with the `inspector` feature; turned on per game with
-//! [`Game::inspector`](crate::Game::inspector) (on in debug builds). While
+//! [`Game::inspector`](crate::game::Game::inspector) (on in debug builds). While
 //! closed, it costs nothing: egui doesn't run and no events are kept.
 
 use std::collections::HashSet;
@@ -25,10 +25,10 @@ use crate::d2::Sprite;
 use crate::d2::Transform as Transform2D;
 use crate::editor::Editor;
 use crate::reflect::short_name;
-use crate::{Ctx, Rect, WorldReflect};
+use crate::{camera::Rect, ctx::Ctx, reflect::WorldReflect};
 
 /// Environment variable that turns the inspector on (`1`) or off (`0`),
-/// overriding [`Game::inspector`](crate::Game::inspector).
+/// overriding [`Game::inspector`](crate::game::Game::inspector).
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(crate) const ENV_INSPECTOR: &str = "PONKO_INSPECTOR";
 
@@ -987,14 +987,16 @@ impl Inspector {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ponko_ecs::Component;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Component)]
     struct Health {
         current: f32,
         max: u32,
     }
+    #[derive(Component)]
     struct Secret;
 
     fn run(panels: &mut Panels, ctx: &mut Ctx) -> egui::FullOutput {

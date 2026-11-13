@@ -6,11 +6,13 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use ponko_ecs::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 struct Pos(f32);
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 struct Vel(f32);
+#[derive(Component)]
 struct Health(i32);
+#[derive(Component)]
 struct Frozen;
 struct Gravity(f32);
 #[derive(Debug, PartialEq)]
@@ -54,6 +56,7 @@ fn view_queries_filter_count_iterate_and_get() {
         assert_eq!(view.query::<(Entity, &Pos)>().get(frozen).map(|(_, p)| p.0), Some(10.0));
         assert!(view.query::<&Pos>().filter::<Without<Frozen>>().get(frozen).is_none());
         // A filter on a component no entity ever had matches nothing.
+        #[derive(Component)]
         struct Never;
         assert_eq!(view.query::<&Pos>().filter::<With<Never>>().count(), 0);
         assert_eq!(view.query::<&Pos>().filter::<With<Never>>().iter().count(), 0);
@@ -98,6 +101,7 @@ fn writing_a_read_only_component_panics() {
 #[test]
 #[should_panic(expected = "uses a component its declared access doesn't name")]
 fn querying_a_never_registered_component_panics() {
+    #[derive(Component)]
     struct Unseen;
     let mut w = world();
     let mut state = ViewState::new().read::<Pos>();
@@ -159,12 +163,10 @@ fn a_view_query_gives_the_only_match() {
     let mut w = world();
     let mut state = ViewState::new().write::<Pos>();
     state.run(&mut w, |mut view| {
-        assert_eq!(
-            view.query::<&Pos>().single().err(),
-            Some(SingleError::MultipleEntities(2))
-        );
+        assert_eq!(view.query::<&Pos>().single().err(), Some(SingleError::MultipleEntities));
         assert_eq!(view.query::<&Pos>().filter::<With<Frozen>>().single(), Ok(&Pos(10.0)));
         view.query::<&mut Pos>().filter::<With<Frozen>>().single().unwrap().0 += 1.0;
+        #[derive(Component)]
         struct Never;
         let none = view.query::<&Pos>().filter::<With<Never>>().single();
         assert_eq!(none, Err(SingleError::NoEntities));

@@ -1,7 +1,7 @@
 //! Post-processing of the 3D frame: exposure, bloom, color grading, tone
 //! mapping and vignette.
 
-use crate::Texture;
+use crate::texture::Texture;
 
 /// How HDR light (which can be far brighter than white) is mapped to the
 /// screen.
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn msaa_is_a_post_setting_that_headless_runs_keep() {
-        crate::Game::new("samples", 32, 32).run_headless(2, |ctx| {
+        crate::game::Game::new("samples", 32, 32).run_headless(2, |ctx| {
             assert_eq!(ctx.scene3d.post.msaa, 4, "the default");
             // Without a GPU nothing is switched; any count, even one no GPU
             // takes, is kept as the setting and ignored.

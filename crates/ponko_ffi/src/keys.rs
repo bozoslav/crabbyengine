@@ -2,7 +2,7 @@
 //! order as the Rust ones.
 use ponko::input::GamepadAxis;
 use ponko::input::GamepadButton;
-use ponko::{Key, MouseButton};
+use ponko::prelude::{Key, MouseButton};
 
 /// A keyboard key, by position on a US layout (`PONKO_KEY_A`, ...).
 /// ```

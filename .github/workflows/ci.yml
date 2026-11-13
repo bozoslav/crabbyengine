@@ -93,11 +93,11 @@ jobs:
         run: python3 scripts/check-naming.py
       - name: Changelog fragments
         run: python3 scripts/changelog.py --check
-      # The release guard and the versioned guides (CONTRIBUTING.md "Releasing").
+      # The release guard (CONTRIBUTING.md "Releasing") and the guide's note.
       - name: Release scripts
         run: |
           python3 scripts/release-check.py selftest
-          python3 scripts/guide-versions.py selftest
+          python3 scripts/guide-note.py selftest
       # Every C export needs a test, or a reasoned entry in the allowlist.
       - name: C ABI test coverage
         run: python3 scripts/check-ffi-coverage.py
@@ -235,9 +235,10 @@ jobs:
             args: --features ponko/steam,ponko_ffi/steam
           - name: control endpoint switch for release builds
             args: --features ponko/control-env,ponko_ffi/control-env
+          # The tests derive their components, so `derive` stays on.
           - name: ECS without parallel
             scope: -p ponko_ecs
-            args: --no-default-features
+            args: --no-default-features --features derive
           - name: engine without window or audio
             scope: -p ponko
             args: --no-default-features
@@ -542,7 +543,7 @@ jobs:
           shared-key: ${{ runner.os == 'Windows' && 'test-features' || 'test' }}
       - name: Tests, ECS without rayon
         if: ${{ !cancelled() }}
-        run: cargo test -p ponko_ecs --tests --no-fail-fast --no-default-features
+        run: cargo test -p ponko_ecs --tests --no-fail-fast --no-default-features --features derive
       # No optional feature at all: no renderer, audio device or inspector.
       # (Audio without a window is linted in the clippy job.)
       - name: Tests, engine with no default features
@@ -650,7 +651,7 @@ jobs:
         include:
           # Our unsafe code under the strict model, without rayon.
           - name: ECS, stacked borrows
-            args: --tests --no-default-features
+            args: --tests --no-default-features --features derive
             flags: ""
           # The parallel path. rayon's dependency crossbeam-epoch trips Stacked
           # Borrows (not our code), and its global pool outlives main.

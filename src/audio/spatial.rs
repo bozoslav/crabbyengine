@@ -1,8 +1,9 @@
 //! Positional playback without custom DSP: Kira applies the gain, pan and rate.
 use super::{Audio, AudioBus, AudioEffects, Playing, Sound, SoundParams};
-use crate::Ctx;
+use crate::ctx::Ctx;
 use crate::d3::Transform as Transform3D;
-use crate::{Entity, Quat, Vec3};
+use glam::{Quat, Vec3};
+use ponko_ecs::{Component, Entity};
 
 /// Distance gain curve. Keyed curves use normalized distance and linear gain;
 /// keys must be sorted by distance. Values outside the keys use the nearest key.
@@ -91,7 +92,7 @@ pub struct AudioListener3D {
 /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::d3::AudioSource::new(sound, ponko::d3::AudioSettings::default())));
 /// # }
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Component)]
 pub struct AudioSource3D {
     /// Clip to play. Changes apply when the component is replaced.
     pub sound: Sound,
@@ -388,7 +389,7 @@ mod tests {
     }
     #[test]
     fn audio_headless_sources_start_update_and_cleanup_without_device() {
-        crate::Game::new("audio test", 1, 1)
+        crate::game::Game::new("audio test", 1, 1)
             .system(|ctx| {
                 update_audio3d(ctx);
                 assert!(ctx.world.query::<&AudioSource3D>().iter().all(|s| s.playing.is_some()));
@@ -411,12 +412,12 @@ mod tests {
     }
     #[test]
     fn a_scene_load_stops_voices_of_replaced_entities_only() {
-        use crate::WorldReflect;
-        crate::Game::new("audio test", 1, 1).run_headless(0, |ctx| {
+        use crate::reflect::WorldReflect;
+        crate::game::Game::new("audio test", 1, 1).run_headless(0, |ctx| {
             ctx.world.reflect::<Transform3D>();
             let sound = ctx.audio.create(100, &[0.0; 100]);
             let looping = AudioSettings3D {
-                sound: crate::SoundParams {
+                sound: crate::audio::SoundParams {
                     looping: true,
                     ..Default::default()
                 },

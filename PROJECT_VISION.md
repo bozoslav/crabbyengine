@@ -165,12 +165,12 @@ No arbitrary release dates or blanket promises for every issue.
 
 ## Compatibility and contribution
 
-[STABILITY.md](STABILITY.md) remains authoritative for public APIs, semver,
+[STABILITY.md](STABILITY.md) is authoritative for public APIs, semver,
 MSRV, C ABI, saved worlds, MCP contracts, platforms and determinism within its
-stated scope. The Ponko rename and current 0.0.1 package metadata do not silently
-revoke published commitments. When a proposal conflicts with a contract,
-document the conflict and prefer an additive design; identify any change that
-would require a future major version explicitly.
+stated scope. Ponko is at 0.x, where a minor release may break things, but
+every break is listed with its replacement. When a proposal conflicts with a
+contract, document the conflict and prefer an additive design; name any
+breaking change explicitly, so it lands in a minor release with its migration.
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md). Keep changes focused, explain new
 abstractions, provide relevant evidence, and keep capability documentation in

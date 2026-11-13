@@ -4,8 +4,9 @@
 use glam::Vec2;
 use rayon::prelude::*;
 
+use crate::ctx::Ctx;
 use crate::d2::Transform as Transform2D;
-use crate::{Ctx, Entity, With, World};
+use ponko_ecs::{Component, Entity, With, World};
 
 /// Keeps this entity's [`Transform2D`] position and rotation at an offset
 /// from another entity's, updated by [`follow_attachments`]. Its own scale
@@ -15,6 +16,7 @@ use crate::{Ctx, Entity, With, World};
 /// ```
 /// use ponko::prelude::*;
 ///
+/// #[derive(Component)]
 /// struct Tank;
 ///
 /// let mut turret = None;
@@ -31,7 +33,7 @@ use crate::{Ctx, Entity, With, World};
 /// let at = world.get::<ponko::d2::Transform>(turret.unwrap()).unwrap().position;
 /// assert_eq!(at, vec2(10.0, -4.0));
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[repr(C)] // shared with C/C++ (`PonkoAttached`)
 pub struct Attached {
     /// The entity to follow.
@@ -150,7 +152,7 @@ fn place(world: &World, a: Attached) -> Option<(Vec2, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vec2;
+    use glam::vec2;
 
     #[test]
     fn chains_compose_from_the_root_down() {

@@ -134,7 +134,12 @@ pub unsafe extern "C" fn ponko_ctx_overlap_ball(
     })
 }
 
-unsafe fn spawn_placed(ctx: *mut PonkoCtx, path: *const c_char, at: ponko::Placement, output: *mut u64) -> PonkoStatus {
+unsafe fn spawn_placed(
+    ctx: *mut PonkoCtx,
+    path: *const c_char,
+    at: ponko::prelude::Placement,
+    output: *mut u64,
+) -> PonkoStatus {
     boundary(|| {
         if output.is_null() {
             return Err(invalid("entity output is null"));
@@ -158,7 +163,7 @@ pub unsafe extern "C" fn ponko_ctx_spawn_prefab3d(
     at: PonkoVec3,
     output: *mut u64,
 ) -> PonkoStatus {
-    let position: ponko::Vec3 = to_c(at);
+    let position: ponko::prelude::Vec3 = to_c(at);
     // SAFETY: forwards the caller's context, path and output contract.
     unsafe { spawn_placed(ctx, path, position.into(), output) }
 }

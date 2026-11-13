@@ -106,7 +106,9 @@ fn same_component_twice_read_only_is_fine() {
 }
 
 // Every combination gives the boolean expressions a complete truth table.
+#[derive(Component)]
 struct Bit<const N: usize>;
+#[derive(Component)]
 struct Bits(usize);
 fn filter_world(rows: usize) -> World {
     let mut w = World::new();
@@ -243,6 +245,7 @@ fn parallel_tuple_or_filters_match_sequential_order_and_mutation() {
 
 #[test]
 fn view_tuple_or_filters_handle_unregistered_components_per_arm() {
+    #[derive(Component)]
     struct Never;
     let mut w = filter_world(1);
     let mut state = ViewState::new().write::<Bits>().read::<Bit<0>>();
@@ -310,7 +313,7 @@ fn single_gives_the_only_match_and_says_why_there_is_none() {
 
     w.spawn((Pos(0.0, 0.0),));
     w.spawn((Pos(0.0, 0.0),));
-    assert_eq!(w.query::<&Pos>().single().err(), Some(SingleError::MultipleEntities(3)));
+    assert_eq!(w.query::<&Pos>().single().err(), Some(SingleError::MultipleEntities));
     // Filters narrow it to one again, across archetypes.
     assert_eq!(w.query::<Entity>().filter::<With<Tag>>().single(), Ok(player));
     assert_eq!(
@@ -319,7 +322,7 @@ fn single_gives_the_only_match_and_says_why_there_is_none() {
     );
     assert_eq!(SingleError::NoEntities.to_string(), "no entity matches the query");
     assert_eq!(
-        SingleError::MultipleEntities(3).to_string(),
-        "3 entities match the query, not one"
+        SingleError::MultipleEntities.to_string(),
+        "more than one entity matches the query"
     );
 }

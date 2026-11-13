@@ -2,7 +2,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use ponko::{Action, ActionMap, ButtonBinding, Ctx, Game, Key};
+use ponko::prelude::{Action, ActionMap, ButtonBinding, Ctx, Game, Key};
 
 use crate::{Bench, report};
 
@@ -24,7 +24,7 @@ fn install(ctx: &mut Ctx, names: &[String]) {
 }
 
 /// Times `op` like [`Bench::steady`], inside a headless game (a `Ctx` can't leave it).
-fn timed(b: &mut Bench, name: &str, mut op: impl FnMut(&Ctx, &[String], &[ponko::ActionId]) -> usize) {
+fn timed(b: &mut Bench, name: &str, mut op: impl FnMut(&Ctx, &[String], &[ponko::prelude::ActionId]) -> usize) {
     if b.skips(name) {
         return;
     }

@@ -9,7 +9,8 @@ use super::{
     gltf, linear,
 };
 use crate::gfx::Graphics;
-use crate::{Ctx, World, assets};
+use crate::{assets, ctx::Ctx};
+use ponko_ecs::World;
 
 /// A material as the GPU reads it (one uniform block).
 #[repr(C)]
@@ -47,7 +48,7 @@ pub(crate) struct GpuMaterialDesc {
 impl GpuMaterialDesc {
     pub(crate) fn new(desc: &MaterialDesc) -> Self {
         let [r, g, b, _] = linear(desc.emissive);
-        let id = |t: Option<crate::Texture>| t.map(|t| t.id);
+        let id = |t: Option<crate::texture::Texture>| t.map(|t| t.id);
         Self {
             uniform: MaterialUniform {
                 color: linear(desc.color),
@@ -98,8 +99,8 @@ impl Graphics {
     }
 
     /// [`create_material`](Self::create_material) with errors as values:
-    /// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) if roughness or
-    /// metallic is outside 0..=1, [`BadHandle`](crate::ErrorKind::BadHandle)
+    /// [`ErrorKind::Invalid`](crate::error::ErrorKind::Invalid) if roughness or
+    /// metallic is outside 0..=1, [`BadHandle`](crate::error::ErrorKind::BadHandle)
     /// if its shader or texture arrays weren't made by this game.
     ///
     /// ```
@@ -109,7 +110,7 @@ impl Graphics {
     ///     assert_eq!(err.kind(), ErrorKind::Invalid);
     /// });
     /// ```
-    pub fn try_create_material(&mut self, desc: MaterialDesc) -> Result<Material, crate::Error> {
+    pub fn try_create_material(&mut self, desc: MaterialDesc) -> Result<Material, crate::error::Error> {
         self.check_material(&desc)?;
         let id = self.assets3d.materials;
         self.assets3d.materials += 1;
@@ -269,8 +270,8 @@ impl Graphics {
         }
     }
 
-    fn check_material(&self, desc: &MaterialDesc) -> Result<(), crate::Error> {
-        use crate::{Error, ErrorKind};
+    fn check_material(&self, desc: &MaterialDesc) -> Result<(), crate::error::Error> {
+        use crate::error::{Error, ErrorKind};
         if !((0.0..=1.0).contains(&desc.roughness) && (0.0..=1.0).contains(&desc.metallic)) {
             return Err(Error::new(
                 ErrorKind::Invalid,
@@ -298,7 +299,7 @@ impl Graphics {
     }
 
     /// Loads a material shader (WGSL) from an [added asset
-    /// source](crate::Assets::add_source) or `assets/`. It can define
+    /// source](crate::assets::Assets::add_source) or `assets/`. It can define
     /// `fn vertex(v: Vertex) -> Vertex`, to move vertices (wind, waves), and
     /// `fn surface(s: Surface) -> Surface`, to change how each pixel looks;
     /// the engine lights it, shadows it and does the rest. Hooks are ordinary
@@ -331,10 +332,10 @@ impl Graphics {
     }
 
     /// [`load_shader`](Self::load_shader) with errors as values:
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
-    /// missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
-    /// [`Decode`](crate::ErrorKind::Decode) if it isn't UTF-8 text and
-    /// [`Shader`](crate::ErrorKind::Shader) if it doesn't compile (the
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file is
+    /// missing, [`Io`](crate::error::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::error::ErrorKind::Decode) if it isn't UTF-8 text and
+    /// [`Shader`](crate::error::ErrorKind::Shader) if it doesn't compile (the
     /// message has the compiler's log). With hot reload on, a file that
     /// doesn't compile still returns a stand-in, as `load_shader` does.
     ///
@@ -345,7 +346,7 @@ impl Graphics {
     ///     assert_eq!(err.kind(), ErrorKind::NotFound);
     /// });
     /// ```
-    pub fn try_load_shader(&mut self, path: &str) -> Result<Shader, crate::Error> {
+    pub fn try_load_shader(&mut self, path: &str) -> Result<Shader, crate::error::Error> {
         let found = match self
             .asset_sources
             .lookup(path, |origin| self.assets3d.loaded_shaders.get(origin).copied())?
@@ -404,7 +405,7 @@ impl Graphics {
     }
 
     /// [`create_shader`](Self::create_shader) with errors as values:
-    /// [`ErrorKind::Shader`](crate::ErrorKind::Shader) if it doesn't
+    /// [`ErrorKind::Shader`](crate::error::ErrorKind::Shader) if it doesn't
     /// compile, with the compiler's log in the message.
     ///
     /// ```
@@ -414,7 +415,7 @@ impl Graphics {
     ///     assert_eq!(err.kind(), ErrorKind::Shader);
     /// });
     /// ```
-    pub fn try_create_shader(&mut self, name: &str, source: &str) -> Result<Shader, crate::Error> {
+    pub fn try_create_shader(&mut self, name: &str, source: &str) -> Result<Shader, crate::error::Error> {
         let id = self.assets3d.shaders;
         let compiled = self.compile_shader(name, source, None);
         self.record_shader(name, super::ShaderKind::Material, false, compiled)?;
@@ -503,8 +504,8 @@ impl Graphics {
     }
 
     /// [`create_mesh`](Self::create_mesh) with errors as values:
-    /// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) if the data doesn't
-    /// fit together, [`BadHandle`](crate::ErrorKind::BadHandle) if the
+    /// [`ErrorKind::Invalid`](crate::error::ErrorKind::Invalid) if the data doesn't
+    /// fit together, [`BadHandle`](crate::error::ErrorKind::BadHandle) if the
     /// material comes from another game.
     ///
     /// ```
@@ -516,8 +517,8 @@ impl Graphics {
     ///     assert_eq!(ctx.gfx.try_create_mesh(&broken, stone).unwrap_err().kind(), ErrorKind::Invalid);
     /// });
     /// ```
-    pub fn try_create_mesh(&mut self, data: &MeshData, material: Material) -> Result<Mesh, crate::Error> {
-        use crate::{Error, ErrorKind};
+    pub fn try_create_mesh(&mut self, data: &MeshData, material: Material) -> Result<Mesh, crate::error::Error> {
+        use crate::error::{Error, ErrorKind};
         data.problem()
             .map_err(|e| Error::new(ErrorKind::Invalid, format!("create_mesh: {e}")))?;
         if material.id >= self.assets3d.materials {
@@ -552,7 +553,7 @@ impl Graphics {
     }
 
     /// [`create_plain_mesh`](Self::create_plain_mesh) with errors as values:
-    /// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) if the data doesn't
+    /// [`ErrorKind::Invalid`](crate::error::ErrorKind::Invalid) if the data doesn't
     /// fit together.
     ///
     /// ```
@@ -565,10 +566,11 @@ impl Graphics {
     ///     assert_eq!(ctx.gfx.try_create_plain_mesh(&broken).unwrap_err().kind(), ErrorKind::Invalid);
     /// });
     /// ```
-    pub fn try_create_plain_mesh(&mut self, data: &MeshData) -> Result<Mesh, crate::Error> {
+    pub fn try_create_plain_mesh(&mut self, data: &MeshData) -> Result<Mesh, crate::error::Error> {
         // Checked first, so bad data doesn't make the default material.
-        data.problem()
-            .map_err(|e| crate::Error::new(crate::ErrorKind::Invalid, format!("create_plain_mesh: {e}")))?;
+        data.problem().map_err(|e| {
+            crate::error::Error::new(crate::error::ErrorKind::Invalid, format!("create_plain_mesh: {e}"))
+        })?;
         let material = self.default_material();
         self.try_create_mesh(data, material)
     }
@@ -663,7 +665,7 @@ impl Graphics {
 
     /// [`load_skeleton`](Self::load_skeleton) with errors as values: those
     /// of [`try_load_mesh`](Self::try_load_mesh), or
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file has
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file has
     /// no skins.
     ///
     /// ```
@@ -673,11 +675,11 @@ impl Graphics {
     ///     assert_eq!(err.kind(), ErrorKind::NotFound);
     /// });
     /// ```
-    pub fn try_load_skeleton(&mut self, path: &str) -> Result<Skeleton, crate::Error> {
+    pub fn try_load_skeleton(&mut self, path: &str) -> Result<Skeleton, crate::error::Error> {
         let (_, origin) = self.load_mesh_from(path)?;
         self.assets3d.loaded_skeletons.get(&origin).cloned().ok_or_else(|| {
-            crate::Error::new(
-                crate::ErrorKind::NotFound,
+            crate::error::Error::new(
+                crate::error::ErrorKind::NotFound,
                 format!("{path} has no skins or animations, so no skeleton"),
             )
             .with_path(path)
@@ -698,7 +700,7 @@ impl Graphics {
 
     /// [`load_clips`](Self::load_clips) with errors as values: those of
     /// [`try_load_mesh`](Self::try_load_mesh), and
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) for a file without
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) for a file without
     /// skins or animations.
     /// ```
     /// # use ponko::prelude::*;
@@ -707,15 +709,15 @@ impl Graphics {
     ///     assert_eq!(err.kind(), ErrorKind::NotFound);
     /// });
     /// ```
-    pub fn try_load_clips(&mut self, path: &str) -> Result<Vec<AnimationClip>, crate::Error> {
+    pub fn try_load_clips(&mut self, path: &str) -> Result<Vec<AnimationClip>, crate::error::Error> {
         let (_, origin) = self.load_mesh_from(path)?;
         self.assets3d
             .loaded_skeletons
             .contains_key(&origin)
             .then(|| self.assets3d.loaded_clips.get(&origin).cloned().unwrap_or_default())
             .ok_or_else(|| {
-                crate::Error::new(
-                    crate::ErrorKind::NotFound,
+                crate::error::Error::new(
+                    crate::error::ErrorKind::NotFound,
                     format!("{path} has no skins or animations, so no skeleton"),
                 )
                 .with_path(path)
@@ -735,7 +737,7 @@ impl Graphics {
 
     /// [`load_clip`](Self::load_clip) with errors as values: those of
     /// [`try_load_clips`](Self::try_load_clips), and
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file has no
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file has no
     /// clip called `name` (the message lists the ones it has).
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -743,17 +745,17 @@ impl Graphics {
     /// let walk = ctx.gfx.try_load_clip("models/character.glb", "walk");
     /// # }
     /// ```
-    pub fn try_load_clip(&mut self, path: &str, name: &str) -> Result<AnimationClip, crate::Error> {
+    pub fn try_load_clip(&mut self, path: &str, name: &str) -> Result<AnimationClip, crate::error::Error> {
         let clips = self.try_load_clips(path)?;
         clips.iter().find(|c| c.name() == name).cloned().ok_or_else(|| {
             let names: Vec<_> = clips.iter().map(AnimationClip::name).collect();
             let message = format!("{path}: no animation {name:?}; available animations: {names:?}");
-            crate::Error::new(crate::ErrorKind::NotFound, message).with_path(path)
+            crate::error::Error::new(crate::error::ErrorKind::NotFound, message).with_path(path)
         })
     }
 
     /// Loads a glTF model (`.glb`, or `.gltf` with its files next to it)
-    /// from an [added asset source](crate::Assets::add_source) or `assets/` as
+    /// from an [added asset source](crate::assets::Assets::add_source) or `assets/` as
     /// one [`Mesh`]: every mesh in the file's scene, where the file puts it, with its materials and their base color, normal,
     /// occlusion-roughness-metalness and emissive maps.
     /// Loading the same file again returns the same mesh. After freeing its
@@ -779,9 +781,9 @@ impl Graphics {
     }
 
     /// [`load_mesh`](Self::load_mesh) with errors as values:
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
-    /// missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
-    /// [`Decode`](crate::ErrorKind::Decode) if it isn't a glTF model this
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file is
+    /// missing, [`Io`](crate::error::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::error::ErrorKind::Decode) if it isn't a glTF model this
     /// engine can read (including files it names that are missing).
     ///
     /// ```
@@ -791,13 +793,13 @@ impl Graphics {
     ///     assert_eq!(hat, ponko::render::Mesh::NONE);
     /// });
     /// ```
-    pub fn try_load_mesh(&mut self, path: &str) -> Result<Mesh, crate::Error> {
+    pub fn try_load_mesh(&mut self, path: &str) -> Result<Mesh, crate::error::Error> {
         self.load_mesh_from(path).map(|(mesh, _)| mesh)
     }
 
     /// Loads (or returns the cached) mesh `path`, and says where it was
     /// found: the key of its skeleton, clips and materials.
-    pub(crate) fn load_mesh_from(&mut self, path: &str) -> Result<(Mesh, assets::Origin), crate::Error> {
+    pub(crate) fn load_mesh_from(&mut self, path: &str) -> Result<(Mesh, assets::Origin), crate::error::Error> {
         let found = match self
             .asset_sources
             .lookup(path, |origin| self.assets3d.loaded.get(origin).copied())?
@@ -818,7 +820,7 @@ impl Graphics {
         &self,
         path: &str,
         bytes: &[u8],
-    ) -> Result<(gltf::Loaded, Vec<Option<SharedImage>>), crate::Error> {
+    ) -> Result<(gltf::Loaded, Vec<Option<SharedImage>>), crate::error::Error> {
         let shared = &self.assets3d.shared_images;
         let sources = &self.asset_sources;
         // Each image file's key: where it is found, so the same name in two
@@ -833,7 +835,7 @@ impl Graphics {
         let loaded = gltf::load(path, bytes, &mut |name| sources.read(name), &|source| {
             key_of(source).is_some_and(|key| shared.contains_key(&key))
         })
-        .map_err(|e| crate::Error::decode(path, e))?;
+        .map_err(|e| crate::error::Error::decode(path, e))?;
         let image_keys = loaded
             .image_sources
             .iter()
@@ -916,7 +918,7 @@ impl Graphics {
             return kept;
         }
         let old_textures = self.assets3d.file_textures.get(file).cloned().unwrap_or_default();
-        let textures: Vec<crate::Texture> = loaded
+        let textures: Vec<crate::texture::Texture> = loaded
             .images
             .iter()
             .zip(image_keys)
@@ -1050,9 +1052,9 @@ impl Graphics {
     }
 
     /// [`load_mesh_data`](Self::load_mesh_data) with errors as values:
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
-    /// missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
-    /// [`Decode`](crate::ErrorKind::Decode) if it isn't a glTF file with
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file is
+    /// missing, [`Io`](crate::error::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::error::ErrorKind::Decode) if it isn't a glTF file with
     /// triangles (including files it names that are missing).
     ///
     /// ```
@@ -1062,7 +1064,7 @@ impl Graphics {
     /// }
     /// Game::new("t", 1, 1).run_headless(0, |ctx| assert!(wall(ctx).is_err()));
     /// ```
-    pub fn try_load_mesh_data(&self, path: &str) -> Result<MeshData, crate::Error> {
+    pub fn try_load_mesh_data(&self, path: &str) -> Result<MeshData, crate::error::Error> {
         let bytes = self
             .asset_sources
             .find(path)?
@@ -1070,7 +1072,7 @@ impl Graphics {
             .map_err(|e| e.with_path(path))?;
         let sources = &self.asset_sources;
         let loaded = gltf::load(path, &bytes, &mut |name| sources.read(name), &|_| true)
-            .map_err(|e| crate::Error::decode(path, e))?;
+            .map_err(|e| crate::error::Error::decode(path, e))?;
         Ok(loaded.data)
     }
 
@@ -1375,7 +1377,7 @@ impl Graphics {
             self.assets3d.morph_entities = entities;
             return;
         }
-        world.query::<(crate::Entity, &super::Model)>().for_each(|(e, m)| {
+        world.query::<(ponko_ecs::Entity, &super::Model)>().for_each(|(e, m)| {
             if morphs.get(m.mesh.slot() as usize).is_some_and(Option::is_some) {
                 entities.push(e);
             }
@@ -1530,7 +1532,7 @@ impl Ctx {
     pub(crate) fn update_animators(&mut self) {
         let dt = self.dt();
         #[cfg(feature = "physics3d")]
-        let mut finished: Vec<crate::Entity> = Vec::new();
+        let mut finished: Vec<ponko_ecs::Entity> = Vec::new();
         #[cfg(feature = "physics3d")]
         {
             // Ragdolls pose their skeletons (after this frame's interpolation);
@@ -1538,7 +1540,7 @@ impl Ctx {
             crate::physics3d::pose_ragdolls(&mut self.world, &mut self.physics3d.ragdolls);
             self.world
                 .query::<(
-                    crate::Entity,
+                    ponko_ecs::Entity,
                     &mut super::Animator,
                     &mut Skeleton,
                     &mut crate::d3::Ragdoll,
@@ -1554,8 +1556,8 @@ impl Ctx {
                     }
                 });
             self.world
-                .query::<(crate::Entity, &mut Skeleton, &mut crate::d3::Ragdoll)>()
-                .filter::<crate::Without<super::Animator>>()
+                .query::<(ponko_ecs::Entity, &mut Skeleton, &mut crate::d3::Ragdoll)>()
+                .filter::<ponko_ecs::Without<super::Animator>>()
                 .for_each(|(e, skeleton, ragdoll)| {
                     if ragdoll.is_blending() && crate::physics3d::blend_back(ragdoll, skeleton, dt) {
                         finished.push(e);
@@ -1570,7 +1572,7 @@ impl Ctx {
             .world
             .query::<(&mut super::Animator, &mut Skeleton, Option<&mut super::Transform3D>)>();
         #[cfg(feature = "physics3d")]
-        let mut animated = animated.filter::<crate::Without<crate::d3::Ragdoll>>();
+        let mut animated = animated.filter::<ponko_ecs::Without<crate::d3::Ragdoll>>();
         animated.for_each(|(animator, skeleton, transform)| {
             if animator.manual {
                 return;
@@ -1783,7 +1785,7 @@ mod clip_tests {
             ctx.gfx.load_clip(&path, "idle").source_joints()
         ));
         let error = ctx.gfx.try_load_clip(&path, "run").unwrap_err();
-        assert_eq!(error.kind(), crate::ErrorKind::NotFound);
+        assert_eq!(error.kind(), crate::error::ErrorKind::NotFound);
         let message = error.message();
         assert!(message.contains("idle") && message.contains("walk") && message.contains("run"));
     }
@@ -1792,7 +1794,7 @@ mod clip_tests {
     fn clips_cached_from_a_source_are_found_by_the_source_and_not_the_folder() {
         let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ONE);
         ctx.assets
-            .add_source(crate::MemorySource::new("pack").with("hero.glb", b"unread".to_vec()));
+            .add_source(crate::assets::MemorySource::new("pack").with("hero.glb", b"unread".to_vec()));
         let origin = assets::Origin::Source {
             source: "pack".into(),
             name: "hero.glb".into(),

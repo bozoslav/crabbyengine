@@ -472,7 +472,7 @@ mod tests {
         validate(&sprite(), &json_of(SpriteJson::default()));
         let filled = SpriteJson {
             texture: Some("hero.png".into()),
-            region: Some(crate::Rect {
+            region: Some(crate::camera::Rect {
                 min: glam::Vec2::ZERO,
                 max: glam::Vec2::ONE,
             }),
@@ -551,7 +551,7 @@ mod tests {
         check!(crate::d2::Transform, crate::d2::Transform::default());
         check!(
             crate::d2::Attached,
-            crate::d2::Attached::to(crate::Entity::from_bits(0))
+            crate::d2::Attached::to(ponko_ecs::Entity::from_bits(0))
         );
         #[cfg(feature = "3d")]
         {
@@ -564,9 +564,9 @@ mod tests {
         }
         #[cfg(any(feature = "physics", feature = "physics3d"))]
         let kinds = [
-            crate::BodyKind::Dynamic,
-            crate::BodyKind::Fixed,
-            crate::BodyKind::Kinematic,
+            crate::collision::BodyKind::Dynamic,
+            crate::collision::BodyKind::Fixed,
+            crate::collision::BodyKind::Kinematic,
         ];
         #[cfg(feature = "physics")]
         {
@@ -619,8 +619,8 @@ mod tests {
             };
             assert!(fills_an_optional(&rigidbody3d(), &json_of(body)));
             check!(crate::d3::RigidBody, body);
-            use crate::Handle;
             use crate::d3::Collider as Collider3D;
+            use crate::handle::Handle;
             use crate::physics3d::CollisionMesh;
             for collider in [
                 Collider3D::sphere(1.0),
@@ -631,7 +631,7 @@ mod tests {
             }
             // A mesh made from a file is saved as that file's description;
             // one made in code has no file to name, so it isn't saved.
-            let mut world = crate::World::new();
+            let mut world = ponko_ecs::World::new();
             let made = Collider3D::mesh(CollisionMesh { id: 0 });
             assert!(super::super::collider_json(&world, &made).is_none());
             let mut files = super::super::ColliderFiles::default();

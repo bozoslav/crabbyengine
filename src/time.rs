@@ -18,7 +18,7 @@
 //!
 //! Kept free of any windowing types so it can be unit tested directly.
 
-use crate::Entity;
+use ponko_ecs::Entity;
 
 /// Longest frame delta the engine will accept, in seconds.
 ///
@@ -119,6 +119,7 @@ struct SimClock {
 /// ```
 /// use ponko::prelude::*;
 ///
+/// #[derive(Component)]
 /// struct Pos(f32);
 ///
 /// fn fall(ctx: &mut Ctx) {
@@ -274,7 +275,7 @@ impl Time {
 
     /// Simulated seconds one run of the current simulation system covers:
     /// the fixed step, times the interval of a system added with one
-    /// ([`IntoSystem::every`](crate::IntoSystem::every)). Outside
+    /// ([`IntoSystem::every`](crate::game::IntoSystem::every)). Outside
     /// simulation systems it is one fixed step, the same as
     /// [`fixed_dt`](Self::fixed_dt).
     ///
@@ -296,7 +297,7 @@ impl Time {
     /// Use this for logic that must behave identically on every machine,
     /// such as physics or deterministic simulations. Each step lasts exactly
     /// [`fixed_dt`](Self::fixed_dt) seconds. The rate is set with
-    /// [`Game::fixed_hz`](crate::Game::fixed_hz) (default 60).
+    /// [`Game::fixed_hz`](crate::game::Game::fixed_hz) (default 60).
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -474,6 +475,7 @@ impl Time {
     /// ```
     /// use ponko::prelude::*;
     ///
+    /// #[derive(Component)]
     /// struct Brain { plans: u32 }
     ///
     /// fn plan(ctx: &mut Ctx) {

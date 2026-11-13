@@ -19,7 +19,10 @@ use ponko::anim::Motion;
 use ponko::anim::MotionChild;
 use ponko::anim::Skeleton;
 use ponko::anim::{AnimationCondition, LayerId, ParamId, StateId};
-use ponko::{Ctx, Entity, Vec2, anim::JointMask};
+use ponko::{
+    anim::JointMask,
+    prelude::{Ctx, Entity, Vec2},
+};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::skin::PonkoClip;

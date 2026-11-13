@@ -10,7 +10,9 @@ use ponko::prelude::*;
 
 const JOINTS: usize = 8;
 const STEP: f32 = 0.5;
+#[derive(Component)]
 struct Sway(f32);
+#[derive(Component)]
 struct Bend(ponko::anim::AnimationClip);
 
 // ANCHOR: skin_chain

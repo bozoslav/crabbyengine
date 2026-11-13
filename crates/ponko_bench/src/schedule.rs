@@ -17,10 +17,11 @@ use crate::{Bench, report};
 
 /// Two floats per entity; every `N` is its own component, so systems over
 /// different `N` don't conflict.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, ponko_ecs::Component)]
 struct Val<const N: usize>(f32, f32);
 
 /// What every entity starts with, before its `Val`s are inserted.
+#[derive(ponko_ecs::Component)]
 struct Row;
 
 /// When the tick started, and every tick's time so far.

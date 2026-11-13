@@ -86,6 +86,7 @@ expensive part.
 <div>
 
 ```rust
+# #[derive(Component)]
 # struct Brain;
 # impl Brain { fn decide(&mut self, _dt: f32) {} }
 fn think(ctx: &mut Ctx) {

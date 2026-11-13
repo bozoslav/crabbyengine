@@ -45,7 +45,7 @@ fn rotate_toward(s: &mut Skeleton, j: usize, from: Vec3, to: Vec3, w: f32, max: 
 /// Entity non-uniform scale is removed before solving. Exact reach requires
 /// uniform positive joint scales; joint non-uniform scale/shear is approximate.
 /// No allocations are made. Apply after animation, in a system of
-/// [`Phase::Late`](crate::Phase::Late).
+/// [`Phase::Late`](crate::game::Phase::Late).
 ///
 /// ```
 /// use ponko::prelude::*;
@@ -151,7 +151,7 @@ pub fn look_at_joint(
     );
 }
 
-impl crate::Ctx {
+impl crate::ctx::Ctx {
     /// Draws parent-to-child bones as projected 2D lines over the 3D scene.
     /// Uses the existing line primitive: no depth testing; segments crossing
     /// the near/far plane are clipped. Missing components are ignored.
@@ -160,7 +160,7 @@ impl crate::Ctx {
     /// use ponko::prelude::*;
     /// fn debug(ctx: &mut Ctx, entity: Entity) { ctx.draw_skeleton(entity, Color::RED); }
     /// ```
-    pub fn draw_skeleton(&mut self, entity: crate::Entity, color: crate::Color) {
+    pub fn draw_skeleton(&mut self, entity: ponko_ecs::Entity, color: crate::color::Color) {
         let (Some(s), Some(t)) = (
             self.world.get::<Skeleton>(entity),
             self.world.get::<Transform3D>(entity),

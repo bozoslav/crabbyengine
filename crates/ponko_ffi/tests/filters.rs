@@ -8,12 +8,19 @@ use std::ptr::{null, null_mut};
 use std::sync::Mutex;
 
 use PonkoStatus::*;
+use ponko::prelude::Component;
 
+#[derive(Component)]
 struct Player;
+#[derive(Component)]
 struct Enemy;
+#[derive(Component)]
 struct Dead;
+#[derive(Component)]
 struct Ghost;
+#[derive(Component)]
 struct Tag;
+#[derive(Component)]
 struct Label(u32);
 
 /// Component ids in a C world, in the order of `NAMES`.

@@ -14,8 +14,11 @@ use ponko::input::Input;
 use ponko::prelude::*;
 use ponko::system_view::SystemView;
 
+#[derive(Component)]
 struct Pos(#[allow(dead_code)] [f32; 2]);
+#[derive(Component)]
 struct Vel(#[allow(dead_code)] [f32; 2]);
+#[derive(Component)]
 struct Tag;
 
 fn early(_: &mut Ctx) {}
@@ -201,6 +204,7 @@ fn matching_counts_archetypes_and_entities_for_component_names() {
     assert!(err.message().contains("Nope"), "{err}");
 }
 
+#[derive(Component)]
 struct Health(#[allow(dead_code)] f32);
 struct Gravity(#[allow(dead_code)] f32);
 struct Hit;

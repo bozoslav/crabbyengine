@@ -6,7 +6,7 @@ use std::cell::Cell;
 use std::ffi::{CString, c_char, c_void};
 use std::rc::Rc;
 
-use ponko::{AssetSource, MemorySource};
+use ponko::prelude::{AssetSource, MemorySource};
 
 use crate::ctx::{ctx_access, text};
 use crate::{Failure, PonkoCtx, PonkoStatus, boundary, engine_error, invalid, invalid_owned};
@@ -129,7 +129,7 @@ impl Drop for CSource {
 
 /// Refuses an id that one of the game's sources already has, before
 /// `add_source` would panic on it.
-fn unique_source(c: &ponko::Ctx, id: &str) -> Result<(), Failure> {
+fn unique_source(c: &ponko::prelude::Ctx, id: &str) -> Result<(), Failure> {
     if c.assets.has_source(id) {
         return Err(invalid_owned(format!(
             "an asset source called \"{id}\" was already added"
@@ -334,8 +334,8 @@ pub unsafe extern "C" fn ponko_ctx_load_asset_with(
             return Ok(());
         }
         Err(engine_error(
-            ponko::Error::new(
-                ponko::ErrorKind::Decode,
+            ponko::prelude::Error::new(
+                ponko::prelude::ErrorKind::Decode,
                 format!("\"{name}\" could not be decoded: the decoder returned status {status}"),
             )
             .with_path(name),

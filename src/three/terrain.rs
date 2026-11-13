@@ -5,6 +5,7 @@ use glam::{Vec2, Vec3, Vec4};
 
 use super::{Material, MaterialDesc, Mesh, MeshData, TextureArray};
 use crate::gfx::Graphics;
+use ponko_ecs::Component;
 
 /// The most ground layers a terrain material blends.
 pub const TERRAIN_LAYERS: usize = 8;
@@ -147,7 +148,7 @@ pub const TERRAIN_LODS: usize = 4;
 /// times that, and every 8th beyond. Skirts hide the cracks where tiles of
 /// different detail meet.
 ///
-/// A [`Handle`](crate::Handle): check it with `ctx.is_live(tile)` (live
+/// A [`Handle`](crate::handle::Handle): check it with `ctx.is_live(tile)` (live
 /// while all its meshes are) and free all its meshes with `ctx.free(tile)`.
 ///
 /// ```no_run
@@ -163,7 +164,7 @@ pub const TERRAIN_LODS: usize = 4;
 /// ctx.world.spawn((ponko::d3::Transform::at(vec3(-64.0, 0.0, -64.0)), tile));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Component)]
 #[repr(C)] // shared with C/C++ (`PonkoTerrainTile`): the meshes, then the distance
 pub struct TerrainTile {
     /// The meshes, finest first.
@@ -287,18 +288,18 @@ impl Graphics {
     }
 
     /// [`create_terrain_material`](Self::create_terrain_material) with errors
-    /// as values: [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) for a
+    /// as values: [`ErrorKind::Invalid`](crate::error::ErrorKind::Invalid) for a
     /// description that doesn't fit together (too many layers, too few weight
     /// images or normal maps, a size not above 0),
-    /// [`BadHandle`](crate::ErrorKind::BadHandle) for an array this game
+    /// [`BadHandle`](crate::error::ErrorKind::BadHandle) for an array this game
     /// didn't make.
-    pub fn try_create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Result<Material, crate::Error> {
+    pub fn try_create_terrain_material(&mut self, desc: &TerrainMaterialDesc) -> Result<Material, crate::error::Error> {
         desc.check()
-            .map_err(|e| crate::Error::new(crate::ErrorKind::Invalid, e))?;
+            .map_err(|e| crate::error::Error::new(crate::error::ErrorKind::Invalid, e))?;
         let arrays = [Some(desc.layers), desc.normals, Some(desc.weights)];
         if arrays.into_iter().flatten().any(|a| !self.has_texture_array(a)) {
-            return Err(crate::Error::new(
-                crate::ErrorKind::BadHandle,
+            return Err(crate::error::Error::new(
+                crate::error::ErrorKind::BadHandle,
                 "that texture array wasn't made by this game",
             ));
         }

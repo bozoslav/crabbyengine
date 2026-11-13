@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 use web_time::Instant;
 
-use crate::Texture;
+use crate::texture::Texture;
 
 /// Environment variable that turns hot reload on (`1`) or off (`0`),
-/// overriding [`Game::hot_reload`](crate::Game::hot_reload).
+/// overriding [`Game::hot_reload`](crate::game::Game::hot_reload).
 pub(crate) const ENV_HOT_RELOAD: &str = "PONKO_HOT_RELOAD";
 
 /// How often watched files are checked.

@@ -59,8 +59,11 @@ this chapter uses: `sim_system(f)` is `add(Phase::AfterPhysics, f)` and
 Every system belongs to a `Phase`. Phases always run in this order, whatever
 order the builder calls come in; within a phase, systems run in the order
 you added them. `Game::add(phase, f)` (C++: `game::add(ponko::phase::..., f)`,
-C: `ponko_game_add_system`) puts a system in any phase; `sim_system` and
-`system` are short for the two most common ones.
+C: `ponko_game_add_system`) puts a system in any phase and returns the
+game, so builder calls chain; `sim_system` and `system` are short for the
+two most common ones. When you need the system's id later (to remove or
+order it), add it with `Game::add_system` instead, which returns the id
+(see [Replacing a built-in](#replacing-a-built-in)).
 
 | Phase | Runs | Your systems | The engine's systems |
 |---|---|---|---|
@@ -108,6 +111,7 @@ imports:
 
 ```rust
 # use ponko::access::SystemAccess;
+# #[derive(Component)]
 # struct Hunger(f32);
 # fn think(_: &mut Ctx) {} fn get_hungry(_: &mut Ctx) {} fn follow(_: &mut Ctx) {}
 let game = Game::new("Options", 1280, 720)
@@ -437,6 +441,7 @@ half-applied change. Parallel queries refuse commands.
 
 ```rust
 # use ponko::prelude::*;
+#[derive(Component)]
 struct Shot(i32);
 
 // Records a spawn. The world doesn't change until this system returns.

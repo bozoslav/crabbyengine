@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::Entity;
+use ponko_ecs::Entity;
 
 /// How a body moves.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

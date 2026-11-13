@@ -50,7 +50,7 @@ pub(crate) fn screen_projection(size: Vec2) -> Mat4 {
 /// | [`gfx`](Self::gfx) | [`Graphics`](crate::gfx::Graphics): drawing, textures, fonts, screenshots and, with `3d`, everything on the GPU. |
 /// | [`audio`](Self::audio) | [`Audio`](crate::audio::Audio): sounds, music, buses, the 3D listener. |
 /// | [`ui`](Self::ui) | [`Ui`](crate::ui::Ui): the retained widget tree and the immediate debug widgets. |
-/// | [`assets`](Self::assets) | [`Assets`](crate::Assets): asset sources, data files, saving scenes and prefabs, hot reload. |
+/// | [`assets`](Self::assets) | [`Assets`](crate::assets::Assets): asset sources, data files, saving scenes and prefabs, hot reload. |
 /// | [`perf`](Self::perf) | [`Perf`](crate::perf::Perf): timings, the HUD, traces, profiling reports. |
 /// | [`camera`](Self::camera), `scene3d` | What the renderer reads when the frame is drawn: the 2D camera, and with `3d` the [`SceneSettings`](crate::render::SceneSettings) (camera, lighting, sky, post-processing, levels of detail, GPU passes, quality). |
 /// | [`spatial`](Self::spatial), `physics`, `physics3d`, [`net`](Self::net) | Neighbor queries, the physics worlds, [`Networking`](crate::net::Networking): lockstep, messages, snapshots. |
@@ -107,6 +107,7 @@ pub struct Ctx {
     ///
     /// ```
     /// # use ponko::prelude::*;
+    /// #[derive(Component)]
     /// struct Vel(Vec2);
     ///
     /// fn movement(ctx: &mut Ctx) {
@@ -124,17 +125,17 @@ pub struct Ctx {
     /// When they apply (systems run one at a time, each with all of `Ctx`):
     ///
     /// - Right after the recording system returns, before the next system
-    ///   starts. Every system is a barrier, within a [`Phase`](crate::Phase)
+    ///   starts. Every system is a barrier, within a [`Phase`](crate::game::Phase)
     ///   and across phases; the recording system itself never sees them.
-    /// - In recorded order. A [`Commands::add`](crate::Commands::add)
+    /// - In recorded order. A [`Commands::add`](ponko_ecs::Commands::add)
     ///   closure sees the commands before it; an `insert` after a `despawn`
     ///   of the same entity does nothing.
     /// - Commands from `setup` apply when it returns, before the first tick.
     /// - Engine steps are systems too: commands from
-    ///   [`Phase::BeforePhysics`](crate::Phase::BeforePhysics) are in the
+    ///   [`Phase::BeforePhysics`](crate::game::Phase::BeforePhysics) are in the
     ///   world when the physics step runs, and frame systems see the commands
     ///   of every tick in their frame.
-    /// - A system skipped by its interval ([`IntoSystem::every`](crate::IntoSystem::every))
+    /// - A system skipped by its interval ([`IntoSystem::every`](crate::game::IntoSystem::every))
     ///   doesn't run, so it records nothing.
     ///
     /// Changes made directly through [`world`](Self::world) are immediate.
@@ -143,6 +144,7 @@ pub struct Ctx {
     ///
     /// ```
     /// # use ponko::prelude::*;
+    /// #[derive(Component)]
     /// struct Health(i32);
     ///
     /// fn deaths(ctx: &mut Ctx) {
@@ -156,24 +158,24 @@ pub struct Ctx {
     pub commands: Commands,
     /// Neighbor queries over every entity's [`Transform2D`] position; filled
     /// at the start of each simulation tick once enabled with
-    /// [`Game::spatial_grid`](crate::Game::spatial_grid) (empty otherwise).
+    /// [`Game::spatial_grid`](crate::game::Game::spatial_grid) (empty otherwise).
     pub spatial: SpatialGrid,
     /// The physics world: ray casts, overlap queries, impulses, gravity.
-    /// Simulated once enabled with [`Game::physics`](crate::Game::physics)
+    /// Simulated once enabled with [`Game::physics`](crate::game::Game::physics)
     /// (feature `physics`).
     #[cfg(feature = "physics")]
     pub physics: crate::d2::Physics,
     /// The 3D physics world: ray and shape casts, overlaps, impulses,
     /// collision meshes, gravity. Simulated once enabled with
-    /// [`Game::physics3d`](crate::Game::physics3d) (feature `physics3d`).
+    /// [`Game::physics3d`](crate::game::Game::physics3d) (feature `physics3d`).
     #[cfg(feature = "physics3d")]
     pub physics3d: crate::d3::Physics,
     /// Networking: the lockstep session (`ctx.net.lockstep`, which
     /// `ctx.net.set_input(..)` and the other per-tick calls reach directly),
     /// the message endpoint (`ctx.net.messages`), snapshot streams and
     /// interest. Offline and empty unless the game was given a session with
-    /// [`Game::lockstep`](crate::Game::lockstep) or
-    /// [`Game::messages`](crate::Game::messages).
+    /// [`Game::lockstep`](crate::game::Game::lockstep) or
+    /// [`Game::messages`](crate::game::Game::messages).
     pub net: crate::net::Networking,
     /// Messages between systems: [`Events::send`] and [`Events::read`].
     /// A separate field, so you can read events while changing the world.
@@ -279,7 +281,7 @@ pub struct Ctx {
     /// ```
     pub gfx: crate::gfx::Graphics,
     /// Asset files: where they are read from, data files, saving scenes and
-    /// prefabs, and what hot reload changed. See [`Assets`](crate::Assets).
+    /// prefabs, and what hot reload changed. See [`Assets`](crate::assets::Assets).
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -289,7 +291,7 @@ pub struct Ctx {
     /// ctx.assets.load_resource::<Rules>(&mut ctx.world, "rules.json");
     /// # }
     /// ```
-    pub assets: crate::Assets,
+    pub assets: crate::assets::Assets,
     /// Sounds, playing handles, buses and the listener: see
     /// [`Audio`](crate::audio::Audio).
     ///
@@ -356,7 +358,7 @@ impl Ctx {
                 ..Default::default()
             },
             gfx,
-            assets: crate::Assets {
+            assets: crate::assets::Assets {
                 asset_sources,
                 watcher,
                 ..Default::default()
@@ -539,7 +541,7 @@ impl Ctx {
     /// A snapshot of the ECS for tools and tests: every archetype with its
     /// components, entity count and storage bytes; every component type
     /// with its size and how many entities have it; and every system in run
-    /// order with its [`Phase`](crate::Phase), interval, last timings and
+    /// order with its [`Phase`](crate::game::Phase), interval, last timings and
     /// declared access. Its `schedule` explains the order: the stages the
     /// systems run in, why each stage starts where it does, why a system
     /// runs alone, and which declared systems must stay in order (see
@@ -553,6 +555,7 @@ impl Ctx {
     ///
     /// ```
     /// use ponko::prelude::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// fn report(ctx: &mut Ctx) {
     ///     let d = ctx.ecs_diagnostics();
@@ -589,7 +592,7 @@ impl Ctx {
     /// this is for tests, logs and native code.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let report: serde_json::Value = serde_json::from_str(&ctx.capabilities_json()).unwrap();
     ///     assert_eq!(report["mode"], "headless");
@@ -632,11 +635,12 @@ impl Ctx {
     /// Random numbers for this system and tick: `ctx.random().of(entity)`
     /// for an entity's own stream (safe in `par_for_each`), or
     /// `.stream(n)` for anything else. A simulation run twice with the same
-    /// [seed](crate::Game::seed) gives the same results.
+    /// [seed](crate::game::Game::seed) gives the same results.
     ///
     /// ```
     /// use ponko::prelude::*;
     ///
+    /// #[derive(Component)]
     /// struct Pos(f32);
     ///
     /// fn jitter(ctx: &mut Ctx) {
@@ -652,8 +656,8 @@ impl Ctx {
     /// };
     /// assert_eq!(run(), run()); // same seed, same result
     /// ```
-    pub fn random(&self) -> crate::Random {
-        crate::Random::new(self.seed, self.time.sim_tick(), self.system_index)
+    pub fn random(&self) -> crate::random::Random {
+        crate::random::Random::new(self.seed, self.time.sim_tick(), self.system_index)
     }
 
     /// Whether a simulation system is running now.
@@ -713,7 +717,7 @@ impl Ctx {
 
     /// Loads the textures of sprites and meshes of models that `json` (a
     /// scene, a prefab, or components) names, so they can be spawned.
-    pub(crate) fn load_scene_assets(&mut self, json: &serde_json::Value) -> Result<(), crate::Error> {
+    pub(crate) fn load_scene_assets(&mut self, json: &serde_json::Value) -> Result<(), crate::error::Error> {
         let mut names = Vec::new();
         crate::reflect::asset_names(json, "Sprite", "texture", &mut names);
         for name in names.drain(..) {
@@ -882,7 +886,7 @@ impl Ctx {
         self.gfx.draw_text(text, pos, size, color);
     }
 
-    /// Loads an image from an [added asset source](crate::Assets::add_source)
+    /// Loads an image from an [added asset source](crate::assets::Assets::add_source)
     /// or the `assets/` folder. Do this once in setup and keep the
     /// [`Texture`]; it's a cheap handle. A shortcut for
     /// [`ctx.gfx.load_texture`](crate::gfx::Graphics::load_texture), which has
@@ -902,7 +906,7 @@ impl Ctx {
         self.gfx.load_texture(path)
     }
 
-    /// Loads a sound from an [added asset source](crate::Assets::add_source)
+    /// Loads a sound from an [added asset source](crate::assets::Assets::add_source)
     /// or the `assets/` folder. A shortcut for
     /// [`ctx.audio.load`](crate::audio::Audio::load), which has the details.
     ///
@@ -917,7 +921,7 @@ impl Ctx {
     /// ctx.play_sound(hit);
     /// # }
     /// ```
-    pub fn load_sound(&mut self, path: &str) -> crate::Sound {
+    pub fn load_sound(&mut self, path: &str) -> crate::audio::Sound {
         self.audio.load(path)
     }
 
@@ -932,7 +936,7 @@ impl Ctx {
     /// ctx.play_sound(hit);
     /// # }
     /// ```
-    pub fn play_sound(&mut self, sound: crate::Sound) -> crate::Playing {
+    pub fn play_sound(&mut self, sound: crate::audio::Sound) -> crate::audio::Playing {
         self.audio.play(sound)
     }
 
@@ -963,12 +967,12 @@ impl Ctx {
         text.push_str(&self.perf.state.hud_extra);
         let lines = text.lines().count() as f32;
         let (size, pad) = (14.0, 8.0);
-        let panel = crate::Rect::new(4.0, 4.0, 420.0, lines * size * 1.25 + pad * 2.0);
+        let panel = crate::camera::Rect::new(4.0, 4.0, 420.0, lines * size * 1.25 + pad * 2.0);
         self.gfx.ui_fill(panel, Color::rgba(0.0, 0.0, 0.0, 0.6), 100.0);
         self.gfx.draw_text_ex(
             &text,
             panel.min + pad,
-            crate::TextParams {
+            crate::text::TextParams {
                 size,
                 color: Color::WHITE,
                 z: 101.0,
@@ -983,20 +987,20 @@ impl Ctx {
 
     /// Seconds since the previous frame. Multiply speeds by this for smooth,
     /// frame-rate independent movement. A shortcut for
-    /// [`ctx.time.dt()`](crate::Time::dt).
+    /// [`ctx.time.dt()`](crate::time::Time::dt).
     ///
     /// Clamped to at most 0.25 s so a hiccup never teleports objects.
     ///
     /// Inside a simulation system (added with
-    /// [`Game::sim_system`](crate::Game::sim_system)) this is the fixed step
+    /// [`Game::sim_system`](crate::game::Game::sim_system)) this is the fixed step
     /// instead, so simulation code just uses `dt()` too. In a system added
-    /// with an interval ([`IntoSystem::every`](crate::IntoSystem::every)) it
+    /// with an interval ([`IntoSystem::every`](crate::game::IntoSystem::every)) it
     /// is that many fixed steps.
     ///
     /// The meaning follows the running system. To say which clock you mean,
-    /// use the explicit pair: [`ctx.time.frame_dt()`](crate::Time::frame_dt)
+    /// use the explicit pair: [`ctx.time.frame_dt()`](crate::time::Time::frame_dt)
     /// is always the frame's delta, and
-    /// [`ctx.time.sim_dt()`](crate::Time::sim_dt) is always the simulation's.
+    /// [`ctx.time.sim_dt()`](crate::time::Time::sim_dt) is always the simulation's.
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -1210,7 +1214,7 @@ mod tests {
         let from_folder = ctx.load_texture(&name);
         assert_eq!(ctx.assets.watcher.watched(), 1, "default-source files are watched");
         ctx.assets
-            .add_source(crate::MemorySource::new("mem").with(name.clone(), png(3)));
+            .add_source(crate::assets::MemorySource::new("mem").with(name.clone(), png(3)));
         let from_source = ctx.load_texture(&name);
         assert_ne!(from_source, from_folder, "same name, other source: another asset");
         assert_eq!(from_source.width(), 3);
@@ -1259,7 +1263,7 @@ mod tests {
         let from_folder = ctx.load_sound(&name);
         assert_eq!(ctx.assets.watcher.watched(), 1, "default-source sounds are watched");
         ctx.assets
-            .add_source(crate::MemorySource::new("mem").with(name.clone(), wav()));
+            .add_source(crate::assets::MemorySource::new("mem").with(name.clone(), wav()));
         let from_source = ctx.load_sound(&name);
         assert_ne!(from_source, from_folder, "same name, other source: another sound");
         assert_eq!(ctx.assets.watcher.watched(), 1, "source sounds are not watched");
@@ -1273,7 +1277,7 @@ mod tests {
         ctx.set_headless(true);
         ctx.assets.watcher.set_on(true);
         ctx.assets
-            .add_source(crate::MemorySource::new("mem").with("theme.wav", wav()));
+            .add_source(crate::assets::MemorySource::new("mem").with("theme.wav", wav()));
         let stream = ctx.audio.load_stream("theme.wav");
         assert_eq!(ctx.assets.watcher.watched(), 0, "streams are not watched");
         let sound = ctx.load_sound("theme.wav");
@@ -1305,7 +1309,7 @@ mod tests {
         let from_folder = ctx.gfx.load_shader(&name);
         assert_eq!(ctx.assets.watcher.watched(), 1, "default-source shaders are watched");
         ctx.assets
-            .add_source(crate::MemorySource::new("mem").with(name.clone(), wgsl));
+            .add_source(crate::assets::MemorySource::new("mem").with(name.clone(), wgsl));
         let from_source = ctx.gfx.load_shader(&name);
         assert_ne!(from_source, from_folder, "same name, other source: another shader");
         assert_eq!(ctx.assets.watcher.watched(), 1, "source shaders are not watched");

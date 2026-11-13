@@ -69,7 +69,7 @@ impl Team {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Component)]
 struct Unit {
     team: Team,
     hp: f32,
@@ -92,7 +92,7 @@ enum Hit {
     Base,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Component)]
 struct Base {
     team: Team,
     hp: f32,

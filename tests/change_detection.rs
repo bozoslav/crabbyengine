@@ -18,10 +18,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Default)]
 struct Log(Vec<String>);
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 struct Health(i32);
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 struct Shield(i32);
 
 fn log(ctx: &mut Ctx, line: String) {

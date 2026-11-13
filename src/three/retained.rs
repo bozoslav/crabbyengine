@@ -99,7 +99,7 @@ use super::{
     Assets3D, Model, ModelMaterial, ModelMaterials, ReceivesDecals, SLOT_MASK, ShadowMesh, Skeleton, SkinOf,
     Transform3D, linear,
 };
-use crate::{With, Without, World};
+use ponko_ecs::{With, Without, World};
 
 /// The views a frame draws models into: the camera (view 0), then the
 /// shadow views (view `1 + v`). A thing's pass flags have bit `view` set
@@ -508,7 +508,7 @@ const OWN_SHADOW: u32 = u32::MAX;
 const NO_SHADOW: u32 = u32::MAX - 1;
 
 type ModelItem<'a> = (
-    crate::Entity,
+    ponko_ecs::Entity,
     &'a Transform3D,
     &'a Model,
     Option<&'a ShadowMesh>,
@@ -648,7 +648,7 @@ fn instance_of(kept: [f32; KEPT]) -> Instance3D {
     model[0][3] = receives;
     Instance3D {
         model,
-        color: linear(crate::Color { r, g, b, a }),
+        color: linear(crate::color::Color { r, g, b, a }),
     }
 }
 
@@ -794,7 +794,7 @@ const SAMPLE_MIN: usize = 16;
 /// [`SAMPLE`], picked by a hash of its index (games spawn entities in
 /// patterns, which a plain "every sixteenth" could miss altogether).
 #[inline]
-fn sampled(entity: crate::Entity) -> bool {
+fn sampled(entity: ponko_ecs::Entity) -> bool {
     entity.index().wrapping_mul(0x9E37_79B1) >> 16 & (SAMPLE - 1) == 0
 }
 
@@ -868,7 +868,7 @@ pub(crate) struct Tracked {
     live: usize,
     /// On several cores: the objects a frame added, with their entities,
     /// when they are few.
-    fresh: Vec<(u32, crate::Entity)>,
+    fresh: Vec<(u32, ponko_ecs::Entity)>,
     /// On several cores: per model, in query order, [`UNCHANGED`], [`NEW`],
     /// or the object whose lists need bringing up to date.
     results: Vec<u32>,
@@ -896,7 +896,7 @@ pub(crate) struct Tracked {
     renew: bool,
     /// On several cores: the models a frame found that aren't tracked, if
     /// they are no more than [`MANY_NEW`], and how many it found.
-    news: Mutex<Vec<crate::Entity>>,
+    news: Mutex<Vec<ponko_ecs::Entity>>,
     new_count: AtomicUsize,
     /// On several cores, in a rush: how many models were compared.
     sampled: AtomicUsize,
@@ -937,7 +937,7 @@ struct Pass<'a> {
     how: How<'a>,
     /// See `Tracked::rush`.
     rush: bool,
-    news: &'a Mutex<Vec<crate::Entity>>,
+    news: &'a Mutex<Vec<ponko_ecs::Entity>>,
     new_count: &'a AtomicUsize,
     sampled: &'a AtomicUsize,
     lists: &'a Lists,
@@ -1272,7 +1272,7 @@ impl Tracked {
     #[allow(clippy::too_many_arguments)]
     fn rush_sampled(
         &mut self,
-        entity: crate::Entity,
+        entity: ponko_ecs::Entity,
         source: Source<'_>,
         frame: &Serial<'_>,
         tally: &mut Tally,
@@ -1296,7 +1296,7 @@ impl Tracked {
     #[allow(clippy::too_many_arguments)]
     fn rush_drawn(
         &mut self,
-        entity: crate::Entity,
+        entity: ponko_ecs::Entity,
         source: Source<'_>,
         (flags, mesh, caster): (u32, u32, u32),
         frame: &Serial<'_>,
@@ -1314,7 +1314,7 @@ impl Tracked {
 
     /// The object of `entity`, if it is tracked.
     #[inline]
-    fn find(&self, entity: crate::Entity) -> Option<usize> {
+    fn find(&self, entity: ponko_ecs::Entity) -> Option<usize> {
         let bits = entity.to_bits();
         match self.slot_of.get(entity.index() as usize) {
             Some(&slot) if slot >> 32 == bits >> 32 && (slot as u32 as usize) < self.hot.len() => {
@@ -1424,7 +1424,7 @@ impl Tracked {
     fn admit_all(&mut self, world: &mut World, lists: &mut Lists) -> usize {
         let before = self.entities.len() - self.free.len();
         world
-            .query::<crate::Entity>()
+            .query::<ponko_ecs::Entity>()
             .filter::<With<Transform3D>>()
             .filter::<With<Model>>()
             .filter::<Without<SkinOf>>()
@@ -1532,7 +1532,7 @@ impl Tracked {
                 // They are found again in order, by entity alone.
                 let mut at = 0;
                 world
-                    .query::<crate::Entity>()
+                    .query::<ponko_ecs::Entity>()
                     .filter::<With<Transform3D>>()
                     .filter::<With<Model>>()
                     .filter::<Without<SkinOf>>()
@@ -1651,7 +1651,7 @@ impl Tracked {
 
     /// A new object for `entity`, with a digest that isn't its source's.
     /// [`grow`](Self::grow) follows, before the object is used.
-    fn add(&mut self, entity: crate::Entity) -> usize {
+    fn add(&mut self, entity: ponko_ecs::Entity) -> usize {
         let bits = entity.to_bits();
         let k = match self.free.pop() {
             Some(k) => {
@@ -1702,7 +1702,7 @@ impl Tracked {
     /// One new object for `entity`, ready to use (one core adds the models
     /// it finds as it goes).
     #[cold]
-    fn admit(&mut self, entity: crate::Entity, lists: &mut Lists) -> usize {
+    fn admit(&mut self, entity: ponko_ecs::Entity, lists: &mut Lists) -> usize {
         self.reserve(1, lists, false);
         let k = self.add(entity);
         self.grow(lists, false);
@@ -1742,7 +1742,7 @@ impl Tracked {
         seen.clear();
         seen.resize(self.entities.len(), false);
         world
-            .query::<crate::Entity>()
+            .query::<ponko_ecs::Entity>()
             .filter::<With<Transform3D>>()
             .filter::<With<Model>>()
             .filter::<Without<SkinOf>>()
@@ -1813,8 +1813,8 @@ impl Tracked {
             + (self.free.capacity() + self.results.capacity()) * size_of::<u32>()
             + self.facts.capacity() * size_of::<Fact>()
             + self.stale.capacity()
-            + self.fresh.capacity() * size_of::<(u32, crate::Entity)>()
-            + self.news.lock().map_or(0, |news| news.capacity()) * size_of::<crate::Entity>()
+            + self.fresh.capacity() * size_of::<(u32, ponko_ecs::Entity)>()
+            + self.news.lock().map_or(0, |news| news.capacity()) * size_of::<ponko_ecs::Entity>()
             + self.overrides.1.capacity() * size_of::<super::collect::MaterialOverride>()
             + self.overrides.2.capacity() * size_of::<(u32, u32)>()
             + self.view.capacity() * size_of::<f32>()

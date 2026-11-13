@@ -88,11 +88,12 @@ benchmark results do not establish a general engine ranking.
 
 ## Status and compatibility
 
-Formerly Ponko, Ponko currently has package version 0.0.1. Source folders
-retain `ponko_*` names. The guide follows `main`; installed releases may differ.
+Formerly Crabby Engine; [Naming and compatibility](naming.md) maps the old
+names to the new ones. This guide follows `main`; an installed release may
+differ. Ponko is at 0.x:
 [STABILITY.md](https://github.com/ponkoengine/ponko/blob/main/STABILITY.md)
-remains authoritative for published API/ABI, MSRV, saved-world, MCP and
-determinism commitments. The rename does not weaken those promises.
+says what a release may change and what it keeps (API and ABI, MSRV, saved
+worlds, MCP and determinism).
 
 Help improve the engine through
 [Contributing](https://github.com/ponkoengine/ponko/blob/main/CONTRIBUTING.md).

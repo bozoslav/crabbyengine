@@ -87,6 +87,7 @@ impl Tick {
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Health(i32);
 /// let mut world = World::new();
 /// world.track_changes::<Health>();
@@ -116,7 +117,9 @@ pub struct Added<T>(PhantomData<fn() -> T>);
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Pos(f32);
+/// #[derive(Component)]
 /// struct Vel(f32);
 /// let mut world = World::new();
 /// world.track_changes::<Pos>();
@@ -487,6 +490,14 @@ pub(crate) fn count(arch: &Archetype, filters: &Filters, clock: Clock) -> usize 
     }
 }
 
+/// [`count`], but it stops looking once it has found `max` rows.
+pub(crate) fn count_at_most(arch: &Archetype, filters: &Filters, clock: Clock, max: usize) -> usize {
+    match filters.row_filter(arch, clock) {
+        Some(rows) => (0..arch.len()).filter(|&row| rows.passes(row)).take(max).count(),
+        None => arch.len().min(max),
+    }
+}
+
 /// Stamps every row of the tracked columns `ids` of `arch` as changed. The
 /// caller must hold the world mutably.
 pub(crate) fn mark_columns(arch: &Archetype, ids: &[ComponentId], stamp: u32) {
@@ -506,11 +517,14 @@ pub(crate) fn mark_columns(arch: &Archetype, ids: &[ComponentId], stamp: u32) {
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
+/// struct Health(i32);
+///
 /// let mut world = World::new();
-/// let health = world.track_changes::<i32>();
-/// world.spawn((10i32,));
+/// let health = world.track_changes::<Health>();
+/// world.spawn((Health(10),));
 /// let seen = world.advance_change_tick();
-/// let hurt = world.spawn((3i32,));
+/// let hurt = world.spawn((Health(3),));
 ///
 /// // Read-only, and only the rows whose value was added after `seen`.
 /// let ids = [health];
@@ -588,9 +602,11 @@ impl<'a> ChunkQuery<'a> {
     }
 
     /// The reader's tick, instead of the world's
-    /// [`changes_since`](World::changes_since).
-    pub fn since(mut self, tick: Tick) -> Self {
-        self.since = Some(tick);
+    /// [`changes_since`](World::changes_since). `None` keeps the world's,
+    /// so a caller that may or may not have its own tick passes an
+    /// `Option<Tick>` as it is.
+    pub fn since(mut self, tick: impl Into<Option<Tick>>) -> Self {
+        self.since = tick.into();
         self
     }
 
@@ -598,9 +614,10 @@ impl<'a> ChunkQuery<'a> {
     /// [`DynFilter`](crate::DynFilter) compiled once (the runtime form of
     /// [`With`](crate::With), [`Without`](crate::Without) and
     /// [`Or`](crate::Or)). The entities are the ones the typed query with
-    /// the same filters visits.
-    pub fn filter(mut self, filter: &'a crate::CompiledFilter) -> Self {
-        self.filter = Some(filter);
+    /// the same filters visits. `None` filters nothing, so an optional
+    /// filter is passed as it is.
+    pub fn filter(mut self, filter: impl Into<Option<&'a crate::CompiledFilter>>) -> Self {
+        self.filter = filter.into();
         self
     }
 
@@ -665,6 +682,7 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Health(i32);
     /// let mut world = World::new();
     /// world.track_changes::<Health>();
@@ -731,6 +749,7 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.track_changes::<Pos>();
@@ -814,6 +833,7 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Sprite(u32);
     /// let mut world = World::new();
     /// world.track_changes::<Sprite>();
@@ -846,7 +866,7 @@ impl World {
         }
     }
 
-    /// Implementation of [`RawWorld::removed_dynamic`](crate::RawWorld::removed_dynamic).
+    /// Implementation of [`RawWorldRef::removed_dynamic`](crate::RawWorldRef::removed_dynamic).
     #[track_caller]
     #[must_use]
     pub(crate) fn removed_dynamic_inner(&self, id: ComponentId, since: Tick) -> &[Entity] {
@@ -965,6 +985,7 @@ impl World {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Sprite(u32);
     /// let mut world = World::new();
     /// world.track_changes::<Sprite>();
@@ -994,7 +1015,9 @@ fn untracked(name: &str) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Component;
 
+    #[derive(Component)]
     struct Pos(u32);
 
     impl World {

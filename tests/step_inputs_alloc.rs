@@ -17,7 +17,7 @@ use ponko::d3::{NavAgent as NavAgent3D, NavMesh as NavMesh3D};
 use ponko::nav::{NavBakeSettings, NavSource};
 use ponko::prelude::*;
 use ponko::render::MeshData;
-use ponko::{Systems, systems};
+use ponko::{prelude::Systems, systems};
 
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;

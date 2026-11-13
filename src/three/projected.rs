@@ -6,8 +6,10 @@
 
 use super::lights::{GRID, LIST_WIDTH};
 use super::{Camera3D, Transform3D, linear};
-use crate::{Color, World};
+use crate::color::Color;
 use glam::{Mat4, Vec2, Vec3};
+use ponko_ecs::Component;
+use ponko_ecs::World;
 
 /// The most decals drawn in a frame. When more are in view, the ones
 /// nearest the camera are kept.
@@ -52,7 +54,7 @@ pub const MAX_DECALS_PER_CLUSTER: usize = 64;
 /// world.spawn((ponko::d3::Transform::at(vec3(0.0, 0.5, 0.0)).rotated(down), mark));
 /// ```
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 pub struct Decal3D {
     /// Width (x), height (y) and depth (z) of the box, in world units.
@@ -143,7 +145,7 @@ impl Default for Decal3D {
 /// # let _ = (hero, wall);
 /// ```
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Component)]
 pub struct ReceivesDecals(pub u32);
 
 impl ReceivesDecals {

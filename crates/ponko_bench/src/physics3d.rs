@@ -8,7 +8,7 @@ use ponko::d3::RigidBody as RigidBody3D;
 use ponko::d3::Transform as Transform3D;
 use ponko::d3::Vehicle as Vehicle3D;
 use ponko::d3::Wheel as Wheel3D;
-use ponko::{Game, Vec3, vec3};
+use ponko::prelude::{Game, Vec3, vec3};
 use rapier3d::prelude as rp;
 
 use crate::Bench;
@@ -119,7 +119,7 @@ pub fn run(b: &mut Bench) {
             || (),
             |_| {
                 let world = Game::new("bench", 1, 1)
-                    .sim_system(|ctx: &mut ponko::Ctx| {
+                    .sim_system(|ctx: &mut ponko::prelude::Ctx| {
                         let t = ctx.time.sim_tick() as f32 * 0.02;
                         ctx.world.query::<&mut Character3D>().for_each(|c| {
                             let a = t + c.radius * 100.0;
@@ -164,7 +164,7 @@ pub fn run(b: &mut Bench) {
             || (),
             |_| {
                 let world = Game::new("bench", 1, 1)
-                    .sim_system(|ctx: &mut ponko::Ctx| {
+                    .sim_system(|ctx: &mut ponko::prelude::Ctx| {
                         ctx.world.query::<&mut Vehicle3D>().for_each(|v| {
                             for (i, w) in v.wheels_mut().iter_mut().enumerate() {
                                 if i < 2 {

@@ -3,7 +3,8 @@
 use rapier3d::prelude as rp;
 
 use super::{CollisionGroups, Physics3D, from_rp, pose_to_rp, to_rp};
-use crate::{Entity, Quat, Vec3};
+use glam::{Quat, Vec3};
+use ponko_ecs::Entity;
 
 /// What a ray or a shape cast hit.
 #[derive(Clone, Copy, Debug, PartialEq)]

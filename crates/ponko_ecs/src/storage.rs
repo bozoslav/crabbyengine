@@ -357,8 +357,9 @@ impl Archetype {
     /// entity costs, with no slack.
     ///
     /// ```
-    /// use ponko_ecs::World;
+    /// use ponko_ecs::{Component, World};
     ///
+    /// #[derive(Component)]
     /// struct Pos(f32, f32);
     /// let mut world = World::new();
     /// world.spawn((Pos(0.0, 0.0),));
@@ -377,8 +378,9 @@ impl Archetype {
     /// capacity, which is why it can exceed `len * bytes_per_entity`).
     ///
     /// ```
-    /// use ponko_ecs::World;
+    /// use ponko_ecs::{Component, World};
     ///
+    /// #[derive(Component)]
     /// struct Pos(f32, f32);
     /// let mut world = World::new();
     /// world.spawn_batch((0..100).map(|i| (Pos(i as f32, 0.0),)));
@@ -440,16 +442,19 @@ impl Archetype {
     /// hold the world exclusively and hand out `*mut` pointers.
     ///
     /// ```
-    /// use ponko_ecs::World;
+    /// use ponko_ecs::{Component, World};
+    ///
+    /// #[derive(Component)]
+    /// struct Score(u32);
     ///
     /// let mut world = World::new();
-    /// world.spawn((7u32,));
-    /// let id = world.component_id::<u32>().unwrap();
+    /// world.spawn((Score(7),));
+    /// let id = world.component_id::<Score>().unwrap();
     /// let table = world.raw_ref().archetypes().iter().find(|a| a.has(id)).unwrap();
-    /// let column = table.column_ptr(id).unwrap().cast::<u32>();
-    /// // SAFETY: the column holds `table.len()` (one) `u32`, and nothing
+    /// let column = table.column_ptr(id).unwrap().cast::<Score>();
+    /// // SAFETY: the column holds `table.len()` (one) `Score`, and nothing
     /// // changes the world while it is read.
-    /// assert_eq!(unsafe { *column }, 7);
+    /// assert_eq!(unsafe { (*column).0 }, 7);
     /// ```
     #[inline]
     #[must_use]

@@ -45,6 +45,7 @@ pub use crate::events::Events;
 pub use crate::game::{ConfiguredGame, Game, IntoSystem, Phase, Plugin, SetupResult, SystemId, Systems};
 pub use crate::handle::Handle;
 pub use crate::input::{Key, MouseButton};
+pub use crate::profile_scope;
 pub use crate::random::{Random, Rng};
 pub use crate::reflect::WorldReflect;
 pub use crate::scene::Placement;
@@ -53,11 +54,11 @@ pub use crate::text::{Font, TextParams};
 pub use crate::texture::{DrawParams, Texture, TextureFilter};
 pub use crate::time::{Time, Turns};
 pub use crate::{d2, systems};
-pub use crate::{json, profile_scope};
 #[cfg(feature = "3d")]
 pub use glam::{Mat4, Vec4, vec4};
 pub use glam::{Quat, UVec2, Vec2, Vec3, uvec2, vec2, vec3};
 pub use ponko_ecs::{Added, Changed, Commands, Component, Entity, Or, Query, Tick, With, Without, World};
+pub use serde_json::json;
 // Common dimension types retain descriptive spellings in mixed-dimensional code.
 pub use crate::actions;
 pub use crate::d2::{Camera as Camera2D, Sprite, Transform as Transform2D};

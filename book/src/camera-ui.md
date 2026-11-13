@@ -18,7 +18,7 @@ until you move it, world units are window pixels.
 
 ## The camera
 
-`ctx.camera` is a [`d2::Camera`](api/ponko/d2/struct.Camera.html) (C++:
+`ctx.camera` is a [`d2::Camera`](https://docs.rs/ponko/latest/ponko/d2/struct.Camera.html) (C++:
 `ctx.camera()` / `ctx.set_camera(c)` with the same two fields):
 `position` (the world point at the window's top-left) and `zoom` (window
 pixels per world unit). Its methods do the usual jobs:

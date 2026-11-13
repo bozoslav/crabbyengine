@@ -2,7 +2,7 @@
   "description": "Reviewed legacy references; see book/src/naming.md. Decreases are allowed; increases require review.",
   "files": {
     "CHANGELOG.md": {
-      "occurrences": 92,
+      "occurrences": 105,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
@@ -14,22 +14,28 @@
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "README.md": {
-      "occurrences": 6,
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "STABILITY.md": {
-      "occurrences": 6,
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Migration instructions and deprecation schedule for legacy names."
     },
-    "bench/unity/README.md": {
+    "book/src/introduction.md": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "deprecated compatibility",
+      "reason": "Migration instructions and deprecation schedule for legacy names."
+    },
+    "book/src/migrating-to-0.1.md": {
       "occurrences": 6,
       "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Preserved project instructions, README text, release history or legal attribution."
+      "category": "deprecated compatibility",
+      "reason": "Migration instructions and deprecation schedule for legacy names."
     },
     "book/src/naming.md": {
       "occurrences": 18,
@@ -37,20 +43,14 @@
       "category": "deprecated compatibility",
       "reason": "Migration instructions and deprecation schedule for legacy names."
     },
-    "changelog.d/api-ffi-legacy.md": {
-      "occurrences": 14,
+    "crates/ponko_ecs/NOTICE": {
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
-    "changelog.d/api-security.md": {
-      "occurrences": 6,
-      "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Preserved project instructions, README text, release history or legal attribution."
-    },
-    "changelog.d/api-shims.md": {
-      "occurrences": 13,
+    "crates/ponko_ffi/NOTICE": {
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
@@ -67,6 +67,18 @@
       "category": "intentional history",
       "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
     },
+    "crates/ponko_macros/NOTICE": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
+    },
+    "crates/ponko_mcp/NOTICE": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
+    },
     "crates/ponko_mcp/src/lib.rs": {
       "occurrences": 1,
       "path_occurrences": 0,
@@ -78,6 +90,12 @@
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
+    },
+    "crates/ponko_unity/NOTICE": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "scripts/check-naming.py": {
       "occurrences": 1,

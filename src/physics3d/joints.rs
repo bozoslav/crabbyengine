@@ -1,5 +1,6 @@
 //! Entity-owned impulse joints. Local X is the hinge, slider and twist axis.
 use super::*;
+use ponko_ecs::Component;
 
 /// The six axes in the joint's local frames, translations followed by rotations.
 /// ```
@@ -101,7 +102,7 @@ impl JointDrive3D {
 /// let joint = ponko::d3::Joint::spherical(a, b).motion(ponko::d3::JointAxis::AngularX, ponko::d3::JointMotion::Limited(-0.785, 0.785)).swing_cone(0.524);
 /// world.spawn((joint,));
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Component)]
 pub struct Joint3D {
     /// First body entity.
     pub body_a: Entity,

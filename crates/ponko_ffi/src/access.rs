@@ -5,7 +5,7 @@ use crate::perf::write_text;
 use crate::{Failure, PonkoStatus, boundary, invalid, invalid_owned};
 use ponko::access::Service;
 use ponko::access::SystemAccess;
-use ponko::{IntoSystem, Phase};
+use ponko::prelude::{IntoSystem, Phase};
 use std::ffi::{CStr, c_char, c_void};
 
 /// An owned access declaration: what a system reads and writes. Build it

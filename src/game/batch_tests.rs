@@ -7,8 +7,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use super::*;
 use crate::access::SystemAccess;
 use crate::system_view::SystemView;
+use ponko_ecs::Component;
 
+#[derive(Component)]
 struct A(u32);
+#[derive(Component)]
 struct B(u32);
 struct Total(u32);
 #[derive(Clone, Copy)]
@@ -202,6 +205,7 @@ fn a_batch_keeps_its_usual_run_time_for_the_thread_decision() {
     assert!(t[0].last_ms >= slow_ms && t[1].last_ms < slow_ms / 2.0, "{t:?}");
 }
 
+#[derive(Component)]
 struct Marker;
 struct Runs(u32);
 struct OwnChanges(u32);
@@ -216,7 +220,7 @@ fn a_panic_in_a_batch_drops_what_the_batch_recorded_on_threads_and_in_order() {
             .add(
                 Phase::Frame,
                 (|sys: &mut SystemView| {
-                    let own = sys.world.query::<&A>().filter::<crate::Changed<A>>().count() as u32;
+                    let own = sys.world.query::<&A>().filter::<ponko_ecs::Changed<A>>().count() as u32;
                     sys.world.resource_mut::<OwnChanges>().0 = own;
                     sys.events.send(Tick(1));
                     sys.world.query::<&mut A>().for_each(|a| a.0 += 1);

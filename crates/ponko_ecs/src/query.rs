@@ -732,9 +732,13 @@ impl<Q: QueryData> ParWork<'_, Q> {
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Health(i32);
+/// #[derive(Component)]
 /// struct Player;
+/// #[derive(Component)]
 /// struct Enemy;
+/// #[derive(Component)]
 /// struct Dead;
 ///
 /// /// Living characters: players or enemies, not dead.
@@ -797,8 +801,11 @@ pub struct Without<T>(PhantomData<fn() -> T>);
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct A;
+/// #[derive(Component)]
 /// struct B;
+/// #[derive(Component)]
 /// struct C;
 /// let mut world = World::new();
 /// world.spawn((A, B, C));
@@ -894,8 +901,11 @@ filter_tuple!(A, B, C, D, E, F, G, H);
 ///
 /// ```
 /// # use ponko_ecs::*;
+/// #[derive(Component)]
 /// struct Pos(f32);
+/// #[derive(Component)]
 /// struct Vel(f32);
+/// #[derive(Component)]
 /// struct Frozen;
 ///
 /// let mut world = World::new();
@@ -1000,7 +1010,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Health(i32);
+    /// #[derive(Component)]
     /// struct Boss;
     /// let mut world = World::new();
     /// world.spawn((Health(100), Boss));
@@ -1019,6 +1031,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Health(i32);
     /// let mut world = World::new();
     /// world.spawn((Health(100),));
@@ -1038,8 +1051,11 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Player;
+    /// #[derive(Component)]
     /// struct Frozen;
     /// let mut world = World::new();
     /// world.spawn((Pos(0.0), Player));
@@ -1052,8 +1068,11 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Player;
+    /// #[derive(Component)]
     /// struct Enemy;
     /// let mut world = World::new();
     /// world.spawn((Pos(0.0), Player));
@@ -1084,6 +1103,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.track_changes::<Pos>();
@@ -1194,7 +1214,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Vel(f32);
     /// let mut world = World::new();
     /// world.spawn_batch((0..100_000).map(|i| (Pos(i as f32), Vel(1.0))));
@@ -1218,6 +1240,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     /// # use ponko_ecs::*;
     /// use std::sync::atomic::{AtomicU32, Ordering};
     ///
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.spawn_batch((0..10_000).map(|i| (Pos(i as f32),)));
@@ -1341,6 +1364,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// let mut world = World::new();
     /// world.spawn_batch((0..10_000).map(|i| (Pos(i as f32),)));
@@ -1549,7 +1573,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
+    /// #[derive(Component)]
     /// struct Player;
     /// let mut world = World::new();
     /// assert_eq!(world.query::<&Pos>().single().err(), Some(SingleError::NoEntities));
@@ -1558,7 +1584,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// let pos = world.query::<&mut Pos>().filter::<With<Player>>().single().unwrap();
     /// pos.0 += 10.0;
-    /// assert_eq!(world.query::<&Pos>().single().err(), Some(SingleError::MultipleEntities(2)));
+    /// assert_eq!(world.query::<&Pos>().single().err(), Some(SingleError::MultipleEntities));
     /// ```
     ///
     /// Nothing counts as changed when it returns `Err`. With `Ok`, a
@@ -1570,25 +1596,24 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     where
         Q: 'w,
     {
-        match self.count() {
-            0 => return Err(SingleError::NoEntities),
-            1 => {}
-            n => return Err(SingleError::MultipleEntities(n)),
-        }
+        let ids = self.ids;
+        let filters = self.filters;
         let clock = self.clock();
         let tracking = self.tracking();
+        // One pass over the archetypes the query matches (through the
+        // world's index where it applies), stopping at a second match.
+        let index = single_archetype::<Q>(self.archetypes(), &ids, &filters, tracking, clock)?;
         // The query is over: what it borrowed of the world goes to the
-        // item. Counting used the world's archetype index where it applies;
-        // this scan stops at the one match.
+        // item, read from the one archetype that holds it.
         let world: &'w World = self.world;
         let mut matches = QueryIter::<'w, Q> {
             archetypes: Archetypes {
                 all: &world.archetypes,
                 indices: None,
-                next: 0,
+                next: index,
             },
-            ids: self.ids,
-            filters: self.filters,
+            ids,
+            filters,
             state: None,
             row: 0,
             len: 0,
@@ -1601,6 +1626,35 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     }
 }
 
+/// The world's index of the archetype that holds the query's only match,
+/// for [`Query::single`] and [`ViewQuery::single`](crate::ViewQuery::single).
+/// It stops at a second match.
+pub(crate) fn single_archetype<Q: QueryData>(
+    mut archetypes: Archetypes<'_>,
+    ids: &Q::Ids,
+    filters: &Filters,
+    tracking: bool,
+    clock: Clock,
+) -> Result<usize, SingleError> {
+    let mut found = None;
+    while let Some((index, arch)) = archetypes.next_indexed() {
+        if arch.is_empty() || !filters.matches(arch) || Q::state(arch, ids).is_none() {
+            continue;
+        }
+        let matches = if tracking && arch.tracked() {
+            change::count_at_most(arch, filters, clock, 2)
+        } else {
+            arch.len().min(2)
+        };
+        match (matches, found) {
+            (0, _) => {}
+            (1, None) => found = Some(index),
+            _ => return Err(SingleError::MultipleEntities),
+        }
+    }
+    found.ok_or(SingleError::NoEntities)
+}
+
 /// Why [`Query::single`] has no item: the query didn't match exactly one
 /// entity.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1608,15 +1662,16 @@ impl<'w, Q: QueryData> Query<'w, Q> {
 pub enum SingleError {
     /// No entity matches the query.
     NoEntities,
-    /// More than one entity matches the query: this many.
-    MultipleEntities(usize),
+    /// More than one entity matches the query. The query stops looking at
+    /// the second match, so how many match is not known.
+    MultipleEntities,
 }
 
 impl std::fmt::Display for SingleError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SingleError::NoEntities => f.write_str("no entity matches the query"),
-            SingleError::MultipleEntities(n) => write!(f, "{n} entities match the query, not one"),
+            SingleError::MultipleEntities => f.write_str("more than one entity matches the query"),
         }
     }
 }
@@ -1688,8 +1743,9 @@ impl<'a, Q: QueryData> Iterator for QueryIter<'a, Q> {
 #[cfg(all(test, feature = "parallel"))]
 mod par_plan_tests {
     use super::*;
-    use crate::Changed;
+    use crate::{Changed, Component};
 
+    #[derive(Component)]
     struct Value(u32);
 
     /// A tracked world where every other row changed since the returned

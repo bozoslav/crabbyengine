@@ -19,7 +19,11 @@ use ponko::system_view::SystemView;
 #[derive(Default)]
 struct Log(Vec<String>);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Component)]
+struct Small(u8);
+#[derive(Component)]
+struct Wide(u16);
+#[derive(Clone, Copy, Debug, PartialEq, Component)]
 struct Marker(u32);
 
 fn log(ctx: &mut Ctx, line: String) {
@@ -119,13 +123,13 @@ fn commands_apply_in_recorded_order() {
             let kept = ctx.world.spawn((Marker(1),));
             let gone = ctx.world.spawn((Marker(2),));
             // insert, then remove: removed. remove, then insert: present.
-            ctx.commands.insert(kept, 10u8);
-            ctx.commands.remove::<u8>(kept);
-            ctx.commands.remove::<u16>(kept);
-            ctx.commands.insert(kept, 20u16);
+            ctx.commands.insert(kept, Small(10));
+            ctx.commands.remove::<Small>(kept);
+            ctx.commands.remove::<Wide>(kept);
+            ctx.commands.insert(kept, Wide(20));
             // despawn, then insert: the insert finds a dead entity and does nothing.
             ctx.commands.despawn(gone);
-            ctx.commands.insert(gone, 30u8);
+            ctx.commands.insert(gone, Small(30));
             // Spawns get ids in recorded order.
             ctx.commands.spawn((Marker(3),));
             ctx.commands.spawn((Marker(4),));
@@ -135,9 +139,10 @@ fn commands_apply_in_recorded_order() {
             });
         })
         .run_headless(1, setup);
-    let mut rows: Vec<(u32, Option<u8>, Option<u16>)> = (world.query::<(&Marker, Option<&u8>, Option<&u16>)>().iter())
-        .map(|(m, a, b)| (m.0, a.copied(), b.copied()))
-        .collect();
+    let mut rows: Vec<(u32, Option<u8>, Option<u16>)> =
+        (world.query::<(&Marker, Option<&Small>, Option<&Wide>)>().iter())
+            .map(|(m, a, b)| (m.0, a.map(|a| a.0), b.map(|b| b.0)))
+            .collect();
     rows.sort_by_key(|r| r.0);
     assert_eq!(rows, [(1, None, Some(20)), (3, None, None), (4, None, None)]);
     let mut seen = world.resource::<Vec<u32>>().clone();

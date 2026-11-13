@@ -32,7 +32,10 @@ use ponko::ui::unstable_taffy::{
     Position, Rect as Edges, RepetitionCount, Size, Style, TrackSizingFunction,
     style_helpers::{TaffyGridLine, TaffyGridSpan},
 };
-use ponko::{Color, Entity, d3::UiPanel as UiPanel3D};
+use ponko::{
+    d3::UiPanel as UiPanel3D,
+    prelude::{Color, Entity},
+};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::media::{font_from_c, font_to_c};
@@ -1219,7 +1222,7 @@ pub(crate) fn existing(ui: &Ui, id: u64) -> Result<UiId, Failure> {
 
 /// Fails for a font the engine doesn't know (or that was freed), which
 /// would otherwise be laid out in the built-in font without a word.
-fn check_font(c: &mut ponko::Ctx, font: ponko::Font) -> Result<(), Failure> {
+fn check_font(c: &mut ponko::prelude::Ctx, font: ponko::prelude::Font) -> Result<(), Failure> {
     if c.gfx.is_live(font) {
         Ok(())
     } else {
@@ -1233,7 +1236,7 @@ pub(crate) fn id_to_c(id: Option<UiId>) -> u64 {
 
 /// The UI a `target` names: the screen's, or the one of the world-space panel
 /// on an entity.
-pub(crate) fn ui_of(c: &mut ponko::Ctx, target: u64) -> Result<&mut Ui, Failure> {
+pub(crate) fn ui_of(c: &mut ponko::prelude::Ctx, target: u64) -> Result<&mut Ui, Failure> {
     if target == PONKO_UI_SCREEN {
         return Ok(&mut c.ui);
     }

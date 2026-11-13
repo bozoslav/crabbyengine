@@ -55,7 +55,7 @@ fn a_game_glob_of_common_names_does_not_collide_with_the_prelude() {
     let _: Vec2 = vec2(0.0, 0.0);
 }
 
-/// The root holds only the modules and the prelude's items, so its glob
+/// The root holds only the modules, so its glob
 /// combines with a dimension glob: `Collider`, `RigidBody`, `Physics` and
 /// the rest are the module's, not an ambiguity with old root spellings.
 #[cfg(all(feature = "physics", feature = "physics3d"))]

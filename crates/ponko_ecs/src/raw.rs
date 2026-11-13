@@ -6,49 +6,40 @@
 //! through [`World::raw`] and [`World::raw_ref`], and nowhere else: `World`
 //! itself has no method that takes a component id and a pointer.
 //!
-//! Pointers follow the borrow they came from. What the shared view
-//! ([`RawWorldRef`]) and `&self` methods hand out is `*const`: for reading.
-//! Pointers for writing come from `&mut self` methods
-//! ([`RawWorld::get_dynamic_mut`], [`RawWorld::get_resource_dynamic_mut`],
-//! the chunk loops).
+//! The split follows the borrow. Everything that only reads (pointers for
+//! reading, resource layouts, names, removal logs, archetype tables) is on
+//! the shared view, [`World::raw_ref`] ([`RawWorldRef`]), and hands out
+//! `*const`. Everything that changes the world or hands out pointers for
+//! writing is on the exclusive one, [`World::raw`] ([`RawWorld`]). Neither
+//! derefs to `World`: the typed API is called on the world itself.
 use crate::{Archetype, Chunk, ChunkQuery, ComponentId, DropFn, Entity, Tick, World};
 use std::alloc::Layout;
-use std::ops::{Deref, DerefMut};
 
-/// Exclusive view of a world's dynamic component, resource, chunk and archetype APIs.
+/// Exclusive view of a world's dynamic API: registering, inserting,
+/// removing and writing components and resources by id or name, the chunk
+/// loops and change tracking. The calls that only read are on
+/// [`RawWorldRef`] ([`World::raw_ref`]).
 ///
 /// This borrows the same world; it does not copy storage or change the safety
 /// requirements of dynamic methods. In particular, raw pointers remain subject
 /// to the documented layout, lifetime and structural-mutation requirements.
 pub struct RawWorld<'a>(&'a mut World);
-impl Deref for RawWorld<'_> {
-    type Target = World;
-    fn deref(&self) -> &World {
-        self.0
-    }
-}
-impl DerefMut for RawWorld<'_> {
-    fn deref_mut(&mut self) -> &mut World {
-        self.0
-    }
-}
 
-/// Shared dynamic view, for inspecting component metadata and raw pointers.
+/// Shared view of a world's dynamic API: pointers for reading, resource
+/// layouts, component names, removal logs and the archetype tables. What
+/// it returns borrows the world, not the view. The calls that change the
+/// world are on [`RawWorld`] ([`World::raw`]).
 #[derive(Clone, Copy)]
 pub struct RawWorldRef<'a>(&'a World);
-impl Deref for RawWorldRef<'_> {
-    type Target = World;
-    fn deref(&self) -> &World {
-        self.0
-    }
-}
 impl World {
-    /// Borrows the dynamic/native interface without changing component identity.
+    /// The dynamic API's calls that change the world or write through
+    /// pointers. The read-only ones are on [`raw_ref`](Self::raw_ref).
     #[inline]
     pub fn raw(&mut self) -> RawWorld<'_> {
         RawWorld(self)
     }
-    /// Borrows read-only dynamic metadata and pointer access.
+    /// The dynamic API's read-only calls. The ones that change the world
+    /// are on [`raw`](Self::raw).
     #[inline]
     pub fn raw_ref(&self) -> RawWorldRef<'_> {
         RawWorldRef(self)
@@ -90,14 +81,6 @@ impl<'a> RawWorld<'a> {
         unsafe { self.0.register_component_inner(name, size, align, drop) }
     }
 
-    /// Pointer to component `id` of entity `e`, for reading, or `None`.
-    /// To write the value, use [`get_dynamic_mut`](Self::get_dynamic_mut).
-    #[must_use]
-    #[inline]
-    pub fn get_dynamic(&self, e: Entity, id: ComponentId) -> Option<*const u8> {
-        self.0.get_dynamic_inner(e, id, false).map(<*mut u8>::cast_const)
-    }
-
     /// Pointer to component `id` of entity `e`, for reading and writing, or
     /// `None`. It stays valid until the world changes structurally (a spawn,
     /// despawn, insert or remove may move the value).
@@ -107,16 +90,19 @@ impl<'a> RawWorld<'a> {
     /// afterwards if the component is tracked.
     ///
     /// ```
-    /// use ponko_ecs::World;
+    /// use ponko_ecs::{Component, World};
+    ///
+    /// #[derive(Component)]
+    /// struct Speed(f32);
     ///
     /// let mut world = World::new();
-    /// let e = world.spawn((1.5f32,));
-    /// let id = world.component_id::<f32>().unwrap();
-    /// let p = world.raw().get_dynamic_mut(e, id).unwrap().cast::<f32>();
-    /// // SAFETY: the pointer is to this entity's live f32, and the world
+    /// let e = world.spawn((Speed(1.5),));
+    /// let id = world.component_id::<Speed>().unwrap();
+    /// let p = world.raw().get_dynamic_mut(e, id).unwrap().cast::<Speed>();
+    /// // SAFETY: the pointer is to this entity's live `Speed`, and the world
     /// // isn't used between getting it and writing through it.
-    /// unsafe { *p = 3.0 };
-    /// assert_eq!(world.get::<f32>(e), Some(&3.0));
+    /// unsafe { (*p).0 = 3.0 };
+    /// assert_eq!(world.get::<Speed>(e).unwrap().0, 3.0);
     /// ```
     #[must_use]
     #[inline]
@@ -187,17 +173,6 @@ impl<'a> RawWorld<'a> {
         unsafe { self.0.spawn_at_dynamic_inner(e, components) }
     }
 
-    /// Pointer to resource `name` (one stored with
-    /// [`insert_resource_dynamic`](Self::insert_resource_dynamic)), for
-    /// reading, or `None`. It stays valid until the resource is replaced or
-    /// removed. To write the value, use
-    /// [`get_resource_dynamic_mut`](Self::get_resource_dynamic_mut).
-    #[must_use]
-    #[inline]
-    pub fn get_resource_dynamic(&self, name: &str) -> Option<*const u8> {
-        self.0.get_resource_dynamic_inner(name).map(<*mut u8>::cast_const)
-    }
-
     /// Pointer to resource `name`, for reading and writing, or `None`. It
     /// stays valid until the resource is replaced or removed.
     ///
@@ -249,13 +224,6 @@ impl<'a> RawWorld<'a> {
     pub unsafe fn insert_resource_dynamic(&mut self, name: &str, layout: Layout, value: *const u8) {
         // SAFETY: forwarded from the caller.
         unsafe { self.0.insert_resource_dynamic_inner(name, layout, value) }
-    }
-
-    /// The size and alignment of resource `name`, if it exists.
-    #[must_use]
-    #[inline]
-    pub fn resource_layout_dynamic(&self, name: &str) -> Option<Layout> {
-        self.0.resource_layout_dynamic_inner(name)
     }
 
     /// Removes resource `name`; `false` if there was none.
@@ -364,39 +332,6 @@ impl<'a> RawWorld<'a> {
     pub fn mark_changed_dynamic(&mut self, e: Entity, id: ComponentId) -> bool {
         self.0.mark_changed_dynamic_inner(e, id)
     }
-
-    /// [`World::removed_since`] by component id: the entities that lost
-    /// tracked component `id` after `since`, oldest first.
-    ///
-    /// The slice borrows this view; take it from [`World::raw_ref`] to keep
-    /// it for as long as the world is borrowed.
-    ///
-    /// # Panics
-    /// If `id` isn't tracked, or came from a different world.
-    #[track_caller]
-    #[must_use]
-    #[inline]
-    pub fn removed_dynamic(&self, id: ComponentId, since: Tick) -> &[Entity] {
-        self.0.removed_dynamic_inner(id, since)
-    }
-
-    /// Looks a component up by name (registered name, or Rust type name).
-    #[must_use]
-    #[inline]
-    pub fn component_by_name(&self, name: &str) -> Option<ComponentId> {
-        self.0.component_by_name_inner(name)
-    }
-
-    /// The archetype tables, for tools such as the inspector.
-    ///
-    /// The slice borrows this view, so it can't outlive a temporary
-    /// `world.raw()`. To keep it, take it from the shared view instead:
-    /// `let tables = world.raw_ref().archetypes();` borrows the world itself.
-    #[must_use]
-    #[inline]
-    pub fn archetypes(&self) -> &[Archetype] {
-        self.0.archetypes_inner()
-    }
 }
 
 impl<'a> RawWorldRef<'a> {
@@ -424,9 +359,11 @@ impl<'a> RawWorldRef<'a> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// # #[derive(Component)]
+    /// # struct Level(u8);
     /// let mut world = World::new();
-    /// let id = world.track_changes::<u8>();
-    /// let e = world.spawn((1u8,));
+    /// let id = world.track_changes::<Level>();
+    /// let e = world.spawn((Level(1),));
     /// world.despawn(e);
     /// assert_eq!(world.raw_ref().removed_dynamic(id, Tick::default()), [e]);
     /// ```

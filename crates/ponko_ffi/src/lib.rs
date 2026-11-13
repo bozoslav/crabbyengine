@@ -222,7 +222,7 @@ pub struct PonkoChunk {
 pub type PonkoQueryFn = Option<unsafe extern "C" fn(*const PonkoChunk, *mut c_void)>;
 
 /// What kind of failure the last failed call on this thread was
-/// ([`ponko_last_error_kind`]), the C side of Rust's `ponko::ErrorKind`. A
+/// ([`ponko_last_error_kind`]), the C side of Rust's `ponko::prelude::ErrorKind`. A
 /// failing call still returns its [`PonkoStatus`] as before; this says more
 /// about why. New kinds can be added in a minor release, so a `switch` on it
 /// needs a `default:` case.
@@ -257,9 +257,9 @@ pub enum PonkoErrorKind {
     /// this header.
     PONKO_ERROR_OTHER = 10,
 }
-impl From<ponko::ErrorKind> for PonkoErrorKind {
-    fn from(kind: ponko::ErrorKind) -> Self {
-        use ponko::ErrorKind as K;
+impl From<ponko::prelude::ErrorKind> for PonkoErrorKind {
+    fn from(kind: ponko::prelude::ErrorKind) -> Self {
+        use ponko::prelude::ErrorKind as K;
         match kind {
             K::NotFound => PonkoErrorKind::PONKO_ERROR_NOT_FOUND,
             K::Io => PonkoErrorKind::PONKO_ERROR_IO,
@@ -275,7 +275,7 @@ impl From<ponko::ErrorKind> for PonkoErrorKind {
     }
 }
 
-/// The kind a failure with `status` and no `ponko::Error` behind it gets.
+/// The kind a failure with `status` and no `ponko::prelude::Error` behind it gets.
 fn kind_of_status(status: PonkoStatus) -> PonkoErrorKind {
     match status {
         PONKO_OK => PonkoErrorKind::PONKO_ERROR_NONE,
@@ -291,7 +291,7 @@ thread_local! {
     static LAST_ERROR_PATH: RefCell<[u8; 512]> = const { RefCell::new([0; 512]) };
 }
 
-/// A failed call: its status, message, kind and (for a `ponko::Error` about
+/// A failed call: its status, message, kind and (for a `ponko::prelude::Error` about
 /// an asset) the asset's path.
 pub(crate) struct Failure(
     PonkoStatus,
@@ -306,7 +306,7 @@ pub(crate) fn invalid(message: &'static str) -> Failure {
     error(PONKO_INVALID_ARGUMENT, message)
 }
 
-/// What [`invalid_owned`] takes: a message, or a `ponko::Error` (its
+/// What [`invalid_owned`] takes: a message, or a `ponko::prelude::Error` (its
 /// message, without the `ponko:` prefix, and its kind).
 pub(crate) trait FailureMessage {
     fn into_parts(self) -> (String, PonkoErrorKind, Option<String>);
@@ -316,7 +316,7 @@ impl FailureMessage for String {
         (self, PonkoErrorKind::PONKO_ERROR_INVALID, None)
     }
 }
-impl FailureMessage for ponko::Error {
+impl FailureMessage for ponko::prelude::Error {
     fn into_parts(self) -> (String, PonkoErrorKind, Option<String>) {
         let kind = self.kind().into();
         let path = self.path().map(str::to_owned);
@@ -325,17 +325,17 @@ impl FailureMessage for ponko::Error {
 }
 
 /// An invalid-argument failure (`PONKO_INVALID_ARGUMENT`, as these calls
-/// always returned) with `message`; a `ponko::Error` also sets
+/// always returned) with `message`; a `ponko::prelude::Error` also sets
 /// [`ponko_last_error_kind`] to its kind.
 pub(crate) fn invalid_owned(message: impl FailureMessage) -> Failure {
     let (message, kind, path) = message.into_parts();
     Failure(PONKO_INVALID_ARGUMENT, message.into(), kind, path)
 }
-/// A `ponko::Error` as a failure whose status follows its kind:
+/// A `ponko::prelude::Error` as a failure whose status follows its kind:
 /// `PONKO_NOT_FOUND` for a missing asset, `PONKO_INVALID_ARGUMENT` otherwise.
 /// For calls added with the `try_` loaders; older calls keep their status.
-pub(crate) fn engine_error(e: ponko::Error) -> Failure {
-    let status = if e.kind() == ponko::ErrorKind::NotFound {
+pub(crate) fn engine_error(e: ponko::prelude::Error) -> Failure {
+    let status = if e.kind() == ponko::prelude::ErrorKind::NotFound {
         PONKO_NOT_FOUND
     } else {
         PONKO_INVALID_ARGUMENT
@@ -688,7 +688,7 @@ pub extern "C" fn ponko_last_error_kind() -> PonkoErrorKind {
 }
 
 /// The asset path the last failure on this thread was about (as passed to
-/// the call), or an empty string: the C side of Rust's `ponko::Error::path`.
+/// the call), or an empty string: the C side of Rust's `ponko::prelude::Error::path`.
 /// Set with [`ponko_last_error`]'s message, valid until the next failed call
 /// on this thread. Never free the returned pointer.
 /// ```
@@ -1355,11 +1355,16 @@ mod tests {
 
     #[test]
     fn rust_components_without_a_c_layout_are_rejected() {
+        // A Rust type with a destructor, and a plain one: neither has a C layout.
+        #[derive(ponko::prelude::Component)]
+        struct Name(String);
+        #[derive(ponko::prelude::Component)]
+        struct Count(#[allow(dead_code)] u64);
         let mut world = World::new();
-        let e = world.spawn((String::from("rust owned"), 5u64));
+        let e = world.spawn((Name(String::from("rust owned")), Count(5)));
         for id in [
-            world.component_id::<String>().unwrap(),
-            world.component_id::<u64>().unwrap(),
+            world.component_id::<Name>().unwrap(),
+            world.component_id::<Count>().unwrap(),
         ] {
             let size = world.component_info(id).layout().size();
             let id = id.index() as u32;
@@ -1384,6 +1389,6 @@ mod tests {
                 assert_eq!(query, PONKO_INVALID_ARGUMENT);
             });
         }
-        assert_eq!(world.get::<String>(e).unwrap(), "rust owned");
+        assert_eq!(world.get::<Name>(e).unwrap().0, "rust owned");
     }
 }

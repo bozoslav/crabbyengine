@@ -45,6 +45,7 @@ component registration and parallel query iteration exist today in
 ```rust
 use ponko::prelude::*;
 
+#[derive(Component)]
 struct Pos(f32);
 
 fn fall(ctx: &mut Ctx) {

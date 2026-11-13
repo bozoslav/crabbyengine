@@ -262,7 +262,7 @@ pub unsafe extern "C" fn ponko_vehicle3d_add_wheel(vehicle: *mut PonkoVehicle3D,
 /// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ponko_wheel3d_pose(wheel: *const PonkoWheel3D, chassis: PonkoTransform3D) -> PonkoTransform3D {
-    use ponko::{Quat, Vec3};
+    use ponko::prelude::{Quat, Vec3};
     // SAFETY: caller supplies null or a readable wheel.
     let Some(w) = (unsafe { wheel.as_ref() }) else {
         return chassis;

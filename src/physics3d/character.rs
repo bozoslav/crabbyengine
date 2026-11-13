@@ -6,7 +6,8 @@ use rapier3d::prelude as rp;
 use serde::{Deserialize, Serialize};
 
 use super::{CollisionGroups, LinkKind, Physics3D, from_rp, to_rp};
-use crate::{Entity, Vec3, World};
+use glam::Vec3;
+use ponko_ecs::{Component, Entity, World};
 
 /// A walking character (a player, a person): an upright capsule moved by
 /// its [`velocity`](Self::velocity) that slides along walls, climbs slopes
@@ -29,7 +30,7 @@ use crate::{Entity, Vec3, World};
 /// }
 /// assert_eq!(player.max_slope, 45f32.to_radians());
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 #[serde(default)]
 pub struct Character3D {
     /// From feet to head, in meters (at least twice the radius).

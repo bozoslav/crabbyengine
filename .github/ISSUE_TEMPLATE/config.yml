@@ -7,7 +7,7 @@ contact_links:
     url: https://github.com/ponkoengine/ponko/discussions/new?category=ideas
     about: Early ideas start in Discussions; agreed designs become issues.
   - name: The guide
-    url: https://ponkoengine.github.io/ponko/
+    url: https://ponko.dev/guide/
     about: How to use the engine, with Rust and C++ examples side by side.
   - name: Report a security vulnerability
     url: https://github.com/ponkoengine/ponko/security/advisories/new

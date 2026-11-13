@@ -141,7 +141,8 @@ pub use texture_array::{TextureArray, TextureKind};
 
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3, Vec4};
 
-use crate::{Color, Texture};
+use crate::{color::Color, texture::Texture};
+use ponko_ecs::Component;
 
 /// Position, rotation and scale of a 3D entity.
 ///
@@ -150,7 +151,7 @@ use crate::{Color, Texture};
 /// let crate_box = ponko::d3::Transform::at(vec3(0.0, 0.5, -3.0)).rotated(Quat::from_rotation_y(0.3));
 /// # let _ = crate_box;
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 #[repr(C, align(16))] // shared with C/C++ (`PonkoTransform3D`): 48 bytes everywhere
 pub struct Transform3D {
@@ -284,7 +285,7 @@ impl Mesh {
     /// No mesh: a [`Model`] showing it draws nothing and casts no shadow, at
     /// almost no cost. For models that are sometimes hidden, such as
     /// plants beyond their draw distance. No mesh is ever made with its
-    /// id. The same value as [`Handle::NONE`](crate::Handle::NONE).
+    /// id. The same value as [`Handle::NONE`](crate::handle::Handle::NONE).
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -541,7 +542,7 @@ impl MaterialDesc {
 /// }
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 #[repr(C)] // shared with C/C++ (`PonkoModel`)
 pub struct Model {
     /// What to draw.
@@ -577,7 +578,7 @@ pub struct Model {
 /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(tree), ponko::render::ShadowMesh(Some(blob))));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
 pub struct ShadowMesh(pub Option<Mesh>);
 
 /// Draws the entity's [`Model`] with this material instead of the ones its
@@ -610,7 +611,7 @@ pub struct ShadowMesh(pub Option<Mesh>);
 /// ctx.world.spawn((ponko::d3::Transform::at(vec3(3.0, 0.0, 0.0)), ponko::render::Model::new(rock), ponko::render::ModelMaterial(wet))); // wet
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Component)]
 #[repr(C)]
 pub struct ModelMaterial(pub Material);
 
@@ -639,7 +640,7 @@ pub struct ModelMaterial(pub Material);
 /// ctx.world.spawn((ponko::d3::Transform::default(), ponko::render::Model::new(door), ponko::render::ModelMaterials::new(&[(1, frosted)])));
 /// # }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Component)]
 pub struct ModelMaterials(Box<[(u32, Material)]>);
 
 impl ModelMaterials {
@@ -803,7 +804,7 @@ impl Camera3D {
     }
 
     /// The ray from the camera through window point `screen` (logical
-    /// pixels, as [`Ctx::mouse_pos`](crate::Ctx::mouse_pos)): its start and
+    /// pixels, as [`Ctx::mouse_pos`](crate::ctx::Ctx::mouse_pos)): its start and
     /// unit direction. For picking things in the world with the mouse.
     ///
     /// ```no_run
@@ -1007,8 +1008,8 @@ pub(crate) fn mesh_gpu_bytes(data: &MeshData) -> u64 {
 pub(crate) struct Assets3D {
     /// The latest compile of each of the game's shaders (`Graphics::shader_status`).
     pub shader_status: Vec<ShaderStatus>,
-    pub morph_entities: Vec<crate::Entity>,
-    pub morph_bases: std::collections::HashMap<crate::Entity, (u32, MorphWeights, MorphWeights)>,
+    pub morph_entities: Vec<ponko_ecs::Entity>,
+    pub morph_bases: std::collections::HashMap<ponko_ecs::Entity, (u32, MorphWeights, MorphWeights)>,
     /// Bounding sphere of each mesh, in its own space: center and radius.
     pub bounds: Vec<(Vec3, f32)>,
     /// The id each mesh slot was last given out as, and the freed ones
@@ -1054,7 +1055,7 @@ pub(crate) struct Assets3D {
     /// and a texture slot for the probes); set each frame.
     pub gi_supported: bool,
     /// Render targets made so far.
-    pub render_targets: Vec<crate::Texture>,
+    pub render_targets: Vec<crate::texture::Texture>,
     /// Screen effects made so far.
     pub effects: u32,
     /// Compute passes made so far, and those loaded from files.
@@ -1091,11 +1092,11 @@ pub(crate) struct Assets3D {
     /// The textures each glTF file's materials use, by image index in the
     /// file (shared images included): kept with `file_materials`, freed by
     /// `Graphics::unload_mesh`.
-    pub file_textures: std::collections::HashMap<crate::assets::Origin, Vec<crate::Texture>>,
+    pub file_textures: std::collections::HashMap<crate::assets::Origin, Vec<crate::texture::Texture>>,
     /// Images that glTF files take from files of their own, by where those
     /// files were found (see `gltf::Loaded::image_sources`): many models
     /// share them, and the same name in two asset sources is two images.
-    pub shared_images: std::collections::HashMap<SharedImage, crate::Texture>,
+    pub shared_images: std::collections::HashMap<SharedImage, crate::texture::Texture>,
     /// Materials loaded from glTF files, by their name in the file, with
     /// what they were made from (`Graphics::loaded_materials`).
     pub loaded_materials: std::collections::HashMap<String, Vec<(Material, MaterialDesc)>>,
@@ -1388,6 +1389,6 @@ mod c_api_mirror {
             weights_size: _,
             layer_size: _,
             roughness: _,
-        } = TerrainMaterialDesc::new(texture, texture, crate::Vec2::ZERO, crate::Vec2::ONE);
+        } = TerrainMaterialDesc::new(texture, texture, glam::Vec2::ZERO, glam::Vec2::ONE);
     }
 }

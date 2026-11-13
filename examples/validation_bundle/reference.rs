@@ -37,7 +37,7 @@ impl Variant {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Component)]
 struct Body {
     y: f32,
     vy: f32,
@@ -92,7 +92,7 @@ fn game(
     seed: u64,
     scenario: Option<InputScenario>,
     log: impl Fn(String) + 'static,
-) -> ponko::ConfiguredGame {
+) -> ponko::prelude::ConfiguredGame {
     let game = Game::new("validation-reference", 320, 240).seed(seed);
     let game = match scenario {
         Some(scenario) => game.input_scenario(scenario),

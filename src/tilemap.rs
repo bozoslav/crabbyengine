@@ -8,6 +8,7 @@ use crate::ctx::Ctx;
 use crate::ecs::Transform2D;
 use crate::render::batch::{SpriteInstance, uv_region};
 use crate::sheet::SpriteSheet;
+use ponko_ecs::Component;
 
 /// A grid of tiles, each a frame of `sheet` or empty. Put it on an entity
 /// with a [`Transform2D`]: its position is the map's top-left corner (the
@@ -24,7 +25,7 @@ use crate::sheet::SpriteSheet;
 /// ctx.world.spawn((ponko::d2::Transform::at(vec2(0.0, 0.0)), map));
 /// # }
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Component)]
 pub struct TileMap {
     /// The tiles' images: tile `n` is frame `n` of this sheet.
     pub sheet: SpriteSheet,
@@ -117,7 +118,7 @@ impl TileMap {
 }
 
 /// Built-in system: draws the visible tiles of every [`TileMap`].
-/// [`Game`](crate::Game) runs it every frame, before
+/// [`Game`](crate::game::Game) runs it every frame, before
 /// [`draw_sprites`](crate::systems::draw_sprites).
 ///
 /// ```no_run

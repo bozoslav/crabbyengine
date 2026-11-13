@@ -2,7 +2,7 @@
 //!
 //! The navigation-mesh types have the same names as in [`d3`](crate::d3)
 //! (`NavMesh`, `NavAgent`, `NavObstacle`): a bare `Mesh` would clash with the
-//! render mesh under `use ponko::*;`.
+//! render mesh in a glob import.
 pub use crate::flow::{FlowField, NavGrid};
 #[cfg(feature = "navmesh")]
 pub use crate::nav3d::{

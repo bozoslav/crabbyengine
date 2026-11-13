@@ -1,5 +1,6 @@
-use ponko::Game;
+use ponko::prelude::{Component, Game};
 
+#[derive(Component)]
 struct Marker;
 
 #[test]
@@ -47,11 +48,11 @@ fn stored_setup_is_used_by_headless_profiling() {
 fn a_game_of_plugins_and_systems_runs_without_a_setup_closure() {
     struct Ticks(u32);
     struct Counting;
-    impl ponko::Plugin for Counting {
+    impl ponko::prelude::Plugin for Counting {
         fn build(&self, game: Game) -> Game {
             game.sim_system(|ctx| ctx.world.resource_mut::<Ticks>().0 += 1)
         }
-        fn setup(&self, ctx: &mut ponko::Ctx) {
+        fn setup(&self, ctx: &mut ponko::prelude::Ctx) {
             ctx.world.insert_resource(Ticks(0));
         }
     }

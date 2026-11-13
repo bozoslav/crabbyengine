@@ -118,7 +118,9 @@ systems that talk through a file, a channel or a global), say it:
 # use ponko::access::SystemAccess;
 # use ponko::prelude::*;
 # use ponko::system_view::SystemView;
+# #[derive(Component)]
 # struct A;
+# #[derive(Component)]
 # struct B;
 # fn export(_: &mut SystemView) {} fn upload(_: &mut SystemView) {}
 # fn write_a(_: &mut SystemView) {} fn write_b(_: &mut SystemView) {}

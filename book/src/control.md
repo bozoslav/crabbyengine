@@ -48,7 +48,7 @@ and removes it on exit:
   "cwd": "/home/me/my_game",
   "exe": "/home/me/my_game/target/release/my_game",
   "started": 1793642400,
-  "engine_version": "1.0.0"
+  "engine_version": "0.1.0"
 }
 ```
 
@@ -182,7 +182,7 @@ supports, so a tool can check before sending a request that would fail:
   types described with `reflect_fields` get theirs from the fields:
 
 ```rust
-# #[derive(serde::Serialize, serde::Deserialize)] struct Health(f32);
+# #[derive(Component, serde::Serialize, serde::Deserialize)] struct Health(f32);
 ctx.world.reflect::<Health>();
 ctx.world.describe_component("Health", ponko::reflect::ValueSchema::object([
     ("current", ponko::reflect::ValueSchema::Number),

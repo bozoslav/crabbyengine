@@ -34,12 +34,15 @@ unsafe impl GlobalAlloc for Counting {
 static GLOBAL: Counting = Counting;
 
 /// A sized component, so each command carries bytes, not just a type.
+#[derive(Component)]
 struct Marked(#[allow(dead_code)] u64);
+#[derive(Component)]
+struct Index(#[allow(dead_code)] u64);
 
 #[test]
 fn reused_commands_record_and_apply_without_allocating() {
     let mut world = World::new();
-    let entities: Vec<_> = (0..256u64).map(|i| world.spawn((i,))).collect();
+    let entities: Vec<_> = (0..256u64).map(|i| world.spawn((Index(i),))).collect();
     let mut commands = Commands::new();
     let frame = |world: &mut World, commands: &mut Commands| {
         for &e in &entities {

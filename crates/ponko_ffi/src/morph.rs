@@ -3,7 +3,10 @@
 //! `Graphics::morph_target`).
 
 use ponko::anim::MorphTarget;
-use ponko::{Ctx, Entity, anim::MorphWeights};
+use ponko::{
+    anim::MorphWeights,
+    prelude::{Ctx, Entity},
+};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::three::{PonkoMesh, PonkoMeshData, PonkoVec3};
@@ -334,7 +337,10 @@ pub unsafe extern "C" fn ponko_clip_set_morph_track(
         }
         let track = ponko::anim::AnimationTrack::new(
             times,
-            values.iter().map(|v| ponko::Vec4::new(*v, 0., 0., 0.)).collect(),
+            values
+                .iter()
+                .map(|v| ponko::prelude::Vec4::new(*v, 0., 0., 0.))
+                .collect(),
             interpolation,
         );
         let mut tracks = clip.0.morph_tracks().to_vec();

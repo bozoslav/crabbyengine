@@ -49,20 +49,24 @@ fn has_threads() -> bool {
 
 // ---- the plan, through the public API --------------------------------------------------
 
+#[derive(Component)]
 struct Pos(f32);
+#[derive(Component)]
 struct Vel(f32);
+#[derive(Component)]
 struct Health(i32);
+#[derive(Component)]
 struct Score(i64);
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Hit(u32);
 
 fn nothing(_: &mut SystemView) {}
 
-fn writes<T: Send + Sync + 'static>() -> SystemAccess {
+fn writes<T: Component>() -> SystemAccess {
     SystemAccess::new().write::<T>()
 }
 
-fn reads<T: Send + Sync + 'static>() -> SystemAccess {
+fn reads<T: Component>() -> SystemAccess {
     SystemAccess::new().read::<T>()
 }
 
@@ -275,6 +279,8 @@ fn the_plan_is_the_same_with_the_scheduler_on_or_off() {
 /// What systems observed, in order.
 #[derive(Default)]
 struct Log(Vec<String>);
+#[derive(Component, Default)]
+struct Lines(Vec<String>);
 
 fn lines(world: &World) -> Vec<String> {
     world.resource::<Log>().0.clone()
@@ -565,7 +571,7 @@ fn each_system_keeps_its_own_random_stream_and_clock() {
                 sys.time.sim_tick(),
                 sys.dt()
             );
-            sys.world.query::<&mut Vec<String>>().for_each(|v| v.push(line.clone()));
+            sys.world.query::<&mut Lines>().for_each(|v| v.0.push(line.clone()));
         };
         let other = |sys: &mut SystemView| {
             let n = sys.random().stream(1).u64();
@@ -578,13 +584,13 @@ fn each_system_keeps_its_own_random_stream_and_clock() {
         };
         let mut world = game(mode)
             .seed(99)
-            .add(Phase::AfterPhysics, draw.access(random().write::<Vec<String>>()))
+            .add(Phase::AfterPhysics, draw.access(random().write::<Lines>()))
             .add(Phase::AfterPhysics, other.access(random().write_resource::<Log>()))
             .run_headless(3, |ctx| {
                 ctx.world.insert_resource(Log::default());
-                ctx.world.spawn((Vec::<String>::new(),));
+                ctx.world.spawn((Lines::default(),));
             });
-        let first = world.query::<&Vec<String>>().iter().next().unwrap().clone();
+        let first = world.query::<&Lines>().iter().next().unwrap().0.clone();
         (first, lines(&world))
     };
     let off = run(Mode::Off);
@@ -892,14 +898,14 @@ mod lockstep {
         dir: Vec2,
     }
 
-    #[derive(Serialize, Deserialize, Clone, Copy)]
+    #[derive(Serialize, Deserialize, Clone, Copy, Component)]
     struct Unit {
         owner: u32,
         vel: Vec2,
         fuel: f32,
     }
 
-    #[derive(Serialize, Deserialize, Clone, Copy)]
+    #[derive(Serialize, Deserialize, Clone, Copy, Component)]
     struct Heat(f32);
 
     /// Every player's input for this tick, copied out of the session by a
@@ -1073,7 +1079,7 @@ mod differential {
         }
     }
 
-    #[derive(Debug, PartialEq, Clone, Copy)]
+    #[derive(Debug, PartialEq, Clone, Copy, Component)]
     struct C<const N: usize>(i64);
     struct R<const N: usize>(i64);
     #[derive(Clone, Copy)]
@@ -1418,8 +1424,11 @@ mod guide {
     use ponko::system_view::SystemView;
 
     // ANCHOR: parallel_systems
+    #[derive(Component)]
     struct Pos(f32);
+    #[derive(Component)]
     struct Vel(f32);
+    #[derive(Component)]
     struct Health(f32);
     struct Gravity(f32);
 

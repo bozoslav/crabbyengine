@@ -21,6 +21,7 @@ At the start of every tick, every entity with a `Transform2D` is indexed into
 <div>
 
 ```rust
+#[derive(Component)]
 struct Neighbors(usize);
 
 fn count_neighbors(ctx: &mut Ctx) {

@@ -107,7 +107,7 @@ A few details:
 
 `ctx.assets.load_with(name, decode)` reads a named asset from the sources
 (then `assets/`) and hands its bytes to your decode function: no
-registration. `decode` returns your value or a `ponko::Error` (usually
+registration. `decode` returns your value or a `ponko::error::Error` (usually
 `ErrorKind::Decode`), which comes back with the asset's name and source in
 front of its message. Nothing is cached, so keep the result, for example in
 a resource.
@@ -126,7 +126,7 @@ loads them before it spawns anything. Your own reflected components can do
 the same: keep the asset's **name** in the component (a `String`, or a list
 of them) and tell the engine how to load it with
 `ctx.assets.scene_asset_field::<T>(field, load)`, where `load` returns
-`Result<(), ponko::Error>` (an engine `try_` loader can be returned as it is):
+`Result<(), ponko::error::Error>` (an engine `try_` loader can be returned as it is):
 
 ```rust
 {{#include ../../tests/asset_sources.rs:portal}}

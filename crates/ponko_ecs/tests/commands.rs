@@ -29,6 +29,7 @@ fn commands_apply_in_order() {
 }
 
 /// Counts how many times values sharing its counter were dropped.
+#[derive(Component)]
 struct Counted(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
 impl Drop for Counted {
@@ -64,7 +65,7 @@ fn unapplied_commands_drop_their_values_once() {
 fn cleared_commands_drop_their_values_once_and_apply_nothing() {
     let drops = counter();
     let mut w = World::new();
-    let e = w.spawn((1u32,));
+    let e = w.spawn((Tag,));
     let mut c = Commands::new();
     c.spawn((Counted(drops.clone()),));
     c.insert(e, Counted(drops.clone()));
@@ -87,6 +88,7 @@ fn cleared_commands_drop_their_values_once_and_apply_nothing() {
 fn a_value_whose_drop_panics_in_clear_is_never_dropped_twice() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static DROPS: AtomicUsize = AtomicUsize::new(0);
+    #[derive(Component)]
     struct Loud;
     impl Drop for Loud {
         fn drop(&mut self) {
@@ -147,21 +149,23 @@ fn a_panicking_command_drops_the_rest_and_leaves_commands_reusable() {
 
 #[test]
 fn commands_carry_zero_sized_and_over_aligned_values() {
-    #[derive(Debug, PartialEq, Clone, Copy)]
+    #[derive(Debug, PartialEq, Clone, Copy, Component)]
     #[repr(align(64))]
     struct Wide([u8; 3]);
+    #[derive(Component)]
+    struct Byte(u8);
 
     let mut w = World::new();
     let e = w.spawn((Pos(0.0, 0.0),));
     let mut cmd = Commands::new();
     // Odd sizes first, so later values start at unaligned offsets.
-    cmd.insert(e, 7u8);
+    cmd.insert(e, Byte(7));
     cmd.insert(e, Tag);
     cmd.insert(e, Wide([1, 2, 3]));
     cmd.add(|w| w.insert_resource(0x1234_5678_9abc_def0u64));
     cmd.spawn((Wide([4, 5, 6]), Tag));
     w.apply(&mut cmd);
-    assert_eq!(*w.get::<u8>(e).unwrap(), 7);
+    assert_eq!(w.get::<Byte>(e).unwrap().0, 7);
     assert!(w.get::<Tag>(e).is_some());
     assert_eq!(*w.get::<Wide>(e).unwrap(), Wide([1, 2, 3]));
     assert_eq!(*w.resource::<u64>(), 0x1234_5678_9abc_def0);

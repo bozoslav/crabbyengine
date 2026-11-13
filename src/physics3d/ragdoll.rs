@@ -3,10 +3,11 @@
 //! joint; every physics step (and every drawn frame) the skeleton's pose
 //! follows the bodies. Stopping blends back to the animated pose.
 use super::*;
-use crate::Mat4;
 use crate::anim::Skeleton;
 use crate::d3::JointAxis as JointAxis3D;
 use crate::d3::JointMotion as JointMotion3D;
+use glam::Mat4;
+use ponko_ecs::Component;
 
 /// One bone of a ragdoll: the skeleton joint it starts at, how thick it
 /// is, and how far its joint to the parent bone bends.
@@ -100,7 +101,7 @@ struct Bone {
 ///     assert_eq!(ragdoll.bodies().count(), 2);
 /// });
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Component)]
 pub struct Ragdoll3D {
     bones: Vec<Bone>,
     joints: Vec<Entity>,
@@ -165,7 +166,7 @@ fn decompose(m: Mat4) -> (Vec3, Quat, Vec3) {
 impl Ctx {
     /// Hands `entity`'s skeleton to physics, posed as it is now: one capsule
     /// body per bone in `bones`, joined to the nearest chosen bone above it.
-    /// Needs [`Game::physics3d`](crate::Game::physics3d), and a [`Skeleton`] and
+    /// Needs [`Game::physics3d`](crate::game::Game::physics3d), and a [`Skeleton`] and
     /// [`Transform3D`] on `entity`. Starting again restarts it.
     ///
     /// Remove or disable the entity's own collider or [`Character3D`] first,
@@ -173,12 +174,12 @@ impl Ctx {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if `entity` has
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if `entity` has
     /// no skeleton or transform or a bone names no joint,
-    /// [`Invalid`](crate::ErrorKind::Invalid) if a joint is chosen twice or a
+    /// [`Invalid`](crate::error::ErrorKind::Invalid) if a joint is chosen twice or a
     /// radius or density isn't positive. A running ragdoll is left alone then.
-    pub fn start_ragdoll(&mut self, entity: Entity, bones: &[RagdollBone]) -> Result<(), crate::Error> {
-        use crate::{Error, ErrorKind};
+    pub fn start_ragdoll(&mut self, entity: Entity, bones: &[RagdollBone]) -> Result<(), crate::error::Error> {
+        use crate::error::{Error, ErrorKind};
         let model = self
             .world
             .get::<Transform3D>(entity)

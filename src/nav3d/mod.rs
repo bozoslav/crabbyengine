@@ -14,10 +14,13 @@
 //! character controller. Crowd avoidance is opt-in. Bake for the largest
 //! agent radius/height; agents larger than that radius are stopped.
 
+use crate::ctx::Ctx;
 use crate::d3::Transform as Transform3D;
 use crate::render::MeshData;
-use crate::{Ctx, Entity, Vec3, World};
+use glam::Vec3;
 use navmesh_rs::{Limits, Workspace, bake, crowd, detour, recast, tilecache};
+use ponko_ecs::Component;
+use ponko_ecs::{Entity, World};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 mod carve;
@@ -563,7 +566,7 @@ impl NavState {
 /// let obstacle = ponko::d3::NavObstacle::new(Vec3::ZERO, Vec3::ONE);
 /// assert_eq!(obstacle.center, Vec3::ZERO);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Component)]
 pub struct NavObstacle3D {
     /// Center in world space.
     /// ```
@@ -612,7 +615,7 @@ impl NavObstacle3D {
 /// let mut agent = ponko::d3::NavAgent::default();
 /// agent.destination = Some(Vec3::X * 4.0);
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Component)]
 pub struct NavAgent3D {
     /// Maximum speed in world units per second. Nonpositive/nonfinite stops.
     /// ```
@@ -713,7 +716,7 @@ pub fn step_navmesh3d(ctx: &mut Ctx) {
 /// Nothing else: no events, commands, physics or drawing.
 ///
 /// Register the step with it to have
-/// [`Game::access_report`](crate::Game::access_report) list what it touches
+/// [`Game::access_report`](crate::game::Game::access_report) list what it touches
 /// and debug builds check that it stays inside it. The step keeps `&mut Ctx`
 /// and its place in the order; see [`access`](crate::access).
 ///
@@ -985,7 +988,7 @@ fn step_crowd(world: &mut World, nav: &mut NavState, dt: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Vec2;
+    use glam::Vec2;
 
     const DT: f32 = 0.02;
 

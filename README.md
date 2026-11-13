@@ -8,16 +8,14 @@ Large simulations are a strength, alongside ordinary 2D and 3D games.
 Rust is the primary API; C and C++ bindings support native integrations.
 No large visual editor is required.
 
-[**Project vision**](PROJECT_VISION.md) · [**Roadmap**](ROADMAP.md) ·
-[**Architecture**](ARCHITECTURE.md) · [**Contribute**](CONTRIBUTING.md) ·
-[**Guide source**](book/src/introduction.md) · [**API**](https://docs.rs/ponko/)
+[**Website**](https://ponko.dev/) · [**Guide**](https://ponko.dev/guide/) ·
+[**API**](https://docs.rs/ponko/) · [**Project vision**](PROJECT_VISION.md) ·
+[**Roadmap**](ROADMAP.md) · [**Architecture**](ARCHITECTURE.md) ·
+[**Contribute**](CONTRIBUTING.md)
 
-Formerly Crabby Engine. The package is `ponko`; source folders still use
-`crabby_*`; the C/C++ headers are `include/ponko.h` and `include/ponko.hpp`
-(the old `crabby` C names were removed in 0.1.0).
-The current package version is **0.0.1**. Read [STABILITY.md](STABILITY.md)
-for the published compatibility contracts; the rename does not authorize
-weakening those contracts.
+Formerly Crabby Engine; the [naming chapter](https://ponko.dev/guide/naming.html)
+maps the old names to the new ones. Ponko is at 0.x: read
+[STABILITY.md](STABILITY.md) for what a release may change and what it keeps.
 
 ## Why Ponko instead of Bevy or Unity?
 
@@ -68,7 +66,9 @@ cd my_game
 cargo add ponko
 ```
 
-Put `crab.png` in the project's `assets/` folder, then use this in `src/main.rs`:
+Put a picture named `crab.png` in the project's `assets/` folder (for example
+[the engine's own](https://raw.githubusercontent.com/ponkoengine/ponko/main/assets/crab.png)),
+then use this in `src/main.rs`:
 
 ```rust
 use ponko::prelude::*;
@@ -101,6 +101,7 @@ million entities for 600 fixed ticks without opening a window:
 ```rust
 use ponko::prelude::*;
 
+#[derive(Component)]
 struct Velocity(Vec2);
 
 fn movement(ctx: &mut Ctx) {
@@ -194,17 +195,16 @@ AGENTS=1000000 TICKS=600 cargo run --release --example headless
 
 ![The battle example: two armies moving around terrain](book/src/images/battle.jpg)
 
-The existing browser demo sources remain in `web/`. Follow the
-[web build guide](book/src/web.md) to build them locally; public hosting is
-being reconfigured during the rename. The source guide and API links above
-remain the starting points until the new website is deployed.
+The browser demo sources are in `web/`; the [web build guide](https://ponko.dev/guide/web.html)
+shows how to build and serve them locally. The [website](https://ponko.dev/) has the
+[guide](https://ponko.dev/guide/), and [docs.rs](https://docs.rs/ponko/) the API reference.
 
 ## Performance
 
-Historical measurements retained from the existing documentation (then named
-Crabby Engine), not rerun for this update. Native release builds on a MacBook
-Pro (M4 Max); web builds run on one thread and are slower. Reproduction commands
-and workload context are on the [benchmarks page](book/src/performance.md).
+Measured on an earlier version of the engine and not rerun for 0.1.0. Native
+release builds on a MacBook Pro (M4 Max); web builds run on one thread and are
+slower. Reproduction commands and workload context are on the
+[benchmarks page](book/src/performance.md).
 
 | Workload | Time |
 |---|---|
@@ -215,7 +215,7 @@ and workload context are on the [benchmarks page](book/src/performance.md).
 | Boids, 1M, with neighbor search | ~33 ms per tick |
 | 100k events sent and read | 0.42 ms per tick |
 | 1M moving sprites (1.6 px), rendered | 120 FPS (display cap) |
-| 3D, 100k spinning cubes with shadows: Ponko / Unity 6 ([details](book/src/performance.md#3d-crabby-vs-unity)) | **402** / 54 FPS (7.5x) |
+| 3D, 100k spinning cubes with shadows: Ponko / Unity 6 ([details](book/src/performance.md#3d-ponko-vs-unity)) | **402** / 54 FPS (7.5x) |
 | Memory per entity, 1M agents | 76 bytes |
 
 ### 3D: Ponko vs Unity 6
@@ -233,10 +233,10 @@ differences are detailed in the linked notes.
 | 100,000 | 54 FPS | **402 FPS (7.5x)** | 18.7 / **2.48** ms |
 
 What's not equal, and how to rerun both sides, is on the
-[benchmarks page](book/src/performance.md#3d-crabby-vs-unity).
+[benchmarks page](book/src/performance.md#3d-ponko-vs-unity).
 
-The measurements above are retained from the existing documentation, not
-rerun for this documentation update. The Unity comparison uses GameObjects
+The measurements above come from an earlier version and were not rerun for
+0.1.0. The Unity comparison uses GameObjects
 with per-object `Update`, not Entities/DOTS; it does not establish a general
 engine ranking. GPU feature parity, scene differences, dependency versions,
 and workload details matter. Consult the linked reproduction notes before
@@ -256,8 +256,8 @@ direction, not a claim that every subsystem is already decoupled.
 Start with [CONTRIBUTING.md](CONTRIBUTING.md), [the roadmap](ROADMAP.md),
 and [coding-agent rules](AGENTS.md). Performance changes need representative
 measurements; correctness and compatibility come first. The
-[published stability commitments](STABILITY.md) cover API/ABI, saved worlds,
-MCP contracts and determinism within their stated scope.
+[stability policy](STABILITY.md) covers the API and ABI, saved worlds,
+MCP contracts and determinism within its stated scope.
 
 Follow the [code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities through
 [SECURITY.md](SECURITY.md).

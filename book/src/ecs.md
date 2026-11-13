@@ -3,9 +3,9 @@
 The game world lives in `ctx.world`, an entity-component system (ECS).
 
 - An **entity** is an id (`Entity`). It has no data of its own.
-- A **component** is any `Send + Sync + 'static` Rust type. No derive needed.
-  In C++ it is any plain struct (trivially copyable), found by its type:
-  nothing to register.
+- A **component** is a Rust type marked `#[derive(Component)]` (see
+  [Making a type a component](#making-a-type-a-component)). In C++ it is any
+  plain struct (trivially copyable), found by its type: nothing to register.
 - A **query** visits every entity that has a given set of components.
 
 ## Spawning
@@ -14,7 +14,9 @@ The game world lives in `ctx.world`, an entity-component system (ECS).
 <div>
 
 ```rust
+#[derive(Component)]
 struct Health(f32);
+#[derive(Component)]
 struct Enemy;
 
 let e: Entity = ctx.world.spawn((ponko::d2::Transform::at(vec2(10.0, 20.0)), Health(100.0), Enemy));
@@ -40,13 +42,45 @@ passes the components straight to `spawn`.
 {{#include ../../examples/cpp/guide.cpp:ecs_components}}
 ```
 
+## Making a type a component
+
+A Rust type becomes a component by opting in, with the derive (from the
+prelude) or by hand; both mean the same:
+
+```rust
+#[derive(Component, Clone, Copy, Debug)]
+struct Velocity(Vec2);
+
+struct Name(String);
+impl Component for Name {}
+
+# let e = ctx.world.spawn((Velocity(Vec2::ZERO), Name("crab".into())));
+```
+
+A component is `Send + Sync + 'static`, because systems may read it from
+several threads. Other types are not components, so these mistakes don't
+compile, and the error says to add the derive:
+
+- a tuple inserted as one component (`world.insert(e, (a, b))`: insert each
+  one, or spawn the tuple as a bundle);
+- a bare number, `String`, `Vec<..>` or `Entity`: wrap it in a type that says
+  what it means, `struct Target(Entity);`, `struct Score(u32);`.
+
+A generic type derives it too: `#[derive(Component)] struct Tagged<T>(T);`
+is a component for every `T` that is `Send + Sync + 'static`.
+`#[component(..)]` options are reserved for later; there are none yet.
+Resources (`insert_resource`) and events need no derive. C++ components need
+nothing either: the C API registers them by name and size, not as Rust types.
+
 ## Reading and changing one entity
 
 <div class="lang-pair">
 <div>
 
 ```rust
+# #[derive(Component)]
 # struct Health(f32);
+# #[derive(Component)]
 # struct Enemy;
 # let e = ctx.world.spawn((Health(10.0), Enemy));
 if let Some(h) = ctx.world.get_mut::<Health>(e) {
@@ -74,7 +108,9 @@ assert!(!ctx.world.is_alive(e));   // old handles stay dead, even if the slot is
 <div>
 
 ```rust
+# #[derive(Component)]
 # struct Health(f32);
+# #[derive(Component)]
 # struct Enemy;
 ctx.world
     .query::<(&mut ponko::d2::Transform, &Health)>()
@@ -132,9 +168,13 @@ tuples; `or` is a C++ keyword):
 <div>
 
 ```rust
+# #[derive(Component)]
 # struct Player;
+# #[derive(Component)]
 # struct Enemy;
+# #[derive(Component)]
 # struct Dead;
+# #[derive(Component)]
 # struct Health(f32);
 type Living = (Or<(With<Player>, With<Enemy>)>, Without<Dead>);
 world.query::<&mut Health>().filter::<Living>().for_each(|h| h.0 -= 1.0);
@@ -238,7 +278,9 @@ Two hints change the choice for one query, and a policy for a whole world:
 
 ```rust
 # use ponko::ecs_core::QueryCachePolicy;
+# #[derive(Component)]
 # struct Health(f32);
+# #[derive(Component)]
 # struct Boss;
 // Runs rarely, but must not test every archetype of a big world when it
 // does: index it on first use.
@@ -319,6 +361,7 @@ the world. Record the change in `ctx.commands` instead:
 <div>
 
 ```rust
+# #[derive(Component)]
 # struct Health(f32);
 fn die(ctx: &mut Ctx) {
     let cmds = &mut ctx.commands;
@@ -351,7 +394,9 @@ when its transform changes. Ask for them with the filters `Changed<T>` and
 <div>
 
 ```rust
+# #[derive(Component)]
 # struct Health(f32);
+# #[derive(Component)]
 # struct HealthBar { width: f32 }
 fn setup(ctx: &mut Ctx) {
     // Once, before the first system that filters on Health.
@@ -556,6 +601,7 @@ other resources while it changes that one:
 
 ```rust
 struct Total(u32);
+#[derive(Component)]
 struct Coins(u32);
 ctx.world.insert_resource(Total(0));
 // The resource and the rest of the world together; Total is back afterwards.
@@ -583,7 +629,9 @@ to reach entities by handle: `get` reads, `get_mut` changes. Write what to
 fetch from them like a query:
 
 ```rust
+# #[derive(Component)]
 # struct Health(f32);
+#[derive(Component)]
 struct Bullet {
     target: Entity,
     damage: f32,
@@ -614,6 +662,7 @@ several entities, for work on a pair that needs both sides. It returns
 same entity twice:
 
 ```rust
+# #[derive(Component)]
 # struct Health(f32);
 # let a = ctx.world.spawn((Health(1.0),));
 # let b = ctx.world.spawn((Health(2.0),));

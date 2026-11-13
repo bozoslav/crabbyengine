@@ -6,14 +6,16 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use ponko_ecs::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 struct Pos(f32);
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 struct Vel(f32);
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Component)]
 struct Health(i32);
+#[derive(Component)]
 struct Frozen;
 /// Never spawned or registered.
+#[derive(Component)]
 struct Never;
 
 /// `a` and `b` exist before `seen`; after it `c` is spawned and `a`'s

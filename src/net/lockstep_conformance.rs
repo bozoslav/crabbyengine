@@ -77,7 +77,8 @@ use std::time::Duration;
 
 use super::scripted::{Datagram, Network, Shared, addr, port};
 use super::{GONE, INPUTS, MAGIC, MAX_INPUT_BYTES, Net, NetState, PACKET, VERSION};
-use crate::{World, WorldReflect, perf::Instant};
+use crate::{perf::Instant, reflect::WorldReflect};
+use ponko_ecs::World;
 
 /// One scripted step: the network advances one tick, the clock 10 ms, then
 /// every peer tries to run its next simulation tick.
@@ -459,8 +460,8 @@ fn a_full_host_and_a_different_seed_refuse_the_joiner() {
 fn different_worlds_are_reported_on_both_sides() {
     let world = |x: f32| {
         let mut w = World::new();
-        w.reflect::<crate::Transform2D>();
-        w.spawn((crate::Transform2D::at(crate::vec2(x, 0.0)),));
+        w.reflect::<crate::d2::Transform>();
+        w.spawn((crate::d2::Transform::at(glam::vec2(x, 0.0)),));
         Some(w)
     };
     let mut same = Session::new(2, |n| n.checksum_every(4), |n| n.delay = 2);

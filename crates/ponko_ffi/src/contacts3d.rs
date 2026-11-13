@@ -353,9 +353,9 @@ mod imp {
     use crate::ctx::{ctx_access, out};
     use crate::types::to_c;
     use crate::{CMirror, Failure, Kind, Mirror, boundary, builtin, error, invalid, mirror};
-    use ponko::Vec3;
     use ponko::d3::ContactModifier as ContactModifier3D;
     use ponko::d3::ContactPair as ContactPair3D;
+    use ponko::prelude::Vec3;
 
     impl CMirror for ContactModifier3D {
         type C = PonkoContactModifier3D;

@@ -1,5 +1,6 @@
-use ponko::{Ctx, Game, IntoSystem, Phase, Plugin, Systems};
+use ponko::prelude::{Component, Ctx, Game, IntoSystem, Phase, Plugin, Systems};
 
+#[derive(Component)]
 struct Marker;
 struct Area(&'static str);
 impl Plugin for Area {

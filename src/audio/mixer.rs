@@ -3,7 +3,7 @@ use super::{Audio, Playing, Sound, SoundParams};
 /// Named mixer bus, created once with [`Audio::bus`]. Handles belong to
 /// their creating context. The default handle selects the `sfx` bus.
 /// ```
-/// use ponko::AudioBus;
+/// use ponko::prelude::AudioBus;
 /// let bus = AudioBus::default();
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -175,7 +175,7 @@ impl Audio {
     }
 
     /// Loads music to stream, from an [added asset
-    /// source](crate::Assets::add_source) or `assets/`, returning the same kind
+    /// source](crate::assets::Assets::add_source) or `assets/`, returning the same kind
     /// of handle as `load_sound`. Each playback opens its own decoder:
     /// samples are decoded on Kira's worker thread as they play rather than
     /// held decoded in memory. A file from `assets/` is read as it plays; a
@@ -198,9 +198,9 @@ impl Audio {
     }
 
     /// [`load_stream`](Self::load_stream) with errors as values:
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if no source has
-    /// it, [`Io`](crate::ErrorKind::Io) if it can't be read, or (with the
-    /// `audio` feature) [`Decode`](crate::ErrorKind::Decode) if its header
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if no source has
+    /// it, [`Io`](crate::error::ErrorKind::Io) if it can't be read, or (with the
+    /// `audio` feature) [`Decode`](crate::error::ErrorKind::Decode) if its header
     /// can't be decoded.
     ///
     /// ```
@@ -210,7 +210,7 @@ impl Audio {
     ///     assert_eq!(music.unwrap_err().kind(), ErrorKind::NotFound);
     /// });
     /// ```
-    pub fn try_load_stream(&mut self, path: &str) -> Result<Sound, crate::Error> {
+    pub fn try_load_stream(&mut self, path: &str) -> Result<Sound, crate::error::Error> {
         use crate::assets::{Lookup, Origin};
         let kind = crate::asset_cache::AssetKind::Stream;
         let found = match self.loaded.lookup(&self.asset_sources, path, kind)? {
@@ -226,8 +226,8 @@ impl Audio {
             }
         };
         let (id, seconds) = streamed.map_err(|e| match &origin {
-            Origin::File(file) => crate::Error::decode(path, format!("{}: {e}", file.display())),
-            Origin::Source { .. } => crate::Error::decode(path, format!("{}: {e}", origin.describe(path))),
+            Origin::File(file) => crate::error::Error::decode(path, format!("{}: {e}", file.display())),
+            Origin::Source { .. } => crate::error::Error::decode(path, format!("{}: {e}", origin.describe(path))),
         })?;
         let sound = Sound { id, seconds };
         self.sounds_live.insert(id);
@@ -273,7 +273,7 @@ mod tests {
     }
     #[test]
     fn audio_headless_buses_and_effects_never_open_device() {
-        crate::Game::new("audio", 1, 1).run_headless(0, |ctx| {
+        crate::game::Game::new("audio", 1, 1).run_headless(0, |ctx| {
             let music = ctx.audio.bus("music");
             ctx.audio.set_bus_volume(music, 0.4);
             ctx.audio.mute_bus(music, true);

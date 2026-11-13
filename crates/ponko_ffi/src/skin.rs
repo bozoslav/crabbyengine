@@ -9,7 +9,7 @@ use ponko::anim::Joint;
 use ponko::anim::Skeleton;
 use ponko::anim::SkinOf;
 use ponko::d3::Transform as Transform3D;
-use ponko::{Ctx, Entity};
+use ponko::prelude::{Ctx, Entity};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::three::{

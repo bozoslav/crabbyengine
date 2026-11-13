@@ -25,9 +25,10 @@ use ponko_ecs::*;
 
 // ---- components ---------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 struct Value(u64);
 /// Eight zero-sized markers: bit `N` of an entity's mask.
+#[derive(Component)]
 struct M<const N: usize>;
 /// Components registered by name while a case runs: bits 8 and up.
 const LATE: usize = 4;
@@ -314,10 +315,7 @@ impl Tree {
 fn chunks(w: &mut World, also: &[ComponentId], filter: Option<&CompiledFilter>, hint: Option<QueryCache>) -> Rows {
     let mut ids = vec![w.register::<Value>()];
     ids.extend_from_slice(also);
-    let mut query = ChunkQuery::new(&ids).writes(0);
-    if let Some(filter) = filter {
-        query = query.filter(filter);
-    }
+    let mut query = ChunkQuery::new(&ids).writes(0).filter(filter);
     if let Some(hint) = hint {
         query = query.cache(hint);
     }

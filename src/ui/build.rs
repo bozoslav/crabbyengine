@@ -7,7 +7,7 @@
 
 use super::retained::{Ui, UiId, UiPaint, UiTextAlign, UiWidget};
 use crate::ui::UiStyle;
-use crate::{Color, Font, Texture};
+use crate::{color::Color, text::Font, texture::Texture};
 use taffy::prelude::*;
 
 /// A node's layout: the one layout type of the retained [`Ui`], with presets
@@ -392,6 +392,35 @@ impl UiLayout {
     /// ```
     pub fn style_mut(&mut self) -> &mut Style {
         &mut self.0
+    }
+    /// Hidden: the node and its whole subtree take no space, aren't drawn,
+    /// don't take the pointer or focus, and are left out of the
+    /// accessibility tree. To show it again, set its layout without
+    /// `hidden`.
+    /// ```
+    /// use ponko::prelude::*;
+    /// use ponko::ui::UiLayout;
+    /// let mut ui = ponko::ui::Ui::default();
+    /// let root = ui.root().layout(UiLayout::fill()).id();
+    /// let a = ui.label(root, "A").layout(UiLayout::row(20.0).hidden()).id();
+    /// let b = ui.label(root, "B").layout(UiLayout::row(20.0)).id();
+    /// ui.push_screen(root, false);
+    /// ui.layout(vec2(200.0, 100.0));
+    /// assert_eq!(ui.rect(b).unwrap().min, vec2(0.0, 0.0), "A takes no space");
+    /// assert!(ui.node_layout(a).unwrap().is_hidden());
+    ///
+    /// ui.set_layout(a, UiLayout::row(20.0));
+    /// ui.layout(vec2(200.0, 100.0));
+    /// assert_eq!(ui.rect(b).unwrap().min, vec2(0.0, 20.0));
+    /// ```
+    pub fn hidden(mut self) -> Self {
+        self.0.display = Display::None;
+        self
+    }
+    /// Whether the layout is [`hidden`](Self::hidden).
+    #[must_use]
+    pub fn is_hidden(&self) -> bool {
+        self.0.display == Display::None
     }
     /// The finished Taffy style. Unstable: see [`crate::ui::unstable_taffy`].
     /// ```

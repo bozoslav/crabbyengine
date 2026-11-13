@@ -10,6 +10,7 @@ use ponko::d3::PointLight as PointLight3D;
 use ponko::d3::ReflectionProbe as ReflectionProbe3D;
 use ponko::d3::SpotLight as SpotLight3D;
 use ponko::d3::Transform as Transform3D;
+use ponko::prelude::{Color, Quat, Vec2, Vec3, Vec4};
 use ponko::render::AmbientOcclusion;
 use ponko::render::AntiAliasing;
 use ponko::render::Blend;
@@ -41,7 +42,6 @@ use ponko::terrain::TerrainMaterialDesc;
 use ponko::terrain::TerrainTile;
 use ponko::terrain::TextureArray;
 use ponko::terrain::TextureKind;
-use ponko::{Color, Quat, Vec2, Vec3, Vec4};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::types::*;
@@ -840,7 +840,7 @@ fn material_to_c(d: &MaterialDesc) -> PonkoMaterialDesc {
         width: 0,
         height: 0,
     };
-    let map = |t: Option<ponko::Texture>| (t.is_some(), t.map_or(none, texture_to_c));
+    let map = |t: Option<ponko::prelude::Texture>| (t.is_some(), t.map_or(none, texture_to_c));
     let (has_texture, texture) = map(d.texture);
     let (has_normal_map, normal_map) = map(d.normal_map);
     let (has_orm_map, orm_map) = map(d.orm_map);
@@ -885,7 +885,7 @@ fn material_to_c(d: &MaterialDesc) -> PonkoMaterialDesc {
 }
 
 /// A C material description as Rust's, checked.
-fn material_from_c(c: &ponko::Ctx, d: &PonkoMaterialDesc) -> Result<MaterialDesc, crate::Failure> {
+fn material_from_c(c: &ponko::prelude::Ctx, d: &PonkoMaterialDesc) -> Result<MaterialDesc, crate::Failure> {
     if !((0.0..=1.0).contains(&d.roughness) && (0.0..=1.0).contains(&d.metallic)) {
         return Err(invalid("roughness and metallic go from 0 to 1"));
     }
@@ -3113,7 +3113,7 @@ pub unsafe extern "C" fn ponko_ctx_set_shadow_mesh(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = ponko::Entity::from_bits(entity);
+            let entity = ponko::prelude::Entity::from_bits(entity);
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
@@ -3144,7 +3144,7 @@ pub unsafe extern "C" fn ponko_ctx_set_model_material(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = ponko::Entity::from_bits(entity);
+            let entity = ponko::prelude::Entity::from_bits(entity);
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
@@ -3178,7 +3178,7 @@ pub unsafe extern "C" fn ponko_ctx_model_material(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = ponko::Entity::from_bits(entity);
+            let entity = ponko::prelude::Entity::from_bits(entity);
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
@@ -3217,7 +3217,7 @@ pub unsafe extern "C" fn ponko_ctx_set_model_part_materials(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = ponko::Entity::from_bits(entity);
+            let entity = ponko::prelude::Entity::from_bits(entity);
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
@@ -3264,7 +3264,7 @@ pub unsafe extern "C" fn ponko_ctx_model_part_materials(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = ponko::Entity::from_bits(entity);
+            let entity = ponko::prelude::Entity::from_bits(entity);
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
@@ -3635,7 +3635,7 @@ pub unsafe extern "C" fn ponko_ctx_bake_reflection_probe(ctx: *mut PonkoCtx, ent
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             c.gfx
-                .bake_reflection_probe(&mut c.world, ponko::Entity::from_bits(entity))
+                .bake_reflection_probe(&mut c.world, ponko::prelude::Entity::from_bits(entity))
                 .map_err(invalid_owned)
         })
     })
@@ -3657,7 +3657,7 @@ pub unsafe extern "C" fn ponko_ctx_load_reflection_probe(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             c.gfx
-                .try_load_reflection_probe(&mut c.world, ponko::Entity::from_bits(entity), text(name)?)
+                .try_load_reflection_probe(&mut c.world, ponko::prelude::Entity::from_bits(entity), text(name)?)
                 .map_err(invalid_owned)
         })
     })
@@ -3791,7 +3791,7 @@ pub unsafe extern "C" fn ponko_ctx_set_lod_group(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = ponko::Entity::from_bits(entity);
+            let entity = ponko::prelude::Entity::from_bits(entity);
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
@@ -3841,7 +3841,7 @@ pub unsafe extern "C" fn ponko_ctx_lod_pick(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = ponko::Entity::from_bits(entity);
+            let entity = ponko::prelude::Entity::from_bits(entity);
             let (Some(group), Some(transform)) = (c.world.get::<LodGroup>(entity), c.world.get::<Transform3D>(entity))
             else {
                 return Err(invalid("that entity has no LOD group and transform"));
@@ -4160,10 +4160,13 @@ pub unsafe extern "C" fn ponko_ctx_create_instance_batch(
             } else {
                 std::slice::from_raw_parts(matrices, count)
                     .iter()
-                    .map(ponko::Mat4::from_cols_array)
+                    .map(ponko::prelude::Mat4::from_cols_array)
                     .collect::<Vec<_>>()
             };
-            if data.iter().any(|m| !m.is_finite() || m.row(3) != ponko::Vec4::W) {
+            if data
+                .iter()
+                .any(|m| !m.is_finite() || m.row(3) != ponko::prelude::Vec4::W)
+            {
                 return Err(invalid("invalid instance transform"));
             }
             let b = c.gfx.create_instance_batch(
@@ -4203,10 +4206,13 @@ pub unsafe extern "C" fn ponko_ctx_update_instance_batch(
             } else {
                 std::slice::from_raw_parts(matrices, count)
                     .iter()
-                    .map(ponko::Mat4::from_cols_array)
+                    .map(ponko::prelude::Mat4::from_cols_array)
                     .collect::<Vec<_>>()
             };
-            if data.iter().any(|m| !m.is_finite() || m.row(3) != ponko::Vec4::W) {
+            if data
+                .iter()
+                .any(|m| !m.is_finite() || m.row(3) != ponko::prelude::Vec4::W)
+            {
                 return Err(invalid("invalid instance transform"));
             }
             if !c.gfx.update_instance_batch(b, &data) {
@@ -4347,7 +4353,7 @@ unsafe fn instance_arrays(
     count: usize,
     colors: *const PonkoColor,
     color_count: usize,
-) -> Result<(Vec<ponko::Mat4>, Vec<Color>), crate::Failure> {
+) -> Result<(Vec<ponko::prelude::Mat4>, Vec<Color>), crate::Failure> {
     if count > 16_777_216
         || (count > 0 && matrices.is_null())
         || (color_count != 0 && color_count != count)
@@ -4361,10 +4367,13 @@ unsafe fn instance_arrays(
     } else {
         unsafe { std::slice::from_raw_parts(matrices, count) }
             .iter()
-            .map(ponko::Mat4::from_cols_array)
+            .map(ponko::prelude::Mat4::from_cols_array)
             .collect::<Vec<_>>()
     };
-    if transforms.iter().any(|m| !m.is_finite() || m.row(3) != ponko::Vec4::W) {
+    if transforms
+        .iter()
+        .any(|m| !m.is_finite() || m.row(3) != ponko::prelude::Vec4::W)
+    {
         return Err(invalid("invalid instance transform"));
     }
     // SAFETY: as above, and colour length was validated before slicing.
@@ -4400,7 +4409,7 @@ mod tests {
 
     #[test]
     fn out_of_range_settings_read_back_clamped_and_round_trip() {
-        ponko::Game::new("quality", 8, 8).run_headless(0, |ctx| {
+        ponko::prelude::Game::new("quality", 8, 8).run_headless(0, |ctx| {
             ctx.scene3d.post.render_scale = 9.0;
             ctx.scene3d.post.sharpen = f32::NAN;
             ctx.scene3d.lighting.shadow_distance = f32::INFINITY;
@@ -4425,7 +4434,7 @@ mod tests {
 
     #[test]
     fn setting_the_post_keeps_the_sample_count() {
-        ponko::Game::new("post", 8, 8).run_headless(0, |ctx| {
+        ponko::prelude::Game::new("post", 8, 8).run_headless(0, |ctx| {
             ctx.scene3d.post.msaa = 2;
             with_ctx(ctx, |c| {
                 // SAFETY: `c` is live for this closure; the output is a local.

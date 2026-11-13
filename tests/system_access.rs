@@ -5,11 +5,15 @@
 use ponko::access::{AccessConflict, SystemAccess};
 use ponko::prelude::*;
 
+#[derive(Component)]
 struct Pos(f32);
+#[derive(Component)]
 struct Vel(f32);
+#[derive(Component)]
 struct Health(i32);
 struct Gravity(f32);
 struct Score(u32);
+#[derive(Component)]
 struct Hit;
 
 fn names(a: &SystemAccess, b: &SystemAccess) -> Vec<String> {

@@ -1,7 +1,14 @@
 use super::retained::*;
 use crate::input::GamepadButton;
 use crate::render::batch::{SpriteInstance, uv_region};
-use crate::{Color, Ctx, Key, MouseButton, Rect, TextParams, Vec2};
+use crate::{
+    camera::Rect,
+    color::Color,
+    ctx::Ctx,
+    input::{Key, MouseButton},
+    text::TextParams,
+};
+use glam::Vec2;
 
 impl Ctx {
     pub(crate) fn update_retained_ui(&mut self) {
@@ -253,7 +260,7 @@ impl Ctx {
     }
     fn retained_image(
         &mut self,
-        texture: crate::Texture,
+        texture: crate::texture::Texture,
         rect: Rect,
         border: f32,
         source_border: f32,

@@ -2,7 +2,7 @@
 //! pointers plus a `user` pointer; they get a `PonkoCtx`.
 use std::ffi::{CStr, c_char, c_void};
 
-use ponko::{Ctx, Game, IntoSystem, Phase, Plugin, SystemId};
+use ponko::prelude::{Ctx, Game, IntoSystem, Phase, Plugin, SystemId};
 
 use crate::ctx::{PonkoCtx, with_ctx};
 use crate::{Failure, PonkoStatus, PonkoWorld, boundary, error, invalid, owned_world};
@@ -149,7 +149,7 @@ pub unsafe extern "C" fn ponko_game_msaa(game: *mut PonkoGame, samples: u32) -> 
 /// The startup MSAA sample count, set on the scene's post settings.
 struct Msaa(u32);
 
-impl ponko::Plugin for Msaa {
+impl ponko::prelude::Plugin for Msaa {
     fn build(&self, game: Game) -> Game {
         game
     }
@@ -655,15 +655,14 @@ pub unsafe extern "C" fn ponko_game_remove_system(game: *mut PonkoGame, name_ptr
         // the names are looked up here.
         build(game, |g| match checked {
             Ok(name) => {
-                let report = g.access_report();
-                let named: Vec<SystemId> = (report.systems.iter())
-                    .filter(|s| s.name == name)
-                    .map(|s| s.id)
-                    .collect();
-                if named.is_empty() {
+                let Some(first) = ponko::__ffi::system_named(&g, name) else {
                     return (g, Err(error(PonkoStatus::PONKO_NOT_FOUND, "no system with that name")));
+                };
+                let mut g = g.remove(first);
+                while let Some(id) = ponko::__ffi::system_named(&g, name) {
+                    g = g.remove(id);
                 }
-                ok(named.into_iter().fold(g, Game::remove))
+                ok(g)
             }
             Err(e) => (g, Err(e)),
         })
@@ -815,7 +814,7 @@ pub unsafe extern "C" fn ponko_game_run_headless(
 #[cfg(test)]
 mod tests {
     use crate::{PonkoStatus, ponko_game_free, ponko_game_new, ponko_game_parallel_systems, ponko_game_schedule_plan};
-    use ponko::Phase;
+    use ponko::prelude::Phase;
     use std::ffi::CStr;
 
     #[test]
@@ -825,8 +824,8 @@ mod tests {
             // What a Rust plugin sharing the game can do: an order against
             // the order the systems run in.
             let mut game = (*handle).game.take().unwrap();
-            let first = game.add_system(Phase::AfterPhysics, |_: &mut ponko::Ctx| {});
-            let second = game.add_system(Phase::AfterPhysics, |_: &mut ponko::Ctx| {});
+            let first = game.add_system(Phase::AfterPhysics, |_: &mut ponko::prelude::Ctx| {});
+            let second = game.add_system(Phase::AfterPhysics, |_: &mut ponko::prelude::Ctx| {});
             (*handle).game = Some(game.order(second, first));
 
             let mut len = 0;

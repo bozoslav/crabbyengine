@@ -2,9 +2,14 @@ name: Release
 
 # First fold the changelog fragments in (python3 scripts/changelog.py) and
 # name the version in CHANGELOG.md, through a PR. Then push a tag like
-# v1.0.0 (on a commit of main whose CI passed):
+# v0.1.0 (on a commit of main whose CI passed):
+#   - checks the tag, the crate versions and the CHANGELOG section (which
+#     must fit in a GitHub release body) before anything is built;
+#   - packages every crate (`cargo publish --workspace --dry-run`), so a
+#     crate that can't be published stops the release before it exists;
 #   - builds the C library on each OS and attaches it, with the headers,
-#     to a GitHub release whose notes are that version's CHANGELOG section;
+#     the licenses and the third-party notices of every library linked into
+#     it, to a GitHub release whose notes are that version's CHANGELOG section;
 #   - publishes the crates to crates.io if the CARGO_REGISTRY_TOKEN secret
 #     is set (`gh secret set CARGO_REGISTRY_TOKEN`); otherwise that job says
 #     so and does nothing, and can be re-run once the secret exists.
@@ -43,6 +48,10 @@ jobs:
           mkdir -p "$dir/include" "$dir/lib"
           cp include/ponko.h include/ponko.hpp "$dir/include/"
           cp LICENSE-MIT LICENSE-APACHE NOTICE "$dir/"
+          # Every library linked into ponko_ffi on this OS, with its license
+          # texts (wgpu, rapier, kira, the bundled fonts, ...).
+          python scripts/package-coin-dash.py notices --crate ponko_ffi \
+            --title "the Ponko C library" --out "$dir/THIRD-PARTY-NOTICES.txt"
           for f in libponko_ffi.a libponko_ffi.so libponko_ffi.dylib ponko_ffi.lib ponko_ffi.dll ponko_ffi.dll.lib; do
             if [ -f "target/release/$f" ]; then cp "target/release/$f" "$dir/lib/"; fi
           done
@@ -57,9 +66,22 @@ jobs:
           name: ${{ matrix.name }}
           path: ponko-*.*z*
 
+  # Packages and verifies every publishable crate against the others'
+  # packaged versions, as crates.io will see them, without uploading.
+  publish-check:
+    name: Package the crates
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install ALSA and udev headers (audio, gamepads)
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo publish --workspace --dry-run
+
   github-release:
     name: GitHub release
-    needs: c-library
+    needs: [c-library, publish-check]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -68,15 +90,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Notes from CHANGELOG.md
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '
-            $0 ~ "^## \\[" v "\\]" { on = 1; next }
-            on && /^## \[/ { exit }
-            /^\[[^]]*\]: / { next }
-            on { print }
-          ' CHANGELOG.md > notes.md
-          test -s notes.md || { echo "CHANGELOG.md has no section for $version"; exit 1; }
+        run: python3 scripts/release-check.py notes "$GITHUB_REF_NAME" notes.md
       - run: gh release create "$GITHUB_REF_NAME" dist/* --title "Ponko ${GITHUB_REF_NAME#v}" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
@@ -100,10 +114,11 @@ jobs:
           fi
           cargo publish --workspace
 
-  # Every release job depends on this one (c-library, then github-release and
-  # crates-io through it): nothing is built, released or published unless the
-  # tag, the crates' versions and the CHANGELOG section agree and the tagged
-  # commit was merged to main (scripts/release-check.py).
+  # Every release job depends on this one (c-library and publish-check, then
+  # github-release and crates-io through them): nothing is built, released or
+  # published unless the tag, the crates' versions and the CHANGELOG section
+  # agree, the section fits in a GitHub release body (125,000 characters), and
+  # the tagged commit was merged to main (scripts/release-check.py).
   verify:
     name: Check the tag
     if: github.ref_type == 'tag' && !endsWith(github.ref_name, '-desktop-dry-run')

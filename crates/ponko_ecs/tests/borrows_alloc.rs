@@ -35,7 +35,12 @@ static GLOBAL: Counting = Counting;
 struct Speed(u64);
 struct Score(u64);
 struct Total(u64);
+#[derive(Component)]
 struct Target(Entity);
+#[derive(Component)]
+struct Sum(u64);
+#[derive(Component)]
+struct Count(u32);
 
 #[test]
 fn the_combined_borrows_do_not_allocate() {
@@ -43,31 +48,31 @@ fn the_combined_borrows_do_not_allocate() {
     w.insert_resource(Speed(2));
     w.insert_resource(Score(0));
     w.insert_resource(Total(0));
-    let hub = w.spawn((0u64,));
-    let other = w.spawn((1u64,));
-    w.spawn_batch((0..1000).map(|_| (Target(hub), 1u32)));
+    let hub = w.spawn((Sum(0),));
+    let other = w.spawn((Sum(1),));
+    w.spawn_batch((0..1000).map(|_| (Target(hub), Count(1))));
 
     let frame = |w: &mut World| {
         let (speed, score, total) = w.resources_mut::<(Speed, Score, Total)>();
         score.0 += speed.0;
         total.0 += score.0;
 
-        w.query::<&mut u32>()
+        w.query::<&mut Count>()
             .with_resources::<(&Speed, &mut Score)>()
             .for_each(|n, (speed, score)| {
-                *n = n.wrapping_add(speed.0 as u32);
+                n.0 = n.0.wrapping_add(speed.0 as u32);
                 score.0 += 1;
             });
 
-        w.query::<(&Target, &u32)>()
-            .with_lookup::<&mut u64>()
+        w.query::<(&Target, &Count)>()
+            .with_lookup::<&mut Sum>()
             .for_each(|(target, n), others| {
                 if let Some(sum) = others.get_mut(target.0) {
-                    *sum += u64::from(*n);
+                    sum.0 += u64::from(n.0);
                 }
             });
 
-        if let Some([a, b]) = w.get_many_mut::<u64, 2>([hub, other]) {
+        if let Some([a, b]) = w.get_many_mut::<Sum, 2>([hub, other]) {
             std::mem::swap(a, b);
         }
     };

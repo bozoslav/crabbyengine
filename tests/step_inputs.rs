@@ -21,7 +21,7 @@ use ponko::access::Service;
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 use ponko::collision::CollisionStarted;
 use ponko::prelude::*;
-use ponko::{Systems, systems};
+use ponko::{prelude::Systems, systems};
 
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 type Log<T> = Rc<RefCell<Vec<T>>>;
@@ -65,6 +65,7 @@ mod physics2d {
 
     #[test]
     fn the_step_declares_its_inputs_and_keeps_its_id_and_phase() {
+        #[derive(Component)]
         struct Score;
         let game = Game::new("t", 1, 1).physics(Vec2::ZERO).add(
             Phase::Physics,

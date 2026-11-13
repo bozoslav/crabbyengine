@@ -4,7 +4,6 @@
 #[allow(unused_imports)]
 use ponko::input::Gamepad;
 use ponko::prelude::*;
-use ponko::ui::unstable_taffy::{Display, Style};
 #[allow(unused_imports)]
 use ponko::ui::{Ui, UiAccessValue, UiId, UiInput, UiLayout, UiRole, UiWidget};
 
@@ -250,17 +249,11 @@ fn hidden_subtrees_are_left_out_and_disabled_inherits() {
     let mut m = menu();
     let group = m.ui.panel(m.root).layout(UiLayout::row(40.0)).id();
     let inner = m.ui.button(group, "Inner").layout(UiLayout::fixed(60.0, 30.0)).id();
-    m.ui.set_layout(
-        m.play,
-        ponko::ui::UiLayout::custom(Style {
-            display: Display::None,
-            ..UiLayout::row(30.0).into_style()
-        }),
-    );
+    m.ui.set_layout(m.play, UiLayout::row(30.0).hidden());
     m.ui.set_enabled(group, false);
     press(&mut m.ui, next());
     let tree = m.ui.accessibility_tree();
-    assert!(tree.get(m.play).is_none(), "display: none hides the node");
+    assert!(tree.get(m.play).is_none(), "a hidden layout hides the node");
     assert!(!tree.get(m.root).unwrap().children.contains(&m.play));
     assert_eq!(tree.focus(), Some(m.volume), "focus skips the hidden button");
     let inner = tree.get(inner).unwrap();
@@ -271,13 +264,7 @@ fn hidden_subtrees_are_left_out_and_disabled_inherits() {
     assert!(!tree.get(group).unwrap().focusable);
 
     // Hiding a parent hides its whole subtree.
-    m.ui.set_layout(
-        group,
-        ponko::ui::UiLayout::custom(Style {
-            display: Display::None,
-            ..Default::default()
-        }),
-    );
+    m.ui.set_layout(group, UiLayout::auto().hidden());
     m.ui.layout(VIEW);
     let tree = m.ui.accessibility_tree();
     assert!(tree.get(group).is_none() && tree.get(inner.id).is_none());

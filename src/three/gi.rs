@@ -17,7 +17,7 @@ use glam::{IVec3, Mat3, Mat4, Quat, UVec3, Vec2, Vec3, Vec4};
 
 use super::collect::FADED;
 use super::{Assets3D, Camera3D, Frame3D, Lighting, SkinFrame};
-use crate::World;
+use ponko_ecs::World;
 
 /// The most probes a [`GlobalIllumination`] grid has: a bigger
 /// [`extent`](GlobalIllumination::extent) at the same spacing is shrunk to

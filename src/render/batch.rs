@@ -103,7 +103,7 @@ pub(crate) fn f16_bits(x: f32) -> u16 {
 /// A run of instances that share one texture.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Batch {
-    pub clip: Option<crate::Rect>,
+    pub clip: Option<crate::camera::Rect>,
     pub texture: u32,
     pub start: u32,
     pub end: u32,
@@ -127,8 +127,8 @@ pub(crate) struct DrawList {
     instances: Vec<SpriteInstance>,
     textures: Vec<u32>,
     zs: Vec<f32>,
-    clips: Vec<Option<crate::Rect>>,
-    clip: Option<crate::Rect>,
+    clips: Vec<Option<crate::camera::Rect>>,
+    clip: Option<crate::camera::Rect>,
     /// True once two different `z` values have been pushed this frame.
     needs_sort: bool,
 
@@ -177,7 +177,7 @@ fn z_key(z: f32) -> u32 {
 }
 
 impl DrawList {
-    pub fn set_clip(&mut self, clip: Option<crate::Rect>) {
+    pub fn set_clip(&mut self, clip: Option<crate::camera::Rect>) {
         self.clip = clip;
     }
     #[inline]
@@ -292,7 +292,7 @@ impl DrawList {
     }
 
     /// One batch per run of equal textures, in order.
-    fn build_batches(batches: &mut Vec<Batch>, textures: &[u32], clips: &[Option<crate::Rect>]) {
+    fn build_batches(batches: &mut Vec<Batch>, textures: &[u32], clips: &[Option<crate::camera::Rect>]) {
         let mut start = 0;
         while start < textures.len() {
             let texture = textures[start];
@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn clip_changes_split_batches_and_follow_sorted_instances() {
         let mut list = DrawList::default();
-        let clip = crate::Rect::new(10.0, 20.0, 30.0, 40.0);
+        let clip = crate::camera::Rect::new(10.0, 20.0, 30.0, 40.0);
         list.set_clip(Some(clip));
         list.push(1, 5.0, inst(1.0));
         list.set_clip(None);

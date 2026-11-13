@@ -1,4 +1,4 @@
-//! `ponko::Error`: every loader's `try_` twin reports what went wrong as an
+//! `ponko::prelude::Error`: every loader's `try_` twin reports what went wrong as an
 //! [`ErrorKind`], and the panicking twin panics with the same message.
 
 use ponko::prelude::*;
@@ -78,7 +78,7 @@ fn errors_convert_with_question_mark_into_boxed_errors() {
     }
     in_tick(|ctx| {
         let err = load(ctx).unwrap_err();
-        let err = err.downcast_ref::<Error>().expect("a ponko::Error");
+        let err = err.downcast_ref::<Error>().expect("a ponko::prelude::Error");
         assert_eq!(err.kind(), ErrorKind::NotFound);
     });
 }
@@ -131,7 +131,7 @@ fn custom_decoders_keep_their_kind_and_get_the_path() {
     });
 }
 
-#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize, Component)]
 struct Tuning {
     speed: f32,
 }

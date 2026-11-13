@@ -1,6 +1,6 @@
 //! [`MeshData`]: triangles on the CPU, before they go to the GPU.
 
-use crate::Color;
+use crate::color::Color;
 use glam::{Vec2, Vec3};
 
 /// Triangles to make a [`Mesh`](crate::render::Mesh) from: corners with their
@@ -319,10 +319,10 @@ impl MeshData {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid), saying what doesn't fit.
-    pub fn check(&self) -> Result<(), crate::Error> {
+    /// [`ErrorKind::Invalid`](crate::error::ErrorKind::Invalid), saying what doesn't fit.
+    pub fn check(&self) -> Result<(), crate::error::Error> {
         self.problem()
-            .map_err(|e| crate::Error::new(crate::ErrorKind::Invalid, e))
+            .map_err(|e| crate::error::Error::new(crate::error::ErrorKind::Invalid, e))
     }
 
     /// What doesn't fit in the data, for [`check`](Self::check).

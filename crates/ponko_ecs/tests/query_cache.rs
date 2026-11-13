@@ -1,5 +1,7 @@
 use ponko_ecs::*;
+#[derive(Component)]
 struct Value(usize);
+#[derive(Component)]
 struct Marker<const N: usize>;
 
 fn fragmented(w: &mut World) {
@@ -389,6 +391,7 @@ fn equivalent_queries_share_one_index_entry() {
 #[test]
 #[cfg_attr(miri, ignore = "a big world; Miri runs the same paths in the small worlds below")]
 fn an_automatic_index_follows_registration_new_archetypes_moves_and_empty_archetypes() {
+    #[derive(Component)]
     struct Late;
     let mut w = World::new();
     fragmented(&mut w);
@@ -624,7 +627,9 @@ fn change_detection_is_the_same_with_and_without_the_index() {
     assert_eq!(stamps(QueryCache::Always), scanned);
 }
 
+#[derive(Component)]
 struct Partner(Entity);
+#[derive(Component)]
 struct Score(u32);
 
 /// A lookup reads the entity table and the archetypes while the query
@@ -848,4 +853,43 @@ fn a_small_full_index_sweeps_and_a_small_budget_scans() {
     }
     let stats = w.query_cache_stats();
     assert_eq!((stats.indexed, stats.indices), (0, 0));
+}
+
+#[test]
+#[cfg_attr(miri, ignore = "a big world; Miri runs the same paths in the small worlds below")]
+fn single_reads_through_the_index() {
+    let mut w = World::new();
+    fragmented(&mut w);
+    let all = |w: &mut World| {
+        w.query::<&Value>()
+            .cached()
+            .filter::<(With<Marker<0>>, With<Marker<1>>, With<Marker<2>>, With<Marker<3>>)>()
+            .filter::<(With<Marker<4>>, With<Marker<5>>, With<Marker<6>>)>()
+            .single()
+            .map(|v| v.0)
+    };
+    assert_eq!(all(&mut w), Ok(127));
+    let before = w.query_cache_stats().hits;
+    assert_eq!(all(&mut w), Ok(127));
+    assert_eq!(
+        w.query_cache_stats().hits,
+        before + 1,
+        "the second call reads the index"
+    );
+    assert_eq!(
+        w.query::<&Value>().cached().filter::<With<Marker<6>>>().single().err(),
+        Some(SingleError::MultipleEntities)
+    );
+    ViewState::new().read::<Value>().run(&mut w, |mut view| {
+        let found = view
+            .query::<&Value>()
+            .cached()
+            .filter::<(With<Marker<0>>, With<Marker<1>>, With<Marker<2>>, With<Marker<3>>)>()
+            .filter::<(With<Marker<4>>, With<Marker<5>>, With<Marker<6>>)>()
+            .single()
+            .map(|v| v.0);
+        assert_eq!(found, Ok(127));
+        let several = view.query::<&Value>().cached().filter::<With<Marker<6>>>().single();
+        assert_eq!(several.err(), Some(SingleError::MultipleEntities));
+    });
 }

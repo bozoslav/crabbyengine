@@ -7,6 +7,7 @@ use ponko::system_view::SystemView;
 
 #[derive(Default)]
 struct Log(Vec<String>);
+#[derive(Component)]
 struct Pos;
 
 fn setup(ctx: &mut Ctx) {

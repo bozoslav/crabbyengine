@@ -4,7 +4,9 @@ use crate::Bench;
 use ponko_ecs::{With, Without, World};
 use std::hint::black_box;
 
+#[derive(ponko_ecs::Component)]
 struct Value(u64);
+#[derive(ponko_ecs::Component)]
 struct Marker<const N: usize>;
 
 fn world(layouts: usize) -> World {

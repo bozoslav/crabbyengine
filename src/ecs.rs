@@ -7,6 +7,7 @@ use crate::camera::Rect;
 use crate::color::Color;
 use crate::ctx::Ctx;
 use crate::texture::Texture;
+use ponko_ecs::Component;
 
 /// Where an entity is: position, rotation and scale.
 ///
@@ -18,7 +19,7 @@ use crate::texture::Texture;
 /// let t = ponko::d2::Transform::at(vec2(100.0, 50.0)).rotated(0.5);
 /// assert_eq!(t.position, vec2(100.0, 50.0));
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 #[repr(C)] // shared with C/C++ (`PonkoTransform2D`)
 pub struct Transform2D {
@@ -76,7 +77,7 @@ impl Transform2D {
 /// ));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Component)]
 pub struct Sprite {
     /// The image to draw.
     pub texture: Texture,
@@ -87,7 +88,7 @@ pub struct Sprite {
     /// Point of the sprite placed at the position: `(0.5, 0.5)` = center (default).
     pub pivot: Vec2,
     /// The part of the texture to show, in texture pixels (a frame of a
-    /// [`SpriteSheet`](crate::SpriteSheet)). `None` (default) shows all of it.
+    /// [`SpriteSheet`](crate::sheet::SpriteSheet)). `None` (default) shows all of it.
     pub region: Option<Rect>,
 }
 
@@ -140,7 +141,7 @@ impl Sprite {
 }
 
 /// Built-in system: draws every entity that has a [`Transform2D`] and a
-/// [`Sprite`]. [`Game`](crate::Game) runs it every frame by default.
+/// [`Sprite`]. [`Game`](crate::game::Game) runs it every frame by default.
 ///
 /// Replace it with your own renderer like this:
 ///

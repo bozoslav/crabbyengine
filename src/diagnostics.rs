@@ -20,7 +20,9 @@
 //! use ponko::access::SystemAccess;
 //! use ponko::prelude::*;
 //! use ponko::system_view::SystemView;
+//! #[derive(Component)]
 //! struct Pos(f32);
+//! #[derive(Component)]
 //! struct Vel(f32);
 //! fn movement(_: &mut SystemView) {}
 //! fn friction(_: &mut SystemView) {}
@@ -138,11 +140,11 @@ pub struct SystemDiagnostics {
     /// - `exclusive`: anything. It has no declaration (or declares
     ///   [`SystemAccess::exclusive`]), so nothing can run beside it.
     /// - `declared`: a `&mut Ctx` system with a declaration
-    ///   ([`IntoSystem::access`](crate::IntoSystem::access), C and C++
+    ///   ([`IntoSystem::access`](crate::game::IntoSystem::access), C and C++
     ///   systems). The declaration is only checked in debug builds, so it
     ///   still runs alone.
     /// - `view`: a view system (one that takes `&mut SystemView`; see
-    ///   [`Game::add`](crate::Game::add)). It can reach nothing beyond its
+    ///   [`Game::add`](crate::game::Game::add)). It can reach nothing beyond its
     ///   declaration and may share a batch.
     pub access: String,
     /// The declaration, by name; `None` for an undeclared system.
@@ -235,7 +237,7 @@ pub struct ConflictDiagnostics {
 #[non_exhaustive]
 pub struct ScheduleDiagnostics {
     /// The parallel scheduler is on
-    /// ([`Game::parallel_systems`](crate::Game::parallel_systems) or the
+    /// ([`Game::parallel_systems`](crate::game::Game::parallel_systems) or the
     /// environment): batches really share the world.
     pub parallel: bool,
     /// There are other threads for a batch to go to. `false` with the
@@ -273,8 +275,8 @@ pub struct StageDiagnostics {
     /// - `alone`: its system runs alone, or the one before it does.
     /// - `conflict`: its first system conflicts with system `after` of the
     ///   batch before it, on `conflicts`.
-    /// - `barrier`: an explicit [`Game::barrier`](crate::Game::barrier).
-    /// - `order`: [`Game::order`](crate::Game::order) puts its first system
+    /// - `barrier`: an explicit [`Game::barrier`](crate::game::Game::barrier).
+    /// - `order`: [`Game::order`](crate::game::Game::order) puts its first system
     ///   after system `after`.
     pub boundary: String,
     /// `order` of the earlier system, for `conflict` and `order`.
@@ -308,7 +310,7 @@ pub struct DependencyDiagnostics {
 }
 
 /// The world's archetype index for queries
-/// ([`World::query_cache_stats`](crate::World::query_cache_stats)).
+/// ([`World::query_cache_stats`](ponko_ecs::World::query_cache_stats)).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 #[non_exhaustive]
@@ -359,6 +361,7 @@ impl EcsDiagnostics {
     ///
     /// ```
     /// use ponko::prelude::*;
+    /// #[derive(Component)]
     /// struct Hp(u32);
     /// fn check(ctx: &mut Ctx) {
     ///     let m = ctx.ecs_diagnostics().matching(&["Hp"]).unwrap();
@@ -371,9 +374,9 @@ impl EcsDiagnostics {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) for a name no
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) for a name no
     /// component has (the message lists the known ones).
-    pub fn matching(&self, components: &[&str]) -> Result<MatchCount, crate::Error> {
+    pub fn matching(&self, components: &[&str]) -> Result<MatchCount, crate::error::Error> {
         let mut full: Vec<&str> = Vec::with_capacity(components.len());
         for &wanted in components {
             let found = self
@@ -385,8 +388,8 @@ impl EcsDiagnostics {
                 Some(c) => full.push(&c.name),
                 None => {
                     let known: Vec<&str> = self.components.iter().map(|c| c.short_name.as_str()).collect();
-                    return Err(crate::Error::new(
-                        crate::ErrorKind::NotFound,
+                    return Err(crate::error::Error::new(
+                        crate::error::ErrorKind::NotFound,
                         format!("unknown component `{wanted}` (known: {})", known.join(", ")),
                     ));
                 }
@@ -696,7 +699,7 @@ mod tests {
 
     #[test]
     fn a_ctx_without_a_game_reports_systems_alone_and_no_stages() {
-        let mut ctx = Ctx::new(1.0 / 60.0, crate::Vec2::ZERO);
+        let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ZERO);
         ctx.perf.timings = vec![SystemTiming {
             name: "game::tick",
             sim: true,

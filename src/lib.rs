@@ -1,6 +1,7 @@
 //! # Ponko
 //!
-//! A fast 2D and 3D engine for games with huge numbers of things on screen.
+//! A code-first 2D and 3D game engine with integrated simulation, C++
+//! bindings, and tools for AI-assisted development.
 //!
 //! ```no_run
 //! use ponko::prelude::*;
@@ -38,23 +39,36 @@
 //!   are always built in and cost one atomic load while profiling is off.)
 //! - `hotpatch`: change system code while the game runs, with
 //!   `dx serve --hot-patch --features hotpatch`.
-//! - `physics`: 2D physics with rapier (`Game::physics`); `physics-determinism`
-//!   for bit-identical results across platforms.
+//! - `3d`: meshes, materials, glTF models, a perspective camera, lights and
+//!   shadows, drawn under the 2D layer (`ponko::d3`, `ctx.scene3d`).
+//! - `navmesh`: navigation meshes for 3D (Recast baking and Detour path and
+//!   crowd queries, in pure Rust). Turns on `3d`.
+//! - `physics`: 2D physics with rapier (`Game::physics`).
 //! - `physics3d`: 3D physics with rapier (`Game::physics3d`): bodies,
 //!   colliders (heightfield terrain too), queries, a character controller and
-//!   raycast-wheel vehicles.
+//!   raycast-wheel vehicles. Turns on `3d`.
+//! - `physics-determinism`: physics with bit-identical results on every
+//!   platform (for lockstep and replays), a little slower. Turns on `physics`.
+//! - `control-env`: a release build honors `PONKO_CONTROL=1` and opens the
+//!   control endpoint for tools (debug builds always do). Off, a release build
+//!   opens it only when the game calls `Game::control_endpoint(true)`.
 //! - `accessibility`: screen readers read and operate the retained UI of the
 //!   game's window (`ui::UiAccessAdapter`). macOS only (VoiceOver, through
 //!   AccessKit); on other systems it builds and does nothing. Needs `window`.
 //! - `steam`: lockstep and byte messages over Steam's relays and lobbies
 //!   (`Net::steam_host`), with the `steamworks` crate re-exported as `ponko::net::steam`.
+//! - `bench-internals`: **unstable** benchmark drivers for the engine's own
+//!   benchmark crate. Not part of the API; they change in any release.
+//!
+//! What a 0.x release may change, and what it keeps, is in
+//! [STABILITY.md](https://github.com/ponkoengine/ponko/blob/main/STABILITY.md).
 
 #![warn(missing_docs)]
 // Without a window, the code that only the window loop calls is unused.
 #![cfg_attr(not(feature = "window"), allow(dead_code))]
 
-// Tests include example files (`use ponko::*;`) to check them as they are.
-#[cfg(test)]
+// `#[derive(Component)]` names the trait `::ponko::prelude::Component`, in
+// this crate too; tests also include example files as they are.
 extern crate self as ponko;
 
 pub mod anim;
@@ -115,6 +129,13 @@ pub mod __ffi {
         H::from_raw_id(id)
     }
 
+    /// The first system named `name` (in phase order), for removal by
+    /// name. Unstable (see the [module](self)).
+    #[must_use]
+    pub fn system_named(game: &crate::game::Game, name: &str) -> Option<crate::game::SystemId> {
+        game.system_named(name)
+    }
+
     /// The slot bits of a mesh's, GPU buffer's or collision mesh's id: the
     /// bits above count how often the slot was given out. Unstable.
     #[cfg(feature = "3d")]
@@ -123,9 +144,6 @@ pub mod __ffi {
 mod hot_reload;
 pub mod input;
 pub mod inventory;
-
-#[doc(hidden)]
-pub use actions::{Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding};
 
 #[cfg(feature = "inspector")]
 mod inspector;
@@ -168,90 +186,10 @@ pub mod ui;
 #[cfg(all(target_arch = "wasm32", feature = "window"))]
 mod web;
 
-#[doc(hidden)]
-pub use assets::{AssetSource, Assets, MemorySource};
-#[doc(hidden)]
-pub use audio::{AudioBus, Playing, Sound, SoundParams};
-
-#[doc(hidden)]
-pub use camera::Rect;
-#[cfg(any(feature = "physics", feature = "physics3d"))]
-#[doc(hidden)]
-pub use collision::{BodyKind, CollisionStarted, CollisionStopped};
-#[doc(hidden)]
-pub use color::Color;
-#[doc(hidden)]
-pub use ctx::Ctx;
-
-#[doc(hidden)]
-pub use error::{Error, ErrorKind};
-#[doc(hidden)]
-pub use events::Events;
-
-#[doc(hidden)]
-pub use game::{ConfiguredGame, Game, IntoSystem, Phase, Plugin, SetupResult, SystemConfig, SystemId, Systems};
-#[doc(hidden)]
-pub use handle::Handle;
-#[doc(hidden)]
-pub use input::{Key, MouseButton};
-#[doc(hidden)]
-pub use random::{Random, Rng};
-
-#[doc(hidden)]
-pub use reflect::WorldReflect;
-#[doc(hidden)]
-pub use sheet::SpriteSheet;
-#[doc(hidden)]
-pub use text::{Font, TextParams};
-#[doc(hidden)]
-pub use texture::{DrawParams, Texture, TextureFilter};
-
-#[doc(hidden)]
-pub use time::{Time, Turns};
-
-/// The ECS: entities, components, queries, resources, commands.
-#[doc(hidden)]
-pub use ponko_ecs::{Added, Changed, Commands, Component, Entity, Or, Query, Tick, With, Without, World};
-
 /// The whole ECS crate ([`ponko_ecs`]), for advanced use: component ids,
-/// read-only world views, the dynamic and C path ([`World::raw`]), chunks
+/// read-only world views, the dynamic and C path ([`World::raw`](ponko_ecs::World::raw)), chunks
 /// and archetypes. Games normally need only the ECS types in the prelude.
 pub mod ecs_core {
     #[doc(no_inline)]
     pub use ponko_ecs::*;
 }
-
-/// 3D and 4D vectors, rotation and 4x4 matrix, for 3D (re-exported from `glam`).
-#[cfg(feature = "3d")]
-#[doc(hidden)]
-pub use glam::{Mat4, Vec4, vec4};
-/// Rotation and 3D vector (re-exported from `glam`); also used by the
-/// replication helpers ([`Pose`], [`Interest`]), which need no `3d` feature.
-#[doc(hidden)]
-pub use glam::{Quat, Vec3, vec3};
-/// Whole-number 2D vector, for tile coordinates (re-exported from `glam`).
-#[doc(hidden)]
-pub use glam::{UVec2, uvec2};
-/// 2D vector used for positions, sizes and velocities (re-exported from `glam`).
-#[doc(hidden)]
-pub use glam::{Vec2, vec2};
-
-/// The `json!` macro used by reflection (re-exported from `serde_json`).
-#[doc(hidden)]
-pub use serde_json::json;
-
-/// The prelude's short names for the dimension types.
-#[doc(hidden)]
-pub use d2::{Camera as Camera2D, Sprite, Transform as Transform2D};
-#[cfg(feature = "3d")]
-#[doc(hidden)]
-pub use d3::{Camera as Camera3D, Transform as Transform3D};
-#[cfg(feature = "3d")]
-#[doc(hidden)]
-pub use render::Model;
-#[doc(hidden)]
-pub use ui::{Ui, UiId};
-
-/// Prefab placement in either dimension.
-#[doc(hidden)]
-pub use scene::Placement;

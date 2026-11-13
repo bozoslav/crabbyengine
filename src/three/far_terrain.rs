@@ -6,8 +6,9 @@ use std::collections::HashSet;
 use glam::{Vec2, Vec3};
 
 use super::{Material, Mesh, MeshData, Model, ShadowMesh};
+use crate::ctx::Ctx;
 use crate::d3::Transform as Transform3D;
-use crate::{Ctx, Entity};
+use ponko_ecs::Entity;
 
 /// Grid squares along each side of one of a far terrain's meshes.
 const BLOCK: usize = 64;

@@ -6,7 +6,7 @@ use crate::{Failure, PonkoCtx, PonkoStatus, boundary, engine_error, invalid, inv
 use ponko::actions::InputEvent;
 use ponko::input::Gamepad;
 use ponko::input::GamepadStick;
-use ponko::{Action, ActionId, ActionMap, Axis2Binding, AxisBinding, ButtonBinding};
+use ponko::prelude::{Action, ActionId, ActionMap, Axis2Binding, AxisBinding, ButtonBinding};
 use std::ffi::{CStr, c_char};
 
 /// Owned binding configuration. Install a copy with `ponko_ctx_set_actions`.
@@ -82,10 +82,10 @@ unsafe fn map_mut<'a>(map: *mut PonkoActionMap) -> Result<&'a mut ActionMap, Fai
 fn pad(slot: u32) -> Result<Gamepad, Failure> {
     Gamepad::from_slot(slot as usize).ok_or_else(|| invalid("gamepad slot out of range"))
 }
-fn key(value: u32) -> Result<ponko::Key, Failure> {
+fn key(value: u32) -> Result<ponko::prelude::Key, Failure> {
     key_from_c(value).ok_or_else(|| invalid("unknown key"))
 }
-fn mouse(value: u32) -> Result<ponko::MouseButton, Failure> {
+fn mouse(value: u32) -> Result<ponko::prelude::MouseButton, Failure> {
     button_from_c(value).ok_or_else(|| invalid("unknown mouse button"))
 }
 fn button(value: u32) -> Result<ponko::input::GamepadButton, Failure> {
@@ -448,7 +448,10 @@ pub unsafe extern "C" fn ponko_ctx_action_axis2(
 
 /// An unknown action name: `PONKO_NOT_FOUND`, naming the known actions.
 fn unknown_action(e: &ponko::actions::UnknownAction) -> Failure {
-    engine_error(ponko::Error::new(ponko::ErrorKind::NotFound, e.to_string()))
+    engine_error(ponko::prelude::Error::new(
+        ponko::prelude::ErrorKind::NotFound,
+        e.to_string(),
+    ))
 }
 
 /// The action id of no action (Rust's `ActionId::NONE`): queries with it read

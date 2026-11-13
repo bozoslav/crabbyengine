@@ -7,6 +7,7 @@ use std::ffi::c_char;
 use ponko::__ffi;
 use ponko::handle::LiveCounts;
 use ponko::inventory::{AssetClass, AssetOwner};
+use ponko::prelude::{Font, Sound, Texture};
 use ponko::render::Compute;
 use ponko::render::Effect;
 use ponko::render::GpuBuffer;
@@ -15,7 +16,6 @@ use ponko::render::Material;
 use ponko::render::Mesh;
 use ponko::render::Shader;
 use ponko::terrain::TextureArray;
-use ponko::{Font, Sound, Texture};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::{PonkoCtx, PonkoStatus, boundary, invalid};
@@ -322,7 +322,7 @@ fn asset_class(class: u32) -> Result<AssetClass, crate::Failure> {
 }
 
 /// The records of `class`, from the service that holds it.
-fn records_of(c: &ponko::Ctx, class: AssetClass) -> Vec<ponko::inventory::AssetRecord> {
+fn records_of(c: &ponko::prelude::Ctx, class: AssetClass) -> Vec<ponko::inventory::AssetRecord> {
     match class {
         AssetClass::Sound => c.audio.asset_handles(),
         _ => c.gfx.asset_handles(class),

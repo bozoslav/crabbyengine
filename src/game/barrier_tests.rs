@@ -3,6 +3,7 @@
 //! Headless runs are covered in `tests/schedule_barriers.rs`.
 
 use super::*;
+use ponko_ecs::Component;
 
 #[derive(Default)]
 struct Log(Vec<String>);
@@ -10,6 +11,7 @@ struct Log(Vec<String>);
 #[derive(Clone, Copy)]
 struct Ping(u64);
 
+#[derive(Component)]
 struct Marker;
 
 fn log(ctx: &mut Ctx, line: String) {
@@ -163,8 +165,9 @@ fn commands_from_frame_systems_apply_before_late_and_draw_phases() {
 
 // ---- change detection -------------------------------------------------------------
 
-use crate::{Changed, Entity, Tick, With};
+use ponko_ecs::{Changed, Entity, Tick, With};
 
+#[derive(Component)]
 struct Hp;
 
 fn changed_hp(ctx: &mut Ctx) -> usize {

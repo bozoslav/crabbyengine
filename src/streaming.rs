@@ -46,7 +46,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use crate::assets::{self, Origin};
 pub use crate::residency::{ResidencyKind, ResidencyStats};
-use crate::{Ctx, Texture, stream::Job};
+use crate::{ctx::Ctx, stream::Job, texture::Texture};
 use ponko_ecs::World;
 
 /// The longest side of a streamed texture's stand-in.
@@ -127,7 +127,7 @@ pub struct UploadStats {
     pub oversized: u64,
     /// Times the game thread waited for a decode: only with
     /// [deterministic uploads](crate::gfx::Graphics::set_deterministic_uploads) or in
-    /// [`Ctx::finish_uploads`](crate::Ctx::finish_uploads).
+    /// [`Ctx::finish_uploads`](crate::ctx::Ctx::finish_uploads).
     pub decode_waits: u64,
     /// Texture uploads held back because the texture budget was full.
     pub held_by_budget: u64,
@@ -225,7 +225,7 @@ pub(crate) fn pyramid(image: assets::Image, max: u32) -> Pyramid {
     levels
 }
 
-type Decoded<T> = Job<Result<T, crate::Error>>;
+type Decoded<T> = Job<Result<T, crate::error::Error>>;
 
 /// A streamed texture.
 pub(crate) struct StreamedTexture {
@@ -278,7 +278,7 @@ pub(crate) struct Streaming {
     pub texture_names: std::collections::HashMap<u32, String>,
     #[cfg(feature = "3d")]
     pub meshes: BTreeMap<String, StreamedMesh>,
-    errors: BTreeMap<(u8, String), crate::Error>,
+    errors: BTreeMap<(u8, String), crate::error::Error>,
     pub stats: UploadStats,
     /// Streamed LOD groups this frame: reused, so it doesn't allocate.
     #[cfg(feature = "3d")]
@@ -327,7 +327,7 @@ impl Streaming {
         (t.size != full).then_some(t.size)
     }
 
-    pub(crate) fn fail(&mut self, kind: ResidencyKind, name: &str, error: crate::Error) {
+    pub(crate) fn fail(&mut self, kind: ResidencyKind, name: &str, error: crate::error::Error) {
         eprintln!("ponko: could not stream {name}: {error}");
         self.stats.failures += 1;
         self.errors.insert((kind_key(kind), name.to_string()), error);
@@ -406,7 +406,7 @@ impl crate::gfx::Graphics {
     /// eviction, keeps the stand-in), with [`AssetState::Failed`] and the
     /// error in [`asset_error`](crate::gfx::Graphics::asset_error). Asking again doesn't
     /// retry, so a missing file costs nothing each frame;
-    /// [`resident_texture`](Self::resident_texture) loads it again. Files from added [asset sources](crate::Assets::add_source)
+    /// [`resident_texture`](Self::resident_texture) loads it again. Files from added [asset sources](crate::assets::Assets::add_source)
     /// are read on the game thread (their trait runs there) and decoded on
     /// a worker. In a browser, decoding runs when the load starts.
     ///
@@ -505,7 +505,7 @@ impl crate::gfx::Graphics {
     /// # Errors
     ///
     /// As `try_load_texture`.
-    pub fn try_resident_texture(&mut self, path: &str) -> Result<Texture, crate::Error> {
+    pub fn try_resident_texture(&mut self, path: &str) -> Result<Texture, crate::error::Error> {
         let now = self.residency_now();
         self.forget_freed_texture(path);
         if let Some(t) = self.streaming.textures.get(path)
@@ -901,7 +901,7 @@ impl crate::gfx::Graphics {
     }
 
     /// Reads and decodes texture `name` on this thread.
-    fn decode_texture_now(&mut self, name: &str) -> Result<(Origin, Pyramid), crate::Error> {
+    fn decode_texture_now(&mut self, name: &str) -> Result<(Origin, Pyramid), crate::error::Error> {
         let found = self.asset_sources.find(name)?;
         let max = self.max_texture_side();
         decode_texture(name, found.origin.clone(), found.into_bytes(), max)
@@ -991,7 +991,7 @@ impl crate::gfx::Graphics {
     /// Why loading the asset of `kind` called `name` failed, while it is
     /// [`AssetState::Failed`].
     #[must_use]
-    pub fn asset_error(&self, kind: ResidencyKind, name: &str) -> Option<&crate::Error> {
+    pub fn asset_error(&self, kind: ResidencyKind, name: &str) -> Option<&crate::error::Error> {
         if self.asset_state(kind, name) != AssetState::Failed {
             return None;
         }
@@ -1087,12 +1087,13 @@ impl crate::gfx::Graphics {
 fn decode_texture(
     name: &str,
     origin: Origin,
-    bytes: Result<Vec<u8>, crate::Error>,
+    bytes: Result<Vec<u8>, crate::error::Error>,
     max: u32,
-) -> Result<(Origin, Pyramid), crate::Error> {
+) -> Result<(Origin, Pyramid), crate::error::Error> {
     let bytes = bytes.map_err(|e| e.with_path(name))?;
-    let image = assets::decode_image(&bytes)
-        .map_err(|e| crate::Error::decode(name, format!("{} is not a valid image: {e}", origin.describe(name))))?;
+    let image = assets::decode_image(&bytes).map_err(|e| {
+        crate::error::Error::decode(name, format!("{} is not a valid image: {e}", origin.describe(name)))
+    })?;
     Ok((origin, pyramid(image, max)))
 }
 

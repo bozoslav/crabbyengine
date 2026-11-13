@@ -19,7 +19,7 @@ use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Walks in a straight line, turning around at the window's edges.
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy, Component)]
 #[serde(default)]
 struct Walker {
     /// Pixels per second.

@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use super::{CollisionGroups, LinkKind, Physics3D, from_rp, rot_from_rp, to_rp};
 use crate::collision::BodyKind;
 use crate::d3::Transform as Transform3D;
-use crate::{Entity, Quat, Vec3, World};
+use glam::{Quat, Vec3};
+use ponko_ecs::{Component, Entity, World};
 
 /// How much grip a tyre has for how much it slips: a curve rising from 0
 /// to its peak `(extremum_slip, extremum_value)`, falling to
@@ -309,7 +310,7 @@ impl Wheel3D {
 ///     }
 /// }
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 #[serde(default)]
 #[repr(C, align(16))] // C sees it as PonkoVehicle3D.
 pub struct Vehicle3D {
@@ -724,7 +725,7 @@ fn solve3(m: [[f64; 3]; 3], b: [f64; 3]) -> [f64; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vec3;
+    use glam::vec3;
 
     #[test]
     fn friction_curves_peak_then_settle_smoothly() {

@@ -27,6 +27,7 @@ use ponko::terrain::{FarTerrain, Heightfield, TerrainMaterialDesc, TerrainTile, 
 
 // ANCHOR: three_d
 /// Turns around its own Y axis, this many radians a second.
+#[derive(Component)]
 struct Spin(f32);
 
 fn village(ctx: &mut Ctx) {

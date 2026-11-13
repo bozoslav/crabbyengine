@@ -67,7 +67,7 @@ impl Client {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Component)]
 struct Counter(u32);
 
 fn count(ctx: &mut Ctx) {

@@ -13,16 +13,17 @@ use ponko::reflect::ReflectError;
 use ponko::render::{LodGroup, LodHysteresis, Model, ModelMaterial, ReceivesDecals};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Component)]
 struct Health {
     current: f32,
     max: f32,
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Component)]
 struct Team(u8);
 
 /// Not reflected: must never show up in JSON.
+#[derive(Component)]
 struct Secret;
 
 /// Shown in the inspector chapter; compiled, not run (it opens a window).
@@ -167,7 +168,8 @@ fn reflecting_twice_is_harmless() {
 }
 
 mod other {
-    #[derive(serde::Serialize, serde::Deserialize)]
+    use ponko::prelude::Component;
+    #[derive(serde::Serialize, serde::Deserialize, Component)]
     pub struct Health(pub f32);
 }
 
@@ -208,7 +210,7 @@ fn games_reflect_the_builtin_components_by_default() {
 // -------------------------------------------------------------- save/load
 
 /// A component that refers to another entity: the reason ids are kept.
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize, Component)]
 struct Follows(Entity);
 
 fn save_world() -> (World, Entity, Entity) {

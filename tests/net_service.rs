@@ -14,7 +14,7 @@ use ponko::net::PeerId;
 use ponko::net::Pose;
 use ponko::net::SnapshotState;
 use ponko::net::UpdateStamp;
-use ponko::*;
+use ponko::prelude::*;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;

@@ -1,8 +1,10 @@
 //! Punctual lights and retained, conservative CPU froxel lists.
 use super::shadow_atlas::{MIN_TILE, Tile, fit, floor_pow2, pack, round_pow2};
 use super::{Camera3D, Transform3D, linear};
-use crate::{Color, World};
+use crate::color::Color;
 use glam::{Mat4, Vec3};
+use ponko_ecs::Component;
+use ponko_ecs::World;
 
 /// Omnidirectional light at its entity's [`Transform3D::position`]. Scale is ignored.
 /// Intensity is linear radiant intensity; distance attenuation is inverse-square,
@@ -15,7 +17,7 @@ use glam::{Mat4, Vec3};
 /// world.spawn((ponko::d3::Transform::at(vec3(0.0, 3.0, 0.0)), lamp));
 /// ```
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 pub struct PointLight3D {
     /// sRGB color (alpha ignored).
@@ -59,7 +61,7 @@ impl Default for PointLight3D {
 /// world.spawn((ponko::d3::Transform::default(), beam));
 /// ```
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 pub struct SpotLight3D {
     /// sRGB color (alpha ignored).
@@ -748,8 +750,8 @@ pub(crate) mod tests {
 
     #[test]
     fn nearest_shadowed_lights_get_views_until_they_run_out() {
-        use crate::Entity;
         use glam::vec3;
+        use ponko_ecs::Entity;
         let mut w = World::new();
         let shadowed = PointLight3D {
             intensity: 5.0,

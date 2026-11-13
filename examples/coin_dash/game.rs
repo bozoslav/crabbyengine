@@ -48,8 +48,10 @@ pub const PLAYER_RADIUS: f32 = 14.0;
 pub const COIN_RADIUS: f32 = 10.0;
 
 /// The player. Position is the entity's [`Transform2D`].
+#[derive(Component)]
 pub struct Player;
 /// A coin to collect.
+#[derive(Component)]
 pub struct Coin;
 
 /// The pictures, made or loaded once at startup: a procedural disc (the

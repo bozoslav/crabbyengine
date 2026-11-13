@@ -29,7 +29,7 @@ def references():
 
 
 def classify(name):
-    if name.endswith('README.md') or name in ('AGENTS.md', 'CLAUDE.md', 'CHANGELOG.md', 'NOTICE', 'LICENSE-MIT') or name.endswith('CONTENT-NOTICES.txt') or name.startswith('changelog.d/'):
+    if name.endswith('README.md') or name in ('AGENTS.md', 'CLAUDE.md', 'CHANGELOG.md', 'NOTICE', 'LICENSE-MIT') or name.endswith(('CONTENT-NOTICES.txt', '/NOTICE')) or name.startswith('changelog.d/'):
         return 'intentional history', 'Preserved project instructions, README text, release history or legal attribution.'
     if '/fixtures/' in name:
         return 'intentional history', 'Immutable historical ABI or saved-format baseline and its provenance/generator.'

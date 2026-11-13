@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use glam::{Mat4, Quat, Vec2, Vec3};
 
 use super::{Prepare3D, Renderer3D};
-use crate::Ctx;
+use crate::ctx::Ctx;
 use crate::d3::Transform as Transform3D;
 use crate::render::gpu::GpuTexture;
 use crate::render::timer::GpuTimer;
@@ -223,7 +223,7 @@ impl LodBench {
     }
 
     /// A lit mesh of `data`, on the CPU and the GPU.
-    fn mesh(&mut self, data: &MeshData, color: crate::Color) -> Mesh {
+    fn mesh(&mut self, data: &MeshData, color: crate::color::Color) -> Mesh {
         let desc = MaterialDesc {
             color,
             ..Default::default()
@@ -246,9 +246,9 @@ impl LodBench {
     /// 15% of the screen's height, 6 segments down to 4%, a box down to 1%,
     /// then nothing (11, 43 and 173 m away at the default field of view).
     fn build(&mut self, side: usize) {
-        let near = self.mesh(&MeshData::sphere(1.0, 16), crate::Color::rgb(0.3, 0.7, 0.3));
-        let middle = self.mesh(&MeshData::sphere(1.0, 6), crate::Color::rgb(0.4, 0.7, 0.3));
-        let far = self.mesh(&MeshData::cube(1.6), crate::Color::rgb(0.5, 0.6, 0.3));
+        let near = self.mesh(&MeshData::sphere(1.0, 16), crate::color::Color::rgb(0.3, 0.7, 0.3));
+        let middle = self.mesh(&MeshData::sphere(1.0, 6), crate::color::Color::rgb(0.4, 0.7, 0.3));
+        let far = self.mesh(&MeshData::cube(1.6), crate::color::Color::rgb(0.5, 0.6, 0.3));
         let group = LodGroup::new(
             2.0,
             vec![

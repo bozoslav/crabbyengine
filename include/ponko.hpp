@@ -695,9 +695,9 @@ public:
 
 class ctx;
 class contact_pair3d;
-/// What the wrapper throws when an engine call fails (Rust's `ponko::Error`):
+/// What the wrapper throws when an engine call fails (Rust's `ponko::error::Error`):
 /// `what()` is `ponko_last_error()`, `kind()` is `ponko_last_error_kind()`
-/// (the C side of Rust's `ponko::ErrorKind`), `path()` the asset the failure
+/// (the C side of Rust's `ponko::error::ErrorKind`), `path()` the asset the failure
 /// is about, if any (`ponko_last_error_path()`). It is a `std::runtime_error`,
 /// so existing `catch (const std::runtime_error&)` blocks still catch it.
 class error : public std::runtime_error {
@@ -739,7 +739,7 @@ inline void check_abi_version() {
 }
 }  // namespace detail
 
-/// What the `try_` loaders return, Rust's `Result<T, ponko::Error>`: the
+/// What the `try_` loaders return, Rust's `Result<T, ponko::error::Error>`: the
 /// value, or the error that kept it from loading. Nothing is thrown until
 /// you ask a failed result for its value.
 ///

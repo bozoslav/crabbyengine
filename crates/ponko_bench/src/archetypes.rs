@@ -35,7 +35,7 @@ use std::hint::black_box;
 use crate::{Bench, DT, Pos, Vel, ent};
 
 /// Marker components: entity `i` has `Mk<k>` when bit `k` of its archetype index is set.
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, ponko_ecs::Component)]
 struct Mk<const K: usize>;
 
 pub const MARKERS: usize = 10;

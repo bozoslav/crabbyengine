@@ -46,31 +46,31 @@ const N: usize = 1_000_000;
 const ADD_REMOVE_N: usize = 100_000;
 const DT: f32 = 1.0 / 60.0;
 
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, ponko_ecs::Component)]
 struct Pos {
     x: f32,
     y: f32,
 }
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, ponko_ecs::Component)]
 struct Vel {
     x: f32,
     y: f32,
 }
 /// Stand-in for a sprite component: texture id + tint.
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, ponko_ecs::Component)]
 struct Spr {
     _tex: u32,
     _tint: [f32; 4],
 }
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, ponko_ecs::Component)]
 struct Tag;
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, ponko_ecs::Component)]
 struct M0;
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, ponko_ecs::Component)]
 struct M1;
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, ponko_ecs::Component)]
 struct M2;
-#[derive(Component, Clone, Copy, Default)]
+#[derive(Component, Clone, Copy, Default, ponko_ecs::Component)]
 struct M3;
 
 fn ent(i: usize) -> (Pos, Vel, Spr) {
@@ -343,8 +343,12 @@ fn main() {
     }
     // 100k entities each change another one: collected and applied after the
     // loop, or reached through a lookup inside it.
+    #[derive(ponko_ecs::Component)]
     struct Aim(ponko_ecs::Entity);
+    #[derive(ponko_ecs::Component)]
     struct Hp(i64);
+    #[derive(ponko_ecs::Component)]
+    struct Damage(i64);
     for lookup in [false, true] {
         b.steady(
             if lookup {
@@ -357,22 +361,22 @@ fn main() {
                 let mut w = ponko_ecs::World::new();
                 let targets: Vec<_> = (0..1000).map(|_| w.spawn((Hp(0),))).collect();
                 let order = shuffled(ADD_REMOVE_N);
-                w.spawn_batch(order.iter().map(|&i| (Aim(targets[i % targets.len()]), 1i64)));
+                w.spawn_batch(order.iter().map(|&i| (Aim(targets[i % targets.len()]), Damage(1))));
                 w
             },
             |w| {
                 if lookup {
-                    w.query::<(&Aim, &i64)>()
+                    w.query::<(&Aim, &Damage)>()
                         .with_lookup::<&mut Hp>()
                         .for_each(|(aim, damage), others| {
                             if let Some(hp) = others.get_mut(aim.0) {
-                                hp.0 -= *damage;
+                                hp.0 -= damage.0;
                             }
                         });
                 } else {
                     let mut hits = Vec::new();
-                    w.query::<(&Aim, &i64)>()
-                        .for_each(|(aim, damage)| hits.push((aim.0, *damage)));
+                    w.query::<(&Aim, &Damage)>()
+                        .for_each(|(aim, damage)| hits.push((aim.0, damage.0)));
                     for (target, damage) in hits {
                         if let Some(hp) = w.get_mut::<Hp>(target) {
                             hp.0 -= damage;
@@ -443,7 +447,7 @@ fn main() {
 
     // ---- simulation at scale: single core vs all cores (ponko_ecs) ----------
     /// Agent with heading; "heavy" work = steering with trig, like a real sim tick.
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, ponko_ecs::Component)]
     struct Agent {
         heading: f32,
         speed: f32,
@@ -1250,8 +1254,8 @@ fn flow_map(side: u32) -> ponko::flow::NavGrid {
 }
 
 fn flow_benches(b: &mut Bench) {
-    use ponko::Vec2;
     use ponko::flow::FlowField;
+    use ponko::prelude::Vec2;
     use rayon::prelude::*;
     for side in [256u32, 1024] {
         b.steady(
@@ -1302,7 +1306,10 @@ fn flow_benches(b: &mut Bench) {
             |_| {
                 use ponko::d2::Transform as Transform2D;
                 use ponko::systems::follow_attachments;
-                use ponko::{Game, d2::Attached, vec2};
+                use ponko::{
+                    d2::Attached,
+                    prelude::{Game, vec2},
+                };
                 let world = Game::new("bench", 1, 1)
                     .sim_system(|ctx| {
                         ctx.world
@@ -1323,16 +1330,17 @@ fn flow_benches(b: &mut Bench) {
     }
     // ---- events: 100k sent and read per tick, 10 ticks ------------------------
     #[derive(Clone, Copy)]
-    struct Hit(#[allow(dead_code)] ponko::Entity, f32);
+    struct Hit(#[allow(dead_code)] ponko::prelude::Entity, f32);
     b.steady(
         "events/100k-per-tick-x10",
         20,
         || (),
         |_| {
-            let world = ponko::Game::new("bench", 1, 1)
+            let world = ponko::prelude::Game::new("bench", 1, 1)
                 .sim_system(|ctx| {
                     for i in 0..100_000u32 {
-                        ctx.events.send(Hit(ponko::Entity::from_bits(u64::from(i)), i as f32));
+                        ctx.events
+                            .send(Hit(ponko::prelude::Entity::from_bits(u64::from(i)), i as f32));
                     }
                 })
                 .sim_system(|ctx| {

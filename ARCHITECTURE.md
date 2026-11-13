@@ -27,6 +27,7 @@ flowchart TD
 |---|---|
 | `ponko` | Public facade and integrated game services: [src/lib.rs](src/lib.rs), [src/ctx.rs](src/ctx.rs), [src/game.rs](src/game.rs). Feature flags select windowing, audio, inspector, physics, navigation and 3D. |
 | `ponko_ecs` | Entities, column storage, queries, commands and resources: [crates/ponko_ecs/src](crates/ponko_ecs/src). It does not own the window or GPU. |
+| `ponko_macros` | Derive macros (`#[derive(Component)]`) re-exported by `ponko_ecs` and `ponko`: [crates/ponko_macros](crates/ponko_macros). |
 | Rendering | Device/surface and frame coordination in [src/render/gpu.rs](src/render/gpu.rs); 3D coordination in [src/render/gpu3d.rs](src/render/gpu3d.rs); game-facing 3D types in [src/three](src/three). |
 | `ponko_mcp` | Stdio MCP server, tool schemas, instance discovery and forwarding to a running game: [crates/ponko_mcp/src/lib.rs](crates/ponko_mcp/src/lib.rs). |
 | `ponko_ffi` | Exported native API and handle/callback conversion: [crates/ponko_ffi](crates/ponko_ffi), [include/ponko.h](include/ponko.h), [include/ponko.hpp](include/ponko.hpp). |

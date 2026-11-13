@@ -368,6 +368,7 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Pos(f32);
     /// struct Speed(f32);
     /// struct Moved(u32);
@@ -409,7 +410,9 @@ impl<'w, Q: QueryData> Query<'w, Q> {
     ///
     /// ```
     /// # use ponko_ecs::*;
+    /// #[derive(Component)]
     /// struct Health(i32);
+    /// #[derive(Component)]
     /// struct Bullet {
     ///     target: Entity,
     ///     damage: i32,

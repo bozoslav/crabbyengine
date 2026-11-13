@@ -2,7 +2,8 @@
 
 ## Supported versions
 
-Ponko hasn't had a release yet. Security fixes go to `main`.
+Security fixes go to the latest 0.x release (as a patch release) and to
+`main`. Older releases don't get fixes: upgrade to the latest one.
 
 ## Reporting a vulnerability
 

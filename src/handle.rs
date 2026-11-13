@@ -42,8 +42,8 @@ mod sealed {
     pub trait Sealed {}
 }
 
-/// A handle to a resource the engine holds for the game: [`Texture`](crate::Texture),
-/// [`Sound`](crate::Sound), [`Font`](crate::Font), and with the `3d` feature [`Mesh`](crate::render::Mesh),
+/// A handle to a resource the engine holds for the game: [`Texture`](crate::texture::Texture),
+/// [`Sound`](crate::audio::Sound), [`Font`](crate::text::Font), and with the `3d` feature [`Mesh`](crate::render::Mesh),
 /// [`Material`](crate::render::Material), [`Shader`](crate::render::Shader),
 /// [`Compute`](crate::render::Compute), [`Effect`](crate::render::Effect),
 /// [`GpuBuffer`](crate::render::GpuBuffer), [`InstanceBatch`](crate::render::InstanceBatch),
@@ -108,7 +108,7 @@ pub trait Handle: Copy + Eq + Hash + std::fmt::Debug + sealed::Sealed {
 }
 
 /// A [`Handle`] the graphics service holds: every kind except
-/// [`Sound`](crate::Sound) and the collision meshes of 3D physics. Check one with [`Graphics::is_live`] and release
+/// [`Sound`](crate::audio::Sound) and the collision meshes of 3D physics. Check one with [`Graphics::is_live`] and release
 /// it with [`Graphics::free`]. Implemented by the engine's handle types only.
 pub trait GfxHandle: Handle {
     /// Whether `gfx` holds this resource (see [`Graphics::is_live`]).
@@ -265,7 +265,7 @@ impl Graphics {
     /// False for [`Handle::NONE`] and for handles from another game.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let t = ctx.gfx.create_texture(1, 1, &[255; 4]);
     ///     assert!(ctx.gfx.is_live(t) && ctx.gfx.is_live(Font::DEFAULT));
@@ -288,7 +288,7 @@ impl Graphics {
     /// before its slot is reused.
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let t = ctx.gfx.create_texture(1, 1, &[255; 4]);
     ///     ctx.gfx.free(t);
@@ -320,7 +320,7 @@ impl crate::audio::Audio {
     /// freed. False for [`Handle::NONE`].
     ///
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// Game::new("t", 1, 1).run_headless(0, |ctx| {
     ///     let beep = ctx.audio.create(8_000, &[0.0; 80]);
     ///     assert!(ctx.audio.is_live(beep));
@@ -329,14 +329,14 @@ impl crate::audio::Audio {
     /// });
     /// ```
     #[must_use]
-    pub fn is_live(&self, sound: crate::Sound) -> bool {
+    pub fn is_live(&self, sound: crate::audio::Sound) -> bool {
         self.sounds_live.contains(sound.id)
     }
 
     /// Releases `sound`'s decoded audio and stops its voices; playing it
     /// again does nothing. No later sound is ever the same handle. Freeing
     /// it again does nothing.
-    pub fn free(&mut self, sound: crate::Sound) {
+    pub fn free(&mut self, sound: crate::audio::Sound) {
         self.free_id(sound.id);
     }
 
@@ -554,17 +554,17 @@ macro_rules! id_handle {
     };
 }
 
-impl sealed::Sealed for crate::Texture {}
-impl raw::RawHandle for crate::Texture {
+impl sealed::Sealed for crate::texture::Texture {}
+impl raw::RawHandle for crate::texture::Texture {
     fn raw_id(self) -> u32 {
         self.id
     }
     fn from_raw_id(id: u32) -> Self {
-        crate::Texture::new(id, 0, 0)
+        crate::texture::Texture::new(id, 0, 0)
     }
 }
-impl Handle for crate::Texture {
-    const NONE: Self = crate::Texture::new(u32::MAX, 0, 0);
+impl Handle for crate::texture::Texture {
+    const NONE: Self = crate::texture::Texture::new(u32::MAX, 0, 0);
     fn live_in(self, ctx: &Ctx) -> bool {
         ctx.gfx.is_live(self)
     }
@@ -572,7 +572,7 @@ impl Handle for crate::Texture {
         ctx.gfx.free(self);
     }
 }
-impl GfxHandle for crate::Texture {
+impl GfxHandle for crate::texture::Texture {
     fn live_in_gfx(self, gfx: &Graphics) -> bool {
         gfx.textures_live.contains(self.id)
     }
@@ -581,17 +581,17 @@ impl GfxHandle for crate::Texture {
     }
 }
 
-impl sealed::Sealed for crate::Sound {}
-impl raw::RawHandle for crate::Sound {
+impl sealed::Sealed for crate::audio::Sound {}
+impl raw::RawHandle for crate::audio::Sound {
     fn raw_id(self) -> u32 {
         self.id
     }
     fn from_raw_id(id: u32) -> Self {
-        crate::Sound::new(id, 0.0)
+        crate::audio::Sound::new(id, 0.0)
     }
 }
-impl Handle for crate::Sound {
-    const NONE: Self = crate::Sound::new(u32::MAX, 0.0);
+impl Handle for crate::audio::Sound {
+    const NONE: Self = crate::audio::Sound::new(u32::MAX, 0.0);
     fn live_in(self, ctx: &Ctx) -> bool {
         ctx.audio.is_live(self)
     }
@@ -600,17 +600,17 @@ impl Handle for crate::Sound {
     }
 }
 
-impl sealed::Sealed for crate::Font {}
-impl raw::RawHandle for crate::Font {
+impl sealed::Sealed for crate::text::Font {}
+impl raw::RawHandle for crate::text::Font {
     fn raw_id(self) -> u32 {
         self.0
     }
     fn from_raw_id(id: u32) -> Self {
-        crate::Font(id)
+        crate::text::Font(id)
     }
 }
-impl Handle for crate::Font {
-    const NONE: Self = crate::Font(u32::MAX);
+impl Handle for crate::text::Font {
+    const NONE: Self = crate::text::Font(u32::MAX);
     fn live_in(self, ctx: &Ctx) -> bool {
         ctx.gfx.is_live(self)
     }
@@ -618,7 +618,7 @@ impl Handle for crate::Font {
         ctx.gfx.free(self);
     }
 }
-impl GfxHandle for crate::Font {
+impl GfxHandle for crate::text::Font {
     fn live_in_gfx(self, gfx: &Graphics) -> bool {
         gfx.text.has_font(self)
     }

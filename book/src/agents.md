@@ -27,7 +27,7 @@ MCP config.
 Then make the components you want agents to see reflected:
 
 ```rust
-# #[derive(serde::Serialize, serde::Deserialize)] struct Health(f32);
+# #[derive(Component, serde::Serialize, serde::Deserialize)] struct Health(f32);
 ctx.world.reflect::<Health>();
 ```
 

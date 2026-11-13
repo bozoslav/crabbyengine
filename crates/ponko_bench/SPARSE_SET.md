@@ -60,7 +60,7 @@ the same filter checksums.
 entity's slot index (4 bytes per slot, grown in 4,096-slot steps) pointing
 into packed `entities` and `values` arrays. Adding and removing a component
 touches only that component's arrays. Joining with archetype components
-looks each entity up through `RawWorld::get_dynamic` with a cached component
+looks each entity up through `RawWorldRef::get_dynamic` with a cached component
 id: the entity table, then the entity's archetype, then a linear search of
 that archetype's component ids for the column. It has no change stamps, no
 parallel iteration and no C ABI, which an integrated version would have to
@@ -312,7 +312,7 @@ storage would have to change; nothing here is implemented.
   component name, independent of storage, so the save version and the
   compatibility fixtures stay. `entity_json` reads through the registry's
   getters (`World::get`), which would work once `get` dispatches; `save`
-  counts the components it can't save by walking `raw().archetypes()` and
+  counts the components it can't save by walking `raw_ref().archetypes()` and
   would miss sparse ones.
 - **Determinism.** A sparse set's packed order depends only on the order
   of adds and removes, so the same build still gives the same world from
@@ -322,7 +322,7 @@ storage would have to change; nothing here is implemented.
   is a visible change for code that depends on it.
 - **Tools.** The inspector (`src/inspector.rs`), the control endpoint
   (`src/control.rs`), diagnostics, the inventory and scenario code walk
-  `raw().archetypes()` and `components_of` to list an entity's components
+  `raw_ref().archetypes()` and `components_of` to list an entity's components
   and count them; all would show sparse components as missing.
 
 **Maintenance cost.** The prototype is about 250 lines (plus tests) without stamps,
@@ -355,7 +355,7 @@ What would change for users if sparse storage were opt-in per component:
 - **Archetype-level introspection becomes partial**: `components_of(e)`
   returns the archetype's id slice and couldn't list sparse components
   without a new API (an iterator, or an owned list), and
-  `raw().archetypes()` / `Archetype::has` would describe only the dense
+  `raw_ref().archetypes()` / `Archetype::has` would describe only the dense
   part of a world.
 - **Iteration order** of queries driven from a sparse set would differ
   from archetype order (allowed, as above).

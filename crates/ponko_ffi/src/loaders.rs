@@ -8,7 +8,7 @@
 //! skeletons, mesh data and texture arrays already report kinds.
 use std::ffi::c_char;
 
-use ponko::Ctx;
+use ponko::prelude::Ctx;
 
 use crate::ctx::{ctx_access, out, text};
 use crate::media::{PonkoFont, PonkoSound, font_to_c, sound_to_c};
@@ -25,7 +25,7 @@ unsafe fn try_load<T, C>(
     ctx: *mut PonkoCtx,
     path: *const c_char,
     output: *mut C,
-    load: impl FnOnce(&mut Ctx, &str) -> Result<T, ponko::Error>,
+    load: impl FnOnce(&mut Ctx, &str) -> Result<T, ponko::prelude::Error>,
     to_c: impl FnOnce(T) -> C,
 ) -> PonkoStatus {
     // SAFETY: forwarded caller contract.

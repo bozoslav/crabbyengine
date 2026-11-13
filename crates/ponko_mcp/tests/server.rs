@@ -12,7 +12,7 @@ use ponko::prelude::*;
 use ponko_mcp::{Config, Server};
 use serde_json::{Value, json};
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Component)]
 struct Health {
     current: f32,
     max: f32,

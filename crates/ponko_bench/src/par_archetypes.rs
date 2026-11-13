@@ -8,16 +8,17 @@ use crate::Bench;
 use ponko_ecs::World;
 use std::hint::black_box;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, ponko_ecs::Component)]
 struct Pos {
     x: f32,
     y: f32,
 }
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, ponko_ecs::Component)]
 struct Vel {
     x: f32,
     y: f32,
 }
+#[derive(ponko_ecs::Component)]
 struct Marker<const N: usize>;
 
 /// `layouts` archetypes (`layouts` must be a power of two up to 2^14) of `rows`

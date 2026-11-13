@@ -89,6 +89,7 @@ fn events_sent_in_setup_reach_sim_systems() {
 }
 
 // ANCHOR: events
+#[derive(Component)]
 struct Health(i32);
 struct Died {
     who: Entity,

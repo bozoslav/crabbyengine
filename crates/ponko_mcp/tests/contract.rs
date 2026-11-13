@@ -5,8 +5,8 @@
 //! `tests/fixtures/tools_v1.json` is the `tools/list` reply of the server at a
 //! recorded engine revision (see `tools_v1.provenance.json` and
 //! `tests/fixtures/README.md`), with the descriptions left out: wording is not
-//! part of the contract. STABILITY.md promises that minor releases only add
-//! tools and optional parameters. The comparison here is additive-aware: new
+//! part of the contract. STABILITY.md promises that releases only add tools
+//! and optional parameters, unless one lists a breaking change. The comparison here is additive-aware: new
 //! tools and new optional parameters pass; a removed tool or parameter, a new
 //! required parameter, or a parameter that accepts fewer values than before
 //! fails with a message that names the tool and the parameter.

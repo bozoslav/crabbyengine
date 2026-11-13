@@ -8,7 +8,7 @@ use ponko::d2::{Sprite, Transform as Transform2D};
 use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Component)]
 struct Palm {
     height: f32,
 }

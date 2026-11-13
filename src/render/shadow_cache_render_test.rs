@@ -680,7 +680,7 @@ fn pure_custom_functions_and_texture_channels_only_refresh_affected_shadows() {
     ctx.scene3d.lighting.shadow_refresh = 1;
     ctx.scene3d.sky.atmosphere = false;
     let shader = ctx.gfx.create_shader("pure", PURE);
-    let texture = crate::Texture::new(0, 1, 1);
+    let texture = crate::texture::Texture::new(0, 1, 1);
     let floor_desc = MaterialDesc {
         color: Color::WHITE,
         ..Default::default()

@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 use crate::d2::Transform as Transform2D;
-use crate::{Ctx, Entity, Events, Vec2, With, World};
+use crate::{ctx::Ctx, events::Events};
+use glam::Vec2;
+use ponko_ecs::{Component, Entity, With, World};
 
 /// Makes an entity a physics body. It also needs a [`Collider`] and a
 /// [`Transform2D`].
@@ -25,7 +27,7 @@ use crate::{Ctx, Entity, Events, Vec2, With, World};
 /// assert_eq!(crate_body.gravity_scale, 1.0);
 /// assert_eq!(wall.kind, ponko::d2::BodyKind::Fixed);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 #[serde(default)]
 pub struct RigidBody {
     /// Dynamic, fixed or kinematic.
@@ -143,7 +145,7 @@ impl Shape {
 /// assert!(trigger.sensor);
 /// assert_eq!(ball.restitution, 0.9);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, Component)]
 pub struct Collider {
     /// Circle, rectangle, capsule or convex polygon.
     pub shape: Shape,
@@ -266,7 +268,7 @@ impl Collider {
 /// let v = ponko::d2::Velocity::linear(vec2(0.0, -300.0)); // a jump, y is down
 /// assert_eq!(v.angular, 0.0);
 /// ```
-#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, Component)]
 #[serde(default)]
 #[repr(C)] // C sees it as PonkoVelocity.
 pub struct Velocity {
@@ -334,7 +336,7 @@ struct Link {
 }
 
 /// The physics world: `ctx.physics`. Add it to a game with
-/// [`Game::physics`](crate::Game::physics); then entities with
+/// [`Game::physics`](crate::game::Game::physics); then entities with
 /// [`RigidBody`], [`Collider`] and [`Transform2D`] are simulated.
 pub struct Physics {
     world: rp::PhysicsWorld,
@@ -585,7 +587,7 @@ fn collider_of(c: Collider, e: Entity) -> rp::Collider {
 /// Sets up `ctx.physics` for a game that uses physics, and makes its
 /// components visible to the inspector, saves and agents.
 pub(crate) fn start(ctx: &mut Ctx, gravity: Vec2) {
-    use crate::WorldReflect;
+    use crate::reflect::WorldReflect;
     ctx.physics = Physics::new(gravity);
     ctx.world.reflect::<RigidBody>();
     ctx.world.reflect::<Collider>();
@@ -595,7 +597,7 @@ pub(crate) fn start(ctx: &mut Ctx, gravity: Vec2) {
 /// Steps the physics world one simulation tick: picks up new, changed and
 /// removed bodies, simulates, writes positions and velocities back, and
 /// sends [`CollisionStarted`] / [`CollisionStopped`] events. Added by
-/// [`Game::physics`](crate::Game::physics); remove or reorder it like any
+/// [`Game::physics`](crate::game::Game::physics); remove or reorder it like any
 /// other system.
 pub fn step_physics(ctx: &mut Ctx) {
     let dt = ctx.dt();
@@ -610,16 +612,16 @@ pub fn step_physics(ctx: &mut Ctx) {
 /// [`CollisionStarted`] and [`CollisionStopped`]. Nothing else: no other
 /// resources, commands, drawing or input.
 ///
-/// [`Game::physics`](crate::Game::physics) registers the step with this
-/// declaration, so [`Game::access_report`](crate::Game::access_report) lists
+/// [`Game::physics`](crate::game::Game::physics) registers the step with this
+/// declaration, so [`Game::access_report`](crate::game::Game::access_report) lists
 /// what the step touches and debug builds check that it stays inside it.
-/// Declare it ([`IntoSystem::access`](crate::IntoSystem::access)) when you
+/// Declare it ([`IntoSystem::access`](crate::game::IntoSystem::access)) when you
 /// place the step yourself. The step keeps `&mut Ctx` and its place in
 /// the order; see [`access`](crate::access).
 ///
 /// ```
 /// use ponko::prelude::*;
-/// use ponko::{Systems, systems};
+/// use ponko::{systems, prelude::Systems};
 ///
 /// let game = Game::new("Order", 800, 600)
 ///     .physics(vec2(0.0, 980.0))
@@ -774,7 +776,7 @@ fn write_back(physics: &mut Physics, world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vec2;
+    use glam::vec2;
 
     const DT: f32 = 1.0 / 60.0;
     const GRAVITY: Vec2 = vec2(0.0, 980.0);

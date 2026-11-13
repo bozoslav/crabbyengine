@@ -2,7 +2,10 @@
 """Refuse a release whose tag, crate versions and CHANGELOG section disagree.
 
     release-check.py check vX.Y.Z   the release workflow runs this before it
-                                    publishes anything
+                                    builds or publishes anything
+    release-check.py notes vX.Y.Z FILE
+                                    write that version's CHANGELOG section,
+                                    the GitHub release's notes, to FILE
     release-check.py published      every version of our crates on crates.io
                                     has a git tag (a scheduled workflow runs it)
     release-check.py selftest       check the decisions with made-up input
@@ -14,7 +17,12 @@
   `version = "..."` requirements it puts on its sibling crates;
 - CHANGELOG.md has a `## [X.Y.Z]` section with something in it, and still
   has its `## [Unreleased]` heading;
+- that section fits in a GitHub release body (at most 125,000 characters),
+  since it becomes the release's notes;
 - no changelog.d/ fragment is left (the release folds them in first);
+- every publishable crate under crates/ carries copies of the root
+  LICENSE-MIT, LICENSE-APACHE and NOTICE (crates.io gets each crate's own
+  folder), identical to the root ones; `selftest` checks this too, in CI;
 - with `--on-main`: the tagged commit is an ancestor of origin/main, i.e. it
   was merged through a pull request (the workflow checks out the full history
   for this). Whether CI passed on it is not looked at here.
@@ -36,6 +44,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TAG = re.compile(r"^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$")
+# GitHub refuses a release whose body is longer than this many characters.
+MAX_NOTES = 125_000
 
 
 def crates(root=ROOT):
@@ -48,6 +58,25 @@ def crates(root=ROOT):
             continue
         found.append((package["name"], package["version"], data))
     return found
+
+
+LICENSE_FILES = ("LICENSE-MIT", "LICENSE-APACHE", "NOTICE")
+
+
+def license_problems(root=ROOT):
+    """Publishable sub-crates whose license files are missing or differ from the root's."""
+    out = []
+    for manifest in sorted(root.glob("crates/*/Cargo.toml")):
+        package = tomllib.loads(manifest.read_text()).get("package")
+        if package is None or package.get("publish") is False:
+            continue
+        for name in LICENSE_FILES:
+            copy = manifest.parent / name
+            if not copy.is_file():
+                out.append(f"{package['name']} has no {name} (copy the root one into {manifest.parent.name}/)")
+            elif copy.read_bytes() != (root / name).read_bytes():
+                out.append(f"{manifest.parent.name}/{name} differs from the root {name}: copy it again")
+    return out
 
 
 def sibling_requirements(data, names):
@@ -70,6 +99,11 @@ def changelog_section(text, version):
     return [l for l in lines[start + 1 : end] if not re.match(r"^\[[^\]]*\]: ", l)]
 
 
+def release_notes(section):
+    """A changelog section's lines as the text of a GitHub release body."""
+    return "\n".join(section).strip() + "\n"
+
+
 def problems(tag, crate_list, changelog, fragments):
     """What is wrong with releasing `tag`, as a list of messages (empty: fine)."""
     found = TAG.match(tag)
@@ -89,6 +123,12 @@ def problems(tag, crate_list, changelog, fragments):
         out.append(f"CHANGELOG.md has no `## [{version}]` section")
     elif not any(l.strip() for l in section):
         out.append(f"CHANGELOG.md's `## [{version}]` section is empty")
+    elif len(release_notes(section)) > MAX_NOTES:
+        out.append(
+            f"CHANGELOG.md's `## [{version}]` section has {len(release_notes(section)):,} characters; "
+            f"a GitHub release body holds at most {MAX_NOTES:,}. Shorten it (summarize, and link the "
+            "full lists in the guide)"
+        )
     if not any(l.startswith("## [Unreleased]") for l in changelog.splitlines()):
         out.append("CHANGELOG.md lost its `## [Unreleased]` heading")
     if fragments:
@@ -122,7 +162,7 @@ def main_problems(tag, repo=ROOT):
 
 def check(tag, on_main):
     fragments = [p.name for p in (ROOT / "changelog.d").glob("*.md") if p.name != "README.md"]
-    found = problems(tag, crates(), (ROOT / "CHANGELOG.md").read_text(), fragments)
+    found = problems(tag, crates(), (ROOT / "CHANGELOG.md").read_text(), fragments) + license_problems()
     if on_main:
         found += main_problems(tag)
     if found:
@@ -131,6 +171,23 @@ def check(tag, on_main):
             print(f"  - {message}")
         return 1
     print(f"{tag}: crate versions, CHANGELOG section and fragments agree.")
+    return 0
+
+
+def notes(tag, out):
+    """Writes the release notes of `tag` to `out` (the same checks as `check`)."""
+    found = TAG.match(tag)
+    if not found:
+        sys.exit(f"`{tag}` is not a release tag like v1.2.3")
+    version = found.group(1)
+    section = changelog_section((ROOT / "CHANGELOG.md").read_text(), version)
+    if section is None or not any(l.strip() for l in section):
+        sys.exit(f"CHANGELOG.md has no notes for {version}")
+    text = release_notes(section)
+    if len(text) > MAX_NOTES:
+        sys.exit(f"the notes for {version} have {len(text):,} characters; GitHub allows {MAX_NOTES:,}")
+    Path(out).write_text(text, encoding="utf-8")
+    print(f"wrote {out} ({len(text):,} characters)")
     return 0
 
 
@@ -225,12 +282,31 @@ def selftest():
     assert any("lost its" in p for p in problems("v0.0.2", ok, "## [0.0.2]\n- x\n", []))
     assert any("1 fragment(s)" in p for p in problems("v0.0.2", ok, log, ["12-x.md"]))
     assert changelog_section(log, "0.0.1") == ["- old"] or changelog_section(log, "0.0.1")[-1] == "- old"
+    huge = log.replace("- thing\n", "- thing\n" + "- x\n" * (MAX_NOTES // 4 + 1))
+    assert any("a GitHub release body holds at most" in p for p in problems("v0.0.2", ok, huge, [])), (
+        "notes longer than a GitHub release body are refused before anything is built"
+    )
+    assert release_notes(changelog_section(log, "0.0.2")) == "### Added\n- thing\n"
 
     assert untagged({"ponko": ["0.0.1", "0.0.2"], "ponko_ecs": ["0.0.1"]}, {"v0.0.1"}) == [
         ("ponko", "0.0.2")
     ], "a published version needs its tag"
     assert untagged({"ponko": ["0.0.1"]}, {"v0.0.1", "v1.0.0"}) == []
     on_main_selftest()
+    with tempfile.TemporaryDirectory(prefix="release-check-") as tmp:
+        tmp = Path(tmp)
+        (tmp / "crates" / "a").mkdir(parents=True)
+        (tmp / "crates" / "a" / "Cargo.toml").write_text('[package]\nname = "a"\nversion = "0.0.2"\n')
+        for name in LICENSE_FILES:
+            (tmp / name).write_text(name)
+            (tmp / "crates" / "a" / name).write_text(name)
+        assert license_problems(tmp) == [], "identical copies pass"
+        (tmp / "crates" / "a" / "NOTICE").write_text("old")
+        assert "a/NOTICE differs" in license_problems(tmp)[0], "a stale copy is refused"
+        (tmp / "crates" / "a" / "NOTICE").unlink()
+        assert "a has no NOTICE" in license_problems(tmp)[0], "a missing copy is refused"
+    real = license_problems()
+    assert real == [], f"the sub-crates' license files: {real}"
     names = {n for n, _, _ in crates()}
     assert "ponko" in names and "ponko_ecs" in names, "reads the real workspace"
     print("release-check.py: self-test passed")
@@ -240,6 +316,8 @@ def main():
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command == "check" and len(sys.argv) > 2:
         return check(sys.argv[2], "--on-main" in sys.argv)
+    if command == "notes" and len(sys.argv) > 3:
+        return notes(sys.argv[2], sys.argv[3])
     if command == "published":
         return published()
     if command == "selftest":

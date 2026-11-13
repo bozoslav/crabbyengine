@@ -44,7 +44,7 @@ const FAINT: f32 = 0.05;
 /// Seconds an ant can go without delivering food.
 const LIFESPAN: f32 = 90.0;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Component)]
 struct Ant {
     /// The nest this ant belongs to (an entity), and where it is.
     home: Entity,
@@ -70,7 +70,7 @@ enum Event {
     Delivered,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Component)]
 struct Nest {
     stored: u32,
     delivered: u64,
@@ -78,7 +78,7 @@ struct Nest {
     ants: u32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Component)]
 struct Food {
     amount: u32,
 }

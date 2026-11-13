@@ -63,7 +63,11 @@ static ALLOCATOR: ThreadCountingAllocator = ThreadCountingAllocator;
 const WARMUP: u64 = 50;
 const TICKS: u64 = 250;
 
+#[derive(Component)]
+struct Ticks(u64);
+#[derive(Component)]
 struct Pos(f32);
+#[derive(Component)]
 struct Vel(f32);
 struct Total(f64);
 #[derive(Clone, Copy)]
@@ -117,9 +121,9 @@ fn run(threshold: Duration, allocate: bool) -> (u32, f64) {
         .add(
             Phase::AfterPhysics,
             (|sys: &mut SystemView| {
-                sys.world.query::<&mut u64>().for_each(|n| *n += 1);
+                sys.world.query::<&mut Ticks>().for_each(|n| n.0 += 1);
             })
-            .access(SystemAccess::new().write::<u64>()),
+            .access(SystemAccess::new().write::<Ticks>()),
         )
         // Runs right after the batch's barrier.
         .sim_system(|ctx: &mut Ctx| {
@@ -134,7 +138,7 @@ fn run(threshold: Duration, allocate: bool) -> (u32, f64) {
             ctx.world.insert_resource(Total(0.0));
             ctx.world.insert_resource(Allocating(0));
             ctx.world
-                .spawn_batch((0..500).map(|i| (Pos(i as f32), Vel(1.0), i as u64)));
+                .spawn_batch((0..500).map(|i| (Pos(i as f32), Vel(1.0), Ticks(i as u64))));
         });
     assert_eq!(report.frames, TICKS as usize);
     assert!(report.allocs.is_some(), "allocation counting must be enabled");

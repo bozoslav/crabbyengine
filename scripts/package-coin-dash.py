@@ -4,6 +4,7 @@
     python3 scripts/package-coin-dash.py package [--out DIR] [--profile release|dev]
     python3 scripts/package-coin-dash.py smoke --package DIR [--mode headless|window]
     python3 scripts/package-coin-dash.py selftest
+    python3 scripts/package-coin-dash.py notices --crate ponko_ffi --title T --out FILE
 
 `package` builds the example and lays out a folder you can zip: the program,
 its assets, the licenses, a notice for what the game ships and a notice for
@@ -19,6 +20,10 @@ and draws (needs a display and a GPU; software rendering is enough).
 Exit codes: 0 passed, 1 the package failed a check, 2 unsupported (the window
 mode found no display or no GPU, and --allow-unsupported was not given),
 3 bad arguments or no build. See book/src/packaging.md.
+
+`notices` writes only THIRD-PARTY-NOTICES.txt for another workspace crate's
+library (with its default features, for this platform). The release workflow
+ships it in the C library archives (`--crate ponko_ffi`).
 """
 
 import argparse
@@ -71,9 +76,9 @@ def host_triple():
 # ---- Third-party notices ----------------------------------------------------
 
 
-def tree_crates(triple, edges):
+def tree_crates(triple, edges, crate="ponko"):
     out = run(
-        ["cargo", "tree", "-p", "ponko", "-e", edges, "--target", triple, "--prefix", "none", "-f", "{p}"],
+        ["cargo", "tree", "-p", crate, "-e", edges, "--target", triple, "--prefix", "none", "-f", "{p}"],
         stdout=subprocess.PIPE,
     ).stdout
     crates = set()
@@ -84,10 +89,12 @@ def tree_crates(triple, edges):
     return crates
 
 
-def linked_crates(triple):
+def linked_crates(triple, crate="ponko", examples=True):
     """The (name, version) of every crate linked into the example on this
     platform: ponko's normal dependencies with its default features, which is
-    what `cargo build -p ponko --example coin_dash` compiles.
+    what `cargo build -p ponko --example coin_dash` compiles. For another
+    `crate` with `examples=False` (a library, such as the C library): that
+    crate's normal dependencies with its default features.
 
     An example is also built with ponko's dev-dependencies. This list leaves
     them out, so it fails if a dev-dependency is linked on this platform that
@@ -95,9 +102,11 @@ def linked_crates(triple):
     of this workspace doesn't count: it is the engine's own code, under the
     license files the package already carries, and its own dependencies are
     still checked."""
-    crates = tree_crates(triple, "normal")
+    crates = tree_crates(triple, "normal", crate)
+    if not examples:
+        return sorted(crates)
     own = {(p["name"], p["version"]) for p in cargo_json("--no-deps")["packages"]}
-    dev_only = tree_crates(triple, "normal,dev") - crates - own
+    dev_only = tree_crates(triple, "normal,dev", crate) - crates - own
     if dev_only:
         names = ", ".join(f"{n} {v}" for n, v in sorted(dev_only))
         raise Failure(
@@ -150,11 +159,11 @@ def license_texts(package, root_dir):
     return texts
 
 
-def third_party_notices():
+def third_party_notices(crate="ponko", title="Coin Dash", examples=True):
     triple = host_triple()
     meta = cargo_json("--filter-platform", triple)
     by_key = {(p["name"], p["version"]): p for p in meta["packages"]}
-    crates = linked_crates(triple)
+    crates = linked_crates(triple, crate, examples)
     missing_meta = [c for c in crates if c not in by_key]
     if missing_meta:
         raise Failure(f"cargo metadata does not know {missing_meta}")
@@ -175,11 +184,12 @@ def third_party_notices():
             digest = hashlib.sha256(text.encode()).hexdigest()
             groups.setdefault(digest, (text, []))[1].append(label)
 
+    heading = f"Third-party notices for {title}"
     out = [
-        "Third-party notices for Coin Dash",
-        "=================================",
+        heading,
+        "=" * len(heading),
         "",
-        "Coin Dash is linked with the libraries below, built for " + triple + ".",
+        f"{title[:1].upper()}{title[1:]} is linked with the libraries below, built for {triple}.",
         "The first part lists each library with the license it declares; the",
         "second part gives the license texts those libraries ship, each text once",
         "with the libraries it belongs to.",
@@ -240,6 +250,15 @@ def cmd_package(args):
     (out / "THIRD-PARTY-NOTICES.txt").write_text(notices, encoding="utf-8")
     size = sum(p.stat().st_size for p in out.rglob("*") if p.is_file())
     print(f"packaged {out} ({size / 1e6:.1f} MB, {count} libraries in the notices)")
+    if without_text:
+        print(f"note: {len(without_text)} libraries ship no license file; their declared license is listed")
+    return 0
+
+
+def cmd_notices(args):
+    notices, count, without_text = third_party_notices(args.crate, args.title, examples=False)
+    Path(args.out).write_text(notices, encoding="utf-8")
+    print(f"wrote {args.out} ({count} libraries)")
     if without_text:
         print(f"note: {len(without_text)} libraries ship no license file; their declared license is listed")
     return 0
@@ -530,8 +549,13 @@ def main():
     s.add_argument("--allow-unsupported", action="store_true", help="the window mode passes where no display or GPU exists")
     s.add_argument("--timeout", type=int, default=240, help="seconds each run may take")
     sub.add_parser("selftest", help="check the script's own decisions with made-up inputs")
+    n = sub.add_parser("notices", help="write THIRD-PARTY-NOTICES.txt for a workspace crate's library")
+    n.add_argument("--crate", required=True, help="the workspace crate, such as ponko_ffi")
+    n.add_argument("--title", required=True, help="what the notices are for, such as 'the Ponko C library'")
+    n.add_argument("--out", required=True, help="the file to write")
     args = parser.parse_args()
-    return {"package": cmd_package, "smoke": cmd_smoke, "selftest": selftest}[args.command](args)
+    commands = {"package": cmd_package, "smoke": cmd_smoke, "selftest": selftest, "notices": cmd_notices}
+    return commands[args.command](args)
 
 
 if __name__ == "__main__":

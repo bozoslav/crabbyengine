@@ -2,7 +2,7 @@
 //! declared systems could run together.
 //!
 //! Systems run one after another, in phase and registration order, unless
-//! [`Game::parallel_systems`](crate::Game::parallel_systems) is on: then
+//! [`Game::parallel_systems`](crate::game::Game::parallel_systems) is on: then
 //! view systems whose declarations don't conflict run at the same time
 //! (see [`schedule`](crate::schedule)). The guide's "Declared system
 //! access" and "Parallel systems" chapters have the full design.
@@ -13,8 +13,8 @@
 //!
 //! - **components** read or written (`&T` / `&mut T` in queries, `get`, `get_mut`),
 //! - **resources** read or written,
-//! - **events** read or sent ([`Events`](crate::Events)),
-//! - whether the system records **commands** ([`Commands`](crate::Commands)),
+//! - **events** read or sent ([`Events`](crate::events::Events)),
+//! - whether the system records **commands** ([`Commands`](ponko_ecs::Commands)),
 //! - the engine **services** it uses ([`Service`]: input, time, random,
 //!   audio, cameras, physics, ...), read or written.
 //!
@@ -40,17 +40,17 @@
 //!
 //! 1. **View systems enforce it.** A system that takes a
 //!    [`SystemView`](crate::system_view::SystemView) instead of `&mut Ctx`
-//!    (see [`Game::add`](crate::Game::add)) gets exactly that: a restricted
+//!    (see [`Game::add`](crate::game::Game::add)) gets exactly that: a restricted
 //!    [`WorldView`](crate::ecs_core::WorldView) of its declared components and
 //!    resources, and checked access to its events, commands and services,
 //!    in every build. Nothing else is reachable, so such a system can't go
 //!    beyond its declaration. Only view systems may ever share a parallel
 //!    batch ([`AccessReport::parallel_pairs`]).
 //! 2. **`Ctx` systems are checked in debug builds.** A `&mut Ctx` system
-//!    with a declaration ([`IntoSystem::access`](crate::IntoSystem::access),
+//!    with a declaration ([`IntoSystem::access`](crate::game::IntoSystem::access),
 //!    or a C or C++ system with one) keeps `&mut Ctx`. In builds with
 //!    debug assertions it runs with access recording on
-//!    ([`World::record_access`](crate::World::record_access) and the same
+//!    ([`World::record_access`](ponko_ecs::World::record_access) and the same
 //!    for events); afterwards any component, resource or event it used
 //!    without declaring it, any structural change made directly on the world
 //!    (spawn, despawn, insert, remove: those need exclusivity or commands),
@@ -80,8 +80,11 @@
 //! ```
 //! use ponko::prelude::*;
 //!
+//! #[derive(Component)]
 //! struct Pos(f32);
+//! #[derive(Component)]
 //! struct Vel(f32);
+//! #[derive(Component)]
 //! struct Health(i32);
 //!
 //! use ponko::access::SystemAccess;
@@ -106,8 +109,8 @@ use std::fmt;
 use ponko_ecs::{AccessLog, Component, ViewState, World};
 
 #[cfg(debug_assertions)]
-use crate::Ctx;
-use crate::Phase;
+use crate::ctx::Ctx;
+use crate::game::Phase;
 
 /// An engine service on [`Ctx`] that a system can declare,
 /// beside its components, resources, events and commands.
@@ -282,14 +285,16 @@ fn add_event(items: &mut Vec<Item>, it: Item) {
 /// anything undeclared at all.
 ///
 /// The one declaration type: attach it to a system of either kind with
-/// [`IntoSystem::access`](crate::IntoSystem::access).
+/// [`IntoSystem::access`](crate::game::IntoSystem::access).
 ///
 /// [`SystemAccess::new`] declares nothing; chain the builder methods to add
 /// to it. Declaring a write also covers reading the same type.
 ///
 /// ```
 /// use ponko::prelude::*;
+/// #[derive(Component)]
 /// struct Pos(f32);
+/// #[derive(Component)]
 /// struct Vel(f32);
 /// struct Gravity(f32);
 ///
@@ -419,7 +424,7 @@ impl SystemAccess {
         self
     }
 
-    /// Reads `E` events ([`Events::read`](crate::Events::read) or `peek`).
+    /// Reads `E` events ([`Events::read`](crate::events::Events::read) or `peek`).
     ///
     /// Declared event types are `Send + Sync`, like components and
     /// resources: a system in a parallel batch reads them from another
@@ -445,7 +450,7 @@ impl SystemAccess {
         self
     }
 
-    /// Records commands ([`Ctx::commands`](crate::Ctx::commands)), applied
+    /// Records commands ([`Ctx::commands`](crate::ctx::Ctx::commands)), applied
     /// after the system.
     #[must_use]
     pub fn commands(mut self) -> Self {
@@ -890,12 +895,12 @@ pub(crate) fn end_check(ctx: &mut Ctx, system: &str, access: &SystemAccess) {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct ReportedSystem {
-    /// The registration's id: what [`Game::add_system`](crate::Game::add_system)
-    /// returned for it, for [`Game::remove`](crate::Game::remove) and
-    /// [`Game::order`](crate::Game::order).
-    pub id: crate::SystemId,
+    /// The registration's id: what [`Game::add_system`](crate::game::Game::add_system)
+    /// returned for it, for [`Game::remove`](crate::game::Game::remove) and
+    /// [`Game::order`](crate::game::Game::order).
+    pub id: crate::game::SystemId,
     /// The system's name: its function path, or the name it was given
-    /// ([`IntoSystem::named`](crate::IntoSystem::named)).
+    /// ([`IntoSystem::named`](crate::game::IntoSystem::named)).
     pub name: &'static str,
     /// The phase it runs in.
     pub phase: Phase,
@@ -922,13 +927,13 @@ pub struct ReportedPair {
 }
 
 /// Which declared systems could run together: from
-/// [`Game::access_report`](crate::Game::access_report).
+/// [`Game::access_report`](crate::game::Game::access_report).
 ///
 /// Lists every system and, for each pair in the same phase where both have
 /// a declaration, its conflicts. Undeclared systems are exclusive and are
 /// left out of the pairs, but one registered between two declared systems
 /// keeps them apart ([`AccessConflict::Between`]). Purely informational:
-/// [`Game::schedule_plan`](crate::Game::schedule_plan) shows what really
+/// [`Game::schedule_plan`](crate::game::Game::schedule_plan) shows what really
 /// runs together.
 #[derive(Clone, Debug, Default)]
 #[non_exhaustive]
@@ -1022,6 +1027,7 @@ impl fmt::Display for AccessReport {
 mod tests {
     use super::*;
 
+    #[derive(Component)]
     struct Pos;
     struct Hit;
 

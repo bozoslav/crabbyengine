@@ -64,7 +64,7 @@ fn usage() -> ! {
 fn smoke(mode: &str, report: Option<std::path::PathBuf>) {
     use game::smoke::*;
     let name = mode.to_string();
-    let setup = move |ctx: &mut ponko::Ctx| setup_smoke(ctx, report, &name);
+    let setup = move |ctx: &mut ponko::prelude::Ctx| setup_smoke(ctx, report, &name);
     if mode == "window" {
         build_smoke(game::save_path()).setup(setup).run();
     } else {

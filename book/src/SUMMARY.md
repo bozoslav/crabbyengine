@@ -41,6 +41,7 @@
 - [Web builds: games in the browser](web.md)
 - [C and C++](c-cpp.md)
 - [Naming and compatibility](naming.md)
+- [Migrating from 0.0.1 to 0.1.0](migrating-to-0.1.md)
 - [Reflection: components as JSON](reflection.md)
 - [The inspector: look inside a running game](inspector.md)
 - [Randomness, determinism and saving](determinism.md)

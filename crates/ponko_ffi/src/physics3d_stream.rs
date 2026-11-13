@@ -250,11 +250,11 @@ pub unsafe extern "C" fn ponko_ctx_physics3d_is_collider_active(
 mod imp {
     use std::mem::offset_of;
 
-    use ponko::Vec3;
     use ponko::physics3d::ColliderFocus;
     use ponko::physics3d::CollisionGroups;
     use ponko::physics3d::CollisionMeshData;
     use ponko::physics3d::TerrainCollider;
+    use ponko::prelude::Vec3;
     use ponko_ecs::Entity;
 
     use super::*;

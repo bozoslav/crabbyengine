@@ -26,7 +26,7 @@ pub struct Font(pub(crate) u32);
 
 impl Font {
     /// The built-in font (Ubuntu Light, Ubuntu Font Licence), used by
-    /// [`Ctx::draw_text`](crate::Ctx::draw_text).
+    /// [`Ctx::draw_text`](crate::ctx::Ctx::draw_text).
     pub const DEFAULT: Font = Font(0);
 }
 
@@ -157,11 +157,11 @@ pub(crate) struct Text {
 }
 
 /// The bytes of a font file as a font; not one this engine reads is
-/// [`ErrorKind::Decode`](crate::ErrorKind::Decode).
-fn decode_font(bytes: &[u8]) -> Result<fontdue::Font, crate::Error> {
+/// [`ErrorKind::Decode`](crate::error::ErrorKind::Decode).
+fn decode_font(bytes: &[u8]) -> Result<fontdue::Font, crate::error::Error> {
     fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).map_err(|e| {
-        crate::Error::new(
-            crate::ErrorKind::Decode,
+        crate::error::Error::new(
+            crate::error::ErrorKind::Decode,
             format!("not a font file this engine can read: {e}"),
         )
     })
@@ -203,9 +203,9 @@ impl Text {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::Decode`](crate::ErrorKind::Decode) if they aren't a font
+    /// [`ErrorKind::Decode`](crate::error::ErrorKind::Decode) if they aren't a font
     /// this engine can read.
-    pub fn add_font(&mut self, bytes: &[u8]) -> Result<Font, crate::Error> {
+    pub fn add_font(&mut self, bytes: &[u8]) -> Result<Font, crate::error::Error> {
         let font = decode_font(bytes)?;
         self.fonts.push(Some(font));
         let id = self.fonts.len() as u32 - 1;
@@ -236,7 +236,7 @@ impl Text {
     /// # Errors
     ///
     /// As [`add_font`](Self::add_font); the old font stays then.
-    pub fn replace_font(&mut self, font: Font, bytes: &[u8]) -> Result<(), crate::Error> {
+    pub fn replace_font(&mut self, font: Font, bytes: &[u8]) -> Result<(), crate::error::Error> {
         let new = decode_font(bytes)?;
         if !self.has_font(font) {
             return Ok(());

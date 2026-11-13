@@ -189,7 +189,7 @@ fn built_in_systems_are_removed_by_their_constants() {
         ponko_game_free(g);
     }
     // The constants are Rust's `Systems` ids.
-    use ponko::Systems;
+    use ponko::prelude::Systems;
     let pairs = [
         (PONKO_SYSTEM_PHYSICS, Systems::PHYSICS),
         (PONKO_SYSTEM_PHYSICS3D, Systems::PHYSICS3D),

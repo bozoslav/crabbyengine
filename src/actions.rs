@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 /// A digital source. Gamepad slots are stable while connected.
 /// ```
-/// use ponko::{ButtonBinding, Key};
+/// use ponko::prelude::{ButtonBinding, Key};
 /// let binding = ButtonBinding::Key(Key::Space);
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,7 +32,7 @@ pub enum ButtonBinding {
 /// A scalar source. Gamepad values inside the deadzone read zero; outside
 /// they are rescaled continuously to full range. Invalid deadzones read zero.
 /// ```
-/// use ponko::{AxisBinding, Key};
+/// use ponko::prelude::{AxisBinding, Key};
 /// let binding = AxisBinding::Keys { negative: Key::A, positive: Key::D };
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,7 +58,7 @@ pub enum AxisBinding {
 /// A vector source. Keyboard diagonals are normalized; sticks use a radial
 /// deadzone and retain their direction. Y is positive down.
 /// ```
-/// use ponko::{Axis2Binding, Key};
+/// use ponko::prelude::{Axis2Binding, Key};
 /// let binding = Axis2Binding::Keys { left: Key::A, right: Key::D, up: Key::W, down: Key::S };
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -88,7 +88,7 @@ pub enum Axis2Binding {
 /// An action's kind and sources. Buttons OR together; axes select the source
 /// with greatest magnitude (first wins ties), avoiding doubled movement.
 /// ```
-/// use ponko::{Action, ButtonBinding, Key};
+/// use ponko::prelude::{Action, ButtonBinding, Key};
 /// let jump = Action::Button(vec![ButtonBinding::Key(Key::Space)]);
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -103,7 +103,7 @@ pub enum Action {
 impl Action {
     /// The sources of a button action; empty for an axis.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let jump = Action::Button(vec![ButtonBinding::Key(Key::Space)]);
     /// assert_eq!(jump.buttons(), [ButtonBinding::Key(Key::Space)]);
     /// assert!(jump.axes().is_empty());
@@ -116,7 +116,7 @@ impl Action {
     }
     /// The sources of a scalar axis action; empty for the other kinds.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let steer = Action::Axis(vec![AxisBinding::Keys { negative: Key::A, positive: Key::D }]);
     /// assert_eq!(steer.axes().len(), 1);
     /// ```
@@ -128,7 +128,7 @@ impl Action {
     }
     /// The sources of a vector axis action; empty for the other kinds.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let walk = Action::Axis2(vec![Axis2Binding::Keys { left: Key::A, right: Key::D, up: Key::W, down: Key::S }]);
     /// assert_eq!(walk.axes2().len(), 1);
     /// ```
@@ -277,7 +277,7 @@ macro_rules! actions {
         $vis struct $name {
             $(
                 #[doc = concat!("The action `", $text, "`.")]
-                $vis $field: $crate::ActionId,
+                $vis $field: $crate::actions::ActionId,
             )+
         }
         impl $name {
@@ -285,7 +285,7 @@ macro_rules! actions {
             $vis const NAMES: &'static [&'static str] = &[$($text),+];
             /// Resolves every action once; each unknown name logs an error
             /// and reads false/zero.
-            $vis fn resolve(ctx: &$crate::Ctx) -> Self {
+            $vis fn resolve(ctx: &$crate::prelude::Ctx) -> Self {
                 Self { $($field: ctx.input.action_id($text)),+ }
             }
         }
@@ -310,7 +310,7 @@ struct State {
 /// its own copy; [`Input::set_action`](crate::input::Input::set_action) changes one
 /// installed action in place.
 /// ```
-/// use ponko::{ActionMap, Action, ButtonBinding, Key};
+/// use ponko::prelude::{ActionMap, Action, ButtonBinding, Key};
 /// let mut map = ActionMap::default();
 /// map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
 /// let json = map.to_json().unwrap();
@@ -358,7 +358,7 @@ impl ActionMap {
     }
     /// The bindings of one action, or `None` for an unknown name.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut map = ActionMap::default();
     /// map.set("jump", Action::Button(vec![ButtonBinding::Key(Key::Space)]));
     /// assert_eq!(map.get("jump").unwrap().buttons(), [ButtonBinding::Key(Key::Space)]);
@@ -370,7 +370,7 @@ impl ActionMap {
     /// Every action and its bindings, ordered by name (the order the JSON
     /// file stores them in, whatever order they were set in).
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// let mut map = ActionMap::default();
     /// map.set("jump", Action::Button(vec![]));
     /// map.set("fire", Action::Button(vec![]));
@@ -382,7 +382,7 @@ impl ActionMap {
     }
     /// The number of actions.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// assert_eq!(ActionMap::default().len(), 0);
     /// ```
     pub fn len(&self) -> usize {
@@ -390,7 +390,7 @@ impl ActionMap {
     }
     /// Whether the map has no actions.
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// assert!(ActionMap::default().is_empty());
     /// ```
     pub fn is_empty(&self) -> bool {

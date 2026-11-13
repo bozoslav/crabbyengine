@@ -4,7 +4,7 @@
 use ponko::d2::Collider;
 use ponko::d2::RigidBody;
 use ponko::d2::Transform as Transform2D;
-use ponko::{Game, vec2};
+use ponko::prelude::{Game, vec2};
 use rapier2d::prelude as rp;
 
 use crate::Bench;

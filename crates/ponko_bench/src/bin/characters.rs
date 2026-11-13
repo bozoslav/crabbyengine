@@ -7,7 +7,7 @@
 use ponko::d3::Character as Character3D;
 use ponko::d3::Collider as Collider3D;
 use ponko::d3::RigidBody as RigidBody3D;
-use ponko::*;
+use ponko::prelude::*;
 
 const WARMUP: u64 = 60;
 const TICKS: u64 = 300;
