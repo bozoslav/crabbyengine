@@ -908,7 +908,29 @@ fn every_control_name_is_a_binding() {
 
 // ---- Settings: UI scale, volume and rebindable controls ---------------------
 
-use game::settings::{self, Control, Controls, PAD_BUTTONS, Refused, SCALES, Settings, SettingsFile};
+use game::settings::{self, Control, Controls, Refused, SCALES, Settings, SettingsFile};
+
+/// All sixteen gamepad buttons: the engine can't list them, and the settings
+/// screen needs no list (it asks what was pressed), but the rules around them
+/// are checked for every one.
+const PAD_BUTTONS: [GamepadButton; 16] = [
+    GamepadButton::South,
+    GamepadButton::East,
+    GamepadButton::North,
+    GamepadButton::West,
+    GamepadButton::LeftBumper,
+    GamepadButton::RightBumper,
+    GamepadButton::LeftTrigger,
+    GamepadButton::RightTrigger,
+    GamepadButton::Select,
+    GamepadButton::Start,
+    GamepadButton::LeftStick,
+    GamepadButton::RightStick,
+    GamepadButton::DPadUp,
+    GamepadButton::DPadDown,
+    GamepadButton::DPadLeft,
+    GamepadButton::DPadRight,
+];
 
 // ANCHOR: ui_drive
 /// What the engine does with the retained UI at the start of every frame (layout,
@@ -1502,8 +1524,8 @@ fn controls_refuse_reserved_fixed_and_used_keys_and_buttons() {
 }
 
 #[test]
-fn the_gamepad_prompt_hears_every_button_and_reserves_what_the_menus_use() {
-    // All sixteen buttons are listened for, each once.
+fn the_gamepad_prompt_reserves_what_the_menus_use() {
+    // The list is all sixteen buttons, each once.
     let mut seen = PAD_BUTTONS.to_vec();
     seen.sort_by_key(|b| format!("{b:?}"));
     seen.dedup();

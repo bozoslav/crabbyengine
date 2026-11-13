@@ -278,3 +278,74 @@ allocate length + 1 bytes, then save again. Context queries are named
 This map has no chords, action contexts, smoothing, interactive binding UI,
 or device-specific profiles. Each gamepad binding names a stable controller
 slot, the same slot used by the raw gamepad API.
+
+## Rebinding screens: what was just pressed
+
+A rebinding screen asks "which input did the player just press?". The input
+service answers it: `ctx.input.pressed_this_frame()` yields every key, mouse
+button, gamepad button and gamepad axis that went down this frame, as a
+`PressedInput` that wraps the binding an `ActionMap` takes. The screen lists no
+keys itself, so a key the game never thought of works too. Nothing is polled.
+
+<div class="lang-pair">
+<div>
+
+```rust
+# use ponko::prelude::*;
+# fn example(ctx: &mut Ctx, waiting_for_jump: &mut bool) {
+if *waiting_for_jump {
+    // The first key, mouse button or gamepad button that went down this frame.
+    let pressed = ctx.input.pressed_this_frame().find_map(|p| p.button().cloned());
+    if let Some(binding) = pressed {
+        ctx.input.set_action("jump", Action::Button(vec![binding]));
+        *waiting_for_jump = false;
+    }
+}
+# }
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:pressed_this_frame}}
+```
+
+</div>
+</div>
+
+- **Edges.** An input appears on the frame it goes down, not while it is held,
+  and a tap that goes down and up inside one frame still appears (like
+  `key_pressed`). A stick or trigger counts when it was under the threshold
+  at the start of the frame and reached it during the frame; flicking it out
+  and back within one frame still counts. A simulation system that runs
+  several ticks in a frame sees the same answer in each.
+- **What comes back.** `PressedInput::Button` holds a `ButtonBinding` (key,
+  mouse button or gamepad slot and button) for an `Action::Button`;
+  `PressedInput::Axis` holds an `AxisBinding::Gamepad` for an `Action::Axis`,
+  with a deadzone of `DEFAULT_DEADZONE` (0.15). `p.button()` and `p.axis()`
+  pick one kind. To bind a stick to a vector action, wrap the axis's stick in
+  `Axis2Binding::Gamepad` yourself.
+- **Axis threshold.** `PRESS_THRESHOLD` is 0.5; `pressed_this_frame_with_threshold(t)`
+  takes another.
+- **Order.** Keys, then mouse buttons, then each gamepad slot's buttons, then
+  its axes, each in the order of its enum: the same every run, so "the first
+  press" is a stable answer, and a scenario can assert the whole list.
+- **No allocation.** It scans fixed arrays. In Rust, collect the first
+  answer before you call `set_action` (the iterator borrows `ctx.input`), as
+  the example does.
+- **Held when the prompt opens.** The press that opened the prompt (Enter on
+  a focused button) is still "pressed this frame" in the frame the prompt
+  opens: skip that frame, as the reference game's prompt does.
+
+Native code: C's `ponko_ctx_pressed_this_frame(ctx, axis_threshold, out,
+capacity, &count)` fills `PonkoActionBinding` descriptions (kinds
+`PONKO_ACTION_KEY`, `_MOUSE`, `_GAMEPAD_BUTTON` and `_GAMEPAD_AXIS`) that go
+straight into `ponko_action_map_set`; `count` is the full number, so a call
+with a null buffer and capacity 0 sizes it. A threshold of 0 means
+`PONKO_PRESS_THRESHOLD`. C++ returns `std::vector<ponko::pressed_input>`,
+each with `key()`, `mouse()`, `button()`, `axis()`, `pad()` and `binding()`.
+
+The reference game's settings screen is built on it (see
+[Packaging a game](packaging.md)), and `tests/pressed_this_frame.rs` drives the
+query with an input scenario, tick by tick.

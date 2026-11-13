@@ -21,6 +21,8 @@
 //!   [`Controls::from_bindings`] reads it back from the map before saving.
 //!   Pressing a control's button opens a small prompt; the next key or button
 //!   pressed becomes the new binding, unless it is reserved or already used.
+//!   The prompt asks the input service what went down this frame
+//!   (`ctx.input.pressed_this_frame()`); it polls no key or button itself.
 //!
 //! Limitations are listed in the book's chapter on this example.
 
@@ -410,133 +412,6 @@ pub fn leave_settings(ctx: &mut Ctx) {
 
 // ---- The settings screen ----------------------------------------------------
 
-/// Keys the rebinding prompt listens for. `Key` can't be listed by the engine
-/// (it only answers "is this key pressed"), so the game names the ones it offers.
-fn candidate_keys() -> Vec<Key> {
-    use Key::*;
-    let mut keys = vec![
-        A,
-        B,
-        C,
-        D,
-        E,
-        F,
-        G,
-        H,
-        I,
-        J,
-        K,
-        L,
-        M,
-        N,
-        O,
-        P,
-        Q,
-        R,
-        S,
-        T,
-        U,
-        V,
-        W,
-        X,
-        Y,
-        Z,
-        Num0,
-        Num1,
-        Num2,
-        Num3,
-        Num4,
-        Num5,
-        Num6,
-        Num7,
-        Num8,
-        Num9,
-        F1,
-        F2,
-        F3,
-        F4,
-        F5,
-        F6,
-        F7,
-        F8,
-        F9,
-        F10,
-        F11,
-        F12,
-        Up,
-        Down,
-        Left,
-        Right,
-        Space,
-        Enter,
-        Escape,
-        Tab,
-        Backspace,
-        Insert,
-        Delete,
-        Home,
-        End,
-        PageUp,
-        PageDown,
-        LeftShift,
-        RightShift,
-        LeftCtrl,
-        RightCtrl,
-        LeftAlt,
-        RightAlt,
-        Minus,
-        Equal,
-        LeftBracket,
-        RightBracket,
-        Backslash,
-        Semicolon,
-        Apostrophe,
-        Backquote,
-        Comma,
-        Period,
-        Slash,
-        Numpad0,
-        Numpad1,
-        Numpad2,
-        Numpad3,
-        Numpad4,
-        Numpad5,
-        Numpad6,
-        Numpad7,
-        Numpad8,
-        Numpad9,
-        NumpadAdd,
-        NumpadSubtract,
-        NumpadMultiply,
-        NumpadDivide,
-        NumpadDecimal,
-        NumpadEnter,
-    ];
-    keys.shrink_to_fit();
-    keys
-}
-
-/// Every gamepad button the prompt listens for (all sixteen), so it can say
-/// "reserved" for the ones it refuses instead of ignoring them.
-pub const PAD_BUTTONS: [ponko::input::GamepadButton; 16] = [
-    ponko::input::GamepadButton::South,
-    ponko::input::GamepadButton::East,
-    ponko::input::GamepadButton::North,
-    ponko::input::GamepadButton::West,
-    ponko::input::GamepadButton::LeftBumper,
-    ponko::input::GamepadButton::RightBumper,
-    ponko::input::GamepadButton::LeftTrigger,
-    ponko::input::GamepadButton::RightTrigger,
-    ponko::input::GamepadButton::Select,
-    ponko::input::GamepadButton::Start,
-    ponko::input::GamepadButton::LeftStick,
-    ponko::input::GamepadButton::RightStick,
-    ponko::input::GamepadButton::DPadUp,
-    ponko::input::GamepadButton::DPadDown,
-    ponko::input::GamepadButton::DPadLeft,
-    ponko::input::GamepadButton::DPadRight,
-];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Device {
     Key,
@@ -845,21 +720,17 @@ fn apply(ctx: &mut Ctx, settings: &Settings) {
     ctx.ui.set_scale(settings.ui_scale);
 }
 
-/// What the player pressed while the prompt was open, if anything.
+/// What the player pressed while the prompt was open, if anything: the first
+/// new press of the device the prompt asked for. The engine reports every key
+/// and button that went down this frame, so the screen lists none of them.
 fn pressed(ctx: &Ctx, device: Device) -> Option<(String, Result<Key, ponko::input::GamepadButton>)> {
-    match device {
-        Device::Key => candidate_keys()
-            .into_iter()
-            .find(|&k| ctx.key_pressed(k))
-            .map(|k| (format!("{k:?}"), Ok(k))),
-        // Every slot, connected or not: an unplugged pad has nothing pressed.
-        Device::Pad => (0..).map_while(ponko::input::Gamepad::from_slot).find_map(|pad| {
-            PAD_BUTTONS
-                .into_iter()
-                .find(|&b| ctx.input.gamepad_pressed(pad, b))
-                .map(|b| (format!("{b:?}"), Err(b)))
-        }),
-    }
+    ctx.input.pressed_this_frame().find_map(|press| match (device, press) {
+        (Device::Key, PressedInput::Button(ButtonBinding::Key(key))) => Some((format!("{key:?}"), Ok(key))),
+        (Device::Pad, PressedInput::Button(ButtonBinding::Gamepad { button, .. })) => {
+            Some((format!("{button:?}"), Err(button)))
+        }
+        _ => None,
+    })
 }
 
 fn capture_press(ctx: &mut Ctx, state: &mut SettingsUi, capture: Capture) {
