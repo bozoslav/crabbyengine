@@ -344,8 +344,8 @@ fn set_bits(w: &mut World, e: Entity, mask: u32) {
 #[test]
 fn queries_skip_emptied_archetypes_and_find_refilled_ones() {
     // 128 archetypes with `Pos`, filled once each, then all but a few
-    // emptied again: the loops must skip the empty ones (by the world's
-    // occupancy bits) and see an archetype again as soon as it refills, with
+    // emptied again: scans visit the world's list of archetypes with
+    // entities, and must see an archetype again as soon as it refills, with
     // the archetype index (from 64 archetypes on) and without.
     for policy in [QueryCachePolicy::new(), QueryCachePolicy::off()] {
         let mut w = World::new();
@@ -356,11 +356,16 @@ fn queries_skip_emptied_archetypes_and_find_refilled_ones() {
         }
         let kept = w.spawn((Pos(2.0, 0.0), Vel(0.0, 0.0)));
         set_bits(&mut w, e, 0b101);
-        assert!(w.raw_ref().archetypes().len() > 128);
+        // Many empty archetypes (some of them reclaimed, at most 64 kept).
+        assert!(w.raw_ref().archetypes().iter().filter(|a| a.is_empty()).count() >= 64);
         for round in 0..3 {
             let mut seen = Vec::new();
             w.query::<(Entity, &Pos)>().for_each(|(e, _)| seen.push(e));
-            assert_eq!(seen, [e, kept], "round {round}");
+            let mut sorted = seen.clone();
+            sorted.sort();
+            let mut expected = [e, kept];
+            expected.sort();
+            assert_eq!(sorted, expected, "round {round}");
             assert_eq!(
                 w.query::<(Entity, &Pos)>().iter().map(|(e, _)| e).collect::<Vec<_>>(),
                 seen

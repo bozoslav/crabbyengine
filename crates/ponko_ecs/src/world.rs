@@ -69,10 +69,13 @@ pub struct World {
     pub(crate) infos: Vec<ComponentInfo>,
     by_type: TypeMap<ComponentId>,
     by_name: HashMap<String, ComponentId>,
-    // Append-only: query matching caches use indices and len() as a generation.
+    // Slots are never removed, but an empty archetype's slot may be
+    // reclaimed and reused for another component set: see `slots.rs` for
+    // what that means for the indices kept elsewhere.
     pub(crate) archetypes: Vec<Archetype>,
     pub(crate) query_matches: crate::query::MatchCache,
-    /// Which archetypes hold entities (queries skip the others by it).
+    /// Which archetypes hold entities (queries skip the others by it),
+    /// which are empty, and the storage of reclaimed ones.
     pub(crate) slots: crate::slots::Slots,
     /// Reused work-plan storage of parallel queries.
     #[cfg(feature = "parallel")]
@@ -198,7 +201,8 @@ impl World {
             changes: Default::default(),
             uid: crate::view::next_world_uid(),
         };
-        w.archetype_for(&[]); // archetype 0: entities with no components
+        let empty = w.archetype_for(&[]); // archetype 0: entities with no components
+        w.slots.pin(empty);
         w
     }
 
@@ -220,7 +224,7 @@ impl World {
         self.recorder.note(|l| l.structural = true);
         let iter = bundles.into_iter();
         let a = self.bundle_archetype::<B>();
-        self.archetypes[a].reserve(iter.size_hint().0);
+        self.archetypes[a].reserve(iter.size_hint().0, &mut self.slots.buffers);
         for b in iter {
             let e = self.entities.alloc();
             self.spawn_in::<B>(a, b, e);
@@ -257,7 +261,8 @@ impl World {
     }
 
     /// Memory held for entity data: component columns and handles of every
-    /// archetype, including spare capacity. Doesn't count resources or the
+    /// archetype, including spare capacity and the buffers of reclaimed
+    /// archetypes kept for new ones. Doesn't count resources or the
     /// world's bookkeeping (per-slot generation, archetype index).
     ///
     /// ```
@@ -271,7 +276,7 @@ impl World {
     /// assert!(world.allocated_bytes() >= 1000 * 16);
     /// ```
     pub fn allocated_bytes(&self) -> usize {
-        self.archetypes.iter().map(Archetype::allocated_bytes).sum()
+        self.archetypes.iter().map(Archetype::allocated_bytes).sum::<usize>() + self.slots.kept_bytes()
     }
 
     /// Despawns every entity. Resources stay.
@@ -343,7 +348,7 @@ impl World {
     fn spawn_in<B: Bundle>(&mut self, a: usize, bundle: B, e: Entity) -> Entity {
         let cols = &self.bundles[&TypeId::of::<B>()].columns;
         let arch = &mut self.archetypes[a];
-        arch.reserve_row(&self.changes);
+        arch.reserve_row(&self.changes, &mut self.slots.buffers);
         let row = arch.len();
         unsafe {
             bundle.write(&mut |i, src| {
@@ -383,6 +388,7 @@ impl World {
         }
         if self.archetypes[a].is_empty() {
             self.slots.emptied(a);
+            self.reclaim_if_over();
         }
         true
     }
@@ -1086,7 +1092,7 @@ impl World {
     /// location yet, and each pointer points to a valid value of its component.
     unsafe fn write_dynamic(&mut self, a: usize, e: Entity, components: &[(ComponentId, *const u8)]) {
         let arch = &mut self.archetypes[a];
-        arch.reserve_row(&self.changes);
+        arch.reserve_row(&self.changes, &mut self.slots.buffers);
         let row = arch.len();
         for &(id, src) in components {
             let c = &arch.columns[arch.column_index(id).unwrap()];
@@ -1218,16 +1224,78 @@ impl World {
 
     // ---- internals -------------------------------------------------------------
 
-    /// `ids` must be sorted and unique.
+    /// The archetype of exactly `ids` (sorted and unique), created if there
+    /// is none: in the slot and storage of a reclaimed archetype if there is
+    /// one, else in a new slot.
     fn archetype_for(&mut self, ids: &[ComponentId]) -> usize {
         if let Some(&a) = self.archetype_by_ids.get(ids) {
             return a;
         }
-        let a = self.archetypes.len();
-        self.archetypes.push(Archetype::new(ids.into(), &self.infos));
-        self.slots.add(a);
-        self.archetype_by_ids.insert(ids.into(), a);
+        let (a, key) = match self.slots.reuse(ids.len()) {
+            Some((a, shell)) => {
+                let (arch, key) = Archetype::reuse(shell, ids, &self.infos);
+                self.archetypes[a] = arch;
+                // Indexed query signatures learn what the slot holds now.
+                self.query_matches.reused(a, &self.archetypes);
+                (a, key)
+            }
+            None => {
+                let a = self.archetypes.len();
+                self.archetypes.push(Archetype::new(ids.into(), &self.infos));
+                (a, ids.into())
+            }
+        };
+        self.slots.created(a);
+        self.archetype_by_ids.insert(key, a);
         a
+    }
+
+    /// Reclaims the archetypes that have been empty the longest while the
+    /// world keeps more empty ones than its policy allows (see `slots.rs`).
+    /// Called right after an archetype lost its last entity, at the end of
+    /// a structural change: nothing holds an archetype index across it.
+    #[inline]
+    fn reclaim_if_over(&mut self) {
+        if self.slots.over() {
+            self.reclaim_empty();
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn reclaim_empty(&mut self) {
+        while self.slots.over() {
+            let Some(a) = self.slots.oldest_empty() else { break };
+            self.reclaim(a);
+        }
+    }
+
+    /// Turns empty archetype `a` into a dead slot: unlinks its transition
+    /// edges from its neighbours, forgets its component set, and keeps its
+    /// storage for the next new archetype.
+    fn reclaim(&mut self, a: usize) {
+        // Edges are symmetric: `a`'s add edge to `d` for `id` is `d`'s remove
+        // edge for `id`, back to `a` (and the other way round).
+        let mut add = std::mem::take(&mut self.archetypes[a].add_edges);
+        for (id, &d) in &add {
+            let back = self.archetypes[d].remove_edges.remove(id);
+            debug_assert_eq!(back, Some(a));
+        }
+        add.clear();
+        let mut remove = std::mem::take(&mut self.archetypes[a].remove_edges);
+        for (id, &s) in &remove {
+            let back = self.archetypes[s].add_edges.remove(id);
+            debug_assert_eq!(back, Some(a));
+        }
+        remove.clear();
+        let key = self.archetype_by_ids.remove_entry(&self.archetypes[a].ids[..]);
+        debug_assert_eq!(key.as_ref().map(|k| k.1), Some(a));
+        let arch = &mut self.archetypes[a];
+        arch.add_edges = add;
+        arch.remove_edges = remove;
+        let mut shell = arch.retire(&mut self.slots.buffers);
+        shell.key = key.map(|k| k.0);
+        self.slots.reclaimed(a, shell);
     }
 
     fn bundle_archetype<B: Bundle>(&mut self) -> usize {
@@ -1246,6 +1314,8 @@ impl World {
             std::any::type_name::<B>()
         );
         let a = self.archetype_for(&sorted);
+        // The bundle remembers its archetype: never reclaim it.
+        self.slots.pin(a);
         let columns = ids
             .iter()
             .map(|&id| self.archetypes[a].column_index(id).unwrap())
@@ -1282,7 +1352,7 @@ impl World {
         let src = loc.archetype as usize;
         let row = loc.row as usize;
         let (s, d) = two_mut(&mut self.archetypes, src, dst);
-        d.reserve(1);
+        d.reserve(1, &mut self.slots.buffers);
         let new_row = d.len();
         let last = s.len() - 1;
         // Both id lists are sorted, so one merge pass finds each source column
@@ -1321,6 +1391,7 @@ impl World {
         }
         if last == 0 {
             self.slots.emptied(src);
+            self.reclaim_if_over();
         }
         new_row
     }

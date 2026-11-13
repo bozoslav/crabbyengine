@@ -211,14 +211,20 @@ impl Column {
         Layout::from_size_align(size, align).expect("column too large")
     }
 
-    unsafe fn grow(&mut self, old_cap: usize, new_cap: usize) {
+    /// Grows the buffer from `old_cap` to `new_cap` rows. A column that has
+    /// no buffer yet takes one of the right layout from `pool` if it has
+    /// one: the buffer of an archetype that was reclaimed.
+    unsafe fn grow(&mut self, old_cap: usize, new_cap: usize, pool: &mut BufferPool) {
         let (old, new) = (self.array(old_cap), self.array(new_cap));
         if new.size() == 0 {
             return;
         }
         let p = unsafe {
             if old.size() == 0 {
-                alloc::alloc(new)
+                match pool.take(new) {
+                    Some(p) => p.as_ptr(),
+                    None => alloc::alloc(new),
+                }
             } else {
                 alloc::realloc(self.data.as_ptr(), old, new.size())
             }
@@ -277,6 +283,21 @@ impl Column {
         self.data = new;
     }
 
+    /// Hands the buffer for `cap` rows to `pool` (or frees it if the pool
+    /// is full) and leaves the column with none, as a new one. The values
+    /// in it must be dead (dropped or moved out).
+    ///
+    /// # Safety
+    /// `cap` is the column's capacity.
+    unsafe fn give_buffer(&mut self, cap: usize, pool: &mut BufferPool) {
+        let layout = self.array(cap);
+        if layout.size() != 0 && !pool.put(layout, self.data) {
+            // SAFETY: the buffer was allocated with this layout.
+            unsafe { alloc::dealloc(self.data.as_ptr(), layout) }
+        }
+        self.data = NonNull::new(std::ptr::without_provenance_mut(self.align as usize)).unwrap();
+    }
+
     unsafe fn dealloc(&mut self, cap: usize) {
         let layout = self.array(cap);
         if layout.size() != 0 {
@@ -312,28 +333,111 @@ unsafe impl Sync for Archetype {}
 
 impl Archetype {
     pub(crate) fn new(ids: Box<[ComponentId]>, infos: &[ComponentInfo]) -> Self {
-        let mut tracked = false;
-        let columns = ids
-            .iter()
-            .map(|id| {
-                let info = &infos[id.index()];
-                let mut column = Column::new(info.layout, info.drop);
-                if info.tracked {
-                    tracked = true;
-                    // SAFETY: a new, untracked column of an archetype with no capacity.
-                    unsafe { column.start_tracking(0, 0, 0) };
-                }
-                column
-            })
-            .collect();
-        Archetype {
+        let columns = ids.iter().map(|id| Self::column(&infos[id.index()])).collect();
+        let mut arch = Archetype {
             ids,
             columns,
             entities: Vec::new(),
-            cap: if tracked { TRACKED } else { 0 },
+            cap: 0,
             add_edges: EdgeMap::default(),
             remove_edges: EdgeMap::default(),
+        };
+        arch.cap = if arch.columns.iter().any(|c| c.tracked) {
+            TRACKED
+        } else {
+            0
+        };
+        arch
+    }
+
+    /// An empty column for a component described by `info`.
+    fn column(info: &ComponentInfo) -> Column {
+        let mut column = Column::new(info.layout, info.drop);
+        if info.tracked {
+            // SAFETY: a new, untracked column of an archetype with no capacity.
+            unsafe { column.start_tracking(0, 0, 0) };
         }
+        column
+    }
+
+    /// Takes everything this archetype owns out of it, leaving an archetype
+    /// with no components, rows or edges: what a reclaimed archetype slot
+    /// holds until it is used again. Column buffers go to `pool` (or are
+    /// freed); the rest is returned for reuse by [`Archetype::reuse`].
+    /// The caller has taken the edges out and unlinked them.
+    pub(crate) fn retire(&mut self, pool: &mut BufferPool) -> Shell {
+        assert!(self.is_empty(), "only an empty archetype is reclaimed");
+        debug_assert!(self.add_edges.is_empty() && self.remove_edges.is_empty());
+        let cap = self.cap();
+        for c in self.columns.iter_mut() {
+            // SAFETY: `cap` is the capacity, and no row is live.
+            unsafe { c.give_buffer(cap, pool) };
+        }
+        self.cap = 0;
+        Shell {
+            ids: std::mem::take(&mut self.ids),
+            key: None,
+            columns: std::mem::take(&mut self.columns),
+            entities: std::mem::take(&mut self.entities),
+            add_edges: std::mem::take(&mut self.add_edges),
+            remove_edges: std::mem::take(&mut self.remove_edges),
+        }
+    }
+
+    /// A new, empty archetype of `ids` (sorted, unique) built in the storage
+    /// of a reclaimed one, and its key for the world's archetype map. Boxes
+    /// of the same length are written over; the entity list and edge maps
+    /// keep their capacity. Doesn't allocate when `shell` held as many
+    /// components as `ids`.
+    pub(crate) fn reuse(shell: Shell, ids: &[ComponentId], infos: &[ComponentInfo]) -> (Self, Box<[ComponentId]>) {
+        let Shell {
+            ids: mut own,
+            key,
+            mut columns,
+            mut entities,
+            mut add_edges,
+            mut remove_edges,
+        } = shell;
+        let boxed = |mut b: Box<[ComponentId]>| {
+            if b.len() == ids.len() {
+                b.copy_from_slice(ids);
+                b
+            } else {
+                ids.into()
+            }
+        };
+        own = boxed(own);
+        let key = boxed(key.unwrap_or_default());
+        if columns.len() == ids.len() {
+            for (c, id) in columns.iter_mut().zip(ids) {
+                *c = Self::column(&infos[id.index()]);
+            }
+        } else {
+            columns = ids.iter().map(|id| Self::column(&infos[id.index()])).collect();
+        }
+        entities.clear();
+        add_edges.clear();
+        remove_edges.clear();
+        let mut arch = Archetype {
+            ids: own,
+            columns,
+            entities,
+            cap: 0,
+            add_edges,
+            remove_edges,
+        };
+        arch.cap = if arch.columns.iter().any(|c| c.tracked) {
+            TRACKED
+        } else {
+            0
+        };
+        (arch, key)
+    }
+
+    /// Heap bytes kept for entity handles: what an archetype's entity list
+    /// holds, for the world's count of reusable storage.
+    pub(crate) fn shell_bytes(shell: &Shell) -> usize {
+        shell.entities.capacity() * std::mem::size_of::<Entity>()
     }
 
     /// Number of entities in this archetype.
@@ -488,7 +592,7 @@ impl Archetype {
         self.entities = perm.iter().map(|&p| old[p as usize]).collect();
     }
 
-    pub(crate) fn reserve(&mut self, additional: usize) {
+    pub(crate) fn reserve(&mut self, additional: usize, pool: &mut BufferPool) {
         let needed = self.len().checked_add(additional).expect("too many entities");
         if needed <= self.cap() {
             return;
@@ -496,7 +600,7 @@ impl Archetype {
         let cap = self.cap();
         let new_cap = needed.max(cap * 2).max(8);
         for c in self.columns.iter_mut() {
-            unsafe { c.grow(cap, new_cap) }
+            unsafe { c.grow(cap, new_cap, pool) }
         }
         self.cap = new_cap | (self.cap & TRACKED);
         self.entities.reserve(new_cap - self.entities.len());
@@ -511,18 +615,18 @@ impl Archetype {
     /// `cap`, so a tracked archetype fails the signed comparison and takes
     /// the second path together with a full one. (A length can't reach the
     /// sign bit: a `Vec` holds at most `isize::MAX` bytes.)
-    pub(crate) fn reserve_row(&mut self, changes: &crate::change::Changes) {
+    pub(crate) fn reserve_row(&mut self, changes: &crate::change::Changes, pool: &mut BufferPool) {
         if (self.len() + 1) as isize <= self.cap as isize {
             return;
         }
-        self.reserve_row_slow(changes.stamp());
+        self.reserve_row_slow(changes.stamp(), pool);
     }
 
     /// The rare half of [`reserve_row`](Self::reserve_row): the archetype is
     /// full, or it is tracked.
     #[inline(never)]
-    fn reserve_row_slow(&mut self, stamp: u32) {
-        self.reserve(1);
+    fn reserve_row_slow(&mut self, stamp: u32, pool: &mut BufferPool) {
+        self.reserve(1, pool);
         if self.tracked() {
             self.stamp_row(self.len(), stamp);
         }
@@ -695,6 +799,94 @@ impl Drop for Archetype {
                 }
             }
             unsafe { c.dealloc(cap) }
+        }
+    }
+}
+
+/// The storage a reclaimed archetype leaves behind, kept for the next new
+/// archetype: its id lists, column headers, entity list and edge maps, all
+/// empty, with their capacity. Its column buffers went to a [`BufferPool`].
+pub(crate) struct Shell {
+    ids: Box<[ComponentId]>,
+    /// The boxed key of the world's archetype map, once taken back from it.
+    pub(crate) key: Option<Box<[ComponentId]>>,
+    columns: Box<[Column]>,
+    entities: Vec<Entity>,
+    add_edges: EdgeMap,
+    remove_edges: EdgeMap,
+}
+
+impl Shell {
+    /// Components the archetype had: how many ids and columns its boxes hold.
+    pub(crate) fn width(&self) -> usize {
+        self.ids.len()
+    }
+}
+
+// SAFETY: as for `Archetype`: the column headers own no buffer any more.
+unsafe impl Send for Shell {}
+unsafe impl Sync for Shell {}
+
+/// Most bytes of column buffers a world keeps for reuse.
+const POOL_BYTES: usize = 4 << 20;
+/// Most different buffer layouts it keeps them for.
+const POOL_LAYOUTS: usize = 64;
+
+/// Column buffers of reclaimed archetypes, by layout, for the columns of
+/// new archetypes: a world whose component combinations come and go then
+/// reaches a state where it allocates nothing (issue #347). Bounded by
+/// [`POOL_BYTES`] and [`POOL_LAYOUTS`]; what doesn't fit is freed.
+#[derive(Default)]
+pub(crate) struct BufferPool {
+    lists: Vec<(Layout, Vec<NonNull<u8>>)>,
+    bytes: usize,
+}
+
+// SAFETY: the pool owns plain buffers no one else points to.
+unsafe impl Send for BufferPool {}
+unsafe impl Sync for BufferPool {}
+
+impl BufferPool {
+    /// A buffer allocated with exactly `layout`, if the pool holds one.
+    fn take(&mut self, layout: Layout) -> Option<NonNull<u8>> {
+        let (_, list) = self.lists.iter_mut().find(|(l, _)| *l == layout)?;
+        let p = list.pop()?;
+        self.bytes -= layout.size();
+        Some(p)
+    }
+
+    /// Keeps `p`, a buffer allocated with `layout`; `false` if the pool is
+    /// full and the caller must free it.
+    fn put(&mut self, layout: Layout, p: NonNull<u8>) -> bool {
+        if self.bytes + layout.size() > POOL_BYTES {
+            return false;
+        }
+        let list = match self.lists.iter().position(|(l, _)| *l == layout) {
+            Some(i) => &mut self.lists[i].1,
+            None if self.lists.len() < POOL_LAYOUTS => {
+                self.lists.push((layout, Vec::new()));
+                &mut self.lists.last_mut().expect("just pushed").1
+            }
+            None => return false,
+        };
+        list.push(p);
+        self.bytes += layout.size();
+        true
+    }
+
+    /// Bytes of buffers held.
+    pub(crate) fn bytes(&self) -> usize {
+        self.bytes
+    }
+}
+
+impl Drop for BufferPool {
+    fn drop(&mut self) {
+        for (layout, list) in &self.lists {
+            for p in list {
+                // SAFETY: every buffer in the list was allocated with its layout.
+                unsafe { alloc::dealloc(p.as_ptr(), *layout) }
+            }
         }
     }
 }
