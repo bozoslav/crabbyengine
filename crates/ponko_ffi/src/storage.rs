@@ -208,7 +208,10 @@ pub unsafe extern "C" fn ponko_ctx_storage_dir(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let dir = ctx_access(ctx, |c| {
-            Ok(c.storage.dir().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default())
+            Ok(c.storage
+                .dir()
+                .map(|d| d.to_string_lossy().into_owned())
+                .unwrap_or_default())
         })?;
         write_text(buffer, capacity, out_len, &dir)
     })
@@ -225,7 +228,9 @@ pub unsafe extern "C" fn ponko_ctx_storage_dir(
 pub unsafe extern "C" fn ponko_ctx_save_world(ctx: *mut PonkoCtx, slot: *const c_char) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        ctx_access(ctx, |c| c.storage.save_world(&c.world, text(slot)?).map_err(engine_error))
+        ctx_access(ctx, |c| {
+            c.storage.save_world(&c.world, text(slot)?).map_err(engine_error)
+        })
     })
 }
 

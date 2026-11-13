@@ -97,7 +97,9 @@ pub fn is_app_id(app_id: &str) -> bool {
     !app_id.is_empty()
         && !app_id.starts_with('.')
         && app_id.len() <= 128
-        && app_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        && app_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 /// Where a write stops in tests that simulate a crash.
@@ -475,7 +477,9 @@ fn check_name(name: &str) -> Result<(), Error> {
             .chars()
             .find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ' ')))
         {
-            return bad(&format!("has {c:?}: use letters, digits, spaces, '-', '_', '.' and '/'"));
+            return bad(&format!(
+                "has {c:?}: use letters, digits, spaces, '-', '_', '.' and '/'"
+            ));
         }
     }
     if name.ends_with(TEMP) || name.ends_with(BACKUP) {
@@ -713,7 +717,11 @@ mod tests {
             // A new run (a new process, in effect) finds the whole old save.
             let storage = Storage::in_folder(&dir);
             assert_eq!(storage.read("saves/slot.json").unwrap(), b"{\"level\":1}", "{crash:?}");
-            assert_eq!(storage.list().unwrap(), ["saves/slot.json"], "the leftover isn't listed");
+            assert_eq!(
+                storage.list().unwrap(),
+                ["saves/slot.json"],
+                "the leftover isn't listed"
+            );
 
             // And the next write goes through, keeping level 1 as the backup.
             let mut storage = storage;

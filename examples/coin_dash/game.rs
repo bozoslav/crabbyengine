@@ -32,9 +32,9 @@ pub mod smoke;
 #[allow(unused_imports)]
 use ponko::d2::{Sprite, Transform as Transform2D};
 use ponko::prelude::*;
+use ponko::storage::Storage;
 use serde::{Deserialize, Serialize};
 use settings::Settings;
-use ponko::storage::Storage;
 
 /// Size of the playfield, in world units (the window starts the same size).
 pub const ARENA: Vec2 = vec2(800.0, 600.0);

@@ -20,7 +20,10 @@ fn run(dir: Option<&CString>, setup: unsafe extern "C" fn(*mut PonkoCtx, *mut c_
             assert_eq!(ponko_game_data_dir(game, dir.as_ptr()), PONKO_OK);
         }
         let mut world = null_mut();
-        assert_eq!(ponko_game_run_headless(game, 0, Some(setup), user, &mut world), PONKO_OK);
+        assert_eq!(
+            ponko_game_run_headless(game, 0, Some(setup), user, &mut world),
+            PONKO_OK
+        );
         ponko_world_free(world);
     }
 }
@@ -29,8 +32,14 @@ unsafe extern "C" fn write_files(ctx: *mut PonkoCtx, _: *mut c_void) {
     unsafe {
         let old = b"v1";
         let new = b"version 2";
-        assert_eq!(ponko_ctx_storage_write(ctx, c"saves/a.txt".as_ptr(), old.as_ptr(), old.len()), PONKO_OK);
-        assert_eq!(ponko_ctx_storage_write(ctx, c"saves/a.txt".as_ptr(), new.as_ptr(), new.len()), PONKO_OK);
+        assert_eq!(
+            ponko_ctx_storage_write(ctx, c"saves/a.txt".as_ptr(), old.as_ptr(), old.len()),
+            PONKO_OK
+        );
+        assert_eq!(
+            ponko_ctx_storage_write(ctx, c"saves/a.txt".as_ptr(), new.as_ptr(), new.len()),
+            PONKO_OK
+        );
         assert_eq!(ponko_ctx_storage_write(ctx, c"empty".as_ptr(), null(), 0), PONKO_OK);
         assert_eq!(ponko_ctx_save_world(ctx, c"slot1".as_ptr()), PONKO_OK);
         // Unsafe names are refused.
@@ -46,11 +55,20 @@ unsafe extern "C" fn read_files(ctx: *mut PonkoCtx, _: *mut c_void) {
     unsafe {
         // The size first, then the bytes.
         let mut len = 0;
-        assert_eq!(ponko_ctx_storage_read(ctx, c"saves/a.txt".as_ptr(), null_mut(), 0, &mut len), PONKO_OK);
+        assert_eq!(
+            ponko_ctx_storage_read(ctx, c"saves/a.txt".as_ptr(), null_mut(), 0, &mut len),
+            PONKO_OK
+        );
         assert_eq!(len, 9);
         let mut buffer = vec![0u8; len];
         assert_eq!(
-            ponko_ctx_storage_read(ctx, c"saves/a.txt".as_ptr(), buffer.as_mut_ptr(), buffer.len(), &mut len),
+            ponko_ctx_storage_read(
+                ctx,
+                c"saves/a.txt".as_ptr(),
+                buffer.as_mut_ptr(),
+                buffer.len(),
+                &mut len
+            ),
             PONKO_OK
         );
         assert_eq!(buffer, b"version 2");
@@ -66,7 +84,10 @@ unsafe extern "C" fn read_files(ctx: *mut PonkoCtx, _: *mut c_void) {
         );
 
         let mut list = [0 as std::ffi::c_char; 128];
-        assert_eq!(ponko_ctx_storage_list(ctx, list.as_mut_ptr(), list.len(), &mut len), PONKO_OK);
+        assert_eq!(
+            ponko_ctx_storage_list(ctx, list.as_mut_ptr(), list.len(), &mut len),
+            PONKO_OK
+        );
         let names = std::ffi::CStr::from_ptr(list.as_ptr()).to_str().unwrap();
         assert_eq!(names, "empty\nsaves/a.txt\nsaves/slot1.json");
 
@@ -97,7 +118,10 @@ unsafe extern "C" fn without_app_id(ctx: *mut PonkoCtx, _: *mut c_void) {
         let mut len = 7;
         assert_eq!(ponko_ctx_storage_dir(ctx, null_mut(), 0, &mut len), PONKO_OK);
         assert_eq!(len, 0, "no folder");
-        assert_eq!(ponko_ctx_storage_write(ctx, c"a".as_ptr(), null(), 0), PONKO_INVALID_ARGUMENT);
+        assert_eq!(
+            ponko_ctx_storage_write(ctx, c"a".as_ptr(), null(), 0),
+            PONKO_INVALID_ARGUMENT
+        );
         assert_eq!(ponko_last_error_kind(), PonkoErrorKind::PONKO_ERROR_UNSUPPORTED);
     }
 }

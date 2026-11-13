@@ -30,7 +30,10 @@ fn files_written_in_one_run_are_read_back_in_the_next() {
         ctx.storage.delete("settings.json").unwrap();
         ctx.storage.delete("settings.json").unwrap(); // already gone: fine
         assert!(!ctx.storage.exists("settings.json"));
-        assert_eq!(ctx.storage.read("settings.json").unwrap_err().kind(), ErrorKind::NotFound);
+        assert_eq!(
+            ctx.storage.read("settings.json").unwrap_err().kind(),
+            ErrorKind::NotFound
+        );
     });
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -103,7 +106,10 @@ fn loading_a_missing_or_damaged_slot_leaves_the_world_as_it_was() {
         assert_eq!(err.path(), Some("saves/broken.json"));
         assert_eq!(ctx.load_world("a/b").unwrap_err().kind(), ErrorKind::Invalid);
     });
-    assert_eq!(world.query::<&Health>().iter().copied().collect::<Vec<_>>(), [Health(3)]);
+    assert_eq!(
+        world.query::<&Health>().iter().copied().collect::<Vec<_>>(),
+        [Health(3)]
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -179,6 +185,9 @@ fn the_guide_example_keeps_options_and_a_quick_save_between_runs() {
         ctx.world.reflect::<Health>();
         quick_load(ctx).unwrap();
     });
-    assert_eq!(world.query::<&Health>().iter().copied().collect::<Vec<_>>(), [Health(9)]);
+    assert_eq!(
+        world.query::<&Health>().iter().copied().collect::<Vec<_>>(),
+        [Health(9)]
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
