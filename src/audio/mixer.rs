@@ -181,7 +181,8 @@ impl Audio {
     /// held decoded in memory. A file from `assets/` is read as it plays; a
     /// source's bytes are kept in memory, still encoded. Loading the same
     /// name again returns the same handle. Streams are never hot reloaded.
-    /// In a browser the sound is decoded whole when loaded.
+    /// In a browser the fetched (or source) bytes are kept encoded and
+    /// decoded a packet at a time as they play, on the page's thread.
     ///
     /// # Panics
     /// If the asset is missing or its header cannot be decoded (with audio
