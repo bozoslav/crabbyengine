@@ -23,7 +23,7 @@ The crates follow [semver as Cargo applies it to 0.x](https://doc.rust-lang.org/
   in the header (C) first, pointing at its replacement.
 
 1.0 will come when the API has stopped moving; from then on, only major
-releases break.
+releases break. [Releases](#releases) says when each kind of release happens.
 
 What the versions cover:
 
@@ -41,6 +41,36 @@ Enums and structs that will grow are `#[non_exhaustive]` (`ErrorKind`, `Key`,
 descriptors and settings, ...): matches need a `_` arm and such structs are
 built through their constructors or `Default`, so new variants and fields
 can arrive in a patch release.
+
+## Releases
+
+| Release | When | Contains |
+|---|---|---|
+| Patch (0.1.1, 0.1.2, ...) | As needed: within days for a regression or a security fix, otherwise when there are fixes to ship | Bug fixes and additions. Nothing that breaks code written for the same minor. |
+| Minor (0.2.0, 0.3.0, ...) | When the P1 scope of its [milestone](https://github.com/ponkoengine/ponko/milestones) is done, roughly every 8 to 12 weeks | New features and breaking changes, each break with its migration entry. |
+| 1.0 | When the [readiness checklist](https://github.com/ponkoengine/ponko/issues/432) is complete | The last 0.x release with the compatibility promise attached. It breaks nothing. |
+
+- **A release is scope, not a date.** P1 issues define a minor; what is not
+  ready moves to the next one instead of delaying or rushing the release.
+- **Release candidates.** From 0.2.0 on, a minor is published as
+  `0.y.0-rc.1` at least a week before the release. Cargo never selects a
+  release candidate unless the version is written out
+  (`ponko = "0.2.0-rc.1"`). A regression found in one is fixed and a new
+  candidate follows; the release is the last candidate, unchanged.
+- **Support.** The newest minor gets patch releases. The minor before it
+  gets fixes for security problems, crashes and data loss for four weeks
+  after a new minor, so there is time to migrate. Older ones get none.
+- **Patch releases come from a release branch** (`release-0.1`, ...), so
+  `main` can take breaking changes for the next minor right after a
+  release. Fixes land on `main` first and are carried over.
+- **Deprecation.** Where it is cheap, a replaced item stays as
+  `#[deprecated]`, naming its replacement, until the next minor removes it.
+  Where it is not, it goes at once, with its migration entry.
+- **Yanking.** A release is yanked only if it loses data, fails to build or
+  has a security problem, and a fixed patch release goes out with it.
+- **After 1.0.** Minor releases only add, major releases break, and majors
+  are at most yearly; the exact support periods are written here before 1.0
+  is released.
 
 ## Unstable
 
