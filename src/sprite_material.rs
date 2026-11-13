@@ -502,6 +502,47 @@ mod tests {
     }
 
     #[test]
+    fn entities_and_draws_with_a_look_are_batched_by_it() {
+        use crate::d2::{Sprite, Transform};
+        use crate::prelude::*;
+        let mut ctx = Ctx::new(1.0 / 60.0, Vec2::new(64.0, 64.0));
+        let pixel = Texture::new(0, 1, 1);
+        let material = SpriteMaterial { id: 3 };
+        let at = Transform::at(Vec2::splat(8.0));
+        ctx.world.spawn((at, Sprite::new(pixel)));
+        ctx.world.spawn((at, Sprite::new(pixel), BlendMode::Additive));
+        ctx.world.spawn((at, Sprite::new(pixel), material));
+        ctx.world.spawn((at, Sprite::new(pixel), material, BlendMode::Multiply));
+        ctx.world.spawn((at, Sprite::new(pixel)));
+        ctx.draw_world_sprites();
+        ctx.gfx.draw_ex(
+            pixel,
+            Vec2::ONE,
+            DrawParams::default()
+                .with_blend(BlendMode::Premultiplied)
+                .with_material(material),
+        );
+        let (sprites, batches) = ctx.gfx.draw_list.finish();
+        assert_eq!(sprites.len(), 6);
+        let mut looks: Vec<_> = batches.iter().map(|b| (b.material, b.end - b.start)).collect();
+        // Plain sprites come first, in one batch; the order of the others
+        // follows the world's storage.
+        assert_eq!(looks[0], (0, 2));
+        looks.sort_unstable();
+        let some = Some(material);
+        assert_eq!(
+            looks,
+            [
+                (0, 2),
+                (style_key(BlendMode::Additive, None), 1),
+                (style_key(BlendMode::Alpha, some), 1),
+                (style_key(BlendMode::Multiply, some), 1),
+                (style_key(BlendMode::Premultiplied, some), 1),
+            ]
+        );
+    }
+
+    #[test]
     fn the_game_range_of_a_composed_sprite_shader_is_its_code() {
         let user = "fn fragment(p: SpritePixel) -> vec4<f32> { return p.color; }";
         let composed = compose_sprite_shader(user);

@@ -45,7 +45,15 @@ pub(crate) fn diagnose(
             variant,
             composed,
             message,
-            Some((range, "material contract".into())),
+            Some((
+                range,
+                if kind == ShaderKind::Sprite {
+                    "sprite shader contract"
+                } else {
+                    "material contract"
+                }
+                .into(),
+            )),
             Vec::new(),
         ));
     }
