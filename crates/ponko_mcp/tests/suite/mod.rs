@@ -14,6 +14,7 @@
 #![allow(dead_code)] // the test and the example each use part of it
 
 pub mod games;
+pub mod proxy;
 pub mod tasks;
 
 use ponko_mcp::{Config, Server};
@@ -103,8 +104,16 @@ impl Check {
     /// A check that held when `result` is `Ok`; its error explains the failure.
     pub fn from(name: &'static str, result: Result<String, String>) -> Self {
         match result {
-            Ok(detail) => Check { name, passed: true, detail },
-            Err(detail) => Check { name, passed: false, detail },
+            Ok(detail) => Check {
+                name,
+                passed: true,
+                detail,
+            },
+            Err(detail) => Check {
+                name,
+                passed: false,
+                detail,
+            },
         }
     }
 }
@@ -142,7 +151,9 @@ impl Probe<'_> {
     /// How many entities have every component in `with`.
     pub fn count(&mut self, with: &[&str]) -> Result<u64, String> {
         let r = self.call("list_entities", json!({ "with": with, "limit": 0 }))?;
-        r["total"].as_u64().ok_or_else(|| format!("list_entities gave no total: {r}"))
+        r["total"]
+            .as_u64()
+            .ok_or_else(|| format!("list_entities gave no total: {r}"))
     }
 
     /// Runs an input scenario; `Ok` when its checks passed, else what failed.
@@ -244,7 +255,11 @@ impl Session {
         let deadline = Instant::now() + Duration::from_secs(60);
         while session.checker.call("instance_info", json!({})).is_err() {
             if Instant::now() > deadline {
-                return Err(format!("{}: the game didn't start; see {}", task.id, dir.join("game.log").display()));
+                return Err(format!(
+                    "{}: the game didn't start; see {}",
+                    task.id,
+                    dir.join("game.log").display()
+                ));
             }
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -335,7 +350,10 @@ pub struct Script {
 
 impl Script {
     fn parse(name: &str, value: &Value) -> Result<Self, String> {
-        let steps = value["steps"].as_array().ok_or(format!("{name}: no `steps` array"))?.clone();
+        let steps = value["steps"]
+            .as_array()
+            .ok_or(format!("{name}: no `steps` array"))?
+            .clone();
         let fails = value["fails"]
             .as_array()
             .map(|f| f.iter().filter_map(|s| s.as_str().map(String::from)).collect())
@@ -404,7 +422,13 @@ struct Ran {
 /// - `{"until": {"call", "args", "pointer", "equals"}, "each": {"call",
 ///   "args"}, "timeout_secs": 10}`: repeats `each` then `until`'s call
 ///   until the value at `pointer` equals `equals` (waiting for a hot reload).
-fn run_step(step: &Value, dir: &Path, tools: &mut Tools, vars: &mut serde_json::Map<String, Value>, ran: &mut Ran) -> Result<(), String> {
+fn run_step(
+    step: &Value,
+    dir: &Path,
+    tools: &mut Tools,
+    vars: &mut serde_json::Map<String, Value>,
+    ran: &mut Ran,
+) -> Result<(), String> {
     let mut call = |c: &Value, ran: &mut Ran| -> Result<Value, String> {
         let name = c["call"].as_str().ok_or(format!("no `call` in {c}"))?;
         let args = substitute(c.get("args").unwrap_or(&json!({})), vars);
@@ -490,7 +514,11 @@ impl Outcome {
 
     /// The names of the checks that failed.
     pub fn failed(&self) -> Vec<String> {
-        self.checks.iter().filter(|c| !c.passed).map(|c| c.name.to_string()).collect()
+        self.checks
+            .iter()
+            .filter(|c| !c.passed)
+            .map(|c| c.name.to_string())
+            .collect()
     }
 }
 
@@ -554,7 +582,11 @@ pub fn replay_all(tasks: &[&'static Task], root: &Path, instances: &Path) -> Vec
                     (control, outcome)
                 })
                 .collect();
-            TaskReport { task, solution, controls }
+            TaskReport {
+                task,
+                solution,
+                controls,
+            }
         })
         .collect()
 }

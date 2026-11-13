@@ -7,6 +7,9 @@ use super::{Check, Probe};
 use ponko::prelude::*;
 use serde_json::{Value, json};
 
+/// A task's game, and the setup it runs before the first tick.
+pub type GameAndSetup = (Game, fn(&mut Ctx));
+
 /// One task of the suite.
 pub struct Task {
     /// Short name, used on the command line and in the baseline.
@@ -20,7 +23,7 @@ pub struct Task {
     /// The starting files, relative to the task's folder.
     pub files: &'static [(&'static str, &'static str)],
     /// The game, and its setup.
-    pub game: fn() -> (Game, fn(&mut Ctx)),
+    pub game: fn() -> GameAndSetup,
     /// The checker's checks, in order.
     pub checks: &'static [&'static str],
     /// Scores the result.
@@ -46,7 +49,11 @@ pub static TASKS: &[Task] = &[
         goal: include_str!("tasks/tune-speed/goal.md"),
         files: task_files!("tune-speed": "assets/settings.json"),
         game: games::arena_game,
-        checks: &["settings file is valid", "game uses the file's speed", "flag reached in time"],
+        checks: &[
+            "settings file is valid",
+            "game uses the file's speed",
+            "flag reached in time",
+        ],
         check: check_tune_speed,
         solution: include_str!("tasks/tune-speed/solution.json"),
         controls: include_str!("tasks/tune-speed/controls.json"),
@@ -58,7 +65,12 @@ pub static TASKS: &[Task] = &[
         goal: include_str!("tasks/coin-level/goal.md"),
         files: task_files!("coin-level": "assets/settings.json"),
         game: games::arena_game,
-        checks: &["level file saved", "level loads", "player and five coins", "holding right collects them all"],
+        checks: &[
+            "level file saved",
+            "level loads",
+            "player and five coins",
+            "holding right collects them all",
+        ],
         check: check_coin_level,
         solution: include_str!("tasks/coin-level/solution.json"),
         controls: include_str!("tasks/coin-level/controls.json"),
@@ -70,7 +82,11 @@ pub static TASKS: &[Task] = &[
         goal: include_str!("tasks/immortal-enemy/goal.md"),
         files: task_files!("immortal-enemy": "assets/enemies.json"),
         game: games::enemies_game,
-        checks: &["roster file is fixed", "no live enemy heals", "a fresh wave dies in 5 seconds"],
+        checks: &[
+            "roster file is fixed",
+            "no live enemy heals",
+            "a fresh wave dies in 5 seconds",
+        ],
         check: check_immortal_enemy,
         solution: include_str!("tasks/immortal-enemy/solution.json"),
         controls: include_str!("tasks/immortal-enemy/controls.json"),
@@ -82,7 +98,12 @@ pub static TASKS: &[Task] = &[
         goal: include_str!("tasks/slow-crowd/goal.md"),
         files: task_files!("slow-crowd": "assets/tuning.json"),
         game: games::crowd_game,
-        checks: &["radius unchanged", "game uses the file", "work cut 10x", "same pairs found"],
+        checks: &[
+            "radius unchanged",
+            "game uses the file",
+            "work cut 10x",
+            "same pairs found",
+        ],
         check: check_slow_crowd,
         solution: include_str!("tasks/slow-crowd/solution.json"),
         controls: include_str!("tasks/slow-crowd/controls.json"),
@@ -143,7 +164,9 @@ fn number(v: &Value, what: &str) -> Result<f64, String> {
 // ------------------------------------------------------------------ tune-speed
 
 fn check_tune_speed(p: &mut Probe) -> Vec<Check> {
-    let file = p.json_file("assets/settings.json").and_then(|s| number(&s["speed"], "speed"));
+    let file = p
+        .json_file("assets/settings.json")
+        .and_then(|s| number(&s["speed"], "speed"));
     let mut checks = vec![Check::from(
         "settings file is valid",
         file.clone().map(|speed| format!("speed {speed}")),
@@ -163,7 +186,10 @@ fn check_tune_speed(p: &mut Probe) -> Vec<Check> {
     checks.push(Check::from(
         "flag reached in time",
         (|| {
-            p.call("set_resource", json!({ "resource": "Flag", "value": { "reached_tick": null } }))?;
+            p.call(
+                "set_resource",
+                json!({ "resource": "Flag", "value": { "reached_tick": null } }),
+            )?;
             let start = p.call("instance_info", json!({}))?["tick"]
                 .as_u64()
                 .ok_or("instance_info has no tick")?;
@@ -185,7 +211,10 @@ const LEVEL: &str = "levels/coins.json";
 
 fn check_coin_level(p: &mut Probe) -> Vec<Check> {
     let saved = p.json_file(&format!("assets/{LEVEL}"));
-    let mut checks = vec![Check::from("level file saved", saved.map(|_| format!("assets/{LEVEL}")))];
+    let mut checks = vec![Check::from(
+        "level file saved",
+        saved.map(|_| format!("assets/{LEVEL}")),
+    )];
     checks.push(Check::from(
         "level loads",
         p.call("load_scene", json!({ "path": LEVEL }))
@@ -258,7 +287,10 @@ fn check_immortal_enemy(p: &mut Probe) -> Vec<Check> {
     checks.push(Check::from(
         "no live enemy heals",
         (|| {
-            let r = p.call("list_entities", json!({ "with": ["Enemy"], "where": ["Enemy.armor >= 1"] }))?;
+            let r = p.call(
+                "list_entities",
+                json!({ "with": ["Enemy"], "where": ["Enemy.armor >= 1"] }),
+            )?;
             match r["total"].as_u64() {
                 Some(0) => Ok("none".into()),
                 _ => Err(format!("{} enemies have armor >= 1", r["total"])),
@@ -268,11 +300,19 @@ fn check_immortal_enemy(p: &mut Probe) -> Vec<Check> {
     checks.push(Check::from(
         "a fresh wave dies in 5 seconds",
         (|| {
-            let size = serde_json::from_str::<Value>(ROSTER).unwrap()["enemies"].as_array().unwrap().len();
-            p.call("set_resource", json!({ "resource": "Waves", "value": { "wave": true } }))?;
+            let size = serde_json::from_str::<Value>(ROSTER).unwrap()["enemies"]
+                .as_array()
+                .unwrap()
+                .len();
+            p.call(
+                "set_resource",
+                json!({ "resource": "Waves", "value": { "wave": true } }),
+            )?;
             p.call("subscribe_events", json!({ "types": ["Died"] }))?;
             p.call("run_ticks", json!({ "ticks": 300 }))?;
-            let died = p.call("take_events", json!({}))?["events"].as_array().map_or(0, Vec::len);
+            let died = p.call("take_events", json!({}))?["events"]
+                .as_array()
+                .map_or(0, Vec::len);
             let left = p.count(&["Enemy"])?;
             if died == size && left == 0 {
                 Ok(format!("{died} died"))

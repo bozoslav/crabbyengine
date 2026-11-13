@@ -6,6 +6,7 @@
 //! Each game is small on purpose: a task is about finding and fixing one
 //! thing with the tools, not about reading a large code base.
 
+use super::tasks::GameAndSetup;
 use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -105,7 +106,8 @@ fn read_input(ctx: &mut Ctx) {
 
 /// Sim system: moves the player by the intent, inside the arena.
 fn movement(ctx: &mut Ctx) {
-    let step = ctx.world.resource::<Intent>().0.clamp_length_max(1.0) * ctx.world.resource::<Settings>().speed * ctx.dt();
+    let step =
+        ctx.world.resource::<Intent>().0.clamp_length_max(1.0) * ctx.world.resource::<Settings>().speed * ctx.dt();
     ctx.world
         .query::<(&mut Transform2D, &Player)>()
         .for_each(|(t, _)| t.position = (t.position + step).clamp(Vec2::ZERO, ARENA));
@@ -118,11 +120,13 @@ fn collect(ctx: &mut Ctx) {
         .query::<(&Transform2D, &Player)>()
         .for_each(|(t, _)| players.push(t.position));
     let mut taken = Vec::new();
-    ctx.world.query::<(Entity, &Transform2D, &Coin)>().for_each(|(e, t, c)| {
-        if players.iter().any(|p| p.distance(t.position) <= PICKUP_RADIUS) {
-            taken.push((e, c.value));
-        }
-    });
+    ctx.world
+        .query::<(Entity, &Transform2D, &Coin)>()
+        .for_each(|(e, t, c)| {
+            if players.iter().any(|p| p.distance(t.position) <= PICKUP_RADIUS) {
+                taken.push((e, c.value));
+            }
+        });
     for (e, value) in taken {
         ctx.world.despawn(e);
         ctx.world.resource_mut::<Score>().points += value;
@@ -144,7 +148,7 @@ fn finish_line(ctx: &mut Ctx) {
 }
 
 /// `tune-speed` and `coin-level`.
-pub fn arena_game() -> (Game, fn(&mut Ctx)) {
+pub fn arena_game() -> GameAndSetup {
     (arena(Game::new("arena", ARENA.x as u32, ARENA.y as u32)), arena_setup)
 }
 
@@ -208,10 +212,7 @@ pub const HAZARD_DPS: f32 = 30.0;
 
 fn enemies_setup(ctx: &mut Ctx) {
     ctx.assets.load_resource::<Roster>(&mut ctx.world, "enemies.json");
-    ctx.world.insert_resource(Waves {
-        wave: true,
-        spawned: 0,
-    });
+    ctx.world.insert_resource(Waves { wave: true, spawned: 0 });
     ctx.world.reflect::<Enemy>();
     ctx.world.reflect::<Health>();
     ctx.world.reflect_resource::<Roster>();
@@ -261,11 +262,13 @@ fn hazard(ctx: &mut Ctx) {
 fn deaths(ctx: &mut Ctx) {
     let tick = ctx.time.sim_tick();
     let mut dead = Vec::new();
-    ctx.world.query::<(Entity, &Health, &Enemy)>().for_each(|(e, h, enemy)| {
-        if h.current <= 0.0 {
-            dead.push((e, enemy.name.clone()));
-        }
-    });
+    ctx.world
+        .query::<(Entity, &Health, &Enemy)>()
+        .for_each(|(e, h, enemy)| {
+            if h.current <= 0.0 {
+                dead.push((e, enemy.name.clone()));
+            }
+        });
     for (e, name) in dead {
         ctx.world.despawn(e);
         ctx.events.send(Died { name, tick });
@@ -273,7 +276,7 @@ fn deaths(ctx: &mut Ctx) {
 }
 
 /// `immortal-enemy`.
-pub fn enemies_game() -> (Game, fn(&mut Ctx)) {
+pub fn enemies_game() -> GameAndSetup {
     let game = Game::new("waves", ARENA.x as u32, ARENA.y as u32)
         .sim_system(waves)
         .sim_system(hazard)
@@ -371,7 +374,7 @@ fn crowding(ctx: &mut Ctx) {
 }
 
 /// `slow-crowd`.
-pub fn crowd_game() -> (Game, fn(&mut Ctx)) {
+pub fn crowd_game() -> GameAndSetup {
     let game = Game::new("crowd", ARENA.x as u32, ARENA.y as u32).sim_system(crowding);
     (game, crowd_setup)
 }
@@ -389,7 +392,7 @@ fn glow_setup(ctx: &mut Ctx) {
 }
 
 /// `broken-shader`.
-pub fn glow_game() -> (Game, fn(&mut Ctx)) {
+pub fn glow_game() -> GameAndSetup {
     (arena(Game::new("glow", ARENA.x as u32, ARENA.y as u32)), glow_setup)
 }
 
@@ -426,7 +429,10 @@ fn hud(ctx: &mut Ctx) {
     let (text, show) = {
         let style = ctx.world.resource::<HudStyle>();
         let points = ctx.world.resource::<Score>().points;
-        (style.score_text.replace("{points}", &points.to_string()), style.show_score)
+        (
+            style.score_text.replace("{points}", &points.to_string()),
+            style.show_score,
+        )
     };
     ctx.ui.set_text(score, text);
     let layout = ponko::ui::UiLayout::auto();
@@ -434,7 +440,7 @@ fn hud(ctx: &mut Ctx) {
 }
 
 /// `hidden-score`.
-pub fn hud_game() -> (Game, fn(&mut Ctx)) {
+pub fn hud_game() -> GameAndSetup {
     let game = arena(Game::new("hud", ARENA.x as u32, ARENA.y as u32)).system(hud);
     (game, hud_setup)
 }

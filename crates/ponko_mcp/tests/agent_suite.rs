@@ -11,6 +11,7 @@
 
 mod suite;
 
+use serde_json::{Value, json};
 use std::path::Path;
 
 const BASELINE: &str = include_str!("suite/baseline.json");
@@ -48,7 +49,12 @@ fn every_task_is_solvable_and_its_checker_catches_wrong_fixes() {
             r.task.id
         );
         for (script, outcome) in &r.controls {
-            assert!(!outcome.solved(), "{}: control `{}` passed every check", r.task.id, script.name);
+            assert!(
+                !outcome.solved(),
+                "{}: control `{}` passed every check",
+                r.task.id,
+                script.name
+            );
             assert_eq!(
                 outcome.failed(),
                 script.fails,
@@ -73,7 +79,85 @@ fn every_task_is_solvable_and_its_checker_catches_wrong_fixes() {
              if the change is deliberate, rerun with PONKO_UPDATE_BASELINE=1"
         );
     }
+    the_mcp_proxy_serves_a_task_and_scores_submissions(&root, &instances);
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// One JSON-RPC request to the proxy a real agent talks to; its reply.
+fn rpc(session: &mut suite::Session, record: &mut suite::proxy::Record, method: &str, params: Value) -> Value {
+    let message = json!({ "jsonrpc": "2.0", "id": 7, "method": method, "params": params });
+    let reply = suite::proxy::answer(session, record, &message).expect("a request gets a reply");
+    assert_eq!(reply["id"], 7, "{reply}");
+    reply["result"].clone()
+}
+
+/// What `agent_suite mcp` serves a real agent: the goal as instructions,
+/// ponko-mcp's tools without `launch`/`quit_instance`, plus `submit_task`,
+/// which scores the task as it is when called; every call is recorded.
+fn the_mcp_proxy_serves_a_task_and_scores_submissions(root: &Path, instances: &Path) {
+    let task = suite::task("tune-speed").unwrap();
+    let dir = root.join("proxy");
+    let mut session = suite::Session::in_process(task, &dir, instances).unwrap();
+    let mut record = suite::proxy::Record::new(task, Some("test".into()), &dir);
+    let s = &mut session;
+    let r = &mut record;
+
+    let init = rpc(s, r, "initialize", json!({ "protocolVersion": "2025-06-18" }));
+    let instructions = init["instructions"].as_str().unwrap();
+    assert!(instructions.contains(task.goal) && instructions.contains(&dir.display().to_string()));
+    let tools = rpc(s, r, "tools/list", json!({}));
+    let names: Vec<&str> = tools["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"submit_task") && names.contains(&"get_resource"),
+        "{names:?}"
+    );
+    assert!(
+        !names.contains(&"launch") && !names.contains(&"quit_instance"),
+        "{names:?}"
+    );
+
+    let refused = rpc(s, r, "tools/call", json!({ "name": "quit_instance", "arguments": {} }));
+    assert_eq!(refused["isError"], true);
+    let speed = rpc(
+        s,
+        r,
+        "tools/call",
+        json!({ "name": "get_resource", "arguments": { "resource": "Settings" } }),
+    );
+    assert_eq!(suite::tool_result(&speed).unwrap()["speed"], 120.0);
+
+    let submit = |s: &mut suite::Session, r: &mut suite::proxy::Record| {
+        let result = rpc(s, r, "tools/call", json!({ "name": "submit_task", "arguments": {} }));
+        suite::tool_result(&result).unwrap()
+    };
+    let first = submit(s, r);
+    assert_eq!(
+        (first["solved"].clone(), first["total"].clone()),
+        (json!(false), json!(3)),
+        "{first}"
+    );
+    std::fs::write(dir.join("assets/settings.json"), "{ \"speed\": 350 }\n").unwrap();
+    let second = submit(s, r);
+    assert_eq!(second["solved"], true, "{second}");
+
+    let result = record.json();
+    assert_eq!(
+        (
+            &result["solved"],
+            &result["tool_calls"],
+            &result["tool_errors"],
+            &result["submissions"]
+        ),
+        (&json!(true), &json!(2), &json!(1), &json!(2)),
+        "{result}"
+    );
+    assert_eq!(result["calls"][0]["tool"], "quit_instance");
+    session.finish();
 }
 
 /// Every task has a goal, starting files, uniquely named checks, and
@@ -82,7 +166,11 @@ fn tasks_are_well_formed() {
     let mut ids = std::collections::HashSet::new();
     for task in suite::TASKS {
         assert!(ids.insert(task.id), "{}: two tasks with this id", task.id);
-        assert!(task.goal.contains("Goal:"), "{}: the goal says what to do after `Goal:`", task.id);
+        assert!(
+            task.goal.contains("Goal:"),
+            "{}: the goal says what to do after `Goal:`",
+            task.id
+        );
         assert!(!task.files.is_empty(), "{}: starts from no files", task.id);
         let names: std::collections::HashSet<_> = task.checks.iter().collect();
         assert_eq!(names.len(), task.checks.len(), "{}: two checks share a name", task.id);
