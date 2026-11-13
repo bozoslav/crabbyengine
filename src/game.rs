@@ -2296,6 +2296,7 @@ mod tests {
         game.remove(Systems::ANIMATE_SPRITES)
             .remove(Systems::DRAW_TILEMAPS)
             .remove(Systems::DRAW_SPRITES)
+            .remove(Systems::DRAW_PARTICLES)
             .remove(Systems::UPDATE_ANIMATORS)
             .remove(Systems::UPDATE_PARTICLES)
             .remove(Systems::UPDATE_AUDIO3D)
@@ -2478,7 +2479,8 @@ mod tests {
             .remove(user)
             .remove(Systems::ANIMATE_SPRITES)
             .remove(Systems::DRAW_TILEMAPS)
-            .remove(Systems::DRAW_SPRITES);
+            .remove(Systems::DRAW_SPRITES)
+            .remove(Systems::DRAW_PARTICLES);
         assert!(game.sim_systems.is_empty());
         // Only positional audio (feature `3d`) is left in `Draw`.
         assert!(

@@ -358,6 +358,7 @@ impl Ctx {
             crate::reflect::WorldReflect::reflect::<crate::anim::AttachToJoint>(&mut world);
         }
         crate::reflect::reflect_sprite(&mut world);
+        crate::reflect::reflect_particle_emitter2d(&mut world);
         // The file names behind sprites and models: the world saves by them,
         // the graphics service fills them in as files load.
         let gfx = crate::gfx::Graphics::new(
@@ -784,6 +785,7 @@ impl Ctx {
     pub(crate) fn load_scene_assets(&mut self, json: &serde_json::Value) -> Result<(), crate::error::Error> {
         let mut names = Vec::new();
         crate::reflect::asset_names(json, "Sprite", "texture", &mut names);
+        crate::reflect::asset_names(json, "ParticleEmitter2D", "texture", &mut names);
         for name in names.drain(..) {
             self.gfx.try_load_texture(&name)?;
         }

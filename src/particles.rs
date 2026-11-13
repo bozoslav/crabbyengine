@@ -58,12 +58,15 @@ impl ParticleCurve {
     /// assert_eq!(c.sample(1.0), 2.0);
     /// ```
     pub fn new(keys: Vec<(f32, f32)>) -> Self {
-        check_keys(&keys);
-        assert!(
-            keys.iter().all(|k| k.1.is_finite()),
-            "particle curve values must be finite"
-        );
-        Self(keys)
+        Self::try_new(keys).unwrap_or_else(|e| panic!("{e}"))
+    }
+    /// [`new`](Self::new) with the panic as an error.
+    pub(crate) fn try_new(keys: Vec<(f32, f32)>) -> Result<Self, &'static str> {
+        check_keys(&keys)?;
+        if !keys.iter().all(|k| k.1.is_finite()) {
+            return Err("particle curve values must be finite");
+        }
+        Ok(Self(keys))
     }
     /// Evaluates the curve; NaN samples the start.
     /// ```
@@ -108,13 +111,18 @@ impl ParticleGradient {
     /// assert_eq!(g.sample(1.0), Color::WHITE);
     /// ```
     pub fn new(keys: Vec<(f32, Color)>) -> Self {
-        check_keys(&keys);
-        assert!(
-            keys.iter()
-                .all(|k| [k.1.r, k.1.g, k.1.b, k.1.a].iter().all(|v| v.is_finite())),
-            "particle colors must be finite"
-        );
-        Self(keys)
+        Self::try_new(keys).unwrap_or_else(|e| panic!("{e}"))
+    }
+    /// [`new`](Self::new) with the panic as an error.
+    pub(crate) fn try_new(keys: Vec<(f32, Color)>) -> Result<Self, &'static str> {
+        check_keys(&keys)?;
+        if !keys
+            .iter()
+            .all(|k| [k.1.r, k.1.g, k.1.b, k.1.a].iter().all(|v| v.is_finite()))
+        {
+            return Err("particle colors must be finite");
+        }
+        Ok(Self(keys))
     }
     /// Evaluates RGBA at normalized age, clamping beyond the keys.
     /// ```
@@ -146,13 +154,15 @@ impl Default for ParticleGradient {
         Self(vec![(0.0, Color::WHITE), (1.0, Color::rgba(1.0, 1.0, 1.0, 0.0))])
     }
 }
-fn check_keys<T>(keys: &[(f32, T)]) {
-    assert!(
-        !keys.is_empty()
-            && keys.iter().all(|k| k.0.is_finite() && (0.0..=1.0).contains(&k.0))
-            && keys.windows(2).all(|w| w[0].0 < w[1].0),
-        "particle keys must be nonempty, ordered and in 0..=1"
-    );
+fn check_keys<T>(keys: &[(f32, T)]) -> Result<(), &'static str> {
+    if !keys.is_empty()
+        && keys.iter().all(|k| k.0.is_finite() && (0.0..=1.0).contains(&k.0))
+        && keys.windows(2).all(|w| w[0].0 < w[1].0)
+    {
+        Ok(())
+    } else {
+        Err("particle keys must be nonempty, ordered and in 0..=1")
+    }
 }
 fn segment<T: Copy>(keys: &[(f32, T)], t: f32) -> (T, T, f32) {
     let t = if t.is_nan() { 0.0 } else { t };
@@ -250,10 +260,10 @@ impl Emission {
     }
 }
 
-/// Panics for settings both emitters reject: unordered or nonfinite
-/// ranges (lifetime, speed, size, rotation), a lifetime that isn't
-/// positive, negative speed or size, bad rate, duration, drag or gravity,
-/// and empty sprite sheets.
+/// The settings both emitters reject: unordered or nonfinite ranges
+/// (lifetime, speed, size, rotation), a lifetime that isn't positive,
+/// negative speed or size, bad rate, duration, drag or gravity, and empty
+/// sprite sheets. The emitters panic with the message.
 pub(crate) fn validate(
     ranges: [(f32, f32); 4],
     rate: f32,
@@ -261,31 +271,28 @@ pub(crate) fn validate(
     drag: f32,
     gravity_finite: bool,
     sheet: (u32, u32),
-) {
-    for (a, b) in ranges {
-        assert!(
-            a.is_finite() && b.is_finite() && a <= b,
-            "particle ranges must be finite and ordered"
-        );
+) -> Result<(), &'static str> {
+    if !ranges.iter().all(|&(a, b)| a.is_finite() && b.is_finite() && a <= b) {
+        return Err("particle ranges must be finite and ordered");
     }
     let [lifetime, speed, size, _] = ranges;
-    assert!(
-        lifetime.0 > 0.0
-            && speed.0 >= 0.0
-            && size.0 >= 0.0
-            && rate.is_finite()
-            && rate >= 0.0
-            && duration.is_finite()
-            && duration > 0.0
-            && drag.is_finite()
-            && drag >= 0.0
-            && gravity_finite,
-        "invalid particle settings"
-    );
-    assert!(
-        sheet.0 > 0 && sheet.1 > 0 && sheet.0.checked_mul(sheet.1).is_some(),
-        "invalid particle sheet"
-    );
+    if !(lifetime.0 > 0.0
+        && speed.0 >= 0.0
+        && size.0 >= 0.0
+        && rate.is_finite()
+        && rate >= 0.0
+        && duration.is_finite()
+        && duration > 0.0
+        && drag.is_finite()
+        && drag >= 0.0
+        && gravity_finite)
+    {
+        return Err("invalid particle settings");
+    }
+    if !(sheet.0 > 0 && sheet.1 > 0 && sheet.0.checked_mul(sheet.1).is_some()) {
+        return Err("invalid particle sheet");
+    }
+    Ok(())
 }
 
 /// The sprite sheet frame (row-major) for normalized age `age`.
@@ -565,7 +572,18 @@ impl ParticleEmitter2D {
     /// assert_eq!(e.live_count(), 0);
     /// ```
     pub fn new(settings: ParticleSettings2D) -> Self {
+        Self::check(&settings).unwrap_or_else(|e| panic!("{e}"));
         let s = &settings;
+        Self {
+            particles: Vec::with_capacity(s.max_particles),
+            rng: Rng::new(s.seed),
+            emission: Emission::new(s.burst, s.max_particles),
+            settings,
+        }
+    }
+
+    /// Why [`new`](Self::new) would panic for `s`, if it would.
+    pub(crate) fn check(s: &ParticleSettings2D) -> Result<(), &'static str> {
         validate(
             [s.lifetime, s.speed, s.size, s.rotation],
             s.rate,
@@ -573,20 +591,20 @@ impl ParticleEmitter2D {
             s.drag,
             s.gravity.is_finite(),
             s.sheet,
-        );
-        assert!(s.z.is_finite(), "particle z must be finite");
-        match s.shape {
-            ParticleShape2D::Circle { radius } => assert!(radius.is_finite(), "invalid particle circle"),
-            ParticleShape2D::Cone { angle } => assert!(angle.is_finite(), "invalid particle cone"),
-            ParticleShape2D::Rect { half_extents } => assert!(half_extents.is_finite(), "invalid particle rect"),
-            ParticleShape2D::Point => {}
+        )?;
+        let shape_ok = match s.shape {
+            ParticleShape2D::Circle { radius } => radius.is_finite(),
+            ParticleShape2D::Cone { angle } => angle.is_finite(),
+            ParticleShape2D::Rect { half_extents } => half_extents.is_finite(),
+            ParticleShape2D::Point => true,
+        };
+        if !shape_ok {
+            return Err("invalid particle shape");
         }
-        Self {
-            particles: Vec::with_capacity(s.max_particles),
-            rng: Rng::new(s.seed),
-            emission: Emission::new(s.burst, s.max_particles),
-            settings,
+        if !s.z.is_finite() {
+            return Err("particle z must be finite");
         }
+        Ok(())
     }
 
     /// Queues particles for the next frame, capped at the pool size; works after a one-shot ends.
@@ -1021,6 +1039,78 @@ mod tests {
         let c = e.clone();
         assert_eq!(c.particles, e.particles);
         assert!(c.particles.capacity() >= e.settings.max_particles);
+    }
+
+    #[test]
+    fn drawn_particles_sort_with_sprites_by_z_and_batch_by_blend() {
+        let mut ctx = crate::ctx::Ctx::new(1.0 / 60.0, Vec2::ZERO);
+        ctx.set_headless(true);
+        let crab = ctx.gfx.create_texture(2, 2, &[255; 16]);
+        ctx.world
+            .spawn((Transform2D::default(), crate::d2::Sprite::new(crab).with_z(1.0)));
+        let sparks = |z: f32, blend: BlendMode| {
+            let mut e = ParticleEmitter2D::new(
+                ParticleSettings2D::default()
+                    .with_rate(0.0)
+                    .with_burst(3)
+                    .with_z(z)
+                    .with_blend(blend),
+            );
+            e.update(0.0, &Transform2D::default());
+            e
+        };
+        ctx.world
+            .spawn((Transform2D::default(), sparks(2.0, BlendMode::Additive)));
+        ctx.world.spawn((Transform2D::default(), sparks(0.0, BlendMode::Alpha)));
+        ctx.draw_world_sprites();
+        ctx.draw_particles2d();
+        let white = ctx.gfx.white_texture();
+        let (sprites, batches) = ctx.gfx.draw_list.finish();
+        assert_eq!(sprites.len(), 7, "one sprite and six particles");
+        let looks: Vec<_> = batches
+            .iter()
+            .map(|b| (b.texture, b.material, b.end - b.start))
+            .collect();
+        assert_eq!(
+            looks,
+            [
+                (white.id, 0, 3),
+                (crab.id, 0, 1),
+                (white.id, BlendMode::Additive as u32, 3)
+            ],
+            "below the sprite, the sprite, then the additive sparks on top"
+        );
+    }
+
+    #[test]
+    fn headless_frames_advance_and_draw_particles() {
+        let mut world = crate::game::Game::new("particles 2d", 64, 64)
+            .headless_frames(true)
+            .run_headless(3, |ctx| {
+                ctx.world.spawn((
+                    Transform2D::default(),
+                    ParticleEmitter2D::new(ParticleSettings2D::default().with_rate(0.0).with_burst(5)),
+                ));
+            });
+        let mut live = 0;
+        world.query::<&ParticleEmitter2D>().for_each(|e| live += e.live_count());
+        assert_eq!(live, 5);
+    }
+
+    #[test]
+    fn removing_update_particles_freezes_emitters() {
+        let mut world = crate::game::Game::new("particles 2d", 64, 64)
+            .headless_frames(true)
+            .remove(crate::game::Systems::UPDATE_PARTICLES)
+            .run_headless(3, |ctx| {
+                ctx.world.spawn((
+                    Transform2D::default(),
+                    ParticleEmitter2D::new(ParticleSettings2D::default().with_burst(5)),
+                ));
+            });
+        let mut live = 0;
+        world.query::<&ParticleEmitter2D>().for_each(|e| live += e.live_count());
+        assert_eq!(live, 0);
     }
 
     #[test]

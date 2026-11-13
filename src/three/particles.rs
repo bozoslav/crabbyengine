@@ -246,7 +246,8 @@ impl ParticleEmitter3D {
             s.drag,
             s.gravity.is_finite(),
             s.sheet,
-        );
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
         match s.shape {
             ParticleShape3D::Sphere { radius } => assert!(radius.is_finite(), "invalid particle sphere"),
             ParticleShape3D::Cone { angle } => assert!(angle.is_finite(), "invalid particle cone"),
