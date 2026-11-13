@@ -139,7 +139,7 @@ impl Editor {
         e
     }
 
-    /// Spawns prefab `path` at `at`, with undo.
+    /// Spawns prefab `path` at `at`, with undo (which despawns its parts too).
     pub fn spawn_prefab(&mut self, ctx: &mut Ctx, path: &str, at: Vec2) -> Result<Entity, crate::error::Error> {
         let e = ctx.spawn_prefab(path, at)?;
         self.record(Undo::Spawned(e));
@@ -184,7 +184,8 @@ impl Editor {
                 }?;
             }
             Undo::Spawned(e) => {
-                ctx.world.despawn(e);
+                // A placed prefab goes with its parts.
+                ctx.despawn_prefab(e);
             }
             Undo::Despawned { e, components } => {
                 let back = ctx.world.spawn_json(components)?;

@@ -1191,7 +1191,11 @@ pub(crate) const METHODS: &[(&str, &str)] = &[
     ),
     (
         "prefab.spawn",
-        "spawn a prefab from assets/ at a point; params: path (a .json file relative to assets/), at [x, y]. Returns the entity",
+        "spawn a prefab from assets/ at a point; params: path (a .json file relative to assets/), at [x, y]. Returns the root entity and its parts",
+    ),
+    (
+        "prefab.despawn",
+        "despawn a prefab's root and the parts spawned with it; params: entity (the root). Returns how many entities went",
     ),
     (
         "prefab.save",
@@ -1805,8 +1809,14 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             let at: [f32; 2] = serde_json::from_value(param(params, "at")?.clone())
                 .map_err(|e| format!("`at` must be [x, y]: {e}"))?;
             let e = ctx.spawn_prefab(path, glam::vec2(at[0], at[1]))?;
-            json!({ "entity": e.to_bits() })
+            let parts: Vec<u64> = ctx
+                .world
+                .get::<crate::scene::PrefabParts>(e)
+                .map(|p| p.0.iter().map(|p| p.to_bits()).collect())
+                .unwrap_or_default();
+            json!({ "entity": e.to_bits(), "parts": parts })
         }
+        "prefab.despawn" => json!(ctx.despawn_prefab(entity_param(params)?)),
         "prefab.save" => {
             let e = entity_param(params)?;
             let path = asset_path_param(params)?;

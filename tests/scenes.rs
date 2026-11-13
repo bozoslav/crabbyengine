@@ -233,3 +233,325 @@ fn both_prefab_spellings_load_and_resave_with_primary_identifier() {
         });
     }
 }
+
+// Prefabs with children.
+
+/// A game component that names another entity.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Component)]
+struct Follows(Entity);
+
+/// A game component holding a plain number, which must never be remapped.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Component)]
+struct Count(u64);
+
+fn reflect_tree_types(ctx: &mut Ctx) {
+    ctx.world.reflect::<Palm>();
+    ctx.world.reflect::<Follows>();
+    ctx.world.reflect::<Count>();
+}
+
+/// A cart (the root) with a driver attached to it and a hat attached to the
+/// driver (two levels), and a flag that isn't attached (a plain part) but
+/// follows the hat. Returns the root.
+fn build_cart(ctx: &mut Ctx, at: Vec2) -> Entity {
+    use ponko::d2::Attached;
+    let cart = ctx.world.spawn((Transform2D::at(at), Palm { height: 1.0 }));
+    let driver = ctx.world.spawn((
+        Transform2D::at(at + vec2(0.0, -10.0)),
+        Attached::to(cart).offset(vec2(0.0, -10.0)),
+        Palm { height: 2.0 },
+    ));
+    let hat = ctx.world.spawn((
+        Transform2D::at(at + vec2(0.0, -15.0)),
+        Attached::to(driver).offset(vec2(0.0, -5.0)),
+        Palm { height: 3.0 },
+    ));
+    ctx.world.insert(cart, Follows(hat));
+    let flag = ctx.world.spawn((
+        Transform2D::at(at + vec2(20.0, 0.0)),
+        Palm { height: 4.0 },
+        Follows(hat),
+    ));
+    ctx.world.insert(cart, PrefabParts(vec![flag]));
+    cart
+}
+
+/// The parts of a spawned cart, by height: (driver, hat, flag).
+fn cart_parts(world: &World, cart: Entity) -> (Entity, Entity, Entity) {
+    let parts = &world.get::<PrefabParts>(cart).expect("the root lists its parts").0;
+    assert_eq!(parts.len(), 3, "{parts:?}");
+    let by_height = |h: f32| {
+        *parts
+            .iter()
+            .find(|&&p| world.get::<Palm>(p).map(|p| p.height) == Some(h))
+            .unwrap_or_else(|| panic!("no part of height {h}"))
+    };
+    (by_height(2.0), by_height(3.0), by_height(4.0))
+}
+
+fn assert_cart(world: &World, cart: Entity, at: Vec2) {
+    let (driver, hat, flag) = cart_parts(world, cart);
+    assert_eq!(world.get::<Transform2D>(cart).unwrap().position, at);
+    assert_eq!(world.get::<ponko::d2::Attached>(driver).unwrap().to, cart);
+    assert_eq!(world.get::<ponko::d2::Attached>(hat).unwrap().to, driver);
+    assert_eq!(
+        world.get::<Follows>(cart),
+        Some(&Follows(hat)),
+        "the root names the new hat"
+    );
+    assert_eq!(world.get::<Follows>(flag), Some(&Follows(hat)));
+    // Placed relative to the root, before any attachment system ran.
+    assert_eq!(world.get::<Transform2D>(hat).unwrap().position, at + vec2(0.0, -15.0));
+    assert_eq!(world.get::<Transform2D>(flag).unwrap().position, at + vec2(20.0, 0.0));
+}
+
+#[test]
+fn a_two_level_prefab_spawns_saves_reloads_and_despawns_with_its_children() {
+    let prefab = TempAsset::new("test-prefab-cart.json");
+    let scene = TempAsset::new("test-scene-carts.json");
+    let mut carts = Vec::new();
+    game().run_headless(0, |ctx| {
+        reflect_tree_types(ctx);
+        let model = build_cart(ctx, vec2(300.0, 300.0));
+        ctx.assets.save_prefab(&ctx.world, model, prefab.name()).unwrap();
+    });
+    let saved: serde_json::Value = serde_json::from_str(&prefab.read()).unwrap();
+    assert_eq!(saved["version"], 2);
+    assert_eq!(
+        saved["entities"].as_array().unwrap().len(),
+        4,
+        "root, driver, hat, flag"
+    );
+
+    game().run_headless(0, |ctx| {
+        reflect_tree_types(ctx);
+        for at in [vec2(10.0, 20.0), vec2(-50.0, 7.0)] {
+            carts.push((ctx.spawn_prefab(prefab.name(), at).unwrap(), at));
+        }
+        assert_eq!(ctx.world.len(), 8);
+        for &(cart, at) in &carts {
+            assert_cart(&ctx.world, cart, at);
+        }
+        assert_ne!(
+            cart_parts(&ctx.world, carts[0].0).1,
+            cart_parts(&ctx.world, carts[1].0).1
+        );
+        ctx.assets.save_scene(&ctx.world, scene.name()).unwrap();
+    });
+
+    // A saved world keeps the trees: same ids, same parts, same references.
+    game().run_headless(0, |ctx| {
+        reflect_tree_types(ctx);
+        ctx.load_scene(scene.name()).unwrap();
+        assert_eq!(ctx.world.len(), 8);
+        for &(cart, at) in &carts {
+            assert_cart(&ctx.world, cart, at);
+        }
+        let (driver, hat, flag) = cart_parts(&ctx.world, carts[0].0);
+        assert_eq!(ctx.despawn_prefab(carts[0].0), 4);
+        for gone in [carts[0].0, driver, hat, flag] {
+            assert!(!ctx.world.is_alive(gone));
+        }
+        assert_eq!(ctx.world.len(), 4, "the other cart stays whole");
+        assert_cart(&ctx.world, carts[1].0, carts[1].1);
+        // Saving a spawned root saves the whole tree again.
+        ctx.assets.save_prefab(&ctx.world, carts[1].0, prefab.name()).unwrap();
+        let again = ctx.spawn_prefab(prefab.name(), vec2(1.0, 2.0)).unwrap();
+        assert_cart(&ctx.world, again, vec2(1.0, 2.0));
+    });
+}
+
+#[test]
+fn despawning_an_entity_without_parts_despawns_only_it() {
+    game().run_headless(0, |ctx| {
+        let a = ctx.world.spawn((Transform2D::default(),));
+        let b = ctx.world.spawn((Transform2D::default(),));
+        assert_eq!(ctx.despawn_prefab(a), 1);
+        assert_eq!(ctx.despawn_prefab(a), 0, "already gone");
+        assert!(ctx.world.is_alive(b));
+    });
+}
+
+#[test]
+fn only_entity_values_of_the_prefab_are_remapped() {
+    // Saved ids 0 and 1; a plain number 1 and a reference to an entity
+    // outside the prefab (id 7) are read as written.
+    let file = TempAsset::with_contents(
+        "test-prefab-numbers.json",
+        &serde_json::json!({
+            "format": "ponko-prefab", "version": 2,
+            "entities": [
+                { "entity": 0, "components": { "Count": 1, "Follows": 1 } },
+                { "entity": 1, "components": { "Count": 0, "Follows": 7 } }
+            ]
+        })
+        .to_string(),
+    );
+    game().run_headless(0, |ctx| {
+        reflect_tree_types(ctx);
+        ctx.world.spawn((Count(99),)); // so new ids differ from the saved ones
+        let root = ctx.spawn_prefab(file.name(), Vec2::ZERO).unwrap();
+        let part = ctx.world.get::<PrefabParts>(root).unwrap().0[0];
+        assert_eq!(ctx.world.get::<Count>(root), Some(&Count(1)));
+        assert_eq!(ctx.world.get::<Count>(part), Some(&Count(0)));
+        assert_eq!(ctx.world.get::<Follows>(root), Some(&Follows(part)));
+        assert_eq!(ctx.world.get::<Follows>(part), Some(&Follows(Entity::from_bits(7))));
+    });
+}
+
+#[test]
+fn parts_without_attachments_follow_the_roots_rotation_and_scale() {
+    let file = TempAsset::with_contents(
+        "test-prefab-turned.json",
+        &serde_json::json!({
+            "format": "ponko-prefab", "version": 2,
+            "entities": [
+                { "entity": 5, "components": { "Transform2D": { "rotation": 0.0, "scale": [1.0, 1.0] } } },
+                { "entity": 6, "components": { "Transform2D": { "position": [10.0, 0.0], "rotation": 0.25, "scale": [2.0, 2.0] } } }
+            ]
+        })
+        .to_string(),
+    );
+    game().run_headless(0, |ctx| {
+        let turned = Transform2D::at(vec2(100.0, 100.0))
+            .rotated(std::f32::consts::FRAC_PI_2)
+            .scaled(vec2(3.0, 3.0));
+        let root = ctx.spawn_prefab(file.name(), turned).unwrap();
+        assert_eq!(*ctx.world.get::<Transform2D>(root).unwrap(), turned);
+        let part = ctx.world.get::<PrefabParts>(root).unwrap().0[0];
+        let t = *ctx.world.get::<Transform2D>(part).unwrap();
+        // A quarter turn points the offset down (+y), three times as long.
+        assert!((t.position - vec2(100.0, 130.0)).length() < 1e-4, "{t:?}");
+        assert!((t.rotation - (std::f32::consts::FRAC_PI_2 + 0.25)).abs() < 1e-6);
+        assert_eq!(t.scale, vec2(6.0, 6.0));
+    });
+}
+
+#[test]
+fn included_prefabs_spawn_with_their_roots_changed_for_this_use() {
+    let wheel = TempAsset::with_contents(
+        "test-prefab-wheel.json",
+        r#"{ "format": "ponko-prefab", "version": 1,
+             "components": { "Transform2D": { "scale": [0.5, 0.5] }, "Palm": { "height": 1.0 }, "Count": 4 } }"#,
+    );
+    let axle = TempAsset::with_contents(
+        "test-prefab-axle.json",
+        &serde_json::json!({
+            "format": "ponko-prefab", "version": 2,
+            "entities": [
+                { "entity": 0, "components": { "Transform2D": {}, "Palm": { "height": 10.0 } } },
+                { "entity": 1, "prefab": wheel.name(),
+                  "components": { "Transform2D": { "position": [-8.0, 0.0] }, "Follows": 0 } },
+                { "entity": 2, "prefab": wheel.name(),
+                  "components": { "Transform2D": { "position": [8.0, 0.0] }, "Palm": { "height": 2.0 }, "Follows": 1 } }
+            ]
+        })
+        .to_string(),
+    );
+    let cart = TempAsset::with_contents(
+        "test-prefab-axle-cart.json",
+        &serde_json::json!({
+            "format": "ponko-prefab", "version": 2,
+            "entities": [
+                { "entity": 0, "components": { "Transform2D": {}, "Palm": { "height": 100.0 } } },
+                { "entity": 1, "prefab": axle.name(), "components": { "Transform2D": { "position": [0.0, 20.0] } } }
+            ]
+        })
+        .to_string(),
+    );
+    game().run_headless(0, |ctx| {
+        reflect_tree_types(ctx);
+        let root = ctx.spawn_prefab(cart.name(), vec2(1000.0, 0.0)).unwrap();
+        let parts = ctx.world.get::<PrefabParts>(root).unwrap().0.clone();
+        assert_eq!(parts.len(), 3, "the axle and its two wheels");
+        assert_eq!(ctx.world.len(), 4);
+        let find = |ctx: &Ctx, h: f32| {
+            *parts
+                .iter()
+                .find(|&&p| ctx.world.get::<Palm>(p).unwrap().height == h)
+                .unwrap()
+        };
+        let axle_root = find(ctx, 10.0);
+        let (left, right) = (find(ctx, 1.0), find(ctx, 2.0));
+        assert_eq!(
+            ctx.world.get::<Transform2D>(axle_root).unwrap().position,
+            vec2(1000.0, 20.0)
+        );
+        let l = ctx.world.get::<Transform2D>(left).unwrap();
+        assert_eq!(
+            (l.position, l.scale),
+            (vec2(992.0, 20.0), vec2(0.5, 0.5)),
+            "only the position changed"
+        );
+        assert_eq!(
+            ctx.world.get::<Transform2D>(right).unwrap().position,
+            vec2(1008.0, 20.0)
+        );
+        assert_eq!(
+            ctx.world.get::<Count>(right),
+            Some(&Count(4)),
+            "the rest as the wheel file says"
+        );
+        assert_eq!(ctx.world.get::<Follows>(left), Some(&Follows(axle_root)));
+        assert_eq!(ctx.world.get::<Follows>(right), Some(&Follows(left)));
+        assert_eq!(ctx.world.get::<PrefabParts>(axle_root).unwrap().0.len(), 2);
+        assert_eq!(ctx.despawn_prefab(root), 4);
+        assert_eq!(ctx.world.len(), 0);
+    });
+}
+
+#[test]
+fn prefabs_that_include_each_other_are_refused_and_spawn_nothing() {
+    let a = TempAsset::new("test-prefab-loop-a.json");
+    let b = TempAsset::new("test-prefab-loop-b.json");
+    let include = |other: &str| {
+        serde_json::json!({
+            "format": "ponko-prefab", "version": 2,
+            "entities": [
+                { "entity": 0, "components": { "Count": 1 } },
+                { "entity": 1, "prefab": other }
+            ]
+        })
+        .to_string()
+    };
+    a.write(&include(b.name()));
+    b.write(&include(a.name()));
+    game().run_headless(0, |ctx| {
+        reflect_tree_types(ctx);
+        let err = ctx.spawn_prefab(a.name(), Vec2::ZERO).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::Json);
+        assert_eq!(err.path(), Some(a.name()));
+        assert!(err.message().contains("loop"), "{err}");
+        assert_eq!(ctx.world.len(), 0);
+    });
+}
+
+#[test]
+fn a_tree_with_a_bad_part_spawns_nothing() {
+    let file = TempAsset::with_contents(
+        "test-prefab-bad-part.json",
+        &serde_json::json!({
+            "format": "ponko-prefab", "version": 2,
+            "entities": [
+                { "entity": 0, "components": { "Count": 1 } },
+                { "entity": 1, "components": { "Count": 2, "Follows": 0 } },
+                { "entity": 2, "components": { "NotReflected": {} } }
+            ]
+        })
+        .to_string(),
+    );
+    let duplicate = TempAsset::with_contents(
+        "test-prefab-duplicate-id.json",
+        r#"{ "format": "ponko-prefab", "version": 2, "entities": [
+             { "entity": 0, "components": { "Count": 1 } }, { "entity": 0, "components": { "Count": 2 } } ] }"#,
+    );
+    game().run_headless(0, |ctx| {
+        reflect_tree_types(ctx);
+        let err = ctx.spawn_prefab(file.name(), Vec2::ZERO).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+        assert!(err.message().contains("NotReflected"), "{err}");
+        let err = ctx.spawn_prefab(duplicate.name(), Vec2::ZERO).unwrap_err();
+        assert!(err.message().contains("appears twice"), "{err}");
+        assert_eq!(ctx.world.len(), 0);
+    });
+}

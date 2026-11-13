@@ -326,6 +326,7 @@ impl Ctx {
         crate::reflect::WorldReflect::reflect::<crate::d2::Transform>(&mut world);
         crate::reflect::describe_transform2d(&mut world);
         crate::reflect::WorldReflect::reflect::<crate::d2::Attached>(&mut world);
+        crate::reflect::WorldReflect::reflect::<crate::scene::PrefabParts>(&mut world);
         #[cfg(feature = "3d")]
         crate::reflect::WorldReflect::reflect::<crate::d3::Transform>(&mut world);
         #[cfg(feature = "3d")]
@@ -337,6 +338,8 @@ impl Ctx {
             crate::reflect::WorldReflect::reflect::<crate::d3::Decal>(&mut world);
             crate::reflect::WorldReflect::reflect::<crate::render::ReceivesDecals>(&mut world);
             crate::reflect::WorldReflect::reflect::<crate::render::LodHysteresis>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::anim::SkinOf>(&mut world);
+            crate::reflect::WorldReflect::reflect::<crate::anim::AttachToJoint>(&mut world);
         }
         crate::reflect::reflect_sprite(&mut world);
         // The file names behind sprites and models: the world saves by them,

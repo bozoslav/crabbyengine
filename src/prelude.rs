@@ -48,7 +48,7 @@ pub use crate::input::{Key, MouseButton};
 pub use crate::profile_scope;
 pub use crate::random::{Random, Rng};
 pub use crate::reflect::WorldReflect;
-pub use crate::scene::Placement;
+pub use crate::scene::{Placement, PrefabParts};
 pub use crate::sheet::SpriteSheet;
 pub use crate::text::{Font, TextParams};
 pub use crate::texture::{DrawParams, Texture, TextureFilter};
