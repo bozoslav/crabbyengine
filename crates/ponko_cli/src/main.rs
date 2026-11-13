@@ -1,10 +1,12 @@
 //! `ponko`: the command-line tool for Ponko games.
 //!
 //! One subcommand per job, each in its own module: `ponko new` makes a
-//! project from a template ([`new`]). Packaging and asset import commands
-//! will sit next to it. No dependencies: arguments are parsed by hand.
+//! project from a template ([`new`]); `ponko package` builds and packages a
+//! game for players, and `ponko notices` writes a library's third-party
+//! notices ([`package`]). Arguments are parsed by hand.
 
 mod new;
+mod package;
 mod templates;
 
 use std::process::ExitCode;
@@ -14,11 +16,15 @@ ponko: the command-line tool for Ponko games
 
 Usage:
   ponko new <path> [--2d | --3d | --headless] [--path <engine> | --git <url>]
+  ponko package [--bin <name> | --example <name>] [--web] [--format <list>] [...]
+  ponko notices --out <file> [-p <package>] [...]
   ponko help [<command>]
   ponko --version
 
 Commands:
-  new    Make a new game project from a template
+  new      Make a new game project from a template
+  package  Build the game and package it for players (zip, app, dmg, tar.gz, web)
+  notices  Write THIRD-PARTY-NOTICES.txt for a crate
 
 Guide: https://ponko.dev/guide/getting-started.html";
 
@@ -51,9 +57,28 @@ fn run(args: &[String]) -> Result<String, String> {
             let dir = std::env::current_dir().map_err(|e| format!("can't read the current folder: {e}"))?;
             new::generate(&options, &dir)
         }
+        "package" | "notices" => {
+            let usage = if command == "package" {
+                package::USAGE
+            } else {
+                package::NOTICES_USAGE
+            };
+            if rest.iter().any(|a| a == "-h" || a == "--help") {
+                return Ok(usage.to_string());
+            }
+            let options = package::Options::parse(rest, usage)?;
+            let dir = std::env::current_dir().map_err(|e| format!("can't read the current folder: {e}"))?;
+            if command == "package" {
+                package::package_command(&options, &dir)
+            } else {
+                package::notices_command(&options, &dir)
+            }
+        }
         "help" | "-h" | "--help" => match rest.first().map(String::as_str) {
             None => Ok(USAGE.to_string()),
             Some("new") => Ok(new::USAGE.to_string()),
+            Some("package") => Ok(package::USAGE.to_string()),
+            Some("notices") => Ok(package::NOTICES_USAGE.to_string()),
             Some(other) => Err(format!("no command `{other}`\n\n{USAGE}")),
         },
         "-V" | "--version" => Ok(format!("ponko {}", env!("CARGO_PKG_VERSION"))),
@@ -88,6 +113,18 @@ mod tests {
             let out = run_str(args).unwrap();
             assert!(out.contains("--headless") && out.contains("--git"), "{out}");
         }
+    }
+
+    #[test]
+    fn help_for_package_lists_its_platforms_and_options() {
+        for args in [&["help", "package"][..], &["package", "--help"]] {
+            let out = run_str(args).unwrap();
+            assert!(
+                out.contains("--example") && out.contains("--web") && out.contains("--sign"),
+                "{out}"
+            );
+        }
+        assert!(run_str(&["notices", "-h"]).unwrap().contains("--out <file>"));
     }
 
     #[test]

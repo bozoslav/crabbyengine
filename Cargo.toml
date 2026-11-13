@@ -40,6 +40,21 @@ targets = ["x86_64-unknown-linux-gnu"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 
+# What `ponko package --example coin_dash` puts in the reference game's
+# package (book/src/packaging.md). The engine itself is a library: only its
+# example games have packages.
+[package.metadata.ponko.examples.coin_dash]
+name = "Coin Dash"
+id = "dev.ponko.coin-dash"
+assets = ["assets/coin_dash"]
+files = [
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "NOTICE",
+    "examples/coin_dash/CONTENT-NOTICES.txt",
+    { from = "examples/coin_dash/PACKAGE-README.txt", to = "README.txt" },
+]
+
 [dependencies]
 taffy = { version = "0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "content_size"] }
 navmesh-rs = { version = "0.2.1", optional = true, default-features = false, features = ["std", "libm", "recast", "detour", "crowd", "tilecache", "polyref64"] }

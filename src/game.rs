@@ -2247,15 +2247,31 @@ impl Game {
     /// [`ConfiguredGame::run`], which takes no closure: setup callbacks can
     /// be chosen at run time and are ordered with [`Plugin`] setups.
     ///
+    /// # Smoke runs
+    /// With the environment variable `PONKO_SMOKE=<ticks>` (a number above
+    /// zero), `run` opens no window: it runs the setup and `ticks` ticks
+    /// headless, frame systems included (as with
+    /// [`headless_frames`](Self::headless_frames)), prints
+    /// `ponko: smoke run passed: <ticks> ticks` to stderr and returns. This
+    /// is how `ponko package` checks a packaged game starts, finds its
+    /// assets and runs, on machines without a display or GPU. Not read in
+    /// browsers.
+    ///
     /// # Panics
     /// If the operating system refuses to create the event loop or window,
     /// or no usable GPU is found, and always when the `window` feature is
-    /// off.
+    /// off (except in a smoke run).
     pub fn run<S, U>(self, setup: S)
     where
         S: FnOnce(&mut Ctx) -> U,
         U: SetupResult,
     {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(ticks) = smoke_ticks(std::env::var(ENV_SMOKE).ok().as_deref()) {
+            let world = self.headless_frames(true).run_headless(ticks, setup);
+            eprintln!("ponko: smoke run passed: {ticks} ticks, {} entities", world.len());
+            return;
+        }
         #[cfg(feature = "window")]
         window::run(self, setup);
         #[cfg(not(feature = "window"))]
@@ -2269,10 +2285,40 @@ impl Game {
     }
 }
 
+/// `PONKO_SMOKE=<ticks>`: [`Game::run`] runs that many ticks headless and returns.
+#[cfg(not(target_arch = "wasm32"))]
+const ENV_SMOKE: &str = "PONKO_SMOKE";
+
+/// The ticks of a smoke run from the value of `PONKO_SMOKE`: a number above
+/// zero, else no smoke run (unset, empty, `0`, or not a number, which is
+/// also reported, so a typo doesn't open a window unnoticed).
+#[cfg(not(target_arch = "wasm32"))]
+fn smoke_ticks(value: Option<&str>) -> Option<u64> {
+    let value = value?.trim();
+    match value.parse::<u64>() {
+        Ok(0) => None,
+        Ok(ticks) => Some(ticks),
+        Err(_) if value.is_empty() => None,
+        Err(_) => {
+            eprintln!("ponko: ignoring {ENV_SMOKE}={value:?}: it takes a number of ticks");
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ponko_ecs::Component;
+
+    #[test]
+    fn smoke_ticks_take_a_positive_number_only() {
+        assert_eq!(smoke_ticks(Some("120")), Some(120));
+        assert_eq!(smoke_ticks(Some(" 5 ")), Some(5));
+        for off in [None, Some(""), Some("0"), Some("yes"), Some("-3")] {
+            assert_eq!(smoke_ticks(off), None, "{off:?}");
+        }
+    }
 
     struct Log(Vec<String>);
     #[derive(Component)]
