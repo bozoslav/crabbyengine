@@ -744,3 +744,117 @@ fn the_panel_example_draws_what_its_hand_built_tree_drew() {
         );
     }
 }
+
+/// The mixed screen at `scale`: a retained panel and button on the left, the
+/// immediate ones on the right, in the same units, under one theme.
+/// Returns the picture and the window-pixel rectangles of the four.
+fn mixed_screen(painter: &Painter, scale: f32, immediate_text: f32) -> (Image, [crate::camera::Rect; 4]) {
+    use crate::camera::Rect;
+    use crate::ui::{UiLayout, UiTheme};
+    let size = vec2(400.0, 240.0) * scale;
+    // Anchored places by fractions of the 400 x 240 UI units of the screen.
+    let anchored = |x: f32, y: f32, w: f32, h: f32| UiLayout::anchored(x / 400.0, y / 240.0, w / 400.0, h / 240.0);
+    let mut screen = painter.screen(size);
+    let ctx = &mut screen.ctx;
+    ctx.ui.set_scale(scale);
+    ctx.ui.set_theme(UiTheme {
+        panel: Color::rgb(0.1, 0.4, 0.2),
+        control: Color::rgb(0.5, 0.1, 0.3),
+        text_size: 20.0,
+        ..Default::default()
+    });
+    let root = ctx
+        .ui
+        .root()
+        .layout(UiLayout::fill())
+        .background(Color::rgba(0.0, 0.0, 0.0, 0.0))
+        .id();
+    ctx.ui.push_screen(root, false);
+    let panel = ctx.ui.panel(root).layout(anchored(20.0, 100.0, 120.0, 40.0)).id();
+    let button = ctx
+        .ui
+        .button(root, "Run")
+        .layout(anchored(20.0, 20.0, 120.0, 40.0))
+        .id();
+    assert_eq!(ctx.ui.paint(button).unwrap().font_size, 20.0);
+    // The pointer is off the screen: nothing is hovered.
+    ctx.ui.frame(size, &pointer(vec2(-10.0, -10.0), false, false));
+    ctx.draw_retained_ui();
+    let rects = [
+        ctx.ui.rect(panel).unwrap(),
+        ctx.ui.rect(button).unwrap(),
+        // The immediate ones, at the same height, as their rectangles in UI units.
+        Rect::new(180.0, 100.0, 120.0, 40.0),
+        Rect::new(180.0, 20.0, 120.0, 40.0),
+    ];
+    ctx.ui.immediate.style.text_size = immediate_text;
+    ctx.ui.immediate.panel(&mut ctx.gfx, rects[2]);
+    ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, rects[3], "Run");
+    let scaled = |r: Rect| Rect {
+        min: r.min * scale,
+        max: r.max * scale,
+    };
+    let rects = [rects[0], rects[1], scaled(rects[2]), scaled(rects[3])];
+    (painter.shot(&mut screen, size), rects)
+}
+
+/// The size of the text ink in `rect`: pixels well away from `fill`.
+fn ink(image: &Image, rect: crate::camera::Rect, fill: [u8; 4]) -> Vec2 {
+    let (mut min, mut max) = (vec2(f32::MAX, f32::MAX), vec2(f32::MIN, f32::MIN));
+    for y in rect.min.y as u32..rect.max.y as u32 {
+        for x in rect.min.x as u32..rect.max.x as u32 {
+            let p = image.pixel(x, y);
+            let far = (0..3).any(|c| p[c].abs_diff(fill[c]) > 80);
+            if far {
+                min = min.min(vec2(x as f32, y as f32));
+                max = max.max(vec2(x as f32, y as f32));
+            }
+        }
+    }
+    assert!(min.x <= max.x, "no text in {rect:?}");
+    max - min + 1.0
+}
+
+#[test]
+fn immediate_widgets_match_the_retained_ones_at_1x_and_2x() {
+    let Some(painter) = Painter::new() else { return };
+    let mut inks = Vec::new();
+    for scale in [1.0f32, 2.0] {
+        let (image, [panel, button, i_panel, i_button]) = mixed_screen(&painter, scale, 20.0);
+        let inside = |r: crate::camera::Rect| image.pixel(r.min.x as u32 + 3, r.min.y as u32 + 3);
+        let control = Color::rgb(0.5, 0.1, 0.3).to_rgba8();
+        let panel_color = Color::rgb(0.1, 0.4, 0.2).to_rgba8();
+        // One theme: the same fills.
+        assert_eq!(inside(button), control, "retained button at {scale}x");
+        assert_eq!(inside(i_button), control, "immediate button at {scale}x");
+        assert_eq!(inside(panel), panel_color, "retained panel at {scale}x");
+        assert_eq!(inside(i_panel), panel_color, "immediate panel at {scale}x");
+        // One scale: the same sizes (and so the same places on the screen).
+        assert_eq!(i_button.size(), button.size());
+        assert_eq!(i_button.size(), vec2(120.0, 40.0) * scale);
+        let edge = |r: crate::camera::Rect| image.pixel(r.max.x as u32 + 2, r.min.y as u32 + 3);
+        assert_ne!(edge(i_button), control, "the immediate button ends where it should at {scale}x");
+        // One text size: the same ink, to a pixel or two.
+        let (retained, immediate) = (ink(&image, button, control), ink(&image, i_button, control));
+        eprintln!("ink at {scale}x: retained {retained}, immediate {immediate}");
+        assert!(
+            (retained - immediate).abs().max_element() <= 2.0 * scale,
+            "text at {scale}x: retained {retained}, immediate {immediate}"
+        );
+        assert!(immediate.y > 8.0 * scale, "the text is drawn at {scale}x: {immediate}");
+        inks.push(immediate);
+    }
+    // 2x is 1x twice as large.
+    assert!(
+        (inks[1] - inks[0] * 2.0).abs().max_element() <= 3.0,
+        "ink {} at 1x, {} at 2x",
+        inks[0],
+        inks[1]
+    );
+    // The negative control: a style set by hand keeps its own size, and the
+    // comparison above sees it.
+    let (image, [_, button, _, i_button]) = mixed_screen(&painter, 1.0, 10.0);
+    let control = Color::rgb(0.5, 0.1, 0.3).to_rgba8();
+    let (retained, immediate) = (ink(&image, button, control), ink(&image, i_button, control));
+    assert!(immediate.y < retained.y * 0.7, "retained {retained}, immediate {immediate}");
+}
