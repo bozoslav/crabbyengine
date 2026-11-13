@@ -48,7 +48,9 @@ saves and loads scenes and places prefabs with the mouse. From code:
 `save_scene(path)` writes the world (its reflected components and
 resources) and `save_prefab(entity, path)` writes one entity, without its
 position. Both write over the file in `assets/` if it's there, else create
-it (and its folders). Web builds can't save files.
+it (and its folders). Web builds can't save files there; for the player's
+saves, use save slots in [`ctx.storage`](storage.md#save-slots), which also
+work in the browser.
 
 ```rust
 # let palm = ctx.world.spawn((ponko::d2::Transform::default(),));

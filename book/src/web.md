@@ -82,7 +82,9 @@ that (music at startup, say) may stay silent.
 **Not available on the web:** the [control endpoint](control.md) and
 [MCP](agents.md) tools, [hot reload](data-files.md) of files, [hot
 patching](hot-patching.md) of code, and anything that writes files
-(`ctx.gfx.save_screenshot`, saving the world to a path). `println!` output goes
+(`ctx.gfx.save_screenshot`, saving the world to a path). The player's own
+files do work: `ctx.storage` keeps them in the browser's storage (see [Saves
+and settings](storage.md#in-the-browser)). `println!` output goes
 nowhere; panics appear in the browser's developer console.
 
 ## Testing in a browser

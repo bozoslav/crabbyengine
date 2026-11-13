@@ -122,3 +122,63 @@ fn a_write_the_disk_refuses_leaves_the_old_file() {
     assert_eq!(files.read("a.json").unwrap(), b"old");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+// ANCHOR: storage
+/// The player's choices, kept between runs.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)] // a file from an older version still loads
+struct Options {
+    volume: f32,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self { volume: 1.0 }
+    }
+}
+
+fn load_options(ctx: &mut Ctx) -> Options {
+    // A first run has no file (and a damaged one isn't JSON): the defaults.
+    ctx.storage.read_json("options.json").unwrap_or_default()
+}
+
+fn keep_options(ctx: &mut Ctx, options: &Options) {
+    // The old file stays whole until the new one is, then becomes the backup.
+    if let Err(e) = ctx.storage.write_json("options.json", options) {
+        eprintln!("{e}"); // a full or read-only disk: the game goes on
+    }
+}
+
+fn quick_save(ctx: &mut Ctx) -> Result<(), Error> {
+    ctx.storage.save_world(&ctx.world, "quick") // saves/quick.json
+}
+
+fn quick_load(ctx: &mut Ctx) -> Result<(), Error> {
+    ctx.load_world("quick")
+}
+
+fn space_crab() -> Game {
+    // The folder in the player's data folder, and the browser database's name.
+    Game::new("Space Crab", 1280, 720).app_id("space-crab")
+}
+// ANCHOR_END: storage
+
+#[test]
+fn the_guide_example_keeps_options_and_a_quick_save_between_runs() {
+    let dir = temp_dir("guide");
+    let first = space_crab().data_dir(&dir); // a test keeps its files apart
+    first.run_headless(0, |ctx| {
+        assert_eq!(load_options(ctx).volume, 1.0, "first run: the defaults");
+        keep_options(ctx, &Options { volume: 0.25 });
+        ctx.world.reflect::<Health>();
+        ctx.world.spawn((Health(9),));
+        quick_save(ctx).unwrap();
+    });
+    let mut world = space_crab().data_dir(&dir).run_headless(0, |ctx| {
+        assert_eq!(load_options(ctx).volume, 0.25);
+        ctx.world.reflect::<Health>();
+        quick_load(ctx).unwrap();
+    });
+    assert_eq!(world.query::<&Health>().iter().copied().collect::<Vec<_>>(), [Health(9)]);
+    let _ = std::fs::remove_dir_all(dir);
+}
