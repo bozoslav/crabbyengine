@@ -189,6 +189,69 @@ the same entries, with their snippets, to `book/src/migrating-to-X.Y.md`, which
 it lists in `book/src/SUMMARY.md`. Nobody writes the chapter by hand. See
 [Releasing](#releasing).
 
+### API snapshots
+
+The `api/` folder holds a generated listing of the public API of every
+published crate, one item per line, made with
+[cargo-public-api](https://github.com/cargo-public-api/cargo-public-api). The
+**API snapshots** job of CI regenerates it and fails when it differs from the
+committed files, so a pull request that adds, renames, widens or removes a
+public item shows it as a diff, and the reviewer decides whether the surface
+is meant. 1.0 needs a deliberate surface; this is how it stays one. It is a
+quick check (no tests): on a GitHub runner without a cache the whole job took
+3.6 minutes (about 2.2 of them the listing itself); the dependency cache of
+`main` is restored on top, so expect less. Locally, `update` took 1.9 minutes
+on a busy laptop with a warm dependency build, and a rerun is under half a
+minute.
+
+**After changing public API, run one command and commit the result:**
+
+```sh
+python3 scripts/api-snapshots.py update
+git add api
+```
+
+- **What is listed.** `ponko`, `ponko_ecs`, `ponko_ffi`, `ponko_mcp` and
+  `ponko_unity` (not proc-macro or binary-only crates), as
+  `api/<crate>/<set>.txt`: `default` (default features), `no-default-features`
+  (for `ponko`: headless), `docs-rs` (the features docs.rs builds: all the
+  public ones, `3d` included) and, for `ponko`, `3d` (the defaults plus `3d`).
+  A set that lists the same as `default` has no file. Blanket and auto-trait
+  impls are left out as noise; derived impls (`Clone`, `Debug`) stay.
+- **Reading a failure.** The log and the job summary show the diff and the
+  command above. If you cannot run the tool, the job uploads the regenerated
+  folder as the `api-regenerated` artifact: copy it over `api/`. A diff you did
+  not intend means something became public by accident (`pub` instead of
+  `pub(crate)`, a `pub use` that pulls in more than it should): fix the code,
+  not the snapshot.
+- **Merge conflicts in `api/`** (two pull requests added public API): do not
+  merge the files by hand. Resolve the source, then run the command again.
+- **Tools.** The script pins `cargo-public-api` and the nightly toolchain it
+  needs together (`TOOL_VERSION` and `NIGHTLY`), because the tool reads rustdoc
+  JSON, whose format changes with every nightly; CI reads the pins from the
+  script, so there is one place to change them. The script tells you the
+  install commands if something is missing: `cargo install --locked
+  cargo-public-api --version <pin>` and `rustup toolchain install <nightly>
+  --profile minimal` (the nightly does not become your default). It also
+  needs the audio and udev headers on Linux, like every build here. The
+  listing is the one for x86_64 Linux, the CI runner: on macOS the script builds
+  for `x86_64-apple-darwin` (same CPU types, no Linux libraries needed; it
+  tells you the one `rustup target add` command) and drops the few items that
+  exist only on macOS, so `update` gives the same text as CI. Another host
+  (Windows) takes the files from the `api-regenerated` artifact. To move to
+  a newer nightly, pick a tool release whose README supports it, change both
+  pins, run `update`, and review the diff: it should only change where the
+  tool's changelog says it does.
+- **Relation to the Semver checks job** (below). The snapshot shows *every*
+  change to the public API, growth included, and compares with the commit
+  you are based on. Semver shows only what *breaks* code that compiled against
+  the last crates.io release, and compares with that release. A new function
+  fails the snapshot job (update the snapshot) and passes the semver job; a
+  removed function fails both (update the snapshot, and add the `breaking`
+  label and fragment, or undo the break). The snapshot cannot say whether a
+  change breaks anything: that is what the semver job and the reviewer do with
+  the diff.
+
 ### Semver checks
 
 The **Semver checks** job of CI compares the public API of every published

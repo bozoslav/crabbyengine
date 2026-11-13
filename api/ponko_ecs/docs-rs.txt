@@ -1,0 +1,623 @@
+pub mod ponko_ecs
+pub use ponko_ecs::Component
+#[non_exhaustive] pub enum ponko_ecs::DynFilter
+pub ponko_ecs::DynFilter::All(alloc::vec::Vec<ponko_ecs::DynFilter>)
+pub ponko_ecs::DynFilter::Or(alloc::vec::Vec<ponko_ecs::DynFilter>)
+pub ponko_ecs::DynFilter::With(ponko_ecs::ComponentId)
+pub ponko_ecs::DynFilter::Without(ponko_ecs::ComponentId)
+impl ponko_ecs::DynFilter
+pub fn ponko_ecs::DynFilter::compile(&self) -> core::result::Result<ponko_ecs::CompiledFilter, ponko_ecs::FilterError>
+impl core::clone::Clone for ponko_ecs::DynFilter
+pub fn ponko_ecs::DynFilter::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ecs::DynFilter
+impl core::cmp::PartialEq for ponko_ecs::DynFilter
+pub fn ponko_ecs::DynFilter::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_ecs::DynFilter
+pub fn ponko_ecs::DynFilter::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_ecs::DynFilter
+impl ponko_ecs::FilterTree for ponko_ecs::DynFilter
+pub fn ponko_ecs::DynFilter::shape(&self) -> ponko_ecs::FilterShape<'_, Self>
+#[non_exhaustive] pub enum ponko_ecs::FilterError
+pub ponko_ecs::FilterError::TooDeep
+pub ponko_ecs::FilterError::TooManyClauses
+pub ponko_ecs::FilterError::TooManyTerms
+pub ponko_ecs::FilterError::TooManyWith
+pub ponko_ecs::FilterError::TooManyWithout
+pub ponko_ecs::FilterError::UnknownComponent(u32)
+impl core::clone::Clone for ponko_ecs::FilterError
+pub fn ponko_ecs::FilterError::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ecs::FilterError
+impl core::cmp::PartialEq for ponko_ecs::FilterError
+pub fn ponko_ecs::FilterError::eq(&self, &Self) -> bool
+impl core::error::Error for ponko_ecs::FilterError
+impl core::fmt::Debug for ponko_ecs::FilterError
+pub fn ponko_ecs::FilterError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for ponko_ecs::FilterError
+pub fn ponko_ecs::FilterError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_ecs::FilterError
+impl core::marker::StructuralPartialEq for ponko_ecs::FilterError
+#[non_exhaustive] pub enum ponko_ecs::FilterShape<'a, T>
+pub ponko_ecs::FilterShape::All(&'a [T])
+pub ponko_ecs::FilterShape::Or(&'a [T])
+pub ponko_ecs::FilterShape::With(u32)
+pub ponko_ecs::FilterShape::Without(u32)
+impl<'a, T: core::clone::Clone> core::clone::Clone for ponko_ecs::FilterShape<'a, T>
+pub fn ponko_ecs::FilterShape<'a, T>::clone(&self) -> Self
+impl<'a, T: core::fmt::Debug> core::fmt::Debug for ponko_ecs::FilterShape<'a, T>
+pub fn ponko_ecs::FilterShape<'a, T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a, T: core::marker::Copy> core::marker::Copy for ponko_ecs::FilterShape<'a, T>
+#[non_exhaustive] pub enum ponko_ecs::QueryCache
+pub ponko_ecs::QueryCache::Always
+pub ponko_ecs::QueryCache::Auto
+pub ponko_ecs::QueryCache::Never
+impl core::clone::Clone for ponko_ecs::QueryCache
+pub fn ponko_ecs::QueryCache::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ecs::QueryCache
+impl core::cmp::PartialEq for ponko_ecs::QueryCache
+pub fn ponko_ecs::QueryCache::eq(&self, &Self) -> bool
+impl core::default::Default for ponko_ecs::QueryCache
+pub fn ponko_ecs::QueryCache::default() -> Self
+impl core::fmt::Debug for ponko_ecs::QueryCache
+pub fn ponko_ecs::QueryCache::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko_ecs::QueryCache
+pub fn ponko_ecs::QueryCache::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko_ecs::QueryCache
+impl core::marker::StructuralPartialEq for ponko_ecs::QueryCache
+#[non_exhaustive] pub enum ponko_ecs::SingleError
+pub ponko_ecs::SingleError::MultipleEntities
+pub ponko_ecs::SingleError::NoEntities
+impl core::clone::Clone for ponko_ecs::SingleError
+pub fn ponko_ecs::SingleError::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ecs::SingleError
+impl core::cmp::PartialEq for ponko_ecs::SingleError
+pub fn ponko_ecs::SingleError::eq(&self, &Self) -> bool
+impl core::error::Error for ponko_ecs::SingleError
+impl core::fmt::Debug for ponko_ecs::SingleError
+pub fn ponko_ecs::SingleError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for ponko_ecs::SingleError
+pub fn ponko_ecs::SingleError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_ecs::SingleError
+impl core::marker::StructuralPartialEq for ponko_ecs::SingleError
+#[non_exhaustive] pub struct ponko_ecs::AccessLog
+pub ponko_ecs::AccessLog::components: alloc::vec::Vec<(ponko_ecs::ComponentId, bool)>
+pub ponko_ecs::AccessLog::dynamic_resources: alloc::vec::Vec<alloc::string::String>
+pub ponko_ecs::AccessLog::resources: alloc::vec::Vec<(core::any::TypeId, &'static str, bool)>
+pub ponko_ecs::AccessLog::structural: bool
+impl ponko_ecs::AccessLog
+pub fn ponko_ecs::AccessLog::is_empty(&self) -> bool
+impl core::clone::Clone for ponko_ecs::AccessLog
+pub fn ponko_ecs::AccessLog::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ecs::AccessLog
+impl core::cmp::PartialEq for ponko_ecs::AccessLog
+pub fn ponko_ecs::AccessLog::eq(&self, &Self) -> bool
+impl core::default::Default for ponko_ecs::AccessLog
+pub fn ponko_ecs::AccessLog::default() -> Self
+impl core::fmt::Debug for ponko_ecs::AccessLog
+pub fn ponko_ecs::AccessLog::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_ecs::AccessLog
+pub struct ponko_ecs::Added<T>(_)
+impl<T: ponko_ecs::Component> ponko_ecs::OrTerm for ponko_ecs::Added<T>
+impl<T: ponko_ecs::Component> ponko_ecs::QueryFilter for ponko_ecs::Added<T>
+pub struct ponko_ecs::Archetype
+impl ponko_ecs::Archetype
+pub fn ponko_ecs::Archetype::allocated_bytes(&self) -> usize
+pub fn ponko_ecs::Archetype::bytes_per_entity(&self) -> usize
+pub fn ponko_ecs::Archetype::column_ptr(&self, ponko_ecs::ComponentId) -> core::option::Option<*const u8>
+pub fn ponko_ecs::Archetype::component_ids(&self) -> &[ponko_ecs::ComponentId]
+pub fn ponko_ecs::Archetype::entities(&self) -> &[ponko_ecs::Entity]
+pub fn ponko_ecs::Archetype::has(&self, ponko_ecs::ComponentId) -> bool
+pub fn ponko_ecs::Archetype::is_empty(&self) -> bool
+pub fn ponko_ecs::Archetype::len(&self) -> usize
+impl core::marker::Send for ponko_ecs::Archetype
+impl core::marker::Sync for ponko_ecs::Archetype
+impl core::ops::drop::Drop for ponko_ecs::Archetype
+pub fn ponko_ecs::Archetype::drop(&mut self)
+pub struct ponko_ecs::Changed<T>(_)
+impl<T: ponko_ecs::Component> ponko_ecs::OrTerm for ponko_ecs::Changed<T>
+impl<T: ponko_ecs::Component> ponko_ecs::QueryFilter for ponko_ecs::Changed<T>
+#[non_exhaustive] pub struct ponko_ecs::Chunk<'a>
+pub ponko_ecs::Chunk::columns: &'a [*mut u8]
+pub ponko_ecs::Chunk::entities: &'a [ponko_ecs::Entity]
+impl ponko_ecs::Chunk<'_>
+pub fn ponko_ecs::Chunk<'_>::is_empty(&self) -> bool
+pub fn ponko_ecs::Chunk<'_>::len(&self) -> usize
+pub struct ponko_ecs::ChunkQuery<'a>
+impl<'a> ponko_ecs::ChunkQuery<'a>
+pub fn ponko_ecs::ChunkQuery<'a>::added(self, u32) -> Self
+pub fn ponko_ecs::ChunkQuery<'a>::cache(self, ponko_ecs::QueryCache) -> Self
+pub fn ponko_ecs::ChunkQuery<'a>::changed(self, u32) -> Self
+pub fn ponko_ecs::ChunkQuery<'a>::filter(self, impl core::convert::Into<core::option::Option<&'a ponko_ecs::CompiledFilter>>) -> Self
+pub fn ponko_ecs::ChunkQuery<'a>::ids(&self) -> &'a [ponko_ecs::ComponentId]
+pub fn ponko_ecs::ChunkQuery<'a>::match_any(self, bool) -> Self
+pub fn ponko_ecs::ChunkQuery<'a>::new(&'a [ponko_ecs::ComponentId]) -> Self
+pub fn ponko_ecs::ChunkQuery<'a>::since(self, impl core::convert::Into<core::option::Option<ponko_ecs::Tick>>) -> Self
+pub fn ponko_ecs::ChunkQuery<'a>::writes(self, u32) -> Self
+impl<'a> core::clone::Clone for ponko_ecs::ChunkQuery<'a>
+pub fn ponko_ecs::ChunkQuery<'a>::clone(&self) -> Self
+impl<'a> core::fmt::Debug for ponko_ecs::ChunkQuery<'a>
+pub fn ponko_ecs::ChunkQuery<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for ponko_ecs::ChunkQuery<'a>
+pub struct ponko_ecs::Commands
+impl ponko_ecs::Commands
+pub fn ponko_ecs::Commands::add(&mut self, impl core::ops::function::FnOnce(&mut ponko_ecs::World) + core::marker::Send + 'static)
+pub fn ponko_ecs::Commands::clear(&mut self)
+pub fn ponko_ecs::Commands::despawn(&mut self, ponko_ecs::Entity)
+pub fn ponko_ecs::Commands::insert<T: ponko_ecs::Component>(&mut self, ponko_ecs::Entity, T)
+pub fn ponko_ecs::Commands::is_empty(&self) -> bool
+pub fn ponko_ecs::Commands::len(&self) -> usize
+pub fn ponko_ecs::Commands::new() -> Self
+pub fn ponko_ecs::Commands::remove<T: ponko_ecs::Component>(&mut self, ponko_ecs::Entity)
+pub fn ponko_ecs::Commands::spawn<B: ponko_ecs::Bundle>(&mut self, B)
+impl core::default::Default for ponko_ecs::Commands
+pub fn ponko_ecs::Commands::default() -> Self
+impl core::ops::drop::Drop for ponko_ecs::Commands
+pub fn ponko_ecs::Commands::drop(&mut self)
+pub struct ponko_ecs::CompiledFilter(_)
+impl core::clone::Clone for ponko_ecs::CompiledFilter
+pub fn ponko_ecs::CompiledFilter::clone(&self) -> Self
+impl core::fmt::Debug for ponko_ecs::CompiledFilter
+pub fn ponko_ecs::CompiledFilter::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_ecs::CompiledFilter
+pub struct ponko_ecs::ComponentId(_)
+impl ponko_ecs::ComponentId
+pub fn ponko_ecs::ComponentId::index(self) -> usize
+impl core::clone::Clone for ponko_ecs::ComponentId
+pub fn ponko_ecs::ComponentId::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ecs::ComponentId
+impl core::cmp::Ord for ponko_ecs::ComponentId
+pub fn ponko_ecs::ComponentId::cmp(&self, &Self) -> core::cmp::Ordering
+impl core::cmp::PartialEq for ponko_ecs::ComponentId
+pub fn ponko_ecs::ComponentId::eq(&self, &Self) -> bool
+impl core::cmp::PartialOrd for ponko_ecs::ComponentId
+pub fn ponko_ecs::ComponentId::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl core::default::Default for ponko_ecs::ComponentId
+pub fn ponko_ecs::ComponentId::default() -> Self
+impl core::fmt::Debug for ponko_ecs::ComponentId
+pub fn ponko_ecs::ComponentId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko_ecs::ComponentId
+pub fn ponko_ecs::ComponentId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko_ecs::ComponentId
+impl core::marker::StructuralPartialEq for ponko_ecs::ComponentId
+pub struct ponko_ecs::ComponentInfo
+impl ponko_ecs::ComponentInfo
+pub fn ponko_ecs::ComponentInfo::layout(&self) -> core::alloc::layout::Layout
+pub fn ponko_ecs::ComponentInfo::name(&self) -> &str
+pub fn ponko_ecs::ComponentInfo::needs_drop(&self) -> bool
+pub fn ponko_ecs::ComponentInfo::tracks_changes(&self) -> bool
+pub fn ponko_ecs::ComponentInfo::type_id(&self) -> core::option::Option<core::any::TypeId>
+impl core::clone::Clone for ponko_ecs::ComponentInfo
+pub fn ponko_ecs::ComponentInfo::clone(&self) -> Self
+impl core::fmt::Debug for ponko_ecs::ComponentInfo
+pub fn ponko_ecs::ComponentInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[repr(C)] pub struct ponko_ecs::Entity
+impl ponko_ecs::Entity
+pub fn ponko_ecs::Entity::from_bits(u64) -> Self
+pub fn ponko_ecs::Entity::index(self) -> u32
+pub fn ponko_ecs::Entity::to_bits(self) -> u64
+impl ponko_ecs::Entity
+pub fn ponko_ecs::Entity::remapped(self) -> ponko_ecs::Entity
+pub fn ponko_ecs::Entity::with_remap<R>(&std::collections::hash::map::HashMap<ponko_ecs::Entity, ponko_ecs::Entity>, impl core::ops::function::FnOnce() -> R) -> R
+impl core::clone::Clone for ponko_ecs::Entity
+pub fn ponko_ecs::Entity::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ecs::Entity
+impl core::cmp::Ord for ponko_ecs::Entity
+pub fn ponko_ecs::Entity::cmp(&self, &Self) -> core::cmp::Ordering
+impl core::cmp::PartialEq for ponko_ecs::Entity
+pub fn ponko_ecs::Entity::eq(&self, &Self) -> bool
+impl core::cmp::PartialOrd for ponko_ecs::Entity
+pub fn ponko_ecs::Entity::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for ponko_ecs::Entity
+pub fn ponko_ecs::Entity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko_ecs::Entity
+pub fn ponko_ecs::Entity::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko_ecs::Entity
+impl core::marker::StructuralPartialEq for ponko_ecs::Entity
+impl ponko_ecs::QueryData for ponko_ecs::Entity
+pub type ponko_ecs::Entity::Item<'a> = ponko_ecs::Entity
+impl ponko_ecs::ReadOnlyQueryData for ponko_ecs::Entity
+impl serde_core::ser::Serialize for ponko_ecs::Entity
+pub fn ponko_ecs::Entity::serialize<S: serde_core::ser::Serializer>(&self, S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error>
+impl<'de> serde_core::de::Deserialize<'de> for ponko_ecs::Entity
+pub fn ponko_ecs::Entity::deserialize<D: serde_core::de::Deserializer<'de>>(D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error>
+pub struct ponko_ecs::Lookup<'a, L: ponko_ecs::QueryData>
+impl<L: ponko_ecs::QueryData> ponko_ecs::Lookup<'_, L>
+pub fn ponko_ecs::Lookup<'_, L>::contains(&self, ponko_ecs::Entity) -> bool
+pub fn ponko_ecs::Lookup<'_, L>::get(&self, ponko_ecs::Entity) -> core::option::Option<<L as ponko_ecs::QueryData>::Item> where L: ponko_ecs::ReadOnlyQueryData
+pub fn ponko_ecs::Lookup<'_, L>::get_mut(&mut self, ponko_ecs::Entity) -> core::option::Option<<L as ponko_ecs::QueryData>::Item>
+pub struct ponko_ecs::Or<T>(_)
+impl<T: ponko_ecs::OrTerms> ponko_ecs::OrTerm for ponko_ecs::Or<T>
+impl<T: ponko_ecs::OrTerms> ponko_ecs::QueryFilter for ponko_ecs::Or<T>
+pub struct ponko_ecs::Query<'w, Q: ponko_ecs::QueryData>
+impl<'w, Q: ponko_ecs::QueryData> ponko_ecs::Query<'w, Q>
+pub fn ponko_ecs::Query<'w, Q>::cached(self) -> Self
+pub fn ponko_ecs::Query<'w, Q>::count(&mut self) -> usize
+pub fn ponko_ecs::Query<'w, Q>::filter<F: ponko_ecs::QueryFilter>(self) -> Self
+pub fn ponko_ecs::Query<'w, Q>::for_each(&mut self, impl core::ops::function::FnMut(<Q as ponko_ecs::QueryData>::Item))
+pub fn ponko_ecs::Query<'w, Q>::get(&mut self, ponko_ecs::Entity) -> core::option::Option<<Q as ponko_ecs::QueryData>::Item>
+pub fn ponko_ecs::Query<'w, Q>::iter(&mut self) -> ponko_ecs::QueryIter<'_, Q>
+pub fn ponko_ecs::Query<'w, Q>::par_collect_into<R: core::marker::Send>(&mut self, &mut alloc::vec::Vec<R>, impl core::ops::function::Fn(<Q as ponko_ecs::QueryData>::Item) -> R + core::marker::Send + core::marker::Sync)
+pub fn ponko_ecs::Query<'w, Q>::par_for_each(&mut self, impl core::ops::function::Fn(<Q as ponko_ecs::QueryData>::Item) + core::marker::Send + core::marker::Sync)
+pub fn ponko_ecs::Query<'w, Q>::par_for_each_indexed(&mut self, impl core::ops::function::Fn(usize, <Q as ponko_ecs::QueryData>::Item) + core::marker::Send + core::marker::Sync)
+pub fn ponko_ecs::Query<'w, Q>::since(self, ponko_ecs::Tick) -> Self
+pub fn ponko_ecs::Query<'w, Q>::single(self) -> core::result::Result<<Q as ponko_ecs::QueryData>::Item, ponko_ecs::SingleError> where Q: 'w
+pub fn ponko_ecs::Query<'w, Q>::uncached(self) -> Self
+impl<'w, Q: ponko_ecs::QueryData> ponko_ecs::Query<'w, Q>
+pub fn ponko_ecs::Query<'w, Q>::with_lookup<L: ponko_ecs::QueryData>(self) -> ponko_ecs::QueryLookup<'w, Q, L>
+pub fn ponko_ecs::Query<'w, Q>::with_resources<R: ponko_ecs::ResourceSet>(self) -> ponko_ecs::QueryResources<'w, Q, R>
+#[non_exhaustive] pub struct ponko_ecs::QueryCachePolicy
+pub ponko_ecs::QueryCachePolicy::max_index_bytes: usize
+pub ponko_ecs::QueryCachePolicy::max_match_percent: u8
+pub ponko_ecs::QueryCachePolicy::max_signatures: usize
+pub ponko_ecs::QueryCachePolicy::min_archetypes: usize
+pub ponko_ecs::QueryCachePolicy::promote_after: u32
+impl ponko_ecs::QueryCachePolicy
+pub const fn ponko_ecs::QueryCachePolicy::is_off(&self) -> bool
+pub const fn ponko_ecs::QueryCachePolicy::new() -> Self
+pub const fn ponko_ecs::QueryCachePolicy::off() -> Self
+impl core::clone::Clone for ponko_ecs::QueryCachePolicy
+pub fn ponko_ecs::QueryCachePolicy::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ecs::QueryCachePolicy
+impl core::cmp::PartialEq for ponko_ecs::QueryCachePolicy
+pub fn ponko_ecs::QueryCachePolicy::eq(&self, &Self) -> bool
+impl core::default::Default for ponko_ecs::QueryCachePolicy
+pub fn ponko_ecs::QueryCachePolicy::default() -> Self
+impl core::fmt::Debug for ponko_ecs::QueryCachePolicy
+pub fn ponko_ecs::QueryCachePolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_ecs::QueryCachePolicy
+impl core::marker::StructuralPartialEq for ponko_ecs::QueryCachePolicy
+#[non_exhaustive] pub struct ponko_ecs::QueryCacheStats
+pub ponko_ecs::QueryCacheStats::bytes: usize
+pub ponko_ecs::QueryCacheStats::evictions: u64
+pub ponko_ecs::QueryCacheStats::hits: u64
+pub ponko_ecs::QueryCacheStats::indexed: usize
+pub ponko_ecs::QueryCacheStats::indices: usize
+pub ponko_ecs::QueryCacheStats::signatures: usize
+impl core::clone::Clone for ponko_ecs::QueryCacheStats
+pub fn ponko_ecs::QueryCacheStats::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ecs::QueryCacheStats
+impl core::cmp::PartialEq for ponko_ecs::QueryCacheStats
+pub fn ponko_ecs::QueryCacheStats::eq(&self, &Self) -> bool
+impl core::default::Default for ponko_ecs::QueryCacheStats
+pub fn ponko_ecs::QueryCacheStats::default() -> Self
+impl core::fmt::Debug for ponko_ecs::QueryCacheStats
+pub fn ponko_ecs::QueryCacheStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_ecs::QueryCacheStats
+impl core::marker::StructuralPartialEq for ponko_ecs::QueryCacheStats
+pub struct ponko_ecs::QueryIter<'a, Q: ponko_ecs::QueryData>
+impl<'a, Q: ponko_ecs::QueryData> core::iter::traits::iterator::Iterator for ponko_ecs::QueryIter<'a, Q>
+pub type ponko_ecs::QueryIter<'a, Q>::Item = <Q as ponko_ecs::QueryData>::Item
+pub fn ponko_ecs::QueryIter<'a, Q>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct ponko_ecs::QueryLookup<'w, Q: ponko_ecs::QueryData, L: ponko_ecs::QueryData>
+impl<Q: ponko_ecs::QueryData, L: ponko_ecs::QueryData> ponko_ecs::QueryLookup<'_, Q, L>
+pub fn ponko_ecs::QueryLookup<'_, Q, L>::for_each(&mut self, impl core::ops::function::FnMut(<Q as ponko_ecs::QueryData>::Item, &mut ponko_ecs::Lookup<'_, L>))
+pub struct ponko_ecs::QueryResources<'w, Q: ponko_ecs::QueryData, R: ponko_ecs::ResourceSet>
+impl<Q: ponko_ecs::QueryData, R: ponko_ecs::ResourceSet> ponko_ecs::QueryResources<'_, Q, R>
+pub fn ponko_ecs::QueryResources<'_, Q, R>::for_each(&mut self, impl core::ops::function::FnMut(<Q as ponko_ecs::QueryData>::Item, <R as ponko_ecs::ResourceSet>::Item))
+pub fn ponko_ecs::QueryResources<'_, Q, R>::resources(&mut self) -> <R as ponko_ecs::ResourceSet>::Item
+impl<Q: ponko_ecs::QueryData, R: ponko_ecs::ResourceSet> core::ops::drop::Drop for ponko_ecs::QueryResources<'_, Q, R>
+pub fn ponko_ecs::QueryResources<'_, Q, R>::drop(&mut self)
+pub struct ponko_ecs::RawWorld<'a>(_)
+impl<'a> ponko_ecs::RawWorld<'a>
+pub fn ponko_ecs::RawWorld<'a>::for_each_chunk(&mut self, &[ponko_ecs::ComponentId], impl core::ops::function::FnMut(ponko_ecs::Chunk<'_>))
+pub fn ponko_ecs::RawWorld<'a>::get_dynamic_mut(&mut self, ponko_ecs::Entity, ponko_ecs::ComponentId) -> core::option::Option<*mut u8>
+pub fn ponko_ecs::RawWorld<'a>::get_resource_dynamic_mut(&mut self, &str) -> core::option::Option<*mut u8>
+pub unsafe fn ponko_ecs::RawWorld<'a>::insert_dynamic(&mut self, ponko_ecs::Entity, ponko_ecs::ComponentId, *const u8) -> bool
+pub unsafe fn ponko_ecs::RawWorld<'a>::insert_resource_dynamic(&mut self, &str, core::alloc::layout::Layout, *const u8)
+pub fn ponko_ecs::RawWorld<'a>::mark_changed_dynamic(&mut self, ponko_ecs::Entity, ponko_ecs::ComponentId) -> bool
+pub fn ponko_ecs::RawWorld<'a>::query_chunks(&mut self, ponko_ecs::ChunkQuery<'_>, impl core::ops::function::FnMut(ponko_ecs::Chunk<'_>))
+pub unsafe fn ponko_ecs::RawWorld<'a>::register_component(&mut self, &str, usize, usize, core::option::Option<ponko_ecs::DropFn>) -> ponko_ecs::ComponentId
+pub fn ponko_ecs::RawWorld<'a>::remove_dynamic(&mut self, ponko_ecs::Entity, ponko_ecs::ComponentId) -> bool
+pub fn ponko_ecs::RawWorld<'a>::remove_resource_dynamic(&mut self, &str) -> bool
+pub unsafe fn ponko_ecs::RawWorld<'a>::spawn_at_dynamic(&mut self, ponko_ecs::Entity, &[(ponko_ecs::ComponentId, *const u8)]) -> bool
+pub unsafe fn ponko_ecs::RawWorld<'a>::spawn_dynamic(&mut self, &[(ponko_ecs::ComponentId, *const u8)]) -> ponko_ecs::Entity
+pub fn ponko_ecs::RawWorld<'a>::track_changes_dynamic(&mut self, ponko_ecs::ComponentId)
+pub struct ponko_ecs::RawWorldRef<'a>(_)
+impl<'a> ponko_ecs::RawWorldRef<'a>
+pub fn ponko_ecs::RawWorldRef<'a>::archetypes(&self) -> &'a [ponko_ecs::Archetype]
+pub fn ponko_ecs::RawWorldRef<'a>::component_by_name(&self, &str) -> core::option::Option<ponko_ecs::ComponentId>
+pub fn ponko_ecs::RawWorldRef<'a>::get_dynamic(&self, ponko_ecs::Entity, ponko_ecs::ComponentId) -> core::option::Option<*const u8>
+pub fn ponko_ecs::RawWorldRef<'a>::get_resource_dynamic(&self, &str) -> core::option::Option<*const u8>
+pub fn ponko_ecs::RawWorldRef<'a>::removed_dynamic(&self, ponko_ecs::ComponentId, ponko_ecs::Tick) -> &'a [ponko_ecs::Entity]
+pub fn ponko_ecs::RawWorldRef<'a>::resource_layout_dynamic(&self, &str) -> core::option::Option<core::alloc::layout::Layout>
+impl<'a> core::clone::Clone for ponko_ecs::RawWorldRef<'a>
+pub fn ponko_ecs::RawWorldRef<'a>::clone(&self) -> Self
+impl<'a> core::marker::Copy for ponko_ecs::RawWorldRef<'a>
+pub struct ponko_ecs::Tick(_)
+impl ponko_ecs::Tick
+pub fn ponko_ecs::Tick::from_bits(u64) -> Self
+pub fn ponko_ecs::Tick::to_bits(self) -> u64
+impl core::clone::Clone for ponko_ecs::Tick
+pub fn ponko_ecs::Tick::clone(&self) -> Self
+impl core::cmp::Eq for ponko_ecs::Tick
+impl core::cmp::Ord for ponko_ecs::Tick
+pub fn ponko_ecs::Tick::cmp(&self, &Self) -> core::cmp::Ordering
+impl core::cmp::PartialEq for ponko_ecs::Tick
+pub fn ponko_ecs::Tick::eq(&self, &Self) -> bool
+impl core::cmp::PartialOrd for ponko_ecs::Tick
+pub fn ponko_ecs::Tick::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
+impl core::default::Default for ponko_ecs::Tick
+pub fn ponko_ecs::Tick::default() -> Self
+impl core::fmt::Debug for ponko_ecs::Tick
+pub fn ponko_ecs::Tick::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko_ecs::Tick
+pub fn ponko_ecs::Tick::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko_ecs::Tick
+impl core::marker::StructuralPartialEq for ponko_ecs::Tick
+pub struct ponko_ecs::ViewGroup
+impl ponko_ecs::ViewGroup
+pub fn ponko_ecs::ViewGroup::is_empty(&self) -> bool
+pub fn ponko_ecs::ViewGroup::len(&self) -> usize
+pub fn ponko_ecs::ViewGroup::new<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a ponko_ecs::ViewState>) -> core::result::Result<Self, (usize, usize)>
+pub fn ponko_ecs::ViewGroup::run<T, U>(&self, &mut ponko_ecs::World, &mut [T], bool, impl core::ops::function::Fn(&mut T) -> (&mut ponko_ecs::ViewState, &mut U) + core::marker::Sync, impl core::ops::function::Fn(&mut U, ponko_ecs::WorldView<'_>) + core::marker::Sync) where T: core::marker::Send
+impl core::clone::Clone for ponko_ecs::ViewGroup
+pub fn ponko_ecs::ViewGroup::clone(&self) -> Self
+impl core::fmt::Debug for ponko_ecs::ViewGroup
+pub fn ponko_ecs::ViewGroup::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct ponko_ecs::ViewQuery<'v, Q: ponko_ecs::QueryData>
+impl<'v, Q: ponko_ecs::QueryData> ponko_ecs::ViewQuery<'v, Q>
+pub fn ponko_ecs::ViewQuery<'v, Q>::cached(self) -> Self
+pub fn ponko_ecs::ViewQuery<'v, Q>::count(&mut self) -> usize
+pub fn ponko_ecs::ViewQuery<'v, Q>::filter<F: ponko_ecs::QueryFilter>(self) -> Self
+pub fn ponko_ecs::ViewQuery<'v, Q>::for_each(&mut self, impl core::ops::function::FnMut(<Q as ponko_ecs::QueryData>::Item))
+pub fn ponko_ecs::ViewQuery<'v, Q>::get(&mut self, ponko_ecs::Entity) -> core::option::Option<<Q as ponko_ecs::QueryData>::Item>
+pub fn ponko_ecs::ViewQuery<'v, Q>::iter(&mut self) -> ponko_ecs::QueryIter<'_, Q>
+pub fn ponko_ecs::ViewQuery<'v, Q>::since(self, ponko_ecs::Tick) -> Self
+pub fn ponko_ecs::ViewQuery<'v, Q>::single(self) -> core::result::Result<<Q as ponko_ecs::QueryData>::Item, ponko_ecs::SingleError> where Q: 'v
+pub fn ponko_ecs::ViewQuery<'v, Q>::uncached(self) -> Self
+pub struct ponko_ecs::ViewState
+impl ponko_ecs::ViewState
+pub fn ponko_ecs::ViewState::components(&self) -> impl core::iter::traits::iterator::Iterator<Item = (core::any::TypeId, &'static str, bool)> + '_
+pub fn ponko_ecs::ViewState::labeled(self, &'static str) -> Self
+pub fn ponko_ecs::ViewState::new() -> Self
+pub fn ponko_ecs::ViewState::overlaps(&self, &ponko_ecs::ViewState) -> bool
+pub fn ponko_ecs::ViewState::override_change_tick(&mut self, core::option::Option<ponko_ecs::Tick>)
+pub fn ponko_ecs::ViewState::override_changes_since(&mut self, core::option::Option<ponko_ecs::Tick>)
+pub fn ponko_ecs::ViewState::read<T: ponko_ecs::Component>(self) -> Self
+pub fn ponko_ecs::ViewState::read_resource<R: core::marker::Send + core::marker::Sync + 'static>(self) -> Self
+pub fn ponko_ecs::ViewState::resources(&self) -> impl core::iter::traits::iterator::Iterator<Item = (core::any::TypeId, &'static str, bool)> + '_
+pub fn ponko_ecs::ViewState::run<T>(&mut self, &mut ponko_ecs::World, impl core::ops::function::FnOnce(ponko_ecs::WorldView<'_>) -> T) -> T
+pub fn ponko_ecs::ViewState::write<T: ponko_ecs::Component>(self) -> Self
+pub fn ponko_ecs::ViewState::write_resource<R: core::marker::Send + core::marker::Sync + 'static>(self) -> Self
+impl core::default::Default for ponko_ecs::ViewState
+pub fn ponko_ecs::ViewState::default() -> Self
+impl core::fmt::Debug for ponko_ecs::ViewState
+pub fn ponko_ecs::ViewState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for ponko_ecs::ViewState
+pub fn ponko_ecs::ViewState::drop(&mut self)
+pub struct ponko_ecs::With<T>(_)
+impl<T: ponko_ecs::Component> ponko_ecs::OrTerm for ponko_ecs::With<T>
+impl<T: ponko_ecs::Component> ponko_ecs::QueryFilter for ponko_ecs::With<T>
+pub struct ponko_ecs::Without<T>(_)
+impl<T: ponko_ecs::Component> ponko_ecs::OrTerm for ponko_ecs::Without<T>
+impl<T: ponko_ecs::Component> ponko_ecs::QueryFilter for ponko_ecs::Without<T>
+pub struct ponko_ecs::World
+impl ponko_ecs::World
+pub fn ponko_ecs::World::advance_change_tick(&mut self) -> ponko_ecs::Tick
+pub fn ponko_ecs::World::change_tick(&self) -> ponko_ecs::Tick
+pub fn ponko_ecs::World::changes_since(&self) -> ponko_ecs::Tick
+pub fn ponko_ecs::World::forget_removed(&mut self, ponko_ecs::Tick)
+pub fn ponko_ecs::World::mark_changed<T: ponko_ecs::Component>(&mut self, ponko_ecs::Entity) -> bool
+pub fn ponko_ecs::World::removed<T: ponko_ecs::Component>(&self) -> &[ponko_ecs::Entity]
+pub fn ponko_ecs::World::removed_since<T: ponko_ecs::Component>(&self, ponko_ecs::Tick) -> &[ponko_ecs::Entity]
+pub fn ponko_ecs::World::set_changes_since(&mut self, ponko_ecs::Tick)
+pub fn ponko_ecs::World::track_changes<T: ponko_ecs::Component>(&mut self) -> ponko_ecs::ComponentId
+impl ponko_ecs::World
+pub fn ponko_ecs::World::allocated_bytes(&self) -> usize
+pub fn ponko_ecs::World::apply(&mut self, &mut ponko_ecs::Commands)
+pub fn ponko_ecs::World::clear(&mut self)
+pub fn ponko_ecs::World::component_at(&self, usize) -> core::option::Option<ponko_ecs::ComponentId>
+pub fn ponko_ecs::World::component_id<T: ponko_ecs::Component>(&self) -> core::option::Option<ponko_ecs::ComponentId>
+pub fn ponko_ecs::World::component_info(&self, ponko_ecs::ComponentId) -> &ponko_ecs::ComponentInfo
+pub fn ponko_ecs::World::components(&self) -> &[ponko_ecs::ComponentInfo]
+pub fn ponko_ecs::World::components_of(&self, ponko_ecs::Entity) -> core::option::Option<&[ponko_ecs::ComponentId]>
+pub fn ponko_ecs::World::despawn(&mut self, ponko_ecs::Entity) -> bool
+pub fn ponko_ecs::World::entity_slots(&self) -> usize
+pub fn ponko_ecs::World::get<T: ponko_ecs::Component>(&self, ponko_ecs::Entity) -> core::option::Option<&T>
+pub fn ponko_ecs::World::get_many_mut<T: ponko_ecs::Component, const N: usize>(&mut self, [ponko_ecs::Entity; N]) -> core::option::Option<[&mut T; N]>
+pub fn ponko_ecs::World::get_mut<T: ponko_ecs::Component>(&mut self, ponko_ecs::Entity) -> core::option::Option<&mut T>
+pub fn ponko_ecs::World::get_resource<R: core::marker::Send + core::marker::Sync + 'static>(&self) -> core::option::Option<&R>
+pub fn ponko_ecs::World::get_resource_mut<R: core::marker::Send + core::marker::Sync + 'static>(&mut self) -> core::option::Option<&mut R>
+pub fn ponko_ecs::World::has<T: ponko_ecs::Component>(&self, ponko_ecs::Entity) -> bool
+pub fn ponko_ecs::World::id(&self) -> u64
+pub fn ponko_ecs::World::insert<T: ponko_ecs::Component>(&mut self, ponko_ecs::Entity, T) -> bool
+pub fn ponko_ecs::World::insert_resource<R: core::marker::Send + core::marker::Sync + 'static>(&mut self, R)
+pub fn ponko_ecs::World::is_alive(&self, ponko_ecs::Entity) -> bool
+pub fn ponko_ecs::World::is_empty(&self) -> bool
+pub fn ponko_ecs::World::len(&self) -> usize
+pub fn ponko_ecs::World::new() -> Self
+pub fn ponko_ecs::World::query<Q: ponko_ecs::QueryData>(&mut self) -> ponko_ecs::Query<'_, Q>
+pub fn ponko_ecs::World::record_access(&mut self)
+pub fn ponko_ecs::World::record_access_into(&mut self, ponko_ecs::AccessLog)
+pub fn ponko_ecs::World::register<T: ponko_ecs::Component>(&mut self) -> ponko_ecs::ComponentId
+pub fn ponko_ecs::World::remove<T: ponko_ecs::Component>(&mut self, ponko_ecs::Entity) -> core::option::Option<T>
+pub fn ponko_ecs::World::remove_resource<R: core::marker::Send + core::marker::Sync + 'static>(&mut self) -> core::option::Option<R>
+pub fn ponko_ecs::World::reset(&mut self)
+pub fn ponko_ecs::World::resource<R: core::marker::Send + core::marker::Sync + 'static>(&self) -> &R
+pub fn ponko_ecs::World::resource_mut<R: core::marker::Send + core::marker::Sync + 'static>(&mut self) -> &mut R
+pub fn ponko_ecs::World::resource_scope<R: core::marker::Send + core::marker::Sync + 'static, T>(&mut self, impl core::ops::function::FnOnce(&mut Self, &mut R) -> T) -> T
+pub fn ponko_ecs::World::resources_mut<R: ponko_ecs::ResourceTuple>(&mut self) -> <R as ponko_ecs::ResourceTuple>::Refs
+pub fn ponko_ecs::World::sort_by<T: ponko_ecs::Component>(&mut self, impl core::ops::function::Fn(&T) -> u64 + core::marker::Sync)
+pub fn ponko_ecs::World::spawn<B: ponko_ecs::Bundle>(&mut self, B) -> ponko_ecs::Entity
+pub fn ponko_ecs::World::spawn_at<B: ponko_ecs::Bundle>(&mut self, ponko_ecs::Entity, B) -> bool
+pub fn ponko_ecs::World::spawn_batch<B: ponko_ecs::Bundle>(&mut self, impl core::iter::traits::collect::IntoIterator<Item = B>)
+pub fn ponko_ecs::World::take_access_log(&mut self) -> core::option::Option<ponko_ecs::AccessLog>
+impl ponko_ecs::World
+pub fn ponko_ecs::World::query_cache_policy(&self) -> ponko_ecs::QueryCachePolicy
+pub fn ponko_ecs::World::query_cache_stats(&self) -> ponko_ecs::QueryCacheStats
+pub fn ponko_ecs::World::set_query_cache_policy(&mut self, ponko_ecs::QueryCachePolicy)
+impl ponko_ecs::World
+pub fn ponko_ecs::World::raw(&mut self) -> ponko_ecs::RawWorld<'_>
+pub fn ponko_ecs::World::raw_ref(&self) -> ponko_ecs::RawWorldRef<'_>
+impl core::default::Default for ponko_ecs::World
+pub fn ponko_ecs::World::default() -> Self
+pub struct ponko_ecs::WorldView<'w>
+impl<'w> ponko_ecs::WorldView<'w>
+pub fn ponko_ecs::WorldView<'w>::change_tick(&self) -> ponko_ecs::Tick
+pub fn ponko_ecs::WorldView<'w>::get<T: ponko_ecs::Component>(&self, ponko_ecs::Entity) -> core::option::Option<&T>
+pub fn ponko_ecs::WorldView<'w>::get_mut<T: ponko_ecs::Component>(&mut self, ponko_ecs::Entity) -> core::option::Option<&mut T>
+pub fn ponko_ecs::WorldView<'w>::get_resource<R: core::marker::Send + core::marker::Sync + 'static>(&self) -> core::option::Option<&R>
+pub fn ponko_ecs::WorldView<'w>::get_resource_mut<R: core::marker::Send + core::marker::Sync + 'static>(&mut self) -> core::option::Option<&mut R>
+pub fn ponko_ecs::WorldView<'w>::has<T: ponko_ecs::Component>(&self, ponko_ecs::Entity) -> bool
+pub fn ponko_ecs::WorldView<'w>::insert_resource<R: core::marker::Send + core::marker::Sync + 'static>(&mut self, R)
+pub fn ponko_ecs::WorldView<'w>::is_alive(&self, ponko_ecs::Entity) -> bool
+pub fn ponko_ecs::WorldView<'w>::is_empty(&self) -> bool
+pub fn ponko_ecs::WorldView<'w>::len(&self) -> usize
+pub fn ponko_ecs::WorldView<'w>::query<Q: ponko_ecs::QueryData>(&mut self) -> ponko_ecs::ViewQuery<'_, Q>
+pub fn ponko_ecs::WorldView<'w>::remove_resource<R: core::marker::Send + core::marker::Sync + 'static>(&mut self) -> core::option::Option<R>
+pub fn ponko_ecs::WorldView<'w>::removed<T: ponko_ecs::Component>(&self) -> &'w [ponko_ecs::Entity]
+pub fn ponko_ecs::WorldView<'w>::removed_since<T: ponko_ecs::Component>(&self, ponko_ecs::Tick) -> &'w [ponko_ecs::Entity]
+pub fn ponko_ecs::WorldView<'w>::resource<R: core::marker::Send + core::marker::Sync + 'static>(&self) -> &R
+pub fn ponko_ecs::WorldView<'w>::resource_mut<R: core::marker::Send + core::marker::Sync + 'static>(&mut self) -> &mut R
+pub const ponko_ecs::MAX_FILTER_DEPTH: usize
+pub unsafe trait ponko_ecs::Bundle: core::marker::Send + core::marker::Sync + 'static
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component, C: ponko_ecs::Component, D: ponko_ecs::Component, E: ponko_ecs::Component, F: ponko_ecs::Component, G: ponko_ecs::Component, H: ponko_ecs::Component, I: ponko_ecs::Component, J: ponko_ecs::Component, K: ponko_ecs::Component, L: ponko_ecs::Component> ponko_ecs::Bundle for (A, B, C, D, E, F, G, H, I, J, K, L)
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component, C: ponko_ecs::Component, D: ponko_ecs::Component, E: ponko_ecs::Component, F: ponko_ecs::Component, G: ponko_ecs::Component, H: ponko_ecs::Component, I: ponko_ecs::Component, J: ponko_ecs::Component, K: ponko_ecs::Component> ponko_ecs::Bundle for (A, B, C, D, E, F, G, H, I, J, K)
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component, C: ponko_ecs::Component, D: ponko_ecs::Component, E: ponko_ecs::Component, F: ponko_ecs::Component, G: ponko_ecs::Component, H: ponko_ecs::Component, I: ponko_ecs::Component, J: ponko_ecs::Component> ponko_ecs::Bundle for (A, B, C, D, E, F, G, H, I, J)
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component, C: ponko_ecs::Component, D: ponko_ecs::Component, E: ponko_ecs::Component, F: ponko_ecs::Component, G: ponko_ecs::Component, H: ponko_ecs::Component, I: ponko_ecs::Component> ponko_ecs::Bundle for (A, B, C, D, E, F, G, H, I)
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component, C: ponko_ecs::Component, D: ponko_ecs::Component, E: ponko_ecs::Component, F: ponko_ecs::Component, G: ponko_ecs::Component, H: ponko_ecs::Component> ponko_ecs::Bundle for (A, B, C, D, E, F, G, H)
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component, C: ponko_ecs::Component, D: ponko_ecs::Component, E: ponko_ecs::Component, F: ponko_ecs::Component, G: ponko_ecs::Component> ponko_ecs::Bundle for (A, B, C, D, E, F, G)
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component, C: ponko_ecs::Component, D: ponko_ecs::Component, E: ponko_ecs::Component, F: ponko_ecs::Component> ponko_ecs::Bundle for (A, B, C, D, E, F)
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component, C: ponko_ecs::Component, D: ponko_ecs::Component, E: ponko_ecs::Component> ponko_ecs::Bundle for (A, B, C, D, E)
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component, C: ponko_ecs::Component, D: ponko_ecs::Component> ponko_ecs::Bundle for (A, B, C, D)
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component, C: ponko_ecs::Component> ponko_ecs::Bundle for (A, B, C)
+impl<A: ponko_ecs::Component, B: ponko_ecs::Component> ponko_ecs::Bundle for (A, B)
+impl<A: ponko_ecs::Component> ponko_ecs::Bundle for (A)
+pub trait ponko_ecs::Component: core::marker::Send + core::marker::Sync + 'static
+pub trait ponko_ecs::FilterTree: core::marker::Sized
+pub fn ponko_ecs::FilterTree::shape(&self) -> ponko_ecs::FilterShape<'_, Self>
+impl ponko_ecs::FilterTree for ponko_ecs::DynFilter
+pub fn ponko_ecs::DynFilter::shape(&self) -> ponko_ecs::FilterShape<'_, Self>
+pub trait ponko_ecs::OrTerm: ponko_ecs::QueryFilter
+impl ponko_ecs::OrTerm for ()
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm, D: ponko_ecs::OrTerm, E: ponko_ecs::OrTerm, F: ponko_ecs::OrTerm, G: ponko_ecs::OrTerm, H: ponko_ecs::OrTerm> ponko_ecs::OrTerm for (A, B, C, D, E, F, G, H)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm, D: ponko_ecs::OrTerm, E: ponko_ecs::OrTerm, F: ponko_ecs::OrTerm, G: ponko_ecs::OrTerm> ponko_ecs::OrTerm for (A, B, C, D, E, F, G)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm, D: ponko_ecs::OrTerm, E: ponko_ecs::OrTerm, F: ponko_ecs::OrTerm> ponko_ecs::OrTerm for (A, B, C, D, E, F)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm, D: ponko_ecs::OrTerm, E: ponko_ecs::OrTerm> ponko_ecs::OrTerm for (A, B, C, D, E)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm, D: ponko_ecs::OrTerm> ponko_ecs::OrTerm for (A, B, C, D)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm> ponko_ecs::OrTerm for (A, B, C)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm> ponko_ecs::OrTerm for (A, B)
+impl<A: ponko_ecs::OrTerm> ponko_ecs::OrTerm for (A)
+impl<T: ponko_ecs::Component> ponko_ecs::OrTerm for ponko_ecs::Added<T>
+impl<T: ponko_ecs::Component> ponko_ecs::OrTerm for ponko_ecs::Changed<T>
+impl<T: ponko_ecs::Component> ponko_ecs::OrTerm for ponko_ecs::With<T>
+impl<T: ponko_ecs::Component> ponko_ecs::OrTerm for ponko_ecs::Without<T>
+impl<T: ponko_ecs::OrTerms> ponko_ecs::OrTerm for ponko_ecs::Or<T>
+pub trait ponko_ecs::OrTerms
+impl ponko_ecs::OrTerms for ()
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm, D: ponko_ecs::OrTerm, E: ponko_ecs::OrTerm, F: ponko_ecs::OrTerm, G: ponko_ecs::OrTerm, H: ponko_ecs::OrTerm> ponko_ecs::OrTerms for (A, B, C, D, E, F, G, H)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm, D: ponko_ecs::OrTerm, E: ponko_ecs::OrTerm, F: ponko_ecs::OrTerm, G: ponko_ecs::OrTerm> ponko_ecs::OrTerms for (A, B, C, D, E, F, G)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm, D: ponko_ecs::OrTerm, E: ponko_ecs::OrTerm, F: ponko_ecs::OrTerm> ponko_ecs::OrTerms for (A, B, C, D, E, F)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm, D: ponko_ecs::OrTerm, E: ponko_ecs::OrTerm> ponko_ecs::OrTerms for (A, B, C, D, E)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm, D: ponko_ecs::OrTerm> ponko_ecs::OrTerms for (A, B, C, D)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm, C: ponko_ecs::OrTerm> ponko_ecs::OrTerms for (A, B, C)
+impl<A: ponko_ecs::OrTerm, B: ponko_ecs::OrTerm> ponko_ecs::OrTerms for (A, B)
+impl<A: ponko_ecs::OrTerm> ponko_ecs::OrTerms for (A)
+pub unsafe trait ponko_ecs::QueryData
+pub type ponko_ecs::QueryData::Item<'a>
+impl ponko_ecs::QueryData for ponko_ecs::Entity
+pub type ponko_ecs::Entity::Item<'a> = ponko_ecs::Entity
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData, C: ponko_ecs::QueryData, D: ponko_ecs::QueryData, E: ponko_ecs::QueryData, F: ponko_ecs::QueryData, G: ponko_ecs::QueryData, H: ponko_ecs::QueryData, I: ponko_ecs::QueryData, J: ponko_ecs::QueryData, K: ponko_ecs::QueryData, L: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B, C, D, E, F, G, H, I, J, K, L)
+pub type (A, B, C, D, E, F, G, H, I, J, K, L)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item, <C as ponko_ecs::QueryData>::Item, <D as ponko_ecs::QueryData>::Item, <E as ponko_ecs::QueryData>::Item, <F as ponko_ecs::QueryData>::Item, <G as ponko_ecs::QueryData>::Item, <H as ponko_ecs::QueryData>::Item, <I as ponko_ecs::QueryData>::Item, <J as ponko_ecs::QueryData>::Item, <K as ponko_ecs::QueryData>::Item, <L as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData, C: ponko_ecs::QueryData, D: ponko_ecs::QueryData, E: ponko_ecs::QueryData, F: ponko_ecs::QueryData, G: ponko_ecs::QueryData, H: ponko_ecs::QueryData, I: ponko_ecs::QueryData, J: ponko_ecs::QueryData, K: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B, C, D, E, F, G, H, I, J, K)
+pub type (A, B, C, D, E, F, G, H, I, J, K)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item, <C as ponko_ecs::QueryData>::Item, <D as ponko_ecs::QueryData>::Item, <E as ponko_ecs::QueryData>::Item, <F as ponko_ecs::QueryData>::Item, <G as ponko_ecs::QueryData>::Item, <H as ponko_ecs::QueryData>::Item, <I as ponko_ecs::QueryData>::Item, <J as ponko_ecs::QueryData>::Item, <K as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData, C: ponko_ecs::QueryData, D: ponko_ecs::QueryData, E: ponko_ecs::QueryData, F: ponko_ecs::QueryData, G: ponko_ecs::QueryData, H: ponko_ecs::QueryData, I: ponko_ecs::QueryData, J: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B, C, D, E, F, G, H, I, J)
+pub type (A, B, C, D, E, F, G, H, I, J)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item, <C as ponko_ecs::QueryData>::Item, <D as ponko_ecs::QueryData>::Item, <E as ponko_ecs::QueryData>::Item, <F as ponko_ecs::QueryData>::Item, <G as ponko_ecs::QueryData>::Item, <H as ponko_ecs::QueryData>::Item, <I as ponko_ecs::QueryData>::Item, <J as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData, C: ponko_ecs::QueryData, D: ponko_ecs::QueryData, E: ponko_ecs::QueryData, F: ponko_ecs::QueryData, G: ponko_ecs::QueryData, H: ponko_ecs::QueryData, I: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B, C, D, E, F, G, H, I)
+pub type (A, B, C, D, E, F, G, H, I)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item, <C as ponko_ecs::QueryData>::Item, <D as ponko_ecs::QueryData>::Item, <E as ponko_ecs::QueryData>::Item, <F as ponko_ecs::QueryData>::Item, <G as ponko_ecs::QueryData>::Item, <H as ponko_ecs::QueryData>::Item, <I as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData, C: ponko_ecs::QueryData, D: ponko_ecs::QueryData, E: ponko_ecs::QueryData, F: ponko_ecs::QueryData, G: ponko_ecs::QueryData, H: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B, C, D, E, F, G, H)
+pub type (A, B, C, D, E, F, G, H)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item, <C as ponko_ecs::QueryData>::Item, <D as ponko_ecs::QueryData>::Item, <E as ponko_ecs::QueryData>::Item, <F as ponko_ecs::QueryData>::Item, <G as ponko_ecs::QueryData>::Item, <H as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData, C: ponko_ecs::QueryData, D: ponko_ecs::QueryData, E: ponko_ecs::QueryData, F: ponko_ecs::QueryData, G: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B, C, D, E, F, G)
+pub type (A, B, C, D, E, F, G)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item, <C as ponko_ecs::QueryData>::Item, <D as ponko_ecs::QueryData>::Item, <E as ponko_ecs::QueryData>::Item, <F as ponko_ecs::QueryData>::Item, <G as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData, C: ponko_ecs::QueryData, D: ponko_ecs::QueryData, E: ponko_ecs::QueryData, F: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B, C, D, E, F)
+pub type (A, B, C, D, E, F)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item, <C as ponko_ecs::QueryData>::Item, <D as ponko_ecs::QueryData>::Item, <E as ponko_ecs::QueryData>::Item, <F as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData, C: ponko_ecs::QueryData, D: ponko_ecs::QueryData, E: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B, C, D, E)
+pub type (A, B, C, D, E)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item, <C as ponko_ecs::QueryData>::Item, <D as ponko_ecs::QueryData>::Item, <E as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData, C: ponko_ecs::QueryData, D: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B, C, D)
+pub type (A, B, C, D)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item, <C as ponko_ecs::QueryData>::Item, <D as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData, C: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B, C)
+pub type (A, B, C)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item, <C as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData, B: ponko_ecs::QueryData> ponko_ecs::QueryData for (A, B)
+pub type (A, B)::Item<'a> = (<A as ponko_ecs::QueryData>::Item, <B as ponko_ecs::QueryData>::Item)
+impl<A: ponko_ecs::QueryData> ponko_ecs::QueryData for (A)
+pub type (A)::Item<'a> = (<A as ponko_ecs::QueryData>::Item)
+impl<T: ponko_ecs::Component> ponko_ecs::QueryData for &T
+pub type &T::Item<'a> = &'a T
+impl<T: ponko_ecs::Component> ponko_ecs::QueryData for &mut T
+pub type &mut T::Item<'a> = &'a mut T
+impl<T: ponko_ecs::Component> ponko_ecs::QueryData for core::option::Option<&T>
+pub type core::option::Option<&T>::Item<'a> = core::option::Option<&'a T>
+impl<T: ponko_ecs::Component> ponko_ecs::QueryData for core::option::Option<&mut T>
+pub type core::option::Option<&mut T>::Item<'a> = core::option::Option<&'a mut T>
+pub trait ponko_ecs::QueryFilter
+impl ponko_ecs::QueryFilter for ()
+impl<A: ponko_ecs::QueryFilter, B: ponko_ecs::QueryFilter, C: ponko_ecs::QueryFilter, D: ponko_ecs::QueryFilter, E: ponko_ecs::QueryFilter, F: ponko_ecs::QueryFilter, G: ponko_ecs::QueryFilter, H: ponko_ecs::QueryFilter> ponko_ecs::QueryFilter for (A, B, C, D, E, F, G, H)
+impl<A: ponko_ecs::QueryFilter, B: ponko_ecs::QueryFilter, C: ponko_ecs::QueryFilter, D: ponko_ecs::QueryFilter, E: ponko_ecs::QueryFilter, F: ponko_ecs::QueryFilter, G: ponko_ecs::QueryFilter> ponko_ecs::QueryFilter for (A, B, C, D, E, F, G)
+impl<A: ponko_ecs::QueryFilter, B: ponko_ecs::QueryFilter, C: ponko_ecs::QueryFilter, D: ponko_ecs::QueryFilter, E: ponko_ecs::QueryFilter, F: ponko_ecs::QueryFilter> ponko_ecs::QueryFilter for (A, B, C, D, E, F)
+impl<A: ponko_ecs::QueryFilter, B: ponko_ecs::QueryFilter, C: ponko_ecs::QueryFilter, D: ponko_ecs::QueryFilter, E: ponko_ecs::QueryFilter> ponko_ecs::QueryFilter for (A, B, C, D, E)
+impl<A: ponko_ecs::QueryFilter, B: ponko_ecs::QueryFilter, C: ponko_ecs::QueryFilter, D: ponko_ecs::QueryFilter> ponko_ecs::QueryFilter for (A, B, C, D)
+impl<A: ponko_ecs::QueryFilter, B: ponko_ecs::QueryFilter, C: ponko_ecs::QueryFilter> ponko_ecs::QueryFilter for (A, B, C)
+impl<A: ponko_ecs::QueryFilter, B: ponko_ecs::QueryFilter> ponko_ecs::QueryFilter for (A, B)
+impl<A: ponko_ecs::QueryFilter> ponko_ecs::QueryFilter for (A)
+impl<T: ponko_ecs::Component> ponko_ecs::QueryFilter for ponko_ecs::Added<T>
+impl<T: ponko_ecs::Component> ponko_ecs::QueryFilter for ponko_ecs::Changed<T>
+impl<T: ponko_ecs::Component> ponko_ecs::QueryFilter for ponko_ecs::With<T>
+impl<T: ponko_ecs::Component> ponko_ecs::QueryFilter for ponko_ecs::Without<T>
+impl<T: ponko_ecs::OrTerms> ponko_ecs::QueryFilter for ponko_ecs::Or<T>
+pub unsafe trait ponko_ecs::ReadOnlyQueryData: ponko_ecs::QueryData
+impl ponko_ecs::ReadOnlyQueryData for ponko_ecs::Entity
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData, C: ponko_ecs::ReadOnlyQueryData, D: ponko_ecs::ReadOnlyQueryData, E: ponko_ecs::ReadOnlyQueryData, F: ponko_ecs::ReadOnlyQueryData, G: ponko_ecs::ReadOnlyQueryData, H: ponko_ecs::ReadOnlyQueryData, I: ponko_ecs::ReadOnlyQueryData, J: ponko_ecs::ReadOnlyQueryData, K: ponko_ecs::ReadOnlyQueryData, L: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B, C, D, E, F, G, H, I, J, K, L)
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData, C: ponko_ecs::ReadOnlyQueryData, D: ponko_ecs::ReadOnlyQueryData, E: ponko_ecs::ReadOnlyQueryData, F: ponko_ecs::ReadOnlyQueryData, G: ponko_ecs::ReadOnlyQueryData, H: ponko_ecs::ReadOnlyQueryData, I: ponko_ecs::ReadOnlyQueryData, J: ponko_ecs::ReadOnlyQueryData, K: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B, C, D, E, F, G, H, I, J, K)
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData, C: ponko_ecs::ReadOnlyQueryData, D: ponko_ecs::ReadOnlyQueryData, E: ponko_ecs::ReadOnlyQueryData, F: ponko_ecs::ReadOnlyQueryData, G: ponko_ecs::ReadOnlyQueryData, H: ponko_ecs::ReadOnlyQueryData, I: ponko_ecs::ReadOnlyQueryData, J: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B, C, D, E, F, G, H, I, J)
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData, C: ponko_ecs::ReadOnlyQueryData, D: ponko_ecs::ReadOnlyQueryData, E: ponko_ecs::ReadOnlyQueryData, F: ponko_ecs::ReadOnlyQueryData, G: ponko_ecs::ReadOnlyQueryData, H: ponko_ecs::ReadOnlyQueryData, I: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B, C, D, E, F, G, H, I)
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData, C: ponko_ecs::ReadOnlyQueryData, D: ponko_ecs::ReadOnlyQueryData, E: ponko_ecs::ReadOnlyQueryData, F: ponko_ecs::ReadOnlyQueryData, G: ponko_ecs::ReadOnlyQueryData, H: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B, C, D, E, F, G, H)
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData, C: ponko_ecs::ReadOnlyQueryData, D: ponko_ecs::ReadOnlyQueryData, E: ponko_ecs::ReadOnlyQueryData, F: ponko_ecs::ReadOnlyQueryData, G: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B, C, D, E, F, G)
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData, C: ponko_ecs::ReadOnlyQueryData, D: ponko_ecs::ReadOnlyQueryData, E: ponko_ecs::ReadOnlyQueryData, F: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B, C, D, E, F)
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData, C: ponko_ecs::ReadOnlyQueryData, D: ponko_ecs::ReadOnlyQueryData, E: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B, C, D, E)
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData, C: ponko_ecs::ReadOnlyQueryData, D: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B, C, D)
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData, C: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B, C)
+impl<A: ponko_ecs::ReadOnlyQueryData, B: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A, B)
+impl<A: ponko_ecs::ReadOnlyQueryData> ponko_ecs::ReadOnlyQueryData for (A)
+impl<T: ponko_ecs::Component> ponko_ecs::ReadOnlyQueryData for &T
+impl<T: ponko_ecs::Component> ponko_ecs::ReadOnlyQueryData for core::option::Option<&T>
+pub trait ponko_ecs::ResourceSet
+pub type ponko_ecs::ResourceSet::Item<'a>
+impl<A: ponko_ecs::ResourceSet, B: ponko_ecs::ResourceSet, C: ponko_ecs::ResourceSet, D: ponko_ecs::ResourceSet, E: ponko_ecs::ResourceSet, F: ponko_ecs::ResourceSet, G: ponko_ecs::ResourceSet, H: ponko_ecs::ResourceSet> ponko_ecs::ResourceSet for (A, B, C, D, E, F, G, H)
+pub type (A, B, C, D, E, F, G, H)::Item<'a> = (<A as ponko_ecs::ResourceSet>::Item, <B as ponko_ecs::ResourceSet>::Item, <C as ponko_ecs::ResourceSet>::Item, <D as ponko_ecs::ResourceSet>::Item, <E as ponko_ecs::ResourceSet>::Item, <F as ponko_ecs::ResourceSet>::Item, <G as ponko_ecs::ResourceSet>::Item, <H as ponko_ecs::ResourceSet>::Item)
+impl<A: ponko_ecs::ResourceSet, B: ponko_ecs::ResourceSet, C: ponko_ecs::ResourceSet, D: ponko_ecs::ResourceSet, E: ponko_ecs::ResourceSet, F: ponko_ecs::ResourceSet, G: ponko_ecs::ResourceSet> ponko_ecs::ResourceSet for (A, B, C, D, E, F, G)
+pub type (A, B, C, D, E, F, G)::Item<'a> = (<A as ponko_ecs::ResourceSet>::Item, <B as ponko_ecs::ResourceSet>::Item, <C as ponko_ecs::ResourceSet>::Item, <D as ponko_ecs::ResourceSet>::Item, <E as ponko_ecs::ResourceSet>::Item, <F as ponko_ecs::ResourceSet>::Item, <G as ponko_ecs::ResourceSet>::Item)
+impl<A: ponko_ecs::ResourceSet, B: ponko_ecs::ResourceSet, C: ponko_ecs::ResourceSet, D: ponko_ecs::ResourceSet, E: ponko_ecs::ResourceSet, F: ponko_ecs::ResourceSet> ponko_ecs::ResourceSet for (A, B, C, D, E, F)
+pub type (A, B, C, D, E, F)::Item<'a> = (<A as ponko_ecs::ResourceSet>::Item, <B as ponko_ecs::ResourceSet>::Item, <C as ponko_ecs::ResourceSet>::Item, <D as ponko_ecs::ResourceSet>::Item, <E as ponko_ecs::ResourceSet>::Item, <F as ponko_ecs::ResourceSet>::Item)
+impl<A: ponko_ecs::ResourceSet, B: ponko_ecs::ResourceSet, C: ponko_ecs::ResourceSet, D: ponko_ecs::ResourceSet, E: ponko_ecs::ResourceSet> ponko_ecs::ResourceSet for (A, B, C, D, E)
+pub type (A, B, C, D, E)::Item<'a> = (<A as ponko_ecs::ResourceSet>::Item, <B as ponko_ecs::ResourceSet>::Item, <C as ponko_ecs::ResourceSet>::Item, <D as ponko_ecs::ResourceSet>::Item, <E as ponko_ecs::ResourceSet>::Item)
+impl<A: ponko_ecs::ResourceSet, B: ponko_ecs::ResourceSet, C: ponko_ecs::ResourceSet, D: ponko_ecs::ResourceSet> ponko_ecs::ResourceSet for (A, B, C, D)
+pub type (A, B, C, D)::Item<'a> = (<A as ponko_ecs::ResourceSet>::Item, <B as ponko_ecs::ResourceSet>::Item, <C as ponko_ecs::ResourceSet>::Item, <D as ponko_ecs::ResourceSet>::Item)
+impl<A: ponko_ecs::ResourceSet, B: ponko_ecs::ResourceSet, C: ponko_ecs::ResourceSet> ponko_ecs::ResourceSet for (A, B, C)
+pub type (A, B, C)::Item<'a> = (<A as ponko_ecs::ResourceSet>::Item, <B as ponko_ecs::ResourceSet>::Item, <C as ponko_ecs::ResourceSet>::Item)
+impl<A: ponko_ecs::ResourceSet, B: ponko_ecs::ResourceSet> ponko_ecs::ResourceSet for (A, B)
+pub type (A, B)::Item<'a> = (<A as ponko_ecs::ResourceSet>::Item, <B as ponko_ecs::ResourceSet>::Item)
+impl<A: ponko_ecs::ResourceSet> ponko_ecs::ResourceSet for (A)
+pub type (A)::Item<'a> = (<A as ponko_ecs::ResourceSet>::Item)
+impl<R: core::marker::Send + core::marker::Sync + 'static> ponko_ecs::ResourceSet for &R
+pub type &R::Item<'a> = &'a R
+impl<R: core::marker::Send + core::marker::Sync + 'static> ponko_ecs::ResourceSet for &mut R
+pub type &mut R::Item<'a> = &'a mut R
+pub trait ponko_ecs::ResourceTuple
+pub type ponko_ecs::ResourceTuple::Refs<'w>
+impl<A: core::marker::Send + core::marker::Sync + 'static, B: core::marker::Send + core::marker::Sync + 'static, C: core::marker::Send + core::marker::Sync + 'static, D: core::marker::Send + core::marker::Sync + 'static, E: core::marker::Send + core::marker::Sync + 'static, F: core::marker::Send + core::marker::Sync + 'static, G: core::marker::Send + core::marker::Sync + 'static, H: core::marker::Send + core::marker::Sync + 'static> ponko_ecs::ResourceTuple for (A, B, C, D, E, F, G, H)
+pub type (A, B, C, D, E, F, G, H)::Refs<'w> = (&'w mut A, &'w mut B, &'w mut C, &'w mut D, &'w mut E, &'w mut F, &'w mut G, &'w mut H)
+impl<A: core::marker::Send + core::marker::Sync + 'static, B: core::marker::Send + core::marker::Sync + 'static, C: core::marker::Send + core::marker::Sync + 'static, D: core::marker::Send + core::marker::Sync + 'static, E: core::marker::Send + core::marker::Sync + 'static, F: core::marker::Send + core::marker::Sync + 'static, G: core::marker::Send + core::marker::Sync + 'static> ponko_ecs::ResourceTuple for (A, B, C, D, E, F, G)
+pub type (A, B, C, D, E, F, G)::Refs<'w> = (&'w mut A, &'w mut B, &'w mut C, &'w mut D, &'w mut E, &'w mut F, &'w mut G)
+impl<A: core::marker::Send + core::marker::Sync + 'static, B: core::marker::Send + core::marker::Sync + 'static, C: core::marker::Send + core::marker::Sync + 'static, D: core::marker::Send + core::marker::Sync + 'static, E: core::marker::Send + core::marker::Sync + 'static, F: core::marker::Send + core::marker::Sync + 'static> ponko_ecs::ResourceTuple for (A, B, C, D, E, F)
+pub type (A, B, C, D, E, F)::Refs<'w> = (&'w mut A, &'w mut B, &'w mut C, &'w mut D, &'w mut E, &'w mut F)
+impl<A: core::marker::Send + core::marker::Sync + 'static, B: core::marker::Send + core::marker::Sync + 'static, C: core::marker::Send + core::marker::Sync + 'static, D: core::marker::Send + core::marker::Sync + 'static, E: core::marker::Send + core::marker::Sync + 'static> ponko_ecs::ResourceTuple for (A, B, C, D, E)
+pub type (A, B, C, D, E)::Refs<'w> = (&'w mut A, &'w mut B, &'w mut C, &'w mut D, &'w mut E)
+impl<A: core::marker::Send + core::marker::Sync + 'static, B: core::marker::Send + core::marker::Sync + 'static, C: core::marker::Send + core::marker::Sync + 'static, D: core::marker::Send + core::marker::Sync + 'static> ponko_ecs::ResourceTuple for (A, B, C, D)
+pub type (A, B, C, D)::Refs<'w> = (&'w mut A, &'w mut B, &'w mut C, &'w mut D)
+impl<A: core::marker::Send + core::marker::Sync + 'static, B: core::marker::Send + core::marker::Sync + 'static, C: core::marker::Send + core::marker::Sync + 'static> ponko_ecs::ResourceTuple for (A, B, C)
+pub type (A, B, C)::Refs<'w> = (&'w mut A, &'w mut B, &'w mut C)
+impl<A: core::marker::Send + core::marker::Sync + 'static, B: core::marker::Send + core::marker::Sync + 'static> ponko_ecs::ResourceTuple for (A, B)
+pub type (A, B)::Refs<'w> = (&'w mut A, &'w mut B)
+impl<A: core::marker::Send + core::marker::Sync + 'static> ponko_ecs::ResourceTuple for (A)
+pub type (A)::Refs<'w> = (&'w mut A)
+pub fn ponko_ecs::compile_tree<T: ponko_ecs::FilterTree>(&T, impl core::ops::function::Fn(u32) -> core::option::Option<ponko_ecs::ComponentId>) -> core::result::Result<ponko_ecs::CompiledFilter, ponko_ecs::FilterError>
+pub type ponko_ecs::DropFn = fn(*mut u8)
