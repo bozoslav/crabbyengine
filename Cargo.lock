@@ -3123,6 +3123,7 @@ dependencies = [
  "serde_json",
  "steamworks",
  "subsecond",
+ "symphonia",
  "taffy",
  "wasm-bindgen",
  "wasm-bindgen-futures",
