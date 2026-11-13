@@ -762,8 +762,8 @@ impl Input {
     /// - **Order.** Keys, then mouse buttons, then each gamepad slot's
     ///   buttons, then axes: the same order every run, so the first item is
     ///   a stable answer. Within a kind it is the order of the enum.
-    /// - **Bindable as is.** Items are [`PressedInput::Button`] (put it in an
-    ///   `Action::Button`) or [`PressedInput::Axis`] (an `Action::Axis`, with
+    /// - **Bindable as is.** Items are [`PressedInput::Button`](crate::actions::PressedInput::Button) (put it in an
+    ///   `Action::Button`) or [`PressedInput::Axis`](crate::actions::PressedInput::Axis) (an `Action::Axis`, with
     ///   the deadzone [`DEFAULT_DEADZONE`](crate::actions::DEFAULT_DEADZONE)).
     /// - **No allocation.** It is a scan of fixed arrays.
     ///
