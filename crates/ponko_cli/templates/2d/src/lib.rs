@@ -14,6 +14,7 @@ pub const ARENA: Vec2 = Vec2::new(800.0, 600.0);
 pub const PLAYER_SIZE: f32 = 40.0;
 
 /// Numbers to tune without recompiling, loaded from `assets/settings.json`.
+/// In debug builds, saving the file changes them in the running game.
 #[derive(Serialize, Deserialize)]
 pub struct Settings {
     /// How fast the player moves, in pixels per second.

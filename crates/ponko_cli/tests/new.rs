@@ -5,8 +5,8 @@
 //! Ignored by default: it type-checks the engine once per template's
 //! features, minutes on a cold machine. Run it with
 //! `cargo test -p ponko_cli --test new -- --ignored`; CI's "Project
-//! templates" job does. The build output goes to `target/ponko-new-e2e` and
-//! is deleted afterwards.
+//! templates" job does. The build output goes to `CARGO_TARGET_DIR` if it is
+//! set, else to `target/ponko-new-e2e`, deleted afterwards.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -35,9 +35,15 @@ fn every_template_generates_a_project_that_builds_against_this_engine() {
     let _ = std::fs::remove_dir_all(&projects);
     std::fs::create_dir_all(&projects).unwrap();
     let _projects = Remove(projects.clone());
-    // One target folder for all three, inside this workspace's.
-    let target = root.join("target/ponko-new-e2e");
-    let _target = Remove(target.clone());
+    // One target folder for all three: the caller's `CARGO_TARGET_DIR` (CI
+    // caches it), else one inside this workspace's, deleted afterwards.
+    let (target, _target) = match std::env::var_os("CARGO_TARGET_DIR") {
+        Some(dir) => (PathBuf::from(dir), None),
+        None => {
+            let dir = root.join("target/ponko-new-e2e");
+            (dir.clone(), Some(Remove(dir)))
+        }
+    };
 
     for (flag, name) in [("--2d", "e2e-2d"), ("--3d", "e2e-3d"), ("--headless", "e2e-headless")] {
         let made = Command::new(env!("CARGO_BIN_EXE_ponko"))

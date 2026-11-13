@@ -29,9 +29,70 @@ cargo run --release --example boids
 Always use `--release` for anything with many entities; debug builds are
 10–50× slower.
 
+## A new project
+
+The `ponko` command makes a project that builds, tests and can be driven by
+an AI agent as it is:
+
+```sh
+cargo install ponko_cli
+ponko new my_game        # a 2D game; --3d for a 3D game, --headless for a simulation
+cd my_game
+cargo test               # headless tests: no window, no GPU
+cargo run                # the game, in a window
+```
+
+`ponko_cli` is new in 0.2; until that release, install it from the
+repository: `cargo install ponko_cli --git https://github.com/ponkoengine/ponko`.
+
+| Template | Engine features | What's in it |
+|---|---|---|
+| `--2d` (the default) | the defaults: window, sound, gamepads, inspector | a square moved with the arrow keys, kept inside the window |
+| `--3d` | the defaults plus `3d` | a spinning cube on a ground plane, a camera and a sun |
+| `--headless` | none (`default-features = false`): no window, GPU or sound | a thousand walkers bouncing around a square, and a summary |
+
+Each project has:
+
+- `Cargo.toml` with the engine and a fast debug profile (below);
+- `src/lib.rs` with the rules as sim systems, `src/main.rs` that starts the
+  game (`HEADLESS=1 cargo run` runs it without a window), and headless tests
+  in `tests/` ([Headless runs and testing](headless.md));
+- `assets/` with a `settings.json` of numbers to tune, which a debug build
+  reloads when you save it ([Data files](data-files.md));
+- `.mcp.json`, which registers [`ponko-mcp`](agents.md) for your coding agent
+  (`cargo install ponko_mcp` once), and `AGENTS.md` (`CLAUDE.md` points at it)
+  with the commands, the layout and a pointer to [the agents chapter](agents.md).
+
+The project depends on the released engine from crates.io. `--git <url>` or
+`--path <checkout>` points it at an engine repository or a local checkout
+instead (for features that are only on `main` so far, see below).
+
+The same templates work with
+[cargo-generate](https://github.com/cargo-generate/cargo-generate), if you
+have it: `cargo generate --git https://github.com/ponkoengine/ponko
+crates/ponko_cli/templates/2d` (or `3d`, `headless`).
+
+### The fast debug profile
+
+The templates' `Cargo.toml` builds debug builds like this:
+
+```toml
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+```
+
+Your own code gets light optimization, and the engine and every other
+dependency full optimization, which they get once and keep: games and tests
+run many times faster than in a plain debug build, rebuilding after an edit
+stays quick, and debug info and debug checks stay on. Add it to a project you
+made by hand too.
+
 ## Your first game
 
-Add the engine to a new project from crates.io:
+To start by hand instead, add the engine to a new project from crates.io:
 
 ```sh
 cargo new my_game && cd my_game

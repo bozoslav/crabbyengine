@@ -43,6 +43,12 @@
       "category": "deprecated compatibility",
       "reason": "Migration instructions and deprecation schedule for legacy names."
     },
+    "crates/ponko_cli/NOTICE": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
+    },
     "crates/ponko_ecs/NOTICE": {
       "occurrences": 1,
       "path_occurrences": 0,

@@ -1081,6 +1081,60 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  # The `ponko new` templates (crates/ponko_cli/templates) against this
+  # engine: the CLI's unit tests, then each template generated with
+  # `--path .`, type-checked (the CLI's end-to-end test) and its own tests
+  # run. Linux only. A pull request runs it only when it changes the CLI or
+  # its templates; the full tier always does (an engine change can break a
+  # template too).
+  templates:
+    name: Project templates
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      FULL: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      # Every generated project builds into this one folder, so the engine
+      # and its dependencies build once per feature set.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/templates
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Did the CLI or its templates change?
+        id: changed
+        run: |
+          if [ "$FULL" = "true" ] || git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -q '^crates/ponko_cli/'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Nothing under crates/ponko_cli changed: skipping the template builds."
+          fi
+      - name: Install ALSA and udev headers (audio, gamepads)
+        if: steps.changed.outputs.run == 'true'
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.changed.outputs.run == 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.changed.outputs.run == 'true'
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: templates
+      - name: The CLI's unit tests, and each template generated and checked
+        if: steps.changed.outputs.run == 'true'
+        run: |
+          cargo test -p ponko_cli
+          cargo test -p ponko_cli --test new -- --ignored
+      - name: Each template's own tests
+        if: steps.changed.outputs.run == 'true'
+        run: |
+          cargo build -p ponko_cli
+          cd "$RUNNER_TEMP"
+          for kind in 2d 3d headless; do
+            "$CARGO_TARGET_DIR/debug/ponko" new "game-$kind" "--$kind" --path "$GITHUB_WORKSPACE"
+            (cd "game-$kind" && cargo test)
+          done
+
   # Single check for branch protection: passes only if
   # every job above passed. Requiring one job keeps the rule valid when jobs
   # are added or renamed. Jobs a plain pull request skips (fast tier) are
@@ -1089,7 +1143,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, reference-images, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, semver, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles]
+    needs: [leaks, fmt, reference-images, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, semver, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles, templates]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job

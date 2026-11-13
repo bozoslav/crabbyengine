@@ -6,6 +6,7 @@ use ponko::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Numbers to tune without recompiling, loaded from `assets/settings.json`.
+/// In debug builds, saving the file changes them in the running game.
 #[derive(Serialize, Deserialize)]
 pub struct Settings {
     /// How many walkers to start with.
