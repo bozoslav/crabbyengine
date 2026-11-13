@@ -697,19 +697,45 @@ impl Ctx {
             )
             .with_uv(uv)
         }
+        use crate::sprite_material::{BlendMode, SpriteMaterial, style_key};
+        use ponko_ecs::{Or, With, Without};
         let draw_list = &mut self.gfx.draw_list;
-        let mut query = self.world.query::<(&Transform2D, &Sprite)>();
+        // Plain sprites first, on the same path as before blend modes and
+        // materials existed; then the (usually few) sprites with either.
+        let mut query = self
+            .world
+            .query::<(&Transform2D, &Sprite)>()
+            .filter::<(Without<BlendMode>, Without<SpriteMaterial>)>();
         let n = query.count();
         if n < PARALLEL_MIN {
             query.for_each(|(t, s)| draw_list.push(s.texture.id, s.z, instance(t, s)));
-            return;
+        } else {
+            // SAFETY: `par_for_each_indexed` visits each of the query's `n`
+            // entities exactly once, with indices `0..n`.
+            unsafe {
+                draw_list.extend(n, |slots| {
+                    query.par_for_each_indexed(|i, (t, s)| slots.write(i, s.texture.id, s.z, instance(t, s)));
+                });
+            }
         }
-        // SAFETY: `par_for_each_indexed` visits each of the query's `n`
-        // entities exactly once, with indices `0..n`.
-        unsafe {
-            draw_list.extend(n, |slots| {
-                query.par_for_each_indexed(|i, (t, s)| slots.write(i, s.texture.id, s.z, instance(t, s)));
-            });
+        let mut styled = self
+            .world
+            .query::<(&Transform2D, &Sprite, Option<&BlendMode>, Option<&SpriteMaterial>)>()
+            .filter::<Or<(With<BlendMode>, With<SpriteMaterial>)>>();
+        let style =
+            |b: Option<&BlendMode>, m: Option<&SpriteMaterial>| style_key(b.copied().unwrap_or_default(), m.copied());
+        let n = styled.count();
+        if n < PARALLEL_MIN {
+            styled.for_each(|(t, s, b, m)| draw_list.push_styled(s.texture.id, style(b, m), s.z, instance(t, s)));
+        } else {
+            // SAFETY: as above.
+            unsafe {
+                draw_list.extend(n, |slots| {
+                    styled.par_for_each_indexed(|i, (t, s, b, m)| {
+                        slots.write_styled(i, s.texture.id, style(b, m), s.z, instance(t, s));
+                    });
+                });
+            }
         }
     }
 
@@ -782,6 +808,12 @@ impl Ctx {
                 Asset::Data(i) => {
                     let applied = assets::read_to_string(&file)
                         .and_then(|text| (self.assets.data_loaders[i])(&mut self.world, &text).map_err(String::from));
+                    self.assets.report_reload(name, applied);
+                    continue;
+                }
+                Asset::SpriteShader(id) => {
+                    let applied =
+                        assets::read_to_string(&file).and_then(|text| self.gfx.reload_sprite_shader(id, &name, &text));
                     self.assets.report_reload(name, applied);
                     continue;
                 }

@@ -2,8 +2,8 @@
 //! per-texture batches. No GPU types here, so it is unit tested directly.
 //!
 //! Ordering rule: higher `z` draws on top; for equal `z`, later draws go on
-//! top (painter's order). Consecutive sprites with the same texture become
-//! one instanced draw call.
+//! top (painter's order). Consecutive sprites with the same texture, clip
+//! rectangle, blend mode and material become one instanced draw call.
 
 use bytemuck::{Pod, Zeroable};
 
@@ -100,10 +100,12 @@ pub(crate) fn f16_bits(x: f32) -> u16 {
     sign | (half + round) as u16
 }
 
-/// A run of instances that share one texture.
+/// A run of instances that share one texture, clip and look.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Batch {
     pub clip: Option<crate::camera::Rect>,
+    /// Blend mode and material (`sprite_material::style_key`); 0 for plain sprites.
+    pub material: u32,
     pub texture: u32,
     pub start: u32,
     pub end: u32,
@@ -127,7 +129,11 @@ pub(crate) struct DrawList {
     instances: Vec<SpriteInstance>,
     textures: Vec<u32>,
     zs: Vec<f32>,
-    clips: Vec<Option<crate::camera::Rect>>,
+    /// Each sprite's clip and look: its style key (`sprite_material`), or
+    /// with `CLIPPED` set, an index into `clipped`. 0 for plain sprites.
+    states: Vec<u32>,
+    /// This frame's clipped states: the clip and the style key.
+    clipped: Vec<(crate::camera::Rect, u32)>,
     clip: Option<crate::camera::Rect>,
     /// True once two different `z` values have been pushed this frame.
     needs_sort: bool,
@@ -144,6 +150,7 @@ pub(crate) struct Slots {
     instances: *mut SpriteInstance,
     textures: *mut u32,
     zs: *mut f32,
+    states: *mut u32,
     n: usize,
 }
 
@@ -168,7 +175,25 @@ impl Slots {
             self.zs.add(i).write(z);
         }
     }
+
+    /// Writes sprite `i` with blend mode and material `style`
+    /// (`sprite_material::style_key`); [`write`](Self::write) leaves it 0.
+    ///
+    /// # Safety
+    /// As for [`write`](Self::write).
+    #[inline]
+    pub unsafe fn write_styled(&self, i: usize, texture: u32, style: u32, z: f32, instance: SpriteInstance) {
+        debug_assert!(style < CLIPPED);
+        // SAFETY: forwarded caller contract; `states` has `n` slots too.
+        unsafe {
+            self.write(i, texture, z, instance);
+            self.states.add(i).write(style);
+        }
+    }
 }
+
+/// A `DrawList` state with this bit is an index into its clipped states.
+pub(crate) const CLIPPED: u32 = 1 << 31;
 
 /// Maps an `f32` to a `u32` whose unsigned order matches the float order.
 fn z_key(z: f32) -> u32 {
@@ -182,15 +207,61 @@ impl DrawList {
     }
     #[inline]
     pub fn push(&mut self, texture: u32, z: f32, instance: SpriteInstance) {
+        self.push_styled(texture, 0, z, instance);
+    }
+
+    /// [`push`](Self::push) with blend mode and material `style`
+    /// (`sprite_material::style_key`, 0 for plain sprites).
+    #[inline]
+    pub fn push_styled(&mut self, texture: u32, style: u32, z: f32, instance: SpriteInstance) {
         if let Some(&first_z) = self.zs.first()
             && first_z != z
         {
             self.needs_sort = true;
         }
-        self.clips.push(self.clip);
+        let state = match self.clip {
+            None => style,
+            Some(clip) => self.clipped_state(clip, style),
+        };
+        self.states.push(state);
         self.instances.push(instance);
         self.textures.push(texture);
         self.zs.push(z);
+    }
+
+    /// The state of a clipped sprite: the same index for the same clip and
+    /// style all frame, so equal ones still batch together.
+    fn clipped_state(&mut self, clip: crate::camera::Rect, style: u32) -> u32 {
+        let wanted = (clip, style);
+        let at = match self.clipped.last() {
+            Some(last) if *last == wanted => self.clipped.len() - 1,
+            _ => match self.clipped.iter().position(|c| *c == wanted) {
+                Some(at) => at,
+                None => {
+                    self.clipped.push(wanted);
+                    self.clipped.len() - 1
+                }
+            },
+        };
+        CLIPPED | at as u32
+    }
+
+    /// The clip and style of `state`.
+    #[inline]
+    fn resolve(clipped: &[(crate::camera::Rect, u32)], state: u32) -> (Option<crate::camera::Rect>, u32) {
+        if state & CLIPPED == 0 {
+            (None, state)
+        } else {
+            let (clip, style) = clipped[(state & !CLIPPED) as usize];
+            (Some(clip), style)
+        }
+    }
+
+    /// Whether any sprite this frame has a blend mode or material other
+    /// than the plain one (the renderer then prepares their pipelines).
+    #[cfg_attr(not(feature = "window"), allow(dead_code))]
+    pub fn batches_styled(batches: &[Batch]) -> bool {
+        batches.iter().any(|b| b.material != 0)
     }
 
     /// Appends `n` sprites that `fill` writes through [`Slots::write`],
@@ -201,7 +272,7 @@ impl DrawList {
     /// returns (unwritten slots would be read as uninitialized memory).
     pub unsafe fn extend(&mut self, n: usize, fill: impl FnOnce(&Slots)) {
         let start = self.instances.len();
-        self.clips.resize(start + n, None);
+        self.states.resize(start + n, 0);
         self.instances.reserve(n);
         self.textures.reserve(n);
         self.zs.reserve(n);
@@ -210,6 +281,8 @@ impl DrawList {
             instances: unsafe { self.instances.as_mut_ptr().add(start) },
             textures: unsafe { self.textures.as_mut_ptr().add(start) },
             zs: unsafe { self.zs.as_mut_ptr().add(start) },
+            // SAFETY: `resize` made `n` initialized slots after `start`.
+            states: unsafe { self.states.as_mut_ptr().add(start) },
             n,
         };
         fill(&slots);
@@ -234,7 +307,8 @@ impl DrawList {
         self.instances.clear();
         self.textures.clear();
         self.zs.clear();
-        self.clips.clear();
+        self.states.clear();
+        self.clipped.clear();
         self.clip = None;
         self.needs_sort = false;
         self.batches.clear();
@@ -248,7 +322,7 @@ impl DrawList {
         if !self.needs_sort {
             // Fast path (the common case): everything shares one z, so
             // submission order is already the draw order.
-            Self::build_batches(&mut self.batches, &self.textures, &self.clips);
+            Self::build_batches(&mut self.batches, &self.textures, &self.states, &self.clipped);
             return (&self.instances, &self.batches);
         }
 
@@ -271,16 +345,20 @@ impl DrawList {
         let textures = &self.textures;
         let batches = &mut self.batches;
         let mut run: Option<Batch> = None;
+        let mut run_state = 0;
         for (i, &(_, src)) in self.order.iter().enumerate() {
             let texture = textures[src as usize];
-            let clip = self.clips[src as usize];
+            let state = self.states[src as usize];
             let i = i as u32;
             match &mut run {
-                Some(b) if b.texture == texture && b.clip == clip => b.end = i + 1,
+                Some(b) if b.texture == texture && run_state == state => b.end = i + 1,
                 _ => {
                     batches.extend(run);
+                    let (clip, material) = Self::resolve(&self.clipped, state);
+                    run_state = state;
                     run = Some(Batch {
                         clip,
+                        material,
                         texture,
                         start: i,
                         end: i + 1,
@@ -291,19 +369,26 @@ impl DrawList {
         batches.extend(run);
     }
 
-    /// One batch per run of equal textures, in order.
-    fn build_batches(batches: &mut Vec<Batch>, textures: &[u32], clips: &[Option<crate::camera::Rect>]) {
+    /// One batch per run of equal textures and states, in order.
+    fn build_batches(
+        batches: &mut Vec<Batch>,
+        textures: &[u32],
+        states: &[u32],
+        clipped: &[(crate::camera::Rect, u32)],
+    ) {
         let mut start = 0;
         while start < textures.len() {
             let texture = textures[start];
-            let clip = clips[start];
+            let state = states[start];
             let len = textures[start..]
                 .iter()
-                .enumerate()
-                .position(|(i, &t)| t != texture || clips[start + i] != clip)
+                .zip(&states[start..])
+                .position(|(&t, &s)| t != texture || s != state)
                 .unwrap_or(textures.len() - start);
+            let (clip, material) = Self::resolve(clipped, state);
             batches.push(Batch {
                 clip,
+                material,
                 texture,
                 start: start as u32,
                 end: (start + len) as u32,
@@ -368,12 +453,14 @@ mod tests {
             &[
                 Batch {
                     clip: None,
+                    material: 0,
                     texture: 1,
                     start: 0,
                     end: 101
                 },
                 Batch {
                     clip: None,
+                    material: 0,
                     texture: 2,
                     start: 101,
                     end: n as u32 + 1
@@ -454,12 +541,14 @@ mod tests {
             &[
                 Batch {
                     clip: None,
+                    material: 0,
                     texture: 1,
                     start: 0,
                     end: 2
                 },
                 Batch {
                     clip: None,
+                    material: 0,
                     texture: 2,
                     start: 2,
                     end: 4
@@ -484,6 +573,7 @@ mod tests {
             batches,
             &[Batch {
                 clip: None,
+                material: 0,
                 texture: 7,
                 start: 0,
                 end: 1000
@@ -505,18 +595,21 @@ mod tests {
             &[
                 Batch {
                     clip: None,
+                    material: 0,
                     texture: 1,
                     start: 0,
                     end: 2
                 },
                 Batch {
                     clip: None,
+                    material: 0,
                     texture: 2,
                     start: 2,
                     end: 3
                 },
                 Batch {
                     clip: None,
+                    material: 0,
                     texture: 1,
                     start: 3,
                     end: 4
@@ -540,12 +633,14 @@ mod tests {
             &[
                 Batch {
                     clip: None,
+                    material: 0,
                     texture: 1,
                     start: 0,
                     end: 4
                 },
                 Batch {
                     clip: None,
+                    material: 0,
                     texture: 2,
                     start: 4,
                     end: 5
@@ -568,11 +663,80 @@ mod tests {
             batches,
             &[Batch {
                 clip: None,
+                material: 0,
                 texture: 3,
                 start: 0,
                 end: 1
             }]
         );
+    }
+
+    #[test]
+    fn looks_split_batches_and_equal_looks_merge() {
+        let mut list = DrawList::default();
+        list.push(1, 0.0, inst(0.0));
+        list.push_styled(1, 5, 0.0, inst(1.0));
+        list.push_styled(1, 5, 0.0, inst(2.0));
+        list.push(1, 0.0, inst(3.0));
+        let (_, batches) = list.finish();
+        let looks: Vec<_> = batches.iter().map(|b| (b.material, b.end - b.start)).collect();
+        assert_eq!(looks, [(0, 1), (5, 2), (0, 1)]);
+    }
+
+    #[test]
+    fn looks_follow_their_sprites_when_sorted_and_clipped() {
+        let mut list = DrawList::default();
+        let clip = crate::camera::Rect::new(1.0, 2.0, 3.0, 4.0);
+        list.push_styled(1, 6, 2.0, inst(0.0));
+        list.set_clip(Some(clip));
+        list.push_styled(1, 6, 1.0, inst(1.0));
+        list.push(1, 1.0, inst(2.0));
+        list.set_clip(None);
+        list.push_styled(1, 6, 2.0, inst(3.0));
+        list.set_clip(Some(clip));
+        // Same clip and look as the second sprite: one batch with it once sorted.
+        list.push_styled(1, 6, 1.0, inst(4.0));
+        let (instances, batches) = list.finish();
+        assert_eq!(tags(instances), [1.0, 2.0, 4.0, 0.0, 3.0]);
+        let got: Vec<_> = batches.iter().map(|b| (b.clip, b.material, b.start, b.end)).collect();
+        assert_eq!(
+            got,
+            [
+                (Some(clip), 6, 0, 1),
+                (Some(clip), 0, 1, 2),
+                (Some(clip), 6, 2, 3),
+                (None, 6, 3, 5)
+            ]
+        );
+        list.clear();
+        list.push(1, 0.0, inst(0.0));
+        assert_eq!(
+            list.finish().1[0].material,
+            0,
+            "looks and clips are forgotten each frame"
+        );
+    }
+
+    #[test]
+    fn styled_writes_from_many_threads_keep_their_looks() {
+        use rayon::prelude::*;
+        let mut list = DrawList::default();
+        let n = 30_000;
+        // SAFETY: every index in 0..n is written once.
+        unsafe {
+            list.extend(n, |slots| {
+                (0..n).into_par_iter().for_each(|i| {
+                    if i < n / 2 {
+                        slots.write(i, 1, 0.0, inst(i as f32));
+                    } else {
+                        slots.write_styled(i, 1, 9, 0.0, inst(i as f32));
+                    }
+                });
+            });
+        }
+        let (_, batches) = list.finish();
+        let looks: Vec<_> = batches.iter().map(|b| (b.material, b.start, b.end)).collect();
+        assert_eq!(looks, [(0, 0, n as u32 / 2), (9, n as u32 / 2, n as u32)]);
     }
 
     #[test]

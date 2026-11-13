@@ -55,6 +55,8 @@ pub(crate) struct Renderer {
     camera_layout: wgpu::BindGroupLayout,
     panel_pipeline: Option<wgpu::RenderPipeline>,
     panel_cameras: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
+    /// Blend modes and sprite materials: their pipelines and bind groups.
+    sprite_pipelines: super::sprite_pipelines::SpritePipelines,
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     nearest_sampler: wgpu::Sampler,
@@ -139,6 +141,26 @@ pub(super) fn sprite_pipeline(
     shader: &wgpu::ShaderModule,
     format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
+    sprite_pipeline_with(
+        device,
+        layout,
+        shader,
+        format,
+        wgpu::BlendState::ALPHA_BLENDING,
+        "fs_main",
+    )
+}
+
+/// A sprite pipeline drawing into `format` with fragment entry point
+/// `fragment` and `blend` (blend modes and sprite materials).
+pub(super) fn sprite_pipeline_with(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    shader: &wgpu::ShaderModule,
+    format: wgpu::TextureFormat,
+    blend: wgpu::BlendState,
+    fragment: &str,
+) -> wgpu::RenderPipeline {
     let instance_attributes = wgpu::vertex_attr_array![
         0 => Float32x2, // pos
         1 => Float32x2, // size
@@ -165,11 +187,11 @@ pub(super) fn sprite_pipeline(
         multisample: wgpu::MultisampleState::default(),
         fragment: Some(wgpu::FragmentState {
             module: shader,
-            entry_point: Some("fs_main"),
+            entry_point: Some(fragment),
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                blend: Some(blend),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
@@ -549,6 +571,14 @@ impl Renderer {
         });
 
         let pipeline = sprite_pipeline(&device, &layout, &shader, view_format);
+        let sprite_pipelines = super::sprite_pipelines::SpritePipelines::new(
+            &device,
+            &queue,
+            &shader,
+            &layout,
+            &camera_layout,
+            &texture_layout,
+        );
 
         let camera = |label| {
             let buffer = device.new_buffer(&wgpu::BufferDescriptor {
@@ -614,6 +644,7 @@ impl Renderer {
             camera_layout,
             panel_pipeline: None,
             panel_cameras: Vec::new(),
+            sprite_pipelines,
             texture_layout,
             sampler,
             nearest_sampler,
@@ -671,6 +702,40 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         })
+    }
+
+    /// Compiles sprite shader `id` (new or hot reloaded) from its checked,
+    /// composed WGSL. On an error the old version stays.
+    pub fn set_sprite_shader(
+        &mut self,
+        id: u32,
+        name: &str,
+        composed: &str,
+    ) -> Result<(), Box<crate::render::ShaderDiagnostic>> {
+        self.sprite_pipelines
+            .set_shader(&self.device, id, name, composed, self.view_format)
+    }
+
+    /// Sprite shader `id` was freed.
+    pub fn free_sprite_shader(&mut self, id: u32) {
+        self.sprite_pipelines.free_shader(id);
+    }
+
+    /// Makes or changes sprite material `id`.
+    pub fn set_sprite_material(
+        &mut self,
+        id: u32,
+        shader: Option<u32>,
+        params: &[glam::Vec4; 4],
+        textures: [Option<u32>; 2],
+    ) {
+        self.sprite_pipelines
+            .set_material(&self.device, &self.queue, id, shader, params, textures);
+    }
+
+    /// Sprite material `id` was freed.
+    pub fn free_sprite_material(&mut self, id: u32) {
+        self.sprite_pipelines.free_material(id);
     }
 
     /// Follows `Post::msaa`: switches the 3D frame and target cameras to
@@ -1611,6 +1676,23 @@ impl Renderer {
             0,
             bytemuck::cast_slice(&ui_camera),
         );
+        // Blend modes and sprite materials: their pipelines and bind groups.
+        if DrawList::batches_styled(world_batches) || DrawList::batches_styled(ui_batches) {
+            for batches in [world_batches, ui_batches] {
+                self.sprite_pipelines
+                    .prepare(&self.device, &self.textures, batches, self.view_format);
+            }
+        }
+        #[cfg(feature = "3d")]
+        let panel_format = super::gpu3d::HDR_FORMAT;
+        #[cfg(not(feature = "3d"))]
+        let panel_format = self.view_format;
+        for (_, _, (_, batches)) in &panels {
+            if DrawList::batches_styled(batches) {
+                self.sprite_pipelines
+                    .prepare(&self.device, &self.textures, batches, panel_format);
+            }
+        }
         // World sprites first, then the UI on top.
         let layers = [
             (&self.camera_bind_group, world_batches, 0),
@@ -1647,7 +1729,14 @@ impl Renderer {
                         textures: &self.textures,
                         layers: &layers,
                     };
-                    Self::sprite_pass(&mut encoder, &view, Some(Color::TRANSPARENT), None, &pass);
+                    Self::sprite_pass_with(
+                        &mut encoder,
+                        &view,
+                        Some(Color::TRANSPARENT),
+                        None,
+                        &pass,
+                        Some((&self.sprite_pipelines, panel_format)),
+                    );
                 }
                 encoder.finish()
             });
@@ -1669,12 +1758,13 @@ impl Renderer {
         if let Some(view) = &view {
             let timer = self.timer.as_ref();
             let sprite_clear = self.draw_3d(&mut buffers_3d, view, clear, timer);
-            Self::sprite_pass(
+            Self::sprite_pass_with(
                 &mut encoder,
                 view,
                 sprite_clear,
                 timer.and_then(|t| t.pass("sprites")),
                 &pass,
+                Some((&self.sprite_pipelines, self.view_format)),
             );
         }
         // A screenshot draws the same sprites a second time, into a texture
@@ -1683,7 +1773,14 @@ impl Renderer {
             let target = Capture::new(&self.device, self.config.width, self.config.height, self.view_format);
             let target_view = target.texture.create_view(&wgpu::TextureViewDescriptor::default());
             let sprite_clear = self.draw_3d(&mut buffers_3d, &target_view, clear, None);
-            Self::sprite_pass(&mut encoder, &target_view, sprite_clear, None, &pass);
+            Self::sprite_pass_with(
+                &mut encoder,
+                &target_view,
+                sprite_clear,
+                None,
+                &pass,
+                Some((&self.sprite_pipelines, self.view_format)),
+            );
             target.copy(&mut encoder);
             target
         });
@@ -1845,12 +1942,27 @@ impl Renderer {
         (buffer, bind_group)
     }
 
+    #[cfg_attr(not(all(test, feature = "3d")), allow(dead_code))]
     pub(super) fn sprite_pass(
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
         clear: Option<Color>,
         timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
         p: &SpritePass<'_>,
+    ) {
+        Self::sprite_pass_with(encoder, view, clear, timestamp_writes, p, None);
+    }
+
+    /// [`sprite_pass`](Self::sprite_pass) with the blend modes' and sprite
+    /// materials' pipelines for `view`'s format; without them, batches with
+    /// a look draw plain.
+    pub(super) fn sprite_pass_with(
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        clear: Option<Color>,
+        timestamp_writes: Option<wgpu::RenderPassTimestampWrites<'_>>,
+        p: &SpritePass<'_>,
+        looks: Option<(&super::sprite_pipelines::SpritePipelines, wgpu::TextureFormat)>,
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("sprites"),
@@ -1873,6 +1985,9 @@ impl Renderer {
         }
         pass.set_pipeline(p.pipeline);
         pass.set_vertex_buffer(0, p.instances.slice(..));
+        // The look the pass draws with now: plain sprites (0) until a batch
+        // with a blend mode or material comes.
+        let mut look = 0;
         for (camera, batches, base) in p.layers {
             pass.set_bind_group(0, *camera, &[]);
             for batch in *batches {
@@ -1892,6 +2007,22 @@ impl Renderer {
                 let Some(texture) = p.textures.get(batch.texture as usize) else {
                     continue;
                 };
+                if batch.material != look {
+                    match looks.filter(|_| batch.material != 0) {
+                        Some((looks, format)) => {
+                            // Not made (a GPU error): skipped.
+                            let Some((pipeline, material)) = looks.get(batch.material, format) else {
+                                continue;
+                            };
+                            pass.set_pipeline(pipeline);
+                            if let Some(material) = material {
+                                pass.set_bind_group(2, material, &[]);
+                            }
+                        }
+                        None => pass.set_pipeline(p.pipeline),
+                    }
+                    look = batch.material;
+                }
                 pass.set_bind_group(1, &texture.bind_group, &[]);
                 pass.draw(0..6, base + batch.start..base + batch.end);
             }

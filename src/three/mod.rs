@@ -93,8 +93,8 @@ pub(crate) mod text3d;
 pub use text3d::{Text3D, TextAlign3D};
 mod far_terrain;
 mod shader_status;
+pub(crate) use crate::render::{ShaderDiagnostic, ShaderKind};
 pub(crate) use shader_status::{COMPUTE_STAND_IN, EFFECT_STAND_IN};
-pub use shader_status::{ShaderDiagnostic, ShaderKind, ShaderOutcome, ShaderStatus};
 mod settings;
 mod sky;
 mod target;
@@ -1006,8 +1006,6 @@ pub(crate) fn mesh_gpu_bytes(data: &MeshData) -> u64 {
 /// culling, and for headless runs, which have no GPU.
 #[derive(Default)]
 pub(crate) struct Assets3D {
-    /// The latest compile of each of the game's shaders (`Graphics::shader_status`).
-    pub shader_status: Vec<ShaderStatus>,
     pub morph_entities: Vec<ponko_ecs::Entity>,
     pub morph_bases: std::collections::HashMap<ponko_ecs::Entity, (u32, MorphWeights, MorphWeights)>,
     /// Bounding sphere of each mesh, in its own space: center and radius.

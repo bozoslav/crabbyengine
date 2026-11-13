@@ -42,6 +42,8 @@ pub(crate) enum Asset {
     Sound(u32),
     /// Index into `Ctx`'s data loaders.
     Data(usize),
+    /// A sprite shader id.
+    SpriteShader(u32),
     /// A 3D material shader id.
     #[cfg(feature = "3d")]
     Shader(u32),

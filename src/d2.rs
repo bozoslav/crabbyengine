@@ -27,4 +27,6 @@ pub use crate::sheet::{Animation, SpriteSheet};
 #[doc(no_inline)]
 pub use crate::spatial::SpatialGrid;
 #[doc(no_inline)]
+pub use crate::sprite_material::{BlendMode, SpriteMaterial, SpriteMaterialDesc, SpriteShader};
+#[doc(no_inline)]
 pub use crate::tilemap::TileMap;
