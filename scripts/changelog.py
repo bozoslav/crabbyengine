@@ -4,6 +4,10 @@
     python3 scripts/changelog.py           # fold the fragments in and delete them
     python3 scripts/changelog.py --dry-run # print the new Unreleased section only
     python3 scripts/changelog.py --check   # validate the fragments (CI runs this)
+    python3 scripts/changelog.py --breaking FILE...
+                                           # which of the fragments announce a
+                                           # breaking change (semver-checks.py
+                                           # asks this, see CONTRIBUTING.md)
 
 A fragment is changelog.d/<pr-or-topic>.md holding one or more `### Heading`
 sections with `- ` bullets (see changelog.d/README.md). Bullets are added at
@@ -19,7 +23,8 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 FRAGMENTS = ROOT / 'changelog.d'
 CHANGELOG = ROOT / 'CHANGELOG.md'
-ORDER = ['Breaking changes', 'Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
+BREAKING = 'Breaking changes'
+ORDER = [BREAKING, 'Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 HEADING = re.compile(r'^### (.+?)\s*$')
 
 
@@ -52,6 +57,11 @@ def parse(path):
         if not lines:
             sys.exit(f'{path.relative_to(ROOT)}: section `{heading}` has no bullets')
     return sections
+
+
+def has_breaking(path):
+    """Whether the fragment has a `### Breaking changes` section with bullets."""
+    return any(heading == BREAKING for heading, _ in parse(path))
 
 
 def unreleased_bounds(lines):
@@ -88,6 +98,15 @@ def fold(body, heading, bullets):
 
 
 def main():
+    if '--breaking' in sys.argv:
+        # Prints each given fragment that has the section, one path per line.
+        # A path that isn't a fragment (missing, README.md) is ignored.
+        paths = [Path(a) for a in sys.argv[sys.argv.index('--breaking') + 1:]]
+        for path in paths:
+            if path.is_file() and path.suffix == '.md' and path.name != 'README.md' \
+                    and has_breaking(path):
+                print(path)
+        return
     files = fragment_files()
     parsed = [(path, parse(path)) for path in files]
     if '--check' in sys.argv:
