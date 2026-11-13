@@ -5,13 +5,11 @@ use std::ffi::c_char;
 
 use ponko::d2::{AutoTile, LevelLayer, LevelObject, LevelOptions, LevelRoot, ObjectShape, TileMap};
 use ponko::prelude::Vec2;
-use ponko_ecs::{Entity, World};
+use ponko_ecs::Entity;
 
 use crate::ctx::{PonkoCtx, ctx_access, out, text};
 use crate::types::{PonkoRect, PonkoVec2};
-use crate::{
-    Failure, PonkoStatus, PonkoWorld, access, boundary, engine_error, error, invalid, write_text,
-};
+use crate::{Failure, PonkoStatus, PonkoWorld, access, boundary, engine_error, error, invalid, write_text};
 
 /// How `ponko_ctx_spawn_level` spawns a level (all zero: the defaults).
 /// Arrays may be null when their count is 0.
@@ -402,25 +400,20 @@ pub unsafe extern "C" fn ponko_level_property_json(
     })
 }
 
+/// Runs `f` on `entity`'s tilemap in place, so the tile array a C caller
+/// read with `ponko_tilemap_get` stays valid (unless `f` resizes it).
 unsafe fn with_map<R>(
     world: *mut PonkoWorld,
     entity: u64,
-    f: impl FnOnce(&mut TileMap, &mut World, Entity) -> Result<R, Failure>,
+    f: impl FnOnce(&mut TileMap) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
     // SAFETY: forwarded caller contract.
     unsafe {
         access(world, |w, _| {
-            let e = Entity::from_bits(entity);
-            let Some(map) = w.get::<TileMap>(e) else {
-                return Err(error(PonkoStatus::PONKO_NOT_FOUND, "entity has no tilemap"));
-            };
-            // Work on a copy so the world stays borrowable (colliders spawn into it).
-            let mut map = map.clone();
-            let r = f(&mut map, w, e)?;
-            if let Some(m) = w.get_mut::<TileMap>(e) {
-                *m = map;
-            }
-            Ok(r)
+            let map = w
+                .get_mut::<TileMap>(Entity::from_bits(entity))
+                .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "entity has no tilemap"))?;
+            f(map)
         })
     }
 }
@@ -442,7 +435,7 @@ pub unsafe extern "C" fn ponko_tilemap_set_parallax(
 ) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        with_map(world, entity, |m, _, _| {
+        with_map(world, entity, |m| {
             m.parallax = vec(parallax);
             m.parallax_origin = vec(origin);
             Ok(())
@@ -486,7 +479,7 @@ pub unsafe extern "C" fn ponko_tilemap_animate(
         };
         // SAFETY: forwarded caller contract.
         unsafe {
-            with_map(world, entity, |m, _, _| {
+            with_map(world, entity, |m| {
                 m.animate(tile, &list);
                 Ok(())
             })
@@ -513,7 +506,7 @@ pub unsafe extern "C" fn ponko_tilemap_set_flipped(
 ) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
-        with_map(world, entity, |m, _, _| {
+        with_map(world, entity, |m| {
             m.set_flipped(x, y, (frame != TileMap::EMPTY).then_some(frame), flip);
             Ok(())
         })
@@ -535,7 +528,7 @@ pub unsafe extern "C" fn ponko_tilemap_flip(
     out_flip: *mut u8,
 ) -> PonkoStatus {
     // SAFETY: forwarded caller contract.
-    boundary(|| unsafe { with_map(world, entity, |m, _, _| out(out_flip, m.flip(x, y))) })
+    boundary(|| unsafe { with_map(world, entity, |m| out(out_flip, m.flip(x, y))) })
 }
 
 /// An autotile rule: `neighbours` 4 with 16 frames (by mask) or 8 with 47
@@ -588,7 +581,7 @@ pub unsafe extern "C" fn ponko_tilemap_autotile(
         }
         // SAFETY: forwarded caller contract.
         unsafe {
-            with_map(world, entity, |m, _, _| {
+            with_map(world, entity, |m| {
                 let w = m.size.x;
                 // SAFETY: the caller supplies one bool per cell.
                 let cells = std::slice::from_raw_parts(filled, m.tiles.len());
@@ -625,7 +618,7 @@ pub unsafe extern "C" fn ponko_tilemap_paint_autotile(
         let rule = unsafe { rule(neighbours, frames, frames_len, outside_filled)? };
         // SAFETY: forwarded caller contract.
         unsafe {
-            with_map(world, entity, |m, _, _| {
+            with_map(world, entity, |m| {
                 m.paint_autotile(&rule, x, y, on);
                 Ok(())
             })
@@ -671,7 +664,7 @@ pub unsafe extern "C" fn ponko_tilemap_solid_rects(
         let solid = unsafe { solid_set(solid_tiles, count)? };
         // SAFETY: forwarded caller contract.
         unsafe {
-            with_map(world, entity, |m, _, _| {
+            with_map(world, entity, |m| {
                 let rects = m.solid_rects(|t| solid.contains(&t));
                 for (i, r) in rects.iter().take(capacity).enumerate() {
                     // SAFETY: i < capacity (caller-sized buffer).
@@ -714,9 +707,13 @@ pub unsafe extern "C" fn ponko_tilemap_spawn_colliders(
         {
             // SAFETY: forwarded caller contract.
             unsafe {
-                with_map(world, entity, |m, w, e| {
+                access(world, |w, _| {
+                    let e = Entity::from_bits(entity);
+                    let map = w
+                        .get::<TileMap>(e)
+                        .ok_or_else(|| error(PonkoStatus::PONKO_NOT_FOUND, "entity has no tilemap"))?;
                     let at = w.get::<ponko::d2::Transform>(e).map_or(Vec2::ZERO, |t| t.position);
-                    let bodies = m.colliders(at, |t| solid.contains(&t));
+                    let bodies = map.colliders(at, |t| solid.contains(&t));
                     let n = bodies.len();
                     w.spawn_batch(bodies);
                     out(out_count, n)

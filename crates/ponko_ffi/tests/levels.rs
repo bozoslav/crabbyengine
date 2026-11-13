@@ -8,7 +8,11 @@ use std::ptr::{null, null_mut};
 use PonkoStatus::*;
 
 fn fixture(name: &str) -> CString {
-    CString::new(format!("{}/../../tests/fixtures/tilemaps/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+    CString::new(format!(
+        "{}/../../tests/fixtures/tilemaps/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap()
 }
 
 #[derive(Default)]
@@ -34,7 +38,10 @@ unsafe extern "C" fn spawn(ctx: *mut PonkoCtx, user: *mut c_void) {
         let mut n = 0;
         assert_eq!(ponko_level_entities(w, run.root, null_mut(), 0, &mut n), PONKO_OK);
         run.entities = vec![0; n];
-        assert_eq!(ponko_level_entities(w, run.root, run.entities.as_mut_ptr(), n, &mut n), PONKO_OK);
+        assert_eq!(
+            ponko_level_entities(w, run.root, run.entities.as_mut_ptr(), n, &mut n),
+            PONKO_OK
+        );
     }
 }
 
@@ -45,7 +52,10 @@ fn spawn_level(run: &mut Run) -> *mut PonkoWorld {
         assert_eq!(ponko_game_physics(game, PonkoVec2 { x: 0.0, y: 0.0 }), PONKO_OK);
         let mut world = null_mut();
         let user = (run as *mut Run).cast();
-        assert_eq!(ponko_game_run_headless(game, 0, Some(spawn), user, &mut world), PONKO_OK);
+        assert_eq!(
+            ponko_game_run_headless(game, 0, Some(spawn), user, &mut world),
+            PONKO_OK
+        );
         world
     }
 }
@@ -96,14 +106,24 @@ fn a_tiled_level_spawns_with_its_objects_properties_and_colliders() {
     assert_eq!(run.status, Some(PONKO_OK));
     let objs = objects(w, &run.entities);
     assert_eq!(objs.len(), 5);
-    let (door, o, class) = objs.iter().find(|(e, ..)| read(w, *e, ponko_level_object_name) == "Door").unwrap();
+    let (door, o, class) = objs
+        .iter()
+        .find(|(e, ..)| read(w, *e, ponko_level_object_name) == "Door")
+        .unwrap();
     assert_eq!(class, "Door");
-    assert_eq!((o.position.x, o.position.y, o.shape), (104.0, 64.0, PONKO_LEVEL_SHAPE_RECT));
+    assert_eq!(
+        (o.position.x, o.position.y, o.shape),
+        (104.0, 64.0, PONKO_LEVEL_SHAPE_RECT)
+    );
     assert_eq!(read(w, *door, ponko_level_object_layer), "Objects");
     assert_eq!(property(w, *door, c"locked"), Ok("true".into()));
     assert_eq!(property(w, *door, c"target"), Ok("\"level2.tmj\"".into()));
     assert_eq!(property(w, *door, c"nope"), Err(PONKO_NOT_FOUND));
-    assert_eq!(property(w, run.root, c"music"), Ok("\"theme.ogg\"".into()), "the root has the map's");
+    assert_eq!(
+        property(w, run.root, c"music"),
+        Ok("\"theme.ogg\"".into()),
+        "the root has the map's"
+    );
     let coin = objs.iter().find(|(_, o, _)| o.id == 5).unwrap();
     assert!(coin.1.has_tile && coin.1.tile == 1);
 
@@ -172,14 +192,20 @@ fn despawning_a_level_removes_everything_it_spawned() {
         let game = ponko_game_new(c"levels".as_ptr(), 64, 64);
         let mut w = null_mut();
         let user = (&mut run as *mut Run).cast();
-        assert_eq!(ponko_game_run_headless(game, 0, Some(spawn_and_despawn), user, &mut w), PONKO_OK);
+        assert_eq!(
+            ponko_game_run_headless(game, 0, Some(spawn_and_despawn), user, &mut w),
+            PONKO_OK
+        );
         for &e in &run.entities {
             let mut alive = true;
             assert_eq!(ponko_is_alive(w, e, &mut alive), PONKO_OK);
             assert!(!alive);
         }
         let mut n = 0;
-        assert_eq!(ponko_level_entities(w, run.root, null_mut(), 0, &mut n), PONKO_NOT_FOUND);
+        assert_eq!(
+            ponko_level_entities(w, run.root, null_mut(), 0, &mut n),
+            PONKO_NOT_FOUND
+        );
         ponko_world_free(w);
     }
 }
@@ -187,7 +213,11 @@ fn despawning_a_level_removes_everything_it_spawned() {
 fn map_world() -> (*mut PonkoWorld, u64) {
     let w = ponko_world_new();
     let sheet = PonkoSpriteSheet {
-        texture: PonkoTexture { id: 0, width: 256, height: 256 },
+        texture: PonkoTexture {
+            id: 0,
+            width: 256,
+            height: 256,
+        },
         frame_size: PonkoVec2 { x: 16.0, y: 16.0 },
         columns: 16,
         len: 256,
@@ -216,8 +246,14 @@ fn tilemaps_take_parallax_animations_and_flips() {
         let half = PonkoVec2 { x: 0.5, y: 0.5 };
         assert_eq!(ponko_tilemap_set_parallax(w, e, half, PonkoVec2::default()), PONKO_OK);
         let (frames, secs) = ([3u16, 4], [0.1f32, 0.2]);
-        assert_eq!(ponko_tilemap_animate(w, e, 3, frames.as_ptr(), secs.as_ptr(), 2), PONKO_OK);
-        assert_eq!(ponko_tilemap_animate(w, e, 3, null(), null(), 1), PONKO_INVALID_ARGUMENT);
+        assert_eq!(
+            ponko_tilemap_animate(w, e, 3, frames.as_ptr(), secs.as_ptr(), 2),
+            PONKO_OK
+        );
+        assert_eq!(
+            ponko_tilemap_animate(w, e, 3, null(), null(), 1),
+            PONKO_INVALID_ARGUMENT
+        );
         assert_eq!(ponko_tilemap_set_flipped(w, e, 1, 1, 7, PONKO_TILE_FLIP_Y), PONKO_OK);
         let mut flip = 0;
         assert_eq!(ponko_tilemap_flip(w, e, 1, 1, &mut flip), PONKO_OK);
@@ -235,19 +271,36 @@ fn tilemaps_autotile_and_paint_by_neighbours() {
     let (w, e) = map_world();
     let frames: [u16; 16] = std::array::from_fn(|i| 100 + i as u16);
     // A 4 x 3 map, the middle row filled.
-    let filled = [false, false, false, false, true, true, true, true, false, false, false, false];
+    let filled = [
+        false, false, false, false, true, true, true, true, false, false, false, false,
+    ];
     unsafe {
-        assert_eq!(ponko_tilemap_autotile(w, e, 4, frames.as_ptr(), 16, false, filled.as_ptr()), PONKO_OK);
+        assert_eq!(
+            ponko_tilemap_autotile(w, e, 4, frames.as_ptr(), 16, false, filled.as_ptr()),
+            PONKO_OK
+        );
         let t = tiles(w, e);
         assert_eq!(t[4], 100 + 2, "east neighbour only");
         assert_eq!(t[5], 100 + 2 + 8, "east and west");
         assert_eq!(t[0], PONKO_TILE_EMPTY);
-        assert_eq!(ponko_tilemap_paint_autotile(w, e, 4, frames.as_ptr(), 16, false, 1, 0, true), PONKO_OK);
+        assert_eq!(
+            ponko_tilemap_paint_autotile(w, e, 4, frames.as_ptr(), 16, false, 1, 0, true),
+            PONKO_OK
+        );
         assert_eq!(tiles(w, e)[5], 100 + 1 + 2 + 8, "the cell above is filled now");
-        assert_eq!(ponko_tilemap_autotile(w, e, 5, frames.as_ptr(), 16, false, filled.as_ptr()), PONKO_INVALID_ARGUMENT);
+        assert_eq!(
+            ponko_tilemap_autotile(w, e, 5, frames.as_ptr(), 16, false, filled.as_ptr()),
+            PONKO_INVALID_ARGUMENT
+        );
         let blob = [0u16; 47];
-        assert_eq!(ponko_tilemap_autotile(w, e, 8, blob.as_ptr(), 47, true, filled.as_ptr()), PONKO_OK);
-        assert_eq!(ponko_tilemap_autotile(w, e, 8, blob.as_ptr(), 16, true, filled.as_ptr()), PONKO_INVALID_ARGUMENT);
+        assert_eq!(
+            ponko_tilemap_autotile(w, e, 8, blob.as_ptr(), 47, true, filled.as_ptr()),
+            PONKO_OK
+        );
+        assert_eq!(
+            ponko_tilemap_autotile(w, e, 8, blob.as_ptr(), 16, true, filled.as_ptr()),
+            PONKO_INVALID_ARGUMENT
+        );
         ponko_world_free(w);
     }
 }
@@ -258,17 +311,29 @@ fn tilemap_solid_tiles_merge_into_rects_and_colliders() {
     let filled = [true; 12];
     let frames = [9u16; 16];
     unsafe {
-        assert_eq!(ponko_tilemap_autotile(w, e, 4, frames.as_ptr(), 16, true, filled.as_ptr()), PONKO_OK);
+        assert_eq!(
+            ponko_tilemap_autotile(w, e, 4, frames.as_ptr(), 16, true, filled.as_ptr()),
+            PONKO_OK
+        );
         let solid = [9u16];
         let mut rects = [PonkoRect::default(); 4];
         let mut n = 0;
-        assert_eq!(ponko_tilemap_solid_rects(w, e, solid.as_ptr(), 1, rects.as_mut_ptr(), 4, &mut n), PONKO_OK);
+        assert_eq!(
+            ponko_tilemap_solid_rects(w, e, solid.as_ptr(), 1, rects.as_mut_ptr(), 4, &mut n),
+            PONKO_OK
+        );
         assert_eq!(n, 1);
         assert_eq!((rects[0].max.x, rects[0].max.y), (64.0, 48.0));
         let mut spawned = 0;
-        assert_eq!(ponko_tilemap_spawn_colliders(w, e, solid.as_ptr(), 1, &mut spawned), PONKO_OK);
+        assert_eq!(
+            ponko_tilemap_spawn_colliders(w, e, solid.as_ptr(), 1, &mut spawned),
+            PONKO_OK
+        );
         assert_eq!(spawned, 1);
-        assert_eq!(ponko_tilemap_solid_rects(w, e, null(), 1, rects.as_mut_ptr(), 4, &mut n), PONKO_INVALID_ARGUMENT);
+        assert_eq!(
+            ponko_tilemap_solid_rects(w, e, null(), 1, rects.as_mut_ptr(), 4, &mut n),
+            PONKO_INVALID_ARGUMENT
+        );
         ponko_world_free(w);
     }
 }

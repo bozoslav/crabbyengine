@@ -6200,6 +6200,146 @@ inline std::uint64_t steam_wait_for_invite(std::uint32_t app_id, std::uint32_t t
     detail::check(ponko_steam_wait_for_invite(app_id, timeout_ms, &l));
     return l;
 }
+
+// ---- Levels from level editors (Tiled, LDtk) and tilemap extras ----------------
+/// How spawn_level spawns a level; the defaults spawn everything.
+struct level_options {
+    /// Object classes spawned as prefab instances: {class, prefab file}.
+    std::vector<std::pair<std::string, std::string>> prefabs;
+    /// More solid things by name: layers, LDtk IntGrid values, tile classes or
+    /// tags (layers named "collision" or "collisions" are solid anyway).
+    std::vector<std::string> solid;
+    /// For an LDtk project: the level (identifier or iid); empty for the first.
+    std::string level;
+    /// Spawn no colliders.
+    bool no_colliders = false;
+    /// The z of the objects' layer; layers below get one less each, above one more.
+    float z = 0.0f;
+};
+/// A spawned level object's data: where it is, its shape, its tile.
+using level_object = PonkoLevelObject;
+
+/// Spawns the level at `path` (Tiled .tmx / .tmj, LDtk .ldtk) with its
+/// top-left at `at`: layers as tilemaps, objects as entities or prefabs,
+/// colliders with 2D physics. Returns the level's root entity. With hot
+/// reload on, editing the files spawns it again in place.
+inline entity spawn_level(ctx& c, const char* path, vec2 at, const level_options& options = {}) {
+    std::vector<const char*> classes, paths, solid;
+    for (const auto& p : options.prefabs) { classes.push_back(p.first.c_str()); paths.push_back(p.second.c_str()); }
+    for (const auto& s : options.solid) solid.push_back(s.c_str());
+    PonkoLevelOptions o{classes.data(), paths.data(), classes.size(), solid.data(), solid.size(),
+                        options.level.empty() ? nullptr : options.level.c_str(), options.no_colliders, options.z};
+    entity root = 0;
+    detail::check(ponko_ctx_spawn_level(c.raw(), path, at, &o, &root));
+    return root;
+}
+/// Despawns a level and everything it spawned; false if `root` was gone.
+inline bool despawn_level(ctx& c, entity root) {
+    const PonkoStatus s = ponko_ctx_despawn_level(c.raw(), root);
+    if (s == PONKO_NOT_FOUND) return false;
+    detail::check(s);
+    return true;
+}
+/// Every entity a level spawned (layers, objects, colliders), root excluded.
+inline std::vector<entity> level_entities(ctx& c, entity root) {
+    PonkoWorld* w = ponko_ctx_world(c.raw());
+    std::size_t n = 0;
+    detail::check(ponko_level_entities(w, root, nullptr, 0, &n));
+    std::vector<entity> out(n);
+    detail::check(ponko_level_entities(w, root, out.data(), out.size(), &n));
+    out.resize(std::min(n, out.size()));
+    return out;
+}
+/// The level object on `e`; throws if `e` is not one.
+inline level_object level_object_of(ctx& c, entity e) {
+    level_object o{};
+    detail::check(ponko_level_object_get(ponko_ctx_world(c.raw()), e, &o));
+    return o;
+}
+/// A level object's name, class and layer as the editor shows them.
+///@{
+inline std::string level_object_name(ctx& c, entity e) {
+    return detail::read_text([&](char* b, std::size_t n, std::size_t* len) { return ponko_level_object_name(ponko_ctx_world(c.raw()), e, b, n, len); });
+}
+inline std::string level_object_class(ctx& c, entity e) {
+    return detail::read_text([&](char* b, std::size_t n, std::size_t* len) { return ponko_level_object_class(ponko_ctx_world(c.raw()), e, b, n, len); });
+}
+inline std::string level_object_layer(ctx& c, entity e) {
+    return detail::read_text([&](char* b, std::size_t n, std::size_t* len) { return ponko_level_object_layer(ponko_ctx_world(c.raw()), e, b, n, len); });
+}
+///@}
+/// A custom property of a level object, layer or level root, as JSON
+/// ("5", "\"gold\"", "true"); throws if there is none.
+inline std::string level_property_json(ctx& c, entity e, const char* name) {
+    return detail::read_text([&](char* b, std::size_t n, std::size_t* len) { return ponko_level_property_json(ponko_ctx_world(c.raw()), e, name, b, n, len); });
+}
+/// How fast a tilemap follows the camera: (1, 1) moves with the world, (0, 0)
+/// stays on screen, in between scrolls slower (far layers). `origin` is the
+/// camera center where the map sits at its own position.
+inline void tilemap_set_parallax(ctx& c, entity map, vec2 parallax, vec2 origin = {0, 0}) {
+    detail::check(ponko_tilemap_set_parallax(ponko_ctx_world(c.raw()), map, parallax, origin));
+}
+/// Animates every cell showing `tile`: the frames in turn, each for its seconds.
+/// An empty list stops the animation.
+inline void tilemap_animate(ctx& c, entity map, std::uint16_t tile, const std::vector<std::pair<std::uint16_t, float>>& frames) {
+    std::vector<std::uint16_t> f;
+    std::vector<float> s;
+    for (const auto& p : frames) { f.push_back(p.first); s.push_back(p.second); }
+    detail::check(ponko_tilemap_animate(ponko_ctx_world(c.raw()), map, tile, f.data(), s.data(), f.size()));
+}
+/// Sets a cell's frame and its PONKO_TILE_FLIP_* bits.
+inline void tilemap_set_flipped(ctx& c, entity map, std::uint32_t x, std::uint32_t y, std::uint16_t frame, std::uint8_t flip) {
+    detail::check(ponko_tilemap_set_flipped(ponko_ctx_world(c.raw()), map, x, y, frame, flip));
+}
+/// A cell's PONKO_TILE_FLIP_* bits.
+inline std::uint8_t tilemap_flip(ctx& c, entity map, std::uint32_t x, std::uint32_t y) {
+    std::uint8_t f = 0;
+    detail::check(ponko_tilemap_flip(ponko_ctx_world(c.raw()), map, x, y, &f));
+    return f;
+}
+/// An autotile rule: 4 or 8 neighbours, the frame for each mask (16 frames
+/// for 4 neighbours; 47 "blob" frames for 8), and whether the map's outside
+/// counts as filled.
+struct autotile_rule {
+    /// 4 or 8.
+    std::uint32_t neighbours = 4;
+    /// 16 frames (4 neighbours, mask N=1 E=2 S=4 W=8) or 47 (8 neighbours, blob order).
+    std::vector<std::uint16_t> frames;
+    /// Cells beyond the map's edge count as filled.
+    bool outside_filled = true;
+};
+/// Applies the rule over the whole map: each cell `filled` marks (width ×
+/// height, row by row) gets the frame for its filled neighbours; other cells
+/// are left alone.
+inline void tilemap_autotile(ctx& c, entity map, const autotile_rule& rule, const std::vector<bool>& filled) {
+    std::unique_ptr<bool[]> cells(new bool[filled.size()]);
+    std::copy(filled.begin(), filled.end(), cells.get());
+    detail::check(ponko_tilemap_autotile(ponko_ctx_world(c.raw()), map, rule.neighbours, rule.frames.data(), rule.frames.size(),
+                                         rule.outside_filled, cells.get()));
+}
+/// Fills or clears one cell and fixes it and its neighbours to the rule.
+inline void tilemap_paint_autotile(ctx& c, entity map, const autotile_rule& rule, std::uint32_t x, std::uint32_t y, bool on) {
+    detail::check(ponko_tilemap_paint_autotile(ponko_ctx_world(c.raw()), map, rule.neighbours, rule.frames.data(), rule.frames.size(),
+                                               rule.outside_filled, x, y, on));
+}
+/// The cells showing one of `solid` tiles, merged into few rectangles, in
+/// pixels from the map's top-left.
+inline std::vector<rect> tilemap_solid_rects(ctx& c, entity map, const std::vector<std::uint16_t>& solid) {
+    PonkoWorld* w = ponko_ctx_world(c.raw());
+    std::size_t n = 0;
+    detail::check(ponko_tilemap_solid_rects(w, map, solid.data(), solid.size(), nullptr, 0, &n));
+    std::vector<rect> out(n);
+    detail::check(ponko_tilemap_solid_rects(w, map, solid.data(), solid.size(), out.data(), out.size(), &n));
+    out.resize(std::min(n, out.size()));
+    return out;
+}
+/// Spawns fixed bodies for the cells showing one of `solid` tiles, merged
+/// into few rectangles; returns how many. Needs 2D physics.
+inline std::size_t tilemap_spawn_colliders(ctx& c, entity map, const std::vector<std::uint16_t>& solid) {
+    std::size_t n = 0;
+    detail::check(ponko_tilemap_spawn_colliders(ponko_ctx_world(c.raw()), map, solid.data(), solid.size(), &n));
+    return n;
+}
 } // namespace ponko
 
 #define PONKO_PP_CAT2(a, b) a##b
