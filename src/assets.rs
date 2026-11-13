@@ -742,7 +742,7 @@ pub struct Assets {
     /// How to apply each loaded data file's text (`load_resource`).
     pub(crate) data_loaders: Vec<DataLoader>,
     /// Parsed prefab files, by name (`Ctx::spawn_prefab`).
-    pub(crate) prefabs: HashMap<String, Value>,
+    pub(crate) prefabs: HashMap<String, std::rc::Rc<crate::scene::PrefabFile>>,
     /// Fields of reflected components that name assets, and how to load
     /// them before a scene or prefab is spawned (`scene_asset_field`).
     pub(crate) scene_asset_fields: Vec<crate::scene::SceneAssetField>,
@@ -1050,6 +1050,14 @@ impl Assets {
     /// `assets/<path>`, for [`spawn_prefab`](crate::ctx::Ctx::spawn_prefab). Its
     /// position isn't kept: each spawn says where. Not in web builds.
     ///
+    /// The prefab holds `e`'s children too: its [`PrefabParts`](crate::prelude::PrefabParts)
+    /// (if a prefab spawned it) and every entity attached to one of them,
+    /// by [`Attached`](crate::d2::Attached), a skin or joint attachment, or a 3D
+    /// joint between two of them. Their transforms are saved relative to
+    /// `e`'s, and their references to each other are kept. Included prefabs
+    /// are saved as their entities, not as a link to their file. An entity
+    /// with no children is saved as a version-1 file, as before.
+    ///
     /// ```no_run
     /// # use ponko::prelude::*;
     /// # fn f(ctx: &mut Ctx, palm: Entity) {
@@ -1067,10 +1075,43 @@ impl Assets {
         if let Some(t) = components.get_mut("Transform2D") {
             t["position"] = json!([0.0, 0.0]);
         }
-        let prefab = json!({ "format": PREFAB_FORMAT, "version": PREFAB_VERSION, "components": components });
+        // Spawning gives the root its parts again.
+        if let Value::Object(map) = &mut components {
+            map.remove("PrefabParts");
+        }
+        let members = crate::scene::prefab_members(world, e);
+        if members.len() == 1 {
+            let prefab = json!({ "format": PREFAB_FORMAT, "version": PREFAB_VERSION, "components": components });
+            let text = serde_json::to_string_pretty(&prefab)?;
+            write_asset(path, text.as_bytes())?;
+            if let Value::Object(components) = components {
+                let file = crate::scene::PrefabFile::single(components);
+                self.prefabs.insert(path.to_string(), std::rc::Rc::new(file));
+            }
+            return Ok(());
+        }
+        let mut entities = Vec::with_capacity(members.len());
+        for &m in &members {
+            let mut json = if m == e {
+                components.clone()
+            } else {
+                world.entity_json(m)?
+            };
+            if m != e {
+                crate::scene::relative_to(world, m, e, &mut json);
+            }
+            // Spawning gives the root its parts again.
+            if let Value::Object(map) = &mut json {
+                map.remove("PrefabParts");
+            }
+            entities.push(json!({ "entity": m.to_bits(), "components": json }));
+        }
+        let prefab =
+            json!({ "format": PREFAB_FORMAT, "version": crate::scene::PREFAB_TREE_VERSION, "entities": entities });
         let text = serde_json::to_string_pretty(&prefab)?;
         write_asset(path, text.as_bytes())?;
-        self.prefabs.insert(path.to_string(), components);
+        // Read back from the file's JSON next time, like any prefab.
+        self.prefabs.remove(path);
         Ok(())
     }
 

@@ -378,7 +378,12 @@ out of public submissions and external services.
 
 For maintainers. A release is a version tag; `.github/workflows/release.yml`
 does the rest, so the tag, the crates on crates.io and the CHANGELOG section
-always come from one commit. Never run `cargo publish` by hand.
+always come from one commit. Never run `cargo publish` by hand. There are
+three kinds of tag, all in the steps below: a release from `main`
+(`v0.2.0`), a release candidate before a minor (`v0.2.0-rc.1`, see
+[Release candidates](#release-candidates)), and a patch release from a
+release branch (`v0.1.1` on `release-0.1`, see
+[Patch releases and backports](#patch-releases-and-backports)).
 
 1. Fold the fragments in: `python3 scripts/changelog.py --version X.Y.Z`
    (`--dry-run` shows the result first). If any fragment breaks the API, this
@@ -400,10 +405,11 @@ always come from one commit. Never run `cargo publish` by hand.
    (it does not need the tag to exist), and `cargo publish --workspace
    --dry-run` packages and builds every crate the way crates.io will. Open the
    pull request with the `full-ci` label, let CI pass and merge it.
-4. Tag the merge commit on `main` and push the tag:
+4. Tag the merge commit on `main` (on `release-X.Y` for a patch release) and
+   push the tag:
 
    ```sh
-   git switch main && git pull
+   git switch main && git pull     # release-X.Y for a patch release
    git tag -a vX.Y.Z -m "Ponko X.Y.Z" && git push origin vX.Y.Z
    ```
 
@@ -416,8 +422,9 @@ always come from one commit. Never run `cargo publish` by hand.
    publishes the crates to crates.io if the `CARGO_REGISTRY_TOKEN` secret is
    set (otherwise that job says so and can be re-run once it is). Its first
    job, `verify`, runs `release-check.py check`, and every other job waits for
-   it: nothing is built, released or published unless the tag is `vX.Y.Z` on a
-   commit merged to `main`, every crate is at X.Y.Z, `CHANGELOG.md` has a
+   it: nothing is built, released or published unless the tag is `vX.Y.Z` (or
+   `vX.Y.Z-rc.N`) on a commit merged to `main` or to `release-X.Y` of the
+   tag's own minor, every crate is at the tag's version, `CHANGELOG.md` has a
    non-empty `## [X.Y.Z]` section that fits in a release body, a release
    whose section has **Breaking changes** is a minor one with its migration
    chapter written, listed in the book's summary and holding every entry, the
@@ -426,6 +433,99 @@ always come from one commit. Never run `cargo publish` by hand.
 5. Redeploy the website (https://ponko.dev/), which builds the guide from
    `main` (its own repository, `ponkoengine/ponko-website`). The API
    reference of the release appears on docs.rs by itself.
+
+### Release candidates
+
+From 0.2.0 on, STABILITY.md has every minor go out as `vX.Y.0-rc.1` at least a
+week before `vX.Y.0`. A candidate is released like any release (steps 1 to 5
+above, on `main`) with these differences:
+
+- **The version is `X.Y.0-rc.N`** in the root `Cargo.toml`, every published
+  `crates/*/Cargo.toml` and the sibling requirements between them. The tag is
+  `vX.Y.0-rc.N` with N counting from 1; `release-check.py` refuses any other
+  suffix (`-beta.1`, `-rc`, `-rc.0`) and a candidate of a patch release.
+- **Nobody gets it by accident.** crates.io and Cargo treat a version with a
+  suffix as a pre-release: `cargo add ponko` and `ponko = "0.2"` never select
+  it. A tester asks for it by writing it out: `cargo add ponko@0.2.0-rc.1`.
+  The GitHub release is created with `--prerelease` (and a pre-release is
+  never the "latest" one), and its notes start with a line saying so.
+- **The CHANGELOG section may still be `[Unreleased]`.** The notes come from
+  the first of `## [X.Y.0-rc.N]`, `## [X.Y.0]` and `## [Unreleased]` that
+  exists, so a candidate needs no rename: fold the fragments in
+  (`python3 scripts/changelog.py --version X.Y.0-rc.1`), keep the heading as it
+  is and tag. The fragments still have to be folded in first, as for a
+  release. The release itself, `vX.Y.0`, needs its own `## [X.Y.0]` section.
+- **The migration chapter is needed already.** A candidate whose notes list
+  `### Breaking changes` needs `book/src/migrating-to-X.Y.md`, listed in the
+  summary and holding every breaking entry, because the people who try a
+  candidate need it most. The fold writes it, and the next candidate's fold
+  adds its new entries to the same chapter (all candidates and the release of
+  a minor share the name).
+- **A regression is fixed on `main`** through a pull request, and the next
+  candidate, `rc.2`, follows. The release is the last candidate, unchanged but
+  for the version: set `version = "X.Y.0"` and the section name, run
+  `release-check.py check vX.Y.0`, and tag it.
+
+### Patch releases and backports
+
+`main` may hold breaking changes for the next minor as soon as a minor is
+released, so patch releases (0.1.1, 0.1.2, ...) come from a branch, `release-X.Y`
+(`release-0.1`), which holds only changes that keep the API (STABILITY.md,
+"Releases"). Maintainers protect `release-*` like `main`: pull requests only,
+no force pushes. CI runs on them: pull requests into a release branch get the
+quick checks (the Semver job fails any break there), and every push to one
+gets the full matrix like `main`, so tag a commit whose run passed.
+
+**Create the branch** from the tag of the minor's first release, once, after
+that release is out (a maintainer, once per minor; branch rules are set up for
+`release-*` already):
+
+```sh
+git fetch origin --tags
+git branch release-0.1 v0.1.0 && git push origin release-0.1
+```
+
+**Backport a fix.** A fix always lands on `main` first, through its normal
+pull request, with its `changelog.d/` fragment (a `### Fixed` or `### Added`
+entry; a `### Breaking changes` one can never be backported, and the Semver job
+will refuse it). To carry it over:
+
+1. Put the **`backport`** label on the merged pull request (or its issue)
+   saying "this belongs on the patch branch". `gh pr list --state merged
+   --label backport` lists what still waits.
+2. Cherry-pick the merge commit (one commit, since pull requests are squash
+   merged) onto a branch of the release branch. `-x` writes the original
+   commit's hash into the message:
+
+   ```sh
+   git fetch origin
+   git switch -c backport/<number>-<topic> origin/release-0.1
+   git cherry-pick -x <merge commit on main>
+   ```
+
+   The fragment comes along. On a conflict, resolve it keeping the fix and
+   nothing else, `git cherry-pick --continue`, and make sure the change still
+   compiles against the older code; `cargo test` the affected crates.
+3. Open the pull request **against `release-0.1`**, labelled `backport`, with
+   "Backport of #<number>" in its description. CI and the Semver job run on it
+   as on any pull request; merge it when they pass.
+4. Take the `backport` label off the original pull request: it has been
+   carried over.
+
+**Release it** with steps 1 to 4 above, with these changes: work from a branch
+of `release-0.1` and open the release pull request against it (fold the
+fragments, set `version = "0.1.1"`, add the `## [0.1.1]` section, run
+`release-check.py check v0.1.1`); tag the merge commit on `release-0.1`; and,
+after the release, bring its notes to `main` through a pull request: copy the
+`## [0.1.1]` section and its link line into `CHANGELOG.md` there, and delete
+the fragments the release folded in from `main`'s `changelog.d/` (a
+cherry-picked fragment has the same file name on both branches), so the next
+minor does not list the fix a second time. Never merge `release-0.1` into
+`main`.
+
+`release.yml` accepts `vX.Y.Z` on `main` as well as on the `release-X.Y` of
+its own minor: `v0.1.1` on `release-0.1` passes, on `release-0.2` or on an
+unmerged branch it does not.
 
 `.github/workflows/release-audit.yml` runs weekly (and on demand) and fails if
 a version of our crates on crates.io has no matching tag, which is what a

@@ -64,13 +64,15 @@ never as a change to what the existing ones turn on.
   `0.y.0-rc.1` at least a week before the release. Cargo never selects a
   release candidate unless the version is written out
   (`ponko = "0.2.0-rc.1"`). A regression found in one is fixed and a new
-  candidate follows; the release is the last candidate, unchanged.
+  candidate follows; the release is the last candidate, unchanged. Patch
+  releases have no candidates.
 - **Support.** The newest minor gets patch releases. The minor before it
   gets fixes for security problems, crashes and data loss for four weeks
   after a new minor, so there is time to migrate. Older ones get none.
 - **Patch releases come from a release branch** (`release-0.1`, ...), so
   `main` can take breaking changes for the next minor right after a
-  release. Fixes land on `main` first and are carried over.
+  release. Fixes land on `main` first and are carried over (the `backport`
+  label marks them; CONTRIBUTING.md, "Releasing", has the procedure).
 - **Deprecation.** Where it is cheap, a replaced item stays as
   `#[deprecated]`, naming its replacement, until the next minor removes it.
   Where it is not, it goes at once, with its migration entry.

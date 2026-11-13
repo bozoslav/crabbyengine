@@ -7,7 +7,7 @@ use ponko_ecs::Component;
 /// use ponko::prelude::*;
 /// assert_eq!(ponko::d3::JointAxis::AngularX as usize, 3);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum JointAxis3D {
     /// Translation along X.
     LinearX,
@@ -29,7 +29,7 @@ pub enum JointAxis3D {
 /// let motion = ponko::d3::JointMotion::Limited(-0.5, 0.5);
 /// assert_ne!(motion, ponko::d3::JointMotion::Locked);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum JointMotion3D {
     /// Unconstrained.
     Free,
@@ -46,7 +46,7 @@ pub enum JointMotion3D {
 /// let drive = ponko::d3::JointDrive::velocity(2.0, 10.0);
 /// assert_eq!(drive.target_velocity, 2.0);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct JointDrive3D {
     /// Target displacement or angle.
     pub target_position: f32,
@@ -56,9 +56,22 @@ pub struct JointDrive3D {
     pub stiffness: f32,
     /// Damping coefficient.
     pub damping: f32,
-    /// Maximum force or torque; infinity means unlimited.
+    /// Maximum force or torque; infinity means unlimited (`null` in JSON).
+    #[serde(with = "unlimited")]
     pub max_force: f32,
 }
+
+/// Infinity as JSON `null`, which is what JSON writes for it anyway, so
+/// that it reads back.
+mod unlimited {
+    pub fn serialize<S: serde::Serializer>(v: &f32, s: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&v.is_finite().then_some(*v), s)
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f32, D::Error> {
+        Ok(<Option<f32> as serde::Deserialize>::deserialize(d)?.unwrap_or(f32::INFINITY))
+    }
+}
+
 impl JointDrive3D {
     /// A velocity motor with damping controlling convergence.
     /// ```
@@ -102,7 +115,7 @@ impl JointDrive3D {
 /// let joint = ponko::d3::Joint::spherical(a, b).motion(ponko::d3::JointAxis::AngularX, ponko::d3::JointMotion::Limited(-0.785, 0.785)).swing_cone(0.524);
 /// world.spawn((joint,));
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Component)]
+#[derive(Clone, Copy, Debug, PartialEq, Component, serde::Serialize, serde::Deserialize)]
 pub struct Joint3D {
     /// First body entity.
     pub body_a: Entity,

@@ -611,7 +611,7 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "run_input_scenario",
-            description: "Run a tick-indexed input scenario against a paused game that allows input injection (launched with `launch`, or started with PONKO_INPUT_INJECTION=1) and wait for it to end. The scenario is a versioned JSON object: input steps (key, mouse, gamepad_button, gamepad_axis, focus_lost, gamepad_disconnected) fed through the game's real input path before the tick's systems run, and checks (expect_action, expect_resource, expect_count) evaluated after them; tick 0 is the next simulation tick. Returns the report: status passed/failed/cancelled, ticks run, and for a failed check its step, tick, expected and actual values. The run stops at the first failed check. Held inputs are released when the run ends, fails or is cancelled (also on a timeout or error here), unless `keep_input_when_done` is set; then cancel_input_scenario releases them. A failed check or a cancel takes back only the ticks this run queued, not ticks someone else asked for.",
+            description: "Run a tick-indexed input scenario against a paused game that allows input injection (launched with `launch`, or started with PONKO_INPUT_INJECTION=1) and wait for it to end. The scenario is a versioned JSON object: input steps (key, mouse, gamepad_button, gamepad_axis, focus_lost, gamepad_disconnected) fed through the game's real input path before the tick's systems run, UI steps (ui_click, ui_type) that click or type into the retained UI's node of that name (in a window, in the frame after the tick), and checks (expect_action, expect_resource, expect_count, expect_ui) evaluated after them; tick 0 is the next simulation tick. Returns the report: status passed/failed/cancelled, ticks run, and for a failed check its step, tick, expected and actual values. The run stops at the first failed check. Held inputs are released when the run ends, fails or is cancelled (also on a timeout or error here), unless `keep_input_when_done` is set; then cancel_input_scenario releases them. A failed check or a cancel takes back only the ticks this run queued, not ticks someone else asked for.",
             writes: true,
             params: || {
                 json!({
@@ -750,7 +750,7 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "spawn_prefab",
-            description: "Spawn a prefab (one entity's components, from a file in assets/) with its position at a world point. Returns the new entity.",
+            description: "Spawn a prefab (an entity, or a tree of entities with its children, from a file in assets/) with its root's position at a world point. Returns the root entity and its parts.",
             writes: true,
             params: || {
                 json!({
@@ -762,7 +762,7 @@ fn tools() -> Vec<Tool> {
         },
         Tool {
             name: "save_prefab",
-            description: "Save an entity's reflected components as a prefab file in assets/ (its position isn't kept: each spawn says where), for spawn_prefab, ctx.spawn_prefab and the editor's palette (assets/prefabs/).",
+            description: "Save an entity's reflected components as a prefab file in assets/ (its position isn't kept: each spawn says where), with its prefab parts and what is attached to them, for spawn_prefab, ctx.spawn_prefab and the editor's palette (assets/prefabs/).",
             writes: true,
             params: || {
                 json!({
@@ -771,6 +771,13 @@ fn tools() -> Vec<Tool> {
                 })
             },
             required: &["entity", "path"],
+        },
+        Tool {
+            name: "despawn_prefab",
+            description: "Despawn a prefab's root entity and the parts spawn_prefab made with it. Returns how many entities went.",
+            writes: true,
+            params: || json!({ "entity": { "type": "integer", "description": "The root entity spawn_prefab returned" } }),
+            required: &["entity"],
         },
         Tool {
             name: "quit_instance",
@@ -831,6 +838,7 @@ fn tool_methods(name: &str) -> Option<&'static [&'static str]> {
         "load_scene" => &["scene.load"],
         "spawn_prefab" => &["prefab.spawn"],
         "save_prefab" => &["prefab.save"],
+        "despawn_prefab" => &["prefab.despawn"],
         "quit_instance" => &["game.quit"],
         _ => return None,
     })
@@ -1110,6 +1118,7 @@ impl Server {
             "load_scene" => self.instance(args)?.call("scene.load", pass(&["path"])),
             "spawn_prefab" => self.instance(args)?.call("prefab.spawn", pass(&["path", "at"])),
             "save_prefab" => self.instance(args)?.call("prefab.save", pass(&["entity", "path"])),
+            "despawn_prefab" => self.instance(args)?.call("prefab.despawn", pass(&["entity"])),
             "quit_instance" => self.instance(args)?.call("game.quit", json!({})),
             _ => Err(format!("unknown tool `{name}`")),
         }

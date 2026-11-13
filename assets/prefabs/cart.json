@@ -1,0 +1,21 @@
+{
+  "format": "ponko-prefab",
+  "version": 2,
+  "entities": [
+    { "entity": 0, "components": {
+        "Transform2D": {},
+        "Sprite": { "texture": "crab.png" } } },
+    { "entity": 1, "prefab": "prefabs/wheel.json", "components": {
+        "Attached": { "to": 0, "offset": [-24.0, 20.0], "rotation": 0.0 } } },
+    { "entity": 2, "prefab": "prefabs/wheel.json", "components": {
+        "Attached": { "to": 0, "offset": [24.0, 20.0], "rotation": 0.0 } } },
+    { "entity": 3, "components": {
+        "Transform2D": { "scale": [0.75, 0.75] },
+        "Sprite": { "texture": "crab.png", "z": 2.0 },
+        "Attached": { "to": 0, "offset": [0.0, -28.0], "rotation": 0.0 } } },
+    { "entity": 4, "components": {
+        "Transform2D": { "scale": [0.4, 0.4] },
+        "Sprite": { "texture": "crab.png", "z": 3.0 },
+        "Attached": { "to": 3, "offset": [0.0, -24.0], "rotation": 0.0 } } }
+  ]
+}
