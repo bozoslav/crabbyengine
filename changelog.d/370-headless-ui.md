@@ -1,7 +1,26 @@
 ### Breaking changes
-- `ScenarioCheck` is `#[non_exhaustive]` and has a new `Ui` variant: a
-  `match` on it needs a `_` arm (build checks with `ScenarioCheck::action`,
-  `resource`, `count` and `ui`).
+- `ScenarioCheck` is `#[non_exhaustive]` and has a new `Ui` variant.
+  Code outside the engine can no longer match it exhaustively.
+  Instead: add a `_` arm to a `match` on it, and build checks with
+  `ScenarioCheck::action`, `resource`, `count` and `ui`.
+  Before:
+  ```rust
+  match check {
+      ScenarioCheck::Action { name, .. } => println!("action {name}"),
+      ScenarioCheck::Resource { name, .. } => println!("resource {name}"),
+      ScenarioCheck::Count { component, .. } => println!("count {component}"),
+  }
+  ```
+  After:
+  ```rust
+  match check {
+      ScenarioCheck::Action { name, .. } => println!("action {name}"),
+      ScenarioCheck::Resource { name, .. } => println!("resource {name}"),
+      ScenarioCheck::Count { component, .. } => println!("count {component}"),
+      ScenarioCheck::Ui { node, .. } => println!("ui {node}"),
+      _ => {}
+  }
+  ```
 
 ### Added
 - `Game::headless_frames(true)`: headless runs (`run_headless`,
