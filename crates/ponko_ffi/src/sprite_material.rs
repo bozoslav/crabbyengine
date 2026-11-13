@@ -122,8 +122,8 @@ fn desc_from_c(c: &Ctx, d: &PonkoSpriteMaterialDesc) -> Result<SpriteMaterialDes
         }
         desc = SpriteMaterialDesc::new(shader);
     }
-    for (i, p) in d.params.chunks_exact(4).enumerate() {
-        desc = desc.with_param(i, Vec4::from_slice(p));
+    for (i, p) in d.params.as_chunks::<4>().0.iter().enumerate() {
+        desc = desc.with_param(i, Vec4::from_array(*p));
     }
     for i in 0..2 {
         if d.has_textures[i] {

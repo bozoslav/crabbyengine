@@ -7,7 +7,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ponko::d2::{BlendMode, SpriteMaterial, SpriteMaterialDesc, SpriteShader};
+use ponko::d2::{SpriteMaterial, SpriteMaterialDesc, SpriteShader};
 use ponko::prelude::*;
 use ponko::render::{ShaderKind, ShaderOutcome, ShaderStatus};
 
@@ -156,12 +156,12 @@ fn reload(file: &str, first: &str, edits: &'static [&'static str], hot_reload: b
         .hot_reload(hot_reload)
         .sim_system(move |ctx: &mut Ctx| {
             let tick = ctx.time.sim_tick() as usize;
-            if tick >= 2 && tick % 2 == 0 && tick / 2 <= edits.len() {
+            if tick >= 2 && tick.is_multiple_of(2) && tick / 2 <= edits.len() {
                 std::thread::sleep(Duration::from_millis(50));
                 std::fs::write(&edit_path, edits[tick / 2 - 1]).unwrap();
                 std::thread::sleep(Duration::from_millis(400));
             }
-            if tick >= 3 && tick % 2 == 1 {
+            if tick >= 3 && !tick.is_multiple_of(2) {
                 log.lock().unwrap().push(ctx.gfx.shader_status()[0].clone());
             }
         })
