@@ -80,6 +80,7 @@ fn every_task_is_solvable_and_its_checker_catches_wrong_fixes() {
         );
     }
     the_mcp_proxy_serves_a_task_and_scores_submissions(&root, &instances);
+    a_folder_that_is_not_the_suites_is_never_cleared(&root);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -185,4 +186,20 @@ fn tasks_are_well_formed() {
             }
         }
     }
+}
+
+/// `--dir` may name any folder: the suite clears only its own.
+fn a_folder_that_is_not_the_suites_is_never_cleared(root: &Path) {
+    let task = &suite::TASKS[0];
+    let theirs = root.join("someone-elses");
+    std::fs::create_dir_all(&theirs).unwrap();
+    std::fs::write(theirs.join("notes.txt"), "keep me").unwrap();
+    let err = suite::prepare(task, &theirs).unwrap_err();
+    assert!(err.contains("not a folder of this suite"), "{err}");
+    assert_eq!(std::fs::read_to_string(theirs.join("notes.txt")).unwrap(), "keep me");
+    // An empty one, and then the suite's own, are fine.
+    let ours = root.join("ours");
+    std::fs::create_dir_all(&ours).unwrap();
+    suite::prepare(task, &ours).unwrap();
+    suite::prepare(task, &ours).unwrap();
 }

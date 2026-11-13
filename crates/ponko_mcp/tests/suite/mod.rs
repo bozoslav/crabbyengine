@@ -191,18 +191,33 @@ pub struct Session {
     checker: Tools,
 }
 
-/// Writes `task`'s starting files into `dir`, which must not exist yet or be
-/// empty of anything but an earlier run of the suite.
+/// The file that marks a folder as the suite's own, so a later run may
+/// clear it.
+const MARKER: &str = ".ponko-agent-suite";
+
+/// Writes `task`'s starting files into `dir`. A folder that is already there
+/// is cleared first only when it is empty or an earlier run's (it has the
+/// suite's marker file); any other folder is refused, so a mistyped `--dir`
+/// can't delete someone's files.
 pub fn prepare(task: &Task, dir: &Path) -> Result<(), String> {
     if dir.exists() {
+        let empty = std::fs::read_dir(dir).map_err(|e| e.to_string())?.next().is_none();
+        if !empty && !dir.join(MARKER).is_file() {
+            return Err(format!(
+                "{} is not empty and not a folder of this suite; name a new folder",
+                dir.display()
+            ));
+        }
         std::fs::remove_dir_all(dir).map_err(|e| format!("can't clear {}: {e}", dir.display()))?;
     }
+    std::fs::create_dir_all(dir.join("assets")).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(MARKER), task.id).map_err(|e| e.to_string())?;
     for (path, text) in task.files {
         let file = dir.join(path);
         std::fs::create_dir_all(file.parent().unwrap()).map_err(|e| e.to_string())?;
         std::fs::write(&file, text).map_err(|e| format!("can't write {}: {e}", file.display()))?;
     }
-    std::fs::create_dir_all(dir.join("assets")).map_err(|e| e.to_string())
+    Ok(())
 }
 
 /// Runs `task`'s game on this thread until a tool asks it to quit. The
