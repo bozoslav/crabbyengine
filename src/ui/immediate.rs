@@ -299,9 +299,7 @@ mod tests {
         // The size is in UI units, so it doesn't depend on the scale.
         assert!((one - two).abs().max_element() < 1.0, "{one} at 1x, {two} at 2x");
         // The panel at (10, 10) in UI units is at (20, 20) in window pixels.
-        ctx.ui
-            .immediate
-            .panel(&mut ctx.gfx, Rect::new(10.0, 10.0, 100.0, 50.0));
+        ctx.ui.immediate.panel(&mut ctx.gfx, Rect::new(10.0, 10.0, 100.0, 50.0));
         assert!(!ctx.ui.immediate.covers(vec2(15.0, 15.0)));
         assert!(ctx.ui.immediate.covers(vec2(25.0, 25.0)));
         assert!(ctx.ui.immediate.covers(vec2(219.0, 119.0)));
@@ -313,9 +311,7 @@ mod tests {
         let mut ctx = Ctx::new(1.0 / 60.0, vec2(800.0, 600.0));
         ctx.set_headless(true);
         assert_eq!(ctx.ui.immediate.scale(), 1.0);
-        ctx.ui
-            .immediate
-            .panel(&mut ctx.gfx, Rect::new(10.0, 10.0, 100.0, 50.0));
+        ctx.ui.immediate.panel(&mut ctx.gfx, Rect::new(10.0, 10.0, 100.0, 50.0));
         assert!(ctx.ui.immediate.covers(vec2(10.5, 10.5)));
         assert!(!ctx.ui.immediate.covers(vec2(9.5, 9.5)));
         assert!(ctx.ui.immediate.covers(vec2(109.5, 59.5)));
@@ -374,8 +370,16 @@ mod tests {
     #[test]
     fn a_font_set_by_hand_stays_through_a_theme_change() {
         let mut ctx = Ctx::new(1.0 / 60.0, vec2(800.0, 600.0));
-        let mine = ctx.gfx.text.add_font(epaint_default_fonts::HACK_REGULAR).expect("a font");
-        let theirs = ctx.gfx.text.add_font(epaint_default_fonts::HACK_REGULAR).expect("a font");
+        let mine = ctx
+            .gfx
+            .text
+            .add_font(epaint_default_fonts::HACK_REGULAR)
+            .expect("a font");
+        let theirs = ctx
+            .gfx
+            .text
+            .add_font(epaint_default_fonts::HACK_REGULAR)
+            .expect("a font");
         ctx.ui.immediate.font = mine;
         ctx.ui.immediate.border_width = 3.0;
         ctx.ui.set_theme(UiTheme {

@@ -833,7 +833,11 @@ fn immediate_widgets_match_the_retained_ones_at_1x_and_2x() {
         assert_eq!(i_button.size(), button.size());
         assert_eq!(i_button.size(), vec2(120.0, 40.0) * scale);
         let edge = |r: crate::camera::Rect| image.pixel(r.max.x as u32 + 2, r.min.y as u32 + 3);
-        assert_ne!(edge(i_button), control, "the immediate button ends where it should at {scale}x");
+        assert_ne!(
+            edge(i_button),
+            control,
+            "the immediate button ends where it should at {scale}x"
+        );
         // One text size: the same ink, to a pixel or two.
         let (retained, immediate) = (ink(&image, button, control), ink(&image, i_button, control));
         eprintln!("ink at {scale}x: retained {retained}, immediate {immediate}");
@@ -856,5 +860,8 @@ fn immediate_widgets_match_the_retained_ones_at_1x_and_2x() {
     let (image, [_, button, _, i_button]) = mixed_screen(&painter, 1.0, 10.0);
     let control = Color::rgb(0.5, 0.1, 0.3).to_rgba8();
     let (retained, immediate) = (ink(&image, button, control), ink(&image, i_button, control));
-    assert!(immediate.y < retained.y * 0.7, "retained {retained}, immediate {immediate}");
+    assert!(
+        immediate.y < retained.y * 0.7,
+        "retained {retained}, immediate {immediate}"
+    );
 }
