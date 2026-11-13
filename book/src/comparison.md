@@ -1,9 +1,10 @@
 # Ponko vs Bevy vs Unity
 
-**Last reviewed: 2026-11-14.** Ponko is the engine formerly named Crabby
-Engine. This comparison describes the checked-in implementation and the
-linked official documentation; it does not claim feature parity or general
-performance superiority. Product versions and tool availability change.
+**Last reviewed: 2026-11-14.** Ponko was renamed before 0.1.0 (the
+[naming chapter](naming.md) maps the old names). This comparison describes
+the checked-in implementation and the linked official documentation; it does
+not claim feature parity or general performance superiority. Product versions
+and tool availability change.
 
 Ponko aims to make a capable 2D/3D engine accessible through a small,
 code-first public API and integrated runtime tools. Its differentiator is

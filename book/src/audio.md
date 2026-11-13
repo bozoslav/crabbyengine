@@ -99,6 +99,9 @@ Only running it opens a window and plays audio. Procedural clips already use
 maximum distance, and logarithmic, linear or keyed rolloff. Keyed curves use
 sorted `(normalized_distance, gain)` pairs in a static slice. All curves are
 silent at the maximum distance and full volume inside the minimum distance.
+Keyed curves are Rust-only for now (see
+[Still Rust-only](c-cpp.md#still-rust-only)): C and C++ choose linear or
+logarithmic.
 Stereo panning follows the listener's right axis. Kira applies gain, panning
 and playback-rate changes with smoothing; this is stereo positional audio,
 not an HRTF simulation. Prefer mono source clips for localized effects.

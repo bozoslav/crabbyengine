@@ -346,12 +346,26 @@ C and C++ resources and components are plain structs (no `std::string`
 or `std::vector` inside), copied in and out.
 
 Most chapters show Rust and C++ side by side. These features exist only in
-Rust today; the chapters say so where they use them:
+Rust today; the chapters say so where they use them.
+`scripts/check-ffi-coverage.py` checks this table against
+`scripts/rust-only.txt`, and that every name still exists in the Rust
+source and has no C function of its own, so a row goes away when its C
+binding arrives:
 
 | Rust feature | Where | From C and C++ |
 |---|---|---|
 | `Assets::scene_asset_field` | [Asset sources](asset-sources.md) | Load what a scene names before `load_scene` |
 | `Query::with_lookup`, `World::get_many_mut` | [Entities, components, queries](ecs.md#borrowing-several-things-at-once) | Component pointers from `get`, which don't borrow |
+| `ActionMap::get`, `ActionMap::iter`, `Input::set_action` | [Named input actions](actions.md) | Copy the whole map (`ponko_ctx_actions`, `ctx::actions`), change it and install it again; its bindings as JSON through `to_json` |
+| `systems::step_physics_access`, `systems::step_physics3d_access`, `systems::interpolate_physics3d_access`, `systems::step_navmesh3d_access` | [What the steps touch](systems.md#what-the-steps-touch) | The steps register with their declarations; `ponko_game_access_report` lists them, but no call returns one |
+| `SystemView` | [Declared system access](system-access.md) | C and C++ systems take the whole `ctx`, so they run alone; declare their access by name |
+| `LodHysteresis`, `LodGroup::instance_levels` | [Many copies that never move](3d.md#many-copies-that-never-move) | Make the batch's levels by hand (`create_instance_batch_levels`); no hysteresis |
+| `RenderPasses::scene_compute`, `RenderPasses::target_effects` | [Custom passes](3d.md#custom-passes) | Compute passes, screen effects and target cameras only |
+| `AudioRolloff::Keyed` | [Sound in 3D](audio.md#sound-in-3d) | Linear or logarithmic rolloff |
+| `Ctx::ecs_diagnostics` | [Working with AI agents](agents.md#ecs-diagnostics) | `ponko_game_schedule_plan` and `ponko_game_access_report`, or the `ecs.diagnostics` control method |
+| `Storage::world_slots`, `Storage::delete_world`, `Storage::is_persistent`, `Storage::is_saving`, `Storage::write_json`, `Storage::read_json` | [Saves and settings](storage.md#save-slots) | Bytes through `storage_write` and `storage_read`; no call for these |
+| `UiImmediate::font`, `UiImmediate::border_width`, `UiImmediate::scale` | [Camera, text and UI](camera-ui.md#one-look-for-both-styles) | The theme and `ponko_ctx_ui_set_scale` set them; nothing reads them back |
+| `UiAccessAdapter::for_ns_view` | [Retained game UI](ui.md#the-screen-reader-adapter) | The engine's own window gets the adapter; `ponko_ui_access_*` give a snapshot for one of your own |
 
 System phases, system ids, setup callbacks and plugins are not on this
 list. They have C and C++ calls, described in
