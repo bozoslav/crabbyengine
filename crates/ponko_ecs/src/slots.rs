@@ -27,12 +27,17 @@
 //!
 //! A reclaimed archetype's slot stays in `World::archetypes` with no
 //! components, rows or edges ("dead"), free for the next new component
-//! set. Its storage (id lists, column headers, entity list, edge maps)
-//! waits in a [`Shell`] and its column buffers in the world's
-//! [`BufferPool`], so a world in a steady state of churn builds its new
-//! archetypes without allocating. Archetype indices therefore name an
-//! archetype only until the next structural change, and what keeps them
-//! across changes is kept right:
+//! set. Its id lists, column headers and edge maps wait in a [`Shell`],
+//! kept by width for the next archetype as wide, and its column buffers
+//! and entity list in the world's [`BufferPool`], which also takes the
+//! buffers archetypes outgrow and hands them to archetypes that grow. A
+//! full edge map grows straight to the most edges it can hold when that is
+//! small (`World::add_edge`). So a world in a steady state of churn builds
+//! its new archetypes without allocating once it has needed each width and
+//! size it needs; what still allocates is an archetype outgrowing any
+//! buffer the world has, as without reclaiming. Archetype indices
+//! therefore name an archetype only until the next structural change, and
+//! what keeps them across changes is kept right:
 //!
 //! - Entity locations only name archetypes with entities, never an empty
 //!   (reclaimable) one.
