@@ -1148,12 +1148,14 @@ impl World {
         let dst = match self.archetypes[src].add_edges.get(&id) {
             Some(&d) => d,
             None => {
-                let mut ids = self.archetypes[src].ids.to_vec();
+                let mut ids = std::mem::take(&mut self.scratch_ids);
+                ids.clear();
+                ids.extend_from_slice(&self.archetypes[src].ids);
                 ids.push(id);
                 ids.sort_unstable();
                 let d = self.archetype_for(&ids);
-                self.archetypes[src].add_edges.insert(id, d);
-                self.archetypes[d].remove_edges.insert(id, src);
+                self.scratch_ids = ids;
+                self.add_edge(src, id, d);
                 d
             }
         };
@@ -1225,29 +1227,58 @@ impl World {
     // ---- internals -------------------------------------------------------------
 
     /// The archetype of exactly `ids` (sorted and unique), created if there
-    /// is none: in the slot and storage of a reclaimed archetype if there is
-    /// one, else in a new slot.
+    /// is none: in the slot of a reclaimed archetype if there is one, and in
+    /// the storage of one as wide if one is kept.
     fn archetype_for(&mut self, ids: &[ComponentId]) -> usize {
         if let Some(&a) = self.archetype_by_ids.get(ids) {
             return a;
         }
-        let (a, key) = match self.slots.reuse(ids.len()) {
-            Some((a, shell)) => {
-                let (arch, key) = Archetype::reuse(shell, ids, &self.infos);
+        let (arch, key) = match self.slots.shell(ids.len()) {
+            Some(shell) => Archetype::reuse(shell, ids, &self.infos),
+            None => (Archetype::new(ids.into(), &self.infos), ids.into()),
+        };
+        let a = match self.slots.free_slot() {
+            Some(a) => {
                 self.archetypes[a] = arch;
                 // Indexed query signatures learn what the slot holds now.
                 self.query_matches.reused(a, &self.archetypes);
-                (a, key)
+                a
             }
             None => {
-                let a = self.archetypes.len();
-                self.archetypes.push(Archetype::new(ids.into(), &self.infos));
-                (a, ids.into())
+                self.archetypes.push(arch);
+                self.archetypes.len() - 1
             }
         };
         self.slots.created(a);
         self.archetype_by_ids.insert(key, a);
         a
+    }
+
+    /// Records that adding component `id` to archetype `src` leads to `dst`,
+    /// and removing it from `dst` back to `src`.
+    ///
+    /// An edge map holds at most one edge per component: an add map one for
+    /// each registered component its archetype lacks, a remove map one for
+    /// each it has. A full map whose bound is small grows to it at once,
+    /// rather than doubling: in a world that reclaims archetypes, edges keep
+    /// going (with the archetype they lead to) and coming back, and a map
+    /// that grew a step at a time would allocate again whenever its
+    /// archetype reached a new most edges.
+    fn add_edge(&mut self, src: usize, id: ComponentId, dst: usize) {
+        const AT_ONCE: usize = 32;
+        let registered = self.infos.len();
+        let s = &mut self.archetypes[src];
+        let most = registered - s.ids.len();
+        if s.add_edges.len() == s.add_edges.capacity() && most <= AT_ONCE {
+            s.add_edges.reserve(most - s.add_edges.len());
+        }
+        s.add_edges.insert(id, dst);
+        let d = &mut self.archetypes[dst];
+        let most = d.ids.len();
+        if d.remove_edges.len() == d.remove_edges.capacity() && most <= AT_ONCE {
+            d.remove_edges.reserve(most - d.remove_edges.len());
+        }
+        d.remove_edges.insert(id, src);
     }
 
     /// Reclaims the archetypes that have been empty the longest while the
@@ -1335,10 +1366,12 @@ impl World {
         let dst = match self.archetypes[src].remove_edges.get(&id) {
             Some(&d) => d,
             None => {
-                let ids: Vec<_> = self.archetypes[src].ids.iter().copied().filter(|&c| c != id).collect();
+                let mut ids = std::mem::take(&mut self.scratch_ids);
+                ids.clear();
+                ids.extend(self.archetypes[src].ids.iter().copied().filter(|&c| c != id));
                 let d = self.archetype_for(&ids);
-                self.archetypes[src].remove_edges.insert(id, d);
-                self.archetypes[d].add_edges.insert(id, src);
+                self.scratch_ids = ids;
+                self.add_edge(d, id, src);
                 d
             }
         };

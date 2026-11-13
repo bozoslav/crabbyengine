@@ -211,20 +211,36 @@ impl Column {
         Layout::from_size_align(size, align).expect("column too large")
     }
 
-    /// Grows the buffer from `old_cap` to `new_cap` rows. A column that has
-    /// no buffer yet takes one of the right layout from `pool` if it has
-    /// one: the buffer of an archetype that was reclaimed.
+    /// Grows the buffer from `old_cap` to `new_cap` rows. Takes a buffer of
+    /// the new size from `pool` if it has one (one of an archetype that
+    /// was reclaimed, or that grew), and gives the old one to it.
     unsafe fn grow(&mut self, old_cap: usize, new_cap: usize, pool: &mut BufferPool) {
         let (old, new) = (self.array(old_cap), self.array(new_cap));
         if new.size() == 0 {
             return;
         }
+        if let Some(fresh) = pool.take(new) {
+            if old.size() != 0 {
+                // SAFETY: both buffers hold their capacity of values (and,
+                // tracked, stamps after them); `fresh` is a separate buffer.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(self.data.as_ptr(), fresh.as_ptr(), self.size * old_cap);
+                    if let Some((added, changed)) = self.stamps(old_cap) {
+                        let to = fresh.as_ptr().add(self.stamps_offset(new_cap)).cast::<u32>();
+                        std::ptr::copy_nonoverlapping(added, to, old_cap);
+                        std::ptr::copy_nonoverlapping(changed, to.add(new_cap), old_cap);
+                    }
+                    if !pool.put(old, self.data) {
+                        alloc::dealloc(self.data.as_ptr(), old);
+                    }
+                }
+            }
+            self.data = fresh;
+            return;
+        }
         let p = unsafe {
             if old.size() == 0 {
-                match pool.take(new) {
-                    Some(p) => p.as_ptr(),
-                    None => alloc::alloc(new),
-                }
+                alloc::alloc(new)
             } else {
                 alloc::realloc(self.data.as_ptr(), old, new.size())
             }
@@ -374,11 +390,11 @@ impl Archetype {
             unsafe { c.give_buffer(cap, pool) };
         }
         self.cap = 0;
+        give_entities(std::mem::take(&mut self.entities), pool);
         Shell {
             ids: std::mem::take(&mut self.ids),
             key: None,
             columns: std::mem::take(&mut self.columns),
-            entities: std::mem::take(&mut self.entities),
             add_edges: std::mem::take(&mut self.add_edges),
             remove_edges: std::mem::take(&mut self.remove_edges),
         }
@@ -386,15 +402,14 @@ impl Archetype {
 
     /// A new, empty archetype of `ids` (sorted, unique) built in the storage
     /// of a reclaimed one, and its key for the world's archetype map. Boxes
-    /// of the same length are written over; the entity list and edge maps
-    /// keep their capacity. Doesn't allocate when `shell` held as many
-    /// components as `ids`.
+    /// of the same length are written over, and the edge maps keep their
+    /// capacity. Doesn't allocate when `shell` held as many components as
+    /// `ids`.
     pub(crate) fn reuse(shell: Shell, ids: &[ComponentId], infos: &[ComponentInfo]) -> (Self, Box<[ComponentId]>) {
         let Shell {
             ids: mut own,
             key,
             mut columns,
-            mut entities,
             mut add_edges,
             mut remove_edges,
         } = shell;
@@ -415,13 +430,12 @@ impl Archetype {
         } else {
             columns = ids.iter().map(|id| Self::column(&infos[id.index()])).collect();
         }
-        entities.clear();
         add_edges.clear();
         remove_edges.clear();
         let mut arch = Archetype {
             ids: own,
             columns,
-            entities,
+            entities: Vec::new(),
             cap: 0,
             add_edges,
             remove_edges,
@@ -432,12 +446,6 @@ impl Archetype {
             0
         };
         (arch, key)
-    }
-
-    /// Heap bytes kept for entity handles: what an archetype's entity list
-    /// holds, for the world's count of reusable storage.
-    pub(crate) fn shell_bytes(shell: &Shell) -> usize {
-        shell.entities.capacity() * std::mem::size_of::<Entity>()
     }
 
     /// Number of entities in this archetype.
@@ -603,7 +611,25 @@ impl Archetype {
             unsafe { c.grow(cap, new_cap, pool) }
         }
         self.cap = new_cap | (self.cap & TRACKED);
-        self.entities.reserve(new_cap - self.entities.len());
+        self.grow_entities(new_cap, pool);
+    }
+
+    /// Grows the entity list to `cap` handles, with a buffer from `pool` if
+    /// it has one, giving the old one to it.
+    fn grow_entities(&mut self, cap: usize, pool: &mut BufferPool) {
+        let len = self.entities.len();
+        if self.entities.capacity() >= cap {
+            return;
+        }
+        let Some(p) = pool.take(Layout::array::<Entity>(cap).expect("too many entities")) else {
+            self.entities.reserve_exact(cap - len);
+            return;
+        };
+        // SAFETY: `p` was allocated by the global allocator with the layout
+        // of `cap` handles, and nothing else points to it.
+        let mut fresh = unsafe { Vec::from_raw_parts(p.as_ptr().cast::<Entity>(), 0, cap) };
+        fresh.extend_from_slice(&self.entities);
+        give_entities(std::mem::replace(&mut self.entities, fresh), pool);
     }
 
     /// Makes room for one more row and, if this archetype tracks changes,
@@ -804,14 +830,14 @@ impl Drop for Archetype {
 }
 
 /// The storage a reclaimed archetype leaves behind, kept for the next new
-/// archetype: its id lists, column headers, entity list and edge maps, all
-/// empty, with their capacity. Its column buffers went to a [`BufferPool`].
+/// archetype: its id lists, column headers and edge maps, all empty, the
+/// maps with their capacity. Its column buffers and entity list went to a
+/// [`BufferPool`].
 pub(crate) struct Shell {
     ids: Box<[ComponentId]>,
     /// The boxed key of the world's archetype map, once taken back from it.
     pub(crate) key: Option<Box<[ComponentId]>>,
     columns: Box<[Column]>,
-    entities: Vec<Entity>,
     add_edges: EdgeMap,
     remove_edges: EdgeMap,
 }
@@ -832,9 +858,10 @@ const POOL_BYTES: usize = 4 << 20;
 /// Most different buffer layouts it keeps them for.
 const POOL_LAYOUTS: usize = 64;
 
-/// Column buffers of reclaimed archetypes, by layout, for the columns of
-/// new archetypes: a world whose component combinations come and go then
-/// reaches a state where it allocates nothing (issue #347). Bounded by
+/// Column buffers and entity lists of reclaimed archetypes, and the ones
+/// archetypes outgrew, by layout, for archetypes that grow: a world whose
+/// component combinations come and go then reaches a state where it
+/// allocates nothing (issue #347). Bounded by
 /// [`POOL_BYTES`] and [`POOL_LAYOUTS`]; what doesn't fit is freed.
 #[derive(Default)]
 pub(crate) struct BufferPool {
@@ -888,6 +915,20 @@ impl Drop for BufferPool {
                 unsafe { alloc::dealloc(p.as_ptr(), *layout) }
             }
         }
+    }
+}
+
+/// Gives the buffer of an entity list to `pool`, or frees it.
+fn give_entities(entities: Vec<Entity>, pool: &mut BufferPool) {
+    if entities.capacity() == 0 {
+        return;
+    }
+    let layout = Layout::array::<Entity>(entities.capacity()).expect("a list's own layout");
+    let mut entities = std::mem::ManuallyDrop::new(entities);
+    // `Entity` is `Copy`: forgetting the handles drops nothing.
+    let p = NonNull::new(entities.as_mut_ptr().cast::<u8>()).expect("a list with capacity");
+    if !pool.put(layout, p) {
+        drop(std::mem::ManuallyDrop::into_inner(entities));
     }
 }
 

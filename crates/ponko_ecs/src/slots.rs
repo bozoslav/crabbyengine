@@ -54,7 +54,7 @@
 
 use std::collections::VecDeque;
 
-use crate::storage::{Archetype, BufferPool, Shell};
+use crate::storage::{BufferPool, Shell};
 
 /// Empty archetypes a world keeps whatever its size; see the module docs.
 pub(crate) const KEEP_EMPTY: usize = 64;
@@ -93,10 +93,16 @@ pub(crate) struct Slots {
     queue: VecDeque<(u32, u32)>,
     /// Empty archetypes that may be reclaimed: not pinned, not dead.
     empty: usize,
-    /// Dead slots, and the storage of the archetypes reclaimed from them,
-    /// by width (as many shells as dead slots).
+    /// Dead slots.
     free: Vec<u32>,
+    /// Storage of reclaimed archetypes, by width (component count): at most
+    /// as many more than there are dead slots as the world may keep empty
+    /// archetypes. A new archetype takes
+    /// one as wide as it, so the widths kept follow the widths the world
+    /// builds, and a churning world stops allocating once it has built its
+    /// widest mix.
     shells: Vec<Vec<Shell>>,
+    shell_count: usize,
     /// Column buffers of reclaimed archetypes.
     pub(crate) buffers: BufferPool,
 }
@@ -195,36 +201,37 @@ impl Slots {
     /// Archetype `a` was reclaimed, leaving `shell`.
     pub(crate) fn reclaimed(&mut self, a: usize, shell: Shell) {
         self.meta[a].dead = true;
+        let width = shell.width();
         self.empty -= 1;
         self.free.push(a as u32);
-        let width = shell.width();
+        if self.shell_count >= self.free.len() + KEEP_EMPTY.max(self.live) {
+            // Enough kept already: let this one go.
+            return;
+        }
         if width >= self.shells.len() {
             self.shells.resize_with(width + 1, Vec::new);
         }
         self.shells[width].push(shell);
+        self.shell_count += 1;
     }
 
-    /// A dead slot to build an archetype of `width` components in, with the
-    /// storage of a reclaimed archetype: one as wide if there is one.
-    pub(crate) fn reuse(&mut self, width: usize) -> Option<(usize, Shell)> {
-        let a = self.free.pop()? as usize;
-        let shell = match self.shells.get_mut(width).and_then(Vec::pop) {
-            Some(shell) => shell,
-            // As many shells as dead slots: there is one of another width.
-            None => self
-                .shells
-                .iter_mut()
-                .rev()
-                .find_map(Vec::pop)
-                .expect("a shell for every dead slot"),
-        };
-        Some((a, shell))
+    /// A dead slot to build the next new archetype in, if there is one.
+    pub(crate) fn free_slot(&mut self) -> Option<usize> {
+        self.free.pop().map(|a| a as usize)
     }
 
-    /// Bytes of entity storage kept for reuse: pooled column buffers and the
-    /// entity lists of shells.
+    /// The storage of a reclaimed archetype as wide as `width` components,
+    /// if one is kept.
+    pub(crate) fn shell(&mut self, width: usize) -> Option<Shell> {
+        let shell = self.shells.get_mut(width)?.pop()?;
+        self.shell_count -= 1;
+        Some(shell)
+    }
+
+    /// Bytes of entity storage kept for reuse: pooled column buffers and
+    /// entity lists.
     pub(crate) fn kept_bytes(&self) -> usize {
-        self.buffers.bytes() + self.shells.iter().flatten().map(Archetype::shell_bytes).sum::<usize>()
+        self.buffers.bytes()
     }
 
     /// Whether more than one archetype in five is empty (dead slots count),
