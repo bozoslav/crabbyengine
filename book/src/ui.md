@@ -578,20 +578,7 @@ The C API mirrors the Rust one function by function. Nodes are `uint64_t` ids
 `PONKO_NOT_FOUND` instead of panicking, and a call that fails changes nothing.
 
 ```c
-PonkoUiLayout column = ponko_ui_layout_default();
-column.flex_direction = PONKO_UI_FLEX_COLUMN;
-column.width = (PonkoUiLength){PONKO_UI_LENGTH_PERCENT, 1.0f};
-column.padding.top = column.padding.right = column.padding.bottom = column.padding.left =
-    (PonkoUiLength){PONKO_UI_LENGTH_POINTS, 24.0f};
-
-uint64_t root, buy;
-ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &column, &root);
-ponko_ctx_ui_add_button(ctx, PONKO_UI_SCREEN, root, "Buy", NULL, &buy); /* NULL layout: default */
-ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false);
-
-PonkoUiEvent event;
-while (ponko_ctx_ui_next_event(ctx, PONKO_UI_SCREEN, &event) == PONKO_OK)
-    if (event.kind == PONKO_UI_EVENT_CLICKED && event.id == buy) { /* ... */ }
+{{#include ../../examples/cpp/guide.c:ui_c}}
 ```
 
 Retained tree operations take a `target` after the context: `PONKO_UI_SCREEN`
@@ -606,11 +593,7 @@ which gives the entity (it needs a `PonkoTransform3D`) the panel and its model;
 `ponko_ctx_clear_ui_pointer_ray` do the rest.
 
 ```c
-PonkoTexture texture;
-ponko_ctx_create_ui_panel(ctx, terminal, 600, 400, (PonkoVec2){1.2f, 0.8f}, &texture);
-uint64_t buy;
-ponko_ctx_ui_add_button(ctx, terminal, PONKO_UI_NONE, "Buy", NULL, &buy);
-ponko_ctx_ui_push_screen(ctx, terminal, buy, false);
+{{#include ../../examples/cpp/guide.c:ui_panel_c}}
 ```
 
 `PonkoUiLayout` is the Taffy `Style` flattened: display, position, flex

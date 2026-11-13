@@ -2972,6 +2972,66 @@ static void native_coverage() {
     CHECK(started && cancelled);
 }
 
+// The small wrappers added for full C coverage: defaults, math and mesh data.
+static void wrapper_coverage() {
+    // Query cache policies: the default a world starts with, and off.
+    ponko::world w;
+    const auto start = w.query_cache_policy();
+    const auto defaults = ponko::query_cache_policy_default();
+    CHECK(start.min_archetypes == defaults.min_archetypes && start.max_signatures == defaults.max_signatures);
+    const auto off = ponko::query_cache_policy_off();
+    w.set_query_cache_policy(off);
+    CHECK(w.query_cache_policy().max_signatures == off.max_signatures);
+    w.spawn(Pos{1, 2});
+    CHECK(w.count<Pos>() == 1 && w.query_cache_stats().indexed == 0);
+
+    // Quaternions: identity, and the inline operators agree with the C math.
+    const ponko::quat id = ponko::quat_identity();
+    CHECK(id.x == 0 && id.y == 0 && id.z == 0 && id.w == 1);
+    const ponko::quat turn = ponko::quat_from_rotation_y(1.0f), tilt = ponko::quat_from_rotation_x(0.5f);
+    const ponko::quat both = turn * tilt, c_both = ponko_quat_mul(turn, tilt);
+    CHECK(std::fabs(both.x - c_both.x) < 1e-6f && std::fabs(both.w - c_both.w) < 1e-6f);
+    const ponko::vec3 v = turn * ponko::vec3{1, 0, 0}, c_v = ponko_quat_rotate(turn, {1, 0, 0});
+    CHECK(std::fabs(v.x - c_v.x) < 1e-6f && std::fabs(v.z - c_v.z) < 1e-6f);
+    CHECK(id * ponko::vec3{1, 2, 3} == (ponko::vec3{1, 2, 3}));
+    CHECK(ponko::bits(ponko::entity_of(0x0000000500000007ull)) == ponko_entity_bits(ponko::entity_of(0x0000000500000007ull)));
+
+    // Tyres: the usual curves are what a new wheel has.
+    const auto forward = ponko::friction_curve_forward(), sideways = ponko::friction_curve_sideways();
+    CHECK(forward.extremum_slip == 0.4f && forward.extremum_value == 1.0f && forward.asymptote_value == 0.5f);
+    CHECK(sideways.extremum_slip == 0.2f && sideways.asymptote_value == 0.75f);
+    const auto w3 = ponko::wheel({0, 0, 0}, 0.3f);
+    CHECK(w3.forward_friction.asymptote_slip == forward.asymptote_slip);
+    CHECK(w3.sideways_friction.asymptote_slip == sideways.asymptote_slip);
+    CHECK(ponko::evaluate(forward, forward.extremum_slip) == forward.extremum_value * forward.stiffness);
+
+    // Collision groups: everything, as a new collider has.
+    const auto all = ponko::collision_groups_all();
+    CHECK(all.memberships == UINT32_MAX && all.filter == UINT32_MAX);
+    const auto ball = ponko::sphere_collider(1);
+    CHECK(ball.groups.memberships == all.memberships && ball.groups.filter == all.filter);
+
+    // World text: the C++ defaults are the engine's.
+    const ponko::text3d text("hi");
+    const PonkoText3D c_text = ponko_text3d_default();
+    CHECK(text.size == c_text.size && text.outline_width == c_text.outline_width && text.softness == c_text.softness);
+    CHECK(static_cast<std::uint32_t>(text.align) == static_cast<std::uint32_t>(c_text.align));
+    CHECK(text.billboard == c_text.billboard && text.color.a == c_text.color.a && text.outline.a == c_text.outline.a);
+
+    // Morph targets: count them, then clear them (frames go with them).
+    auto sheet = ponko::mesh_data::plane(1.0);
+    CHECK(sheet.morph_target_count() == 0);
+    sheet.add_morph_target({"dent", std::vector<ponko::vec3>(4, {0, 0, -0.5f}), {}});
+    sheet.add_morph_target({"tip", std::vector<ponko::vec3>(4), {}});
+    sheet.add_morph_frame(0, 1, 1.0f);
+    CHECK(sheet.morph_target_count() == 2);
+    sheet.clear_morph_targets();
+    CHECK(sheet.morph_target_count() == 0);
+    sheet.add_morph_target({"again", std::vector<ponko::vec3>(4), {}});
+    sheet.add_morph_frame(0, 0, 1.0f); // channel 0 is empty again, so this frame is its first
+    CHECK(sheet.morph_target_count() == 1);
+}
+
 int main() {
     abi_version_is_checked();
     declared_access();
@@ -3029,5 +3089,6 @@ int main() {
     rng_matches_rust();
     grid_views_match_engine_queries();
     native_coverage();
+    wrapper_coverage();
     std::cout << "C++ wrapper tests passed\n";
 }

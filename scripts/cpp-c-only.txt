@@ -1,0 +1,31 @@
+# C functions that include/ponko.hpp deliberately doesn't call, each with the
+# reason: C++ reaches the same feature another way. scripts/check-cpp-api.py
+# fails when a C function has no C++ wrapper and is missing here, and when an
+# entry here is wrapped now (remove it then). Every entry is also listed in the
+# C-only table of book/src/c-cpp.md. Keep this list short: wrap a function
+# instead of adding it.
+#
+# Format: <function>  # <how C++ does it instead>
+
+# Loaders: C++'s ctx::load_texture (and _mesh, _sound, _stream, _font) is
+# try_load_*().value(), so a failure throws ponko::error with its kind and path.
+ponko_ctx_load_texture   # ctx::load_texture goes through ponko_ctx_try_load_texture, which reports the kind and path
+ponko_ctx_load_mesh      # ctx::load_mesh goes through ponko_ctx_try_load_mesh
+ponko_ctx_load_sound     # ctx::load_sound goes through ponko_ctx_try_load_sound
+ponko_ctx_load_stream    # ctx::load_stream goes through ponko_ctx_try_load_stream
+ponko_ctx_load_font      # ctx::load_font goes through ponko_ctx_try_load_font
+
+# Queries: C++ queries are typed (world.each, world.query) and go through
+# ponko_query_with / ponko_query_filtered, which also take change filters.
+ponko_query              # world_view::query and each use ponko_query_with, _filtered or _cached
+ponko_query_par          # world_view::query_par and each_par use the same calls with their parallel flag
+ponko_filter_check       # with/without/or_/all_of filters are built from C++ types; the query checks them when it runs
+
+# Plain math the header does inline, with the same results.
+ponko_quat_mul           # operator*(quat, quat)
+ponko_quat_rotate        # operator*(quat, vec3)
+ponko_entity_bits        # ponko::bits(PonkoEntity)
+
+# C++ types with their own defaults.
+ponko_text3d_default     # ponko::text3d's member initializers are the same defaults (tests.cpp compares them)
+ponko_game_plugin        # game::plugin takes any object with build(game&) and an optional setup(ctx&)

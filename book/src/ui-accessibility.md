@@ -4,7 +4,10 @@ What was read from, and heard about, the sample menu
 (`examples/ui_menu.rs`, built with the `accessibility` feature) on macOS.
 The [accessibility section](ui.md#accessibility-semantics) of the UI chapter
 says what the engine exposes and where its limits are; this page is the
-evidence. All three records were made on macOS 27 on Apple silicon, with the
+evidence. C and C++ games get the same: build `ponko_ffi` with its
+`accessibility` feature. The names, descriptions, live regions and the
+`ponko::ui::access` tracker shown in the UI chapter's C++ example are the same
+from C++. All three records were made on macOS 27 on Apple silicon, with the
 game in its own window.
 
 | Record | Read by | What it shows |

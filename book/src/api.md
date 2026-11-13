@@ -27,3 +27,8 @@ The crates, version 0.1.0:
   as text, for importing; see [Importing from Unity](unity.md).
 
 For the newest release, replace `0.1.0` in a link with `latest`.
+
+The C++ reference is `include/ponko.hpp` itself: every public type and
+function has a `///` comment saying what it does, its units, who owns what and
+what it throws (Doxygen and editors read them). The C functions are documented
+with their Rust definitions in `ponko_ffi`, on docs.rs.

@@ -224,16 +224,7 @@ levels), and a filter is compiled when a query uses it, without allocating,
 so one filter can be built once and used every frame.
 
 ```c
-// Living: (Player OR Enemy) AND NOT Dead.
-PonkoFilter* player = ponko_filter_with(player_id);
-PonkoFilter* enemy = ponko_filter_with(enemy_id);
-PonkoFilter* alive = ponko_filter_without(dead_id);
-const PonkoFilter* fighters[] = {player, enemy};
-PonkoFilter* fighter = ponko_filter_any(fighters, 2);
-const PonkoFilter* living_parts[] = {fighter, alive};
-PonkoFilter* living = ponko_filter_all(living_parts, 2);
-ponko_query_filtered(world, &health_id, 1, living, NULL, damage, NULL);
-// ... then ponko_filter_free() each of them.
+{{#include ../../examples/cpp/guide.c:ecs_filters}}
 ```
 
 `Added` and `Changed` are separate: from C they are the `changed` and `added`

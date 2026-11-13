@@ -285,12 +285,7 @@ let game = Game::new("named", 1, 1).add(
 <div>
 
 ```cpp
-// ponko_access_new / ponko_access_write_component("Health") /
-// ponko_access_send_events("Died") / ponko_access_commands, then
-// ponko_game_add_system_with_access. In C++:
-game.add(ponko::phase::after_physics,
-         ponko::access().write<Health>().send_events<Died>().commands(),
-         hurt, "hurt");
+{{#include ../../examples/cpp/guide.cpp:named_access}}
 ```
 
 </div>
