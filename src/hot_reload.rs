@@ -53,6 +53,8 @@ pub(crate) enum Asset {
     /// A 3D compute pass id.
     #[cfg(feature = "3d")]
     Compute(u32),
+    /// A file of a level (`Ctx::spawn_level`); the watched name is the level's path.
+    Level,
 }
 
 struct Watched {
@@ -104,6 +106,15 @@ impl SharedWatcher {
     /// As [`Watcher::watch`].
     pub(crate) fn watch(&self, name: &str, path: PathBuf, asset: Asset) {
         self.0.borrow_mut().watch(name, path, asset);
+    }
+
+    /// Whether `path` is watched for an asset `matches` picks.
+    pub(crate) fn watching(&self, path: &Path, matches: impl Fn(&Asset) -> bool) -> bool {
+        self.0
+            .borrow()
+            .files
+            .iter()
+            .any(|f| f.path == path && matches(&f.asset))
     }
 
     /// As [`Watcher::forget`].

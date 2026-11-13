@@ -841,6 +841,11 @@ impl Ctx {
                     self.assets.report_reload(name, applied);
                     continue;
                 }
+                Asset::Level => {
+                    let applied = self.reload_level(&name);
+                    self.assets.report_reload(name, applied);
+                    continue;
+                }
                 #[cfg(feature = "3d")]
                 Asset::Shader(id) => {
                     let applied =

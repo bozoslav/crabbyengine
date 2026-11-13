@@ -3087,7 +3087,61 @@ static void headless_frames_ui() {
     CHECK(run.report.passed() && run.report.inputs_applied == 2 && closed == 1);
 }
 
+static void levels_and_tilemaps() {
+    ponko::game("c++ levels", 1, 1).physics({0, 700}).run_headless(0, [](ponko::ctx& ctx) {
+        ponko::level_options options;
+        options.solid = {"Ground"};
+        options.z = 2.0f;
+        const ponko::entity root = ponko::spawn_level(ctx, "levels/meadow.tmx", {0, 0}, options);
+        CHECK(ponko::level_property_json(ctx, root, "title") == "\"Meadow\"");
+        throws_kind([&] { (void)ponko::level_property_json(ctx, root, "missing"); }, PONKO_ERROR_NOT_FOUND);
+        auto world = ctx.world();
+        int coins = 0, bodies = 0;
+        ponko::entity ground = 0, start = 0;
+        for (ponko::entity e : ponko::level_entities(ctx, root)) {
+            if (world.try_get<ponko::rigid_body>(e)) ++bodies;
+            try {
+                const ponko::level_object o = ponko::level_object_of(ctx, e);
+                const std::string cls = ponko::level_object_class(ctx, e);
+                if (cls == "Coin") { ++coins; CHECK(o.has_tile && o.shape == PONKO_LEVEL_SHAPE_RECT); }
+                if (cls == "Spawn") { start = e; CHECK(o.shape == PONKO_LEVEL_SHAPE_POINT && o.position.x == 48.0f); }
+                CHECK(ponko::level_object_layer(ctx, e) == "Objects");
+                continue;
+            } catch (const ponko::error&) {}
+            if (ground == 0) ground = e;
+        }
+        CHECK(coins == 6 && bodies > 0 && start != 0);
+        CHECK(ponko::level_object_name(ctx, start) == "Start");
+        throws([&] { (void)ponko::level_object_of(ctx, root); });
+
+        // A map built in code: autotile, flips, animation, parallax, solid rectangles.
+        const ponko::entity map = world.spawn(ponko::transform_at({0, 0}));
+        auto tiles = world.add_tilemap(map, world.tilemap(ground).style().sheet, 4, 3);
+        ponko::autotile_rule rule;
+        for (std::uint16_t i = 0; i < 16; ++i) rule.frames.push_back(i);
+        rule.outside_filled = false;
+        std::vector<bool> filled(12, false);
+        filled[1 * 4 + 1] = filled[1 * 4 + 2] = true;
+        ponko::tilemap_autotile(ctx, map, rule, filled);
+        CHECK(tiles.get(1, 1) == std::uint16_t(2) && tiles.get(2, 1) == std::uint16_t(8) && !tiles.get(0, 0));
+        ponko::tilemap_paint_autotile(ctx, map, rule, 1, 0, true);
+        CHECK(tiles.get(1, 0) == std::uint16_t(4) && tiles.get(1, 1) == std::uint16_t(3));
+        ponko::tilemap_set_flipped(ctx, map, 3, 2, 5, PONKO_TILE_FLIP_X | PONKO_TILE_FLIP_DIAGONAL);
+        CHECK(ponko::tilemap_flip(ctx, map, 3, 2) == (PONKO_TILE_FLIP_X | PONKO_TILE_FLIP_DIAGONAL) && tiles.get(3, 2) == std::uint16_t(5));
+        ponko::tilemap_animate(ctx, map, 5, {{5, 0.2f}, {6, 0.2f}});
+        ponko::tilemap_set_parallax(ctx, map, {0.5f, 0.5f}, {10, 10});
+        const auto rects = ponko::tilemap_solid_rects(ctx, map, {2, 3, 4, 8});
+        CHECK(rects.size() == 2);
+        CHECK(ponko::tilemap_spawn_colliders(ctx, map, {2, 3, 4, 8}) == 2);
+
+        CHECK(ponko::despawn_level(ctx, root));
+        CHECK(!ponko::despawn_level(ctx, root));
+        throws([&] { (void)ponko::spawn_level(ctx, "levels/nowhere.tmx", {0, 0}); });
+    });
+}
+
 int main() {
+    levels_and_tilemaps();
     abi_version_is_checked();
     declared_access();
     command_barriers();
