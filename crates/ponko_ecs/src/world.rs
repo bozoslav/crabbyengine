@@ -712,7 +712,7 @@ impl World {
         self.dynamic_resources.insert(name.to_string(), raw);
     }
 
-    /// Implementation of [`RawWorld::get_resource_dynamic`](crate::RawWorld::get_resource_dynamic)
+    /// Implementation of [`RawWorldRef::get_resource_dynamic`](crate::RawWorldRef::get_resource_dynamic)
     /// and [`get_resource_dynamic_mut`](crate::RawWorld::get_resource_dynamic_mut):
     /// the value is its own allocation, so the pointer allows writing for
     /// callers that hold the world exclusively.
@@ -722,7 +722,7 @@ impl World {
         self.dynamic_resources.get(name).map(|r| r.ptr.as_ptr())
     }
 
-    /// Implementation of [`RawWorld::resource_layout_dynamic`](crate::RawWorld::resource_layout_dynamic).
+    /// Implementation of [`RawWorldRef::resource_layout_dynamic`](crate::RawWorldRef::resource_layout_dynamic).
     #[must_use]
     pub(crate) fn resource_layout_dynamic_inner(&self, name: &str) -> Option<Layout> {
         self.dynamic_resources.get(name).map(|r| r.layout)
@@ -949,7 +949,7 @@ impl World {
         self.by_type.get(&TypeId::of::<T>()).copied()
     }
 
-    /// Implementation of [`RawWorld::component_by_name`](crate::RawWorld::component_by_name).
+    /// Implementation of [`RawWorldRef::component_by_name`](crate::RawWorldRef::component_by_name).
     #[must_use]
     pub(crate) fn component_by_name_inner(&self, name: &str) -> Option<ComponentId> {
         self.by_name.get(name).copied()
@@ -987,7 +987,7 @@ impl World {
         &self.infos
     }
 
-    /// Implementation of [`RawWorld::archetypes`](crate::RawWorld::archetypes).
+    /// Implementation of [`RawWorldRef::archetypes`](crate::RawWorldRef::archetypes).
     #[must_use]
     pub(crate) fn archetypes_inner(&self) -> &[Archetype] {
         &self.archetypes
@@ -1017,7 +1017,7 @@ impl World {
         Some(self.archetypes[loc.archetype as usize].component_ids())
     }
 
-    /// Implementation of [`RawWorld::get_dynamic`](crate::RawWorld::get_dynamic)
+    /// Implementation of [`RawWorldRef::get_dynamic`](crate::RawWorldRef::get_dynamic)
     /// (`write: false`, and the caller hands the pointer out as `*const`) and
     /// [`get_dynamic_mut`](crate::RawWorld::get_dynamic_mut) (`write: true`,
     /// for callers that hold the world exclusively).

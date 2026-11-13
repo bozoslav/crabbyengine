@@ -21,7 +21,7 @@ use ponko::access::Service;
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 use ponko::collision::CollisionStarted;
 use ponko::prelude::*;
-use ponko::{Systems, systems};
+use ponko::{prelude::Systems, systems};
 
 #[cfg(any(feature = "physics", feature = "physics3d"))]
 type Log<T> = Rc<RefCell<Vec<T>>>;

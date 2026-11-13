@@ -543,7 +543,7 @@ pub unsafe extern "C" fn ponko_ctx_set_streamed_lod(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
-            let entity = ponko::Entity::from_bits(entity);
+            let entity = ponko::prelude::Entity::from_bits(entity);
             if !c.world.is_alive(entity) {
                 return Err(invalid("no such entity"));
             }
@@ -560,6 +560,6 @@ pub unsafe extern "C" fn ponko_ctx_set_streamed_lod(
     })
 }
 
-fn invalid_error(e: &ponko::Error) -> crate::Failure {
+fn invalid_error(e: &ponko::prelude::Error) -> crate::Failure {
     crate::invalid_owned(e.clone())
 }

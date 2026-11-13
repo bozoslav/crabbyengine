@@ -490,6 +490,14 @@ pub(crate) fn count(arch: &Archetype, filters: &Filters, clock: Clock) -> usize 
     }
 }
 
+/// [`count`], but it stops looking once it has found `max` rows.
+pub(crate) fn count_at_most(arch: &Archetype, filters: &Filters, clock: Clock, max: usize) -> usize {
+    match filters.row_filter(arch, clock) {
+        Some(rows) => (0..arch.len()).filter(|&row| rows.passes(row)).take(max).count(),
+        None => arch.len().min(max),
+    }
+}
+
 /// Stamps every row of the tracked columns `ids` of `arch` as changed. The
 /// caller must hold the world mutably.
 pub(crate) fn mark_columns(arch: &Archetype, ids: &[ComponentId], stamp: u32) {
@@ -594,9 +602,11 @@ impl<'a> ChunkQuery<'a> {
     }
 
     /// The reader's tick, instead of the world's
-    /// [`changes_since`](World::changes_since).
-    pub fn since(mut self, tick: Tick) -> Self {
-        self.since = Some(tick);
+    /// [`changes_since`](World::changes_since). `None` keeps the world's,
+    /// so a caller that may or may not have its own tick passes an
+    /// `Option<Tick>` as it is.
+    pub fn since(mut self, tick: impl Into<Option<Tick>>) -> Self {
+        self.since = tick.into();
         self
     }
 
@@ -604,9 +614,10 @@ impl<'a> ChunkQuery<'a> {
     /// [`DynFilter`](crate::DynFilter) compiled once (the runtime form of
     /// [`With`](crate::With), [`Without`](crate::Without) and
     /// [`Or`](crate::Or)). The entities are the ones the typed query with
-    /// the same filters visits.
-    pub fn filter(mut self, filter: &'a crate::CompiledFilter) -> Self {
-        self.filter = Some(filter);
+    /// the same filters visits. `None` filters nothing, so an optional
+    /// filter is passed as it is.
+    pub fn filter(mut self, filter: impl Into<Option<&'a crate::CompiledFilter>>) -> Self {
+        self.filter = filter.into();
         self
     }
 
@@ -855,7 +866,7 @@ impl World {
         }
     }
 
-    /// Implementation of [`RawWorld::removed_dynamic`](crate::RawWorld::removed_dynamic).
+    /// Implementation of [`RawWorldRef::removed_dynamic`](crate::RawWorldRef::removed_dynamic).
     #[track_caller]
     #[must_use]
     pub(crate) fn removed_dynamic_inner(&self, id: ComponentId, since: Tick) -> &[Entity] {

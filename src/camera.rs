@@ -87,13 +87,13 @@ impl Rect {
     }
 }
 
-/// Which part of the world the window shows: [`ctx.camera`](crate::Ctx::camera).
+/// Which part of the world the window shows: [`ctx.camera`](crate::ctx::Ctx::camera).
 ///
-/// Sprites and [`Ctx::draw`](crate::Ctx::draw) are in world units; the camera
+/// Sprites and [`Ctx::draw`](crate::ctx::Ctx::draw) are in world units; the camera
 /// maps them to the window. The default camera shows world point `(0, 0)` at
 /// the top-left at zoom 1, so world units are window pixels until you move
-/// it. UI drawn with [`DrawParams::screen`](crate::DrawParams::screen) or
-/// [`Ctx::draw_text`](crate::Ctx::draw_text) ignores the camera.
+/// it. UI drawn with [`DrawParams::screen`](crate::texture::DrawParams::screen) or
+/// [`Ctx::draw_text`](crate::ctx::Ctx::draw_text) ignores the camera.
 ///
 /// ```
 /// # use ponko::prelude::*;
@@ -260,8 +260,8 @@ impl Camera2D {
 ///     .system(ponko::camera::camera_controls)
 ///     .run(|_| {});
 /// ```
-pub fn camera_controls(ctx: &mut crate::Ctx) {
-    use crate::MouseButton;
+pub fn camera_controls(ctx: &mut crate::ctx::Ctx) {
+    use crate::input::MouseButton;
     if ctx.input.mouse_down(MouseButton::Right) || ctx.input.mouse_down(MouseButton::Middle) {
         let delta = ctx.input.mouse_delta();
         ctx.camera.position -= delta / ctx.camera.zoom;

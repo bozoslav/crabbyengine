@@ -153,7 +153,7 @@ stored `setup` callback can't do.
 `load_texture`, `load_mesh`, `load_sound`, `load_font` and the other
 `load_*` / `create_*` calls are for setup code, where a missing file is a
 bug: they panic with a message that says what's wrong and where the engine
-looked. Each has a `try_` twin that returns `Result<_, ponko::Error>`
+looked. Each has a `try_` twin that returns `Result<_, ponko::error::Error>`
 instead, for assets that may legitimately be missing (a mod, an optional
 skin, a user's file):
 
@@ -170,10 +170,10 @@ match ctx.gfx.try_load_texture("skins/gold.png") {
 
 Match on `e.kind()` (`NotFound`, `Io`, `Decode`, `Shader`, `Invalid`,
 `BadHandle`, `Limit`, ...), not on the message text, which may change.
-`ponko::Error` implements `std::error::Error`, so `?` passes it on into a
+`ponko::error::Error` implements `std::error::Error`, so `?` passes it on into a
 `Box<dyn Error>` or your own error type.
 
-Calls that can fail in normal play return `Result<_, ponko::Error>` under
+Calls that can fail in normal play return `Result<_, ponko::error::Error>` under
 their plain name and have no panicking twin: loading a scene and spawning a
 prefab (`ctx.load_scene`, `ctx.spawn_prefab`), saving them
 (`ctx.assets.save_scene`, `save_prefab`), loading JSON into a component or

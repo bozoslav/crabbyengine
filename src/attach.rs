@@ -4,8 +4,9 @@
 use glam::Vec2;
 use rayon::prelude::*;
 
+use crate::ctx::Ctx;
 use crate::d2::Transform as Transform2D;
-use crate::{Component, Ctx, Entity, With, World};
+use ponko_ecs::{Component, Entity, With, World};
 
 /// Keeps this entity's [`Transform2D`] position and rotation at an offset
 /// from another entity's, updated by [`follow_attachments`]. Its own scale
@@ -151,7 +152,7 @@ fn place(world: &World, a: Attached) -> Option<(Vec2, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vec2;
+    use glam::vec2;
 
     #[test]
     fn chains_compose_from_the_root_down() {

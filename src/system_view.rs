@@ -1,5 +1,5 @@
 //! The restricted view a declared system gets instead of `&mut Ctx`:
-//! [`SystemView`], for systems that take it ([`Game::add`](crate::Game::add)).
+//! [`SystemView`], for systems that take it ([`Game::add`](crate::game::Game::add)).
 //!
 //! A view system can reach only what its [`SystemAccess`] declares. The
 //! world part is a [`WorldView`] (declared components and resources, no
@@ -12,7 +12,7 @@
 //!
 //! A view system runs in one of two ways, with the same results. Alone, it
 //! borrows what it declared from `Ctx`. In a parallel batch
-//! ([`Game::parallel_systems`](crate::Game::parallel_systems)) it shares the
+//! ([`Game::parallel_systems`](crate::game::Game::parallel_systems)) it shares the
 //! world with the batch's other systems and gets its own command buffer and
 //! an outbox for its events, both delivered when the batch ends.
 
@@ -25,10 +25,15 @@ use web_time::Instant;
 use crate::access::Service;
 use crate::access::SystemAccess;
 use crate::events::{EventSlot, Events, Outbox};
-use crate::{Ctx, Key, Playing, Random, Sound};
+use crate::{
+    audio::{Playing, Sound},
+    ctx::Ctx,
+    input::Key,
+    random::Random,
+};
 
 /// What a view system (a system that takes `&mut SystemView`, added with
-/// [`Game::add`](crate::Game::add)) gets instead of `&mut Ctx`: exactly
+/// [`Game::add`](crate::game::Game::add)) gets instead of `&mut Ctx`: exactly
 /// what its [`SystemAccess`] declares.
 ///
 /// - [`world`](Self::world): the declared components and resources (see
@@ -39,7 +44,7 @@ use crate::{Ctx, Key, Playing, Random, Sound};
 ///   ([`ViewService`]): [`input`](Self::input) and [`time`](Self::time)
 ///   (read), [`audio`](Self::audio), the cameras, the
 ///   [`spatial`](Self::spatial) grid (read), the physics worlds and
-///   [`net`](Self::net). Drawing, UI, assets and profiling stay on `Ctx`
+///   lockstep networking ([`net.lockstep`](ViewNet::lockstep)). Drawing, UI, assets and profiling stay on `Ctx`
 ///   systems.
 /// - The shortcuts `Ctx` has for those services: [`dt`](Self::dt),
 ///   [`key_down`](Self::key_down), [`key_pressed`](Self::key_pressed),
@@ -94,7 +99,7 @@ pub struct SystemView<'a> {
     /// (`Service::Input`).
     pub input: ViewService<'a, crate::input::Input>,
     /// The clocks, as `ctx.time`. Read only (`Service::Time`).
-    pub time: ViewService<'a, crate::Time>,
+    pub time: ViewService<'a, crate::time::Time>,
     /// Sounds, buses and the listener, as `ctx.audio` (`Service::Audio`).
     pub audio: ViewService<'a, crate::audio::Audio>,
     /// The 2D camera, as `ctx.camera` (`Service::Camera`).
@@ -113,11 +118,22 @@ pub struct SystemView<'a> {
     /// `Service::Physics3D`).
     #[cfg(feature = "physics3d")]
     pub physics3d: ViewService<'a, crate::d3::Physics>,
-    /// Lockstep networking, as `ctx.net.lockstep` (`Service::Net`).
-    pub net: ViewService<'a, crate::net::Net>,
+    /// Networking, as `ctx.net`: `sys.net.lockstep` is
+    /// `ctx.net.lockstep`.
+    pub net: ViewNet<'a>,
     name: &'static str,
     access: &'a SystemAccess,
     random: Random,
+}
+
+/// The networking of a [`SystemView`], named as on `ctx.net`
+/// ([`Networking`](crate::net::Networking)): `sys.net.lockstep` is
+/// `ctx.net.lockstep`. Only lockstep, the part a simulation system steps
+/// with, is here; messages, snapshots and interest stay on `Ctx` systems.
+#[non_exhaustive]
+pub struct ViewNet<'a> {
+    /// Lockstep networking, as `ctx.net.lockstep` (`Service::Net`).
+    pub lockstep: ViewService<'a, crate::net::Net>,
 }
 
 /// One engine service of a [`SystemView`], behind the system's declaration.
@@ -463,7 +479,7 @@ pub(crate) struct ViewTask {
 pub(crate) struct Shared<'a> {
     pub(crate) slots: &'a [EventSlot<'a>],
     pub(crate) input: &'a crate::input::Input,
-    pub(crate) time: &'a crate::Time,
+    pub(crate) time: &'a crate::time::Time,
     pub(crate) spatial: &'a crate::spatial::SpatialGrid,
     /// Count each system's allocations: only exact when they run in order.
     pub(crate) count_allocs: bool,
@@ -537,7 +553,7 @@ struct Rest<'a> {
     commands: &'a mut Commands,
     events: Port<'a>,
     input: &'a crate::input::Input,
-    time: &'a crate::Time,
+    time: &'a crate::time::Time,
     spatial: &'a crate::spatial::SpatialGrid,
     random: Random,
     audio: Held<'a, crate::audio::Audio>,
@@ -600,7 +616,9 @@ impl<'a> Rest<'a> {
             physics: ViewService::new(of(Service::Physics), self.physics),
             #[cfg(feature = "physics3d")]
             physics3d: ViewService::new(of(Service::Physics3D), self.physics3d),
-            net: ViewService::new(of(Service::Net), self.net),
+            net: ViewNet {
+                lockstep: ViewService::new(of(Service::Net), self.net),
+            },
             name,
             access,
             random: self.random,

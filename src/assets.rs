@@ -10,8 +10,8 @@
 //! [`Assets::reloaded_textures`]). Textures, fonts, meshes and shaders load
 //! through `ctx.gfx` and sounds through `ctx.audio`; they read the same
 //! sources and are watched by the same hot reload.
-//! [`Ctx::load_scene`](crate::Ctx::load_scene) and
-//! [`Ctx::spawn_prefab`](crate::Ctx::spawn_prefab) stay on `Ctx`: they
+//! [`Ctx::load_scene`](crate::ctx::Ctx::load_scene) and
+//! [`Ctx::spawn_prefab`](crate::ctx::Ctx::spawn_prefab) stay on `Ctx`: they
 //! replace or extend the world, load through every service and reset
 //! commands and physics.
 //!
@@ -89,7 +89,7 @@ use crate::scene::{PREFAB_FORMAT, PREFAB_VERSION};
 /// compute passes. Images a glTF file refers to are shared between models
 /// by the source they were found in, so two sources with the same image
 /// name give two images. Texture arrays, reflection probe images and
-/// [`load_asset_with`](crate::Assets::load_with) read their source on
+/// [`load_asset_with`](crate::assets::Assets::load_with) read their source on
 /// every call (they aren't cached).
 ///
 /// # In a browser
@@ -246,20 +246,23 @@ pub(crate) struct Found {
 
 impl Found {
     /// The asset's bytes, reading the file now if it came from the default source.
-    /// A failed read is [`ErrorKind::Io`](crate::ErrorKind::Io).
-    pub(crate) fn into_bytes(self) -> Result<Vec<u8>, crate::Error> {
+    /// A failed read is [`ErrorKind::Io`](crate::error::ErrorKind::Io).
+    pub(crate) fn into_bytes(self) -> Result<Vec<u8>, crate::error::Error> {
         match (self.bytes, &self.origin) {
             (Some(bytes), _) => Ok(bytes),
             (None, Origin::File(path)) => read(path).map_err(|e| {
-                crate::Error::new(crate::ErrorKind::Io, format!("could not read {}: {e}", path.display()))
+                crate::error::Error::new(
+                    crate::error::ErrorKind::Io,
+                    format!("could not read {}: {e}", path.display()),
+                )
             }),
             (None, Origin::Source { .. }) => unreachable!("sources hand over their bytes when found"),
         }
     }
 
     /// The asset as UTF-8 text; `name` is for messages and the error's path.
-    /// Bytes that aren't UTF-8 are [`ErrorKind::Decode`](crate::ErrorKind::Decode).
-    pub(crate) fn into_text(self, name: &str) -> Result<String, crate::Error> {
+    /// Bytes that aren't UTF-8 are [`ErrorKind::Decode`](crate::error::ErrorKind::Decode).
+    pub(crate) fn into_text(self, name: &str) -> Result<String, crate::error::Error> {
         let origin = self.origin.clone();
         let bytes = self.into_bytes().map_err(|e| e.with_path(name))?;
         String::from_utf8(bytes).map_err(|e| {
@@ -267,7 +270,7 @@ impl Found {
                 Origin::File(path) => format!("{} is not UTF-8 text: {e}", path.display()),
                 Origin::Source { .. } => format!("{} is not UTF-8 text: {e}", origin.describe(name)),
             };
-            crate::Error::decode(name, message)
+            crate::error::Error::decode(name, message)
         })
     }
 }
@@ -322,7 +325,7 @@ impl Sources {
         &self,
         name: &str,
         cached: impl Fn(&Origin) -> Option<T>,
-    ) -> Result<Lookup<T>, crate::Error> {
+    ) -> Result<Lookup<T>, crate::error::Error> {
         for origin in self.origins(name) {
             if let Some(value) = cached(&origin) {
                 return Ok(Lookup::Cached(origin, value));
@@ -364,10 +367,10 @@ impl Sources {
     /// # Errors
     /// If no source has it (naming every place searched), or a source
     /// failed to read it.
-    /// Not finding it is [`ErrorKind::NotFound`](crate::ErrorKind::NotFound);
+    /// Not finding it is [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound);
     /// a source that has it but fails to read it is
-    /// [`Io`](crate::ErrorKind::Io). The error names `name` as its path.
-    pub(crate) fn find(&self, name: &str) -> Result<Found, crate::Error> {
+    /// [`Io`](crate::error::ErrorKind::Io). The error names `name` as its path.
+    pub(crate) fn find(&self, name: &str) -> Result<Found, crate::error::Error> {
         for source in &self.list {
             match source.read(name) {
                 Ok(bytes) => {
@@ -382,7 +385,7 @@ impl Sources {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => {
                     let message = format!("asset source \"{}\" could not read \"{name}\": {e}", source.id());
-                    return Err(crate::Error::new(crate::ErrorKind::Io, message).with_path(name));
+                    return Err(crate::error::Error::new(crate::error::ErrorKind::Io, message).with_path(name));
                 }
             }
         }
@@ -391,11 +394,11 @@ impl Sources {
                 origin: Origin::File(path),
                 bytes: None,
             }),
-            Err(e) if self.list.is_empty() => Err(crate::Error::not_found(name, e)),
+            Err(e) if self.list.is_empty() => Err(crate::error::Error::not_found(name, e)),
             Err(e) => {
                 let ids: Vec<String> = self.list.iter().map(|s| format!("\"{}\"", s.id())).collect();
                 let message = format!("{e}\nAsset sources searched first: {}", ids.join(", "));
-                Err(crate::Error::not_found(name, message))
+                Err(crate::error::Error::not_found(name, message))
             }
         }
     }
@@ -418,7 +421,7 @@ impl SharedSources {
         &self,
         name: &str,
         cached: impl Fn(&Origin) -> Option<T>,
-    ) -> Result<Lookup<T>, crate::Error> {
+    ) -> Result<Lookup<T>, crate::error::Error> {
         self.0.borrow().lookup(name, cached)
     }
 
@@ -429,7 +432,7 @@ impl SharedSources {
     }
 
     /// As [`Sources::find`].
-    pub(crate) fn find(&self, name: &str) -> Result<Found, crate::Error> {
+    pub(crate) fn find(&self, name: &str) -> Result<Found, crate::error::Error> {
         self.0.borrow().find(name)
     }
 
@@ -566,18 +569,18 @@ pub(crate) fn write(name: &str, _: &[u8]) -> Result<PathBuf, String> {
 }
 
 /// [`write`] for the public save calls: a failure is
-/// [`ErrorKind::Io`](crate::ErrorKind::Io) naming `name`, or
-/// [`Unsupported`](crate::ErrorKind::Unsupported) in web builds, which have
+/// [`ErrorKind::Io`](crate::error::ErrorKind::Io) naming `name`, or
+/// [`Unsupported`](crate::error::ErrorKind::Unsupported) in web builds, which have
 /// no files.
-pub(crate) fn write_asset(name: &str, bytes: &[u8]) -> Result<(), crate::Error> {
+pub(crate) fn write_asset(name: &str, bytes: &[u8]) -> Result<(), crate::error::Error> {
     let kind = if cfg!(target_arch = "wasm32") {
-        crate::ErrorKind::Unsupported
+        crate::error::ErrorKind::Unsupported
     } else {
-        crate::ErrorKind::Io
+        crate::error::ErrorKind::Io
     };
     write(name, bytes)
         .map(|_| ())
-        .map_err(|e| crate::Error::new(kind, e).with_path(name))
+        .map_err(|e| crate::error::Error::new(kind, e).with_path(name))
 }
 
 /// Reads an asset file found by [`resolve`] as UTF-8 text.
@@ -645,7 +648,7 @@ pub(crate) fn decode_image(bytes: &[u8]) -> Result<Image, String> {
 }
 
 /// How to apply a loaded data file's text to the world (kept for reloads).
-pub(crate) type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), crate::Error>>;
+pub(crate) type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), crate::error::Error>>;
 
 /// Asset files: `ctx.assets`.
 ///
@@ -655,8 +658,8 @@ pub(crate) type DataLoader = Box<dyn Fn(&mut World, &str) -> Result<(), crate::E
 ///   components and follow their files, saving scenes and prefabs, and
 ///   what hot reload changed this frame. Textures, fonts, meshes and
 ///   shaders load through `ctx.gfx` and sounds through `ctx.audio`, from
-///   the same sources. [`Ctx::load_scene`](crate::Ctx::load_scene) and
-///   [`Ctx::spawn_prefab`](crate::Ctx::spawn_prefab) stay on `Ctx`: they
+///   the same sources. [`Ctx::load_scene`](crate::ctx::Ctx::load_scene) and
+///   [`Ctx::spawn_prefab`](crate::ctx::Ctx::spawn_prefab) stay on `Ctx`: they
 ///   load through every service.
 /// - **When to call it:** add sources first, in setup; load data files in
 ///   setup too (with hot reload on they are applied again when their files
@@ -674,7 +677,7 @@ pub struct Assets {
     /// Asset hot reload: which files loaded assets came from. Shared too.
     pub(crate) watcher: crate::hot_reload::SharedWatcher,
     /// Textures reloaded at the start of this frame.
-    pub(crate) reloaded_textures: Vec<crate::Texture>,
+    pub(crate) reloaded_textures: Vec<crate::texture::Texture>,
     /// Names of every file reloaded at the start of this frame.
     pub(crate) reloaded_files: Vec<String>,
     /// Scratch for the watcher's changes, kept so checks don't allocate.
@@ -690,7 +693,7 @@ pub struct Assets {
 
 impl Assets {
     /// Whether files loaded from `assets/` are watched and reloaded when
-    /// they change (see [`Game::hot_reload`](crate::Game::hot_reload)).
+    /// they change (see [`Game::hot_reload`](crate::game::Game::hot_reload)).
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -708,7 +711,7 @@ impl Assets {
     ///
     /// Every load by name goes through it: [`load_texture`](crate::gfx::Graphics::load_texture),
     /// [`load_font`](crate::gfx::Graphics::load_font), [`load_resource`](Self::load_resource),
-    /// [`load_scene`](crate::Ctx::load_scene), [`spawn_prefab`](crate::Ctx::spawn_prefab)
+    /// [`load_scene`](crate::ctx::Ctx::load_scene), [`spawn_prefab`](crate::ctx::Ctx::spawn_prefab)
     /// (and the textures their scenes name), [`load_sound`](crate::audio::Audio::load),
     /// [`load_with`](Self::load_with) and, with the `3d` feature,
     /// meshes, skeletons and animation clips (and the files a glTF refers to),
@@ -741,7 +744,7 @@ impl Assets {
     ///
     /// # Panics
     /// If the source's id is empty or a source with that id was already added.
-    pub fn add_source(&mut self, source: impl crate::AssetSource) {
+    pub fn add_source(&mut self, source: impl crate::assets::AssetSource) {
         self.asset_sources.add(Box::new(source));
     }
 
@@ -766,8 +769,8 @@ impl Assets {
     /// registration. Nothing is cached and nothing is watched: it reads and
     /// decodes each call, so keep the result.
     ///
-    /// `decode` gets the bytes and returns your value, or a [`crate::Error`]
-    /// (usually [`ErrorKind::Decode`](crate::ErrorKind::Decode)), which is
+    /// `decode` gets the bytes and returns your value, or a [`crate::error::Error`]
+    /// (usually [`ErrorKind::Decode`](crate::error::ErrorKind::Decode)), which is
     /// reported with the asset's name and source in front of its message.
     ///
     /// ```
@@ -790,15 +793,15 @@ impl Assets {
     /// ```
     ///
     /// # Errors
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if no source has
-    /// the asset (the message says where it looked), [`Io`](crate::ErrorKind::Io)
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if no source has
+    /// the asset (the message says where it looked), [`Io`](crate::error::ErrorKind::Io)
     /// if reading it fails, and `decode`'s error, with its kind, if it fails.
     /// The error's path is `name`.
     pub fn load_with<T>(
         &self,
         name: &str,
-        decode: impl FnOnce(&[u8]) -> Result<T, crate::Error>,
-    ) -> Result<T, crate::Error> {
+        decode: impl FnOnce(&[u8]) -> Result<T, crate::error::Error>,
+    ) -> Result<T, crate::error::Error> {
         let found = self.asset_sources.find(name)?;
         let origin = found.origin.clone();
         let bytes = found.into_bytes().map_err(|e| e.with_path(name))?;
@@ -809,14 +812,14 @@ impl Assets {
     }
 
     /// Reads asset `name` as UTF-8 text from the first source that has it.
-    pub(crate) fn read_text(&self, name: &str) -> Result<(Origin, String), crate::Error> {
+    pub(crate) fn read_text(&self, name: &str) -> Result<(Origin, String), crate::error::Error> {
         let found = self.asset_sources.find(name)?;
         let origin = found.origin.clone();
         Ok((origin, found.into_text(name)?))
     }
 
     /// Loads resource `R` from a JSON file in `assets/`. With [hot
-    /// reload](crate::Game::hot_reload) on, editing the file replaces the
+    /// reload](crate::game::Game::hot_reload) on, editing the file replaces the
     /// resource while the game runs: tune numbers without restarting. A file
     /// that doesn't parse keeps the old values and prints why.
     ///
@@ -865,7 +868,7 @@ impl Assets {
     /// # use ponko::prelude::*;
     /// # #[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
     /// # struct Stats { hp: f32 }
-    /// # fn f(ctx: &mut Ctx, e: Entity) -> Result<(), ponko::Error> {
+    /// # fn f(ctx: &mut Ctx, e: Entity) -> Result<(), ponko::prelude::Error> {
     /// ctx.assets.load_component_json::<Stats>(&mut ctx.world, "stats.json", e)?;
     /// # Ok(()) }
     /// ```
@@ -873,13 +876,13 @@ impl Assets {
     /// # Errors
     ///
     /// As [`load_resource_json`](Self::load_resource_json), and
-    /// [`ErrorKind::BadHandle`](crate::ErrorKind::BadHandle) if `entity` is dead.
+    /// [`ErrorKind::BadHandle`](crate::error::ErrorKind::BadHandle) if `entity` is dead.
     pub fn load_component_json<T: 'static>(
         &mut self,
         world: &mut World,
         path: &str,
         entity: Entity,
-    ) -> Result<(), crate::Error> {
+    ) -> Result<(), crate::error::Error> {
         self.load_component_json_named(
             world,
             path,
@@ -899,7 +902,7 @@ impl Assets {
         path: &str,
         entity: Entity,
         component: &str,
-    ) -> Result<(), crate::Error> {
+    ) -> Result<(), crate::error::Error> {
         let component = component.to_string();
         self.load_data(
             world,
@@ -920,19 +923,19 @@ impl Assets {
     /// # use ponko::prelude::*;
     /// # #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
     /// # struct Rules { speed: f32 }
-    /// # fn f(ctx: &mut Ctx) -> Result<(), ponko::Error> {
+    /// # fn f(ctx: &mut Ctx) -> Result<(), ponko::prelude::Error> {
     /// ctx.assets.load_resource_json::<Rules>(&mut ctx.world, "rules.json")?;
     /// # Ok(()) }
     /// ```
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
-    /// missing or `T` isn't registered, [`Io`](crate::ErrorKind::Io) if it
-    /// can't be read, [`Decode`](crate::ErrorKind::Decode) if it isn't UTF-8
-    /// and [`Json`](crate::ErrorKind::Json) if it isn't valid JSON for `T`.
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file is
+    /// missing or `T` isn't registered, [`Io`](crate::error::ErrorKind::Io) if it
+    /// can't be read, [`Decode`](crate::error::ErrorKind::Decode) if it isn't UTF-8
+    /// and [`Json`](crate::error::ErrorKind::Json) if it isn't valid JSON for `T`.
     /// The error's path is `path`.
-    pub fn load_resource_json<T: 'static>(&mut self, world: &mut World, path: &str) -> Result<(), crate::Error> {
+    pub fn load_resource_json<T: 'static>(&mut self, world: &mut World, path: &str) -> Result<(), crate::error::Error> {
         self.load_resource_json_named(world, path, &crate::reflect::short_name(std::any::type_name::<T>()))
     }
 
@@ -940,7 +943,12 @@ impl Assets {
     /// and C++ way. Rust code that has the type uses
     /// [`load_resource_json`](Self::load_resource_json).
     #[doc(hidden)]
-    pub fn load_resource_json_named(&mut self, world: &mut World, path: &str, name: &str) -> Result<(), crate::Error> {
+    pub fn load_resource_json_named(
+        &mut self,
+        world: &mut World,
+        path: &str,
+        name: &str,
+    ) -> Result<(), crate::error::Error> {
         let name = name.to_string();
         self.load_data(
             world,
@@ -952,7 +960,7 @@ impl Assets {
         )
     }
 
-    fn load_data(&mut self, world: &mut World, path: &str, apply: DataLoader) -> Result<(), crate::Error> {
+    fn load_data(&mut self, world: &mut World, path: &str, apply: DataLoader) -> Result<(), crate::error::Error> {
         let (origin, text) = self.read_text(path)?;
         apply(world, &text).map_err(|e| e.context(path).with_path(path))?;
         self.data_loaders.push(apply);
@@ -974,15 +982,15 @@ impl Assets {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::Io`](crate::ErrorKind::Io) if the file can't be written
-    /// ([`Unsupported`](crate::ErrorKind::Unsupported) in web builds).
-    pub fn save_scene(&self, world: &World, path: &str) -> Result<(), crate::Error> {
+    /// [`ErrorKind::Io`](crate::error::ErrorKind::Io) if the file can't be written
+    /// ([`Unsupported`](crate::error::ErrorKind::Unsupported) in web builds).
+    pub fn save_scene(&self, world: &World, path: &str) -> Result<(), crate::error::Error> {
         let text = serde_json::to_string_pretty(&world.save())?;
         write_asset(path, text.as_bytes())
     }
 
     /// Saves entity `e` (its reflected components) as a prefab in
-    /// `assets/<path>`, for [`spawn_prefab`](crate::Ctx::spawn_prefab). Its
+    /// `assets/<path>`, for [`spawn_prefab`](crate::ctx::Ctx::spawn_prefab). Its
     /// position isn't kept: each spawn says where. Not in web builds.
     ///
     /// ```no_run
@@ -994,10 +1002,10 @@ impl Assets {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::BadHandle`](crate::ErrorKind::BadHandle) if `e` is dead,
-    /// [`Io`](crate::ErrorKind::Io) if the file can't be written
-    /// ([`Unsupported`](crate::ErrorKind::Unsupported) in web builds).
-    pub fn save_prefab(&mut self, world: &World, e: Entity, path: &str) -> Result<(), crate::Error> {
+    /// [`ErrorKind::BadHandle`](crate::error::ErrorKind::BadHandle) if `e` is dead,
+    /// [`Io`](crate::error::ErrorKind::Io) if the file can't be written
+    /// ([`Unsupported`](crate::error::ErrorKind::Unsupported) in web builds).
+    pub fn save_prefab(&mut self, world: &World, e: Entity, path: &str) -> Result<(), crate::error::Error> {
         let mut components = world.entity_json(e)?;
         if let Some(t) = components.get_mut("Transform2D") {
             t["position"] = json!([0.0, 0.0]);
@@ -1026,7 +1034,7 @@ impl Assets {
     }
 
     /// Textures whose files changed and were reloaded at the start of this
-    /// frame (with [hot reload](crate::Game::hot_reload) on). They keep their
+    /// frame (with [hot reload](crate::game::Game::hot_reload) on). They keep their
     /// handles, so sprites show the new image by themselves; use this to redo
     /// anything you computed from an image, such as a level read from its pixels.
     ///
@@ -1038,7 +1046,7 @@ impl Assets {
     /// }
     /// # }
     /// ```
-    pub fn reloaded_textures(&self) -> &[crate::Texture] {
+    pub fn reloaded_textures(&self) -> &[crate::texture::Texture] {
         &self.reloaded_textures
     }
 
@@ -1084,7 +1092,7 @@ mod tests {
         let missing = MemorySource::new("a").read("z").unwrap_err();
         assert_eq!(missing.kind(), std::io::ErrorKind::NotFound);
         let err = sources.find("definitely-not-here.png").err().unwrap();
-        assert_eq!(err.kind(), crate::ErrorKind::NotFound);
+        assert_eq!(err.kind(), crate::error::ErrorKind::NotFound);
         assert!(
             err.message().ends_with("Asset sources searched first: \"a\", \"b\""),
             "{err}"

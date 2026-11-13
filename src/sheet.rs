@@ -2,11 +2,11 @@
 
 use glam::Vec2;
 
-use crate::Component;
 use crate::camera::Rect;
 use crate::ctx::Ctx;
 use crate::ecs::Sprite;
 use crate::texture::Texture;
+use ponko_ecs::Component;
 
 /// A texture cut into equal frames on a grid, numbered left to right, top
 /// to bottom: an animation strip, a tileset, a texture atlas of icons.
@@ -198,7 +198,7 @@ impl Animation {
 }
 
 /// Built-in system: advances every [`Animation`] and shows its frame on the
-/// entity's [`Sprite`]. [`Game`](crate::Game) runs it every frame, before
+/// entity's [`Sprite`]. [`Game`](crate::game::Game) runs it every frame, before
 /// [`draw_sprites`](crate::systems::draw_sprites).
 ///
 /// ```no_run

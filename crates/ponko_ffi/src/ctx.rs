@@ -8,9 +8,9 @@
 use std::ffi::{CStr, c_char, c_void};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use ponko::Ctx;
 use ponko::input::Gamepad;
 use ponko::input::GamepadButton;
+use ponko::prelude::Ctx;
 use ponko::spatial::SpatialGrid;
 use ponko_ecs::{Commands, Entity};
 
@@ -119,7 +119,7 @@ unsafe fn commands<R>(
 /// Events, usable inside `ponko_query` callbacks like commands.
 pub(crate) unsafe fn events<R>(
     handle: *const PonkoCtx,
-    f: impl FnOnce(&mut ponko::Events) -> Result<R, Failure>,
+    f: impl FnOnce(&mut ponko::prelude::Events) -> Result<R, Failure>,
 ) -> Result<R, Failure> {
     if handle.is_null() {
         return Err(invalid("ctx is null"));
@@ -763,7 +763,7 @@ pub unsafe extern "C" fn ponko_ctx_load_json(
             // C components are reflected under their full name ("game::Rules"),
             // Rust ones under their short name.
             let full = c.world.component_info(id).name();
-            let name = if ponko::WorldReflect::reflected_components(&c.world).contains(&full) {
+            let name = if ponko::prelude::WorldReflect::reflected_components(&c.world).contains(&full) {
                 full.to_string()
             } else {
                 full.rsplit("::").next().unwrap_or(full).to_string()

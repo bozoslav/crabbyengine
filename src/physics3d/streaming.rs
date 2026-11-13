@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{CollisionGroups, CollisionMesh, Physics3D, pose_to_rp, to_rp};
 use crate::d3::Transform as Transform3D;
-use crate::{Component, Entity, Vec2, Vec3, World};
+use glam::{Vec2, Vec3};
+use ponko_ecs::{Component, Entity, World};
 
 /// A convex hull, triangle mesh or heightfield built on the CPU, on any
 /// thread: the slow half of [`Physics3D::heightfield`] and friends. Build
@@ -178,7 +179,7 @@ impl CollisionMeshData {
 pub struct TerrainCollider {
     /// The heightfield, from [`Physics3D::heightfield`] or
     /// [`Physics3D::add_mesh`] (any collision mesh works). Serde writes it
-    /// as `null` and reads it back as [`CollisionMesh::NONE`](crate::Handle::NONE).
+    /// as `null` and reads it back as [`CollisionMesh::NONE`](crate::handle::Handle::NONE).
     #[serde(with = "super::unsaved_mesh")]
     pub mesh: CollisionMesh,
     /// 0 ice, 1 rubber. Default 0.5.

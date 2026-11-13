@@ -1016,7 +1016,7 @@ mod imp {
     use ponko::d3::Velocity as Velocity3D;
     use ponko::physics3d::CollisionGroups;
     use ponko::physics3d::CollisionMesh;
-    use ponko::{BodyKind, Handle, Quat, Vec3};
+    use ponko::prelude::{BodyKind, Handle, Quat, Vec3};
     use ponko_ecs::Entity;
 
     use super::*;

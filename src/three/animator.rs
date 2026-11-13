@@ -1,7 +1,7 @@
 //! Shared animation graphs and per-entity playback.
 use super::{AnimationClip, Skeleton, Transform3D};
-use crate::Component;
 use glam::{Quat, Vec2, Vec3};
+use ponko_ecs::Component;
 use std::fmt;
 use std::sync::Arc;
 
@@ -1330,12 +1330,12 @@ impl Animator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Vec4;
     use crate::anim::AnimationTrack;
     use crate::anim::Interpolation;
     use crate::anim::Joint;
     use crate::anim::JointAnimation;
     use crate::d3::Transform as Transform3D;
+    use glam::Vec4;
     /// A graph that must be valid, with plain indices for brevity.
     fn graph(
         parameters: Vec<AnimationParameter>,
@@ -1776,7 +1776,7 @@ mod tests {
     }
     #[test]
     fn automatic_updates_run_without_a_renderer_and_manual_animators_are_skipped() {
-        let mut ctx = crate::Ctx::new(0.25, Vec2::ONE);
+        let mut ctx = crate::ctx::Ctx::new(0.25, Vec2::ONE);
         let s = skeleton();
         let c = clip(&s, 3.);
         let graph = graph(vec![], vec![AnimationState::new(Motion::Clip(c))], vec![], 0);

@@ -197,16 +197,15 @@ from the prelude so games can define them freely.
 
 ### The root glob
 
-The crate root holds the modules and exactly what the prelude holds, as the
-same items, so `use ponko::*;` brings in the prelude and the modules, and is
-never ambiguous next to `use ponko::prelude::*;`. Everything else is reached
-through its module. Compatibility exports of the prelude items are hidden
-from the root rustdoc page; module docs are the discovery path.
+The crate root holds only the modules: every item has one path, in its
+module, and the prelude re-exports the common ones as the same items. So
+`use ponko::*;` brings in the modules, not the prelude: games import
+`ponko::prelude::*` (`ponko::Ctx` → `ponko::prelude::Ctx`).
 
 The old root spellings of moved items are gone. The move first kept them as
 `#[deprecated]` re-exports, but rustc does not warn through a re-export, so
-old code got no hint to move; the changelog lists every removed name with
-its replacement. Moving off them:
+old code got no hint to move; [the migration table](migrating-to-0.1.md)
+lists every removed name with its replacement. Moving off them:
 
 - A type, trait or function: import it from the module the changelog names
   (`ponko::RigidBody3D` is `ponko::d3::RigidBody`, `ponko::Net` is

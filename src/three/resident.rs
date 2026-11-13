@@ -85,7 +85,7 @@ impl crate::gfx::Graphics {
     /// # Errors
     ///
     /// As `try_load_mesh`.
-    pub fn try_resident_mesh(&mut self, path: &str) -> Result<Mesh, crate::Error> {
+    pub fn try_resident_mesh(&mut self, path: &str) -> Result<Mesh, crate::error::Error> {
         let now = self.residency_now();
         if let Some(mesh) = self.live_resident_mesh(path) {
             self.residency.set_mut(ResidencyKind::Mesh).touch(path, now);
@@ -119,8 +119,8 @@ impl crate::gfx::Graphics {
     pub(crate) fn load_reserved<T>(
         &mut self,
         path: &str,
-        load: impl FnOnce(&mut Self) -> Result<T, crate::Error>,
-    ) -> Result<T, crate::Error> {
+        load: impl FnOnce(&mut Self) -> Result<T, crate::error::Error>,
+    ) -> Result<T, crate::error::Error> {
         let reserved = self.residency.reserved_meshes.get(path).copied();
         self.assets3d.reuse_mesh_id = reserved;
         let result = load(self);

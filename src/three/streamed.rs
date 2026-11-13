@@ -9,7 +9,8 @@ use super::{LodGroup, LodPick, Mesh, Transform3D, gltf};
 use crate::assets::{self, Origin};
 use crate::streaming::ResidencyKind;
 use crate::streaming::{AssetState, StreamedAsset, StreamedMesh};
-use crate::{Component, Ctx, stream::Job};
+use crate::{ctx::Ctx, stream::Job};
+use ponko_ecs::Component;
 use ponko_ecs::World;
 
 /// A decoded glTF file waiting for the game thread.
@@ -83,7 +84,7 @@ impl crate::gfx::Graphics {
     /// budget.
     ///
     /// Files that refer to other files (a `.gltf` with its `.bin` and
-    /// images) from added [asset sources](crate::Assets::add_source) are
+    /// images) from added [asset sources](crate::assets::Assets::add_source) are
     /// decoded on the game thread: those sources can only be read there. A
     /// failed load gives [`AssetState::Failed`] and isn't retried by
     /// asking again; `resident_mesh` loads it again.
@@ -123,7 +124,7 @@ impl crate::gfx::Graphics {
                         let bytes = found.into_bytes().map_err(|e| e.with_path(&name))?;
                         let mut read = |file: &str| assets::Sources::default().read(file);
                         let loaded = gltf::load(&name, &bytes, &mut read, &|_| false)
-                            .map_err(|e| crate::Error::decode(&name, e))?;
+                            .map_err(|e| crate::error::Error::decode(&name, e))?;
                         Ok((origin, LoadedFile::Parsed(Box::new(loaded))))
                     }),
                     _ => {

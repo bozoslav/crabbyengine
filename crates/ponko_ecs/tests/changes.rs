@@ -1036,7 +1036,7 @@ fn single_marks_a_mutable_fetch_and_a_failed_one_marks_nothing() {
     // Three matches: an error, and nothing counts as changed.
     assert_eq!(
         w.query::<&mut Health>().single().err(),
-        Some(SingleError::MultipleEntities(3))
+        Some(SingleError::MultipleEntities)
     );
     assert_eq!(changed::<Health>(&mut w, seen), []);
     // A change filter picks the row: the only one that changed.
@@ -1258,6 +1258,11 @@ mod dynamic {
         // `since` defaults to the world's tick.
         w.set_changes_since(w.change_tick());
         assert_eq!(chunks(&mut w, world_window).0, []);
+        // `None` keeps the world's tick, so an optional tick chains as it is.
+        let no_tick: Option<Tick> = None;
+        assert_eq!(chunks(&mut w, world_window.since(no_tick)).0, []);
+        assert_eq!(chunks(&mut w, world_window.since(Some(seen))).0.len(), 5);
+        assert_eq!(chunks(&mut w, query.since(no_tick)).0, []);
     }
 
     #[test]

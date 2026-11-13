@@ -5,8 +5,8 @@
 use glam::{Mat4, Vec3, Vec4};
 
 use super::Camera3D;
-use crate::Texture;
 use crate::gfx::Graphics;
+use crate::texture::Texture;
 
 /// A camera drawing the 3D world into a render target each frame, before
 /// the main view: one entry of [`RenderPasses::target_cameras`](crate::render::RenderPasses::target_cameras).
@@ -148,8 +148,8 @@ impl Graphics {
     }
 
     /// [`create_render_target`](Self::create_render_target) with errors as
-    /// values: [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) for a zero
-    /// size, [`Limit`](crate::ErrorKind::Limit) for one larger than the GPU
+    /// values: [`ErrorKind::Invalid`](crate::error::ErrorKind::Invalid) for a zero
+    /// size, [`Limit`](crate::error::ErrorKind::Limit) for one larger than the GPU
     /// takes.
     ///
     /// ```
@@ -159,7 +159,7 @@ impl Graphics {
     ///     assert_eq!(err.kind(), ErrorKind::Invalid);
     /// });
     /// ```
-    pub fn try_create_render_target(&mut self, width: u32, height: u32) -> Result<Texture, crate::Error> {
+    pub fn try_create_render_target(&mut self, width: u32, height: u32) -> Result<Texture, crate::error::Error> {
         let texture = self.make_render_target(width, height)?;
         self.textures_live.insert(texture.id);
         self.asset_ledger
@@ -169,10 +169,10 @@ impl Graphics {
 
     /// [`Graphics::try_create_render_target`](crate::gfx::Graphics::try_create_render_target) for the engine's own targets
     /// (reflection probe faces): not the game's to free or count.
-    pub(crate) fn make_render_target(&mut self, width: u32, height: u32) -> Result<Texture, crate::Error> {
+    pub(crate) fn make_render_target(&mut self, width: u32, height: u32) -> Result<Texture, crate::error::Error> {
         if width == 0 || height == 0 {
-            return Err(crate::Error::new(
-                crate::ErrorKind::Invalid,
+            return Err(crate::error::Error::new(
+                crate::error::ErrorKind::Invalid,
                 format!("render target size must not be zero (got {width} x {height})"),
             ));
         }
@@ -183,8 +183,8 @@ impl Graphics {
             let renderer = self.renderer();
             let max = renderer.max_texture_size();
             if width > max || height > max {
-                return Err(crate::Error::new(
-                    crate::ErrorKind::Limit,
+                return Err(crate::error::Error::new(
+                    crate::error::ErrorKind::Limit,
                     format!("{width} x {height} is larger than this GPU's maximum texture size ({max})"),
                 ));
             }

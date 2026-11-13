@@ -1,10 +1,10 @@
 //! Networking: three ways to keep players in step, behind one entry,
-//! [`ctx.net`](crate::Ctx::net) ([`Networking`]).
+//! [`ctx.net`](crate::ctx::Ctx::net) ([`Networking`]).
 //!
 //! | Pick | For | Start with | Example |
 //! |---|---|---|---|
-//! | **Lockstep** ([`Net`]) | Deterministic simulations with 2–8 players (strategy, fighting, co-op puzzles): every peer runs the same ticks from the same inputs, so only inputs cross the network | [`Game::lockstep`](crate::Game::lockstep), then `ctx.net.set_input` / `ctx.net.input` | [`examples/lockstep.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/lockstep.rs) |
-//! | **Messages** ([`NetMessages`]) | Everything else: your own packets on reliable and unreliable lanes between a host and its clients (chat, lobbies, events, your own replication) | [`Game::messages`](crate::Game::messages), then `ctx.net.messages` | [`examples/net_messages.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/net_messages.rs) |
+//! | **Lockstep** ([`Net`]) | Deterministic simulations with 2–8 players (strategy, fighting, co-op puzzles): every peer runs the same ticks from the same inputs, so only inputs cross the network | [`Game::lockstep`](crate::game::Game::lockstep), then `ctx.net.set_input` / `ctx.net.input` | [`examples/lockstep.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/lockstep.rs) |
+//! | **Messages** ([`NetMessages`]) | Everything else: your own packets on reliable and unreliable lanes between a host and its clients (chat, lobbies, events, your own replication) | [`Game::messages`](crate::game::Game::messages), then `ctx.net.messages` | [`examples/net_messages.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/net_messages.rs) |
 //! | **Snapshots** ([`NetSnapshots`], [`SnapshotStream`], [`Interest`], [`Authority`]) | Server-authoritative worlds on top of messages: the owner sends timestamped states, everyone else shows them a little in the past | `ctx.net.snapshots` and `ctx.net.interest` | [`examples/net_replication.rs`](https://github.com/ponkoengine/ponko/blob/main/examples/net_replication.rs) |
 //!
 //! Lockstep and messages are independent and can run side by side: lockstep
@@ -12,8 +12,6 @@
 //! The engine drives what is there (see the table on [`Networking`]); a
 //! single-player game has an offline lockstep session and nothing else.
 //! Feature `steam` adds Steam relays and lobbies for both transports.
-//!
-//! Everything here is also exported from the crate root (`use ponko::*`).
 //!
 //! # Lockstep
 //!
@@ -42,7 +40,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 use crate::perf::Instant;
-use crate::{World, WorldReflect};
+use crate::reflect::WorldReflect;
+use ponko_ecs::World;
 
 #[cfg(test)]
 mod lockstep_conformance;
@@ -181,7 +180,7 @@ pub struct NetStats {
 
 /// A lockstep session: `ctx.net.lockstep`, which `ctx.net` dereferences
 /// to. Start one with [`Net::host`], [`Net::join`] or [`Net::loopback`] and
-/// pass it to [`Game::lockstep`](crate::Game::lockstep). Without one, it is
+/// pass it to [`Game::lockstep`](crate::game::Game::lockstep). Without one, it is
 /// offline: one player whose input applies on the next tick, so the same
 /// game code runs alone and online.
 ///
@@ -289,7 +288,7 @@ impl Net {
 
     /// Joins the session hosted at `host`, such as `"192.168.1.20:7777"`.
     /// The host decides the player count, input delay and checksum rate; both
-    /// sides must use the same [`Game::seed`](crate::Game::seed).
+    /// sides must use the same [`Game::seed`](crate::game::Game::seed).
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -1350,7 +1349,7 @@ mod tests {
         a.spawn((crate::d2::Transform::default(),));
         let mut b = World::new();
         b.reflect::<crate::d2::Transform>();
-        b.spawn((crate::d2::Transform::at(crate::vec2(1.0, 0.0)),));
+        b.spawn((crate::d2::Transform::at(glam::vec2(1.0, 0.0)),));
         let (ca, cb) = (Check::of(&a, 5), Check::of(&b, 5));
         assert!(ca.compare(&Check::of(&a, 5), 1).is_none());
         let d = ca.compare(&cb, 1).expect("different");

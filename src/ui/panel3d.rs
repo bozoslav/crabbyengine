@@ -9,7 +9,8 @@ use super::retained::Ui;
 use crate::d3::Transform as Transform3D;
 use crate::gfx::Graphics;
 use crate::render::batch::PanelDraw;
-use crate::{Component, Ctx, Entity, MouseButton, Texture};
+use crate::{ctx::Ctx, input::MouseButton, texture::Texture};
+use ponko_ecs::{Component, Entity};
 
 /// Retained UI shown on a quad in the world (Rust's [`Ui`] on a surface):
 /// a computer screen, a shop terminal, a sign with buttons. Build `ui` like
@@ -195,7 +196,7 @@ impl Graphics {
     }
 
     /// [`create_ui_panel`](Self::create_ui_panel) with errors as values:
-    /// [`ErrorKind::Invalid`](crate::ErrorKind::Invalid) for a size that
+    /// [`ErrorKind::Invalid`](crate::error::ErrorKind::Invalid) for a size that
     /// isn't positive and finite, and the errors of
     /// [`try_create_render_target`](Self::try_create_render_target).
     pub fn try_create_ui_panel(
@@ -203,19 +204,19 @@ impl Graphics {
         width: u32,
         height: u32,
         size: Vec2,
-    ) -> Result<(UiPanel3D, crate::render::Model), crate::Error> {
+    ) -> Result<(UiPanel3D, crate::render::Model), crate::error::Error> {
         if !size.is_finite() || size.x <= 0.0 || size.y <= 0.0 {
-            return Err(crate::Error::new(
-                crate::ErrorKind::Invalid,
+            return Err(crate::error::Error::new(
+                crate::error::ErrorKind::Invalid,
                 "panel size must be positive and finite",
             ));
         }
         let texture = self.try_create_render_target(width, height)?;
         let panel = UiPanel3D::new(texture, size);
         let material = self.create_material(crate::render::MaterialDesc {
-            color: crate::Color::BLACK,
+            color: crate::color::Color::BLACK,
             texture: Some(texture),
-            emissive: crate::Color::WHITE,
+            emissive: crate::color::Color::WHITE,
             emissive_map: Some(texture),
             blend: crate::render::Blend::Transparent,
             ..Default::default()
@@ -352,7 +353,7 @@ mod tests {
     use super::*;
     use crate::ui::UiEvent;
     use crate::ui::UiWidget;
-    use crate::{Vec2 as V2, vec3};
+    use glam::{Vec2 as V2, vec3};
 
     fn panel() -> UiPanel3D {
         UiPanel3D::new(Texture::new(1, 200, 100), V2::new(2.0, 1.0))
@@ -441,7 +442,7 @@ mod tests {
         let e = ctx.world.spawn((Transform3D::default(), panel()));
         ctx.ui_state.panels.active = Some(e); // clicked last
         // A scene with the same ids (transforms only: panels aren't saved).
-        let save = crate::WorldReflect::save(&ctx.world);
+        let save = crate::reflect::WorldReflect::save(&ctx.world);
         ctx.replace_world(&save).unwrap();
         assert!(ctx.world.is_alive(e), "the scene has the same id");
         assert_eq!(ctx.ui_state.panels.active, None, "the old panel's focus is gone");

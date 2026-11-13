@@ -8,7 +8,7 @@ use super::{Camera3D, ComputePass, Lighting, LodSettings, Post, ScreenEffect, Sk
 
 /// How the 3D world is drawn (feature `3d`): the camera, the light, the sky
 /// and fog, what happens to the frame on its way to the screen, levels of
-/// detail and the game's own GPU passes. It is [`Ctx::scene3d`](crate::Ctx::scene3d); the
+/// detail and the game's own GPU passes. It is [`Ctx::scene3d`](crate::ctx::Ctx::scene3d); the
 /// renderer reads it when the frame is drawn.
 ///
 /// Each 3D setting has one home here, and the fields are public, so a system
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn replaced_settings_get_the_windows_view_at_the_next_frame() {
-        let mut ctx = crate::Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
+        let mut ctx = crate::ctx::Ctx::new(1.0 / 60.0, Vec2::new(800.0, 600.0));
         ctx.scene3d = SceneSettings::default();
         let center = Vec2::new(400.0, 300.0);
         let off = ctx.scene3d.camera.screen_ray(center).1;

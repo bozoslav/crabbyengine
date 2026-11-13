@@ -331,7 +331,7 @@ fn one_mesh_draws_with_each_models_material() {
         let blues: Vec<_> = rig
             .ctx
             .world
-            .query::<(crate::Entity, &ModelMaterial)>()
+            .query::<(ponko_ecs::Entity, &ModelMaterial)>()
             .iter()
             .filter(|(_, m)| m.0 == blue)
             .map(|(e, _)| e)

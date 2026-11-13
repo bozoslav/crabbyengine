@@ -120,11 +120,11 @@ impl Renderer {
     }
 
     #[cfg(feature = "3d")]
-    pub fn create_gpu_buffer(&mut self, _: u32, _: u32, _: &[crate::Vec4]) {}
+    pub fn create_gpu_buffer(&mut self, _: u32, _: u32, _: &[glam::Vec4]) {}
     #[cfg(feature = "3d")]
     pub fn free_gpu_buffer(&mut self, _: u32) {}
     #[cfg(feature = "3d")]
-    pub fn write_gpu_buffer(&mut self, _: u32, _: u32, _: &[crate::Vec4]) {}
+    pub fn write_gpu_buffer(&mut self, _: u32, _: u32, _: &[glam::Vec4]) {}
     #[cfg(feature = "3d")]
     pub fn set_instance_batch(&mut self, _: u32, _: Option<&crate::three::instances::Batch>) {}
     pub fn set_mesh_gpu_buffer(&mut self, _: u32, _: u32, _: u32) {}

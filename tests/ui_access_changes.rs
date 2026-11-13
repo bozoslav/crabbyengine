@@ -4,7 +4,6 @@
 //! platform adapter and no window.
 
 use ponko::prelude::*;
-use ponko::ui::unstable_taffy::{Display, Style};
 use ponko::ui::{Ui, UiAccessAction, UiAccessTracker, UiEvent, UiId, UiInput, UiLayout, UiLive};
 
 const VIEW: Vec2 = Vec2::new(800.0, 600.0);
@@ -166,9 +165,7 @@ fn enabling_disabling_and_hiding_update_the_affected_subtree() {
     assert!(tracker.tree().get(m.quit).unwrap().focusable);
 
     // Hidden: the node goes, and its parent's children change.
-    let mut hidden: Style = UiLayout::row(20.0).into_style();
-    hidden.display = Display::None;
-    m.ui.set_layout(m.volume, ponko::ui::UiLayout::custom(hidden));
+    m.ui.set_layout(m.volume, UiLayout::row(20.0).hidden());
     m.ui.layout(VIEW);
     let gone = tracker.update(&m.ui).unwrap();
     assert_eq!(gone.removed, [m.volume]);

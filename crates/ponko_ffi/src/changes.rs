@@ -322,29 +322,16 @@ pub unsafe extern "C" fn ponko_removed(
     })
 }
 
-/// `RawWorld::query_chunks`, over the archetypes that pass `filter` if any,
-/// with the archetype index used as `cache` says.
+/// `RawWorld::query_chunks`.
 ///
 /// A `changed` or `added` filter starts tracking its component here: that
 /// is what the C API promises, while the Rust API asks for tracking first.
-fn visit(
-    w: &mut ponko_ecs::World,
-    query: ChunkQuery<'_>,
-    filtered: u32,
-    filter: Option<&ponko_ecs::CompiledFilter>,
-    cache: ponko_ecs::QueryCache,
-    f: impl FnMut(ponko_ecs::Chunk<'_>),
-) {
+fn visit(w: &mut ponko_ecs::World, query: ChunkQuery<'_>, filtered: u32, f: impl FnMut(ponko_ecs::Chunk<'_>)) {
     for (i, &id) in query.ids().iter().enumerate() {
         if filtered >> i & 1 != 0 {
             w.raw().track_changes_dynamic(id);
         }
     }
-    let query = query.cache(cache);
-    let query = match filter {
-        Some(filter) => query.filter(filter),
-        None => query,
-    };
     w.raw().query_chunks(query, f);
 }
 
@@ -454,22 +441,21 @@ pub(crate) unsafe fn query_with_filter(
                     .writes(options.writes)
                     .changed(options.changed)
                     .added(options.added)
-                    .match_any(options.any);
-                let query = match since(options.since) {
-                    Some(tick) => query.since(tick),
-                    None => query,
-                };
+                    .match_any(options.any)
+                    .since(since(options.since))
+                    .filter(compiled.as_ref())
+                    .cache(cache);
                 let filtered = options.changed | options.added;
                 let mut first = 0;
                 if options.parallel {
                     let _commands_off = ParallelQuery::begin(handle);
                     let threads = rayon::current_num_threads().max(1);
-                    visit(w, query, filtered, compiled.as_ref(), cache, |chunk| {
+                    visit(w, query, filtered, |chunk| {
                         chunk_in_parallel(&chunk, &sizes, first, threads, callback, user);
                         first += chunk.entities.len();
                     });
                 } else {
-                    visit(w, query, filtered, compiled.as_ref(), cache, |chunk| {
+                    visit(w, query, filtered, |chunk| {
                         let view = PonkoChunk {
                             count: chunk.entities.len(),
                             column_count: count,

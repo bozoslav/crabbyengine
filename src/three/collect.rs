@@ -10,7 +10,7 @@ use super::{
     ModelMaterial, ModelMaterials, ReceivesDecals, ShadowMesh, SkinFrame, TERRAIN_LODS, TerrainTile, Transform3D,
     linear,
 };
-use crate::{Or, With, Without, World};
+use ponko_ecs::{Or, With, Without, World};
 
 /// Default width and height of each of the sun's shadow maps, in texels.
 pub(crate) const SHADOW_MAP_SIZE: u32 = 2048;
@@ -181,7 +181,7 @@ pub(crate) struct Frame3D {
     /// Per LOD group, in query order: the entity and the pick it showed
     /// last frame, for [`LodHysteresis`]. Each frame (main camera, render
     /// target) keeps its own.
-    lod_held: Vec<(Option<crate::Entity>, LodPick)>,
+    lod_held: Vec<(Option<ponko_ecs::Entity>, LodPick)>,
 }
 
 /// A mesh drawn with other materials than its own.
@@ -638,7 +638,7 @@ impl Frame3D {
             });
         let mut at = 0;
         world
-            .query::<(crate::Entity, &Transform3D, &ShadowMesh)>()
+            .query::<(ponko_ecs::Entity, &Transform3D, &ShadowMesh)>()
             .filter::<Without<Model>>()
             .for_each(|(e, t, shadow)| {
                 let f = flags[at];
@@ -724,7 +724,7 @@ impl Frame3D {
         held.resize(picks.len(), (None, LodPick::Culled));
         world
             .query::<(
-                crate::Entity,
+                ponko_ecs::Entity,
                 &Transform3D,
                 &LodGroup,
                 Option<&ReceivesDecals>,
@@ -835,7 +835,7 @@ impl Frame3D {
         // A `ShadowMesh(None)` on the tile turns its shadow off.
         world
             .query::<(
-                crate::Entity,
+                ponko_ecs::Entity,
                 &Transform3D,
                 &TerrainTile,
                 Option<&ShadowMesh>,
@@ -1228,7 +1228,7 @@ fn capsule_visible(planes: &[Vec4], a: Vec3, b: Vec3, radius: f32) -> bool {
 mod tests {
     use super::super::TERRAIN_LODS;
     use super::*;
-    use crate::Color;
+    use crate::color::Color;
     use crate::render::Mesh;
     use glam::Vec2;
 

@@ -1,6 +1,6 @@
 //! Entity-owned impulse joints. Local X is the hinge, slider and twist axis.
 use super::*;
-use crate::Component;
+use ponko_ecs::Component;
 
 /// The six axes in the joint's local frames, translations followed by rotations.
 /// ```

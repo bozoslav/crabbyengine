@@ -8,7 +8,10 @@ use crate::actions::InputEvent;
 use crate::scenario::InputScenario;
 use crate::scenario::ScenarioCheck;
 use crate::scenario::ScenarioStatus;
-use crate::{Action, ActionMap, ButtonBinding, Key};
+use crate::{
+    actions::{Action, ActionMap, ButtonBinding},
+    input::Key,
+};
 
 /// What the "jump" action looked like to a sim system on one tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

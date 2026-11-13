@@ -163,10 +163,7 @@ fn a_view_query_gives_the_only_match() {
     let mut w = world();
     let mut state = ViewState::new().write::<Pos>();
     state.run(&mut w, |mut view| {
-        assert_eq!(
-            view.query::<&Pos>().single().err(),
-            Some(SingleError::MultipleEntities(2))
-        );
+        assert_eq!(view.query::<&Pos>().single().err(), Some(SingleError::MultipleEntities));
         assert_eq!(view.query::<&Pos>().filter::<With<Frozen>>().single(), Ok(&Pos(10.0)));
         view.query::<&mut Pos>().filter::<With<Frozen>>().single().unwrap().0 += 1.0;
         #[derive(Component)]

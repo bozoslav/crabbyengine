@@ -506,7 +506,7 @@ fn a_late_rejection_behind_a_newer_reload_falls_back_to_the_last_good_version() 
 /// `late` from the renderer.
 fn statuses_after(name: &str, reloads: u32, late: Vec<LateShaderError>) -> crate::render::ShaderStatus {
     let mut out = None;
-    crate::Game::new("t", 1, 1).run_headless(0, |ctx| {
+    crate::game::Game::new("t", 1, 1).run_headless(0, |ctx| {
         ctx.gfx.create_shader(name, RED);
         for _ in 0..reloads {
             ctx.gfx.record_shader(name, ShaderKind::Material, true, Ok(())).unwrap();

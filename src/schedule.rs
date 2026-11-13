@@ -1,14 +1,14 @@
 //! The schedule of a game's systems: which run alone and which share a
-//! batch, and why. From [`Game::schedule_plan`](crate::Game::schedule_plan).
+//! batch, and why. From [`Game::schedule_plan`](crate::game::Game::schedule_plan).
 //!
 //! Systems run phase after phase, and inside a phase in registration order.
 //! The plan cuts that order into **stages**: a stage is either one system
 //! that runs alone, or a **batch** of view systems (systems that take
-//! `&mut SystemView`; see [`Game::add`](crate::Game::add)) that are next to each other
+//! `&mut SystemView`; see [`Game::add`](crate::game::Game::add)) that are next to each other
 //! in the order and whose declarations don't conflict
 //! ([`SystemAccess::conflicts_before`](crate::access::SystemAccess::conflicts_before)).
 //! Stages run one after another; with
-//! [`Game::parallel_systems`](crate::Game::parallel_systems) on, the systems
+//! [`Game::parallel_systems`](crate::game::Game::parallel_systems) on, the systems
 //! of a batch may run at the same time. A system never moves past another:
 //! two systems that conflict keep their registration order, because they are
 //! in different stages.
@@ -39,8 +39,8 @@
 //!   system may hold, send and read the same event type, or run at an
 //!   interval,
 //! - where a system conflicts with one already in the batch,
-//! - at an explicit [`Game::barrier`](crate::Game::barrier),
-//! - where [`Game::order`](crate::Game::order) says one system must see
+//! - at an explicit [`Game::barrier`](crate::game::Game::barrier),
+//! - where [`Game::order`](crate::game::Game::order) says one system must see
 //!   another's work.
 //!
 //! # Determinism
@@ -116,12 +116,12 @@
 
 use std::fmt;
 
-use crate::Phase;
 use crate::access::{AccessConflict, Service, SystemAccess, Unbatchable};
+use crate::game::Phase;
 use crate::game::SystemId;
 
 /// How much work a batch needs before it goes to other threads, unless
-/// [`Game::parallel_threshold`](crate::Game::parallel_threshold) says
+/// [`Game::parallel_threshold`](crate::game::Game::parallel_threshold) says
 /// otherwise: the usual run time of its systems, without the slowest one.
 /// From the `schedule/` benchmarks (see the guide's "Parallel systems").
 pub const DEFAULT_PARALLEL_THRESHOLD: std::time::Duration = std::time::Duration::from_micros(50);
@@ -133,7 +133,7 @@ pub enum Alone {
     /// It has no declaration: it may use anything.
     Undeclared,
     /// It is declared but takes `&mut Ctx`
-    /// ([`IntoSystem::access`](crate::IntoSystem::access), C and C++
+    /// ([`IntoSystem::access`](crate::game::IntoSystem::access), C and C++
     /// systems): its declaration is only checked in debug builds, so it
     /// isn't trusted to share the world.
     CtxSystem,
@@ -160,8 +160,8 @@ impl fmt::Display for Alone {
     }
 }
 
-/// A [`Game::order`](crate::Game::order) pair that contradicts the run
-/// order: from [`Game::check_order`](crate::Game::check_order). `order` can
+/// A [`Game::order`](crate::game::Game::order) pair that contradicts the run
+/// order: from [`Game::check_order`](crate::game::Game::check_order). `order` can
 /// keep two systems apart, not swap them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
@@ -216,9 +216,9 @@ pub enum Boundary {
         /// What they conflict on.
         conflicts: Vec<AccessConflict>,
     },
-    /// An explicit [`Game::barrier`](crate::Game::barrier).
+    /// An explicit [`Game::barrier`](crate::game::Game::barrier).
     Barrier,
-    /// [`Game::order`](crate::Game::order) puts its first system after
+    /// [`Game::order`](crate::game::Game::order) puts its first system after
     /// system `after` of the batch before it.
     Order {
         /// The earlier system.
@@ -256,11 +256,11 @@ impl Stage {
 }
 
 /// Which systems run alone and which share a batch: from
-/// [`Game::schedule_plan`](crate::Game::schedule_plan). See the
+/// [`Game::schedule_plan`](crate::game::Game::schedule_plan). See the
 /// [module documentation](self) for the rules.
 ///
 /// The plan is the same whether or not
-/// [`Game::parallel_systems`](crate::Game::parallel_systems) is on: it shows
+/// [`Game::parallel_systems`](crate::game::Game::parallel_systems) is on: it shows
 /// what turning it on would run together. Printing it (`{plan}`) lists every
 /// stage with the reason it starts there.
 #[derive(Clone, Debug, Default)]
@@ -438,7 +438,7 @@ pub(crate) fn plan(systems: &[PlanInput<'_>], order: &[(SystemId, SystemId)]) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Component;
+    use ponko_ecs::Component;
 
     #[derive(Component)]
     struct A;

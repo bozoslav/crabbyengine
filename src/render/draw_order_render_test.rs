@@ -639,7 +639,7 @@ fn sorted_runs_draw_model_material_overrides_the_same() {
         let mut models: Vec<_> = rig
             .ctx
             .world
-            .query::<(crate::Entity, &Model)>()
+            .query::<(ponko_ecs::Entity, &Model)>()
             .iter()
             .map(|(e, _)| e)
             .collect();

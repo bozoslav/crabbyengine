@@ -119,7 +119,7 @@ whose state can be handed out on its own:
 | `Camera` | `sys.camera`, `sys.camera3d` | |
 | `Spatial` | `sys.spatial`, read only | |
 | `Physics`, `Physics3D` | `sys.physics`, `sys.physics3d`: ray casts and overlaps read, impulses and gravity write | |
-| `Net` | `sys.net`, lockstep networking (`ctx.net.lockstep`) | |
+| `Net` | `sys.net.lockstep`, lockstep networking (as `ctx.net.lockstep`) | |
 | `Gfx`, `Ui`, `Assets`, `Perf` | not offered | |
 
 Each of those fields checks the declaration when it is used: reading

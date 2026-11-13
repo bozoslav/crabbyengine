@@ -1,5 +1,6 @@
 use super::*;
-use crate::{Component, WorldReflect};
+use crate::reflect::WorldReflect;
+use ponko_ecs::Component;
 
 #[test]
 fn protocol_describes_every_registered_builtin_without_sampling_instances() {

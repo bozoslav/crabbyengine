@@ -5,7 +5,8 @@
 use glam::Vec3;
 
 use super::{Camera3D, InstanceLevel, Mesh, Transform3D};
-use crate::{Color, Component};
+use crate::color::Color;
+use ponko_ecs::Component;
 
 /// One mesh of a [`LodLevel`], placed relative to the [`LodGroup`]'s
 /// transform.

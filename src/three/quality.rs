@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn applying_a_preset_and_reading_it_back_round_trips() {
-        crate::Game::new("quality", 64, 64).run_headless(0, |ctx| {
+        crate::game::Game::new("quality", 64, 64).run_headless(0, |ctx| {
             assert_eq!(ctx.scene3d.quality(), None);
             for q in [
                 GraphicsQuality::Ultra,
@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn tweaks_after_a_preset_stick_and_make_it_custom() {
-        crate::Game::new("quality", 64, 64).run_headless(0, |ctx| {
+        crate::game::Game::new("quality", 64, 64).run_headless(0, |ctx| {
             ctx.scene3d.post.ambient_occlusion.radius = 3.5;
             ctx.scene3d.set_quality(GraphicsQuality::High);
             assert_eq!(

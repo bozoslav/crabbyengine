@@ -1,4 +1,4 @@
-use ponko::{Ctx, Game, Phase};
+use ponko::prelude::{Ctx, Game, Phase};
 use std::{cell::RefCell, rc::Rc};
 
 #[test]

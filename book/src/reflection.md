@@ -41,7 +41,7 @@ first: `world.reflect<Unit>("Soldier", {...})`.
 ```
 
 Fields can be `float`, `double`, the fixed-width integers, `bool`,
-`ponko::vec2` (`[x, y]` in JSON) and `ponko::color` (`{"r", "g", "b", "a"}`).
+`ponko::prelude::vec2` (`[x, y]` in JSON) and `ponko::color` (`{"r", "g", "b", "a"}`).
 Entities are `uint64_t`, which is how Rust saves an `Entity` too. Bytes
 no field covers (padding, fields you leave out) are zero in values made
 from JSON, and editing a field leaves them alone.

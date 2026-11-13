@@ -3,7 +3,7 @@
 //! comparing two runs.
 //!
 //! A [`PerfReport`] comes from [`Perf::report`](crate::perf::Perf::report)
-//! in a running game and from [`Game::profile_headless`](crate::Game::profile_headless)
+//! in a running game and from [`Game::profile_headless`](crate::game::Game::profile_headless)
 //! for a headless run; `PONKO_BENCH` prints one, and the control endpoint's
 //! `perf.get` returns one as JSON.
 
@@ -177,7 +177,7 @@ pub struct PerfWarning {
 
 /// Where a game's time and allocations go, over its last frames. It comes
 /// from [`Perf::report`](crate::perf::Perf::report) in a running game and
-/// [`Game::profile_headless`](crate::Game::profile_headless) in a headless run.
+/// [`Game::profile_headless`](crate::game::Game::profile_headless) in a headless run.
 ///
 /// ```
 /// use ponko::prelude::*;
@@ -237,9 +237,9 @@ impl PerfReport {
     /// Reads a report written by [`to_json`](Self::to_json).
     ///
     /// # Errors
-    /// [`ErrorKind::Json`](crate::ErrorKind::Json) if the text isn't a report.
-    pub fn from_json(json: &str) -> Result<Self, crate::Error> {
-        serde_json::from_str(json).map_err(|e| crate::Error::from(e).context("not a performance report"))
+    /// [`ErrorKind::Json`](crate::error::ErrorKind::Json) if the text isn't a report.
+    pub fn from_json(json: &str) -> Result<Self, crate::error::Error> {
+        serde_json::from_str(json).map_err(|e| crate::error::Error::from(e).context("not a performance report"))
     }
 
     /// Writes [`to_json`](Self::to_json) to `path`.
@@ -253,20 +253,20 @@ impl PerfReport {
     /// Reads a report saved with [`save`](Self::save).
     ///
     /// # Errors
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if there's no such
-    /// file, [`Io`](crate::ErrorKind::Io) if it can't be read,
-    /// [`Json`](crate::ErrorKind::Json) if it isn't a report. The error's
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if there's no such
+    /// file, [`Io`](crate::error::ErrorKind::Io) if it can't be read,
+    /// [`Json`](crate::error::ErrorKind::Json) if it isn't a report. The error's
     /// path is `path`.
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, crate::Error> {
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, crate::error::Error> {
         let path = path.as_ref();
         let shown = path.display().to_string();
         let text = std::fs::read_to_string(path).map_err(|e| {
             let kind = if e.kind() == std::io::ErrorKind::NotFound {
-                crate::ErrorKind::NotFound
+                crate::error::ErrorKind::NotFound
             } else {
-                crate::ErrorKind::Io
+                crate::error::ErrorKind::Io
             };
-            crate::Error::new(kind, format!("{shown}: {e}")).with_path(shown.clone())
+            crate::error::Error::new(kind, format!("{shown}: {e}")).with_path(shown.clone())
         })?;
         Self::from_json(&text).map_err(|e| e.with_path(shown))
     }
@@ -583,9 +583,9 @@ impl Budget {
     /// Reads a budget from JSON.
     ///
     /// # Errors
-    /// [`ErrorKind::Json`](crate::ErrorKind::Json) if the text isn't a budget.
-    pub fn from_json(json: &str) -> Result<Self, crate::Error> {
-        serde_json::from_str(json).map_err(|e| crate::Error::from(e).context("not a budget"))
+    /// [`ErrorKind::Json`](crate::error::ErrorKind::Json) if the text isn't a budget.
+    pub fn from_json(json: &str) -> Result<Self, crate::error::Error> {
+        serde_json::from_str(json).map_err(|e| crate::error::Error::from(e).context("not a budget"))
     }
 }
 

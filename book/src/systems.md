@@ -59,8 +59,11 @@ this chapter uses: `sim_system(f)` is `add(Phase::AfterPhysics, f)` and
 Every system belongs to a `Phase`. Phases always run in this order, whatever
 order the builder calls come in; within a phase, systems run in the order
 you added them. `Game::add(phase, f)` (C++: `game::add(ponko::phase::..., f)`,
-C: `ponko_game_add_system`) puts a system in any phase; `sim_system` and
-`system` are short for the two most common ones.
+C: `ponko_game_add_system`) puts a system in any phase and returns the
+game, so builder calls chain; `sim_system` and `system` are short for the
+two most common ones. When you need the system's id later (to remove or
+order it), add it with `Game::add_system` instead, which returns the id
+(see [Replacing a built-in](#replacing-a-built-in)).
 
 | Phase | Runs | Your systems | The engine's systems |
 |---|---|---|---|

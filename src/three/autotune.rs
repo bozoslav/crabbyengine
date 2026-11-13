@@ -424,7 +424,7 @@ impl SceneSettings {
     }
 }
 
-impl crate::Ctx {
+impl crate::ctx::Ctx {
     /// Runs automatic quality for this frame: follows the policy in
     /// `scene3d` (starting, replacing or dropping the controller), then lets
     /// it change render scale and shadow resolution.

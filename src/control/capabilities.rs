@@ -212,7 +212,8 @@ fn report_with_gpu(ctx: &Ctx, gpu: Option<&crate::render::GpuCapabilities>) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Component, WorldReflect};
+    use crate::reflect::WorldReflect;
+    use ponko_ecs::Component;
 
     fn ctx(headless: bool) -> Ctx {
         let mut ctx = Ctx::new(1.0 / 60.0, glam::Vec2::ZERO);

@@ -6,7 +6,7 @@ use crate::color::Color;
 
 /// A loaded image on the GPU. Cheap to copy: it's just an id plus its size.
 ///
-/// Get one from [`Ctx::load_texture`](crate::Ctx::load_texture) or
+/// Get one from [`Ctx::load_texture`](crate::ctx::Ctx::load_texture) or
 /// [`Graphics::create_texture`](crate::gfx::Graphics::create_texture).
 ///
 /// ```
@@ -116,8 +116,8 @@ pub struct DrawParams {
     /// for UI and HUDs. Default `false` (world units, through the camera).
     pub screen: bool,
     /// The part of the texture to draw, in texture pixels (a frame of a
-    /// [`SpriteSheet`](crate::SpriteSheet)). Default `None`: all of it.
-    pub region: Option<crate::Rect>,
+    /// [`SpriteSheet`](crate::sheet::SpriteSheet)). Default `None`: all of it.
+    pub region: Option<crate::camera::Rect>,
 }
 
 impl Default for DrawParams {
@@ -175,7 +175,7 @@ impl DrawParams {
     /// assert_eq!((p.z, p.scale), (2.0, Vec2::ONE));
     /// ```
     #[must_use]
-    pub fn with_region(self, region: crate::Rect) -> Self {
+    pub fn with_region(self, region: crate::camera::Rect) -> Self {
         Self {
             region: Some(region),
             ..self

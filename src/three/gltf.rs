@@ -12,7 +12,7 @@ use std::ops::Range;
 use glam::{Mat3, Mat4, Quat, Vec2, Vec3};
 
 use super::{Blend, Joint, MeshData, MorphTarget, Transform3D};
-use crate::Color;
+use crate::color::Color;
 
 /// A loaded file, before it goes to the GPU.
 pub(crate) struct Loaded {

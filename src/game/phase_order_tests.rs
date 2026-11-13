@@ -10,7 +10,7 @@
 //! (`tests/service_phases.rs`).
 
 use super::*;
-use crate::Component;
+use ponko_ecs::Component;
 
 #[derive(Default)]
 struct Log(Vec<String>);
@@ -90,7 +90,8 @@ fn retained_ui_updates_before_simulation_and_frame_systems() {
     assert_eq!(ctx.ui.focus(), None);
     // Tab moves the focus to the button when the UI updates. The systems of
     // the same frame already see it: the UI went first.
-    ctx.input.feed(crate::actions::InputEvent::Key(crate::Key::Tab, true));
+    ctx.input
+        .feed(crate::actions::InputEvent::Key(crate::input::Key::Tab, true));
     frame(&mut game, &mut ctx, 1);
     assert_eq!(take(&mut ctx), ["sim focus=true", "frame focus=true"]);
     assert_eq!(ctx.ui.focus(), Some(button));
@@ -112,9 +113,8 @@ fn ticks_per_frame_follow_the_requested_count() {
 #[cfg(feature = "3d")]
 mod positional_audio {
     use super::*;
-    use crate::{
-        Vec3, d3::AudioSettings as AudioSettings3D, d3::AudioSource as AudioSource3D, d3::Transform as Transform3D,
-    };
+    use crate::{d3::AudioSettings as AudioSettings3D, d3::AudioSource as AudioSource3D, d3::Transform as Transform3D};
+    use glam::Vec3;
 
     #[test]
     fn positional_audio_follows_late_and_draw_systems() {
@@ -283,10 +283,11 @@ fn a_frame_runs_ticks_then_frame_then_late_then_draw_and_applies_commands_betwee
 #[test]
 fn builtin_animation_and_particles_run_between_frame_and_late_systems() {
     use crate::{
-        Vec3, anim::AnimationClip, anim::AnimationGraph, anim::AnimationState, anim::Animator, anim::Joint,
-        anim::Motion, anim::Skeleton, d3::ParticleEmitter as ParticleEmitter3D,
-        d3::ParticleSettings as ParticleSettings3D, d3::Transform as Transform3D,
+        anim::AnimationClip, anim::AnimationGraph, anim::AnimationState, anim::Animator, anim::Joint, anim::Motion,
+        anim::Skeleton, d3::ParticleEmitter as ParticleEmitter3D, d3::ParticleSettings as ParticleSettings3D,
+        d3::Transform as Transform3D,
     };
+    use glam::Vec3;
     let skeleton = Skeleton::new(vec![Joint {
         name: "root".into(),
         parent: None,

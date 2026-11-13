@@ -131,9 +131,9 @@ mod imp {
     use super::*;
     use crate::ctx::{ctx_access, out, text};
     use crate::{boundary, error, invalid, invalid_owned};
-    use ponko::Entity;
     use ponko::d3::Ragdoll as Ragdoll3D;
     use ponko::physics3d::RagdollBone;
+    use ponko::prelude::Entity;
 
     pub(super) unsafe fn start(
         ctx: *mut PonkoCtx,

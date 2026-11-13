@@ -313,7 +313,7 @@ fn single_gives_the_only_match_and_says_why_there_is_none() {
 
     w.spawn((Pos(0.0, 0.0),));
     w.spawn((Pos(0.0, 0.0),));
-    assert_eq!(w.query::<&Pos>().single().err(), Some(SingleError::MultipleEntities(3)));
+    assert_eq!(w.query::<&Pos>().single().err(), Some(SingleError::MultipleEntities));
     // Filters narrow it to one again, across archetypes.
     assert_eq!(w.query::<Entity>().filter::<With<Tag>>().single(), Ok(player));
     assert_eq!(
@@ -322,7 +322,7 @@ fn single_gives_the_only_match_and_says_why_there_is_none() {
     );
     assert_eq!(SingleError::NoEntities.to_string(), "no entity matches the query");
     assert_eq!(
-        SingleError::MultipleEntities(3).to_string(),
-        "3 entities match the query, not one"
+        SingleError::MultipleEntities.to_string(),
+        "more than one entity matches the query"
     );
 }

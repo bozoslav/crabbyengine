@@ -25,7 +25,7 @@ mod spatial;
 pub use spatial::*;
 
 /// A loaded sound. Cheap to copy. Get one from
-/// [`Ctx::load_sound`](crate::Ctx::load_sound) or
+/// [`Ctx::load_sound`](crate::ctx::Ctx::load_sound) or
 /// [`Audio::create`](crate::audio::Audio::create).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
@@ -487,7 +487,7 @@ mod backend {
 
         #[test]
         fn audio_headless_routing_never_initializes_manager() {
-            crate::Game::new("audio", 1, 1).run_headless(0, |ctx| {
+            crate::game::Game::new("audio", 1, 1).run_headless(0, |ctx| {
                 let bus = ctx.audio.bus("music");
                 let sound = ctx.audio.create(100, &[0.0; 100]);
                 let voice = ctx
@@ -614,7 +614,7 @@ pub struct Audio {
 }
 
 impl Audio {
-    /// Loads a sound from an [added asset source](crate::Assets::add_source) or the
+    /// Loads a sound from an [added asset source](crate::assets::Assets::add_source) or the
     /// `assets/` folder: OGG Vorbis, WAV, MP3 or FLAC. Loading the same file
     /// again returns the same handle. Only a file from `assets/` is hot reloaded.
     ///
@@ -637,9 +637,9 @@ impl Audio {
     }
 
     /// [`load`](Self::load) with errors as values:
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound),
-    /// [`Io`](crate::ErrorKind::Io), or (with the `audio` feature)
-    /// [`Decode`](crate::ErrorKind::Decode) if it can't be decoded.
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound),
+    /// [`Io`](crate::error::ErrorKind::Io), or (with the `audio` feature)
+    /// [`Decode`](crate::error::ErrorKind::Decode) if it can't be decoded.
     ///
     /// ```
     /// # use ponko::prelude::*;
@@ -649,7 +649,7 @@ impl Audio {
     ///     }
     /// });
     /// ```
-    pub fn try_load(&mut self, path: &str) -> Result<Sound, crate::Error> {
+    pub fn try_load(&mut self, path: &str) -> Result<Sound, crate::error::Error> {
         let found = match self
             .loaded
             .lookup(&self.asset_sources, path, crate::asset_cache::AssetKind::Sound)?
@@ -660,9 +660,9 @@ impl Audio {
         let origin = found.origin.clone();
         let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
         let (id, seconds) = self.backend.load(bytes).map_err(|e| match &origin {
-            crate::assets::Origin::File(file) => crate::Error::decode(path, format!("{}: {e}", file.display())),
+            crate::assets::Origin::File(file) => crate::error::Error::decode(path, format!("{}: {e}", file.display())),
             crate::assets::Origin::Source { .. } => {
-                crate::Error::decode(path, format!("{}: {e}", origin.describe(path)))
+                crate::error::Error::decode(path, format!("{}: {e}", origin.describe(path)))
             }
         })?;
         let sound = Sound { id, seconds };

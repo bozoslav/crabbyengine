@@ -204,7 +204,7 @@ fn friction_curves_and_wheels_match_rust() {
     let c = ponko_friction_curve_sideways();
     assert_eq!(ponko_friction_curve_evaluate(c, 0.2), 1.0);
     assert_eq!(ponko_friction_curve_evaluate(c, -9.0), 0.75);
-    let rust = ponko::d3::Wheel::new(ponko::vec3(1.0, 2.0, 3.0), 0.4);
+    let rust = ponko::d3::Wheel::new(ponko::prelude::vec3(1.0, 2.0, 3.0), 0.4);
     let w = ponko_wheel3d(v3(1.0, 2.0, 3.0), 0.4);
     assert_eq!(
         (w.mass, w.suspension_distance, w.spring, w.damper, w.damping_rate),

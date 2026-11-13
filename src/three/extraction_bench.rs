@@ -6,7 +6,7 @@ use glam::Vec3;
 
 use super::collect::{Frame3D, INSTANCE_BRIDGE, Instance3D, shadow_views};
 use super::{Assets3D, Camera3D, Lighting, Mesh, SkinFrame};
-use crate::World;
+use ponko_ecs::World;
 
 /// Collects a world's 3D frame the way the engine does before drawing, and
 /// measures what that costs: see [`ExtractionSample`].

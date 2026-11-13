@@ -74,7 +74,7 @@ pub enum Phase {
 /// only matters between systems of the same phase.
 ///
 /// ```
-/// use ponko::{Ctx, Game, Phase, Plugin};
+/// use ponko::prelude::{Ctx, Game, Phase, Plugin};
 ///
 /// struct Score;
 /// impl Plugin for Score {
@@ -261,7 +261,7 @@ pub struct Game {
     gravity: Option<Vec2>,
     /// Gravity from `physics3d`, applied to `ctx.physics3d` when the game starts.
     #[cfg(feature = "physics3d")]
-    gravity3d: Option<crate::Vec3>,
+    gravity3d: Option<glam::Vec3>,
     /// The lockstep session from `lockstep`, moved into `ctx.net` at start.
     net: Option<crate::net::Net>,
     /// The message endpoint from `messages`, moved into `ctx.net` at start.
@@ -389,7 +389,7 @@ struct System {
 struct ChangesSeen {
     /// [`World::id`] of the world the system last ran in; 0 before its first run.
     world: u64,
-    tick: crate::Tick,
+    tick: ponko_ecs::Tick,
 }
 
 impl ChangesSeen {
@@ -397,11 +397,11 @@ impl ChangesSeen {
     /// ran in another world (the game replaced `ctx.world`) has seen
     /// nothing of this one: the new world's ticks start over, so the old
     /// tick would hide whatever was stamped before the new world reached it.
-    fn in_world(self, world: &crate::World) -> crate::Tick {
+    fn in_world(self, world: &ponko_ecs::World) -> ponko_ecs::Tick {
         if self.world == world.id() {
             self.tick
         } else {
-            crate::Tick::default()
+            ponko_ecs::Tick::default()
         }
     }
 }
@@ -503,7 +503,7 @@ fn run_one(s: &mut System, ctx: &mut Ctx, timing_index: usize) {
         world: ctx.world.id(),
         tick: ctx.world.advance_change_tick(),
     };
-    ctx.world.set_changes_since(crate::Tick::default());
+    ctx.world.set_changes_since(ponko_ecs::Tick::default());
     ctx.perf.timings[timing_index].last_ms += start.elapsed().as_secs_f32() * 1000.0;
     if let Some(before) = allocs_before {
         let made = crate::perf::alloc_counts().count.saturating_sub(before.count);
@@ -710,9 +710,10 @@ impl Game {
         game
     }
 
-    /// Registers a system in an execution phase: the general form of
-    /// [`sim_system`](Self::sim_system) (`Phase::AfterPhysics`) and
-    /// [`system`](Self::system) (`Phase::Frame`).
+    /// Adds a system to `phase` and returns the game, to chain more builder
+    /// calls; [`add_system`](Self::add_system) returns the system's id
+    /// instead. The general form of [`sim_system`](Self::sim_system)
+    /// (`Phase::AfterPhysics`) and [`system`](Self::system) (`Phase::Frame`).
     ///
     /// `system` is anything that is [`IntoSystem`]:
     ///
@@ -783,10 +784,11 @@ impl Game {
         self
     }
 
-    /// [`add`](Self::add) that returns the system's id, for
-    /// [`remove`](Self::remove) and [`order`](Self::order). It is the one
+    /// Adds a system to `phase` and returns its id, for
+    /// [`remove`](Self::remove) and [`order`](Self::order), instead of the
+    /// game: [`add`](Self::add) for when the id is needed. It is the one
     /// builder method that borrows the game instead of taking and
-    /// returning it, because it has something else to return.
+    /// returning it, so it doesn't chain.
     ///
     /// ```
     /// use ponko::prelude::*;
@@ -1082,7 +1084,7 @@ impl Game {
     /// a common returned frame-closure type:
     ///
     /// ```
-    /// use ponko::Game;
+    /// use ponko::prelude::Game;
     /// let headless = true;
     /// let game = Game::new("Example", 800, 600);
     /// let game = if headless {
@@ -1106,7 +1108,7 @@ impl Game {
     /// setup; [`setup`](Self::setup) does the same with one.
     ///
     /// ```
-    /// use ponko::{Ctx, Game, Plugin};
+    /// use ponko::prelude::{Ctx, Game, Plugin};
     /// struct Score(u32);
     /// struct Scoring;
     /// impl Plugin for Scoring {
@@ -1139,6 +1141,18 @@ impl Game {
     pub fn remove(mut self, id: SystemId) -> Self {
         self.remove_id(id);
         self
+    }
+
+    /// The first system named `name`, in phase order, without building an
+    /// [`AccessReport`](crate::access::AccessReport): for the C API, which
+    /// removes systems by name (through `__ffi`).
+    pub(crate) fn system_named(&self, name: &str) -> Option<SystemId> {
+        (self.sim_systems.iter())
+            .chain(&self.systems)
+            .chain(&self.late_systems)
+            .chain(&self.draw_systems)
+            .find(|s| s.name == name)
+            .map(|s| s.key)
     }
 
     fn remove_id(&mut self, id: SystemId) {
@@ -1248,7 +1262,7 @@ impl Game {
     /// of instances for a [`Systems`] constant, 0 if there is none.
     ///
     /// ```
-    /// use ponko::{Game, Systems};
+    /// use ponko::prelude::{Game, Systems};
     /// let game = Game::new("t", 1, 1);
     /// assert_eq!(game.system_count(Systems::DRAW_SPRITES), 1);
     /// assert_eq!(game.remove(Systems::DRAW_SPRITES).system_count(Systems::DRAW_SPRITES), 0);
@@ -1267,7 +1281,7 @@ impl Game {
     /// [`RigidBody`](crate::d2::RigidBody), a [`Collider`](crate::d2::Collider) and a
     /// [`Transform2D`](crate::d2::Transform) is simulated each tick, pulled by
     /// `gravity` (pixels/s²; y is down). Collisions arrive as
-    /// [`CollisionStarted`](crate::CollisionStarted) events; `ctx.physics`
+    /// [`CollisionStarted`](crate::collision::CollisionStarted) events; `ctx.physics`
     /// casts rays and finds overlaps.
     ///
     /// The step is the built-in [`step_physics`](crate::systems::step_physics) sim
@@ -1302,7 +1316,7 @@ impl Game {
     /// and a [`Transform3D`](crate::d3::Transform) is simulated each tick, and
     /// every [`Character3D`](crate::d3::Character) walks, pulled by `gravity`
     /// (m/s²; +Y is up, so `vec3(0.0, -9.81, 0.0)`). Collisions arrive as
-    /// [`CollisionStarted`](crate::CollisionStarted) events; `ctx.physics3d`
+    /// [`CollisionStarted`](crate::collision::CollisionStarted) events; `ctx.physics3d`
     /// casts rays and shapes and finds overlaps.
     ///
     /// The simulation runs at [`PHYSICS3D_HZ`](crate::physics3d::PHYSICS3D_HZ) (50)
@@ -1326,7 +1340,7 @@ impl Game {
     /// assert!((y - 5.1).abs() < 0.2, "{y}");
     /// ```
     #[cfg(feature = "physics3d")]
-    pub fn physics3d(mut self, gravity: crate::Vec3) -> Self {
+    pub fn physics3d(mut self, gravity: glam::Vec3) -> Self {
         self.gravity3d = Some(gravity);
         if !self.fixed_hz_set {
             self.fixed_hz = crate::physics3d::PHYSICS3D_HZ;
@@ -1393,7 +1407,7 @@ impl Game {
     /// Feeds scheduled input into the game by simulation tick, for
     /// reproducible tests (off unless called). Before the simulation systems
     /// of each tick run, the scenario's steps for that tick go through
-    /// [`Input::feed`](crate::input::Input::feed), so [named actions](crate::ActionMap) and raw input
+    /// [`Input::feed`](crate::input::Input::feed), so [named actions](crate::actions::ActionMap) and raw input
     /// queries see them exactly like live input. Calling it again replaces
     /// the previous scenario.
     ///
@@ -1492,7 +1506,7 @@ impl Game {
 
     /// Opens the control endpoint, so tools such as the `ponko-mcp` agent
     /// bridge can inspect and drive this game while it runs: list and edit
-    /// entities (through [reflection](crate::WorldReflect)), pause, step,
+    /// entities (through [reflection](crate::reflect::WorldReflect)), pause, step,
     /// change speed, read system timings.
     ///
     /// It listens on `127.0.0.1` only, and every request must carry a random
@@ -1512,7 +1526,7 @@ impl Game {
         self
     }
 
-    /// Reload textures, fonts, sounds and data files ([`Assets::load_resource`](crate::Assets::load_resource))
+    /// Reload textures, fonts, sounds and data files ([`Assets::load_resource`](crate::assets::Assets::load_resource))
     /// from `assets/` when their files change, under the same handles: save an
     /// image or a JSON file in your editor and the running game shows it
     /// within a quarter of a second. On by default in debug builds, off in
@@ -1521,7 +1535,7 @@ impl Game {
     /// A file is checked a few times a second (one `stat` per loaded
     /// texture). An image that changed size isn't reloaded (sprites store
     /// their texture's size): restart the game for that.
-    /// [`Assets::reloaded_textures`](crate::Assets::reloaded_textures) lists what was reloaded this frame.
+    /// [`Assets::reloaded_textures`](crate::assets::Assets::reloaded_textures) lists what was reloaded this frame.
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -1630,7 +1644,7 @@ impl Game {
     }
 
     /// Sets how many fixed updates run per second (default 60).
-    /// See [`Time::fixed_steps`](crate::Time::fixed_steps).
+    /// See [`Time::fixed_steps`](crate::time::Time::fixed_steps).
     ///
     /// # Panics
     /// If `hz` is 0.
@@ -2074,7 +2088,7 @@ impl Game {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Component;
+    use ponko_ecs::Component;
 
     struct Log(Vec<String>);
     #[derive(Component)]

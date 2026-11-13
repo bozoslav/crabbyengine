@@ -23,7 +23,7 @@ pub struct GridEntry<T = ()> {
 /// each tick: answers radius, rectangle and nearest-neighbor queries without
 /// checking every entity.
 ///
-/// Enable it with [`Game::spatial_grid`](crate::Game::spatial_grid): every
+/// Enable it with [`Game::spatial_grid`](crate::game::Game::spatial_grid): every
 /// entity with a [`Transform2D`] is then indexed at the start of each
 /// simulation tick, and you query it through `ctx.spatial`, even from inside a
 /// (parallel) query:
@@ -493,7 +493,7 @@ impl Buckets {
 
 pub(crate) const SPATIAL_SORT_EVERY: u64 = 32;
 
-/// Built-in system added by [`Game::spatial_grid`](crate::Game::spatial_grid):
+/// Built-in system added by [`Game::spatial_grid`](crate::game::Game::spatial_grid):
 /// re-indexes every [`Transform2D`] entity into `ctx.spatial`. It runs first
 /// in every simulation tick, and every [`SpatialGrid::SORT_EVERY`] ticks it also
 /// sorts entities by cell so neighbor queries stay cache-friendly.

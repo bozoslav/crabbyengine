@@ -2,8 +2,8 @@
 //! bloom and tone mapping (sun shafts, underwater, heat haze, outlines).
 
 use super::Material;
-use crate::Texture;
 use crate::gfx::Graphics;
+use crate::texture::Texture;
 
 /// A screen effect shader, made with [`Graphics::load_effect`](crate::gfx::Graphics::load_effect) or
 /// [`Graphics::create_effect`](crate::gfx::Graphics::create_effect); a cheap handle. Run it by adding a
@@ -161,7 +161,7 @@ impl TargetEffect {
 
 impl Graphics {
     /// Loads a screen effect shader (WGSL) from an [added asset
-    /// source](crate::Assets::add_source) or `assets/`. It defines
+    /// source](crate::assets::Assets::add_source) or `assets/`. It defines
     /// `fn effect(p: Pixel) -> vec3<f32>`: the new light at each pixel of
     /// the 3D frame, from what's there (`p.color`, `p.world`, `p.distance`,
     /// `p.sky`, `p.screen`, `p.uv`). It can call `scene_color(screen)` and
@@ -189,10 +189,10 @@ impl Graphics {
     }
 
     /// [`load_effect`](Self::load_effect) with errors as values:
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
-    /// missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
-    /// [`Decode`](crate::ErrorKind::Decode) if it isn't UTF-8 text and
-    /// [`Shader`](crate::ErrorKind::Shader) if it doesn't compile (the
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file is
+    /// missing, [`Io`](crate::error::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::error::ErrorKind::Decode) if it isn't UTF-8 text and
+    /// [`Shader`](crate::error::ErrorKind::Shader) if it doesn't compile (the
     /// message has the compiler's log). With hot reload on, a file that
     /// doesn't compile still returns a stand-in, as `load_effect` does.
     ///
@@ -203,7 +203,7 @@ impl Graphics {
     ///     assert_eq!(err.kind(), ErrorKind::NotFound);
     /// });
     /// ```
-    pub fn try_load_effect(&mut self, path: &str) -> Result<Effect, crate::Error> {
+    pub fn try_load_effect(&mut self, path: &str) -> Result<Effect, crate::error::Error> {
         let found = match self
             .asset_sources
             .lookup(path, |origin| self.assets3d.loaded_effects.get(origin).copied())?
@@ -261,9 +261,9 @@ impl Graphics {
     }
 
     /// [`create_effect`](Self::create_effect) with errors as values:
-    /// [`ErrorKind::Shader`](crate::ErrorKind::Shader) if it doesn't
+    /// [`ErrorKind::Shader`](crate::error::ErrorKind::Shader) if it doesn't
     /// compile, with the compiler's log in the message.
-    pub fn try_create_effect(&mut self, name: &str, source: &str) -> Result<Effect, crate::Error> {
+    pub fn try_create_effect(&mut self, name: &str, source: &str) -> Result<Effect, crate::error::Error> {
         let id = self.assets3d.effects;
         let compiled = self.compile_effect(name, source, None);
         self.record_shader(name, super::ShaderKind::Effect, false, compiled)?;
@@ -311,7 +311,7 @@ impl Graphics {
         Ok(self.record_shader(name, super::ShaderKind::Effect, true, compiled)?)
     }
 
-    /// Frees screen effect `id` (see [`Ctx::free`](crate::Ctx::free)): entries of
+    /// Frees screen effect `id` (see [`Ctx::free`](crate::ctx::Ctx::free)): entries of
     /// [`RenderPasses::effects`](crate::render::RenderPasses::effects) showing it are skipped from now on.
     pub(crate) fn free_effect_id(&mut self, id: u32) {
         if !self.assets3d.effects_live.remove(id) {

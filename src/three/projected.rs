@@ -6,8 +6,10 @@
 
 use super::lights::{GRID, LIST_WIDTH};
 use super::{Camera3D, Transform3D, linear};
-use crate::{Color, Component, World};
+use crate::color::Color;
 use glam::{Mat4, Vec2, Vec3};
+use ponko_ecs::Component;
+use ponko_ecs::World;
 
 /// The most decals drawn in a frame. When more are in view, the ones
 /// nearest the camera are kept.

@@ -1,6 +1,8 @@
 //! CPU particle pools and lifetime curves. Pools retain their storage between frames.
 use super::{Camera3D, Transform3D, linear};
-use crate::{Color, Component, Rng, Texture, Vec3, World};
+use crate::{color::Color, random::Rng, texture::Texture};
+use glam::Vec3;
+use ponko_ecs::{Component, World};
 
 /// A piecewise linear size multiplier over normalized lifetime. Keys must be finite,
 /// strictly increasing, and in 0..=1; sampling clamps to the endpoints.
@@ -696,7 +698,7 @@ mod tests {
             local,
         ));
         world.spawn((Transform3D::at(Vec3::X * 100.0), global));
-        let mut camera = Camera3D::new(crate::Vec2::splat(64.0));
+        let mut camera = Camera3D::new(glam::Vec2::splat(64.0));
         camera.position = Vec3::ZERO;
         let mut frame = ParticleFrame::default();
         frame.collect(&mut world, &camera);
@@ -729,7 +731,7 @@ mod tests {
 
     #[test]
     fn particles_headless_skips_visual_frame_simulation() {
-        let mut world = crate::Game::new("particles test", 1, 1).run_headless(2, |ctx| {
+        let mut world = crate::game::Game::new("particles test", 1, 1).run_headless(2, |ctx| {
             ctx.world.spawn((
                 Transform3D::default(),
                 ParticleEmitter3D::new(ParticleSettings3D {
@@ -766,7 +768,7 @@ mod tests {
     }
     #[test]
     fn particles_sort_by_view_depth_even_off_axis() {
-        let mut camera = Camera3D::new(crate::Vec2::splat(64.0));
+        let mut camera = Camera3D::new(glam::Vec2::splat(64.0));
         camera.position = Vec3::ZERO;
         camera.look_at(Vec3::NEG_Z);
         let mut world = World::new();

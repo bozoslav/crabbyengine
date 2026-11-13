@@ -7,7 +7,7 @@ use ponko::prelude::*;
 #[derive(Component, Debug, PartialEq)]
 struct Speed(f32);
 
-#[derive(ponko::Component)]
+#[derive(ponko::prelude::Component)]
 struct Tagged<T>(T);
 
 #[test]

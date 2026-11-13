@@ -61,7 +61,7 @@ impl<H: Copy> AssetCache<H> {
         sources: &SharedSources,
         name: &str,
         kind: AssetKind,
-    ) -> Result<Lookup<H>, crate::Error> {
+    ) -> Result<Lookup<H>, crate::error::Error> {
         sources.lookup(name, |origin| self.get(origin, kind))
     }
 

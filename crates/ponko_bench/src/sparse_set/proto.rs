@@ -11,7 +11,7 @@
 //! two, driven from whichever side is smaller.
 //!
 //! It is safe Rust except [`dense_ref`] and [`dense_mut`], which cast the
-//! raw pointers `RawWorld::get_dynamic` and `get_dynamic_mut` return to the component's type; they
+//! raw pointers `RawWorldRef::get_dynamic` and `RawWorld::get_dynamic_mut` return to the component's type; they
 //! are `unsafe fn`s because a [`DenseId`] from another world could name a
 //! different type there. What a real integration would add (despawn hooks,
 //! change stamps, commands, views, the scheduler's access sets, the C ABI,

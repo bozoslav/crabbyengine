@@ -56,6 +56,8 @@ root), `centered(w, h)` for dialogs and `grid(columns, row_height)` for
 inventories, refined with `gap`, `padding`, `grow`, `horizontal`/`vertical` and
 `width`/`height`, and placed in points with `top(y)` and `left(x)` (a
 centered dialog near the top: `UiLayout::centered(360.0, 180.0).top(180.0)`).
+`hidden()` takes a node and its subtree out of layout, drawing, input and the
+accessibility tree; set the layout again without it to show the node.
 Children stack top to bottom, except in a row. For a Taffy setting the
 presets don't cover (named grid lines, templates), `UiLayout::custom(style)`
 wraps a `ui::unstable_taffy::Style` and `style_mut()` edits one. That module

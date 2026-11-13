@@ -4,7 +4,7 @@
 //! **What lives here:** what is held (`key_down`, `mouse_down`,
 //! `gamepad_down`), what changed this frame (`*_pressed`, `*_released`),
 //! pointer position and movement, gamepad axes, the
-//! [`ActionMap`](crate::ActionMap) and its queries (`action_down`,
+//! [`ActionMap`](crate::actions::ActionMap) and its queries (`action_down`,
 //! `action_axis`, ...), text typed this frame, and the cursor lock.
 //!
 //! **When to call it:** in any system. Edges (`pressed`, `released`, wheel,
@@ -311,13 +311,13 @@ impl<const N: usize> ButtonStates<N> {
 
 /// Keyboard, mouse, gamepads and named actions this frame: `ctx.input`.
 ///
-/// The everyday reads also have shortcuts on [`Ctx`](crate::Ctx)
+/// The everyday reads also have shortcuts on [`Ctx`](crate::ctx::Ctx)
 /// (`ctx.key_down`, `ctx.key_pressed`, `ctx.key_released`, `ctx.mouse_pos`);
 /// everything else is here.
 ///
 /// - **What lives here:** what is held (`key_down`, `mouse_down`,
 ///   `gamepad_down`), what changed this frame (`*_pressed`, `*_released`),
-///   the pointer, gamepad axes, the [`ActionMap`](crate::ActionMap) and its
+///   the pointer, gamepad axes, the [`ActionMap`](crate::actions::ActionMap) and its
 ///   queries, text typed this frame and the cursor lock.
 /// - **When to call it:** in any system. Edges last one frame; a simulation
 ///   system that runs several ticks in a frame sees the same edges in each.
@@ -348,7 +348,7 @@ pub struct Input {
     pub(super) pads: [PadState; MAX_GAMEPADS],
     /// Connected pads, sorted by slot.
     connected: Vec<Gamepad>,
-    pub(crate) actions: crate::ActionMap,
+    pub(crate) actions: crate::actions::ActionMap,
     /// The cursor is hidden and held in the window (`set_cursor_locked`).
     cursor_locked: bool,
     /// `cursor_locked` changed since the window last applied it.
@@ -369,7 +369,7 @@ impl Input {
             mouse_motion: Vec2::ZERO,
             pads: [const { PadState::new() }; MAX_GAMEPADS],
             connected: Vec::with_capacity(MAX_GAMEPADS),
-            actions: crate::ActionMap::default(),
+            actions: crate::actions::ActionMap::default(),
             cursor_locked: false,
             cursor_lock_changed: false,
             scenarios: Default::default(),
@@ -697,14 +697,14 @@ impl Input {
     /// let value = ctx.input.actions();
     /// # }
     /// ```
-    pub fn actions(&self) -> &crate::ActionMap {
+    pub fn actions(&self) -> &crate::actions::ActionMap {
         &self.actions
     }
 
-    /// Resolves an action name once into a `Copy` [`ActionId`](crate::ActionId)
+    /// Resolves an action name once into a `Copy` [`ActionId`](crate::actions::ActionId)
     /// for the queries below, which then skip the string lookup. An unknown
     /// name logs an error (naming the known actions) and gives
-    /// [`ActionId::NONE`](crate::ActionId::NONE), which reads false/zero.
+    /// [`ActionId::NONE`](crate::actions::ActionId::NONE), which reads false/zero.
     /// Resolve in setup, after installing the bindings with
     /// [`set_actions`](Self::set_actions); later rebinding keeps the id valid.
     ///
@@ -717,12 +717,12 @@ impl Input {
     /// if ctx.input.action_pressed(jump) { /* ... */ }
     /// # }
     /// ```
-    pub fn action_id(&self, name: &str) -> crate::ActionId {
+    pub fn action_id(&self, name: &str) -> crate::actions::ActionId {
         match self.actions.resolve(name) {
             Ok(id) => id,
             Err(e) => {
                 eprintln!("ponko: {e}");
-                crate::ActionId::NONE
+                crate::actions::ActionId::NONE
             }
         }
     }
@@ -735,7 +735,7 @@ impl Input {
     /// let jump = ctx.input.try_action_id("jump");
     /// # }
     /// ```
-    pub fn try_action_id(&self, name: &str) -> Result<crate::ActionId, crate::actions::UnknownAction> {
+    pub fn try_action_id(&self, name: &str) -> Result<crate::actions::ActionId, crate::actions::UnknownAction> {
         self.actions.resolve(name)
     }
 
@@ -747,19 +747,19 @@ impl Input {
     /// let [jump, fire] = ctx.input.action_ids(&["jump", "fire"]);
     /// # }
     /// ```
-    pub fn action_ids<const N: usize>(&self, names: &[&str; N]) -> [crate::ActionId; N] {
+    pub fn action_ids<const N: usize>(&self, names: &[&str; N]) -> [crate::actions::ActionId; N] {
         names.map(|n| self.action_id(n))
     }
 
     /// Whether a named button is held. Takes a name or an
-    /// [`ActionId`](crate::ActionId) from [`action_id`](Self::action_id).
+    /// [`ActionId`](crate::actions::ActionId) from [`action_id`](Self::action_id).
     /// ```
     /// # use ponko::prelude::*;
     /// # fn example(ctx: &Ctx) {
     /// let value = ctx.input.action_down("move");
     /// # }
     /// ```
-    pub fn action_down(&self, action: impl crate::ActionRef) -> bool {
+    pub fn action_down(&self, action: impl crate::actions::ActionRef) -> bool {
         self.actions.down(action)
     }
 
@@ -770,7 +770,7 @@ impl Input {
     /// let value = ctx.input.action_pressed("move");
     /// # }
     /// ```
-    pub fn action_pressed(&self, action: impl crate::ActionRef) -> bool {
+    pub fn action_pressed(&self, action: impl crate::actions::ActionRef) -> bool {
         self.actions.pressed(action)
     }
 
@@ -781,7 +781,7 @@ impl Input {
     /// let value = ctx.input.action_released("move");
     /// # }
     /// ```
-    pub fn action_released(&self, action: impl crate::ActionRef) -> bool {
+    pub fn action_released(&self, action: impl crate::actions::ActionRef) -> bool {
         self.actions.released(action)
     }
 
@@ -792,7 +792,7 @@ impl Input {
     /// let value = ctx.input.action_axis("move");
     /// # }
     /// ```
-    pub fn action_axis(&self, action: impl crate::ActionRef) -> f32 {
+    pub fn action_axis(&self, action: impl crate::actions::ActionRef) -> f32 {
         self.actions.axis(action)
     }
 
@@ -803,7 +803,7 @@ impl Input {
     /// let value = ctx.input.action_axis2("move");
     /// # }
     /// ```
-    pub fn action_axis2(&self, action: impl crate::ActionRef) -> Vec2 {
+    pub fn action_axis2(&self, action: impl crate::actions::ActionRef) -> Vec2 {
         self.actions.axis2(action)
     }
 
@@ -815,7 +815,7 @@ impl Input {
     /// ctx.input.set_actions(ActionMap::default());
     /// # }
     /// ```
-    pub fn set_actions(&mut self, mut actions: crate::ActionMap) {
+    pub fn set_actions(&mut self, mut actions: crate::actions::ActionMap) {
         actions.prepare_after(&self.actions);
         self.actions = actions;
         self.refresh_actions();
@@ -829,7 +829,7 @@ impl Input {
     /// baseline, so the change fires no pressed/released edge. Read the
     /// current bindings with [`actions`](Self::actions).
     /// ```
-    /// # use ponko::*;
+    /// # use ponko::prelude::*;
     /// # fn example(ctx: &mut Ctx) {
     /// let mut jump = ctx.input.actions().get("jump").cloned().unwrap_or(Action::Button(vec![]));
     /// if let Action::Button(sources) = &mut jump {
@@ -838,7 +838,7 @@ impl Input {
     /// ctx.input.set_action("jump", jump);
     /// # }
     /// ```
-    pub fn set_action(&mut self, name: impl Into<String>, action: crate::Action) {
+    pub fn set_action(&mut self, name: impl Into<String>, action: crate::actions::Action) {
         let name = name.into();
         self.actions.set(name.clone(), action);
         self.refresh_actions();

@@ -385,10 +385,7 @@ fn focusing_text_by_pointer_does_not_submit_and_hidden_nodes_do_not_hit() {
     let hidden = ui.add_child(
         root,
         UiWidget::Button,
-        ponko::ui::UiLayout::custom(Style {
-            display: Display::None,
-            ..sized(120.0, 30.0)
-        }),
+        ponko::ui::UiLayout::custom(sized(120.0, 30.0)).hidden(),
     );
     ui.frame(
         vec2(800.0, 600.0),

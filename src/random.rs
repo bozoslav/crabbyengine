@@ -3,7 +3,7 @@
 use glam::Vec2;
 use ponko_ecs::Entity;
 
-/// The seed games use unless [`Game::seed`](crate::Game::seed) sets one, so
+/// The seed games use unless [`Game::seed`](crate::game::Game::seed) sets one, so
 /// runs are reproducible by default.
 pub const DEFAULT_SEED: u64 = 0x00C0_FFEE_C4AB_B1E5;
 
@@ -19,7 +19,7 @@ fn mix(mut z: u64) -> u64 {
 /// A small, fast random number generator (xoshiro256++). Same seed, same
 /// numbers, on every machine.
 ///
-/// In systems, get one from [`Ctx::random`](crate::Ctx::random), which
+/// In systems, get one from [`Ctx::random`](crate::ctx::Ctx::random), which
 /// keeps runs reproducible even inside `par_for_each`. `Rng::new` is for
 /// setup code and tests.
 ///
@@ -151,7 +151,7 @@ impl Rng {
 }
 
 /// Where a system's random numbers come from this tick: from
-/// [`Ctx::random`](crate::Ctx::random). `Copy`, so it can be used inside
+/// [`Ctx::random`](crate::ctx::Ctx::random). `Copy`, so it can be used inside
 /// `par_for_each`.
 ///
 /// Every (seed, tick, system, entity) gets its own stream, so the numbers

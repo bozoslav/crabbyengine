@@ -10,7 +10,7 @@
 
 use super::retained::Ui;
 use super::{UiId, UiWidget};
-use crate::Rect;
+use crate::camera::Rect;
 use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};

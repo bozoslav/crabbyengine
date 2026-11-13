@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use glam::{Vec2, Vec3};
 
 use super::{Prepare3D, Renderer3D};
-use crate::Ctx;
+use crate::ctx::Ctx;
 use crate::d3::Transform as Transform3D;
 use crate::render::gpu::GpuTexture;
 use crate::render::{AntiAliasing, MaterialDesc, Mesh, MeshData, Model};
@@ -169,7 +169,7 @@ impl RecordBench {
         let meshes: Vec<Mesh> = (0..scene.meshes.max(1))
             .map(|i| {
                 let desc = MaterialDesc {
-                    color: crate::Color::rgb(0.3 + 0.7 * (i % 7) as f32 / 7.0, 0.6, 0.5),
+                    color: crate::color::Color::rgb(0.3 + 0.7 * (i % 7) as f32 / 7.0, 0.6, 0.5),
                     ..Default::default()
                 };
                 let data = MeshData::cube(0.3 + 0.01 * (i % 16) as f32);

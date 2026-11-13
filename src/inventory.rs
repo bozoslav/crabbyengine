@@ -42,7 +42,7 @@ pub enum AssetClass {
     Effect,
     /// 3D: [`Compute`](crate::render::Compute) passes, freed with [`Graphics::free`](crate::gfx::Graphics::free).
     Compute,
-    /// [`Sound`](crate::Sound)s, loaded or made, freed with [`Audio::free`](crate::audio::Audio::free).
+    /// [`Sound`](crate::audio::Sound)s, loaded or made, freed with [`Audio::free`](crate::audio::Audio::free).
     Sound,
 }
 
@@ -130,7 +130,7 @@ pub struct GpuResidency {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub struct DanglingHandle {
-    /// The entity holding it, as its bits ([`Entity::to_bits`](crate::Entity::to_bits)).
+    /// The entity holding it, as its bits ([`Entity::to_bits`](ponko_ecs::Entity::to_bits)).
     pub entity: u64,
     /// The component: `"Sprite"`, `"Model"`, `"ModelMaterial"` or `"ShadowMesh"`.
     pub component: &'static str,
@@ -470,7 +470,7 @@ impl Ctx {
         let world = &self.world;
         // `was_made` keeps `NONE` and the engine's own textures out.
         let textures = &self.gfx.textures_live;
-        each::<crate::Sprite>(world, |e, s| {
+        each::<crate::d2::Sprite>(world, |e, s| {
             if textures.was_made(s.texture.id) && !textures.contains(s.texture.id) {
                 out.push(DanglingHandle::new(e, "Sprite", AssetClass::Texture, s.texture.id));
             }
@@ -479,7 +479,7 @@ impl Ctx {
         {
             let gfx = &self.gfx;
             let freed_mesh = |m: crate::render::Mesh| m != crate::render::Mesh::NONE && !gfx.is_live(m);
-            each::<crate::Model>(world, |e, m| {
+            each::<crate::render::Model>(world, |e, m| {
                 if freed_mesh(m.mesh) {
                     out.push(DanglingHandle::new(e, "Model", AssetClass::Mesh, m.mesh.id));
                 }
@@ -503,7 +503,7 @@ impl Ctx {
 
 /// Calls `f` with every entity that has a `T`, without a mutable borrow of
 /// the world.
-fn each<T: crate::Component>(world: &crate::World, mut f: impl FnMut(crate::Entity, &T)) {
+fn each<T: ponko_ecs::Component>(world: &ponko_ecs::World, mut f: impl FnMut(ponko_ecs::Entity, &T)) {
     let Some(id) = world.component_id::<T>() else {
         return;
     };
@@ -517,7 +517,7 @@ fn each<T: crate::Component>(world: &crate::World, mut f: impl FnMut(crate::Enti
 }
 
 impl DanglingHandle {
-    fn new(e: crate::Entity, component: &'static str, class: AssetClass, id: u32) -> Self {
+    fn new(e: ponko_ecs::Entity, component: &'static str, class: AssetClass, id: u32) -> Self {
         DanglingHandle {
             entity: e.to_bits(),
             component,

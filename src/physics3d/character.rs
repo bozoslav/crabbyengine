@@ -6,7 +6,8 @@ use rapier3d::prelude as rp;
 use serde::{Deserialize, Serialize};
 
 use super::{CollisionGroups, LinkKind, Physics3D, from_rp, to_rp};
-use crate::{Component, Entity, Vec3, World};
+use glam::Vec3;
+use ponko_ecs::{Component, Entity, World};
 
 /// A walking character (a player, a person): an upright capsule moved by
 /// its [`velocity`](Self::velocity) that slides along walls, climbs slopes

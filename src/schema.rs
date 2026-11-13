@@ -8,9 +8,9 @@
 //! [`WorldReflect::describe_resource`], or derived from the fields of
 //! [`WorldReflect::reflect_fields`]. Everything else is reported as opaque.
 //!
-//! [`WorldReflect::describe_component`]: crate::WorldReflect::describe_component
-//! [`WorldReflect::describe_resource`]: crate::WorldReflect::describe_resource
-//! [`WorldReflect::reflect_fields`]: crate::WorldReflect::reflect_fields
+//! [`WorldReflect::describe_component`]: crate::reflect::WorldReflect::describe_component
+//! [`WorldReflect::describe_resource`]: crate::reflect::WorldReflect::describe_resource
+//! [`WorldReflect::reflect_fields`]: crate::reflect::WorldReflect::reflect_fields
 
 use serde_json::{Value, json};
 
@@ -64,11 +64,11 @@ pub enum ValueSchema {
     String,
     /// An entity id (a non-negative integer).
     Entity,
-    /// `[x, y]`, like [`Vec2`](crate::Vec2).
+    /// `[x, y]`, like [`Vec2`](glam::Vec2).
     Vec2,
-    /// `[x, y, z]`, like [`Vec3`](crate::Vec3).
+    /// `[x, y, z]`, like [`Vec3`](glam::Vec3).
     Vec3,
-    /// `{ "r", "g", "b", "a" }`, like [`Color`](crate::Color).
+    /// `{ "r", "g", "b", "a" }`, like [`Color`](crate::color::Color).
     Color,
     /// One of these strings (a fieldless enum, or the fieldless variants of
     /// one).

@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use ponko::{Ctx, Game};
+use ponko::prelude::{Ctx, Game};
 
 use crate::{Bench, report};
 

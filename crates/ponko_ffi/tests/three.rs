@@ -45,7 +45,7 @@ unsafe extern "C" fn setup(ctx: *mut PonkoCtx, user: *mut c_void) {
         let cube = ponko_mesh_data_cube(1.0);
         assert_eq!(ponko_ctx_create_mesh(ctx, cube, stone, &mut ids.mesh), PONKO_OK);
         let mut batch = PonkoInstanceBatch::default();
-        let matrices = [ponko::Mat4::IDENTITY.to_cols_array()];
+        let matrices = [ponko::prelude::Mat4::IDENTITY.to_cols_array()];
         let options = PonkoInstanceBatchOptions {
             cell_size: 32.0,
             max_distance: 100.0,

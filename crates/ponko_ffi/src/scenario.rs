@@ -139,7 +139,7 @@ unsafe fn edit<B: FnOnce(InputScenario) -> InputScenario>(
 }
 
 fn json_error(message: String) -> Failure {
-    invalid_owned(ponko::Error::new(ponko::ErrorKind::Json, message))
+    invalid_owned(ponko::prelude::Error::new(ponko::prelude::ErrorKind::Json, message))
 }
 
 /// An empty scenario. Free it with `ponko_input_scenario_free`.

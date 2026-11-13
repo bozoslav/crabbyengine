@@ -17,9 +17,10 @@ use crate::ctx::Ctx;
 use crate::input::Gamepad;
 use crate::input::GamepadAxis;
 use crate::input::GamepadButton;
+use crate::input::{Key, MouseButton};
 use crate::reflect::WorldReflect;
-use crate::{Key, MouseButton};
-use crate::{Time, World};
+use crate::time::Time;
+use ponko_ecs::World;
 
 /// The scenario file format this engine reads and writes.
 pub const SCENARIO_VERSION: u32 = 1;
@@ -45,7 +46,7 @@ pub enum ScenarioCheck {
         /// Released this frame.
         released: Option<bool>,
     },
-    /// One value of a [reflected resource](crate::WorldReflect::reflect_resource),
+    /// One value of a [reflected resource](crate::reflect::WorldReflect::reflect_resource),
     /// compared as JSON (numbers compare by value).
     Resource {
         /// The resource's short type name.
@@ -55,7 +56,7 @@ pub enum ScenarioCheck {
         /// The expected value.
         equals: Value,
     },
-    /// How many entities have a [reflected component](crate::WorldReflect::reflect).
+    /// How many entities have a [reflected component](crate::reflect::WorldReflect::reflect).
     Count {
         /// The component's short type name.
         component: String,
@@ -136,7 +137,7 @@ impl ScenarioCheck {
 /// Raw input and checks scheduled by simulation tick, for reproducible
 /// headless tests and tool-driven runs.
 ///
-/// Install it with [`Game::input_scenario`](crate::Game::input_scenario)
+/// Install it with [`Game::input_scenario`](crate::game::Game::input_scenario)
 /// (ticks count from the start of the run) or start it mid-run with
 /// [`Input::start_scenario`](crate::input::Input::start_scenario) (ticks
 /// count from the tick it starts on). Before the simulation systems of tick
@@ -598,7 +599,7 @@ pub(crate) struct Scenarios {
 impl crate::input::Input {
     /// Starts `scenario` on the next simulation tick, which is its tick 0,
     /// replacing (and cancelling) one that is running. Use it from systems and
-    /// tests; [`Game::input_scenario`](crate::Game::input_scenario) starts one
+    /// tests; [`Game::input_scenario`](crate::game::Game::input_scenario) starts one
     /// with the game. The run's [`crate::scenario::ScenarioReport`] is kept in `world` and
     /// its ticks are counted on `time` (the game's are `ctx.world` and
     /// `ctx.time`).

@@ -4,7 +4,8 @@
 
 use super::Material;
 use crate::gfx::Graphics;
-use crate::{Texture, Vec3};
+use crate::texture::Texture;
+use glam::Vec3;
 
 /// A compute pass shader, made with [`Graphics::load_compute`](crate::gfx::Graphics::load_compute) or
 /// [`Graphics::create_compute`](crate::gfx::Graphics::create_compute); a cheap handle. Run it by adding a
@@ -141,7 +142,7 @@ impl ComputePass {
 
 impl Graphics {
     /// Loads a compute pass shader (WGSL) from an [added asset
-    /// source](crate::Assets::add_source) or `assets/`. It defines
+    /// source](crate::assets::Assets::add_source) or `assets/`. It defines
     /// `fn compute(c: Cell) -> vec4<f32>`: the new value of each texel of
     /// the render target, from what it holds now (`c.value`, all 0 at
     /// first), where it is (`c.pixel`, `c.size`, `c.uv`) and its
@@ -178,10 +179,10 @@ impl Graphics {
     }
 
     /// [`load_compute`](Self::load_compute) with errors as values:
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
-    /// missing, [`Io`](crate::ErrorKind::Io) if it can't be read,
-    /// [`Decode`](crate::ErrorKind::Decode) if it isn't UTF-8 text and
-    /// [`Shader`](crate::ErrorKind::Shader) if it doesn't compile (the
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file is
+    /// missing, [`Io`](crate::error::ErrorKind::Io) if it can't be read,
+    /// [`Decode`](crate::error::ErrorKind::Decode) if it isn't UTF-8 text and
+    /// [`Shader`](crate::error::ErrorKind::Shader) if it doesn't compile (the
     /// message has the compiler's log). With hot reload on, a file that
     /// doesn't compile still returns a stand-in, as `load_compute` does.
     ///
@@ -192,7 +193,7 @@ impl Graphics {
     ///     assert_eq!(err.kind(), ErrorKind::NotFound);
     /// });
     /// ```
-    pub fn try_load_compute(&mut self, path: &str) -> Result<Compute, crate::Error> {
+    pub fn try_load_compute(&mut self, path: &str) -> Result<Compute, crate::error::Error> {
         let found = match self
             .asset_sources
             .lookup(path, |origin| self.assets3d.loaded_computes.get(origin).copied())?
@@ -258,9 +259,9 @@ impl Graphics {
     }
 
     /// [`create_compute`](Self::create_compute) with errors as values:
-    /// [`ErrorKind::Shader`](crate::ErrorKind::Shader) if it doesn't
+    /// [`ErrorKind::Shader`](crate::error::ErrorKind::Shader) if it doesn't
     /// compile, with the compiler's log in the message.
-    pub fn try_create_compute(&mut self, name: &str, source: &str) -> Result<Compute, crate::Error> {
+    pub fn try_create_compute(&mut self, name: &str, source: &str) -> Result<Compute, crate::error::Error> {
         let id = self.assets3d.computes;
         let compiled = self.compile_compute(name, source, None);
         self.record_shader(name, super::ShaderKind::Compute, false, compiled)?;
@@ -308,7 +309,7 @@ impl Graphics {
         Ok(self.record_shader(name, super::ShaderKind::Compute, true, compiled)?)
     }
 
-    /// Frees compute pass `id` (see [`Ctx::free`](crate::Ctx::free)): entries of
+    /// Frees compute pass `id` (see [`Ctx::free`](crate::ctx::Ctx::free)): entries of
     /// [`RenderPasses::compute`](crate::render::RenderPasses::compute) running it are skipped from now on.
     pub(crate) fn free_compute_id(&mut self, id: u32) {
         if !self.assets3d.computes_live.remove(id) {
@@ -350,9 +351,9 @@ impl GpuBuffer {
 impl Graphics {
     /// Creates `len` elements. Initial data may be empty or exactly `len` elements.
     /// A freed buffer's slot is reused first, under a new id, so the freed
-    /// handle stays dead (see [`Ctx::free`](crate::Ctx::free)).
+    /// handle stays dead (see [`Ctx::free`](crate::ctx::Ctx::free)).
     /// Panics for zero length or mismatched data. See [`crate::render::GpuBuffer`].
-    pub fn create_gpu_buffer(&mut self, len: u32, data: &[crate::Vec4]) -> GpuBuffer {
+    pub fn create_gpu_buffer(&mut self, len: u32, data: &[glam::Vec4]) -> GpuBuffer {
         assert!(
             len > 0 && (data.is_empty() || data.len() == len as usize),
             "invalid GPU buffer length"
@@ -407,7 +408,7 @@ impl Graphics {
     }
     /// Updates a range before the next frame. Panics for invalid handles or ranges.
     /// See [`crate::render::GpuBuffer`] for an example.
-    pub fn write_gpu_buffer(&mut self, b: GpuBuffer, offset: u32, data: &[crate::Vec4]) {
+    pub fn write_gpu_buffer(&mut self, b: GpuBuffer, offset: u32, data: &[glam::Vec4]) {
         let len = self.gpu_buffer_len(b).expect("invalid GPU buffer");
         assert!(
             offset <= len && data.len() <= (len - offset) as usize,
@@ -511,11 +512,11 @@ fn union_spheres(a: (Vec3, f32), b: (Vec3, f32)) -> (Vec3, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vec3;
+    use glam::vec3;
 
     #[test]
     fn gpu_bounds_grow_the_culling_sphere_of_a_buffer_mesh() {
-        crate::Game::new("bounds", 1, 1).run_headless(0, |ctx| {
+        crate::game::Game::new("bounds", 1, 1).run_headless(0, |ctx| {
             let material = ctx.gfx.default_material();
             let mesh = ctx.gfx.create_mesh(&crate::render::MeshData::cube(0.5), material);
             let own = ctx.gfx.assets3d.bounds[mesh.slot() as usize];
@@ -536,7 +537,7 @@ mod tests {
 
     #[test]
     fn scene_compute_passes_are_listed_apart_and_go_with_their_freed_buffer() {
-        crate::Game::new("stages", 1, 1).run_headless(0, |ctx| {
+        crate::game::Game::new("stages", 1, 1).run_headless(0, |ctx| {
             let simulate = ctx
                 .gfx
                 .create_compute("simulate", "fn update(i: u32) { items[i].x += 1.0; }");

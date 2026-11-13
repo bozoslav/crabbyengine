@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 use crate::d3::Transform as Transform3D;
-use crate::{Component, Ctx, Entity, Events, Quat, Vec3, Without, World};
+use crate::{ctx::Ctx, events::Events};
+use glam::{Quat, Vec3};
+use ponko_ecs::{Component, Entity, Without, World};
 
 mod character;
 mod contacts;
@@ -36,9 +38,9 @@ pub use character::Character3D;
 pub use query::{Hit3D, QueryFilter3D};
 pub use vehicle::{FrictionCurve, Vehicle3D, Wheel3D};
 
-/// The simulation rate [`Game::physics3d`](crate::Game::physics3d) sets,
+/// The simulation rate [`Game::physics3d`](crate::game::Game::physics3d) sets,
 /// unless the game picked its own with
-/// [`Game::fixed_hz`](crate::Game::fixed_hz): 50 steps per second.
+/// [`Game::fixed_hz`](crate::game::Game::fixed_hz): 50 steps per second.
 pub const PHYSICS3D_HZ: u32 = 50;
 
 /// Makes an entity a 3D physics body. It also needs a [`Collider3D`] and a
@@ -158,12 +160,12 @@ impl RigidBody3D {
 /// [`Physics3D::convex_hull`], [`Physics3D::trimesh`],
 /// [`Physics3D::heightfield`] or [`Physics3D::add_mesh`] and shared by any
 /// number of [`Collider3D::mesh`] colliders and [`TerrainCollider`]s. A
-/// [`Handle`](crate::Handle): copying it doesn't copy the data; check it
+/// [`Handle`](crate::handle::Handle): copying it doesn't copy the data; check it
 /// with [`Physics3D::is_live`] (or `ctx.is_live`) and release it with
 /// [`Physics3D::free`] (or `ctx.free`). Handles are only meaningful in the
 /// run that made them, so serde never reads or writes one: in a
 /// [`Shape3D`] or [`TerrainCollider`] it is saved as `null` and loaded as
-/// [`CollisionMesh::NONE`](crate::Handle::NONE). Scenes name the mesh file
+/// [`CollisionMesh::NONE`](crate::handle::Handle::NONE). Scenes name the mesh file
 /// instead (see [`Shape3D::Mesh`]).
 ///
 /// ```compile_fail,E0277
@@ -176,7 +178,7 @@ pub struct CollisionMesh {
 }
 
 /// Serde for a [`CollisionMesh`] field: written as `null`, read back as
-/// [`CollisionMesh::NONE`](crate::Handle::NONE), so no saved number
+/// [`CollisionMesh::NONE`](crate::handle::Handle::NONE), so no saved number
 /// becomes a handle.
 pub(crate) mod unsaved_mesh {
     use super::CollisionMesh;
@@ -187,7 +189,7 @@ pub(crate) mod unsaved_mesh {
     }
 
     pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<CollisionMesh, D::Error> {
-        <()>::deserialize(d).map(|()| <CollisionMesh as crate::Handle>::NONE)
+        <()>::deserialize(d).map(|()| <CollisionMesh as crate::handle::Handle>::NONE)
     }
 }
 
@@ -215,7 +217,7 @@ pub enum Shape3D {
     },
     /// A convex hull, triangle mesh or heightfield made by [`Physics3D`].
     /// Serde writes it as `{"Mesh": null}` and reads that back as
-    /// [`CollisionMesh::NONE`](crate::Handle::NONE): a handle only means
+    /// [`CollisionMesh::NONE`](crate::handle::Handle::NONE): a handle only means
     /// something in the run that made it. In a scene, name the mesh file
     /// instead (`{"Mesh": {"file": "rock.glb"}}`); reflection leaves out
     /// colliders of meshes made in code.
@@ -513,7 +515,7 @@ impl rp::EventHandler for Collector {
 }
 
 /// The 3D physics world: `ctx.physics3d`. Add it to a game with
-/// [`Game::physics3d`](crate::Game::physics3d); then entities with
+/// [`Game::physics3d`](crate::game::Game::physics3d); then entities with
 /// [`RigidBody3D`], [`Collider3D`] and [`Transform3D`] are simulated, and
 /// entities with [`Character3D`] and [`Transform3D`] walk.
 pub struct Physics3D {
@@ -779,11 +781,11 @@ impl Physics3D {
         ))
     }
 
-    /// Lets go of a mesh made here, as [`Ctx::free`](crate::Ctx::free)
+    /// Lets go of a mesh made here, as [`Ctx::free`](crate::ctx::Ctx::free)
     /// does. Colliders already using it keep it until they're removed; new
     /// colliders with this handle get no shape. Its slot goes to the next
     /// mesh made, under a new handle, so this one stays dead. Freeing it
-    /// again, or freeing [`Handle::NONE`](crate::Handle::NONE), does nothing.
+    /// again, or freeing [`Handle::NONE`](crate::handle::Handle::NONE), does nothing.
     ///
     /// ```
     /// use ponko::prelude::*;
@@ -805,8 +807,8 @@ impl Physics3D {
     }
 
     /// Whether `mesh` is a live mesh of this world, as
-    /// [`Ctx::is_live`](crate::Ctx::is_live) tells. False for
-    /// [`Handle::NONE`](crate::Handle::NONE).
+    /// [`Ctx::is_live`](crate::ctx::Ctx::is_live) tells. False for
+    /// [`Handle::NONE`](crate::handle::Handle::NONE).
     #[must_use]
     pub fn is_live(&self, mesh: CollisionMesh) -> bool {
         self.mesh(mesh).is_some()
@@ -1047,7 +1049,7 @@ fn body_of(t: &Transform3D, rigid: RigidBody3D, velocity: Velocity3D) -> rp::Rig
 /// Sets up `ctx.physics3d` for a game that uses 3D physics, and makes its
 /// components visible to the inspector, saves and agents.
 pub(crate) fn start(ctx: &mut Ctx, gravity: Vec3) {
-    use crate::WorldReflect;
+    use crate::reflect::WorldReflect;
     ctx.physics3d = Physics3D::new(gravity);
     ctx.world.reflect::<RigidBody3D>();
     crate::reflect::reflect_collider(&mut ctx.world);
@@ -1060,7 +1062,7 @@ pub(crate) fn start(ctx: &mut Ctx, gravity: Vec3) {
 /// Steps the 3D physics world one simulation tick: picks up new, changed
 /// and removed bodies, moves characters, simulates, writes poses and
 /// velocities back, and sends [`CollisionStarted`] / [`CollisionStopped`]
-/// events. Added by [`Game::physics3d`](crate::Game::physics3d); remove or
+/// events. Added by [`Game::physics3d`](crate::game::Game::physics3d); remove or
 /// reorder it like any other system.
 pub fn step_physics3d(ctx: &mut Ctx) {
     let dt = ctx.dt();
@@ -1077,10 +1079,10 @@ pub fn step_physics3d(ctx: &mut Ctx) {
 /// and [`CollisionStopped`]. Nothing else: no other resources, commands,
 /// drawing or input.
 ///
-/// [`Game::physics3d`](crate::Game::physics3d) registers the step with this
-/// declaration, so [`Game::access_report`](crate::Game::access_report) lists
+/// [`Game::physics3d`](crate::game::Game::physics3d) registers the step with this
+/// declaration, so [`Game::access_report`](crate::game::Game::access_report) lists
 /// what the step touches and debug builds check that it stays inside it.
-/// Declare it ([`IntoSystem::access`](crate::IntoSystem::access)) when you
+/// Declare it ([`IntoSystem::access`](crate::game::IntoSystem::access)) when you
 /// place the step yourself. The step keeps `&mut Ctx` and its place in
 /// the order; see [`access`](crate::access).
 ///
@@ -1114,7 +1116,7 @@ pub fn step_physics3d_access() -> crate::access::SystemAccess {
 /// What [`interpolate_physics3d`] uses, as a declaration: it writes the 3D
 /// physics service (the poses it last wrote), reads the frame's place
 /// between two steps ([`Service::Time`](crate::access::Service::Time)) and
-/// writes [`Transform3D`]. [`Game::physics3d`](crate::Game::physics3d)
+/// writes [`Transform3D`]. [`Game::physics3d`](crate::game::Game::physics3d)
 /// registers the blend with it.
 ///
 /// The [`Service`](crate::access::Service) entries of the declaration are
@@ -1184,8 +1186,8 @@ fn step(physics: &mut Physics3D, world: &mut World, events: &mut Events, dt: f32
 
 /// Draws moving bodies smoothly: between two physics steps, sets each
 /// moving body's [`Transform3D`] to a blend of its last two poses, by how
-/// far the frame is between them ([`Time::fixed_alpha`](crate::Time::fixed_alpha)). Added as the first
-/// frame system by [`Game::physics3d`](crate::Game::physics3d), so camera
+/// far the frame is between them ([`Time::fixed_alpha`](crate::time::Time::fixed_alpha)). Added as the first
+/// frame system by [`Game::physics3d`](crate::game::Game::physics3d), so camera
 /// code sees the blended pose too. Does nothing in headless runs, where
 /// frames and ticks line up. Transforms you changed since the last step are
 /// left alone (they teleport the body at the next step).
@@ -1398,7 +1400,7 @@ fn write_back(physics: &mut Physics3D, world: &mut World) {
 mod tests {
     use super::*;
     use crate::time::FrameTiming;
-    use crate::{Vec2, vec3};
+    use glam::{Vec2, vec3};
 
     fn tick(ctx: &mut Ctx) {
         ctx.set_in_sim(true);

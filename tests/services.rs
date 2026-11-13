@@ -700,7 +700,7 @@ fn visible_ctx_methods() -> Vec<String> {
         let mut hidden = false;
         for line in text.lines() {
             if !in_ctx {
-                in_ctx = line == "impl Ctx {" || line == "impl crate::Ctx {";
+                in_ctx = line == "impl Ctx {" || line == "impl crate::ctx::Ctx {";
                 continue;
             }
             if line == "}" {

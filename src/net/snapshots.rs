@@ -114,7 +114,7 @@ impl Default for Pose {
 impl Pose {
     /// At `position`, not rotated, without a velocity.
     /// ```
-    /// let p = ponko::net::Pose::at(ponko::vec3(1.0, 2.0, 3.0));
+    /// let p = ponko::net::Pose::at(ponko::prelude::vec3(1.0, 2.0, 3.0));
     /// assert!(p.velocity.is_none());
     /// ```
     pub const fn at(position: Vec3) -> Self {
@@ -837,7 +837,7 @@ impl<T: Interpolate> SnapshotStream<T> {
 /// # let _ = world;
 /// ```
 #[cfg(feature = "3d")]
-#[derive(Clone, Debug, Default, crate::Component)]
+#[derive(Clone, Debug, Default, ponko_ecs::Component)]
 pub struct NetPose {
     /// The buffered snapshots and clock estimate.
     pub stream: SnapshotStream<Pose>,
@@ -846,7 +846,7 @@ pub struct NetPose {
 /// System: sets the [`Transform3D`](crate::d3::Transform) position and rotation
 /// of every entity with a [`NetPose`] from its stream, sampled at
 /// `ctx.time.elapsed()` (scale is left alone). Entities without snapshots stay
-/// where they are. Add it with [`Game::system`](crate::Game::system), so entities
+/// where they are. Add it with [`Game::system`](crate::game::Game::system), so entities
 /// move every frame whatever the simulation does; the stream's timestamps are matched against
 /// `ctx.time.elapsed()`, so push with that clock.
 ///
@@ -855,7 +855,7 @@ pub struct NetPose {
 /// let _ = Game::new("remote", 1, 1).system(systems::apply_net_poses);
 /// ```
 #[cfg(feature = "3d")]
-pub fn apply_net_poses(ctx: &mut crate::Ctx) {
+pub fn apply_net_poses(ctx: &mut crate::ctx::Ctx) {
     let now = ctx.time.elapsed();
     ctx.world
         .query::<(&NetPose, &mut crate::d3::Transform)>()

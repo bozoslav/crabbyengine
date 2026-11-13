@@ -8,7 +8,10 @@
 //! panel its ray hits, in the panel's pixels, unless the screen's UI has it.
 
 use ponko::render::Model;
-use ponko::{Ctx, Vec3, d3::UiPanel as UiPanel3D};
+use ponko::{
+    d3::UiPanel as UiPanel3D,
+    prelude::{Ctx, Vec3},
+};
 
 use crate::ctx::{ctx_access, out};
 use crate::particles::entity;
@@ -48,7 +51,7 @@ pub unsafe extern "C" fn ponko_ctx_create_ui_panel(
     boundary(|| unsafe {
         ctx_access(ctx, |c| {
             let e = entity(c, entity_bits)?;
-            let size: ponko::Vec2 = to_c(size);
+            let size: ponko::prelude::Vec2 = to_c(size);
             let (panel, model): (UiPanel3D, Model) =
                 c.gfx.try_create_ui_panel(width, height, size).map_err(invalid_owned)?;
             let texture = panel.texture;

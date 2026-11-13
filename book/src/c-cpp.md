@@ -204,7 +204,7 @@ A headless game in C:
 
 Every call returns `PonkoStatus`; on failure `ponko_last_error()` has the
 message and `ponko_last_error_kind()` its kind, a `PonkoErrorKind` that
-mirrors Rust's `ponko::ErrorKind` (`PONKO_ERROR_NOT_FOUND`, `PONKO_ERROR_SHADER`,
+mirrors Rust's `ponko::error::ErrorKind` (`PONKO_ERROR_NOT_FOUND`, `PONKO_ERROR_SHADER`,
 ..., per thread, until the next failed call). C++ throws `ponko::error`, a
 `std::runtime_error` whose `kind()` is that kind. Null arguments, wrong
 sizes, unknown ids, duplicate query columns and busy worlds are rejected.
@@ -246,7 +246,7 @@ don't treat it as freed. The C++ `ponko::world` destructor ignores the status
 
 ## Errors and the `try_` loaders
 
-Rust's `ponko::Error` has a kind, the asset path it is about (if any) and a
+Rust's `ponko::error::Error` has a kind, the asset path it is about (if any) and a
 message. C has the same three for the last failure on the thread:
 `ponko_last_error_kind()`, `ponko_last_error_path()` (empty when the failure
 names no asset) and `ponko_last_error()`; `ponko_error_kind_name(kind)` gives

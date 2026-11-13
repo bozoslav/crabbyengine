@@ -74,7 +74,7 @@ pub unsafe extern "C" fn ponko_ctx_spawn_prefab(
     // SAFETY: forwarded caller contract.
     boundary(|| unsafe {
         let e = ctx_access(ctx, |c| {
-            c.spawn_prefab(text(path)?, ponko::vec2(at.x, at.y))
+            c.spawn_prefab(text(path)?, ponko::prelude::vec2(at.x, at.y))
                 .map_err(invalid_owned)
         })?;
         out(out_entity, e.to_bits())

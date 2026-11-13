@@ -1,6 +1,6 @@
 //! Rust reference for examples/cpp/benchmark.cpp; release builds only.
 //! One million positions, 10 warmups, 200 measured full-column updates.
-use ponko::Component;
+use ponko::prelude::Component;
 use ponko_ecs::World;
 use std::hint::black_box;
 use std::time::Instant;

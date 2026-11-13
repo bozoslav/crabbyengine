@@ -15,7 +15,8 @@ use super::{
     ModelMaterials, PointLight3D, ReceivesDecals, ShadowMesh, Skeleton, SkinFrame, SkinOf, SpotLight3D, TERRAIN_LODS,
     TerrainTile, Transform3D,
 };
-use crate::{Color, Entity, World};
+use crate::color::Color;
+use ponko_ecs::{Entity, World};
 
 const MESHES: u32 = 6;
 const SPACING: f32 = 3.0;

@@ -7,7 +7,7 @@ use glam::{Mat4, Vec3};
 
 use super::collect::Instance3D;
 use super::{Assets3D, LodGroup, LodShadow, MeshData, Model, ModelMaterial, ModelMaterials, Transform3D, linear};
-use crate::{Component, Entity, Without, World};
+use ponko_ecs::{Component, Entity, Without, World};
 
 /// One joint of a [`Skeleton`]: its name, the joint it hangs from, and
 /// where it sits relative to that joint when nothing moves it (its rest
@@ -885,7 +885,7 @@ mod tests {
 
     #[test]
     fn skinning_scratch_follows_a_same_id_world_load() {
-        use crate::WorldReflect;
+        use crate::reflect::WorldReflect;
         let mut world = World::new();
         world.reflect::<Transform3D>();
         let mut bent = arm();

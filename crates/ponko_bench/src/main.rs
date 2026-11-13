@@ -1254,8 +1254,8 @@ fn flow_map(side: u32) -> ponko::flow::NavGrid {
 }
 
 fn flow_benches(b: &mut Bench) {
-    use ponko::Vec2;
     use ponko::flow::FlowField;
+    use ponko::prelude::Vec2;
     use rayon::prelude::*;
     for side in [256u32, 1024] {
         b.steady(
@@ -1306,7 +1306,10 @@ fn flow_benches(b: &mut Bench) {
             |_| {
                 use ponko::d2::Transform as Transform2D;
                 use ponko::systems::follow_attachments;
-                use ponko::{Game, d2::Attached, vec2};
+                use ponko::{
+                    d2::Attached,
+                    prelude::{Game, vec2},
+                };
                 let world = Game::new("bench", 1, 1)
                     .sim_system(|ctx| {
                         ctx.world
@@ -1327,16 +1330,17 @@ fn flow_benches(b: &mut Bench) {
     }
     // ---- events: 100k sent and read per tick, 10 ticks ------------------------
     #[derive(Clone, Copy)]
-    struct Hit(#[allow(dead_code)] ponko::Entity, f32);
+    struct Hit(#[allow(dead_code)] ponko::prelude::Entity, f32);
     b.steady(
         "events/100k-per-tick-x10",
         20,
         || (),
         |_| {
-            let world = ponko::Game::new("bench", 1, 1)
+            let world = ponko::prelude::Game::new("bench", 1, 1)
                 .sim_system(|ctx| {
                     for i in 0..100_000u32 {
-                        ctx.events.send(Hit(ponko::Entity::from_bits(u64::from(i)), i as f32));
+                        ctx.events
+                            .send(Hit(ponko::prelude::Entity::from_bits(u64::from(i)), i as f32));
                     }
                 })
                 .sim_system(|ctx| {

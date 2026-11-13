@@ -233,14 +233,14 @@ fn declared_services_are_offered() {
                 sys.time.elapsed() >= 0.0,
                 sys.time.fixed_dt() > 0.0,
                 sys.spatial.len(),
-                sys.net.player(),
+                sys.net.lockstep.player(),
             );
             let r = sys.random().stream(0).u64();
             let same = sys.random().stream(0).u64();
             assert_eq!(r, same, "one stream per system and tick");
             sys.camera.zoom = 2.0;
             assert_eq!(sys.camera.zoom, 2.0);
-            let _ = sys.net.players();
+            let _ = sys.net.lockstep.players();
             assert_eq!(sys.name(), sys.name());
             assert!(sys.access().service(Service::Audio).unwrap());
             sys.world.resource_mut::<Log>().0.push(line);

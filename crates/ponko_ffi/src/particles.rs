@@ -8,7 +8,11 @@ use ponko::d3::ParticleEmitter as ParticleEmitter3D;
 use ponko::d3::ParticleSettings as ParticleSettings3D;
 use ponko::d3::ParticleShape as ParticleShape3D;
 use ponko::d3::ParticleSpace as ParticleSpace3D;
-use ponko::{Color, Ctx, Entity, Vec3, d3::ParticleCurve, d3::ParticleGradient};
+use ponko::{
+    d3::ParticleCurve,
+    d3::ParticleGradient,
+    prelude::{Color, Ctx, Entity, Vec3},
+};
 
 use crate::ctx::{ctx_access, out};
 use crate::three::PonkoVec3;

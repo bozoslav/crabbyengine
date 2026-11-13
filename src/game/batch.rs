@@ -256,7 +256,7 @@ fn run_batch(
             .override_changes_since(Some(s.changes_seen.in_world(&ctx.world)));
         runner
             .state
-            .override_change_tick(Some(crate::Tick::from_bits(first_tick + i as u64)));
+            .override_change_tick(Some(ponko_ecs::Tick::from_bits(first_tick + i as u64)));
         // The events it may read: what is kept now. Nothing reaches the
         // store before the batch ends.
         let first = slots.len();
@@ -325,7 +325,7 @@ fn run_batch(
             if runner.task.finished {
                 s.changes_seen = ChangesSeen {
                     world: world_id,
-                    tick: crate::Tick::from_bits(first_tick + i as u64),
+                    tick: ponko_ecs::Tick::from_bits(first_tick + i as u64),
                 };
             }
             s.run = Run::View(Some(runner));
@@ -351,7 +351,7 @@ fn run_batch(
         // them again, every later system will.
         s.changes_seen = ChangesSeen {
             world: world_id,
-            tick: crate::Tick::from_bits(first_tick + i as u64),
+            tick: ponko_ecs::Tick::from_bits(first_tick + i as u64),
         };
         if !task.commands.is_empty() {
             // Only the last system of a batch records commands, and the

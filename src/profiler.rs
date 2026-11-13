@@ -17,7 +17,7 @@
 //! - `PONKO_TRACE=<path.json>`: after `PONKO_TRACE_SKIP` frames (default
 //!   240), record `PONKO_TRACE_FRAMES` frames (default 120) as a Chrome trace
 //!   (open it in <https://ui.perfetto.dev>).
-//! - `PONKO_VSYNC=0` or `1`: overrides [`Game::vsync`](crate::Game::vsync).
+//! - `PONKO_VSYNC=0` or `1`: overrides [`Game::vsync`](crate::game::Game::vsync).
 
 use std::fmt::Write as _;
 use std::path::PathBuf;

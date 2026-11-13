@@ -7,7 +7,8 @@ use glam::{Vec2, Vec3};
 
 use super::{Camera3D, Transform3D, linear};
 use crate::text::{SDF_PX, SDF_SPREAD, Text};
-use crate::{Color, Component, Ctx, Font, Texture};
+use crate::{color::Color, ctx::Ctx, text::Font, texture::Texture};
+use ponko_ecs::Component;
 
 /// How the lines of a [`Text3D`] line up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -119,7 +120,7 @@ pub(crate) struct TextFrame {
     pub vertices: Vec<TextVertex>,
     pub atlas: Option<Texture>,
     /// Scratch: (depth, entity) of each text to draw.
-    order: Vec<(f32, crate::Entity)>,
+    order: Vec<(f32, ponko_ecs::Entity)>,
 }
 
 impl TextFrame {
@@ -186,7 +187,7 @@ impl Ctx {
         let camera = &self.scene3d.camera;
         let (eye, forward) = (camera.position, camera.forward());
         self.world
-            .query::<(crate::Entity, &Text3D, &Transform3D)>()
+            .query::<(ponko_ecs::Entity, &Text3D, &Transform3D)>()
             .for_each(|(e, t, at)| {
                 if !t.text.is_empty() && t.size > 0.0 {
                     frame.order.push(((at.position - eye).dot(forward), e));

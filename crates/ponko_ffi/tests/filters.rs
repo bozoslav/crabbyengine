@@ -8,7 +8,7 @@ use std::ptr::{null, null_mut};
 use std::sync::Mutex;
 
 use PonkoStatus::*;
-use ponko::Component;
+use ponko::prelude::Component;
 
 #[derive(Component)]
 struct Player;

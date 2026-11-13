@@ -8,7 +8,8 @@
 use ponko_ecs::Entity;
 use serde_json::{Value, json};
 
-use crate::{Ctx, Vec2, WorldReflect};
+use crate::{ctx::Ctx, reflect::WorldReflect};
+use glam::Vec2;
 
 /// Undo steps kept; older ones are dropped.
 const MAX_UNDO: usize = 200;
@@ -57,10 +58,10 @@ impl Editor {
     /// Pauses and puts the world back as it was when Play was pressed.
     /// Components that aren't reflected can't be saved, so aren't put back.
     /// If the world can't be put back (a lockstep session is running:
-    /// [`ErrorKind::Unsupported`](crate::ErrorKind::Unsupported)), the Play
+    /// [`ErrorKind::Unsupported`](crate::error::ErrorKind::Unsupported)), the Play
     /// snapshot and the undo history are kept and the simulation keeps
     /// running, so Stop can be retried.
-    pub fn stop(&mut self, ctx: &mut Ctx) -> Result<(), crate::Error> {
+    pub fn stop(&mut self, ctx: &mut Ctx) -> Result<(), crate::error::Error> {
         let Some((save, steps)) = &self.played_from else {
             ctx.time.pause();
             return Ok(());
@@ -91,7 +92,7 @@ impl Editor {
     }
 
     /// Writes component `name` of `e` (adding it if missing), with undo.
-    pub fn set(&mut self, ctx: &mut Ctx, e: Entity, name: &str, value: Value) -> Result<(), crate::Error> {
+    pub fn set(&mut self, ctx: &mut Ctx, e: Entity, name: &str, value: Value) -> Result<(), crate::error::Error> {
         let before = ctx.world.get_json(e, name).ok();
         ctx.load_scene_assets(&json!({ name: &value }))?;
         ctx.world.set_json(e, name, value)?;
@@ -105,12 +106,12 @@ impl Editor {
 
     /// Adds component `name` to `e` with its default fields (types whose
     /// fields all have defaults; others say which field is missing).
-    pub fn add(&mut self, ctx: &mut Ctx, e: Entity, name: &str) -> Result<(), crate::Error> {
+    pub fn add(&mut self, ctx: &mut Ctx, e: Entity, name: &str) -> Result<(), crate::error::Error> {
         self.set(ctx, e, name, json!({}))
     }
 
     /// Removes component `name` from `e`, with undo.
-    pub fn remove(&mut self, ctx: &mut Ctx, e: Entity, name: &str) -> Result<(), crate::Error> {
+    pub fn remove(&mut self, ctx: &mut Ctx, e: Entity, name: &str) -> Result<(), crate::error::Error> {
         let before = ctx.world.get_json(e, name)?;
         ctx.world.remove_json(e, name)?;
         self.record(Undo::Component {
@@ -139,14 +140,14 @@ impl Editor {
     }
 
     /// Spawns prefab `path` at `at`, with undo.
-    pub fn spawn_prefab(&mut self, ctx: &mut Ctx, path: &str, at: Vec2) -> Result<Entity, crate::Error> {
+    pub fn spawn_prefab(&mut self, ctx: &mut Ctx, path: &str, at: Vec2) -> Result<Entity, crate::error::Error> {
         let e = ctx.spawn_prefab(path, at)?;
         self.record(Undo::Spawned(e));
         Ok(e)
     }
 
     /// A copy of `e`'s reflected components, `offset` away.
-    pub fn duplicate(&mut self, ctx: &mut Ctx, e: Entity, offset: Vec2) -> Result<Entity, crate::Error> {
+    pub fn duplicate(&mut self, ctx: &mut Ctx, e: Entity, offset: Vec2) -> Result<Entity, crate::error::Error> {
         let mut components = ctx.world.entity_json(e)?;
         if let Some(p) = components["Transform2D"]["position"].as_array_mut()
             && let [x, y] = &mut p[..]
@@ -161,7 +162,7 @@ impl Editor {
 
     /// Despawns `e`, with undo (which brings back its reflected components
     /// as a new entity: references to `e` from other components stay dead).
-    pub fn delete(&mut self, ctx: &mut Ctx, e: Entity) -> Result<(), crate::Error> {
+    pub fn delete(&mut self, ctx: &mut Ctx, e: Entity) -> Result<(), crate::error::Error> {
         let components = ctx.world.entity_json(e)?;
         ctx.world.despawn(e);
         if components.as_object().is_some_and(|c| !c.is_empty()) {
@@ -171,7 +172,7 @@ impl Editor {
     }
 
     /// Puts back the last change. `Ok(false)` if there's nothing to undo.
-    pub fn undo(&mut self, ctx: &mut Ctx) -> Result<bool, crate::Error> {
+    pub fn undo(&mut self, ctx: &mut Ctx) -> Result<bool, crate::error::Error> {
         let Some(step) = self.undo.pop() else {
             return Ok(false);
         };
@@ -206,7 +207,8 @@ impl Editor {
 mod tests {
     use super::*;
     use crate::d2::Transform as Transform2D;
-    use crate::{Component, vec2};
+    use glam::vec2;
+    use ponko_ecs::Component;
     use serde::{Deserialize, Serialize};
 
     #[derive(Serialize, Deserialize, Default, Clone, Copy, PartialEq, Debug, Component)]

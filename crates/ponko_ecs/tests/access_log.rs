@@ -80,9 +80,8 @@ fn a_raw_pointer_records_the_access_its_method_gives() {
     let pos = w.component_id::<Pos>().unwrap();
     let e = w.query::<Entity>().iter().next().unwrap();
     w.record_access();
-    // `*const`, from a shared world or an exclusive one: a read.
+    // `*const`, from the shared view: a read.
     assert!(w.raw_ref().get_dynamic(e, pos).is_some());
-    assert!(w.raw().get_dynamic(e, pos).is_some());
     assert_eq!(w.take_access_log().unwrap().components, [(pos, false)]);
     w.record_access();
     // `*mut`: a write.

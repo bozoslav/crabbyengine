@@ -1,7 +1,7 @@
 //! The control endpoint: lets tools (agents through `ponko-mcp`, the
 //! inspector, scripts) look inside a running game and drive it.
 //!
-//! Off by default. Turned on with [`Game::control_endpoint`](crate::Game::control_endpoint),
+//! Off by default. Turned on with [`Game::control_endpoint`](crate::game::Game::control_endpoint),
 //! or by the `PONKO_CONTROL=1` environment variable in builds that honor it
 //! (debug builds, and release builds with the `control-env` feature), so
 //! tools can enable it for a game under development without code changes. A
@@ -1786,7 +1786,7 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
             let path = asset_path_param(params)?;
             let at: [f32; 2] = serde_json::from_value(param(params, "at")?.clone())
                 .map_err(|e| format!("`at` must be [x, y]: {e}"))?;
-            let e = ctx.spawn_prefab(path, crate::vec2(at[0], at[1]))?;
+            let e = ctx.spawn_prefab(path, glam::vec2(at[0], at[1]))?;
             json!({ "entity": e.to_bits() })
         }
         "prefab.save" => {
@@ -2003,9 +2003,9 @@ pub(crate) fn handle(ctx: &mut Ctx, method: &str, params: &Value) -> Result<Valu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Component;
     use crate::d2::Transform as Transform2D;
     use glam::vec2;
+    use ponko_ecs::Component;
 
     fn ctx() -> Ctx {
         Ctx::new(1.0 / 60.0, glam::Vec2::ZERO)
@@ -2510,7 +2510,7 @@ mod tests {
     fn ecs_diagnostics_list_archetypes_and_count_matches() {
         let mut ctx = ctx();
         ctx.world.spawn((Transform2D::at(vec2(1.0, 2.0)),));
-        #[derive(crate::Component)]
+        #[derive(ponko_ecs::Component)]
         struct Tag;
         ctx.world.spawn((Transform2D::default(), Tag));
         let d = handle(&mut ctx, "ecs.diagnostics", &json!({ "with": ["Transform2D"] })).unwrap();

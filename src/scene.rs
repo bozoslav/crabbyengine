@@ -7,10 +7,12 @@
 
 use serde_json::{Value, json};
 
-use crate::{Ctx, Entity, Vec2, WorldReflect};
+use crate::{ctx::Ctx, reflect::WorldReflect};
+use glam::Vec2;
+use ponko_ecs::Entity;
 
 /// Loads one asset a scene names (`Assets::scene_asset_field`).
-type SceneAssetLoader = std::rc::Rc<dyn Fn(&mut Ctx, &str) -> Result<(), crate::Error>>;
+type SceneAssetLoader = std::rc::Rc<dyn Fn(&mut Ctx, &str) -> Result<(), crate::error::Error>>;
 
 /// A field of a reflected component that names an asset, and how to load
 /// it (`Assets::scene_asset_field`).
@@ -25,11 +27,11 @@ pub(crate) const PREFAB_VERSION: u64 = 1;
 
 impl Ctx {
     /// Replaces the world with the scene in `assets/<path>` (written by
-    /// [`save_scene`](crate::Assets::save_scene), the editor, or
+    /// [`save_scene`](crate::assets::Assets::save_scene), the editor, or
     /// [`WorldReflect::save`]). Entities keep their ids, so references
     /// between them hold. Components must be [reflected](WorldReflect::reflect).
     /// The scene and the textures it names may also come from an
-    /// [asset source](crate::Assets::add_source).
+    /// [asset source](crate::assets::Assets::add_source).
     ///
     /// ```no_run
     /// # use ponko::prelude::*;
@@ -49,10 +51,10 @@ impl Ctx {
     /// |---|---|
     /// | Entities | Replaced by the scene's, with the scene's ids. An old [`Entity`] handle may now name a different entity of the new scene. |
     /// | Reflected resources | Those in the scene are written; reflected ones it doesn't name stay. |
-    /// | Other resources | Kept as they were (scores you didn't reflect, tuning loaded with [`load_resource`](crate::Assets::load_resource), a baked navigation mesh). |
-    /// | Components that aren't reflected | Gone with their entities; [`save_scene`](crate::Assets::save_scene) reports them under `"not_saved"`. |
+    /// | Other resources | Kept as they were (scores you didn't reflect, tuning loaded with [`load_resource`](crate::assets::Assets::load_resource), a baked navigation mesh). |
+    /// | Components that aren't reflected | Gone with their entities; [`save_scene`](crate::assets::Assets::save_scene) reports them under `"not_saved"`. |
     /// | [`commands`](Self::commands) | Commands queued earlier in the running system are dropped: they were meant for the old entities. Commands queued after the load apply as usual. |
-    /// | [`events`](Self::events) | Kept: events sent before the load can still be read for their usual lifetime. Entity ids inside them (such as [`CollisionStarted`](crate::CollisionStarted)) refer to the old world. |
+    /// | [`events`](Self::events) | Kept: events sent before the load can still be read for their usual lifetime. Entity ids inside them (such as [`CollisionStarted`](crate::collision::CollisionStarted)) refer to the old world. |
     /// | 2D and 3D physics | Bodies, characters and joints are removed at once (queries find nothing), then built from the new components at the next physics step, from rest unless the scene has a velocity component. Gravity, collision meshes, contact hooks and settings are kept. |
     /// | [`spatial`](Self::spatial) neighbor grid | Refilled at the start of the next simulation tick. |
     /// | 3D navigation (`NavMesh3D`, with the `navmesh` feature) | The baked mesh, a resource, is kept. Crowd agents are components, so they go with their entities; `step_navmesh3d` frees the old agents' crowd slots at its next step, and agents added to the new scene's entities (even with the same ids) start from where they are. |
@@ -73,17 +75,17 @@ impl Ctx {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file is
     /// missing or names a component or resource that isn't reflected,
-    /// [`Json`](crate::ErrorKind::Json) if it isn't a scene, the error of an
+    /// [`Json`](crate::error::ErrorKind::Json) if it isn't a scene, the error of an
     /// asset it names that can't be loaded (its kind and path), and
-    /// [`Unsupported`](crate::ErrorKind::Unsupported) when a lockstep session
+    /// [`Unsupported`](crate::error::ErrorKind::Unsupported) when a lockstep session
     /// runs and the load would change only this peer (see above). The world,
     /// commands, physics and every other service are unchanged then; assets
     /// the scene named that did load before the failure stay cached.
-    pub fn load_scene(&mut self, path: &str) -> Result<(), crate::Error> {
+    pub fn load_scene(&mut self, path: &str) -> Result<(), crate::error::Error> {
         self.check_session_load().map_err(|e| {
-            crate::Error::new(crate::ErrorKind::Unsupported, e)
+            crate::error::Error::new(crate::error::ErrorKind::Unsupported, e)
                 .context(path)
                 .with_path(path)
         })?;
@@ -111,14 +113,14 @@ impl Ctx {
     /// # Errors
     ///
     /// As `load_scene`.
-    pub fn load_scene_lockstep(&mut self, path: &str) -> Result<(), crate::Error> {
+    pub fn load_scene_lockstep(&mut self, path: &str) -> Result<(), crate::error::Error> {
         self.load_scene(path)
     }
 
-    fn read_and_replace(&mut self, path: &str) -> Result<(), crate::Error> {
+    fn read_and_replace(&mut self, path: &str) -> Result<(), crate::error::Error> {
         let (_, text) = self.assets.read_text(path)?;
         let scene: Value =
-            serde_json::from_str(&text).map_err(|e| crate::Error::from(e).context(path).with_path(path))?;
+            serde_json::from_str(&text).map_err(|e| crate::error::Error::from(e).context(path).with_path(path))?;
         self.replace_world_now(&scene)
             .map_err(|e| e.context(path).with_path(path))
     }
@@ -149,10 +151,10 @@ impl Ctx {
     /// Replaces the world with `save` (a scene or world save) for tools (the
     /// editor's Stop, the control endpoint): refused while a lockstep
     /// session is connecting or running, since a tool acts on this peer only.
-    pub(crate) fn replace_world(&mut self, save: &Value) -> Result<(), crate::Error> {
+    pub(crate) fn replace_world(&mut self, save: &Value) -> Result<(), crate::error::Error> {
         if self.session_active() {
-            return Err(crate::Error::new(
-                crate::ErrorKind::Unsupported,
+            return Err(crate::error::Error::new(
+                crate::error::ErrorKind::Unsupported,
                 "a lockstep session is running and a tool's load would change only this peer",
             ));
         }
@@ -162,10 +164,10 @@ impl Ctx {
     /// Replaces the world with `save`, as [`load_scene`](Self::load_scene)
     /// describes: its assets first, then the entities, then the services
     /// that follow entity ids.
-    fn replace_world_now(&mut self, save: &Value) -> Result<(), crate::Error> {
+    fn replace_world_now(&mut self, save: &Value) -> Result<(), crate::error::Error> {
         self.load_scene_assets(save)?;
         self.world.load(save)?;
-        self.commands = crate::Commands::new();
+        self.commands = ponko_ecs::Commands::new();
         self.scene_loads += 1;
         #[cfg(feature = "physics")]
         self.physics.forget_bodies();
@@ -199,18 +201,18 @@ impl Ctx {
     ///
     /// # Errors
     ///
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound) if the file is
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound) if the file is
     /// missing or a component isn't reflected,
-    /// [`Json`](crate::ErrorKind::Json) if it isn't a prefab or a component
+    /// [`Json`](crate::error::ErrorKind::Json) if it isn't a prefab or a component
     /// doesn't fit, and the error of an asset it names that can't be loaded.
     /// The error's path is `path`; nothing is spawned then.
-    pub fn spawn_prefab(&mut self, path: &str, at: impl Into<Placement>) -> Result<Entity, crate::Error> {
-        let in_prefab = |e: crate::Error| e.context(path).with_path(path);
+    pub fn spawn_prefab(&mut self, path: &str, at: impl Into<Placement>) -> Result<Entity, crate::error::Error> {
+        let in_prefab = |e: crate::error::Error| e.context(path).with_path(path);
         if !self.assets.prefabs.contains_key(path) {
             let (_, text) = self.assets.read_text(path)?;
             let prefab: Value = serde_json::from_str(&text).map_err(|e| in_prefab(e.into()))?;
-            let components =
-                components_of(&prefab).map_err(|e| in_prefab(crate::Error::new(crate::ErrorKind::Json, e)))?;
+            let components = components_of(&prefab)
+                .map_err(|e| in_prefab(crate::error::Error::new(crate::error::ErrorKind::Json, e)))?;
             self.load_scene_assets(&components).map_err(in_prefab)?;
             self.assets.prefabs.insert(path.to_string(), components);
         }
@@ -219,7 +221,7 @@ impl Ctx {
     }
 }
 
-impl crate::Assets {
+impl crate::assets::Assets {
     /// Says that field `field` of reflected component `T` names an asset,
     /// and how to load it: before a scene or prefab is spawned
     /// ([`load_scene`](Ctx::load_scene), [`spawn_prefab`](Ctx::spawn_prefab),
@@ -235,8 +237,8 @@ impl crate::Assets {
     /// resource). Names are found through the [asset
     /// sources](Self::add_source) like any other load.
     ///
-    /// `load` returns a [`crate::Error`], so the engine's `try_` loaders
-    /// can be returned as they are; [`Error::new`](crate::Error::new) makes
+    /// `load` returns a [`crate::error::Error`], so the engine's `try_` loaders
+    /// can be returned as they are; [`Error::new`](crate::error::Error::new) makes
     /// one for your own asset types.
     ///
     /// The field may hold a name or a list of names; other values are
@@ -274,7 +276,7 @@ impl crate::Assets {
     pub fn scene_asset_field<T: 'static>(
         &mut self,
         field: &str,
-        load: impl Fn(&mut Ctx, &str) -> Result<(), crate::Error> + 'static,
+        load: impl Fn(&mut Ctx, &str) -> Result<(), crate::error::Error> + 'static,
     ) {
         let component = crate::reflect::short_name(std::any::type_name::<T>());
         let entry = SceneAssetField {
@@ -295,8 +297,8 @@ impl crate::Assets {
 
 impl Ctx {
     /// Loads the assets that fields registered with
-    /// [`scene_asset_field`](crate::Assets::scene_asset_field) name anywhere in `json`.
-    pub(crate) fn load_scene_asset_fields(&mut self, json: &Value) -> Result<(), crate::Error> {
+    /// [`scene_asset_field`](crate::assets::Assets::scene_asset_field) name anywhere in `json`.
+    pub(crate) fn load_scene_asset_fields(&mut self, json: &Value) -> Result<(), crate::error::Error> {
         for i in 0..self.assets.scene_asset_fields.len() {
             let f = &self.assets.scene_asset_fields[i];
             let (component, field, load) = (f.component.clone(), f.field.clone(), f.load.clone());
@@ -353,7 +355,7 @@ fn components_of(prefab: &Value) -> Result<Value, String> {
 
 /// Spawns `components` with the position set to `at` (adding a transform if
 /// there's none).
-fn spawn_at(world: &mut crate::World, mut components: Value, at: Placement) -> Result<Entity, crate::Error> {
+fn spawn_at(world: &mut ponko_ecs::World, mut components: Value, at: Placement) -> Result<Entity, crate::error::Error> {
     match at {
         Placement::Position2(at) => match components.get_mut("Transform2D") {
             Some(t) => t["position"] = json!([at.x, at.y]),
@@ -375,7 +377,7 @@ fn spawn_at(world: &mut crate::World, mut components: Value, at: Placement) -> R
     Ok(world.spawn_json(components)?)
 }
 
-/// Where [`Ctx::spawn_prefab`](crate::Ctx::spawn_prefab) puts a prefab: a
+/// Where [`Ctx::spawn_prefab`](crate::ctx::Ctx::spawn_prefab) puts a prefab: a
 /// `Vec2` or `Vec3` moves it and keeps its saved rotation and scale; a
 /// `d2::Transform` or `d3::Transform` sets all three. Serialized component
 /// names stay stable. Variants depend on features (`3d`), so the enum is
@@ -388,10 +390,10 @@ fn spawn_at(world: &mut crate::World, mut components: Value, at: Placement) -> R
 #[non_exhaustive]
 pub enum Placement {
     /// Repositions a 2D prefab, preserving saved rotation and scale.
-    Position2(crate::Vec2),
+    Position2(glam::Vec2),
     /// Repositions a 3D prefab, preserving saved rotation and scale.
     #[cfg(feature = "3d")]
-    Position3(crate::Vec3),
+    Position3(glam::Vec3),
     /// A 2D position/transform.
     D2(crate::d2::Transform),
     /// A 3D position/transform.
@@ -409,8 +411,8 @@ impl From<crate::d2::Transform> for Placement {
     }
 }
 #[cfg(feature = "3d")]
-impl From<crate::Vec3> for Placement {
-    fn from(at: crate::Vec3) -> Self {
+impl From<glam::Vec3> for Placement {
+    fn from(at: glam::Vec3) -> Self {
         Self::Position3(at)
     }
 }
@@ -431,7 +433,8 @@ mod lockstep_tests {
     use crate::net::Desync;
     use crate::net::Net;
     use crate::net::NetState;
-    use crate::{Component, Ctx, Game, World, WorldReflect};
+    use crate::{ctx::Ctx, game::Game, reflect::WorldReflect};
+    use ponko_ecs::{Component, World};
 
     #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Component)]
     struct Tag(u32);
@@ -491,7 +494,7 @@ mod lockstep_tests {
             editor.play(ctx);
             let extra = ctx.world.spawn((Tag(100),));
             let err = editor.stop(ctx).unwrap_err();
-            assert_eq!(err.kind(), crate::ErrorKind::Unsupported);
+            assert_eq!(err.kind(), crate::error::ErrorKind::Unsupported);
             assert!(err.message().contains("lockstep session"), "{err}");
             assert!(editor.playing(), "Stop can be retried");
             assert!(!ctx.time.is_paused(), "a refused Stop doesn't pause the simulation");

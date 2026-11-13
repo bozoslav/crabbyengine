@@ -5,7 +5,7 @@
 //! materials, shaders, effects, compute shaders, GPU buffers, instance
 //! batches, terrain, render targets, texture arrays and reflection probes.
 //! The cameras, lights, sky and post-processing settings are plain fields of
-//! [`Ctx`](crate::Ctx) (`ctx.scene3d.camera`, `ctx.scene3d.lighting`, `ctx.scene3d.post`): the
+//! [`Ctx`](crate::ctx::Ctx) (`ctx.scene3d.camera`, `ctx.scene3d.lighting`, `ctx.scene3d.post`): the
 //! renderer reads them when the frame is drawn.
 //!
 //! **When to call it.** Load and create in setup (or any system: a file is
@@ -14,7 +14,7 @@
 //! draw queued in a simulation system is drawn once per step. Handles
 //! (`Texture`, `Mesh`, `Material`, ...) are small `Copy` ids: keep them in
 //! components and resources, and free them with
-//! [`Ctx::free`](crate::Ctx::free).
+//! [`Ctx::free`](crate::ctx::Ctx::free).
 //!
 //! **What it needs.** A window for anything to appear. In a headless run
 //! (tests, servers) loading and creating still give working handles with
@@ -90,7 +90,7 @@ enum Layer {
 ///   materials, shaders, effects, compute shaders, GPU buffers, instance
 ///   batches, terrain, render targets, texture arrays and reflection
 ///   probes. Cameras, lights, sky and post-processing are plain fields of
-///   [`Ctx`](crate::Ctx).
+///   [`Ctx`](crate::ctx::Ctx).
 /// - **When to call it:** load and create in setup (or any system: a file
 ///   is read once, then cached by name). Draw calls queue work for the
 ///   current frame, so make them every frame from a frame system; a draw
@@ -237,7 +237,7 @@ impl Graphics {
     }
 
     /// Draws `texture` centered at `pos`, in world units (window pixels until
-    /// you move or zoom [`camera`](crate::Ctx::camera)).
+    /// you move or zoom [`camera`](crate::ctx::Ctx::camera)).
     ///
     /// Drawing is cheap: calls are collected and sent to the GPU in big
     /// batches at the end of the frame. Call it every frame for everything
@@ -434,8 +434,8 @@ impl Graphics {
     }
 
     /// [`load_font`](Self::load_font) with errors as values:
-    /// [`ErrorKind::NotFound`](crate::ErrorKind::NotFound),
-    /// [`Io`](crate::ErrorKind::Io), or [`Decode`](crate::ErrorKind::Decode)
+    /// [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound),
+    /// [`Io`](crate::error::ErrorKind::Io), or [`Decode`](crate::error::ErrorKind::Decode)
     /// if it isn't a font.
     ///
     /// ```
@@ -445,7 +445,7 @@ impl Graphics {
     ///     # let _ = title;
     /// });
     /// ```
-    pub fn try_load_font(&mut self, path: &str) -> Result<Font, crate::Error> {
+    pub fn try_load_font(&mut self, path: &str) -> Result<Font, crate::error::Error> {
         let found = match self.loaded_fonts.lookup(&self.asset_sources, path, AssetKind::Font)? {
             assets::Lookup::Cached(_, font) => return Ok(font),
             assets::Lookup::Found(found) => found,
@@ -457,7 +457,7 @@ impl Graphics {
                 assets::Origin::File(file) => file.display().to_string(),
                 assets::Origin::Source { .. } => origin.describe(path),
             };
-            crate::Error::decode(path, format!("{what}: {}", e.message()))
+            crate::error::Error::decode(path, format!("{what}: {}", e.message()))
         })?;
         self.loaded_fonts.insert(origin.clone(), AssetKind::Font, font);
         if let assets::Origin::File(file) = origin {
@@ -487,9 +487,9 @@ impl Graphics {
     }
 
     /// [`load_texture`](Self::load_texture) with errors as values, for
-    /// optional assets: [`ErrorKind::NotFound`](crate::ErrorKind::NotFound)
-    /// if no source has it, [`Io`](crate::ErrorKind::Io) if it can't be
-    /// read, [`Decode`](crate::ErrorKind::Decode) if it isn't an image.
+    /// optional assets: [`ErrorKind::NotFound`](crate::error::ErrorKind::NotFound)
+    /// if no source has it, [`Io`](crate::error::ErrorKind::Io) if it can't be
+    /// read, [`Decode`](crate::error::ErrorKind::Decode) if it isn't an image.
     /// Like `load_texture`, it also names the texture, so sprites showing it
     /// can be saved.
     ///
@@ -501,7 +501,7 @@ impl Graphics {
     ///     assert!(skin.is_none());
     /// });
     /// ```
-    pub fn try_load_texture(&mut self, path: &str) -> Result<Texture, crate::Error> {
+    pub fn try_load_texture(&mut self, path: &str) -> Result<Texture, crate::error::Error> {
         let texture = match self
             .loaded_textures
             .lookup(&self.asset_sources, path, AssetKind::Texture)?
@@ -512,7 +512,7 @@ impl Graphics {
                 let origin = found.origin.clone();
                 let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
                 let image = assets::decode_image(&bytes).map_err(|e| {
-                    crate::Error::decode(path, format!("{} is not a valid image: {e}", origin.describe(path)))
+                    crate::error::Error::decode(path, format!("{} is not a valid image: {e}", origin.describe(path)))
                 })?;
                 let texture = self.create_texture(image.width, image.height, &image.rgba);
                 self.asset_ledger
@@ -553,7 +553,7 @@ impl Graphics {
 
     /// [`create_texture`](Self::create_texture) for the engine's own
     /// textures (UI shapes, glyph atlases): not the game's to free, and not
-    /// counted by [`live_counts`](crate::Ctx::live_counts).
+    /// counted by [`live_counts`](crate::ctx::Ctx::live_counts).
     pub(crate) fn make_texture(&mut self, width: u32, height: u32, rgba: &[u8]) -> Texture {
         assert!(
             width > 0 && height > 0,
@@ -764,11 +764,11 @@ impl Graphics {
     /// drawing them works. The rig uploads `text.uploads` into the second.
     #[cfg(all(test, feature = "3d"))]
     pub(crate) fn stand_in_textures(&mut self) {
-        self.white = Some(crate::Texture::new(0, 1, 1));
-        self.font_atlas = Some(crate::Texture::new(1, Text::ATLAS_SIZE, Text::ATLAS_SIZE));
+        self.white = Some(crate::texture::Texture::new(0, 1, 1));
+        self.font_atlas = Some(crate::texture::Texture::new(1, Text::ATLAS_SIZE, Text::ATLAS_SIZE));
     }
 
-    fn white_texture(&mut self) -> crate::Texture {
+    fn white_texture(&mut self) -> crate::texture::Texture {
         if let Some(t) = self.white {
             return t;
         }
@@ -777,7 +777,7 @@ impl Graphics {
         t
     }
 
-    fn circle_texture(&mut self) -> crate::Texture {
+    fn circle_texture(&mut self) -> crate::texture::Texture {
         if let Some(t) = self.circle {
             return t;
         }

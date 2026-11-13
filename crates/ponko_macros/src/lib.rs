@@ -79,7 +79,8 @@ fn reject_options(input: &DeriveInput) -> syn::Result<()> {
 }
 
 /// The path of the `Component` trait as the user's crate sees it: through
-/// `ponko` if it depends on the engine, else through `ponko_ecs`, under
+/// `ponko`'s prelude (`ponko::prelude::Component`, its one documented path
+/// there) if it depends on the engine, else `ponko_ecs::Component`, under
 /// whatever name `Cargo.toml` gives them. Inside those crates themselves the
 /// path starts with the crate's own name, which each crate declares with
 /// `extern crate self as ..;`, so it also works in their doctests and
@@ -92,9 +93,13 @@ fn component_trait() -> TokenStream2 {
             Err(_) => continue,
         };
         let name = Ident::new(&name, Span::call_site());
-        return quote!(::#name::Component);
+        return if krate == "ponko" {
+            quote!(::#name::prelude::Component)
+        } else {
+            quote!(::#name::Component)
+        };
     }
     // Neither is a direct dependency (a crate that re-exports the engine):
     // the engine's name is the best guess, and the error names the path.
-    quote!(::ponko::Component)
+    quote!(::ponko::prelude::Component)
 }

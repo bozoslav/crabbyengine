@@ -4,7 +4,7 @@
 use std::thread;
 
 use ponko::net::Net;
-use ponko::{Ctx, Game};
+use ponko::prelude::{Ctx, Game};
 
 use crate::Bench;
 

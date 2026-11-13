@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use crate::reflect::{raw_json, short_name};
 
-/// Messages between systems, by type: [`Ctx::events`](crate::Ctx::events).
+/// Messages between systems, by type: [`Ctx::events`](crate::ctx::Ctx::events).
 ///
 /// ```
 /// use ponko::prelude::*;
@@ -53,7 +53,7 @@ use crate::reflect::{raw_json, short_name};
 ///   by the sender itself. Events are not deferred like commands, so a
 ///   reader right after the sender sees its events and its applied
 ///   commands together.
-/// - A reader earlier in the order (an earlier [`Phase`](crate::Phase), or
+/// - A reader earlier in the order (an earlier [`Phase`](crate::game::Phase), or
 ///   registered before the sender in the same phase) sees the event on its
 ///   next run: the next tick for simulation systems.
 /// - Frame systems see the events of every tick in their frame. Events
@@ -338,7 +338,7 @@ impl Events {
 
     /// Reflected event types and how many of each are kept now, including C
     /// events whose type is a component described with `reflect_fields`.
-    pub(crate) fn reflected_json(&self, world: &crate::World) -> Vec<Value> {
+    pub(crate) fn reflected_json(&self, world: &ponko_ecs::World) -> Vec<Value> {
         let mut out: Vec<Value> = (self.reflected.iter())
             .map(|r| json!({ "name": r.name, "kept": (r.kept)(self) }))
             .collect();
@@ -353,7 +353,7 @@ impl Events {
     }
 
     /// Engine side: moves new events of subscribed types into the feed.
-    pub(crate) fn collect_feed(&mut self, world: &crate::World) {
+    pub(crate) fn collect_feed(&mut self, world: &ponko_ecs::World) {
         let Some(mut feed) = self.feed.take() else {
             return;
         };
@@ -396,7 +396,7 @@ impl Events {
     }
 
     /// Starts a feed of new events of `types` (all reflected types if empty).
-    pub(crate) fn subscribe(&mut self, world: &crate::World, types: Vec<String>, capacity: usize) {
+    pub(crate) fn subscribe(&mut self, world: &ponko_ecs::World, types: Vec<String>, capacity: usize) {
         self.feed = Some(Feed {
             types,
             items: VecDeque::new(),
@@ -442,7 +442,7 @@ impl Feed {
 
 /// The name of a C event type, if its id is a component described with
 /// `reflect_fields` and of the events' size.
-fn raw_name<'w>(world: &'w crate::World, id: u32, raw: &Raw) -> Option<&'w str> {
+fn raw_name<'w>(world: &'w ponko_ecs::World, id: u32, raw: &Raw) -> Option<&'w str> {
     let component = world.component_at(id as usize)?;
     if world.component_info(component).layout().size() != raw.size {
         return None;
@@ -798,8 +798,8 @@ mod tests {
 
     #[test]
     fn feeds_collect_reflected_rust_and_c_events() {
-        use crate::World;
         use crate::reflect::{Field, FieldType, WorldReflect};
+        use ponko_ecs::World;
         #[derive(serde::Serialize)]
         struct Ping(u32);
         struct Hidden;

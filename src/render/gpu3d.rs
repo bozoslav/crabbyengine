@@ -1119,7 +1119,7 @@ impl Renderer3D {
     }
 
     /// Makes GPU buffer `id`: a freed one's slot, or the next new one.
-    pub fn create_gpu_buffer(&mut self, device: &wgpu::Device, id: u32, len: u32, data: &[crate::Vec4]) {
+    pub fn create_gpu_buffer(&mut self, device: &wgpu::Device, id: u32, len: u32, data: &[glam::Vec4]) {
         self.resources.create_gpu_buffer(device, id, len, data);
     }
 
@@ -1128,7 +1128,7 @@ impl Renderer3D {
         self.resources.free_gpu_buffer(id);
     }
 
-    pub fn write_gpu_buffer(&self, queue: &wgpu::Queue, id: u32, offset: u32, data: &[crate::Vec4]) {
+    pub fn write_gpu_buffer(&self, queue: &wgpu::Queue, id: u32, offset: u32, data: &[glam::Vec4]) {
         self.resources.write_gpu_buffer(queue, id, offset, data);
     }
 

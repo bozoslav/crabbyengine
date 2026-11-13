@@ -101,7 +101,7 @@ macro_rules! gpu {
 /// One view's frustum and eye, for this frame's culling of every batch.
 #[derive(Clone, Copy, PartialEq)]
 struct SlotView {
-    planes: [crate::Vec4; 6],
+    planes: [glam::Vec4; 6],
     eye: Vec3,
 }
 
@@ -470,16 +470,16 @@ pub(crate) struct StaticBatch {
 }
 
 struct DistanceQuad {
-    x: crate::Vec4,
-    y: crate::Vec4,
-    z: crate::Vec4,
-    radius: crate::Vec4,
+    x: glam::Vec4,
+    y: glam::Vec4,
+    z: glam::Vec4,
+    radius: glam::Vec4,
 }
 impl DistanceQuad {
-    fn distances(&self, eye: Vec3) -> crate::Vec4 {
-        let x = self.x - crate::Vec4::splat(eye.x);
-        let y = self.y - crate::Vec4::splat(eye.y);
-        let z = self.z - crate::Vec4::splat(eye.z);
+    fn distances(&self, eye: Vec3) -> glam::Vec4 {
+        let x = self.x - glam::Vec4::splat(eye.x);
+        let y = self.y - glam::Vec4::splat(eye.y);
+        let z = self.z - glam::Vec4::splat(eye.z);
         (x * x + y * y + z * z).sqrt() - self.radius
     }
 }
@@ -714,12 +714,12 @@ fn range(buffer: &wgpu::Buffer, (at, bytes): (u64, u64)) -> wgpu::BindingResourc
     })
 }
 
-fn planes(matrix: Mat4) -> [crate::Vec4; 6] {
+fn planes(matrix: Mat4) -> [glam::Vec4; 6] {
     let r = [matrix.row(0), matrix.row(1), matrix.row(2), matrix.row(3)];
     [r[3] + r[0], r[3] - r[0], r[3] + r[1], r[3] - r[1], r[2], r[3] - r[2]]
         .map(|p| p / p.truncate().length().max(f32::MIN_POSITIVE))
 }
-fn intersects(min: Vec3, max: Vec3, planes: &[crate::Vec4; 6], eye: Vec3, near: f32, far: f32) -> bool {
+fn intersects(min: Vec3, max: Vec3, planes: &[glam::Vec4; 6], eye: Vec3, near: f32, far: f32) -> bool {
     let center = (min + max) * 0.5;
     let radius = (max - min).length() * 0.5;
     let distance = center.distance(eye);
@@ -787,9 +787,9 @@ fn cull_cells(
         for quad in cell.start / 4..end.div_ceil(4) {
             let d = batch.distances[quad as usize].distances(view.eye);
             let mask = if legacy {
-                d.cmple(crate::Vec4::splat(far)).bitmask()
+                d.cmple(glam::Vec4::splat(far)).bitmask()
             } else {
-                (d.cmpge(crate::Vec4::splat(near)) & d.cmplt(crate::Vec4::splat(far))).bitmask()
+                (d.cmpge(glam::Vec4::splat(near)) & d.cmplt(glam::Vec4::splat(far))).bitmask()
             };
             let start = (quad * 4).max(cell.start);
             let stop = (quad * 4 + 4).min(end);
@@ -1006,13 +1006,13 @@ impl Renderer3D {
                             }
                         });
                         DistanceQuad {
-                            x: crate::Vec4::from_array(points.map(|p| p[0])),
-                            y: crate::Vec4::from_array(points.map(|p| p[1])),
-                            z: crate::Vec4::from_array(points.map(|p| p[2])),
+                            x: glam::Vec4::from_array(points.map(|p| p[0])),
+                            y: glam::Vec4::from_array(points.map(|p| p[1])),
+                            z: glam::Vec4::from_array(points.map(|p| p[2])),
                             radius: if batch.legacy_distance {
-                                crate::Vec4::from_array(points.map(|p| p[3]))
+                                glam::Vec4::from_array(points.map(|p| p[3]))
                             } else {
-                                crate::Vec4::ZERO
+                                glam::Vec4::ZERO
                             },
                         }
                     })
@@ -1880,10 +1880,10 @@ mod tests {
                 std::array::from_fn(|i| Vec3::new((n as f32 - 512.0) * 0.13, i as f32 * 1.37, (n % 31) as f32 * -2.11));
             let radii = [0.0, 0.125, 3.0, 20.0];
             let quad = DistanceQuad {
-                x: crate::Vec4::from_array(p.map(|v| v.x)),
-                y: crate::Vec4::from_array(p.map(|v| v.y)),
-                z: crate::Vec4::from_array(p.map(|v| v.z)),
-                radius: crate::Vec4::from_array(radii),
+                x: glam::Vec4::from_array(p.map(|v| v.x)),
+                y: glam::Vec4::from_array(p.map(|v| v.y)),
+                z: glam::Vec4::from_array(p.map(|v| v.z)),
+                radius: glam::Vec4::from_array(radii),
             };
             for eye in [Vec3::ZERO, Vec3::new(0.123, -4.5, 7.0), p[0]] {
                 let actual = quad.distances(eye).to_array();

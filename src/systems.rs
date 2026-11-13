@@ -5,10 +5,10 @@
 //! system `fn(&mut Ctx)`. A game doesn't normally call these: [`Game`] adds
 //! them in the right [`Phase`]. They are here for the cases where you place
 //! one yourself: take it out with [`Game::remove`] and its
-//! [`Systems`](crate::Systems) id, then add the function again where you
+//! [`Systems`](crate::game::Systems) id, then add the function again where you
 //! want it, or add one of the opt-in systems.
 //!
-//! | Function | Id in [`Systems`](crate::Systems) | Added by | Phase |
+//! | Function | Id in [`Systems`](crate::game::Systems) | Added by | Phase |
 //! |---|---|---|---|
 //! | [`rebuild_spatial_grid`] | `REBUILD_SPATIAL_GRID` | `Game::spatial_grid` | `Input` |
 //! | [`step_physics`] | `PHYSICS` | `Game::physics` | `Physics` |
@@ -25,7 +25,7 @@
 //! | [`apply_net_poses`] | | you | your choice |
 //!
 //! ```
-//! use ponko::{Game, Phase, Systems, systems};
+//! use ponko::{systems, prelude::{Game, Phase, Systems}};
 //!
 //! // Draw sprites before the tilemaps instead of after them.
 //! let game = Game::new("Order", 800, 600)
@@ -34,12 +34,12 @@
 //! # let _ = game;
 //! ```
 //!
-//! [`Game`]: crate::Game
-//! [`Game::remove`]: crate::Game::remove
-//! [`Phase`]: crate::Phase
+//! [`Game`]: crate::game::Game
+//! [`Game::remove`]: crate::game::Game::remove
+//! [`Phase`]: crate::game::Phase
 
 #[cfg(feature = "3d")]
-use crate::Ctx;
+use crate::ctx::Ctx;
 
 pub use crate::attach::follow_attachments;
 pub use crate::ecs::draw_sprites;
@@ -60,8 +60,8 @@ pub use crate::tilemap::draw_tilemaps;
 /// Advances every [`Animator`](crate::anim::Animator) that isn't in manual mode
 /// by this frame's time and poses its [`Skeleton`](crate::anim::Skeleton); with
 /// `physics3d`, ragdolls pose theirs first. The game runs it at the end of
-/// [`Phase::Animate`](crate::Phase::Animate)
-/// ([`Systems::UPDATE_ANIMATORS`](crate::Systems::UPDATE_ANIMATORS)), so late
+/// [`Phase::Animate`](crate::game::Phase::Animate)
+/// ([`Systems::UPDATE_ANIMATORS`](crate::game::Systems::UPDATE_ANIMATORS)), so late
 /// systems, draw systems and the renderer see this frame's pose.
 #[cfg(feature = "3d")]
 pub fn update_animators(ctx: &mut Ctx) {
@@ -70,8 +70,8 @@ pub fn update_animators(ctx: &mut Ctx) {
 
 /// Advances every [`ParticleEmitter3D`](crate::d3::ParticleEmitter) and
 /// [`Trail3D`](crate::d3::Trail) by this frame's time. The game runs it at
-/// the end of [`Phase::Animate`](crate::Phase::Animate), after the animators
-/// ([`Systems::UPDATE_PARTICLES`](crate::Systems::UPDATE_PARTICLES)).
+/// the end of [`Phase::Animate`](crate::game::Phase::Animate), after the animators
+/// ([`Systems::UPDATE_PARTICLES`](crate::game::Systems::UPDATE_PARTICLES)).
 #[cfg(feature = "3d")]
 pub fn update_particles(ctx: &mut Ctx) {
     ctx.update_particles();
@@ -79,8 +79,8 @@ pub fn update_particles(ctx: &mut Ctx) {
 
 /// Moves every positional sound ([`AudioSource3D`](crate::d3::AudioSource))
 /// to this frame's listener and emitters. The game runs it at the end of
-/// [`Phase::Draw`](crate::Phase::Draw), after the drawing systems
-/// ([`Systems::UPDATE_AUDIO3D`](crate::Systems::UPDATE_AUDIO3D)), so sound
+/// [`Phase::Draw`](crate::game::Phase::Draw), after the drawing systems
+/// ([`Systems::UPDATE_AUDIO3D`](crate::game::Systems::UPDATE_AUDIO3D)), so sound
 /// follows where everything ended up this frame.
 #[cfg(feature = "3d")]
 pub fn update_audio3d(ctx: &mut Ctx) {

@@ -59,6 +59,7 @@ use crate::change::{self, Clock, Tick};
 use crate::entity::Entity;
 use crate::query::{
     Archetypes, Filters, QueryCache, QueryData, QueryFilter, QueryIter, SingleError, check_aliasing, signature,
+    single_archetype,
 };
 use crate::storage::ComponentId;
 use crate::world::World;
@@ -1072,24 +1073,28 @@ impl<'v, Q: QueryData> ViewQuery<'v, Q> {
     ///
     /// # Errors
     /// If no entity matches, or more than one does.
-    pub fn single(mut self) -> Result<Q::Item<'v>, SingleError>
+    pub fn single(self) -> Result<Q::Item<'v>, SingleError>
     where
         Q: 'v,
     {
-        match self.count() {
-            0 => return Err(SingleError::NoEntities),
-            1 => {}
-            n => return Err(SingleError::MultipleEntities(n)),
-        }
+        let clock = self.clock();
+        let tracking = self.world.tracks_changes();
+        // One pass, through the world's index where it applies, stopping at
+        // a second match; then the item from the one archetype that has it.
+        let index = single_archetype::<Q>(self.archetypes(), &self.ids, &self.filters, tracking, clock)?;
         let mut matches = QueryIter::<'v, Q> {
-            archetypes: self.archetypes(),
+            archetypes: Archetypes {
+                all: &self.world.archetypes,
+                indices: None,
+                next: index,
+            },
             ids: self.ids,
             filters: self.filters,
             state: None,
             row: 0,
             len: 0,
-            clock: self.clock(),
-            tracking: self.world.tracks_changes(),
+            clock,
+            tracking,
             filtered: None,
             _q: PhantomData,
         };

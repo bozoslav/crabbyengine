@@ -29,7 +29,8 @@ use crate::render::{
 };
 use crate::texture::Texture;
 use crate::three::{Blend, GpuMaterialDesc, Joint, Scene3D, Skeleton, SkyLight};
-use crate::{Color, Component, Ctx};
+use crate::{color::Color, ctx::Ctx};
+use ponko_ecs::Component;
 
 /// A scene of the rendering baseline.
 #[doc(hidden)]

@@ -3,7 +3,7 @@
 use std::alloc::Layout;
 use std::ffi::{CStr, c_char, c_void};
 
-use ponko::WorldReflect;
+use ponko::prelude::WorldReflect;
 
 use crate::{Failure, PonkoStatus, PonkoWorld, access, boundary, error, invalid};
 use crate::{PonkoField, check_fields, fields_from_c};
@@ -30,7 +30,7 @@ fn resource_layout(size: usize, alignment: usize) -> Result<Layout, Failure> {
     Ok(layout)
 }
 
-fn same_layout(world: &ponko::World, name: &str, layout: Layout) -> Result<(), Failure> {
+fn same_layout(world: &ponko::prelude::World, name: &str, layout: Layout) -> Result<(), Failure> {
     match world.raw_ref().resource_layout_dynamic(name) {
         Some(existing) if existing != layout => Err(invalid("resource exists with a different size or alignment")),
         _ => Ok(()),

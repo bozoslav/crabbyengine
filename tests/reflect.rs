@@ -168,7 +168,7 @@ fn reflecting_twice_is_harmless() {
 }
 
 mod other {
-    use ponko::Component;
+    use ponko::prelude::Component;
     #[derive(serde::Serialize, serde::Deserialize, Component)]
     pub struct Health(pub f32);
 }

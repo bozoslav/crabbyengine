@@ -265,7 +265,7 @@ pub enum FieldType {
     U64,
     /// One byte, 0 or 1; `true`/`false` in JSON (other bytes read as `true`).
     Bool,
-    /// Two `f32`, `[x, y]` in JSON like [`Vec2`](crate::Vec2).
+    /// Two `f32`, `[x, y]` in JSON like [`Vec2`](glam::Vec2).
     Vec2,
     /// Four `f32`, `{ "r", "g", "b", "a" }` in JSON.
     Color,
@@ -1408,24 +1408,24 @@ impl<H: Copy> Names<H> {
 
 /// The asset names of textures loaded from files (`Graphics::load_texture`), so
 /// sprites are saved as `"texture": "crab.png"`. A resource of the game's world.
-pub(crate) type TextureNames = Names<crate::Texture>;
+pub(crate) type TextureNames = Names<crate::texture::Texture>;
 
 /// A [`Sprite`](crate::d2::Sprite) as JSON: the texture by its file name.
 #[derive(Serialize, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct SpriteJson {
     texture: Option<String>,
-    color: crate::Color,
+    color: crate::color::Color,
     z: f32,
     pivot: glam::Vec2,
-    region: Option<crate::Rect>,
+    region: Option<crate::camera::Rect>,
 }
 
 impl Default for SpriteJson {
     fn default() -> Self {
         Self {
             texture: None,
-            color: crate::Color::WHITE,
+            color: crate::color::Color::WHITE,
             z: 0.0,
             pivot: glam::Vec2::splat(0.5),
             region: None,
@@ -1516,7 +1516,7 @@ pub(crate) type MeshNames = Names<crate::render::Mesh>;
 #[serde(default, deny_unknown_fields)]
 struct ModelJson {
     mesh: Option<String>,
-    color: crate::Color,
+    color: crate::color::Color,
 }
 
 #[cfg(feature = "3d")]
@@ -1524,7 +1524,7 @@ impl Default for ModelJson {
     fn default() -> Self {
         Self {
             mesh: None,
-            color: crate::Color::WHITE,
+            color: crate::color::Color::WHITE,
         }
     }
 }
@@ -1790,7 +1790,7 @@ fn mesh_by_name(world: &World, name: &str) -> Result<crate::render::Mesh, String
 struct LodRendererJson {
     mesh: Option<String>,
     offset: crate::d3::Transform,
-    color: crate::Color,
+    color: crate::color::Color,
 }
 
 #[cfg(feature = "3d")]
@@ -1799,7 +1799,7 @@ impl Default for LodRendererJson {
         Self {
             mesh: None,
             offset: crate::d3::Transform::default(),
-            color: crate::Color::WHITE,
+            color: crate::color::Color::WHITE,
         }
     }
 }

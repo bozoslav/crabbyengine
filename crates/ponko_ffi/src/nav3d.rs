@@ -8,8 +8,8 @@ use ponko::d3::NavMesh as NavMesh3D;
 use ponko::d3::NavObstacle as NavObstacle3D;
 use ponko::nav::NavBakeSettings;
 use ponko::nav::NavSource;
+use ponko::prelude::{Ctx, Entity, IntoSystem, Vec3};
 use ponko::systems::{step_navmesh3d, step_navmesh3d_access};
-use ponko::{Ctx, Entity, IntoSystem, Vec3};
 
 use crate::ctx::{ctx_access, out};
 use crate::game::{build, ok};
@@ -457,7 +457,7 @@ pub unsafe extern "C" fn ponko_game_navmesh3d(game: *mut PonkoGame) -> PonkoStat
     unsafe {
         build(game, |g| {
             ok(g.add(
-                ponko::Phase::AfterPhysics,
+                ponko::prelude::Phase::AfterPhysics,
                 step_navmesh3d.access(step_navmesh3d_access()),
             ))
         })

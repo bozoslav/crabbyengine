@@ -66,11 +66,11 @@ Not covered by the versions, and allowed to change in any release:
 
 ## Errors and panics
 
-Fallible calls follow one convention, built on `ponko::Error`:
+Fallible calls follow one convention, built on `ponko::error::Error`:
 
 - `load_x` / `create_x` are for setup code, where a missing file is a bug.
   They panic with the `Error`'s message (which starts with `ponko:`).
-- `try_load_x` / `try_create_x` return `Result<T, ponko::Error>`. Match on
+- `try_load_x` / `try_create_x` return `Result<T, ponko::error::Error>`. Match on
   `Error::kind()` (a `#[non_exhaustive]` `ErrorKind`), never on the message.
 - Operations that fail in normal play (scene loads, prefab spawns, network
   joins) return a `Result` under their plain name and have no panicking twin.
@@ -81,22 +81,24 @@ shaders, screen effects, compute passes, render targets, texture arrays,
 terrain materials, UI panels and reflection probes, plus the data-file
 loaders and scene and prefab saving. Callbacks a game hands these services
 (`Assets::load_with`'s decoder, `Assets::scene_asset_field`'s loader) return
-`ponko::Error` too, and so do the play-time calls on `Ctx` (`load_scene`,
-`load_scene_lockstep`, `spawn_prefab`, `start_ragdoll`), performance reports
-and budgets (`PerfReport::from_json`, `load`, `Budget::from_json`), and
-checks (`MeshData::check`, `EcsDiagnostics::matching`).
-`String: From<ponko::Error>` lets `?` turn a `ponko::Error` into a `String`
-(its message, without the prefix) in code that uses strings for errors.
+`ponko::error::Error` too, and so do the play-time calls on `Ctx`
+(`load_scene`, `load_scene_lockstep`, `spawn_prefab`, `start_ragdoll`),
+performance reports and budgets (`PerfReport::from_json`, `load`,
+`Budget::from_json`), and checks (`MeshData::check`,
+`EcsDiagnostics::matching`). `String: From<ponko::error::Error>` lets `?` turn
+an `Error` into a `String` (its message, without the prefix) in code that uses
+strings for errors.
 
 ## The crate root and globs
 
-The crate root holds the modules and the prelude's items, as the same items,
-so `use ponko::prelude::*;` combines with a module glob without ambiguity.
-Games start from `use ponko::prelude::*;` and import modules as needed.
+The crate root holds only modules: every item has one path, in its module,
+and the prelude re-exports the common ones as the same items. Games start from `use ponko::prelude::*;`
+and import modules as needed; `use ponko::*;` brings in the modules, not the
+prelude.
 
-The root glob, `use ponko::*;`, also brings in the root modules (`audio`,
-`input`, `net`, `render`, `ui`, ...). For a game that writes it and depends on
-a crate of the same name, a path in code then means the Ponko module, and a
+The root glob also brings in the root modules (`audio`, `input`, `net`,
+`render`, `ui`, ...). For a game that writes it and depends on a crate of the
+same name, a path in code then means the Ponko module, and a
 `use name::...;` declaration is ambiguous (E0659); the way out is to spell
 the crate `::name::...` or to import `ponko::prelude::*` instead. A new root
 module is therefore a source change for such games, so the CHANGELOG names
@@ -125,7 +127,7 @@ if (ponko_abi_version() != PONKO_ABI_VERSION) { /* built against another version
 
 A failing call returns its `PonkoStatus`, and `ponko_last_error()` has its
 message. `ponko_last_error_kind()` says what kind of failure it was, as a
-`PonkoErrorKind` that mirrors Rust's `ponko::ErrorKind` (`PONKO_ERROR_NOT_FOUND`,
+`PonkoErrorKind` that mirrors Rust's `ponko::error::ErrorKind` (`PONKO_ERROR_NOT_FOUND`,
 `_IO`, `_DECODE`, `_SHADER`, `_INVALID`, ..., `_OTHER`); new kinds can arrive
 in any release, so a `switch` needs a `default:`. Statuses don't change
 with it: a call that returned `PONKO_INVALID_ARGUMENT` for a missing file

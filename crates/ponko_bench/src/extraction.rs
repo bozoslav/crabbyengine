@@ -18,10 +18,10 @@ use std::time::{Duration, Instant};
 
 use ponko::d3::Camera as Camera3D;
 use ponko::d3::Transform as Transform3D;
+use ponko::prelude::{Entity, Vec3, World, vec3};
 use ponko::render::ExtractionBench;
 use ponko::render::Lighting;
 use ponko::render::Model;
-use ponko::{Entity, Vec3, World, vec3};
 
 use crate::{Bench, report};
 

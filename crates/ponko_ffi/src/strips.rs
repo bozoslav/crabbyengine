@@ -11,8 +11,8 @@ use std::ffi::c_char;
 
 use ponko::d3::Line as Line3D;
 use ponko::d3::Trail as Trail3D;
+use ponko::prelude::{Color, Mat4, Vec3};
 use ponko::render::MeshData;
-use ponko::{Color, Mat4, Vec3};
 
 use crate::ctx::{ctx_access, out, text};
 use crate::particles::{
@@ -131,7 +131,7 @@ unsafe fn trail_from_c(t: &PonkoTrail3D) -> Result<Trail3D, Failure> {
     Ok(trail)
 }
 
-fn trail(c: &mut ponko::Ctx, bits: u64) -> Result<&mut Trail3D, Failure> {
+fn trail(c: &mut ponko::prelude::Ctx, bits: u64) -> Result<&mut Trail3D, Failure> {
     let e = entity(c, bits)?;
     c.world
         .get_mut::<Trail3D>(e)

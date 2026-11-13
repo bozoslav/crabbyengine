@@ -12,10 +12,13 @@ fn raw_views_share_storage_and_release_the_exclusive_borrow() {
     let mut world = World::new();
     let e = world.spawn((Small(7),));
     let id = world.component_id::<Small>().unwrap();
+    assert!(world.raw_ref().get_dynamic(e, id).is_some());
+    assert_eq!(
+        world.raw_ref().component_by_name(std::any::type_name::<Small>()),
+        Some(id)
+    );
     {
         let mut raw = world.raw();
-        assert!(raw.get_dynamic(e, id).is_some());
-        assert_eq!(raw.component_by_name(std::any::type_name::<Small>()), Some(id));
         let mut rows = 0;
         raw.for_each_chunk(&[id], |chunk| rows += chunk.len());
         assert_eq!(rows, 1);

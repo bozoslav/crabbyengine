@@ -4,7 +4,8 @@
 use rapier3d::prelude as rp;
 
 use super::{Physics3D, from_rp, rot_from_rp, to_rp};
-use crate::{Component, Entity, Vec3, World};
+use glam::Vec3;
+use ponko_ecs::{Component, Entity, World};
 
 /// Changes how a body's contacts behave. Put it on an entity with a
 /// [`Collider3D`](crate::d3::Collider) (the one-way side and the conveyor
