@@ -131,7 +131,7 @@ and wgpu. Turn the `window` feature off and keep the rest:
 ```toml
 # Cargo.toml
 [dependencies]
-ponko = { version = "0.0.1", default-features = false, features = ["audio"] }
+ponko = { version = "0.1", default-features = false, features = ["audio"] }
 ```
 
 </div>

@@ -93,11 +93,11 @@ jobs:
         run: python3 scripts/check-naming.py
       - name: Changelog fragments
         run: python3 scripts/changelog.py --check
-      # The release guard and the versioned guides (CONTRIBUTING.md "Releasing").
+      # The release guard (CONTRIBUTING.md "Releasing") and the guide's note.
       - name: Release scripts
         run: |
           python3 scripts/release-check.py selftest
-          python3 scripts/guide-versions.py selftest
+          python3 scripts/guide-note.py selftest
       # Every C export needs a test, or a reasoned entry in the allowlist.
       - name: C ABI test coverage
         run: python3 scripts/check-ffi-coverage.py

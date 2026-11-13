@@ -3054,7 +3054,7 @@ dependencies = [
 
 [[package]]
 name = "ponko"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -3102,7 +3102,7 @@ dependencies = [
 
 [[package]]
 name = "ponko_bench"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "bevy_ecs",
  "bevy_tasks",
@@ -3119,7 +3119,7 @@ dependencies = [
 
 [[package]]
 name = "ponko_ecs"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "ponko_macros",
  "rayon",
@@ -3129,7 +3129,7 @@ dependencies = [
 
 [[package]]
 name = "ponko_ffi"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "cbindgen",
  "ponko",
@@ -3150,7 +3150,7 @@ dependencies = [
 
 [[package]]
 name = "ponko_mcp"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "ponko",
  "serde",
@@ -3159,7 +3159,7 @@ dependencies = [
 
 [[package]]
 name = "ponko_unity"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "glam 0.34.2",
  "gltf",

@@ -1,6 +1,7 @@
 //! # Ponko
 //!
-//! A fast 2D and 3D engine for games with huge numbers of things on screen.
+//! A code-first 2D and 3D game engine with integrated simulation, C++
+//! bindings, and tools for AI-assisted development.
 //!
 //! ```no_run
 //! use ponko::prelude::*;
@@ -38,16 +39,29 @@
 //!   are always built in and cost one atomic load while profiling is off.)
 //! - `hotpatch`: change system code while the game runs, with
 //!   `dx serve --hot-patch --features hotpatch`.
-//! - `physics`: 2D physics with rapier (`Game::physics`); `physics-determinism`
-//!   for bit-identical results across platforms.
+//! - `3d`: meshes, materials, glTF models, a perspective camera, lights and
+//!   shadows, drawn under the 2D layer (`ponko::d3`, `ctx.scene3d`).
+//! - `navmesh`: navigation meshes for 3D (Recast baking and Detour path and
+//!   crowd queries, in pure Rust). Turns on `3d`.
+//! - `physics`: 2D physics with rapier (`Game::physics`).
 //! - `physics3d`: 3D physics with rapier (`Game::physics3d`): bodies,
 //!   colliders (heightfield terrain too), queries, a character controller and
-//!   raycast-wheel vehicles.
+//!   raycast-wheel vehicles. Turns on `3d`.
+//! - `physics-determinism`: physics with bit-identical results on every
+//!   platform (for lockstep and replays), a little slower. Turns on `physics`.
+//! - `control-env`: a release build honors `PONKO_CONTROL=1` and opens the
+//!   control endpoint for tools (debug builds always do). Off, a release build
+//!   opens it only when the game calls `Game::control_endpoint(true)`.
 //! - `accessibility`: screen readers read and operate the retained UI of the
 //!   game's window (`ui::UiAccessAdapter`). macOS only (VoiceOver, through
 //!   AccessKit); on other systems it builds and does nothing. Needs `window`.
 //! - `steam`: lockstep and byte messages over Steam's relays and lobbies
 //!   (`Net::steam_host`), with the `steamworks` crate re-exported as `ponko::net::steam`.
+//! - `bench-internals`: **unstable** benchmark drivers for the engine's own
+//!   benchmark crate. Not part of the API; they change in any release.
+//!
+//! What a 0.x release may change, and what it keeps, is in
+//! [STABILITY.md](https://github.com/ponkoengine/ponko/blob/main/STABILITY.md).
 
 #![warn(missing_docs)]
 // Without a window, the code that only the window loop calls is unused.

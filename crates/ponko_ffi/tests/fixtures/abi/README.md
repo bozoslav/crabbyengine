@@ -3,8 +3,8 @@
 What the C ABI looked like at a recorded engine revision, kept so that later
 revisions are checked against something they did not generate themselves.
 [STABILITY.md](../../../../../STABILITY.md#c-abi) says that within an ABI version
-existing functions and struct layouts never change, and that minor releases only
-add functions and enum values.
+existing functions and struct layouts never change, and that releases only add
+functions and enum values.
 
 | File | What it is |
 |---|---|
@@ -48,8 +48,8 @@ not build are not seen.
 
 - **Never edit or regenerate the baseline** to make a test pass. A failure means
   programs built against the old header can break: fix the library, or make an
-  explicit compatibility decision (STABILITY.md: an ABI bump, in a major
-  release).
+  explicit compatibility decision (STABILITY.md: an ABI bump, in a minor
+  release while at 0.x).
 - A new function, type or enum constant needs no change here.
 
 ## Retaining a new baseline (after an intentional ABI bump)

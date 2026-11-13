@@ -44,8 +44,8 @@ In `Cargo.toml` that is a git dependency, which you can also write by hand:
 instead. A release holds what had been merged when it was tagged; anything
 merged since is only on `main`, so a page of this guide can describe an API
 the released crate lacks (the note under each page's title says which version
-the page documents). To follow a release exactly, use the guide published for
-its version, `/ponko/vX.Y.Z/`, with `ponko = "X.Y.Z"`; the
+the page documents). To follow a release exactly, use `ponko = "X.Y.Z"` with
+that release's [API reference](https://docs.rs/ponko/) on docs.rs; the
 [changelog](https://github.com/ponkoengine/ponko/blob/main/CHANGELOG.md) lists
 what each release added.
 

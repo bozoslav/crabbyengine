@@ -9,7 +9,8 @@ src = "src"
 additional-css = ["theme/lang-pair.css"]
 git-repository-url = "https://github.com/ponkoengine/ponko"
 edit-url-template = "https://github.com/ponkoengine/ponko/edit/main/book/{path}"
-site-url = "/ponko/"
+# The website builds the guide into /guide/ (it overrides this).
+site-url = "/guide/"
 
 [output.html.search]
 enable = true
@@ -17,9 +18,9 @@ limit-results = 30
 boost-title = 2
 boost-hierarchy = 2
 
-# Puts a note under every chapter title saying which version the guide
-# documents (scripts/guide-versions.py). The command runs from the book folder.
+# Puts a note under every chapter title saying the guide follows `main`
+# (scripts/guide-note.py). The command runs from the book folder.
 # Optional: a machine without python3 still builds the book, without the note.
-[preprocessor.guide-version]
-command = "python3 ../scripts/guide-versions.py preprocess"
+[preprocessor.guide-note]
+command = "python3 ../scripts/guide-note.py preprocess"
 optional = true

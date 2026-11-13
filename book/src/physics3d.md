@@ -8,7 +8,7 @@ rigid-body physics on [rapier](https://rapier.rs), designed like the
 on `3d`):
 
 ```toml
-ponko = { version = "0.0.1", features = ["physics3d"] }
+ponko = { version = "0.1", features = ["physics3d"] }
 ```
 
 With `use ponko::d3::*;` the bodies, colliders and queries are `RigidBody`,

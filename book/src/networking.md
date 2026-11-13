@@ -122,7 +122,7 @@ relays get through any router, with no port forwarding and no addresses
 to type. The lockstep itself is the same, so nothing else in the game changes.
 
 ```toml
-ponko = { version = "0.0.1", features = ["steam"] }
+ponko = { version = "0.1", features = ["steam"] }
 ```
 
 The host makes the lobby and invites; a friend either launches the game

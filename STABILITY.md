@@ -1,48 +1,63 @@
 # Stability
 
-The compatibility contract inherited from Crabby Engine 1.0.
+What a Ponko release may change, and what it keeps. Ponko is at **0.x**: the
+API is still settling, and the rules below say how breaking changes happen
+while it does.
 
-## Ponko rename
+Ponko was formerly Crabby Engine. 0.1.0 removed every old name; the
+[naming chapter](book/src/naming.md) maps them to the new ones.
 
-Ponko was formerly Crabby Engine. The rename and the `0.1.0` release were the
-one deliberate breaking change: before `0.1.0` every legacy name was removed,
-and the compatibility commitments below apply to the names Ponko ships with.
-The existing 1.x policy remains the reference for compatible evolution; a 0.x
-version number is not permission for an undocumented break.
-There is no legacy spelling left to fall back on: the `Crabby*`, `crabby_*` and
-`CRABBY_*` native names and headers, the deprecated Rust aliases and flat
-`Ctx` forwarders, the old environment, registry and cache settings, the
-persisted format identifiers, the canvas id and the protocol metadata aliases
-were all deleted. Source directories use `ponko_*`, and native declarations,
-headers and exports use `Ponko*`, `PONKO_*`, `ponko_*` and `ponko::`. See the
-[migration guide](book/src/naming.md) for the old and new names.
+## Versions
 
-## Semantic versioning
+The crates follow [semver as Cargo applies it to 0.x](https://doc.rust-lang.org/cargo/reference/semver.html):
 
-From 1.0.0, the public API of these crates follows [semver](https://semver.org):
+- **Patch releases (0.1.x)** are compatible with each other: bug fixes and
+  additions only. `ponko = "0.1"` in Cargo.toml picks up the newest one, and
+  your code keeps compiling and behaving as documented.
+- **Minor releases (0.2.0, 0.3.0, ...)** may break things: rename, move or
+  remove items, change signatures, behavior or defaults. Every break is
+  listed in the CHANGELOG under **Breaking changes** with what to use
+  instead, so the CHANGELOG is the migration guide.
+- Removing something does not wait for a deprecation period. Where it is
+  cheap, a patch release marks the item `#[deprecated]` (Rust) or adds a note
+  in the header (C) first, pointing at its replacement.
+
+1.0 will come when the API has stopped moving; from then on, only major
+releases break.
+
+What the versions cover:
 
 | Crate | What is covered |
 |---|---|
-| `ponko` | Every public item that is not `#[doc(hidden)]`, and the cargo features |
+| `ponko` | Every public item that is not `#[doc(hidden)]`, and the cargo features, except the [unstable surfaces](#unstable) |
 | `ponko_ecs` | Every public item that is not `#[doc(hidden)]` |
-| `ponko_ffi` | The C ABI in `include/ponko.h` and the C++ wrapper `include/ponko.hpp` (with deprecated compatibility shims) (see [C ABI](#c-abi)) |
+| `ponko_ffi` | The C ABI in `include/ponko.h` and the C++ wrapper `include/ponko.hpp` (see [C ABI](#c-abi)) |
 | `ponko_mcp` | The MCP tool names and their parameters |
+| `ponko_unity` | Its Rust API. The files it writes (the imported scenes, meshes and materials) are not a stable format: re-import after upgrading. |
 
-- **Patch** releases (1.0.x) fix bugs. They change no public signatures.
-- **Minor** releases (1.x.0) add things: new functions, types, cargo
-  features, enum variants on `#[non_exhaustive]` enums, MCP tools, optional
-  parameters. Existing code keeps compiling.
-- **Major** releases (2.0.0) are the only ones that remove or change things.
+Enums and structs that will grow are `#[non_exhaustive]` (`ErrorKind`, `Key`,
+`MouseButton`, `GamepadButton`, `NetState`, `BodyKind`, the render
+descriptors and settings, ...): matches need a `_` arm and such structs are
+built through their constructors or `Default`, so new variants and fields
+can arrive in a patch release.
 
-Enums that will grow are `#[non_exhaustive]` (`NetState`, `BodyKind`,
-`Shape`, `FieldType`, `ReflectError`, `ErrorKind`, `Key`, `MouseButton`, `GamepadButton`,
-`GamepadAxis`): matches on them need a `_` arm, so new variants can arrive in a minor release.
+## Unstable
 
-Not covered, and allowed to change in any release:
+Not covered by the versions, and allowed to change in any release:
 
-- `#[doc(hidden)]` items: test helpers such as `Net::loopback_lossy` and
+- `#[doc(hidden)]` items, among them `ponko::__ffi` (the engine internals that
+  `ponko_ffi` builds on), test helpers such as `Net::loopback_lossy`, and
   macro internals.
-- `ponko_bench`, the published benchmark executable; its output is not a stable engine API.
+- The `bench-internals` cargo feature and what it turns on (benchmark
+  drivers for `crates/ponko_bench`, which is not published).
+- `ponko::ui::unstable_taffy`, a re-export of the `taffy` layout crate for
+  advanced UI layout.
+- **Re-exported third-party crates and types.** Their major versions are
+  Ponko's choice, and a Ponko minor release can move to a new one, which is a
+  breaking change for code that uses them directly (it is listed under
+  Breaking changes): `glam` (`Vec2`, `Vec3`, `Quat`, `Mat4`, ... in the crate
+  root and the prelude), `serde_json` (`ponko::json!` and reflection values)
+  and `steamworks` (`ponko::net::steam`, feature `steam`).
 - Error message text, log output, the inspector's look, and the exact
   frames rendered: tests should check behavior, not strings or pixels.
 - Performance. Regressions are bugs, and benchmark numbers go in PRs, but
@@ -50,7 +65,7 @@ Not covered, and allowed to change in any release:
 
 ## Errors and panics
 
-Fallible calls follow one convention, introduced with `ponko::Error`:
+Fallible calls follow one convention, built on `ponko::Error`:
 
 - `load_x` / `create_x` are for setup code, where a missing file is a bug.
   They panic with the `Error`'s message (which starts with `ponko:`).
@@ -65,85 +80,69 @@ shaders, screen effects, compute passes, render targets, texture arrays,
 terrain materials, UI panels and reflection probes, plus the data-file
 loaders and scene and prefab saving. Callbacks a game hands these services
 (`Assets::load_with`'s decoder, `Assets::scene_asset_field`'s loader) return
-`ponko::Error` too.
+`ponko::Error` too, and so do the play-time calls on `Ctx` (`load_scene`,
+`load_scene_lockstep`, `spawn_prefab`, `start_ragdoll`), performance reports
+and budgets (`PerfReport::from_json`, `load`, `Budget::from_json`), and
+checks (`MeshData::check`, `EcsDiagnostics::matching`).
+`String: From<ponko::Error>` lets `?` turn a `ponko::Error` into a `String`
+(its message, without the prefix) in code that uses strings for errors.
 
-So do the play-time calls on `Ctx` (`load_scene`, `load_scene_lockstep`,
-`spawn_prefab`, `start_ragdoll`), performance reports and budgets
-(`PerfReport::from_json`, `load`, `Budget::from_json`), and checks
-(`MeshData::check`, `EcsDiagnostics::matching`). These returned
-`Result<_, String>` up to 0.0.1; the change ships in the same breaking
-release as the root-name removal (see [Deprecation](#deprecation)), listed
-under "Breaking changes" in the changelog.
+## The crate root and globs
 
-Only the deprecated flat `Ctx` methods that forward to the services still
-return `Result<_, String>`, with their old messages, until they are removed.
-`String: From<ponko::Error>` keeps the two interoperable: `?` turns a
-`ponko::Error` into the `String` (its message, without the prefix).
+The crate root holds the modules and the prelude's items, as the same items,
+so `use ponko::prelude::*;` combines with a module glob without ambiguity.
+Games start from `use ponko::prelude::*;` and import modules as needed.
 
-## Deprecation
-
-The module/prelude migration first kept the old root spellings as
-`#[deprecated]` re-exports and forwarders. rustc does not warn through a
-re-export, so they gave old code no hint, and they are removed: the next
-release is a breaking release for code that names them (`ponko::RigidBody3D`,
-`ponko::draw_sprites`, `world.spawn_dynamic(..)`, ...). Its changelog lists
-every removed name with its replacement under "Breaking changes", and the
-[naming chapter](book/src/naming.md#the-root-glob) explains the moves. The
-crate root now holds the modules and the prelude's items, as the same items,
-so the root glob combines with the prelude or a module glob without
-ambiguity. Hiding an existing API from the documentation is still not
-permission to remove it in a compatible release. C/C++ names and layouts
-remain flat and unchanged.
-
-The root glob also brings in the root modules (`audio`, `input`, `net`,
-`render`, `ui`, ...). For a game that writes `use ponko::*;` and depends on a
-crate of the same name, a path in code then means the Ponko module, and a
+The root glob, `use ponko::*;`, also brings in the root modules (`audio`,
+`input`, `net`, `render`, `ui`, ...). For a game that writes it and depends on
+a crate of the same name, a path in code then means the Ponko module, and a
 `use name::...;` declaration is ambiguous (E0659); the way out is to spell
 the crate `::name::...` or to import `ponko::prelude::*` instead. A new root
-module is therefore a source change for such games: the CHANGELOG names
+module is therefore a source change for such games, so the CHANGELOG names
 every root module a release adds.
-
-Nothing is removed without warning. Before an item is removed in the next
-major release, at least one minor release ships it marked `#[deprecated]`
-(Rust) or with a note in the header (C), saying what to use instead. The
-CHANGELOG lists every deprecation.
 
 ## Minimum Rust version (MSRV)
 
 Ponko builds with **Rust 1.95** and newer (`rust-version` in Cargo.toml;
-CI checks it). Raising it is allowed in a **minor** release, never in a
+CI checks it). The MSRV may rise in a minor release (0.y.0), never in a
 patch release, and the CHANGELOG says so. It follows the dependencies
 (wgpu, egui, rapier) and stays at least a few releases behind stable.
 
 ## C ABI
 
-The C ABI has its own version, `ponko_abi_version()` (currently 2). The
-deprecated `crabby_abi_version()` returns the same value. This version
-only changes when existing functions or structs change incompatibly. That
-happens only in a major release of the engine. Minor releases add new
-functions and enum values; existing struct layouts never change within an
-ABI version. Programs check the version at startup if they load the
-library dynamically:
+The C ABI has its own version, `ponko_abi_version()` and `PONKO_ABI_VERSION`
+in `ponko.h` (currently **2**). It changes whenever an existing function,
+struct layout or enum value changes incompatibly, which only happens in a
+minor release (0.y.0), never in a patch release; the CHANGELOG says so.
+Within an ABI version, releases only add functions and enum values, and
+existing struct layouts never change. Programs that load the library
+dynamically check the version at startup:
 
 ```c
-if (ponko_abi_version() != 2) { /* built against another version */ }
+if (ponko_abi_version() != PONKO_ABI_VERSION) { /* built against another version */ }
 ```
 
 A failing call returns its `PonkoStatus`, and `ponko_last_error()` has its
 message. `ponko_last_error_kind()` says what kind of failure it was, as a
 `PonkoErrorKind` that mirrors Rust's `ponko::ErrorKind` (`PONKO_ERROR_NOT_FOUND`,
 `_IO`, `_DECODE`, `_SHADER`, `_INVALID`, ..., `_OTHER`); new kinds can arrive
-in a minor release, so a `switch` needs a `default:`. Statuses don't change
+in any release, so a `switch` needs a `default:`. Statuses don't change
 with it: a call that returned `PONKO_INVALID_ARGUMENT` for a missing file
 still does, and says `PONKO_ERROR_NOT_FOUND` as its kind. The C++ wrapper
 throws `ponko::error`, a `std::runtime_error` with `kind()`.
 
+The C and C++ names stay flat (`ponko_ctx_cast_ray_filtered`,
+`ctx.graphics_quality()`, ...) even where the Rust API groups things into
+modules and services.
+
 ## Saved worlds
 
 `World::save` writes JSON tagged `"format": "ponko-world"` and a save version
-(currently 1). Every 1.x release loads saves from every earlier 1.x
-release. Your own components are yours to migrate: give a component
-`#[serde(default)]` and saves written before you added a field still load.
+(currently 1). A release reads every save version that earlier 0.x releases
+wrote; a release that changes the format says so in the CHANGELOG and still
+loads the older versions. Your own components are yours to migrate: give a
+component `#[serde(default)]` and saves written before you added a field
+still load.
 
 `World::load` refuses entity ids whose index is far beyond what the save
 needs (the exact bound is in its docs), so a corrupt or hostile file can't
@@ -157,9 +156,7 @@ world that wrote it.
 The promises above are tested against retained baselines, not only against
 what the current revision generates. A baseline is a small fixture recorded at
 a named engine revision with its provenance next to it; it is never edited to
-make a test pass. The baselines come from the engine's `main` branch, not from
-a published release, so they show that today's code honors what that revision
-promised and do not claim anything about earlier binary releases.
+make a test pass.
 
 | Contract | Baseline | Check |
 |---|---|---|
@@ -171,7 +168,7 @@ Additions pass: new MCP tools and optional parameters, new C functions and enum
 constants. A removed or changed tool, parameter, function or struct layout, a
 new required MCP parameter, or a parameter that accepts fewer values fails with
 a message naming it. Each fixture folder's README says how to retain a new
-baseline after an intentional major-version change.
+baseline after an intentional breaking change.
 
 ## Determinism
 
@@ -206,7 +203,7 @@ Windows x86-64. Built in CI on every change: the web (wasm32, WebGPU with a
 WebGL2 fallback); small web builds (2D, 3D and the complete-game reference)
 are also run in headless Chromium and WebKit with WebGL2 in the merge
 queue (`web/smoke/`; Firefox is tried there too, but the runner's headless
-Firefox has no WebGL2, so it is reported, not verified). WebGPU is tried there too and reported, but a runner
-without a GPU usually can't show it, so WebGPU is verified on real GPUs by hand,
-not gated in CI. Other targets that wgpu and winit support usually work
-but aren't tested.
+Firefox has no WebGL2, so it is reported, not verified). WebGPU is tried
+there too and reported, but a runner without a GPU usually can't show it, so
+WebGPU is verified on real GPUs by hand, not gated in CI. Other targets that
+wgpu and winit support usually work but aren't tested.

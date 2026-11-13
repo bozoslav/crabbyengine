@@ -7,7 +7,7 @@
 //! values). Nothing here asks the code under test what it used to look like.
 //!
 //! STABILITY.md: within an ABI version existing functions and struct layouts
-//! never change, and minor releases only add functions and enum values. Three
+//! never change, and releases only add functions and enum values. Three
 //! checks follow from that:
 //!
 //! 1. the Rust types still have the layout the C compiler measured;

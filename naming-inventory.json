@@ -14,22 +14,22 @@
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "README.md": {
-      "occurrences": 6,
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "STABILITY.md": {
-      "occurrences": 6,
+      "occurrences": 1,
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Migration instructions and deprecation schedule for legacy names."
     },
-    "bench/unity/README.md": {
-      "occurrences": 6,
+    "book/src/introduction.md": {
+      "occurrences": 1,
       "path_occurrences": 0,
-      "category": "intentional history",
-      "reason": "Preserved project instructions, README text, release history or legal attribution."
+      "category": "deprecated compatibility",
+      "reason": "Migration instructions and deprecation schedule for legacy names."
     },
     "book/src/naming.md": {
       "occurrences": 18,
@@ -55,6 +55,18 @@
       "category": "intentional history",
       "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
+    "crates/ponko_ecs/NOTICE": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
+    },
+    "crates/ponko_ffi/NOTICE": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
+    },
     "crates/ponko_ffi/tests/fixtures/abi/README.md": {
       "occurrences": 1,
       "path_occurrences": 0,
@@ -67,6 +79,12 @@
       "category": "intentional history",
       "reason": "Immutable historical ABI or saved-format baseline and its provenance/generator."
     },
+    "crates/ponko_mcp/NOTICE": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
+    },
     "crates/ponko_mcp/src/lib.rs": {
       "occurrences": 1,
       "path_occurrences": 0,
@@ -78,6 +96,12 @@
       "path_occurrences": 0,
       "category": "deprecated compatibility",
       "reason": "Tests old native symbols/headers or old persisted/environment names during the deprecation cycle."
+    },
+    "crates/ponko_unity/NOTICE": {
+      "occurrences": 1,
+      "path_occurrences": 0,
+      "category": "intentional history",
+      "reason": "Preserved project instructions, README text, release history or legal attribution."
     },
     "scripts/check-naming.py": {
       "occurrences": 1,

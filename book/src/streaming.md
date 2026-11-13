@@ -22,7 +22,7 @@ in (see [Budgets](#budgets-staying-in-memory)). The one exception is
 for and evicts as that check would. The two budgets
 are separate: `set_upload_budget` limits the bytes sent to the GPU per frame,
 `set_residency_budget` the bytes kept on it. `ponko::stream` is something
-else: [`Job`](api/ponko/stream/struct.Job.html) runs your own work on a
+else: [`Job`](https://docs.rs/ponko/latest/ponko/stream/struct.Job.html) runs your own work on a
 worker thread and `CellStreamer` says which cells of a grid to load, for
 games that build their own content; it holds no assets.
 
@@ -46,7 +46,7 @@ games that build their own content; it holds no assets.
 ## Streaming: never waiting
 
 The first `stream_texture` or `stream_mesh` call starts reading and decoding
-the file on a [job](api/ponko/stream/struct.Job.html)
+the file on a [job](https://docs.rs/ponko/latest/ponko/stream/struct.Job.html)
 thread and returns nothing. At the start of a later frame, before your
 systems run, the engine's **upload step** puts decoded assets on the GPU,
 in the order they were asked for, until the frame's **upload budget**

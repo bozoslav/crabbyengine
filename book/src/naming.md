@@ -3,7 +3,7 @@
 Ponko was formerly Crabby Engine. Ponko is the only spelling in Rust, C, C++,
 tools, saved files and settings. The old `Crabby*`, `crabby_*` and `CRABBY_*`
 names, the deprecated Rust aliases and the flat `Ctx` forwarders were **removed
-in 0.1.0**, the one deliberate breaking release, so there is one name for each
+in 0.1.0**, the release that finished the rename, so there is one name for each
 thing. The C ABI is **version 2**; layouts, enum values, ownership and calling
 conventions did not change in the rename. This chapter says what replaced the
 old names. See also

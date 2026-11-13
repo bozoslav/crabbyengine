@@ -48,7 +48,7 @@ and removes it on exit:
   "cwd": "/home/me/my_game",
   "exe": "/home/me/my_game/target/release/my_game",
   "started": 1793642400,
-  "engine_version": "1.0.0"
+  "engine_version": "0.1.0"
 }
 ```
 

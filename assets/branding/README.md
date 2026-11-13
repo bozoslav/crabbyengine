@@ -10,3 +10,9 @@ The Ponko red panda. `ponko-face.svg` is the master.
 | `apple-touch-icon.png` | 180 px on a solid background, for iOS home screens. |
 
 Colors: orange `#D4532A`, cream `#F6E7D6`, dark brown `#2A1916`.
+
+## Using the logo
+
+The repository doesn't yet say under which terms the logo may be used outside
+the project. Until it does, ask in an issue or discussion first. The logo is
+not part of the published `ponko` crate.

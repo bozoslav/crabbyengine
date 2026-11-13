@@ -3,7 +3,7 @@
 The scene from `examples/3d.rs`, rebuilt the way a normal Unity game is
 written: one GameObject per cube, each with a `MeshFilter`, a
 `MeshRenderer` and a `Spin` script (`Update()` turns it). It's used for the
-"3D: Crabby vs Unity" table on the benchmarks page.
+"3D: Ponko vs Unity" table on the benchmarks page.
 
 The two scenes match:
 
@@ -17,8 +17,8 @@ The two scenes match:
 - 4x MSAA, physically based materials;
 - the same camera (60° field of view, the demo's starting orbit).
 
-URP's extras that Crabby doesn't have are off: SSAO, post-processing and
-HDR. Unity's 3D axes are left-handed and Crabby's are right-handed, so
+URP's extras that Ponko doesn't have are off: SSAO, post-processing and
+HDR. Unity's 3D axes are left-handed and Ponko's are right-handed, so
 Unity sees the field mirrored. The work is the same.
 
 Other differences:
@@ -41,12 +41,12 @@ Other differences:
 4. Run it fullscreen at the display's resolution:
 
    ```sh
-   Build/CrabbyBench3D.app/Contents/MacOS/CrabbyBench3D -cubes 100000 -seconds 10 \
+   Build/PonkoBench3D.app/Contents/MacOS/PonkoBench3D -cubes 100000 -seconds 10 \
      -out unity.json -screen-fullscreen 1 -window-mode borderless \
      -screen-width 3456 -screen-height 2234
    ```
 
-The Crabby side:
+The Ponko side:
 
 ```sh
 CUBES=100000 BENCH_SECONDS=10 cargo run --release --features 3d --example 3d

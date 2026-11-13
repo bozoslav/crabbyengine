@@ -1,7 +1,10 @@
 [package]
 name = "ponko_unity"
 description = "Reads Unity projects (text YAML scenes, prefabs, materials and meshes, .meta GUIDs) for importing into Ponko"
-version = "0.0.1"
+version = "0.1.0"
+keywords = ["gamedev", "unity", "importer", "yaml", "gltf"]
+categories = ["game-development", "parser-implementations"]
+documentation = "https://docs.rs/ponko_unity/"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
