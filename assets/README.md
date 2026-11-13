@@ -10,6 +10,7 @@ crate; `branding/` does not.
 | `models/house.glb` | A small house, walls and a roof with two materials | Added as the sample model of the first 3D support (#51); no separate provenance note, see git history |
 | `coin_dash/coin.png` | The coin of the `coin_dash` example | Drawn by a script for that example; see `examples/coin_dash/CONTENT-NOTICES.txt` |
 | `levels/beach.json`, `prefabs/*.json` | A scene and prefabs for the scenes chapter | Written for the engine (#50) |
+| `levels/meadow.tmx`, `levels/meadow.tsx`, `levels/meadow.png` | A Tiled map, its tileset and the tileset's image, for the `level` example and the tilemaps chapter | Written for the engine (#381); the image drawn by a script |
 | `shaders/*.wgsl` | Custom material shaders for the 3D examples | Written for the engine (#54) |
 
 Files written for the engine are under the repository's license (MIT or

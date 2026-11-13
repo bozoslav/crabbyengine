@@ -537,6 +537,53 @@ static void paint(ponko::ctx& ctx, ponko::entity map) {
 }
 // ANCHOR_END: paint
 
+// ANCHOR: level_spawn
+static ponko::entity spawn_meadow(ponko::ctx& ctx) {
+    ponko::level_options options;
+    options.prefabs = {{"Chest", "prefabs/chest.json"}}; // objects of this class become prefab instances
+    options.solid = {"Ground"};                          // tiles of this layer collide too
+    return ponko::spawn_level(ctx, "levels/meadow.tmx", {0, 0}, options);
+}
+// ANCHOR_END: level_spawn
+
+// ANCHOR: level_objects
+static ponko::vec2 start_position(ponko::ctx& ctx, ponko::entity level) {
+    for (ponko::entity e : ponko::level_entities(ctx, level)) {
+        if (!ctx.world().try_get<ponko::transform2d>(e)) continue;
+        try {
+            if (ponko::level_object_class(ctx, e) == "Spawn") return ponko::level_object_of(ctx, e).position;
+        } catch (const ponko::error&) {} // a layer or a collider, not an object
+    }
+    return {48, 120};
+}
+// ANCHOR_END: level_objects
+
+// ANCHOR: autotile
+static void build_wall(ponko::ctx& ctx, ponko::entity walls, std::uint32_t x, std::uint32_t y) {
+    ponko::autotile_rule rule;
+    rule.frames = {7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7}; // one piece per mask N=1 E=2 S=4 W=8
+    ponko::tilemap_paint_autotile(ctx, walls, rule, x, y, true);
+    const std::size_t bodies = ponko::tilemap_spawn_colliders(ctx, walls, {7});
+    (void)bodies;
+}
+// ANCHOR_END: autotile
+
+static void levels_guide(ponko::ctx& ctx) {
+    const ponko::entity level = spawn_meadow(ctx);
+    const ponko::vec2 start = start_position(ctx, level);
+    if (start.x != 48.0f) { std::fprintf(stderr, "level start\n"); std::abort(); }
+    // ANCHOR: tile_extras
+    const ponko::entity sky = ctx.world().spawn(ponko::transform_at({0, 0}));
+    ctx.world().add_tilemap(sky, ponko::sheet_of(ctx.load_texture("levels/meadow.png"), 16, 16), 40, 15);
+    ponko::tilemap_set_parallax(ctx, sky, {0.3f, 0.3f});                 // far away: scrolls slowly
+    ponko::tilemap_animate(ctx, sky, 4, {{4, 0.4f}, {5, 0.4f}});         // tile 4 shows 4, 5, 4, 5, ...
+    ponko::tilemap_set_flipped(ctx, sky, 3, 2, 7, PONKO_TILE_FLIP_X);   // a mirrored tile
+    // ANCHOR_END: tile_extras
+    build_wall(ctx, sky, 10, 10);
+    if (ponko::tilemap_flip(ctx, sky, 3, 2) != PONKO_TILE_FLIP_X) { std::fprintf(stderr, "flip\n"); std::abort(); }
+    ponko::despawn_level(ctx, level);
+}
+
 // ---- Camera, text and UI ---------------------------------------------------------
 [[maybe_unused]] static void camera(ponko::ctx& ctx, ponko::vec2 bounds) {
     // ANCHOR: camera_fit
@@ -3114,6 +3161,7 @@ int main() {
         } catch (const std::exception&) {}
         if (report_shader_errors(ctx) != 1 || ctx.shader_status()[0].info.line != 3) std::abort();
     });
+    ponko::game("level guide", 1, 1).physics({0, 700}).run_headless(0, levels_guide);
     ponko::game("skinning guide", 1, 1).run_headless(0, skinned_tentacle);
     ponko::game("morph guide", 1, 1).run_headless(0, morphed_sheet);
     ponko::game("joint guide", 1, 1).physics3d({0, 0, 0}).run_headless(5, joints_and_dominance);

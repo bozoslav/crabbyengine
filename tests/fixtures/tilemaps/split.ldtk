@@ -1,0 +1,174 @@
+{
+ "__header__": {
+  "fileType": "LDtk Project JSON",
+  "app": "LDtk",
+  "doc": "https://ldtk.io/json",
+  "schema": "https://ldtk.io/files/JSON_SCHEMA.json",
+  "appAuthor": "Sebastien 'deepnight' Benard",
+  "appVersion": "1.5.3",
+  "url": "https://ldtk.io"
+ },
+ "iid": "project",
+ "jsonVersion": "1.5.3",
+ "appBuildId": 473703,
+ "nextUid": 40,
+ "identifierStyle": "Capitalize",
+ "worldLayout": "Free",
+ "worldGridWidth": 256,
+ "worldGridHeight": 256,
+ "defaultLevelWidth": 128,
+ "defaultLevelHeight": 96,
+ "defaultPivotX": 0,
+ "defaultPivotY": 0,
+ "defaultGridSize": 16,
+ "defaultEntityWidth": 16,
+ "defaultEntityHeight": 16,
+ "bgColor": "#40465B",
+ "defaultLevelBgColor": "#223344",
+ "minifyJson": false,
+ "externalLevels": true,
+ "exportTiled": false,
+ "simplifiedExport": false,
+ "imageExportMode": "None",
+ "exportLevelBg": true,
+ "pngFilePattern": null,
+ "backupOnSave": false,
+ "backupLimit": 10,
+ "backupRelPath": null,
+ "levelNamePattern": "Level_%idx",
+ "tutorialDesc": null,
+ "customCommands": [],
+ "flags": [],
+ "defs": {
+  "layers": [
+   {
+    "__type": "IntGrid",
+    "identifier": "Terrain",
+    "type": "IntGrid",
+    "uid": 10,
+    "gridSize": 16,
+    "parallaxFactorX": 0,
+    "parallaxFactorY": 0,
+    "intGridValues": [
+     {
+      "value": 1,
+      "identifier": "wall",
+      "color": "#000000"
+     },
+     {
+      "value": 2,
+      "identifier": "water",
+      "color": "#0000FF"
+     }
+    ]
+   },
+   {
+    "__type": "Tiles",
+    "identifier": "Decor",
+    "type": "Tiles",
+    "uid": 11,
+    "gridSize": 16,
+    "parallaxFactorX": 0.5,
+    "parallaxFactorY": 0.25,
+    "intGridValues": []
+   },
+   {
+    "__type": "Entities",
+    "identifier": "Entities",
+    "type": "Entities",
+    "uid": 12,
+    "gridSize": 16,
+    "parallaxFactorX": 0,
+    "parallaxFactorY": 0,
+    "intGridValues": []
+   }
+  ],
+  "entities": [
+   {
+    "identifier": "Player",
+    "uid": 20
+   },
+   {
+    "identifier": "Coin",
+    "uid": 21
+   }
+  ],
+  "tilesets": [
+   {
+    "__cWid": 4,
+    "__cHei": 2,
+    "identifier": "Tiles",
+    "uid": 1,
+    "relPath": "tiles.png",
+    "pxWid": 64,
+    "pxHei": 32,
+    "tileGridSize": 16,
+    "spacing": 0,
+    "padding": 0,
+    "tags": [],
+    "tagsSourceEnumUid": null,
+    "enumTags": [
+     {
+      "enumValueId": "Solid",
+      "tileIds": [
+       3
+      ]
+     }
+    ],
+    "customData": [
+     {
+      "tileId": 1,
+      "data": "water"
+     }
+    ],
+    "savedSelections": [],
+    "cachedPixelData": null
+   },
+   {
+    "__cWid": 1,
+    "__cHei": 1,
+    "identifier": "Internal_Icons",
+    "uid": 2,
+    "relPath": null,
+    "pxWid": 16,
+    "pxHei": 16,
+    "tileGridSize": 16,
+    "spacing": 0,
+    "padding": 0,
+    "tags": [],
+    "enumTags": [],
+    "customData": []
+   }
+  ],
+  "enums": [],
+  "externalEnums": [],
+  "levelFields": []
+ },
+ "levels": [
+  {
+   "identifier": "Level_1",
+   "iid": "iid-Level_1",
+   "uid": 1,
+   "worldX": 0,
+   "worldY": 0,
+   "worldDepth": 0,
+   "pxWid": 64,
+   "pxHei": 64,
+   "__bgColor": "#223344",
+   "bgColor": null,
+   "useAutoIdentifier": false,
+   "bgRelPath": null,
+   "bgPos": null,
+   "bgPivotX": 0.5,
+   "bgPivotY": 0.5,
+   "__smartColor": "#ADADB5",
+   "__bgPos": null,
+   "externalRelPath": "split/Level_1.ldtkl",
+   "fieldInstances": [],
+   "layerInstances": null,
+   "__neighbours": []
+  }
+ ],
+ "worlds": [],
+ "dummyWorldIid": "w"
+}
