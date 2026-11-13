@@ -81,6 +81,7 @@ fn every_task_is_solvable_and_its_checker_catches_wrong_fixes() {
     }
     the_mcp_proxy_serves_a_task_and_scores_submissions(&root, &instances);
     a_folder_that_is_not_the_suites_is_never_cleared(&root);
+    std::env::set_current_dir(std::env::temp_dir()).unwrap();
     let _ = std::fs::remove_dir_all(&root);
 }
 

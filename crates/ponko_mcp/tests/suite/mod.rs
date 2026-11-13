@@ -241,6 +241,8 @@ impl Session {
     /// process's working folder becomes `dir`, and `PONKO_INSTANCES_DIR`
     /// must already be `instances`: run one session at a time.
     pub fn in_process(task: &'static Task, dir: &Path, instances: &Path) -> Result<Self, String> {
+        // Out of the folder first: Windows can't delete the working folder.
+        std::env::set_current_dir(std::env::temp_dir()).map_err(|e| e.to_string())?;
         prepare(task, dir)?;
         std::env::set_current_dir(dir).map_err(|e| e.to_string())?;
         let (tx, rx) = mpsc::channel();

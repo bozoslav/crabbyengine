@@ -118,6 +118,7 @@ fn replay(ids: &[&str]) -> ExitCode {
     // SAFETY: before any thread starts.
     unsafe { suite::prepare_process(&instances) };
     let reports = suite::replay_all(&tasks, &root, &instances);
+    let _ = std::env::set_current_dir(std::env::temp_dir());
     let _ = std::fs::remove_dir_all(&root);
     println!("\n{}", suite::table(&reports));
     let ok = reports
