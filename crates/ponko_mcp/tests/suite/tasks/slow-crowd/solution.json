@@ -1,0 +1,12 @@
+{
+  "steps": [
+    { "call": "run_ticks", "args": { "ticks": 2 } },
+    { "call": "system_timings" },
+    { "call": "get_resource", "args": { "resource": "Crowding" } },
+    { "call": "list_resources" },
+    { "write": "assets/tuning.json", "text": "{\n  \"radius\": 24.0,\n  \"cell_size\": 24.0\n}\n" },
+    { "until": { "call": "get_resource", "args": { "resource": "Tuning" }, "pointer": "/cell_size", "equals": 24.0 }, "each": { "call": "run_ticks", "args": { "ticks": 1 } } },
+    { "call": "get_resource", "args": { "resource": "Crowding" } },
+    { "call": "system_timings" }
+  ]
+}

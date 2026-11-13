@@ -1,0 +1,13 @@
+[
+  { "name": "nothing", "why": "still checks every pair", "steps": [],
+    "fails": ["work cut 10x"] },
+  { "name": "cells too small", "why": "cells smaller than the radius miss pairs",
+    "steps": [ { "write": "assets/tuning.json", "text": "{\n  \"radius\": 24.0,\n  \"cell_size\": 5.0\n}\n" }, { "until": { "call": "get_resource", "args": { "resource": "Tuning" }, "pointer": "/cell_size", "equals": 5.0 }, "each": { "call": "run_ticks", "args": { "ticks": 1 } } } ],
+    "fails": ["same pairs found"] },
+  { "name": "smaller radius", "why": "less work by computing something else",
+    "steps": [ { "write": "assets/tuning.json", "text": "{\n  \"radius\": 4.0,\n  \"cell_size\": 4.0\n}\n" }, { "until": { "call": "get_resource", "args": { "resource": "Tuning" }, "pointer": "/cell_size", "equals": 4.0 }, "each": { "call": "run_ticks", "args": { "ticks": 1 } } } ],
+    "fails": ["radius unchanged", "same pairs found"] },
+  { "name": "live only", "why": "fixes the running game, not the file",
+    "steps": [ { "call": "set_resource", "args": { "resource": "Tuning", "value": { "cell_size": 24.0 } } } ],
+    "fails": ["game uses the file"] }
+]
