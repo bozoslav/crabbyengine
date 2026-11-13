@@ -685,10 +685,8 @@ fn format_unavailable(format: image::ImageFormat, what: &str, path: &str, by_mag
 pub(crate) fn decode_image(bytes: &[u8], path: &str, what: &str) -> Result<Image, crate::error::Error> {
     let by_magic = image::guess_format(bytes).ok();
     let format = by_magic.or_else(|| image::ImageFormat::from_path(path).ok());
-    if let Some(format) = format {
-        if !format.reading_enabled() {
-            return Err(format_unavailable(format, what, path, by_magic.is_some()));
-        }
+    if let Some(format) = format.filter(|f| !f.reading_enabled()) {
+        return Err(format_unavailable(format, what, path, by_magic.is_some()));
     }
     let decoded = match format {
         Some(format) => image::load_from_memory_with_format(bytes, format),
