@@ -732,6 +732,8 @@ pub fn ponko::assets::Assets::reloaded_textures(&self) -> &[ponko::texture::Text
 pub fn ponko::assets::Assets::save_prefab(&mut self, &ponko_ecs::world::World, ponko_ecs::entity::Entity, &str) -> core::result::Result<(), ponko::error::Error>
 pub fn ponko::assets::Assets::save_scene(&self, &ponko_ecs::world::World, &str) -> core::result::Result<(), ponko::error::Error>
 impl ponko::assets::Assets
+pub fn ponko::assets::Assets::load_level(&self, &str, &ponko::d2::LevelOptions) -> core::result::Result<ponko::d2::Level, ponko::error::Error>
+impl ponko::assets::Assets
 pub fn ponko::assets::Assets::scene_asset_field<T: 'static>(&mut self, &str, impl core::ops::function::Fn(&mut ponko::prelude::Ctx, &str) -> core::result::Result<(), ponko::error::Error> + 'static)
 impl core::default::Default for ponko::assets::Assets
 pub fn ponko::assets::Assets::default() -> Self
@@ -999,6 +1001,64 @@ pub fn ponko::color::Color::serialize<__S>(&self, __S) -> core::result::Result<<
 impl<'de> serde_core::de::Deserialize<'de> for ponko::color::Color
 pub fn ponko::color::Color::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub mod ponko::d2
+#[non_exhaustive] #[repr(u32)] pub enum ponko::d2::BlendMode
+pub ponko::d2::BlendMode::Additive = 1
+pub ponko::d2::BlendMode::Alpha = 0
+pub ponko::d2::BlendMode::Multiply = 2
+pub ponko::d2::BlendMode::Premultiplied = 3
+impl ponko::d2::BlendMode
+pub const ponko::d2::BlendMode::ALL: [ponko::d2::BlendMode; 4]
+pub fn ponko::d2::BlendMode::from_u32(u32) -> core::option::Option<Self>
+impl core::clone::Clone for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::BlendMode
+impl core::cmp::PartialEq for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::default() -> Self
+impl core::fmt::Debug for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::d2::BlendMode
+impl core::marker::StructuralPartialEq for ponko::d2::BlendMode
+impl ponko_ecs::bundle::Component for ponko::d2::BlendMode
+#[non_exhaustive] pub enum ponko::d2::LayerKind
+pub ponko::d2::LayerKind::Image(alloc::string::String)
+pub ponko::d2::LayerKind::Objects(alloc::vec::Vec<ponko::d2::LevelObject>)
+pub ponko::d2::LayerKind::Tiles(ponko::d2::TileLayer)
+impl core::clone::Clone for ponko::d2::LayerKind
+pub fn ponko::d2::LayerKind::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LayerKind
+pub fn ponko::d2::LayerKind::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LayerKind
+pub fn ponko::d2::LayerKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LayerKind
+pub enum ponko::d2::Neighbours
+pub ponko::d2::Neighbours::Eight
+pub ponko::d2::Neighbours::Four
+impl core::clone::Clone for ponko::d2::Neighbours
+pub fn ponko::d2::Neighbours::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::Neighbours
+impl core::cmp::PartialEq for ponko::d2::Neighbours
+pub fn ponko::d2::Neighbours::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Neighbours
+pub fn ponko::d2::Neighbours::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::d2::Neighbours
+impl core::marker::StructuralPartialEq for ponko::d2::Neighbours
+#[non_exhaustive] pub enum ponko::d2::ObjectShape
+pub ponko::d2::ObjectShape::Ellipse
+pub ponko::d2::ObjectShape::Point
+pub ponko::d2::ObjectShape::Polygon(alloc::vec::Vec<glam::f32::vec2::Vec2>)
+pub ponko::d2::ObjectShape::Polyline(alloc::vec::Vec<glam::f32::vec2::Vec2>)
+pub ponko::d2::ObjectShape::Rect
+impl core::clone::Clone for ponko::d2::ObjectShape
+pub fn ponko::d2::ObjectShape::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::ObjectShape
+pub fn ponko::d2::ObjectShape::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::ObjectShape
+pub fn ponko::d2::ObjectShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::ObjectShape
 #[repr(C)] pub struct ponko::d2::Animation
 pub ponko::d2::Animation::first: u32
 pub ponko::d2::Animation::fps: f32
@@ -1040,6 +1100,36 @@ impl serde_core::ser::Serialize for ponko::attach::Attached
 pub fn ponko::attach::Attached::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for ponko::attach::Attached
 pub fn ponko::attach::Attached::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct ponko::d2::AutoTile
+impl ponko::d2::AutoTile
+pub const ponko::d2::AutoTile::BLOB_MASKS: [u8; 47]
+pub const ponko::d2::AutoTile::E: u8
+pub const ponko::d2::AutoTile::E8: u8
+pub const ponko::d2::AutoTile::N: u8
+pub const ponko::d2::AutoTile::N8: u8
+pub const ponko::d2::AutoTile::NE: u8
+pub const ponko::d2::AutoTile::NW: u8
+pub const ponko::d2::AutoTile::S: u8
+pub const ponko::d2::AutoTile::S8: u8
+pub const ponko::d2::AutoTile::SE: u8
+pub const ponko::d2::AutoTile::SW: u8
+pub const ponko::d2::AutoTile::W: u8
+pub const ponko::d2::AutoTile::W8: u8
+pub fn ponko::d2::AutoTile::blob([u16; 47]) -> Self
+pub fn ponko::d2::AutoTile::eight(impl core::ops::function::Fn(u8) -> u16) -> Self
+pub fn ponko::d2::AutoTile::four([u16; 16]) -> Self
+pub fn ponko::d2::AutoTile::frame(&self, u8) -> u16
+pub fn ponko::d2::AutoTile::mask(&self, u32, u32, u32, u32, impl core::ops::function::Fn(u32, u32) -> bool) -> u8
+pub fn ponko::d2::AutoTile::neighbours(&self) -> ponko::d2::Neighbours
+pub fn ponko::d2::AutoTile::outside(self, bool) -> Self
+pub fn ponko::d2::AutoTile::owns(&self, u16) -> bool
+impl core::clone::Clone for ponko::d2::AutoTile
+pub fn ponko::d2::AutoTile::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::AutoTile
+pub fn ponko::d2::AutoTile::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::AutoTile
+pub fn ponko::d2::AutoTile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::AutoTile
 pub struct ponko::d2::Camera
 pub ponko::d2::Camera::position: glam::f32::vec2::Vec2
 pub ponko::d2::Camera::zoom: f32
@@ -1072,6 +1162,109 @@ impl core::default::Default for ponko::flow::FlowField
 pub fn ponko::flow::FlowField::default() -> Self
 impl core::fmt::Debug for ponko::flow::FlowField
 pub fn ponko::flow::FlowField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub struct ponko::d2::Layer
+pub ponko::d2::Layer::class: alloc::string::String
+pub ponko::d2::Layer::kind: ponko::d2::LayerKind
+pub ponko::d2::Layer::name: alloc::string::String
+pub ponko::d2::Layer::offset: glam::f32::vec2::Vec2
+pub ponko::d2::Layer::opacity: f32
+pub ponko::d2::Layer::parallax: glam::f32::vec2::Vec2
+pub ponko::d2::Layer::properties: ponko::d2::Properties
+pub ponko::d2::Layer::tint: ponko::color::Color
+pub ponko::d2::Layer::visible: bool
+impl core::clone::Clone for ponko::d2::Layer
+pub fn ponko::d2::Layer::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Layer
+pub fn ponko::d2::Layer::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Layer
+pub fn ponko::d2::Layer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Layer
+#[non_exhaustive] pub struct ponko::d2::Level
+pub ponko::d2::Level::background: core::option::Option<ponko::color::Color>
+pub ponko::d2::Level::cell_size: glam::f32::vec2::Vec2
+pub ponko::d2::Level::files: alloc::vec::Vec<alloc::string::String>
+pub ponko::d2::Level::layers: alloc::vec::Vec<ponko::d2::Layer>
+pub ponko::d2::Level::name: alloc::string::String
+pub ponko::d2::Level::parallax_origin: glam::f32::vec2::Vec2
+pub ponko::d2::Level::properties: ponko::d2::Properties
+pub ponko::d2::Level::size: glam::u32::uvec2::UVec2
+pub ponko::d2::Level::tilesets: alloc::vec::Vec<ponko::d2::Tileset>
+impl ponko::d2::Level
+pub fn ponko::d2::Level::solid_rects(&self, &ponko::d2::LevelOptions) -> alloc::vec::Vec<ponko::camera::Rect>
+impl core::clone::Clone for ponko::d2::Level
+pub fn ponko::d2::Level::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Level
+pub fn ponko::d2::Level::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Level
+pub fn ponko::d2::Level::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Level
+#[non_exhaustive] pub struct ponko::d2::LevelLayer
+pub ponko::d2::LevelLayer::class: alloc::string::String
+pub ponko::d2::LevelLayer::index: usize
+pub ponko::d2::LevelLayer::name: alloc::string::String
+pub ponko::d2::LevelLayer::properties: ponko::d2::Properties
+impl core::clone::Clone for ponko::d2::LevelLayer
+pub fn ponko::d2::LevelLayer::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelLayer
+pub fn ponko::d2::LevelLayer::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LevelLayer
+pub fn ponko::d2::LevelLayer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelLayer
+impl ponko_ecs::bundle::Component for ponko::d2::LevelLayer
+#[non_exhaustive] pub struct ponko::d2::LevelObject
+pub ponko::d2::LevelObject::class: alloc::string::String
+pub ponko::d2::LevelObject::id: u64
+pub ponko::d2::LevelObject::layer: alloc::string::String
+pub ponko::d2::LevelObject::name: alloc::string::String
+pub ponko::d2::LevelObject::position: glam::f32::vec2::Vec2
+pub ponko::d2::LevelObject::properties: ponko::d2::Properties
+pub ponko::d2::LevelObject::rotation: f32
+pub ponko::d2::LevelObject::shape: ponko::d2::ObjectShape
+pub ponko::d2::LevelObject::size: glam::f32::vec2::Vec2
+pub ponko::d2::LevelObject::tile: core::option::Option<(u16, u32, u8)>
+pub ponko::d2::LevelObject::visible: bool
+impl core::clone::Clone for ponko::d2::LevelObject
+pub fn ponko::d2::LevelObject::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelObject
+pub fn ponko::d2::LevelObject::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LevelObject
+pub fn ponko::d2::LevelObject::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelObject
+impl ponko_ecs::bundle::Component for ponko::d2::LevelObject
+#[non_exhaustive] pub struct ponko::d2::LevelOptions
+pub ponko::d2::LevelOptions::level: core::option::Option<alloc::string::String>
+pub ponko::d2::LevelOptions::no_colliders: bool
+pub ponko::d2::LevelOptions::prefabs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
+pub ponko::d2::LevelOptions::solid: alloc::vec::Vec<alloc::string::String>
+pub ponko::d2::LevelOptions::z: f32
+impl ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::at_z(self, f32) -> Self
+pub fn ponko::d2::LevelOptions::level(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn ponko::d2::LevelOptions::prefab(self, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn ponko::d2::LevelOptions::solid(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn ponko::d2::LevelOptions::without_colliders(self) -> Self
+impl core::clone::Clone for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::default() -> Self
+impl core::fmt::Debug for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelOptions
+#[non_exhaustive] pub struct ponko::d2::LevelRoot
+pub ponko::d2::LevelRoot::entities: alloc::vec::Vec<ponko_ecs::entity::Entity>
+pub ponko::d2::LevelRoot::options: ponko::d2::LevelOptions
+pub ponko::d2::LevelRoot::path: alloc::string::String
+pub ponko::d2::LevelRoot::properties: ponko::d2::Properties
+impl core::clone::Clone for ponko::d2::LevelRoot
+pub fn ponko::d2::LevelRoot::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelRoot
+pub fn ponko::d2::LevelRoot::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LevelRoot
+pub fn ponko::d2::LevelRoot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelRoot
+impl ponko_ecs::bundle::Component for ponko::d2::LevelRoot
 pub struct ponko::d2::NavGrid
 pub ponko::d2::NavGrid::origin: glam::f32::vec2::Vec2
 impl ponko::flow::NavGrid
@@ -1092,6 +1285,39 @@ pub fn ponko::flow::NavGrid::eq(&self, &Self) -> bool
 impl core::fmt::Debug for ponko::flow::NavGrid
 pub fn ponko::flow::NavGrid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::flow::NavGrid
+#[non_exhaustive] pub struct ponko::d2::PlacedTile
+pub ponko::d2::PlacedTile::cell: glam::u32::uvec2::UVec2
+pub ponko::d2::PlacedTile::flip: u8
+pub ponko::d2::PlacedTile::id: u32
+pub ponko::d2::PlacedTile::tileset: u16
+impl core::clone::Clone for ponko::d2::PlacedTile
+pub fn ponko::d2::PlacedTile::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::PlacedTile
+impl core::cmp::PartialEq for ponko::d2::PlacedTile
+pub fn ponko::d2::PlacedTile::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::PlacedTile
+pub fn ponko::d2::PlacedTile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::d2::PlacedTile
+impl core::marker::StructuralPartialEq for ponko::d2::PlacedTile
+pub struct ponko::d2::Properties(pub alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>)
+impl ponko::d2::Properties
+pub fn ponko::d2::Properties::bool(&self, &str) -> core::option::Option<bool>
+pub fn ponko::d2::Properties::color(&self, &str) -> core::option::Option<ponko::color::Color>
+pub fn ponko::d2::Properties::f32(&self, &str) -> core::option::Option<f32>
+pub fn ponko::d2::Properties::get(&self, &str) -> core::option::Option<&serde_json::value::Value>
+pub fn ponko::d2::Properties::i64(&self, &str) -> core::option::Option<i64>
+pub fn ponko::d2::Properties::is_empty(&self) -> bool
+pub fn ponko::d2::Properties::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, &serde_json::value::Value)>
+pub fn ponko::d2::Properties::str(&self, &str) -> core::option::Option<&str>
+impl core::clone::Clone for ponko::d2::Properties
+pub fn ponko::d2::Properties::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Properties
+pub fn ponko::d2::Properties::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::Properties
+pub fn ponko::d2::Properties::default() -> Self
+impl core::fmt::Debug for ponko::d2::Properties
+pub fn ponko::d2::Properties::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Properties
 pub struct ponko::d2::SpatialGrid<T>
 impl ponko::spatial::SpatialGrid
 pub fn ponko::spatial::SpatialGrid::new(f32) -> Self
@@ -1137,6 +1363,55 @@ pub fn ponko::d2::Sprite::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt
 impl core::marker::Copy for ponko::d2::Sprite
 impl core::marker::StructuralPartialEq for ponko::d2::Sprite
 impl ponko_ecs::bundle::Component for ponko::d2::Sprite
+#[repr(C)] pub struct ponko::d2::SpriteMaterial
+impl core::clone::Clone for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::SpriteMaterial
+impl core::cmp::PartialEq for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::d2::SpriteMaterial
+impl core::marker::StructuralPartialEq for ponko::d2::SpriteMaterial
+impl ponko::handle::GfxHandle for ponko::d2::SpriteMaterial
+impl ponko::handle::Handle for ponko::d2::SpriteMaterial
+pub const ponko::d2::SpriteMaterial::NONE: Self
+impl ponko_ecs::bundle::Component for ponko::d2::SpriteMaterial
+#[non_exhaustive] pub struct ponko::d2::SpriteMaterialDesc
+pub ponko::d2::SpriteMaterialDesc::params: [glam::f32::sse2::vec4::Vec4; 4]
+pub ponko::d2::SpriteMaterialDesc::shader: core::option::Option<ponko::d2::SpriteShader>
+pub ponko::d2::SpriteMaterialDesc::textures: [core::option::Option<ponko::texture::Texture>; 2]
+impl ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::new(ponko::d2::SpriteShader) -> Self
+pub fn ponko::d2::SpriteMaterialDesc::with_param(self, usize, glam::f32::sse2::vec4::Vec4) -> Self
+pub fn ponko::d2::SpriteMaterialDesc::with_texture(self, usize, ponko::texture::Texture) -> Self
+impl core::clone::Clone for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::default() -> Self
+impl core::fmt::Debug for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::d2::SpriteMaterialDesc
+impl core::marker::StructuralPartialEq for ponko::d2::SpriteMaterialDesc
+#[repr(C)] pub struct ponko::d2::SpriteShader
+impl core::clone::Clone for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::SpriteShader
+impl core::cmp::PartialEq for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::d2::SpriteShader
+impl core::marker::StructuralPartialEq for ponko::d2::SpriteShader
+impl ponko::handle::GfxHandle for ponko::d2::SpriteShader
+impl ponko::handle::Handle for ponko::d2::SpriteShader
+pub const ponko::d2::SpriteShader::NONE: Self
 #[repr(C)] pub struct ponko::d2::SpriteSheet
 pub ponko::d2::SpriteSheet::columns: u32
 pub ponko::d2::SpriteSheet::frame_size: glam::f32::vec2::Vec2
@@ -1154,8 +1429,54 @@ impl core::fmt::Debug for ponko::sheet::SpriteSheet
 pub fn ponko::sheet::SpriteSheet::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for ponko::sheet::SpriteSheet
 impl core::marker::StructuralPartialEq for ponko::sheet::SpriteSheet
-pub struct ponko::d2::TileMap
+pub struct ponko::d2::TileAnimation
+pub ponko::d2::TileAnimation::frames: alloc::vec::Vec<(u16, f32)>
+pub ponko::d2::TileAnimation::tile: u16
+impl ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::frame_at(&self, f64) -> u16
+impl core::clone::Clone for ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::tilemap::TileAnimation
+#[non_exhaustive] pub struct ponko::d2::TileInfo
+pub ponko::d2::TileInfo::animation: alloc::vec::Vec<(u32, f32)>
+pub ponko::d2::TileInfo::class: alloc::string::String
+pub ponko::d2::TileInfo::properties: ponko::d2::Properties
+pub ponko::d2::TileInfo::shapes: alloc::vec::Vec<ponko::d2::LevelObject>
+pub ponko::d2::TileInfo::tags: alloc::vec::Vec<alloc::string::String>
+impl core::clone::Clone for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::default() -> Self
+impl core::fmt::Debug for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::TileInfo
+#[non_exhaustive] pub struct ponko::d2::TileLayer
+pub ponko::d2::TileLayer::cell_size: glam::f32::vec2::Vec2
+pub ponko::d2::TileLayer::int_grid: alloc::vec::Vec<u32>
+pub ponko::d2::TileLayer::int_grid_names: alloc::collections::btree::map::BTreeMap<u32, alloc::string::String>
+pub ponko::d2::TileLayer::size: glam::u32::uvec2::UVec2
+pub ponko::d2::TileLayer::tiles: alloc::vec::Vec<ponko::d2::PlacedTile>
+impl core::clone::Clone for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::default() -> Self
+impl core::fmt::Debug for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::TileLayer
+#[non_exhaustive] pub struct ponko::d2::TileMap
+pub ponko::d2::TileMap::animations: alloc::vec::Vec<ponko::tilemap::TileAnimation>
 pub ponko::d2::TileMap::color: ponko::color::Color
+pub ponko::d2::TileMap::flips: alloc::vec::Vec<u8>
+pub ponko::d2::TileMap::parallax: glam::f32::vec2::Vec2
+pub ponko::d2::TileMap::parallax_origin: glam::f32::vec2::Vec2
 pub ponko::d2::TileMap::sheet: ponko::sheet::SpriteSheet
 pub ponko::d2::TileMap::size: glam::u32::uvec2::UVec2
 pub ponko::d2::TileMap::tile_size: glam::f32::vec2::Vec2
@@ -1163,10 +1484,22 @@ pub ponko::d2::TileMap::tiles: alloc::vec::Vec<u16>
 pub ponko::d2::TileMap::z: f32
 impl ponko::tilemap::TileMap
 pub const ponko::tilemap::TileMap::EMPTY: u16
+pub const ponko::tilemap::TileMap::FLIP_DIAGONAL: u8
+pub const ponko::tilemap::TileMap::FLIP_X: u8
+pub const ponko::tilemap::TileMap::FLIP_Y: u8
+pub fn ponko::tilemap::TileMap::animate(&mut self, u16, &[(u16, f32)])
+pub fn ponko::tilemap::TileMap::drawn_origin(&self, glam::f32::vec2::Vec2, glam::f32::vec2::Vec2) -> glam::f32::vec2::Vec2
+pub fn ponko::tilemap::TileMap::flip(&self, u32, u32) -> u8
 pub fn ponko::tilemap::TileMap::get(&self, u32, u32) -> core::option::Option<u16>
 pub fn ponko::tilemap::TileMap::new(ponko::sheet::SpriteSheet, u32, u32) -> Self
 pub fn ponko::tilemap::TileMap::set(&mut self, u32, u32, core::option::Option<u16>)
+pub fn ponko::tilemap::TileMap::set_flipped(&mut self, u32, u32, core::option::Option<u16>, u8)
 pub fn ponko::tilemap::TileMap::tile_at(&self, glam::f32::vec2::Vec2, glam::f32::vec2::Vec2) -> core::option::Option<glam::u32::uvec2::UVec2>
+impl ponko::tilemap::TileMap
+pub fn ponko::tilemap::TileMap::autotile(&mut self, &ponko::d2::AutoTile, impl core::ops::function::Fn(u32, u32) -> bool)
+pub fn ponko::tilemap::TileMap::paint_autotile(&mut self, &ponko::d2::AutoTile, u32, u32, bool)
+impl ponko::tilemap::TileMap
+pub fn ponko::tilemap::TileMap::solid_rects(&self, impl core::ops::function::Fn(u16) -> bool) -> alloc::vec::Vec<ponko::camera::Rect>
 impl core::clone::Clone for ponko::tilemap::TileMap
 pub fn ponko::tilemap::TileMap::clone(&self) -> Self
 impl core::cmp::PartialEq for ponko::tilemap::TileMap
@@ -1175,6 +1508,22 @@ impl core::fmt::Debug for ponko::tilemap::TileMap
 pub fn ponko::tilemap::TileMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::tilemap::TileMap
 impl ponko_ecs::bundle::Component for ponko::tilemap::TileMap
+#[non_exhaustive] pub struct ponko::d2::Tileset
+pub ponko::d2::Tileset::columns: u32
+pub ponko::d2::Tileset::count: u32
+pub ponko::d2::Tileset::image: alloc::string::String
+pub ponko::d2::Tileset::margin: u32
+pub ponko::d2::Tileset::name: alloc::string::String
+pub ponko::d2::Tileset::spacing: u32
+pub ponko::d2::Tileset::tile_size: glam::u32::uvec2::UVec2
+pub ponko::d2::Tileset::tiles: alloc::collections::btree::map::BTreeMap<u32, ponko::d2::TileInfo>
+impl core::clone::Clone for ponko::d2::Tileset
+pub fn ponko::d2::Tileset::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Tileset
+pub fn ponko::d2::Tileset::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Tileset
+pub fn ponko::d2::Tileset::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Tileset
 #[repr(C)] pub struct ponko::d2::Transform
 pub ponko::d2::Transform::position: glam::f32::vec2::Vec2
 pub ponko::d2::Transform::rotation: f32
@@ -1424,6 +1773,7 @@ impl core::marker::StructuralPartialEq for ponko::d3::ParticleSpace
 pub ponko::d3::ShaderKind::Compute
 pub ponko::d3::ShaderKind::Effect
 pub ponko::d3::ShaderKind::Material
+pub ponko::d3::ShaderKind::Sprite
 impl core::clone::Clone for ponko::d3::ShaderKind
 pub fn ponko::d3::ShaderKind::clone(&self) -> Self
 impl core::cmp::Eq for ponko::d3::ShaderKind
@@ -3459,6 +3809,14 @@ pub fn ponko::gfx::Graphics::create_render_target(&mut self, u32, u32) -> ponko:
 pub fn ponko::gfx::Graphics::is_render_target(&self, ponko::texture::Texture) -> bool
 pub fn ponko::gfx::Graphics::try_create_render_target(&mut self, u32, u32) -> core::result::Result<ponko::texture::Texture, ponko::error::Error>
 impl ponko::gfx::Graphics
+pub fn ponko::gfx::Graphics::create_sprite_material(&mut self, ponko::d2::SpriteMaterialDesc) -> ponko::d2::SpriteMaterial
+pub fn ponko::gfx::Graphics::create_sprite_shader(&mut self, &str, &str) -> ponko::d2::SpriteShader
+pub fn ponko::gfx::Graphics::load_sprite_shader(&mut self, &str) -> ponko::d2::SpriteShader
+pub fn ponko::gfx::Graphics::sprite_material_desc(&self, ponko::d2::SpriteMaterial) -> core::option::Option<ponko::d2::SpriteMaterialDesc>
+pub fn ponko::gfx::Graphics::try_create_sprite_shader(&mut self, &str, &str) -> core::result::Result<ponko::d2::SpriteShader, ponko::error::Error>
+pub fn ponko::gfx::Graphics::try_load_sprite_shader(&mut self, &str) -> core::result::Result<ponko::d2::SpriteShader, ponko::error::Error>
+pub fn ponko::gfx::Graphics::update_sprite_material(&mut self, ponko::d2::SpriteMaterial, ponko::d2::SpriteMaterialDesc)
+impl ponko::gfx::Graphics
 pub fn ponko::gfx::Graphics::create_terrain_material(&mut self, &ponko::d3::TerrainMaterialDesc) -> ponko::d3::Material
 pub fn ponko::gfx::Graphics::create_terrain_tile(&mut self, &[f32], f32, ponko::d3::Material) -> ponko::d3::TerrainTile
 pub fn ponko::gfx::Graphics::try_create_terrain_material(&mut self, &ponko::d3::TerrainMaterialDesc) -> core::result::Result<ponko::d3::Material, ponko::error::Error>
@@ -3517,6 +3875,8 @@ pub ponko::handle::LiveCounts::meshes: usize
 pub ponko::handle::LiveCounts::render_targets: usize
 pub ponko::handle::LiveCounts::shaders: usize
 pub ponko::handle::LiveCounts::sounds: usize
+pub ponko::handle::LiveCounts::sprite_materials: usize
+pub ponko::handle::LiveCounts::sprite_shaders: usize
 pub ponko::handle::LiveCounts::texture_arrays: usize
 pub ponko::handle::LiveCounts::textures: usize
 impl core::clone::Clone for ponko::handle::LiveCounts
@@ -3531,6 +3891,8 @@ pub fn ponko::handle::LiveCounts::fmt(&self, &mut core::fmt::Formatter<'_>) -> c
 impl core::marker::Copy for ponko::handle::LiveCounts
 impl core::marker::StructuralPartialEq for ponko::handle::LiveCounts
 pub trait ponko::handle::GfxHandle: ponko::handle::Handle
+impl ponko::handle::GfxHandle for ponko::d2::SpriteMaterial
+impl ponko::handle::GfxHandle for ponko::d2::SpriteShader
 impl ponko::handle::GfxHandle for ponko::d3::Compute
 impl ponko::handle::GfxHandle for ponko::d3::Effect
 impl ponko::handle::GfxHandle for ponko::d3::GpuBuffer
@@ -3546,6 +3908,10 @@ pub trait ponko::handle::Handle: core::marker::Copy + core::cmp::Eq + core::hash
 pub const ponko::handle::Handle::NONE: Self
 impl ponko::handle::Handle for ponko::audio::Sound
 pub const ponko::audio::Sound::NONE: Self
+impl ponko::handle::Handle for ponko::d2::SpriteMaterial
+pub const ponko::d2::SpriteMaterial::NONE: Self
+impl ponko::handle::Handle for ponko::d2::SpriteShader
+pub const ponko::d2::SpriteShader::NONE: Self
 impl ponko::handle::Handle for ponko::d3::Compute
 pub const ponko::d3::Compute::NONE: Self
 impl ponko::handle::Handle for ponko::d3::Effect
@@ -5121,6 +5487,64 @@ impl ponko::actions::ActionRef for &alloc::string::String
 impl ponko::actions::ActionRef for &str
 impl ponko::actions::ActionRef for ponko::actions::ActionId
 pub mod ponko::prelude::d2
+#[non_exhaustive] #[repr(u32)] pub enum ponko::prelude::d2::BlendMode
+pub ponko::prelude::d2::BlendMode::Additive = 1
+pub ponko::prelude::d2::BlendMode::Alpha = 0
+pub ponko::prelude::d2::BlendMode::Multiply = 2
+pub ponko::prelude::d2::BlendMode::Premultiplied = 3
+impl ponko::d2::BlendMode
+pub const ponko::d2::BlendMode::ALL: [ponko::d2::BlendMode; 4]
+pub fn ponko::d2::BlendMode::from_u32(u32) -> core::option::Option<Self>
+impl core::clone::Clone for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::BlendMode
+impl core::cmp::PartialEq for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::default() -> Self
+impl core::fmt::Debug for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::d2::BlendMode
+impl core::marker::StructuralPartialEq for ponko::d2::BlendMode
+impl ponko_ecs::bundle::Component for ponko::d2::BlendMode
+#[non_exhaustive] pub enum ponko::prelude::d2::LayerKind
+pub ponko::prelude::d2::LayerKind::Image(alloc::string::String)
+pub ponko::prelude::d2::LayerKind::Objects(alloc::vec::Vec<ponko::d2::LevelObject>)
+pub ponko::prelude::d2::LayerKind::Tiles(ponko::d2::TileLayer)
+impl core::clone::Clone for ponko::d2::LayerKind
+pub fn ponko::d2::LayerKind::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LayerKind
+pub fn ponko::d2::LayerKind::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LayerKind
+pub fn ponko::d2::LayerKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LayerKind
+pub enum ponko::prelude::d2::Neighbours
+pub ponko::prelude::d2::Neighbours::Eight
+pub ponko::prelude::d2::Neighbours::Four
+impl core::clone::Clone for ponko::d2::Neighbours
+pub fn ponko::d2::Neighbours::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::Neighbours
+impl core::cmp::PartialEq for ponko::d2::Neighbours
+pub fn ponko::d2::Neighbours::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Neighbours
+pub fn ponko::d2::Neighbours::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::d2::Neighbours
+impl core::marker::StructuralPartialEq for ponko::d2::Neighbours
+#[non_exhaustive] pub enum ponko::prelude::d2::ObjectShape
+pub ponko::prelude::d2::ObjectShape::Ellipse
+pub ponko::prelude::d2::ObjectShape::Point
+pub ponko::prelude::d2::ObjectShape::Polygon(alloc::vec::Vec<glam::f32::vec2::Vec2>)
+pub ponko::prelude::d2::ObjectShape::Polyline(alloc::vec::Vec<glam::f32::vec2::Vec2>)
+pub ponko::prelude::d2::ObjectShape::Rect
+impl core::clone::Clone for ponko::d2::ObjectShape
+pub fn ponko::d2::ObjectShape::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::ObjectShape
+pub fn ponko::d2::ObjectShape::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::ObjectShape
+pub fn ponko::d2::ObjectShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::ObjectShape
 #[repr(C)] pub struct ponko::prelude::d2::Animation
 pub ponko::prelude::d2::Animation::first: u32
 pub ponko::prelude::d2::Animation::fps: f32
@@ -5162,6 +5586,36 @@ impl serde_core::ser::Serialize for ponko::attach::Attached
 pub fn ponko::attach::Attached::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for ponko::attach::Attached
 pub fn ponko::attach::Attached::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+pub struct ponko::prelude::d2::AutoTile
+impl ponko::d2::AutoTile
+pub const ponko::d2::AutoTile::BLOB_MASKS: [u8; 47]
+pub const ponko::d2::AutoTile::E: u8
+pub const ponko::d2::AutoTile::E8: u8
+pub const ponko::d2::AutoTile::N: u8
+pub const ponko::d2::AutoTile::N8: u8
+pub const ponko::d2::AutoTile::NE: u8
+pub const ponko::d2::AutoTile::NW: u8
+pub const ponko::d2::AutoTile::S: u8
+pub const ponko::d2::AutoTile::S8: u8
+pub const ponko::d2::AutoTile::SE: u8
+pub const ponko::d2::AutoTile::SW: u8
+pub const ponko::d2::AutoTile::W: u8
+pub const ponko::d2::AutoTile::W8: u8
+pub fn ponko::d2::AutoTile::blob([u16; 47]) -> Self
+pub fn ponko::d2::AutoTile::eight(impl core::ops::function::Fn(u8) -> u16) -> Self
+pub fn ponko::d2::AutoTile::four([u16; 16]) -> Self
+pub fn ponko::d2::AutoTile::frame(&self, u8) -> u16
+pub fn ponko::d2::AutoTile::mask(&self, u32, u32, u32, u32, impl core::ops::function::Fn(u32, u32) -> bool) -> u8
+pub fn ponko::d2::AutoTile::neighbours(&self) -> ponko::d2::Neighbours
+pub fn ponko::d2::AutoTile::outside(self, bool) -> Self
+pub fn ponko::d2::AutoTile::owns(&self, u16) -> bool
+impl core::clone::Clone for ponko::d2::AutoTile
+pub fn ponko::d2::AutoTile::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::AutoTile
+pub fn ponko::d2::AutoTile::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::AutoTile
+pub fn ponko::d2::AutoTile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::AutoTile
 pub struct ponko::prelude::d2::Camera
 pub ponko::prelude::d2::Camera::position: glam::f32::vec2::Vec2
 pub ponko::prelude::d2::Camera::zoom: f32
@@ -5194,6 +5648,109 @@ impl core::default::Default for ponko::flow::FlowField
 pub fn ponko::flow::FlowField::default() -> Self
 impl core::fmt::Debug for ponko::flow::FlowField
 pub fn ponko::flow::FlowField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+#[non_exhaustive] pub struct ponko::prelude::d2::Layer
+pub ponko::prelude::d2::Layer::class: alloc::string::String
+pub ponko::prelude::d2::Layer::kind: ponko::d2::LayerKind
+pub ponko::prelude::d2::Layer::name: alloc::string::String
+pub ponko::prelude::d2::Layer::offset: glam::f32::vec2::Vec2
+pub ponko::prelude::d2::Layer::opacity: f32
+pub ponko::prelude::d2::Layer::parallax: glam::f32::vec2::Vec2
+pub ponko::prelude::d2::Layer::properties: ponko::d2::Properties
+pub ponko::prelude::d2::Layer::tint: ponko::color::Color
+pub ponko::prelude::d2::Layer::visible: bool
+impl core::clone::Clone for ponko::d2::Layer
+pub fn ponko::d2::Layer::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Layer
+pub fn ponko::d2::Layer::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Layer
+pub fn ponko::d2::Layer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Layer
+#[non_exhaustive] pub struct ponko::prelude::d2::Level
+pub ponko::prelude::d2::Level::background: core::option::Option<ponko::color::Color>
+pub ponko::prelude::d2::Level::cell_size: glam::f32::vec2::Vec2
+pub ponko::prelude::d2::Level::files: alloc::vec::Vec<alloc::string::String>
+pub ponko::prelude::d2::Level::layers: alloc::vec::Vec<ponko::d2::Layer>
+pub ponko::prelude::d2::Level::name: alloc::string::String
+pub ponko::prelude::d2::Level::parallax_origin: glam::f32::vec2::Vec2
+pub ponko::prelude::d2::Level::properties: ponko::d2::Properties
+pub ponko::prelude::d2::Level::size: glam::u32::uvec2::UVec2
+pub ponko::prelude::d2::Level::tilesets: alloc::vec::Vec<ponko::d2::Tileset>
+impl ponko::d2::Level
+pub fn ponko::d2::Level::solid_rects(&self, &ponko::d2::LevelOptions) -> alloc::vec::Vec<ponko::camera::Rect>
+impl core::clone::Clone for ponko::d2::Level
+pub fn ponko::d2::Level::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Level
+pub fn ponko::d2::Level::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Level
+pub fn ponko::d2::Level::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Level
+#[non_exhaustive] pub struct ponko::prelude::d2::LevelLayer
+pub ponko::prelude::d2::LevelLayer::class: alloc::string::String
+pub ponko::prelude::d2::LevelLayer::index: usize
+pub ponko::prelude::d2::LevelLayer::name: alloc::string::String
+pub ponko::prelude::d2::LevelLayer::properties: ponko::d2::Properties
+impl core::clone::Clone for ponko::d2::LevelLayer
+pub fn ponko::d2::LevelLayer::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelLayer
+pub fn ponko::d2::LevelLayer::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LevelLayer
+pub fn ponko::d2::LevelLayer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelLayer
+impl ponko_ecs::bundle::Component for ponko::d2::LevelLayer
+#[non_exhaustive] pub struct ponko::prelude::d2::LevelObject
+pub ponko::prelude::d2::LevelObject::class: alloc::string::String
+pub ponko::prelude::d2::LevelObject::id: u64
+pub ponko::prelude::d2::LevelObject::layer: alloc::string::String
+pub ponko::prelude::d2::LevelObject::name: alloc::string::String
+pub ponko::prelude::d2::LevelObject::position: glam::f32::vec2::Vec2
+pub ponko::prelude::d2::LevelObject::properties: ponko::d2::Properties
+pub ponko::prelude::d2::LevelObject::rotation: f32
+pub ponko::prelude::d2::LevelObject::shape: ponko::d2::ObjectShape
+pub ponko::prelude::d2::LevelObject::size: glam::f32::vec2::Vec2
+pub ponko::prelude::d2::LevelObject::tile: core::option::Option<(u16, u32, u8)>
+pub ponko::prelude::d2::LevelObject::visible: bool
+impl core::clone::Clone for ponko::d2::LevelObject
+pub fn ponko::d2::LevelObject::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelObject
+pub fn ponko::d2::LevelObject::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LevelObject
+pub fn ponko::d2::LevelObject::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelObject
+impl ponko_ecs::bundle::Component for ponko::d2::LevelObject
+#[non_exhaustive] pub struct ponko::prelude::d2::LevelOptions
+pub ponko::prelude::d2::LevelOptions::level: core::option::Option<alloc::string::String>
+pub ponko::prelude::d2::LevelOptions::no_colliders: bool
+pub ponko::prelude::d2::LevelOptions::prefabs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
+pub ponko::prelude::d2::LevelOptions::solid: alloc::vec::Vec<alloc::string::String>
+pub ponko::prelude::d2::LevelOptions::z: f32
+impl ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::at_z(self, f32) -> Self
+pub fn ponko::d2::LevelOptions::level(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn ponko::d2::LevelOptions::prefab(self, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn ponko::d2::LevelOptions::solid(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn ponko::d2::LevelOptions::without_colliders(self) -> Self
+impl core::clone::Clone for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::default() -> Self
+impl core::fmt::Debug for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelOptions
+#[non_exhaustive] pub struct ponko::prelude::d2::LevelRoot
+pub ponko::prelude::d2::LevelRoot::entities: alloc::vec::Vec<ponko_ecs::entity::Entity>
+pub ponko::prelude::d2::LevelRoot::options: ponko::d2::LevelOptions
+pub ponko::prelude::d2::LevelRoot::path: alloc::string::String
+pub ponko::prelude::d2::LevelRoot::properties: ponko::d2::Properties
+impl core::clone::Clone for ponko::d2::LevelRoot
+pub fn ponko::d2::LevelRoot::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelRoot
+pub fn ponko::d2::LevelRoot::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LevelRoot
+pub fn ponko::d2::LevelRoot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelRoot
+impl ponko_ecs::bundle::Component for ponko::d2::LevelRoot
 pub struct ponko::prelude::d2::NavGrid
 pub ponko::prelude::d2::NavGrid::origin: glam::f32::vec2::Vec2
 impl ponko::flow::NavGrid
@@ -5214,6 +5771,39 @@ pub fn ponko::flow::NavGrid::eq(&self, &Self) -> bool
 impl core::fmt::Debug for ponko::flow::NavGrid
 pub fn ponko::flow::NavGrid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::flow::NavGrid
+#[non_exhaustive] pub struct ponko::prelude::d2::PlacedTile
+pub ponko::prelude::d2::PlacedTile::cell: glam::u32::uvec2::UVec2
+pub ponko::prelude::d2::PlacedTile::flip: u8
+pub ponko::prelude::d2::PlacedTile::id: u32
+pub ponko::prelude::d2::PlacedTile::tileset: u16
+impl core::clone::Clone for ponko::d2::PlacedTile
+pub fn ponko::d2::PlacedTile::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::PlacedTile
+impl core::cmp::PartialEq for ponko::d2::PlacedTile
+pub fn ponko::d2::PlacedTile::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::PlacedTile
+pub fn ponko::d2::PlacedTile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::d2::PlacedTile
+impl core::marker::StructuralPartialEq for ponko::d2::PlacedTile
+pub struct ponko::prelude::d2::Properties(pub alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>)
+impl ponko::d2::Properties
+pub fn ponko::d2::Properties::bool(&self, &str) -> core::option::Option<bool>
+pub fn ponko::d2::Properties::color(&self, &str) -> core::option::Option<ponko::color::Color>
+pub fn ponko::d2::Properties::f32(&self, &str) -> core::option::Option<f32>
+pub fn ponko::d2::Properties::get(&self, &str) -> core::option::Option<&serde_json::value::Value>
+pub fn ponko::d2::Properties::i64(&self, &str) -> core::option::Option<i64>
+pub fn ponko::d2::Properties::is_empty(&self) -> bool
+pub fn ponko::d2::Properties::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, &serde_json::value::Value)>
+pub fn ponko::d2::Properties::str(&self, &str) -> core::option::Option<&str>
+impl core::clone::Clone for ponko::d2::Properties
+pub fn ponko::d2::Properties::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Properties
+pub fn ponko::d2::Properties::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::Properties
+pub fn ponko::d2::Properties::default() -> Self
+impl core::fmt::Debug for ponko::d2::Properties
+pub fn ponko::d2::Properties::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Properties
 pub struct ponko::prelude::d2::SpatialGrid<T>
 impl ponko::spatial::SpatialGrid
 pub fn ponko::spatial::SpatialGrid::new(f32) -> Self
@@ -5259,6 +5849,55 @@ pub fn ponko::d2::Sprite::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt
 impl core::marker::Copy for ponko::d2::Sprite
 impl core::marker::StructuralPartialEq for ponko::d2::Sprite
 impl ponko_ecs::bundle::Component for ponko::d2::Sprite
+#[repr(C)] pub struct ponko::prelude::d2::SpriteMaterial
+impl core::clone::Clone for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::SpriteMaterial
+impl core::cmp::PartialEq for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::d2::SpriteMaterial
+impl core::marker::StructuralPartialEq for ponko::d2::SpriteMaterial
+impl ponko::handle::GfxHandle for ponko::d2::SpriteMaterial
+impl ponko::handle::Handle for ponko::d2::SpriteMaterial
+pub const ponko::d2::SpriteMaterial::NONE: Self
+impl ponko_ecs::bundle::Component for ponko::d2::SpriteMaterial
+#[non_exhaustive] pub struct ponko::prelude::d2::SpriteMaterialDesc
+pub ponko::prelude::d2::SpriteMaterialDesc::params: [glam::f32::sse2::vec4::Vec4; 4]
+pub ponko::prelude::d2::SpriteMaterialDesc::shader: core::option::Option<ponko::d2::SpriteShader>
+pub ponko::prelude::d2::SpriteMaterialDesc::textures: [core::option::Option<ponko::texture::Texture>; 2]
+impl ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::new(ponko::d2::SpriteShader) -> Self
+pub fn ponko::d2::SpriteMaterialDesc::with_param(self, usize, glam::f32::sse2::vec4::Vec4) -> Self
+pub fn ponko::d2::SpriteMaterialDesc::with_texture(self, usize, ponko::texture::Texture) -> Self
+impl core::clone::Clone for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::default() -> Self
+impl core::fmt::Debug for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::d2::SpriteMaterialDesc
+impl core::marker::StructuralPartialEq for ponko::d2::SpriteMaterialDesc
+#[repr(C)] pub struct ponko::prelude::d2::SpriteShader
+impl core::clone::Clone for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::SpriteShader
+impl core::cmp::PartialEq for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::d2::SpriteShader
+impl core::marker::StructuralPartialEq for ponko::d2::SpriteShader
+impl ponko::handle::GfxHandle for ponko::d2::SpriteShader
+impl ponko::handle::Handle for ponko::d2::SpriteShader
+pub const ponko::d2::SpriteShader::NONE: Self
 #[repr(C)] pub struct ponko::prelude::d2::SpriteSheet
 pub ponko::prelude::d2::SpriteSheet::columns: u32
 pub ponko::prelude::d2::SpriteSheet::frame_size: glam::f32::vec2::Vec2
@@ -5276,8 +5915,54 @@ impl core::fmt::Debug for ponko::sheet::SpriteSheet
 pub fn ponko::sheet::SpriteSheet::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for ponko::sheet::SpriteSheet
 impl core::marker::StructuralPartialEq for ponko::sheet::SpriteSheet
-pub struct ponko::prelude::d2::TileMap
+pub struct ponko::prelude::d2::TileAnimation
+pub ponko::prelude::d2::TileAnimation::frames: alloc::vec::Vec<(u16, f32)>
+pub ponko::prelude::d2::TileAnimation::tile: u16
+impl ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::frame_at(&self, f64) -> u16
+impl core::clone::Clone for ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::tilemap::TileAnimation
+#[non_exhaustive] pub struct ponko::prelude::d2::TileInfo
+pub ponko::prelude::d2::TileInfo::animation: alloc::vec::Vec<(u32, f32)>
+pub ponko::prelude::d2::TileInfo::class: alloc::string::String
+pub ponko::prelude::d2::TileInfo::properties: ponko::d2::Properties
+pub ponko::prelude::d2::TileInfo::shapes: alloc::vec::Vec<ponko::d2::LevelObject>
+pub ponko::prelude::d2::TileInfo::tags: alloc::vec::Vec<alloc::string::String>
+impl core::clone::Clone for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::default() -> Self
+impl core::fmt::Debug for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::TileInfo
+#[non_exhaustive] pub struct ponko::prelude::d2::TileLayer
+pub ponko::prelude::d2::TileLayer::cell_size: glam::f32::vec2::Vec2
+pub ponko::prelude::d2::TileLayer::int_grid: alloc::vec::Vec<u32>
+pub ponko::prelude::d2::TileLayer::int_grid_names: alloc::collections::btree::map::BTreeMap<u32, alloc::string::String>
+pub ponko::prelude::d2::TileLayer::size: glam::u32::uvec2::UVec2
+pub ponko::prelude::d2::TileLayer::tiles: alloc::vec::Vec<ponko::d2::PlacedTile>
+impl core::clone::Clone for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::default() -> Self
+impl core::fmt::Debug for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::TileLayer
+#[non_exhaustive] pub struct ponko::prelude::d2::TileMap
+pub ponko::prelude::d2::TileMap::animations: alloc::vec::Vec<ponko::tilemap::TileAnimation>
 pub ponko::prelude::d2::TileMap::color: ponko::color::Color
+pub ponko::prelude::d2::TileMap::flips: alloc::vec::Vec<u8>
+pub ponko::prelude::d2::TileMap::parallax: glam::f32::vec2::Vec2
+pub ponko::prelude::d2::TileMap::parallax_origin: glam::f32::vec2::Vec2
 pub ponko::prelude::d2::TileMap::sheet: ponko::sheet::SpriteSheet
 pub ponko::prelude::d2::TileMap::size: glam::u32::uvec2::UVec2
 pub ponko::prelude::d2::TileMap::tile_size: glam::f32::vec2::Vec2
@@ -5285,10 +5970,22 @@ pub ponko::prelude::d2::TileMap::tiles: alloc::vec::Vec<u16>
 pub ponko::prelude::d2::TileMap::z: f32
 impl ponko::tilemap::TileMap
 pub const ponko::tilemap::TileMap::EMPTY: u16
+pub const ponko::tilemap::TileMap::FLIP_DIAGONAL: u8
+pub const ponko::tilemap::TileMap::FLIP_X: u8
+pub const ponko::tilemap::TileMap::FLIP_Y: u8
+pub fn ponko::tilemap::TileMap::animate(&mut self, u16, &[(u16, f32)])
+pub fn ponko::tilemap::TileMap::drawn_origin(&self, glam::f32::vec2::Vec2, glam::f32::vec2::Vec2) -> glam::f32::vec2::Vec2
+pub fn ponko::tilemap::TileMap::flip(&self, u32, u32) -> u8
 pub fn ponko::tilemap::TileMap::get(&self, u32, u32) -> core::option::Option<u16>
 pub fn ponko::tilemap::TileMap::new(ponko::sheet::SpriteSheet, u32, u32) -> Self
 pub fn ponko::tilemap::TileMap::set(&mut self, u32, u32, core::option::Option<u16>)
+pub fn ponko::tilemap::TileMap::set_flipped(&mut self, u32, u32, core::option::Option<u16>, u8)
 pub fn ponko::tilemap::TileMap::tile_at(&self, glam::f32::vec2::Vec2, glam::f32::vec2::Vec2) -> core::option::Option<glam::u32::uvec2::UVec2>
+impl ponko::tilemap::TileMap
+pub fn ponko::tilemap::TileMap::autotile(&mut self, &ponko::d2::AutoTile, impl core::ops::function::Fn(u32, u32) -> bool)
+pub fn ponko::tilemap::TileMap::paint_autotile(&mut self, &ponko::d2::AutoTile, u32, u32, bool)
+impl ponko::tilemap::TileMap
+pub fn ponko::tilemap::TileMap::solid_rects(&self, impl core::ops::function::Fn(u16) -> bool) -> alloc::vec::Vec<ponko::camera::Rect>
 impl core::clone::Clone for ponko::tilemap::TileMap
 pub fn ponko::tilemap::TileMap::clone(&self) -> Self
 impl core::cmp::PartialEq for ponko::tilemap::TileMap
@@ -5297,6 +5994,22 @@ impl core::fmt::Debug for ponko::tilemap::TileMap
 pub fn ponko::tilemap::TileMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::tilemap::TileMap
 impl ponko_ecs::bundle::Component for ponko::tilemap::TileMap
+#[non_exhaustive] pub struct ponko::prelude::d2::Tileset
+pub ponko::prelude::d2::Tileset::columns: u32
+pub ponko::prelude::d2::Tileset::count: u32
+pub ponko::prelude::d2::Tileset::image: alloc::string::String
+pub ponko::prelude::d2::Tileset::margin: u32
+pub ponko::prelude::d2::Tileset::name: alloc::string::String
+pub ponko::prelude::d2::Tileset::spacing: u32
+pub ponko::prelude::d2::Tileset::tile_size: glam::u32::uvec2::UVec2
+pub ponko::prelude::d2::Tileset::tiles: alloc::collections::btree::map::BTreeMap<u32, ponko::d2::TileInfo>
+impl core::clone::Clone for ponko::d2::Tileset
+pub fn ponko::d2::Tileset::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Tileset
+pub fn ponko::d2::Tileset::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Tileset
+pub fn ponko::d2::Tileset::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Tileset
 #[repr(C)] pub struct ponko::prelude::d2::Transform
 pub ponko::prelude::d2::Transform::position: glam::f32::vec2::Vec2
 pub ponko::prelude::d2::Transform::rotation: f32
@@ -5546,6 +6259,7 @@ impl core::marker::StructuralPartialEq for ponko::d3::ParticleSpace
 pub ponko::prelude::d3::ShaderKind::Compute
 pub ponko::prelude::d3::ShaderKind::Effect
 pub ponko::prelude::d3::ShaderKind::Material
+pub ponko::prelude::d3::ShaderKind::Sprite
 impl core::clone::Clone for ponko::d3::ShaderKind
 pub fn ponko::d3::ShaderKind::clone(&self) -> Self
 impl core::cmp::Eq for ponko::d3::ShaderKind
@@ -7377,6 +8091,8 @@ pub fn ponko::assets::Assets::reloaded_textures(&self) -> &[ponko::texture::Text
 pub fn ponko::assets::Assets::save_prefab(&mut self, &ponko_ecs::world::World, ponko_ecs::entity::Entity, &str) -> core::result::Result<(), ponko::error::Error>
 pub fn ponko::assets::Assets::save_scene(&self, &ponko_ecs::world::World, &str) -> core::result::Result<(), ponko::error::Error>
 impl ponko::assets::Assets
+pub fn ponko::assets::Assets::load_level(&self, &str, &ponko::d2::LevelOptions) -> core::result::Result<ponko::d2::Level, ponko::error::Error>
+impl ponko::assets::Assets
 pub fn ponko::assets::Assets::scene_asset_field<T: 'static>(&mut self, &str, impl core::ops::function::Fn(&mut ponko::prelude::Ctx, &str) -> core::result::Result<(), ponko::error::Error> + 'static)
 impl core::default::Default for ponko::assets::Assets
 pub fn ponko::assets::Assets::default() -> Self
@@ -7508,6 +8224,10 @@ pub fn ponko::prelude::Ctx::quit(&mut self)
 pub fn ponko::prelude::Ctx::random(&self) -> ponko::random::Random
 pub fn ponko::prelude::Ctx::window_size(&self) -> glam::f32::vec2::Vec2
 impl ponko::prelude::Ctx
+pub fn ponko::prelude::Ctx::despawn_level(&mut self, ponko_ecs::entity::Entity) -> bool
+pub fn ponko::prelude::Ctx::spawn_level(&mut self, &str, glam::f32::vec2::Vec2) -> core::result::Result<ponko_ecs::entity::Entity, ponko::error::Error>
+pub fn ponko::prelude::Ctx::spawn_level_with(&mut self, &str, glam::f32::vec2::Vec2, ponko::d2::LevelOptions) -> core::result::Result<ponko_ecs::entity::Entity, ponko::error::Error>
+impl ponko::prelude::Ctx
 pub fn ponko::prelude::Ctx::despawn_prefab(&mut self, ponko_ecs::entity::Entity) -> usize
 pub fn ponko::prelude::Ctx::load_scene(&mut self, &str) -> core::result::Result<(), ponko::error::Error>
 pub fn ponko::prelude::Ctx::load_scene_lockstep(&mut self, &str) -> core::result::Result<(), ponko::error::Error>
@@ -7528,7 +8248,9 @@ pub fn F::every(self, u32) -> ponko::game::SystemConfig
 pub fn F::into_system(self) -> ponko::game::SystemConfig
 pub fn F::named(self, &'static str) -> ponko::game::SystemConfig
 #[non_exhaustive] pub struct ponko::prelude::DrawParams
+pub ponko::prelude::DrawParams::blend: ponko::d2::BlendMode
 pub ponko::prelude::DrawParams::color: ponko::color::Color
+pub ponko::prelude::DrawParams::material: core::option::Option<ponko::d2::SpriteMaterial>
 pub ponko::prelude::DrawParams::pivot: glam::f32::vec2::Vec2
 pub ponko::prelude::DrawParams::region: core::option::Option<ponko::camera::Rect>
 pub ponko::prelude::DrawParams::rotation: f32
@@ -7536,7 +8258,9 @@ pub ponko::prelude::DrawParams::scale: glam::f32::vec2::Vec2
 pub ponko::prelude::DrawParams::screen: bool
 pub ponko::prelude::DrawParams::z: f32
 impl ponko::texture::DrawParams
+pub fn ponko::texture::DrawParams::with_blend(self, ponko::d2::BlendMode) -> Self
 pub fn ponko::texture::DrawParams::with_color(self, ponko::color::Color) -> Self
+pub fn ponko::texture::DrawParams::with_material(self, ponko::d2::SpriteMaterial) -> Self
 pub fn ponko::texture::DrawParams::with_pivot(self, glam::f32::vec2::Vec2) -> Self
 pub fn ponko::texture::DrawParams::with_region(self, ponko::camera::Rect) -> Self
 pub fn ponko::texture::DrawParams::with_rotation(self, f32) -> Self
@@ -8072,6 +8796,10 @@ pub trait ponko::prelude::Handle: core::marker::Copy + core::cmp::Eq + core::has
 pub const ponko::prelude::Handle::NONE: Self
 impl ponko::handle::Handle for ponko::audio::Sound
 pub const ponko::audio::Sound::NONE: Self
+impl ponko::handle::Handle for ponko::d2::SpriteMaterial
+pub const ponko::d2::SpriteMaterial::NONE: Self
+impl ponko::handle::Handle for ponko::d2::SpriteShader
+pub const ponko::d2::SpriteShader::NONE: Self
 impl ponko::handle::Handle for ponko::d3::Compute
 pub const ponko::d3::Compute::NONE: Self
 impl ponko::handle::Handle for ponko::d3::Effect
@@ -8378,6 +9106,28 @@ impl core::fmt::Debug for ponko::d3::Blend
 pub fn ponko::d3::Blend::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for ponko::d3::Blend
 impl core::marker::StructuralPartialEq for ponko::d3::Blend
+#[non_exhaustive] #[repr(u32)] pub enum ponko::render::BlendMode
+pub ponko::render::BlendMode::Additive = 1
+pub ponko::render::BlendMode::Alpha = 0
+pub ponko::render::BlendMode::Multiply = 2
+pub ponko::render::BlendMode::Premultiplied = 3
+impl ponko::d2::BlendMode
+pub const ponko::d2::BlendMode::ALL: [ponko::d2::BlendMode; 4]
+pub fn ponko::d2::BlendMode::from_u32(u32) -> core::option::Option<Self>
+impl core::clone::Clone for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::BlendMode
+impl core::cmp::PartialEq for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::default() -> Self
+impl core::fmt::Debug for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::d2::BlendMode
+pub fn ponko::d2::BlendMode::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::d2::BlendMode
+impl core::marker::StructuralPartialEq for ponko::d2::BlendMode
+impl ponko_ecs::bundle::Component for ponko::d2::BlendMode
 #[non_exhaustive] pub enum ponko::render::GpuFeature
 pub ponko::render::GpuFeature::AmbientOcclusion
 pub ponko::render::GpuFeature::Compute
@@ -8517,6 +9267,7 @@ pub fn ponko::render::QualityAutotuneReason::serialize<__S>(&self, __S) -> core:
 pub ponko::render::ShaderKind::Compute
 pub ponko::render::ShaderKind::Effect
 pub ponko::render::ShaderKind::Material
+pub ponko::render::ShaderKind::Sprite
 impl core::clone::Clone for ponko::d3::ShaderKind
 pub fn ponko::d3::ShaderKind::clone(&self) -> Self
 impl core::cmp::Eq for ponko::d3::ShaderKind
@@ -9451,6 +10202,55 @@ impl core::fmt::Debug for ponko::d3::Sky
 pub fn ponko::d3::Sky::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for ponko::d3::Sky
 impl core::marker::StructuralPartialEq for ponko::d3::Sky
+#[repr(C)] pub struct ponko::render::SpriteMaterial
+impl core::clone::Clone for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::SpriteMaterial
+impl core::cmp::PartialEq for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::d2::SpriteMaterial
+pub fn ponko::d2::SpriteMaterial::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::d2::SpriteMaterial
+impl core::marker::StructuralPartialEq for ponko::d2::SpriteMaterial
+impl ponko::handle::GfxHandle for ponko::d2::SpriteMaterial
+impl ponko::handle::Handle for ponko::d2::SpriteMaterial
+pub const ponko::d2::SpriteMaterial::NONE: Self
+impl ponko_ecs::bundle::Component for ponko::d2::SpriteMaterial
+#[non_exhaustive] pub struct ponko::render::SpriteMaterialDesc
+pub ponko::render::SpriteMaterialDesc::params: [glam::f32::sse2::vec4::Vec4; 4]
+pub ponko::render::SpriteMaterialDesc::shader: core::option::Option<ponko::d2::SpriteShader>
+pub ponko::render::SpriteMaterialDesc::textures: [core::option::Option<ponko::texture::Texture>; 2]
+impl ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::new(ponko::d2::SpriteShader) -> Self
+pub fn ponko::d2::SpriteMaterialDesc::with_param(self, usize, glam::f32::sse2::vec4::Vec4) -> Self
+pub fn ponko::d2::SpriteMaterialDesc::with_texture(self, usize, ponko::texture::Texture) -> Self
+impl core::clone::Clone for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::default() -> Self
+impl core::fmt::Debug for ponko::d2::SpriteMaterialDesc
+pub fn ponko::d2::SpriteMaterialDesc::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::d2::SpriteMaterialDesc
+impl core::marker::StructuralPartialEq for ponko::d2::SpriteMaterialDesc
+#[repr(C)] pub struct ponko::render::SpriteShader
+impl core::clone::Clone for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::SpriteShader
+impl core::cmp::PartialEq for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko::d2::SpriteShader
+pub fn ponko::d2::SpriteShader::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for ponko::d2::SpriteShader
+impl core::marker::StructuralPartialEq for ponko::d2::SpriteShader
+impl ponko::handle::GfxHandle for ponko::d2::SpriteShader
+impl ponko::handle::Handle for ponko::d2::SpriteShader
+pub const ponko::d2::SpriteShader::NONE: Self
 pub struct ponko::render::StreamedLod
 impl ponko::d3::StreamedLod
 pub fn ponko::d3::StreamedLod::files(&self) -> &[alloc::string::String]
@@ -10223,7 +11023,9 @@ pub fn ponko::texture::TextureFilter::fmt(&self, &mut core::fmt::Formatter<'_>) 
 impl core::marker::Copy for ponko::texture::TextureFilter
 impl core::marker::StructuralPartialEq for ponko::texture::TextureFilter
 #[non_exhaustive] pub struct ponko::texture::DrawParams
+pub ponko::texture::DrawParams::blend: ponko::d2::BlendMode
 pub ponko::texture::DrawParams::color: ponko::color::Color
+pub ponko::texture::DrawParams::material: core::option::Option<ponko::d2::SpriteMaterial>
 pub ponko::texture::DrawParams::pivot: glam::f32::vec2::Vec2
 pub ponko::texture::DrawParams::region: core::option::Option<ponko::camera::Rect>
 pub ponko::texture::DrawParams::rotation: f32
@@ -10231,7 +11033,9 @@ pub ponko::texture::DrawParams::scale: glam::f32::vec2::Vec2
 pub ponko::texture::DrawParams::screen: bool
 pub ponko::texture::DrawParams::z: f32
 impl ponko::texture::DrawParams
+pub fn ponko::texture::DrawParams::with_blend(self, ponko::d2::BlendMode) -> Self
 pub fn ponko::texture::DrawParams::with_color(self, ponko::color::Color) -> Self
+pub fn ponko::texture::DrawParams::with_material(self, ponko::d2::SpriteMaterial) -> Self
 pub fn ponko::texture::DrawParams::with_pivot(self, glam::f32::vec2::Vec2) -> Self
 pub fn ponko::texture::DrawParams::with_region(self, ponko::camera::Rect) -> Self
 pub fn ponko::texture::DrawParams::with_rotation(self, f32) -> Self
@@ -10268,8 +11072,256 @@ impl ponko::handle::GfxHandle for ponko::texture::Texture
 impl ponko::handle::Handle for ponko::texture::Texture
 pub const ponko::texture::Texture::NONE: Self
 pub mod ponko::tilemap
-pub struct ponko::tilemap::TileMap
+#[non_exhaustive] pub enum ponko::tilemap::LayerKind
+pub ponko::tilemap::LayerKind::Image(alloc::string::String)
+pub ponko::tilemap::LayerKind::Objects(alloc::vec::Vec<ponko::d2::LevelObject>)
+pub ponko::tilemap::LayerKind::Tiles(ponko::d2::TileLayer)
+impl core::clone::Clone for ponko::d2::LayerKind
+pub fn ponko::d2::LayerKind::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LayerKind
+pub fn ponko::d2::LayerKind::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LayerKind
+pub fn ponko::d2::LayerKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LayerKind
+pub enum ponko::tilemap::Neighbours
+pub ponko::tilemap::Neighbours::Eight
+pub ponko::tilemap::Neighbours::Four
+impl core::clone::Clone for ponko::d2::Neighbours
+pub fn ponko::d2::Neighbours::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::Neighbours
+impl core::cmp::PartialEq for ponko::d2::Neighbours
+pub fn ponko::d2::Neighbours::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Neighbours
+pub fn ponko::d2::Neighbours::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::d2::Neighbours
+impl core::marker::StructuralPartialEq for ponko::d2::Neighbours
+#[non_exhaustive] pub enum ponko::tilemap::ObjectShape
+pub ponko::tilemap::ObjectShape::Ellipse
+pub ponko::tilemap::ObjectShape::Point
+pub ponko::tilemap::ObjectShape::Polygon(alloc::vec::Vec<glam::f32::vec2::Vec2>)
+pub ponko::tilemap::ObjectShape::Polyline(alloc::vec::Vec<glam::f32::vec2::Vec2>)
+pub ponko::tilemap::ObjectShape::Rect
+impl core::clone::Clone for ponko::d2::ObjectShape
+pub fn ponko::d2::ObjectShape::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::ObjectShape
+pub fn ponko::d2::ObjectShape::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::ObjectShape
+pub fn ponko::d2::ObjectShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::ObjectShape
+pub struct ponko::tilemap::AutoTile
+impl ponko::d2::AutoTile
+pub const ponko::d2::AutoTile::BLOB_MASKS: [u8; 47]
+pub const ponko::d2::AutoTile::E: u8
+pub const ponko::d2::AutoTile::E8: u8
+pub const ponko::d2::AutoTile::N: u8
+pub const ponko::d2::AutoTile::N8: u8
+pub const ponko::d2::AutoTile::NE: u8
+pub const ponko::d2::AutoTile::NW: u8
+pub const ponko::d2::AutoTile::S: u8
+pub const ponko::d2::AutoTile::S8: u8
+pub const ponko::d2::AutoTile::SE: u8
+pub const ponko::d2::AutoTile::SW: u8
+pub const ponko::d2::AutoTile::W: u8
+pub const ponko::d2::AutoTile::W8: u8
+pub fn ponko::d2::AutoTile::blob([u16; 47]) -> Self
+pub fn ponko::d2::AutoTile::eight(impl core::ops::function::Fn(u8) -> u16) -> Self
+pub fn ponko::d2::AutoTile::four([u16; 16]) -> Self
+pub fn ponko::d2::AutoTile::frame(&self, u8) -> u16
+pub fn ponko::d2::AutoTile::mask(&self, u32, u32, u32, u32, impl core::ops::function::Fn(u32, u32) -> bool) -> u8
+pub fn ponko::d2::AutoTile::neighbours(&self) -> ponko::d2::Neighbours
+pub fn ponko::d2::AutoTile::outside(self, bool) -> Self
+pub fn ponko::d2::AutoTile::owns(&self, u16) -> bool
+impl core::clone::Clone for ponko::d2::AutoTile
+pub fn ponko::d2::AutoTile::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::AutoTile
+pub fn ponko::d2::AutoTile::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::AutoTile
+pub fn ponko::d2::AutoTile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::AutoTile
+#[non_exhaustive] pub struct ponko::tilemap::Layer
+pub ponko::tilemap::Layer::class: alloc::string::String
+pub ponko::tilemap::Layer::kind: ponko::d2::LayerKind
+pub ponko::tilemap::Layer::name: alloc::string::String
+pub ponko::tilemap::Layer::offset: glam::f32::vec2::Vec2
+pub ponko::tilemap::Layer::opacity: f32
+pub ponko::tilemap::Layer::parallax: glam::f32::vec2::Vec2
+pub ponko::tilemap::Layer::properties: ponko::d2::Properties
+pub ponko::tilemap::Layer::tint: ponko::color::Color
+pub ponko::tilemap::Layer::visible: bool
+impl core::clone::Clone for ponko::d2::Layer
+pub fn ponko::d2::Layer::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Layer
+pub fn ponko::d2::Layer::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Layer
+pub fn ponko::d2::Layer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Layer
+#[non_exhaustive] pub struct ponko::tilemap::Level
+pub ponko::tilemap::Level::background: core::option::Option<ponko::color::Color>
+pub ponko::tilemap::Level::cell_size: glam::f32::vec2::Vec2
+pub ponko::tilemap::Level::files: alloc::vec::Vec<alloc::string::String>
+pub ponko::tilemap::Level::layers: alloc::vec::Vec<ponko::d2::Layer>
+pub ponko::tilemap::Level::name: alloc::string::String
+pub ponko::tilemap::Level::parallax_origin: glam::f32::vec2::Vec2
+pub ponko::tilemap::Level::properties: ponko::d2::Properties
+pub ponko::tilemap::Level::size: glam::u32::uvec2::UVec2
+pub ponko::tilemap::Level::tilesets: alloc::vec::Vec<ponko::d2::Tileset>
+impl ponko::d2::Level
+pub fn ponko::d2::Level::solid_rects(&self, &ponko::d2::LevelOptions) -> alloc::vec::Vec<ponko::camera::Rect>
+impl core::clone::Clone for ponko::d2::Level
+pub fn ponko::d2::Level::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Level
+pub fn ponko::d2::Level::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Level
+pub fn ponko::d2::Level::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Level
+#[non_exhaustive] pub struct ponko::tilemap::LevelLayer
+pub ponko::tilemap::LevelLayer::class: alloc::string::String
+pub ponko::tilemap::LevelLayer::index: usize
+pub ponko::tilemap::LevelLayer::name: alloc::string::String
+pub ponko::tilemap::LevelLayer::properties: ponko::d2::Properties
+impl core::clone::Clone for ponko::d2::LevelLayer
+pub fn ponko::d2::LevelLayer::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelLayer
+pub fn ponko::d2::LevelLayer::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LevelLayer
+pub fn ponko::d2::LevelLayer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelLayer
+impl ponko_ecs::bundle::Component for ponko::d2::LevelLayer
+#[non_exhaustive] pub struct ponko::tilemap::LevelObject
+pub ponko::tilemap::LevelObject::class: alloc::string::String
+pub ponko::tilemap::LevelObject::id: u64
+pub ponko::tilemap::LevelObject::layer: alloc::string::String
+pub ponko::tilemap::LevelObject::name: alloc::string::String
+pub ponko::tilemap::LevelObject::position: glam::f32::vec2::Vec2
+pub ponko::tilemap::LevelObject::properties: ponko::d2::Properties
+pub ponko::tilemap::LevelObject::rotation: f32
+pub ponko::tilemap::LevelObject::shape: ponko::d2::ObjectShape
+pub ponko::tilemap::LevelObject::size: glam::f32::vec2::Vec2
+pub ponko::tilemap::LevelObject::tile: core::option::Option<(u16, u32, u8)>
+pub ponko::tilemap::LevelObject::visible: bool
+impl core::clone::Clone for ponko::d2::LevelObject
+pub fn ponko::d2::LevelObject::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelObject
+pub fn ponko::d2::LevelObject::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LevelObject
+pub fn ponko::d2::LevelObject::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelObject
+impl ponko_ecs::bundle::Component for ponko::d2::LevelObject
+#[non_exhaustive] pub struct ponko::tilemap::LevelOptions
+pub ponko::tilemap::LevelOptions::level: core::option::Option<alloc::string::String>
+pub ponko::tilemap::LevelOptions::no_colliders: bool
+pub ponko::tilemap::LevelOptions::prefabs: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>
+pub ponko::tilemap::LevelOptions::solid: alloc::vec::Vec<alloc::string::String>
+pub ponko::tilemap::LevelOptions::z: f32
+impl ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::at_z(self, f32) -> Self
+pub fn ponko::d2::LevelOptions::level(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn ponko::d2::LevelOptions::prefab(self, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn ponko::d2::LevelOptions::solid(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn ponko::d2::LevelOptions::without_colliders(self) -> Self
+impl core::clone::Clone for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::default() -> Self
+impl core::fmt::Debug for ponko::d2::LevelOptions
+pub fn ponko::d2::LevelOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelOptions
+#[non_exhaustive] pub struct ponko::tilemap::LevelRoot
+pub ponko::tilemap::LevelRoot::entities: alloc::vec::Vec<ponko_ecs::entity::Entity>
+pub ponko::tilemap::LevelRoot::options: ponko::d2::LevelOptions
+pub ponko::tilemap::LevelRoot::path: alloc::string::String
+pub ponko::tilemap::LevelRoot::properties: ponko::d2::Properties
+impl core::clone::Clone for ponko::d2::LevelRoot
+pub fn ponko::d2::LevelRoot::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::LevelRoot
+pub fn ponko::d2::LevelRoot::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::LevelRoot
+pub fn ponko::d2::LevelRoot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::LevelRoot
+impl ponko_ecs::bundle::Component for ponko::d2::LevelRoot
+#[non_exhaustive] pub struct ponko::tilemap::PlacedTile
+pub ponko::tilemap::PlacedTile::cell: glam::u32::uvec2::UVec2
+pub ponko::tilemap::PlacedTile::flip: u8
+pub ponko::tilemap::PlacedTile::id: u32
+pub ponko::tilemap::PlacedTile::tileset: u16
+impl core::clone::Clone for ponko::d2::PlacedTile
+pub fn ponko::d2::PlacedTile::clone(&self) -> Self
+impl core::cmp::Eq for ponko::d2::PlacedTile
+impl core::cmp::PartialEq for ponko::d2::PlacedTile
+pub fn ponko::d2::PlacedTile::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::PlacedTile
+pub fn ponko::d2::PlacedTile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::d2::PlacedTile
+impl core::marker::StructuralPartialEq for ponko::d2::PlacedTile
+pub struct ponko::tilemap::Properties(pub alloc::collections::btree::map::BTreeMap<alloc::string::String, serde_json::value::Value>)
+impl ponko::d2::Properties
+pub fn ponko::d2::Properties::bool(&self, &str) -> core::option::Option<bool>
+pub fn ponko::d2::Properties::color(&self, &str) -> core::option::Option<ponko::color::Color>
+pub fn ponko::d2::Properties::f32(&self, &str) -> core::option::Option<f32>
+pub fn ponko::d2::Properties::get(&self, &str) -> core::option::Option<&serde_json::value::Value>
+pub fn ponko::d2::Properties::i64(&self, &str) -> core::option::Option<i64>
+pub fn ponko::d2::Properties::is_empty(&self) -> bool
+pub fn ponko::d2::Properties::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, &serde_json::value::Value)>
+pub fn ponko::d2::Properties::str(&self, &str) -> core::option::Option<&str>
+impl core::clone::Clone for ponko::d2::Properties
+pub fn ponko::d2::Properties::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Properties
+pub fn ponko::d2::Properties::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::Properties
+pub fn ponko::d2::Properties::default() -> Self
+impl core::fmt::Debug for ponko::d2::Properties
+pub fn ponko::d2::Properties::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Properties
+pub struct ponko::tilemap::TileAnimation
+pub ponko::tilemap::TileAnimation::frames: alloc::vec::Vec<(u16, f32)>
+pub ponko::tilemap::TileAnimation::tile: u16
+impl ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::frame_at(&self, f64) -> u16
+impl core::clone::Clone for ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::tilemap::TileAnimation
+pub fn ponko::tilemap::TileAnimation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::tilemap::TileAnimation
+#[non_exhaustive] pub struct ponko::tilemap::TileInfo
+pub ponko::tilemap::TileInfo::animation: alloc::vec::Vec<(u32, f32)>
+pub ponko::tilemap::TileInfo::class: alloc::string::String
+pub ponko::tilemap::TileInfo::properties: ponko::d2::Properties
+pub ponko::tilemap::TileInfo::shapes: alloc::vec::Vec<ponko::d2::LevelObject>
+pub ponko::tilemap::TileInfo::tags: alloc::vec::Vec<alloc::string::String>
+impl core::clone::Clone for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::default() -> Self
+impl core::fmt::Debug for ponko::d2::TileInfo
+pub fn ponko::d2::TileInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::TileInfo
+#[non_exhaustive] pub struct ponko::tilemap::TileLayer
+pub ponko::tilemap::TileLayer::cell_size: glam::f32::vec2::Vec2
+pub ponko::tilemap::TileLayer::int_grid: alloc::vec::Vec<u32>
+pub ponko::tilemap::TileLayer::int_grid_names: alloc::collections::btree::map::BTreeMap<u32, alloc::string::String>
+pub ponko::tilemap::TileLayer::size: glam::u32::uvec2::UVec2
+pub ponko::tilemap::TileLayer::tiles: alloc::vec::Vec<ponko::d2::PlacedTile>
+impl core::clone::Clone for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::eq(&self, &Self) -> bool
+impl core::default::Default for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::default() -> Self
+impl core::fmt::Debug for ponko::d2::TileLayer
+pub fn ponko::d2::TileLayer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::TileLayer
+#[non_exhaustive] pub struct ponko::tilemap::TileMap
+pub ponko::tilemap::TileMap::animations: alloc::vec::Vec<ponko::tilemap::TileAnimation>
 pub ponko::tilemap::TileMap::color: ponko::color::Color
+pub ponko::tilemap::TileMap::flips: alloc::vec::Vec<u8>
+pub ponko::tilemap::TileMap::parallax: glam::f32::vec2::Vec2
+pub ponko::tilemap::TileMap::parallax_origin: glam::f32::vec2::Vec2
 pub ponko::tilemap::TileMap::sheet: ponko::sheet::SpriteSheet
 pub ponko::tilemap::TileMap::size: glam::u32::uvec2::UVec2
 pub ponko::tilemap::TileMap::tile_size: glam::f32::vec2::Vec2
@@ -10277,10 +11329,22 @@ pub ponko::tilemap::TileMap::tiles: alloc::vec::Vec<u16>
 pub ponko::tilemap::TileMap::z: f32
 impl ponko::tilemap::TileMap
 pub const ponko::tilemap::TileMap::EMPTY: u16
+pub const ponko::tilemap::TileMap::FLIP_DIAGONAL: u8
+pub const ponko::tilemap::TileMap::FLIP_X: u8
+pub const ponko::tilemap::TileMap::FLIP_Y: u8
+pub fn ponko::tilemap::TileMap::animate(&mut self, u16, &[(u16, f32)])
+pub fn ponko::tilemap::TileMap::drawn_origin(&self, glam::f32::vec2::Vec2, glam::f32::vec2::Vec2) -> glam::f32::vec2::Vec2
+pub fn ponko::tilemap::TileMap::flip(&self, u32, u32) -> u8
 pub fn ponko::tilemap::TileMap::get(&self, u32, u32) -> core::option::Option<u16>
 pub fn ponko::tilemap::TileMap::new(ponko::sheet::SpriteSheet, u32, u32) -> Self
 pub fn ponko::tilemap::TileMap::set(&mut self, u32, u32, core::option::Option<u16>)
+pub fn ponko::tilemap::TileMap::set_flipped(&mut self, u32, u32, core::option::Option<u16>, u8)
 pub fn ponko::tilemap::TileMap::tile_at(&self, glam::f32::vec2::Vec2, glam::f32::vec2::Vec2) -> core::option::Option<glam::u32::uvec2::UVec2>
+impl ponko::tilemap::TileMap
+pub fn ponko::tilemap::TileMap::autotile(&mut self, &ponko::d2::AutoTile, impl core::ops::function::Fn(u32, u32) -> bool)
+pub fn ponko::tilemap::TileMap::paint_autotile(&mut self, &ponko::d2::AutoTile, u32, u32, bool)
+impl ponko::tilemap::TileMap
+pub fn ponko::tilemap::TileMap::solid_rects(&self, impl core::ops::function::Fn(u16) -> bool) -> alloc::vec::Vec<ponko::camera::Rect>
 impl core::clone::Clone for ponko::tilemap::TileMap
 pub fn ponko::tilemap::TileMap::clone(&self) -> Self
 impl core::cmp::PartialEq for ponko::tilemap::TileMap
@@ -10289,6 +11353,22 @@ impl core::fmt::Debug for ponko::tilemap::TileMap
 pub fn ponko::tilemap::TileMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for ponko::tilemap::TileMap
 impl ponko_ecs::bundle::Component for ponko::tilemap::TileMap
+#[non_exhaustive] pub struct ponko::tilemap::Tileset
+pub ponko::tilemap::Tileset::columns: u32
+pub ponko::tilemap::Tileset::count: u32
+pub ponko::tilemap::Tileset::image: alloc::string::String
+pub ponko::tilemap::Tileset::margin: u32
+pub ponko::tilemap::Tileset::name: alloc::string::String
+pub ponko::tilemap::Tileset::spacing: u32
+pub ponko::tilemap::Tileset::tile_size: glam::u32::uvec2::UVec2
+pub ponko::tilemap::Tileset::tiles: alloc::collections::btree::map::BTreeMap<u32, ponko::d2::TileInfo>
+impl core::clone::Clone for ponko::d2::Tileset
+pub fn ponko::d2::Tileset::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::d2::Tileset
+pub fn ponko::d2::Tileset::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::d2::Tileset
+pub fn ponko::d2::Tileset::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko::d2::Tileset
 pub fn ponko::tilemap::draw_tilemaps(&mut ponko::prelude::Ctx)
 pub mod ponko::ui
 pub use ponko::ui::unstable_taffy
@@ -10576,12 +11656,15 @@ pub fn ponko::prelude::UiId::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for ponko::prelude::UiId
 impl core::marker::StructuralPartialEq for ponko::prelude::UiId
 pub struct ponko::ui::UiImmediate
+pub ponko::ui::UiImmediate::border_width: f32
+pub ponko::ui::UiImmediate::font: ponko::text::Font
 pub ponko::ui::UiImmediate::style: ponko::ui::UiStyle
 impl ponko::ui::UiImmediate
 pub fn ponko::ui::UiImmediate::button(&mut self, &mut ponko::gfx::Graphics, &ponko::input::Input, ponko::camera::Rect, &str) -> bool
 pub fn ponko::ui::UiImmediate::covers(&self, glam::f32::vec2::Vec2) -> bool
 pub fn ponko::ui::UiImmediate::label(&self, &mut ponko::gfx::Graphics, glam::f32::vec2::Vec2, &str) -> glam::f32::vec2::Vec2
 pub fn ponko::ui::UiImmediate::panel(&mut self, &mut ponko::gfx::Graphics, ponko::camera::Rect)
+pub fn ponko::ui::UiImmediate::scale(&self) -> f32
 impl core::clone::Clone for ponko::ui::UiImmediate
 pub fn ponko::ui::UiImmediate::clone(&self) -> Self
 impl core::default::Default for ponko::ui::UiImmediate
