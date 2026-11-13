@@ -338,3 +338,24 @@ fn blend_modes_and_materials_draw_with_webgl2_limits() {
     blend_cases(&mut rig);
     material_cases(&mut rig);
 }
+
+#[test]
+fn the_examples_dissolve_burns_away_where_its_noise_is_below_the_progress() {
+    let Some(mut rig) = Rig::new(gpu()) else { return };
+    rig.shader(0, include_str!("../../assets/shaders/sprite_dissolve.wgsl"))
+        .unwrap();
+    // Noise 0.5 in sRGB: about 0.21 sampled.
+    let noise = rig.texture([128, 128, 128, 255]);
+    let edge = Vec4::new(1.0, 0.0, 0.0, 1.0);
+    let material = style_key(BlendMode::Alpha, Some(SpriteMaterial { id: 0 }));
+    let burned = |rig: &mut Rig, progress: f32| {
+        let params = [Vec4::new(progress, 0.0, 0.0, 0.0), edge, Vec4::ZERO, Vec4::ZERO];
+        rig.looks
+            .set_material(&rig.device, &rig.queue, 0, Some(0), &params, [Some(noise), None]);
+        rig.draw(&[(material, Color::WHITE)])[0]
+    };
+    assert_near("not burned", burned(&mut rig, 0.0), [1.0; 3]);
+    assert_near("burned away", burned(&mut rig, 0.5), linear(BACKGROUND));
+    let glowing = burned(&mut rig, 0.18);
+    assert!(glowing[0] > 0.9 && glowing[1] < 0.9, "the edge glows red: {glowing:?}");
+}

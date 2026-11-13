@@ -190,3 +190,13 @@ fn a_sprite_shader_file_that_never_compiled_gets_a_stand_in_until_fixed() {
     let seen = reload("fix.wgsl", BROKEN, &[GOOD], true);
     assert_eq!((seen[0].outcome, seen[0].reloads), (ShaderOutcome::Reloaded, 1));
 }
+
+#[test]
+fn the_examples_sprite_shaders_compile() {
+    Game::new("t", 1, 1).run_headless(0, |ctx| {
+        for file in ["shaders/sprite_outline.wgsl", "shaders/sprite_dissolve.wgsl"] {
+            ctx.gfx.try_load_sprite_shader(file).unwrap();
+        }
+        assert!(ctx.gfx.shader_status().iter().all(ShaderStatus::is_ok));
+    });
+}
