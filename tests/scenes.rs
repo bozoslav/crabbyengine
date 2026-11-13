@@ -1,6 +1,8 @@
 //! Scenes and prefabs: worlds and entities saved to files and loaded back.
 
 mod common;
+#[path = "../examples/prefabs/game.rs"]
+mod prefab_example;
 
 use common::TempAsset;
 #[allow(unused_imports)]
@@ -617,4 +619,59 @@ fn a_3d_prefabs_joints_join_its_new_bodies() {
         assert!(parts.contains(&joint.body_a) && joint.body_a != root);
         assert_eq!(ctx.world.get::<T3>(joint.body_a).unwrap().position, vec3(1.0, 2.0, 0.0));
     });
+}
+
+/// The `prefabs` example, headless: three carts of five parts each (a body,
+/// two included wheels, a driver and a hat on the driver); the wheels roll
+/// with their cart, and scrapping a cart takes all five away.
+#[test]
+fn the_prefab_example_rolls_carts_and_scraps_one_whole() {
+    use ponko::d2::Attached;
+    let mut carts = Vec::new();
+    let world = prefab_example::game().run_headless(prefab_example::SCRAP_AT - 1, |ctx| {
+        carts = prefab_example::setup(ctx);
+        assert_eq!(ctx.world.len(), 15);
+    });
+    let rolled = (prefab_example::SCRAP_AT - 1) as f32 * prefab_example::SPEED;
+    for (i, &cart) in carts.iter().enumerate() {
+        let at = vec2(120.0 + i as f32 * 200.0 + rolled, 300.0);
+        assert_eq!(world.get::<Transform2D>(cart).unwrap().position, at);
+        let parts = world.get::<PrefabParts>(cart).unwrap().0.clone();
+        assert_eq!(parts.len(), 4);
+        let wheels: Vec<Vec2> = parts
+            .iter()
+            .filter(|&&p| {
+                world
+                    .get::<Attached>(p)
+                    .is_some_and(|a| a.to == cart && a.offset.y > 0.0)
+            })
+            .map(|&p| world.get::<Transform2D>(p).unwrap().position)
+            .collect();
+        assert_eq!(wheels.len(), 2);
+        assert!(wheels.iter().all(|w| (w.y - (at.y + 20.0)).abs() < 1e-3), "{wheels:?}");
+        let driver = parts
+            .iter()
+            .copied()
+            .find(|&p| {
+                world
+                    .get::<Attached>(p)
+                    .is_some_and(|a| a.to == cart && a.offset.y < 0.0)
+            })
+            .unwrap();
+        let hat = parts
+            .iter()
+            .find(|&&p| world.get::<Attached>(p).is_some_and(|a| a.to == driver))
+            .unwrap();
+        let hat_at = world.get::<Transform2D>(*hat).unwrap().position;
+        // On the driver, whose scale (0.75) stretches the hat's offset.
+        assert!(
+            (hat_at - (at + vec2(0.0, -28.0 - 24.0 * 0.75))).length() < 1e-3,
+            "{hat_at}"
+        );
+    }
+
+    let world = prefab_example::game().run_headless(prefab_example::SCRAP_AT + 1, |ctx| {
+        prefab_example::setup(ctx);
+    });
+    assert_eq!(world.len(), 10, "one cart and its four parts went");
 }
