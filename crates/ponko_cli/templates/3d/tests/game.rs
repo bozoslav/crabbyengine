@@ -3,6 +3,7 @@
 
 use ponko::d3::Transform;
 use ponko::prelude::*;
+
 use {{crate_name}}::{Settings, Spin, game};
 
 #[test]
@@ -15,5 +16,9 @@ fn the_cube_turns_at_the_configured_speed() {
         .query::<(&Transform, &Spin)>()
         .for_each(|(t, _)| angles.push(t.rotation.angle_between(Quat::IDENTITY)));
     assert_eq!(angles.len(), 1, "one spinning cube");
-    assert!((angles[0] - speed).abs() < 1e-3, "turned {} rad, expected {speed}", angles[0]);
+    assert!(
+        (angles[0] - speed).abs() < 1e-3,
+        "turned {} rad, expected {speed}",
+        angles[0]
+    );
 }

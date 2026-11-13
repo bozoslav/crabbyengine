@@ -2,6 +2,7 @@
 //! CPU allows. `cargo test` runs them.
 
 use ponko::prelude::*;
+
 use {{crate_name}}::{ARENA, Intent, Player, game};
 
 fn player_position(world: &mut World) -> Vec2 {
@@ -36,5 +37,8 @@ fn the_player_stays_in_the_arena() {
         .setup(|ctx| ctx.world.resource_mut::<Intent>().0 = vec2(-1.0, -1.0))
         .run_headless(60 * 30);
     let p = player_position(&mut world);
-    assert!(p.x >= 0.0 && p.y >= 0.0 && p.x <= ARENA.x && p.y <= ARENA.y, "inside: {p}");
+    assert!(
+        p.x >= 0.0 && p.y >= 0.0 && p.x <= ARENA.x && p.y <= ARENA.y,
+        "inside: {p}"
+    );
 }

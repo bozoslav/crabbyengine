@@ -29,9 +29,12 @@ pub struct Intent(pub Vec2);
 #[derive(Component, Serialize, Deserialize)]
 pub struct Player;
 
+/// The window title (and the name agents see).
+pub const TITLE: &str = "{{project-name}}";
+
 /// The whole game, ready to `run()` in a window or `run_headless(ticks)`.
 pub fn game() -> ConfiguredGame {
-    Game::new("{{project-name}}", ARENA.x as u32, ARENA.y as u32)
+    Game::new(TITLE, ARENA.x as u32, ARENA.y as u32)
         .sim_system(movement)
         .system(read_input)
         .system(draw)
@@ -39,7 +42,8 @@ pub fn game() -> ConfiguredGame {
 }
 
 fn setup(ctx: &mut Ctx) {
-    ctx.assets.load_resource::<Settings>(&mut ctx.world, "settings.json");
+    ctx.assets
+        .load_resource::<Settings>(&mut ctx.world, "settings.json");
     ctx.world.insert_resource(Intent::default());
     // Reflected types are what agents can read and change through ponko-mcp.
     ctx.world.reflect::<Player>();
@@ -96,5 +100,10 @@ fn draw(ctx: &mut Ctx) {
         let rect = Rect::new(corner.x, corner.y, PLAYER_SIZE, PLAYER_SIZE);
         ctx.gfx.draw_rect(rect, Color::rgb(0.95, 0.55, 0.2));
     }
-    ctx.draw_text("Arrow keys or WASD to move, Escape to quit", vec2(16.0, 16.0), 20.0, Color::WHITE);
+    ctx.draw_text(
+        "Arrow keys or WASD to move, Escape to quit",
+        vec2(16.0, 16.0),
+        20.0,
+        Color::WHITE,
+    );
 }

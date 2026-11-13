@@ -1,6 +1,7 @@
 //! Tests of the simulation. `cargo test` runs them.
 
 use ponko::prelude::*;
+
 use {{crate_name}}::{Bounces, Settings, Walker, simulation};
 
 #[test]

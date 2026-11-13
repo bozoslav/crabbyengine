@@ -19,16 +19,20 @@ pub struct Settings {
 #[derive(Component, Serialize, Deserialize)]
 pub struct Spin;
 
+/// The window title (and the name agents see).
+pub const TITLE: &str = "{{project-name}}";
+
 /// The whole game, ready to `run()` in a window or `run_headless(ticks)`.
 pub fn game() -> ConfiguredGame {
-    Game::new("{{project-name}}", 1280, 720)
+    Game::new(TITLE, 1280, 720)
         .sim_system(spin)
         .system(controls)
         .setup(setup)
 }
 
 fn setup(ctx: &mut Ctx) {
-    ctx.assets.load_resource::<Settings>(&mut ctx.world, "settings.json");
+    ctx.assets
+        .load_resource::<Settings>(&mut ctx.world, "settings.json");
     // Reflected types are what agents can read and change through ponko-mcp.
     ctx.world.reflect::<Spin>();
     ctx.world.reflect::<Transform>();
@@ -38,13 +42,19 @@ fn setup(ctx: &mut Ctx) {
     ctx.scene3d.camera.look_at(Vec3::ZERO);
     ctx.scene3d.lighting.sun_direction = vec3(-0.6, -1.0, -0.4);
 
-    let grass = ctx.gfx.create_material(MaterialDesc::color(Color::rgb(0.37, 0.55, 0.29)));
+    let grass = ctx
+        .gfx
+        .create_material(MaterialDesc::color(Color::rgb(0.37, 0.55, 0.29)));
     let ground = ctx.gfx.create_mesh(&MeshData::plane(20.0), grass);
-    ctx.world.spawn((Transform::at(vec3(0.0, -0.5, 0.0)), Model::new(ground)));
+    ctx.world
+        .spawn((Transform::at(vec3(0.0, -0.5, 0.0)), Model::new(ground)));
 
-    let orange = ctx.gfx.create_material(MaterialDesc::color(Color::rgb(0.95, 0.55, 0.2)));
+    let orange = ctx
+        .gfx
+        .create_material(MaterialDesc::color(Color::rgb(0.95, 0.55, 0.2)));
     let cube = ctx.gfx.create_mesh(&MeshData::cube(1.0), orange);
-    ctx.world.spawn((Transform::default(), Model::new(cube), Spin));
+    ctx.world
+        .spawn((Transform::default(), Model::new(cube), Spin));
 }
 
 /// Sim system: turns every `Spin` entity.

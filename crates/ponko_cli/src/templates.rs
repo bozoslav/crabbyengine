@@ -17,9 +17,11 @@ pub enum Kind {
 }
 
 impl Kind {
+    #[cfg(test)]
     pub const ALL: [Kind; 3] = [Kind::TwoD, Kind::ThreeD, Kind::Headless];
 
     /// The template's folder under `templates/`.
+    #[cfg(test)]
     pub fn folder(self) -> &'static str {
         match self {
             Kind::TwoD => "2d",

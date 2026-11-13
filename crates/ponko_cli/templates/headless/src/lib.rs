@@ -29,13 +29,17 @@ pub struct Walker {
 #[derive(Default, Serialize, Deserialize)]
 pub struct Bounces(pub u64);
 
+/// The name agents see.
+pub const TITLE: &str = "{{project-name}}";
+
 /// The whole simulation, ready to `run_headless(ticks)`.
 pub fn simulation() -> ConfiguredGame {
-    Game::new("{{project-name}}", 1, 1).sim_system(walk).setup(setup)
+    Game::new(TITLE, 1, 1).sim_system(walk).setup(setup)
 }
 
 fn setup(ctx: &mut Ctx) {
-    ctx.assets.load_resource::<Settings>(&mut ctx.world, "settings.json");
+    ctx.assets
+        .load_resource::<Settings>(&mut ctx.world, "settings.json");
     ctx.world.insert_resource(Bounces::default());
     // Reflected types are what agents can read and change through ponko-mcp.
     ctx.world.reflect::<Walker>();
