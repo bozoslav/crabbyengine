@@ -1,18 +1,26 @@
 name: Release
 
-# First fold the changelog fragments in (python3 scripts/changelog.py) and
-# name the version in CHANGELOG.md, through a PR. Then push a tag like
-# v0.1.0 (on a commit of main whose CI passed):
+# First fold the changelog fragments in (python3 scripts/changelog.py
+# --version X.Y.Z, which also writes the migration chapter of a minor release)
+# and name the version in CHANGELOG.md, through a PR. Then push a tag (on a
+# commit whose CI passed): v0.2.0 on main or on release-0.2, v0.1.1 on
+# release-0.1 (the patch branch of 0.1; main may already hold breaking
+# changes), or a release candidate, v0.2.0-rc.1 (a candidate may keep its
+# notes under [Unreleased]). The workflow:
 #   - checks the tag, the crate versions and the CHANGELOG section (which
-#     must fit in a GitHub release body) before anything is built;
+#     must fit in a GitHub release body) and, for a release with breaking
+#     changes, its migration chapter before anything is built;
 #   - packages every crate (`cargo publish --workspace --dry-run`), so a
 #     crate that can't be published stops the release before it exists;
 #   - builds the C library on each OS and attaches it, with the headers,
 #     the licenses and the third-party notices of every library linked into
-#     it, to a GitHub release whose notes are that version's CHANGELOG section;
+#     it, to a GitHub release whose notes are that version's CHANGELOG section
+#     (a candidate's release is marked pre-release);
 #   - publishes the crates to crates.io if the CARGO_REGISTRY_TOKEN secret
 #     is set (`gh secret set CARGO_REGISTRY_TOKEN`); otherwise that job says
-#     so and does nothing, and can be re-run once the secret exists.
+#     so and does nothing, and can be re-run once the secret exists. A
+#     candidate's crates are at X.Y.Z-rc.N, which crates.io and Cargo treat as
+#     a pre-release: `cargo add ponko` and `ponko = "0.2"` never select them.
 on:
   push:
     tags: ["v*"]
@@ -91,9 +99,18 @@ jobs:
           merge-multiple: true
       - name: Notes from CHANGELOG.md
         run: python3 scripts/release-check.py notes "$GITHUB_REF_NAME" notes.md
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --title "Ponko ${GITHUB_REF_NAME#v}" --notes-file notes.md
+      # release-check.py lets only vX.Y.Z and vX.Y.Z-rc.N through, so a
+      # suffix means a release candidate. GitHub picks the "latest" release by
+      # date and version itself: a 0.1.x patch release made after 0.2.0 does
+      # not take the badge from it, and a pre-release never has it.
+      - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" dist/* --title "Ponko ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md "${flags[@]}"
 
   crates-io:
     name: Publish to crates.io
@@ -118,7 +135,8 @@ jobs:
   # github-release and crates-io through them): nothing is built, released or
   # published unless the tag, the crates' versions and the CHANGELOG section
   # agree, the section fits in a GitHub release body (125,000 characters), and
-  # the tagged commit was merged to main (scripts/release-check.py).
+  # the tagged commit was merged to main or to the release-X.Y branch of the
+  # tag's minor (scripts/release-check.py).
   verify:
     name: Check the tag
     if: github.ref_type == 'tag' && !endsWith(github.ref_name, '-desktop-dry-run')
@@ -128,5 +146,5 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # the check looks for the tag's commit on main
-      - run: python3 scripts/release-check.py check "$GITHUB_REF_NAME" --on-main
+          fetch-depth: 0 # the check looks for the tag's commit on main or release-X.Y
+      - run: python3 scripts/release-check.py check "$GITHUB_REF_NAME" --on-branch

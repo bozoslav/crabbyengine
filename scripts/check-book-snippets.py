@@ -25,7 +25,8 @@ How a block is compiled (the same idea as rustdoc, kept deliberately small):
   The checker also rejects the root glob `use ponko::*;` (games start from
   `use ponko::prelude::*;` and module imports), in snippets and in inline
   code in the prose (except the naming and migration chapters, which
-  explain it).
+  explain it). The blocks of `migrating-to-*.md` are not compiled: they show
+  code from before the change.
 
 Generated files keep the markdown's line numbers, so a compiler error at
 `src/physics.rs:40` is `book/src/physics.md:40`.
@@ -156,8 +157,13 @@ def generate(out_src, features):
     ignored = []
     problems = []
     for md in [*sorted(BOOK.glob("*.md")), README]:
-        if md not in EXPLAINS_OLD_NAMES:
+        # A migration chapter shows the old code, which no longer compiles
+        # (changelog.py writes them from the `Before:` and `After:` snippets).
+        migration = md.name.startswith("migrating-to-")
+        if md not in EXPLAINS_OLD_NAMES and not migration:
             problems.extend(check_prose(md))
+        if migration:
+            continue
         out = []  # generated lines; len(out) is the line number reached
         for start, end, attrs, body in extract(md):
             rel = f"{label(md)}:{start}"

@@ -235,7 +235,7 @@ impl Skeleton {
 /// ctx.world.spawn((ponko::render::Model::new(hat), ponko::anim::SkinOf(person)));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Component)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Component, serde::Serialize, serde::Deserialize)]
 pub struct SkinOf(pub Entity);
 
 /// Keeps this entity's [`Transform3D`] on a joint of another entity's
@@ -254,7 +254,7 @@ pub struct SkinOf(pub Entity);
 /// ));
 /// # }
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Component)]
+#[derive(Debug, Clone, Copy, PartialEq, Component, serde::Serialize, serde::Deserialize)]
 pub struct AttachToJoint {
     /// The entity with the [`Skeleton`].
     pub skeleton: Entity,

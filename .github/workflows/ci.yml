@@ -5,8 +5,18 @@
 # - pull_request: only quick Linux checks (leaks, format, clippy, feature
 #   contracts, reference images, docs, book), no tests. Authors run the
 #   tests on their own machine before opening the pull request.
-# - push to main and workflow_dispatch: the full matrix (macOS, Windows,
-#   feature tests, Miri, MSRV, C/C++, web), after the merge.
+# - push to main or to a release-* branch (the patch branches, STABILITY.md,
+#   CONTRIBUTING.md "Releasing") and workflow_dispatch: the full matrix
+#   (macOS, Windows, feature tests, Miri, MSRV, C/C++, web), after the merge.
+#   The gate is `github.event_name != 'pull_request'`, not the branch name, so
+#   a patch release is tagged on a commit that ran the same matrix as one on
+#   main. There is no merge queue (no `merge_group` trigger): pull requests
+#   into a release-* branch run the quick tier like any other.
+# The Semver job is one of the quick checks: it runs in every tier, compares
+# the published crates' API with the last crates.io release, and reads the
+# `breaking` label when it runs (scripts/semver-checks.py, CONTRIBUTING.md
+# "Semver checks"; a re-run sees a label added later, as the Reference images
+# job does).
 # A pull request labelled `full-ci` runs the full matrix too (for risky
 # platform changes). Full-tier-only jobs carry
 # `if: github.event_name != 'pull_request' || <full-ci label>`.
@@ -21,22 +31,24 @@
 # added, starts this workflow on the branch with workflow_dispatch.
 #
 # Build caches are saved only by runs on main (`save-if`). Every other run
-# can restore those. Saving elsewhere fills the repository's 10 GB cache
-# quota, and GitHub then evicts main's caches: the next runs rebuild every
-# dependency.
+# (release-* branches too) can restore those. Saving elsewhere fills the
+# repository's 10 GB cache quota, and GitHub then evicts main's caches: the
+# next runs rebuild every dependency.
 
 name: CI
 
 on:
   push:
-    branches: [main]
+    # release-*: the patch branches (STABILITY.md); the Semver job fails any
+    # break there.
+    branches: [main, 'release-*']
   pull_request:
     # Not `edited` or `labeled`: see the header and pr-events.yml.
     types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 # A new push to a pull request cancels its older run; every commit on main
-# keeps its own full run.
+# or on a release-* branch keeps its own full run.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -91,8 +103,12 @@ jobs:
           components: rustfmt
       - name: Naming inventory
         run: python3 scripts/check-naming.py
+      # The fragments (a breaking entry needs what to write instead and a
+      # before/after snippet) and the script's own rules.
       - name: Changelog fragments
-        run: python3 scripts/changelog.py --check
+        run: |
+          python3 scripts/changelog.py --check
+          python3 scripts/changelog.py --selftest
       # The release guard (CONTRIBUTING.md "Releasing") and the guide's note.
       - name: Release scripts
         run: |
@@ -614,6 +630,71 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo doc --workspace --no-deps
 
+  # The API of the published crates against the last crates.io release, with
+  # cargo-semver-checks. scripts/semver-checks.py decides what a break means:
+  # on a release-* branch (or a pull request into one) any break fails; on
+  # main, a break this change adds passes only with the `breaking` label and a
+  # `### Breaking changes` changelog fragment; and the label itself fails
+  # without such a fragment, break found or not. Breaks that earlier merged
+  # changes announced don't fail later pull requests. Read CONTRIBUTING.md,
+  # "Semver checks", for how to act on a failure.
+  #
+  # The tool reads rustdoc's JSON, whose format changes with the Rust release,
+  # so the tool and the Rust version are pinned together: to move to a newer
+  # Rust, move the tool to a release that supports it (its changelog says
+  # which rustdoc formats it reads) and run the job on a pull request.
+  # No pull_request_target: the labels are read through the API with a
+  # read-only token, and the code that runs is the pull request's own.
+  semver:
+    name: Semver checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      SEMVER_CHECKS_VERSION: 0.51.0
+      # Old crates.io releases are built with today's Rust: their warnings
+      # must not fail the build.
+      RUSTFLAGS: ""
+      RUSTDOCFLAGS: ""
+      GH_TOKEN: ${{ github.token }}
+      EVENT: ${{ github.event_name }}
+      BASE_REF: ${{ github.base_ref }}
+      REF_NAME: ${{ github.ref_name }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+      PR: ${{ github.event.pull_request.number }}
+      SHA: ${{ github.sha }}
+      REPO: ${{ github.repository }}
+    steps:
+      # Full history: the comparison with the commit a change is based on.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: The script's own checks
+        run: python3 scripts/semver-checks.py selftest
+      - name: Install ALSA and udev headers (audio, gamepads)
+        run: bash scripts/ci-apt-install.sh libasound2-dev libudev-dev
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          key: semver
+      - name: Cache cargo-semver-checks binary
+        id: semver-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-semver-checks
+          key: cargo-semver-checks-${{ runner.os }}-${{ runner.arch }}-${{ env.SEMVER_CHECKS_VERSION }}
+      - uses: taiki-e/install-action@v2
+        if: steps.semver-cache.outputs.cache-hit != 'true'
+        with:
+          tool: cargo-semver-checks@${{ env.SEMVER_CHECKS_VERSION }}
+      - run: cargo semver-checks --version
+      - name: Check the API of every published crate
+        run: python3 scripts/semver-checks.py run
+
   book:
     name: Book
     runs-on: ubuntu-latest
@@ -1013,7 +1094,7 @@ jobs:
   ci-passed:
     name: CI passed
     if: always()
-    needs: [leaks, fmt, reference-images, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles]
+    needs: [leaks, fmt, reference-images, clippy, feature-deps, msrv, test, windows-unit-build, windows-unit, windows-gpu-tiers, windows-examples, test-features, docs, semver, book, miri, native, web, web-smoke-runner, web-smoke, package-smoke, validation-bundles]
     runs-on: ubuntu-latest
     steps:
       - name: Check every job

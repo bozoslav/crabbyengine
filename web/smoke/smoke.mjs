@@ -512,6 +512,33 @@ async function main() {
     const tooLow = checkMinimums(snapshot.state, args.mins);
     if (tooLow) throw new Failure("state", tooLow);
 
+    // 4d. Storage (--after-reload): once the game says its writes are stored
+    //     (`saving` false), reload the page; the new page must find what the
+    //     old one saved in the browser's storage (coin_dash's settings).
+    if (args.afterReload.length) {
+      const savedDeadline = Date.now() + 10_000;
+      while ((await smokeState(page)).state?.saving === true) {
+        if (Date.now() > savedDeadline) throw new Failure("storage", "the game's writes never finished");
+        await sleep(100);
+      }
+      await page.reload();
+      const reloadDeadline = Date.now() + args.timeout * 1000;
+      for (;;) {
+        snapshot = await smokeState(page);
+        failure = appFailure(snapshot.status);
+        if (failure) throw await settled(failure);
+        if (snapshot.state && snapshot.state.ticks > 0) break;
+        if (Date.now() > reloadDeadline) throw new Failure("startup-timeout", "no running frame after the reload");
+        await sleep(100);
+      }
+      for (const { field, value } of args.afterReload) {
+        if (String(snapshot.state[field]) !== value) {
+          throw new Failure("storage", `after the reload, ${field} is ${JSON.stringify(snapshot.state[field])}, not ${value}`);
+        }
+      }
+      log(`after the reload: ${args.afterReload.map(({ field, value }) => `${field} is ${value}`).join(", ")}`);
+    }
+
     // 5. Rendering: the canvas shows the background and the sprites.
     const png = await page.locator(GAME_CANVAS).screenshot();
     await writeFile(join(args.out, "canvas.png"), png);

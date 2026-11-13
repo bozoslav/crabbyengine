@@ -121,6 +121,11 @@ ctx.world.load(&save)?;
   Reflected resources are saved too (under `"resources"`); other resources
   and the sim clock aren't. C++ components are saved once
   their fields are described (see [Reflection](reflection.md#c-and-c-components)).
+- **For a player's save game**, keep it in the player's storage instead of a
+  path of your own: `ctx.storage.save_world(&ctx.world, "slot1")` and
+  `ctx.load_world("slot1")` write it crash-safely to the data folder (or the
+  browser's storage) and load it as a scene load does; see [Save
+  slots](storage.md#save-slots).
 
 Agents can do the same through `ponko-mcp` (`save_world`, `load_world`):
 checkpoint, try something, roll back.
