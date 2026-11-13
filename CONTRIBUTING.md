@@ -135,6 +135,86 @@ lands (maintainers can add the `full-ci` label to run it on the PR first).
 Claims need numbers: measure in release builds before and after, and put
 both in the pull request. Avoid per-frame heap allocations on hot paths.
 
+### Semver checks
+
+The **Semver checks** job of CI compares the public API of every published
+crate with its last release on crates.io, using
+[cargo-semver-checks](https://github.com/obi1kenobi/cargo-semver-checks), and
+reports what a change breaks. [STABILITY.md](STABILITY.md) promises that a
+patch release (0.1.x) keeps code compiling that compiled against 0.1.0; this is
+the check behind that promise. It is a quick check: it runs on every pull
+request without the full matrix, and takes a few minutes.
+
+- **What is checked.** `ponko`, `ponko_ecs`, `ponko_ffi`, `ponko_mcp` and
+  `ponko_unity`, each with the features docs.rs builds for it
+  (`[package.metadata.docs.rs]` in its Cargo.toml; not `hotpatch` or
+  `bench-internals`, which are not API). A new publishable crate is picked up
+  by itself. `ponko_macros` is listed as not checked: the tool reads no API
+  from a proc-macro crate.
+- **What fails.** On a `release-*` branch (patch releases) and on a pull request
+  into one, every break fails the job. On `main`, breaks pile up until the next
+  minor release, so the comparison with crates.io only reports them. What
+  fails a pull request is a break *it* adds (found by comparing with the commit
+  it is based on), unless it carries the **`breaking` label** *and* a
+  [changelog fragment](changelog.d/README.md) with a `### Breaking changes`
+  section that names the replacement. Both are needed: the label tells the
+  reviewer, the fragment becomes the migration guide.
+
+**Reading a failure.** Open the job summary (or the log group
+"before this change: <crate>"). Each failed lint has a name
+(`inherent_method_missing`), a description, a link to the Cargo reference,
+and a `Failed in:` list of items with the file they were in at the last release.
+
+**Acting on it:**
+
+1. *Undo the break* if it was not meant: keep the old item next to the new
+   one and mark it `#[deprecated(note = "use ...")]`, or make the type
+   `#[non_exhaustive]` before it grows. On a release branch this is the only way.
+2. *Announce it* if it is meant (on `main` only): add the fragment, add the
+   `breaking` label, and **re-run the Semver job**. Labels do not start CI
+   (see the header of ci.yml), and the job reads the labels when it runs, so
+   a re-run sees the label you added after the failure. Maintainers add the
+   label; a contributor can ask for it in the pull request.
+3. *Tool errors* (the job could not build a crate, or the tool does not read
+   this Rust version) are not breaks and no label excuses them. See the note at
+   the top of the job in ci.yml about the pinned tool and Rust versions.
+
+To run it locally, with the same pinned tool (`cargo install --locked
+cargo-semver-checks --version 0.51.0`; it needs the Linux audio and udev headers
+the other builds need):
+
+```sh
+EVENT=pull_request BASE_REF=main BASE_SHA=$(git merge-base origin/main HEAD) \
+  python3 scripts/semver-checks.py run
+```
+
+Without a pull request number it finds no label, so it fails a break that has
+no label; the output says what it would need. For one crate,
+`cargo semver-checks check-release -p ponko_unity --default-features --release-type minor`
+shows the lints directly.
+
+**What it does not catch.** The tool compares the public API as rustdoc
+describes it, with a fixed list of lints (`cargo semver-checks check-release
+--list`); a break no lint describes passes. Know these gaps when you review:
+
+- Behaviour with an unchanged signature: a different result, panic, default
+  value, ordering, timing, or determinism; what a saved world or a
+  save file contains; the fields of the control endpoint and MCP messages.
+- Many type changes in fields, parameters and return values, and tightened
+  generic bounds, are covered only where a lint exists for them.
+- Features outside the checked set (`hotpatch`, `bench-internals`) and
+  platform-specific API on other targets: only the Linux target with the
+  docs.rs features is built.
+- The C and C++ headers (`include/`) and the layout of `#[repr(C)]` types as
+  C sees them: the tool reads the Rust side of `ponko_ffi` only. The C ABI tests
+  and `scripts/check-ffi-coverage.py` are what guard the header.
+- Anything behind `#[doc(hidden)]` (such as `ponko::__ffi`), which is
+  unstable by definition, and a new crate's first release (nothing to compare).
+- Proc-macro crates (`ponko_macros`): the names and attributes of the derives
+  are not compared.
+- Dependencies: when a public type from `glam`, `wgpu` or another crate in our
+  API changes major version, our API breaks without a lint saying so.
+
 ## Architecture proposals
 
 Read [PROJECT_VISION.md](PROJECT_VISION.md), [ARCHITECTURE.md](ARCHITECTURE.md),

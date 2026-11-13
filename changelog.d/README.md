@@ -12,6 +12,9 @@ change, and the release folds them in.
   (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`); a
   larger change may use its own heading. Continuation lines are indented
   by two spaces, as in `CHANGELOG.md`.
+- A change that breaks a published crate's API needs a `### Breaking changes`
+  section, and the pull request the `breaking` label: the Semver checks job
+  fails a break it finds without both (CONTRIBUTING.md, "Semver checks").
 
 ```md
 ### Added

@@ -239,9 +239,12 @@ def main_run():
         print(f'{p["name"]}: not checked, {skip_reason(p)}')
     results = {p['name']: {} for p in checked}
 
-    release_type = 'patch' if mode == 'release' else 'minor'
+    # `minor` is what 0.1.0 -> 0.1.x is for a 0.x crate (cargo's rule, which
+    # the tool follows): additions pass, breaks fail. `patch` would also fail
+    # additions, which STABILITY.md allows in a patch release. A main that
+    # still says 0.1.0 is compared as the same.
     for p in checked:
-        results[p['name']]['registry'] = check(p, release_type, [], 'last release')
+        results[p['name']]['registry'] = check(p, 'minor', [], 'last release')
     breaks = [n for n, r in results.items() if r['registry'] == 'break']
     errors = [n for n, r in results.items() if r['registry'] == 'error']
 
