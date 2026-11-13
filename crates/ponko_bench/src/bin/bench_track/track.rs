@@ -343,6 +343,14 @@ pub fn compare(base: &Side, new: &Side, rule: Rule, any_machine: bool) -> Result
             or_unknown(&new.workloads)
         ));
     }
+    let fewest = |side: &Side| side.samples.iter().map(|(_, xs)| xs.len()).min().unwrap_or(0);
+    let fewest = fewest(base).min(fewest(new));
+    if fewest < 3 {
+        warnings.push(format!(
+            "a side has only {fewest} run(s) of a benchmark, too few to see its spread: \
+             repeat runs (3 or more) for a trustworthy threshold"
+        ));
+    }
     let mut rows = Vec::new();
     let mut only_base = Vec::new();
     for (name, b) in &base.samples {
@@ -744,7 +752,9 @@ mod tests {
         let rule = Rule::for_method(Method::Instructions);
         assert!(compare(&a, &b, rule, false).unwrap_err().contains("different machines"));
         let c = compare(&a, &b, rule, true).unwrap();
-        assert_eq!(c.warnings.len(), 1);
+        // The machines, and one run per side.
+        assert_eq!(c.warnings.len(), 2, "{:?}", c.warnings);
+        assert!(c.warnings[1].contains("only 1 run(s)"), "{:?}", c.warnings);
     }
 
     #[test]

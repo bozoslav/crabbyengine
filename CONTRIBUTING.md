@@ -135,6 +135,19 @@ lands (maintainers can add the `full-ci` label to run it on the PR first).
 Claims need numbers: measure in release builds before and after, and put
 both in the pull request. Avoid per-frame heap allocations on hot paths.
 
+Benchmarks are also tracked for you (`.github/workflows/bench.yml`; the
+`ponko_bench` README, "Tracking results over time", has the details). A pull
+request that touches the engine, the ECS or the benchmarks gets the
+instruction counts of a few small workloads (ECS iteration, queries,
+spawn/despawn, a sim tick, 3D frame collection) compared with its base, and
+a comment naming every benchmark that moved beyond noise. Every commit on
+`main` adds its counts to the `bench-history` branch, whose README shows
+them over time. A slower benchmark doesn't block the merge, but explain it
+in the pull request, or fix it. To compare locally, run `bench_track compare`
+on repeated runs of each side (a single run has no spread, so its threshold
+is only the floor); instruction counts need valgrind, so on macOS compare
+wall-clock runs of `ponko_bench`.
+
 ### Breaking changes: the migration note
 
 [STABILITY.md](STABILITY.md) promises that every break comes with what to use
@@ -469,7 +482,25 @@ release branch (`v0.1.1` on `release-0.1`, see
    `Cargo.lock` (`cargo check --workspace`).
 3. `python3 scripts/release-check.py check vX.Y.Z` lists what still disagrees
    (it does not need the tag to exist), and `cargo publish --workspace
-   --dry-run` packages and builds every crate the way crates.io will. Open the
+   --dry-run` packages and builds every crate the way crates.io will. For a
+   minor release (and its first candidate), record the wall-clock baseline on
+   the named benchmark machine, idle, and add it to the pull request:
+
+   ```sh
+   v=X.Y.Z
+   m=macos-aarch64-apple-m4-max   # what bench_track calls the machine (`<os>-<arch>-<cpu>`)
+   mkdir -p crates/ponko_bench/releases/$v/$m
+   for i in 1 2 3 4 5; do
+     PONKO_BENCH_JSON=crates/ponko_bench/releases/$v/$m/run-$i.json \
+       cargo run --release -p ponko_bench -- 'ecs/|archetypes-1024|query-build'
+   done
+   cargo run --release -p ponko_bench --bin bench_track -- \
+     compare crates/ponko_bench/releases/<previous>/$m crates/ponko_bench/releases/$v/$m
+   ```
+
+   Link the folder and the comparison in the CHANGELOG section (the release
+   notes). The tag push records the release's instruction counts on the
+   `bench-history` branch by itself. Open the
    pull request with the `full-ci` label, let CI pass and merge it.
 4. Tag the merge commit on `main` (on `release-X.Y` for a patch release) and
    push the tag:
