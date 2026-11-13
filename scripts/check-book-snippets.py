@@ -24,7 +24,8 @@ How a block is compiled (the same idea as rustdoc, kept deliberately small):
 - Warnings such as unused variables are allowed; deprecated items are not.
   The checker also rejects the root glob `use ponko::*;` (games start from
   `use ponko::prelude::*;` and module imports), in snippets and in inline
-  code in the prose (except the naming chapter, which explains it).
+  code in the prose (except the naming and migration chapters, which
+  explain it).
 
 Generated files keep the markdown's line numbers, so a compiler error at
 `src/physics.rs:40` is `book/src/physics.md:40`.
@@ -85,6 +86,8 @@ def unhide(line):
 
 
 NAMING = BOOK / "naming.md"
+# Chapters whose prose names the old spellings to explain them.
+EXPLAINS_OLD_NAMES = {NAMING, BOOK / "migrating-to-0.1.md"}
 # The README is the crates.io page: its snippets are checked like a chapter's.
 README = ROOT / "README.md"
 
@@ -153,7 +156,7 @@ def generate(out_src, features):
     ignored = []
     problems = []
     for md in [*sorted(BOOK.glob("*.md")), README]:
-        if md != NAMING:
+        if md not in EXPLAINS_OLD_NAMES:
             problems.extend(check_prose(md))
         out = []  # generated lines; len(out) is the line number reached
         for start, end, attrs, body in extract(md):
