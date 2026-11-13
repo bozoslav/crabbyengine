@@ -355,26 +355,7 @@ where
             // A sample count set in setup, before the first frame is drawn.
             self.ctx.follow_msaa();
             if let Some(f) = frame_fn {
-                let index = self.config.systems.partition_point(|s| s.stage <= Phase::Frame);
-                let id = next_system_id();
-                self.config.systems.insert(
-                    index,
-                    System {
-                        key: SystemId(id),
-                        builtin: None,
-                        name: "setup closure",
-                        stage: Phase::Frame,
-                        run: super::Run::Ctx(f),
-                        every: 1,
-                        phase: 0,
-                        id,
-                        access: None,
-                        last: false,
-                        changes_seen: Default::default(),
-                        enforced: false,
-                        barrier: false,
-                    },
-                );
+                self.config.add_setup_closure(f);
             }
             self.started = true;
         }
@@ -441,12 +422,14 @@ where
         #[cfg(not(target_arch = "wasm32"))]
         self.start(Renderer::new(window, display, vsync, msaa));
 
-        // Web: the browser can't block, so fetch the assets and open the GPU
+        // Web: the browser can't block, so fetch the assets, read the
+        // player's stored files (`ctx.storage`) and open the GPU
         // in a task, which sends `Ready` when done.
         #[cfg(target_arch = "wasm32")]
         if let Some(proxy) = self.proxy.take() {
             wasm_bindgen_futures::spawn_local(async move {
                 crate::web::fetch_assets().await;
+                crate::storage::preload_web().await;
                 let renderer = Renderer::new_async(window, display, vsync, msaa).await;
                 let _ = proxy.send_event(Ready(renderer));
             });

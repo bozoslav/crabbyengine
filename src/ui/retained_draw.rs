@@ -10,10 +10,30 @@ use crate::{
 };
 use glam::Vec2;
 
+/// A click an input scenario asked for: where, and the text typed after it.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ScriptedClick {
+    pub(crate) at: Vec2,
+    pub(crate) text: String,
+}
+
 impl Ctx {
     pub(crate) fn update_retained_ui(&mut self) {
         let text = std::mem::take(&mut self.ui_state.retained_input_text);
-        let input = self.retained_input(&self.ui, text);
+        let mut input = self.retained_input(&self.ui, text);
+        if let Some(click) = self.ui_state.scripted.take() {
+            // Pressed and released in one frame: the UI clicks what is under
+            // the pointer, as a quick tap of the mouse does.
+            input.pointer = click.at;
+            input.pressed = true;
+            input.held = false;
+            input.released = true;
+            if !click.text.is_empty() {
+                // Typed at the end of what the field holds.
+                input.end = true;
+                input.text.push_str(&click.text);
+            }
+        }
         self.ui.frame_with_text(self.window_size(), &input, &mut self.gfx.text);
         self.ui_state.retained_input_text = input.text;
         #[cfg(feature = "3d")]
@@ -61,6 +81,52 @@ impl Ctx {
             end: pressed(Key::End),
             text,
         }
+    }
+
+    /// An input scenario's click on the node named `name` (and, with
+    /// `text`, typing into it): queued for the retained UI's next frame, at
+    /// the centre of the node as the UI lays it out now. Refused, with a
+    /// sentence for the report, when no node has that name, it is not shown,
+    /// something else is under its centre (a modal, a disabled node, an
+    /// overlapping one), or `text` is for a node that is not a text input.
+    pub(crate) fn script_ui_click(&mut self, name: &str, text: Option<&str>) -> Result<(), String> {
+        let size = self.window_size();
+        self.ui.layout(size);
+        let ui = &self.ui;
+        let id = ui.find(name).ok_or_else(|| format!("no UI node is named `{name}`"))?;
+        if !ui.is_shown(id) {
+            return Err(format!("UI node `{name}` is not on a shown screen"));
+        }
+        if text.is_some() && ui.node(id).is_some_and(|n| n.widget != UiWidget::TextInput) {
+            return Err(format!("UI node `{name}` is not a text input"));
+        }
+        let rect = ui.rect(id).unwrap_or_default();
+        let at = (rect.min + rect.max) / 2.0;
+        let hit = ui.hit_test(at);
+        let mut over = hit;
+        while let Some(node) = over
+            && node != id
+        {
+            over = ui.parent(node);
+        }
+        if over != Some(id) {
+            let what = match hit {
+                Some(other) => match ui.name(other) {
+                    Some(other) => format!("`{other}`"),
+                    None => "another node".to_string(),
+                },
+                None => "nothing that takes clicks (disabled, under a modal, or not on the top screen)".to_string(),
+            };
+            return Err(format!(
+                "UI node `{name}` can't be clicked: at its centre ({:.0}, {:.0}) the pointer is over {what}",
+                at.x, at.y
+            ));
+        }
+        self.ui_state.scripted = Some(ScriptedClick {
+            at,
+            text: text.unwrap_or_default().to_string(),
+        });
+        Ok(())
     }
 
     pub(crate) fn draw_retained_ui(&mut self) {

@@ -11,8 +11,8 @@
 //! (quit on the title screen). Q / East: back to the title. O / North: settings.
 //!
 //! The best time, most coins and the settings are saved in the player's data
-//! folder (the progress file can be named by `COIN_DASH_SAVE`); a missing or
-//! damaged file just starts over.
+//! folder through `ctx.storage` (`PONKO_DATA_DIR` moves it), or the browser's
+//! storage on the web; a missing or damaged file just starts over.
 //!
 //! The rules live in `game.rs`, which `tests/coin_dash.rs` also drives without
 //! a window (`cargo test --test coin_dash`), so the whole loop (title, play,
@@ -66,9 +66,9 @@ fn smoke(mode: &str, report: Option<std::path::PathBuf>) {
     let name = mode.to_string();
     let setup = move |ctx: &mut ponko::prelude::Ctx| setup_smoke(ctx, report, &name);
     if mode == "window" {
-        build_smoke(game::save_path()).setup(setup).run();
+        build_smoke().setup(setup).run();
     } else {
-        let world = build_smoke(game::save_path()).setup(setup).run_headless(MAX_TICKS + 1);
+        let world = build_smoke().setup(setup).run_headless(MAX_TICKS + 1);
         if !world.resource::<Smoke>().finished() {
             eprintln!("coin_dash: the walk-through did not finish");
             std::process::exit(1);

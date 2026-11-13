@@ -99,3 +99,10 @@ Sticks and triggers are axes:
 Gamepads need the `gamepad` cargo feature, on by default. Without it, or in
 [headless runs](headless.md), `ctx.input.gamepads()` is empty. On Linux, building
 it needs the udev headers (`sudo apt-get install libudev-dev`).
+
+## What was just pressed
+
+`ctx.input.pressed_this_frame()` lists every key, mouse button, gamepad button
+and gamepad axis that went down this frame, as bindings an `ActionMap`
+accepts: the query behind a rebinding screen. See
+[Named input actions](actions.md#rebinding-screens-what-was-just-pressed).

@@ -144,8 +144,9 @@ headless game waits for requests and runs only the ticks you step.
 | `world.save` | `path`, `overwrite?` (false) | writes a [save](determinism.md#saving-and-loading-the-world) (see [file paths](#file-paths)); entity and resource counts, bytes, tick |
 | `world.load` | `path` | replaces every entity from a save (same ids; checked first) |
 | `scene.save` / `scene.load` | `path` | a [scene](scenes.md) in `assets/` (loading also loads sprite images) |
-| `prefab.spawn` | `path`, `at` | spawns a [prefab](scenes.md) at `[x, y]`; returns `entity` |
-| `prefab.save` | `entity`, `path` | saves an entity as a prefab in `assets/` |
+| `prefab.spawn` | `path`, `at` | spawns a [prefab](scenes.md) at `[x, y]`; returns `entity` (the root) and `parts` (its [children](scenes.md#prefabs-with-children)) |
+| `prefab.save` | `entity`, `path` | saves an entity, with its parts and attachments, as a prefab in `assets/` |
+| `prefab.despawn` | `entity` | despawns a prefab's root and its parts; how many entities went |
 | `sim.pause` / `sim.resume` | | |
 | `sim.step` | `ticks?` (1) | ticks queued |
 | `sim.speed` | `speed` | |

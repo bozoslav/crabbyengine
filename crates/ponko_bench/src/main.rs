@@ -1351,6 +1351,36 @@ fn flow_benches(b: &mut Bench) {
             black_box(world);
         },
     );
+    // ---- the headless loop itself: 10k ticks of a game that does nothing --------
+    b.steady(
+        "headless/sim-only-10k-ticks",
+        20,
+        || (),
+        |_| {
+            let world = ponko::prelude::Game::new("bench", 1, 1)
+                .sim_system(|ctx| {
+                    black_box(ctx.time.sim_tick());
+                })
+                .run_headless(10_000, |_| {});
+            black_box(world);
+        },
+    );
+    // The same with frames (`headless_frames`): the UI and the frame systems
+    // run too, so this is what a menu test pays per frame.
+    b.steady(
+        "headless/frames-10k-ticks",
+        20,
+        || (),
+        |_| {
+            let world = ponko::prelude::Game::new("bench", 1, 1)
+                .headless_frames(true)
+                .sim_system(|ctx| {
+                    black_box(ctx.time.sim_tick());
+                })
+                .run_headless(10_000, |_| {});
+            black_box(world);
+        },
+    );
 }
 
 #[cfg(test)]

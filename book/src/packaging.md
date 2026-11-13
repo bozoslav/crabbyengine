@@ -81,7 +81,7 @@ checks:
 3. a second run starts from them (`Loaded`) and adds a round;
 4. a damaged `progress.json` is recovered from (`Recovered`, kept as
    `progress.json.bad`) and written again;
-5. with no `COIN_DASH_SAVE`, files go to the operating system's data folder
+5. with no `PONKO_DATA_DIR`, files go to the operating system's data folder
    (a home folder of the test's own: `%APPDATA%`, `~/Library/Application
    Support`, `$XDG_DATA_HOME`);
 6. a copy of the package *without* `assets/` fails, and says which file it
@@ -110,11 +110,15 @@ a window also needs the system's X11 libraries at run time, among them
 
 Progress (best time, high score, rounds) and settings live in the player's data
 folder: `%APPDATA%\coin-dash\`, `~/Library/Application Support/coin-dash/`, or
-`$XDG_DATA_HOME/coin-dash/` (`~/.local/share/coin-dash/`).
-`COIN_DASH_SAVE=<file>` moves the progress file, and the settings go beside it.
-Files are written through a temporary file and renamed, so a crash leaves the
-old one. A missing file is a first run. An unreadable one, one that doesn't
-parse, one with impossible numbers or another version is moved to `<name>.bad`,
+`$XDG_DATA_HOME/coin-dash/` (`~/.local/share/coin-dash/`), and the browser's
+storage in the web build. The game has no path code of its own: it gives the
+engine its app id (`Game::app_id("coin-dash")`) and reads and writes through
+`ctx.storage` ([Saves and settings](storage.md)). `PONKO_DATA_DIR=<folder>`
+moves the data folder (the files go in `<folder>/coin-dash/`).
+Files are written through a temporary file and renamed, and the previous one is
+kept as `<name>.bak`, so a crash leaves the old one. A missing file is a first
+run. An unreadable one, one that doesn't parse, one with impossible numbers or
+another version is copied to `<name>.bad`,
 the game starts from the defaults and says so on the title screen. A write that
 fails (a read-only disk) is shown and doesn't stop the game. The tests cover
 every one of these cases for both files.
@@ -127,8 +131,9 @@ web/build.sh coin_dash && python3 -m http.server -d target/web/coin_dash 8000
 
 builds the same game for the browser: the coin picture is fetched with the
 asset list, the retained settings screen and the keys work as on the desktop.
-It keeps **no progress or settings** in a browser (there are no files; see
-[Web builds](web.md)) and has no quit command. The `web-smoke` CI job (the
+Progress and settings are kept in the browser's storage through the same
+`ctx.storage` calls ([Saves and settings](storage.md#in-the-browser)); it has
+no quit command. The `web-smoke` CI job (the
 browser runner of `web/smoke`, [issue
 #173](https://github.com/ponkoengine/ponko/issues/173)) builds it after
 the fixture and runs it in headless Chromium on WebGL2: it checks that the
@@ -136,7 +141,10 @@ asset was fetched and decoded as 32 x 32, that the simulation advances, that a
 click and keys arrive, and that the screen the game reports follows them
 (the `coin_dash` entry of `web/smoke/fixtures.json`: `--press Enter=screen:Playing
 --press Escape=screen:Paused --press Q=screen:Title --press O=screen:Settings
---press Escape=screen:Title`), then that the canvas is not blank. The game
+--press Escape=screen:Title`), that after a page reload the settings saved
+when the settings screen was left come back from the browser's storage
+(`afterReload`: `settings_at_start:Loaded`, `storage:persistent`), then that
+the canvas is not blank. The game
 publishes its state on `<html data-smoke>` in the fixture's format plus the
 screen name, and the GPU the engine opened on `<html data-smoke-gpu>`
 (`publish_web_state`).
@@ -172,7 +180,10 @@ settings screen shows the keys it reads back from `ctx.input.actions()` with
 `Controls::from_bindings`, so a binding installed some other way (a
 user-edited actions file, say) shows up as it is. Pressing a control's button
 opens a small modal prompt (a screen with nothing to focus, so no key can press
-a button behind it), and the next key or button pressed is the answer. The
+a button behind it), and the next key or button pressed is the answer: the
+prompt reads it from `ctx.input.pressed_this_frame()` (see [Named input
+actions](actions.md#rebinding-screens-what-was-just-pressed)), so it lists no
+keys and polls nothing. The
 check runs against what the map binds now, `ctx.input.set_action` replaces
 only the action that control feeds (its `ActionId` stays valid), and the copy
 saved with the other settings is read back from the map. The hints on the
@@ -246,12 +257,11 @@ index, or a new one):
 
 | Gap | Where it is tracked |
 |---|---|
-| No query for "which key or button was pressed this frame": the rebinding prompt lists the keys it offers itself, because the engine can only answer "is this one pressed". | Input service of [#195](https://github.com/ponkoengine/ponko/issues/195) |
 | `run_headless` runs no frame systems and no UI frame, so screens built on the retained UI are tested by hand-feeding `Ui::frame`. | Phases: [#198](https://github.com/ponkoengine/ponko/issues/198); scripted input: [#179](https://github.com/ponkoengine/ponko/issues/179) |
 | No native screen-reader adapter for the retained UI. | [#183](https://github.com/ponkoengine/ponko/issues/183) |
 | Immediate-mode text and UI don't follow the retained UI's scale; the theme and builders are the retained UI's only. | [#203](https://github.com/ponkoengine/ponko/issues/203) |
 | Saves and settings are plain files in the data folder; what a scene replacement does to them and to runtime services is undefined. | [#178](https://github.com/ponkoengine/ponko/issues/178); save-file compatibility fixtures [#174](https://github.com/ponkoengine/ponko/issues/174) |
-| The web build keeps nothing (no storage backend), and the browser matrix is Chromium on SwiftShader WebGL2 only (no real-GPU WebGPU, Firefox, Safari or mobile). | [#173](https://github.com/ponkoengine/ponko/issues/173) |
+| The browser matrix is Chromium on SwiftShader WebGL2 only (no real-GPU WebGPU, Firefox, Safari or mobile). | [#173](https://github.com/ponkoengine/ponko/issues/173) |
 | The window smoke proves "a window opens and frames are drawn", not what they look like; no image regression for a whole game. | [#135](https://github.com/ponkoengine/ponko/issues/135) |
 | The C and C++ bindings have no counterpart of this game (it is Rust only). | No native port planned yet |
 | Packages aren't attached to a release, signed or notarized, and there is no installer; the third-party notice is generated by a short script (on macOS, 33 of the 188 linked libraries ship no license file in their published source, so only their declared license and authors are listed; the package says which) rather than by a license-policy tool. | [#282](https://github.com/ponkoengine/ponko/issues/282) |

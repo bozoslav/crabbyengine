@@ -29,7 +29,9 @@
 //! assert_eq!(world.get::<Transform2D>(e).unwrap().position, vec2(1.0, 2.0));
 //! # let _ = Pose;
 //! ```
-pub use crate::actions::{Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding};
+pub use crate::actions::{
+    Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, PressedInput,
+};
 pub use crate::assets::{AssetSource, Assets, MemorySource};
 pub use crate::audio::{AudioBus, Playing, Sound, SoundParams};
 pub use crate::camera::Rect;
@@ -48,7 +50,7 @@ pub use crate::input::{Key, MouseButton};
 pub use crate::profile_scope;
 pub use crate::random::{Random, Rng};
 pub use crate::reflect::WorldReflect;
-pub use crate::scene::Placement;
+pub use crate::scene::{Placement, PrefabParts};
 pub use crate::sheet::SpriteSheet;
 pub use crate::text::{Font, TextParams};
 pub use crate::texture::{DrawParams, Texture, TextureFilter};

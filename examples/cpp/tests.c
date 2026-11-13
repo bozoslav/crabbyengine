@@ -1742,6 +1742,21 @@ static void native_setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_action_axis_id(ctx, jump, &axis) == PONKO_OK && axis == 0);
     CHECK(ponko_ctx_action_axis2_id(ctx, PONKO_ACTION_NONE, &axis2) == PONKO_OK && axis2.x == 0);
 
+    /* Pressed this frame: what a rebinding screen reads, ready for ponko_action_map_set. */
+    CHECK(ponko_ctx_feed_input(ctx, 0, 0, PONKO_KEY_J, 1) == PONKO_OK);
+    CHECK(ponko_ctx_feed_input(ctx, 3, 0, PONKO_GAMEPAD_LEFT_TRIGGER_AXIS, 0.9f) == PONKO_OK);
+    PonkoActionBinding fresh[4];
+    size_t fresh_count = 0;
+    CHECK(ponko_ctx_pressed_this_frame(ctx, 0.0f, fresh, 4, &fresh_count) == PONKO_OK);
+    /* Space went down above too: keys in key order, then the axis. */
+    CHECK(fresh_count == 3 && fresh[0].kind == PONKO_ACTION_KEY && fresh[0].first == PONKO_KEY_J);
+    CHECK(fresh[1].kind == PONKO_ACTION_KEY && fresh[1].first == PONKO_KEY_SPACE);
+    CHECK(fresh[2].kind == PONKO_ACTION_GAMEPAD_AXIS && fresh[2].first == PONKO_GAMEPAD_LEFT_TRIGGER_AXIS);
+    CHECK(fresh[2].deadzone > 0.0f && fresh[2].deadzone < PONKO_PRESS_THRESHOLD);
+    CHECK(ponko_ctx_pressed_this_frame(ctx, -1.0f, fresh, 4, &fresh_count) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_feed_input(ctx, 0, 0, PONKO_KEY_J, 0) == PONKO_OK);
+    CHECK(ponko_ctx_feed_input(ctx, 3, 0, PONKO_GAMEPAD_LEFT_TRIGGER_AXIS, 0) == PONKO_OK);
+
     /* The try_ loaders: kind and path, never a caught panic. */
     PonkoTexture texture;
     PonkoFont font;
@@ -1867,6 +1882,58 @@ static void native_coverage(void) {
     CHECK(ponko_ctx_start_scenario(NULL, NULL) == PONKO_INVALID_ARGUMENT);
 }
 
+/* Headless frames: a form typed into and clicked by node name. */
+static void form_setup(PonkoCtx* ctx, void* user) {
+    (void)user;
+    PonkoUiLayout fill = ponko_ui_layout_fill(), box = ponko_ui_layout_fixed(200, 30);
+    uint64_t root = 0, name = 0, ok = 0;
+    CHECK(ponko_ctx_ui_add_panel(ctx, PONKO_UI_SCREEN, PONKO_UI_NONE, &fill, &root) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_text_input(ctx, PONKO_UI_SCREEN, root, "", &box, &name) == PONKO_OK);
+    CHECK(ponko_ctx_ui_add_button(ctx, PONKO_UI_SCREEN, root, "OK", &box, &ok) == PONKO_OK);
+    CHECK(ponko_ctx_ui_set_name(ctx, PONKO_UI_SCREEN, root, "form") == PONKO_OK);
+    CHECK(ponko_ctx_ui_set_name(ctx, PONKO_UI_SCREEN, name, "form.name") == PONKO_OK);
+    CHECK(ponko_ctx_ui_set_name(ctx, PONKO_UI_SCREEN, ok, "form.ok") == PONKO_OK);
+    bool shown = true;
+    CHECK(ponko_ctx_ui_is_shown(ctx, PONKO_UI_SCREEN, ok, &shown) == PONKO_OK && !shown);
+    CHECK(ponko_ctx_ui_push_screen(ctx, PONKO_UI_SCREEN, root, false) == PONKO_OK);
+    CHECK(ponko_ctx_ui_is_shown(ctx, PONKO_UI_SCREEN, ok, &shown) == PONKO_OK && shown);
+    CHECK(ponko_ctx_ui_is_shown(ctx, PONKO_UI_SCREEN, 9999, &shown) == PONKO_NOT_FOUND);
+}
+/* Frame system: OK closes the form; `user` counts the closes. */
+static void form_frame(PonkoCtx* ctx, void* user) {
+    uint64_t ok = PONKO_UI_NONE, clicked = PONKO_UI_NONE, root = PONKO_UI_NONE;
+    CHECK(ponko_ctx_ui_find(ctx, PONKO_UI_SCREEN, "form.ok", &ok) == PONKO_OK);
+    CHECK(ponko_ctx_ui_take_click(ctx, PONKO_UI_SCREEN, &clicked) == PONKO_OK);
+    if (clicked != PONKO_UI_NONE && clicked == ok) {
+        CHECK(ponko_ctx_ui_pop_screen(ctx, PONKO_UI_SCREEN, &root) == PONKO_OK);
+        ++*(int*)user;
+    }
+}
+static void headless_frames_ui(void) {
+    PonkoInputScenario* s = ponko_input_scenario_new();
+    CHECK(ponko_input_scenario_type_text(s, 2, "form.name", "Ada") == PONKO_OK);
+    CHECK(ponko_input_scenario_expect_ui(s, 2, "form.name", 1, 1, 1, "Ada") == PONKO_OK);
+    CHECK(ponko_input_scenario_click(s, 4, "form.ok") == PONKO_OK);
+    CHECK(ponko_input_scenario_expect_ui(s, 4, "form", -1, 0, -1, NULL) == PONKO_OK);
+    CHECK(ponko_input_scenario_expect_ui(s, 4, "form.cancel", 0, -1, -1, NULL) == PONKO_OK);
+    CHECK(ponko_input_scenario_expect_ui(s, 4, "form", 2, -1, -1, NULL) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_input_scenario_duration(s, 6) == PONKO_OK);
+    int closed = 0;
+    PonkoGame* game = ponko_game_new("c frames", 640, 480);
+    CHECK(ponko_game_headless_frames(game, true) == PONKO_OK);
+    CHECK(ponko_game_system(game, "form", form_frame, &closed) == PONKO_OK);
+    CHECK(ponko_game_input_scenario(game, s) == PONKO_OK);
+    ponko_input_scenario_free(s);
+    PonkoWorld* w = NULL;
+    CHECK(ponko_game_run_headless(game, 6, form_setup, NULL, &w) == PONKO_OK);
+    PonkoScenarioReport report;
+    CHECK(ponko_world_scenario_report(w, &report) == PONKO_OK);
+    CHECK(report.status == PONKO_SCENARIO_PASSED && report.inputs_applied == 2 && report.checks_passed == 3);
+    CHECK(closed == 1);
+    CHECK(ponko_world_free(w) == PONKO_OK);
+    CHECK(ponko_game_headless_frames(NULL, true) == PONKO_INVALID_ARGUMENT);
+}
+
 int main(void) {
     change_detection();
     declared_access();
@@ -1952,5 +2019,6 @@ int main(void) {
     query_cache();
     wide_queries();
     native_coverage();
+    headless_frames_ui();
     return 0;
 }

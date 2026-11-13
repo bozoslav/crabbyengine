@@ -270,7 +270,7 @@ SCREENS = ["Title", "Settings", "Title", "Playing", "Result(Won)", "Title"]
 
 
 def expected_default_save(home):
-    """Where the game keeps progress with no COIN_DASH_SAVE (see `save_path`)."""
+    """Where the game keeps progress with no PONKO_DATA_DIR (the engine's `ctx.storage`)."""
     if os.name == "nt":
         return home / "AppData" / "coin-dash" / "progress.json"
     if sys.platform == "darwin":
@@ -338,10 +338,11 @@ def smoke_headless(package, work, timeout):
     cwd.mkdir()
     env = clean_env()
 
-    # 1. A first run, saving where the environment says.
-    data = work / "data"
+    # 1. A first run, saving where the environment says (PONKO_DATA_DIR
+    # replaces the system's data folder; the game's app id is added below it).
+    data = work / "data" / "coin-dash"
     save = data / "progress.json"
-    env["COIN_DASH_SAVE"] = str(save)
+    env["PONKO_DATA_DIR"] = str(work / "data")
     code, out, err = play(exe, "headless", cwd, env, work / "report1.json", timeout)
     check(code == 0, f"first run exited {code}:\n{err}{out}")
     check_report(read_report(work / "report1.json", "first run"), "first run", "headless", "Fresh", 1)
@@ -367,7 +368,7 @@ def smoke_headless(package, work, timeout):
     check_progress_file(save, "damaged save", 1)
     print("  ok: a damaged save is recovered from")
 
-    # 4. The default place: no COIN_DASH_SAVE, a home folder of our own.
+    # 4. The default place: no PONKO_DATA_DIR, a home folder of our own.
     home = work / "home"
     home.mkdir()
     env = clean_env()
@@ -387,7 +388,7 @@ def smoke_missing_assets(package, work, timeout):
     shutil.copytree(package, broken)
     shutil.rmtree(broken / "assets")
     env = clean_env()
-    env["COIN_DASH_SAVE"] = str(work / "missing" / "progress.json")
+    env["PONKO_DATA_DIR"] = str(work / "missing")
     cwd = work / "elsewhere"
     code, out, err = play(broken / EXE, "headless", cwd, env, work / "report-missing.json", timeout)
     check(code != 0, "a package without assets still ran")
@@ -417,8 +418,8 @@ def smoke_window(package, work, timeout, allow_unsupported):
     cwd = work / "elsewhere"
     cwd.mkdir()
     env = clean_env()
-    save = work / "data" / "progress.json"
-    env["COIN_DASH_SAVE"] = str(save)
+    save = work / "data" / "coin-dash" / "progress.json"
+    env["PONKO_DATA_DIR"] = str(work / "data")
     report = work / "report-window.json"
     try:
         code, out, err = play(exe, "window", cwd, env, report, timeout)
