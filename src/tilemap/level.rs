@@ -473,7 +473,7 @@ pub(super) fn decode_error(message: impl Into<String>) -> Error {
 /// Reads level files through the asset sources, remembering each one.
 pub(super) struct Reader<'a> {
     assets: &'a Assets,
-    pub files: Vec<(String, Option<PathBuf>)>,
+    pub files: Vec<ReadFile>,
 }
 
 impl Reader<'_> {
@@ -495,15 +495,15 @@ impl Reader<'_> {
     }
 }
 
+/// A file a level was read from: its asset name and, when it is a file on
+/// disk, its path (for hot reload).
+type ReadFile = (String, Option<PathBuf>);
+
 impl Level {
     /// Reads `path`, telling the format by its extension: `.tmx` and `.tmj`
     /// (or other `.json`) are Tiled maps, `.ldtk` LDtk projects. Also
     /// returns the files read and where they are on disk.
-    fn read(
-        assets: &Assets,
-        path: &str,
-        options: &LevelOptions,
-    ) -> Result<(Level, Vec<(String, Option<PathBuf>)>), Error> {
+    fn read(assets: &Assets, path: &str, options: &LevelOptions) -> Result<(Level, Vec<ReadFile>), Error> {
         let mut reader = Reader {
             assets,
             files: Vec::new(),
