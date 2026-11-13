@@ -1742,6 +1742,21 @@ static void native_setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_action_axis_id(ctx, jump, &axis) == PONKO_OK && axis == 0);
     CHECK(ponko_ctx_action_axis2_id(ctx, PONKO_ACTION_NONE, &axis2) == PONKO_OK && axis2.x == 0);
 
+    /* Pressed this frame: what a rebinding screen reads, ready for ponko_action_map_set. */
+    CHECK(ponko_ctx_feed_input(ctx, 0, 0, PONKO_KEY_J, 1) == PONKO_OK);
+    CHECK(ponko_ctx_feed_input(ctx, 3, 0, PONKO_GAMEPAD_LEFT_TRIGGER_AXIS, 0.9f) == PONKO_OK);
+    PonkoActionBinding fresh[4];
+    size_t fresh_count = 0;
+    CHECK(ponko_ctx_pressed_this_frame(ctx, 0.0f, fresh, 4, &fresh_count) == PONKO_OK);
+    /* Space went down above too: keys in key order, then the axis. */
+    CHECK(fresh_count == 3 && fresh[0].kind == PONKO_ACTION_KEY && fresh[0].first == PONKO_KEY_J);
+    CHECK(fresh[1].kind == PONKO_ACTION_KEY && fresh[1].first == PONKO_KEY_SPACE);
+    CHECK(fresh[2].kind == PONKO_ACTION_GAMEPAD_AXIS && fresh[2].first == PONKO_GAMEPAD_LEFT_TRIGGER_AXIS);
+    CHECK(fresh[2].deadzone > 0.0f && fresh[2].deadzone < PONKO_PRESS_THRESHOLD);
+    CHECK(ponko_ctx_pressed_this_frame(ctx, -1.0f, fresh, 4, &fresh_count) == PONKO_INVALID_ARGUMENT);
+    CHECK(ponko_ctx_feed_input(ctx, 0, 0, PONKO_KEY_J, 0) == PONKO_OK);
+    CHECK(ponko_ctx_feed_input(ctx, 3, 0, PONKO_GAMEPAD_LEFT_TRIGGER_AXIS, 0) == PONKO_OK);
+
     /* The try_ loaders: kind and path, never a caught panic. */
     PonkoTexture texture;
     PonkoFont font;

@@ -108,6 +108,8 @@
 
 #define PONKO_MAX_GAMEPADS 8
 
+#define PONKO_PRESS_THRESHOLD 0.5
+
 #define PONKO_QUERY_CACHE_AUTO 0
 
 #define PONKO_QUERY_CACHE_ALWAYS 1
@@ -3206,6 +3208,12 @@ enum PonkoStatus ponko_ctx_particle_live_count(struct PonkoCtx *ctx,
                                                uint32_t *out_count);
 
 enum PonkoStatus ponko_ctx_remove_particle_emitter3d(struct PonkoCtx *ctx, uint64_t entity_bits);
+
+enum PonkoStatus ponko_ctx_pressed_this_frame(struct PonkoCtx *ctx,
+                                              float axis_threshold,
+                                              struct PonkoActionBinding *out,
+                                              size_t capacity,
+                                              size_t *out_count);
 
 enum PonkoStatus ponko_ctx_frame_stats(const struct PonkoCtx *ctx,
                                        struct PonkoFrameStats *out_stats);
