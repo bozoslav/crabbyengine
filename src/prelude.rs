@@ -29,7 +29,7 @@
 //! assert_eq!(world.get::<Transform2D>(e).unwrap().position, vec2(1.0, 2.0));
 //! # let _ = Pose;
 //! ```
-pub use crate::actions::{Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding};
+pub use crate::actions::{Action, ActionId, ActionMap, ActionRef, Axis2Binding, AxisBinding, ButtonBinding, PressedInput};
 pub use crate::assets::{AssetSource, Assets, MemorySource};
 pub use crate::audio::{AudioBus, Playing, Sound, SoundParams};
 pub use crate::camera::Rect;
