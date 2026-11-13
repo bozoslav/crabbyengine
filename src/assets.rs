@@ -1247,7 +1247,10 @@ mod tests {
         let px = |x: usize| &img.rgba[(3 * 16 + x) * 4..][..4];
         let (left, right) = (px(2), px(13));
         assert!(left[0] > 200 && left[1] < 60 && left[2] < 60, "left is red: {left:?}");
-        assert!(right[2] > 200 && right[0] < 60 && right[1] < 60, "right is blue: {right:?}");
+        assert!(
+            right[2] > 200 && right[0] < 60 && right[1] < 60,
+            "right is blue: {right:?}"
+        );
         assert_eq!(left[3], 255);
     }
 
