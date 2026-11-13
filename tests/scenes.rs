@@ -555,3 +555,66 @@ fn a_tree_with_a_bad_part_spawns_nothing() {
         assert_eq!(ctx.world.len(), 0);
     });
 }
+
+/// 3D trees: relative 3D transforms, skin targets and joint attachments
+/// name the new copies.
+#[cfg(feature = "3d")]
+#[test]
+fn a_3d_prefab_keeps_its_skin_targets_and_joint_attachments() {
+    use ponko::anim::{AttachToJoint, SkinOf};
+    use ponko::d3::Transform as T3;
+    let file = TempAsset::new("test-prefab-person.json");
+    game().run_headless(0, |ctx| {
+        let body = ctx
+            .world
+            .spawn((T3::at(vec3(5.0, 0.0, 0.0)).rotated(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),));
+        let hat = ctx.world.spawn((SkinOf(body),));
+        let cup = ctx.world.spawn((
+            T3::at(vec3(5.0, 0.0, -2.0)),
+            AttachToJoint {
+                skeleton: body,
+                joint: 3,
+                offset: T3::at(vec3(0.0, 0.1, 0.0)),
+            },
+        ));
+        ctx.assets.save_prefab(&ctx.world, body, file.name()).unwrap();
+        for e in [body, hat, cup] {
+            ctx.world.despawn(e);
+        }
+
+        let root = ctx.spawn_prefab(file.name(), vec3(0.0, 0.0, 10.0)).unwrap();
+        let parts = ctx.world.get::<PrefabParts>(root).unwrap().0.clone();
+        assert_eq!(parts.len(), 2);
+        let hat = *parts.iter().find(|&&p| ctx.world.has::<SkinOf>(p)).unwrap();
+        let cup = *parts.iter().find(|&&p| ctx.world.has::<AttachToJoint>(p)).unwrap();
+        assert_eq!(ctx.world.get::<SkinOf>(hat), Some(&SkinOf(root)));
+        let a = ctx.world.get::<AttachToJoint>(cup).unwrap();
+        assert_eq!((a.skeleton, a.joint), (root, 3));
+        // The cup was 2 m in front of the turned body; it still is.
+        let at = ctx.world.get::<T3>(cup).unwrap().position;
+        assert!((at - vec3(0.0, 0.0, 8.0)).length() < 1e-4, "{at}");
+    });
+}
+
+#[cfg(feature = "physics3d")]
+#[test]
+fn a_3d_prefabs_joints_join_its_new_bodies() {
+    use ponko::d3::{Joint, RigidBody, Transform as T3};
+    let file = TempAsset::new("test-prefab-hinge.json");
+    Game::new("scenes", 1, 1).physics3d(Vec3::ZERO).run_headless(0, |ctx| {
+        let door = ctx.world.spawn((T3::default(), RigidBody::dynamic()));
+        let frame = ctx.world.spawn((T3::at(vec3(1.0, 0.0, 0.0)), RigidBody::fixed()));
+        let hinge = ctx.world.spawn((Joint::spherical(frame, door),));
+        ctx.world.insert(door, PrefabParts(vec![frame]));
+        ctx.assets.save_prefab(&ctx.world, door, file.name()).unwrap();
+        for e in [door, frame, hinge] {
+            ctx.world.despawn(e);
+        }
+        let root = ctx.spawn_prefab(file.name(), vec3(0.0, 2.0, 0.0)).unwrap();
+        let parts = ctx.world.get::<PrefabParts>(root).unwrap().0.clone();
+        let joint = parts.iter().find_map(|&p| ctx.world.get::<Joint>(p)).unwrap();
+        assert_eq!(joint.body_b, root);
+        assert!(parts.contains(&joint.body_a) && joint.body_a != root);
+        assert_eq!(ctx.world.get::<T3>(joint.body_a).unwrap().position, vec3(1.0, 2.0, 0.0));
+    });
+}

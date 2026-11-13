@@ -2629,6 +2629,35 @@ mod tests {
     }
 
     #[test]
+    fn prefab_spawn_returns_the_parts_and_prefab_despawn_removes_them() {
+        let path = format!("ponko-test-control-tree-{}.json", std::process::id());
+        let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join(&path);
+        let mut ctx = ctx();
+        let root = ctx.world.spawn((Transform2D::default(),));
+        let arm = ctx.world.spawn((Transform2D::default(), crate::d2::Attached::to(root)));
+        let saved = handle(
+            &mut ctx,
+            "prefab.save",
+            &json!({ "entity": root.to_bits(), "path": path }),
+        );
+        ctx.world.despawn(root);
+        ctx.world.despawn(arm);
+        let spawned = saved.and_then(|_| handle(&mut ctx, "prefab.spawn", &json!({ "path": path, "at": [1.0, 2.0] })));
+        let _ = std::fs::remove_file(&file);
+        let spawned = spawned.unwrap();
+        let parts = spawned["parts"].as_array().unwrap();
+        assert_eq!(parts.len(), 1);
+        let part = Entity::from_bits(parts[0].as_u64().unwrap());
+        let new_root = Entity::from_bits(spawned["entity"].as_u64().unwrap());
+        assert_eq!(ctx.world.get::<crate::d2::Attached>(part).unwrap().to, new_root);
+        let gone = handle(&mut ctx, "prefab.despawn", &json!({ "entity": new_root.to_bits() })).unwrap();
+        assert_eq!(gone, 2);
+        assert_eq!(ctx.world.len(), 0);
+    }
+
+    #[test]
     fn file_methods_refuse_paths_outside_the_game() {
         let mut ctx = ctx();
         let outside = std::env::temp_dir().join(format!("ponko-escape-{}.json", std::process::id()));
