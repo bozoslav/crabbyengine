@@ -7,7 +7,8 @@ change, and the release folds them in.
 - Name it after the pull request or topic: `changelog.d/<pr-or-topic>.md`,
   for example `changelog.d/1234.md` or `changelog.d/action-ids.md`.
 - Write one or more `### Heading` sections, each starting with `- ` bullets.
-  Use the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) headings
+  Use `Breaking changes` (each bullet names the replacement) and the
+  [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) headings
   (`Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`); a
   larger change may use its own heading. Continuation lines are indented
   by two spaces, as in `CHANGELOG.md`.
@@ -30,5 +31,5 @@ python3 scripts/changelog.py            # fold the fragments in, delete them
 ```
 
 Bullets go to the end of the Unreleased subsection with the same heading
-(created if missing), in file-name order. Then rename `[Unreleased]` to the
+(created if missing, `Breaking changes` first), in file-name order. Then rename `[Unreleased]` to the
 version as usual.

@@ -1,55 +1,446 @@
 # Changelog
 
-All notable changes to Crabby Engine are listed here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
-[Semantic Versioning](https://semver.org/); [STABILITY.md](STABILITY.md)
-says what that covers.
+All notable changes to Ponko (formerly Crabby Engine) are listed here. The
+format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Versions follow [Semantic Versioning](https://semver.org/) as Cargo applies
+it to 0.x; [STABILITY.md](STABILITY.md) says what that covers.
 
 ## [Unreleased]
 
-### Explicit runtime phases (first stage)
+## [0.1.0] - 2026-11-13
 
-- Add `Phase` and `Game::add(phase, system)` for sequential fixed-tick and
-  frame scheduling. Within each phase, registration order is preserved.
-- `sim_system` and its interval/named forms map to `AfterPhysics`; `system`
-  maps to `Frame`, `late_system` to `Late`, and built-in drawing to `Draw`.
-  Physics installation always schedules the step in `Physics`. Code that
-  previously registered simulation logic before `.physics()` or `.physics3d()`
-  to run before physics should use `add(Phase::BeforePhysics, logic)`.
-- Plugin composition, stable system IDs, and migrating automatic animation,
-  particles and audio to inspectable systems remain follow-ups to #198.
+The first release with the Ponko API in its intended shape, and the one
+deliberately breaking release of the rename. `Ctx` is grouped into services
+(`ctx.gfx`, `ctx.input`, `ctx.audio`, `ctx.scene3d`, ...), the crate is
+organized into modules with one curated `prelude`, systems are registered one
+way (`Game::add`), ECS components opt in with `#[derive(Component)]`, and
+every deprecated alias, flat forwarder and `crabby` name is gone. Around that:
+optional parallel systems, change detection and typed query filters, a
+retained UI with builders, themes and screen-reader support, asset streaming
+with memory budgets, GPU tiers with quality presets and automatic tuning, and
+inspection tools for agents. Versions now follow a 0.x policy
+([STABILITY.md](STABILITY.md)). Every removed or renamed Rust item and its
+replacement is in the guide's
+[migration table](https://ponko.dev/guide/migrating-to-0.1.html); the C ABI is
+unchanged (version 2).
+
+### Highlights
+- **Services on `Ctx`**: `ctx.time`, `ctx.input`, `ctx.gfx`, `ctx.audio`,
+  `ctx.ui`, `ctx.assets`, `ctx.perf`, `ctx.net` and `ctx.scene3d` are separate
+  fields, so they borrow apart (draw with `ctx.gfx` inside a `ctx.world`
+  query).
+- **One prelude, public modules**: `use ponko::prelude::*;`, then `d2::*` or
+  `d3::*`; everything else has one documented path in its module.
+- **`#[derive(Component)]`** from the new `ponko_macros` crate.
+- **Systems**: `Game::add(phase, system)` with `.named()`, `.every()` and
+  `.access()`, plugins, removable built-in systems with stable ids, view
+  systems with declared access, and an optional parallel scheduler that gives
+  the same results with any number of threads.
+- **ECS**: change detection (`Added<T>`, `Changed<T>`, `removed`), typed
+  filters (`With`, `Without`, `Or`, tuples), `Query::single`, borrowing
+  several resources or entities at once, and an automatic archetype index for
+  worlds with many archetypes.
+- **Retained UI**: builders, layout presets, themes, nodes found by name, and
+  accessibility (VoiceOver on macOS with the `accessibility` feature).
+- **Assets**: streaming without stalls, residency budgets, asset sources
+  (memory, archives, your own), one handle lifecycle (`ctx.is_live`,
+  `ctx.free`) and an asset inventory for finding leaks.
+- **Rendering**: GPU tiers, quality presets fitted to the GPU and automatic
+  quality tuning, kept shadow maps, incremental frame collection, GPU-driven
+  static batches, per-model materials, custom compute passes and target
+  effects, and located shader errors with hot reload.
+- **Tools**: ECS and render inspectors, input scenarios, validation bundles
+  and new MCP tools; a hardened control endpoint.
+- **A complete game**: `coin_dash`, packaged, smoke-tested on every desktop
+  and in browsers.
+
+### Breaking changes
+
+Each bullet names the replacement; the
+[migration table](https://ponko.dev/guide/migrating-to-0.1.html) lists every
+old → new pair.
+
+**Imports and crate layout**
+- The crate root holds only modules. The prelude's items are no longer also
+  at the root, and the old root spellings of moved items are removed (they
+  were re-exports, which rustc does not warn through): `ponko::Ctx` →
+  `ponko::prelude::Ctx`, `use ponko::*;` for the prelude →
+  `use ponko::prelude::*;`, `ponko::RigidBody3D` → `ponko::d3::RigidBody`,
+  `ponko::Net` → `ponko::net::Net`, `ponko::Error` → `ponko::error::Error`,
+  `ponko::Rect` → `ponko::camera::Rect`, `ponko::BodyKind` →
+  `ponko::collision::BodyKind`, and so on.
+- The `*3D`-suffixed names are the `d3` names (`Collider3D` → `d3::Collider`,
+  `PointLight3D` → `d3::PointLight`, `Hit3D` → `d3::Hit`, ...); the prelude
+  keeps `Transform2D`, `Camera2D`, `Transform3D` and `Camera3D`.
+- Root constants became associated constants (`MAX_DECALS` →
+  `d3::Decal::MAX`, `MIN_RENDER_SCALE` → `render::Post::MIN_RENDER_SCALE`,
+  `TERRAIN_LODS` → `terrain::TerrainTile::LODS`, ...); built-in system
+  functions moved to `ponko::systems`; re-exported crates moved under their
+  module (`serde_json` → `reflect::json`, `steamworks` → `net::steam`,
+  `ui_layout` → `ui::unstable_taffy`).
+- New root modules (`audio`, `input`, `net`, `render`, `ui`, ...) can clash
+  with a dependency of the same name under `use ponko::*;` (E0659): write
+  `::name::...` for the crate, or use the prelude.
+- `ponko::d3::Light` → `d3::PointLight`; `render::ParticleCurve` /
+  `ParticleGradient` → `d3::`; `render::two_bone_ik` / `look_at_joint` →
+  `anim::`; `anim::Blend` → `render::Blend`; the `ponko::residency` module is
+  merged into `ponko::streaming`. `Animation` (sprite sheets) is `d2::Animation`
+  and no longer in the prelude.
+
+**Components**
+- A type is a component only with `#[derive(Component)]` (or
+  `impl Component for T {}`); using another type in `spawn`, `insert`, a
+  query or a filter is a compile error that says so. Numbers, `String`,
+  `Vec`, `Arc` and `Entity` are not components: wrap them in a newtype.
+  `ponko_ecs` has a default `derive` feature (`--no-default-features` →
+  add `features = ["derive"]`). Resources and events need no derive.
+
+**`Ctx` and its services**
+- The ~180 flat `Ctx` methods that forwarded to a service are removed: call
+  the service (`ctx.mouse_down(b)` → `ctx.input.mouse_down(b)`,
+  `ctx.create_mesh(..)` → `ctx.gfx.create_mesh(..)`, `ctx.sim_speed()` →
+  `ctx.time.speed()`, `ctx.play_sound_ex(..)` → `ctx.audio.play_ex(..)`,
+  `ctx.perf_report()` → `ctx.perf.report()`, `ctx.mouse_over_ui()` →
+  `ctx.ui.wants_pointer()`, ...). `Ctx` keeps the everyday shortcuts (`dt`,
+  `key_down`, `key_pressed`, `key_released`, `mouse_pos`, `mouse_world`,
+  `window_size`, `quit`, `draw`, `draw_text`, `load_texture`, `load_sound`,
+  `play_sound`, `random`) and the calls that need several services (`free`,
+  `is_live`, `load_scene`, `spawn_prefab`, `finish_uploads`, ...).
+- A service call that touches another area takes it as an argument:
+  `ctx.assets.save_scene(&ctx.world, path)`,
+  `ctx.assets.load_resource::<R>(&mut ctx.world, path)`,
+  `ctx.ui.immediate.button(&mut ctx.gfx, &ctx.input, rect, label)`, ...
+- `ctx.ui_retained` → `ctx.ui`; `ctx.ui_style` → `ctx.ui.immediate.style`.
+- `ctx.net` is a `Networking` service: the lockstep session is
+  `ctx.net.lockstep` (`ctx.net = Net::host(..)` → `ctx.net.lockstep = ..`),
+  next to `messages`, `snapshots` and `interest`.
+- The 3D render settings are one field, `ctx.scene3d`: `ctx.camera3d`,
+  `lighting`, `sky`, `post`, `lod` → `ctx.scene3d.camera`, `.lighting`, ...;
+  `ctx.compute_passes`, `scene_compute_passes`, `target_cameras`,
+  `target_effects`, `effects` → `ctx.scene3d.passes.*`.
+- Loading, streaming and residency live on `ctx.gfx`
+  (`ctx.resident_mesh(p)` → `ctx.gfx.resident_mesh(p)`, `stream_texture`,
+  `set_residency_budget`, ...); `ctx.add_asset_source` / `load_asset_with` →
+  `ctx.assets.add_source` / `load_with`. Residency calls no longer evict:
+  eviction happens in the streaming step at the start of the next frame.
+
+**Systems**
+- One way to register: `Game::add(phase, system)` and `Game::add_system`
+  (which returns a `SystemId`) take anything `IntoSystem`, with options from
+  `.named(name)`, `.every(ticks)` and `.access(declaration)`. Removed:
+  `late_system(f)` → `add(Phase::Late, f)`, `sim_system_every(n, f)` →
+  `add(Phase::AfterPhysics, f.every(n))`, `add_with_access` and `add_view` →
+  `add(phase, f.access(a))`, and the hidden `named_*` forms. Closures given to
+  `add` name their parameter type (`|ctx: &mut Ctx| ...`). `sim_system` and
+  `system` stay.
+- Removal is by id: `remove_system(f)` / `remove_named_system(name)` →
+  `Game::remove(id)` with a `Systems` constant or the id from `add_system`.
+  `add_setup(f)` → `Game::setup(f)` or a `Plugin`; `order_problem()` →
+  `check_order() -> Result<(), OrderError>`.
+- `ViewAccess` is gone: `ViewState::new().read::<A>().write::<B>()` declares
+  directly. `SystemView` uses `Ctx`'s names (`sys.action_down(a)` →
+  `sys.input.action_down(a)`, `sys.sim_tick()` → `sys.time.sim_tick()`,
+  `sys.camera()` → `sys.camera`, `sys.net()` → `sys.net.lockstep`, ...).
+- View systems must be `Send`, and their event types `Send + Sync`;
+  `Events::send` needs `T: Send + Sync + 'static`.
+
+**ECS**
+- `QueryData`, `ReadOnlyQueryData`, `Bundle`, `ResourceSet` and
+  `ResourceTuple` are sealed.
+- `.with::<T>()` / `.without::<T>()` → `.filter::<With<T>>()` /
+  `.filter::<Without<T>>()` (several as a tuple).
+- A `Changed<T>` or `Added<T>` filter no longer starts tracking `T`; it
+  panics for an untracked component: call `world.track_changes::<T>()` in
+  setup (C and C++ filters still start tracking on first use).
+- By-id calls moved behind `world.raw()` (changes) and `world.raw_ref()`
+  (reads): `register_component`, `insert_dynamic`, `spawn_dynamic`,
+  `query_chunks` (with `ChunkQuery::filter` / `cache` instead of the
+  `_filtered` / `_cached` variants), `get_dynamic`, `removed_dynamic`, ...
+  Neither view derefs to `World`. Read pointers are `*const u8`; writes go
+  through `get_dynamic_mut` and chunk loops.
+- `ChunkQuery` is built with methods (`ChunkQuery::new(&ids).writes(0).changed(1)`).
+  `ViewState::prepare` / `view` / `finish` are private → `state.run(..)` or
+  `ViewGroup`; `ViewState::set_changes_since` / `set_change_tick` →
+  `override_changes_since` / `override_change_tick`.
+
+**Handles and errors**
+- Handles are no longer made from or read as numbers (`Handle::id`,
+  `from_id`, `CollisionMesh::to_bits` are removed): keep the handle (it is
+  `Copy`, `Eq`, `Hash`) and check it with `ctx.is_live(h)`;
+  `Handle::NONE` is the empty handle. Textures and sounds are passed by value
+  (`ctx.draw(&t, pos)` → `ctx.draw(t, pos)`, `ctx.play_sound(&s)` →
+  `ctx.play_sound(s)`).
+- `has_material`, `has_shader`, `has_compute`, `has_effect`, `has_font`,
+  `is_mesh_live` → `is_live(h)`; `free_mesh`, `free_instance_batch`,
+  `free_gpu_buffer`, `free_terrain_tile`, `physics3d.free_mesh` → `free(h)`.
+  `TerrainTile` is an opaque handle (`tile.lods()`); `CollisionMesh` is a
+  handle that no longer serializes (`CollisionMesh::default()` →
+  `CollisionMesh::NONE`).
+- Fallible calls return `ponko::error::Error` instead of `String`
+  (`load_scene`, `spawn_prefab`, `start_ragdoll`, the `try_` loaders and
+  creators, `PerfReport::from_json`, ...): read the text with `e.message()`
+  or match `e.kind()`. `load_mesh_data` and `load_reflection_probe` panic,
+  next to new `try_` forms.
+
+**Rendering, assets, UI and physics**
+- Graphics quality is a preset enum (`GraphicsQuality::Low` ... `Ultra`)
+  applied with `ctx.scene3d.set_quality(..)`, read with
+  `ctx.scene3d.quality()`; `set_recommended_quality`, `fit_quality_to`,
+  automatic quality and the render-scale and shadow pins moved to
+  `ctx.scene3d`. MSAA is `ctx.scene3d.post.msaa` (`Game::msaa` and
+  `set_msaa` are removed). The flat sky colors moved from `Lighting` to `Sky`;
+  `Lighting::shadow_filter` is a `ShadowFilter` enum.
+- `#[non_exhaustive]` structs and enums across the render, animation, UI,
+  drawing and ECS APIs (`Post`, `Lighting`, `MaterialDesc`,
+  `ParticleSettings`, `DrawParams`, `UiWidget`, `UiEvent`, ...): build from
+  `Default` or a constructor and the new `with_*` methods
+  (`MaterialDesc::color(c).with_roughness(0.9)`), and give matches a `_` arm.
+- Animation graphs use typed `StateId`, `ParamId` and `LayerId`;
+  `AnimationTransition::new(from, to).with_condition(..)`, and
+  `AnimationGraph::new` returns a `Result` instead of panicking.
+- `UiLayout` is the retained UI's layout type (`Ui::add(widget, UiLayout::auto())`,
+  `UiLayout::custom(style)` for raw Taffy); `ponko::ui::layout` →
+  `ponko::ui::unstable_taffy`; `Ui::take_click()` →
+  `ui.events().filter_map(UiEvent::clicked).last()`.
+- Physics queries match across dimensions: `cast_ray(origin, dir, max,
+  filter)` (`cast_ray_filtered` is removed), `overlap_ball` →
+  `overlap_circle` (2D) / `overlap_sphere` (3D), `entities_at` /
+  `entities_in_circle` → `overlap_point` / `overlap_circle` with a filter.
+  `Ctx::spawn_prefab` takes `impl Into<Placement>`.
+- Renderer internals are private (`MaterialVariantKey`, ...); the benchmark
+  drivers need the unstable `bench-internals` feature.
+
+**Tools, settings and legacy names**
+- In a release build, `PONKO_CONTROL=1` opens the control endpoint only with
+  the new `control-env` feature (debug builds and
+  `Game::control_endpoint(true)` are unchanged; `ponko-mcp launch` adds the
+  feature). Endpoint file paths must be relative and stay inside the game's
+  folder; `world.save` needs `overwrite: true` to replace a file.
+- The `crabby` names are gone everywhere: the `crabby_*` C functions,
+  `Crabby*` types, `CRABBY_*` constants and the `crabby.h` / `crabby.hpp`
+  headers (use the `ponko` spellings; layouts and values are unchanged), the
+  `CRABBY_*` environment variables, `crabby-world` / `crabby-prefab` save
+  tags, `crabby*` glTF extras, the `crabby` canvas id, the old instance
+  registry and `Color::CRABBY_DARK`.
 
 ### Added
-- `ActionId`: resolve an action name once with `Ctx::action_id` (or
-  `action_ids`, or the `actions!` macro, which keeps the names in one
-  declaration) and pass the `Copy` id to `action_down`, `action_pressed`,
-  `action_released`, `action_axis` and `action_axis2`, which now take an id or
-  a name. An unknown name logs an error when it is resolved
-  (`try_action_id` returns it). Ids stay valid across `set_actions`. Rust
-  only for now.
-- `Ctx::load_component_json::<T>(path, entity)` and
-  `load_resource_json::<T>(path)` take the name from the type.
-- `ponko::Error` and `ErrorKind`: one error type with a kind to match on,
-  the asset path, and a `ponko:`-prefixed message. Implements
-  `std::error::Error`, and converts from `ReflectError`, `NavBakeError` and
-  `serde_json::Error`.
-- `try_` twins returning `Result<_, ponko::Error>` for `load_texture`,
-  `load_mesh`, `load_skeleton`, `load_sound`, `load_font`, `create_material`
-  and `create_mesh`. The panicking calls now panic with the same message.
+
+**ECS**
+- Change detection, opt in per component (`World::track_changes`):
+  `Added<T>` and `Changed<T>` filters, `world.removed::<T>()`, and per-system
+  change windows in games, also from C (`ponko_query_with`) and C++
+  (`ponko::changed<T>`, `ponko::added<T>`). Untracked components cost
+  nothing.
+- Typed query filters `With`, `Without`, `Or` (with AND groups) and tuples on
+  world and view queries, and the same filters from C (`ponko_filter_*`,
+  `ponko_query_filtered`) and C++ (`ponko::with<T>`, `ponko::or_<...>`).
+  Queries fetch up to 12 items.
+- `Query::single()` and `ViewQuery::single()`; `World::resources_mut::<(A, B)>()`,
+  `Query::with_resources`, `Query::with_lookup` and `World::get_many_mut`
+  for borrowing several things in one loop without collecting.
+- Queries find their archetypes through a bounded world-owned index once a
+  world has 64 archetypes (`World::set_query_cache_policy`,
+  `query_cache_stats`, also from C and C++); results and order are unchanged.
+- `ViewState`, `WorldView` and `ViewGroup`: restricted world views that
+  non-overlapping systems can share across threads. `World::id`,
+  `World::entity_slots`, `Commands::clear`.
+
+**Systems and the game loop**
+- `Plugin` (`Game::plugin`), `Game::setup` with `ConfiguredGame`, and
+  `Game::configured()` for games without a setup closure.
+- `SystemId`, `Systems` constants for every built-in system, and the
+  animator, particle and positional-audio updates as ordinary removable
+  systems; `ponko::systems` holds the built-in functions.
+- Declared system access (`SystemAccess`, `Service`) checked in every build
+  for view systems and in debug builds for `Ctx` systems, with
+  `Game::access_report()`. The physics and navigation steps declare theirs.
+- Optional parallel scheduler (`Game::parallel_systems(true)`): neighbouring
+  view systems without conflicts run as a batch; commands and events apply at
+  the batch's end in registration order, so results match the sequential run.
+  Batches go to other threads only past a measured cost threshold
+  (`Game::parallel_threshold`). `Game::barrier`, `Game::order`,
+  `Game::schedule_plan()`; in C and C++ too. Eight heavy systems over
+  16,000 entities each: 7.15 → 1.04 ms (M4 Max).
+- C and C++ systems in any phase (`ponko_game_add_system` with `PonkoPhase`),
+  with ids, setup callbacks, plugins and declared access.
+
+**Rendering**
+- GPU capability report (`ctx.gfx.gpu_capabilities()`), GPU tiers
+  (`webgl2`, `baseline`, `desktop`), `PONKO_GPU_TIER` to try a weaker tier,
+  and quality presets fitted to the GPU.
+- Automatic quality tuning from GPU timestamps
+  (`ctx.scene3d.set_quality_autotune`), with bounded render-scale and
+  shadow steps.
+- `ModelMaterial` and `ModelMaterials` for every kind of model (skinned,
+  morphing, LOD, terrain), saved in scenes; `ctx.gfx.create_plain_mesh`.
+- Custom passes: scene compute passes after the lit frame, target effects
+  that write their own render target, hazard checks naming the entry, and
+  runtime MSAA changes.
+- `LodGroup::instance_levels` and `LodHysteresis`; per-batch culling choice
+  (`BatchCulling`) and `InstanceBatchStats`; per-instance colours and shadow
+  meshes in persistent batches.
+- Shader diagnostics: `ctx.gfx.shader_status()` with errors located in the
+  game's own WGSL, and broken shaders that keep a stand-in under hot reload
+  until a fix is saved. Explicit unlit shading (`Surface.unlit`).
+- Upload accounting (`RenderStats::uploads`, `GpuUploads::reallocations`) and
+  pipeline cache statistics (`Graphics::pipeline_stats`).
+
+**Assets and streaming**
+- `ctx.gfx.stream_texture` / `stream_mesh` decode on job threads within a
+  per-frame upload budget; textures arrive as small stand-ins and sharpen
+  under the same handle. `AssetState`, `ctx.finish_uploads()`,
+  deterministic uploads for tests, and `StreamedLod`.
+- Residency budgets for meshes and textures (`ctx.gfx.resident_mesh`,
+  `set_residency_budget`, pinning): least recently used assets are evicted
+  and come back when asked for.
+- Asset sources (`ctx.assets.add_source`, `MemorySource`, your own
+  `AssetSource`) for every kind of asset, `ctx.assets.load_with` for your own
+  types, and asset fields in reflected components (`scene_asset_field`).
+- One lifecycle for every handle (`ctx.is_live`, `ctx.free`,
+  `ctx.live_counts`) with defined behavior for freed resources in use;
+  `ctx.asset_inventory()` with `growth_since`, dangling references and
+  per-handle ownership (`asset_handles`) for finding leaks;
+  `ctx.gfx.unload_mesh(path)`.
+- `Audio::try_load_stream`; streamed music from asset sources.
+
+**UI and input**
+- Retained UI builders (`Ui::panel`, `button`, `slider`, ... ending in
+  `.id()`), `UiLayout` presets, `UiTheme` shared with the immediate widgets,
+  titles, nodes found by name, and `UiLayout::hidden()`.
+- Accessibility: `Ui::accessibility_tree()`, names, descriptions, live
+  regions and actions from assistive technology, `UiAccessTracker`, and the
+  `accessibility` feature, which exposes the UI to VoiceOver on macOS (other
+  platforms build and do nothing yet).
+- `ActionId` and `actions!`, `ActionMap` read-back and `Input::set_action`
+  for rebinding screens.
+- Input scenarios with checks and reports (`InputScenario::expect`,
+  `Game::run_headless_scenario`, a JSON format) and the MCP tools
+  `run_input_scenario` and `cancel_input_scenario`.
+- `Time::frame_dt` and `Time::sim_dt`; `Ui::wants_pointer` covers every UI.
+
+**Physics, navigation and networking**
+- Filtered ray and overlap queries in both dimensions, and 3D prefab
+  placement.
+- `Ctx::load_scene_lockstep`, and loads that would desynchronize a lockstep
+  session are refused.
+- `Game::messages(endpoint)`: message endpoints polled by the engine before
+  systems.
+
+**Tools and diagnostics**
+- `ctx.ecs_diagnostics()` (control `ecs.diagnostics`, MCP `ecs_diagnostics`):
+  archetypes, storage, every system with its declared access and stage, and
+  the schedule.
+- `perf.get`'s `render_inspector`: CPU and GPU time per pass, counts, memory
+  estimates, frame history and quality decisions, with `null` and a reason
+  for what can't be measured; `quality.set` / MCP `set_graphics_quality`.
+- `Ctx::capabilities_json` and GPU data in instance discovery; explicit,
+  stricter JSON schemas for built-in components.
+- Validation bundles: the `validation_bundle` example launches a game,
+  drives it through MCP, records everything and compares runs. The MCP
+  `launch` tool takes a prebuilt `program`.
+- Retained compatibility baselines for the MCP tool contract, the C ABI and
+  saved files, checked in CI.
+
+**C and C++**
+- Bindings for action ids, input scenarios, asset sources, resource scopes,
+  error kinds and paths (`ponko_last_error_kind`, C++ `ponko::result<T>`),
+  handles, streaming, model materials, UI builders, themes and accessibility,
+  shader status, GPU tiers and the asset inventory.
+- `PONKO_ABI_VERSION` in `ponko.h`, checked by `ponko.hpp` at startup.
+- Every C export is called by a test, except an allow-listed few (drawing,
+  opening a window, a live Steam lobby), checked by CI.
+
+**Web, packaging and the importer**
+- 3D games run in browsers with only WebGL2; browser smoke tests in Chromium,
+  Firefox and WebKit with 2D and 3D fixtures.
+- `coin_dash`, a complete small game with settings, rebinding and saves,
+  packaged with its notices and smoke-tested on Linux, macOS, Windows and the
+  web.
+- `ponko_unity`: model materials (FBX, OBJ) made the way Unity makes them,
+  and clip splits read where Unity writes them.
+- `ponko_macros`, the derive crate. Every published crate carries its
+  license files and a README; release archives of the C library carry
+  `THIRD-PARTY-NOTICES.txt`.
+
+**Development**
+- Benchmarks for the ECS against bevy_ecs and hecs, rendering scenes (with a
+  Bevy counterpart), static batches, LOD, scheduling and streaming in
+  `ponko_bench`; evaluations of mesh shaders, ray tracing and sparse-set
+  storage (all deferred) with their numbers.
+- An image regression suite for the 3D renderer with reviewed reference
+  images, and compiled guide and README snippets.
 
 ### Changed
-- The by-name forms of the two JSON loaders (used by the C API) are now
-  `load_component_json_named` and `load_resource_json_named`; they are hidden
-  from the docs.
+- [STABILITY.md](STABILITY.md) is a 0.x policy: 0.1.x releases are
+  compatible with each other, a 0.y.0 may break and lists every break, and
+  the MSRV (Rust 1.95) and the C ABI version change only in a 0.y.0. It names
+  the unstable surfaces: `#[doc(hidden)]` items, `bench-internals`,
+  `ui::unstable_taffy` and the re-exported `glam`, `serde_json` and
+  `steamworks`.
+- The 3D frame keeps its models between frames and updates only what
+  changed (100,000 models, still scene: 0.45 → 0.20 ms to collect), uploads
+  only changed buffer ranges (a still scene: 15,616 → 80 bytes a frame),
+  keeps shadow maps that would be drawn the same, sorts draws by pipeline
+  and material (5,393 → 57 pipeline changes in a 2,000-mesh scene), and
+  culls GPU-driven static batches in one dispatch per page of views.
+- Transparent models are sorted back to front across meshes.
+- `ctx.gfx.models_drawn()` counts each model once.
+- Parallel queries run all archetypes in one pass (many small archetypes:
+  about 9× faster on 14 cores); adding and removing components is faster on
+  entities with many components.
+- For a tracked component, every mutable fetch marks the entities it
+  reaches as changed. Fetch `&T` where you only read.
+- Background `Job`s run on their own thread pool, so they never stall the
+  frame's parallel work.
+- `Character3D`s move on the thread pool from 16 characters, and reuse their
+  buffers.
+- With hot reload on, a shader, effect or compute file that doesn't compile
+  loads as a stand-in reported in `shader_status` instead of failing.
+- Custom material shaders that declare engine-owned bindings are rejected at
+  load with a located error. WGSL `Surface` gains `unlit` after `emissive`.
+- `ponko_bench` is no longer published; it is a workspace tool.
+- The guide lives at https://ponko.dev/guide/ and links the API reference on
+  docs.rs.
 
 ### Fixed
-- Temporal history resets are decided once per frame for every effect that
-  reuses earlier frames (TAA, temporal AO, screen-space reflections and
-  motion vectors): `Ctx::reset_temporal_history` now also drops the
-  reflections' last image, a model teleported on a reset frame has no
-  motion, and a reset asked for on a frame that draws nothing applies to
-  the next drawn frame. Resizes, render scale changes and effect switches
-  reset all of them alike.
+- A stale mesh, GPU buffer or collision mesh handle could reach the
+  resource made later in its slot; handles are never given out twice in a
+  run.
+- 3D games panicked at startup in browsers with only WebGL2, and 2D games
+  failed to create sprite textures there.
+- GPU skinning on devices with fewer than six storage buffers per stage
+  falls back to CPU posing instead of failing validation.
+- Instance batches and buffers past a device limit fall back or are left
+  out with one warning instead of failing GPU validation; GPU memory of
+  freed batches is returned.
+- A `LodGroup` with a `Skeleton` draws its renderers posed.
+- Temporal effects reset on MSAA changes, shader reloads, surface recovery
+  and scene loads.
+- Sky seams, shadow refreshes of freed shaders and textures, and several
+  static-batch ordering and caching problems.
+- `World::load` rejects saves with absurd entity ids instead of allocating
+  for them.
+- Lockstep hosts split oversized relayed inputs across packets; the UDP
+  transport no longer loops on a socket that only errors.
+- A screen reader no longer finds the game unresponsive; a screen root's
+  `auto` margins center it.
+- C API calls that panicked on invalid arguments (animators, curves,
+  simulation speed, missing skeletons) return `INVALID_ARGUMENT`.
+- Windows: output printed just before exit is no longer lost while the
+  control endpoint captures it.
+- `ponko_unity` binds standalone clips whose curve paths start above the
+  root bone.
+
+### Security
+- The control endpoint's token is 128 bits from the OS's secure random
+  source, compared in constant time; requests are capped at 4 MiB, 32
+  connections, and 10 seconds to authenticate.
+- Tools can't read or write files outside the game's folder through the
+  endpoint, also not through links; a shipped release build doesn't open a
+  port when a player sets `PONKO_CONTROL=1`.
+- `ponko-mcp` marks destructive tools so clients can ask first.
+- `ponko_unity` returns an error instead of panicking, looping or exhausting
+  memory on crafted or corrupt files.
 
 ## [0.0.1] - 2026-11-08
 
@@ -340,7 +731,11 @@ says what that covers.
   `prefab.save`, and the MCP tools `save_scene`, `load_scene`,
   `spawn_prefab`, `save_prefab`, so agents can build levels.
 
-## [1.0.0] - 2026-11-03
+## Before the rename: 1.0.0 - 2026-11-03
+
+Released under the engine's former name. Those crates were withdrawn from
+crates.io and the tag removed; 0.0.1 restarted the line as Ponko. Kept as the
+record of what the first version contained.
 
 The first release: a 2D engine for simulations with up to millions of
 entities, in Rust, C and C++. Install with `cargo add ponko`; the C
@@ -434,5 +829,6 @@ GitHub release. Everything below is new.
 - C API (`ponko_ffi`) with a generated header, and a header-only C++17
   wrapper (`include/crabby.hpp`) covering nearly the whole engine.
 
-[Unreleased]: https://github.com/bozoslav/ponko/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/bozoslav/ponko/releases/tag/v1.0.0
+[Unreleased]: https://github.com/ponkoengine/ponko/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ponkoengine/ponko/compare/v0.0.1...v0.1.0
+[0.0.1]: https://github.com/ponkoengine/ponko/releases/tag/v0.0.1

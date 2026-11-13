@@ -8,7 +8,8 @@
 A fragment is changelog.d/<pr-or-topic>.md holding one or more `### Heading`
 sections with `- ` bullets (see changelog.d/README.md). Bullets are added at
 the end of the Unreleased subsection with the same heading; a missing
-subsection is created in Keep a Changelog order. Fragments fold in file-name
+subsection is created in Keep a Changelog order, with `Breaking changes`
+first. Fragments fold in file-name
 order.
 """
 from pathlib import Path
@@ -18,7 +19,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 FRAGMENTS = ROOT / 'changelog.d'
 CHANGELOG = ROOT / 'CHANGELOG.md'
-ORDER = ['Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
+ORDER = ['Breaking changes', 'Added', 'Changed', 'Deprecated', 'Removed', 'Fixed', 'Security']
 HEADING = re.compile(r'^### (.+?)\s*$')
 
 

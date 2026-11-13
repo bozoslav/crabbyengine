@@ -90,8 +90,8 @@ versions already used neutral or Ponko names and are unchanged.
   `is_mesh_live` are `ctx.gfx.is_live(..)` (or `ctx.is_live(..)`);
   `free_mesh` and `free_instance_batch` are `ctx.gfx.free(..)` (or `ctx.free(..)`).
 
-The changelog's "Breaking changes" lists every removed name with its
-replacement.
+[Migrating from 0.0.1 to 0.1.0](migrating-to-0.1.md) lists every removed
+Rust name with its replacement.
 
 ## Inventory
 
