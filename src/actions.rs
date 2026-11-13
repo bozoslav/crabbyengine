@@ -85,6 +85,51 @@ pub enum Axis2Binding {
     },
 }
 
+/// The axis value a stick or trigger must reach to count as "pressed" in
+/// [`Input::pressed_this_frame`](crate::input::Input::pressed_this_frame).
+pub const PRESS_THRESHOLD: f32 = 0.5;
+
+/// The deadzone of the [`AxisBinding`] that
+/// [`Input::pressed_this_frame`](crate::input::Input::pressed_this_frame)
+/// reports for a gamepad axis: under the [`PRESS_THRESHOLD`], so a bound axis
+/// still reaches full range.
+pub const DEFAULT_DEADZONE: f32 = 0.15;
+
+/// One thing that went down this frame, as a binding an [`ActionMap`] accepts:
+/// what [`Input::pressed_this_frame`](crate::input::Input::pressed_this_frame)
+/// yields, for a rebinding screen to bind directly.
+/// ```
+/// use ponko::prelude::*;
+/// let pressed = PressedInput::Button(ButtonBinding::Key(Key::Space));
+/// assert_eq!(pressed.button(), Some(&ButtonBinding::Key(Key::Space)));
+/// assert_eq!(pressed.axis(), None);
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum PressedInput {
+    /// A key, mouse button or gamepad button: the source of an `Action::Button`.
+    Button(ButtonBinding),
+    /// A gamepad stick axis or trigger past the threshold: the source of an
+    /// `Action::Axis`.
+    Axis(AxisBinding),
+}
+impl PressedInput {
+    /// The button binding, for a key, mouse button or gamepad button.
+    pub fn button(&self) -> Option<&ButtonBinding> {
+        match self {
+            PressedInput::Button(b) => Some(b),
+            _ => None,
+        }
+    }
+    /// The axis binding, for a stick or trigger.
+    pub fn axis(&self) -> Option<&AxisBinding> {
+        match self {
+            PressedInput::Axis(a) => Some(a),
+            _ => None,
+        }
+    }
+}
+
 /// An action's kind and sources. Buttons OR together; axes select the source
 /// with greatest magnitude (first wins ties), avoiding doubled movement.
 /// ```
