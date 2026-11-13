@@ -378,7 +378,10 @@ out of public submissions and external services.
 
 For maintainers. A release is a version tag; `.github/workflows/release.yml`
 does the rest, so the tag, the crates on crates.io and the CHANGELOG section
-always come from one commit. Never run `cargo publish` by hand. There are
+always come from one commit. Never run `cargo publish` by hand. The
+settings only a maintainer can change (Trusted Publishing on crates.io, the
+`release` environment) are listed in [One-time setup](#one-time-setup-a-maintainer-in-settings).
+There are
 three kinds of tag, all in the steps below: a release from `main`
 (`v0.2.0`), a release candidate before a minor (`v0.2.0-rc.1`, see
 [Release candidates](#release-candidates)), and a patch release from a
@@ -413,31 +416,86 @@ release branch (`v0.1.1` on `release-0.1`, see
    git tag -a vX.Y.Z -m "Ponko X.Y.Z" && git push origin vX.Y.Z
    ```
 
-   The workflow is kept disabled between releases: enable it
-   (`gh workflow enable release.yml`) after the release pull request merged
-   and before pushing the tag. It builds the C library on each OS (with the
-   headers, the licenses and `THIRD-PARTY-NOTICES.txt` for every library
-   linked into it), packages every crate (`cargo publish --workspace
-   --dry-run`), creates the GitHub release from the CHANGELOG section, and
-   publishes the crates to crates.io if the `CARGO_REGISTRY_TOKEN` secret is
-   set (otherwise that job says so and can be re-run once it is). Its first
-   job, `verify`, runs `release-check.py check`, and every other job waits for
-   it: nothing is built, released or published unless the tag is `vX.Y.Z` (or
-   `vX.Y.Z-rc.N`) on a commit merged to `main` or to `release-X.Y` of the
-   tag's own minor, every crate is at the tag's version, `CHANGELOG.md` has a
-   non-empty `## [X.Y.Z]` section that fits in a release body, a release
-   whose section has **Breaking changes** is a minor one with its migration
-   chapter written, listed in the book's summary and holding every entry, the
-   sub-crates carry the root license files and no fragment is left over. (It does not
-   look at CI: tag a commit whose CI on `main` passed.)
-5. Redeploy the website (https://ponko.dev/), which builds the guide from
-   `main` (its own repository, `ponkoengine/ponko-website`). The API
-   reference of the release appears on docs.rs by itself.
+   That is all a release needs from you: **merge the release PR, push the
+   tag, approve the `release` environment**. The workflow is always enabled;
+   don't enable or disable it by hand. It:
+
+   1. **Verifies** (job `verify`, before anything is built):
+      `release-check.py check` (the tag is `vX.Y.Z` or `vX.Y.Z-rc.N` on a
+      commit merged to `main` or to `release-X.Y` of the tag's own minor,
+      every crate is at the tag's version, `CHANGELOG.md` has a non-empty
+      `## [X.Y.Z]` section that fits in a release body, a release whose
+      section has **Breaking changes** is a minor one with its migration
+      chapter written, listed in the book's summary and holding every entry,
+      the sub-crates carry the root license files and no fragment is left
+      over) and `release-check.py ci`: **CI must have succeeded on the tagged
+      commit**, on `main` or `release-X.Y`. A run that is still going stops
+      the release with a message saying so: wait for it and re-run the
+      `Check the tag` job. A failed run stops it too (fix it on `main`, tag
+      the fixed commit); so does a commit CI never ran on.
+   2. **Builds**: the C library on each OS (with the headers, the licenses and
+      `THIRD-PARTY-NOTICES.txt` for every library linked into it), and packages
+      every crate (`cargo publish --workspace --dry-run`).
+   3. **Waits for approval**: the `Publish` job uses the `release`
+      environment, so GitHub asks its reviewers to approve it (Actions, the
+      run, "Review deployments"). Look at the green builds, then approve.
+   4. **Publishes**, in that one job: the GitHub release from the CHANGELOG
+      section, then the crates to crates.io through Trusted Publishing (GitHub
+      OIDC trades the job's identity for a crates.io token that lasts 30
+      minutes; no registry token is stored anywhere). If crates.io isn't set
+      up yet the job stops with a message before it creates anything. After a
+      failure, re-run the job: an existing release is kept.
+   5. **Redeploys the website** (https://ponko.dev/, which builds the guide
+      from `main`; its own repository, `ponkoengine/ponko-website`) by calling
+      its Cloudflare Pages deploy hook. Without the secret below it only says
+      so; retry the deploy in Cloudflare Pages then. The API reference of the
+      release appears on docs.rs by itself.
+
+   Never run `cargo publish` by hand once the setup below is done.
+
+### One-time setup (a maintainer, in settings)
+
+The workflow can't do these; the release fails or skips a step until they
+are done. Order matters only where noted.
+
+1. **Trusted Publishing on crates.io, for each of the six crates** `ponko`,
+   `ponko_ecs`, `ponko_ffi`, `ponko_macros`, `ponko_mcp`, `ponko_unity` (and
+   every crate added to the release later): sign in to crates.io as an owner,
+   open the crate, Settings, Trusted Publishing, "Add", GitHub, and enter
+   repository owner `ponkoengine`, repository name `ponko`, workflow filename
+   `release.yml`, environment `release`. See
+   [crates.io's guide](https://crates.io/docs/trusted-publishing) and the
+   [auth action](https://github.com/rust-lang/crates-io-auth-action).
+   A crate that was never published needs its first version published by a
+   maintainer with an API token (crates.io requires that before a trusted
+   publisher can be added), and then gets its trusted publisher here. A crate
+   added to the workspace later goes through the same two steps before the
+   release that first includes it.
+2. **The `release` environment**: repository Settings, Environments, "New
+   environment", name `release` (exactly; crates.io checks it). Turn on
+   "Required reviewers" and add the maintainers who may approve a release;
+   optionally "Prevent self-review" and, under "Deployment branches and
+   tags", allow tags matching `v*`.
+3. **Remove the `CARGO_REGISTRY_TOKEN` repository secret** (Settings,
+   Secrets and variables, Actions) once a release has published through
+   Trusted Publishing, and revoke the token it held (crates.io, Account
+   Settings, API Tokens). The workflow no longer reads it; no registry token
+   should be stored anywhere.
+4. **Re-enable the workflow if it is disabled**: `gh workflow enable
+   release.yml` (once; it stays enabled now, and `verify` plus the
+   environment are the guard).
+5. **Website deploy hook (optional)**: in Cloudflare Pages, create a deploy
+   hook for the website's `main` branch and save its URL as the Actions
+   secret `PONKO_WEBSITE_DEPLOY_HOOK` (`gh secret set
+   PONKO_WEBSITE_DEPLOY_HOOK`). It is the only secret the release workflow
+   reads besides the built-in token, and the URL itself is the credential:
+   never put it in a file. Without it the `Redeploy the website` job warns
+   and the website picks the guide up at its next deployment.
 
 ### Release candidates
 
 From 0.2.0 on, STABILITY.md has every minor go out as `vX.Y.0-rc.1` at least a
-week before `vX.Y.0`. A candidate is released like any release (steps 1 to 5
+week before `vX.Y.0`. A candidate is released like any release (steps 1 to 4
 above, on `main`) with these differences:
 
 - **The version is `X.Y.0-rc.N`** in the root `Cargo.toml`, every published
@@ -474,7 +532,7 @@ released, so patch releases (0.1.1, 0.1.2, ...) come from a branch, `release-X.Y
 "Releases"). Maintainers protect `release-*` like `main`: pull requests only,
 no force pushes. CI runs on them: pull requests into a release branch get the
 quick checks (the Semver job fails any break there), and every push to one
-gets the full matrix like `main`, so tag a commit whose run passed.
+gets the full matrix like `main`, and the release workflow refuses a commit whose run did not succeed.
 
 **Create the branch** from the tag of the minor's first release, once, after
 that release is out (a maintainer, once per minor; branch rules are set up for
