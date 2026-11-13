@@ -43,7 +43,7 @@ tar.gz files are written by the command itself, so no `zip` or `tar` program is
 needed on any OS, and they are reproducible: entries sorted, owned by root,
 with fixed dates, so packing the same files twice gives the same bytes. The
 engine finds the assets next to the program, and inside an app bundle in
-`Contents/Resources` ([assets](assets.md)), so an unpacked game works from any
+`Contents/Resources` ([below](#the-package)), so an unpacked game works from any
 folder.
 
 ### What goes in: `[package.metadata.ponko]`
