@@ -780,6 +780,25 @@ impl serde_core::ser::Serialize for ponko::attach::Attached
 pub fn ponko::attach::Attached::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for ponko::attach::Attached
 pub fn ponko::attach::Attached::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+#[repr(C)] pub struct ponko::attach::Attached3D
+pub ponko::attach::Attached3D::offset: ponko::d3::Transform
+pub ponko::attach::Attached3D::to: ponko_ecs::entity::Entity
+impl ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::offset(self, ponko::d3::Transform) -> Self
+pub fn ponko::attach::Attached3D::to(ponko_ecs::entity::Entity) -> Self
+impl core::clone::Clone for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::attach::Attached3D
+impl core::marker::StructuralPartialEq for ponko::attach::Attached3D
+impl ponko_ecs::bundle::Component for ponko::attach::Attached3D
+impl serde_core::ser::Serialize for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub fn ponko::attach::follow_attachments(&mut ponko::prelude::Ctx)
 pub mod ponko::audio
 pub enum ponko::audio::AudioRolloff
@@ -2131,6 +2150,25 @@ impl serde_core::ser::Serialize for ponko::anim::AttachToJoint
 pub fn ponko::anim::AttachToJoint::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for ponko::anim::AttachToJoint
 pub fn ponko::anim::AttachToJoint::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+#[repr(C)] pub struct ponko::d3::Attached
+pub ponko::d3::Attached::offset: ponko::d3::Transform
+pub ponko::d3::Attached::to: ponko_ecs::entity::Entity
+impl ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::offset(self, ponko::d3::Transform) -> Self
+pub fn ponko::attach::Attached3D::to(ponko_ecs::entity::Entity) -> Self
+impl core::clone::Clone for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::attach::Attached3D
+impl core::marker::StructuralPartialEq for ponko::attach::Attached3D
+impl ponko_ecs::bundle::Component for ponko::attach::Attached3D
+impl serde_core::ser::Serialize for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct ponko::d3::AudioListener
 pub ponko::d3::AudioListener::position: glam::f32::vec3::Vec3
 pub ponko::d3::AudioListener::rotation: glam::f32::sse2::quat::Quat
@@ -6918,6 +6956,25 @@ impl serde_core::ser::Serialize for ponko::anim::AttachToJoint
 pub fn ponko::anim::AttachToJoint::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 impl<'de> serde_core::de::Deserialize<'de> for ponko::anim::AttachToJoint
 pub fn ponko::anim::AttachToJoint::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+#[repr(C)] pub struct ponko::prelude::d3::Attached
+pub ponko::prelude::d3::Attached::offset: ponko::d3::Transform
+pub ponko::prelude::d3::Attached::to: ponko_ecs::entity::Entity
+impl ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::offset(self, ponko::d3::Transform) -> Self
+pub fn ponko::attach::Attached3D::to(ponko_ecs::entity::Entity) -> Self
+impl core::clone::Clone for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko::attach::Attached3D
+impl core::marker::StructuralPartialEq for ponko::attach::Attached3D
+impl ponko_ecs::bundle::Component for ponko::attach::Attached3D
+impl serde_core::ser::Serialize for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for ponko::attach::Attached3D
+pub fn ponko::attach::Attached3D::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct ponko::prelude::d3::AudioListener
 pub ponko::prelude::d3::AudioListener::position: glam::f32::vec3::Vec3
 pub ponko::prelude::d3::AudioListener::rotation: glam::f32::sse2::quat::Quat
