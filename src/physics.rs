@@ -113,7 +113,7 @@ pub enum Shape {
     Polygon {
         /// The corners; only the first `count` are used.
         points: [Vec2; MAX_POLYGON_POINTS],
-        /// How many corners: 3 to [`MAX_POLYGON_POINTS`].
+        /// How many corners: 3 to [`MAX_POLYGON_POINTS`](Shape::MAX_POLYGON_POINTS).
         count: u8,
     },
 }
@@ -219,7 +219,7 @@ impl Collider {
     ///
     /// # Panics
     ///
-    /// With fewer than 3 or more than [`MAX_POLYGON_POINTS`] points, or a
+    /// With fewer than 3 or more than [`MAX_POLYGON_POINTS`](Shape::MAX_POLYGON_POINTS) points, or a
     /// point that isn't finite.
     #[must_use]
     #[track_caller]

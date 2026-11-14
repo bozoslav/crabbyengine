@@ -41,7 +41,7 @@
 //! - [`input`] and [`actions`]: keys, mouse, gamepads and rebindable actions.
 //! - [`ui`] and [`text`]: the retained UI, fonts and text layout.
 //! - [`audio`]: sound effects and music.
-//! - [`d2`] and [`d3`]: the types of each dimension, physics among them
+//! - [`d2`] and `d3`: the types of each dimension, physics among them
 //!   (features `physics` and `physics3d`); [`nav`] and [`flow`] for
 //!   pathfinding and navigation meshes.
 //! - [`assets`] and [`streaming`]: asset files, GPU asset loading with
@@ -212,7 +212,7 @@ pub mod spatial;
 mod sprite_material;
 pub mod storage;
 /// Deprecated: [`Job`](crate::streaming::Job) and `CellStreamer` moved to
-/// [`streaming`](crate::streaming), next to the asset streaming they work with.
+/// [`streaming`], next to the asset streaming they work with.
 pub mod stream {
     /// Moved: [`ponko::streaming::Job`](crate::streaming::Job).
     #[deprecated(since = "0.2.0", note = "use `ponko::streaming::Job`")]

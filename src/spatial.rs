@@ -66,7 +66,7 @@ pub struct GridEntry<T = ()> {
 /// were when it started.
 ///
 /// To index only some entities, remove the built-in
-/// [`rebuild_spatial_grid`] system and call
+/// [`rebuild_spatial_grid`](crate::systems::rebuild_spatial_grid) system and call
 /// [`rebuild_from`](Self::rebuild_from) yourself.
 ///
 /// A grid can also carry data per entry (a velocity, a team), for queries

@@ -104,7 +104,7 @@ pub fn rebuild_spatial_grid(ctx: &mut Ctx) {
 
 /// Built-in system: advances every [`Animation`](crate::sheet::Animation) and shows its frame on the
 /// entity's [`Sprite`](crate::d2::Sprite). [`Game`](crate::game::Game) runs it every frame, before
-/// [`draw_sprites`](crate::systems::draw_sprites).
+/// [`draw_sprites`].
 ///
 /// ```no_run
 /// # use ponko::prelude::*;
@@ -117,7 +117,7 @@ pub fn animate_sprites(ctx: &mut Ctx) {
 
 /// Built-in system: draws the visible tiles of every [`TileMap`](crate::tilemap::TileMap).
 /// [`Game`](crate::game::Game) runs it every frame, before
-/// [`draw_sprites`](crate::systems::draw_sprites).
+/// [`draw_sprites`].
 ///
 /// ```no_run
 /// # use ponko::prelude::*;

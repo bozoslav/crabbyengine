@@ -9,7 +9,7 @@ use crate::d2::Transform as Transform2D;
 use ponko_ecs::{Component, Entity, With, World};
 
 /// Keeps this entity's [`d2::Transform`](crate::d2::Transform) position and rotation at an offset
-/// from another entity's, updated by [`follow_attachments`]. Its own scale
+/// from another entity's, updated by [`follow_attachments`](crate::systems::follow_attachments). Its own scale
 /// is left alone. When the entity it's attached to is despawned, this one is
 /// despawned too. Attachments can be attached to attachments.
 ///

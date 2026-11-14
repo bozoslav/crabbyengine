@@ -4,7 +4,7 @@
 //! focus and queued events ([`Ui`]); who has the pointer and the keyboard
 //! ([`Ui::wants_pointer`], [`Ui::wants_keyboard`]); and the immediate
 //! widgets for debug overlays, `ctx.ui.immediate` ([`UiImmediate`]), with
-//! their [`UiStyle`]. A [`UiPanel3D`] carries a tree of its own for a
+//! their [`UiStyle`]. A [`d3::UiPanel`](crate::d3::UiPanel) carries a tree of its own for a
 //! surface in the 3D world.
 //!
 //! **When to call it.** Build the tree in setup, then change its text,

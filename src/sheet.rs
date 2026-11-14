@@ -98,7 +98,7 @@ impl SpriteSheet {
 }
 
 /// Plays frames of a [`SpriteSheet`] on an entity's [`Sprite`]. The built-in
-/// [`animate_sprites`] system advances it every frame.
+/// [`animate_sprites`](crate::systems::animate_sprites) system advances it every frame.
 ///
 /// ```
 /// # use ponko::prelude::*;

@@ -38,7 +38,7 @@ use ponko_ecs::Component;
 
 /// A grid of tiles, each a frame of `sheet` or empty. Put it on an entity
 /// with a [`d2::Transform`](crate::d2::Transform): its position is the map's top-left corner (the
-/// rotation and scale are ignored). The built-in [`draw_tilemaps`] system
+/// rotation and scale are ignored). The built-in [`draw_tilemaps`](crate::systems::draw_tilemaps) system
 /// draws the tiles the camera can see, so maps can be huge.
 ///
 /// ```
