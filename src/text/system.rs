@@ -121,3 +121,46 @@ impl Text {
         Some(found)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `Text` whose "system" fonts are the ones in `assets/fonts`.
+    fn text_with_test_fonts() -> Text {
+        let mut t = Text::new();
+        let mut db = fontdb::Database::new();
+        db.load_fonts_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/fonts"));
+        assert_eq!(db.len(), 3);
+        t.shaper.system.db = Some(db);
+        t
+    }
+
+    #[test]
+    fn a_family_is_found_by_name_and_loaded_once() {
+        let mut t = text_with_test_fonts();
+        let arabic = t.load_system_font("Noto Sans Arabic").unwrap();
+        assert_eq!(t.load_system_font("Noto Sans Arabic").unwrap(), arabic);
+        assert_eq!(t.loaded_fonts(), 1);
+        let err = t.load_system_font("Missing Family").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn missing_characters_are_found_in_system_fonts_only_when_asked() {
+        let mut t = text_with_test_fonts();
+        let unshaped = |t: &mut Text| t.with_shaped("日本", Font::DEFAULT, |_, s| s.glyphs.iter().all(|g| g.id == 0));
+        assert!(unshaped(&mut t), "off by default");
+        t.set_system_fallback(true);
+        t.with_shaped("日本", Font::DEFAULT, |_, s| {
+            assert!(s.glyphs.iter().all(|g| g.id != 0 && g.font != 0), "{:?}", s.glyphs);
+        });
+        // The font found for the first character joined the chain, so the
+        // second was found there without another search.
+        assert_eq!(t.fallbacks(Font::DEFAULT).len(), 1);
+        assert_eq!(t.shaper.system.by_char.len(), 1);
+        // A character no font has is remembered as missing.
+        t.with_shaped("ก", Font::DEFAULT, |_, _| ());
+        assert_eq!(t.shaper.system.by_char.get(&'ก'), Some(&None));
+    }
+}

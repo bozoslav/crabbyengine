@@ -674,6 +674,20 @@ mod tests {
     }
 
     #[test]
+    fn three_d_text_is_shaped_into_distance_field_glyphs() {
+        let mut t = Text::new();
+        let arabic = t.add_font(&fixture("NotoSansArabic-Subset.ttf")).unwrap();
+        let size = t.layout_sdf("مرحبا", arabic);
+        let glyphs = t.with_shaped("مرحبا", arabic, |_, s| s.glyphs.len());
+        assert!(size.x > 0.0 && !t.shaper.sdf_glyphs.is_empty());
+        assert!(t.sdf.glyphs.is_empty(), "made by glyph index, not by character");
+        assert_eq!(t.placed().len(), glyphs);
+        let made = t.sdf.uploads.len();
+        t.layout_sdf("مرحبا", arabic);
+        assert_eq!(t.sdf.uploads.len(), made, "cached");
+    }
+
+    #[test]
     fn japanese_wraps_between_characters_and_latin_at_spaces() {
         let mut t = Text::new();
         let jp = t.add_font(&fixture("NotoSansJP-Subset.otf")).unwrap();
