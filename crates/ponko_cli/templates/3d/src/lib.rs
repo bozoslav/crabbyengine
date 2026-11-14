@@ -6,6 +6,7 @@
 
 use ponko::d3::*;
 use ponko::prelude::*;
+use ponko::render::{MaterialDesc, MeshData};
 use serde::{Deserialize, Serialize};
 
 /// Numbers to tune without recompiling, loaded from `assets/settings.json`.
