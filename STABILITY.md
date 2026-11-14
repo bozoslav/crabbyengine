@@ -102,7 +102,9 @@ Not covered by the versions, and allowed to change in any release:
 - Error message text, log output, the inspector's look, and the exact
   frames rendered: tests should check behavior, not strings or pixels.
 - Performance. Regressions are bugs, and benchmark numbers go in PRs, but
-  timings are not part of the API.
+  timings are not part of the API. CI tracks the instruction counts of a few
+  workloads per commit and comments on pull requests that move them
+  (`crates/ponko_bench/README.md`, "Tracking results over time").
 
 ## Errors and panics
 
