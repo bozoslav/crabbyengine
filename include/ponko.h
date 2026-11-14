@@ -747,6 +747,18 @@ enum PonkoScenarioStatus
 typedef uint32_t PonkoScenarioStatus;
 #endif // __cplusplus
 
+enum PonkoTextShaping
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  PONKO_TEXT_SHAPING_AUTO = 0,
+  PONKO_TEXT_SHAPING_ALWAYS = 1,
+};
+#ifndef __cplusplus
+typedef uint32_t PonkoTextShaping;
+#endif // __cplusplus
+
 typedef struct PonkoAccess PonkoAccess;
 
 typedef struct PonkoActionMap PonkoActionMap;
@@ -5395,6 +5407,29 @@ enum PonkoStatus ponko_ctx_ui_immediate_border_width(struct PonkoCtx *ctx, float
 enum PonkoStatus ponko_ctx_set_ui_immediate_border_width(struct PonkoCtx *ctx, float width);
 
 enum PonkoStatus ponko_ctx_ui_immediate_scale(struct PonkoCtx *ctx, float *out_scale);
+
+enum PonkoStatus ponko_ctx_set_font_fallbacks(struct PonkoCtx *ctx,
+                                              struct PonkoFont font,
+                                              const struct PonkoFont *fallbacks,
+                                              size_t count);
+
+enum PonkoStatus ponko_ctx_font_fallbacks(struct PonkoCtx *ctx,
+                                          struct PonkoFont font,
+                                          struct PonkoFont *out_fonts,
+                                          size_t capacity,
+                                          size_t *out_count);
+
+enum PonkoStatus ponko_ctx_set_text_shaping(struct PonkoCtx *ctx, uint32_t mode);
+
+enum PonkoStatus ponko_ctx_text_shaping(struct PonkoCtx *ctx, uint32_t *out_mode);
+
+enum PonkoStatus ponko_ctx_try_load_system_font(struct PonkoCtx *ctx,
+                                                const char *family,
+                                                struct PonkoFont *out_font);
+
+enum PonkoStatus ponko_ctx_set_system_font_fallback(struct PonkoCtx *ctx,
+                                                    bool on,
+                                                    bool *out_available);
 
 #ifdef __cplusplus
 }  // extern "C"

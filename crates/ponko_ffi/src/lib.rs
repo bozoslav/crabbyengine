@@ -95,6 +95,8 @@ mod lod;
 mod scene_passes;
 mod storage_slots;
 mod ui_immediate;
+// Text shaping, font fallback and system fonts (#409).
+mod text_shaping;
 pub use access::*;
 pub use actions::*;
 pub use animator::*;
@@ -157,6 +159,7 @@ pub use storage::*;
 pub use storage_slots::*;
 pub use stream::*;
 pub use strips::*;
+pub use text_shaping::*;
 pub use text3d::*;
 pub use three::*;
 pub use tiles::*;
