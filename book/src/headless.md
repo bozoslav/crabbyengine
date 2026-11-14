@@ -57,7 +57,9 @@ fn things_fall_ten_units_per_second() {
 - Each tick runs every **sim system** once. Frame systems, the UI and
   drawing don't run, because there are no frames, unless you ask for
   [headless frames](#menus-and-the-ui-headless-frames).
-- Pause and sim speed are ignored; `ctx.quit()` stops early.
+- Sim speed is ignored; `ctx.quit()` stops early. A tick made while
+  [paused](sim-clock.md) runs no sim system (frame systems still run with
+  headless frames), and `ctx.time.step()` runs one.
 - Textures load for their sizes but nothing is uploaded.
 
 The same game can run windowed or headless: the boids example does both

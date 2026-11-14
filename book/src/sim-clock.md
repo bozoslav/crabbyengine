@@ -37,6 +37,55 @@ Game::new("Colony", 1280, 720).sim_system(ants).system(controls);
 Put controls in a frame `system`: frame systems keep running while the sim is
 paused.
 
+Headless runs honour the pause too: each tick of `run_headless(ticks, ...)`
+made while paused runs no sim system, so `sim_tick()` stays where it was.
+With [headless frames](headless.md#menus-and-the-ui-headless-frames) the
+frame systems go on, so a pause menu can resume; `ctx.time.step()` runs one
+tick. With the [control endpoint](control.md) on, a paused headless game
+waits for tools instead.
+
+### Pausing only physics
+
+`ctx.time.pause()` stops every sim system, including the one that would
+read the "resume" press. A pause screen that keeps its rules in sim systems
+holds only the physics step instead, with `ctx.physics.set_paused(true)`:
+
+<div class="lang-pair">
+<div>
+
+```rust
+fn pause_menu(ctx: &mut Ctx) {
+    if ctx.key_pressed(Key::Escape) {
+        let held = ctx.physics.is_paused();
+        ctx.physics.set_paused(!held); // the step only
+    }
+}
+
+Game::new("Platformer", 1280, 720)
+    .physics(vec2(0.0, 980.0))
+    .sim_system(pause_menu);
+```
+
+</div>
+<div>
+
+```cpp
+{{#include ../../examples/cpp/guide.cpp:physics_pause}}
+```
+
+</div>
+</div>
+
+While it is held, every other sim system runs and the tick counter goes on.
+Bodies stay where they are and keep their velocity, no collision events
+arrive, and ray and overlap queries see the last step's world. Bodies
+spawned, moved or despawned meanwhile join at the first step after the
+pause. Sim systems run after the step by default, so a pause set in one
+holds the next tick's step; put the system in `Phase::BeforePhysics` to hold
+this tick's. The flag lives on `ctx.physics`, not in the world: a save
+doesn't keep it. The [Ember Hop](ember-hop.md#physics) pause screen works
+this way. 3D physics (`ctx.physics3d`) has no such switch yet.
+
 ## What the clock guarantees
 
 - **Ticks are always the same length.** `ctx.dt()` in a sim system is the
