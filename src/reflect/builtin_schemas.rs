@@ -20,6 +20,10 @@ fn skin_of() -> ValueSchema {
 fn attach_to_joint() -> ValueSchema {
     ValueSchema::object([("skeleton", Entity), ("joint", Unsigned), ("offset", transform3d())])
 }
+#[cfg(feature = "3d")]
+fn attached3d() -> ValueSchema {
+    ValueSchema::object([("to", Entity), ("offset", transform3d())])
+}
 #[cfg(feature = "physics3d")]
 fn joint3d() -> ValueSchema {
     let motion = ValueSchema::any_of([
@@ -256,6 +260,10 @@ pub(super) fn builtin<T: 'static>() -> Option<ValueSchema> {
     #[cfg(feature = "3d")]
     if id == std::any::TypeId::of::<crate::anim::AttachToJoint>() {
         return Some(attach_to_joint());
+    }
+    #[cfg(feature = "3d")]
+    if id == std::any::TypeId::of::<crate::attach::Attached3D>() {
+        return Some(attached3d());
     }
     #[cfg(feature = "physics3d")]
     if id == std::any::TypeId::of::<crate::d3::Joint>() {
@@ -611,6 +619,7 @@ pub(in crate::reflect) mod tests {
         #[cfg(feature = "3d")]
         {
             check!(crate::anim::SkinOf, crate::anim::SkinOf(e(4)));
+            check!(crate::attach::Attached3D, crate::attach::Attached3D::to(e(4)));
             check!(
                 crate::anim::AttachToJoint,
                 crate::anim::AttachToJoint {

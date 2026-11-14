@@ -2144,6 +2144,12 @@ typedef struct PonkoAttached {
   float rotation;
 } PonkoAttached;
 
+typedef struct PonkoAttached3D {
+  struct PonkoEntity to;
+  uint32_t reserved[2];
+  struct PonkoTransform3D offset;
+} PonkoAttached3D;
+
 typedef struct PonkoVelocity {
   struct PonkoVec2 linear;
   float angular;
@@ -2530,6 +2536,8 @@ enum PonkoStatus ponko_ctx_load_asset_with(struct PonkoCtx *ctx,
 enum PonkoStatus ponko_attached_component(struct PonkoWorld *world, uint32_t *out_id);
 
 enum PonkoStatus ponko_game_follow_attachments(struct PonkoGame *game);
+
+enum PonkoStatus ponko_attached3d_component(struct PonkoWorld *world, uint32_t *out_id);
 
 struct PonkoAudioEffects ponko_audio_effects_default(void);
 

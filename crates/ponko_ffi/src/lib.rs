@@ -32,6 +32,7 @@ mod actions;
 mod animator;
 mod asset_sources;
 mod attach;
+mod attach3d;
 mod audio3d;
 mod changes;
 mod contacts3d;
@@ -118,6 +119,7 @@ static ALLOCATOR: ponko::alloc_count::CountingAllocator = ponko::alloc_count::Co
 pub use action_lookup::*;
 pub use asset_sources::*;
 pub use attach::*;
+pub use attach3d::*;
 pub use audio_curves::*;
 pub use audio3d::*;
 pub use builtins::*;
@@ -606,6 +608,8 @@ pub(crate) fn component(world: &World, id: u32) -> Result<(ComponentId, Kind), F
         Some(t) if t == TypeId::of::<Transform2D>() => Kind::Plain,
         // repr(C), layout checked against PonkoAttached; any bits are a valid value.
         Some(t) if t == TypeId::of::<ponko::d2::Attached>() => Kind::Plain,
+        // repr(C), layout checked against PonkoAttached3D; any bits are a valid value.
+        Some(t) if t == TypeId::of::<ponko::d3::Attached>() => Kind::Plain,
         // repr(C), layout checked against PonkoAnimation; `looping` must be 0 or 1.
         Some(t) if t == TypeId::of::<ponko::d2::Animation>() => Kind::Plain,
         Some(t) if t == TypeId::of::<Sprite>() => Kind::Mirror(&SPRITE),

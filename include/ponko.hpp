@@ -156,6 +156,9 @@ using quat = PonkoQuat;
 /// The built-in `Transform3D` component (Rust `Transform3D`): position, rotation and scale. A plain value and
 /// a query column; start from transform3d_at.
 using transform3d = PonkoTransform3D;
+/// The built-in `Attached3D` component (Rust `Attached3D`): keeps an entity at `offset` (a transform in the
+/// other's space) from another; see attach3d_to. Same layout as Rust, so it is a query column.
+using attached3d = PonkoAttached3D;
 /// One joint of a skeleton (Rust `Joint`): its name, the joint it hangs
 /// from (an earlier index; -1 for a root) and where it sits relative to it
 /// at rest.
@@ -672,6 +675,11 @@ inline quat quat_from_rotation_z(float angle) { return ponko_quat_from_axis_angl
 /// A 3D transform at `position`, turned by `rotation`, scaled by `scale` on every axis.
 inline transform3d transform3d_at(vec3 position, quat rotation = {0, 0, 0, 1}, float scale = 1) {
     transform3d t = ponko_transform3d_at(position); t.rotation = rotation; t.scale = {scale, scale, scale}; return t;
+}
+/// Follows `to` at `offset` (in its space: turned by its rotation, stretched
+/// by its scale, chains placed parents first). Needs game::follow_attachments().
+inline attached3d attach3d_to(entity to, transform3d offset = ponko_transform3d_at({0, 0, 0})) {
+    return {entity_of(to), {0, 0}, offset};
 }
 /// `t` turned so its -Z axis points at `target`, +Y up.
 inline transform3d looking_at(const transform3d& t, vec3 target) { return ponko_transform3d_looking_at(t, target); }
@@ -1604,6 +1612,7 @@ protected:
         else if constexpr (std::is_same<T, sprite_blend>::value) status = ponko_blend_mode_component(world, &id);
         else if constexpr (std::is_same<T, sprite_material>::value) status = ponko_sprite_material_component(world, &id);
         else if constexpr (std::is_same<T, attached>::value) status = ponko_attached_component(world, &id);
+        else if constexpr (std::is_same<T, attached3d>::value) status = ponko_attached3d_component(world, &id);
         else if constexpr (std::is_same<T, animation>::value) status = ponko_animation_component(world, &id);
         else if constexpr (std::is_same<T, rigid_body>::value) status = ponko_rigid_body_component(world, &id);
         else if constexpr (std::is_same<T, collider>::value) status = ponko_collider_component(world, &id);

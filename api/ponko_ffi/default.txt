@@ -995,6 +995,18 @@ impl core::fmt::Debug for ponko_ffi::PonkoAttached
 pub fn ponko_ffi::PonkoAttached::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for ponko_ffi::PonkoAttached
 impl core::marker::StructuralPartialEq for ponko_ffi::PonkoAttached
+#[repr(C)] pub struct ponko_ffi::PonkoAttached3D
+pub ponko_ffi::PonkoAttached3D::offset: ponko_ffi::PonkoTransform3D
+pub ponko_ffi::PonkoAttached3D::reserved: [u32; 2]
+pub ponko_ffi::PonkoAttached3D::to: ponko_ffi::PonkoEntity
+impl core::clone::Clone for ponko_ffi::PonkoAttached3D
+pub fn ponko_ffi::PonkoAttached3D::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_ffi::PonkoAttached3D
+pub fn ponko_ffi::PonkoAttached3D::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_ffi::PonkoAttached3D
+pub fn ponko_ffi::PonkoAttached3D::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_ffi::PonkoAttached3D
+impl core::marker::StructuralPartialEq for ponko_ffi::PonkoAttached3D
 #[repr(C)] pub struct ponko_ffi::PonkoAudioBus
 pub ponko_ffi::PonkoAudioBus::index: usize
 impl core::clone::Clone for ponko_ffi::PonkoAudioBus
@@ -3316,6 +3328,7 @@ pub const ponko_ffi::PONKO_UI_SCREEN: u64
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_animation_graph_builder_free(*mut ponko_ffi::PonkoAnimationGraphBuilder)
 #[no_mangle] pub c fn ponko_ffi::ponko_animation_graph_builder_new() -> *mut ponko_ffi::PonkoAnimationGraphBuilder
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_animation_graph_free(*mut ponko_ffi::PonkoAnimationGraph)
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_attached3d_component(*mut ponko_ffi::PonkoWorld, *mut u32) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_attached_component(*mut ponko_ffi::PonkoWorld, *mut u32) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub c fn ponko_ffi::ponko_audio_effects_default() -> ponko_ffi::PonkoAudioEffects
 #[no_mangle] pub c fn ponko_ffi::ponko_audio_settings3d_default() -> ponko_ffi::PonkoAudioSettings3D
