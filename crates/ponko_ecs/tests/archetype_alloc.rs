@@ -204,6 +204,7 @@ fn wide_archetypes_query_and_change_without_allocating() {
 #[derive(Component)]
 struct Opt<const K: usize>;
 /// Optional data `K`, tracked in one of the tests.
+#[allow(dead_code)] // Only its layout matters.
 #[derive(Clone, Copy, Component)]
 struct OptData<const K: usize>(u64);
 

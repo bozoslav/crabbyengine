@@ -383,7 +383,6 @@ impl Archetype {
     /// The caller has taken the edges out and unlinked them.
     pub(crate) fn retire(&mut self, pool: &mut BufferPool) -> Shell {
         assert!(self.is_empty(), "only an empty archetype is reclaimed");
-        debug_assert!(self.add_edges.is_empty() && self.remove_edges.is_empty());
         let cap = self.cap();
         for c in self.columns.iter_mut() {
             // SAFETY: `cap` is the capacity, and no row is live.
@@ -973,7 +972,17 @@ impl Hasher for ComponentIdHasher {
 }
 
 /// Transition-edge cache of an archetype: component id -> destination archetype.
-pub(crate) type EdgeMap = HashMap<ComponentId, usize, BuildHasherDefault<ComponentIdHasher>>;
+pub(crate) type EdgeMap = HashMap<ComponentId, Edge, BuildHasherDefault<ComponentIdHasher>>;
+
+/// A transition edge: the archetype that adding or removing a component
+/// leads to, and the generation its slot had then. Reclaiming an archetype
+/// moves its slot to the next generation, which makes every edge to it
+/// stale without touching its neighbours (`Slots::leads`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Edge {
+    pub(crate) to: u32,
+    pub(crate) generation: u32,
+}
 
 #[cfg(test)]
 mod tests {

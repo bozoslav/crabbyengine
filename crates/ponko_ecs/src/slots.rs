@@ -41,9 +41,15 @@
 //!
 //! - Entity locations only name archetypes with entities, never an empty
 //!   (reclaimable) one.
-//! - Transition edges are symmetric (an add edge `a -> b` for a component
-//!   is a remove edge `b -> a`), so reclaiming `a` removes the edges that
-//!   point to it from its neighbours, and drops its own.
+//! - A transition edge names the slot it leads to and that slot's
+//!   generation, which reclaiming moves on: an edge to a reclaimed
+//!   archetype is stale, is skipped like a missing one, and is replaced
+//!   when the move is next made. Reclaiming touches no neighbour: removing
+//!   the edges from them eagerly, in maps scattered over the world, made
+//!   the 20 % churn benchmark measurably slower
+//!   (`crates/ponko_bench/SPARSE_SET.md`). A slot whose
+//!   generations run out is never reused. A reused archetype starts with
+//!   empty edge maps.
 //! - The query index keeps lists of slot indices. A reclaimed slot can stay
 //!   in a list (it is empty, and loops skip empty archetypes); when the
 //!   slot is reused for another component set, the world tells the index,
@@ -59,7 +65,7 @@
 
 use std::collections::VecDeque;
 
-use crate::storage::{BufferPool, Shell};
+use crate::storage::{BufferPool, Edge, Shell};
 
 /// Empty archetypes a world keeps whatever its size; see the module docs.
 pub(crate) const KEEP_EMPTY: usize = 64;
@@ -87,6 +93,9 @@ pub(crate) struct Slots {
     /// [`emptied`](Self::emptied).
     occupied: Vec<u64>,
     meta: Vec<Meta>,
+    /// Each slot's generation: how often an archetype in it was reclaimed.
+    /// Edges carry the generation of the slot they lead to.
+    generations: Vec<u32>,
     /// Archetypes with entities.
     live: usize,
     /// The archetypes with entities, ascending, while `listed`.
@@ -118,6 +127,7 @@ impl Slots {
     pub(crate) fn created(&mut self, a: usize) {
         if a == self.meta.len() {
             self.meta.push(Meta::default());
+            self.generations.push(0);
             if a / 64 >= self.occupied.len() {
                 self.occupied.push(0);
             }
@@ -208,7 +218,13 @@ impl Slots {
         self.meta[a].dead = true;
         let width = shell.width();
         self.empty -= 1;
-        self.free.push(a as u32);
+        // A new generation: edges to the archetype that was here are stale.
+        // A slot whose generations ran out stays dead, so that an edge from
+        // generations ago can never pass for a current one.
+        self.generations[a] += 1;
+        if self.generations[a] != u32::MAX {
+            self.free.push(a as u32);
+        }
         if self.shell_count >= self.free.len() + KEEP_EMPTY.max(self.live) {
             // Enough kept already: let this one go.
             return;
@@ -218,6 +234,22 @@ impl Slots {
         }
         self.shells[width].push(shell);
         self.shell_count += 1;
+    }
+
+    /// An edge to archetype `to` as it is now.
+    #[inline]
+    pub(crate) fn edge(&self, to: usize) -> Edge {
+        Edge {
+            to: to as u32,
+            generation: self.generations[to],
+        }
+    }
+
+    /// Where `edge` leads, unless the archetype it was made for was
+    /// reclaimed since.
+    #[inline]
+    pub(crate) fn leads(&self, edge: Edge) -> Option<usize> {
+        (self.generations[edge.to as usize] == edge.generation).then_some(edge.to as usize)
     }
 
     /// A dead slot to build the next new archetype in, if there is one.

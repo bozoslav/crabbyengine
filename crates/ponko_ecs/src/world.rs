@@ -1145,8 +1145,8 @@ impl World {
             }
             return true;
         }
-        let dst = match self.archetypes[src].add_edges.get(&id) {
-            Some(&d) => d,
+        let dst = match self.archetypes[src].add_edges.get(&id).and_then(|&e| self.slots.leads(e)) {
+            Some(d) => d,
             None => {
                 let mut ids = std::mem::take(&mut self.scratch_ids);
                 ids.clear();
@@ -1255,7 +1255,7 @@ impl World {
     }
 
     /// Records that adding component `id` to archetype `src` leads to `dst`,
-    /// and removing it from `dst` back to `src`.
+    /// and removing it from `dst` back to `src`, replacing stale edges.
     ///
     /// An edge map holds at most one edge per component: an add map one for
     /// each registered component its archetype lacks, a remove map one for
@@ -1267,18 +1267,19 @@ impl World {
     fn add_edge(&mut self, src: usize, id: ComponentId, dst: usize) {
         const AT_ONCE: usize = 32;
         let registered = self.infos.len();
+        let (to_dst, to_src) = (self.slots.edge(dst), self.slots.edge(src));
         let s = &mut self.archetypes[src];
         let most = registered - s.ids.len();
         if s.add_edges.len() == s.add_edges.capacity() && most <= AT_ONCE {
             s.add_edges.reserve(most - s.add_edges.len());
         }
-        s.add_edges.insert(id, dst);
+        s.add_edges.insert(id, to_dst);
         let d = &mut self.archetypes[dst];
         let most = d.ids.len();
         if d.remove_edges.len() == d.remove_edges.capacity() && most <= AT_ONCE {
             d.remove_edges.reserve(most - d.remove_edges.len());
         }
-        d.remove_edges.insert(id, src);
+        d.remove_edges.insert(id, to_src);
     }
 
     /// Reclaims the archetypes that have been empty the longest while the
@@ -1301,30 +1302,14 @@ impl World {
         }
     }
 
-    /// Turns empty archetype `a` into a dead slot: unlinks its transition
-    /// edges from its neighbours, forgets its component set, and keeps its
-    /// storage for the next new archetype.
+    /// Turns empty archetype `a` into a dead slot: forgets its component
+    /// set and keeps its storage for the next new archetype. Its neighbours'
+    /// edges to it go stale with its generation (`Slots::leads`), so they
+    /// aren't touched here.
     fn reclaim(&mut self, a: usize) {
-        // Edges are symmetric: `a`'s add edge to `d` for `id` is `d`'s remove
-        // edge for `id`, back to `a` (and the other way round).
-        let mut add = std::mem::take(&mut self.archetypes[a].add_edges);
-        for (id, &d) in &add {
-            let back = self.archetypes[d].remove_edges.remove(id);
-            debug_assert_eq!(back, Some(a));
-        }
-        add.clear();
-        let mut remove = std::mem::take(&mut self.archetypes[a].remove_edges);
-        for (id, &s) in &remove {
-            let back = self.archetypes[s].add_edges.remove(id);
-            debug_assert_eq!(back, Some(a));
-        }
-        remove.clear();
         let key = self.archetype_by_ids.remove_entry(&self.archetypes[a].ids[..]);
         debug_assert_eq!(key.as_ref().map(|k| k.1), Some(a));
-        let arch = &mut self.archetypes[a];
-        arch.add_edges = add;
-        arch.remove_edges = remove;
-        let mut shell = arch.retire(&mut self.slots.buffers);
+        let mut shell = self.archetypes[a].retire(&mut self.slots.buffers);
         shell.key = key.map(|k| k.0);
         self.slots.reclaimed(a, shell);
     }
@@ -1363,8 +1348,8 @@ impl World {
         if self.archetypes[src].tracked() && self.infos[id.index()].tracked {
             self.changes.log_removal(id, e);
         }
-        let dst = match self.archetypes[src].remove_edges.get(&id) {
-            Some(&d) => d,
+        let dst = match self.archetypes[src].remove_edges.get(&id).and_then(|&e| self.slots.leads(e)) {
+            Some(d) => d,
             None => {
                 let mut ids = std::mem::take(&mut self.scratch_ids);
                 ids.clear();
