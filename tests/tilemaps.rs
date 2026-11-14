@@ -676,7 +676,9 @@ fn a_world_save_holds_the_gameplay_entities_not_the_level() {
     expected.sort_unstable();
     assert_eq!(saved, expected, "{save:#}");
     assert_eq!(ids.len(), 4);
-    assert_eq!(save["not_saved"], serde_json::json!({}), "nothing of the level counted");
+    // Only the coins' `LevelObject`s (not reflected) are counted as not
+    // saved: no tile maps, layers or level root.
+    assert_eq!(save["not_saved"], serde_json::json!({ "LevelObject": 2 }));
 }
 
 #[test]
