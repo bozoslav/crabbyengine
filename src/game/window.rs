@@ -197,6 +197,9 @@ where
         puffin::GlobalProfiler::lock().new_frame();
         let timing = frame_timing(&mut self.clock, &mut self.ctx, frame_dt);
         self.ctx.begin_frame(timing);
+        // In a browser, what the hidden IME text box saw since the last frame.
+        #[cfg(target_arch = "wasm32")]
+        crate::web::ime::drain(&mut self.ctx.input);
         #[cfg(feature = "gamepad")]
         if let Some(pads) = &mut self.gamepads {
             pads.poll(&mut self.ctx.input);

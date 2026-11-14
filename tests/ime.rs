@@ -28,10 +28,7 @@ type Log = Rc<RefCell<Vec<Seen>>>;
 fn form(ctx: &mut Ctx) {
     let root = ctx.ui.root().layout(UiLayout::fill().gap(8.0)).name("form").id();
     for name in ["a", "b"] {
-        ctx.ui
-            .text_input(root)
-            .layout(UiLayout::fixed(300.0, 30.0))
-            .name(name);
+        ctx.ui.text_input(root).layout(UiLayout::fixed(300.0, 30.0)).name(name);
     }
     ctx.ui
         .text_input(root)
@@ -282,7 +279,8 @@ fn the_ui_leaves_a_games_own_ime_setting_alone_without_a_text_input() {
                 ctx.input.set_ime_allowed(true);
                 ctx.input.set_ime_cursor_area(Rect::new(10.0, 400.0, 1.0, 16.0));
             }
-            seen.borrow_mut().push((ctx.input.ime_allowed(), ctx.input.preedit().to_string()));
+            seen.borrow_mut()
+                .push((ctx.input.ime_allowed(), ctx.input.preedit().to_string()));
             if tick == 1 {
                 ctx.input.feed_ime(ImeEvent::preedit("にほ", None));
             }
@@ -309,7 +307,10 @@ fn ime_steps_survive_the_json_format() {
         ] }"#,
     )
     .unwrap();
-    assert_eq!(InputScenario::from_value(&scenario.to_json()).unwrap().to_json(), scenario.to_json());
+    assert_eq!(
+        InputScenario::from_value(&scenario.to_json()).unwrap().to_json(),
+        scenario.to_json()
+    );
     let log = Log::default();
     let (_, report) = game(&log, "a").run_headless_scenario(scenario, form);
     report.assert_passed();

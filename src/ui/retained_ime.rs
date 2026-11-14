@@ -138,8 +138,10 @@ impl Ui {
 
     /// The focused text input that takes IME.
     fn ime_target(&self) -> Option<UiId> {
-        self.focus
-            .filter(|&id| self.node(id).is_some_and(|n| n.widget == UiWidget::TextInput && n.ime && n.enabled))
+        self.focus.filter(|&id| {
+            self.node(id)
+                .is_some_and(|n| n.widget == UiWidget::TextInput && n.ime && n.enabled)
+        })
     }
 
     /// Whether the IME owns this frame's editing keys: a composition is
@@ -166,9 +168,9 @@ impl Ui {
         {
             let n = self.node_mut(id).unwrap();
             n.preedit.clone_from(&input.preedit);
-            n.preedit_cursor = input
-                .preedit_cursor
-                .filter(|&(a, b)| a <= b && b <= n.preedit.len() && n.preedit.is_char_boundary(a) && n.preedit.is_char_boundary(b));
+            n.preedit_cursor = input.preedit_cursor.filter(|&(a, b)| {
+                a <= b && b <= n.preedit.len() && n.preedit.is_char_boundary(a) && n.preedit.is_char_boundary(b)
+            });
             if !n.preedit.is_empty() {
                 self.ime.composing = Some(id);
             }
@@ -180,7 +182,11 @@ impl Ui {
     fn caret_area(&mut self, id: UiId) -> Rect {
         let n = self.nodes[id.0].as_ref().unwrap();
         let layout = self.tree.layout(n.layout).unwrap();
-        let font = if self.external_fonts { n.paint.font } else { Font::DEFAULT };
+        let font = if self.external_fonts {
+            n.paint.font
+        } else {
+            Font::DEFAULT
+        };
         let size = n.paint.font_size;
         let mut shown = std::mem::take(&mut self.ime.scratch);
         let at = n.shown_text(&mut shown);

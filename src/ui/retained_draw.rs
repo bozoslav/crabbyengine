@@ -282,7 +282,9 @@ impl Ctx {
             let at = is_input.then(|| n.shown_text(&mut shown));
             let text: &str = if is_input { &shown } else { &n.text };
             if let Some(at) = at.filter(|_| ui.focus == Some(id)) {
-                let caret = self.gfx.caret_x(text, n.paint.font, font_size, at.caret.unwrap_or(at.preedit.end));
+                let caret = self
+                    .gfx
+                    .caret_x(text, n.paint.font, font_size, at.caret.unwrap_or(at.preedit.end));
                 origin.x -= (caret - text_rect.size().x + 3.0 * scale).max(0.0);
                 // The selection, or the preedit's underline: one span or
                 // several where it crosses a change of direction.

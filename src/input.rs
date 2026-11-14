@@ -24,7 +24,7 @@ use glam::Vec2;
 #[cfg(feature = "window")]
 use winit::keyboard::KeyCode;
 
-mod ime;
+pub(crate) mod ime;
 pub use ime::ImeEvent;
 
 macro_rules! define_keys {
@@ -49,6 +49,18 @@ macro_rules! define_keys {
             pub(crate) fn from_winit(code: KeyCode) -> Option<Key> {
                 match code {
                     $(KeyCode::$code => Some(Key::$name),)*
+                    _ => None,
+                }
+            }
+
+            /// The key a browser's `KeyboardEvent.code` names (the names
+            /// winit's key codes take after).
+            #[cfg(all(target_arch = "wasm32", feature = "window"))]
+            pub(crate) fn from_dom_code(code: &str) -> Option<Key> {
+                match code {
+                    $(stringify!($code) => Some(Key::$name),)*
+                    "MetaLeft" | "OSLeft" => Some(Key::LeftSuper),
+                    "MetaRight" | "OSRight" => Some(Key::RightSuper),
                     _ => None,
                 }
             }

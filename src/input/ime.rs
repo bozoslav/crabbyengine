@@ -262,6 +262,20 @@ impl Input {
     }
 }
 
+/// The byte offset in `text` of a position counted in UTF-16 units (how
+/// browsers count), rounded up to the next character; past the end, the end.
+#[cfg_attr(not(all(target_arch = "wasm32", feature = "window")), allow(dead_code))]
+pub(crate) fn utf16_to_byte(text: &str, units: usize) -> usize {
+    let mut seen = 0;
+    for (i, ch) in text.char_indices() {
+        if seen >= units {
+            return i;
+        }
+        seen += ch.len_utf16();
+    }
+    text.len()
+}
+
 #[cfg(feature = "window")]
 impl ImeEvent {
     pub(crate) fn from_winit(event: winit::event::Ime) -> Self {
@@ -277,8 +291,8 @@ impl ImeEvent {
 
 #[cfg(feature = "window")]
 impl Input {
-    /// After the frame: hands what changed in the IME requests to the
-    /// window (browsers ignore these; the web build uses its own text box).
+    /// After the frame: hands what changed in the IME requests to the window.
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn apply_ime(&mut self, window: &winit::window::Window) {
         use winit::dpi::{LogicalPosition, LogicalSize};
         let ime = &mut self.ime;
@@ -306,6 +320,16 @@ impl Input {
         }
     }
 
+    /// After the frame, in a browser: winit's web backend has no IME, so the
+    /// engine composes in a hidden text box of its own at the caret.
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn apply_ime(&mut self, window: &winit::window::Window) {
+        let ime = &mut self.ime;
+        ime.allowed_changed = false;
+        let area = ime.area.filter(|_| std::mem::take(&mut ime.area_changed));
+        crate::web::ime::apply(window, ime.allowed, std::mem::take(&mut ime.reset), area);
+    }
+
     /// Something else (the inspector's own text fields) may have changed the
     /// window's IME: hand the whole state to it again after the frame.
     #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
@@ -318,6 +342,17 @@ impl Input {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn browser_selection_offsets_map_to_byte_offsets() {
+        // Kana take one UTF-16 unit and three bytes; the emoji two and four.
+        assert_eq!(utf16_to_byte("にほん", 0), 0);
+        assert_eq!(utf16_to_byte("にほん", 2), 6);
+        assert_eq!(utf16_to_byte("にほん", 3), 9);
+        assert_eq!(utf16_to_byte("a😀b", 3), 5);
+        assert_eq!(utf16_to_byte("a😀b", 2), 5, "inside a pair: the next character");
+        assert_eq!(utf16_to_byte("ab", 10), 2);
+    }
 
     #[test]
     fn commit_clears_preedit_and_types_the_text() {
