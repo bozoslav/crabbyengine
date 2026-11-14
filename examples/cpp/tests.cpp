@@ -3291,6 +3291,8 @@ static void remaining_bindings() {
     });
     CHECK(diagnosed == 1);
     std::filesystem::remove_all(dir);
+}
+
 // A menu that opens on Play, a HUD that Escape leaves up, and a glTF floor
 // made solid in one call.
 static void focus_huds_and_collision_files() {
