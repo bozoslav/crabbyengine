@@ -2115,10 +2115,27 @@ pub(crate) struct ColliderFiles {
     pub(crate) by_file: HashMap<String, crate::physics3d::CollisionMesh>,
 }
 
-/// A collider's mesh description as a lookup key.
+/// A collider's mesh description as a lookup key: the same for every way
+/// to write it (`scale` and `convex` left out or given as their defaults),
+/// so a scene and [`Ctx::load_collision_mesh`](crate::ctx::Ctx::load_collision_mesh)
+/// share one mesh.
 #[cfg(feature = "physics3d")]
 pub(crate) fn collider_file_key(file: &Value) -> String {
-    file.to_string()
+    let (path, scale, convex) = collider_file_parts(file);
+    format!("{path:?} {:?} {convex}", scale.to_array())
+}
+
+/// A mesh description's file, scale (one when left out) and convex flag
+/// (false when left out). The file is `None` when it isn't a string.
+#[cfg(feature = "physics3d")]
+pub(crate) fn collider_file_parts(file: &Value) -> (Option<&str>, glam::Vec3, bool) {
+    let scale = match &file["scale"] {
+        Value::Array(s) if s.len() == 3 => {
+            glam::Vec3::from_array(std::array::from_fn(|i| s[i].as_f64().unwrap_or(1.0) as f32))
+        }
+        _ => glam::Vec3::ONE,
+    };
+    (file["file"].as_str(), scale, file["convex"].as_bool().unwrap_or(false))
 }
 
 /// A collider described by a mesh file, as JSON: its mesh's description.
