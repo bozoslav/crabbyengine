@@ -145,26 +145,31 @@ pub unsafe extern "C" fn ponko_builtin_access(system_id: u32, out_access: *mut *
     })
 }
 
-/// A new copy of `access` (a declaration of nothing for null): built-in
-/// declarations name engine types, which the `ponko_access_*` calls can't
-/// rebuild, so copying one takes this. Free the copy with
-/// `ponko_access_free`.
+/// A new copy of `access` (a declaration of nothing for null) in
+/// `*out_access`: built-in declarations name engine types, which the
+/// `ponko_access_*` calls can't rebuild, so copying one takes this. Free the
+/// copy with `ponko_access_free`.
 /// ```
 /// use ponko_ffi::*;
-/// let a = unsafe { ponko_access_clone(std::ptr::null()) };
-/// assert!(!a.is_null());
-/// unsafe { ponko_access_free(a) };
+/// let mut copy = std::ptr::null_mut();
+/// assert_eq!(unsafe { ponko_access_clone(std::ptr::null(), &mut copy) }, PonkoStatus::PONKO_OK);
+/// unsafe { ponko_access_free(copy) };
 /// ```
 /// # Safety
-/// `access` null or live.
+/// `access` null or live; `out_access` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ponko_access_clone(access: *const PonkoAccess) -> *mut PonkoAccess {
-    let mut result = std::ptr::null_mut();
+pub unsafe extern "C" fn ponko_access_clone(
+    access: *const PonkoAccess,
+    out_access: *mut *mut PonkoAccess,
+) -> PonkoStatus {
     boundary(|| {
+        if out_access.is_null() {
+            return Err(invalid("out_access is null"));
+        }
         // SAFETY: caller supplies a live handle or null.
         let copy = unsafe { access.as_ref() }.map_or_else(SystemAccess::new, |a| a.0.clone());
-        result = Box::into_raw(Box::new(PonkoAccess(copy)));
+        // SAFETY: checked non-null above; the caller supplies a writable pointer.
+        unsafe { out_access.write(Box::into_raw(Box::new(PonkoAccess(copy)))) };
         Ok(())
-    });
-    result
+    })
 }

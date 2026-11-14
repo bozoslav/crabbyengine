@@ -220,8 +220,10 @@ fn explain(ctx: &mut Ctx) {
 # Game::new("t", 1, 1).sim_system(explain).run_headless(1, |_| {});
 ```
 
-Not exposed to C and C++ yet: native code reads the same data through the
-control endpoint, or the text of `ponko_game_schedule_plan`.
+From C, `ponko_ctx_ecs_diagnostics` writes the same answer as JSON, the
+format `ecs.diagnostics` returns (call it with a null buffer to learn the
+length); C++ `ctx.ecs_diagnostics()` returns it as a `std::string`. Take it
+from inside a system: the systems list is empty during setup.
 
 ## Several agents, several games
 

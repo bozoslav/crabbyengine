@@ -4065,7 +4065,7 @@ public:
     access() : raw_(ponko_access_new()) { if (!raw_) throw std::runtime_error(ponko_last_error()); }
     ~access() { ponko_access_free(raw_); }
     /// A copy of `other`.
-    access(const access& other) : raw_(ponko_access_clone(other.raw_)) { if (!raw_) throw std::runtime_error(ponko_last_error()); }
+    access(const access& other) { detail::check(ponko_access_clone(other.raw_, &raw_)); }
     /// Replaces this declaration with a copy of `other`.
     access& operator=(const access& other) {
         if (this != &other) { access copy(other); std::swap(raw_, copy.raw_); }

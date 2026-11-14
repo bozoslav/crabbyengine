@@ -123,15 +123,21 @@ fn builtin_declarations_say_what_the_steps_touch() {
         }
         // A copy declares the same.
         let mut navmesh = null_mut();
-        assert_eq!(ponko_builtin_access(PONKO_SYSTEM_STEP_NAVMESH3D, &mut navmesh), PONKO_OK);
-        let copy = ponko_access_clone(navmesh);
+        assert_eq!(
+            ponko_builtin_access(PONKO_SYSTEM_STEP_NAVMESH3D, &mut navmesh),
+            PONKO_OK
+        );
+        let mut copy = null_mut();
+        assert_eq!(ponko_access_clone(navmesh, &mut copy), PONKO_OK);
         assert_eq!(count(copy, nothing), 0);
         assert_eq!(count(copy, navmesh), count(navmesh, navmesh));
-        ponko_access_free(navmesh);
         ponko_access_free(copy);
-        let empty = ponko_access_clone(std::ptr::null());
+        let mut empty = null_mut();
+        assert_eq!(ponko_access_clone(std::ptr::null(), &mut empty), PONKO_OK);
         assert_eq!(count(empty, nothing), 0);
         ponko_access_free(empty);
+        assert_eq!(ponko_access_clone(navmesh, null_mut()), PONKO_INVALID_ARGUMENT);
+        ponko_access_free(navmesh);
 
         // Built-ins without a declaration take the whole ctx.
         let mut draw = null_mut();

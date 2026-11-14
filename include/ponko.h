@@ -5330,7 +5330,8 @@ enum PonkoStatus ponko_game_add_builtin(struct PonkoGame *game,
 
 enum PonkoStatus ponko_builtin_access(uint32_t system_id, struct PonkoAccess **out_access);
 
-struct PonkoAccess *ponko_access_clone(const struct PonkoAccess *access);
+enum PonkoStatus ponko_access_clone(const struct PonkoAccess *access,
+                                    struct PonkoAccess **out_access);
 
 enum PonkoStatus ponko_ctx_ecs_diagnostics(struct PonkoCtx *ctx,
                                            char *buffer,

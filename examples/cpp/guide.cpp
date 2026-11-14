@@ -76,6 +76,18 @@ static bool rebind_jump(ponko::ctx& ctx) {
 }
 // ANCHOR_END: pressed_this_frame
 
+// ANCHOR: set_action
+// Give jump the player's new key, keeping its other sources.
+static void rebind_jump_to_k(ponko::ctx& ctx) {
+    ponko::action jump = ctx.actions().get("jump").value_or(ponko::action::button({}));
+    std::vector<PonkoActionBinding> sources{ponko::action_binding::key(PONKO_KEY_K).raw};
+    for (const PonkoActionBinding& s : jump.bindings)
+        if (s.kind != PONKO_ACTION_KEY) sources.push_back(s);
+    jump.bindings = sources;
+    ctx.set_action("jump", jump);
+}
+// ANCHOR_END: set_action
+
 static void pressed_this_frame_snippet() {
     ponko::game("rebind", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
         ponko::action_map bindings;
@@ -85,6 +97,18 @@ static void pressed_this_frame_snippet() {
         ctx.feed_input(ponko::input_event::key(PONKO_KEY_K, true));
         if (!rebind_jump(ctx)) throw std::runtime_error("the press was not reported");
         if (!ctx.action_down("jump")) throw std::runtime_error("jump was not rebound");
+    });
+    ponko::game("set action", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        ponko::action_map bindings;
+        bindings.set("jump", ponko::action::button({ponko::action_binding::key(PONKO_KEY_SPACE),
+                                                    ponko::action_binding::button({0}, PONKO_GAMEPAD_SOUTH)}));
+        ctx.set_actions(bindings);
+        const auto id = ctx.action_id("jump");
+        rebind_jump_to_k(ctx);
+        const auto jump = ctx.actions().get("jump");
+        if (!jump || jump->bindings.size() != 2 || jump->bindings[0].first != static_cast<std::uint32_t>(PONKO_KEY_K) ||
+            jump->bindings[1].kind != PONKO_ACTION_GAMEPAD_BUTTON || ctx.action_id("jump") != id)
+            throw std::runtime_error("set_action did not replace jump's key");
     });
 }
 
@@ -254,7 +278,7 @@ struct Spawner {
 // ponko::game("t", 800, 600).sim_system(Spawner{30}, "spawner");
 // ANCHOR_END: stateful
 
-[[maybe_unused]] static void replace_builtins() {
+static void replace_builtins() {
     auto my_draw = [](ponko::ctx&) {};
 // ANCHOR: remove_system
 ponko::game game("t", 800, 600);
@@ -263,8 +287,25 @@ game.remove(ponko::systems::draw_sprites)     // draw your own way
 // add_system returns an id for a system of your own.
 ponko::system_id hud = game.add_system(ponko::phase::frame, my_draw, "hud");
 game.remove(hud);
+
+// Tilemaps over the sprites instead of under them.
+ponko::game tiles("t", 800, 600);
+tiles.remove(ponko::systems::draw_tilemaps)
+    .add_builtin(ponko::phase::draw, ponko::systems::draw_tilemaps);
 // ANCHOR_END: remove_system
+    if (tiles.schedule_plan().find("draw_tilemaps") == std::string::npos) throw std::runtime_error("no tilemaps");
 }
+
+// ANCHOR: builtin_access
+static void add_navigation(ponko::game& game) {
+    game.add_builtin(ponko::phase::before_physics, ponko::systems::step_navmesh3d) // with its declaration
+        .physics3d({0.0f, -9.81f, 0.0f});
+}
+// Whether `mine` could run beside the navigation step.
+static bool beside_navigation(const ponko::access& mine) {
+    return mine.conflicts_before(ponko::access::builtin(ponko::systems::step_navmesh3d), false) == 0;
+}
+// ANCHOR_END: builtin_access
 
 // ANCHOR: plugin
 // One area of the game: its systems and its startup work.
@@ -3144,6 +3185,35 @@ static void run_all() {
 }
 }  // namespace book
 
+// ANCHOR: scene_compute
+static void light_meter(ponko::ctx& ctx) {
+    // A running average of the frame's light, in one texel.
+    auto meter = ctx.create_compute("meter", R"(
+        fn compute(c: Cell) -> vec4<f32> {
+            let now = dot(scene_color(frame.screen.xy * 0.5), vec3<f32>(0.2126, 0.7152, 0.0722));
+            return vec4<f32>(mix(c.value.r, now, 0.05), 0.0, 0.0, 1.0);
+        })");
+    auto average = ctx.create_render_target(1, 1);
+    auto passes = ctx.scene_compute_passes();
+    passes.push_back(ponko::compute_pass_of(meter, average));
+    ctx.set_scene_compute_passes(passes);
+    // Screen effects (and target effects) read this frame's value; materials
+    // and the compute stage read last frame's.
+}
+// ANCHOR_END: scene_compute
+
+// ANCHOR: lod_forest
+// A forest of one tree as a static batch, levels picked where it is culled.
+static ponko::instance_batch forest(ponko::ctx& ctx, const std::vector<ponko::lod_level>& tree, float tree_size,
+                                    const std::vector<std::array<float, 16>>& transforms) {
+    // The copies' largest scale (1 here), the camera's field of view and
+    // ctx.lod()'s bias fix the switch distances.
+    auto levels = ponko::lod_instance_levels(tree_size, tree, 1.0f, ctx.camera3d().fov_y, ctx.lod());
+    if (!levels) throw std::runtime_error("no center offset, renderer offsets or tints");
+    return ctx.create_instance_batch_levels(*levels, transforms);
+}
+// ANCHOR_END: lod_forest
+
 int main() {
     builder_setup_runs_headless();
     sprite_looks_run();
@@ -3326,6 +3396,27 @@ int main() {
     world_text_snippet();
     action_map_snippet();
     pressed_this_frame_snippet();
+    ponko::game("forest guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        auto look = ctx.create_material(ponko::material_of(ponko::colors::white));
+        auto trunk = ctx.create_mesh(ponko::mesh_data::cube(1), look);
+        auto card = ctx.create_mesh(ponko::mesh_data::plane(1), look);
+        const std::vector<ponko::lod_level> tree = {{0.2f, 0, {ponko::lod_renderer_of(trunk)}, false, {}},
+                                                    {0.02f, 0, {ponko::lod_renderer_of(card)}, false, {}}};
+        auto batch = forest(ctx, tree, 4.0f, {{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}});
+        ctx.free_instance_batch(batch);
+    });
+    ponko::game("scene compute guide", 1, 1).run_headless(0, [](ponko::ctx& ctx) {
+        light_meter(ctx);
+        if (ctx.scene_compute_passes().size() != 1 || !ctx.compute_passes().empty()) throw std::runtime_error("no scene compute pass");
+    });
+    replace_builtins();
+    {
+        ponko::game agents("Agents", 1, 1);
+        add_navigation(agents);
+        if (agents.schedule_plan().find("step_navmesh3d") == std::string::npos) throw std::runtime_error("no navigation step");
+        if (!beside_navigation(ponko::access()) || beside_navigation(ponko::access().write_service(ponko::service::time)))
+            throw std::runtime_error("navigation declares the wrong access");
+    }
     ponko::game("static instances",1,1).run_headless(0,[](ponko::ctx& ctx) {
         auto material=ctx.create_material(ponko::material_of(ponko::colors::white));
         persistent_instances(ctx,ctx.create_mesh(ponko::mesh_data::cube(1.0f),material));

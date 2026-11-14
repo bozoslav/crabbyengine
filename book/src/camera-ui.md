@@ -215,11 +215,16 @@ as `ctx.ui.immediate.style.text_size = 14.0`, stays through a later
 `set_theme`. The retained theme has no spacing besides `border_width`: the
 immediate `style.padding` is its own, and scales with the screen. From C,
 `ponko_ctx_ui_set_scale` and `ponko_ctx_ui_set_theme` do the same; C++:
-`ctx.ui_retained().set_scale(..)` and `.set_theme(..)`. This snippet is
-Rust-only; the C and C++ calls need no new functions. Reading or setting
-`ctx.ui.immediate.font`, `border_width` and `scale()` on their own is
-Rust-only too: native code sets them through the theme and the scale, and
-cannot read them back.
+`ctx.ui_retained().set_scale(..)` and `.set_theme(..)`. The snippet is
+written in Rust; the C and C++ calls above do the same. The immediate
+widgets' own font, border and scale read back and change on their own too:
+`ponko_ctx_ui_immediate_font`, `ponko_ctx_set_ui_immediate_font`,
+`ponko_ctx_ui_immediate_border_width`,
+`ponko_ctx_set_ui_immediate_border_width` and
+`ponko_ctx_ui_immediate_scale` in C; `ui_immediate_font()`,
+`set_ui_immediate_font(f)`, `ui_immediate_border_width()`,
+`set_ui_immediate_border_width(w)` and `ui_immediate_scale()` on the C++
+`ctx`. The scale is read-only: it follows `set_scale`.
 
 The whole scene from `cargo run --release --example ui`:
 

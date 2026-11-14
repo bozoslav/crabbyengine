@@ -140,11 +140,13 @@ that the settings come back from the browser's storage.
 | `ponko_ctx_storage_list` (names, one per line) | `storage_list()` |
 | `ponko_ctx_storage_dir` (empty on the web) | `storage_dir()` |
 | `ponko_ctx_save_world`, `ponko_ctx_load_world` | `save_world(slot)`, `load_world(slot)` |
+| `ponko_ctx_storage_world_slots` (slots, one per line), `ponko_ctx_delete_world` | `storage_world_slots()`, `delete_world(slot)` |
+| `ponko_ctx_storage_is_persistent`, `ponko_ctx_storage_is_saving` | `storage_is_persistent()`, `storage_is_saving()` |
 
-`Storage::write_json` and `read_json` (serde), `world_slots`,
-`delete_world`, `is_persistent` and `is_saving` are Rust-only for now (see
-[Still Rust-only](c-cpp.md#still-rust-only)): C and C++ keep bytes with
-`storage_write` and `storage_read`, and parse them themselves.
+`Storage::write_json` and `read_json` are Rust-only (see
+[Still Rust-only](c-cpp.md#still-rust-only)): they are generic over serde
+types, so C and C++ keep bytes with `storage_write` and `storage_read`, and
+parse them themselves.
 
 The C reads take a buffer and always set the length: call with a null buffer
 to learn the size, then again with one that big. A missing file is
