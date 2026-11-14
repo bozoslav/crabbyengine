@@ -1194,6 +1194,20 @@ impl Assets {
 mod tests {
     use super::*;
 
+    #[cfg(not(feature = "compressed-textures"))]
+    #[test]
+    fn ktx2_files_without_the_feature_name_it() {
+        let header = [
+            0xAB, b'K', b'T', b'X', b' ', b'2', b'0', 0xBB, b'\r', b'\n', 0x1A, b'\n',
+        ];
+        let Err(err) = decode_image(&header, "rock.ktx2", "rock.ktx2") else {
+            panic!("decoded");
+        };
+        assert_eq!(err.kind(), crate::error::ErrorKind::Unsupported);
+        assert!(err.to_string().contains("rock.ktx2"), "{err}");
+        assert!(err.message().contains("compressed-textures"), "{err}");
+    }
+
     #[test]
     fn missing_asset_error_names_file_and_folders() {
         let err = resolve("definitely-not-here.png").unwrap_err();
