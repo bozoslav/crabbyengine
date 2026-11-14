@@ -917,6 +917,9 @@ jobs:
       - run: cargo check -p ponko --target wasm32-unknown-unknown --features image-formats
       # The 3D examples (the 3D browser smoke fixture among them) need the feature.
       - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features 3d --examples
+      # The tutorials' games (book/src/tutorial-*.md) need physics; they must
+      # keep building for the browser.
+      - run: cargo clippy -p ponko --target wasm32-unknown-unknown --features physics,physics3d --example tutorial_2d --example tutorial_3d
       # The accessibility feature has no web adapter: it must build and do nothing.
       - run: cargo check -p ponko --target wasm32-unknown-unknown --features accessibility
       - name: Find the wasm-bindgen version in Cargo.lock

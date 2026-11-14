@@ -55,6 +55,21 @@ files = [
     { from = "examples/coin_dash/PACKAGE-README.txt", to = "README.txt" },
 ]
 
+# The tutorials' games (book/src/tutorial-2d.md, tutorial-3d.md), packaged
+# with `ponko package --example tutorial_2d --features physics` (or
+# `tutorial_3d --features physics3d`), or for the web with `--web`.
+[package.metadata.ponko.examples.tutorial_2d]
+name = "Crab Cove"
+id = "dev.ponko.crab-cove"
+assets = ["assets/tutorial_2d"]
+files = ["LICENSE-MIT", "LICENSE-APACHE", "NOTICE"]
+
+[package.metadata.ponko.examples.tutorial_3d]
+name = "Lantern Yard"
+id = "dev.ponko.lantern-yard"
+assets = ["assets/tutorial_3d"]
+files = ["LICENSE-MIT", "LICENSE-APACHE", "NOTICE"]
+
 # The second reference game, a platformer (book/src/ember-hop.md):
 # `ponko package --example ember_hop --features physics`.
 [package.metadata.ponko.examples.ember_hop]
@@ -274,6 +289,14 @@ required-features = ["physics"]
 [[example]]
 name = "level"
 required-features = ["physics"]
+
+[[example]]
+name = "tutorial_2d"
+required-features = ["physics"]
+
+[[example]]
+name = "tutorial_3d"
+required-features = ["physics3d"]
 
 [[example]]
 name = "ember_hop"
