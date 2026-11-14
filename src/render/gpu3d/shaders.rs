@@ -17,7 +17,10 @@ use std::sync::Arc;
 
 use super::pipeline_cache::{self, Features, MaterialCache, ModuleKey, TargetKey};
 use super::shader_checks::{self, end_scope, rejected};
-use super::{DEPTH_FORMAT, HDR_FORMAT, INSTANCE_ATTRIBUTES, MOVED_ATTRIBUTES, VERTEX_ATTRIBUTES, Vertex};
+use super::{
+    DEPTH_FORMAT, HDR_FORMAT, INSTANCE_ATTRIBUTES, MOVED_ATTRIBUTES, PREVIOUS_POSITION_ATTRIBUTES, VERTEX_ATTRIBUTES,
+    Vertex,
+};
 use super::{Instancing, PipelineRole, ShaderVariant, Sides};
 use crate::render::capabilities::GpuLimits;
 use crate::render::taa;
@@ -942,6 +945,11 @@ impl SideBuilder {
                 array_stride: if shared { 0 } else { size_of::<MovedInstance>() as u64 },
                 step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &MOVED_ATTRIBUTES,
+            }),
+            Some(wgpu::VertexBufferLayout {
+                array_stride: size_of::<Vertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &PREVIOUS_POSITION_ATTRIBUTES,
             }),
         ];
         let velocity_target = [Some(wgpu::ColorTargetState {

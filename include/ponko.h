@@ -5565,6 +5565,8 @@ enum PonkoStatus ponko_ctx_set_system_font_fallback(struct PonkoCtx *ctx,
                                                     bool on,
                                                     bool *out_available);
 
+enum PonkoStatus ponko_ctx_reset_motion(struct PonkoCtx *ctx, uint64_t entity);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

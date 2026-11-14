@@ -103,6 +103,8 @@ mod storage_slots;
 mod ui_immediate;
 // Text shaping, font fallback and system fonts (#409).
 mod text_shaping;
+// Bindings of 0.3.
+mod motion;
 pub use access::*;
 pub use actions::*;
 pub use animator::*;
@@ -138,6 +140,7 @@ pub use lod::*;
 pub use media::*;
 pub use messages::*;
 pub use morph::*;
+pub use motion::*;
 pub use nav3d::*;
 pub use net::*;
 pub use particles::*;

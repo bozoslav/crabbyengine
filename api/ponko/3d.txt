@@ -3942,6 +3942,7 @@ pub fn ponko::gfx::Graphics::mesh_costs(&self) -> alloc::vec::Vec<ponko::d3::Mes
 pub fn ponko::gfx::Graphics::mesh_shadows(&self, ponko::d3::Mesh) -> bool
 pub fn ponko::gfx::Graphics::models_drawn(&self) -> usize
 pub fn ponko::gfx::Graphics::morph_target(&self, ponko::d3::Mesh, &str) -> core::option::Option<usize>
+pub fn ponko::gfx::Graphics::reset_motion(&mut self, ponko_ecs::entity::Entity)
 pub fn ponko::gfx::Graphics::reset_temporal_history(&mut self)
 pub fn ponko::gfx::Graphics::set_mesh_shadows(&mut self, ponko::d3::Mesh, bool)
 pub fn ponko::gfx::Graphics::try_create_material(&mut self, ponko::d3::MaterialDesc) -> core::result::Result<ponko::d3::Material, ponko::error::Error>
