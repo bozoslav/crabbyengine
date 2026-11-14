@@ -3432,6 +3432,7 @@ pub const ponko_ffi::PONKO_UI_SCREEN: u64
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_cast_ray3d_all(*mut ponko_ffi::PonkoCtx, ponko_ffi::PonkoVec3, ponko_ffi::PonkoVec3, f32, ponko_ffi::PonkoQueryFilter3D, *mut ponko_ffi::PonkoHit3D, usize, *mut usize) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_cast_ray_filtered(*mut ponko_ffi::PonkoCtx, ponko_ffi::PonkoVec2, ponko_ffi::PonkoVec2, f32, ponko_ffi::PonkoQueryFilter2D, *mut bool, *mut ponko_ffi::PonkoRayHit) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_cast_sphere3d(*mut ponko_ffi::PonkoCtx, ponko_ffi::PonkoVec3, f32, ponko_ffi::PonkoVec3, f32, ponko_ffi::PonkoQueryFilter3D, *mut bool, *mut ponko_ffi::PonkoHit3D) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_check_old_saves(*mut ponko_ffi::PonkoCtx, *const core::ffi::primitives::c_char, *mut usize) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_clear(*mut ponko_ffi::PonkoCtx, ponko_ffi::PonkoColor) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_clear_decal_textures(*mut ponko_ffi::PonkoCtx) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_ctx_clear_morph_weights(*mut ponko_ffi::PonkoCtx, u64) -> ponko_ffi::PonkoStatus
@@ -4059,6 +4060,20 @@ pub const ponko_ffi::PONKO_UI_SCREEN: u64
 #[no_mangle] pub c fn ponko_ffi::ponko_rigid_body3d(u32) -> ponko_ffi::PonkoRigidBody3D
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_rigid_body3d_component(*mut ponko_ffi::PonkoWorld, *mut u32) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_rigid_body_component(*mut ponko_ffi::PonkoWorld, *mut u32) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_add_field(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_change_entities(*mut ponko_ffi::PonkoWorld, u32, ponko_ffi::PonkoJsonConvertFn, *mut core::ffi::c_void, ponko_ffi::PonkoUserFreeFn) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_change_save(*mut ponko_ffi::PonkoWorld, u32, ponko_ffi::PonkoJsonConvertFn, *mut core::ffi::c_void, ponko_ffi::PonkoUserFreeFn) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_convert_component(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char, ponko_ffi::PonkoJsonConvertFn, *mut core::ffi::c_void, ponko_ffi::PonkoUserFreeFn) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_convert_field(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char, ponko_ffi::PonkoJsonConvertFn, *mut core::ffi::c_void, ponko_ffi::PonkoUserFreeFn) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_convert_resource(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char, ponko_ffi::PonkoJsonConvertFn, *mut core::ffi::c_void, ponko_ffi::PonkoUserFreeFn) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_merge_components(*mut ponko_ffi::PonkoWorld, u32, *const *const core::ffi::primitives::c_char, usize, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_remove_component(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_remove_field(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_remove_resource(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_rename_component(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_rename_field(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_rename_resource(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_save_migration_split_component(*mut ponko_ffi::PonkoWorld, u32, *const core::ffi::primitives::c_char, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub c fn ponko_ffi::ponko_seq_diff(u16, u16) -> i16
 #[no_mangle] pub c fn ponko_ffi::ponko_seq_newer(u16, u16) -> bool
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_set(*mut ponko_ffi::PonkoWorld, u64, u32, *const core::ffi::c_void, usize) -> ponko_ffi::PonkoStatus
@@ -4161,20 +4176,24 @@ pub const ponko_ffi::PONKO_UI_SCREEN: u64
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_is_saved(*mut ponko_ffi::PonkoWorld, u64, *mut bool) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_len(*mut ponko_ffi::PonkoWorld, *mut usize) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_load(*mut ponko_ffi::PonkoWorld, *const core::ffi::primitives::c_char) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_migrate_save(*mut ponko_ffi::PonkoWorld, *const core::ffi::primitives::c_char, *mut core::ffi::primitives::c_char, usize, *mut usize) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub c fn ponko_ffi::ponko_world_new() -> *mut ponko_ffi::PonkoWorld
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_query_cache_policy(*mut ponko_ffi::PonkoWorld, *mut ponko_ffi::PonkoQueryCachePolicy) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_query_cache_stats(*mut ponko_ffi::PonkoWorld, *mut ponko_ffi::PonkoQueryCacheStats) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_save(*mut ponko_ffi::PonkoWorld, *mut core::ffi::primitives::c_char, usize, *mut usize) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_save_version(*mut ponko_ffi::PonkoWorld, *mut u32) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_scenario_report(*mut ponko_ffi::PonkoWorld, *mut ponko_ffi::PonkoScenarioReport) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_scenario_report_json(*mut ponko_ffi::PonkoWorld, *mut core::ffi::primitives::c_char, usize, *mut usize) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_set_changes_since(*mut ponko_ffi::PonkoWorld, u64) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_set_query_cache_policy(*mut ponko_ffi::PonkoWorld, *const ponko_ffi::PonkoQueryCachePolicy) -> ponko_ffi::PonkoStatus
+#[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_set_save_version(*mut ponko_ffi::PonkoWorld, u32) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_set_saved(*mut ponko_ffi::PonkoWorld, u64, bool) -> ponko_ffi::PonkoStatus
 #[no_mangle] pub unsafe c fn ponko_ffi::ponko_world_sort_spatial(*mut ponko_ffi::PonkoWorld, f32) -> ponko_ffi::PonkoStatus
 pub type ponko_ffi::PonkoAssetContainsFn = core::option::Option<fn(*mut core::ffi::c_void, *const core::ffi::primitives::c_char) -> bool>
 pub type ponko_ffi::PonkoAssetDecodeFn = core::option::Option<fn(*mut core::ffi::c_void, *const u8, usize) -> u32>
 pub type ponko_ffi::PonkoAssetReadFn = core::option::Option<fn(*mut core::ffi::c_void, *const core::ffi::primitives::c_char, *mut *const u8, *mut usize) -> u32>
 pub type ponko_ffi::PonkoContactHook3D = core::option::Option<fn(*mut ponko_ffi::PonkoContactPair3D, *mut core::ffi::c_void)>
+pub type ponko_ffi::PonkoJsonConvertFn = core::option::Option<fn(*mut core::ffi::c_void, *const core::ffi::primitives::c_char, *mut *const core::ffi::primitives::c_char) -> u32>
 pub type ponko_ffi::PonkoPluginBuildFn = core::option::Option<fn(*mut ponko_ffi::PonkoGame, *mut core::ffi::c_void)>
 pub type ponko_ffi::PonkoQueryFn = core::option::Option<fn(*const ponko_ffi::PonkoChunk, *mut core::ffi::c_void)>
 pub type ponko_ffi::PonkoResourceScopeFn = core::option::Option<fn(*mut ponko_ffi::PonkoWorld, *mut core::ffi::c_void, *mut core::ffi::c_void)>

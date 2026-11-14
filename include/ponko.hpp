@@ -1492,6 +1492,91 @@ public:
     /// entity lost its map.
     void apply() { detail::check(ponko_tilemap_update(world_, e_, &map_)); }
 };
+namespace detail {
+/// A C++ conversion for a save migration, owned by the world (freed by `free`).
+struct json_convert {
+    std::function<std::string(const std::string&)> fn;
+    std::string result;
+    static std::uint32_t call(void* user, const char* json, const char** out_json) {
+        auto* self = static_cast<json_convert*>(user);
+        try {
+            self->result = self->fn(json);
+            *out_json = self->result.c_str();
+            return PONKO_OK;
+        } catch (const std::exception& e) {
+            self->result = e.what();
+            *out_json = self->result.c_str();
+        } catch (...) {
+            *out_json = nullptr;
+        }
+        return PONKO_INVALID_ARGUMENT;
+    }
+    static void free(void* user) { delete static_cast<json_convert*>(user); }
+};
+} // namespace detail
+
+/// The changes from one game save version to the next (Rust
+/// `ponko::reflect::Migration`), from world_view::migration. Each call adds a
+/// change at once; they run in the order added. Names are the JSON ones: a
+/// component's reflected name and its field names. Conversions take a saved
+/// value's JSON text and return the new one's; an exception fails the load
+/// with its message.
+class save_migration {
+    PonkoWorld* world_;
+    std::uint32_t from_;
+    using convert = std::function<std::string(const std::string&)>;
+    template<class F> save_migration& with(convert fn, F add) {
+        auto* box = new detail::json_convert{std::move(fn), {}};
+        detail::check(add(&detail::json_convert::call, static_cast<void*>(box), &detail::json_convert::free));
+        return *this;
+    }
+    friend class world_view;
+    save_migration(PonkoWorld* world, std::uint32_t from) : world_(world), from_(from) {}
+public:
+    /// Component `from` is called `to` now.
+    save_migration& rename_component(const char* from, const char* to) { detail::check(ponko_save_migration_rename_component(world_, from_, from, to)); return *this; }
+    /// Component `name` is gone (an entity left with nothing is dropped).
+    save_migration& remove_component(const char* name) { detail::check(ponko_save_migration_remove_component(world_, from_, name)); return *this; }
+    /// Field `from` of `component` is called `to` now.
+    save_migration& rename_field(const char* component, const char* from, const char* to) { detail::check(ponko_save_migration_rename_field(world_, from_, component, from, to)); return *this; }
+    /// `component` has a new field: older saves get `value_json` for it.
+    save_migration& add_field(const char* component, const char* field, const char* value_json) { detail::check(ponko_save_migration_add_field(world_, from_, component, field, value_json)); return *this; }
+    /// `component` lost its field `field`.
+    save_migration& remove_field(const char* component, const char* field) { detail::check(ponko_save_migration_remove_field(world_, from_, component, field)); return *this; }
+    /// Component `from` became several: `parts_json` is `[["Regen", ["hp_regen"]], ...]`.
+    save_migration& split_component(const char* from, const char* parts_json) { detail::check(ponko_save_migration_split_component(world_, from_, from, parts_json)); return *this; }
+    /// Components `from` became one, `into`, with all their fields.
+    save_migration& merge_components(std::initializer_list<const char*> from, const char* into) {
+        std::vector<const char*> names(from);
+        detail::check(ponko_save_migration_merge_components(world_, from_, names.data(), names.size(), into));
+        return *this;
+    }
+    /// Resource `from` is called `to` now.
+    save_migration& rename_resource(const char* from, const char* to) { detail::check(ponko_save_migration_rename_resource(world_, from_, from, to)); return *this; }
+    /// Resource `name` is gone.
+    save_migration& remove_resource(const char* name) { detail::check(ponko_save_migration_remove_resource(world_, from_, name)); return *this; }
+    /// Field `field` of `component` changed its type or meaning: `fn` turns each saved value into the new one.
+    save_migration& convert_field(const char* component, const char* field, convert fn) {
+        return with(std::move(fn), [&](PonkoJsonConvertFn f, void* u, PonkoUserFreeFn free) { return ponko_save_migration_convert_field(world_, from_, component, field, f, u, free); });
+    }
+    /// Replaces each value of `component` with what `fn` makes of it.
+    save_migration& convert_component(const char* component, convert fn) {
+        return with(std::move(fn), [&](PonkoJsonConvertFn f, void* u, PonkoUserFreeFn free) { return ponko_save_migration_convert_component(world_, from_, component, f, u, free); });
+    }
+    /// Replaces the saved value of resource `resource` with what `fn` makes of it.
+    save_migration& convert_resource(const char* resource, convert fn) {
+        return with(std::move(fn), [&](PonkoJsonConvertFn f, void* u, PonkoUserFreeFn free) { return ponko_save_migration_convert_resource(world_, from_, resource, f, u, free); });
+    }
+    /// `fn` gets each entity's components (a JSON object by name) and returns them changed.
+    save_migration& change_entities(convert fn) {
+        return with(std::move(fn), [&](PonkoJsonConvertFn f, void* u, PonkoUserFreeFn free) { return ponko_save_migration_change_entities(world_, from_, f, u, free); });
+    }
+    /// `fn` gets the whole save's JSON and returns it changed: the last resort.
+    save_migration& change_save(convert fn) {
+        return with(std::move(fn), [&](PonkoJsonConvertFn f, void* u, PonkoUserFreeFn free) { return ponko_save_migration_change_save(world_, from_, f, u, free); });
+    }
+};
+
 /// The entities and their components (Rust `World`). Components are plain
 /// structs, found by their C++ type: no registration needed. A view given to
 /// a system must not escape the call.
@@ -2051,6 +2136,24 @@ public:
     void describe_resource(const char* name, const char* schema) {
         valid();
         detail::check(ponko_world_describe_resource(raw_, name, schema));
+    }
+
+    // ---- save migrations ----
+    /// Sets the game's save version (Rust `SaveMigrations`): what save()
+    /// records as "game_version", and the newest a load accepts (saves
+    /// without one are version 0). Raise it, with a migration() from the old
+    /// version, whenever a change to the game's components breaks older saves.
+    void set_save_version(std::uint32_t version) { valid(); detail::check(ponko_world_set_save_version(raw_, version)); }
+    /// The game's save version (0 before set_save_version).
+    std::uint32_t save_version() const { valid(); std::uint32_t v = 0; detail::check(ponko_world_save_version(raw_, &v)); return v; }
+    /// The changes from save version `from` to `from + 1`, which every load
+    /// of an older save runs (set_save_version above `from` first).
+    save_migration migration(std::uint32_t from) { valid(); return save_migration(raw_, from); }
+    /// `json` (a world save) as the game's version would have written it.
+    /// Throws for a save of a newer game version (kind PONKO_ERROR_UNSUPPORTED).
+    std::string migrate_save(const std::string& json) const {
+        valid();
+        return detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return ponko_world_migrate_save(raw_, json.c_str(), b, c, n); });
     }
 
     // ---- the rest ----
@@ -4743,6 +4846,10 @@ public:
     void save_world(const char* slot) { detail::check(ponko_ctx_save_world(raw_, slot)); }
     /// Replaces the world with save slot `slot` (as load_scene does).
     void load_world(const char* slot) { detail::check(ponko_ctx_load_world(raw_, slot)); }
+    /// Loads every old save (`*.json`) in the folder `folder` through the
+    /// game's migrations, saves and loads each again, and returns how many
+    /// loaded (Rust `Ctx::check_old_saves`). Throws naming every file that failed.
+    std::size_t check_old_saves(const char* folder) { std::size_t n = 0; detail::check(ponko_ctx_check_old_saves(raw_, folder, &n)); return n; }
     /// The save slots save_world wrote, sorted (Rust `Storage::world_slots`).
     std::vector<std::string> storage_world_slots() {
         const std::string text = detail::read_text([&](char* b, std::size_t c, std::size_t* n) { return ponko_ctx_storage_world_slots(raw_, b, c, n); });
