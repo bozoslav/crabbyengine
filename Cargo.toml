@@ -127,10 +127,23 @@ flate2 = "1.1.10"
 # Accessibility tree data types (feature `accessibility`); the same crate
 # and version the inspector's egui already brings in.
 accesskit = { version = "0.25.2", optional = true }
+# Block-compressed textures (feature `compressed-textures`), all pure Rust
+# so they build for the web too: `ktx2` reads KTX2 containers (no
+# dependencies of its own), `ruzstd` unpacks their Zstandard
+# supercompression, and `texture2ddecoder` decodes BCn, ETC2 and ASTC
+# blocks on the CPU for a GPU that can't sample them.
+ktx2 = { version = "0.5.0", optional = true }
+ruzstd = { version = "0.9.1", optional = true, default-features = false, features = ["std"] }
+texture2ddecoder = { version = "0.1.2", optional = true }
 
 # Waits for the GPU on desktop (feature `window`); the web build awaits it.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 pollster = { version = "1.0.1", optional = true }
+# Basis Universal's UASTC transcoder (feature `basis-universal`): the C++
+# library, built with the system's C++ compiler. Not on the web: it can't be
+# built for wasm32-unknown-unknown, so a web build of the feature reads
+# every other compressed texture and reports UASTC files as unsupported.
+basis-universal = { version = "0.3.1", optional = true }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 libc = "0.2"
@@ -275,6 +288,19 @@ image-formats = [
     "image-hdr",
     "image-exr",
 ]
+
+# GPU-compressed textures: KTX2 files (BC1-BC7, ETC2/EAC, ASTC 4x4 or RGBA8,
+# optionally Zstandard or zlib supercompressed) and DDS files with BCn data
+# upload as they are, with their mipmaps, at a quarter to an eighth of
+# RGBA8's video memory. A GPU without the format gets the file decoded to
+# RGBA8 on the CPU. Pure Rust: works on the web. `ponko textures` makes the
+# files. See the guide's "Compressed textures".
+compressed-textures = ["dep:ktx2", "dep:ruzstd", "dep:texture2ddecoder"]
+# Basis Universal UASTC textures in KTX2, transcoded at load to what the GPU
+# samples (BC7/BC5, ASTC 4x4, ETC2/EAC, or RGBA8). Builds Basis Universal's
+# C++ transcoder; desktop and native only: on the web UASTC files fail to
+# load with an `Unsupported` error.
+basis-universal = ["compressed-textures", "dep:basis-universal"]
 
 # Runs on the main thread (AppKit requires it), so it is its own program
 # without the test harness. Does nothing off macOS.

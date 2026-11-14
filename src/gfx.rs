@@ -179,6 +179,10 @@ pub struct Graphics {
     /// `Ctx::scene3d` (`Ctx::update_quality_autotune`).
     #[cfg(feature = "3d")]
     pub(crate) autotune: Option<crate::three::autotune::Controller>,
+    /// The textures in a block-compressed format on the GPU, and where a
+    /// two-channel normal map keeps its X and Y (materials rebuild Z).
+    #[cfg(feature = "compressed-textures")]
+    pub(crate) compressed: std::collections::HashMap<u32, crate::compressed::NormalChannels>,
 }
 
 impl Graphics {
@@ -225,6 +229,8 @@ impl Graphics {
             frame3d: Default::default(),
             #[cfg(feature = "3d")]
             autotune: None,
+            #[cfg(feature = "compressed-textures")]
+            compressed: Default::default(),
         }
     }
 
@@ -527,8 +533,7 @@ impl Graphics {
                 // Acquire, decode (CPU only), then create on the GPU (game thread).
                 let origin = found.origin.clone();
                 let bytes = found.into_bytes().map_err(|e| e.with_path(path))?;
-                let image = assets::decode_image(&bytes, path, &origin.describe(path))?;
-                let texture = self.create_texture(image.width, image.height, &image.rgba);
+                let texture = self.texture_from_file(&bytes, path, &origin.describe(path))?;
                 self.asset_ledger
                     .own(crate::inventory::AssetClass::Texture, texture.id, path);
                 self.loaded_textures.insert(origin.clone(), AssetKind::Texture, texture);
@@ -540,6 +545,107 @@ impl Graphics {
         };
         self.texture_names.add(texture.id, path, texture);
         Ok(texture)
+    }
+
+    /// Decodes a texture file's bytes and makes a game texture of it: a
+    /// block-compressed one for KTX2 and DDS files the GPU samples (feature
+    /// `compressed-textures`), RGBA8 otherwise.
+    pub(crate) fn texture_from_file(
+        &mut self,
+        bytes: &[u8],
+        path: &str,
+        what: &str,
+    ) -> Result<Texture, crate::error::Error> {
+        #[cfg(feature = "compressed-textures")]
+        if let Some(decoded) = crate::compressed::decode(bytes, path, what, self.compressed_formats()) {
+            return Ok(match decoded? {
+                crate::compressed::Decoded::Rgba(image) => self.create_texture(image.width, image.height, &image.rgba),
+                crate::compressed::Decoded::Blocks(image) => {
+                    let texture = self.make_compressed_texture(&image);
+                    self.textures_live.insert(texture.id);
+                    texture
+                }
+            });
+        }
+        let image = assets::decode_image(bytes, path, what)?;
+        Ok(self.create_texture(image.width, image.height, &image.rgba))
+    }
+
+    /// Hot reload of texture file `file` (asset `name`) into `texture` when
+    /// it is a KTX2 or DDS file; `None` for any other file. The size must
+    /// stay the same.
+    #[cfg(feature = "compressed-textures")]
+    pub(crate) fn reload_compressed_texture(
+        &mut self,
+        texture: Texture,
+        file: &std::path::Path,
+        name: &str,
+    ) -> Option<Result<(), String>> {
+        let bytes = assets::read(file).ok()?;
+        let decoded = crate::compressed::decode(&bytes, name, &format!("\"{name}\""), self.compressed_formats())?;
+        let decoded = match decoded {
+            Ok(decoded) => decoded,
+            Err(e) => return Some(Err(format!("could not reload {name}: {e}"))),
+        };
+        let (w, h) = match &decoded {
+            crate::compressed::Decoded::Rgba(image) => (image.width, image.height),
+            crate::compressed::Decoded::Blocks(image) => (image.width, image.height),
+        };
+        if (w, h) != (texture.width(), texture.height()) {
+            return Some(Err(format!(
+                "{name} is now {w} x {h} (was {} x {}); restart the game to use the new size",
+                texture.width(),
+                texture.height()
+            )));
+        }
+        match decoded {
+            crate::compressed::Decoded::Rgba(image) => self.update_texture(texture, &image.rgba),
+            crate::compressed::Decoded::Blocks(image) => {
+                if self.textures_live.contains(texture.id) {
+                    self.asset_ledger.textures.insert(texture.id, image.bytes());
+                    self.compressed.insert(texture.id, image.normal);
+                    if !self.headless {
+                        self.renderer().replace_compressed_texture(texture.id, &image);
+                    }
+                    self.streamed_texture_restored(texture.id);
+                }
+            }
+        }
+        Some(Ok(()))
+    }
+
+    /// The block-compressed formats textures can upload in: the GPU's, or
+    /// every one headless (nothing is uploaded, so nothing is decoded).
+    #[cfg(feature = "compressed-textures")]
+    pub(crate) fn compressed_formats(&self) -> crate::compressed::GpuFormats {
+        match &self.renderer {
+            Some(renderer) if !self.headless => renderer.compressed_formats(),
+            _ => crate::compressed::GpuFormats::ALL,
+        }
+    }
+
+    /// [`make_texture`](Self::make_texture) for a block-compressed image
+    /// (whole blocks, in a format the GPU samples).
+    #[cfg(feature = "compressed-textures")]
+    pub(crate) fn make_compressed_texture(&mut self, image: &crate::compressed::CompressedImage) -> Texture {
+        let (width, height) = (image.width, image.height);
+        let bytes = image.bytes();
+        let id = if self.headless {
+            self.headless_textures += 1;
+            self.headless_textures
+        } else {
+            let renderer = self.renderer();
+            let max = renderer.max_texture_size();
+            assert!(
+                width <= max && height <= max,
+                "ponko: {width} x {height} is larger than this GPU's maximum texture size ({max})"
+            );
+            renderer.create_compressed_texture(image)
+        };
+        self.asset_ledger.textures.insert(id, bytes);
+        self.asset_ledger.made(crate::inventory::AssetClass::Texture, id);
+        self.compressed.insert(id, image.normal);
+        Texture::new(id, width, height)
     }
 
     /// Creates a texture from raw RGBA pixels (4 bytes per pixel, row by row,
@@ -609,6 +715,8 @@ impl Graphics {
         }
         self.asset_ledger.textures.remove(&id);
         self.asset_ledger.freed(crate::inventory::AssetClass::Texture, id);
+        #[cfg(feature = "compressed-textures")]
+        self.compressed.remove(&id);
         #[cfg(feature = "3d")]
         self.asset_ledger.freed(crate::inventory::AssetClass::RenderTarget, id);
         self.forget_streamed_texture_id(id);
@@ -671,6 +779,13 @@ impl Graphics {
         // A freed texture (or `Texture::NONE`) has no pixels of its own.
         if !self.textures_live.contains(texture.id) {
             return;
+        }
+        // A block-compressed texture takes pixels by becoming RGBA8.
+        #[cfg(feature = "compressed-textures")]
+        if self.compressed.remove(&texture.id).is_some() {
+            self.asset_ledger
+                .textures
+                .insert(texture.id, crate::inventory::rgba8_bytes(w, h));
         }
         // A streamed texture at less than full resolution: back to full.
         if self.streaming.reduced_size(texture.id).is_some() {

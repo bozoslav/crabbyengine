@@ -7,6 +7,8 @@
 // `gpu`, behind the `window` feature; without it, `none` stands in.
 
 pub(crate) mod batch;
+#[cfg(all(feature = "window", feature = "compressed-textures"))]
+pub(crate) mod blocks;
 pub(crate) mod capabilities;
 #[cfg(all(feature = "window", feature = "3d"))]
 mod gi;
@@ -351,6 +353,10 @@ pub(crate) struct Screenshot {
 mod atlas_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod buffer_render_test;
+#[cfg(all(test, feature = "window", feature = "3d", feature = "compressed-textures"))]
+mod compressed_bench;
+#[cfg(all(test, feature = "window", feature = "3d", feature = "compressed-textures"))]
+mod compressed_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
 mod contact_render_test;
 #[cfg(all(test, feature = "window", feature = "3d"))]
