@@ -144,3 +144,27 @@ pub unsafe extern "C" fn ponko_builtin_access(system_id: u32, out_access: *mut *
         Ok(())
     })
 }
+
+/// A new copy of `access` (a declaration of nothing for null): built-in
+/// declarations name engine types, which the `ponko_access_*` calls can't
+/// rebuild, so copying one takes this. Free the copy with
+/// `ponko_access_free`.
+/// ```
+/// use ponko_ffi::*;
+/// let a = unsafe { ponko_access_clone(std::ptr::null()) };
+/// assert!(!a.is_null());
+/// unsafe { ponko_access_free(a) };
+/// ```
+/// # Safety
+/// `access` null or live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn ponko_access_clone(access: *const PonkoAccess) -> *mut PonkoAccess {
+    let mut result = std::ptr::null_mut();
+    boundary(|| {
+        // SAFETY: caller supplies a live handle or null.
+        let copy = unsafe { access.as_ref() }.map_or_else(SystemAccess::new, |a| a.0.clone());
+        result = Box::into_raw(Box::new(PonkoAccess(copy)));
+        Ok(())
+    });
+    result
+}
