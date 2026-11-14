@@ -1,0 +1,35 @@
+{
+  "format": "ponko-prefab",
+  "version": 2,
+  "entities": [
+    { "entity": 0, "components": {
+        "Transform2D": {},
+        "Sprite": { "texture": "ember_hop/sprites/post.png", "z": -0.1 },
+        "RigidBody": { "kind": "Fixed" },
+        "Collider": { "shape": { "Rect": { "size": [14.0, 28.0] } }, "sensor": true, "offset": [2.0, 2.0] },
+        "Exit": {} } },
+    { "entity": 1, "components": {
+        "Transform2D": {},
+        "Sprite": { "texture": "ember_hop/sprites/lantern.png", "region": { "min": [0.0, 0.0], "max": [16.0, 16.0] }, "z": 0.1 },
+        "Attached": { "to": 0, "offset": [6.0, -2.0], "rotation": 0.0 } } },
+    { "entity": 2, "components": {
+        "Transform2D": {},
+        "ParticleEmitter2D": {
+          "rate": 6.0,
+          "lifetime": [0.8, 1.6],
+          "speed": [3.0, 10.0],
+          "shape": { "circle": { "radius": 3.0 } },
+          "gravity": [0.0, -14.0],
+          "size": [1.0, 2.5],
+          "color_over_life": [
+            [0.0, { "r": 1.0, "g": 0.9, "b": 0.5, "a": 0.9 }],
+            [1.0, { "r": 1.0, "g": 0.5, "b": 0.1, "a": 0.0 }]
+          ],
+          "texture": "ember_hop/sprites/ember.png",
+          "blend": "additive",
+          "z": 0.3,
+          "seed": 5
+        },
+        "Attached": { "to": 1, "offset": [0.0, 0.0], "rotation": 0.0 } } }
+  ]
+}

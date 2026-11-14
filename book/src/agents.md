@@ -321,13 +321,10 @@ through the tools above, put a game of your own (Rust, C or C++) through a
 scenario file, and compare two bundles. See
 [Validation bundles](validation-bundles.md).
 
-These tools exist today. A general gameplay-input recording/replay service,
-structured scheduler inspection, richer shader diagnostics and broader
-GPU/asset memory reports are not implied by their presence. Follow
-[#145](https://github.com/ponkoengine/ponko/issues/145),
-[#153](https://github.com/ponkoengine/ponko/issues/153) and
-[#157](https://github.com/ponkoengine/ponko/issues/157) for the relevant
-planned extensions. Reliable autonomous creation of complete games remains
+These tools exist today, including scheduler inspection (`ecs_diagnostics`),
+shader diagnostics (`shader_status`) and GPU reports by pass (`perf_report`).
+Their presence does not imply a general gameplay-input recording/replay
+service. Reliable autonomous creation of complete games remains
 a long-term objective, with human review and reproducible evidence still
 required. See [the project vision](https://github.com/ponkoengine/ponko/blob/main/PROJECT_VISION.md).
 
@@ -364,3 +361,128 @@ A running game reads its own `capabilities` answer with
 `ponko_ctx_capabilities_json(ctx, buffer, capacity, &len)` in C and
 `ctx.capabilities_json()` in C++; the native tests check that a description
 made from C and from C++ shows up there.
+
+## The agent acceptance suite
+
+The tools are tested call by call; the acceptance suite tests whether a
+task can be *finished* with them. It lives in `crates/ponko_mcp/tests/suite/`:
+six small game-development tasks, each with a starting project (files under
+`assets/`), a goal written for an agent, a checker that scores the result
+from the running game and its files, a scripted solution, and negative
+controls: plausible wrong fixes that the checker must reject. The games
+follow the 2D project template: rules in sim systems, numbers in JSON files
+that hot reload, gameplay types reflected.
+
+| Task | Kind | The agent must | Checked by |
+|---|---|---|---|
+| `tune-speed` | tuning | tune a data file so a run takes between 1.5 and 2 seconds | the file, the game's live value, an input scenario |
+| `coin-level` | content | build a level with the tools and save it as a scene | the scene file, loading it, entity counts, a scenario's score |
+| `immortal-enemy` | bug | reproduce an enemy that never dies and fix the bad value | the data file, live components, a fresh wave's `Died` events |
+| `slow-crowd` | performance | find the system that got slow and cut its work tenfold | work counted per tick, and the same result as an all-pairs count |
+| `broken-shader` | shader | fix a WGSL file while the game runs | `shader_status` and the file |
+| `hidden-score` | ui | make the HUD show the score | what the UI shows, through `expect_ui` |
+
+The performance task scores the work a tick does (distance checks), not
+wall-clock time, so its score is the same on every machine; `system_timings`
+is where an agent sees the slowness. The UI task checks what the player sees
+through the UI tree in a headless game with frames
+(`Game::headless_frames`), so it needs no window or GPU.
+
+### Deterministic mode: in CI, no model
+
+```sh
+cargo test -p ponko_mcp --test agent_suite
+cargo run -p ponko_mcp --example agent_suite -- replay   # the score table
+```
+
+Every task's scripted solution is replayed through `ponko_mcp::Server`
+against a fresh copy of its starting project, and must pass every check;
+every negative control must fail exactly the checks it names (an empty
+"do nothing" control is required, so the starting state always fails). The
+scores must equal `tests/suite/baseline.json`; after a deliberate change to
+a task or a tool, rewrite it with `PONKO_UPDATE_BASELINE=1` and say why in
+the pull request. Nothing leaves the machine; it takes about half a minute.
+
+### The 0.2.0 baseline
+
+The scripted solutions, with the 0.2.0 tools:
+
+| Task | Checks | Steps | Negative controls caught |
+|---|---|---|---|
+| `tune-speed` | 3/3 | 7 | 4/4 |
+| `coin-level` | 4/4 | 11 | 4/4 |
+| `immortal-enemy` | 3/3 | 14 | 4/4 |
+| `slow-crowd` | 4/4 | 8 | 4/4 |
+| `broken-shader` | 2/2 | 5 | 3/3 |
+| `hidden-score` | 2/2 | 6 | 3/3 |
+| **total** | **18/18, 6/6 tasks** | 51 | 22/22 |
+
+A step is one tool call, one file edit, or one wait for a hot reload. The
+steps are a known path, not a bound: a real agent also explores. No run of a
+real agent is recorded here yet; the next section is how to make one.
+
+### Trying a real agent
+
+This is opt-in and never runs in CI. It needs no keys and contacts
+nothing: the agent is whatever MCP client you start, with its own account.
+`agent_suite mcp TASK` is an MCP server over stdio that prepares the task's
+folder, starts its game headless and paused in a child process, and offers
+every ponko-mcp tool (except `launch` and `quit_instance`, which would
+replace the task's game) plus `submit_task`, which runs the checker. Its
+`initialize` reply carries the goal and the folder as instructions.
+
+```sh
+cargo build -p ponko_mcp --example agent_suite
+cargo run -p ponko_mcp --example agent_suite -- list     # the tasks
+cargo run -p ponko_mcp --example agent_suite -- goal tune-speed
+
+# Claude Code, for example; any MCP client starts the same command.
+claude mcp add ponko-suite -- "$PWD/target/debug/examples/agent_suite" \
+    mcp tune-speed --dir /tmp/suite/tune-speed --agent claude-code
+```
+
+Start the agent in an empty folder, not in this repository, so it can't read
+the checkers and solutions, and ask it to do the task in the `ponko-suite`
+server's instructions. It edits files in the task's folder with its own
+tools. When it calls `submit_task`, or when its client disconnects, the
+result goes to `--out` (default `<dir>.result.json`): every check with what
+was seen, the last submission's score, the number of submissions, and every
+tool call with its arguments and error. The calls are the steps; the errors
+and the failed checks show where it got stuck. Run each task a few times:
+one run of a model says little.
+
+### Turning failures into fixes
+
+A real agent that fails a task points at a tool, an error message or this
+guide. File an issue labelled `area: tooling` with the result file, fix
+what misled the agent, and when a checker let a wrong fix through, add it
+as a negative control. Building the suite turned up these, now in this
+guide:
+
+- **A paused game reads edited files only when it ticks.** Hot reload looks
+  at files a few times a second, at the start of a tick: after saving a file,
+  `run_ticks` with `ticks: 1` and read the value back (`get_resource`), and
+  repeat until it changes. A file that doesn't parse is reported in
+  `read_logs` ("could not reload ... keeping the old one"), and the game
+  keeps the old values.
+- **`shader_status` counts every reload, failed ones too.** Wait for
+  `reloads` to change, then read `ok`, `outcome` and the diagnostics' line
+  and column.
+- **Input scenarios count ticks from their start.** To compare with a tick
+  the game stores (such as a "reached at" tick), read `instance_info`'s
+  `tick` before running the scenario.
+- **What the player sees, headless:** a game with
+  `Game::headless_frames(true)` runs its UI, and `expect_ui` steps check a
+  node's `shown` and `text`, with no window.
+
+### Limits
+
+- The tasks change data files, scenes and shaders. None asks for Rust code
+  changes: rebuilding a game per attempt takes minutes, too slow for CI;
+  code tasks for real agents are future work.
+- Screenshots need a window and a GPU; the suite checks what is shown
+  through the UI tree instead, so it runs in CI.
+- A checker is only as strict as its checks: the negative controls are
+  what keeps them honest.
+- The suite drives games through MCP, so it is the same for games written in
+  C or C++; its own tasks are Rust games.

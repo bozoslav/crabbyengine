@@ -421,6 +421,7 @@ pub fn ponko::audio::Audio::play(&mut self, ponko::audio::Sound) -> ponko::audio
 pub fn ponko::audio::Audio::play_ex(&mut self, ponko::audio::Sound, ponko::audio::SoundParams) -> ponko::audio::Playing
 pub fn ponko::audio::Audio::stop(&mut self, ponko::audio::Playing)
 pub fn ponko::audio::Audio::try_load(&mut self, &str) -> core::result::Result<ponko::audio::Sound, ponko::error::Error>
+pub fn ponko::audio::Audio::unlocked(&self) -> bool
 impl ponko::audio::Audio
 pub fn ponko::audio::Audio::free(&mut self, ponko::audio::Sound)
 pub fn ponko::audio::Audio::is_live(&self, ponko::audio::Sound) -> bool

@@ -31,18 +31,20 @@ import {
   backendAvailable,
   checkEngineGpu,
   checkMinimums,
+  checkMusicBeforeClick,
   launchConfig,
   launchFailureKind,
+  musicAfterClick,
   parseArgs,
   parseFixtures,
   unsupportedReason,
 } from "./lib.mjs";
 
 // The canvas web/index.html gives the engine (its CANVAS_ID in src/web.rs).
-const GAME_CANVAS = "canvas#ponko";
+export const GAME_CANVAS = "canvas#ponko";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const LAUNCHERS = { chromium, firefox, webkit };
+export const LAUNCHERS = { chromium, firefox, webkit };
 
 function usage(message) {
   console.error(`smoke: ${message}`);
@@ -54,6 +56,7 @@ const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript",
   ".mjs": "text/javascript",
+  ".css": "text/css",
   ".wasm": "application/wasm",
   ".json": "application/json",
   ".png": "image/png",
@@ -65,7 +68,7 @@ const MIME = {
 const PROBE_PATH = "/__smoke_probe.html";
 
 /** A static file server for `root` on a free localhost port. */
-async function serve(root) {
+export async function serve(root) {
   const server = createServer(async (req, res) => {
     const path = decodeURIComponent(new URL(req.url, "http://x").pathname);
     if (path === PROBE_PATH) {
@@ -96,7 +99,7 @@ const sleep = (ms) => new Promise((ok) => setTimeout(ok, ms));
  * on a GPU-less runner that test (a software WebGPU device presenting a
  * canvas) can leave the browser without WebGL2 for the pages that follow.
  */
-async function probe(context, url, backend) {
+export async function probe(context, url, backend) {
   const page = await context.newPage();
   try {
     await page.goto(new URL(PROBE_PATH, url).href);
@@ -171,7 +174,7 @@ async function probe(context, url, backend) {
  * of a PNG screenshot, or (without one) of the game canvas copied with
  * drawImage, which also sees WebGPU canvases that headless screenshots miss.
  */
-async function canvasStats(page, png) {
+export async function canvasStats(page, png) {
   return page.evaluate(async ([base64, selector]) => {
     let image;
     if (base64) {
@@ -224,8 +227,41 @@ async function smokeState(page) {
   });
 }
 
+/**
+ * Records the page's AudioContexts and counts the buffers it starts that
+ * hold sound (the engine's audio output schedules one buffer source per
+ * block), so a run can tell that music was heard. Installed before the
+ * page's own scripts run.
+ */
+function watchAudio() {
+  const seen = { contexts: [], audible: 0 };
+  Object.defineProperty(window, "__smokeAudio", { value: seen });
+  const Original = window.AudioContext;
+  if (!Original) return;
+  window.AudioContext = class extends Original {
+    constructor(...options) {
+      super(...options);
+      seen.contexts.push(this);
+    }
+  };
+  const start = AudioBufferSourceNode.prototype.start;
+  AudioBufferSourceNode.prototype.start = function (...when) {
+    const buffer = this.buffer;
+    if (buffer && buffer.getChannelData(0).some((sample) => Math.abs(sample) > 1e-4)) seen.audible++;
+    return start.apply(this, when);
+  };
+}
+
+/** What `watchAudio` saw: each AudioContext's state, and the buffers with sound played. */
+async function audioSeen(page) {
+  return page.evaluate(() => {
+    const seen = window.__smokeAudio ?? { contexts: [], audible: 0 };
+    return { contexts: seen.contexts.map((c) => c.state), audible: seen.audible };
+  });
+}
+
 /** Which context the game's canvas got: a second getContext of another kind returns null. */
-async function canvasBackend(page) {
+export async function canvasBackend(page) {
   return page.evaluate((selector) => {
     const canvas = document.querySelector(selector);
     if (!canvas) return "unknown";
@@ -348,6 +384,7 @@ async function main() {
         Object.defineProperty(Navigator.prototype, "gpu", { get: () => undefined, configurable: true });
       });
     }
+    if (args.music === "required") await context.addInitScript(watchAudio);
     if (args.case === "missing-asset") {
       await context.route(`**/assets/${args.asset}`, (route) => route.fulfill({ status: 404, body: "gone" }));
     }
@@ -474,6 +511,14 @@ async function main() {
       throw new Failure("stall", `the simulation stalled: ${before.ticks} -> ${snapshot.state.ticks} ticks in 3s`);
     }
 
+    // 3b. Music asked for at setup waits for the first click: the engine
+    //     opens no AudioContext before it (a browser would keep it suspended).
+    if (args.music === "required") {
+      report.audio = { beforeClick: await audioSeen(page) };
+      const early = checkMusicBeforeClick(snapshot.state, report.audio.beforeClick);
+      if (early) throw new Failure("audio", early);
+    }
+
     // 4. Input: a click on the canvas reaches the game.
     const box = await page.locator(GAME_CANVAS).boundingBox();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
@@ -487,6 +532,21 @@ async function main() {
       await sleep(100);
     }
     log(`click seen: ${JSON.stringify(snapshot.state)}`);
+
+    // 4a. The click lets the page make sound, and the music that waited
+    //     for it plays.
+    if (args.music === "required") {
+      const musicDeadline = Date.now() + 10_000;
+      for (;;) {
+        snapshot = await smokeState(page);
+        report.audio.afterClick = await audioSeen(page);
+        const waiting = musicAfterClick(snapshot.state, report.audio.afterClick);
+        if (!waiting) break;
+        if (Date.now() > musicDeadline) throw new Failure("audio", `the music never played after the click: ${waiting}`);
+        await sleep(100);
+      }
+      log(`music heard after the click: ${JSON.stringify(report.audio.afterClick)}`);
+    }
 
     // 4b. Keys: each --press key reaches the game and changes the state it
     //     reports (a game with screens: Enter starts a round, Escape pauses).
@@ -598,4 +658,5 @@ async function main() {
   process.exit(outcome);
 }
 
-main();
+// Run as a program; web/smoke/gallery.mjs imports the helpers above.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

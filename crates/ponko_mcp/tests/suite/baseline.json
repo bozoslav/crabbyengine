@@ -1,0 +1,240 @@
+{
+  "suite": 1,
+  "tasks": [
+    {
+      "checks": [
+        "settings file is valid",
+        "game uses the file's speed",
+        "flag reached in time"
+      ],
+      "controls": [
+        {
+          "failed": [
+            "flag reached in time"
+          ],
+          "name": "nothing"
+        },
+        {
+          "failed": [
+            "flag reached in time"
+          ],
+          "name": "too fast"
+        },
+        {
+          "failed": [
+            "game uses the file's speed"
+          ],
+          "name": "live only"
+        },
+        {
+          "failed": [
+            "settings file is valid",
+            "game uses the file's speed",
+            "flag reached in time"
+          ],
+          "name": "broken file"
+        }
+      ],
+      "id": "tune-speed",
+      "kind": "tuning",
+      "solution": {
+        "passed": 3,
+        "steps": 7
+      }
+    },
+    {
+      "checks": [
+        "level file saved",
+        "level loads",
+        "player and five coins",
+        "holding right collects them all"
+      ],
+      "controls": [
+        {
+          "failed": [
+            "level file saved",
+            "level loads",
+            "player and five coins",
+            "holding right collects them all"
+          ],
+          "name": "nothing"
+        },
+        {
+          "failed": [
+            "holding right collects them all"
+          ],
+          "name": "off the path"
+        },
+        {
+          "failed": [
+            "holding right collects them all"
+          ],
+          "name": "too far"
+        },
+        {
+          "failed": [
+            "player and five coins",
+            "holding right collects them all"
+          ],
+          "name": "six coins"
+        }
+      ],
+      "id": "coin-level",
+      "kind": "content",
+      "solution": {
+        "passed": 4,
+        "steps": 11
+      }
+    },
+    {
+      "checks": [
+        "roster file is fixed",
+        "no live enemy heals",
+        "a fresh wave dies in 5 seconds"
+      ],
+      "controls": [
+        {
+          "failed": [
+            "roster file is fixed",
+            "no live enemy heals",
+            "a fresh wave dies in 5 seconds"
+          ],
+          "name": "nothing"
+        },
+        {
+          "failed": [
+            "roster file is fixed",
+            "a fresh wave dies in 5 seconds"
+          ],
+          "name": "remove it"
+        },
+        {
+          "failed": [
+            "roster file is fixed",
+            "a fresh wave dies in 5 seconds"
+          ],
+          "name": "live only"
+        },
+        {
+          "failed": [
+            "roster file is fixed",
+            "no live enemy heals"
+          ],
+          "name": "weaker enemy"
+        }
+      ],
+      "id": "immortal-enemy",
+      "kind": "bug",
+      "solution": {
+        "passed": 3,
+        "steps": 14
+      }
+    },
+    {
+      "checks": [
+        "radius unchanged",
+        "game uses the file",
+        "work cut 10x",
+        "same pairs found"
+      ],
+      "controls": [
+        {
+          "failed": [
+            "work cut 10x"
+          ],
+          "name": "nothing"
+        },
+        {
+          "failed": [
+            "same pairs found"
+          ],
+          "name": "cells too small"
+        },
+        {
+          "failed": [
+            "radius unchanged",
+            "same pairs found"
+          ],
+          "name": "smaller radius"
+        },
+        {
+          "failed": [
+            "game uses the file"
+          ],
+          "name": "live only"
+        }
+      ],
+      "id": "slow-crowd",
+      "kind": "performance",
+      "solution": {
+        "passed": 4,
+        "steps": 8
+      }
+    },
+    {
+      "checks": [
+        "shader compiles in the game",
+        "shader still glows"
+      ],
+      "controls": [
+        {
+          "failed": [
+            "shader compiles in the game"
+          ],
+          "name": "nothing"
+        },
+        {
+          "failed": [
+            "shader still glows"
+          ],
+          "name": "glow removed"
+        },
+        {
+          "failed": [
+            "shader compiles in the game"
+          ],
+          "name": "new error"
+        }
+      ],
+      "id": "broken-shader",
+      "kind": "shader",
+      "solution": {
+        "passed": 2,
+        "steps": 5
+      }
+    },
+    {
+      "checks": [
+        "score label shown",
+        "label reads the score"
+      ],
+      "controls": [
+        {
+          "failed": [
+            "score label shown",
+            "label reads the score"
+          ],
+          "name": "nothing"
+        },
+        {
+          "failed": [
+            "label reads the score"
+          ],
+          "name": "shown only"
+        },
+        {
+          "failed": [
+            "label reads the score"
+          ],
+          "name": "fixed text"
+        }
+      ],
+      "id": "hidden-score",
+      "kind": "ui",
+      "solution": {
+        "passed": 2,
+        "steps": 6
+      }
+    }
+  ]
+}

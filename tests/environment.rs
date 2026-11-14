@@ -65,3 +65,44 @@ fn environment_child() {
         assert_eq!(ctx.control_addr().is_some(), expect_control);
     });
 }
+
+#[test]
+fn a_smoke_setting_runs_the_game_headless_and_returns() {
+    // `PONKO_SMOKE=<ticks>`: `Game::run` opens no window, runs the ticks with
+    // the frame systems, says so and returns (what `ponko package` checks).
+    let result = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "smoke_child", "--nocapture"])
+        .env("PONKO_SMOKE_CHILD", "1")
+        .env("PONKO_SMOKE", "5")
+        .env_remove("PONKO_CONTROL")
+        .env_remove("PONKO_BENCH")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(
+        result.status.success(),
+        "{}\n{stderr}",
+        String::from_utf8_lossy(&result.stdout)
+    );
+    assert!(stderr.contains("ponko: smoke run passed: 5 ticks"), "{stderr}");
+}
+
+#[test]
+fn smoke_child() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SIM: AtomicU64 = AtomicU64::new(0);
+    static FRAMES: AtomicU64 = AtomicU64::new(0);
+    if std::env::var_os("PONKO_SMOKE_CHILD").is_none() {
+        return;
+    }
+    Game::new("Smoke setting", 1, 1)
+        .sim_system(|_: &mut Ctx| {
+            SIM.fetch_add(1, Ordering::Relaxed);
+        })
+        .system(|_: &mut Ctx| {
+            FRAMES.fetch_add(1, Ordering::Relaxed);
+        })
+        .run(|_| {});
+    assert_eq!(SIM.load(Ordering::Relaxed), 5);
+    assert_eq!(FRAMES.load(Ordering::Relaxed), 5);
+}

@@ -1,0 +1,19 @@
+{
+  "steps": [
+    { "call": "world_summary" },
+    { "call": "list_entities", "args": { "with": ["Player"] }, "save": { "player": "/entities/0/entity" } },
+    { "call": "get_resource", "args": { "resource": "Settings" } },
+    { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [180, 300] } } } },
+    { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [260, 300] } } } },
+    { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [340, 300] } } } },
+    { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [420, 300] } } } },
+    { "call": "spawn_entity", "args": { "components": { "Coin": { "value": 1 }, "Transform2D": { "position": [500, 300] } } } },
+    { "call": "save_scene", "args": { "path": "levels/coins.json" } },
+    { "call": "run_input_scenario", "args": { "scenario": { "version": 1, "duration": 120, "steps": [
+      { "tick": 0, "type": "key", "key": "Right", "down": true },
+      { "tick": 119, "type": "expect_resource", "resource": "Score", "pointer": "/points", "equals": 5 },
+      { "tick": 119, "type": "expect_count", "component": "Coin", "equals": 0 }
+    ] } } },
+    { "call": "load_scene", "args": { "path": "levels/coins.json" } }
+  ]
+}

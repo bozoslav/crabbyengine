@@ -17,6 +17,13 @@ order:
    in 3 seconds, a third of the 60 Hz rate; a coarse bound, not a frame-rate
    assertion, kept above the `stall` self-test's 20 ticks).
 4. **Input**: a click on the canvas reaches the game, then each `--press` key.
+   **Music** (`--music required`, the 2D fixture): music the game started
+   during setup waits for that click. Before it, the game reports
+   `audio_unlocked: false` and the page has no `AudioContext` (a browser keeps
+   one opened before a gesture suspended); within 10 s after it, the game
+   reports `audio_unlocked: true`, an `AudioContext` is `running`, and buffers
+   with sound in them have been played. The runner watches the page's
+   `AudioContext` and `AudioBufferSourceNode.start` to see this.
 5. **State minimums** (`--min`): fields the fixture must report at least
    (the 3D fixture's models and triangles drawn).
    **Storage** (`--after-reload`): once the game's writes are stored (its
@@ -37,15 +44,25 @@ runner needs to know about each one, so `--fixture <name>` is all a run takes:
 
 | Fixture | Example | Features | Checks |
 |---|---|---|---|
-| `web_smoke` | `examples/web_smoke.rs` | none | `crab.png` fetched and decoded 32x32; an image and streamed music loaded from an in-memory asset source; sprites drawn |
+| `web_smoke` | `examples/web_smoke.rs` | none | `crab.png` fetched and decoded 32x32; an image and streamed music loaded from an in-memory asset source; the music, started at setup, heard after the first click; sprites drawn |
 | `web_smoke_3d` | `examples/web_smoke_3d.rs` | `3d` | `models/house.glb` fetched and parsed; a sun with shadows; at least 1 model and 100 triangles drawn |
 | `coin_dash` | `examples/coin_dash` | none | the complete game: its picture, keys and the screens they reach (see [A complete game, packaged](../../book/src/packaging.md#the-web-build)); after a reload, the settings it saved come back from the browser's storage |
 
 To add one: publish the state with the helper (or the same attributes by hand),
 add an entry to `fixtures.json` (`example`, `features`, `asset`, `assetSize`
-or none, `assetSource` or none, `presses`, `min`, `afterReload`, `engineGpu`), and name it in the CI job. Every
+or none, `assetSource` or none, `presses`, `min`, `afterReload`, `engineGpu`,
+`music`), and name it in the CI job. Every
 fixture needs `?smoke_case=panic` and `?smoke_case=stall` handled if it is to
 run the self-tests; the helper does that.
+
+## The web gallery
+
+`gallery.mjs` checks the [web gallery](../gallery/README.md) the same way,
+for pages whose examples publish no state: every page must start its game,
+keep drawing, survive a click and show a canvas that isn't blank, or, for a
+demo that needs WebGPU on a page without it, say so instead of starting. The
+gallery's README has how to run it; `gallery-lib.test.mjs` tests its
+decisions.
 
 ## Running it
 
@@ -92,6 +109,7 @@ Options:
 | `--min <field>=<n>` | The reported state's numeric `<field>` must be at least `n`. Repeatable. |
 | `--after-reload <field>:<value>` | After the presses, reload the page (once the state's `saving` is not `true`); the new page's `<field>` must then be `<value>`. Repeatable. |
 | `--engine-gpu required` | Fail when the fixture publishes no engine GPU report (fixtures set this). |
+| `--music required` / `none` | Check that music started at setup waits for the first click and is heard after it (the fixture reports `audio_unlocked`). `required` for fixtures with `"music": true`. |
 | `--no-trace` / `--chrome-trace` | Skip the Playwright trace, or also write Chromium's GPU trace (it slows a heavy page a lot, enough to trip the stall check on a 3D scene: use it on the 2D fixture, or to look at one run). |
 | `--out <dir>` | Where artifacts go (default `target/web-smoke/<fixture>-<browser>-<backend>-<case>`). |
 | `--browser-arg <flag>` | Extra browser flag (repeatable). |
@@ -132,7 +150,9 @@ table (and appends it to a GitHub job summary).
 | Where | Browser | WebGL2 (forced) | WebGPU |
 |---|---|---|---|
 | CI (`web-smoke` job, `main` and `full-ci`, ubuntu-latest, no GPU) | Chromium (headless shell and full browser), Firefox, WebKit from Playwright | Must pass in Chromium and WebKit, for the 2D and 3D fixtures (software GL); `coin_dash` in Chromium. Firefox is tried and reported: headless Firefox has no WebGL2 on that runner, so it reads "unsupported" | Tried; passes as "unsupported", with the reason, where the browser can't show a WebGPU canvas; where it can, the game must draw through it |
-| CI, every pull request (`web-smoke-runner`) | none | the runner's own tests only | |
+| CI, every pull request (`web-smoke-runner`) | none | the runner's own tests only (and the gallery's) | |
+| Release workflow (`gallery` job, ubuntu-latest, no GPU) | Chromium headless shell | Every gallery page must pass (software GL) | Not tried; the demos that need WebGPU must show their message |
+| Apple Silicon Mac, the gallery (`gallery.mjs`) | Chromium 156 | Every page passes in the headless shell; the 5 demos that need WebGPU show their message | Every page passes in new headless mode on the Metal adapter |
 | Apple Silicon Mac, Chromium new headless mode | Chromium 156 | Passes (ANGLE on Metal) | **Passes** on the Metal adapter: the engine reports `webgpu`, the canvas draws |
 | Apple Silicon Mac, Chromium headless shell | same | Passes (ANGLE on SwiftShader) | Unsupported: a SwiftShader fallback adapter exists, but a WebGPU canvas can't be shown |
 | Apple Silicon Mac, WebKit (Playwright build) | WebKit 27 | Passes | Passes on its own adapter |
@@ -140,5 +160,5 @@ table (and appends it to a GitHub job summary).
 Not covered yet: Firefox on a Mac with its Playwright build here (it would
 not start on the development machine, and on CI's Linux runner it has no
 WebGL2, so Firefox has not drawn a frame anywhere yet), WebGPU on a
-GPU-less Linux runner (the CI job tries it and reports), mobile browsers, and
-the hosted demo examples.
+GPU-less Linux runner (the CI job tries it and reports), and mobile
+browsers.
