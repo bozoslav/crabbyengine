@@ -1527,8 +1527,9 @@ class save_migration {
         detail::check(add(&detail::json_convert::call, static_cast<void*>(box), &detail::json_convert::free));
         return *this;
     }
-public:
+    friend class world_view;
     save_migration(PonkoWorld* world, std::uint32_t from) : world_(world), from_(from) {}
+public:
     /// Component `from` is called `to` now.
     save_migration& rename_component(const char* from, const char* to) { detail::check(ponko_save_migration_rename_component(world_, from_, from, to)); return *this; }
     /// Component `name` is gone (an entity left with nothing is dropped).
