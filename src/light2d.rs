@@ -51,6 +51,7 @@ use crate::tilemap::TileMap;
 /// ctx.world.spawn((ponko::d2::Transform::at(vec2(64.0, 64.0)), torch));
 /// # }
 /// ```
+#[repr(C)] // shared with C/C++ (`PonkoPointLight2D`)
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 pub struct PointLight2D {
@@ -101,6 +102,7 @@ impl Default for PointLight2D {
 /// ctx.world.spawn((at, lamp));
 /// # }
 /// ```
+#[repr(C)] // shared with C/C++ (`PonkoSpotLight2D`)
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 pub struct SpotLight2D {
@@ -155,6 +157,7 @@ impl Default for SpotLight2D {
 /// },));
 /// # }
 /// ```
+#[repr(C)] // shared with C/C++ (`PonkoDirectionalLight2D`)
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize, Component)]
 #[serde(default)]
 pub struct DirectionalLight2D {
