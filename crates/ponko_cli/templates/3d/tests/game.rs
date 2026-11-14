@@ -31,21 +31,19 @@ fn the_cube_turns_at_the_configured_speed() {
 }
 
 #[test]
-fn space_pauses_the_cube() {
-    // Presses Space on the tenth frame. Headless frames run the frame
-    // systems too (`controls`), and the game's files go to a folder of the
-    // test's own, so the player's saves are never touched.
+fn escape_quits() {
+    // Presses Escape on the tenth frame of sixty. Headless frames run the
+    // frame systems too (`controls`), and the game's files go to a folder of
+    // the test's own, so the player's saves are never touched.
     let scenario = InputScenario::new()
-        .at(10, InputEvent::Key(Key::Space, true))
-        .at(11, InputEvent::Key(Key::Space, false))
+        .at(10, InputEvent::Key(Key::Escape, true))
         .duration(60);
-    let (mut world, report) = game()
+    let (mut world, _report) = game()
         .headless_frames(true)
         .data_dir(std::env::temp_dir().join("{{crate_name}}-test-data"))
         .run_headless_scenario(scenario);
-    report.assert_passed();
     let speed = world.resource::<Settings>().spin_speed;
     let angle = cube_angle(&mut world);
-    assert!(angle > 0.0, "it turned before the pause");
-    assert!(angle < speed * 0.5, "and stopped: turned {angle} rad in a second");
+    assert!(angle > 0.0, "it turned before Escape");
+    assert!(angle < speed * 0.5, "and the game ended: turned {angle} rad, not a second's worth");
 }
