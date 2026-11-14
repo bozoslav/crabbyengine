@@ -237,6 +237,7 @@ static void setup(PonkoCtx* ctx, void* user) {
     CHECK(ponko_ctx_post(ctx, &back) == PONKO_OK && back.anti_aliasing == 3 && back.taa_sharpness == 0.5f && back.contact_shadows == 0.3f && back.ssr == 0.5f && back.ssr_max_distance == 20);
     uint64_t e;
     CHECK(ponko_spawn(ponko_ctx_world(ctx), NULL, 0, &e) == PONKO_OK);
+    CHECK(ponko_ctx_reset_motion(ctx, e) == PONKO_OK);
     CHECK(ponko_world_free(ponko_ctx_world(ctx)) == PONKO_BUSY);
     PonkoText3D t = ponko_text3d_default(), got;
     t.billboard = true; t.align = 2;

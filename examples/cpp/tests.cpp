@@ -441,6 +441,10 @@ static void three_d() {
             temporal.ao_temporal = true;
             ctx.set_post(temporal);
             ctx.reset_temporal_history();
+            auto mover = ctx.world().spawn(ponko::transform3d_at({0, 0, 0}));
+            ctx.reset_motion(mover);
+            ctx.world().despawn(mover);
+            throws_invalid([&] { ctx.reset_motion(mover); }, "no such entity");
             CHECK(ctx.post().anti_aliasing == 3 && ctx.post().taa_sharpness == 0.5f);
             ctx.set_post(post);
         }

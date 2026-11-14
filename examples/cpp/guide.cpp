@@ -1686,6 +1686,15 @@ static void temporal_antialiasing(ponko::ctx& ctx) {
 }
 // ANCHOR_END: taa
 
+// ANCHOR: reset_motion
+/// Teleports one object: only its motion is dropped, the rest of the
+/// picture keeps its temporal history.
+static void teleport_one(ponko::ctx& ctx, ponko::entity hero) {
+    ctx.world().set(hero, ponko::transform3d_at({100, 0, 0}));
+    ctx.reset_motion(hero);
+}
+// ANCHOR_END: reset_motion
+
 // ANCHOR: shader
 /// Grass that sways in the wind: the higher a vertex, the more it moves.
 static const char* wind_shader = R"(
@@ -1954,6 +1963,7 @@ static void the_village_has_five_spinning_houses() {
         if (ponko::graphics_quality_level(ctx.graphics_quality()) != ponko::quality_level::high) { std::fprintf(stderr, "tier preset\n"); std::abort(); }
         options_menu(ctx);
         temporal_antialiasing(ctx);
+        teleport_one(ctx, ctx.world().spawn(ponko::transform3d_at({0, 0, 0})));
         screen_reflections(ctx);
         if (ctx.post().ssr != 1.0f) { std::fprintf(stderr, "ssr\n"); std::abort(); }
         bounced_light(ctx);

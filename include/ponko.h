@@ -5406,6 +5406,8 @@ enum PonkoStatus ponko_ctx_set_ui_immediate_border_width(struct PonkoCtx *ctx, f
 
 enum PonkoStatus ponko_ctx_ui_immediate_scale(struct PonkoCtx *ctx, float *out_scale);
 
+enum PonkoStatus ponko_ctx_reset_motion(struct PonkoCtx *ctx, uint64_t entity);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

@@ -5710,6 +5710,10 @@ public:
     /// after a camera cut or an object teleport. (Resizes and big camera jumps
     /// reset by themselves.)
     void reset_temporal_history() { detail::check(ponko_ctx_reset_temporal_history(raw_)); }
+    /// Gives `e`'s model no motion on the next drawn frame, keeping the rest of
+    /// the temporal history: call it after teleporting one object, or when its
+    /// animation snaps to another pose with no blend.
+    void reset_motion(entity e) { detail::check(ponko_ctx_reset_motion(raw_, e)); }
     /// Saves this frame as a PNG at `path` once it is drawn. Does nothing in headless runs.
     void save_screenshot(const char* path) { detail::check(ponko_ctx_save_screenshot(raw_, path)); }
     /// texture_filter::nearest keeps pixel art square.

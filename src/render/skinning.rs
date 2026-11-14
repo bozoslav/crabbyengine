@@ -86,6 +86,9 @@ struct Params {
 pub(super) struct Skinning {
     /// `None` without compute shaders.
     pipeline: Option<(wgpu::ComputePipeline, wgpu::BindGroupLayout)>,
+    /// With `pipeline`: the one posing positions only, for the last
+    /// frame's poses (the motion-vector pass reads nothing else).
+    positions: Option<wgpu::ComputePipeline>,
     /// This frame's skin matrices, written a changed matrix at a time (a
     /// skeleton that holds its pose costs nothing).
     joints: Synced,
@@ -165,20 +168,27 @@ impl Skinning {
                 label: Some("3d skinning"),
                 source: wgpu::ShaderSource::Wgsl(SHADER.into()),
             });
-            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("3d skinning"),
-                layout: Some(&pipeline_layout),
-                module: &module,
-                entry_point: Some("skin"),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-            (pipeline, layout)
+            let pipeline = |label, entry_point| {
+                device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&pipeline_layout),
+                    module: &module,
+                    entry_point: Some(entry_point),
+                    compilation_options: Default::default(),
+                    cache: None,
+                })
+            };
+            (
+                (pipeline("3d skinning", "skin"), layout),
+                pipeline("3d previous poses", "skin_positions"),
+            )
         });
+        let (pipeline, positions) = pipeline.unzip();
         let stride = u64::from(device.limits().min_uniform_buffer_offset_alignment).max(size_of::<Params>() as u64);
         let storage = wgpu::BufferUsages::STORAGE;
         Self {
             pipeline,
+            positions,
             joints: Synced::new(
                 device,
                 "3d skin matrices",
@@ -465,27 +475,38 @@ impl Skinning {
             timestamp_writes: timestamps,
         });
         pass.set_pipeline(pipeline);
-        for (k, &(mesh, used)) in self.draws.iter().enumerate() {
-            let Some(slot) = self.slots.get(k).and_then(Option::as_ref) else {
-                continue;
-            };
-            let Some((m, _, group)) = slot.group.as_ref() else {
-                continue;
-            };
-            if !used || *m != mesh {
+        // A slot's bind group, if model `k` is posed into it this frame.
+        fn posed<'s>(draws: &[(u32, bool)], k: usize, slot: &'s Slot) -> Option<&'s wgpu::BindGroup> {
+            let &(mesh, used) = draws.get(k)?;
+            let (m, _, group) = slot.group.as_ref()?;
+            (used && *m == mesh).then_some(group)
+        }
+        let draws = &self.draws[..];
+        for (k, slot) in self.slots.iter().enumerate() {
+            if let Some((slot, group)) = slot.as_ref().and_then(|s| Some((s, posed(draws, k, s)?))) {
+                pass.set_bind_group(0, group, &[(k as u64 * self.stride) as u32]);
+                pass.dispatch_workgroups(slot.capacity.div_ceil(GROUP), 1, 1);
+            }
+        }
+        // The last frame's poses of the models whose pose changed, for
+        // motion vectors: positions only.
+        let Some(positions) = &self.positions else {
+            return;
+        };
+        let mut set = false;
+        for (k, slot) in self.slots.iter().enumerate() {
+            if !self.moving.get(k).copied().unwrap_or(false) {
                 continue;
             }
-            let offset = [(k as u64 * self.stride) as u32];
-            pass.set_bind_group(0, group, &offset);
-            pass.dispatch_workgroups(slot.capacity.div_ceil(GROUP), 1, 1);
-            // The last frame's pose, for motion vectors.
-            if let Some((previous, (_, _, group))) = slot
-                .previous
-                .as_ref()
-                .filter(|_| self.moving.get(k).copied().unwrap_or(false))
-                .and_then(|p| Some((p, p.group.as_ref()?)))
-            {
-                pass.set_bind_group(0, group, &offset);
+            let Some(previous) = slot.as_ref().and_then(|s| s.previous.as_deref()) else {
+                continue;
+            };
+            if let Some(group) = posed(draws, k, previous) {
+                if !set {
+                    pass.set_pipeline(positions);
+                    set = true;
+                }
+                pass.set_bind_group(0, group, &[(k as u64 * self.stride) as u32]);
                 pass.dispatch_workgroups(previous.capacity.div_ceil(GROUP), 1, 1);
             }
         }
