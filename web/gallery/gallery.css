@@ -1,0 +1,43 @@
+/* The web gallery's pages (web/gallery/README.md). */
+:root {
+  --bg: #14161b;
+  --panel: #1d2027;
+  --line: #2c313b;
+  --text: #d6d9e0;
+  --muted: #9aa1ad;
+  --accent: #f2bd50;
+  --error: #ff8a80;
+  color-scheme: dark;
+}
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+a { color: var(--accent); }
+code { background: var(--panel); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.92em; overflow-wrap: anywhere; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5em 0.9em; padding: 0.9em 16px; border-bottom: 1px solid var(--line); }
+header h1 { margin: 0; font-size: 1.3em; }
+main { max-width: 1100px; margin: 0 auto; padding: 1em 16px 3em; }
+.badge { font-size: 0.8em; padding: 0.1em 0.6em; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.badge.webgpu-required { border-color: var(--accent); color: var(--accent); }
+button { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 0.25em 0.8em; cursor: pointer; margin-left: auto; }
+
+/* The front page. */
+.cards { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.cards a { display: flex; flex-direction: column; gap: 0.4em; height: 100%; box-sizing: border-box; padding: 0.9em 1em; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; color: var(--text); text-decoration: none; }
+.cards a:hover, .cards a:focus-visible { border-color: var(--accent); }
+.cards .title { font-weight: 600; color: var(--accent); }
+.cards .badge { align-self: flex-start; }
+.cards .shows { color: var(--muted); font-size: 0.93em; }
+.links { margin-top: 2em; color: var(--muted); }
+
+/* An example's page: the game in a 16:10 box, or the whole window. */
+.stage { position: relative; width: 100%; aspect-ratio: 16 / 10; max-height: 75vh; background: #000; border-radius: 8px; overflow: hidden; }
+/* winit sets the canvas size inline; the box decides it instead. */
+.stage canvas#ponko { display: block; width: 100% !important; height: 100% !important; outline: none; }
+#status { position: absolute; inset: 0; display: grid; place-items: center; padding: 2em; text-align: center; pointer-events: none; }
+#status[hidden] { display: none; }
+#status.error { color: var(--error); }
+#status.unsupported { color: var(--accent); background: var(--bg); }
+.note { color: var(--muted); font-size: 0.93em; }
+.about { max-width: 70ch; }
+.shows { font-size: 1.05em; }
+.full .stage { position: fixed; inset: 0; z-index: 10; max-height: none; aspect-ratio: auto; border-radius: 0; }
+.full #fill { position: fixed; top: 8px; right: 8px; z-index: 11; }

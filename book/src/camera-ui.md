@@ -216,7 +216,10 @@ as `ctx.ui.immediate.style.text_size = 14.0`, stays through a later
 immediate `style.padding` is its own, and scales with the screen. From C,
 `ponko_ctx_ui_set_scale` and `ponko_ctx_ui_set_theme` do the same; C++:
 `ctx.ui_retained().set_scale(..)` and `.set_theme(..)`. This snippet is
-Rust-only; the C and C++ calls need no new functions.
+Rust-only; the C and C++ calls need no new functions. Reading or setting
+`ctx.ui.immediate.font`, `border_width` and `scale()` on their own is
+Rust-only too: native code sets them through the theme and the scale, and
+cannot read them back.
 
 The whole scene from `cargo run --release --example ui`:
 

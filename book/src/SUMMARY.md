@@ -6,6 +6,8 @@
 
 - [Ponko vs Bevy vs Unity](comparison.md)
 - [Getting started](getting-started.md)
+- [Tutorial: a first 2D game](tutorial-2d.md)
+- [Tutorial: a first 3D game](tutorial-3d.md)
 - [Entities, components, queries](ecs.md)
 - [Systems and the frame](systems.md)
 - [Declared system access](system-access.md)
@@ -39,6 +41,7 @@
 - [Changing code while the game runs](hot-patching.md)
 - [Headless runs and testing](headless.md)
 - [A complete game, packaged](packaging.md)
+- [Ember Hop: a platformer, start to finish](ember-hop.md)
 - [Web builds: games in the browser](web.md)
 - [C and C++](c-cpp.md)
 - [Naming and compatibility](naming.md)

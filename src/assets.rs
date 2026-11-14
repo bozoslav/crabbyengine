@@ -457,7 +457,9 @@ impl SharedSources {
 /// Folders we look in for `assets/`, in order:
 /// 1. next to `Cargo.toml` when started with `cargo run` (`CARGO_MANIFEST_DIR`)
 /// 2. next to the executable (shipped games)
-/// 3. the current working directory
+/// 3. the bundle's `Contents/Resources` when the executable is in a macOS
+///    app bundle (`Name.app/Contents/MacOS/`), where `ponko package` puts them
+/// 4. the current working directory
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn asset_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
@@ -469,12 +471,26 @@ pub(crate) fn asset_roots() -> Vec<PathBuf> {
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
     {
         roots.push(dir.join("assets"));
+        if let Some(resources) = bundle_resources(&dir) {
+            roots.push(resources.join("assets"));
+        }
     }
     if let Ok(dir) = std::env::current_dir() {
         roots.push(dir.join("assets"));
     }
     roots.dedup();
     roots
+}
+
+/// The `Contents/Resources` folder of the macOS app bundle whose
+/// `Contents/MacOS` folder is `exe_dir`, if it is one.
+#[cfg(not(target_arch = "wasm32"))]
+fn bundle_resources(exe_dir: &Path) -> Option<PathBuf> {
+    let contents = exe_dir.parent()?;
+    let bundle = contents.parent()?;
+    let is_bundle =
+        exe_dir.file_name()? == "MacOS" && contents.file_name()? == "Contents" && bundle.extension()? == "app";
+    is_bundle.then(|| contents.join("Resources"))
 }
 
 /// Resolves `name` (relative to `assets/`) to an existing file.
@@ -1166,6 +1182,24 @@ mod tests {
         let err = resolve("definitely-not-here.png").unwrap_err();
         assert!(err.contains("\"definitely-not-here.png\" not found in assets/"));
         assert!(err.contains("assets"));
+    }
+
+    #[test]
+    fn a_macos_app_bundle_finds_assets_in_its_resources() {
+        let exe_dir = Path::new("/Games/Coin Dash.app/Contents/MacOS");
+        assert_eq!(
+            bundle_resources(exe_dir),
+            Some(PathBuf::from("/Games/Coin Dash.app/Contents/Resources"))
+        );
+        // A plain folder, or one that only looks partly like a bundle, is not one.
+        for dir in [
+            "/Games/coin-dash",
+            "/Games/Coin Dash/Contents/MacOS",
+            "/x.app/Other/MacOS",
+            "/MacOS",
+        ] {
+            assert_eq!(bundle_resources(Path::new(dir)), None, "{dir}");
+        }
     }
 
     #[test]

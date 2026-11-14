@@ -1,17 +1,17 @@
 # Web builds: games in the browser
 
-The same game code runs in a browser tab. Hosted playable demos aren't online
-yet; build these examples for the browser with the steps below and serve them
-locally:
+The same game code runs in a browser tab. **Try it:** the
+[web gallery](https://ponkoengine.github.io/ponko/) has the examples of the
+newest release, playable in the browser, each with what it shows, its
+controls, whether it needs WebGPU and its source at that release. Among them:
 
-- [The battle](https://github.com/ponkoengine/ponko/blob/main/examples/battle.rs):
-  two armies of 10,000 units on flow fields. Click to rally, `A` to attack,
-  `D` to defend. Add `?inspector=open` to the address to open the
-  [inspector](inspector.md).
-- [Flow fields](https://github.com/ponkoengine/ponko/blob/main/examples/flow.rs):
-  20,000 agents find their way to where you click.
-- [Ant colonies](https://github.com/ponkoengine/ponko/blob/main/examples/ants.rs):
-  ants forage and lay pheromone trails.
+- [The battle](https://ponkoengine.github.io/ponko/battle/): two armies of
+  10,000 units on flow fields. Click to rally, `A` to attack, `D` to defend.
+  Add `?inspector=open` to the address to open the [inspector](inspector.md).
+- [Flow fields](https://ponkoengine.github.io/ponko/flow/): 20,000 agents
+  find their way to where you click.
+- [A 3D scene](https://ponkoengine.github.io/ponko/3d/): materials, a sun with
+  shadows and instanced models.
 
 Games draw with WebGPU where the browser has it, and WebGL2 where it
 doesn't, so they run in every current desktop browser.
@@ -41,6 +41,26 @@ and open <http://localhost:8000>. In the engine's repository,
 The output folder is a static site: put it on any web host (GitHub Pages,
 itch.io, your own server). It holds the page, the game (`game_bg.wasm`, about
 3 MB compressed) and a copy of `assets/`.
+
+## The gallery of examples
+
+`web/gallery/` in the engine's repository builds the gallery: every example
+listed in `web/gallery/examples.json`, built with `web/build.sh`, with a page
+each and an index page, as one static site:
+
+```sh
+node web/gallery/build.mjs               # -> target/web/gallery/
+python3 -m http.server -d target/web/gallery 8000
+```
+
+A demo marked `"webgpu": "required"` there needs WebGPU; on a browser without
+it, its page says so and what to try instead of starting it. The others run
+with WebGPU or, where the browser lacks it, WebGL2. Each release builds the
+gallery for its version and publishes it (the release workflow,
+`.github/workflows/release.yml`). Adding an example is one line in
+`examples.json`; the gallery's
+[README](https://github.com/ponkoengine/ponko/blob/main/web/gallery/README.md)
+has the fields, and how to check every page in a headless browser.
 
 ## What's different in a browser
 
@@ -76,8 +96,11 @@ environment variables in a browser. The inspector reads `?inspector=1`
 **The page is yours.** The engine draws into `<canvas id="ponko">` if the
 page has one, and adds a canvas otherwise. `web/index.html` makes the canvas
 fill the page; change it to put the game anywhere. Browsers only allow
-sound once the player has clicked or pressed a key, so sounds played before
-that (music at startup, say) may stay silent.
+sound once the player has clicked, tapped or pressed a key: music and other
+looping sounds started before that wait and start then, one-shots are
+dropped, and `ctx.audio.unlocked()` says whether sound is allowed yet. Music
+loaded with `load_stream` is decoded as it plays rather than all at once
+(see [Sound in a browser](audio.md#in-a-browser)).
 
 **Not available on the web:** the [control endpoint](control.md) and
 [MCP](agents.md) tools, [hot reload](data-files.md) of files, [hot

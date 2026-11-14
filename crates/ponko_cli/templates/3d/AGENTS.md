@@ -7,6 +7,7 @@
 
 - `cargo test`: the headless tests in `tests/game.rs`. Run them after every change.
 - `cargo run` opens the window; `HEADLESS=1 cargo run` runs 600 ticks without one (`TICKS` sets how many).
+- `ponko package` builds the download players get (release build, assets, licenses, the host OS's archive) and starts it once headless; `[package.metadata.ponko]` in Cargo.toml says what goes in.
 - Never open a window in tests: use `run_headless(ticks)`, which needs no
   window or GPU.
 

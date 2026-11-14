@@ -50,7 +50,8 @@ let click = ctx.audio.create(44100, &samples);
 - `Sound` is a cheap `Copy` handle, like `Texture` (C++: `ponko::sound`,
   with `play_sound(s, params)` for `play_sound_ex`).
 
-The audio device opens the first time a sound plays. Headless runs, and
+The audio device opens the first time a sound plays (in a browser, at the
+player's first click or key press: see [In a browser](#in-a-browser)). Headless runs, and
 machines without audio, are silent but run the same code. For servers you
 can drop the audio library entirely:
 
@@ -99,6 +100,9 @@ Only running it opens a window and plays audio. Procedural clips already use
 maximum distance, and logarithmic, linear or keyed rolloff. Keyed curves use
 sorted `(normalized_distance, gain)` pairs in a static slice. All curves are
 silent at the maximum distance and full volume inside the minimum distance.
+Keyed curves are Rust-only for now (see
+[Still Rust-only](c-cpp.md#still-rust-only)): C and C++ choose linear or
+logarithmic.
 Stereo panning follows the listener's right axis. Kira applies gain, panning
 and playback-rate changes with smoothing; this is stereo positional audio,
 not an HRTF simulation. Prefer mono source clips for localized effects.
@@ -169,8 +173,45 @@ rather than decoding the entire clip. Each playback opens a separate decoder;
 Kira performs buffered decoding on its worker thread. The returned `Sound`
 works with 2D playback, positional playback, buses, effects and looping.
 A file must remain available until playback ends. Streams are not hot
-reloaded. In a browser there are no files to stream from: `load_stream`
-decodes the fetched (or source) bytes whole, like `load_sound`.
+reloaded. In a browser, which has neither files nor a decoder thread,
+`load_stream` keeps the fetched (or source) bytes encoded and decodes them a
+packet at a time as they play (see [In a browser](#in-a-browser)).
 `try_load_stream` returns errors instead of panicking. With audio disabled,
 stream handles are silent and report zero duration. Headless playback never
 creates tracks, decoder workers or an audio device.
+
+## In a browser
+
+Browsers let a page make sound only after the player has clicked, tapped or
+pressed a key. The engine opens its audio output at that first gesture, and
+until then `ctx.audio.unlocked()` is `false` (on the desktop it is always
+`true`). What the game plays before the gesture is not simply lost:
+
+- Looping sounds (music, ambience) wait and start at the gesture, with the
+  volume, bus and effects they were given. Their handles work meanwhile:
+  `stop` cancels one, `set_effects` changes it.
+- One-shots are dropped: a click or a footstep heard seconds late would be
+  out of place.
+
+So a game starts its music in setup as it does on the desktop. If the
+player should hear the opening, show a prompt until sound is allowed:
+
+```rust
+# use ponko::prelude::*;
+# fn title(ctx: &mut Ctx) {
+if !ctx.audio.unlocked() {
+    ctx.gfx.draw_text("Click to start", vec2(40.0, 40.0), 32.0, Color::WHITE);
+}
+# }
+```
+
+Streamed sounds (`load_stream`) keep the fetched bytes encoded and decode a
+packet at a time as they play, on the page's thread. A three-minute stereo
+track at 44.1 kHz takes about 64 MB decoded whole, as `load_sound` holds it
+(twice that for a moment while it decodes). Streamed, it takes its encoded
+size (3.6 MB as a 160 kbit/s MP3) and at most 1.6 MB more while it plays.
+Use `load_stream` for music and long ambience, and `load_sound` for short
+effects, which start without any decoding work.
+
+The C and C++ API has no `unlocked` query: native games run on the desktop,
+where sound is always allowed.

@@ -33,7 +33,8 @@ With `PONKO_BENCH_JSON=<path>`, the runner writes every result it ran (after the
     "logical_cores": 14, "rayon_threads": 14, "debug_assertions": false,
     "ponko_features": ["physics", "physics3d"], "bevy_ecs": "0.20.1",
     "bevy_ecs_features": ["default", "multi_threaded"], "hecs": "0.11.2",
-    "filter": "archetypes", "load_average": "9.12 8.40 7.95", "unix_time": 1794224632
+    "filter": "archetypes", "load_average": "9.12 8.40 7.95", "machine": null,
+    "unix_time": 1794224632
   },
   "results": [
     {"name": "archetypes-1024/ponko", "kind": "steady", "warmup": 5, "runs": 200,
@@ -47,11 +48,103 @@ With `PONKO_BENCH_JSON=<path>`, the runner writes every result it ran (after the
 - `world_bytes` is `World::allocated_bytes()` (component columns and entity handles) after the timed runs, for benchmarks that record it; otherwise `null`. It is not process memory, and bevy_ecs and hecs don't report a comparable number.
 - `allocs_per_run` and `alloc_bytes_per_run` are heap allocations (with reallocations) and the bytes they requested, per timed run, counted for the whole process by the runner's global allocator (`src/alloc.rs`); `null` for benchmarks that time themselves.
 - `load_average` is the 1, 5 and 15 minute load average when the run started.
+- `machine` is `PONKO_BENCH_MACHINE`, or `null`. Leave it unset unless two
+  machines share a CPU name: `bench_track` then names the machine
+  `<os>-<arch>-<cpu>` (`macos-aarch64-apple-m4-max`), which is how runs from
+  the same machine find each other (see [Tracking results over
+  time](#tracking-results-over-time)).
 - The counting allocator adds two relaxed atomic adds to every allocation, shared by all threads. Rows that allocate a lot from several threads at once can shift slightly against runs from before it was added (before `allocs_per_run` existed); compare such rows only between runs that both have it.
 - `rustc` is the `rustc` on `PATH` when the runner starts, which matches the build when run through `cargo run`. Unknown values are `"unknown"` or `null`.
 - `schema_version` changes only when a field changes meaning or is removed.
 
 The numbers depend on the machine and its load: compare runs from the same machine and build, and never use them as pass/fail thresholds in CI. The workloads' correctness is checked separately by `cargo test -p ponko_bench`, which builds each new workload in both libraries and checks they contain and update the same entities.
+
+## Tracking results over time
+
+`bench_track` (`src/bin/bench_track/`) keeps a history of results per commit
+and machine and flags changes beyond noise. It works with two kinds of
+number:
+
+- **Instruction counts** of seven small workloads, counted by cachegrind
+  (valgrind): ECS iteration (`ecs/iter/10k`), a filtered query
+  (`ecs/query-filtered/10k`), lookups by entity (`ecs/get/10k`), spawning
+  and despawning (`ecs/spawn/10k`, `ecs/despawn/10k`), a headless game tick
+  (`sim/tick/10k`) and collecting a 3D frame (`render/collect/10k`). A
+  count doesn't depend on what else the machine is doing, so it is stable on
+  shared CI runners, where wall-clock times are not. Each workload runs once
+  with its operation and once without (same setup, same warm-up, same
+  loop), and the difference divided by the iterations is the cost of one
+  operation. A count is not a time: memory traffic and parallelism don't
+  show in it, so the wall-clock runs below stay the measure of speed.
+  `bench_track list` describes each workload.
+- **Wall-clock runs** of `ponko_bench` on a named machine: its JSON
+  documents (`PONKO_BENCH_JSON`), one per run.
+
+```sh
+# On Linux with valgrind: counts, 3 runs per workload (the repeats show the spread).
+scripts/bench-counts.sh . . new.json            # or: target/release/bench_track counts --repeat 3 --out new.json [FILTER]
+# Wall clock, on one quiet machine: 5 runs per side, each its own document.
+for i in 1 2 3 4 5; do
+  PONKO_BENCH_JSON=before/run-$i.json cargo run --release -p ponko_bench -- 'ecs/'
+done
+# Compare: files, or folders of repeated runs.
+cargo run --release -p ponko_bench --bin bench_track -- compare before/ after/
+```
+
+**The comparison.** For every benchmark, `compare` takes the median of each
+side's runs and the spread of each side, `(max - min) / median`. A change
+counts when it is beyond the threshold, the larger of a floor (1% for
+instruction counts, 5% for wall clock; `--floor`) and twice the larger
+spread (`--noise-factor`). One wild run widens the threshold instead of
+moving the median. The output is a Markdown table with both medians, the
+change, both spreads, the threshold and the verdict (**slower**, faster or
+nothing), under a first line `<!-- bench-track: slower=N faster=M -->` for
+tools. It refuses two different machines (`--any-machine` overrides) and
+notes a different compiler, different workloads, or a side with fewer than
+three runs, whose spread it can't see. `--fail-on-regression` exits with 1
+when something is slower. The rule is tested with synthetic runs, a
+regression that must be flagged and noise that must not
+(`cargo test -p ponko_bench --bin bench_track`); no test asserts on a
+timing.
+
+**In CI** (`.github/workflows/bench.yml`, not part of the required check):
+
+- A pull request that touches the engine, the ECS or the benchmarks gets
+  its merge commit and its base counted on the same runner, with the same
+  workloads (the pull request's `bench_track` is copied onto the base), 3
+  runs each. The table goes to the job summary, and
+  `bench-comment.yml` comments it on the pull request when a benchmark moved
+  beyond noise, naming the benchmark, or updates its earlier comment.
+- Every commit on `main` is counted and recorded on the **`bench-history`
+  branch** as `<machine>/<commit>.json` (machine `github-ubuntu-24.04-x64`),
+  and the branch's README is regenerated: a table per machine, newest commit
+  first, with ▲ and ▼ where a benchmark moved beyond noise against the
+  commit before. The branch shares no history with `main`; read it on
+  GitHub or with `git fetch origin bench-history`. It needs only the
+  workflow's own token, no service or secret.
+- A version tag is recorded as `releases/<tag>/<machine>.json` on the same
+  branch, and the README lists the releases in their own table.
+- `gh workflow run bench.yml -f ref=<revision>` measures an older revision
+  with the current workloads (they use only APIs 0.1.0 already had), and
+  records it as a release when the revision is a tag. Run it once with
+  `ref=v0.1.0` to give 0.1.0 its counts.
+
+`bench_track history <folder>` prints the same README from a local copy of
+the branch (`--write` saves it as `README.md`).
+
+**Release baselines on a named machine.** Instruction counts can't see
+everything, so every release also records a wall-clock baseline in
+`releases/<version>/<machine>/` here, from 5 runs on one idle machine (the
+maintainer's checklist in CONTRIBUTING.md, "Releasing", has the command),
+and the release notes link it. Compare two releases with
+`bench_track compare releases/<old>/<machine> releases/<new>/<machine>`.
+0.1.0 predates the folder: its record is [`baselines/ecs.json`](baselines/ecs.json),
+one run of the ECS matrix on an Apple M4 Max at commit `90bfe8ec`, the last
+re-recording before the 0.1.0 tag (six engine commits came between; the
+ones in `crates/ponko_ecs` are listed by
+`git log 90bfe8ec..v0.1.0 -- crates/ponko_ecs`). Compare 0.2.0 with it as
+`bench_track compare baselines/ecs.json releases/0.2.0/macos-aarch64-apple-m4-max/`,
+and mind the note about its single run.
 
 ## Results (2026-11-02, Apple M4 Max, release, single thread)
 

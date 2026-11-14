@@ -14,6 +14,18 @@ Each project depends on the released `ponko`, has a fast dev profile, an
 `ponko-mcp` server and an `AGENTS.md` for coding agents. `--path <engine>` or
 `--git <url>` depends on an engine checkout or repository instead.
 
+In a game's folder, `ponko package` makes what players download: a release
+build with its assets, licenses and third-party notices, as a Windows zip, a
+macOS app in a dmg, a Linux tar.gz or (`--web`) a folder for any static host,
+then starts the packaged copy once headless to check it runs. The game's
+`[package.metadata.ponko]` table says what goes in (name, id, icon, assets,
+files); see the guide's [packaging chapter](https://ponko.dev/guide/packaging.html).
+
+```sh
+ponko package          # for this computer
+ponko package --web    # for browsers
+```
+
 The templates are also usable with
 [cargo-generate](https://github.com/cargo-generate/cargo-generate):
 
@@ -22,6 +34,7 @@ cargo generate --git https://github.com/ponkoengine/ponko crates/ponko_cli/templ
 ```
 
 - Getting started: <https://ponko.dev/guide/getting-started.html>
+- Packaging: <https://ponko.dev/guide/packaging.html>
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
 [MIT license](LICENSE-MIT) at your option.

@@ -3,6 +3,14 @@ name = "{{project-name}}"
 version = "0.1.0"
 edition = "2024"
 
+# What `ponko package` puts in the download players get
+# (https://ponko.dev/guide/packaging.html).
+[package.metadata.ponko]
+name = "{{project-name}}"            # the name players see
+# id = "com.example.my-game"         # a reverse-DNS id you own (the macOS bundle id)
+# icon = "assets/icon.png"           # a square PNG, 512 or 1024 pixels
+assets = ["assets"]                  # shipped next to the program
+
 [dependencies]
 # The engine with its default features: a window, sound, gamepads and the
 # inspector. https://ponko.dev/guide/
