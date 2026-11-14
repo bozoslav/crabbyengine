@@ -115,6 +115,8 @@ pub mod actions;
 pub mod alloc_count;
 mod asset_cache;
 pub mod assets;
+#[cfg(feature = "compressed-textures")]
+pub(crate) mod compressed;
 pub mod attach;
 pub mod audio;
 pub mod camera;
