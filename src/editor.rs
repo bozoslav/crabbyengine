@@ -531,19 +531,11 @@ pub(crate) fn browse(ctx: &Ctx) -> AssetList {
                 let rel = rel.to_string_lossy().replace('\\', "/");
                 match path.extension().and_then(|e| e.to_str()) {
                     Some("glb" | "gltf") => out.meshes.push(rel),
-                    Some("json") => {
-                        // The format is named at the top of the file.
-                        let mut head = [0u8; 256];
-                        let n = std::fs::File::open(&path)
-                            .and_then(|mut f| std::io::Read::read(&mut f, &mut head))
-                            .unwrap_or(0);
-                        let head = String::from_utf8_lossy(&head[..n]);
-                        if head.contains(crate::scene::PREFAB_FORMAT) {
-                            out.prefabs.push(rel);
-                        } else if head.contains("\"ponko-world\"") {
-                            out.scenes.push(rel);
-                        }
-                    }
+                    Some("json") => match json_format(&path).as_deref() {
+                        Some(crate::scene::PREFAB_FORMAT) => out.prefabs.push(rel),
+                        Some("ponko-world") => out.scenes.push(rel),
+                        _ => {}
+                    },
                     _ => {}
                 }
                 if out.meshes.len() + out.prefabs.len() + out.scenes.len() >= BROWSE_FILES {
@@ -562,6 +554,25 @@ pub(crate) fn browse(ctx: &Ctx) -> AssetList {
     }
     let _ = ctx;
     out
+}
+
+/// The `"format"` of a JSON file, read whole when it's small, else
+/// looked for in its first bytes.
+#[cfg(not(target_arch = "wasm32"))]
+fn json_format(path: &std::path::Path) -> Option<String> {
+    const WHOLE: u64 = 4 << 20;
+    let len = std::fs::metadata(path).ok()?.len();
+    if len <= WHOLE {
+        let v: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+        return v["format"].as_str().map(str::to_string);
+    }
+    let mut head = vec![0u8; 64 << 10];
+    let n = std::io::Read::read(&mut std::fs::File::open(path).ok()?, &mut head).ok()?;
+    let head = String::from_utf8_lossy(&head[..n]);
+    [crate::scene::PREFAB_FORMAT, "ponko-world"]
+        .into_iter()
+        .find(|f| head.contains(&format!("\"{f}\"")))
+        .map(str::to_string)
 }
 
 /// A 3D offset for [`Editor::duplicate_many`] (zero in builds without 3D).
