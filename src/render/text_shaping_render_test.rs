@@ -307,7 +307,7 @@ fn a_mixed_direction_line_keeps_each_run_in_reading_order() {
     // "Level 3:" is on the left: its width in the built-in font.
     let latin = ctx.gfx.measure_text("Level 3:", 24.0).x;
     let (left, right) = ink_columns(&image);
-    assert!(left >= 8 && left < 12, "the Latin run starts the line: {left}");
+    assert!((8..12).contains(&left), "the Latin run starts the line: {left}");
     assert!(right as f32 > 8.0 + latin + 80.0, "the Arabic run follows it: {right}");
     check_reference(
         "text_shaping_mixed",

@@ -44,6 +44,8 @@ pub(super) const FEATURES: &[(&str, bool)] = &[
     ("image-hdr", cfg!(feature = "image-hdr")),
     ("image-exr", cfg!(feature = "image-exr")),
     ("image-formats", cfg!(feature = "image-formats")),
+    ("text-shaping", cfg!(feature = "text-shaping")),
+    ("system-fonts", cfg!(feature = "system-fonts")),
 ];
 
 /// Why `method` would be refused by this instance right now, if it would.

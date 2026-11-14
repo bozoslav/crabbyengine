@@ -4,6 +4,7 @@
 use ponko::error::ErrorKind;
 use ponko::prelude::*;
 
+#[cfg(feature = "text-shaping")]
 const ARABIC: &str = "fonts/NotoSansArabic-Subset.ttf";
 const JAPANESE: &str = "fonts/NotoSansJP-Subset.otf";
 
