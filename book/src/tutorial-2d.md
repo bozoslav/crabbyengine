@@ -320,4 +320,5 @@ Pages).
 - Animation: a [sprite sheet](tiles.md#sprite-sheets) for the crab's walk.
 - A settings screen with volume and key rebinding: the reference game
   [Coin Dash](packaging.md#ui-scaling-rebinding-and-navigation) has one.
+- A bigger platformer, start to finish: [Ember Hop](ember-hop.md).
 - [Tutorial: a first 3D game](tutorial-3d.md) builds a 3D game the same way.
