@@ -1,0 +1,879 @@
+{
+ "format": "ponko-world",
+ "version": 1,
+ "entities": [
+  {
+   "entity": 0,
+   "components": {
+    "Transform2D": {
+     "position": [
+      8.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 1,
+   "components": {
+    "Transform2D": {
+     "position": [
+      24.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 2,
+   "components": {
+    "Transform2D": {
+     "position": [
+      40.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 3,
+   "components": {
+    "Transform2D": {
+     "position": [
+      56.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 4,
+   "components": {
+    "Transform2D": {
+     "position": [
+      72.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 5,
+   "components": {
+    "Transform2D": {
+     "position": [
+      88.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 6,
+   "components": {
+    "Transform2D": {
+     "position": [
+      104.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 7,
+   "components": {
+    "Transform2D": {
+     "position": [
+      120.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 8,
+   "components": {
+    "Transform2D": {
+     "position": [
+      136.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 9,
+   "components": {
+    "Transform2D": {
+     "position": [
+      152.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 10,
+   "components": {
+    "Transform2D": {
+     "position": [
+      168.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 11,
+   "components": {
+    "Transform2D": {
+     "position": [
+      184.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 12,
+   "components": {
+    "Transform2D": {
+     "position": [
+      200.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 13,
+   "components": {
+    "Transform2D": {
+     "position": [
+      216.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 14,
+   "components": {
+    "Transform2D": {
+     "position": [
+      232.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 15,
+   "components": {
+    "Transform2D": {
+     "position": [
+      248.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 16,
+   "components": {
+    "Transform2D": {
+     "position": [
+      264.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 17,
+   "components": {
+    "Transform2D": {
+     "position": [
+      280.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 18,
+   "components": {
+    "Transform2D": {
+     "position": [
+      296.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 19,
+   "components": {
+    "Transform2D": {
+     "position": [
+      312.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 20,
+   "components": {
+    "Transform2D": {
+     "position": [
+      328.0,
+      172.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       224.0,
+       0.0
+      ],
+      "max": [
+       240.0,
+       16.0
+      ]
+     },
+     "z": -1.0
+    }
+   }
+  },
+  {
+   "entity": 21,
+   "components": {
+    "Transform2D": {
+     "position": [
+      40.0,
+      156.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       112.0,
+       16.0
+      ],
+      "max": [
+       128.0,
+       32.0
+      ]
+     },
+     "z": -0.5
+    }
+   }
+  },
+  {
+   "entity": 22,
+   "components": {
+    "Transform2D": {
+     "position": [
+      60.0,
+      156.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       96.0,
+       16.0
+      ],
+      "max": [
+       112.0,
+       32.0
+      ]
+     },
+     "z": -0.5
+    }
+   }
+  },
+  {
+   "entity": 23,
+   "components": {
+    "Transform2D": {
+     "position": [
+      262.0,
+      156.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       112.0,
+       16.0
+      ],
+      "max": [
+       128.0,
+       32.0
+      ]
+     },
+     "z": -0.5
+    }
+   }
+  },
+  {
+   "entity": 24,
+   "components": {
+    "Transform2D": {
+     "position": [
+      300.0,
+      156.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/levels/cave.png",
+     "region": {
+      "min": [
+       96.0,
+       16.0
+      ],
+      "max": [
+       112.0,
+       32.0
+      ]
+     },
+     "z": -0.5
+    }
+   }
+  },
+  {
+   "entity": 25,
+   "components": {
+    "Transform2D": {
+     "position": [
+      112.0,
+      156.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/sprites/hero.png",
+     "region": {
+      "min": [
+       0.0,
+       0.0
+      ],
+      "max": [
+       16.0,
+       16.0
+      ]
+     },
+     "z": 0.5
+    }
+   }
+  },
+  {
+   "entity": 26,
+   "components": {
+    "Transform2D": {
+     "position": [
+      84.0,
+      156.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/sprites/brazier.png",
+     "region": {
+      "min": [
+       16.0,
+       0.0
+      ],
+      "max": [
+       32.0,
+       16.0
+      ]
+     },
+     "z": 0.1
+    },
+    "Checkpoint": {
+     "lit": true
+    }
+   }
+  },
+  {
+   "entity": 27,
+   "components": {
+    "Transform2D": {
+     "position": [
+      150.0,
+      138.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/sprites/spark.png",
+     "region": {
+      "min": [
+       0.0,
+       0.0
+      ],
+      "max": [
+       16.0,
+       16.0
+      ]
+     },
+     "z": 0.2
+    },
+    "Spark": {
+     "value": 1
+    }
+   }
+  },
+  {
+   "entity": 28,
+   "components": {
+    "Transform2D": {
+     "position": [
+      168.0,
+      130.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/sprites/spark.png",
+     "region": {
+      "min": [
+       0.0,
+       0.0
+      ],
+      "max": [
+       16.0,
+       16.0
+      ]
+     },
+     "z": 0.2
+    },
+    "Spark": {
+     "value": 1
+    }
+   }
+  },
+  {
+   "entity": 29,
+   "components": {
+    "Transform2D": {
+     "position": [
+      186.0,
+      138.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/sprites/spark.png",
+     "region": {
+      "min": [
+       0.0,
+       0.0
+      ],
+      "max": [
+       16.0,
+       16.0
+      ]
+     },
+     "z": 0.2
+    },
+    "Spark": {
+     "value": 1
+    }
+   }
+  },
+  {
+   "entity": 30,
+   "components": {
+    "Transform2D": {
+     "position": [
+      228.0,
+      148.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/sprites/post.png",
+     "z": -0.1
+    }
+   }
+  },
+  {
+   "entity": 31,
+   "components": {
+    "Transform2D": {
+     "position": [
+      234.0,
+      146.0
+     ]
+    },
+    "Sprite": {
+     "texture": "ember_hop/sprites/lantern.png",
+     "region": {
+      "min": [
+       0.0,
+       0.0
+      ],
+      "max": [
+       16.0,
+       16.0
+      ]
+     },
+     "z": 0.1
+    }
+   }
+  },
+  {
+   "entity": 32,
+   "components": {
+    "Transform2D": {
+     "position": [
+      160.0,
+      182.0
+     ]
+    },
+    "ParticleEmitter2D": {
+     "rate": 10.0,
+     "lifetime": [
+      3.0,
+      6.0
+     ],
+     "speed": [
+      6.0,
+      16.0
+     ],
+     "shape": {
+      "rect": {
+       "half_extents": [
+        170.0,
+        2.0
+       ]
+      }
+     },
+     "gravity": [
+      2.0,
+      -6.0
+     ],
+     "size": [
+      1.0,
+      2.5
+     ],
+     "color_over_life": [
+      [
+       0.0,
+       {
+        "r": 1.0,
+        "g": 0.7,
+        "b": 0.3,
+        "a": 0.0
+       }
+      ],
+      [
+       0.2,
+       {
+        "r": 1.0,
+        "g": 0.7,
+        "b": 0.3,
+        "a": 0.8
+       }
+      ],
+      [
+       1.0,
+       {
+        "r": 1.0,
+        "g": 0.4,
+        "b": 0.1,
+        "a": 0.0
+       }
+      ]
+     ],
+     "texture": "ember_hop/sprites/ember.png",
+     "blend": "additive",
+     "z": 0.3,
+     "seed": 9
+    }
+   }
+  }
+ ]
+}
