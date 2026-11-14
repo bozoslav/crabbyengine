@@ -1502,6 +1502,8 @@ typedef struct PonkoUploadStats {
 
 typedef void (*PonkoResourceScopeFn)(struct PonkoWorld *world, void *value, void *user);
 
+typedef uint32_t (*PonkoJsonConvertFn)(void *user, const char *json, const char **out_json);
+
 typedef struct PonkoScenarioReport {
   uint32_t status;
   bool failed;
@@ -4031,6 +4033,100 @@ enum PonkoStatus ponko_resource_scope(struct PonkoWorld *world,
                                       PonkoResourceScopeFn scope,
                                       void *user);
 
+enum PonkoStatus ponko_world_set_save_version(struct PonkoWorld *world, uint32_t version);
+
+enum PonkoStatus ponko_world_save_version(struct PonkoWorld *world, uint32_t *out_version);
+
+enum PonkoStatus ponko_save_migration_rename_component(struct PonkoWorld *world,
+                                                       uint32_t from_version,
+                                                       const char *from,
+                                                       const char *to);
+
+enum PonkoStatus ponko_save_migration_remove_component(struct PonkoWorld *world,
+                                                       uint32_t from_version,
+                                                       const char *name);
+
+enum PonkoStatus ponko_save_migration_rename_field(struct PonkoWorld *world,
+                                                   uint32_t from_version,
+                                                   const char *component,
+                                                   const char *from,
+                                                   const char *to);
+
+enum PonkoStatus ponko_save_migration_add_field(struct PonkoWorld *world,
+                                                uint32_t from_version,
+                                                const char *component,
+                                                const char *field,
+                                                const char *value_json);
+
+enum PonkoStatus ponko_save_migration_remove_field(struct PonkoWorld *world,
+                                                   uint32_t from_version,
+                                                   const char *component,
+                                                   const char *field);
+
+enum PonkoStatus ponko_save_migration_split_component(struct PonkoWorld *world,
+                                                      uint32_t from_version,
+                                                      const char *from,
+                                                      const char *parts_json);
+
+enum PonkoStatus ponko_save_migration_merge_components(struct PonkoWorld *world,
+                                                       uint32_t from_version,
+                                                       const char *const *from,
+                                                       size_t count,
+                                                       const char *into);
+
+enum PonkoStatus ponko_save_migration_rename_resource(struct PonkoWorld *world,
+                                                      uint32_t from_version,
+                                                      const char *from,
+                                                      const char *to);
+
+enum PonkoStatus ponko_save_migration_remove_resource(struct PonkoWorld *world,
+                                                      uint32_t from_version,
+                                                      const char *name);
+
+enum PonkoStatus ponko_save_migration_convert_field(struct PonkoWorld *world,
+                                                    uint32_t from_version,
+                                                    const char *component,
+                                                    const char *field,
+                                                    PonkoJsonConvertFn convert_fn,
+                                                    void *user,
+                                                    PonkoUserFreeFn free);
+
+enum PonkoStatus ponko_save_migration_convert_component(struct PonkoWorld *world,
+                                                        uint32_t from_version,
+                                                        const char *component,
+                                                        PonkoJsonConvertFn convert_fn,
+                                                        void *user,
+                                                        PonkoUserFreeFn free);
+
+enum PonkoStatus ponko_save_migration_convert_resource(struct PonkoWorld *world,
+                                                       uint32_t from_version,
+                                                       const char *resource,
+                                                       PonkoJsonConvertFn convert_fn,
+                                                       void *user,
+                                                       PonkoUserFreeFn free);
+
+enum PonkoStatus ponko_save_migration_change_entities(struct PonkoWorld *world,
+                                                      uint32_t from_version,
+                                                      PonkoJsonConvertFn convert_fn,
+                                                      void *user,
+                                                      PonkoUserFreeFn free);
+
+enum PonkoStatus ponko_save_migration_change_save(struct PonkoWorld *world,
+                                                  uint32_t from_version,
+                                                  PonkoJsonConvertFn convert_fn,
+                                                  void *user,
+                                                  PonkoUserFreeFn free);
+
+enum PonkoStatus ponko_world_migrate_save(struct PonkoWorld *world,
+                                          const char *json,
+                                          char *buffer,
+                                          size_t capacity,
+                                          size_t *out_len);
+
+enum PonkoStatus ponko_ctx_check_old_saves(struct PonkoCtx *ctx,
+                                           const char *folder,
+                                           size_t *out_count);
+
 enum PonkoStatus ponko_world_set_saved(struct PonkoWorld *world, uint64_t entity, bool saved);
 
 enum PonkoStatus ponko_world_is_saved(struct PonkoWorld *world, uint64_t entity, bool *out_saved);
@@ -5468,6 +5564,8 @@ enum PonkoStatus ponko_ctx_try_load_system_font(struct PonkoCtx *ctx,
 enum PonkoStatus ponko_ctx_set_system_font_fallback(struct PonkoCtx *ctx,
                                                     bool on,
                                                     bool *out_available);
+
+enum PonkoStatus ponko_ctx_reset_motion(struct PonkoCtx *ctx, uint64_t entity);
 
 #ifdef __cplusplus
 }  // extern "C"

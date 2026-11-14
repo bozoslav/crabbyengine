@@ -16,8 +16,11 @@ use serde_json::{Value, json};
 
 mod animation;
 mod builtin_schemas;
+mod migrate;
 mod particles;
 pub(crate) use animation::reflect_animation;
+pub(crate) use migrate::migrate as migrate_save;
+pub use migrate::{Migration, SaveMigrations};
 pub(crate) use particles::reflect_particle_emitter2d;
 
 use crate::schema::{SchemaSource, schema_json};
@@ -56,6 +59,21 @@ pub enum ReflectError {
     UnknownResource(String),
     /// The resource is reflected but not in the world right now.
     MissingResource(String),
+    /// The save was written by a newer version of the game: its
+    /// `"game_version"` is above the game's [`SaveMigrations::version`].
+    NewerSave {
+        /// The save's game version.
+        saved: u32,
+        /// The newest game version this build reads.
+        current: u32,
+    },
+    /// A [`Migration`] step failed on the save.
+    Migration {
+        /// The version the failing step migrates from (to `from + 1`).
+        from: u32,
+        /// What failed, with the entity or resource.
+        message: String,
+    },
 }
 
 impl fmt::Display for ReflectError {
@@ -75,6 +93,15 @@ impl fmt::Display for ReflectError {
                 "no reflected resource named `{name}` (register it with `world.reflect_resource::<T>()`)"
             ),
             Self::MissingResource(name) => write!(f, "resource `{name}` is not in the world"),
+            Self::NewerSave { saved, current } => write!(
+                f,
+                "the save is from a newer version of the game (game save version {saved}; this build reads up to {current})"
+            ),
+            Self::Migration { from, message } => write!(
+                f,
+                "migrating the save from game save version {from} to {}: {message}",
+                from + 1
+            ),
         }
     }
 }
@@ -715,6 +742,11 @@ pub trait WorldReflect {
     /// resource that isn't reflected, or has a value that doesn't fit its
     /// type. Everything is checked first: on an error the world is unchanged.
     ///
+    /// The game's [`SaveMigrations`] run on the save first: a save of an
+    /// older game version is brought up to date, one of a newer version is
+    /// refused ([`ReflectError::NewerSave`]), and a step that fails is
+    /// [`ReflectError::Migration`].
+    ///
     /// Also if an entity id's index is out of bounds, so that a corrupt or
     /// hostile file can't make the world allocate a huge entity table. Saved
     /// ids are kept, and the world's slot table grows to the highest index,
@@ -1252,13 +1284,17 @@ impl WorldReflect for World {
                 resources.insert(r.name.clone(), v);
             }
         }
-        serde_json::json!({
+        let mut save = serde_json::json!({
             "format": SAVE_FORMAT,
             "version": SAVE_VERSION,
             "entities": entities,
             "resources": resources,
             "not_saved": not_saved,
-        })
+        });
+        if let Some(version) = migrate::game_version(self) {
+            save[migrate::GAME_VERSION] = version.into();
+        }
+        save
     }
 
     fn load(&mut self, save: &Value) -> Result<(), ReflectError> {
@@ -1277,6 +1313,8 @@ impl WorldReflect for World {
                 save["version"]
             )));
         }
+        // The game's own changes: older saves are brought up to date first.
+        let save = migrate::migrate(self, save)?;
         let list = save["entities"]
             .as_array()
             .ok_or_else(|| bad("missing \"entities\" list".into()))?;
