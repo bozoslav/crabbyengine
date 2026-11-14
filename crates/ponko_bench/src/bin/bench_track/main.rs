@@ -333,7 +333,7 @@ mod tests {
         std::fs::write(dir.join("ci/aaa.json"), doc("aaa", 1, 100.0)).unwrap();
         std::fs::write(dir.join("ci/bbb.json"), doc("bbb", 2, 150.0)).unwrap();
         std::fs::write(dir.join("releases/v0.1.0/ci.json"), doc("aaa", 1, 100.0)).unwrap();
-        history(&strings(&[dir.to_str().unwrap(), "--write"])).unwrap();
+        let _ = history(&strings(&[dir.to_str().unwrap(), "--write"])).unwrap();
         let md = std::fs::read_to_string(dir.join("README.md")).unwrap();
         assert!(md.contains("## ci"), "{md}");
         assert!(md.contains("| `bbb` | 1970-01-01 | 150 ▲+50.0% |"), "{md}");
