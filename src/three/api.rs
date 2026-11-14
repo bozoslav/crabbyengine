@@ -22,7 +22,9 @@ pub(crate) struct MaterialUniform {
     pub emissive: [f32; 4],
     /// roughness, metallic, normal map strength, unused.
     pub params: [f32; 4],
-    /// Which maps it has (1/0): normal, ORM, emissive, unused.
+    /// Which maps it has (1/0): normal, ORM, emissive, unused. A
+    /// two-channel normal map is 2 (X and Y in red and green) or 3 (in red
+    /// and alpha): the shader rebuilds Z.
     pub maps: [u32; 4],
     /// For custom shaders.
     pub custom: [[f32; 4]; 4],
@@ -179,6 +181,14 @@ impl Graphics {
             if array.is_some_and(|a| !self.assets3d.arrays_live.contains(a)) {
                 *array = None;
             }
+        }
+        #[cfg(feature = "compressed-textures")]
+        if let Some(normal) = gpu.textures[1] {
+            gpu.uniform.maps[0] = match self.compressed.get(&normal) {
+                Some(crate::compressed::NormalChannels::Rg) => 2,
+                Some(crate::compressed::NormalChannels::Ra) => 3,
+                _ => 1,
+            };
         }
         gpu
     }

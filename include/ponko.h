@@ -747,6 +747,18 @@ enum PonkoScenarioStatus
 typedef uint32_t PonkoScenarioStatus;
 #endif // __cplusplus
 
+enum PonkoTextShaping
+#ifdef __cplusplus
+  : uint32_t
+#endif // __cplusplus
+ {
+  PONKO_TEXT_SHAPING_AUTO = 0,
+  PONKO_TEXT_SHAPING_ALWAYS = 1,
+};
+#ifndef __cplusplus
+typedef uint32_t PonkoTextShaping;
+#endif // __cplusplus
+
 typedef struct PonkoAccess PonkoAccess;
 
 typedef struct PonkoActionMap PonkoActionMap;
@@ -3747,6 +3759,16 @@ enum PonkoStatus ponko_ctx_physics3d_is_collider_active(struct PonkoCtx *ctx,
                                                         uint64_t entity,
                                                         bool *out_active);
 
+enum PonkoStatus ponko_ctx_set_physics_paused(struct PonkoCtx *ctx, bool paused);
+
+enum PonkoStatus ponko_ctx_is_physics_paused(struct PonkoCtx *ctx, bool *out_paused);
+
+enum PonkoStatus ponko_ctx_load_collision_mesh(struct PonkoCtx *ctx,
+                                               const char *path,
+                                               struct PonkoVec3 scale,
+                                               bool convex,
+                                               struct PonkoCollisionMesh *out_mesh);
+
 enum PonkoStatus ponko_ctx_prefab_parts(struct PonkoCtx *ctx,
                                         uint64_t root,
                                         uint64_t *out_entities,
@@ -5013,6 +5035,24 @@ enum PonkoStatus ponko_ui_access_removed(struct PonkoUiAccess *access,
                                          size_t index,
                                          uint64_t *out_id);
 
+enum PonkoStatus ponko_ctx_ui_set_focus(struct PonkoCtx *ctx, uint64_t target, uint64_t id);
+
+enum PonkoStatus ponko_ctx_ui_clear_focus(struct PonkoCtx *ctx, uint64_t target);
+
+enum PonkoStatus ponko_ctx_ui_set_initial_focus(struct PonkoCtx *ctx,
+                                                uint64_t target,
+                                                uint64_t id,
+                                                bool on);
+
+enum PonkoStatus ponko_ctx_ui_show_hud(struct PonkoCtx *ctx, uint64_t target, uint64_t root);
+
+enum PonkoStatus ponko_ctx_ui_hide_hud(struct PonkoCtx *ctx, uint64_t target, uint64_t root);
+
+enum PonkoStatus ponko_ctx_ui_is_hud(struct PonkoCtx *ctx,
+                                     uint64_t target,
+                                     uint64_t id,
+                                     bool *out_hud);
+
 enum PonkoStatus ponko_ctx_create_ui_panel(struct PonkoCtx *ctx,
                                            uint64_t entity_bits,
                                            uint32_t width,
@@ -5405,6 +5445,29 @@ enum PonkoStatus ponko_ctx_ui_immediate_border_width(struct PonkoCtx *ctx, float
 enum PonkoStatus ponko_ctx_set_ui_immediate_border_width(struct PonkoCtx *ctx, float width);
 
 enum PonkoStatus ponko_ctx_ui_immediate_scale(struct PonkoCtx *ctx, float *out_scale);
+
+enum PonkoStatus ponko_ctx_set_font_fallbacks(struct PonkoCtx *ctx,
+                                              struct PonkoFont font,
+                                              const struct PonkoFont *fallbacks,
+                                              size_t count);
+
+enum PonkoStatus ponko_ctx_font_fallbacks(struct PonkoCtx *ctx,
+                                          struct PonkoFont font,
+                                          struct PonkoFont *out_fonts,
+                                          size_t capacity,
+                                          size_t *out_count);
+
+enum PonkoStatus ponko_ctx_set_text_shaping(struct PonkoCtx *ctx, uint32_t mode);
+
+enum PonkoStatus ponko_ctx_text_shaping(struct PonkoCtx *ctx, uint32_t *out_mode);
+
+enum PonkoStatus ponko_ctx_try_load_system_font(struct PonkoCtx *ctx,
+                                                const char *family,
+                                                struct PonkoFont *out_font);
+
+enum PonkoStatus ponko_ctx_set_system_font_fallback(struct PonkoCtx *ctx,
+                                                    bool on,
+                                                    bool *out_available);
 
 #ifdef __cplusplus
 }  // extern "C"
