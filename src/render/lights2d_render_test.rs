@@ -206,7 +206,7 @@ impl Rig {
                 world_batches,
             );
         }
-        let lighting = frame.on.then(|| Lighting {
+        let lighting = frame.on.then_some(Lighting {
             lights: &self.lights,
             frame: &frame,
             normal_maps,

@@ -730,8 +730,8 @@ mod tests {
 
     /// Whether `p` lies inside any triangle of `tris`.
     fn shadowed(tris: &[[f32; 2]], p: Vec2) -> bool {
-        tris.chunks_exact(3).any(|t| {
-            let [a, b, c] = [t[0], t[1], t[2]].map(Vec2::from);
+        tris.as_chunks::<3>().0.iter().any(|t| {
+            let [a, b, c] = t.map(Vec2::from);
             let s = |u: Vec2, v: Vec2| (v - u).perp_dot(p - u);
             let (d1, d2, d3) = (s(a, b), s(b, c), s(c, a));
             let neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
