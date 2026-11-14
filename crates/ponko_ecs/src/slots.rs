@@ -186,7 +186,7 @@ impl Slots {
         for _ in 0..=2 * words {
             let w = self.hand;
             let mut candidates = !(self.occupied[w] | self.pinned[w] | self.dead[w]);
-            if w == words - 1 && self.len % 64 != 0 {
+            if w == words - 1 && !self.len.is_multiple_of(64) {
                 candidates &= (1 << (self.len % 64)) - 1;
             }
             let ready = candidates & !self.recent[w];
