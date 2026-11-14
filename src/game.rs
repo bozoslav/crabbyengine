@@ -2050,10 +2050,15 @@ impl Game {
     /// `setup` runs once, then `ticks` simulation ticks run (fewer if a
     /// system calls `ctx.quit()`). Only **simulation systems** run: frame
     /// systems, the closure returned by `setup`, and drawing need frames, and
-    /// there are none. Sim speed is ignored, and so is pause unless the
+    /// there are none. Sim speed is ignored, and so is
+    /// [`ctx.time.pause()`](crate::time::Time::pause) unless the
     /// [control endpoint](Self::control_endpoint) is on: then a paused game
-    /// waits for tools to step or resume it. Textures still load (for their
-    /// sizes), but nothing is uploaded to a GPU.
+    /// waits for tools to step or resume it. Without it every tick runs, so
+    /// a game that pauses behind a menu still sees the scenario input that
+    /// closes it. To hold only physics (a pause screen whose sim systems keep
+    /// running, in a window and headless alike), use
+    /// [`Physics::set_paused`](crate::d2::Physics::set_paused). Textures
+    /// still load (for their sizes), but nothing is uploaded to a GPU.
     ///
     /// ```
     /// use ponko::prelude::*;

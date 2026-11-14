@@ -3747,6 +3747,10 @@ enum PonkoStatus ponko_ctx_physics3d_is_collider_active(struct PonkoCtx *ctx,
                                                         uint64_t entity,
                                                         bool *out_active);
 
+enum PonkoStatus ponko_ctx_set_physics_paused(struct PonkoCtx *ctx, bool paused);
+
+enum PonkoStatus ponko_ctx_is_physics_paused(struct PonkoCtx *ctx, bool *out_paused);
+
 enum PonkoStatus ponko_ctx_prefab_parts(struct PonkoCtx *ctx,
                                         uint64_t root,
                                         uint64_t *out_entities,
