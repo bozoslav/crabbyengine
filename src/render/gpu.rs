@@ -856,6 +856,7 @@ impl Renderer {
 
     #[cfg(feature = "3d")]
     fn upload_texture_array(&mut self, width: u32, height: u32, layers: &[&[u8]], linear: bool) -> wgpu::Texture {
+        let layers = &*stored_layers(layers, self.device.adapter_info().backend == wgpu::Backend::Gl);
         let size = wgpu::Extent3d {
             width,
             height,
@@ -2220,5 +2221,35 @@ mod msaa_tests {
         );
         assert_eq!(msaa_refusal(1, 2, false), None, "WebGL2: the capabilities say so");
         assert!(msaa_refusal(1, 0, false).is_some());
+    }
+}
+
+/// The layers a texture array is made with. wgpu's GL backend (WebGL2, `gl`)
+/// makes a one-layer array an ordinary 2D texture, which shaders can't read
+/// as an array (it reads as nothing): there it gets a second layer, a copy
+/// of the first, which a read past the last layer returns anyway.
+#[cfg(feature = "3d")]
+fn stored_layers<'s, 'a>(layers: &'s [&'a [u8]], gl: bool) -> std::borrow::Cow<'s, [&'a [u8]]> {
+    if gl && layers.len() == 1 {
+        std::borrow::Cow::Owned(vec![layers[0], layers[0]])
+    } else {
+        std::borrow::Cow::Borrowed(layers)
+    }
+}
+
+#[cfg(all(test, feature = "3d"))]
+mod stored_layer_tests {
+    use super::stored_layers;
+
+    #[test]
+    fn one_layer_arrays_get_a_second_copy_on_gl_only() {
+        let (a, b): (&[u8], &[u8]) = (&[1, 2, 3, 4], &[5, 6, 7, 8]);
+        assert_eq!(&*stored_layers(&[a], true), &[a, a]);
+        assert_eq!(&*stored_layers(&[a], false), &[a]);
+        assert_eq!(
+            &*stored_layers(&[a, b], true),
+            &[a, b],
+            "two layers are an array already"
+        );
     }
 }

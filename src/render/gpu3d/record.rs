@@ -624,6 +624,10 @@ impl Renderer3D {
                         targets.scene_texture.as_image_copy(),
                         lit.size(),
                     );
+                    if let Some(copy) = &targets.depth_copy {
+                        passes::mark("depth copy");
+                        copy.record(encoder);
+                    }
                     let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                         label: Some("3d transparent"),
                         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
