@@ -41,6 +41,7 @@ cd my_game
 cargo test               # headless tests: no window, no GPU
 cargo run                # the game, in a window
 ponko package            # the download for players: release build, assets, licenses, archive
+ponko textures           # GPU-compressed .ktx2 textures from your images (see Drawing)
 ```
 
 `ponko_cli` is new in 0.2; until that release, install it from the

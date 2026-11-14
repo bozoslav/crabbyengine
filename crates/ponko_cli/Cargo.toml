@@ -1,7 +1,7 @@
 [package]
 name = "ponko_cli"
 version = "0.1.0"
-description = "The `ponko` command: new Ponko game projects from templates (2D, 3D, headless), and distributable packages of a game"
+description = "The `ponko` command: new Ponko game projects from templates (2D, 3D, headless), distributable packages of a game, and GPU-compressed textures"
 keywords = ["gamedev", "cli", "template", "packaging"]
 categories = ["game-development", "command-line-utilities", "development-tools"]
 documentation = "https://ponko.dev/guide/getting-started.html"

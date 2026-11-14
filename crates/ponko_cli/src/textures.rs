@@ -711,6 +711,21 @@ mod tests {
     }
 
     #[test]
+    fn the_guides_patterns_match_at_any_depth() {
+        let s = Settings::parse(
+            r#"{"default": "color", "textures": {
+                "**_normal.png": "normal", "**_mask.png": "mask", "ui/**": "ui"}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.rule_for("wall_normal.png").kind, Kind::Normal);
+        assert_eq!(s.rule_for("props/barrel/wood_normal.png").kind, Kind::Normal);
+        assert_eq!(s.rule_for("terrain/grass_mask.png").kind, Kind::Mask);
+        assert_eq!(s.rule_for("ui/menu/button_normal.png").kind, Kind::Normal);
+        assert_eq!(s.rule_for("ui/menu/button.png").kind, Kind::Ui);
+        assert_eq!(s.rule_for("props/barrel/wood.png").kind, Kind::Color);
+    }
+
+    #[test]
     fn bad_settings_name_the_problem() {
         let err = Settings::parse(r#"{"textures": {"a.png": "shiny"}}"#).unwrap_err();
         assert!(err.contains("\"a.png\"") && err.contains("unknown kind"), "{err}");
