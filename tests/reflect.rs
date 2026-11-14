@@ -199,6 +199,7 @@ fn games_reflect_the_builtin_components_by_default() {
         expected.push("Transform3D");
         expected.extend([
             "AttachToJoint",
+            "Attached3D",
             "SkinOf",
             "Decal3D",
             "LodGroup",

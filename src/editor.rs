@@ -82,6 +82,7 @@ impl Ctx {
 
 impl Editor {
     /// Whether Play was pressed and Stop wasn't yet.
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn playing(&self) -> bool {
         self.played_from.is_some()
     }
@@ -98,6 +99,7 @@ impl Editor {
 
     /// Runs the game, first saving the world for [`stop`](Self::stop).
     /// Pressed again while playing (after a pause), it only resumes.
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn play(&mut self, ctx: &mut Ctx) {
         if self.played_from.is_none() {
             self.played_from = Some((ctx.world.save(), self.undo.len(), self.remap.clone()));
@@ -111,6 +113,7 @@ impl Editor {
     /// [`ErrorKind::Unsupported`](crate::error::ErrorKind::Unsupported)), the Play
     /// snapshot and the undo history are kept and the simulation keeps
     /// running, so Stop can be retried.
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn stop(&mut self, ctx: &mut Ctx) -> Result<(), crate::error::Error> {
         let Some((save, _, _)) = &self.played_from else {
             ctx.time.pause();
@@ -131,6 +134,7 @@ impl Editor {
     }
 
     /// Keeps the world as it is now: Stop won't go back.
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn keep(&mut self) {
         self.played_from = None;
     }
@@ -162,6 +166,7 @@ impl Editor {
     }
 
     /// Writes component `name` of `e` (adding it if missing), with undo.
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn set(&mut self, ctx: &mut Ctx, e: Entity, name: &str, value: Value) -> Result<(), crate::error::Error> {
         let before = ctx.world.get_json(e, name).ok();
         ctx.load_scene_assets(&json!({ name: &value }))?;
@@ -177,11 +182,13 @@ impl Editor {
 
     /// Adds component `name` to `e` with its default fields (types whose
     /// fields all have defaults; others say which field is missing).
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn add(&mut self, ctx: &mut Ctx, e: Entity, name: &str) -> Result<(), crate::error::Error> {
         self.set(ctx, e, name, json!({}))
     }
 
     /// Removes component `name` from `e`, with undo.
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn remove(&mut self, ctx: &mut Ctx, e: Entity, name: &str) -> Result<(), crate::error::Error> {
         let before = ctx.world.get_json(e, name)?;
         ctx.world.remove_json(e, name)?;
@@ -195,6 +202,7 @@ impl Editor {
 
     /// Records that `e`'s transform was `before` a drag that moved it
     /// directly (the drag itself changes the world every frame).
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn moved(&mut self, e: Entity, before: Value) {
         self.record(Undo::Component {
             e,
@@ -220,6 +228,7 @@ impl Editor {
     }
 
     /// Spawns an entity with only a transform at `at`.
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn spawn_empty(&mut self, ctx: &mut Ctx, at: Vec2) -> Entity {
         let e = ctx.world.spawn((crate::d2::Transform::at(at),));
         self.record(Undo::Spawned(vec![e]));
@@ -258,6 +267,7 @@ impl Editor {
     }
 
     /// A copy of `e`'s reflected components, `offset` away.
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn duplicate(&mut self, ctx: &mut Ctx, e: Entity, offset: Vec2) -> Result<Entity, crate::error::Error> {
         let copies = self.duplicate_many(ctx, &[e], offset, Offset3::ZERO)?;
         Ok(copies[0])
@@ -298,6 +308,7 @@ impl Editor {
 
     /// Despawns `e`, with undo (which brings back its reflected components
     /// as a new entity: references to `e` from other components stay dead).
+    #[cfg_attr(not(feature = "inspector"), allow(dead_code))]
     pub fn delete(&mut self, ctx: &mut Ctx, e: Entity) -> Result<(), crate::error::Error> {
         self.delete_many(ctx, &[e])
     }
@@ -681,6 +692,7 @@ pub(crate) enum Link {
     /// [`Attached`](crate::d2::Attached).
     Attached,
     /// `Attached3D`.
+    #[cfg_attr(not(feature = "3d"), allow(dead_code))]
     Attached3D,
     /// `AttachToJoint`: on a joint of the parent's skeleton.
     #[cfg_attr(not(feature = "3d"), allow(dead_code))]

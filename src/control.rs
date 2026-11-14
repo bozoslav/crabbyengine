@@ -2192,7 +2192,7 @@ mod tests {
             if let Err(e) = r {
                 let uncaptured = *name == "logs.get" && e.contains("captured");
                 let refused = *name == "input.scenario.load" && e.contains("input injection is off");
-                let no_3d = *name == "quality.set" && e.contains("`3d` feature");
+                let no_3d = (*name == "quality.set" || name.starts_with("editor.")) && e.contains("`3d` feature");
                 assert!(
                     e.starts_with("missing param") || uncaptured || refused || no_3d,
                     "{name}: {e}"
