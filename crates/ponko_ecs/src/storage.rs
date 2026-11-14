@@ -599,11 +599,18 @@ impl Archetype {
         self.entities = perm.iter().map(|&p| old[p as usize]).collect();
     }
 
+    #[inline]
     pub(crate) fn reserve(&mut self, additional: usize, pool: &mut BufferPool) {
         let needed = self.len().checked_add(additional).expect("too many entities");
-        if needed <= self.cap() {
-            return;
+        if needed > self.cap() {
+            self.grow(needed, pool);
         }
+    }
+
+    /// The rare half of [`reserve`](Self::reserve): room for `needed` rows.
+    #[cold]
+    #[inline(never)]
+    fn grow(&mut self, needed: usize, pool: &mut BufferPool) {
         let cap = self.cap();
         let new_cap = needed.max(cap * 2).max(8);
         for c in self.columns.iter_mut() {
