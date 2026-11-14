@@ -302,7 +302,13 @@ type SetupFn = Box<dyn FnOnce(&mut Ctx)>;
 ///
 /// Returned by [`Game::setup`], or by [`Game::configured`] for a game with
 /// no setup of its own. Configure systems and window options on `Game`
-/// first, then register one or more setup callbacks. It is a separate type
+/// first, then register one or more setup callbacks. A configured game still
+/// takes the settings a test or a tool adds without touching the game's
+/// code: [`headless_frames`](Self::headless_frames),
+/// [`input_scenario`](Self::input_scenario) and
+/// [`run_headless_scenario`](Self::run_headless_scenario),
+/// [`data_dir`](Self::data_dir), [`seed`](Self::seed), and systems of its
+/// own ([`system`](Self::system), [`sim_system`](Self::sim_system)). It is a separate type
 /// because its `run()` takes no closure and [`Game::run`] takes one, and
 /// Rust has no two methods of one name on a type.
 #[must_use = "a configured game does nothing until run or run_headless"]
@@ -350,6 +356,79 @@ impl ConfiguredGame {
     /// See [`Game::profile_headless`] for warmup and report semantics.
     pub fn profile_headless(self, warmup: u64, ticks: u64) -> (World, crate::perf::PerfReport) {
         self.game.profile_headless(warmup, ticks, |_| {})
+    }
+
+    /// Runs `scenario` headlessly with the stored setup callbacks and returns
+    /// the world with the scenario's report: [`Game::run_headless_scenario`]
+    /// for a game that is already configured, such as the `game()` of a
+    /// project made with `ponko new`.
+    ///
+    /// ```
+    /// use ponko::prelude::*;
+    /// use ponko::scenario::{InputScenario, ScenarioCheck};
+    ///
+    /// // In a project: `src/lib.rs`.
+    /// fn game() -> ConfiguredGame {
+    ///     Game::new("Menu", 640, 480).setup(|ctx| {
+    ///         let root = ctx.ui.root().layout(ponko::ui::UiLayout::fill()).id();
+    ///         ctx.ui.button(root, "Play").name("menu.play").focused();
+    ///         ctx.ui.push_screen(root, false);
+    ///     })
+    /// }
+    ///
+    /// // In its tests: frames, a scenario and a storage folder of the test's own.
+    /// let scenario = InputScenario::new().expect(0, ScenarioCheck::ui("menu.play").shown(true));
+    /// let (_world, report) = game()
+    ///     .headless_frames(true)
+    ///     .data_dir(std::env::temp_dir().join("menu-test-saves"))
+    ///     .run_headless_scenario(scenario);
+    /// report.assert_passed();
+    /// ```
+    pub fn run_headless_scenario(
+        self,
+        scenario: crate::scenario::InputScenario,
+    ) -> (World, crate::scenario::ScenarioReport) {
+        self.game.run_headless_scenario(scenario, |_| {})
+    }
+
+    /// Runs whole frames in headless runs, UI and frame systems included:
+    /// [`Game::headless_frames`].
+    pub fn headless_frames(mut self, on: bool) -> Self {
+        self.game = self.game.headless_frames(on);
+        self
+    }
+
+    /// Feeds scheduled input into the game by tick: [`Game::input_scenario`].
+    pub fn input_scenario(mut self, scenario: crate::scenario::InputScenario) -> Self {
+        self.game = self.game.input_scenario(scenario);
+        self
+    }
+
+    /// Keeps `ctx.storage`'s files in `dir`, for tests that must not touch the
+    /// player's saves: [`Game::data_dir`].
+    pub fn data_dir(mut self, dir: impl Into<std::path::PathBuf>) -> Self {
+        self.game = self.game.data_dir(dir);
+        self
+    }
+
+    /// Sets the seed for [`Ctx::random`]: [`Game::seed`].
+    pub fn seed(mut self, seed: u64) -> Self {
+        self.game = self.game.seed(seed);
+        self
+    }
+
+    /// Adds a frame system after the game's own: [`Game::system`]. For a
+    /// test or a tool that watches or drives a finished game.
+    pub fn system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
+        self.game = self.game.system(system);
+        self
+    }
+
+    /// Adds a simulation system after the game's own: [`Game::sim_system`].
+    /// For a test or a tool that watches or drives a finished game.
+    pub fn sim_system<F: FnMut(&mut Ctx) + 'static>(mut self, system: F) -> Self {
+        self.game = self.game.sim_system(system);
+        self
     }
 }
 
@@ -2050,10 +2129,15 @@ impl Game {
     /// `setup` runs once, then `ticks` simulation ticks run (fewer if a
     /// system calls `ctx.quit()`). Only **simulation systems** run: frame
     /// systems, the closure returned by `setup`, and drawing need frames, and
-    /// there are none. Sim speed is ignored, and so is pause unless the
+    /// there are none. Sim speed is ignored, and so is
+    /// [`ctx.time.pause()`](crate::time::Time::pause) unless the
     /// [control endpoint](Self::control_endpoint) is on: then a paused game
-    /// waits for tools to step or resume it. Textures still load (for their
-    /// sizes), but nothing is uploaded to a GPU.
+    /// waits for tools to step or resume it. Without it every tick runs, so
+    /// a game that pauses behind a menu still sees the scenario input that
+    /// closes it. To hold only physics (a pause screen whose sim systems keep
+    /// running, in a window and headless alike), use
+    /// [`Physics::set_paused`](crate::d2::Physics::set_paused). Textures
+    /// still load (for their sizes), but nothing is uploaded to a GPU.
     ///
     /// ```
     /// use ponko::prelude::*;

@@ -464,8 +464,7 @@ impl Plugin for Rules {
         // The physics step runs only while something should move: not on the
         // title, the pause or the end screen.
         game.physics(vec2(0.0, GRAVITY))
-            .remove(Systems::PHYSICS)
-            .add(Phase::Physics, physics_unless_paused)
+            .add(Phase::BeforePhysics, hold_physics)
             .sim_system(rules)
     }
     fn setup(&self, ctx: &mut Ctx) {
@@ -491,14 +490,14 @@ impl Plugin for Rules {
     }
 }
 
-/// Physics, unless the game is paused or between runs.
-pub fn physics_unless_paused(ctx: &mut Ctx) {
-    if matches!(
+/// Holds the physics step while the game is paused or between runs; the
+/// rules keep running, so they see the press that resumes.
+pub fn hold_physics(ctx: &mut Ctx) {
+    let moving = matches!(
         *ctx.world.resource::<Screen>(),
         Screen::Playing | Screen::Dying { .. } | Screen::Transition { .. }
-    ) {
-        ponko::systems::step_physics(ctx);
-    }
+    );
+    ctx.physics.set_paused(!moving);
 }
 
 fn load_art(ctx: &mut Ctx) -> Art {
