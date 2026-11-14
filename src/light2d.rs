@@ -207,14 +207,32 @@ impl Default for DirectionalLight2D {
 /// let fence = Occluder2D::line(vec2(-50.0, 0.0), vec2(50.0, 0.0)); // casts on both sides
 /// # let _ = (pillar, ramp, fence);
 /// ```
+///
+/// Saved and reflected as `{"edges": [[[x, y], [x, y]], ...]}`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, Component)]
+#[serde(from = "OccluderEdges")]
 pub struct Occluder2D {
     /// Edges in the entity's local space, each `[from, to]` with the
     /// outside on its left on screen (y down): outward normal
     /// `(d.y, -d.x)` for `d = to - from`.
     edges: Vec<[Vec2; 2]>,
-    /// The farthest any edge point is from the local origin.
+    /// The farthest any edge point is from the local origin, worked out
+    /// from the edges (never saved, so an edited occluder can't keep a
+    /// stale one).
+    #[serde(skip)]
     reach: f32,
+}
+
+/// What an [`Occluder2D`] loads from.
+#[derive(serde::Deserialize)]
+struct OccluderEdges {
+    edges: Vec<[Vec2; 2]>,
+}
+
+impl From<OccluderEdges> for Occluder2D {
+    fn from(saved: OccluderEdges) -> Self {
+        Self::from_edges(saved.edges)
+    }
 }
 
 impl Occluder2D {
@@ -901,6 +919,18 @@ mod tests {
         let perimeter: f32 = o.edges().iter().map(|[a, b]| a.distance(*b)).sum();
         assert_eq!(perimeter, 2.0 * (32.0 + 16.0));
         assert!(map.occluder(|_| false).edges().is_empty());
+    }
+
+    #[test]
+    fn a_loaded_occluder_works_out_its_own_reach() {
+        let wall = Occluder2D::line(Vec2::new(-30.0, 40.0), Vec2::new(30.0, 40.0));
+        let json = serde_json::to_value(&wall).unwrap();
+        assert!(json.get("reach").is_none(), "derived, never saved: {json}");
+        assert_eq!(serde_json::from_value::<Occluder2D>(json).unwrap(), wall);
+        // An edited edge list gets a fresh reach, so its shadows aren't culled.
+        let edited = serde_json::json!({"edges": [[[0.0, 0.0], [300.0, 400.0]]]});
+        let far = serde_json::from_value::<Occluder2D>(edited).unwrap();
+        assert_eq!(far.reach, 500.0);
     }
 
     #[test]

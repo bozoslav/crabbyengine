@@ -72,9 +72,12 @@ pub fn run(b: &mut Bench) {
         if b.skips(name) {
             continue;
         }
-        let Some(mut bench) = Lights2DBench::new(scene) else {
-            eprintln!("{name}: skipped, no GPU");
-            continue;
+        let mut bench = match Lights2DBench::new(scene) {
+            Ok(bench) => bench,
+            Err(reason) => {
+                eprintln!("{name}: skipped, {reason}");
+                continue;
+            }
         };
         for _ in 0..WARMUP {
             bench.frame();

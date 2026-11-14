@@ -131,8 +131,10 @@ fn texture(
 }
 
 impl Lights2DBench {
-    /// Opens a GPU (no window) and builds `scene`; `None` without one.
-    pub fn new(scene: Lights2DScene) -> Option<Self> {
+    /// Opens the GPU as a game does (the high-performance adapter, no
+    /// window, `PONKO_GPU_TIER` honored) and builds `scene`. `Err` says why
+    /// there is no GPU.
+    pub fn new(scene: Lights2DScene) -> Result<Self, String> {
         use wgpu::util::DeviceExt;
         let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
         descriptor.flags = wgpu::InstanceFlags::from_env_or_default();
@@ -141,9 +143,15 @@ impl Lights2DBench {
             power_preference: wgpu::PowerPreference::HighPerformance,
             ..Default::default()
         }))
-        .ok()?;
+        .map_err(|e| format!("no GPU adapter ({e})"))?;
         let info = adapter.get_info();
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
+        let mut descriptor = wgpu::DeviceDescriptor::default();
+        if let Some(tier) = super::GpuTier::forced() {
+            descriptor.required_features = tier.device_features(descriptor.required_features);
+            descriptor.required_limits = tier.device_limits(descriptor.required_limits);
+        }
+        let (device, queue) = pollster::block_on(adapter.request_device(&descriptor))
+            .map_err(|e| format!("no GPU device on {} ({e})", info.name))?;
         let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -269,7 +277,7 @@ impl Lights2DBench {
                 view_formats: &[],
             })
             .create_view(&Default::default());
-        Some(Self {
+        Ok(Self {
             device,
             queue,
             adapter: format!("{} ({:?})", info.name, info.backend),
@@ -395,8 +403,9 @@ mod tests {
             normal_maps: true,
             lit: true,
         };
-        let Some(mut bench) = Lights2DBench::new(scene) else {
-            return;
+        let mut bench = match Lights2DBench::new(scene) {
+            Ok(bench) => bench,
+            Err(reason) => return crate::render::render_test_support::no_gpu(reason),
         };
         let frame = bench.frame();
         assert!(frame.total >= frame.cpu && frame.cpu >= frame.collect);
