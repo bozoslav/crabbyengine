@@ -5,7 +5,7 @@ renderer.
 
 ## Sprites as components
 
-Give an entity a `Transform2D` and a `Sprite`, and the built-in
+Give an entity a `d2::Transform` and a `Sprite`, and the built-in
 `draw_sprites` system draws it every frame:
 
 <div class="lang-pair">
@@ -29,7 +29,7 @@ ctx.world.spawn((
 </div>
 </div>
 
-- `Transform2D`: `position`, `rotation` (radians, clockwise on screen),
+- `d2::Transform`: `position`, `rotation` (radians, clockwise on screen),
   `scale` (negative flips).
 - `Sprite`: `texture`, `color` (tint), `z` (higher is on top), `pivot`
   (`(0.5, 0.5)` is the center).
@@ -89,7 +89,7 @@ what they need with `with_*` methods (`with_scale`, `with_rotation`,
 
 In C++, `Sprite` values are `ponko::sprite` (`sprite_of(texture, tint, z)`).
 They can be spawned, read and set, but not used as query columns, because
-the engine stores sprites in a Rust layout. `Transform2D` can.
+the engine stores sprites in a Rust layout. `d2::Transform` can.
 
 ## Blend modes and sprite shaders
 

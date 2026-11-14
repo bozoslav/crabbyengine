@@ -39,17 +39,17 @@ fn flocking(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             .is_multiple_of(ponko::spatial::SpatialGrid::<()>::SORT_EVERY)
         {
             ctx.world
-                .sort_by::<Transform2D>(|t| ponko::spatial::spatial_key(t.position, RADIUS));
+                .sort_by::<d2::Transform>(|t| ponko::spatial::spatial_key(t.position, RADIUS));
         }
         grid.rebuild_with_data(
             ctx.world
-                .query::<(Entity, &Transform2D, &Vel)>()
+                .query::<(Entity, &d2::Transform, &Vel)>()
                 .iter()
                 .map(|(e, t, v)| (e, t.position, v.0)),
         );
         let grid = &grid;
         ctx.world
-            .query::<(Entity, &mut Transform2D, &mut Vel)>()
+            .query::<(Entity, &mut d2::Transform, &mut Vel)>()
             .par_for_each(|(me, t, v)| {
                 let (mut away, mut heading, mut center, mut n) = (Vec2::ZERO, Vec2::ZERO, Vec2::ZERO, 0.0);
                 grid.for_each_in_radius(t.position, RADIUS, |o| {
@@ -112,7 +112,7 @@ fn spawn_boids(ctx: &mut Ctx, n: usize, bounds: Vec2) {
         let vel = Vec2::from_angle(rand() * std::f32::consts::TAU) * MIN_SPEED;
         let tint = Color::rgb(0.5 + rand() * 0.5, 0.7 + rand() * 0.3, 0.9);
         batch.push((
-            Transform2D::at(pos).scaled(Vec2::splat(0.5)),
+            d2::Transform::at(pos).scaled(Vec2::splat(0.5)),
             Sprite::new(tex).with_color(tint),
             Vel(vel),
         ));

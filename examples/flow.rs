@@ -103,7 +103,7 @@ fn steer(ctx: &mut Ctx) {
     // Taken out for the query, which borrows the world, then put back.
     let paths = ctx.world.remove_resource::<Paths>().expect("paths");
     ctx.world
-        .query::<(Entity, &mut Transform2D, &mut Agent)>()
+        .query::<(Entity, &mut d2::Transform, &mut Agent)>()
         .par_for_each(|(e, t, a)| {
             let mut rng = random.of(e);
             let cell = paths.nav.cell_at(t.position);
@@ -142,7 +142,7 @@ fn setup(ctx: &mut Ctx, agents: usize, texture: Option<Texture>) {
     match texture {
         Some(tex) => ctx.world.spawn_batch(starts.into_iter().map(|p| {
             (
-                Transform2D::at(p),
+                d2::Transform::at(p),
                 Sprite::new(tex).with_color(Color::rgb(1.0, 0.85, 0.4)),
                 Agent { vel: Vec2::ZERO },
             )
@@ -150,7 +150,7 @@ fn setup(ctx: &mut Ctx, agents: usize, texture: Option<Texture>) {
         None => ctx.world.spawn_batch(
             starts
                 .into_iter()
-                .map(|p| (Transform2D::at(p), Agent { vel: Vec2::ZERO })),
+                .map(|p| (d2::Transform::at(p), Agent { vel: Vec2::ZERO })),
         ),
     };
 }

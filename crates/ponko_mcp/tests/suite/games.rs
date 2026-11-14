@@ -77,12 +77,12 @@ fn arena_setup(ctx: &mut Ctx) {
     });
     ctx.world.reflect::<Player>();
     ctx.world.reflect::<Coin>();
-    ctx.world.reflect::<Transform2D>();
+    ctx.world.reflect::<d2::Transform>();
     ctx.world.reflect_resource::<Settings>();
     ctx.world.reflect_resource::<Intent>();
     ctx.world.reflect_resource::<Score>();
     ctx.world.reflect_resource::<Flag>();
-    ctx.world.spawn((Player, Transform2D::at(START)));
+    ctx.world.spawn((Player, d2::Transform::at(START)));
 }
 
 /// Frame system: arrow keys (or WASD) set the intent.
@@ -109,7 +109,7 @@ fn movement(ctx: &mut Ctx) {
     let step =
         ctx.world.resource::<Intent>().0.clamp_length_max(1.0) * ctx.world.resource::<Settings>().speed * ctx.dt();
     ctx.world
-        .query::<(&mut Transform2D, &Player)>()
+        .query::<(&mut d2::Transform, &Player)>()
         .for_each(|(t, _)| t.position = (t.position + step).clamp(Vec2::ZERO, ARENA));
 }
 
@@ -117,11 +117,11 @@ fn movement(ctx: &mut Ctx) {
 fn collect(ctx: &mut Ctx) {
     let mut players = Vec::new();
     ctx.world
-        .query::<(&Transform2D, &Player)>()
+        .query::<(&d2::Transform, &Player)>()
         .for_each(|(t, _)| players.push(t.position));
     let mut taken = Vec::new();
     ctx.world
-        .query::<(Entity, &Transform2D, &Coin)>()
+        .query::<(Entity, &d2::Transform, &Coin)>()
         .for_each(|(e, t, c)| {
             if players.iter().any(|p| p.distance(t.position) <= PICKUP_RADIUS) {
                 taken.push((e, c.value));
@@ -139,7 +139,7 @@ fn finish_line(ctx: &mut Ctx) {
     let x = ctx.world.resource::<Flag>().x;
     let mut past = false;
     ctx.world
-        .query::<(&Transform2D, &Player)>()
+        .query::<(&d2::Transform, &Player)>()
         .for_each(|(t, _)| past |= t.position.x >= x);
     let flag = ctx.world.resource_mut::<Flag>();
     if past && flag.reached_tick.is_none() {
@@ -242,7 +242,7 @@ fn spawn_wave(ctx: &mut Ctx) {
                 armor: kind.armor,
             },
             Health { current: kind.health },
-            Transform2D::at(vec2(100.0 + 100.0 * i as f32, 300.0)),
+            d2::Transform::at(vec2(100.0 + 100.0 * i as f32, 300.0)),
         ));
     }
     let waves = ctx.world.resource_mut::<Waves>();
@@ -331,11 +331,11 @@ fn crowd_setup(ctx: &mut Ctx) {
     ctx.assets.load_resource::<Tuning>(&mut ctx.world, "tuning.json");
     ctx.world.insert_resource(Crowding::default());
     ctx.world.reflect::<Villager>();
-    ctx.world.reflect::<Transform2D>();
+    ctx.world.reflect::<d2::Transform>();
     ctx.world.reflect_resource::<Tuning>();
     ctx.world.reflect_resource::<Crowding>();
     for p in villager_positions() {
-        ctx.world.spawn((Villager, Transform2D::at(p)));
+        ctx.world.spawn((Villager, d2::Transform::at(p)));
     }
 }
 
@@ -347,7 +347,7 @@ fn crowding(ctx: &mut Ctx) {
     };
     let mut at = Vec::new();
     ctx.world
-        .query::<(&Transform2D, &Villager)>()
+        .query::<(&d2::Transform, &Villager)>()
         .for_each(|(t, _)| at.push(t.position));
     let key = |p: Vec2| ((p.x / cell).floor() as i64, (p.y / cell).floor() as i64);
     let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();

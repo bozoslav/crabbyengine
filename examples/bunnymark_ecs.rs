@@ -57,9 +57,9 @@ fn spawn(ctx: &mut Ctx, n: usize, at: Vec2) {
             0.6 + r.next_f32() * 0.4,
         );
         batch.push((
-            Transform2D {
+            d2::Transform {
                 scale: Vec2::splat(b.scale),
-                ..Transform2D::at(at)
+                ..d2::Transform::at(at)
             },
             Sprite::new(crab).with_color(color),
             Vel(vel),
@@ -72,7 +72,7 @@ fn bounce(ctx: &mut Ctx) {
     let dt = ctx.dt();
     let bounds = ctx.window_size();
     let gravity = 600.0;
-    ctx.world.query::<(&mut Transform2D, &mut Vel)>().for_each(|(t, v)| {
+    ctx.world.query::<(&mut d2::Transform, &mut Vel)>().for_each(|(t, v)| {
         let (p, v) = (&mut t.position, &mut v.0);
         v.y += gravity * dt;
         *p += *v * dt;

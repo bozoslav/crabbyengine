@@ -24,7 +24,7 @@ pub struct GridEntry<T = ()> {
 /// checking every entity.
 ///
 /// Enable it with [`Game::spatial_grid`](crate::game::Game::spatial_grid): every
-/// entity with a [`Transform2D`] is then indexed at the start of each
+/// entity with a [`d2::Transform`](crate::d2::Transform) is then indexed at the start of each
 /// simulation tick, and you query it through `ctx.spatial`, even from inside a
 /// (parallel) query:
 ///
@@ -131,7 +131,7 @@ impl SpatialGrid {
         Self::with_data(cell_size)
     }
 
-    /// Re-indexes every entity that has a [`Transform2D`].
+    /// Re-indexes every entity that has a [`d2::Transform`](crate::d2::Transform).
     pub fn rebuild(&mut self, world: &mut World) {
         let mut unsorted = std::mem::take(&mut self.unsorted);
         unsorted.clear();

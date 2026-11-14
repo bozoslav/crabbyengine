@@ -62,7 +62,7 @@ fn move_crabs(ctx: &mut Ctx) {
     let dt = ctx.dt();
     let crabs: Vec<(Entity, Vec2, u32)> = ctx
         .world
-        .query::<(Entity, &Transform2D, &Crab)>()
+        .query::<(Entity, &d2::Transform, &Crab)>()
         .iter()
         .map(|(e, t, c)| (e, t.position, c.player))
         .collect();
@@ -76,7 +76,7 @@ fn move_crabs(ctx: &mut Ctx) {
             }
         }
         let crab = *ctx.world.get::<Crab>(e).unwrap();
-        let t = ctx.world.get_mut::<Transform2D>(e).unwrap();
+        let t = ctx.world.get_mut::<d2::Transform>(e).unwrap();
         t.position += (pad.dir.normalize_or_zero() * 250.0 + crab.push) * dt;
         t.position = t.position.clamp(vec2(40.0, 40.0), vec2(760.0, 560.0));
         ctx.world.get_mut::<Crab>(e).unwrap().push = crab.push * 0.9;
@@ -88,7 +88,7 @@ fn draw(ctx: &mut Ctx) {
     ctx.gfx.clear(Color::hex(0x20304a));
     let crabs: Vec<(Vec2, u32)> = ctx
         .world
-        .query::<(&Transform2D, &Crab)>()
+        .query::<(&d2::Transform, &Crab)>()
         .iter()
         .map(|(t, c)| (t.position, c.player))
         .collect();
@@ -155,7 +155,7 @@ fn play(net: Net) {
             ctx.world.reflect::<Crab>(); // compared between peers
             for player in 0..2 {
                 ctx.world.spawn((
-                    Transform2D::at(vec2(250.0 + 300.0 * player as f32, 300.0)),
+                    d2::Transform::at(vec2(250.0 + 300.0 * player as f32, 300.0)),
                     Crab {
                         player,
                         push: Vec2::ZERO,

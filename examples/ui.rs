@@ -47,7 +47,7 @@ fn scene(ctx: &mut Ctx) {
     }
     if ctx.input.mouse_pressed(MouseButton::Left) && !ctx.ui.wants_pointer() {
         let at = ctx.mouse_world();
-        ctx.world.spawn((Transform2D::at(at), Sprite::new(crab)));
+        ctx.world.spawn((d2::Transform::at(at), Sprite::new(crab)));
         let plop = ctx.world.resource::<Scene>().plop;
         let speed = 0.8 + ctx.random().stream(0).f32() * 0.4;
         ctx.audio.play_ex(

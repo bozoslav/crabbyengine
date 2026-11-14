@@ -64,7 +64,7 @@ impl Transform2D {
     }
 }
 
-/// Makes an entity visible: drawn at its [`Transform2D`] by the built-in
+/// Makes an entity visible: drawn at its [`d2::Transform`](crate::d2::Transform) by the built-in
 /// [`draw_sprites`] system.
 ///
 /// ```
@@ -140,7 +140,7 @@ impl Sprite {
     }
 }
 
-/// Built-in system: draws every entity that has a [`Transform2D`] and a
+/// Built-in system: draws every entity that has a [`d2::Transform`](crate::d2::Transform) and a
 /// [`Sprite`]. [`Game`](crate::game::Game) runs it every frame by default.
 ///
 /// Replace it with your own renderer like this:

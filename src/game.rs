@@ -1379,7 +1379,7 @@ impl Game {
 
     /// Turns on 2D physics (feature `physics`): every entity with a
     /// [`RigidBody`](crate::d2::RigidBody), a [`Collider`](crate::d2::Collider) and a
-    /// [`Transform2D`](crate::d2::Transform) is simulated each tick, pulled by
+    /// [`d2::Transform`](crate::d2::Transform) is simulated each tick, pulled by
     /// `gravity` (pixels/s²; y is down). Collisions arrive as
     /// [`CollisionStarted`](crate::collision::CollisionStarted) events; `ctx.physics`
     /// casts rays and finds overlaps.
@@ -1413,7 +1413,7 @@ impl Game {
 
     /// Turns on 3D physics (feature `physics3d`): every entity with a
     /// [`RigidBody3D`](crate::d3::RigidBody), a [`Collider3D`](crate::d3::Collider)
-    /// and a [`Transform3D`](crate::d3::Transform) is simulated each tick, and
+    /// and a [`d3::Transform`](crate::d3::Transform) is simulated each tick, and
     /// every [`Character3D`](crate::d3::Character) walks, pulled by `gravity`
     /// (m/s²; +Y is up, so `vec3(0.0, -9.81, 0.0)`). Collisions arrive as
     /// [`CollisionStarted`](crate::collision::CollisionStarted) events; `ctx.physics3d`
@@ -1466,7 +1466,7 @@ impl Game {
 
     /// Turns on the built-in [`SpatialGrid`](crate::spatial::SpatialGrid) with square
     /// cells of `cell_size` world units: at the start of every simulation
-    /// tick, all entities with a [`Transform2D`](crate::d2::Transform) are
+    /// tick, all entities with a [`d2::Transform`](crate::d2::Transform) are
     /// indexed into `ctx.spatial` for radius, rectangle and nearest queries.
     ///
     /// Choose a cell size near your usual query radius. The rebuild is the

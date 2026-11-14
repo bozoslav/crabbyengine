@@ -44,7 +44,7 @@ fn spawn_crab(ctx: &mut Ctx, at: Vec2) {
     let tint = Color::rgb(0.5 + s.random() * 0.5, 0.5 + s.random() * 0.5, 0.5 + s.random() * 0.5);
     let crab = s.crab;
     ctx.world.spawn((
-        Transform2D::at(at),
+        d2::Transform::at(at),
         Sprite::new(crab).with_color(tint),
         Vel(Vec2::from_angle(angle) * speed),
         Life(LIFETIME),
@@ -55,7 +55,7 @@ fn spawn_crab(ctx: &mut Ctx, at: Vec2) {
 fn movement(ctx: &mut Ctx) {
     let dt = ctx.dt();
     let bounds = ctx.window_size();
-    ctx.world.query::<(&mut Transform2D, &mut Vel)>().for_each(|(t, v)| {
+    ctx.world.query::<(&mut d2::Transform, &mut Vel)>().for_each(|(t, v)| {
         t.position += v.0 * dt;
         t.rotation = v.0.to_angle();
         if t.position.x < 0.0 || t.position.x > bounds.x {

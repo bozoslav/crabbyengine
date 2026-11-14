@@ -107,7 +107,7 @@ struct Velocity(Vec2);
 
 fn movement(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    ctx.world.query::<(&mut Transform2D, &Velocity)>()
+    ctx.world.query::<(&mut d2::Transform, &Velocity)>()
         .par_for_each(|(transform, velocity)| transform.position += velocity.0 * dt);
 }
 
@@ -116,7 +116,7 @@ fn main() {
         .sim_system(movement)
         .setup(|ctx| {
             ctx.world.spawn_batch((0..1_000_000).map(|i| (
-                Transform2D::at(vec2(i as f32, 0.0)),
+                d2::Transform::at(vec2(i as f32, 0.0)),
                 Velocity(vec2(1.0, 0.0)),
             )));
         })

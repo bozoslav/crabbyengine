@@ -22,7 +22,7 @@ system after the systems that move things:
 </div>
 </div>
 
-Every tick, each attached entity's `Transform2D` gets:
+Every tick, each attached entity's `d2::Transform` gets:
 
 - **position**: the followed entity's position plus `offset`, turned by its
   rotation and stretched by its scale (so flipping a sprite with a negative

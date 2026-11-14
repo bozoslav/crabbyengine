@@ -31,28 +31,28 @@ fn build_level(ctx: &mut Ctx) {
         (vec2(W - 10.0, H / 2.0), vec2(20.0, H)),
     ] {
         ctx.world
-            .spawn((Transform2D::at(at), RigidBody::fixed(), Collider::rect(size)));
+            .spawn((d2::Transform::at(at), RigidBody::fixed(), Collider::rect(size)));
     }
     // A bouncy ball and a crate, both dynamic: gravity and collisions move them.
     ctx.world.spawn((
-        Transform2D::at(vec2(300.0, 100.0)),
+        d2::Transform::at(vec2(300.0, 100.0)),
         RigidBody::dynamic(),
         Collider::circle(16.0).restitution(0.8),
     ));
     ctx.world.spawn((
-        Transform2D::at(vec2(320.0, 0.0)),
+        d2::Transform::at(vec2(320.0, 0.0)),
         RigidBody::dynamic(),
         Collider::rect(vec2(40.0, 40.0)).friction(0.9),
     ));
     // A ramp: any convex shape of up to 8 corners, around its position.
     ctx.world.spawn((
-        Transform2D::at(vec2(150.0, H - 80.0)),
+        d2::Transform::at(vec2(150.0, H - 80.0)),
         RigidBody::fixed(),
         Collider::polygon(&[vec2(-140.0, 60.0), vec2(140.0, 60.0), vec2(-140.0, -60.0)]),
     ));
     // A sensor reports overlaps but doesn't push.
     ctx.world.spawn((
-        Transform2D::at(vec2(800.0, H - 60.0)),
+        d2::Transform::at(vec2(800.0, H - 60.0)),
         RigidBody::fixed(),
         Collider::rect(vec2(120.0, 80.0)).sensor(),
         Bell { rang: 0.0 },
@@ -83,7 +83,7 @@ fn blast(ctx: &mut Ctx) {
     let with_sensors = ponko::d2::QueryFilter::default().with_sensors();
     ctx.physics.overlap_circle(center, 200.0, with_sensors, &mut near);
     for e in near {
-        let Some(t) = ctx.world.get::<Transform2D>(e) else {
+        let Some(t) = ctx.world.get::<d2::Transform>(e) else {
             continue;
         };
         let away = (t.position - center).normalize_or(Vec2::NEG_Y);
@@ -108,14 +108,14 @@ fn drop_things(ctx: &mut Ctx) {
     let at = ctx.mouse_world();
     if ctx.input.mouse_pressed(MouseButton::Left) {
         ctx.world.spawn((
-            Transform2D::at(at),
+            d2::Transform::at(at),
             RigidBody::dynamic(),
             Collider::rect(vec2(30.0, 30.0)).friction(0.8),
         ));
     }
     if ctx.input.mouse_pressed(MouseButton::Right) {
         ctx.world.spawn((
-            Transform2D::at(at),
+            d2::Transform::at(at),
             RigidBody::dynamic(),
             Collider::circle(12.0).restitution(0.6),
         ));
@@ -125,7 +125,7 @@ fn drop_things(ctx: &mut Ctx) {
             .map(|i| Vec2::from_angle(i as f32 * std::f32::consts::TAU / 5.0) * 18.0)
             .collect();
         ctx.world.spawn((
-            Transform2D::at(at),
+            d2::Transform::at(at),
             RigidBody::dynamic(),
             Collider::polygon(&rock).friction(0.7),
         ));
@@ -144,9 +144,9 @@ fn drop_things(ctx: &mut Ctx) {
 
 fn draw(ctx: &mut Ctx) {
     ctx.gfx.clear(Color::hex(0x1d2330));
-    let shapes: Vec<(Transform2D, Collider, bool, f32)> = ctx
+    let shapes: Vec<(d2::Transform, Collider, bool, f32)> = ctx
         .world
-        .query::<(&Transform2D, &Collider, &RigidBody, Option<&Bell>)>()
+        .query::<(&d2::Transform, &Collider, &RigidBody, Option<&Bell>)>()
         .iter()
         .map(|(t, c, b, bell)| (*t, *c, b.kind == BodyKind::Fixed, bell.map_or(0.0, |b| b.rang)))
         .collect();

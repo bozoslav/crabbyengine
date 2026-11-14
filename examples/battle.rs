@@ -235,7 +235,7 @@ fn fight() -> impl FnMut(&mut Ctx) {
         let (dt, random, look) = (ctx.dt(), ctx.random(), ctx.time.turns(4));
         let crowding = ctx.time.sim_tick().is_multiple_of(2);
         ctx.world
-            .query::<(Entity, &Transform2D, &Unit)>()
+            .query::<(Entity, &d2::Transform, &Unit)>()
             .par_collect_into(&mut positions, |(e, t, u)| (e, t.position, u.team));
         // The four grids are independent: build them at the same time.
         let [near_red, near_blue] = &mut near;
@@ -254,7 +254,7 @@ fn fight() -> impl FnMut(&mut Ctx) {
         let battle = ctx.world.remove_resource::<Battle>().expect("battle");
         let (near, far, b) = (&near, &far, &battle);
         ctx.world
-            .query::<(Entity, &mut Transform2D, &mut Unit)>()
+            .query::<(Entity, &mut d2::Transform, &mut Unit)>()
             .par_for_each(|(e, t, unit)| {
                 let mut rng = random.of(e);
                 let me = t.position;
@@ -345,7 +345,7 @@ fn resolve() -> impl FnMut(&mut Ctx) {
         let mut alive = [0; 2];
         let (cmds, events) = (&mut ctx.commands, &mut ctx.events);
         ctx.world
-            .query::<(Entity, &Transform2D, &Unit)>()
+            .query::<(Entity, &d2::Transform, &Unit)>()
             .for_each(|(e, t, u)| {
                 if u.hp <= 0.0 {
                     cmds.despawn(e);
@@ -387,7 +387,7 @@ fn reinforce(ctx: &mut Ctx) {
     // A full army rebuilds in about 40 seconds.
     let per_tick = cap as f32 / (40.0 * 60.0);
     let mut spawns = Vec::new();
-    ctx.world.query::<(&Transform2D, &mut Base)>().for_each(|(t, base)| {
+    ctx.world.query::<(&d2::Transform, &mut Base)>().for_each(|(t, base)| {
         let room = cap.saturating_sub(alive[base.team.index()]);
         base.budget = (base.budget + per_tick).min(room as f32);
         let n = base.budget as usize;
@@ -433,8 +433,8 @@ fn spawn_unit(cmds: &mut Commands, sprite: Option<Texture>, team: Team, at: Vec2
         hit: None,
     };
     match sprite {
-        Some(tex) => cmds.spawn((Transform2D::at(at), Sprite::new(tex).with_color(team.color()), unit)),
-        None => cmds.spawn((Transform2D::at(at), unit)),
+        Some(tex) => cmds.spawn((d2::Transform::at(at), Sprite::new(tex).with_color(team.color()), unit)),
+        None => cmds.spawn((d2::Transform::at(at), unit)),
     }
 }
 
@@ -447,7 +447,7 @@ fn setup(ctx: &mut Ctx, units: usize, seed: u64, sprite: Option<Texture>) {
     let max_hp = 400.0 * (units as f32 / 1000.0).sqrt();
     let base_entities = [Team::Red, Team::Blue].map(|team| {
         ctx.world.spawn((
-            Transform2D::at(bases[team.index()]),
+            d2::Transform::at(bases[team.index()]),
             Base {
                 team,
                 hp: max_hp,
@@ -516,7 +516,7 @@ fn battle_systems(game: Game) -> Game {
 /// lookups and searches then mostly hit the cache.
 fn keep_neighbors_close(ctx: &mut Ctx) {
     ctx.world
-        .sort_by::<Transform2D>(|t| ponko::spatial::spatial_key(t.position, 64.0));
+        .sort_by::<d2::Transform>(|t| ponko::spatial::spatial_key(t.position, 64.0));
 }
 
 // ------------------------------------------------------------------ playing
@@ -602,7 +602,7 @@ fn draw_map(ctx: &mut Ctx) {
     );
     let rally = ctx.world.resource::<Battle>().rally[0];
     let mut bases = [(Vec2::ZERO, 0.0, Team::Red); 2];
-    ctx.world.query::<(&Transform2D, &Base)>().for_each(|(t, b)| {
+    ctx.world.query::<(&d2::Transform, &Base)>().for_each(|(t, b)| {
         bases[b.team.index()] = (t.position, b.hp / b.max_hp, b.team);
     });
     for (at, health, team) in bases {

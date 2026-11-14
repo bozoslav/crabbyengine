@@ -44,7 +44,7 @@ fn move_players(ctx: &mut Ctx) {
         spins[pad.slot()] = ctx.input.gamepad_pressed(pad, GamepadButton::South);
         grow[pad.slot()] = ctx.input.gamepad_axis(pad, GamepadAxis::RightTrigger);
     }
-    for (t, player) in ctx.world.query::<(&mut Transform2D, &mut Player)>().iter() {
+    for (t, player) in ctx.world.query::<(&mut d2::Transform, &mut Player)>().iter() {
         let Some(slot) = player.slot else { continue };
         t.position += sticks[slot] * SPEED * dt;
         if spins[slot] {
@@ -70,7 +70,7 @@ fn move_keyboard_player(ctx: &mut Ctx) {
         }
     }
     let spin = ctx.key_pressed(Key::Space);
-    for (t, player) in ctx.world.query::<(&mut Transform2D, &mut Player)>().iter() {
+    for (t, player) in ctx.world.query::<(&mut d2::Transform, &mut Player)>().iter() {
         if player.slot.is_none() {
             t.position += dir.normalize_or_zero() * SPEED * dt;
             if spin {
@@ -101,7 +101,7 @@ fn join_and_leave(ctx: &mut Ctx) {
         sprite.color = PLAYER_COLORS[slot];
         let at = vec2(200.0 + slot as f32 * 120.0, 360.0);
         ctx.world.spawn((
-            Transform2D::at(at),
+            d2::Transform::at(at),
             sprite,
             Player {
                 slot: Some(slot),
@@ -114,7 +114,7 @@ fn join_and_leave(ctx: &mut Ctx) {
 /// Spins play out over half a second.
 fn spin(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    for (t, player) in ctx.world.query::<(&mut Transform2D, &mut Player)>().iter() {
+    for (t, player) in ctx.world.query::<(&mut d2::Transform, &mut Player)>().iter() {
         let step = player.spin.min(4.0 * std::f32::consts::TAU * dt);
         t.rotation += step;
         player.spin -= step;
@@ -140,7 +140,7 @@ fn main() {
         .setup(|ctx| {
             let crab = ctx.load_texture("crab.png");
             ctx.world.spawn((
-                Transform2D::at(vec2(640.0, 560.0)),
+                d2::Transform::at(vec2(640.0, 560.0)),
                 Sprite::new(crab),
                 Player { slot: None, spin: 0.0 },
             ));

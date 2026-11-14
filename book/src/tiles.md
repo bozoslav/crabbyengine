@@ -101,7 +101,7 @@ made in code has no file to name and isn't saved, like its sprite.
 
 ## Tilemaps
 
-A `TileMap` is a grid of sheet frames on an entity with a `Transform2D`
+A `TileMap` is a grid of sheet frames on an entity with a `d2::Transform`
 (its position is the map's top-left corner). The built-in `draw_tilemaps`
 system draws only the tiles the camera can see, so a map can be huge: the
 tiles example has a million tiles, and zoomed out to 380 000 visible tiles it
@@ -217,7 +217,7 @@ one call:
   opacity and tint, and a `LevelLayer` with its name and properties. Layers
   are stacked by `z`, bottom to top; LDtk's auto-layers and IntGrid tiles
   too. Image layers become one-tile maps.
-- every object (Tiled) or entity (LDtk) as an entity with a `Transform2D` at
+- every object (Tiled) or entity (LDtk) as an entity with a `d2::Transform` at
   its center and a `LevelObject`: its name, class, layer, size, rotation,
   shape (rectangle, ellipse, point, polygon, polyline), tile and custom
   properties. Objects that show a tile get a `Sprite`.

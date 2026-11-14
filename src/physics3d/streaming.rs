@@ -158,7 +158,7 @@ impl CollisionMeshData {
 
 /// Makes an entity's terrain tile solid: a fixed collider of a
 /// [heightfield](Physics3D::heightfield) made from the tile's heights, at
-/// the entity's [`Transform3D`] (the tile's corner), turned and scaled with
+/// the entity's [`d3::Transform`](crate::d3::Transform) (the tile's corner), turned and scaled with
 /// it, so it matches the drawn ground triangle for triangle. Holes are open.
 /// Put it on the entity with the [`TerrainTile`](crate::terrain::TerrainTile) (not
 /// with a [`RigidBody3D`](super::RigidBody3D)): despawning the tile removes
@@ -292,7 +292,7 @@ pub(super) struct Scratch {
 impl Physics3D {
     /// Turns collider streaming on: from the next step, the colliders of
     /// fixed bodies and [`TerrainCollider`]s are only in the physics world
-    /// near entities with a [`ColliderFocus`] (and a [`Transform3D`]), at
+    /// near entities with a [`ColliderFocus`] (and a [`d3::Transform`](crate::d3::Transform)), at
     /// most `max_new` more each step, nearest first, so a big world's
     /// colliders come in over a few steps. `None` turns it off: every
     /// collider comes back at the next step. Drawing isn't affected, so

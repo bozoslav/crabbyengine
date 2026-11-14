@@ -2,6 +2,11 @@
 - `ponko::stream` merged into `ponko::streaming`: `stream::Job` and
   `stream::CellStreamer` are `streaming::Job` and `streaming::CellStreamer`.
   The old names stay as deprecated aliases until 0.3.0.
+- The prelude's renamed spellings `Transform2D`, `Camera2D`, `Transform3D`
+  and `Camera3D` are deprecated aliases until 0.3.0: write `d2::Transform`,
+  `d2::Camera`, `d3::Transform` and `d3::Camera` (the prelude brings the `d2`
+  and `d3` modules), the names rustdoc shows. Saved and reflected component
+  names (`"Transform2D"`, ...) don't change.
 
 ### Breaking changes
 - The `ponko::physics` module is gone: 2D physics lives in `ponko::d2`.

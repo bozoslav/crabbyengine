@@ -494,7 +494,7 @@ impl ParticleSettings2D {
     }
 }
 
-/// A 2D particle pool component, paired with a [`Transform2D`]. The
+/// A 2D particle pool component, paired with a [`d2::Transform`](crate::d2::Transform). The
 /// engine advances it after the frame systems (the end of
 /// [`Phase::Animate`](crate::game::Phase::Animate),
 /// [`Systems::UPDATE_PARTICLES`](crate::game::Systems::UPDATE_PARTICLES))

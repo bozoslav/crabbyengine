@@ -141,7 +141,7 @@ impl TerrainMaterialDesc {
 pub const TERRAIN_LODS: usize = 4;
 
 /// A square of terrain from a grid of heights, made with
-/// [`Graphics::create_terrain_tile`](crate::gfx::Graphics::create_terrain_tile). Spawn it with a [`Transform3D`](crate::d3::Transform)
+/// [`Graphics::create_terrain_tile`](crate::gfx::Graphics::create_terrain_tile). Spawn it with a [`d3::Transform`](crate::d3::Transform)
 /// at the tile's corner, instead of a [`Model`](crate::render::Model). The renderer
 /// picks a detail level by how far the camera is: the full grid nearer than
 /// `lod_distance`, then every 2nd height to twice that, every 4th to four

@@ -129,14 +129,14 @@ fn steer(bounds: Vec2) -> impl FnMut(&mut Ctx) {
         let (dt, random) = (ctx.dt(), ctx.random());
         food_grid.rebuild_from(
             ctx.world
-                .query::<(Entity, &Transform2D, &Food)>()
+                .query::<(Entity, &d2::Transform, &Food)>()
                 .iter()
                 .map(|(e, t, _)| (e, t.position)),
         );
         let field = ctx.world.remove_resource::<Field>().expect("field");
         let (grid, f) = (&food_grid, &field);
         ctx.world
-            .query::<(Entity, &mut Transform2D, &mut Ant)>()
+            .query::<(Entity, &mut d2::Transform, &mut Ant)>()
             .par_for_each(|(e, t, ant)| {
                 let mut rng = random.of(e);
                 let p = t.position;
@@ -190,7 +190,7 @@ fn steer(bounds: Vec2) -> impl FnMut(&mut Ctx) {
 /// way", carrying ants lay "food is this way"; fresher trails are stronger.
 fn lay_trails(ctx: &mut Ctx) {
     let mut field = ctx.world.remove_resource::<Field>().expect("field");
-    ctx.world.query::<(&Transform2D, &Ant)>().for_each(|(t, ant)| {
+    ctx.world.query::<(&d2::Transform, &Ant)>().for_each(|(t, ant)| {
         if let Some(i) = field.index(t.position) {
             let strength = (1.0 - ant.since / 30.0).max(0.0);
             let layer = if ant.carrying {
@@ -221,13 +221,13 @@ fn forage(ctx: &mut Ctx) {
     let mut food_grid = SpatialGrid::new(8.0);
     food_grid.rebuild_from(
         ctx.world
-            .query::<(Entity, &Transform2D, &Food)>()
+            .query::<(Entity, &d2::Transform, &Food)>()
             .iter()
             .map(|(e, t, _)| (e, t.position)),
     );
     let grid = &food_grid;
     ctx.world
-        .query::<(Entity, &Transform2D, &mut Ant)>()
+        .query::<(Entity, &d2::Transform, &mut Ant)>()
         .par_for_each(|(e, t, ant)| {
             ant.event = Event::None;
             if ant.energy <= 0.0 {
@@ -294,7 +294,7 @@ fn grow(bounds: Vec2) -> impl FnMut(&mut Ctx) {
             .for_each(|a| *counts.entry(a.home).or_insert(0u32) += 1);
         let mut nests = Vec::new();
         ctx.world
-            .query::<(Entity, &Transform2D, &mut Nest)>()
+            .query::<(Entity, &d2::Transform, &mut Nest)>()
             .for_each(|(e, t, n)| {
                 n.ants = counts.get(&e).copied().unwrap_or(0);
                 let born = n.stored.min(n.max_ants.saturating_sub(n.ants));
@@ -330,7 +330,7 @@ fn spawn_ant(cmds: &mut Commands, sprite: Option<Texture>, home: Entity, at: Vec
         energy: LIFESPAN,
         event: Event::None,
     };
-    let t = Transform2D::at(at).rotated(heading);
+    let t = d2::Transform::at(at).rotated(heading);
     match sprite {
         Some(tex) => cmds.spawn((t, ant, Sprite::new(tex).with_color(Color::hex(0xD4553A)))),
         None => cmds.spawn((t, ant)),
@@ -345,7 +345,7 @@ fn spawn_food(cmds: &mut Commands, rng: &mut Rng, bounds: Vec2, nests: &[Vec2]) 
             break p;
         }
     };
-    cmds.spawn((Transform2D::at(p), Food { amount: 400 }));
+    cmds.spawn((d2::Transform::at(p), Food { amount: 400 }));
 }
 
 /// The simulation, shared by the windowed and headless runs.
@@ -378,7 +378,7 @@ fn setup(ctx: &mut Ctx, bounds: Vec2, ants: usize, sprite: Option<Texture>) {
                 max_ants: per_nest as u32 * 2,
                 ants: per_nest as u32,
             };
-            let home = ctx.world.spawn((Transform2D::at(at), nest));
+            let home = ctx.world.spawn((d2::Transform::at(at), nest));
             homes.push(at);
             for _ in 0..per_nest {
                 spawn_ant(&mut ctx.commands, sprite, home, at, rng.angle());
@@ -490,10 +490,10 @@ fn draw_world(bounds: Vec2) -> impl FnMut(&mut Ctx) {
         );
 
         dots.clear();
-        ctx.world.query::<(&Transform2D, &Food)>().for_each(|(t, f)| {
+        ctx.world.query::<(&d2::Transform, &Food)>().for_each(|(t, f)| {
             dots.push((t.position, 2.0 + (f.amount as f32).sqrt() / 2.0, Color::hex(0x7BD389)));
         });
-        ctx.world.query::<(&Transform2D, &Nest)>().for_each(|(t, _)| {
+        ctx.world.query::<(&d2::Transform, &Nest)>().for_each(|(t, _)| {
             dots.push((t.position, NEST_RADIUS, Color::hex(0x8E5A3C)));
         });
         for &(p, radius, color) in &dots {

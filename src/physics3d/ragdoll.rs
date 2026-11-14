@@ -82,7 +82,7 @@ struct Bone {
 }
 
 /// A skeleton in physics' hands, on the entity with the [`Skeleton`] and
-/// [`Transform3D`]; made by [`Ctx::start_ragdoll`], ended by
+/// [`d3::Transform`](crate::d3::Transform); made by [`Ctx::start_ragdoll`], ended by
 /// [`Ctx::stop_ragdoll`]. While it lasts, the entity's
 /// [`Animator`](crate::anim::Animator) is paused and the pose follows the bodies.
 /// Push it with [`Physics3D::apply_impulse`] on [`body`](Self::body).
@@ -167,7 +167,7 @@ impl Ctx {
     /// Hands `entity`'s skeleton to physics, posed as it is now: one capsule
     /// body per bone in `bones`, joined to the nearest chosen bone above it.
     /// Needs [`Game::physics3d`](crate::game::Game::physics3d), and a [`Skeleton`] and
-    /// [`Transform3D`] on `entity`. Starting again restarts it.
+    /// [`d3::Transform`](crate::d3::Transform) on `entity`. Starting again restarts it.
     ///
     /// Remove or disable the entity's own collider or [`Character3D`] first,
     /// or the bones collide with it. Bones joined to each other don't collide.

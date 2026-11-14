@@ -159,7 +159,7 @@ pub struct Ctx {
     /// }
     /// ```
     pub commands: Commands,
-    /// Neighbor queries over every entity's [`Transform2D`] position; filled
+    /// Neighbor queries over every entity's [`d2::Transform`](crate::d2::Transform) position; filled
     /// at the start of each simulation tick once enabled with
     /// [`Game::spatial_grid`](crate::game::Game::spatial_grid) (empty otherwise).
     pub spatial: SpatialGrid,
@@ -230,7 +230,7 @@ pub struct Ctx {
     window_size: Vec2,
     quit_requested: bool,
     /// Which part of the world the window shows. Move it, zoom it, or make
-    /// it follow something; see [`Camera2D`].
+    /// it follow something; see [`d2::Camera`](crate::d2::Camera).
     ///
     /// ```
     /// # use ponko::prelude::*;
