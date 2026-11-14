@@ -55,6 +55,20 @@ files = [
     { from = "examples/coin_dash/PACKAGE-README.txt", to = "README.txt" },
 ]
 
+# The second reference game, a platformer (book/src/ember-hop.md):
+# `ponko package --example ember_hop --features physics`.
+[package.metadata.ponko.examples.ember_hop]
+name = "Ember Hop"
+id = "dev.ponko.ember-hop"
+assets = ["assets/ember_hop"]
+files = [
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "NOTICE",
+    "examples/ember_hop/CONTENT-NOTICES.txt",
+    { from = "examples/ember_hop/PACKAGE-README.txt", to = "README.txt" },
+]
+
 [dependencies]
 taffy = { version = "0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "content_size"] }
 navmesh-rs = { version = "0.2.1", optional = true, default-features = false, features = ["std", "libm", "recast", "detour", "crowd", "tilecache", "polyref64"] }
@@ -256,6 +270,10 @@ required-features = ["physics"]
 
 [[example]]
 name = "level"
+required-features = ["physics"]
+
+[[example]]
+name = "ember_hop"
 required-features = ["physics"]
 
 [[example]]
