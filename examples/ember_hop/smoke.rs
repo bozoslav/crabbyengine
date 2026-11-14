@@ -197,9 +197,11 @@ pub fn autopilot(ctx: &mut Ctx) {
     }
     let filter = QueryFilter::default().exclude(hero);
     let feet = at.y + HERO_OFFSET.y + HERO_SIZE.y / 2.0;
-    let wall = [feet - 3.0, at.y]
-        .iter()
-        .any(|&y| ctx.physics.cast_ray(vec2(at.x, y), vec2(1.0, 0.0), 10.0, filter).is_some());
+    let wall = [feet - 3.0, at.y].iter().any(|&y| {
+        ctx.physics
+            .cast_ray(vec2(at.x, y), vec2(1.0, 0.0), 10.0, filter)
+            .is_some()
+    });
     let gap = ctx
         .physics
         .cast_ray(vec2(at.x + 9.0, feet - 2.0), vec2(0.0, 1.0), 20.0, filter)

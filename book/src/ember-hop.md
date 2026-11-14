@@ -211,8 +211,8 @@ Coin Dash, the game publishes its state on `<html data-smoke>` (ticks,
 frames, the hero picture's size, the screen, the cave, the sparks, the
 storage), so the browser runner of `web/smoke` and the planned web gallery
 ([#373](https://github.com/ponkoengine/ponko/issues/373)) can drive and check
-it; its browser run comes with the gallery. Music before the first click
-waits on [#419](https://github.com/ponkoengine/ponko/issues/419).
+it; its browser run comes with the gallery. In a browser the music starts
+at the player's first click or key press ([Audio](audio.md#in-a-browser)).
 
 ## Gap list
 
@@ -223,7 +223,6 @@ waits on [#419](https://github.com/ponkoengine/ponko/issues/419).
 | No way to hold only the physics step; `ctx.time.pause()` is ignored headless. | [#439](https://github.com/ponkoengine/ponko/issues/439) |
 | Sprites have no flip; the hero uses a negative scale. | [#440](https://github.com/ponkoengine/ponko/issues/440) |
 | No browser run of this game yet, and no gallery page. | [#373](https://github.com/ponkoengine/ponko/issues/373) |
-| Web audio starts after the first click; music asked for earlier is lost. | [#419](https://github.com/ponkoengine/ponko/issues/419) |
 | Rust only; no C or C++ counterpart. | No native port planned yet |
 
 ## Assets and licenses

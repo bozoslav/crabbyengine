@@ -33,8 +33,9 @@
 pub mod smoke;
 
 use ponko::d2::{
-    Animation, AutoTile, BlendMode, Collider, CollisionStarted, LevelLayer, LevelObject, LevelOptions, LevelRoot, ParticleEmitter,
-    ParticleSettings, ParticleShape, QueryFilter, RigidBody, SpriteSheet, TileMap, Transform, Velocity,
+    Animation, AutoTile, BlendMode, Collider, CollisionStarted, LevelLayer, LevelObject, LevelOptions, LevelRoot,
+    ParticleEmitter, ParticleSettings, ParticleShape, QueryFilter, RigidBody, SpriteSheet, TileMap, Transform,
+    Velocity,
 };
 use ponko::input::{Gamepad, GamepadAxis, GamepadButton};
 use ponko::particles::{ParticleCurve, ParticleGradient};
@@ -222,10 +223,16 @@ pub enum Screen {
     Paused,
     /// The hero was lost; the run starts again at the last brazier after
     /// [`DEATH_DELAY`].
-    Dying { t: f32 },
+    Dying {
+        t: f32,
+    },
     /// Fading out of a level and into the next one (`to`), or to the end
     /// (`None`). The level is swapped halfway.
-    Transition { to: Option<usize>, t: f32, swapped: bool },
+    Transition {
+        to: Option<usize>,
+        t: f32,
+        swapped: bool,
+    },
     /// Every level done: the results, until any key or button.
     Finished,
 }
@@ -326,10 +333,7 @@ pub struct EmberHop;
 
 impl Plugin for EmberHop {
     fn build(&self, game: Game) -> Game {
-        game.plugin(Controls)
-            .plugin(Rules)
-            .plugin(Presentation)
-            .plugin(Music)
+        game.plugin(Controls).plugin(Rules).plugin(Presentation).plugin(Music)
     }
 }
 
@@ -380,7 +384,10 @@ pub fn bindings() -> ActionMap {
     map.set("dpad_right", with_pad(vec![], &[GamepadButton::DPadRight]));
     map.set(
         "jump",
-        with_pad(keys(&[Key::Space, Key::Up, Key::W, Key::Z, Key::K]), &[GamepadButton::South]),
+        with_pad(
+            keys(&[Key::Space, Key::Up, Key::W, Key::Z, Key::K]),
+            &[GamepadButton::South],
+        ),
     );
     map.set(
         "flare",
@@ -390,9 +397,15 @@ pub fn bindings() -> ActionMap {
         ),
     );
     map.set("pause", with_pad(keys(&[Key::Escape, Key::P]), &[GamepadButton::Start]));
-    map.set("confirm", with_pad(keys(&[Key::Enter, Key::Space]), &[GamepadButton::South]));
+    map.set(
+        "confirm",
+        with_pad(keys(&[Key::Enter, Key::Space]), &[GamepadButton::South]),
+    );
     map.set("continue", with_pad(keys(&[Key::C]), &[GamepadButton::North]));
-    map.set("back", with_pad(keys(&[Key::Q]), &[GamepadButton::East, GamepadButton::Select]));
+    map.set(
+        "back",
+        with_pad(keys(&[Key::Q]), &[GamepadButton::East, GamepadButton::Select]),
+    );
     map
 }
 // ANCHOR_END: controls
@@ -416,7 +429,8 @@ impl Plugin for Controls {
 pub fn read_input(ctx: &mut Ctx) {
     let act = *ctx.world.resource::<Act>();
     let input = &ctx.input;
-    let dpad = f32::from(u8::from(input.action_down(act.dpad_right))) - f32::from(u8::from(input.action_down(act.dpad_left)));
+    let dpad =
+        f32::from(u8::from(input.action_down(act.dpad_right))) - f32::from(u8::from(input.action_down(act.dpad_left)));
     let move_x = (input.action_axis(act.movement) + dpad).clamp(-1.0, 1.0);
     let jump_held = input.action_down(act.jump);
     let jump = input.action_pressed(act.jump);
@@ -557,7 +571,9 @@ pub fn to_title(ctx: &mut Ctx) {
 
 /// A saved run to continue.
 pub fn has_saved_run(storage: &Storage) -> bool {
-    storage.world_slots().is_ok_and(|slots| slots.iter().any(|s| s == RUN_SLOT))
+    storage
+        .world_slots()
+        .is_ok_and(|slots| slots.iter().any(|s| s == RUN_SLOT))
 }
 
 /// Starts a new run on the first level.
@@ -595,12 +611,7 @@ pub fn enter_level(ctx: &mut Ctx, index: usize) {
         // A level that doesn't load is a broken install: say which file.
         panic!("ember_hop: level {} doesn't load: {e}", LEVELS[index]);
     }
-    let total = ctx
-        .world
-        .query::<&Spark>()
-        .iter()
-        .map(|s| s.value)
-        .sum::<u32>();
+    let total = ctx.world.query::<&Spark>().iter().map(|s| s.value).sum::<u32>();
     ctx.world.resource_mut::<Run>().level_total = total;
     let start = ctx
         .world
@@ -672,12 +683,7 @@ pub fn spawn_level(ctx: &mut Ctx, index: usize) -> Result<Entity, Error> {
     }
 
     // Pixel art: no smoothing on the tileset either.
-    let sheets: Vec<Texture> = ctx
-        .world
-        .query::<&TileMap>()
-        .iter()
-        .map(|m| m.sheet.texture)
-        .collect();
+    let sheets: Vec<Texture> = ctx.world.query::<&TileMap>().iter().map(|m| m.sheet.texture).collect();
     for texture in sheets {
         ctx.gfx.set_texture_filter(texture, TextureFilter::Nearest);
     }
@@ -707,7 +713,12 @@ pub fn spawn_level(ctx: &mut Ctx, index: usize) -> Result<Entity, Error> {
 pub fn decorate(ctx: &mut Ctx) {
     let art = *ctx.world.resource::<Art>();
     let mut add: Vec<(Entity, Animation)> = Vec::new();
-    for (e, sprite) in ctx.world.query::<(Entity, &Sprite)>().filter::<Without<Animation>>().iter() {
+    for (e, sprite) in ctx
+        .world
+        .query::<(Entity, &Sprite)>()
+        .filter::<Without<Animation>>()
+        .iter()
+    {
         let t = sprite.texture;
         let animation = if t == art.spark.texture {
             Some(Animation::new(art.spark, 0..4, 8.0))
@@ -720,7 +731,12 @@ pub fn decorate(ctx: &mut Ctx) {
         };
         add.extend(animation.map(|a| (e, a)));
     }
-    for (e, cp) in ctx.world.query::<(Entity, &Checkpoint)>().filter::<Without<Animation>>().iter() {
+    for (e, cp) in ctx
+        .world
+        .query::<(Entity, &Checkpoint)>()
+        .filter::<Without<Animation>>()
+        .iter()
+    {
         if cp.lit {
             add.push((e, Animation::new(art.brazier, 1..3, 6.0)));
         }
@@ -838,10 +854,7 @@ fn finish_run(ctx: &mut Ctx) {
 /// Sim system, after the physics step: the whole game.
 pub fn rules(ctx: &mut Ctx) {
     let dt = ctx.dt();
-    let intent = std::mem::replace(
-        ctx.world.resource_mut::<Intent>(),
-        Intent::default(),
-    );
+    let intent = std::mem::replace(ctx.world.resource_mut::<Intent>(), Intent::default());
     // The latched presses are used up; what is held stays.
     {
         let held = ctx.world.resource_mut::<Intent>();
@@ -904,7 +917,11 @@ pub fn rules(ctx: &mut Ctx) {
                 }
             }
             *ctx.world.resource_mut::<Screen>() = if t >= 2.0 * FADE {
-                if to.is_some() { Screen::Playing } else { Screen::Finished }
+                if to.is_some() {
+                    Screen::Playing
+                } else {
+                    Screen::Finished
+                }
             } else {
                 Screen::Transition { to, t, swapped }
             };
@@ -1016,8 +1033,16 @@ fn move_hero(ctx: &mut Ctx, hero: Entity, intent: &Intent, dt: f32) {
             return;
         };
         player.grounded = grounded;
-        player.coyote = if grounded { COYOTE } else { (player.coyote - dt).max(0.0) };
-        player.buffer = if intent.jump { JUMP_BUFFER } else { (player.buffer - dt).max(0.0) };
+        player.coyote = if grounded {
+            COYOTE
+        } else {
+            (player.coyote - dt).max(0.0)
+        };
+        player.buffer = if intent.jump {
+            JUMP_BUFFER
+        } else {
+            (player.buffer - dt).max(0.0)
+        };
         player.flare = (player.flare - dt).max(0.0);
         let target = intent.move_x * RUN_SPEED;
         let grip = if grounded { 20.0 } else { 9.0 };
@@ -1045,7 +1070,12 @@ fn move_hero(ctx: &mut Ctx, hero: Entity, intent: &Intent, dt: f32) {
     if jumped {
         ctx.world.resource_mut::<Tally>().jumps += 1;
         let art = *ctx.world.resource::<Art>();
-        burst(ctx, vec2(at.x, feet), puff(art.ember, Color::hex(0x9a8fb0), 6, 30.0), 0.5);
+        burst(
+            ctx,
+            vec2(at.x, feet),
+            puff(art.ember, Color::hex(0x9a8fb0), 6, 30.0),
+            0.5,
+        );
         sfx(ctx, |s| s.jump);
     }
 }
@@ -1060,8 +1090,12 @@ fn flare(ctx: &mut Ctx, hero: Entity, at: Vec2) {
         p.flare = FLARE_COOLDOWN;
     }
     let mut near = Vec::new();
-    ctx.physics
-        .overlap_circle(at, FLARE_RADIUS, QueryFilter::default().with_sensors().exclude(hero), &mut near);
+    ctx.physics.overlap_circle(
+        at,
+        FLARE_RADIUS,
+        QueryFilter::default().with_sensors().exclude(hero),
+        &mut near,
+    );
     let art = *ctx.world.resource::<Art>();
     for e in near {
         if ctx.world.has::<Drip>(e) {
@@ -1399,7 +1433,11 @@ pub fn screen_lines(world: &World, storage: &Storage) -> Vec<Line> {
         }
         Screen::Paused => vec![
             line("Paused", 48.0, title),
-            line("Esc / Start: resume    Q / B: to the title (the run is saved)", 20.0, text),
+            line(
+                "Esc / Start: resume    Q / B: to the title (the run is saved)",
+                20.0,
+                text,
+            ),
         ],
         Screen::Finished => {
             let run = world.resource::<Run>();
@@ -1450,7 +1488,12 @@ fn hud(ctx: &mut Ctx) {
     let notice = ctx.world.resource::<Notice>().clone();
     if notice.seconds > 0.0 {
         let width = ctx.gfx.measure_text(&notice.text, 18.0).x;
-        ctx.draw_text(&notice.text, vec2((WINDOW.x - width) / 2.0, 44.0), 18.0, Color::hex(0xffd35a));
+        ctx.draw_text(
+            &notice.text,
+            vec2((WINDOW.x - width) / 2.0, 44.0),
+            18.0,
+            Color::hex(0xffd35a),
+        );
     }
     let lines = screen_lines(&ctx.world, &ctx.storage);
     let height: f32 = lines.iter().map(|l| l.size * 1.4).sum();

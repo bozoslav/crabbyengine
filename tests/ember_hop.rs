@@ -65,7 +65,11 @@ fn teleport(ctx: &mut Ctx, at: Vec2) {
 
 /// Where the first entity with component `T` is.
 fn first<T: Component>(ctx: &mut Ctx) -> Option<Vec2> {
-    ctx.world.query::<(&Transform, &T)>().iter().next().map(|(t, _)| t.position)
+    ctx.world
+        .query::<(&Transform, &T)>()
+        .iter()
+        .next()
+        .map(|(t, _)| t.position)
 }
 
 fn screen(world: &World) -> Screen {
@@ -199,7 +203,10 @@ fn a_held_jump_clears_three_tiles_and_lands_again() {
     let (height, start, end, tally) = jump_height("jump", 60);
     assert_eq!(tally.jumps, 1);
     assert!(height > 48.0 && height < 60.0, "jumped {height} pixels");
-    assert!((end.y - start.y).abs() < 1.0, "landed where it started: {start} -> {end}");
+    assert!(
+        (end.y - start.y).abs() < 1.0,
+        "landed where it started: {start} -> {end}"
+    );
 }
 
 #[test]
@@ -298,7 +305,11 @@ fn walking_into_a_drip_loses_the_hero_and_starts_the_level_again() {
     assert_eq!(screen(&world), Screen::Playing, "back after the loss");
     let run = world.resource::<Run>().clone();
     assert_eq!(run.deaths, 1);
-    assert_eq!((run.sparks, run.level_sparks), (0, 0), "the spark is back: the level's start was saved");
+    assert_eq!(
+        (run.sparks, run.level_sparks),
+        (0, 0),
+        "the spark is back: the level's start was saved"
+    );
     assert_eq!(world.query::<&Spark>().iter().count(), 11);
     assert_eq!(world.resource::<Tally>().loads, 1);
     let at = hero_in(&mut world).unwrap();
@@ -338,7 +349,11 @@ fn spikes_water_and_the_fall_are_hazards() {
             }
         })
         .run_headless(8, |_| {});
-        assert!(matches!(screen(&world), Screen::Dying { .. }), "{name}: {:?}", screen(&world));
+        assert!(
+            matches!(screen(&world), Screen::Dying { .. }),
+            "{name}: {:?}",
+            screen(&world)
+        );
     }
 }
 
@@ -431,7 +446,11 @@ fn the_way_out_leads_to_the_next_level() {
     assert_eq!(world2.resource::<Run>().level, 1);
     assert_eq!(world2.resource::<CurrentLevel>().title, "The Dripping Deep");
     assert_eq!(world2.resource::<Tally>().levels_cleared, 1);
-    assert_eq!(world2.query::<&LevelRoot>().iter().count(), 1, "the first level is gone");
+    assert_eq!(
+        world2.query::<&LevelRoot>().iter().count(),
+        1,
+        "the first level is gone"
+    );
     assert!(hero_in(&mut world2).is_some());
     let _ = hero_in(&mut world);
 }
@@ -502,7 +521,11 @@ fn continue_picks_up_the_saved_run_from_the_title() {
     let at = hero_in(&mut world).unwrap();
     assert!(at.distance(brazier.get()) < 4.0, "continued at the brazier: {at}");
     assert_eq!(world.query::<&LevelRoot>().iter().count(), 1);
-    assert_eq!(world.query::<&Exit>().iter().count(), 1, "one way out, not the saved one and the file's");
+    assert_eq!(
+        world.query::<&Exit>().iter().count(),
+        1,
+        "one way out, not the saved one and the file's"
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -646,7 +669,10 @@ fn the_camera_follows_the_hero_and_stays_inside_the_level() {
     let (_, hero_end, camera_end) = at(129);
     let size = world.resource::<CurrentLevel>().size;
     let half = vec2(WINDOW.x, WINDOW.y) / ZOOM / 2.0;
-    assert!((camera_end.x - (size.x - half.x)).abs() < 1.0, "stopped at the level's right edge: {camera_end}");
+    assert!(
+        (camera_end.x - (size.x - half.x)).abs() < 1.0,
+        "stopped at the level's right edge: {camera_end}"
+    );
     assert!(hero_end.x > camera_end.x, "the hero is right of the centre there");
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -681,14 +707,27 @@ fn any_key_or_button_leaves_the_end_screen() {
 fn the_autopilot_plays_the_whole_game() {
     let dir = data_dir("autopilot");
     let world = game::smoke::smoke_game(Game::new("ember hop smoke", 960, 540).data_dir(&dir))
-        .run_headless(game::smoke::MAX_TICKS + 1, |ctx| game::smoke::setup_smoke(ctx, None, "test"));
+        .run_headless(game::smoke::MAX_TICKS + 1, |ctx| {
+            game::smoke::setup_smoke(ctx, None, "test")
+        });
     let smoke = world.resource::<game::smoke::Smoke>();
     let report = smoke.report();
     assert!(smoke.finished(), "{report:#?}");
     assert_eq!(report.levels_cleared, 2);
     assert_eq!(
         report.screens,
-        ["Title", "Playing", "Transition", "Playing", "Paused", "Title", "Playing", "Transition", "Finished", "Title"]
+        [
+            "Title",
+            "Playing",
+            "Transition",
+            "Playing",
+            "Paused",
+            "Title",
+            "Playing",
+            "Transition",
+            "Finished",
+            "Title"
+        ]
     );
     assert!(report.loads >= 1, "continued the saved run");
     assert!(report.drips_burned >= 3);
@@ -715,6 +754,9 @@ fn every_file_the_game_ships_is_in_the_content_notices() {
     }
     assert!(files.len() > 20, "{files:?}");
     for file in files {
-        assert!(notices.contains(&format!("assets/{file}")), "{file} isn't in CONTENT-NOTICES.txt");
+        assert!(
+            notices.contains(&format!("assets/{file}")),
+            "{file} isn't in CONTENT-NOTICES.txt"
+        );
     }
 }
