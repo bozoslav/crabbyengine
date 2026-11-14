@@ -51,7 +51,11 @@ pub unsafe extern "C" fn ponko_world_set_saved(world: *mut PonkoWorld, entity: u
 /// # Safety
 /// `world` must be null or live; `out_saved` writable.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn ponko_world_is_saved(world: *mut PonkoWorld, entity: u64, out_saved: *mut bool) -> PonkoStatus {
+pub unsafe extern "C" fn ponko_world_is_saved(
+    world: *mut PonkoWorld,
+    entity: u64,
+    out_saved: *mut bool,
+) -> PonkoStatus {
     boundary(|| {
         if out_saved.is_null() {
             return Err(invalid("output is null"));

@@ -20,7 +20,12 @@ fn saved(w: *mut PonkoWorld) -> Vec<u64> {
     let mut len = 0;
     unsafe { assert_eq!(ponko_world_save(w, null_mut(), 0, &mut len), PONKO_OK) };
     let mut buf = vec![0u8; len + 1];
-    unsafe { assert_eq!(ponko_world_save(w, buf.as_mut_ptr().cast(), buf.len(), &mut len), PONKO_OK) };
+    unsafe {
+        assert_eq!(
+            ponko_world_save(w, buf.as_mut_ptr().cast(), buf.len(), &mut len),
+            PONKO_OK
+        )
+    };
     let json: serde_json::Value = serde_json::from_slice(&buf[..len]).unwrap();
     let mut ids: Vec<u64> = json["entities"]
         .as_array()
@@ -73,7 +78,10 @@ unsafe extern "C" fn play(ctx: *mut PonkoCtx, user: *mut c_void) {
         let at = PonkoVec2 { x: 0.0, y: 0.0 };
         let w = ponko_ctx_world(ctx);
         let mut root = 0;
-        assert_eq!(ponko_ctx_spawn_level(ctx, run.path.as_ptr(), at, &options, &mut root), PONKO_OK);
+        assert_eq!(
+            ponko_ctx_spawn_level(ctx, run.path.as_ptr(), at, &options, &mut root),
+            PONKO_OK
+        );
         let level = entities(w, root);
         // Only the two coins, spawned as prefabs, are saved.
         let mut coins: Vec<u64> = level.iter().copied().filter(|&e| is_saved(w, e)).collect();
