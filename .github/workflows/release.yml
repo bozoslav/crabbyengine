@@ -36,7 +36,12 @@ name: Release
 #     candidate's crates are at X.Y.Z-rc.N, which crates.io and Cargo treat as
 #     a pre-release: `cargo add ponko` and `ponko = "0.2"` never select them;
 #   - redeploys the website and guide (`website`), if the
-#     PONKO_WEBSITE_DEPLOY_HOOK secret exists.
+#     PONKO_WEBSITE_DEPLOY_HOOK secret exists;
+#   - builds the web gallery of the examples for the tag and checks every
+#     page in headless Chromium (`gallery`, no permissions; before approval),
+#     and once the release is published deploys it to the repository's GitHub
+#     Pages with the built-in token (`gallery-pages`), for a release (not a
+#     candidate) that is the newest version (web/gallery/README.md).
 # Triggers: only a tag push. Never pull_request_target or workflow_run: they
 # run with secrets and write access on input an outsider can influence.
 on:
@@ -192,8 +197,98 @@ jobs:
           curl --fail --silent --show-error --request POST "$DEPLOY_HOOK"
           echo "Redeploy of the website requested."
 
+  # The web gallery (web/gallery/README.md): every example of
+  # web/gallery/examples.json built for the browser, a page each with its
+  # source at this tag, and an index. Each page is opened in headless Chromium
+  # on WebGL2 (WebGPU hidden; what visitors without WebGPU get, and what a
+  # GPU-less runner can draw): it must start, keep drawing, survive a click
+  # and not be blank, or, for a demo that needs WebGPU, say so. Publishes
+  # nothing: the site goes up as an artifact for `gallery-pages`.
+  gallery:
+    name: Web gallery (build and check)
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Find the wasm-bindgen version in Cargo.lock
+        run: echo "WASM_BINDGEN=$(awk '/^name = "wasm-bindgen"$/ { getline; gsub(/version = |"/, ""); print }' Cargo.lock)" >> "$GITHUB_ENV"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ env.WASM_BINDGEN }}
+      - name: Install the browser runner and Chromium's headless shell
+        run: |
+          npm ci --prefix web/smoke --no-audit --no-fund
+          bash scripts/ci-retry.sh node web/smoke/node_modules/playwright-core/cli.js install --with-deps --only-shell chromium
+      - name: Gallery tests (manifest, pages, check decisions)
+        run: node --test web/gallery/*.test.mjs web/smoke/gallery-lib.test.mjs
+      - name: Build the gallery for the tag
+        run: node web/gallery/build.mjs --ref "$GITHUB_REF_NAME" --out target/web/gallery
+      - name: Check every page (Chromium, WebGL2)
+        run: node web/smoke/gallery.mjs --dir target/web/gallery --browser chromium --backend webgl2
+      - name: Summary of every page
+        if: ${{ !cancelled() }}
+        run: node web/smoke/summary.mjs target/web-smoke
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: gallery-check
+          path: target/web-smoke
+          retention-days: 7
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/web/gallery
+          retention-days: 7
+
+  # Puts the gallery on GitHub Pages (https://ponkoengine.github.io/ponko/),
+  # after the approved `publish`, with the built-in token only. A candidate
+  # gets no gallery, and neither does a release older than the newest one (a
+  # patch of an older minor), so the gallery always shows the newest release.
+  # Pages must be set up once (CONTRIBUTING.md, "One-time setup"): without it
+  # this job says so and skips the deployment. Re-run it once it is set up.
+  gallery-pages:
+    name: Publish the web gallery (GitHub Pages)
+    needs: [publish, gallery]
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write # deploy, and read whether Pages is set up
+      id-token: write # deploy-pages proves the deployment came from this run
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # every tag, to find the newest release
+      - name: Is this the newest release, and is Pages set up?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          newest=$(git tag --list 'v[0-9]*' | grep -v -- - | sort -V | tail -n 1)
+          if [ "$newest" != "$GITHUB_REF_NAME" ]; then
+            echo "::notice::$GITHUB_REF_NAME is not the newest release ($newest is): the gallery keeps showing $newest."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! source=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .build_type 2> /dev/null) || [ "$source" != workflow ]; then
+            echo "::warning::GitHub Pages is not set up to deploy from GitHub Actions (Settings, Pages, Source: GitHub Actions), so the web gallery was not published. Set it up (CONTRIBUTING.md, \"One-time setup\") and re-run this job."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "deploy=true" >> "$GITHUB_OUTPUT"
+      - name: Deploy
+        id: deploy
+        if: steps.check.outputs.deploy == 'true'
+        uses: actions/deploy-pages@v5
+
   # Every release job depends on this one (c-library and publish-check, then
-  # publish and website through them): nothing is built, released or
+  # publish and website through them, and the gallery): nothing is built, released or
   # published unless the tag, the crates' versions and the CHANGELOG section
   # agree, the section fits in a GitHub release body (125,000 characters),
   # the tagged commit was merged to main or to the release-X.Y branch of the

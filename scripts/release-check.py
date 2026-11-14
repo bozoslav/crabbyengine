@@ -9,7 +9,9 @@
                                     Actions API with GITHUB_TOKEN)
     release-check.py notes TAG FILE
                                     write that version's CHANGELOG section,
-                                    the GitHub release's notes, to FILE
+                                    the GitHub release's notes, to FILE (a
+                                    release's notes end with a link to the
+                                    web gallery of the examples)
     release-check.py published      every version of our crates on crates.io
                                     has a git tag (a scheduled workflow runs it)
     release-check.py selftest       check the decisions with made-up input
@@ -155,6 +157,19 @@ def candidate_preamble(version):
     return (f"Release candidate of {version.split('-')[0]}, for testing. Cargo does not select it "
             f"unless the version is written out (`ponko = \"{version}\"`); the release follows "
             "unchanged if no regression turns up.\n\n")
+
+
+# The web gallery of the examples (web/gallery/README.md), which the release
+# workflow publishes for a release that is the newest version.
+GALLERY_URL = "https://ponkoengine.github.io/ponko/"
+
+
+def gallery_line(version):
+    """The line a release's notes end with: where to play its examples. None for a candidate (no gallery)."""
+    if is_candidate(version):
+        return None
+    return (f"\n**Play the examples in a browser:** {GALLERY_URL} (the web gallery of the newest "
+            f"release; each page links the example's source).\n")
 
 
 def release_notes(section):
@@ -400,6 +415,7 @@ def notes(tag, out):
     if chosen is None or not any(l.strip() for l in chosen[1]):
         sys.exit(f"CHANGELOG.md has no notes for {version}")
     text = (candidate_preamble(version) if is_candidate(version) else "") + release_notes(chosen[1])
+    text += gallery_line(version) or ""
     if len(text) > MAX_NOTES:
         sys.exit(f"the notes for {version} have {len(text):,} characters; GitHub allows {MAX_NOTES:,}")
     Path(out).write_text(text, encoding="utf-8")
@@ -650,6 +666,8 @@ def selftest():
     assert release_branch("0.1.1") == "release-0.1" and release_branch("0.2.0-rc.1") == "release-0.2"
     assert release_branch("1.4.2") == "release-1.4"
     assert candidate_preamble("0.3.0-rc.1").startswith("Release candidate of 0.3.0, for testing.")
+    assert GALLERY_URL in gallery_line("0.3.0"), "a release's notes link the web gallery"
+    assert gallery_line("0.3.0-rc.1") is None, "a candidate publishes no gallery, so its notes don't link one"
     assert "ponko = \"0.3.0-rc.1\"" in candidate_preamble("0.3.0-rc.1")
     assert untagged({"ponko": ["0.0.1", "0.0.2"], "ponko_ecs": ["0.0.1"]}, {"v0.0.1"}) == [
         ("ponko", "0.0.2")

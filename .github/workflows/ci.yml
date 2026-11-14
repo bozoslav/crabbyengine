@@ -608,10 +608,12 @@ jobs:
         env:
           PONKO_PARALLEL_SYSTEMS: always
         run: cargo test -p ponko --no-fail-fast --test determinism --test net --test net_messages --test net_replication --test system_views --test system_schedule --test schedule_barriers --test events --test change_detection --test phases
-      # The same pile on every OS: rapier's cross-platform determinism.
-      - name: Tests, physics with cross-platform determinism
+      # The same pile on every OS: rapier's cross-platform determinism. The
+      # platformer reference game (examples/ember_hop) is played here too: its
+      # autopilot clears both levels with the same physics on every OS.
+      - name: Tests, physics with cross-platform determinism, and the platformer
         if: ${{ !cancelled() }}
-        run: cargo test -p ponko --no-fail-fast --features physics-determinism --test physics
+        run: cargo test -p ponko --no-fail-fast --features physics-determinism --test physics --test ember_hop
       # Steam itself isn't on the runners: this checks that the Steam library
       # links and loads on each OS, and the address mapping.
       - name: Tests, Steam transport
@@ -935,7 +937,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: npm ci --prefix web/smoke --no-audit --no-fund
-      - run: node --test web/smoke/*.test.mjs
+      - run: node --test web/smoke/*.test.mjs web/gallery/*.test.mjs
 
   # Runs web builds in headless browsers (web/smoke/README.md): startup,
   # asset fetch, fixed-step progress, a click, a nonblank canvas, and the
@@ -980,12 +982,15 @@ jobs:
           npm ci --prefix web/smoke --no-audit --no-fund
           bash scripts/ci-retry.sh node web/smoke/node_modules/playwright-core/cli.js install --with-deps chromium firefox webkit
       - name: Runner tests
-        run: node --test web/smoke/*.test.mjs
-      - name: Build the fixtures (2D, 3D with --features 3d, the complete game)
+        run: node --test web/smoke/*.test.mjs web/gallery/*.test.mjs
+      # The platformer (examples/ember_hop) publishes its state like
+      # coin_dash; its browser run is the web gallery's page check.
+      - name: Build the fixtures (2D, 3D with --features 3d, the complete games)
         run: |
           web/build.sh web_smoke
           web/build.sh --features 3d web_smoke_3d
           web/build.sh coin_dash
+          web/build.sh --features physics ember_hop
       # Chromium, WebGL2 (WebGPU hidden, the fallback path).
       - name: Chromium, WebGL2, 2D fixture
         run: node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend webgl2 --chrome-trace
@@ -1051,6 +1056,14 @@ jobs:
           for case in missing-asset panic stall; do
             node web/smoke/smoke.mjs --fixture web_smoke --browser chromium --backend webgl2 --case "$case"
           done
+      # The web gallery (web/gallery/README.md) with two of its examples and a
+      # demo that needs WebGPU, which must show its message on WebGL2: the
+      # pages, their loader and the check the release runs on every example.
+      - name: Web gallery pages (Chromium, WebGL2)
+        if: ${{ !cancelled() }}
+        run: |
+          node web/gallery/build.mjs --only sprites,3d,compute
+          node web/smoke/gallery.mjs --browser chromium --backend webgl2
       # Every run, with what it asked for, what ran, the adapter the engine
       # reported and why anything was unsupported (also in the artifact).
       - name: Summary of every run
@@ -1136,6 +1149,40 @@ jobs:
           else
             python scripts/package-coin-dash.py smoke --package target/package --mode window
           fi
+      # The platformer reference game (examples/ember_hop, feature physics):
+      # its download with the command's own smoke run, then its walk-through
+      # from the package, started from an unrelated folder with a data folder
+      # of its own: both levels, leaving for the title, continuing the saved
+      # run (a world save and load), the end screen and the progress file;
+      # headless, then in a window.
+      - name: The platformer's download, with ponko package's own smoke run
+        if: ${{ !cancelled() }}
+        run: cargo run -p ponko_cli -- package --example ember_hop --features physics --profile dev --out target/package-ember
+      - name: The platformer's walk-through from its package (headless, then in a window)
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir=$(find target/package-ember -maxdepth 1 -type d -name 'ember-hop-*' | head -n 1)
+          exe=$(find "$dir" -type f \( -name ember_hop -o -name ember_hop.exe \) | head -n 1)
+          test -n "$exe" || { echo "no ember_hop program in $dir"; exit 1; }
+          exe="$GITHUB_WORKSPACE/$exe"
+          check() {
+            python -c "import json, sys; r = json.load(open(sys.argv[1])); print(json.dumps(r)); ok = r['finished'] and r['levels_cleared'] == 2 and r['loads'] >= 1 and r['runs_finished'] == 1; sys.exit(0 if ok else 1)" "$1"
+          }
+          for mode in headless window; do
+            work="$RUNNER_TEMP/ember $mode"
+            mkdir -p "$work/elsewhere" "$work/data"
+            cd "$work/elsewhere"
+            if [ "$mode" = window ] && [ "$RUNNER_OS" = "Linux" ]; then
+              PONKO_DATA_DIR="$work/data" xvfb-run -a "$exe" --smoke window --report report.json
+            else
+              PONKO_DATA_DIR="$work/data" "$exe" --smoke "$mode" --report report.json
+            fi
+            check report.json
+            test -f "$work/data/ember-hop/progress.json"
+            cd "$GITHUB_WORKSPACE"
+          done
 
   # The reference validation bundles (book/src/validation-bundles.md): the
   # deliberately broken game and the corrected one, run in-process and as a

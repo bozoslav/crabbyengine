@@ -55,6 +55,15 @@ or none, `assetSource` or none, `presses`, `min`, `afterReload`, `engineGpu`,
 fixture needs `?smoke_case=panic` and `?smoke_case=stall` handled if it is to
 run the self-tests; the helper does that.
 
+## The web gallery
+
+`gallery.mjs` checks the [web gallery](../gallery/README.md) the same way,
+for pages whose examples publish no state: every page must start its game,
+keep drawing, survive a click and show a canvas that isn't blank, or, for a
+demo that needs WebGPU on a page without it, say so instead of starting. The
+gallery's README has how to run it; `gallery-lib.test.mjs` tests its
+decisions.
+
 ## Running it
 
 ```sh
@@ -141,7 +150,9 @@ table (and appends it to a GitHub job summary).
 | Where | Browser | WebGL2 (forced) | WebGPU |
 |---|---|---|---|
 | CI (`web-smoke` job, `main` and `full-ci`, ubuntu-latest, no GPU) | Chromium (headless shell and full browser), Firefox, WebKit from Playwright | Must pass in Chromium and WebKit, for the 2D and 3D fixtures (software GL); `coin_dash` in Chromium. Firefox is tried and reported: headless Firefox has no WebGL2 on that runner, so it reads "unsupported" | Tried; passes as "unsupported", with the reason, where the browser can't show a WebGPU canvas; where it can, the game must draw through it |
-| CI, every pull request (`web-smoke-runner`) | none | the runner's own tests only | |
+| CI, every pull request (`web-smoke-runner`) | none | the runner's own tests only (and the gallery's) | |
+| Release workflow (`gallery` job, ubuntu-latest, no GPU) | Chromium headless shell | Every gallery page must pass (software GL) | Not tried; the demos that need WebGPU must show their message |
+| Apple Silicon Mac, the gallery (`gallery.mjs`) | Chromium 156 | Every page passes in the headless shell; the 5 demos that need WebGPU show their message | Every page passes in new headless mode on the Metal adapter |
 | Apple Silicon Mac, Chromium new headless mode | Chromium 156 | Passes (ANGLE on Metal) | **Passes** on the Metal adapter: the engine reports `webgpu`, the canvas draws |
 | Apple Silicon Mac, Chromium headless shell | same | Passes (ANGLE on SwiftShader) | Unsupported: a SwiftShader fallback adapter exists, but a WebGPU canvas can't be shown |
 | Apple Silicon Mac, WebKit (Playwright build) | WebKit 27 | Passes | Passes on its own adapter |
@@ -149,5 +160,5 @@ table (and appends it to a GitHub job summary).
 Not covered yet: Firefox on a Mac with its Playwright build here (it would
 not start on the development machine, and on CI's Linux runner it has no
 WebGL2, so Firefox has not drawn a frame anywhere yet), WebGPU on a
-GPU-less Linux runner (the CI job tries it and reports), mobile browsers, and
-the hosted demo examples.
+GPU-less Linux runner (the CI job tries it and reports), and mobile
+browsers.
