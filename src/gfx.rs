@@ -55,7 +55,7 @@ use crate::ctx::region;
 use crate::hot_reload::Asset;
 use crate::render::Renderer;
 use crate::render::batch::{DrawList, SpriteInstance, uv_region};
-use crate::text::{Font, Text, TextParams};
+use crate::text::{Font, Text, TextParams, TextShaping};
 use crate::texture::{DrawParams, Texture, TextureFilter};
 
 /// A screenshot someone asked for: where to save it, and who to tell.
@@ -165,6 +165,8 @@ pub struct Graphics {
     pub(crate) ui_list: DrawList,
     pub(crate) clear_color: Color,
     pub(crate) text: Text,
+    /// Reused for a text field's selection spans.
+    pub(crate) selection_scratch: Vec<[f32; 2]>,
     font_atlas: Option<Texture>,
     pub(crate) scale_factor: f32,
     /// A 1x1 white texture, for rectangles and lines.
@@ -215,6 +217,7 @@ impl Graphics {
             ui_list: DrawList::default(),
             clear_color: Color::PONKO_DARK,
             text: Text::new(),
+            selection_scratch: Vec::new(),
             font_atlas: None,
             scale_factor: 1.0,
             white: None,
@@ -472,6 +475,144 @@ impl Graphics {
             self.watcher.watch(path, file, Asset::Font(font.0));
         }
         Ok(font)
+    }
+
+    /// Sets the fonts tried, in order, for characters `font` has no glyph
+    /// for: a game localized into Arabic, Hindi and Japanese gives its UI
+    /// font one font per script. Replaces the chain set before; an empty
+    /// one turns fallback off. A freed font in the chain is skipped.
+    ///
+    /// Fallback works with or without the `text-shaping` feature: without
+    /// it each character is drawn on its own, which is right for scripts
+    /// whose letters don't join (Japanese, Chinese, Korean); Arabic and
+    /// Devanagari need shaping.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// let arabic = ctx.gfx.load_font("fonts/NotoSansArabic.ttf");
+    /// let japanese = ctx.gfx.load_font("fonts/NotoSansJP.otf");
+    /// ctx.gfx.set_font_fallbacks(Font::DEFAULT, &[arabic, japanese]);
+    /// ctx.gfx.draw_text("スコア: 120", vec2(16.0, 16.0), 24.0, Color::WHITE);
+    /// # }
+    /// ```
+    pub fn set_font_fallbacks(&mut self, font: Font, fallbacks: &[Font]) {
+        self.text.set_fallbacks(font, fallbacks);
+    }
+
+    /// `font`'s fallback chain (see
+    /// [`set_font_fallbacks`](Self::set_font_fallbacks)), with the system
+    /// fonts found for it.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     assert!(ctx.gfx.font_fallbacks(Font::DEFAULT).is_empty());
+    /// });
+    /// ```
+    pub fn font_fallbacks(&self, font: Font) -> &[Font] {
+        self.text.fallbacks(font)
+    }
+
+    /// Sets which strings are shaped with the `text-shaping` feature (see
+    /// [`TextShaping`]). Without the feature nothing is shaped.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// ctx.gfx.set_text_shaping(TextShaping::Always);
+    /// assert_eq!(ctx.gfx.text_shaping(), TextShaping::Always);
+    /// # }
+    /// ```
+    pub fn set_text_shaping(&mut self, shaping: TextShaping) {
+        self.text.set_shaping(shaping);
+    }
+
+    /// Which strings are shaped; [`TextShaping::Auto`] unless set.
+    pub fn text_shaping(&self) -> TextShaping {
+        self.text.shaping()
+    }
+
+    /// Loads a font installed on the computer by family name ("Noto Sans
+    /// Arabic", "Arial"), its regular face if it has one. Needs the
+    /// `system-fonts` feature and a desktop system; the font folders are
+    /// read on the first call. Loading the same family again returns the
+    /// same handle.
+    ///
+    /// # Panics
+    /// With a clear message if there is no such font, or no system fonts.
+    ///
+    /// ```no_run
+    /// # use ponko::prelude::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// let arial = ctx.gfx.load_system_font("Arial");
+    /// # let _ = arial;
+    /// # }
+    /// ```
+    pub fn load_system_font(&mut self, family: &str) -> Font {
+        self.try_load_system_font(family).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`load_system_font`](Self::load_system_font) with errors as values:
+    /// [`NotFound`](crate::error::ErrorKind::NotFound) if no installed font
+    /// has that family,
+    /// [`Unsupported`](crate::error::ErrorKind::Unsupported) without the
+    /// `system-fonts` feature and on the web.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// Game::new("t", 1, 1).run_headless(0, |ctx| {
+    ///     let ui = ctx.gfx.try_load_system_font("Noto Sans").unwrap_or(Font::DEFAULT);
+    ///     # let _ = ui;
+    /// });
+    /// ```
+    pub fn try_load_system_font(&mut self, family: &str) -> Result<Font, crate::error::Error> {
+        self.text.system_font(family)
+    }
+
+    /// With `on`, a character that neither a font nor its fallback chain
+    /// has is looked up among the computer's fonts; the first one with a
+    /// glyph for it is loaded and appended to the chain (feature
+    /// `system-fonts`, desktop). For text the game can't know in advance,
+    /// such as player names in chat. Each character is searched once; the
+    /// first search reads the font folders. Returns whether system fonts
+    /// can be searched in this build.
+    ///
+    /// ```
+    /// # use ponko::prelude::*;
+    /// # fn setup(ctx: &mut Ctx) {
+    /// if !ctx.gfx.set_system_font_fallback(true) {
+    ///     // Ship fonts for every language and chain them instead.
+    /// }
+    /// # }
+    /// ```
+    pub fn set_system_font_fallback(&mut self, on: bool) -> bool {
+        self.text.system_fallback(on)
+    }
+
+    /// The caret's x in window pixels before byte `index` of the one-line
+    /// `text` drawn at `size` (see [`Text::caret_x`]).
+    pub(crate) fn caret_x(&mut self, text: &str, font: Font, size: f32, index: usize) -> f32 {
+        let scale = self.scale_factor;
+        self.text.caret_x(text, font, size * scale, index) / scale
+    }
+
+    /// The window-pixel spans that show bytes `lo..hi` of `text` selected
+    /// (see [`Text::selection`]).
+    pub(crate) fn selection_spans(
+        &mut self,
+        text: &str,
+        font: Font,
+        size: f32,
+        lo: usize,
+        hi: usize,
+        out: &mut Vec<[f32; 2]>,
+    ) {
+        let scale = self.scale_factor;
+        self.text.selection(text, font, size * scale, lo, hi, out);
+        for span in out {
+            *span = [span[0] / scale, span[1] / scale];
+        }
     }
 
     /// Loads an image from the `assets/` folder: PNG, and JPEG with the
