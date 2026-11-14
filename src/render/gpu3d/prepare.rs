@@ -110,6 +110,9 @@ impl Renderer3D {
             cache: None,
         });
         self.particles = super::super::particles::Particles::new(device, &self.texture_layout, samples);
+        if self.depth_copy.is_some() {
+            self.depth_copy = Some(super::depth_copy::DepthCopy::new(device, samples));
+        }
         self.gi = None; // Its capture attachments also use the scene's count.
         self.render_targets.views.clear();
         self.shadow_cache.invalidate();

@@ -850,6 +850,17 @@ impl Renderer {
 
     #[cfg(feature = "3d")]
     fn upload_texture_array(&mut self, width: u32, height: u32, layers: &[&[u8]], linear: bool) -> wgpu::Texture {
+        // wgpu's GL backend (WebGL2) makes a one-layer array an ordinary 2D
+        // texture, which shaders can't read as an array (it reads as
+        // nothing): give it a second layer, a copy of the first, which a
+        // read past the last layer would have returned anyway.
+        let padded;
+        let layers = if layers.len() == 1 && self.device.adapter_info().backend == wgpu::Backend::Gl {
+            padded = [layers[0], layers[0]];
+            &padded[..]
+        } else {
+            layers
+        };
         let size = wgpu::Extent3d {
             width,
             height,
