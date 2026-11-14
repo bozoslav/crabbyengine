@@ -1091,9 +1091,7 @@ fn decode_texture(
     max: u32,
 ) -> Result<(Origin, Pyramid), crate::error::Error> {
     let bytes = bytes.map_err(|e| e.with_path(name))?;
-    let image = assets::decode_image(&bytes).map_err(|e| {
-        crate::error::Error::decode(name, format!("{} is not a valid image: {e}", origin.describe(name)))
-    })?;
+    let image = assets::decode_image(&bytes, name, &origin.describe(name))?;
     Ok((origin, pyramid(image, max)))
 }
 

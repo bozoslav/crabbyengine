@@ -1,0 +1,389 @@
+pub mod ponko_unity
+pub enum ponko_unity::Surface
+pub ponko_unity::Surface::Cutout(f32)
+pub ponko_unity::Surface::Opaque
+pub ponko_unity::Surface::Transparent
+impl core::clone::Clone for ponko_unity::Surface
+pub fn ponko_unity::Surface::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::Surface
+pub fn ponko_unity::Surface::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_unity::Surface
+pub fn ponko_unity::Surface::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_unity::Surface
+impl core::marker::StructuralPartialEq for ponko_unity::Surface
+pub enum ponko_unity::Value
+pub ponko_unity::Value::Bytes(alloc::vec::Vec<u8>)
+pub ponko_unity::Value::Map(alloc::vec::Vec<(alloc::string::String, ponko_unity::Value)>)
+pub ponko_unity::Value::Null
+pub ponko_unity::Value::Numbers(alloc::vec::Vec<f64>)
+pub ponko_unity::Value::Scalar(alloc::string::String)
+pub ponko_unity::Value::Seq(alloc::vec::Vec<ponko_unity::Value>)
+impl ponko_unity::Value
+pub fn ponko_unity::Value::as_bool(&self) -> core::option::Option<bool>
+pub fn ponko_unity::Value::as_bytes(&self) -> core::option::Option<&[u8]>
+pub fn ponko_unity::Value::as_f32(&self) -> core::option::Option<f32>
+pub fn ponko_unity::Value::as_i64(&self) -> core::option::Option<i64>
+pub fn ponko_unity::Value::as_map(&self) -> core::option::Option<&[(alloc::string::String, ponko_unity::Value)]>
+pub fn ponko_unity::Value::as_numbers(&self) -> core::option::Option<&[f64]>
+pub fn ponko_unity::Value::as_seq(&self) -> core::option::Option<&[ponko_unity::Value]>
+pub fn ponko_unity::Value::as_str(&self) -> core::option::Option<&str>
+pub fn ponko_unity::Value::color(&self) -> core::option::Option<[f32; 4]>
+pub fn ponko_unity::Value::get(&self, &str) -> core::option::Option<&ponko_unity::Value>
+pub fn ponko_unity::Value::is_null(&self) -> bool
+pub fn ponko_unity::Value::obj_ref(&self) -> core::option::Option<ponko_unity::ObjRef>
+pub fn ponko_unity::Value::vec2(&self) -> core::option::Option<[f32; 2]>
+pub fn ponko_unity::Value::vec3(&self) -> core::option::Option<[f32; 3]>
+pub fn ponko_unity::Value::vec4(&self) -> core::option::Option<[f32; 4]>
+impl core::clone::Clone for ponko_unity::Value
+pub fn ponko_unity::Value::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::Value
+pub fn ponko_unity::Value::eq(&self, &Self) -> bool
+impl core::default::Default for ponko_unity::Value
+pub fn ponko_unity::Value::default() -> Self
+impl core::fmt::Debug for ponko_unity::Value
+pub fn ponko_unity::Value::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::Value
+impl core::ops::index::Index<&str> for ponko_unity::Value
+pub type ponko_unity::Value::Output = ponko_unity::Value
+pub fn ponko_unity::Value::index(&self, &str) -> &ponko_unity::Value
+impl core::ops::index::Index<usize> for ponko_unity::Value
+pub type ponko_unity::Value::Output = ponko_unity::Value
+pub fn ponko_unity::Value::index(&self, usize) -> &ponko_unity::Value
+pub enum ponko_unity::VertexFormat
+pub ponko_unity::VertexFormat::Float16
+pub ponko_unity::VertexFormat::Float32
+pub ponko_unity::VertexFormat::SInt16
+pub ponko_unity::VertexFormat::SInt32
+pub ponko_unity::VertexFormat::SInt8
+pub ponko_unity::VertexFormat::SNorm16
+pub ponko_unity::VertexFormat::SNorm8
+pub ponko_unity::VertexFormat::UInt16
+pub ponko_unity::VertexFormat::UInt32
+pub ponko_unity::VertexFormat::UInt8
+pub ponko_unity::VertexFormat::UNorm16
+pub ponko_unity::VertexFormat::UNorm8
+impl ponko_unity::VertexFormat
+pub fn ponko_unity::VertexFormat::size(self) -> usize
+impl core::clone::Clone for ponko_unity::VertexFormat
+pub fn ponko_unity::VertexFormat::clone(&self) -> Self
+impl core::cmp::Eq for ponko_unity::VertexFormat
+impl core::cmp::PartialEq for ponko_unity::VertexFormat
+pub fn ponko_unity::VertexFormat::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_unity::VertexFormat
+pub fn ponko_unity::VertexFormat::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_unity::VertexFormat
+impl core::marker::StructuralPartialEq for ponko_unity::VertexFormat
+pub struct ponko_unity::AnimationClip
+impl ponko_unity::AnimationClip
+pub fn ponko_unity::AnimationClip::append_to_skin(&self, &mut ponko_unity::MeshSkin, usize) -> alloc::vec::Vec<alloc::string::String>
+pub fn ponko_unity::AnimationClip::parse(&str) -> core::result::Result<Self, ponko_unity::Error>
+pub fn ponko_unity::AnimationClip::parse_binary(&[u8]) -> core::result::Result<Self, ponko_unity::Error>
+pub fn ponko_unity::AnimationClip::read(impl core::convert::AsRef<std::path::Path>) -> core::result::Result<Self, ponko_unity::Error>
+pub fn ponko_unity::AnimationClip::with_blend_shape_names<'a>(&self, impl core::iter::traits::collect::IntoIterator<Item = &'a str>) -> Self
+impl core::clone::Clone for ponko_unity::AnimationClip
+pub fn ponko_unity::AnimationClip::clone(&self) -> Self
+impl core::fmt::Debug for ponko_unity::AnimationClip
+pub fn ponko_unity::AnimationClip::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct ponko_unity::BlendShape
+pub ponko_unity::BlendShape::channel: alloc::string::String
+pub ponko_unity::BlendShape::frame_weight: f32
+pub ponko_unity::BlendShape::name: alloc::string::String
+pub ponko_unity::BlendShape::normals: alloc::vec::Vec<[f32; 3]>
+pub ponko_unity::BlendShape::positions: alloc::vec::Vec<[f32; 3]>
+pub ponko_unity::BlendShape::weight: f32
+impl core::clone::Clone for ponko_unity::BlendShape
+pub fn ponko_unity::BlendShape::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::BlendShape
+pub fn ponko_unity::BlendShape::eq(&self, &Self) -> bool
+impl core::default::Default for ponko_unity::BlendShape
+pub fn ponko_unity::BlendShape::default() -> Self
+impl core::fmt::Debug for ponko_unity::BlendShape
+pub fn ponko_unity::BlendShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::BlendShape
+pub struct ponko_unity::Channel
+pub ponko_unity::Channel::dimension: usize
+pub ponko_unity::Channel::format: ponko_unity::VertexFormat
+pub ponko_unity::Channel::offset: usize
+pub ponko_unity::Channel::stream: usize
+impl core::clone::Clone for ponko_unity::Channel
+pub fn ponko_unity::Channel::clone(&self) -> Self
+impl core::cmp::Eq for ponko_unity::Channel
+impl core::cmp::PartialEq for ponko_unity::Channel
+pub fn ponko_unity::Channel::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_unity::Channel
+pub fn ponko_unity::Channel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for ponko_unity::Channel
+impl core::marker::StructuralPartialEq for ponko_unity::Channel
+pub struct ponko_unity::Error
+pub ponko_unity::Error::message: alloc::string::String
+impl core::clone::Clone for ponko_unity::Error
+pub fn ponko_unity::Error::clone(&self) -> Self
+impl core::cmp::Eq for ponko_unity::Error
+impl core::cmp::PartialEq for ponko_unity::Error
+pub fn ponko_unity::Error::eq(&self, &Self) -> bool
+impl core::error::Error for ponko_unity::Error
+impl core::fmt::Debug for ponko_unity::Error
+pub fn ponko_unity::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for ponko_unity::Error
+pub fn ponko_unity::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::Error
+pub struct ponko_unity::GameObject
+pub ponko_unity::GameObject::active: bool
+pub ponko_unity::GameObject::components: alloc::vec::Vec<ponko_unity::UnityObject>
+pub ponko_unity::GameObject::id: i64
+pub ponko_unity::GameObject::layer: i32
+pub ponko_unity::GameObject::model: core::option::Option<ponko_unity::ObjRef>
+pub ponko_unity::GameObject::model_attach: core::option::Option<ponko_unity::ObjRef>
+pub ponko_unity::GameObject::model_overrides: alloc::vec::Vec<(ponko_unity::ObjRef, alloc::string::String, ponko_unity::Value)>
+pub ponko_unity::GameObject::name: alloc::string::String
+pub ponko_unity::GameObject::parent: core::option::Option<usize>
+impl ponko_unity::GameObject
+pub fn ponko_unity::GameObject::component(&self, i32) -> core::option::Option<&ponko_unity::UnityObject>
+pub fn ponko_unity::GameObject::local_position(&self) -> [f32; 3]
+pub fn ponko_unity::GameObject::local_rotation(&self) -> [f32; 4]
+pub fn ponko_unity::GameObject::local_scale(&self) -> [f32; 3]
+pub fn ponko_unity::GameObject::transform(&self) -> core::option::Option<&ponko_unity::Value>
+impl core::clone::Clone for ponko_unity::GameObject
+pub fn ponko_unity::GameObject::clone(&self) -> Self
+impl core::fmt::Debug for ponko_unity::GameObject
+pub fn ponko_unity::GameObject::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct ponko_unity::Hierarchy
+pub ponko_unity::Hierarchy::objects: alloc::vec::Vec<ponko_unity::GameObject>
+impl ponko_unity::Hierarchy
+pub fn ponko_unity::Hierarchy::build(&ponko_unity::UnityFile, &ponko_unity::Project) -> core::result::Result<Self, ponko_unity::Error>
+pub fn ponko_unity::Hierarchy::load(&ponko_unity::Project, &str) -> core::result::Result<Self, ponko_unity::Error>
+impl core::clone::Clone for ponko_unity::Hierarchy
+pub fn ponko_unity::Hierarchy::clone(&self) -> Self
+impl core::default::Default for ponko_unity::Hierarchy
+pub fn ponko_unity::Hierarchy::default() -> Self
+impl core::fmt::Debug for ponko_unity::Hierarchy
+pub fn ponko_unity::Hierarchy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct ponko_unity::Importer<'p>
+impl<'p> ponko_unity::Importer<'p>
+pub fn ponko_unity::Importer<'p>::animation_clips(&mut self, impl core::iter::traits::collect::IntoIterator<Item = ponko_unity::AnimationClip>)
+pub fn ponko_unity::Importer<'p>::colliders(&mut self, bool)
+pub fn ponko_unity::Importer<'p>::custom_shader(&mut self, &str)
+pub fn ponko_unity::Importer<'p>::finish(self) -> core::result::Result<ponko_unity::Report, ponko_unity::Error>
+pub fn ponko_unity::Importer<'p>::lod_groups(&mut self, bool)
+pub fn ponko_unity::Importer<'p>::new(&'p ponko_unity::Project, impl core::convert::Into<std::path::PathBuf>, &str) -> Self
+pub fn ponko_unity::Importer<'p>::report(&self) -> &ponko_unity::Report
+pub fn ponko_unity::Importer<'p>::scene(&mut self, &ponko_unity::Hierarchy) -> core::result::Result<serde_json::value::Value, ponko_unity::Error>
+pub fn ponko_unity::Importer<'p>::vertex_colors(&mut self, &str, impl core::ops::function::Fn(&ponko_unity::UnityMesh, usize) -> [f32; 4] + 'static)
+pub struct ponko_unity::MeshSkin
+pub ponko_unity::MeshSkin::animations: alloc::vec::Vec<ponko_unity::SkinAnimation>
+pub ponko_unity::MeshSkin::indices: alloc::vec::Vec<[u16; 4]>
+pub ponko_unity::MeshSkin::inverse_binds: alloc::vec::Vec<[f32; 16]>
+pub ponko_unity::MeshSkin::joints: alloc::vec::Vec<usize>
+pub ponko_unity::MeshSkin::nodes: alloc::vec::Vec<ponko_unity::SkinNode>
+pub ponko_unity::MeshSkin::root: core::option::Option<usize>
+pub ponko_unity::MeshSkin::weights: alloc::vec::Vec<[f32; 4]>
+impl core::clone::Clone for ponko_unity::MeshSkin
+pub fn ponko_unity::MeshSkin::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::MeshSkin
+pub fn ponko_unity::MeshSkin::eq(&self, &Self) -> bool
+impl core::default::Default for ponko_unity::MeshSkin
+pub fn ponko_unity::MeshSkin::default() -> Self
+impl core::fmt::Debug for ponko_unity::MeshSkin
+pub fn ponko_unity::MeshSkin::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::MeshSkin
+pub struct ponko_unity::ObjRef
+pub ponko_unity::ObjRef::file_id: i64
+pub ponko_unity::ObjRef::guid: core::option::Option<alloc::string::String>
+pub ponko_unity::ObjRef::kind: core::option::Option<i32>
+impl ponko_unity::ObjRef
+pub fn ponko_unity::ObjRef::is_none(&self) -> bool
+impl core::clone::Clone for ponko_unity::ObjRef
+pub fn ponko_unity::ObjRef::clone(&self) -> Self
+impl core::cmp::Eq for ponko_unity::ObjRef
+impl core::cmp::PartialEq for ponko_unity::ObjRef
+pub fn ponko_unity::ObjRef::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_unity::ObjRef
+pub fn ponko_unity::ObjRef::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for ponko_unity::ObjRef
+pub fn ponko_unity::ObjRef::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for ponko_unity::ObjRef
+pub struct ponko_unity::Project
+impl ponko_unity::Project
+pub fn ponko_unity::Project::guid_of(&self, &std::path::Path) -> core::option::Option<&str>
+pub fn ponko_unity::Project::is_empty(&self) -> bool
+pub fn ponko_unity::Project::len(&self) -> usize
+pub fn ponko_unity::Project::load(&self, &str) -> core::result::Result<ponko_unity::UnityFile, ponko_unity::Error>
+pub fn ponko_unity::Project::open(impl core::convert::AsRef<std::path::Path>) -> core::result::Result<Self, ponko_unity::Error>
+pub fn ponko_unity::Project::path_of(&self, &str) -> core::option::Option<&std::path::Path>
+pub fn ponko_unity::Project::root(&self) -> &std::path::Path
+impl core::clone::Clone for ponko_unity::Project
+pub fn ponko_unity::Project::clone(&self) -> Self
+impl core::default::Default for ponko_unity::Project
+pub fn ponko_unity::Project::default() -> Self
+impl core::fmt::Debug for ponko_unity::Project
+pub fn ponko_unity::Project::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct ponko_unity::Report
+pub ponko_unity::Report::colliders: usize
+pub ponko_unity::Report::entities: usize
+pub ponko_unity::Report::lod_groups: usize
+pub ponko_unity::Report::meshes: usize
+pub ponko_unity::Report::shaders: alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>
+pub ponko_unity::Report::skipped: alloc::collections::btree::map::BTreeMap<alloc::string::String, usize>
+pub ponko_unity::Report::textures: usize
+impl core::clone::Clone for ponko_unity::Report
+pub fn ponko_unity::Report::clone(&self) -> Self
+impl core::default::Default for ponko_unity::Report
+pub fn ponko_unity::Report::default() -> Self
+impl core::fmt::Debug for ponko_unity::Report
+pub fn ponko_unity::Report::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct ponko_unity::SkinAnimation
+pub ponko_unity::SkinAnimation::looping: bool
+pub ponko_unity::SkinAnimation::morphs: alloc::vec::Vec<(alloc::string::String, alloc::vec::Vec<f32>, bool)>
+pub ponko_unity::SkinAnimation::name: alloc::string::String
+pub ponko_unity::SkinAnimation::nodes: alloc::vec::Vec<alloc::vec::Vec<[f32; 16]>>
+pub ponko_unity::SkinAnimation::step: alloc::vec::Vec<[bool; 3]>
+pub ponko_unity::SkinAnimation::times: alloc::vec::Vec<f32>
+impl core::clone::Clone for ponko_unity::SkinAnimation
+pub fn ponko_unity::SkinAnimation::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::SkinAnimation
+pub fn ponko_unity::SkinAnimation::eq(&self, &Self) -> bool
+impl core::default::Default for ponko_unity::SkinAnimation
+pub fn ponko_unity::SkinAnimation::default() -> Self
+impl core::fmt::Debug for ponko_unity::SkinAnimation
+pub fn ponko_unity::SkinAnimation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::SkinAnimation
+pub struct ponko_unity::SkinNode
+pub ponko_unity::SkinNode::matrix: [f32; 16]
+pub ponko_unity::SkinNode::name: alloc::string::String
+pub ponko_unity::SkinNode::parent: core::option::Option<usize>
+impl core::clone::Clone for ponko_unity::SkinNode
+pub fn ponko_unity::SkinNode::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::SkinNode
+pub fn ponko_unity::SkinNode::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_unity::SkinNode
+pub fn ponko_unity::SkinNode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::SkinNode
+pub struct ponko_unity::TextureProperty
+pub ponko_unity::TextureProperty::offset: [f32; 2]
+pub ponko_unity::TextureProperty::scale: [f32; 2]
+pub ponko_unity::TextureProperty::texture: ponko_unity::ObjRef
+impl core::clone::Clone for ponko_unity::TextureProperty
+pub fn ponko_unity::TextureProperty::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::TextureProperty
+pub fn ponko_unity::TextureProperty::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_unity::TextureProperty
+pub fn ponko_unity::TextureProperty::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::TextureProperty
+pub struct ponko_unity::UnityFile
+pub ponko_unity::UnityFile::objects: alloc::vec::Vec<ponko_unity::UnityObject>
+impl ponko_unity::UnityFile
+pub fn ponko_unity::UnityFile::get(&self, i64) -> core::option::Option<&ponko_unity::UnityObject>
+pub fn ponko_unity::UnityFile::of_class(&self, i32) -> impl core::iter::traits::iterator::Iterator<Item = &ponko_unity::UnityObject>
+pub fn ponko_unity::UnityFile::parse(&str) -> core::result::Result<Self, ponko_unity::Error>
+pub fn ponko_unity::UnityFile::parse_binary(&[u8]) -> core::result::Result<Self, ponko_unity::Error>
+pub fn ponko_unity::UnityFile::read(impl core::convert::AsRef<std::path::Path>) -> core::result::Result<Self, ponko_unity::Error>
+impl core::clone::Clone for ponko_unity::UnityFile
+pub fn ponko_unity::UnityFile::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::UnityFile
+pub fn ponko_unity::UnityFile::eq(&self, &Self) -> bool
+impl core::default::Default for ponko_unity::UnityFile
+pub fn ponko_unity::UnityFile::default() -> Self
+impl core::fmt::Debug for ponko_unity::UnityFile
+pub fn ponko_unity::UnityFile::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::UnityFile
+pub struct ponko_unity::UnityMaterial
+pub ponko_unity::UnityMaterial::base_map: core::option::Option<ponko_unity::ObjRef>
+pub ponko_unity::UnityMaterial::color: [f32; 4]
+pub ponko_unity::UnityMaterial::colors: alloc::collections::btree::map::BTreeMap<alloc::string::String, [f32; 4]>
+pub ponko_unity::UnityMaterial::double_sided: bool
+pub ponko_unity::UnityMaterial::emission: [f32; 3]
+pub ponko_unity::UnityMaterial::emission_map: core::option::Option<ponko_unity::ObjRef>
+pub ponko_unity::UnityMaterial::floats: alloc::collections::btree::map::BTreeMap<alloc::string::String, f32>
+pub ponko_unity::UnityMaterial::metallic: f32
+pub ponko_unity::UnityMaterial::metallic_map: core::option::Option<ponko_unity::ObjRef>
+pub ponko_unity::UnityMaterial::name: alloc::string::String
+pub ponko_unity::UnityMaterial::normal_map: core::option::Option<ponko_unity::ObjRef>
+pub ponko_unity::UnityMaterial::normal_scale: f32
+pub ponko_unity::UnityMaterial::occlusion_map: core::option::Option<ponko_unity::ObjRef>
+pub ponko_unity::UnityMaterial::occlusion_strength: f32
+pub ponko_unity::UnityMaterial::offset: [f32; 2]
+pub ponko_unity::UnityMaterial::shader: core::option::Option<alloc::string::String>
+pub ponko_unity::UnityMaterial::shader_file_id: i64
+pub ponko_unity::UnityMaterial::smoothness: f32
+pub ponko_unity::UnityMaterial::smoothness_in_base_alpha: bool
+pub ponko_unity::UnityMaterial::surface: ponko_unity::Surface
+pub ponko_unity::UnityMaterial::textures: alloc::collections::btree::map::BTreeMap<alloc::string::String, ponko_unity::TextureProperty>
+pub ponko_unity::UnityMaterial::tiling: [f32; 2]
+impl ponko_unity::UnityMaterial
+pub fn ponko_unity::UnityMaterial::from_object(&ponko_unity::UnityObject) -> core::result::Result<Self, ponko_unity::Error>
+impl core::clone::Clone for ponko_unity::UnityMaterial
+pub fn ponko_unity::UnityMaterial::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::UnityMaterial
+pub fn ponko_unity::UnityMaterial::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_unity::UnityMaterial
+pub fn ponko_unity::UnityMaterial::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::UnityMaterial
+pub struct ponko_unity::UnityMesh
+pub ponko_unity::UnityMesh::blend_shapes: alloc::vec::Vec<ponko_unity::BlendShape>
+pub ponko_unity::UnityMesh::colors: alloc::vec::Vec<[f32; 4]>
+pub ponko_unity::UnityMesh::name: alloc::string::String
+pub ponko_unity::UnityMesh::normals: alloc::vec::Vec<[f32; 3]>
+pub ponko_unity::UnityMesh::positions: alloc::vec::Vec<[f32; 3]>
+pub ponko_unity::UnityMesh::skin: core::option::Option<ponko_unity::MeshSkin>
+pub ponko_unity::UnityMesh::submeshes: alloc::vec::Vec<alloc::vec::Vec<u32>>
+pub ponko_unity::UnityMesh::tangents: alloc::vec::Vec<[f32; 4]>
+pub ponko_unity::UnityMesh::uvs: [alloc::vec::Vec<[f32; 2]>; 8]
+impl ponko_unity::UnityMesh
+pub fn ponko_unity::UnityMesh::builtin(i64) -> core::option::Option<Self>
+impl ponko_unity::UnityMesh
+pub fn ponko_unity::UnityMesh::from_object(&ponko_unity::UnityObject) -> core::result::Result<Self, ponko_unity::Error>
+impl core::clone::Clone for ponko_unity::UnityMesh
+pub fn ponko_unity::UnityMesh::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::UnityMesh
+pub fn ponko_unity::UnityMesh::eq(&self, &Self) -> bool
+impl core::default::Default for ponko_unity::UnityMesh
+pub fn ponko_unity::UnityMesh::default() -> Self
+impl core::fmt::Debug for ponko_unity::UnityMesh
+pub fn ponko_unity::UnityMesh::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::UnityMesh
+pub struct ponko_unity::UnityObject
+pub ponko_unity::UnityObject::body: ponko_unity::Value
+pub ponko_unity::UnityObject::class_id: i32
+pub ponko_unity::UnityObject::file_id: i64
+pub ponko_unity::UnityObject::stripped: bool
+pub ponko_unity::UnityObject::type_name: alloc::string::String
+impl core::clone::Clone for ponko_unity::UnityObject
+pub fn ponko_unity::UnityObject::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::UnityObject
+pub fn ponko_unity::UnityObject::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_unity::UnityObject
+pub fn ponko_unity::UnityObject::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::UnityObject
+pub struct ponko_unity::UnityTerrain
+pub ponko_unity::UnityTerrain::alphamaps: alloc::vec::Vec<ponko_unity::ObjRef>
+pub ponko_unity::UnityTerrain::height: f32
+pub ponko_unity::UnityTerrain::heights: alloc::vec::Vec<f32>
+pub ponko_unity::UnityTerrain::layers: alloc::vec::Vec<ponko_unity::ObjRef>
+pub ponko_unity::UnityTerrain::name: alloc::string::String
+pub ponko_unity::UnityTerrain::resolution: usize
+pub ponko_unity::UnityTerrain::size: f32
+impl ponko_unity::UnityTerrain
+pub fn ponko_unity::UnityTerrain::corner(&self, [f32; 3]) -> [f32; 3]
+pub fn ponko_unity::UnityTerrain::from_object(&ponko_unity::UnityObject) -> core::result::Result<Self, ponko_unity::Error>
+impl core::clone::Clone for ponko_unity::UnityTerrain
+pub fn ponko_unity::UnityTerrain::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::UnityTerrain
+pub fn ponko_unity::UnityTerrain::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_unity::UnityTerrain
+pub fn ponko_unity::UnityTerrain::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::UnityTerrain
+pub struct ponko_unity::UnityTexture
+pub ponko_unity::UnityTexture::height: u32
+pub ponko_unity::UnityTexture::layers: u32
+pub ponko_unity::UnityTexture::name: alloc::string::String
+pub ponko_unity::UnityTexture::rgba: alloc::vec::Vec<u8>
+pub ponko_unity::UnityTexture::width: u32
+impl ponko_unity::UnityTexture
+pub fn ponko_unity::UnityTexture::from_object(&ponko_unity::UnityObject) -> core::result::Result<Self, ponko_unity::Error>
+impl core::clone::Clone for ponko_unity::UnityTexture
+pub fn ponko_unity::UnityTexture::clone(&self) -> Self
+impl core::cmp::PartialEq for ponko_unity::UnityTexture
+pub fn ponko_unity::UnityTexture::eq(&self, &Self) -> bool
+impl core::fmt::Debug for ponko_unity::UnityTexture
+pub fn ponko_unity::UnityTexture::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for ponko_unity::UnityTexture

@@ -15,6 +15,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 mod builtin_schemas;
+mod particles;
+pub(crate) use particles::reflect_particle_emitter2d;
 
 use crate::schema::{SchemaSource, schema_json};
 

@@ -100,6 +100,52 @@ using attached = PonkoAttached;
 /// transform2d. Get and set it like any component; it can't be a query column (the engine stores it in a Rust
 /// layout).
 using sprite = PonkoSprite;
+// ---- Sprite blend modes and sprite materials (Rust `BlendMode`, `SpriteShader`, `SpriteMaterial`).
+/// How a sprite combines with what's behind it (Rust `BlendMode`). Also a component: an entity with a sprite
+/// and one blends that way. Each mode is its own batch.
+enum class sprite_blend : std::uint32_t {
+    /// Covers what's behind by the pixel's alpha (the default).
+    alpha = PONKO_BLEND_ALPHA,
+    /// Adds the color, weighted by alpha: glows, fire, sparks, light. Never darkens.
+    additive = PONKO_BLEND_ADDITIVE,
+    /// Multiplies what's behind by the color: shadows, tinted glass. White leaves it unchanged.
+    multiply = PONKO_BLEND_MULTIPLY,
+    /// Like alpha, for colors already multiplied by their alpha.
+    premultiplied = PONKO_BLEND_PREMULTIPLIED,
+};
+/// A sprite shader: WGSL with a `fn fragment(p: SpritePixel) -> vec4<f32>` hook (ctx::load_sprite_shader,
+/// ctx::create_sprite_shader). A handle; free it with ctx::free.
+using sprite_shader = PonkoSpriteShader;
+/// A look for sprites (Rust `SpriteMaterial`): a sprite shader, its params and extra textures, from
+/// ctx::create_sprite_material. Also a component: an entity with a sprite and one draws with it. A handle;
+/// free it with ctx::free.
+using sprite_material = PonkoSpriteMaterial;
+/// What a sprite material is made of (Rust `SpriteMaterialDesc`): the shader (if `has_shader`), 16 floats
+/// the shader reads as `material.params[0..4]`, and two extra textures. Start from sprite_material_of.
+using sprite_material_desc = PonkoSpriteMaterialDesc;
+/// A sprite material drawn with `shader`: params zero, no extra textures.
+inline sprite_material_desc sprite_material_of(sprite_shader shader) {
+    sprite_material_desc d = ponko_sprite_material_desc_default();
+    d.has_shader = true;
+    d.shader = shader;
+    return d;
+}
+/// Sets `material.params[index]` (0 to 3) of `d`; throws std::out_of_range for a bigger index.
+inline sprite_material_desc& set_param(sprite_material_desc& d, std::size_t index, float x, float y, float z, float w) {
+    if (index > 3) throw std::out_of_range("a sprite material has params 0 to 3");
+    float* p = d.params + index * 4;
+    p[0] = x; p[1] = y; p[2] = z; p[3] = w;
+    return d;
+}
+/// Sets extra texture `index` (0 or 1, `material_sample0`/`1` in the shader) of `d`; throws
+/// std::out_of_range for a bigger index.
+inline sprite_material_desc& set_texture(sprite_material_desc& d, std::size_t index, PonkoTexture t) {
+    if (index > 1) throw std::out_of_range("a sprite material has textures 0 and 1");
+    d.has_textures[index] = true;
+    d.textures[index] = t;
+    return d;
+}
+// ---- end of sprite blend modes and sprite materials
 /// The 2D camera (Rust `Camera`): which world point is at the window's top-left, and the zoom (window pixels
 /// per world unit).
 using camera = PonkoCamera;
@@ -261,7 +307,7 @@ using effect = PonkoEffect;
 using screen_effect = PonkoScreenEffect;
 /// The latest compile or hot reload of one of the game's shaders (Rust
 /// `ShaderStatus`; ctx::shader_status). `info.kind` is PONKO_SHADER_MATERIAL,
-/// _EFFECT or _COMPUTE; `info.outcome` PONKO_SHADER_COMPILED, _RELOADED,
+/// _EFFECT, _COMPUTE or _SPRITE; `info.outcome` PONKO_SHADER_COMPILED, _RELOADED,
 /// _FAILED or _RELOAD_FAILED; `info.line` and `info.column` place the first
 /// error in the game's own WGSL (0: no place).
 struct shader_status {
@@ -402,6 +448,8 @@ inline constexpr system_id update_animators{PONKO_SYSTEM_UPDATE_ANIMATORS};
 inline constexpr system_id update_particles{PONKO_SYSTEM_UPDATE_PARTICLES};
 /// Positional audio; stays at the end of phase::draw, after the drawing systems.
 inline constexpr system_id update_audio3d{PONKO_SYSTEM_UPDATE_AUDIO3D};
+/// 2D particle drawing, after the sprites.
+inline constexpr system_id draw_particles{PONKO_SYSTEM_DRAW_PARTICLES};
 } // namespace systems
 /// Engine services an access declaration can name (see ponko::access).
 enum class service : uint32_t {
@@ -1015,6 +1063,8 @@ template<> struct handle_kind<PonkoEffect> { static constexpr std::uint32_t valu
 template<> struct handle_kind<PonkoGpuBuffer> { static constexpr std::uint32_t value = PONKO_HANDLE_GPU_BUFFER; };
 template<> struct handle_kind<PonkoInstanceBatch> { static constexpr std::uint32_t value = PONKO_HANDLE_INSTANCE_BATCH; };
 template<> struct handle_kind<PonkoTextureArray> { static constexpr std::uint32_t value = PONKO_HANDLE_TEXTURE_ARRAY; };
+template<> struct handle_kind<PonkoSpriteShader> { static constexpr std::uint32_t value = PONKO_HANDLE_SPRITE_SHADER; };
+template<> struct handle_kind<PonkoSpriteMaterial> { static constexpr std::uint32_t value = PONKO_HANDLE_SPRITE_MATERIAL; };
 template<class T> constexpr bool pod = std::is_trivially_copyable<T>::value &&
     std::is_trivially_destructible<T>::value && std::is_standard_layout<T>::value;
 template<class T> using bare = typename std::remove_cv<typename std::remove_reference<T>::type>::type;
@@ -1430,6 +1480,8 @@ protected:
         PonkoStatus status;
         if constexpr (std::is_same<T, transform2d>::value) status = ponko_transform_component(world, &id);
         else if constexpr (std::is_same<T, sprite>::value) status = ponko_sprite_component(world, &id);
+        else if constexpr (std::is_same<T, sprite_blend>::value) status = ponko_blend_mode_component(world, &id);
+        else if constexpr (std::is_same<T, sprite_material>::value) status = ponko_sprite_material_component(world, &id);
         else if constexpr (std::is_same<T, attached>::value) status = ponko_attached_component(world, &id);
         else if constexpr (std::is_same<T, animation>::value) status = ponko_animation_component(world, &id);
         else if constexpr (std::is_same<T, rigid_body>::value) status = ponko_rigid_body_component(world, &id);
@@ -2767,6 +2819,88 @@ public:
     /// The C settings; its key pointers live as long as this object.
     PonkoParticleSettings3D raw() const {
         PonkoParticleSettings3D c = c_;
+        c.size_keys = size_keys_.data();
+        c.size_key_count = size_keys_.size();
+        c.color_keys = color_keys_.data();
+        c.color_key_count = color_keys_.size();
+        return c;
+    }
+};
+
+/// A 2D particle emitter's settings (Rust `d2::ParticleSettings`), in pixels, built by chaining:
+/// `particle_settings2d().rate(40).cone(0.3f).blend(sprite_blend::additive).z(2)`. Particles draw with the
+/// sprites at `z`. Give it to an entity with a 2D transform with ctx::set_particle_emitter2d.
+class particle_settings2d {
+    PonkoParticleSettings2D c_ = ponko_particle_settings2d_default();
+    std::vector<PonkoParticleKey> size_keys_;
+    std::vector<PonkoParticleColorKey> color_keys_;
+    particle_settings2d& shape(PonkoParticleShape2D kind, vec2 size) {
+        c_.shape = static_cast<std::uint32_t>(kind);
+        c_.shape_size = size;
+        return *this;
+    }
+public:
+    /// Particles per second; 0 emits only bursts.
+    particle_settings2d& rate(float per_second) { c_.rate = per_second; return *this; }
+    /// Particles emitted at once on the first frame.
+    particle_settings2d& burst(std::uint32_t count) { c_.burst = count; return *this; }
+    /// Seconds of emission, and whether it starts again after.
+    particle_settings2d& duration(float seconds, bool looping = true) { c_.duration = seconds; c_.looping = looping; return *this; }
+    /// Each particle lives a random time between `min` and `max` seconds.
+    particle_settings2d& lifetime(float min, float max) { c_.lifetime_min = min; c_.lifetime_max = max; return *this; }
+    /// Start speed in pixels per second, random between `min` and `max`.
+    particle_settings2d& speed(float min, float max) { c_.speed_min = min; c_.speed_max = max; return *this; }
+    /// Start width in pixels, random between `min` and `max` (scaled by size_over_life).
+    particle_settings2d& size(float min, float max) { c_.size_min = min; c_.size_max = max; return *this; }
+    /// Start rotation in radians, random between `min` and `max`.
+    particle_settings2d& rotation(float min, float max) { c_.rotation_min = min; c_.rotation_max = max; return *this; }
+    /// From the origin, moving up (the default).
+    particle_settings2d& point() { return shape(PONKO_PARTICLES2D_POINT, {0, 0}); }
+    /// Inside a disc, moving outward.
+    particle_settings2d& circle(float radius) { return shape(PONKO_PARTICLES2D_CIRCLE, {radius, 0}); }
+    /// From the origin, up to this many radians away from up.
+    particle_settings2d& cone(float angle) { return shape(PONKO_PARTICLES2D_CONE, {angle, 0}); }
+    /// Inside a rectangle, moving up.
+    particle_settings2d& rect(vec2 half_extents) { return shape(PONKO_PARTICLES2D_RECT, half_extents); }
+    /// Acceleration in pixels/s² (y down); {0, 200} by default.
+    particle_settings2d& gravity(vec2 acceleration) { c_.gravity = acceleration; return *this; }
+    /// Velocity damping per second.
+    particle_settings2d& drag(float per_second) { c_.drag = per_second; return *this; }
+    /// Size multiplier over normalized lifetime (0 birth, 1 death).
+    particle_settings2d& size_over_life(std::initializer_list<particle_key> keys) {
+        size_keys_.clear();
+        for (auto k : keys) size_keys_.push_back({k.t, k.value});
+        return *this;
+    }
+    /// Tint over normalized lifetime (0 birth, 1 death).
+    particle_settings2d& color_over_life(std::initializer_list<particle_color_key> keys) {
+        color_keys_.clear();
+        for (auto k : keys) color_keys_.push_back({k.t, k.value});
+        return *this;
+    }
+    /// The particle image; with `columns` x `rows` sprite sheet frames played over lifetime.
+    particle_settings2d& image(texture t, std::uint32_t columns = 1, std::uint32_t rows = 1) {
+        c_.has_texture = true;
+        c_.texture = t;
+        c_.sheet_columns = columns;
+        c_.sheet_rows = rows;
+        return *this;
+    }
+    /// How particles cover what's behind them, as for sprites (default alpha).
+    particle_settings2d& blend(sprite_blend b) { c_.blend = static_cast<std::uint32_t>(b); return *this; }
+    /// A sprite material (custom shader) for the particles.
+    particle_settings2d& material(sprite_material m) { c_.material = m; return *this; }
+    /// Draw order among sprites: higher is on top.
+    particle_settings2d& z(float order) { c_.z = order; return *this; }
+    /// Most living particles; storage is made up front.
+    particle_settings2d& max_particles(std::uint32_t n) { c_.max_particles = n; return *this; }
+    /// Whether particles stay in the world or move with the emitter (default world).
+    particle_settings2d& space(particle_space s) { c_.space = static_cast<std::uint32_t>(s); return *this; }
+    /// Equal seeds give equal particles.
+    particle_settings2d& seed(std::uint64_t s) { c_.seed = s; return *this; }
+    /// The C settings; its key pointers live as long as this object.
+    PonkoParticleSettings2D raw() const {
+        PonkoParticleSettings2D c = c_;
         c.size_keys = size_keys_.data();
         c.size_key_count = size_keys_.size();
         c.color_keys = color_keys_.data();
@@ -4626,6 +4760,46 @@ public:
     void draw(texture t, vec2 pos) { detail::check(ponko_ctx_draw(raw_, t, pos)); }
     /// Draws texture `t` at `pos` with options (start from draw_defaults()).
     void draw(texture t, vec2 pos, const draw_params& params) { detail::check(ponko_ctx_draw_ex(raw_, t, pos, &params)); }
+    // Sprite blend modes and sprite materials.
+    /// Draws texture `t` at `pos` with options, blended by `blend` and drawn with `material` (an id of
+    /// PONKO_HANDLE_NONE: the built-in look).
+    void draw(texture t, vec2 pos, const draw_params& params, sprite_blend blend,
+              sprite_material material = sprite_material{PONKO_HANDLE_NONE}) {
+        detail::check(ponko_ctx_draw_styled(raw_, t, pos, &params, static_cast<std::uint32_t>(blend), material));
+    }
+    /// Loads a sprite shader (WGSL) from assets/; with hot reload on, saving the file updates the game and an
+    /// edit that doesn't compile keeps the last good one. Throws ponko::error if it can't be read or doesn't
+    /// compile (the message says where; shader_status() lists it).
+    ponko::sprite_shader load_sprite_shader(const char* path) {
+        ponko::sprite_shader x{}; detail::check(ponko_ctx_load_sprite_shader(raw_, path, &x)); return x;
+    }
+    /// load_sprite_shader that returns the error instead of throwing.
+    result<ponko::sprite_shader> try_load_sprite_shader(const char* path) {
+        ponko::sprite_shader x{}; const PonkoStatus status = ponko_ctx_load_sprite_shader(raw_, path, &x); return detail::attempt(status, x);
+    }
+    /// Makes a sprite shader from WGSL source; `name` is for error messages.
+    ponko::sprite_shader create_sprite_shader(const char* name, const char* source) {
+        ponko::sprite_shader x{}; detail::check(ponko_ctx_create_sprite_shader(raw_, name, source, &x)); return x;
+    }
+    /// create_sprite_shader that returns the error instead of throwing.
+    result<ponko::sprite_shader> try_create_sprite_shader(const char* name, const char* source) {
+        ponko::sprite_shader x{}; const PonkoStatus status = ponko_ctx_create_sprite_shader(raw_, name, source, &x); return detail::attempt(status, x);
+    }
+    /// Makes a sprite material. Throws ponko::error for a shader this game didn't make.
+    ponko::sprite_material create_sprite_material(const sprite_material_desc& d) {
+        ponko::sprite_material m{}; detail::check(ponko_ctx_create_sprite_material(raw_, &d, &m)); return m;
+    }
+    /// Changes what a sprite material is made of; cheap enough every frame. Nothing for a freed one.
+    void update_sprite_material(ponko::sprite_material m, const sprite_material_desc& d) {
+        detail::check(ponko_ctx_update_sprite_material(raw_, m, &d));
+    }
+    /// What a sprite material is made of now; nothing once it's freed.
+    std::optional<sprite_material_desc> sprite_material_desc_of(ponko::sprite_material m) {
+        sprite_material_desc d{}; bool found = false;
+        detail::check(ponko_ctx_sprite_material_desc(raw_, m, &d, &found));
+        if (!found) return std::nullopt;
+        return d;
+    }
     /// Draws UTF-8 text with its top-left at `pos` in window pixels, `size` pixels tall, in the built-in
     /// font.
     void draw_text(const char* text, vec2 pos, float size, color c) { detail::check(ponko_ctx_draw_text(raw_, text, pos, size, c)); }
@@ -5083,6 +5257,23 @@ public:
     }
     /// Removes `e`'s emitter and its particles.
     void remove_particle_emitter3d(entity e) { detail::check(ponko_ctx_remove_particle_emitter3d(raw_, e)); }
+    /// Gives `e` (which needs a 2D transform) a new 2D particle emitter, replacing any old one.
+    void set_particle_emitter2d(entity e, const particle_settings2d& settings) {
+        PonkoParticleSettings2D c = settings.raw();
+        detail::check(ponko_ctx_set_particle_emitter2d(raw_, e, &c));
+    }
+    /// Emits `count` particles from `e`'s 2D emitter on the next frame.
+    void particle_burst2d(entity e, std::uint32_t count) { detail::check(ponko_ctx_particle_burst2d(raw_, e, count)); }
+    /// How many of `e`'s 2D particles are alive.
+    std::uint32_t particle_live_count2d(entity e) {
+        std::uint32_t n = 0;
+        detail::check(ponko_ctx_particle_live_count2d(raw_, e, &n));
+        return n;
+    }
+    /// Advances `e`'s 2D emitter by `dt` seconds by hand (headless runs skip the frame phase that does it).
+    void particle_update2d(entity e, float dt) { detail::check(ponko_ctx_particle_update2d(raw_, e, dt)); }
+    /// Removes `e`'s 2D emitter and its particles.
+    void remove_particle_emitter2d(entity e) { detail::check(ponko_ctx_remove_particle_emitter2d(raw_, e)); }
     /// Gives `e` (which needs a 3D transform) a new ribbon trail, replacing any old one.
     void set_trail3d(entity e, const trail3d& trail) {
         PonkoTrail3D c = trail.raw();
@@ -6211,6 +6402,146 @@ inline std::uint64_t steam_wait_for_invite(std::uint32_t app_id, std::uint32_t t
     std::uint64_t l = 0;
     detail::check(ponko_steam_wait_for_invite(app_id, timeout_ms, &l));
     return l;
+}
+
+// ---- Levels from level editors (Tiled, LDtk) and tilemap extras ----------------
+/// How spawn_level spawns a level; the defaults spawn everything.
+struct level_options {
+    /// Object classes spawned as prefab instances: {class, prefab file}.
+    std::vector<std::pair<std::string, std::string>> prefabs;
+    /// More solid things by name: layers, LDtk IntGrid values, tile classes or
+    /// tags (layers named "collision" or "collisions" are solid anyway).
+    std::vector<std::string> solid;
+    /// For an LDtk project: the level (identifier or iid); empty for the first.
+    std::string level;
+    /// Spawn no colliders.
+    bool no_colliders = false;
+    /// The z of the objects' layer; layers below get one less each, above one more.
+    float z = 0.0f;
+};
+/// A spawned level object's data: where it is, its shape, its tile.
+using level_object = PonkoLevelObject;
+
+/// Spawns the level at `path` (Tiled .tmx / .tmj, LDtk .ldtk) with its
+/// top-left at `at`: layers as tilemaps, objects as entities or prefabs,
+/// colliders with 2D physics. Returns the level's root entity. With hot
+/// reload on, editing the files spawns it again in place.
+inline entity spawn_level(ctx& c, const char* path, vec2 at, const level_options& options = {}) {
+    std::vector<const char*> classes, paths, solid;
+    for (const auto& p : options.prefabs) { classes.push_back(p.first.c_str()); paths.push_back(p.second.c_str()); }
+    for (const auto& s : options.solid) solid.push_back(s.c_str());
+    PonkoLevelOptions o{classes.data(), paths.data(), classes.size(), solid.data(), solid.size(),
+                        options.level.empty() ? nullptr : options.level.c_str(), options.no_colliders, options.z};
+    entity root = 0;
+    detail::check(ponko_ctx_spawn_level(c.raw(), path, at, &o, &root));
+    return root;
+}
+/// Despawns a level and everything it spawned; false if `root` was gone.
+inline bool despawn_level(ctx& c, entity root) {
+    const PonkoStatus s = ponko_ctx_despawn_level(c.raw(), root);
+    if (s == PONKO_NOT_FOUND) return false;
+    detail::check(s);
+    return true;
+}
+/// Every entity a level spawned (layers, objects, colliders), root excluded.
+inline std::vector<entity> level_entities(ctx& c, entity root) {
+    PonkoWorld* w = ponko_ctx_world(c.raw());
+    std::size_t n = 0;
+    detail::check(ponko_level_entities(w, root, nullptr, 0, &n));
+    std::vector<entity> out(n);
+    detail::check(ponko_level_entities(w, root, out.data(), out.size(), &n));
+    out.resize(std::min(n, out.size()));
+    return out;
+}
+/// The level object on `e`; throws if `e` is not one.
+inline level_object level_object_of(ctx& c, entity e) {
+    level_object o{};
+    detail::check(ponko_level_object_get(ponko_ctx_world(c.raw()), e, &o));
+    return o;
+}
+/// A level object's name, class and layer as the editor shows them.
+///@{
+inline std::string level_object_name(ctx& c, entity e) {
+    return detail::read_text([&](char* b, std::size_t n, std::size_t* len) { return ponko_level_object_name(ponko_ctx_world(c.raw()), e, b, n, len); });
+}
+inline std::string level_object_class(ctx& c, entity e) {
+    return detail::read_text([&](char* b, std::size_t n, std::size_t* len) { return ponko_level_object_class(ponko_ctx_world(c.raw()), e, b, n, len); });
+}
+inline std::string level_object_layer(ctx& c, entity e) {
+    return detail::read_text([&](char* b, std::size_t n, std::size_t* len) { return ponko_level_object_layer(ponko_ctx_world(c.raw()), e, b, n, len); });
+}
+///@}
+/// A custom property of a level object, layer or level root, as JSON
+/// ("5", "\"gold\"", "true"); throws if there is none.
+inline std::string level_property_json(ctx& c, entity e, const char* name) {
+    return detail::read_text([&](char* b, std::size_t n, std::size_t* len) { return ponko_level_property_json(ponko_ctx_world(c.raw()), e, name, b, n, len); });
+}
+/// How fast a tilemap follows the camera: (1, 1) moves with the world, (0, 0)
+/// stays on screen, in between scrolls slower (far layers). `origin` is the
+/// camera center where the map sits at its own position.
+inline void tilemap_set_parallax(ctx& c, entity map, vec2 parallax, vec2 origin = {0, 0}) {
+    detail::check(ponko_tilemap_set_parallax(ponko_ctx_world(c.raw()), map, parallax, origin));
+}
+/// Animates every cell showing `tile`: the frames in turn, each for its seconds.
+/// An empty list stops the animation.
+inline void tilemap_animate(ctx& c, entity map, std::uint16_t tile, const std::vector<std::pair<std::uint16_t, float>>& frames) {
+    std::vector<std::uint16_t> f;
+    std::vector<float> s;
+    for (const auto& p : frames) { f.push_back(p.first); s.push_back(p.second); }
+    detail::check(ponko_tilemap_animate(ponko_ctx_world(c.raw()), map, tile, f.data(), s.data(), f.size()));
+}
+/// Sets a cell's frame and its PONKO_TILE_FLIP_* bits.
+inline void tilemap_set_flipped(ctx& c, entity map, std::uint32_t x, std::uint32_t y, std::uint16_t frame, std::uint8_t flip) {
+    detail::check(ponko_tilemap_set_flipped(ponko_ctx_world(c.raw()), map, x, y, frame, flip));
+}
+/// A cell's PONKO_TILE_FLIP_* bits.
+inline std::uint8_t tilemap_flip(ctx& c, entity map, std::uint32_t x, std::uint32_t y) {
+    std::uint8_t f = 0;
+    detail::check(ponko_tilemap_flip(ponko_ctx_world(c.raw()), map, x, y, &f));
+    return f;
+}
+/// An autotile rule: 4 or 8 neighbours, the frame for each mask (16 frames
+/// for 4 neighbours; 47 "blob" frames for 8), and whether the map's outside
+/// counts as filled.
+struct autotile_rule {
+    /// 4 or 8.
+    std::uint32_t neighbours = 4;
+    /// 16 frames (4 neighbours, mask N=1 E=2 S=4 W=8) or 47 (8 neighbours, blob order).
+    std::vector<std::uint16_t> frames;
+    /// Cells beyond the map's edge count as filled.
+    bool outside_filled = true;
+};
+/// Applies the rule over the whole map: each cell `filled` marks (width ×
+/// height, row by row) gets the frame for its filled neighbours; other cells
+/// are left alone.
+inline void tilemap_autotile(ctx& c, entity map, const autotile_rule& rule, const std::vector<bool>& filled) {
+    std::unique_ptr<bool[]> cells(new bool[filled.size()]);
+    std::copy(filled.begin(), filled.end(), cells.get());
+    detail::check(ponko_tilemap_autotile(ponko_ctx_world(c.raw()), map, rule.neighbours, rule.frames.data(), rule.frames.size(),
+                                         rule.outside_filled, cells.get()));
+}
+/// Fills or clears one cell and fixes it and its neighbours to the rule.
+inline void tilemap_paint_autotile(ctx& c, entity map, const autotile_rule& rule, std::uint32_t x, std::uint32_t y, bool on) {
+    detail::check(ponko_tilemap_paint_autotile(ponko_ctx_world(c.raw()), map, rule.neighbours, rule.frames.data(), rule.frames.size(),
+                                               rule.outside_filled, x, y, on));
+}
+/// The cells showing one of `solid` tiles, merged into few rectangles, in
+/// pixels from the map's top-left.
+inline std::vector<rect> tilemap_solid_rects(ctx& c, entity map, const std::vector<std::uint16_t>& solid) {
+    PonkoWorld* w = ponko_ctx_world(c.raw());
+    std::size_t n = 0;
+    detail::check(ponko_tilemap_solid_rects(w, map, solid.data(), solid.size(), nullptr, 0, &n));
+    std::vector<rect> out(n);
+    detail::check(ponko_tilemap_solid_rects(w, map, solid.data(), solid.size(), out.data(), out.size(), &n));
+    out.resize(std::min(n, out.size()));
+    return out;
+}
+/// Spawns fixed bodies for the cells showing one of `solid` tiles, merged
+/// into few rectangles; returns how many. Needs 2D physics.
+inline std::size_t tilemap_spawn_colliders(ctx& c, entity map, const std::vector<std::uint16_t>& solid) {
+    std::size_t n = 0;
+    detail::check(ponko_tilemap_spawn_colliders(ponko_ctx_world(c.raw()), map, solid.data(), solid.size(), &n));
+    return n;
 }
 } // namespace ponko
 

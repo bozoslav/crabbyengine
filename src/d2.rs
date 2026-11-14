@@ -19,6 +19,11 @@ pub use crate::collision::{BodyKind, CollisionStarted, CollisionStopped};
 pub use crate::ecs::{Sprite, Transform2D as Transform};
 #[doc(no_inline)]
 pub use crate::flow::{FlowField, NavGrid};
+#[doc(no_inline)]
+pub use crate::particles::{
+    ParticleCurve, ParticleEmitter2D as ParticleEmitter, ParticleGradient, ParticleSettings2D as ParticleSettings,
+    ParticleShape2D as ParticleShape, ParticleSpace,
+};
 #[cfg(feature = "physics")]
 #[doc(no_inline)]
 pub use crate::physics::{Collider, Physics, QueryFilter, RayHit as Hit, RigidBody, Shape, Velocity};
@@ -27,4 +32,9 @@ pub use crate::sheet::{Animation, SpriteSheet};
 #[doc(no_inline)]
 pub use crate::spatial::SpatialGrid;
 #[doc(no_inline)]
-pub use crate::tilemap::TileMap;
+pub use crate::sprite_material::{BlendMode, SpriteMaterial, SpriteMaterialDesc, SpriteShader};
+#[doc(no_inline)]
+pub use crate::tilemap::{
+    AutoTile, Layer, LayerKind, Level, LevelLayer, LevelObject, LevelOptions, LevelRoot, Neighbours, ObjectShape,
+    PlacedTile, Properties, TileAnimation, TileInfo, TileLayer, TileMap, Tileset,
+};

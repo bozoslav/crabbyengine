@@ -216,9 +216,7 @@ impl Graphics {
             let found = self.asset_sources.find(path)?;
             let origin = found.origin.clone();
             let bytes = found.into_bytes().map_err(|e| e.with_path(*path))?;
-            let image = assets::decode_image(&bytes).map_err(|e| {
-                crate::error::Error::decode(path, format!("{} is not a valid image: {e}", origin.describe(path)))
-            })?;
+            let image = assets::decode_image(&bytes, path, &origin.describe(path))?;
             images.push(image);
         }
         let Some(first) = images.first() else {
