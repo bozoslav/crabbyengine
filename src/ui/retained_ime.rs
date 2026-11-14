@@ -86,7 +86,7 @@ impl Ui {
     /// let mut ui = Ui::default();
     /// let root = ui.add(UiWidget::Panel, UiLayout::auto());
     /// let name = ui.add_child(root, UiWidget::TextInput, UiLayout::auto());
-    /// ui.push_screen(root);
+    /// ui.push_screen(root, false);
     /// assert!(!ui.wants_ime());
     /// ui.set_focus(name);
     /// assert!(ui.wants_ime());
@@ -103,8 +103,8 @@ impl Ui {
     /// use ponko::ui::{Ui, UiInput, UiLayout, UiWidget};
     /// let mut ui = Ui::default();
     /// let root = ui.add(UiWidget::Panel, UiLayout::auto());
-    /// let name = ui.add_child(root, UiWidget::TextInput, UiLayout::auto());
-    /// ui.push_screen(root);
+    /// let name = ui.add_child(root, UiWidget::TextInput, UiLayout::fixed(200.0, 30.0));
+    /// ui.push_screen(root, false);
     /// ui.set_focus(name);
     /// let input = UiInput { preedit: "にほ".into(), composing: true, ..Default::default() };
     /// ui.frame(vec2(800.0, 600.0), &input);
