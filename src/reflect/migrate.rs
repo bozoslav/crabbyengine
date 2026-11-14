@@ -366,7 +366,7 @@ impl Migration {
 ///     "entities": [{ "entity": 0, "components": { "Hp": { "current": 3.0, "max": 100.0 } } }],
 /// });
 /// world.load(&old).unwrap();
-/// let (_, hp) = world.query::<(Entity, &Health)>().iter().next().unwrap();
+/// let hp = world.get::<Health>(Entity::from_bits(0)).unwrap();
 /// assert_eq!((hp.now, hp.max), (3.0, 10.0));
 /// assert_eq!(world.save()["game_version"], 2);
 /// ```
