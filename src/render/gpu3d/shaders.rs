@@ -288,7 +288,7 @@ pub(super) fn reads_depth_as_float(device: &wgpu::Device) -> bool {
 thread_local! {
     /// Tests: renderers made on this thread read the scene depth as a float
     /// texture on any backend, so the GL path runs on the test machine's GPU.
-    pub(super) static FORCE_FLOAT_DEPTH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    pub(crate) static FORCE_FLOAT_DEPTH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Whether a renderer with `float_depth` and `samples` per pixel samples the
@@ -312,7 +312,7 @@ pub(super) fn scene_depth_sample_type(float_depth: bool) -> wgpu::TextureSampleT
 /// What [`depth_as_float`] adds at the end of a single-sampled shader: the
 /// sampler and the texel read through it (at the texel's center, with
 /// `NEAREST` filtering: the stored value).
-const SAMPLED_DEPTH: &str = "
+pub(super) const SAMPLED_DEPTH: &str = "
 // ---- the scene depth, sampled (the GL backend) ----
 @group(2) @binding(2) var scene_depth_sampler: sampler;
 fn scene_depth_texel(at: vec2<i32>) -> vec4<f32> {

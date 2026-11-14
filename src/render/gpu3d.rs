@@ -1007,6 +1007,14 @@ impl Renderer3D {
         self.render_targets.free(id);
     }
 
+    /// Whether the scene depth is read as a float texture, and the frame's
+    /// transparent surfaces read a copy of it (the GL backend; for tests).
+    #[cfg(test)]
+    pub(crate) fn copies_scene_depth(&self) -> (bool, bool) {
+        let copy = self.targets.as_ref().is_some_and(|t| t.depth_copy.is_some());
+        (self.float_depth, copy)
+    }
+
     /// How many target effects run this frame (for tests).
     #[cfg(test)]
     pub(crate) fn target_effect_count(&self) -> usize {
@@ -1885,6 +1893,10 @@ mod tests {
 #[cfg(test)]
 #[path = "material_render_test.rs"]
 mod material_render_test;
+
+#[cfg(test)]
+#[path = "gpu3d/webgl2_shaders_test.rs"]
+mod webgl2_shaders_test;
 
 #[cfg(test)]
 #[path = "capabilities_render_test.rs"]

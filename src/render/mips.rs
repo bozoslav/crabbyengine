@@ -505,6 +505,17 @@ mod tests {
 
     /// Mip level `level` of an RGBA8 `texture`, rows unpadded.
     fn read_level(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, level: u32) -> Vec<u8> {
+        read_layer(device, queue, texture, level, 0)
+    }
+
+    /// Mip level `level` of layer `layer` of an RGBA8 `texture`, rows unpadded.
+    fn read_layer(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture: &wgpu::Texture,
+        level: u32,
+        layer: u32,
+    ) -> Vec<u8> {
         let (width, height) = ((texture.width() >> level).max(1), (texture.height() >> level).max(1));
         let row = (width * 4).next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -518,7 +529,7 @@ mod tests {
             wgpu::TexelCopyTextureInfo {
                 texture,
                 mip_level: level,
-                origin: wgpu::Origin3d::ZERO,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: layer },
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::TexelCopyBufferInfo {
@@ -601,6 +612,105 @@ mod tests {
         for texel in level1.chunks(4) {
             assert!(texel[0].abs_diff(100) <= 2, "red {texel:?}");
             assert!(texel[1].abs_diff(128) <= 1 && texel[2].abs_diff(255) <= 1, "{texel:?}");
+        }
+    }
+
+    /// The GL backend's path for texture arrays (the whole array bound, the
+    /// layer picked by a uniform; WebGL2 has no texture views) makes the
+    /// levels the 2D views of single layers do, layer by layer.
+    #[test]
+    fn array_levels_match_without_texture_views() {
+        let Some((device, queue)) = gpu() else {
+            return;
+        };
+        let (size, layers) = (8u32, 3u32);
+        for linear in [false, true] {
+            let format = if linear {
+                wgpu::TextureFormat::Rgba8Unorm
+            } else {
+                wgpu::TextureFormat::Rgba8UnormSrgb
+            };
+            let array = || {
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    label: None,
+                    size: wgpu::Extent3d {
+                        width: size,
+                        height: size,
+                        depth_or_array_layers: layers,
+                    },
+                    mip_level_count: levels(size, size),
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::COPY_SRC
+                        | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                });
+                // Each layer its own pattern: stripes of a layer's colour.
+                for layer in 0..layers {
+                    let pixels: Vec<u8> = (0..size * size)
+                        .flat_map(|i| {
+                            let on = (i % size + layer) % 2 == 0;
+                            [
+                                if on { 255 } else { 0 },
+                                (layer * 100) as u8,
+                                if on { 0 } else { 200 },
+                                255,
+                            ]
+                        })
+                        .collect();
+                    queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d { x: 0, y: 0, z: layer },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &pixels,
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(size * 4),
+                            rows_per_image: Some(size),
+                        },
+                        wgpu::Extent3d {
+                            width: size,
+                            height: size,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+                texture
+            };
+            let views = MipMaker::new(&device);
+            FORCE_ARRAY_MIPS.set(true);
+            let whole = MipMaker::new(&device);
+            FORCE_ARRAY_MIPS.set(false);
+            assert!(views.arrays.is_none() && whole.arrays.is_some());
+            let (a, b) = (array(), array());
+            let mut encoder = device.create_command_encoder(&Default::default());
+            views.generate(&device, &mut encoder, &a, linear);
+            whole.generate(&device, &mut encoder, &b, linear);
+            queue.submit([encoder.finish()]);
+            for level in 1..levels(size, size) {
+                let mut seen = Vec::new();
+                for layer in 0..layers {
+                    let (want, got) = (
+                        read_layer(&device, &queue, &a, level, layer),
+                        read_layer(&device, &queue, &b, level, layer),
+                    );
+                    for (i, (w, g)) in want.iter().zip(&got).enumerate() {
+                        assert!(
+                            w.abs_diff(*g) <= 1,
+                            "linear {linear}, level {level}, layer {layer}, byte {i}: {g}, want {w}"
+                        );
+                    }
+                    seen.push(got);
+                }
+                // Each layer's level came from that layer.
+                assert!(seen[0] != seen[1] && seen[1] != seen[2], "level {level}: layers differ");
+            }
         }
     }
 

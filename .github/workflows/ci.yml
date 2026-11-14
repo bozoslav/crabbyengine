@@ -1062,10 +1062,13 @@ jobs:
       # The web gallery (web/gallery/README.md) with two of its examples and a
       # demo that needs WebGPU, which must show its message on WebGL2: the
       # pages, their loader and the check the release runs on every example.
+      # Also the 3D demos that read the scene depth (a lake, screen and target
+      # effects) and a texture array's mipmaps, which need the renderer's
+      # WebGL2 paths for them.
       - name: Web gallery pages (Chromium, WebGL2)
         if: ${{ !cancelled() }}
         run: |
-          node web/gallery/build.mjs --only sprites,3d,compute
+          node web/gallery/build.mjs --only sprites,3d,compute,terrain,shaders,target_effect
           node web/smoke/gallery.mjs --browser chromium --backend webgl2
       # Every run, with what it asked for, what ran, the adapter the engine
       # reported and why anything was unsupported (also in the artifact).

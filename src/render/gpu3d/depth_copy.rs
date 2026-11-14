@@ -13,8 +13,8 @@
 //! attachment, which a depth texture can't be, and a depth target (unlike
 //! a 32-bit float color target) needs no WebGL2 extension. It reads the
 //! depth as the scene shaders do on GL (see `shaders::depth_as_float`):
-//! sampled through a non-filtering sampler with one sample, loaded per
-//! sample when multisampled. It costs one full-screen depth write, only in
+//! sampled through a non-filtering sampler with one sample, loaded when
+//! multisampled. It costs one full-screen depth write, only in
 //! frames with scene-reading transparent surfaces, only on GL.
 
 use super::DEPTH_FORMAT;
@@ -35,8 +35,8 @@ const MULTISAMPLED: &str = "
 
 const MULTISAMPLED_COPY: &str = "
 @fragment
-fn fs_copy(@builtin(position) at: vec4<f32>, @builtin(sample_index) sample: u32) -> @builtin(frag_depth) f32 {
-    return textureLoad(depth, vec2<i32>(at.xy), i32(sample)).x;
+fn fs_copy(@builtin(position) at: vec4<f32>) -> @builtin(frag_depth) f32 {
+    return textureLoad(depth, vec2<i32>(at.xy), 0).x;
 }
 ";
 
@@ -49,8 +49,11 @@ fn vs_copy(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
 ";
 
 /// The copy shader for a depth of `samples` per pixel, read as a float
-/// texture: sampled at each pixel's center with one sample, or loaded per
-/// sample of a multisampled depth (the pipeline then runs per sample).
+/// texture: sampled at each pixel's center with one sample, or loaded from
+/// sample 0 of a multisampled depth into every sample of the copy. Shaders
+/// read only sample 0 of the scene depth (the book's shader section says
+/// so), and the transparent pass tests against the depth itself, not the
+/// copy, so per-sample shading (which not every GL device has) isn't needed.
 pub(super) fn shader(samples: u32) -> String {
     if samples > 1 {
         format!("{MULTISAMPLED}{VERTEX}{MULTISAMPLED_COPY}")
