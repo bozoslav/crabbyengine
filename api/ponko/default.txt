@@ -1622,11 +1622,18 @@ impl core::marker::Copy for ponko::game::Phase
 impl core::marker::StructuralPartialEq for ponko::game::Phase
 pub struct ponko::game::ConfiguredGame
 impl ponko::game::ConfiguredGame
+pub fn ponko::game::ConfiguredGame::data_dir(self, impl core::convert::Into<std::path::PathBuf>) -> Self
+pub fn ponko::game::ConfiguredGame::headless_frames(self, bool) -> Self
+pub fn ponko::game::ConfiguredGame::input_scenario(self, ponko::scenario::InputScenario) -> Self
 pub fn ponko::game::ConfiguredGame::plugin(self, impl ponko::game::Plugin + 'static) -> Self
 pub fn ponko::game::ConfiguredGame::profile_headless(self, u64, u64) -> (ponko_ecs::world::World, ponko::perf::PerfReport)
 pub fn ponko::game::ConfiguredGame::run(self)
 pub fn ponko::game::ConfiguredGame::run_headless(self, u64) -> ponko_ecs::world::World
+pub fn ponko::game::ConfiguredGame::run_headless_scenario(self, ponko::scenario::InputScenario) -> (ponko_ecs::world::World, ponko::scenario::ScenarioReport)
+pub fn ponko::game::ConfiguredGame::seed(self, u64) -> Self
 pub fn ponko::game::ConfiguredGame::setup(self, impl core::ops::function::FnOnce(&mut ponko::prelude::Ctx) + 'static) -> Self
+pub fn ponko::game::ConfiguredGame::sim_system<F: core::ops::function::FnMut(&mut ponko::prelude::Ctx) + 'static>(self, F) -> Self
+pub fn ponko::game::ConfiguredGame::system<F: core::ops::function::FnMut(&mut ponko::prelude::Ctx) + 'static>(self, F) -> Self
 pub struct ponko::game::Game
 impl ponko::game::Game
 pub fn ponko::game::Game::access_report(&self) -> ponko::access::AccessReport
@@ -4603,11 +4610,18 @@ impl<'de> serde_core::de::Deserialize<'de> for ponko::color::Color
 pub fn ponko::color::Color::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub struct ponko::prelude::ConfiguredGame
 impl ponko::game::ConfiguredGame
+pub fn ponko::game::ConfiguredGame::data_dir(self, impl core::convert::Into<std::path::PathBuf>) -> Self
+pub fn ponko::game::ConfiguredGame::headless_frames(self, bool) -> Self
+pub fn ponko::game::ConfiguredGame::input_scenario(self, ponko::scenario::InputScenario) -> Self
 pub fn ponko::game::ConfiguredGame::plugin(self, impl ponko::game::Plugin + 'static) -> Self
 pub fn ponko::game::ConfiguredGame::profile_headless(self, u64, u64) -> (ponko_ecs::world::World, ponko::perf::PerfReport)
 pub fn ponko::game::ConfiguredGame::run(self)
 pub fn ponko::game::ConfiguredGame::run_headless(self, u64) -> ponko_ecs::world::World
+pub fn ponko::game::ConfiguredGame::run_headless_scenario(self, ponko::scenario::InputScenario) -> (ponko_ecs::world::World, ponko::scenario::ScenarioReport)
+pub fn ponko::game::ConfiguredGame::seed(self, u64) -> Self
 pub fn ponko::game::ConfiguredGame::setup(self, impl core::ops::function::FnOnce(&mut ponko::prelude::Ctx) + 'static) -> Self
+pub fn ponko::game::ConfiguredGame::sim_system<F: core::ops::function::FnMut(&mut ponko::prelude::Ctx) + 'static>(self, F) -> Self
+pub fn ponko::game::ConfiguredGame::system<F: core::ops::function::FnMut(&mut ponko::prelude::Ctx) + 'static>(self, F) -> Self
 pub struct ponko::prelude::Ctx
 pub ponko::prelude::Ctx::assets: ponko::assets::Assets
 pub ponko::prelude::Ctx::audio: ponko::audio::Audio
@@ -5092,10 +5106,14 @@ pub fn ponko::prelude::Ui::set_live_region(&mut self, ponko::prelude::UiId, ponk
 impl ponko::prelude::Ui
 pub fn ponko::prelude::Ui::add(&mut self, ponko::ui::UiWidget, ponko::ui::UiLayout) -> ponko::prelude::UiId
 pub fn ponko::prelude::Ui::add_child(&mut self, ponko::prelude::UiId, ponko::ui::UiWidget, ponko::ui::UiLayout) -> ponko::prelude::UiId
+pub fn ponko::prelude::Ui::clear_focus(&mut self)
 pub fn ponko::prelude::Ui::events(&mut self) -> impl core::iter::traits::iterator::Iterator<Item = ponko::ui::UiEvent> + '_
 pub fn ponko::prelude::Ui::focus(&self) -> core::option::Option<ponko::prelude::UiId>
 pub fn ponko::prelude::Ui::frame(&mut self, glam::f32::vec2::Vec2, &ponko::ui::UiInput)
+pub fn ponko::prelude::Ui::hide_hud(&mut self, ponko::prelude::UiId)
 pub fn ponko::prelude::Ui::hit_test(&self, glam::f32::vec2::Vec2) -> core::option::Option<ponko::prelude::UiId>
+pub fn ponko::prelude::Ui::is_hud(&self, ponko::prelude::UiId) -> bool
+pub fn ponko::prelude::Ui::is_initial_focus(&self, ponko::prelude::UiId) -> bool
 pub fn ponko::prelude::Ui::is_screen(&self, ponko::prelude::UiId) -> bool
 pub fn ponko::prelude::Ui::is_shown(&self, ponko::prelude::UiId) -> bool
 pub fn ponko::prelude::Ui::layout(&mut self, glam::f32::vec2::Vec2)
@@ -5108,12 +5126,15 @@ pub fn ponko::prelude::Ui::rect(&self, ponko::prelude::UiId) -> core::option::Op
 pub fn ponko::prelude::Ui::remove(&mut self, ponko::prelude::UiId)
 pub fn ponko::prelude::Ui::scroll(&self, ponko::prelude::UiId) -> core::option::Option<glam::f32::vec2::Vec2>
 pub fn ponko::prelude::Ui::set_enabled(&mut self, ponko::prelude::UiId, bool)
+pub fn ponko::prelude::Ui::set_focus(&mut self, ponko::prelude::UiId) -> bool
+pub fn ponko::prelude::Ui::set_initial_focus(&mut self, ponko::prelude::UiId, bool)
 pub fn ponko::prelude::Ui::set_layout(&mut self, ponko::prelude::UiId, ponko::ui::UiLayout)
 pub fn ponko::prelude::Ui::set_paint(&mut self, ponko::prelude::UiId, ponko::ui::UiPaint)
 pub fn ponko::prelude::Ui::set_scale(&mut self, f32)
 pub fn ponko::prelude::Ui::set_scroll(&mut self, ponko::prelude::UiId, glam::f32::vec2::Vec2)
 pub fn ponko::prelude::Ui::set_text(&mut self, ponko::prelude::UiId, impl core::convert::AsRef<str>)
 pub fn ponko::prelude::Ui::set_value(&mut self, ponko::prelude::UiId, f32)
+pub fn ponko::prelude::Ui::show_hud(&mut self, ponko::prelude::UiId)
 pub fn ponko::prelude::Ui::text(&self, ponko::prelude::UiId) -> core::option::Option<&str>
 pub fn ponko::prelude::Ui::top_screen(&self) -> core::option::Option<ponko::prelude::UiId>
 pub fn ponko::prelude::Ui::value(&self, ponko::prelude::UiId) -> core::option::Option<f32>
@@ -6912,10 +6933,14 @@ pub fn ponko::prelude::Ui::set_live_region(&mut self, ponko::prelude::UiId, ponk
 impl ponko::prelude::Ui
 pub fn ponko::prelude::Ui::add(&mut self, ponko::ui::UiWidget, ponko::ui::UiLayout) -> ponko::prelude::UiId
 pub fn ponko::prelude::Ui::add_child(&mut self, ponko::prelude::UiId, ponko::ui::UiWidget, ponko::ui::UiLayout) -> ponko::prelude::UiId
+pub fn ponko::prelude::Ui::clear_focus(&mut self)
 pub fn ponko::prelude::Ui::events(&mut self) -> impl core::iter::traits::iterator::Iterator<Item = ponko::ui::UiEvent> + '_
 pub fn ponko::prelude::Ui::focus(&self) -> core::option::Option<ponko::prelude::UiId>
 pub fn ponko::prelude::Ui::frame(&mut self, glam::f32::vec2::Vec2, &ponko::ui::UiInput)
+pub fn ponko::prelude::Ui::hide_hud(&mut self, ponko::prelude::UiId)
 pub fn ponko::prelude::Ui::hit_test(&self, glam::f32::vec2::Vec2) -> core::option::Option<ponko::prelude::UiId>
+pub fn ponko::prelude::Ui::is_hud(&self, ponko::prelude::UiId) -> bool
+pub fn ponko::prelude::Ui::is_initial_focus(&self, ponko::prelude::UiId) -> bool
 pub fn ponko::prelude::Ui::is_screen(&self, ponko::prelude::UiId) -> bool
 pub fn ponko::prelude::Ui::is_shown(&self, ponko::prelude::UiId) -> bool
 pub fn ponko::prelude::Ui::layout(&mut self, glam::f32::vec2::Vec2)
@@ -6928,12 +6953,15 @@ pub fn ponko::prelude::Ui::rect(&self, ponko::prelude::UiId) -> core::option::Op
 pub fn ponko::prelude::Ui::remove(&mut self, ponko::prelude::UiId)
 pub fn ponko::prelude::Ui::scroll(&self, ponko::prelude::UiId) -> core::option::Option<glam::f32::vec2::Vec2>
 pub fn ponko::prelude::Ui::set_enabled(&mut self, ponko::prelude::UiId, bool)
+pub fn ponko::prelude::Ui::set_focus(&mut self, ponko::prelude::UiId) -> bool
+pub fn ponko::prelude::Ui::set_initial_focus(&mut self, ponko::prelude::UiId, bool)
 pub fn ponko::prelude::Ui::set_layout(&mut self, ponko::prelude::UiId, ponko::ui::UiLayout)
 pub fn ponko::prelude::Ui::set_paint(&mut self, ponko::prelude::UiId, ponko::ui::UiPaint)
 pub fn ponko::prelude::Ui::set_scale(&mut self, f32)
 pub fn ponko::prelude::Ui::set_scroll(&mut self, ponko::prelude::UiId, glam::f32::vec2::Vec2)
 pub fn ponko::prelude::Ui::set_text(&mut self, ponko::prelude::UiId, impl core::convert::AsRef<str>)
 pub fn ponko::prelude::Ui::set_value(&mut self, ponko::prelude::UiId, f32)
+pub fn ponko::prelude::Ui::show_hud(&mut self, ponko::prelude::UiId)
 pub fn ponko::prelude::Ui::text(&self, ponko::prelude::UiId) -> core::option::Option<&str>
 pub fn ponko::prelude::Ui::top_screen(&self) -> core::option::Option<ponko::prelude::UiId>
 pub fn ponko::prelude::Ui::value(&self, ponko::prelude::UiId) -> core::option::Option<f32>
@@ -7035,6 +7063,7 @@ pub fn ponko::ui::UiBuilder<'_>::border(self, ponko::color::Color, f32) -> Self
 pub fn ponko::ui::UiBuilder<'_>::border_width(self, f32) -> Self
 pub fn ponko::ui::UiBuilder<'_>::color(self, ponko::color::Color) -> Self
 pub fn ponko::ui::UiBuilder<'_>::enabled(self, bool) -> Self
+pub fn ponko::ui::UiBuilder<'_>::focused(self) -> Self
 pub fn ponko::ui::UiBuilder<'_>::font(self, ponko::text::Font) -> Self
 pub fn ponko::ui::UiBuilder<'_>::id(self) -> ponko::prelude::UiId
 pub fn ponko::ui::UiBuilder<'_>::layout(self, ponko::ui::UiLayout) -> Self

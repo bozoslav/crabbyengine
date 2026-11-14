@@ -3751,6 +3751,12 @@ enum PonkoStatus ponko_ctx_set_physics_paused(struct PonkoCtx *ctx, bool paused)
 
 enum PonkoStatus ponko_ctx_is_physics_paused(struct PonkoCtx *ctx, bool *out_paused);
 
+enum PonkoStatus ponko_ctx_load_collision_mesh(struct PonkoCtx *ctx,
+                                               const char *path,
+                                               struct PonkoVec3 scale,
+                                               bool convex,
+                                               struct PonkoCollisionMesh *out_mesh);
+
 enum PonkoStatus ponko_ctx_prefab_parts(struct PonkoCtx *ctx,
                                         uint64_t root,
                                         uint64_t *out_entities,
@@ -5016,6 +5022,24 @@ enum PonkoStatus ponko_ui_access_changed(struct PonkoUiAccess *access,
 enum PonkoStatus ponko_ui_access_removed(struct PonkoUiAccess *access,
                                          size_t index,
                                          uint64_t *out_id);
+
+enum PonkoStatus ponko_ctx_ui_set_focus(struct PonkoCtx *ctx, uint64_t target, uint64_t id);
+
+enum PonkoStatus ponko_ctx_ui_clear_focus(struct PonkoCtx *ctx, uint64_t target);
+
+enum PonkoStatus ponko_ctx_ui_set_initial_focus(struct PonkoCtx *ctx,
+                                                uint64_t target,
+                                                uint64_t id,
+                                                bool on);
+
+enum PonkoStatus ponko_ctx_ui_show_hud(struct PonkoCtx *ctx, uint64_t target, uint64_t root);
+
+enum PonkoStatus ponko_ctx_ui_hide_hud(struct PonkoCtx *ctx, uint64_t target, uint64_t root);
+
+enum PonkoStatus ponko_ctx_ui_is_hud(struct PonkoCtx *ctx,
+                                     uint64_t target,
+                                     uint64_t id,
+                                     bool *out_hud);
 
 enum PonkoStatus ponko_ctx_create_ui_panel(struct PonkoCtx *ctx,
                                            uint64_t entity_bits,

@@ -3499,6 +3499,18 @@ public:
     bool is_shown(id node) const { bool s = false; detail::check(ponko_ctx_ui_is_shown(raw_, target_, node, &s)); return s; }
     /// The focused node, if any.
     std::optional<id> focus() const { id n = none; detail::check(ponko_ctx_ui_focus(raw_, target_, &n)); return maybe(n); }
+    /// Focuses `node` (an enabled, shown button, text input, toggle or slider on the top screen), as Tab would.
+    void set_focus(id node) { detail::check(ponko_ctx_ui_set_focus(raw_, target_, node)); }
+    /// Takes the focus away.
+    void clear_focus() { detail::check(ponko_ctx_ui_clear_focus(raw_, target_)); }
+    /// Marks `node` as the one its screen opens on: every push_screen of it focuses `node`.
+    void set_initial_focus(id node, bool on = true) { detail::check(ponko_ctx_ui_set_initial_focus(raw_, target_, node, on)); }
+    /// Shows the tree under `root` as a HUD: drawn below every screen, never closed by Escape, never takes input.
+    void show_hud(id root) { detail::check(ponko_ctx_ui_show_hud(raw_, target_, root)); }
+    /// Takes a HUD off the screen; its nodes stay.
+    void hide_hud(id root) { detail::check(ponko_ctx_ui_hide_hud(raw_, target_, root)); }
+    /// Whether `node` is a HUD's root.
+    bool is_hud(id node) const { bool b = false; detail::check(ponko_ctx_ui_is_hud(raw_, target_, node, &b)); return b; }
     /// The topmost node under `point` (window points), as of the last layout.
     std::optional<id> hit_test(vec2 point) const { id n = none; detail::check(ponko_ctx_ui_hit_test(raw_, target_, point, &n)); return maybe(n); }
     /// A scale on top of the window's own, from 0.25 to 8.
@@ -6049,6 +6061,14 @@ public:
         collision_mesh m{};
         detail::check(ponko_ctx_physics3d_trimesh(raw_, vertices.data(), vertices.size(), indices.data(), indices.size(), &m));
         return m;
+    }
+    /// Makes a glTF file (under assets/) solid in one call (Rust
+    /// `Ctx::load_collision_mesh`): its triangles, scaled by `scale`, or a
+    /// convex hull around them with `convex`, for mesh_collider(it) on a
+    /// fixed body. What a scene's mesh collider makes; each file and options
+    /// is read once.
+    collision_mesh load_collision_mesh(const char* path, vec3 scale = {1.0f, 1.0f, 1.0f}, bool convex = false) {
+        collision_mesh m{}; detail::check(ponko_ctx_load_collision_mesh(raw_, path, scale, convex, &m)); return m;
     }
     /// Lets go of a collision mesh; colliders using it keep it until removed.
     void free_collision_mesh(collision_mesh m) { detail::check(ponko_ctx_physics3d_free_mesh(raw_, m)); }
